@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## P1c foundation — scoped portable snapshots
+
+Baseline `983747a`. Scope is snapshot storage; provider dispatch remains separate.
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| CP01 | Preserve scoped working and Git index bytes without changing source | snapshots.capture/materialize, content-addressed blobs | staged/unstaged/deleted/untracked/binary round trip; index unchanged | Complete |
+| CP02 | Reject unsafe scope and corrupt/incomplete checkpoints | scope_list/safe_file, durable_write, load hashes | disk failure, corrupt blob/manifest, source race, path/case collision tests | Complete |
+| CP03 | Immutable owned-file candidate and review diff | overlay/diff, fresh-only materialize | scope escape rejected, old revision unchanged, deletion and diff tests | Complete |
+
+Six focused tests passed in 1.031 seconds. No external worker calls. [Limits and usage](snapshots.vi.md): file content/index snapshots, not whole-repo clones; no integration or restored OS executable permissions promised. Runtime checkpoint references still need integration. Snapshot fault evidence contributes to T23/T24; it does not alone complete P1c.
+
 ## P1b — durable admission, action receipts and Windows supervision
 
 User requested continuing to completion. Current slice CB01–CB04 implements the local control primitives behind P1b; generic planner/worker delivery remains next. Baseline `f13f2fd`.
