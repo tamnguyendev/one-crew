@@ -32,6 +32,7 @@ Giữ [kiến trúc cũ](architecture-2026-10-08.vi.md) và [backlog cũ](mvp-ba
 | Năng lực | Code hiện có | Khoảng thiếu |
 |---|---|---|
 | CLI spec | onecrew/specs.py: list/review/diff/approve/request-changes/history | Approval local chưa xác thực/cách ly worker |
+| Ledger/inbox P1a | ledger.py, ledger_cli.py: submit/queue/status/connect/events, request create/revise/reply; SQLite ngoài source | Chưa supervisor/dispatch, trusted entry hoặc áp dụng action; xem [hướng dẫn](durable-ledger.vi.md) |
 | Runtime | runtime.py, incremental.py: Codex, budget/cancel/checkpoint/test/review/repair/delivery | Profile CV cố định, chưa planner tổng quát |
 | Phân việc/model | incremental_profile.py: graph 10 file CV, rule theo task/rủi ro | Tuần tự, chưa đa repo/provider/quota |
 | Output | Snapshot, outputs và preview local | Chưa feedback inbox/reorder/resume sau crash |
@@ -174,10 +175,10 @@ Review card: “đã làm gì / cách thử / diff-preview / checks đạt và c
 
 Priority chỉ áp task queued đủ dependency, cập nhật plan revision bằng compare-and-set. Không bỏ A để chạy B, tự stop worker hoặc cấp budget mới. Ngắt việc đang chạy dùng pause/cancel rõ ràng, đợi xác nhận; resume dùng checkpoint và grant còn hiệu lực.
 
-Các lệnh dưới đây là **đề xuất, chưa triển khai**; cú pháp cuối chốt cùng implementation:
+P1a đã triển khai submit/connect và request list/reply trong các lệnh dưới đây; submit cần thêm `--request-id` để chống trùng, xem [hướng dẫn](durable-ledger.vi.md). Các lệnh pause/resume/move và output review/accept/request-changes vẫn là **đề xuất, chưa triển khai**:
 
 ```text
-onecrew task submit --spec <spec-id> --revision <hash> --grant <grant-file>
+onecrew task submit --spec <spec-id> --revision <hash> --grant <grant-file> --request-id <client-key>
 onecrew task connect <task-id>
 onecrew request list --task <task-id> --pending
 onecrew request reply <request-id> --revision <action-hash> --choice <option>

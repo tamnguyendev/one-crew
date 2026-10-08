@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "question": "Giữ CV trong bao lâu?",
+  "reason": "Cần chốt thời hạn trước khi triển khai phần lưu trữ.",
+  "impact": "Phần lưu trữ chờ câu trả lời; câu trả lời này chưa thực thi thay đổi.",
+  "options": [
+    {"id": "seven", "label": "7 ngày"},
+    {"id": "thirty", "label": "30 ngày"}
+  ],
+  "recommendation": "seven",
+  "action": {"type": "clarify_retention", "parameters": {"unit": "days", "choices": {"seven": 7, "thirty": 30}}}
+}

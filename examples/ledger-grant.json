@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "permissions": [],
+  "limits": {"max_calls": 4, "max_seconds": 1800},
+  "source": "Local ledger example only; no permission to execute workers"
+}

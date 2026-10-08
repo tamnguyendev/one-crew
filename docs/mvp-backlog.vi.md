@@ -26,6 +26,8 @@ Phạm vi: nền OC02/OC03/OC05/OC06/OC09/OC12 và CLI contract OC01; một Code
 
 Chia P1 thành các lát bàn giao, mỗi lát có demo/coverage riêng:
 
+P1a đã có implementation ledger/CLI và [hướng dẫn dùng thử](durable-ledger.vi.md); xem coverage cho evidence. Trạng thái các lát khác vẫn là kế hoạch. Đây chưa phải P1 hoàn tất hoặc trusted multi-entry approval.
+
 | Lát | Kết quả thử được | Gate trước khi sang lát sau |
 |---|---|---|
 | P1a | Submit/status/inbox/reply CLI trên ledger bền vững, chưa chạy worker | T01/T05/T18 và phần core/inbox của T22: idempotency, revision, durable pending/reply, restart |
@@ -33,7 +35,7 @@ Chia P1 thành các lát bàn giao, mỗi lát có demo/coverage riêng:
 | P1c | Một Codex worker artifact mode, snapshot giữ dirty bytes, pause/recovery có bằng chứng | T08/T23/T24/T27/T30; runtime/process tests riêng với fake; checkpoint failure không completed |
 | P1d | Spec-to-plan tổng quát và output card đầu tiên, bounded repair | T02/T19/T28/T29: hai feature khác CV, schema strict, no-progress dừng đúng |
 
-CLI các lát chưa triển khai vẫn ghi là đề xuất. P1a không tự tuyên bố trusted multi-entry approval; boundary thực cần P1c/P2. P1 kết thúc khi tất cả gate của P1 đạt, không coi fake adapter là bằng chứng live Codex.
+CLI các lát sau P1a vẫn ghi là đề xuất. P1a không tự tuyên bố trusted multi-entry approval; boundary thực cần P1c/P2. P1 kết thúc khi tất cả gate của P1 đạt, không coi fake adapter là bằng chứng live Codex.
 
 ## 2. P2 — Giao và tiếp tục việc từ ba công cụ
 

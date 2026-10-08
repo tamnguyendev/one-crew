@@ -1,5 +1,23 @@
 # Proposal Coverage
 
+## P1a — durable local task ledger and inbox
+
+Implementation baseline: `6a49444`; scope from SPEC-006 / backlog P1a, T01/T05/T18 and the persistence/reply subset of T22. User authorized starting the build. This slice records work and local answers; it does not dispatch workers or turn local attribution into trusted execution approval.
+
+| ID | Requirement | Type | Evidence | Verification | Status |
+|---|---|---|---|---|---|
+| LE01 | Versioned SQLite outside workspaces, atomic mutations/events and crash-safe persistence | Reliability | ledger.py transaction: BEGIN IMMEDIATE, synchronous FULL, application/schema version checks, closed connections | test_failed_event_write_rolls_back_reply, test_failed_initial_commit_can_be_retried, test_process_death_before_commit_preserves_pending_question, test_unknown_schema_is_not_migrated_or_overwritten | Complete |
+| LE02 | Submit bound to spec/grant content; duplicate key idempotent, different payload conflicts | API | Ledger.submit stores immutable spec/grant snapshot, full revision and unique per-project caller key | test_submit_retry_is_durable_and_retains_original_deadline, test_submission_key_conflict_and_stale_spec_do_not_add_tasks, test_concurrent_process_submissions_create_one_task_and_event, test_acknowledged_snapshot_survives_deleted_spec | Complete |
+| LE03 | Project-scoped queue/status/connect and read-only event polling without model calls | Data | Ledger tasks/task/events; ledger_cli.py; cli.py preserves CV/spec routes; no provider dependency | test_project_isolation_in_shared_database, test_empty_queries_do_not_create_state, test_json_cli_errors_are_structured_and_legacy_spec_still_works, full legacy suite | Complete |
+| LE04 | Durable questions, options, action revision and revision history | Functional | create_request/revise_request and transactional event history; pending/answered remain separate from applied | test_pending_reply_and_receipt_survive_fresh_cli_processes, test_revision_binds_action_and_rejects_old_reply, test_create_dedup_and_answered_request_cannot_be_rewritten, test_multiple_pending_questions_keep_task_waiting | Complete |
+| LE05 | Atomic reply, duplicate receipt, conflicting reply rejection and explicit local provenance | Reliability | Ledger.reply serializes transitions and receipts; local_attribution_only, action_applied=false, dispatch_enabled=false | test_conflicting_process_replies_have_one_winner, test_duplicate_reply_returns_original_receipt_not_new_provenance, rollback/restart tests | Complete |
+
+Full OC01/OC05 remain incomplete until trusted entry connectors and worker isolation are proven. P1b–P1d, worker execution, process recovery and the remaining roadmap are outside P1a completion.
+
+P1a validation: 19 new tests pass; final `python -X utf8 -m unittest discover -s tests` passes 88 tests in 25.187 seconds on Windows. The first focused run exposed a test-only SQLite connection left open during Windows cleanup; explicit closing fixed it. A PowerShell smoke then exposed default-console encoding on Vietnamese output; the CLI now sets UTF-8 and a launcher regression test passes. Shipped JSON examples passed submit → create question → reconnect → reply → status/events through separate PowerShell processes in an isolated temporary project. Subprocess death test verifies rollback before commit; acknowledged data is read by new CLI processes. No external model/API was called by the new code/tests. Existing runtime tests use their established fixtures; this is not a live multi-provider or 8-hour run. Documentation links/fences/example schemas and Python compilation pass; no separate lint/type-check tool is configured.
+
+LE01–LE05: 5/5 Complete for P1a only. [User guide and example commands](durable-ledger.vi.md). Entry provenance is declarative local attribution, not authentication; schema v1 rejects unknown versions but does not implement upgrade/backup automation. Pending questions are created manually through CLI until the planner/runtime integration exists. No supervisor daemon or worker is running for ledger tasks. Commit subject: `feat(ledger): persist tasks and revision-bound inbox LE01-LE05`.
+
 ## Architecture revision 2 — source-informed design, 2026-10-09
 
 User request: update OneCrew architecture using the reviewed upstream designs. Baseline: `9a8e0cf`; scope is documentation, not implementation of SPEC-006. Canonical artifacts: [architecture](architecture.vi.md) sections 12–13, [SPEC-006](../specs/SPEC-006-portable-orchestration.md), [backlog](mvp-backlog.vi.md) and [README](../README.md).
@@ -10,7 +28,7 @@ User request: update OneCrew architecture using the reviewed upstream designs. B
 | OA02 | Turn lessons into explicit execution contracts while keeping one small core | Architecture | Sections 3–9 and 13: admission, handoff, approval, reservation, checkpoint, integration, schemas and capabilities | Reviewed nine contracts against source findings and OC01–OC12; kept runtime guarantees separate from design | Complete |
 | OA03 | Connect design to readable spec and staged acceptance evidence | Documentation | SPEC-006 OC01–OC12 crosswalk, backlog P1a–P1d and T20–T30, README | Spec.parse and CLI brief/full pass; all OC/T IDs mapped; five-document links/fences/UTF-8 and git diff --check pass | Complete |
 
-These OA requirements measure this design update only. OC01–OC12 runtime coverage remains 0 Complete / 10 Partial / 2 Missing: the contracts below do not change that assessment. T01–T30 are planned acceptance scenarios, not passing tests. The source review read selected code/test paths and ran three offline Athena probes; it did not execute upstream full suites or prove live cross-provider/8-hour behavior.
+These OA requirements measure that design update only. At its baseline OC01–OC12 runtime coverage was 0 Complete / 10 Partial / 2 Missing; see P1a above and the updated matrix below for current implementation. T01–T30 describe planned acceptance scenarios, with only the P1a subsets now evidenced. The source review read selected code/test paths and ran three offline Athena probes; it did not execute upstream full suites or prove live cross-provider/8-hour behavior.
 
 Revision 2 supersedes the previous documentation-cycle wording about T01–T19 being the entire matrix; those cases remain and T20–T30 extend them. Existing runtime evidence and historical records below are retained. No spec approval, worker execution, new runtime dependency or paid API request is part of this documentation cycle. Pre-existing working-tree edits are outside its commit.
 
@@ -20,15 +38,15 @@ Documentation coverage: OA01–OA03 = 3/3 Complete. Validation used the existing
 
 Proposal source: `specs/SPEC-006-portable-orchestration.md`.
 Last reviewed implementation: `bf2e673` (runtime), with evidence documentation at `6f6d44a`.
-Current cycle: documentation/architecture only, requested review and update; no new runtime implementation or paid worker run.
+Current implementation cycle: P1a ledger/inbox (above); earlier documentation-only cycles did not implement orchestration. No paid worker run in P1a.
 
 The current baseline is [architecture](architecture.vi.md) and [implementation sequence](mvp-backlog.vi.md). It replaces the Kiro Crew-first host exploration and broad DecisionEvaluator-first sequence in the historical 08/10 documents. One independent core owns state, budgets and dispatch; entry connectors and worker adapters are separate; JEV is optional after evidence. Historical R/CN/DF rows below are not the current implementation plan. Existing SPEC-005 and spec-CLI achievements remain valid within their original scope.
 
 | Status | Count |
 |---|---:|
 | Complete | 0 |
-| Partial | 10 |
-| Missing | 2 |
+| Partial | 12 |
+| Missing | 0 |
 | Blocked | 0 |
 | Not applicable | 0 |
 
@@ -36,11 +54,11 @@ These counts measure the new SPEC-006 implementation requirements, not documenta
 
 | ID | Proposal section | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
 |---|---|---|---|---|---|---|---|
-| OC01 | Entry | Portable submit/connect/query | API | No general entry connector/submit/attach contract | Planned T01/T06/T18; no live multi-entry evidence | Missing | Current task CLI is profile-specific |
+| OC01 | Entry | Portable submit/connect/query | API | ledger.py / ledger_cli.py submit, queue, status, connect and events | P1a T01/T18 subsets via process/concurrency/isolation tests; no live entry connector evidence | Partial | CLI transport works; Claude/Kiro/Codex entry integration remains |
 | OC02 | Planning | Spec and real repo to general plan | Functional | specs.py review; incremental_profile.py fixed CV DAG | SR tests and IA01 only; planned T01/T02/T19 | Partial | General decomposition missing |
 | OC03 | Core | Durable authority, recovery, one writer | Reliability | runtime.py bounded controller/cancel/checkpoints | IA03 within-process retry; planned T03/T04/T10/T14 | Partial | No restart reconcile or independent service |
 | OC04 | Workers | Replaceable verified adapters | API | Current Codex read-only artifact worker | SPEC-005 live Codex; planned T04/T07 | Partial | Claude/Kiro adapters and cross-provider handoff missing |
-| OC05 | Inbox | Durable requests and trusted revision replies | Security | No operational multi-entry request/reply inbox | Planned T05/T06/T08/T12/T19 | Missing | spec approval ledger is not this capability |
+| OC05 | Inbox | Durable requests and trusted revision replies | Security | ledger.py request create/revise/reply, revision history, transactional local receipts | P1a T05/T22 persistence/conflict subsets pass; trusted caller/worker isolation not proven | Partial | Local attribution only; replies never authorize or apply execution actions |
 | OC06 | Memory | Shared decisions/checkpoints/provenance | Data | Spec snapshots, run logs and file checkpoints | SR history, IA02; planned T03/T06/T07/T18 | Partial | Portable memory/ack/isolation semantics missing |
 | OC07 | DAG | Parallel dependency/ownership scheduling | Architecture | Fixed sequential CV graph validation | IA01 fixed-profile checks; planned T09/T10/T13 | Partial | General parallel scheduler missing |
 | OC08 | Integration | Verified merged result across branches/repos | Testing | Host CV gates and independent review | SPEC-005 19 live checks; planned T11 | Partial | No multi-worktree integration owner |
