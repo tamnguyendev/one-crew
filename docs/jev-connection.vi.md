@@ -21,6 +21,8 @@ Lượt live duy nhất: `status=connected`, observed model `jev-1.13.0`, latenc
 
 Full suite: 57 test đạt, gồm 51 test trước và 6 test JEV. JEV tests kiểm DPAPI thật với dữ liệu giả, schema/xác suất không hợp lệ, redirect, redaction và không retry. Khóa thật không nằm trong fixture.
 
+Implementation commit: `2205539` — credential/CLI/probe và test. Không commit key hoặc file credential; các chỉnh sửa tài liệu có sẵn được giữ ngoài commit này. Windows đã tạo thêm thư mục cache `%SystemDrive%/ProgramData/Microsoft/Windows/Caches` trong workspace khi chạy helper thiếu biến môi trường chuẩn; thư mục này không được stage. Cleanup bị automatic approval review chặn với thông báo “blocked by policy”, nên giữ nguyên.
+
 | ID | Yêu cầu | Implementation | Verification | Status |
 |---|---|---|---|---|
 | JC01 | Lưu khóa ngoài repo, mã hóa theo user, đọc lúc cần | onecrew/jev.py: store_key/load_key/protect | DPAPI roundtrip test; live store + doctor | Complete |
