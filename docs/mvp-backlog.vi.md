@@ -8,7 +8,7 @@ Lát đã có: [CLI duyệt spec local](spec-review-cli.vi.md), có list/review/
 
 1. **Hoàn thiện CLI:** cô lập spec lỗi để vẫn list/review được spec khác; đọc history từ sổ quyết định khi file hiện tại sai định dạng. Hai tình huống đã tái hiện; chưa sửa code. Xem SR02/SR03/SR06 trong coverage.
 2. **Một task kiểm soát được:** ghim một host/backend, một repo mẫu; kiểm chứng status/cancel khi model bận, tổng budget không reset, gate đỏ không được accepted, dừng giữ artifact và khôi phục không chạy trùng. Chốt một chủ sở hữu phân rã/retry giữa Conductor và TaskRunner, cùng ranh giới approval ngoài quyền worker.
-3. **Conductor tới bàn giao:** trao đổi → brief/spec → duyệt và quyền chạy → task đã kiểm soát → artifact/cách thử → khách hàng nghiệm thu. Kế hoạch triển khai và tiến độ lưu riêng, không sửa spec liên tục để buộc duyệt lại.
+3. **Conductor tới bàn giao:** trao đổi → brief/spec → duyệt và quyền chạy → task đã kiểm soát → từng checkpoint có artifact/cách thử → khách hàng review từng phần → nghiệm thu bản ghép. Cho xem bản nháp theo yêu cầu; không đợi toàn task xong mới review. Kế hoạch triển khai và tiến độ lưu riêng, không sửa spec liên tục để buộc duyệt lại.
 4. **Mở rộng tuần tự:** nhiều repo và Claude/Kiro/Codex vẫn là yêu cầu sản phẩm; chứng minh từng backend qua cùng contract sau luồng đầu. DeepSeek, registry đa máy và dashboard để giai đoạn sau.
 
 Các bảng S/R/C/CN dưới đây là danh mục yêu cầu và ca kiểm chứng, không phải toàn bộ việc phải chạy song song trong lát đầu. Chưa chốt lịch hoặc phần trăm tiết kiệm token trước kết quả spike/benchmark. Mỗi lát kết thúc bằng evidence và phần còn thiếu, không tự mở lát kế tiếp khi vượt quyền/ngân sách đã giao.
@@ -59,8 +59,12 @@ Không import tất cả worktree hiện có thành task đang chạy. Import ba
 | R09 — Freshness | Đổi code/test/spec/gate sau verify làm kết quả thành stale |
 | R10 — Triage | Phân biệt lỗi code, test, spec, môi trường, quota; retry có giới hạn |
 | R11 — Integration | Sau khi ghép nhánh vẫn chạy gate trên kết quả ghép |
+| R27 — Review output từng phần | Có checkpoint ở mốc đã chốt và theo yêu cầu xem sớm; thẻ ngắn kèm artifact/cách thử/evidence/điều chưa đạt; xem lại và diff đúng snapshot/revision, không bị worker ghi đè; bản nháp không được báo là đã nghiệm thu |
+| R28 — Phản hồi theo phần và dependency | Accept/yêu cầu sửa gắn đúng output revision và AC; giữ lịch sử, bản mới không kế thừa approval vô điều kiện; chặn phần phụ thuộc cần quyết định nhưng tiếp tục phần độc lập được phép; sửa dùng chung budget và hoàn tất toàn task vẫn cần gate bản ghép |
 
 Lấy OneTechAI làm mẫu cấu trúc, nhập chọn lọc theo manifest và hash. Không chạy `sync.py` global. Jev/Obsidian/AWS/construction không là dependency bắt buộc.
+
+R27/R28 là yêu cầu mới, chưa triển khai, thuộc bước Conductor tới bàn giao. Ca kiểm chứng: công việc có phần A, phần B phụ thuộc A và phần C độc lập. Đưa A ra review khi task chưa xong; yêu cầu sửa A giữ B ở chờ nhưng không chặn C đang được phép chạy. Bản A2 có diff với A1; quyết định cho A1 không tự áp dụng A2. Review bản nháp gate đỏ không làm task accepted; sau chấp nhận A2 vẫn cần kiểm tra tích hợp. Nếu B đã chạy, phải giữ/đánh giá lại đầu ra ảnh hưởng trước khi cho tiếp tục. Không coi chưa trả lời là đã duyệt.
 
 ## 3. Đánh giá backend và giao diện
 
