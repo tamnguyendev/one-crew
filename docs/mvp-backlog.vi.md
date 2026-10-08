@@ -1,12 +1,21 @@
 # MVP và tiêu chí nghiệm thu
 
-Trạng thái: kế hoạch đề xuất, chưa triển khai. Những khoảng thời gian dưới đây là ước lượng lập kế hoạch cho một lập trình viên có AI hỗ trợ, không phải cam kết.
+Trạng thái: kế hoạch đề xuất, chưa triển khai runtime. Review tổng thể ngày 08/10/2026 đã thay thứ tự ưu tiên dưới đây; các ước lượng thời gian cũ được rút lại cho tới khi spike xác nhận khả năng tích hợp host.
 
 Lát đã có: [CLI duyệt spec local](spec-review-cli.vi.md), có list/review/diff/approve/request-changes/history; kiểm chứng theo [coverage của lát này](proposal-coverage.md). Chưa coi các yêu cầu host, budget hoặc quyền worker dưới đây là đã hoàn thành.
 
-## 0. Spike quyết định nền tảng — khoảng 2–3 ngày
+## Thứ tự triển khai sau review tổng thể
 
-Baseline Kiro Crew stable với Kiro CLI hoặc Claude adapter. DeepSeek cần thử riêng với bản đã hỗ trợ, không âm thầm nâng main cho mọi việc.
+1. **Hoàn thiện CLI:** cô lập spec lỗi để vẫn list/review được spec khác; đọc history từ sổ quyết định khi file hiện tại sai định dạng. Hai tình huống đã tái hiện; chưa sửa code. Xem SR02/SR03/SR06 trong coverage.
+2. **Một task kiểm soát được:** ghim một host/backend, một repo mẫu; kiểm chứng status/cancel khi model bận, tổng budget không reset, gate đỏ không được accepted, dừng giữ artifact và khôi phục không chạy trùng. Chốt một chủ sở hữu phân rã/retry giữa Conductor và TaskRunner, cùng ranh giới approval ngoài quyền worker.
+3. **Conductor tới bàn giao:** trao đổi → brief/spec → duyệt và quyền chạy → task đã kiểm soát → artifact/cách thử → khách hàng nghiệm thu. Kế hoạch triển khai và tiến độ lưu riêng, không sửa spec liên tục để buộc duyệt lại.
+4. **Mở rộng tuần tự:** nhiều repo và Claude/Kiro/Codex vẫn là yêu cầu sản phẩm; chứng minh từng backend qua cùng contract sau luồng đầu. DeepSeek, registry đa máy và dashboard để giai đoạn sau.
+
+Các bảng S/R/C/CN dưới đây là danh mục yêu cầu và ca kiểm chứng, không phải toàn bộ việc phải chạy song song trong lát đầu. Chưa chốt lịch hoặc phần trăm tiết kiệm token trước kết quả spike/benchmark. Mỗi lát kết thúc bằng evidence và phần còn thiếu, không tự mở lát kế tiếp khi vượt quyền/ngân sách đã giao.
+
+## 0. Spike quyết định nền tảng
+
+Baseline Kiro Crew phiên bản ghim với một backend đầu tiên; Claude là lựa chọn thử hiện có. Kiro/Codex được kiểm chứng lần lượt sau luồng đầu. DeepSeek là thử nghiệm giai đoạn sau, không âm thầm nâng main cho mọi việc.
 
 | ID | Ca phải chứng minh | Bằng chứng đầu ra |
 |---|---|---|
@@ -24,7 +33,7 @@ S02, S03, S05, S06 là điều kiện bắt buộc trước khi triển khai ext
 
 Sau phản hồi về Claude Desktop/OneTechAI chạy lâu và khó kiểm soát, thêm **C01–C08** trong [contract điều khiển](control-and-latency.vi.md) vào spike. Ưu tiên chứng minh status/cancel/budget hoạt động khi model chậm hoặc mất kết nối trước khi mở rộng workflow và dashboard.
 
-## 1. CLI và visibility — khoảng 3–5 ngày
+## 1. CLI và visibility
 
 | Yêu cầu | Hoàn thành khi |
 |---|---|
@@ -40,7 +49,7 @@ Sau phản hồi về Claude Desktop/OneTechAI chạy lâu và khó kiểm soát
 
 Không import tất cả worktree hiện có thành task đang chạy. Import ban đầu chỉ lập inventory để người dùng gắn task và quyết định giữ/dọn; không tự xóa hoặc di chuyển repo.
 
-## 2. Workflow và nghiệm thu — khoảng 4–7 ngày
+## 2. Workflow và nghiệm thu
 
 | Yêu cầu | Hoàn thành khi |
 |---|---|
@@ -53,20 +62,20 @@ Không import tất cả worktree hiện có thành task đang chạy. Import ba
 
 Lấy OneTechAI làm mẫu cấu trúc, nhập chọn lọc theo manifest và hash. Không chạy `sync.py` global. Jev/Obsidian/AWS/construction không là dependency bắt buộc.
 
-## 3. Đánh giá backend và giao diện — khoảng 3–5 ngày
+## 3. Đánh giá backend và giao diện
 
 | Yêu cầu | Hoàn thành khi |
 |---|---|
 | R12 — Backend contract | Kiro, Claude và Codex qua được cùng suite; backend thiếu capability hiển thị rõ |
-| R13 — DeepSeek thử nghiệm | Phiên bản hỗ trợ, gate/resume/cancel được kiểm chứng trên repo mẫu |
+| R13 — DeepSeek thử nghiệm (giai đoạn sau) | Phiên bản hỗ trợ, gate/resume/cancel được kiểm chứng trên repo mẫu |
 | R14 — Model routing | Ghi requested/observed model; chọn model có lý do, không im lặng fallback |
 | R15 — Báo cáo | Accepted throughput, thời gian chờ, số lần người can thiệp và usage có thể so sánh |
 
-Dashboard/App UI là bước tiếp theo nếu CLI và gate đã chứng minh hữu ích. Tổng khoảng 2–4 tuần là phạm vi thử nghiệm hẹp, giả định các seam tích hợp dùng được; viết runtime riêng sẽ làm thay đổi ước lượng.
+Dashboard/App UI chỉ xét sau khi CLI, gate và luồng bàn giao đã chứng minh hữu ích. Ước lượng tổng 2–4 tuần trước review không còn là baseline kế hoạch; chỉ lập lại lịch sau khi spike xác nhận các seam tích hợp và phạm vi từng lát.
 
 ## Bộ đánh giá ban đầu
 
-Chọn 8–12 việc từ repo mẫu hoặc bản sao cô lập: sửa lỗi nhỏ, đổi interface, migration có test, cập nhật tài liệu, review diff, tác vụ dài cần resume, xung đột file và lỗi môi trường. Không dùng dữ liệu vận hành nhạy cảm.
+Bắt đầu bằng một task mẫu có đầu ra thử được và các biến thể gate fail/cancel/budget/recovery. Sau khi luồng này đạt mới mở bộ so sánh 8–12 việc: sửa lỗi nhỏ, đổi interface, migration có test, cập nhật tài liệu, review diff, tác vụ dài cần resume, xung đột file và lỗi môi trường. Không dùng dữ liệu vận hành nhạy cảm.
 
 So sánh: quy trình Claude/OneTechAI hiện tại, Codex độc lập, Kiro Crew nguyên bản, OneCrew trên Crew; DeepSeek là nhánh thử bổ sung. Giữ cùng task, commit đầu vào và tiêu chí nghiệm thu. Chạy lặp khi ngân sách cho phép, ghi version/model/effort và độ biến thiên.
 
@@ -82,7 +91,7 @@ Ngưỡng quyết định thử nghiệm: không có false-accepted trong suite;
 
 ## Bổ sung sau audit lịch sử 25/09–06/10
 
-[Audit toàn bộ lịch sử local](claude-history-audit.vi.md) cho thấy cần đo giá trị bàn giao, ngoài việc quản lý process. Các mục này thuộc MVP, không để sau dashboard:
+[Audit toàn bộ lịch sử local](claude-history-audit.vi.md) cho thấy cần đo giá trị bàn giao, ngoài việc quản lý process. Các mục này đi trước dashboard, ngoại trừ R24 đa máy được đưa sang giai đoạn sau; bản local vẫn phải giữ task/repo/owner không trùng:
 
 | ID | Yêu cầu | Hoàn thành khi |
 |---|---|---|
@@ -90,7 +99,7 @@ Ngưỡng quyết định thử nghiệm: không có false-accepted trong suite;
 | R21 | Giới hạn việc đang làm | Giới hạn theo chức năng sản phẩm, không chỉ số process; task con không mở scope mới ngoài plan |
 | R22 | Ngân sách hợp nhất | Usage/budget cộng agent con và các workflow mới của cùng task; cache/thinking không đếm trùng; remote thiếu log hiện unknown |
 | R23 | Tích hợp sớm | Môi trường mock, integration, UAT được ghi riêng; không dùng kết quả khảo sát thay nghiệm thu luồng sản phẩm |
-| R24 | Registry đa máy | Task ID/owner/branch duy nhất; backend và extension demo cùng bản đã kiểm chứng; không có hai writer được claim cùng phạm vi |
+| R24 | Registry đa máy (giai đoạn sau) | Task ID/owner/branch duy nhất; backend và extension demo cùng bản đã kiểm chứng; không có hai writer được claim cùng phạm vi |
 | R25 | Kiểm soát scope | Worker không sửa scope/AC/budget; proposal ngoài phạm vi không tự được dispatch; cải tiến được đưa backlog |
 | R26 | Reviewer có căn cứ | Lỗi chặn gắn AC/bất biến hoặc rủi ro nghiêm trọng với evidence; không tự thêm điều kiện phát hành |
 
@@ -101,3 +110,18 @@ Baseline ban đầu nằm trong `claude-history-metrics.json`. Không so 70,46 t
 ## Điều còn mở sau audit
 
 Người dùng đã chốt lập trình trên nhiều repo với Claude/Kiro/Codex. Số máy/người dùng, cách trả tiền model và yêu cầu remote access chưa được xác nhận. MVP mặc định local, một người, nhiều repo. Những lựa chọn này không ngăn review, nhưng phải chốt trước khi mở rộng kiến trúc.
+
+## Bổ sung: Conductor trao đổi và điều phối
+
+Theo phản hồi ngày 08/10/2026, [Conductor trong kiến trúc](architecture.vi.md) là đầu mối để khách hàng trao đổi, truy vấn và chốt việc; các vai thực thi phía dưới tiếp nhận gói công việc đã duyệt. Các yêu cầu dưới đây chưa triển khai, tách khỏi coverage của CLI duyệt spec local; không lấy kết quả 16 test CLI để xác nhận Conductor.
+
+| ID | Yêu cầu | Hoàn thành khi |
+|---|---|---|
+| CN01 | Trao đổi trước khi có task | Tiếp tục được hội thoại và brief có nguồn; giữ riêng quyết định khách hàng, giả định và gợi ý AI; hỏi thông tin không tự tạo task thực thi |
+| CN02 | Truy vấn có căn cứ | Trả lời tình trạng/repo/blocker bằng nguồn và độ mới; thiếu dữ liệu báo chưa biết; query trực tiếp vẫn hoạt động khi model bận |
+| CN03 | Chốt đề xuất dễ duyệt | Từ hội thoại tạo spec nháp hai phần, liên kết quyết định nguồn; khách hàng review/approve đúng revision qua cơ chế hiện có |
+| CN04 | Bàn giao có giới hạn | Host chỉ nhận việc với spec revision và quyền chạy hợp lệ; task con giữ AC/non-goals/repo/budget của cùng mục tiêu; Conductor không tự duyệt hoặc tăng quyền |
+| CN05 | Theo dõi tới bàn giao | Worker hoàn tất chưa tự thành user acceptance; Conductor đưa artifact/cách thử/evidence và phần chưa đạt; phản hồi ngoài scope không tự dispatch |
+| CN06 | Ngân sách cho cả điều phối | Tính cả trao đổi/khảo sát và worker khi quan sát được; đổi phiên không reset; không gọi model lặp lại khi nhàn rỗi hoặc chỉ đọc trạng thái trực tiếp |
+
+CN01/CN03 tạo lớp trao đổi và spec; luồng Conductor hoàn chỉnh chỉ nối dispatch sau khi spike host/control đạt. Ưu tiên hiện hành là các bước ở đầu tài liệu, thay đề xuất trước đó làm hội thoại trước kiểm chứng host. Việc ghi kế hoạch không tự cấp ngân sách hoặc khởi chạy các lát này.

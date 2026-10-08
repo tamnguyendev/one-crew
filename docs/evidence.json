@@ -7,6 +7,16 @@
     "commands": ["list", "review", "diff", "approve", "request-changes", "history"],
     "test_command": "python -m unittest discover -s tests -v",
     "tests_passed": 16,
+    "coverage_status": "partial",
+    "requirements_complete": 5,
+    "requirements_partial": ["SR02", "SR03", "SR06"],
+    "overall_review_date": "2026-10-08",
+    "existing_suite_rerun_passed": true,
+    "known_issues_reproduced_in_isolated_fixtures": [
+      "An unfinished unrelated spec blocks review of a valid spec because target lookup parses every file.",
+      "History fails when the current spec is malformed, even though its prior decision remains in the ledger."
+    ],
+    "known_issue_fixes_implemented": false,
     "agent_dispatch_implemented": false,
     "authenticated_approval_implemented": false,
     "coverage": "proposal-coverage.md"

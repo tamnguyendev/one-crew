@@ -1,6 +1,6 @@
 # Kiến trúc đề xuất OneCrew
 
-Trạng thái: proposal, chưa triển khai. Thiết kế ưu tiên CLI; Kiro Crew là host thực thi ban đầu.
+Trạng thái: proposal, chưa triển khai. Thiết kế ưu tiên CLI; Kiro Crew là ứng viên host cần qua spike trước khi chốt nền thực thi.
 
 Ngoại lệ đã triển khai: [CLI review/approve spec local](spec-review-cli.vi.md). Đây là kho quyết định theo nội dung; chưa nối vào host, chưa có xác thực/cách ly quyền worker và chưa dispatch agent. Các phần runtime bên dưới vẫn là proposal.
 
@@ -12,9 +12,11 @@ Yêu cầu ưu tiên: khắc phục task kéo dài và khó can thiệp khi dùn
 
 ```mermaid
 flowchart TD
-    U[Người giao việc] --> CLI[OneCrew CLI]
+    U[Khách hàng — quyết định mục tiêu và nghiệm thu] <--> CON[OneCrew Conductor — trao đổi và điều phối]
+    CON --> APP[OneCrew App / integration adapter]
+    U --> CLI[OneCrew CLI — review và điều khiển trực tiếp]
     U --> UI[Trang OneCrew trong Crew — sau MVP]
-    CLI --> APP[OneCrew App / integration adapter]
+    CLI --> APP
     UI --> APP
     APP --> SPEC[WorkflowSpec + role + policy theo project]
     APP --> CREW[Kiro Crew TaskRunner / queue / session / worktree]
@@ -41,6 +43,35 @@ Sơ đồ là kiến trúc mục tiêu. Đường nối TaskRunner → verifier 
 | Bộ nhớ dự án | Crew hoặc repository đã chọn; OneCrew chỉ giữ reference/provenance |
 
 Không dùng SQLite riêng để tranh quyền sở hữu queue với Crew. Nếu cần DB OneCrew, nó chỉ giữ manifest, liên kết task, evidence và projection có thể dựng lại.
+
+Sau review tổng thể 08/10/2026, ranh giới điều phối được làm rõ: Conductor đề xuất mục tiêu và phân rã công việc; TaskRunner/host là đường thực thi duy nhất, sở hữu task/run, queue, bộ đếm retry và ngân sách. Conductor gửi đề xuất thay kế hoạch qua adapter; không mở một vòng scheduler/retry riêng. Khi tích hợp phải chứng minh planner/replan native của host dùng cùng phạm vi và bộ đếm, hoặc tắt phần chồng lặp. Chưa có bằng chứng này thì chưa bật workflow tự động. Ưu tiên kiểm chứng khả năng mở rộng conductor sẵn có của Crew trước khi tạo một conductor thực thi độc lập.
+
+### OneCrew Conductor: đầu mối trao đổi với khách hàng
+
+Yêu cầu bổ sung ngày 08/10/2026: người dùng đóng vai khách hàng, trao đổi và truy vấn thông tin qua một đầu mối; OneCrew tiếp nhận công việc và điều phối các vai phía dưới. Conductor là vai hội thoại xuyên suốt, kết hợp làm rõ yêu cầu và theo dõi bàn giao. Đây là thiết kế, chưa có runtime hội thoại/dispatch trong CLI hiện tại.
+
+| Vai | Trách nhiệm và quyền quyết định |
+|---|---|
+| Khách hàng | Chọn mục tiêu, ưu tiên, phạm vi và ngân sách; duyệt thay đổi; chấp nhận kết quả sản phẩm |
+| Conductor | Hiểu nhu cầu, tra cứu thông tin có nguồn, hỏi điểm còn thiếu, đề xuất lát nhỏ, soạn spec nháp, điều phối trong quyền đã cấp và tổng hợp kết quả |
+| Worker/tester/reviewer | Thực hiện phần được giao và trả artifact, evidence, blocker; lựa chọn các vai cần thiết theo workflow, không bắt mọi việc qua đủ vai |
+| Host và verifier | Giữ trạng thái thực thi, kiểm quyền/ngân sách, gọi gate và xác nhận kết quả kỹ thuật; Conductor không tự thay thế các kiểm soát này |
+
+Một cuộc trao đổi có thể bắt đầu khi chưa có spec hoặc task thực thi. Conductor duy trì brief gồm mục tiêu, điều đã thống nhất, giả định, câu hỏi mở và việc để sau; mỗi quyết định giữ nguồn từ lượt trao đổi của khách hàng. Lời đề xuất của AI chưa trở thành quyết định của khách hàng. Không sinh spec mới sau mỗi tin nhắn và không tạo task thực thi chỉ vì một chủ đề được nhắc tới.
+
+Conductor phân biệt ba ý định trong cùng hội thoại:
+
+- **Hỏi thông tin:** đọc source/tài liệu/evidence cần thiết, trả lời kèm nguồn và độ mới; báo rõ phần chưa xác minh. Lệnh đọc trạng thái trực tiếp vẫn lấy dữ liệu host mà không cần gọi model.
+- **Làm rõ nhu cầu:** cập nhật brief, hỏi ít câu có ảnh hưởng đến kết quả, trình bày lựa chọn và hệ quả bằng ngôn ngữ người dùng. Công việc khảo sát có giới hạn riêng trong ngân sách mục tiêu, không tự biến thành triển khai.
+- **Giao hoặc đổi việc:** đề xuất phạm vi, nghiệm thu, budget và repo liên quan; tạo spec nháp khi người dùng yêu cầu chốt. Khi đang chạy, phản hồi được phân loại thành làm rõ trong scope, ý tưởng backlog hoặc thay đổi cần duyệt; bước ngoài scope chưa được dispatch.
+
+Luồng bàn giao: trao đổi → đề xuất ngắn → spec nháp → khách hàng duyệt đúng revision → chạy khi đã có quyền thực thi → worker/test/verify/review phù hợp → Conductor báo kết quả và cách thử → khách hàng nghiệm thu sản phẩm. Phê duyệt spec và quyền chạy là hai quyết định khác nhau nhưng có thể được người dùng cấp cùng lúc; không hỏi lại quyền đã có. CLI hiện tại chỉ ghi approval spec local, chưa hỗ trợ cấp quyền chạy qua chat hay cưỡng chế các bước này.
+
+Gói giao việc xuống dưới gồm `product_task_id`, spec revision đã duyệt, mục tiêu/AC/non-goals, repo và ownership, giới hạn quyền/budget, dependency và artifact/evidence cần trả. Conductor được chia việc và xử lý lựa chọn triển khai trong phạm vi đó; không tự approve spec của mình, đổi AC, tăng budget hoặc thay user acceptance bằng lời worker báo xong. Báo cáo trở lại khách hàng tập trung vào kết quả thử được, phần còn thiếu, chi phí quan sát được và quyết định cần khách hàng xử lý.
+
+Conductor giữ danh tính và quyết định qua nhiều phiên, nhưng không cần model chạy hoặc suy nghĩ liên tục. Dùng tóm tắt có nguồn và sự kiện host; chỉ gọi model khi có tin nhắn hoặc sự kiện cần xử lý. Không đọc lại toàn bộ transcript hay mở thêm vòng review cho mỗi lần hỏi tiến độ. Chi phí trao đổi, khảo sát, điều phối và worker được tính vào cùng mục tiêu; khi sinh `product_task_id` phải liên kết chi phí trước đó, không reset budget. Các số chưa quan sát được ghi unknown.
+
+Đối chiếu: [tài liệu agent của Kiro Crew](https://github.com/kirodotdev/KiroCrew/blob/main/src/kiro_crew/docs/agents.md), đọc ngày 08/10/2026, mô tả conductor dùng work ledger, gắn work item với session và đánh giá completion bằng acceptance evaluator. OneCrew bổ sung contract trao đổi/duyệt ở trên; đây không phải khẳng định extension seam đã tích hợp hoặc thử thành công trên máy này. Host snapshot vẫn cần ghim và kiểm chứng theo spike hiện có.
 
 ## 2. Chiến lược tích hợp
 
@@ -105,6 +136,10 @@ Verifier đọc version gate đã ghim từ nơi worker không thể thay. Gate 
 
 Phê duyệt cần gắn với hành động, phạm vi và hash artifact. Duyệt spec không tự cho phép publish/deploy. Ngược lại, cùng một phê duyệt vẫn hiệu lực thì không hỏi lại.
 
+CLI hiện tại lưu approval trong SQLite local và nhận nhãn người duyệt do người gọi khai báo; worker cùng quyền filesystem có thể sửa kho hoặc gọi approve. Trước tự động hóa phải kiểm chứng quyền ghi quyết định thuộc người dùng/control service, worker không có quyền tự duyệt, sửa scope/AC/budget hoặc tăng quyền chạy. Đây là điều kiện tích hợp còn thiếu, không được suy ra từ việc hash spec và 16 test CLI đã đạt.
+
+Spec đã duyệt giữ ổn định. Kế hoạch triển khai, checkpoint và nhật ký tiến độ là artifact riêng, tham chiếu spec revision; cập nhật chúng không tự sửa hợp đồng đã duyệt. Thay đổi yêu cầu, ràng buộc hoặc nghiệm thu mới cần revision spec và quyết định phù hợp. Phần chi tiết không được giấu thêm nghĩa vụ ngoài bản nhanh; kiểm tra ngữ nghĩa vẫn cần review, không được bảo đảm chỉ bằng hash.
+
 ## 6. Recovery và giới hạn
 
 Tái sử dụng cơ chế resume của host, ghi ánh xạ ID bền vững trước khi báo đã nhận việc. Khi submit có kết quả không rõ, tra theo idempotency key trước khi submit lại.
@@ -143,5 +178,7 @@ Trang quản lý sau MVP ưu tiên bảng công việc, chi tiết kết quả v
 Python cho CLI/integration để thuận lợi tái sử dụng scripts và cùng hệ sinh thái Crew. Chọn thư viện CLI lúc spike; không cần thêm frontend framework cho v0.1. Khi làm dashboard, dùng App SDK/React của host nếu contract đáp ứng.
 
 MVP chạy local trên Windows, repo có đường dẫn chứa dấu và khoảng trắng. Không dùng shell interpolation cho prompt. Tạo process với argv/stdin, quản lý cancellation cả process tree và kiểm tra file locks khi dọn worktree.
+
+Thứ tự sau review: hoàn thiện các lỗi CLI đã tái hiện → chứng minh một task trên một repo/một backend có status, cancel, budget và gate thực → nối Conductor từ trao đổi tới bàn giao → mở rộng lần lượt nhiều repo và Claude/Kiro/Codex. Đây là thứ tự kiểm chứng, không loại bỏ yêu cầu nhiều repo/ba backend. DeepSeek, registry đa máy và dashboard thuộc giai đoạn sau. Chưa chốt lịch toàn roadmap trước khi có kết quả spike. Mốc nghiệm thu chính là thời gian/token tới một chức năng người dùng thử và chấp nhận, cùng số lần người dùng phải can thiệp.
 
 Chưa xây ở v0.1: vector database riêng, marketplace, nhóm nhiều người, distributed worker, tự sửa skill rồi tự triển khai, kênh chat ngoài hoặc scheduler mới. Những phần này chỉ thêm khi workflow thật cho thấy cần.

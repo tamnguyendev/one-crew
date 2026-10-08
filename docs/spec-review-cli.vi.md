@@ -4,16 +4,18 @@
 
 Nguồn: yêu cầu người dùng ngày 08/10/2026: liệt kê spec, review nhanh bằng lời dễ hiểu, approve qua CLI; file vẫn chứa chi tiết cho AI.
 
+Trạng thái sau review tổng thể 08/10/2026: luồng chính đã có, 16 test hiện hữu đạt; SR02/SR03/SR06 còn Partial. Spec sai định dạng đang chặn list/review của spec khác; history còn phụ thuộc file spec hiện tại hợp lệ. Các yêu cầu cô lập lỗi/đọc lịch sử dưới đây đã được làm rõ nhưng chưa sửa code.
+
 Một file Markdown có hai phần: `Duyệt nhanh` và `Chi tiết cho AI`. Phần nhanh là hợp đồng về kết quả, phạm vi, việc để sau, nghiệm thu, lưu ý, ngân sách và câu hỏi. Chi tiết mô tả cách triển khai, interface và kiểm thử; không tự thêm nghĩa vụ sản phẩm không được nêu ở phần nhanh. CLI không thể tự xác minh hoàn toàn tính nhất quán ngữ nghĩa giữa hai phần.
 
 | ID | Yêu cầu nghiệm thu |
 |---|---|
 | SR01 | Một file chứa cả bản nhanh và chi tiết; bản nhanh đủ bảy mục, tối đa 350 từ tách bằng khoảng trắng; không cắt bỏ nội dung để vừa màn hình |
-| SR02 | `spec list` hiện ID, tên, trạng thái; `--pending` lọc các spec chưa được duyệt đúng nội dung hiện tại |
-| SR03 | `spec review ID` hiện phần nhanh và mã phiên bản; `--full` hiện cả file; các lệnh đọc không gọi model hoặc ghi state |
+| SR02 | `spec list` hiện ID, tên, trạng thái; `--pending` lọc các spec chưa được duyệt đúng nội dung hiện tại; báo lỗi riêng spec chưa hợp lệ và vẫn liệt kê được các spec hợp lệ, không gán approved cho spec lỗi |
+| SR03 | `spec review ID` hiện phần nhanh và mã phiên bản; `--full` hiện cả file; các lệnh đọc không gọi model hoặc ghi state; spec khác sai định dạng không chặn ID hợp lệ, ID đích trùng vẫn bị từ chối |
 | SR04 | `spec approve ID --revision HASH` ghi quyết định cho đúng SHA-256 nội dung đã xem, thời điểm và người ghi nhận; từ chối hash cũ và câu hỏi chưa chốt |
 | SR05 | `spec request-changes ID --revision HASH --comment TEXT` ghi yêu cầu sửa; không xóa spec hoặc mất quyết định trước |
-| SR06 | `spec diff ID` so bản nhanh với quyết định gần nhất, báo riêng nếu chi tiết đổi; `--full` cho diff đầy đủ; `spec history ID` xem các quyết định |
+| SR06 | `spec diff ID` so bản nhanh với quyết định gần nhất, báo riêng nếu chi tiết đổi; `--full` cho diff đầy đủ; `spec history ID` đọc quyết định đã lưu ngay cả khi file spec hiện tại sai định dạng; kho state lỗi vẫn phải báo lỗi |
 | SR07 | File sai định dạng, trùng ID, đường dẫn thoát project và state lỗi không được diễn giải thành approved; sửa file sau duyệt làm trạng thái cần duyệt lại |
 | SR08 | Chạy trên Windows bằng Python chuẩn, không cần dịch vụ/model; có launcher, spec mẫu và test luồng sử dụng |
 
@@ -60,3 +62,5 @@ Dùng [spec mẫu](../specs/SPEC-001-duyet-spec.md). Bản nhanh trả lời:
 Mục `Cần quyết định` dùng `Không có.` hoặc checklist `- [ ]` / `- [x]`. Còn ô chưa chọn thì chưa approve được. Mọi mục khác phải có nội dung. Nếu bản nhanh vượt 350 từ, CLI báo lỗi để tác giả viết gọn hoặc chia lát; không tự giấu bớt điều kiện.
 
 Tác giả cập nhật cả hai phần trước khi đề nghị duyệt. Không tóm tắt lại bằng một lần gọi LLM mỗi khi mở màn hình: CLI hiển thị nguyên phần nhanh trong đúng file đang duyệt, nên đọc/duyệt không tiêu token model.
+
+Sau khi duyệt, giữ spec ổn định. Ghi kế hoạch triển khai và tiến độ ở artifact riêng có reference tới revision đã duyệt; không đưa nhật ký thao tác vào spec. Khi yêu cầu/ràng buộc/nghiệm thu thật sự đổi, cập nhật cả bản nhanh và chi tiết rồi duyệt revision mới. CLI chưa kiểm chứng được sự nhất quán ngữ nghĩa giữa các artifact.
