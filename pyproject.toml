@@ -1,0 +1,16 @@
+[project]
+name = "onecrew"
+version = "0.1.0"
+description = "Local, content-bound spec review CLI"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+onecrew = "onecrew.specs:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["onecrew"]

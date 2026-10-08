@@ -1,0 +1,117 @@
+{
+  "review_date": "2026-10-08",
+  "timezone": "Asia/Saigon",
+  "project_status": "local_spec_review_cli_available_orchestration_design_only",
+  "spec_review_cli": {
+    "implemented": true,
+    "commands": ["list", "review", "diff", "approve", "request-changes", "history"],
+    "test_command": "python -m unittest discover -s tests -v",
+    "tests_passed": 16,
+    "agent_dispatch_implemented": false,
+    "authenticated_approval_implemented": false,
+    "coverage": "proposal-coverage.md"
+  },
+  "confirmed_scope": "Software development across multiple repositories using Claude, Kiro, and Codex",
+  "verification_boundary": "Local source/config review, a full metadata/usage scan of 1672 retained related-project JSONL files with selected deep transcript/workflow reading and Git/package cross-checks, local factory unit tests, official docs and selected upstream source. No live model benchmark or Kiro Crew/DeepSeek runtime validation.",
+  "full_local_history_audit": {
+    "report": "claude-history-audit.vi.md",
+    "metrics": "claude-history-metrics.json",
+    "recorded_usage_start_date": "2026-09-25",
+    "recorded_usage_end_date": "2026-10-06",
+    "related_unique_model_messages": 77674,
+    "provider_billing_verified": false,
+    "remote_only_history_complete": false
+  },
+  "claude_history_case": {
+    "session_id": "3ea71027-fbbc-4ec6-a92e-fcb7a4fa0f0b",
+    "history_project_directory": "D--TamNT-Workspace-9-VMAgent-vm-agent",
+    "workflow_id": "wf_18701a1c-149",
+    "entrypoint": "claude-desktop",
+    "date": "2026-10-01",
+    "workflow_child_agents": 11,
+    "observed_child_models": ["claude-opus-5-5"],
+    "spec011_recorded_span_minutes": 161.66,
+    "spec011_outcome_in_selected_workflow": "interrupted",
+    "task_stop_tool_reported_success": true,
+    "full_process_tree_termination_verified": false,
+    "report": "history-findings.vi.md",
+    "limitations": "Recorded spans include waits. One workflow is not the entire project history. A 47.75-minute tool request/result gap is not classified as execution or approval/queue wait."
+  },
+  "local_tools": {
+    "claude_code": "2.1.286",
+    "claude_executable": "C:/Users/NUC/.local/bin/claude.exe",
+    "claude_found_in_review_shell_path": false,
+    "kiro_cli": "kiro-cli-chat 2.28.0",
+    "codex_cli": "0.160.0",
+    "python_used_for_factory_tests": "3.13.14"
+  },
+  "claude_observation": {
+    "project": "OneTechAI/OneTechAI",
+    "model_reported_by_session_metadata": "claude-opus-5-5",
+    "timestamp_utc": "2026-09-30T02:52:10.605Z",
+    "current_running_session_model_verified": false,
+    "global_settings_model": null,
+    "global_settings_effort": "xhigh",
+    "factory_default_model": "inherit",
+    "factory_sonnet_roles": 8,
+    "factory_escalate_after_failed_verify": 2,
+    "factory_escalate_to": "opus"
+  },
+  "onetech_local": {
+    "path": "D:/TamNT/Workspace/9.VMAgent/OneTechAI/OneTechAI/cx-factory",
+    "version_file": "0.36.3",
+    "handbook_version": "0.38.1",
+    "agent_files": 25,
+    "skill_directories": 43,
+    "reported_head": "a261ca366c557dd520fa83ac0cd88cb3fd789389",
+    "git_status_error": "bad tree object HEAD",
+    "reported_head_is_verified_complete_snapshot": false,
+    "tests": {
+      "command": "python -m unittest discover -s tests -q",
+      "executable": "D:/TamNT/Workspace/9.VMAgent/nursing-assistant/backend/.venv/Scripts/python.exe",
+      "tests_run": 250,
+      "duration_seconds": 312.984,
+      "failures": 9,
+      "errors": 29,
+      "exit_code": 1,
+      "status": "failed",
+      "missing_files_confirmed": [
+        "examples/project/.factory/config.json",
+        "templates/diagrams/aws-icons/SOURCE.md"
+      ],
+      "interpretation": "Local snapshot is not a passing baseline. Missing fixtures/assets explain some observed failures; all failing cases have not been root-caused. Tests use temporary projects and disable Jev requests."
+    },
+    "file_sha256": {
+      "VERSION": "B9E0C0D76F518FA276655BA0BDDBF32D63B5A2DE1D84C2925C8CE7AA4C0DA55A",
+      "registry.json": "0B162A6715587CBCA8A061983B447E708260766AFBB60A3A2DCD2E2BF967846D",
+      "scripts/loop_state.py": "BFA52BA30EFB08C47D01963BFC30005EA522A0D51F89B866B90B20EB709705FB",
+      "scripts/model_route.py": "5DA28606C40582A98F97CC453AD82C1378017C52CE248899D44A2388F5B3AD0E",
+      "tests/test_factory.py": "694EC405CAADE6A78D0C8CC88B03C961193436AABC2CBAB9E1A8DDC43B1B8444"
+    }
+  },
+  "upstream": {
+    "kiro_crew": {
+      "repository": "https://github.com/kirodotdev/KiroCrew",
+      "reviewed_main_commit": "1c5a71db4df78d3e22c6b6109ed74b26b816e953",
+      "main_commit_time_utc": "2026-10-08T07:13:35Z",
+      "latest_release_observed": "v0.7.2",
+      "release_published_utc": "2026-09-29T09:14:27Z",
+      "release_selectable_backends": ["kiro", "claude", "kas", "codex", "opencode", "pi", "goose"],
+      "main_selectable_backends": ["kiro", "claude", "kas", "codex", "opencode", "pi", "goose", "deepseek"],
+      "live_tested": false
+    },
+    "deepseek_harness": {
+      "repository": "https://github.com/deepseek-ai/deepseek-harness",
+      "reviewed_commit": "5badb15009ae1756c3afe0ae0cef1faafc290ccc",
+      "commit_time_utc": "2026-10-03T03:48:13Z",
+      "readme_status": "developer preview",
+      "live_tested": false
+    }
+  },
+  "official_runtime_docs": [
+    "https://code.claude.com/docs/en/headless",
+    "https://code.claude.com/docs/en/agent-teams",
+    "https://learn.chatgpt.com/docs/app-server",
+    "https://developers.openai.com/blog/codex-as-a-platform"
+  ]
+}
