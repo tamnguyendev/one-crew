@@ -1,5 +1,11 @@
 # Proposal Coverage
 
+## Autonomous runtime cycle — SPEC-004
+
+Controller implementation and requirement-level evidence for AR01–AR08 are maintained in [autonomous coverage](autonomous-coverage.md). Validation: 51 tests pass, including 24 existing spec CLI regressions and 27 runtime checks. Simulated lifecycle tests and actual provider/HTTP evidence are explicitly separated.
+
+The previous "runtime missing" rows below describe the baseline before SPEC-004. The fixed-profile controller, task/risk router, budgets, checkpoint output, cancellation and repair loop now exist; the linked live report governs whether a real product delivery has been demonstrated. Multi-repo, Claude/Kiro adapters, conversation, recovery and reorder remain incomplete. No claim of complete OneCrew roadmap coverage.
+
 Proposal source: `docs/spec-review-cli.vi.md`
 Last reviewed implementation commit: `5f439bc27956eca67903a8b877035b24c55f5f84`
 Current iteration: 2 (SR02/SR03/SR06 repaired, verified and committed)

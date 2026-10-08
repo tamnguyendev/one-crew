@@ -6,7 +6,7 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.scripts]
-onecrew = "onecrew.specs:main"
+onecrew = "onecrew.cli:main"
 
 [build-system]
 requires = ["setuptools>=61"]

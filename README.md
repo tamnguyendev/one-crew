@@ -1,5 +1,11 @@
 # OneCrew
 
+## Local autonomous runtime update — SPEC-004
+
+OneCrew now includes a bounded Codex controller for a fixed CV-upload profile: plan, model routing, artifacts, independent HTTP checks, review, repair and delivery. Run `onecrew task run --help` for the CLI. This is not general multi-repo or Claude/Kiro orchestration.
+
+See [runtime guide](docs/autonomous-runtime.vi.md) and [live evidence/coverage](docs/autonomous-coverage.md) for actual execution results and remaining gaps. Earlier roadmap descriptions below predate this runtime slice.
+
 Project đề xuất để quản lý công việc AI trên nhiều repo, ưu tiên CLI và tận dụng Kiro Crew.
 
 **Trạng thái: đã có CLI duyệt spec local; runtime điều phối agent vẫn ở mức thiết kế.** Ngày cập nhật: 08/10/2026, Asia/Saigon.

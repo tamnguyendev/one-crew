@@ -1,3 +1,3 @@
-from onecrew.specs import main
+from onecrew.cli import main
 
 raise SystemExit(main())
