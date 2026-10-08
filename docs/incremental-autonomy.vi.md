@@ -82,3 +82,9 @@ Giới hạn: Windows local preview; chưa resume sau crash, đa repo, Claude/Ki
 ```
 
 Preview không gọi model, chỉ nhận `ready_for_review` và manifest còn đúng hash, chạy sandbox Windows trên loopback. Đây là demo với dữ liệu giả; dữ liệu preview riêng dưới `.data-preview` và không làm thay đổi source đã nghiệm thu. Dừng process bằng Ctrl+C. Manifest thay đổi thì từ chối mở để yêu cầu verify lại.
+
+## Commit của chu kỳ
+
+- OneCrew implementation và coverage IA01–IA05: `bf2e673cad3116fcd89891decc819363153a2f3c` — 69 tests passed; live run và preview evidence ở trên.
+- Source sản phẩm do OneCrew tự commit: `ad3c7481ad837445e1c66cb9ad1b67f255cdb877` trong repo `cv-guard-onecrew-v4`.
+- Đã đối chiếu lại toàn bộ SPEC-005: IA01–IA05 Complete; các hạn chế ngoài phạm vi giữ rõ. Không thay runtime/gate trong live run. Các thay đổi tài liệu có sẵn của người dùng giữ ngoài commit; không push.
