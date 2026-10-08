@@ -12,7 +12,7 @@ Core local lưu task, quyết định, checkpoint và ngân sách; chia việc t
 Chat app riêng, dashboard, vector DB, điều phối đa máy, JEV bắt buộc hoặc tự deploy/mua API credits.
 
 ### Nghiệm thu
-Khởi động lại không lặp việc; đổi entry vẫn thấy cùng câu hỏi và output; đổi worker không có hai writer hoặc reset budget. Task liên quan chỉ chạy khi dependency đạt; bản ghép phải qua gate. Không mở rộng scope ngoài quyền đã cấp.
+Khởi động lại không lặp việc; đổi entry vẫn thấy cùng câu hỏi và output; đổi worker không có hai writer hoặc reset budget. Duyệt đúng nội dung, giữ phần code chưa commit; lỗi checkpoint phải hiện rõ. Task liên quan chỉ chạy khi dependency đạt; kiểm thử đúng bản ghép trước bàn giao. Không mở rộng scope ngoài quyền đã cấp.
 
 ### Lưu ý
 Runtime hiện tại mới chứng minh profile CV/Codex. Đa công cụ, resume và 8 giờ là mục tiêu chưa triển khai; history chat chưa lưu vào OneCrew không tự chuyển được.
@@ -25,7 +25,7 @@ Không có.
 
 ## Chi tiết cho AI
 
-Baseline: [kiến trúc 09/10/2026](../docs/architecture.vi.md). Triển khai theo [backlog](../docs/mvp-backlog.vi.md), ghi evidence vào [coverage](../docs/proposal-coverage.md). Đây là proposal mới, không tự approve bằng việc file tồn tại. Các requirement mô tả đích đầy đủ; từng mốc chỉ nhận phạm vi tương ứng.
+Baseline: [kiến trúc 09/10/2026 revision 2](../docs/architecture.vi.md). Mục 12 ghi quyết định từ chín repo; mục 13 là contract bắt buộc làm rõ OC01–OC12 dưới đây. Triển khai theo [backlog](../docs/mvp-backlog.vi.md), ghi evidence vào [coverage](../docs/proposal-coverage.md). Đây là proposal mới, không tự approve bằng việc file tồn tại. Các requirement mô tả đích đầy đủ; từng mốc chỉ nhận phạm vi tương ứng.
 
 ### OC01 — Entry độc lập với worker
 Một contract submit/connect/query cho Codex/Claude/Kiro. Submit idempotent theo client_request_id, gắn spec revision và grant. Đổi entry không tạo task mới hoặc restart worker. Nghiệm thu: submit lặp chỉ một root; reconnect cùng ID thấy output và pending requests; chứng minh trên từng entry thực thay vì chỉ fixture.
@@ -62,6 +62,22 @@ Output card có cách thử/diff/evidence/giới hạn, revision immutable và f
 
 ### OC12 — Thẩm quyền và scope
 Conductor đề xuất; code cưỡng chế grant/scope/budget/gate, worker không sửa authority store. Lựa chọn kỹ thuật trong scope tự xử lý; phát sinh ngoài scope vào backlog/request. Execution/verification/acceptance tách biệt. Nghiệm thu: worker giả approval hoặc sửa gate/grant bị chặn bằng boundary thực; test pass không tự user acceptance; publish cần quyền riêng đã cấp. Cùng OS user full shell chưa đủ isolation, phải chứng minh boundary trước bật tự động.
+
+## Contract bổ sung từ review source — revision 2
+
+Các dòng dưới đây là điều kiện của OC hiện hữu, không tạo thêm sản phẩm hoặc đổi trạng thái implementation thành Complete. T01–T19 giữ nguyên; T20–T30 là ca bổ sung trong backlog.
+
+| Yêu cầu | Điều kiện bắt buộc | Kiến trúc | Nghiệm thu bổ sung |
+|---|---|---|---|
+| OC01, OC05 | Entry attach/reply không restart worker; pending request dựng lại từ DB cả khi core và worker chết | 13.1, 13.3 | T22 |
+| OC02, OC10, OC12 | AI đề xuất theo schema; strict booleans/evidence; code giữ authority, không model call cho query | 13.8, 13.9 | T28, T29 |
+| OC03, OC07 | Admission transaction claim + capacity + generation + dispatch intent + reservation; không replay launch chưa rõ | 13.2 | T20, T21, T25 |
+| OC04, OC06 | Handoff lưu từng transition; xác nhận old writer dừng trước quyền ghi target; giữ dirty bytes; capability theo OS/version | 13.1, 13.4, 13.6 | T21, T24, T27 |
+| OC05, OC12 | Hash bind toàn payload thực thi, caller có quyền, reply CAS; stale/conflicting approval không áp dụng | 13.3 | T22 |
+| OC06, OC09 | Checkpoint ghi blob rồi DB reference; lỗi storage không completed; unknown effect cần reconcile; migration không mất tiến độ | 13.5, 13.6 | T23, T24, T25, T30 |
+| OC08, OC11 | Test đúng integration candidate, thiếu worktree không fallback; base đổi thì stale; evidence/acceptance theo snapshot | 13.7 | T26 |
+| OC09, OC10 | Reserve trước từng managed invocation; internal CLI calls chỉ hard-cap nếu adapter enforce; extension hữu hạn, giữ used/unknown | 13.1, 13.5 | T20, T27 |
+| OC09, OC12 | No-progress có ngưỡng policy/root budget; không tự mở scope, reset qua retry hoặc gỡ sandbox | 13.5, 13.8, 13.9 | T27, T29 |
 
 ## Ràng buộc migration
 

@@ -1,6 +1,8 @@
-# Kế hoạch triển khai OneCrew — 09/10/2026
+# Kế hoạch triển khai OneCrew — 09/10/2026, revision 2
 
 Đích: giao yêu cầu đã làm rõ từ Codex/Claude/Kiro cho một core local; tiếp tục qua đổi entry/worker, review từng phần và chạy công việc liên quan trong scope/budget. [Kiến trúc](architecture.vi.md) và [SPEC-006](../specs/SPEC-006-portable-orchestration.md) là baseline. [Backlog 08/10](mvp-backlog-2026-10-08.vi.md) giữ lịch sử; không triển khai song song hai roadmap.
+
+Revision 2 chuyển bài học từ chín repo thành contract kiến trúc mục 13 và T20–T30. Thứ tự vẫn P1→P2→P3→P4; không cài thêm framework hoặc mở phase riêng cho từng repo. Nguồn và quyết định chọn/bỏ nằm trong mục 12 của kiến trúc.
 
 ## 0. Điểm xuất phát và nguyên tắc nghiệm thu
 
@@ -22,6 +24,17 @@ Phạm vi: nền OC02/OC03/OC05/OC06/OC09/OC12 và CLI contract OC01; một Code
 
 **Lát code đầu tiên:** task ledger + submit/status/request-reply bằng CLI, một task tuần tự, persistence và revision/idempotency. Sau đó nối Codex và crash reconciliation trên cùng contract. Không bắt đầu bằng thêm evaluator hoặc dashboard.
 
+Chia P1 thành các lát bàn giao, mỗi lát có demo/coverage riêng:
+
+| Lát | Kết quả thử được | Gate trước khi sang lát sau |
+|---|---|---|
+| P1a | Submit/status/inbox/reply CLI trên ledger bền vững, chưa chạy worker | T01/T05/T18 và phần core/inbox của T22: idempotency, revision, durable pending/reply, restart |
+| P1b | Admission + budget/action broker và supervisor qua fake adapter có fault injection | T03/T04/T14/T20/T25: không vượt managed-call cap, không dispatch lại effect unknown, một owner |
+| P1c | Một Codex worker artifact mode, snapshot giữ dirty bytes, pause/recovery có bằng chứng | T08/T23/T24/T27/T30; runtime/process tests riêng với fake; checkpoint failure không completed |
+| P1d | Spec-to-plan tổng quát và output card đầu tiên, bounded repair | T02/T19/T28/T29: hai feature khác CV, schema strict, no-progress dừng đúng |
+
+CLI các lát chưa triển khai vẫn ghi là đề xuất. P1a không tự tuyên bố trusted multi-entry approval; boundary thực cần P1c/P2. P1 kết thúc khi tất cả gate của P1 đạt, không coi fake adapter là bằng chứng live Codex.
+
 ## 2. P2 — Giao và tiếp tục việc từ ba công cụ
 
 Phụ thuộc P1 đạt; hoàn thiện OC01/OC04/OC05/OC06 và ranh giới OC12.
@@ -30,6 +43,7 @@ Phụ thuộc P1 đạt; hoàn thiện OC01/OC04/OC05/OC06 và ranh giới OC12.
 - Worker adapters Codex, Claude Code, Kiro CLI; capability registry có version, account/auth mode, cancel/reconcile và usage source. Không giả native session chuyển qua provider khác.
 - Handoff entry Kiro→Claude cùng task/request; không restart worker. Handoff worker qua stop/reconcile/snapshot với budget giữ nguyên.
 - Caller provenance/capability, trusted reply path; không chuyển local spec approval thành authenticated grant bằng nhãn actor.
+- Handoff state machine từ admitted tới completed, recovery tại từng transition, CAS ownership; target chưa rõ trạng thái phải reconcile trước fallback về source. Kiểm T21/T22/T27 trên tổ hợp OS/CLI/auth thực; native Windows và WSL ghi evidence riêng.
 
 Điều kiện qua mốc: từng entry submit/connect/query/reply thật; từng worker chạy, verify và cancel thật; ít nhất một cross-provider handoff. Thiếu auth/capability ghi Blocked cho adapter liên quan, không gọi fixture là integration live. Chứng minh worker không thể giả reply qua đường điều khiển được cấp.
 
@@ -41,6 +55,7 @@ Phụ thuộc core/authority/recovery P1; dùng adapters đã đạt P2. Hoàn t
 - Integration owner ghép tuần tự, gate bản ghép và commit vector đa repo; bảo toàn phần sửa của người dùng.
 - Snapshot review/feedback/accept riêng theo revision, human gates đã thỏa thuận; việc độc lập tiếp tục.
 - Reorder việc chờ không bypass dependency; pause/resume rõ ràng cho việc đang chạy. Contract đổi chỉ invalidate nhánh liên quan.
+- Integration test chạy đúng candidate trước cập nhật target; missing worktree không fallback sang repo chính, base đổi phải ghép/verify lại. Evidence bind source/gate/environment; thêm T26.
 
 Điều kiện qua mốc: A→(B,C)→D, xem/review B khi C chạy, reorder queued tasks; duplicate/stale reports và conflict integration không làm sai trạng thái. Test fail bản ghép phải dừng delivery dù nhánh riêng pass.
 
@@ -81,10 +96,25 @@ Các ca dưới đây là kế hoạch test, chưa phải kết quả đã pass.
 | T17 | Fault clock + soak thật riêng: deadline chặn call mới, waits không tự kéo dài | OC09 | P4 |
 | T18 | Read-only query không model call; đổi project không lẫn memory; stale facts hiện rõ | OC01, OC06, OC10 | P1/P2 |
 | T19 | Sửa trong scope tự làm; phát sinh ngoài scope tạo request/backlog; pass khác acceptance | OC02, OC05, OC12 | P1/P3 |
+| T20 | Budget=1 gồm intake/planner/reviewer: chỉ một managed invocation; concurrent reserve không vượt cap; timeout unknown không hoàn quota; extension hữu hạn giữ used | OC03, OC07, OC09, OC10 | P1/P3/P4 |
+| T21 | Crash từng transition handoff, source stop chưa rõ, target launch mất ack, PID reuse và hai switch đồng thời: chưa xác nhận dừng thì không writer mới; không rollback gây hai writer | OC03, OC04, OC06, OC07 | P2 |
+| T22 | Kill cả core/runner rồi restore inbox; hai entry reply trái nhau chỉ một áp dụng; action hash/grant đổi làm approval stale; giả actor không có quyền bị chặn | OC01, OC05, OC12 | P1/P2 |
+| T23 | Disk/DB lỗi, crash giữa blob/manifest/reference: không completed hoặc advance durable; hash mismatch bị từ chối; bảo toàn workspace | OC03, OC06, OC09 | P1 |
+| T24 | Restore staged/unstaged/deleted/untracked/binary thuộc scope ra snapshot mới đúng bytes/hash; không tự lấy secret/ngoài scope; checkpoint thiếu dữ liệu báo không portable | OC04, OC06 | P1/P2 |
+| T25 | Side effect đã xảy ra nhưng receipt chưa lưu: recovery unknown và reconcile/idempotency; không replay mù; duplicate receipt không tính budget hai lần | OC03, OC06, OC09, OC12 | P1 |
+| T26 | Thiếu worktree không chạy test repo chính; đúng source nhưng base target đổi làm stale; chỉ candidate đã verify mới cập nhật target; nhiều repo có commit vector | OC08, OC11, OC12 | P3 |
+| T27 | Capability thiếu hoặc CLI/OS đổi không quảng cáo hỗ trợ; Windows/WSL identity riêng; không tự full-access; internal CLI-call cap không enforce phải hiển thị giới hạn | OC04, OC09, OC10, OC12 | P1/P2/P4 |
+| T28 | Reviewer/evaluator trả chuỗi false, enum sai, thiếu field/evidence, timeout: invalid/unknown, không pass; retry parse tính root budget | OC02, OC10, OC12 | P1/P4 |
+| T29 | Repair không đổi source, failure fingerprint lặp, đổi provider không có AC tiến triển: dừng theo policy; output/status nêu lý do và không gọi model để poll | OC02, OC09, OC11, OC12 | P1/P4 |
+| T30 | Migration/backup-restore giữ ID/hash/approval provenance/root counters; in-flight unknown vẫn reconcile; snapshot còn reference không bị cleanup | OC03, OC06, OC09, OC12 | P1 |
+
+T20–T30 xuất phát từ contract mục 13 của kiến trúc, không phải kết quả test upstream hoặc test OneCrew đã chạy. Case nhiều mốc phải tách evidence fixture/live theo capability thực; mọi acceptance ID ở đây cần được link tới test cụ thể khi implement.
 
 ## 6. Migration và giao hàng
 
 Giữ nhóm lệnh spec và task hiện có. Profile CV giữ làm regression, không đổi hash/evidence run cũ. General profile có version riêng. Migration DB có backup/schema version, không tự coi attempt đang chạy là đã dừng hoặc tạo writer mới. Local approval cũ giữ provenance/giới hạn; chỉ cấp quyền mới khi đủ nguồn và authority, không tự nâng cấp bằng cách copy record.
+
+Lát migration chạy thử trên bản sao trước, restore kiểm hash/reference/counters; không convert live in-flight record sang queued. Capability chưa chứng minh thì giữ adapter disabled/limited. Rollback schema phải nêu version tương thích và bảo toàn ledger, không drop history để ứng dụng khởi động được. Không cleanup dirty worktree khi stop chưa confirmed.
 
 Mỗi mốc cập nhật coverage bằng code + test/evidence, rồi commit phạm vi đó. Không approve SPEC-006 hay chạy workers trong lượt chỉ cập nhật kiến trúc. Run live cần giới hạn rõ, dùng lại quyền đã cấp nếu còn phù hợp; không hỏi lại từng lựa chọn kỹ thuật. Không ghi API keys vào spec, logs hoặc Git.
 

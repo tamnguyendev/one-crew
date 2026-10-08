@@ -2,21 +2,23 @@
 
 OneCrew hướng tới một core local để nhận công việc đã làm rõ từ **Codex / Claude / Kiro**, điều phối **Codex / Claude Code / Kiro CLI**, lưu tiến độ và kiểm chứng kết quả. CLI trước; công cụ chat và worker có thể thay độc lập.
 
-**Hiện đã chạy được profile CV/local/Codex; orchestration tổng quát vẫn đang thiết kế.** Baseline kiến trúc cập nhật 09/10/2026 (Asia/Saigon).
+**Hiện đã chạy được profile CV/local/Codex; orchestration tổng quát vẫn đang thiết kế.** Baseline kiến trúc cập nhật 09/10/2026, revision 2 (Asia/Saigon), sau review source chín dự án.
 
 ## Tài liệu hiện hành
 
 | Tài liệu | Nội dung |
 |---|---|
 | [SPEC-006 — duyệt nhanh](specs/SPEC-006-portable-orchestration.md) | Bản ngắn cho người dùng và 12 yêu cầu chi tiết |
-| [Kiến trúc](docs/architecture.vi.md) | Một core, hai nhóm kết nối; inbox, memory, recovery, DAG và quota |
-| [Kế hoạch triển khai](docs/mvp-backlog.vi.md) | Bốn mốc có nghiệm thu; bắt đầu core bền vững và một worker tuần tự |
+| [Kiến trúc](docs/architecture.vi.md) | Core/adapter/inbox; mục 12 ghi nguồn và quyết định áp dụng, mục 13 chốt contract thực thi |
+| [Kế hoạch triển khai](docs/mvp-backlog.vi.md) | Bốn mốc, P1 chia bốn lát nhỏ; 30 ca nghiệm thu dự kiến |
 | [Coverage](docs/proposal-coverage.md) | Phân biệt code đã có với phần còn thiếu |
 | [CLI spec](docs/spec-review-cli.vi.md) | Review/approve theo revision, diff/history |
 | [Runtime và bằng chứng SPEC-005](docs/incremental-autonomy.vi.md) | Chạy CV từ thư mục trống, test/review/repair và preview |
 | [JEV connection](docs/jev-connection.vi.md) | Kết nối đã kiểm chứng; chưa semantic routing |
 
 Kiến trúc mới thay hướng Kiro Crew làm host bắt buộc bằng core OneCrew độc lập. Conductor chỉ lập plan/triage khi cần; code giữ queue, quyền, scope và budget. JEV tùy chọn sau benchmark. [Kiến trúc cũ](docs/architecture-2026-10-08.vi.md) và [backlog cũ](docs/mvp-backlog-2026-10-08.vi.md) được giữ làm lịch sử.
+
+Revision 2 học handoff của Agent Orchestrator, action/budget broker của Agent Loop System, adapter của CAO, task claim của Beads, pause/replay của LangGraph, integration của Stoneforge, policy của Omnigent, checkpoint của Gas Town và loop của Athena. Giữ một core Python/SQLite; không thêm chín framework. Những giới hạn thấy trong source được chuyển thành điều kiện nghiệm thu: approval theo nội dung, stop trước đổi writer, reservation mỗi invocation, snapshot đủ dữ liệu, lỗi checkpoint không báo xong và test đúng candidate tích hợp. Đây là cập nhật thiết kế, chưa triển khai các năng lực đó.
 
 ## Dùng CLI hiện có
 

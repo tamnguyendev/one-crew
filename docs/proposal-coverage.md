@@ -1,5 +1,21 @@
 # Proposal Coverage
 
+## Architecture revision 2 — source-informed design, 2026-10-09
+
+User request: update OneCrew architecture using the reviewed upstream designs. Baseline: `9a8e0cf`; scope is documentation, not implementation of SPEC-006. Canonical artifacts: [architecture](architecture.vi.md) sections 12–13, [SPEC-006](../specs/SPEC-006-portable-orchestration.md), [backlog](mvp-backlog.vi.md) and [README](../README.md).
+
+| ID | Requirement | Type | Evidence | Verification | Status |
+|---|---|---|---|---|---|
+| OA01 | Record lessons and adopt/defer decisions for all nine reviewed repositories | Documentation | Architecture section 12: commit-pinned source matrix, review limits and no implicit framework adoption | Verified nine distinct repositories with full commit-pinned links; each row maps to a contract and planned test | Complete |
+| OA02 | Turn lessons into explicit execution contracts while keeping one small core | Architecture | Sections 3–9 and 13: admission, handoff, approval, reservation, checkpoint, integration, schemas and capabilities | Reviewed nine contracts against source findings and OC01–OC12; kept runtime guarantees separate from design | Complete |
+| OA03 | Connect design to readable spec and staged acceptance evidence | Documentation | SPEC-006 OC01–OC12 crosswalk, backlog P1a–P1d and T20–T30, README | Spec.parse and CLI brief/full pass; all OC/T IDs mapped; five-document links/fences/UTF-8 and git diff --check pass | Complete |
+
+These OA requirements measure this design update only. OC01–OC12 runtime coverage remains 0 Complete / 10 Partial / 2 Missing: the contracts below do not change that assessment. T01–T30 are planned acceptance scenarios, not passing tests. The source review read selected code/test paths and ran three offline Athena probes; it did not execute upstream full suites or prove live cross-provider/8-hour behavior.
+
+Revision 2 supersedes the previous documentation-cycle wording about T01–T19 being the entire matrix; those cases remain and T20–T30 extend them. Existing runtime evidence and historical records below are retained. No spec approval, worker execution, new runtime dependency or paid API request is part of this documentation cycle. Pre-existing working-tree edits are outside its commit.
+
+Documentation coverage: OA01–OA03 = 3/3 Complete. Validation used the existing `.venv` Python, `Spec.parse`, and read-only `python -X utf8 -m onecrew spec review SPEC-006` (brief and `--full`); no runtime source changed, so runtime/upstream suites and live workers were not run for this cycle. Commit subject: `docs(architecture): adopt reviewed orchestration contracts OA01-OA03`; the resulting hash is reported in the delivery message/Git history.
+
 ## Portable orchestration architecture — SPEC-006, 2026-10-09
 
 Proposal source: `specs/SPEC-006-portable-orchestration.md`.
