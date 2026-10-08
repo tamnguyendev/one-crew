@@ -1,5 +1,11 @@
 # Proposal Coverage
 
+## JEV credential and connectivity slice — JC01–JC03
+
+The supplied credential is stored outside the repository using Windows current-user DPAPI. `onecrew decision doctor` made one successful synthetic request to TypeSafe: observed model `jev-1.13.0`, 467 ms, 304 input / 21 output tokens. No source/CV data was sent. Full suite: 57 tests passed.
+
+See [connection coverage and guide](jev-connection.vi.md): JC01–JC03 Complete. This only establishes credential/API readiness. Semantic decision integration, shadow evaluation, auto-routing and the SPEC-004 live product delivery blocker remain outstanding; no worker was dispatched by this probe.
+
 ## Autonomous runtime cycle — SPEC-004
 
 Controller implementation and requirement-level evidence for AR01–AR08 are maintained in [autonomous coverage](autonomous-coverage.md). Validation: 51 tests pass, including 24 existing spec CLI regressions and 27 runtime checks. Simulated lifecycle tests and actual provider/HTTP evidence are explicitly separated.

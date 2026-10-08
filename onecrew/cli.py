@@ -7,6 +7,9 @@ def main(argv=None):
     index=0
     if args and args[0]=='--project': index=2
     elif args and args[0].startswith('--project='): index=1
+    if len(args)>index and args[index]=='decision':
+        from .jev import main as decision_main
+        return decision_main(args[index+1:])
     if len(args)>index and args[index]=='task':
         from .runtime import main as task_main
         return task_main(args)
