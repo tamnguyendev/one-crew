@@ -1,237 +1,189 @@
-# Kiến trúc đề xuất OneCrew
+# Kiến trúc OneCrew — baseline 09/10/2026
 
-## Runtime implementation update — SPEC-004
+OneCrew là bộ điều phối local nhận yêu cầu đã làm rõ từ Codex, Claude hoặc Kiro; chia việc, gọi worker phù hợp, kiểm chứng và giữ tiến độ chung. Người dùng tiếp tục trao đổi trong công cụ đang dùng. OneCrew không cần xây thêm ứng dụng chat hoặc hệ thống Agile đầy đủ.
 
-The local CV profile now has one Python controller as the dispatch/budget authority, Codex JSON-only workers, deterministic task/risk routing, sealed host HTTP gates and bounded review/repair. Native Windows sandbox and Node guards support local tests; Docker remains an alternative requiring a working engine. Models do not own scope, tests or acceptance.
+**Đây là kiến trúc sẽ triển khai.** Cập nhật tài liệu không cấp quyền chạy job 8 giờ, gọi API trả phí hay nghiệm thu sản phẩm. [SPEC-006](../specs/SPEC-006-portable-orchestration.md) là bản duyệt nhanh; [backlog](mvp-backlog.vi.md) xác định thứ tự; [coverage](proposal-coverage.md) phân biệt code đã có với phần còn thiếu.
 
-See [runtime contracts and limitations](autonomous-runtime.vi.md), [SPEC-004](../specs/SPEC-004-autonomous-local-run.md), and [verification evidence](autonomous-coverage.md). The broader architecture below remains a target; free-form conversation, multiple repos/backends and pause/resume/reorder are not completed by this slice.
+## 1. Quyết định sau review toàn bộ trao đổi
 
-Trạng thái: proposal, chưa triển khai. Thiết kế ưu tiên CLI; Kiro Crew là ứng viên host cần qua spike trước khi chốt nền thực thi.
+| Chủ đề người dùng đặt ra | Quyết định hiện hành | Yêu cầu |
+|---|---|---|
+| OneTechAI làm nhiều ngày, tốn token, khó kiểm soát | Lát bàn giao nhỏ có AC, bằng chứng và budget chung; đo kết quả thay vì số agent/spec | OC02, OC09, OC12 |
+| Specs dễ đọc, CLI duyệt | Một nội dung có bản nhanh và chi tiết, cùng revision; không tạo spec sau mỗi tin nhắn | OC02 |
+| Vai Conductor/Scrum Master | Conductor mỏng lập plan, triage và báo cáo; code giữ scheduler và thẩm quyền | OC03, OC12 |
+| Trao đổi trước khi giao việc | Trao đổi ở công cụ đầu vào; bàn giao điều đã chốt và câu hỏi còn mở | OC01, OC06 |
+| Codex/Claude/Kiro đều giao và nhận việc | Entry connector độc lập với worker adapter; không buộc hai phía cùng hãng | OC01, OC04 |
+| Hết usage Kiro, sang Claude | Kết nối cùng task; câu hỏi và approval đang chờ thuộc OneCrew | OC01, OC05, OC06 |
+| Khó khăn cần hỏi lại | Inbox bền vững, câu hỏi ngắn có lựa chọn/khuyến nghị; chỉ nhánh phụ thuộc chờ | OC05 |
+| Memory chung | Spec, quyết định, checkpoint và evidence có nguồn; không chuyển nguyên private chat | OC06 |
+| Nhiều task liên quan | DAG, contract trước, ownership/worktree riêng, ghép tuần tự có gate | OC07, OC08 |
+| Review từng phần, đổi thứ tự | Review snapshot theo revision; ưu tiên chỉ tác động việc chờ đủ dependency | OC11 |
+| Model theo độ khó, tận dụng quota | Rule trước; capability/risk trước quota; JEV thêm sau benchmark | OC10 |
+| Tự làm lâu, tới 8 giờ | Core độc lập với chat, checkpoint/recovery, deadline và budget cộng dồn | OC03, OC09 |
 
-Ngoại lệ đã triển khai: [CLI review/approve spec local](spec-review-cli.vi.md). Đây là kho quyết định theo nội dung; chưa nối vào host, chưa có xác thực/cách ly quyền worker và chưa dispatch agent. Các phần runtime bên dưới vẫn là proposal.
+**Thay đổi so với 08/10:** chọn core OneCrew độc lập; Kiro Crew là tham khảo thay vì host bắt buộc. Decision AI không đứng trên mọi bước. Tách nơi giao việc khỏi worker. Tên project vẫn là OneCrew; cách gọi “CodeCrew” trong trao đổi không tạo sản phẩm khác.
 
-Yêu cầu ưu tiên: khắc phục task kéo dài và khó can thiệp khi dùng Claude Desktop với OneTechAI. Contract cụ thể: [kiểm soát task dài](control-and-latency.vi.md). Host phải tiếp nhận điều khiển độc lập với lượt suy luận, giữ budget xuyên suốt các vai và không báo đã dừng khi worker còn hoạt động.
+Giữ [kiến trúc cũ](architecture-2026-10-08.vi.md) và [backlog cũ](mvp-backlog-2026-10-08.vi.md) làm lịch sử. ID R/CN/DF và thứ tự spike trong các bản đó không phải kế hoạch hiện hành; OC01–OC12 thay thế chúng cho giai đoạn tiếp theo. Các nguyên tắc scope/budget/authority được giữ trong contract dưới đây.
 
-[Audit lịch sử thực tế](claude-history-audit.vi.md) bổ sung một ràng buộc: task cấp sản phẩm phải gắn với luồng người dùng thử được, package/commit và evidence tương ứng. Mọi workflow/agent/phiên/máy đều quy về task đó để cộng budget; mở workflow mới không tạo ngân sách mới. Trạng thái code xong, gate xanh, đã triển khai bản thử và người dùng chấp nhận là các mốc riêng.
+## 2. Hiện trạng có bằng chứng
 
-## 1. Bản đồ trách nhiệm
+| Năng lực | Code hiện có | Khoảng thiếu |
+|---|---|---|
+| CLI spec | onecrew/specs.py: list/review/diff/approve/request-changes/history | Approval local chưa xác thực/cách ly worker |
+| Runtime | runtime.py, incremental.py: Codex, budget/cancel/checkpoint/test/review/repair/delivery | Profile CV cố định, chưa planner tổng quát |
+| Phân việc/model | incremental_profile.py: graph 10 file CV, rule theo task/rủi ro | Tuần tự, chưa đa repo/provider/quota |
+| Output | Snapshot, outputs và preview local | Chưa feedback inbox/reorder/resume sau crash |
+| JEV | Credential DPAPI và doctor kết nối được | Chưa semantic routing/benchmark |
+
+[SPEC-005 đã bàn giao](incremental-autonomy.vi.md) app CV từ thư mục trống: run RUN-20261008-232057-1d06d8, 585,21 giây, 14 calls, một repair thật, 19 gate checks đạt; runtime commit bf2e673, product commit ad3c748. Bộ kiểm thử được ghi nhận ở lượt đó là 69 tests. Đây là bằng chứng profile local/Codex, không chứng minh orchestration tổng quát hoặc khả năng chặn mọi AI bot ngoài production; khách hàng chưa nghiệm thu.
+
+CLI hiện tại tối đa 3.600 giây/run, 32 calls, 4 repair, 600 giây/call; mặc định 1.800/24/3/120. Chưa có run 8 giờ hoặc resume sau crash. Tài liệu này không thay giới hạn code.
+
+## 3. Một core, hai nhóm kết nối
 
 ```mermaid
 flowchart TD
-    U[Khách hàng — quyết định mục tiêu và nghiệm thu] <--> CON[OneCrew Conductor — trao đổi và điều phối]
-    CON --> APP[OneCrew App / integration adapter]
-    U --> CLI[OneCrew CLI — review và điều khiển trực tiếp]
-    U --> UI[Trang OneCrew trong Crew — sau MVP]
-    CLI --> APP
-    UI --> APP
-    APP --> SPEC[WorkflowSpec + role + policy theo project]
-    APP --> CREW[Kiro Crew TaskRunner / queue / session / worktree]
-    CREW --> ACP[Adapter ACP theo capability]
-    ACP --> CC[Claude Code]
-    ACP --> KC[Kiro CLI]
-    ACP --> CODEX[Codex qua adapter ACP]
-    ACP --> DSH[DeepSeek Harness — thử nghiệm sau]
-    CREW --> GATE[Verifier do host điều khiển]
-    GATE --> E[Evidence + acceptance status]
-    E --> APP
+    U[Khách hàng] <--> E[Codex / Claude / Kiro: trao đổi và review]
+    E <--> C[Entry connector: CLI trước, MCP tùy chọn]
+    C <--> O[OneCrew core: policy, scheduler, inbox, ledger]
+    O <--> P[Conductor: đề xuất plan và triage khi cần]
+    O <--> S[SQLite + spec Markdown + Git/snapshots]
+    O --> A[Worker adapters có capability đã kiểm chứng]
+    A --> W[Codex / Claude Code / Kiro CLI]
+    W --> R[Artifact, log, usage và blocker]
+    R --> O
+    O --> V[Verifier trên snapshot và integration]
+    V --> O
+    O --> Q[Kết quả từng phần và câu hỏi có revision]
+    Q --> C
 ```
 
-Sơ đồ là kiến trúc mục tiêu. Đường nối TaskRunner → verifier phải được spike chứng minh; chưa khẳng định App SDK cung cấp đầy đủ seam đó.
+Một ứng dụng Python local, tái sử dụng CLI và SQLite; các khối là module, không phải mỗi khối một service. Core chạy độc lập với cửa sổ chat; một instance sở hữu queue/lease/process tree. Mutation đi qua core; query không gọi model. Khi core chưa chạy, CLI báo rõ hoặc khởi động đúng instance qua khóa, không tạo scheduler thứ hai. Máy và process phải hoạt động; sleep/offline không được báo là đang tính toán.
 
-| Trách nhiệm | Chủ sở hữu trong MVP |
+| Thành phần | Trách nhiệm | Ranh giới |
+|---|---|---|
+| Entry connector | Submit/attach/query/reply; chuyển ý định khách hàng có nguồn | Không sở hữu task hoặc giả approval |
+| Conductor | Đọc repo, phân rã spec, triage, tóm tắt | Chỉ đề xuất; không scheduler/retry loop/budget riêng |
+| Core | Kiểm revision/quyền/scope/budget/dependency; dispatch, cancel, recovery | Nguồn trạng thái duy nhất |
+| Worker adapter | Launch/events/cancel/reconcile/artifact/usage | Capability thực; unsupported/unknown hiển thị rõ |
+| Verifier | Test theo thay đổi, scope/AC, kiểm bản ghép | Gate ghim revision, worker không sửa để tự pass |
+| Memory/ledger | Quyết định, checkpoint, evidence và lịch sử | Worker report; core xác minh trước khi cập nhật |
+
+Claude Desktop có thể là entry; Claude Code là worker khác. Không giả định mọi host có cùng API push, ACP, session resume hoặc quota API. V0 dùng CLI connector mỏng theo khả năng tool từng host; host chưa gọi được CLI cần thao tác terminal rõ ràng, không gắn nhãn đã tích hợp tự động. MCP là transport bổ sung khi cần, cùng contract/quyền.
+
+Kiro Crew cung cấp ý tưởng Conductor/work ledger; OneCrew kết hợp hai trách nhiệm tối thiểu, không chỉ là worker lá. Adapter Kiro Crew, Antigravity, DeepSeek Harness chỉ xem xét khi có nhu cầu và contract test; không bọc scheduler thứ hai.
+
+## 4. Từ trao đổi đến giao việc
+
+1. Người dùng và AI ở entry trao đổi/tra cứu/làm rõ. Ý tưởng chưa chốt không tự thành task chạy.
+2. Connector lưu brief, quyết định người dùng đã đồng ý và nguồn; core trả durable acknowledgment. Nội dung chưa bàn giao không tự xuất hiện khi đổi công cụ.
+3. Spec có bản nhanh tối đa 350 từ, chi tiết đủ thực thi, AC và non-goals. Duyệt spec và quyền chạy có thể được cấp cùng một lời giao việc rõ ràng; không hỏi lại quyền còn hợp lệ.
+4. Core nhận handoff, trả task ID. Conductor đọc repo thực tế, chia theo kết quả kiểm chứng được. Code kiểm DAG/ownership/coverage AC và giới hạn trước dispatch.
+5. Worker làm từng bước; core checkpoint, verify, đưa phần dùng được ra review. Lựa chọn kỹ thuật và sửa test fail trong scope tự xử lý trong budget.
+6. Hỏi khi cần đổi hành vi chưa rõ, quyền, scope hoặc budget. Bàn giao khi AC/gate đạt; ghi user acceptance riêng.
+
+Handoff tối thiểu: project ID, client_request_id chống submit lặp, spec ID/hash, mục tiêu/AC/non-goals, decision refs, repo paths + base refs/dirty snapshot, quyền theo hành động, root budget/deadline, provider/model policy, dependencies và review checkpoints. Core ghi root_task_id, plan/policy/grant revision. Thiếu dữ liệu repo được khảo sát trong quyền đã cấp; thiếu quyết định nghiệp vụ thì tạo request.
+
+Worker báo “xong” không đủ. Completion trỏ đúng source snapshot, gate version và evidence. Allowlist file không phải bằng chứng duy nhất rằng chức năng còn trong scope.
+
+## 5. Dữ liệu, bộ nhớ và quyền
+
+Kho local thuộc core/project, ngoài worktree được phép sửa. SQLite giữ các nhóm record trong cùng DB:
+
+| Record | Dữ liệu cần giữ |
 |---|---|
-| Queue, lease, retry vận hành, process/session, lịch | Kiro Crew |
-| Tạo và phối hợp worktree cho tác vụ | Kiro Crew qua adapter đã kiểm chứng |
-| Nội dung spec, role, gate, tiêu chí nghiệm thu | OneCrew |
-| Kết quả tool và tình trạng phiên native | Runtime backend, được Crew chuẩn hóa |
-| Trạng thái thực thi task | Crew là nguồn duy nhất |
-| Task đáp ứng yêu cầu hay chưa | OneCrew dựa trên evidence của verifier |
-| Bộ nhớ dự án | Crew hoặc repository đã chọn; OneCrew chỉ giữ reference/provenance |
+| Project/root/task/edge | Repo, AC coverage, plan revision, dependency, priority, ownership/state |
+| Attempt/lease/dispatch intent | Backend/native ID, process identity, fencing generation, heartbeat, idempotency/reconcile |
+| Request/reply/grant | Câu hỏi/options, action revision, actor/provenance, quyền và trạng thái xử lý |
+| Checkpoint/artifact/verification | Repo base, diff chưa commit, manifest/hash, gate version và evidence refs |
+| Budget/reservation/usage | Deadline gốc, counters cộng dồn, quota snapshot/freshness, số unknown |
+| Event/outbox | Sự kiện bền vững, pending notification, cursor/dedup |
 
-Không dùng SQLite riêng để tranh quyền sở hữu queue với Crew. Nếu cần DB OneCrew, nó chỉ giữ manifest, liên kết task, evidence và projection có thể dựng lại.
+Spec/brief/decision summary là Markdown có revision; source/artifact là Git hoặc immutable snapshot, DB giữ hash/ref. Không ghi secrets, CV thật hoặc toàn transcript vào memory. Tách fact có nguồn, giả định, đề xuất AI, quyết định khách hàng và kết quả verified. Summary ghi evidence revision, đánh dấu stale khi đầu vào đổi; project isolation ngăn dùng nhầm memory/repo.
 
-Sau review tổng thể 08/10/2026, ranh giới điều phối được làm rõ: Conductor đề xuất mục tiêu và phân rã công việc; TaskRunner/host là đường thực thi duy nhất, sở hữu task/run, queue, bộ đếm retry và ngân sách. Conductor gửi đề xuất thay kế hoạch qua adapter; không mở một vòng scheduler/retry riêng. Khi tích hợp phải chứng minh planner/replan native của host dùng cùng phạm vi và bộ đếm, hoặc tắt phần chồng lặp. Chưa có bằng chứng này thì chưa bật workflow tự động. Ưu tiên kiểm chứng khả năng mở rộng conductor sẵn có của Crew trước khi tạo một conductor thực thi độc lập.
+Ba chiều trạng thái độc lập: execution (queued/running/waiting/recovering/stopped/failed/completed), verification (pending/passed/failed/stale), acceptance (not_requested/pending/accepted/changes_requested). Waiting reason phân biệt dependency/user/quota/environment/budget. Cancel requested khác cancel confirmed; không báo dừng khi process còn chạy.
 
-### OneCrew Conductor: đầu mối trao đổi với khách hàng
+Worker không được reply như khách hàng hoặc sửa grant/ledger/gate. Capability entry và worker tách biệt, tối thiểu theo nhiệm vụ. Reply cần caller identity và nguồn ý định, không chỉ tin field actor trong JSON. CLI local hiện tại chưa bảo đảm điều này. Cùng OS user với full shell không tạo isolation chỉ bằng prompt/đường dẫn: trước approval đa entry phải kiểm chứng sandbox/tool permissions hoặc isolation tương đương. Không mở endpoint điều khiển không xác thực.
 
-Yêu cầu bổ sung ngày 08/10/2026: người dùng đóng vai khách hàng, trao đổi và truy vấn thông tin qua một đầu mối; OneCrew tiếp nhận công việc và điều phối các vai phía dưới. Conductor là vai hội thoại xuyên suốt, kết hợp làm rõ yêu cầu và theo dõi bàn giao. Đây là thiết kế, chưa có runtime hội thoại/dispatch trong CLI hiện tại.
+## 6. Hỏi lại và chuyển công cụ
 
-| Vai | Trách nhiệm và quyền quyết định |
-|---|---|
-| Khách hàng | Chọn mục tiêu, ưu tiên, phạm vi và ngân sách; duyệt thay đổi; chấp nhận kết quả sản phẩm |
-| Conductor | Hiểu nhu cầu, tra cứu thông tin có nguồn, hỏi điểm còn thiếu, đề xuất lát nhỏ, soạn spec nháp, điều phối trong quyền đã cấp và tổng hợp kết quả |
-| Worker/tester/reviewer | Thực hiện phần được giao và trả artifact, evidence, blocker; lựa chọn các vai cần thiết theo workflow, không bắt mọi việc qua đủ vai |
-| Host và verifier | Giữ trạng thái thực thi, kiểm quyền/ngân sách, gọi gate và xác nhận kết quả kỹ thuật; Conductor không tự thay thế các kiểm soát này |
+Request lưu ID, task/plan/spec revision, câu hỏi ngắn, lý do cần người dùng, khuyến nghị/options, tác động scope/thời gian/quyền, proposed action revision và tasks bị ảnh hưởng. Trạng thái pending/answered/applied/rejected/expired/superseded. Poll inbox không gọi model; push tùy capability, không là điều kiện để nhận câu hỏi.
 
-Một cuộc trao đổi có thể bắt đầu khi chưa có spec hoặc task thực thi. Conductor duy trì brief gồm mục tiêu, điều đã thống nhất, giả định, câu hỏi mở và việc để sau; mỗi quyết định giữ nguồn từ lượt trao đổi của khách hàng. Lời đề xuất của AI chưa trở thành quyết định của khách hàng. Không sinh spec mới sau mỗi tin nhắn và không tạo task thực thi chỉ vì một chủ đề được nhắc tới.
+Ví dụ CV chưa chốt thời hạn lưu: core hỏi “Giữ CV bao lâu?”, nêu lựa chọn và phần storage đang chờ. Task CSS độc lập có thể tiếp tục. Im lặng không phải approval. Gộp request tương đương cùng revision thay vì hỏi lại nhiều lần.
 
-Conductor phân biệt ba ý định trong cùng hội thoại:
+Kiro hết usage, chuyển Claude:
 
-- **Hỏi thông tin:** đọc source/tài liệu/evidence cần thiết, trả lời kèm nguồn và độ mới; báo rõ phần chưa xác minh. Lệnh đọc trạng thái trực tiếp vẫn lấy dữ liệu host mà không cần gọi model.
-- **Làm rõ nhu cầu:** cập nhật brief, hỏi ít câu có ảnh hưởng đến kết quả, trình bày lựa chọn và hệ quả bằng ngôn ngữ người dùng. Công việc khảo sát có giới hạn riêng trong ngân sách mục tiêu, không tự biến thành triển khai.
-- **Giao hoặc đổi việc:** đề xuất phạm vi, nghiệm thu, budget và repo liên quan; tạo spec nháp khi người dùng yêu cầu chốt. Khi đang chạy, phản hồi được phân loại thành làm rõ trong scope, ý tưởng backlog hoặc thay đổi cần duyệt; bước ngoài scope chưa được dispatch.
+1. Connect cùng project/task ID; nhận mục tiêu, output verified, phần đang chạy và request pending.
+2. Claude hiển thị cùng request; người dùng trả lời, connector gửi request/action revision và provenance.
+3. Core kiểm quyền/freshness rồi áp dụng một lần. Reply lặp trả kết quả cũ; reply khác cho request đã áp dụng báo conflict. Reply cho nội dung cũ phải đối chiếu lại, không áp lên action mới.
+4. Tiếp tục bằng checkpoint/budget cũ. Đổi entry không đổi worker; worker độc lập không bị khởi động lại.
 
-Luồng bàn giao: trao đổi → đề xuất ngắn → spec nháp → khách hàng duyệt đúng revision → chạy khi đã có quyền thực thi → worker/test/verify/review phù hợp → Conductor báo kết quả và cách thử → khách hàng nghiệm thu sản phẩm. Phê duyệt spec và quyền chạy là hai quyết định khác nhau nhưng có thể được người dùng cấp cùng lúc; không hỏi lại quyền đã có. CLI hiện tại chỉ ghi approval spec local, chưa hỗ trợ cấp quyền chạy qua chat hay cưỡng chế các bước này.
+Nếu **worker** hết usage: xác nhận old writer dừng, reconcile side effects chưa rõ, lưu source/diff/checkpoint/lỗi rồi chọn worker khác trong policy đã cấp. Lease hết hạn không chứng minh process đã chết; chỉ cấp writer mới sau stop/reconcile. Fencing chặn report cũ; isolation/stop chặn writer cũ sửa file. Không có hai writer, không reset calls/retries/deadline. Native session có thể không chuyển được; tiếp tục bằng handoff tối thiểu, không hứa chuyển nguyên chat history.
 
-Gói giao việc xuống dưới gồm `product_task_id`, spec revision đã duyệt, mục tiêu/AC/non-goals, repo và ownership, giới hạn quyền/budget, dependency và artifact/evidence cần trả. Conductor được chia việc và xử lý lựa chọn triển khai trong phạm vi đó; không tự approve spec của mình, đổi AC, tăng budget hoặc thay user acceptance bằng lời worker báo xong. Báo cáo trở lại khách hàng tập trung vào kết quả thử được, phần còn thiếu, chi phí quan sát được và quyết định cần khách hàng xử lý.
+## 7. Nhiều task liên quan
 
-Conductor giữ danh tính và quyết định qua nhiều phiên, nhưng không cần model chạy hoặc suy nghĩ liên tục. Dùng tóm tắt có nguồn và sự kiện host; chỉ gọi model khi có tin nhắn hoặc sự kiện cần xử lý. Không đọc lại toàn bộ transcript hay mở thêm vòng review cho mỗi lần hỏi tiến độ. Chi phí trao đổi, khảo sát, điều phối và worker được tính vào cùng mục tiêu; khi sinh `product_task_id` phải liên kết chi phí trước đó, không reset budget. Các số chưa quan sát được ghi unknown.
+Bắt đầu tối đa **2 worker toàn core**, có giới hạn từng repo/provider; không phải 2 cho mỗi root task. Kiểm root budget và capacity chung khi dispatch. Ownership và worktree/snapshot riêng; không tự stash/reset phần sửa của người dùng.
 
-Đối chiếu: [tài liệu agent của Kiro Crew](https://github.com/kirodotdev/KiroCrew/blob/main/src/kiro_crew/docs/agents.md), đọc ngày 08/10/2026, mô tả conductor dùng work ledger, gắn work item với session và đánh giá completion bằng acceptance evaluator. OneCrew bổ sung contract trao đổi/duyệt ở trên; đây không phải khẳng định extension seam đã tích hợp hoặc thử thành công trên máy này. Host snapshot vẫn cần ghim và kiểm chứng theo spike hiện có.
+Ví dụ A: contract API → (B: backend, C: frontend) → D: integration. B/C chỉ chạy sau A; việc cùng file/schema hoặc không tách ownership chạy tuần tự. Graph cycle bị từ chối hoặc gom thành bước tuần tự có giải thích.
 
-## 2. Chiến lược tích hợp
+Integration owner ghép lần lượt trên base đã ghi và chạy gate bản ghép; hai nhánh pass riêng chưa đủ. Đa repo ghi vector commit và contract version, không giả định Git commit atomic xuyên repo. Local integration không bao gồm publish.
 
-Thứ tự lựa chọn:
+Contract/AC đổi tạo revision mới, đánh dấu stale chỉ descendants/evidence bị ảnh hưởng, reconcile worker liên quan trước khi tiếp tục. Giữ output đạt ở nhánh độc lập. Event attempt/revision cũ chỉ vào lịch sử, không hoàn tất task mới hoặc mở lại task đã cancel.
 
-1. App/extension được hỗ trợ, CLI gọi endpoint hoặc SDK có contract.
-2. Adapter mỏng có contract test, ghim phiên bản host.
-3. Bản sửa upstream hoặc fork nhỏ để thêm một seam verifier bắt buộc.
-4. Runtime độc lập chỉ khi các phương án trên không đáp ứng yêu cầu bắt buộc và đã đo chi phí duy trì.
+## 8. Task dài và phục hồi
 
-Không nhập trực tiếp private internals ở nhiều module. Một `CrewAdapter` che việc submit/status/cancel/resume và cung cấp capability/version rõ ràng. Lệnh không được hỗ trợ phải báo unavailable. Không đổi backend một cách im lặng.
+“Tối đa 8 giờ” là trần khi được cấp, không cần tiêu hết. Mặc định deadline tuyệt đối gồm queue/chờ người/chờ quota; hiển thị riêng active time và từng wait reason. Kéo dài cần grant revision rõ ràng, giữ nguyên đã tiêu; không tự cộng giờ khi restart, đổi worker hay tạo task con.
 
-Trong bản đầu, chọn một backend đã kiểm chứng cho mỗi host/run. Việc router đổi model trong cùng backend và việc đổi backend là hai tính năng khác nhau. Chạy hỗn hợp backend theo từng step chỉ được bật sau khi capability/spike xác nhận; một hàng trong backend registry không đủ để đảm bảo tính năng đó.
+Root budget gồm thời gian, calls, retry/repair/escalation và usage quan sát được. Conductor/evaluator/worker/reviewer do OneCrew gọi cùng thuộc root. Token chat ở app ngoài không đo được phải ghi unknown/excluded, không giả tổng chi phí đầy đủ. Run mới cùng mục tiêu giữ quan hệ root và lịch sử tổng; không reset budget qua workflow khác.
 
-Phạm vi bắt buộc là Claude/Kiro/Codex. Nếu phải tách khỏi Crew, interface executor sẽ có adapter Claude programmatic, Kiro ACP và Codex app-server. Đây là phương án dự phòng, không triển khai đồng thời hai đường dispatch trong MVP.
+Lưu dispatch intent/reservation/lease trước side effect, native/process ID ngay khi có. Sau crash reconcile với backend/source; trạng thái không rõ không được tự dispatch lại. Idempotency dùng nơi adapter hỗ trợ; nơi khác giữ bước cần xác minh. Side effect không đảo ngược chưa rõ kết quả cần người quyết định.
 
-## 3. Workflow có hai mức
+Checkpoint chứa diff chưa commit, repo/base, artifact hash, evidence, lỗi, bước tiếp theo và counters. Không cần model suy nghĩ liên tục khi chờ. Watchdog/status/cancel đi đường code riêng, tiếp nhận khi worker treo. Sau restart kiểm deadline trước call mới.
 
-### Quick task
+Không tiến triển, repair không đổi source, lỗi môi trường lặp hoặc hết budget phải dừng có bằng chứng/lựa chọn. Findings ngoài scope vào backlog; chỉ đưa vào task khi có quyền. Sửa build/test trong scope tự làm, không đổi AC/gate để pass. Deadline/cancel chặn dispatch mới và yêu cầu dừng process tree; unknown usage/sai lệch phải hiển thị.
 
-Tái hiện vấn đề → thay đổi nhỏ → kiểm tra mục tiêu → review diff → ready for integration.
+## 9. Model và quota
 
-### Feature có thay đổi hành vi
+Thứ tự chọn: quyền/capability → loại việc/rủi ro/context → bằng chứng năng lực → quota/budget/latency. List/status/diff/test có sẵn dùng code. Việc rõ, ít rủi ro dùng model tiết kiệm đã kiểm chứng; kiến trúc/phân quyền/đa repo dùng cấu hình đủ năng lực. Số dòng/file không quyết định độ khó.
 
-Spec + acceptance criteria → test → build → verify → review độc lập → integration gate.
+Quota snapshot lưu provider/account/window/reset/source/observed-at; hỗ trợ nhiều cửa sổ ngắn/tuần/credits tháng theo adapter thực tế. Còn cửa sổ ngắn không đủ nếu tuần đã hết. Có reserve cấu hình được cho trao đổi/review. Dữ liệu thiếu/cũ là unknown, không phải 0 hoặc unlimited. “MAX” chưa xác nhận biến thể và gói Kiro; không hardcode gói, phần trăm hay giờ reset trong policy.
 
-Chỉ fan-out các phần có ownership tách biệt. Với những bước cùng sửa file/schema, xếp tuần tự. Giá trị mặc định thử nghiệm là tối đa hai worker thực thi đồng thời; đây là điểm bắt đầu để đo tài nguyên, không phải giới hạn cố định đã triển khai.
+Reserve dự kiến trước dispatch song song, reconcile usage thực sau đó. App ngoài có thể tiêu quota tài khoản nên snapshot không bảo đảm hard cap phần trăm. Root counters tính mọi lần thử, timeout có usage unknown vẫn ghi. Dedup cumulative usage theo session/request; cached input nằm trong input, không cộng thêm. Không suy token thành USD/usage% chính xác khi provider không cung cấp.
 
-Không biến mọi lần agent dừng thành lần chạy toàn bộ test suite. Gate theo phạm vi thay đổi trước; chạy kiểm tra tích hợp đầy đủ khi ghép các kết quả.
+Có thể ưu tiên capacity sắp reset nếu đủ năng lực và các cửa sổ khác còn tốt; chuyển tại checkpoint hoặc đợi reset nếu deadline cho phép. Không hạ dưới risk floor, ping-pong provider, tự mua credits hoặc chuyển API trả phí. Fallback/escalation trong grant, giới hạn root, ghi lý do và policy version.
 
-[Contract kiểm soát phạm vi](scope-control.vi.md) áp dụng trước dispatch: phạm vi, AC và budget nằm ngoài quyền sửa của worker. Việc phát hiện thêm được phân loại thành sửa trong phạm vi, backlog hoặc đề xuất thay đổi. Mọi workflow mới của cùng mục tiêu dùng chung `product_task_id`; không reset số vòng và ngân sách. Host kiểm quyền/budget, reviewer kiểm ngữ nghĩa diff với AC; không coi allowlist file là đủ để phát hiện mọi scope creep.
+Conductor chỉ đánh giá ngữ nghĩa khi plan/lỗi/scope chưa rõ. JEV là evaluator tùy chọn, shadow/benchmark trước; không approve/dispatch. Kết nối được không chứng minh router tiết kiệm. Chỉ thêm khi giảm tổng usage tới kết quả đạt, latency hoặc can thiệp mà không giảm chất lượng; không dựng đủ 16 decision points cũ như điều kiện MVP.
 
-### Review đầu ra từng phần
+## 10. Review từng phần và đổi thứ tự
 
-Yêu cầu bổ sung: khách hàng có thể xem và phản hồi từng phần trước khi toàn task hoàn tất. Đây là review output, khác với approve spec trước triển khai. Chức năng này chưa có trong CLI/runtime hiện tại.
+Review card: “đã làm gì / cách thử / diff-preview / checks đạt và chưa chạy / giới hạn / quyết định cần anh”. Card trỏ immutable snapshot; feedback/accept/request-changes gắn revision. Output mới không tự kế thừa acceptance cũ. Human gate chỉ ở mốc đã thỏa thuận; việc độc lập tiếp tục.
 
-Khi chia việc, Conductor đề xuất các mốc có đầu ra người dùng đánh giá được: một màn hình, một luồng thao tác, một phần tài liệu hoặc một thay đổi code có diff/test. Không dùng số file hay số agent làm đơn vị bàn giao. Mốc nào cần khách hàng xác nhận trước khi làm bước phụ thuộc phải được ghi rõ trong kế hoạch; không tạo thêm một lần duyệt cho mọi bước kỹ thuật.
+Priority chỉ áp task queued đủ dependency, cập nhật plan revision bằng compare-and-set. Không bỏ A để chạy B, tự stop worker hoặc cấp budget mới. Ngắt việc đang chạy dùng pause/cancel rõ ràng, đợi xác nhận; resume dùng checkpoint và grant còn hiệu lực.
 
-Có hai đường vào cùng luồng review: tự đưa đầu ra ra khi đạt mốc đã chốt, hoặc khách hàng yêu cầu “cho tôi xem phần đang làm” bất kỳ lúc nào. Nếu chưa có đầu ra, báo đúng phần chưa sẵn sàng; nếu có bản nháp, cho xem để góp ý sớm kèm giới hạn và gate chưa chạy/đang lỗi. Bản nháp không tự trở thành kết quả đã nghiệm thu và không được bỏ qua gate bắt buộc.
-
-Mỗi lần bàn giao tạo checkpoint có `output_id`, revision/hash, task và spec revision, repo/commit hoặc manifest snapshot, phần AC liên quan, artifact/cách mở hoặc thử, evidence và phần còn thiếu. Bản đang review phải ổn định: worker không ghi đè snapshot/demo khiến người dùng nhìn nội dung khác phiên bản được ghi nhận. Checkpoint chỉ chứa dữ liệu phù hợp quyền truy cập của project.
-
-Conductor trình bày một thẻ ngắn: phần này làm được gì; thay đổi từ bản đã review; cách xem/thử; điều chưa đạt; quyết định cần khách hàng. Người dùng có thể xem lại bất kỳ checkpoint và diff với bản trước, không cần đọc toàn bộ transcript hoặc chờ hết task. Đọc danh sách/checkpoint/evidence đã lưu không gọi model; yêu cầu phân tích bổ sung vẫn có thể tốn token.
-
-Phản hồi gồm chấp nhận phần này, yêu cầu sửa có comment, hoặc góp ý bản nháp chưa nghiệm thu. Quyết định gắn đúng output revision và phần AC, tách khỏi trạng thái gate kỹ thuật. Lịch sử giữ nguyên; phiên bản output hoặc dependency liên quan thay đổi thì phải đánh giá lại freshness, không tự chuyển chấp nhận bản cũ sang bản mới. Chỉ nói “ổn” khi đang có nhiều đầu ra mở thì Conductor phải làm rõ đối tượng trước khi ghi quyết định; không coi im lặng là đồng ý.
-
-Yêu cầu sửa trong scope giao lại đúng phần trong ngân sách chung; ý tưởng ngoài scope đưa backlog/đề xuất thay đổi. Host giữ các bước phụ thuộc vào mốc chưa được chấp nhận hoặc đang cần sửa; các bước độc lập vẫn tiếp tục nếu còn quyền và budget. Nếu phần phụ thuộc đã chạy khi có phản hồi mới, ngừng giao bước ảnh hưởng mới, yêu cầu checkpoint theo khả năng adapter và kiểm lại kết quả đã tạo; chỉ báo dừng khi host xác nhận. Không reset bộ đếm retry/budget vì mở một lượt review output.
-
-Chấp nhận một phần không đóng cả task và không cấp quyền publish/deploy. Hoàn tất task vẫn cần đủ AC, gate tích hợp trên bản ghép và các mốc nghiệm thu người dùng đã thỏa thuận. Review từng phần được nối vào luồng Conductor tới bàn giao sau spike host, không mở thêm scheduler hoặc dashboard riêng.
-
-### Đổi thứ tự công việc
-
-Khách hàng có thể nói với Conductor “làm B trước A”, “đưa C xuống sau” hoặc dùng CLI để sắp lại việc chờ. Conductor hiển thị thứ tự trước/sau và ảnh hưởng tới việc đang chạy, dependency, mốc review; host cập nhật kế hoạch thực thi qua cùng adapter/queue hiện có. Đây là thiết kế, chưa có lệnh reorder hoặc runtime áp dụng.
-
-- **Việc chưa chạy, đã đủ điều kiện:** áp dụng thứ tự mới cho các lần dispatch tiếp theo; không hỏi lại khi chỉ sắp thứ tự trong quyền đã cấp.
-- **Việc đang chạy:** đổi thứ tự mặc định chỉ tác động việc chờ, không tự ngắt worker. Muốn chuyển ngay, khách hàng yêu cầu tạm dừng việc đang chạy; host yêu cầu checkpoint/dừng theo khả năng adapter, giữ artifact và xác nhận trạng thái thực trước khi nhường tài nguyên/ownership. Nếu không dừng được, báo lý do; không báo đã chuyển hoặc mở writer xung đột.
-- **Việc có dependency hoặc mốc review bắt buộc:** ưu tiên cao hơn không làm nó thành runnable. Ví dụ B cần đầu ra A thì B vẫn chờ A; Conductor giải thích và có thể đề xuất ưu tiên chuỗi điều kiện đã nằm trong phạm vi. Muốn tách dependency, dùng mock hoặc thay cách nghiệm thu cần đánh giá ảnh hưởng và duyệt thay đổi nếu vượt hợp đồng; không tự bỏ điều kiện để đáp ứng thứ tự mong muốn.
-- **Việc đã hoàn thành:** không chạy lại hay xóa acceptance chỉ vì sắp lại kế hoạch. Công việc làm lại chỉ phát sinh khi có yêu cầu hoặc evidence không còn phù hợp.
-
-Đổi thứ tự thuần túy chỉ tạo revision kế hoạch và lịch sử ai đổi/gì đổi/lý do nếu có; không sửa spec, không làm mất review output còn hợp lệ và không reset budget/retry. Thay nội dung, quyền, ngân sách hoặc cam kết trong spec đi qua luồng thay đổi riêng. Conductor là bên đề xuất/thực hiện ý định khách hàng, host vẫn là nguồn duy nhất của thứ tự thực thi; không duy trì một hàng đợi riêng trong chat.
-
-Adapter phải kiểm plan revision và trạng thái hiện hành khi áp dụng, cập nhật thứ tự nhất quán ở host và chống gửi trùng. Nếu task đã chuyển trạng thái hoặc người dùng khác vừa thay kế hoạch, trả xung đột kèm trạng thái mới; không âm thầm ghi đè bằng thứ tự cũ. `task list` phân biệt vị trí ưu tiên với trạng thái đủ điều kiện/chờ gì. Thông báo chỉ nói thứ tự đã được host xác nhận, không suy từ lời Conductor nhận yêu cầu.
-
-## 4. Trạng thái và bằng chứng
-
-Giữ hai trường riêng:
-
-- `execution_status`: queued, running, waiting_input, interrupted, failed, completed, cancelled; map từ host, luôn giữ cả giá trị native.
-- `acceptance_status`: not_evaluated, verifying, rejected, accepted, stale.
-
-Projection điều khiển bổ sung `pause_requested`, `paused`, `cancel_requested`, `budget_exhausted` và `connection_lost` kèm lý do/bằng chứng; giữ riêng request của người dùng với trạng thái thực host báo. Mapping cụ thể phải qua adapter contract test. Các trạng thái này không tạo queue hay scheduler thứ hai.
-
-`completed + rejected` là kết quả hợp lệ: agent đã kết thúc nhưng công việc chưa đạt. CLI hiển thị lý do và hành động tiếp theo.
-
-Một evidence record tối thiểu gồm:
-
-- task/run/attempt ID và ID native của host;
-- repo realpath, base/head commit, manifest hash của đầu vào và đầu ra;
-- workflow/skill/gate phiên bản;
-- command argv, cwd, exit code, thời điểm, timeout, log đã lọc secret;
-- model yêu cầu và model quan sát được, runtime/adapter version;
-- hash diff được review, reviewer result và phê duyệt áp dụng cho artifact nào.
-
-Đổi code, test, spec hoặc gate sau khi verify làm evidence liên quan thành stale. Chỉ chứng minh một commit sạch là chưa đủ nếu có file chưa commit; manifest phải bao gồm nội dung thực tế được kiểm tra. Agent không được tự sửa kho evidence hoặc bản verifier dùng để nghiệm thu run của mình.
-
-## 5. Gate và quyền theo vai
-
-Tách policy từ OneTechAI khỏi kiến thức ngành. Pack phát triển phần mềm cung cấp role spec/test/build/review; pack ngành chỉ thêm yêu cầu khi project chọn.
-
-Builder không được tự sửa test nghiệm thu để làm xanh. Điều này phải được kiểm ở tool/sandbox/host và kiểm tra diff cuối, không chỉ bằng prompt. Nếu adapter không đảm bảo ranh giới đó, doctor đánh dấu degraded và workflow không được chạy tự động với lời hứa cách ly vai.
-
-Verifier đọc version gate đã ghim từ nơi worker không thể thay. Gate fail hoặc mất kết quả phải ngăn `accepted`. Gate không chạy được là lỗi vận hành, không phải pass.
-
-Phê duyệt cần gắn với hành động, phạm vi và hash artifact. Duyệt spec không tự cho phép publish/deploy. Ngược lại, cùng một phê duyệt vẫn hiệu lực thì không hỏi lại.
-
-CLI hiện tại lưu approval trong SQLite local và nhận nhãn người duyệt do người gọi khai báo; worker cùng quyền filesystem có thể sửa kho hoặc gọi approve. Trước tự động hóa phải kiểm chứng quyền ghi quyết định thuộc người dùng/control service, worker không có quyền tự duyệt, sửa scope/AC/budget hoặc tăng quyền chạy. Đây là điều kiện tích hợp còn thiếu, không được suy ra từ việc hash spec và 24 test CLI đã đạt.
-
-Spec đã duyệt giữ ổn định. Kế hoạch triển khai, checkpoint và nhật ký tiến độ là artifact riêng, tham chiếu spec revision; cập nhật chúng không tự sửa hợp đồng đã duyệt. Thay đổi yêu cầu, ràng buộc hoặc nghiệm thu mới cần revision spec và quyết định phù hợp. Phần chi tiết không được giấu thêm nghĩa vụ ngoài bản nhanh; kiểm tra ngữ nghĩa vẫn cần review, không được bảo đảm chỉ bằng hash.
-
-## 6. Recovery và giới hạn
-
-Tái sử dụng cơ chế resume của host, ghi ánh xạ ID bền vững trước khi báo đã nhận việc. Khi submit có kết quả không rõ, tra theo idempotency key trước khi submit lại.
-
-Crash giữa một tác vụ có side effect không được tự hiểu là chưa chạy. Ví dụ API tạo PR đã thành công nhưng local chưa ghi nhận thì cần reconcile bằng external ID hoặc dừng chờ quyết định. Không cam kết exactly-once cho hệ thống bên ngoài.
-
-Worker hết quota chờ backoff; lỗi code dùng retry budget riêng; không tiến triển thì dừng và giải thích. Budget gồm timeout, retry, concurrency và usage nếu backend cung cấp. Cost không có thì là unknown, không hiển thị 0. Ước tính usage khác hóa đơn tài khoản.
-
-Chuyển runtime không chuyển nguyên private session state. Handoff dùng goal, spec, artifact và evidence; adapter khởi tạo session mới nếu native resume không tương thích.
-
-## 7. Giao diện CLI dự kiến
-
-Các lệnh dưới đây chưa được triển khai:
+Các lệnh dưới đây là **đề xuất, chưa triển khai**; cú pháp cuối chốt cùng implementation:
 
 ```text
-onecrew doctor
-onecrew project add <path> --name <name>
-onecrew task add --project <name> --title <text> --workflow quick-fix
-onecrew task list
-onecrew task move <task-id> --before <other-task-id>
-onecrew task move <task-id> --after <other-task-id>
-onecrew plan <task-id>
-onecrew run <task-id>
-onecrew status --all
-onecrew watch <task-id>
-onecrew why <task-id>
-onecrew evidence <task-id>
-onecrew pause <task-id>
-onecrew resume <task-id>
-onecrew cancel <task-id>
-```
-
-`task move` áp dụng cho thứ tự việc chờ; không tự pause việc đang chạy, cấp quyền run hay bỏ dependency. Target/reference đang chạy hoặc đã hoàn thành phải được báo rõ thay vì diễn giải thành một yêu cầu ngắt. Với yêu cầu chuyển ngay, dùng `pause`, đợi host xác nhận rồi xếp lại các việc đủ điều kiện; giữ nguyên checkpoint và ngân sách. `task list` là lệnh đọc, hiển thị thứ tự hiệu lực, trạng thái và lý do chờ.
-
-Các lệnh review output dự kiến dưới đây cũng chưa được triển khai; khác nhóm `spec` đang có:
-
-```text
-onecrew output list <task-id> --pending
+onecrew task submit --spec <spec-id> --revision <hash> --grant <grant-file>
+onecrew task connect <task-id>
+onecrew request list --task <task-id> --pending
+onecrew request reply <request-id> --revision <action-hash> --choice <option>
+onecrew task pause <task-id>
+onecrew task resume <task-id>
+onecrew task move <task-id> --before <queued-task-id> --revision <plan-hash>
 onecrew output review <output-id> --revision <hash>
-onecrew output diff <output-id> --from <hash-cu> --to <hash-moi>
 onecrew output accept <output-id> --revision <hash>
-onecrew output request-changes <output-id> --revision <hash> --comment <noi-dung>
-onecrew output history <output-id>
+onecrew output request-changes <output-id> --revision <hash> --comment <text>
 ```
 
-Mọi lệnh query có `--json`, không gọi model và không sửa state. `why` phân biệt thiếu dependency, chờ người, hết budget, test fail, adapter lỗi và chờ integration. Approval/action commands sẽ có schema riêng sau spike; không dùng một nút “approve tất cả”.
+Nhóm task run/list/status/cancel/outputs/preview và spec hiện có giữ tương thích. Query có JSON cho connector, không gọi AI. Nhóm decision hiện phục vụ JEV connectivity, không dùng nhầm làm approval khách hàng.
 
-Trang quản lý sau MVP ưu tiên bảng công việc, chi tiết kết quả và danh sách cần quyết định. Terminal stream/chat là chi tiết có thể mở ra, không thay thế tiến độ nghiệp vụ.
+## 11. Thứ tự xây và phần để sau
 
-## 8. Stack đề xuất và ranh giới phạm vi
+1. Core bền vững + spec-to-plan tổng quát + inbox, một Codex worker tuần tự; chứng minh restart không lặp việc, quyền/budget giữ nguyên.
+2. Entry Codex/Claude/Kiro, worker Claude Code/Kiro CLI; đổi entry, reply cùng request và handoff worker thực.
+3. Hai worker song song, dependency/ownership/integration; review từng phần và reorder đầy đủ.
+4. Routing có quota và giới hạn dài; fault injection trước soak run có ngân sách riêng.
 
-Python cho CLI/integration để thuận lợi tái sử dụng scripts và cùng hệ sinh thái Crew. Chọn thư viện CLI lúc spike; không cần thêm frontend framework cho v0.1. Khi làm dashboard, dùng App SDK/React của host nếu contract đáp ứng.
+[Backlog](mvp-backlog.vi.md) ghi điều kiện qua từng mốc. Không cần chờ toàn roadmap mới dùng lát đã đạt.
 
-MVP chạy local trên Windows, repo có đường dẫn chứa dấu và khoảng trắng. Không dùng shell interpolation cho prompt. Tạo process với argv/stdin, quản lý cancellation cả process tree và kiểm tra file locks khi dọn worktree.
-
-Thứ tự sau review: hoàn thiện các lỗi CLI đã tái hiện → chứng minh một task trên một repo/một backend có status, cancel, budget và gate thực → nối Conductor từ trao đổi tới bàn giao → mở rộng lần lượt nhiều repo và Claude/Kiro/Codex. Đây là thứ tự kiểm chứng, không loại bỏ yêu cầu nhiều repo/ba backend. DeepSeek, registry đa máy và dashboard thuộc giai đoạn sau. Chưa chốt lịch toàn roadmap trước khi có kết quả spike. Mốc nghiệm thu chính là thời gian/token tới một chức năng người dùng thử và chấp nhận, cùng số lần người dùng phải can thiệp.
-
-Chưa xây ở v0.1: vector database riêng, marketplace, nhóm nhiều người, distributed worker, tự sửa skill rồi tự triển khai, kênh chat ngoài hoặc scheduler mới. Những phần này chỉ thêm khi workflow thật cho thấy cần.
+Để sau: dashboard/chat UI riêng, vector DB, multi-user/distributed registry, marketplace, tự sửa policy production, JEV bắt buộc, tự publish/deploy. Chỉ thêm khi workflow thực cần. Đo chức năng dùng thử được, tổng chi phí tới kết quả đạt, số lần can thiệp và thời gian chờ có lý do; số spec/agent/commit không thay kết quả.

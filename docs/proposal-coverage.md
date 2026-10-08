@@ -1,5 +1,42 @@
 # Proposal Coverage
 
+## Portable orchestration architecture — SPEC-006, 2026-10-09
+
+Proposal source: `specs/SPEC-006-portable-orchestration.md`.
+Last reviewed implementation: `bf2e673` (runtime), with evidence documentation at `6f6d44a`.
+Current cycle: documentation/architecture only, requested review and update; no new runtime implementation or paid worker run.
+
+The current baseline is [architecture](architecture.vi.md) and [implementation sequence](mvp-backlog.vi.md). It replaces the Kiro Crew-first host exploration and broad DecisionEvaluator-first sequence in the historical 08/10 documents. One independent core owns state, budgets and dispatch; entry connectors and worker adapters are separate; JEV is optional after evidence. Historical R/CN/DF rows below are not the current implementation plan. Existing SPEC-005 and spec-CLI achievements remain valid within their original scope.
+
+| Status | Count |
+|---|---:|
+| Complete | 0 |
+| Partial | 10 |
+| Missing | 2 |
+| Blocked | 0 |
+| Not applicable | 0 |
+
+These counts measure the new SPEC-006 implementation requirements, not documentation completion or regression of the earlier profile. No requirement is Complete merely because its design is written.
+
+| ID | Proposal section | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
+|---|---|---|---|---|---|---|---|
+| OC01 | Entry | Portable submit/connect/query | API | No general entry connector/submit/attach contract | Planned T01/T06/T18; no live multi-entry evidence | Missing | Current task CLI is profile-specific |
+| OC02 | Planning | Spec and real repo to general plan | Functional | specs.py review; incremental_profile.py fixed CV DAG | SR tests and IA01 only; planned T01/T02/T19 | Partial | General decomposition missing |
+| OC03 | Core | Durable authority, recovery, one writer | Reliability | runtime.py bounded controller/cancel/checkpoints | IA03 within-process retry; planned T03/T04/T10/T14 | Partial | No restart reconcile or independent service |
+| OC04 | Workers | Replaceable verified adapters | API | Current Codex read-only artifact worker | SPEC-005 live Codex; planned T04/T07 | Partial | Claude/Kiro adapters and cross-provider handoff missing |
+| OC05 | Inbox | Durable requests and trusted revision replies | Security | No operational multi-entry request/reply inbox | Planned T05/T06/T08/T12/T19 | Missing | spec approval ledger is not this capability |
+| OC06 | Memory | Shared decisions/checkpoints/provenance | Data | Spec snapshots, run logs and file checkpoints | SR history, IA02; planned T03/T06/T07/T18 | Partial | Portable memory/ack/isolation semantics missing |
+| OC07 | DAG | Parallel dependency/ownership scheduling | Architecture | Fixed sequential CV graph validation | IA01 fixed-profile checks; planned T09/T10/T13 | Partial | General parallel scheduler missing |
+| OC08 | Integration | Verified merged result across branches/repos | Testing | Host CV gates and independent review | SPEC-005 19 live checks; planned T11 | Partial | No multi-worktree integration owner |
+| OC09 | Long jobs | Root budgets, recovery and optional 8h | Reliability | Run deadline/calls/repair counters; CLI capped at 1h | Bounded runtime/IA03 tests; planned T07/T09/T13/T14/T15/T17 | Partial | Durable cross-attempt/parallel grants and 8h validation missing |
+| OC10 | Routing | Task/risk/capability plus account quota | Performance | incremental model rules; JEV connection only | Routing regressions, connectivity probe; planned T15/T16/T18 | Partial | No quota windows/reservation/routing benchmark |
+| OC11 | Review | Partial review, feedback and reorder | UI | outputs/checkpoints/preview | IA02/IA05; planned T10/T12/T13 | Partial | Revision feedback/acceptance/pause/reorder missing |
+| OC12 | Authority | Scope/grant enforcement separate from acceptance | Security | Fixed CV sealed gates and worker artifact validation | SPEC-004 boundary tests/IA04; planned T01/T08/T11/T16/T19 | Partial | Trusted multi-entry caller/worker authority isolation missing |
+
+Documentation cycle: updated canonical architecture, readable SPEC-006, four delivery phases and T01–T19 acceptance scenarios; preserved dated architecture/backlog snapshots. Validation for this cycle is spec parsing/brief limit, current CLI read-only smoke, requirement coverage, local links/fences and Git whitespace checks. Runtime tests recorded above belong to prior cycles; they were not rerun as evidence for new runtime capabilities. The new proposal remains unapproved. The review/update task does not authorize implementing the entire new roadmap.
+
+Validation result (2026-10-09): all seven changed/new documentation files pass local link/fence/encoding checks; brief is 233/350 whitespace-delimited words; OC01–OC12 and T01–T19 are present and mapped. Dated snapshots match the pre-edit drafts. `python -X utf8 -m onecrew spec review SPEC-006` (brief and `--full`) and `task run --help` exit 0. Initial strict question-section parsing failed on extra prose after “Không có.”; the proposal format was corrected, without changing the parser. No runtime source or tests changed.
+
 ## Incremental autonomy cycle — SPEC-005
 
 Current cycle: IA01–IA05 Complete for the fixed CV/local/Codex profile. [Implementation and evidence](incremental-autonomy.vi.md): 69 tests passed; live run RUN-20261008-232057-1d06d8 delivered from an empty directory in 585.21 seconds, 14 model calls, one autonomous repair, 19 passing HTTP/browser/security checks and an independent review with no findings. All 10 source files match model artifacts; product commit ad3c748. Preview is available through OneCrew CLI. This supersedes the historical SPEC-004 live-delivery blocker below; broader roadmap and external bot-protection efficacy remain unverified.
