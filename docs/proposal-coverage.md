@@ -1,5 +1,20 @@
 # Proposal Coverage
 
+## P1b — durable admission, action receipts and Windows supervision
+
+User requested continuing to completion. Current slice CB01–CB04 implements the local control primitives behind P1b; generic planner/worker delivery remains next. Baseline `f13f2fd`.
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| CB01 | Explicit schema migration preserving v1 records and backup | control.migrate, schema v2, Ledger reads v1/v2 | backup/idempotent migration and legacy ledger tests | Complete |
+| CB02 | Atomic reservation, root deadline/counters, generation and global capacity | Control reserve/launched/finish/unknown/cancel | concurrent reservation, restart, exhaustion, stale generation, unknown hold, pending question tests | Complete |
+| CB03 | Stop process tree and reconcile before releasing ownership | Supervisor, native Windows Job Object, PID+creation time | real success/timeout/descendant and supervisor-death tests; Store alias rejection | Complete |
+| CB04 | Revision-bound action authorization and non-replayed unknown outcome | Control action methods, receipt commit and reconciliation | action effect then exception, strict boolean verifier, stale authorization tests | Complete |
+
+These are internal controller APIs plus core migrate/status/cancel/reconcile CLI, not a completed general worker runtime. Unidentified launches retain ownership/reservation for manual reconciliation; no lease-expiry restart. Native Windows containment is verified with direct native executables, not arbitrary shell launchers, WSL or hostile broker-assisted processes. Microsoft Store aliases/venv redirectors are refused because a real test showed an escaped descendant; using the direct native Python executable passes the descendant test. Job Objects are process containment, not a filesystem/network sandbox. Worker/tool authority isolation remains OC12 work.
+
+Validation: 104 tests passed in 27.408 seconds on Windows, including 16 control/supervisor tests. No model call was made for this cycle. CB01–CB04 completion is limited to these internal primitives; live provider isolation, generic delivery and unidentified-launch recovery remain separate gates.
+
 ## P1a — durable local task ledger and inbox
 
 Implementation baseline: `6a49444`; scope from SPEC-006 / backlog P1a, T01/T05/T18 and the persistence/reply subset of T22. User authorized starting the build. This slice records work and local answers; it does not dispatch workers or turn local attribution into trusted execution approval.

@@ -180,7 +180,7 @@ class Ledger:
                     conn.execute(statement)
                 conn.execute(f'PRAGMA application_id={APP_ID}')
                 conn.execute(f'PRAGMA user_version={VERSION}')
-            elif version != VERSION or app_id != APP_ID:
+            elif version not in (VERSION, 2) or app_id != APP_ID:
                 raise LedgerError('Unsupported ledger schema; use a compatible version or explicit migration.')
             yield conn
             conn.commit()
@@ -229,6 +229,13 @@ class Ledger:
                       dispatch_enabled=False, grant_status='unverified_local',
                       budget={'limits': payload['grant']['limits'], 'used_calls': 0, 'reserved_calls': 0},
                       deadline_expired=dt.datetime.now(dt.timezone.utc) >= dt.datetime.fromisoformat(row['deadline']))
+        if conn.execute('PRAGMA user_version').fetchone()[0] >= 2:
+            execution = conn.execute('SELECT * FROM executions WHERE task_id=?', (row['id'],)).fetchone()
+            if execution:
+                result['execution'] = execution['status']
+                result['budget'].update(used_calls=execution['used_calls'], reserved_calls=execution['reserved_calls'])
+                result['control_revision'] = execution['revision']
+                result['cancel_requested'] = bool(execution['cancel_requested'])
         if full:
             result['handoff'] = payload
             result['requests'] = [self._request_view(r) for r in conn.execute(

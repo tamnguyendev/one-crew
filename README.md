@@ -13,6 +13,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [Kế hoạch triển khai](docs/mvp-backlog.vi.md) | Bốn mốc, P1 chia bốn lát nhỏ; 30 ca nghiệm thu dự kiến |
 | [Coverage](docs/proposal-coverage.md) | Phân biệt code đã có với phần còn thiếu |
 | [P1a — task và inbox lưu bền](docs/durable-ledger.vi.md) | Submit/queue/connect, câu hỏi/revision/reply qua CLI; chưa dispatch worker |
+| [P1b — admission và supervisor](docs/control-runtime.vi.md) | Schema migration, reservation/counters, action receipts, native Windows process containment |
 | [CLI spec](docs/spec-review-cli.vi.md) | Review/approve theo revision, diff/history |
 | [Runtime và bằng chứng SPEC-005](docs/incremental-autonomy.vi.md) | Chạy CV từ thư mục trống, test/review/repair và preview |
 | [JEV connection](docs/jev-connection.vi.md) | Kết nối đã kiểm chứng; chưa semantic routing |
