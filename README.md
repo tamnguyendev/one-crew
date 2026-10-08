@@ -19,7 +19,7 @@ Lấy mã phiên bản vừa hiện để dùng `spec approve SPEC-001 --revisio
 
 Một file spec có bản nhanh tối đa 350 từ và chi tiết cho AI. Đọc/duyệt không gọi model. Approval lưu theo nội dung; sửa spec làm bản hiện tại cần duyệt lại. Đây là sổ quyết định local, chưa có xác thực/cách ly với worker và chưa tự chạy AI. Xem [hướng dẫn CLI](docs/spec-review-cli.vi.md) và [spec mẫu đang chờ duyệt](specs/SPEC-001-duyet-spec.md).
 
-Review tổng thể 08/10/2026: 16 test hiện hữu đạt, nhưng còn hai tình huống chưa sửa: spec đang soạn dở có thể chặn review spec khác; history không đọc được khi file hiện tại sai định dạng. [Coverage hiện hành](docs/proposal-coverage.md) ghi 5 yêu cầu Complete, 3 Partial cho riêng CLI; Conductor và runtime chưa triển khai.
+Lượt sửa 2 đã xử lý hai lỗi phát hiện trong review: spec đang soạn dở không chặn review/approve spec hợp lệ; history vẫn đọc được khi file hiện tại lỗi hoặc bị xóa. Danh sách hiện lỗi riêng từng file và trả mã thoát 2 nếu kết quả chưa đầy đủ. [Coverage hiện hành](docs/proposal-coverage.md) ghi 8/8 yêu cầu CLI Complete với 24 test đạt; Conductor và runtime chưa triển khai.
 
 Kiểm thử: `python -m unittest discover -s tests -v`.
 
@@ -33,7 +33,7 @@ Xây một project riêng chứa workflow, gate, bằng chứng nghiệm thu và
 - Thử DeepSeek Harness ở giai đoạn sau, với phiên bản Kiro Crew đã hỗ trợ và gate đã được kiểm chứng.
 - Trạng thái của task do runtime sở hữu; kết luận đạt yêu cầu cần thêm bằng chứng gate. Không tạo hai scheduler cùng chạy một task.
 
-Thứ tự sau review: sửa các lỗi CLI → một task có status/cancel/budget/gate trên một repo/backend → nối Conductor từ trao đổi tới bàn giao → mở rộng nhiều repo và cả ba backend. DeepSeek, registry đa máy và dashboard để sau. Chưa dùng lại ước lượng tổng 2–4 tuần trước khi spike có bằng chứng.
+Các lỗi CLI đã được sửa. Bước kế tiếp là một task có status/cancel/budget/gate trên một repo/backend → nối Conductor từ trao đổi tới bàn giao → mở rộng nhiều repo và cả ba backend. DeepSeek, registry đa máy và dashboard để sau. Chưa dùng lại ước lượng tổng 2–4 tuần trước khi spike có bằng chứng.
 
 ## Tài liệu khởi động
 

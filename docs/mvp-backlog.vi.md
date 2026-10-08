@@ -6,7 +6,7 @@ Lát đã có: [CLI duyệt spec local](spec-review-cli.vi.md), có list/review/
 
 ## Thứ tự triển khai sau review tổng thể
 
-1. **Hoàn thiện CLI:** cô lập spec lỗi để vẫn list/review được spec khác; đọc history từ sổ quyết định khi file hiện tại sai định dạng. Hai tình huống đã tái hiện; chưa sửa code. Xem SR02/SR03/SR06 trong coverage.
+1. **Hoàn thiện CLI — đã xong lát này:** cô lập spec lỗi để vẫn list/review/approve được spec khác; đọc history từ sổ quyết định khi file hiện tại lỗi hoặc bị xóa. 24 test đạt; SR02/SR03/SR06 đã Complete trong coverage. Danh sách có lỗi vẫn hiển thị phần hợp lệ và trả mã thoát 2.
 2. **Một task kiểm soát được:** ghim một host/backend, một repo mẫu; kiểm chứng status/cancel khi model bận, tổng budget không reset, gate đỏ không được accepted, dừng giữ artifact và khôi phục không chạy trùng. Chốt một chủ sở hữu phân rã/retry giữa Conductor và TaskRunner, cùng ranh giới approval ngoài quyền worker.
 3. **Conductor tới bàn giao:** trao đổi → brief/spec → duyệt và quyền chạy → task đã kiểm soát → từng checkpoint có artifact/cách thử → khách hàng review từng phần → nghiệm thu bản ghép. Cho xem bản nháp theo yêu cầu; không đợi toàn task xong mới review. Kế hoạch triển khai và tiến độ lưu riêng, không sửa spec liên tục để buộc duyệt lại.
 4. **Mở rộng tuần tự:** nhiều repo và Claude/Kiro/Codex vẫn là yêu cầu sản phẩm; chứng minh từng backend qua cùng contract sau luồng đầu. DeepSeek, registry đa máy và dashboard để giai đoạn sau.
@@ -120,7 +120,7 @@ Người dùng đã chốt lập trình trên nhiều repo với Claude/Kiro/Cod
 
 ## Bổ sung: Conductor trao đổi và điều phối
 
-Theo phản hồi ngày 08/10/2026, [Conductor trong kiến trúc](architecture.vi.md) là đầu mối để khách hàng trao đổi, truy vấn và chốt việc; các vai thực thi phía dưới tiếp nhận gói công việc đã duyệt. Các yêu cầu dưới đây chưa triển khai, tách khỏi coverage của CLI duyệt spec local; không lấy kết quả 16 test CLI để xác nhận Conductor.
+Theo phản hồi ngày 08/10/2026, [Conductor trong kiến trúc](architecture.vi.md) là đầu mối để khách hàng trao đổi, truy vấn và chốt việc; các vai thực thi phía dưới tiếp nhận gói công việc đã duyệt. Các yêu cầu dưới đây chưa triển khai, tách khỏi coverage của CLI duyệt spec local; không lấy kết quả 24 test CLI để xác nhận Conductor.
 
 | ID | Yêu cầu | Hoàn thành khi |
 |---|---|---|

@@ -4,7 +4,7 @@
 
 Nguồn: yêu cầu người dùng ngày 08/10/2026: liệt kê spec, review nhanh bằng lời dễ hiểu, approve qua CLI; file vẫn chứa chi tiết cho AI.
 
-Trạng thái sau review tổng thể 08/10/2026: luồng chính đã có, 16 test hiện hữu đạt; SR02/SR03/SR06 còn Partial. Spec sai định dạng đang chặn list/review của spec khác; history còn phụ thuộc file spec hiện tại hợp lệ. Các yêu cầu cô lập lỗi/đọc lịch sử dưới đây đã được làm rõ nhưng chưa sửa code.
+Trạng thái sau lượt sửa 2: SR01–SR08 đã có implementation và verification; 24 test đạt, gồm 8 test hồi quy mới. Đã cô lập spec lỗi và tách history khỏi việc đọc file hiện tại. Runtime điều phối và quyền approval cách ly worker vẫn chưa triển khai.
 
 Một file Markdown có hai phần: `Duyệt nhanh` và `Chi tiết cho AI`. Phần nhanh là hợp đồng về kết quả, phạm vi, việc để sau, nghiệm thu, lưu ý, ngân sách và câu hỏi. Chi tiết mô tả cách triển khai, interface và kiểm thử; không tự thêm nghĩa vụ sản phẩm không được nêu ở phần nhanh. CLI không thể tự xác minh hoàn toàn tính nhất quán ngữ nghĩa giữa hai phần.
 
@@ -44,6 +44,10 @@ Launcher Windows: `./onecrew.ps1 spec list`. Nó dùng `.venv/Scripts/python.exe
 ```
 
 Các lệnh hỗ trợ `--json`. `--by "Tên người duyệt"` là tùy chọn trên hai lệnh ghi quyết định. Mã revision là 12 ký tự đầu SHA-256; sổ lưu hash đầy đủ. Khi nội dung thay đổi dù chỉ ở chi tiết, bản cũ không còn duyệt cho bản mới. `diff` giúp tránh đọc lại toàn bộ. Thay đổi xuống dòng CRLF/LF đơn thuần được chuẩn hóa; các thay đổi nội dung khác không bị bỏ qua.
+
+Nếu có spec sai định dạng, không đọc được hoặc trùng ID, `list` vẫn hiện các spec hợp lệ và từng lỗi riêng; `--pending` không giấu các lỗi đó. JSON trả `specs` cho các bản hợp lệ và `errors` gồm `id`, `path`, `error` cho các file lỗi (`id` có thể là null nếu tên file không hợp lệ). Mã thoát là 2 khi còn lỗi, 0 khi đọc đầy đủ; script phải xét cả mã thoát và dữ liệu. ID trùng bị loại khỏi danh sách hợp lệ dù một file trong nhóm còn viết dở. Review/approve/diff một ID khác không bị chặn bởi nhóm lỗi này.
+
+`history` đọc sổ quyết định theo ID, vẫn dùng được khi file spec hiện tại sai định dạng hoặc đã bị xóa. ID đúng dạng nhưng chưa có quyết định trả danh sách rỗng và không tạo database; ID sai dạng hoặc kho quyết định hỏng vẫn báo lỗi. Approval đã lưu của một file hiện đang lỗi không được hiển thị thành trạng thái approved trong `list`.
 
 Spec nằm ở `specs/SPEC-*.md`. Sổ quyết định SQLite ở `.onecrew/spec-reviews.sqlite3`, nằm ngoài Git; mỗi quyết định giữ snapshot nội dung. SQLite là kho quyết định local, không phải scheduler. CLI chỉ hash file spec này, chưa theo dõi nội dung tài liệu được liên kết.
 

@@ -134,6 +134,100 @@ class SpecReviewTests(unittest.TestCase):
         duplicate.write_text(SAMPLE, encoding="utf-8")
         self.invoke("list", expected=2)
 
+    def test_invalid_neighbor_does_not_block_review_or_decision(self):
+        neighbor = self.root / "specs" / "SPEC-002-draft.md"
+        neighbor.write_text("# SPEC-002 — Đang soạn\n", encoding="utf-8")
+        listed = self.invoke("list", expected=2)
+        self.assertEqual([r["id"] for r in listed["specs"]], ["SPEC-001"])
+        self.assertEqual(listed["errors"][0]["id"], "SPEC-002")
+        self.assertEqual(listed["errors"][0]["path"], "specs/SPEC-002-draft.md")
+        brief = self.invoke("review", "SPEC-001")
+        self.assertEqual(brief["revision"], self.invoke("review", "SPEC-001", "--full")["revision"])
+        self.assertFalse((self.root / ".onecrew").exists())
+        self.approve()
+        pending = self.invoke("list", "--pending", expected=2)
+        self.assertEqual(pending["specs"], [])
+        self.assertEqual(len(pending["errors"]), 1)
+        self.assertEqual(self.invoke("diff", "SPEC-001")["diff"], "")
+        self.invoke("request-changes", "SPEC-001", "--revision", brief["review_code"], "--comment", "Sửa câu mô tả")
+        self.assertEqual(len(self.invoke("history", "SPEC-001")["decisions"]), 2)
+
+    def test_mixed_inventory_never_reports_invalid_spec_as_approved(self):
+        self.approve()
+        self.path.write_text("# SPEC-001 — Đang sửa\n", encoding="utf-8")
+        neighbor = self.root / "specs" / "SPEC-002-valid.md"
+        neighbor.write_text(SAMPLE.replace("SPEC-001", "SPEC-002"), encoding="utf-8")
+        for options in ((), ("--pending",)):
+            listed = self.invoke("list", *options, expected=2)
+            self.assertEqual([(r["id"], r["status"]) for r in listed["specs"]], [("SPEC-002", "draft")])
+            self.assertEqual(listed["errors"][0]["id"], "SPEC-001")
+
+    def test_duplicate_id_isolated_but_target_approval_refused(self):
+        old = self.approve()["revision"]
+        duplicate = self.root / "specs" / "SPEC-001-duplicate.md"
+        duplicate.write_text("# SPEC-001 — Chưa viết xong\n", encoding="utf-8")
+        neighbor = self.root / "specs" / "SPEC-002-valid.md"
+        neighbor.write_text(SAMPLE.replace("SPEC-001", "SPEC-002"), encoding="utf-8")
+        listed = self.invoke("list", expected=2)
+        self.assertEqual([r["id"] for r in listed["specs"]], ["SPEC-002"])
+        self.assertEqual([r["id"] for r in listed["errors"]], ["SPEC-001", "SPEC-001"])
+        self.assertTrue(all("Trùng ID" in r["error"] for r in listed["errors"]))
+        self.invoke("review", "SPEC-001", expected=2)
+        self.invoke("approve", "SPEC-001", "--revision", old, expected=2)
+        code = self.invoke("review", "SPEC-002")["review_code"]
+        self.invoke("approve", "SPEC-002", "--revision", code)
+        self.assertEqual(len(self.invoke("history", "SPEC-001")["decisions"]), 1)
+
+    def test_invalid_file_bytes_and_size_are_isolated(self):
+        neighbor = self.root / "specs" / "SPEC-002-draft.md"
+        for content in (b"\xff", b"x" * (1024 * 1024 + 1)):
+            with self.subTest(content_size=len(content)):
+                neighbor.write_bytes(content)
+                listed = self.invoke("list", expected=2)
+                self.assertEqual([r["id"] for r in listed["specs"]], ["SPEC-001"])
+                self.assertEqual(listed["errors"][0]["id"], "SPEC-002")
+                self.assertEqual(self.invoke("review", "SPEC-001")["status"], "draft")
+        self.assertFalse((self.root / ".onecrew").exists())
+
+    def test_history_survives_malformed_and_missing_current_spec(self):
+        approved = self.approve()
+        db = self.root / ".onecrew" / "spec-reviews.sqlite3"
+        stored = db.read_bytes()
+        self.path.write_text("# SPEC-001 — Đang sửa\n", encoding="utf-8")
+        self.assertEqual(self.invoke("history", "SPEC-001")["decisions"], [approved])
+        self.path.unlink()
+        self.assertEqual(self.invoke("history", "SPEC-001")["decisions"], [approved])
+        self.assertEqual(db.read_bytes(), stored)
+
+    def test_history_without_decisions_does_not_create_state(self):
+        self.path.write_text("# SPEC-001 — Đang soạn\n", encoding="utf-8")
+        for sid in ("SPEC-001", "SPEC-999"):
+            self.assertEqual(self.invoke("history", sid)["decisions"], [])
+        self.invoke("history", "invalid-id", expected=2)
+        self.assertFalse((self.root / ".onecrew").exists())
+
+    def test_history_still_rejects_corrupt_ledger(self):
+        self.approve()
+        self.path.write_text("# SPEC-001 — Đang sửa\n", encoding="utf-8")
+        db = self.root / ".onecrew" / "spec-reviews.sqlite3"
+        with contextlib.closing(sqlite3.connect(db)) as con:
+            with con:
+                con.execute("UPDATE decisions SET snapshot = ?", ("corrupt",))
+        self.assertIn("Sổ quyết định", self.invoke("history", "SPEC-001", expected=2)["error"])
+        db.write_bytes(b"not sqlite data")
+        self.assertIn("database", self.invoke("history", "SPEC-001", expected=2)["error"])
+
+    def test_plain_text_inventory_keeps_valid_and_invalid_entries(self):
+        neighbor = self.root / "specs" / "SPEC-002-draft.md"
+        neighbor.write_text("# SPEC-002 — Đang soạn\n", encoding="utf-8")
+        process = subprocess.run([sys.executable, "-m", "onecrew", "--project", str(self.root), "spec", "list"], cwd=REPO, capture_output=True, encoding="utf-8")
+        self.assertEqual(process.returncode, 2)
+        self.assertIn("SPEC-001", process.stdout)
+        self.assertIn("CHỜ DUYỆT", process.stdout)
+        self.assertIn("SPEC-002-draft.md", process.stdout)
+        self.assertIn("LỖI", process.stdout)
+        self.assertEqual(process.stderr, "")
+
     def test_wrong_code_empty_actor_or_comment_do_not_write(self):
         code = self.review_code()
         self.invoke("approve", "SPEC-001", "--revision", "0" * 12, expected=2)

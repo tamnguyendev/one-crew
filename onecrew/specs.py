@@ -49,6 +49,11 @@ def clean_text(text: str) -> bool:
     return not re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", text)
 
 
+def validate_id(sid: str) -> None:
+    if not re.fullmatch(r"SPEC-\d{3,6}", sid):
+        raise SpecError("ID phải có dạng SPEC-001 (3–6 chữ số).")
+
+
 @dataclass(frozen=True)
 class Spec:
     id: str
@@ -115,23 +120,45 @@ class Project:
         self.spec_dir = contained(self.root, self.root / "specs")
         self.db_path = contained(self.root, self.root / ".onecrew" / "spec-reviews.sqlite3")
 
-    def specs(self) -> dict[str, Spec]:
-        specs = {}
+    def _spec_paths(self) -> dict[str | None, list[Path]]:
+        groups = {}
         for path in sorted(self.spec_dir.glob("SPEC-*.md")):
-            actual = contained(self.root, path)
-            if actual.stat().st_size > 1024 * 1024:
-                raise SpecError(f"{path.name}: spec vượt giới hạn 1 MiB.")
-            spec = Spec.parse(actual.read_text(encoding="utf-8-sig"), path)
-            if spec.id in specs:
-                raise SpecError(f"Trùng ID {spec.id}: {specs[spec.id].path.name} và {path.name}.")
-            specs[spec.id] = spec
-        return specs
+            match = re.match(r"^(SPEC-\d{3,6})(?:-|$)", path.stem)
+            sid = match.group(1) if match else None
+            groups.setdefault(sid, []).append(path)
+        return groups
+
+    def _unique_path(self, sid: str, paths: list[Path]) -> Path:
+        if not paths:
+            raise SpecError(f"Không tìm thấy {sid} trong {self.spec_dir}.")
+        if len(paths) != 1:
+            raise SpecError(f"Trùng ID {sid}: {', '.join(p.name for p in paths)}.")
+        return paths[0]
+
+    def _read_spec(self, path: Path) -> Spec:
+        actual = contained(self.root, path)
+        if actual.stat().st_size > 1024 * 1024:
+            raise SpecError(f"{path.name}: spec vượt giới hạn 1 MiB.")
+        return Spec.parse(actual.read_text(encoding="utf-8-sig"), path)
+
+    def specs(self) -> tuple[dict[str, Spec], list[dict]]:
+        specs, errors = {}, []
+        for sid, paths in self._spec_paths().items():
+            for path in paths:
+                try:
+                    # A second file reserves the same ID even when still incomplete.
+                    if sid is not None:
+                        self._unique_path(sid, paths)
+                    spec = self._read_spec(path)
+                    specs[spec.id] = spec
+                except (SpecError, OSError, UnicodeError) as error:
+                    errors.append({"id": sid, "path": path.relative_to(self.root).as_posix(), "error": str(error)})
+        return specs, errors
 
     def find(self, sid: str) -> Spec:
-        specs = self.specs()
-        if sid not in specs:
-            raise SpecError(f"Không tìm thấy {sid} trong {self.spec_dir}.")
-        return specs[sid]
+        validate_id(sid)
+        path = self._unique_path(sid, self._spec_paths().get(sid, []))
+        return self._read_spec(path)
 
     @staticmethod
     def _validate(row: dict) -> dict:
@@ -236,12 +263,20 @@ def execute(args: argparse.Namespace) -> tuple[dict, str]:
         for row in decisions:
             latest.setdefault(row["spec_id"], row)
         rows = []
-        for spec in project.specs().values():
+        specs, errors = project.specs()
+        for spec in specs.values():
             status = project.status(spec, latest.get(spec.id))
             if not args.pending or status != "approved":
                 rows.append({"id": spec.id, "title": spec.title, "status": status, "revision": spec.revision, "open_questions": len(spec.questions)})
         lines = [f"{r['id']:<12} {STATUSES[r['status']]:<17} {r['title']}" for r in rows]
-        return {"specs": rows}, "\n".join(lines) if lines else "Không có spec phù hợp."
+        lines.extend(f"LỖI: {r['path']} — {r['error']}" for r in errors)
+        return {"specs": rows, "errors": errors}, "\n".join(lines) if lines else "Không có spec phù hợp."
+
+    if args.command == "history":
+        validate_id(args.id)
+        rows = [public_decision(r) for r in project.decisions(args.id)]
+        lines = [f"{r['created_at']} | {STATUSES[r['kind']]} | {r['revision'][:12]} | {r['actor']}" + (f"\n  {r['comment']}" if r['comment'] else "") for r in rows]
+        return {"id": args.id, "decisions": rows}, "\n".join(lines) if lines else "Chưa có quyết định."
 
     spec = project.find(args.id)
     if args.command in ("approve", "request-changes"):
@@ -262,10 +297,6 @@ def execute(args: argparse.Namespace) -> tuple[dict, str]:
         else:
             footer += f"\nLệnh duyệt: spec approve {spec.id} --revision {spec.revision[:12]}"
         return data, content.rstrip() + "\n" + footer
-    if args.command == "history":
-        rows = [public_decision(r) for r in decisions]
-        lines = [f"{r['created_at']} | {STATUSES[r['kind']]} | {r['revision'][:12]} | {r['actor']}" + (f"\n  {r['comment']}" if r['comment'] else "") for r in rows]
-        return {"id": spec.id, "decisions": rows}, "\n".join(lines) if lines else "Chưa có quyết định."
     if latest is None:
         return {"id": spec.id, "baseline": None, "diff": None}, "Chưa có quyết định để so sánh. Hãy chạy spec review."
     previous = Spec.parse(latest["snapshot"], spec.path)
@@ -289,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         data, text = execute(args)
         print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else text)
-        return 0
+        return 2 if args.command == "list" and data["errors"] else 0
     except (SpecError, OSError, UnicodeError, sqlite3.Error) as error:
         message = f"Không thể thực hiện: {error}"
         if args.json:
