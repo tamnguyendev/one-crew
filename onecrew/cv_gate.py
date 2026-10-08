@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import http.client
 import json
+import re
 import shutil
 import socket
 import time
@@ -120,10 +121,15 @@ class DockerGate:
                 status,_,config=self.request(port,'GET','/api/config'); assert status==200 and config['mode']=='demo'
                 assert 'no-store' in headers.get('cache-control','') and headers.get('x-content-type-options')=='nosniff'
                 assert "frame-ancestors 'none'" in headers.get('content-security-policy','')
+                if hasattr(self.r,'browser_gate'):
+                    banner=re.search(r'<[^>]+id=[\"\x27]mode-banner[\"\x27][^>]*>(.*?)</',body,re.S|re.I)
+                    assert banner and 'demo' in banner.group(1).lower(),'Server HTML must include visible demo mode before JavaScript executes'
             case('SSR form, mode and security headers','CV-UI',html)
             def origin():
-                assert self.request(port,'POST','/api/session',headers={'Origin':'https://evil.test'})[0]==403
-                assert self.request(port,'POST','/api/commit',PDF,{'Content-Type':'application/pdf'})[0]==403
+                bad=self.request(port,'POST','/api/session',headers={'Origin':'https://evil.test'})
+                assert bad[0]==403,f'Cross-origin expected403, got {bad}'
+                direct=self.request(port,'POST','/api/commit',PDF,{'Content-Type':'application/pdf'})
+                assert direct[0]==403,f'Direct commit expected403, got {direct}'
             case('Cross-origin and direct upload denied','CV-SESSION',origin)
             def no_permit():
                 h=prepare(session()); assert self.request(port,'POST','/api/commit',PDF,{**h,'Content-Type':'application/pdf'})[0]==403
@@ -172,8 +178,35 @@ class DockerGate:
             case('Session rate limit','CV-RATE',limits)
             def locked():
                 locked_port=self.start('locked')
-                assert self.request(locked_port,'POST','/api/session')[0]==503
+                result=self.request(locked_port,'POST','/api/session')
+                assert result[0]==503,f'Locked session expected503, got {result}'
             case('Locked mode fails closed','CV-CHALLENGE',locked)
+            if hasattr(self.r,'browser_gate'):
+                case('Browser preview/edit/upload/receipt and mobile layout','CV-UI',lambda:self.r.browser_gate(port))
+                def private_api():
+                    status,headers,_=self.request(port,'POST','/api/session')
+                    assert status==200 and all(x in headers.get('cache-control','') for x in ('private','no-store')),str((status,headers))
+                case('Sensitive JSON retains private no-store','CV-SESSION',private_api)
+                def session_body():
+                    result=self.request(port,'POST','/api/session',b'x'*12289,{'Content-Type':'application/json'})
+                    assert result[0]==413,f'Session body expected413, got {result}'
+                case('Session endpoint enforces JSON body cap','CV-FILE',session_body)
+                def invalid_nonce_rate():
+                    h=session();h['X-CSRF-Token']='wrong-nonce'
+                    rows=[self.request(port,'POST','/api/prepare',{},h) for _ in range(32)]
+                    assert any(row[0]==429 for row in rows),'Wrong nonce bypasses session quota'
+                case('Wrong nonce still consumes session quota','CV-RATE',invalid_nonce_rate)
+                def cumulative_rate():
+                    clients=[session() for _ in range(9)]
+                    rows=[self.request(port,'POST','/api/prepare',{},h) for h in clients for _ in range(25)]
+                    assert any(row[0]==429 for row in rows),'Authenticated sessions bypass shared global quota'
+                case('Authenticated sessions share global quota','CV-RATE',cumulative_rate)
+                if hasattr(self,'secure_cookie'):
+                    case('HTTPS origin sets Secure behind HTTP proxy','CV-SESSION',self.secure_cookie)
+                def anonymous_rate():
+                    rows=[self.request(port,'POST','/api/prepare',{}) for _ in range(245)]
+                    assert any(row[0]==429 for row in rows),'Unauthenticated POST bypasses global quota'
+                case('Unauthenticated POST consumes global quota','CV-RATE',anonymous_rate)
             return {'passed':not failures,'checks':passed,'failures':failures}
         finally:
             self.cleanup()
@@ -204,6 +237,15 @@ class WindowsGate(DockerGate):
         self.r.event('preflight_passed',adapter=self.r.state['execution_adapter'])
 
     def setup(self): pass
+
+    def secure_cookie(self):
+        import os
+        data=self.r.output/f'.data-{self.r.state["repairs"]}-https-cookie';data.mkdir()
+        env={k:v for k,v in os.environ.items() if not any(word in k.upper() for word in ('TOKEN','SECRET','PASSWORD','API_KEY','AWS_','AZURE_','GOOGLE_','NODE_OPTIONS'))}
+        env.update(DATA_DIR=str(data),APP_ORIGIN='https://example.test',CV_GUARD_MODE='locked')
+        probe="""import {issueSession} from './lib/sessions.mjs';let cookie='';issueSession({headers:{},socket:{}},{setHeader:(k,v)=>{if(k.toLowerCase()==='set-cookie')cookie=String(v)}});if(!/(?:^|;)\\s*Secure(?:;|$)/i.test(cookie))throw Error('HTTPS configured origin missing Secure cookie on HTTP backend');console.log('SECURE_OK');"""
+        code,out,err=self.r.command(self.sandbox_args(data)+['--input-type=module','-e',probe],env=env,timeout=15)
+        assert code==0 and 'SECURE_OK' in out,(out+err)[-1500:]
 
     def start(self,mode='demo'):
         import os,subprocess

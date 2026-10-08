@@ -23,6 +23,9 @@ ALLOWED = {p for paths in FILES.values() for p in paths}
 class Halt(Exception):
     def __init__(self, status, reason): super().__init__(reason); self.status = status
 
+class ProviderFailure(Halt):
+    """A bounded retry is safe: artifact-only provider has no write authority."""
+
 def digest(data): return hashlib.sha256(data if isinstance(data,bytes) else data.encode('utf-8')).hexdigest()
 def now(): return dt.datetime.now(dt.timezone.utc).isoformat()
 def validate_schema(value, schema):
@@ -91,6 +94,12 @@ def validate_artifacts(result, ownership):
     return files
 
 class Runner:
+    allowed=ALLOWED
+    contract=CONTRACT
+    policy=POLICY
+    profile_name='cv-upload-v1'
+    extra_seals=[]
+    worker_instructions=None
     def __init__(self, project, output, brief, limits, provider=None):
         self.project, self.output = Path(project).resolve(), Path(output).resolve()
         if self.output.exists(): raise ValueError('Output must be a new directory; existing work is never overwritten.')
@@ -102,8 +111,9 @@ class Runner:
         self.started = time.monotonic()
         self.command_count = 0
         self.sealed_files = [Path(__file__),Path(__file__).with_name('profiles.py'),Path(__file__).with_name('cv_gate.py')]
+        self.sealed_files += [Path(__file__).with_name(name) for name in self.extra_seals]
         self.seal = {str(p):digest(p.read_bytes()) for p in self.sealed_files}
-        self.grant = {'brief':brief, 'profile':'cv-upload-v1','contract':CONTRACT,'policy':POLICY,
+        self.grant = {'brief':brief, 'profile':self.profile_name,'contract':self.contract,'policy':self.policy,
                       'limits':limits,'output':str(self.output),'autonomous':True,
                       'authority':'Explicit --autonomous local execution grant; not customer acceptance or deployment permission.'}
         save(self.root/'grant.json', self.grant)
@@ -161,11 +171,14 @@ class Runner:
         save(prefix.with_suffix('.result.json'),{'exit_code':child.returncode,'seconds':round(time.monotonic()-began,2),'stdout':str(prefix.with_suffix('.stdout')),'stderr':str(prefix.with_suffix('.stderr'))})
         return child.returncode, stdout, stderr
 
-    def invoke(self, stage, prompt, schema, risk='medium'):
+    def select_model(self,stage,risk):
+        return route(stage,risk,self.policy)
+
+    def invoke(self, stage, prompt, schema=None, risk='medium'):
         self.check()
         if len(prompt)>80000: raise Halt('failed','Context exceeds 80000-character cap; no model call dispatched.')
         if self.state['calls']>=self.state['limits']['calls']: raise Halt('budget_exhausted','Model call budget exhausted.')
-        selection=route(stage,risk)
+        selection=self.select_model(stage,risk)
         self.state['calls']+=1; number=self.state['calls']; self.state['phase']=stage
         self.state['usage_pending_attempt']=number
         self.event('model_dispatched',attempt=number,**selection)
@@ -174,7 +187,7 @@ class Runner:
         (attempt/'prompt.txt').write_text(prompt,encoding='utf-8')
         if self.provider:
             result=self.provider(stage,prompt,schema,selection)
-            validate_schema(result,schema)
+            if schema: validate_schema(result,schema)
             self.state['usage_pending_attempt']=None; self.state['usage_missing_attempts'].append(number)
             save(attempt/'result.json',result); return result
         executable=shutil.which('codex')
@@ -183,8 +196,17 @@ class Runner:
               '--sandbox','read-only','--model',selection['model'],'-c',f'model_reasoning_effort="{selection["effort"]}"',
               '-c','web_search="disabled"','--disable','shell_tool','--disable','apps','--disable','plugins',
               '--disable','hooks','--disable','multi_agent','--json','--color','never',
-              '--output-schema',str(attempt/'schema.json'),'-o',str(attempt/'result.json'),'-']
-        code,out,err=self.command(args,stdin=prompt,timeout=self.state['limits']['step_seconds'])
+              '-o',str(attempt/'result.json'),'-']
+        if schema: args[-1:-1]=['--output-schema',str(attempt/'schema.json')]
+        if self.worker_instructions:
+            args[-1:-1]=['-c','model_instructions_file='+json.dumps(str(self.worker_instructions))]
+        try:
+            code,out,err=self.command(args,stdin=prompt,timeout=self.state['limits']['step_seconds'])
+        except Halt as error:
+            self.state['usage_missing_attempts'].append(number); self.state['usage_pending_attempt']=None
+            self.event('model_interrupted',attempt=number,reason=str(error),usage='unknown')
+            if str(error).startswith('Process timeout after'): raise ProviderFailure(error.status,str(error)) from error
+            raise
         usage=[]; forbidden=[]
         for line in out.splitlines():
             try: event=json.loads(line)
@@ -198,16 +220,18 @@ class Runner:
         if not usage:self.state['usage_missing_attempts'].append(number)
         save(attempt/'usage.json',usage); self.persist()
         if forbidden: raise Halt('failed',f'Worker attempted tools outside artifact contract: {sorted(set(forbidden))}')
-        if code or not (attempt/'result.json').exists(): raise Halt('blocked',f'Provider call {number} failed; see command logs. No automatic provider retries.')
+        if code or not (attempt/'result.json').exists(): raise ProviderFailure('blocked',f'Provider call {number} failed; see command logs.')
         if (attempt/'result.json').stat().st_size>1000000: raise Halt('failed','Structured response exceeds 1MB cap.')
-        try: result=json.loads((attempt/'result.json').read_text(encoding='utf-8'))
-        except (ValueError,UnicodeError): raise Halt('failed','Provider output is not valid structured JSON.')
-        validate_schema(result,schema)
+        try:
+            raw=(attempt/'result.json').read_text(encoding='utf-8')
+            result=json.loads(raw) if schema else raw
+            if schema: validate_schema(result,schema)
+        except (ValueError,UnicodeError): raise ProviderFailure('failed','Provider output does not match required schema.')
         self.event('model_completed',attempt=number,usage=usage)
         return result
 
     def context(self):
-        return '\n'.join(f'FILE {p}\n{(self.output/p).read_text(encoding="utf-8")}' for p in sorted(ALLOWED) if (self.output/p).is_file())
+        return '\n'.join(f'FILE {p}\n{(self.output/p).read_text(encoding="utf-8")}' for p in sorted(self.allowed) if (self.output/p).is_file())
 
     def apply(self, result, ownership, label):
         files=validate_artifacts(result,ownership)
@@ -222,7 +246,7 @@ class Runner:
         self.checkpoint(label,result['summary'])
 
     def manifest(self):
-        return {p:digest((self.output/p).read_bytes()) for p in sorted(ALLOWED | {'package.json','.gitattributes','.gitignore'}) if (self.output/p).is_file()}
+        return {p:digest((self.output/p).read_bytes()) for p in sorted(self.allowed | {'package.json','.gitattributes','.gitignore'}) if (self.output/p).is_file()}
 
     def checkpoint(self,label,summary):
         manifest=self.manifest(); revision=digest(canonical(manifest)); index=len(self.state['checkpoints'])+1
@@ -233,36 +257,46 @@ class Runner:
         save(self.root/f'output-{index:02}.json',record)
         self.state['checkpoints'].append(record); self.state['last_progress_at']=now(); self.event('checkpoint',label=label,revision=revision)
 
+    def build(self):
+        plan=self.invoke('plan','You are OneCrew Conductor. No tools. Return only schema JSON. Create exactly two tasks backend/frontend with dependencies and risk, covering every fixed acceptance ID. Brief in Vietnamese <=180 words. Do not expand scope.\nUSER BRIEF\n'+self.grant['brief']+'\nFIXED CONTRACT\n'+CONTRACT,PLAN_SCHEMA)
+        tasks=validate_plan(plan); save(self.root/'plan.json',plan)
+        if len(plan['brief'].split())>200 or len(plan['title'])>160: raise ValueError('Conductor brief/title exceeds readable limit.')
+        spec=f'# {plan["title"]}\n\n## Duyệt nhanh\n{plan["brief"]}\n\n## Không làm\n'+ '\n'.join('- '+x for x in plan['non_goals'])+'\n\n## Chi tiết và nghiệm thu đã khóa\n'+CONTRACT
+        (self.root/'spec.md').write_text(spec,encoding='utf-8')
+        save(self.output/'package.json',{'name':'onecrew-cv-autonomous','private':True,'version':'0.1.0','type':'module','scripts':{'start':'node server.mjs'},'engines':{'node':'>=24'}})
+        (self.output/'.gitattributes').write_text('* text=auto eol=lf\n',encoding='utf-8')
+        (self.output/'.gitignore').write_text('.data*/\n.env*\n',encoding='utf-8')
+        for task in tasks:
+            prompt='You are a OneCrew implementation worker. NO TOOLS. Return complete file contents in schema JSON, no markdown fences. Only files owned below. Implement all requirements for your part, not placeholders. Keep code concise. Use only supplied context.\nCONTRACT\n'+CONTRACT+'\nUSER BRIEF\n'+self.grant['brief']+'\nTASK\n'+canonical(task)+'\nOWNED FILES\n'+canonical(FILES[task['kind']])+'\nCURRENT ARTIFACTS\n'+self.context()
+            result=self.invoke(task['kind'],prompt,ARTIFACT_SCHEMA,task['risk'])
+            self.apply(result,FILES[task['kind']],task['id']); self.state['completed_tasks'].append(task['id']); self.persist()
+
+    def repair(self,failures):
+        repair=self.invoke('repair','Repair only listed acceptance failures. NO TOOLS. Return complete contents ONLY of changed owned files. Never change contract, gates, package, policy or budget. Do not add features.\nCONTRACT\n'+CONTRACT+'\nFAILURES\n'+canonical(failures)+'\nOWNED\n'+canonical(sorted(ALLOWED))+'\nSOURCE\n'+self.context(),ARTIFACT_SCHEMA,'high')
+        self.apply(repair,ALLOWED,f'repair-{self.state["repairs"]}')
+
+    def extra_preflight(self): pass
+
     def execute(self):
         try:
             from .cv_gate import DockerGate,WindowsGate
             gate=WindowsGate(self) if os.name=='nt' and not self.provider else DockerGate(self)
             gate.preflight()
+            self.extra_preflight()
             self.check()
-            plan=self.invoke('plan','You are OneCrew Conductor. No tools. Return only schema JSON. Create exactly two tasks backend/frontend with dependencies and risk, covering every fixed acceptance ID. Brief in Vietnamese <=180 words. Do not expand scope.\nUSER BRIEF\n'+self.grant['brief']+'\nFIXED CONTRACT\n'+CONTRACT,PLAN_SCHEMA)
-            tasks=validate_plan(plan); save(self.root/'plan.json',plan)
-            if len(plan['brief'].split())>200 or len(plan['title'])>160: raise ValueError('Conductor brief/title exceeds readable limit.')
-            spec=f'# {plan["title"]}\n\n## Duyệt nhanh\n{plan["brief"]}\n\n## Không làm\n'+ '\n'.join('- '+x for x in plan['non_goals'])+'\n\n## Chi tiết và nghiệm thu đã khóa\n'+CONTRACT
-            (self.root/'spec.md').write_text(spec,encoding='utf-8')
-            save(self.output/'package.json',{'name':'onecrew-cv-autonomous','private':True,'version':'0.1.0','type':'module','scripts':{'start':'node server.mjs'},'engines':{'node':'>=24'}})
-            (self.output/'.gitattributes').write_text('* text=auto eol=lf\n',encoding='utf-8')
-            (self.output/'.gitignore').write_text('.data*/\n.env*\n',encoding='utf-8')
-            for task in tasks:
-                prompt='You are a OneCrew implementation worker. NO TOOLS. Return complete file contents in schema JSON, no markdown fences. Only files owned below. Implement all requirements for your part, not placeholders. Keep code concise. Use only supplied context.\nCONTRACT\n'+CONTRACT+'\nUSER BRIEF\n'+self.grant['brief']+'\nTASK\n'+canonical(task)+'\nOWNED FILES\n'+canonical(FILES[task['kind']])+'\nCURRENT ARTIFACTS\n'+self.context()
-                result=self.invoke(task['kind'],prompt,ARTIFACT_SCHEMA,task['risk'])
-                self.apply(result,FILES[task['kind']],task['id']); self.state['completed_tasks'].append(task['id']); self.persist()
+            self.build()
             last_failure=None
             while True:
                 self.check(); self.state['phase']='verify'; self.state['verification']='running'; self.event('gate_started')
                 before=self.manifest()
-                missing=ALLOWED-set(before)
+                missing=self.allowed-set(before)
                 result=({'passed':False,'checks':[],'failures':[{'requirement':'CV-DOC' if p=='README.md' else 'CV-UI','error':'Required artifact missing: '+p} for p in sorted(missing)]} if missing else gate.verify())
                 if self.manifest()!=before: raise Halt('failed','Product code changed while gate was running.')
                 save(self.root/f'gate-{self.state["repairs"]:02}.json',{'manifest':before,'result':result,'gate_hash':self.seal[str(Path(__file__).with_name('cv_gate.py'))]})
                 self.state['verification']='passed' if result['passed'] else 'failed'; self.event('gate_completed',**result)
                 failures=result['failures']
                 if result['passed']:
-                    review=self.invoke('review','Independent review. NO TOOLS. Evaluate only supplied code against fixed AC. Blocking findings must reference an exact acceptance ID and evidence. Suggestions/out-of-scope become backlog, not mandatory work. Do not assume live Turnstile/AV/edge exists: these are explicit external gates. Return empty findings if code meets the local contract.\nCONTRACT\n'+CONTRACT+'\nGATE\n'+canonical(result)+'\nSOURCE\n'+self.context(),REVIEW_SCHEMA,'high')
+                    review=self.invoke('review','Independent review. NO TOOLS. Evaluate only supplied code against fixed AC. Blocking findings must reference an exact acceptance ID and evidence. Suggestions/out-of-scope become backlog, not mandatory work. Do not assume live Turnstile/AV/edge exists: these are explicit external gates. Return empty findings if code meets the local contract.\nCONTRACT\n'+self.contract+'\nGATE\n'+canonical(result)+'\nSOURCE\n'+self.context(),REVIEW_SCHEMA,'high')
                     save(self.root/f'review-{self.state["repairs"]:02}.json',review)
                     if self.manifest()!=before: raise Halt('failed','Artifacts changed during semantic review; verification is stale.')
                     if not isinstance(review.get('findings'),list): raise Halt('failed','Invalid review schema.')
@@ -277,8 +311,7 @@ class Runner:
                 last_failure=failure_key
                 if self.state['repairs']>=self.state['limits']['repairs']: raise Halt('failed','Repair budget exhausted; mandatory findings remain.')
                 self.state['repairs']+=1; self.persist()
-                repair=self.invoke('repair','Repair only listed acceptance failures. NO TOOLS. Return complete contents ONLY of changed owned files. Never change contract, gates, package, policy or budget. Do not add features.\nCONTRACT\n'+CONTRACT+'\nFAILURES\n'+canonical(failures)+'\nOWNED\n'+canonical(sorted(ALLOWED))+'\nSOURCE\n'+self.context(),ARTIFACT_SCHEMA,'high')
-                self.apply(repair,ALLOWED,f'repair-{self.state["repairs"]}')
+                self.repair(failures)
             self.check(); self.state['phase']='delivery'
             if self.manifest()!=before: raise Halt('failed','Artifacts changed before delivery.')
             for argv in (['git','init','-b','main'],['git','add','--',*sorted(self.manifest())],['git','-c','core.hooksPath='+str(self.root/'no-hooks'),'-c','commit.gpgsign=false','commit','-m','feat: deliver CV form generated autonomously by OneCrew']):
@@ -312,19 +345,21 @@ def main(argv=None):
     group=parser.add_subparsers(dest='group',required=True).add_parser('task')
     commands=group.add_subparsers(dest='command',required=True)
     run=commands.add_parser('run'); run.add_argument('--brief',type=Path,required=True); run.add_argument('--output',type=Path,required=True)
-    run.add_argument('--profile',choices=['cv-upload'],default='cv-upload'); run.add_argument('--autonomous',action='store_true',required=True)
-    run.add_argument('--max-seconds',type=int,default=1200); run.add_argument('--max-calls',type=int,default=8); run.add_argument('--max-repairs',type=int,default=2)
-    run.add_argument('--step-seconds',type=int,default=240)
+    run.add_argument('--profile',choices=['cv-upload','cv-upload-legacy'],default='cv-upload'); run.add_argument('--autonomous',action='store_true',required=True)
+    run.add_argument('--max-seconds',type=int,default=1800); run.add_argument('--max-calls',type=int,default=24); run.add_argument('--max-repairs',type=int,default=3)
+    run.add_argument('--step-seconds',type=int,default=120)
     commands.add_parser('list')
     for name in ('status','cancel','outputs'): commands.add_parser(name).add_argument('id')
     args=parser.parse_args(argv)
     try:
         project=args.project.resolve()
         if args.command=='run':
-            if not 1<=args.max_calls<=20 or not 1<=args.max_seconds<=3600 or not 0<=args.max_repairs<=4 or not 1<=args.step_seconds<=min(600,args.max_seconds): raise ValueError('Invalid bounded budget.')
+            if not 1<=args.max_calls<=32 or not 1<=args.max_seconds<=3600 or not 0<=args.max_repairs<=4 or not 1<=args.step_seconds<=min(600,args.max_seconds): raise ValueError('Invalid bounded budget.')
             brief=args.brief.read_text(encoding='utf-8')
             if not brief.strip() or len(brief)>12000: raise ValueError('Brief must contain 1–12000 characters.')
-            result=Runner(project,args.output,brief,{'seconds':args.max_seconds,'calls':args.max_calls,'repairs':args.max_repairs,'step_seconds':args.step_seconds}).execute()
+            from .incremental import IncrementalRunner
+            runner=Runner if args.profile=='cv-upload-legacy' else IncrementalRunner
+            result=runner(project,args.output,brief,{'seconds':args.max_seconds,'calls':args.max_calls,'repairs':args.max_repairs,'step_seconds':args.step_seconds}).execute()
             print(json.dumps(result,ensure_ascii=False,indent=2)); return 0 if result['status']=='ready_for_review' else 2
         if args.command=='list':
             rows=[json.loads(p.read_text(encoding='utf-8')) for p in sorted((project/'.onecrew'/'runs').glob('RUN-*/state.json'))]

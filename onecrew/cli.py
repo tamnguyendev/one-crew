@@ -11,6 +11,9 @@ def main(argv=None):
         from .jev import main as decision_main
         return decision_main(args[index+1:])
     if len(args)>index and args[index]=='task':
+        if len(args)>index+1 and args[index+1]=='preview':
+            from .preview import main as preview_main
+            return preview_main(args[:index]+args[index+2:])
         from .runtime import main as task_main
         return task_main(args)
     return specs.main(args)

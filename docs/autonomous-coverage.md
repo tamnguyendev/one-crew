@@ -1,5 +1,9 @@
 # SPEC-004 coverage and execution evidence
 
+Current update (2026-10-08, SPEC-005): AR08 live delivery is now Complete for the incremental CV profile. Run RUN-20261008-232057-1d06d8 generated 10 files from empty source, repaired one real failure, passed 19 host checks plus independent review, and committed ad3c748. See [current implementation and evidence](incremental-autonomy.vi.md), including token totals and remaining external/roadmap gaps. This resolves the live-delivery blocker, not production bot-blocking efficacy.
+
+## Historical SPEC-004 baseline and attempts
+
 Proposal: `specs/SPEC-004-autonomous-local-run.md`.
 Baseline: `1e18059`. Runtime implementation cycle: AR01–AR08.
 
