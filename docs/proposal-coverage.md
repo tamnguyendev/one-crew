@@ -1,7 +1,7 @@
 # Proposal Coverage
 
 Proposal source: `docs/spec-review-cli.vi.md`
-Last reviewed commit: initial implementation tree; cycle commit recorded below after creation
+Last reviewed implementation commit: `14f22cff2293d4b8e91b6072acff9937d5380c97`
 Current iteration: 1
 
 Scope: the local spec review CLI only. The broader orchestration roadmap is outside this cycle and remains unimplemented.
@@ -31,6 +31,7 @@ Scope: the local spec review CLI only. The broader orchestration roadmap is outs
 
 ## Cycle 1 result
 
+- Implementation commit: `14f22cff2293d4b8e91b6072acff9937d5380c97` — `feat(spec): add local review and approval CLI (SR01-SR08)`.
 - All eight requirements of this slice are supported by implementation and verification evidence.
 - `python -m unittest discover -s tests -v`: 16 tests passed on Windows/Python 3.13.
 - Module and PowerShell entry points exercised; CLI reads the actual example without approving it.
