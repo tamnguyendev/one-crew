@@ -1,8 +1,8 @@
 # Proposal Coverage
 
 Proposal source: `docs/spec-review-cli.vi.md`
-Last reviewed implementation commit: `14f22cff2293d4b8e91b6072acff9937d5380c97`
-Current iteration: 2 (SR02/SR03/SR06 repaired and verified; cycle commit recorded after creation)
+Last reviewed implementation commit: `5f439bc27956eca67903a8b877035b24c55f5f84`
+Current iteration: 2 (SR02/SR03/SR06 repaired, verified and committed)
 
 Review update: 2026-10-08; overall review reopened SR02/SR03/SR06. Cycle 2 adds regression coverage and repairs only this CLI slice; runtime orchestration is outside the cycle.
 
@@ -52,6 +52,7 @@ Scope of the requirement counts below: the local spec review CLI only. The broad
 
 ## Cycle 2 result
 
+- Implementation commit: `5f439bc27956eca67903a8b877035b24c55f5f84` — `fix(spec): isolate invalid drafts and preserve history (SR02 SR03 SR06)`.
 - Scope: SR02/SR03/SR06 only, plus regression verification of the existing CLI requirements. No agent runtime or paid model calls were added.
 - Added 8 regression tests. The two original failure scenarios were run against the old code and failed before the implementation change.
 - Full suite: `python -X utf8 -m unittest discover -s tests -v` — 24 tests passed on Windows/Python 3.13, including real module and PowerShell launcher entry points.
