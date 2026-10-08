@@ -3,6 +3,8 @@
 Proposal: `specs/SPEC-004-autonomous-local-run.md`.
 Baseline: `1e18059`. Runtime implementation cycle: AR01–AR08.
 
+Controller implementation commit: `678bb55` — `feat(runtime): add bounded Codex orchestration (AR01-AR07)`. This commit records verified controller behavior; it does not claim AR08 live delivery succeeded. Validation: 51 tests passed and staged whitespace checks passed. Existing unrelated documentation changes were preserved outside this commit.
+
 | ID | Requirement | Type | Implementation evidence | Verification evidence | Status | Limits |
 |---|---|---|---|---|---|---|
 | AR01 | Immutable grant, bounded plan and DAG | Architecture | runtime.py, profiles.py | Invalid plan, schema, grant and path tests; live Conductor plan | Complete | Fixed CV profile only |
