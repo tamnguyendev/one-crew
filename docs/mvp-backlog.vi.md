@@ -46,8 +46,11 @@ Sau phản hồi về Claude Desktop/OneTechAI chạy lâu và khó kiểm soát
 | R17 — Ngân sách toàn task | Deadline/retry/concurrency không reset khi đổi vai, retry, replan hoặc resume |
 | R18 — Chẩn đoán chậm | Tách queue/model/tool/verify/review/wait; hiển thị hoạt động và bằng chứng tiến triển riêng |
 | R19 — Chống lặp và chuyển giao | Dừng khi lỗi/đầu vào không đổi và không tiến triển; chuyển giao không có hai writer, không mất artifact |
+| R29 — Đổi thứ tự công việc | Xếp lại việc chờ qua Conductor/CLI và cùng queue host; phân biệt ưu tiên với dependency/review gate; không tự ngắt việc đang chạy; chuyển ngay phải checkpoint và xác nhận dừng trước khi nhường ownership; giữ budget, artifact và approval còn hợp lệ, kiểm plan revision và ghi lịch sử thay đổi |
 
 Không import tất cả worktree hiện có thành task đang chạy. Import ban đầu chỉ lập inventory để người dùng gắn task và quyết định giữ/dọn; không tự xóa hoặc di chuyển repo.
+
+R29 chưa triển khai, nối vào luồng Conductor/host đã qua spike. Ca kiểm chứng: A/B đang chờ và độc lập thì chuyển B trước A; X đang chạy vẫn giữ nguyên khi chỉ đổi việc chờ. Yêu cầu dừng X để chuyển việc phải giữ checkpoint và chờ host xác nhận. B phụ thuộc A hoặc đang chờ review không được chạy sớm do ưu tiên mới. Plan revision cũ bị từ chối khi trạng thái thay đổi; lặp request không tạo task/vòng retry mới. Việc đã hoàn tất không chạy lại; chỉ đổi thứ tự không làm mất approval hay cấp thêm ngân sách.
 
 ## 2. Workflow và nghiệm thu
 
