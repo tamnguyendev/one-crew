@@ -1,5 +1,18 @@
 # Proposal Coverage
 
+## Notification delivery / bounded host watch — 2026-10-09
+
+User authorized fixing missing completion notifications and stopping idle monitoring. Baseline 326c58b. Implementation cycle ND01–ND04; no customer code edits, task resumes, quota changes or approvals are part of notification delivery.
+
+| ID | Requirement | Implementation / verification evidence | Status | Boundary |
+|---|---|---|---|---|
+| ND01 | Recover Windows delivery without losing batch | Short atomic temp filename in snapshots.py; Store-length path regression; real handover batch persisted and ACKed | Complete | File sink receipt is not a chat callback |
+| ND02 | Visible failures, durable ACK, current questions | delivery pending_batch/last_error; retry tests; CREQ uses conversation_questions | Complete | ACK never approves/replies/resumes |
+| ND03 | Watch only attached tasks, stop when idle/required input | notification_watch.py; multi-task, dead/unknown runner, paused execution, active standalone build, completion/CONV race after ACK, dedup tests | Complete | TASK IDs only; no autonomous CONSULT watch |
+| ND04 | Configure actual host lifecycle and notify current chat | Existing heartbeat updated via host tool; entry contract rearms at submit/resume; real Cloud Auth event 814 read, ACK returned should_pause=true, host confirmed PAUSED | Partial | Actual future scheduled wakeup/self-pause not yet observed; current-turn host operations verified. No immediate callback or auto-arming from plain CLI |
+
+Validation: 82 regression tests passed; after the final pause/build/conversation-race changes, 23 focused tests passed. Existing process-test ResourceWarnings did not fail assertions. Details and evidence: notification-watch.vi.md. Notifications for handover and the newly blocked Cloud Auth result were consumed without starting a model or modifying either task's authority. Remaining ND04 validation: the next actual entry-dispatched task must produce a scheduled message and the host must pause after final ACK; do not infer this from configuration acceptance.
+
 ## Native tool receipt recovery — 2026-10-09
 
 Approved scope: user requested fixing the Cloud Auth task blocker and running the existing task again after the recorded diagnosis. Baseline a1bfd70. This repairs OneCrew infrastructure; application acceptance remains separate.

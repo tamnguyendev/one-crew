@@ -45,4 +45,44 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(deliver(self.f.ledger)['delivered'],0)
         self.assertEqual(feed(self.f.ledger)['batches'],[])
 
+    def test_windows_store_length_state_root_replays_real_pending_batch(self):
+        from pathlib import Path
+        from onecrew.ledger import Ledger
+        from onecrew.owned import Owned
+        from onecrew.owned_intake import submit
+        from onecrew.notifications import location
+        base=Path(self.f.temp.name)
+        root=base/('s'*(111-len(str(base))-1))
+        ledger=Ledger(self.f.root,root);task=submit(ledger,'Read fixture','long-state')
+        runtime=Owned(ledger);runtime.enable(task['id'])
+        seq,state=runtime.state(task['id']);state.update(phase='completed',message='fixture')
+        with patch('onecrew.delivery.durable_write',side_effect=OSError('old long-path failure')):
+            runtime.persist(task['id'],seq,state)
+        pending=pull(ledger,'local-feed');path=location(ledger,'local-feed',False)
+        target=path.parent/'delivered'/path.stem/(pending['id']+'.json')
+        self.assertGreater(len(str(target))+34,259)
+        receipt=deliver(ledger)
+        self.assertEqual(receipt['acked'],pending['id']);self.assertEqual(receipt['delivered'],1)
+        self.assertTrue(target.exists());self.assertEqual(len(feed(ledger)['batches']),1)
+        self.assertIsNone(feed(ledger)['pending_batch'])
+
+    def test_failure_is_visible_without_changing_execution_status(self):
+        from onecrew.delivery import best_effort
+        self.complete()
+        with patch('onecrew.delivery.deliver',side_effect=OSError('sink unavailable')):
+            result=best_effort(self.f.ledger)
+        self.assertEqual(result['status'],'delivery_pending')
+        self.assertIn('sink unavailable',feed(self.f.ledger)['last_error']['error'])
+        self.assertEqual(self.run.state(self.task)[1]['phase'],'completed')
+        deliver(self.f.ledger);self.assertIsNone(feed(self.f.ledger)['last_error'])
+
+    def test_shared_conversation_question_is_not_discarded_as_missing_task_request(self):
+        from onecrew.conversations import create
+        from onecrew.solution_gate import question
+        cid=create(self.f.ledger,'Shared discussion','delivery-conv','codex')['id']
+        req=question(self.f.ledger,cid,'clarify','Which behavior?','Open requirement',[],'codex')
+        result=deliver(self.f.ledger)
+        self.assertEqual(result['delivered'],1)
+        self.assertEqual(feed(self.f.ledger)['batches'][0]['notifications'][0]['request'],req['id'])
+
 if __name__=='__main__': unittest.main()

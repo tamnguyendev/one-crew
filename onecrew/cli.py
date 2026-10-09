@@ -18,7 +18,7 @@ def main(argv=None):
               '  task       submit / queue / connect / events / status (durable TASK- IDs)\n'
               '  task       run / list / status / cancel / outputs / preview (CV RUN- IDs)\n'
               '  request    create / list / show / revise / reply / defer\n'
-              '  notifications pull / ack / deliver / feed (local event delivery; never approves)\n'
+              '  notifications pull / ack / deliver / feed / watch (bounded host watch; never approves)\n'
               '  entry      connect / note (portable local context, no dispatch)\n'
               '  conversation create / list / read / attach / append / summary / question / reply\n'
               '  solution   propose / review / diff / select / approve / request-changes / bind\n'

@@ -62,7 +62,9 @@ def bytes_hash(data):
 
 def durable_write(target, data):
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name('.' + target.name + '.' + uuid.uuid4().hex)
+    # Do not repeat a long content-addressed filename: Windows Store state roots
+    # can fit the destination but exceed MAX_PATH for the temporary sibling.
+    temporary = target.with_name('.oc-' + uuid.uuid4().hex + '.tmp')
     try:
         with temporary.open('xb') as stream:
             stream.write(data)
