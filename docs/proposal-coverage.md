@@ -1,5 +1,21 @@
 # Proposal Coverage
 
+## Runtime-owned execution — SPEC-007 / revision 3
+
+Baseline `ab25eeb`. CTS audit/delivery were assisted: chat host selected files, gathered evidence and wrote task-local adapters. Their successful receipts do not complete OE requirements. Current iteration 1; proposal `specs/SPEC-007-owned-execution.md`, plan `docs/owned-execution.vi.md`.
+
+| ID | Requirement | Implementation evidence | Test evidence | Status |
+|---|---|---|---|---|
+| OE01 | Natural goal intake, no prepared profile/spec/file set | Existing ledger only accepts a prepared spec | None | Missing |
+| OE02 | Policy-bound dynamic repo discovery/read/search | Existing tools only read a preselected snapshot | None | Missing |
+| OE03 | Runtime owns generic observe/act loop and durable context | Existing artifact workflow has bounded tools but needs manual preparation | Existing WT/EC tests only | Partial |
+| OE04 | Isolated edits and independently evidenced candidate tests | Existing snapshots/container gates require a prepared profile | Existing snapshot/gate tests only | Partial |
+| OE05 | Reusable bounded Git delivery and completion after receipts | Local branch/integration exists; CTS push was a task-local script | Existing integration tests, assisted CTS receipts only | Partial |
+| OE06 | Background/inbox/recovery for new loop | Existing runner/ledger needs new mode wiring | Existing runner/inbox tests only | Partial |
+| OE07 | Three different tasks without host-prepared evidence/adapters | Not yet demonstrated | None | Missing |
+
+Summary: Complete 0, Partial 4, Missing 3, Blocked 0, Not applicable 0; verified coverage 0/7. Native full-access workers, new routing/KB and eight-hour soak are not included in this milestone. No source SRM is used as an implementation sandbox.
+
 ## Portable local entry context — EC01–EC03
 
 Baseline `80a542b` (WT01–WT03 committed). EC01 Complete: read-only bounded packet from one ledger transaction, pinned/amended spec, current task budget/worker, plan/progress/output refs and pending question revisions. EC02 Complete: proposal/decision notes persist with revision CAS, idempotent request IDs, actor/source attribution and no execution authority; restart preserves notes without dispatch. EC03 Complete: CLI connect/note, readable view, bounded recent answers/notes and detail cursors; documentation distinguishes chat continuation from worker switching and explicit amendments.

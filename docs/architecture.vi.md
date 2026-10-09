@@ -1,4 +1,6 @@
-# Kiến trúc OneCrew — baseline 09/10/2026, revision 2
+# Kiến trúc OneCrew — baseline 09/10/2026, revision 3
+
+**Ưu tiên revision 3:** [OneCrew sở hữu vòng thực thi](owned-execution.vi.md), [SPEC-007](../specs/SPEC-007-owned-execution.md). Entry chỉ giao mục tiêu/root/quyền/budget; runtime tự khảo sát và thực hiện. Những contract revision 2 dưới đây vẫn áp dụng về quyền/recovery, nhưng không được dùng yêu cầu profile/file list làm điều kiện bắt entry chuẩn bị công việc. Luồng CTS audit/push trước đó cần host hỗ trợ nên không chứng minh autonomy. OE01–OE07 là gate nâng cấp; learning/JEV và các phần OC còn thiếu giữ backlog riêng.
 
 OneCrew là bộ điều phối local nhận yêu cầu đã làm rõ từ Codex, Claude hoặc Kiro; chia việc, gọi worker phù hợp, kiểm chứng và giữ tiến độ chung. Người dùng tiếp tục trao đổi trong công cụ đang dùng. OneCrew không cần xây thêm ứng dụng chat hoặc hệ thống Agile đầy đủ.
 

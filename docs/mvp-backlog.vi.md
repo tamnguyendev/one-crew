@@ -1,4 +1,6 @@
-# Kế hoạch triển khai OneCrew — 09/10/2026, revision 2
+# Kế hoạch triển khai OneCrew — 09/10/2026, revision 3
+
+Ưu tiên hiện tại: hoàn thành bốn chu kỳ OE01–OE07 trong [kế hoạch vòng thực thi](owned-execution.vi.md) trước P4/JEV/learning. Entry không chuẩn bị evidence/plan/adapter riêng cho task. P1–P4 bên dưới giữ contract nền và các năng lực chưa hoàn tất; không coi các assisted trial là đã đạt autonomy.
 
 Đích: giao yêu cầu đã làm rõ từ Codex/Claude/Kiro cho một core local; tiếp tục qua đổi entry/worker, review từng phần và chạy công việc liên quan trong scope/budget. [Kiến trúc](architecture.vi.md) và [SPEC-006](../specs/SPEC-006-portable-orchestration.md) là baseline. [Backlog 08/10](mvp-backlog-2026-10-08.vi.md) giữ lịch sử; không triển khai song song hai roadmap.
 
