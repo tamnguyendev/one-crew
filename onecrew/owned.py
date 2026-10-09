@@ -41,6 +41,8 @@ SCHEMA = {'type':'object','properties':{
     'arguments':{'type':'string'}},'required':['plan','action','arguments'],'additionalProperties':False}
 REVIEW_SCHEMA={'type':'object','properties':{'accepted':{'type':'boolean'},'feedback':{'type':'string'}},
                'required':['accepted','feedback'],'additionalProperties':False}
+REVIEW_SCHEMA['properties']['evidence_requests']={'type':'array','items':{'type':'integer'}}
+REVIEW_SCHEMA['required'].append('evidence_requests')
 
 
 def contract(profile):
@@ -116,6 +118,11 @@ class Owned(Workflow):
             state.pop('waiting_reason',None)
             if not state.get('pending'):
                 state['context_prompt']=None;state['review_prompt']=None
+            if 'effort_watch' not in state and not self.ledger.requests(task_id,pending=True):
+                from .effort_watch import POLICY
+                state['effort_watch']={'round':0,'started_at':self.control.clock().isoformat(),
+                    'calls':self.control.status(task_id)['used_calls'],'policy':dict(POLICY),'request':None,
+                    'source':'explicit resume adopting new warning policy; historical calls retained'}
             self.persist(task_id,seq,state,unpause=True)
         return state
 
@@ -124,6 +131,11 @@ class Owned(Workflow):
         unique={ref['blob']:ref for ref in state['receipts']}
         index=[]
         for ref in list(unique.values())[-60:]:
+            if ref['action'] in ('read','git_status'):
+                result=json.loads(self.store.read_blob(ref['blob']))['result']
+                index.append({'index':ref['index'],'action':ref['action'],
+                    **{k:result[k] for k in ('path','sha256','next_cursor','repository','head','branch','error') if k in result}})
+                continue
             if ref['action'] == 'search':
                 record=json.loads(self.store.read_blob(ref['blob']))
                 result=record['result']
@@ -159,6 +171,7 @@ class Owned(Workflow):
         cursor=args.get('cursor',0)
         if type(cursor) is not int or cursor<0: raise LedgerError('Invalid read cursor.')
         return {'path':name,'sha256':bytes_hash(data),'version':'original' if state['files'][name]==state['original'].get(name) else 'edited_candidate',
+                'cursor':cursor,'start_line':value[:cursor].count('\n')+1,
                 'text':value[cursor:cursor+12000],
                 'next_cursor':cursor+12000 if cursor+12000<len(value) else None}
 
@@ -377,11 +390,8 @@ class Owned(Workflow):
                         state['response']=value;state['context_prompt']=None;seq=self.persist(task_id,seq,state)
                     value=state['response'];state['plan']=value['plan']
                     if value['action'] in ('finish','branch_before') and not state.get('review'):
-                        evidence=[]
-                        for ref in state['receipts']:
-                            raw=self.store.read_blob(ref['blob']).decode()
-                            evidence.append({'index':ref['index'],'action':ref['action'],'evidence':raw[:1000],
-                                             'truncated':len(raw)>1000})
+                        from .review_evidence import packet, requests as evidence_requests, MAX_ROUNDS
+                        evidence=packet(self,state)
                         before_action=value['action']=='branch_before'
                         guidance=('This is a PRE-EXECUTION review of a proposed LOCAL branch action, NOT a completion review. '
                             'Accept when actual diffs and the user clarified boundary support the selected first_change and its first parent. '
@@ -397,7 +407,7 @@ class Owned(Workflow):
                                 'mode':profile['mode'],'inventory':state.get('inventory',{}),'original_files':state['original'],'candidate_files':state['files'],
                                 'delivery_contract':delivery_contract,'current_snapshot':state['snapshot'],
                                 'test_receipts':state['tests'],'delivery_receipts':state['deliveries'],
-                                'branch_receipts':state.get('branches',[]),'observed_history':self.evidence_index(state),
+                                'branch_receipts':state.get('branches',[]),
                                 'build_evidence':state.get('build_evidence'),
                                 'user_answers':[{'question':r['question']['question'],'answer':r['answer']} for r in self.ledger.requests(task_id) if r['state']=='answered'],
                                 'evidence':evidence}))
@@ -408,13 +418,22 @@ class Owned(Workflow):
                         seq,review=self._invoke(task_id,seq,state,'owned_review',review_prompt,REVIEW_SCHEMA,profile)
                         if not isinstance(review,dict) or type(review.get('accepted')) is not bool or not isinstance(review.get('feedback'),str):
                             raise LedgerError('Invalid final review response.')
+                        wanted=evidence_requests(review,state)
+                        if wanted:
+                            rounds=state.get('review_evidence_rounds',0)
+                            if rounds < MAX_ROUNDS and wanted!=state.get('review_requests'):
+                                state.update(review_requests=wanted,review_evidence_rounds=rounds+1,review_prompt=None)
+                                seq=self.persist(task_id,seq,state)
+                                continue
+                            review={'accepted':False,'feedback':'Requested review evidence remains unavailable; read smaller source pages before finish. '+review['feedback'][:1000]}
                         state['review']=review;state['review_prompt']=None;seq=self.persist(task_id,seq,state)
                     preserve_intent=False;args={}
                     try:
                         args=json.loads(value['arguments'])
                         if not isinstance(args,dict): raise LedgerError('Tool arguments must be an object.')
                         if value['action'] in ('finish','branch_before') and not state['review']['accepted']:
-                            raise LedgerError('Final evidence review: '+state['review']['feedback'][:1500])
+                            from .review_evidence import ReviewRejected
+                            raise ReviewRejected('Final evidence review: '+state['review']['feedback'][:3000])
                         candidate=copy.deepcopy(state)
                         result=self._tool(task_id,candidate,value['action'],args,profile)
                         state=candidate
@@ -423,6 +442,9 @@ class Owned(Workflow):
                         from .progress import classify
                         failure_kind=classify(error)
                         result['failure_kind']=failure_kind
+                        if failure_kind=='review':
+                            result['review_protocol']=2
+                            result['error']=str(error)[:3100]
                         if failure_kind in ('environment','auth','quota','effect_unknown'):
                             state.update(phase='blocked',message=str(error)[:1000],
                                          recovery={'kind':failure_kind,'automatic_retry':False})
@@ -443,6 +465,7 @@ class Owned(Workflow):
                         state['response']=None;state['step']+=1
                     if value['action'] in ('finish','branch_before') and not preserve_intent:
                         state.setdefault('reviews',[]).append(state.pop('review'))
+                        state.pop('review_requests',None);state.pop('review_evidence_rounds',None)
                     seq=self.persist(task_id,seq,state)
                 except CapacityWait:
                     state['waiting_reason']='capacity';self.persist(task_id,seq,state);return state

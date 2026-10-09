@@ -66,7 +66,10 @@ class GitDelivery:
             try: Discovery(self.root).path(path)
             except LedgerError: continue
             entries.append({'status':status,'path':path,'rename':rename})
-        return {'repository':self.directory,'head':self.git('rev-parse','HEAD').decode().strip(),'changes':entries}
+        branch=self.git('symbolic-ref','--quiet','--short','HEAD',allow_failure=True)
+        return {'repository':self.directory,'head':self.git('rev-parse','HEAD').decode().strip(),
+                'branch':branch.decode().strip() if branch else None,'detached':not bool(branch),
+                'dirty':bool(data),'changes':entries}
 
     def diff(self,path):
         import difflib

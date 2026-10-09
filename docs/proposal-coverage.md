@@ -1,5 +1,20 @@
 # Proposal Coverage
 
+## Review repair and autonomous audit — RV01–RV04
+
+User asks to keep repairing OneCrew until it finishes the Cloud Auth audit, then record lessons. Baseline `7c5c70a`; retain task ID, prior attempts and source workspace. This explicit request authorizes following the bounded verification run through its outcome, while worker execution remains detached. Missing user/device evidence still requires an inbox question; no invented approvals.
+
+| ID | Requirement | Evidence planned | Status | Limits |
+|---|---|---|---|---|
+| RV01 | Typed review rejection cannot become quota/auth/environment failure from feedback text | ReviewRejected, classifier regression with 429/OAuth/SDK strings | Complete | Existing real provider handling unchanged |
+| RV02 | Full bounded immutable review evidence plus explicit receipt retrieval | review_evidence manifest/full receipts, bounded retrieval rounds and restart tests | Complete | 45,000 receipt chars, max 4 requested indices/round, 3 retrieval rounds, same root budget |
+| RV03 | Source/read and Git metadata retained; explicit resume adopts warning policy without retroactive auto-answers | read cursor/start_line, branch/dirty status, evidence index, resume tests | Complete | No reset of historical calls/usage; pending requests remain pending |
+| RV04 | OneCrew completes actual audit with checked evidence; proposed lessons tied to outcomes | live task checkpoint/report, lesson evidence | Partial | Application/device correctness not implied; no manual app repair or false unassisted history |
+
+New review protocol counts its genuine rejected reports separately from legacy reviews that received truncated evidence; preserves the legacy total and the existing three-rejection limit for new-protocol reviews. This is a protocol migration, not erasing failure history or relaxing acceptance. No requirement removed from the original task.
+
+Validation: 57 targeted tests passed (review/owned/revision5/effort/fallback); the final seven review tests passed in 1.725s, including real Git branch/detached/index preservation. Existing native fixture ResourceWarning remains with cleanup assertions passing. Live audit acceptance is still pending.
+
 ## Effort-warning cycle — EW01–EW03
 
 Source: user asks to warn when work takes too long so the user chooses; follows explicit expansion of the Cloud Auth task budget. Cycle baseline `d583219`. Soft warnings do not revoke the existing hard grant or silently extend it.

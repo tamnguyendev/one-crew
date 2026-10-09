@@ -8,6 +8,8 @@ POLICY = {'version': 1, 'same_result_limit': 3, 'observation_limit': 16,
 def classify(error):
     from .sandbox_gate import GateUnavailable
     from .owned_git import EffectUnknown
+    from .review_evidence import ReviewRejected
+    if isinstance(error, ReviewRejected): return 'review'
     text = str(error).lower()
     if isinstance(error, EffectUnknown): return 'effect_unknown'
     if isinstance(error, GateUnavailable): return 'environment'
@@ -55,6 +57,9 @@ def observe(state, action, args, result):
         if p['failed_tests'] >= limits['failed_test_limit']: reason = 'Test repair limit reached.'
     if action in ('finish', 'branch_before') and str(result.get('error', '')).startswith('Final evidence review:'):
         p['review_rejections'] += 1
-        if p['review_rejections'] >= limits['review_rejection_limit']: reason = 'Evidence review rejection limit reached.'
+        # Count the repaired evidence protocol separately; keep legacy totals for audit.
+        counter='review_rejections_v2' if result.get('review_protocol')==2 else 'review_rejections'
+        if counter!='review_rejections': p[counter]=p.get(counter,0)+1
+        if p[counter] >= limits['review_rejection_limit']: reason = 'Evidence review rejection limit reached.'
     if reason and state['phase'] == 'running':
         state.update(phase='blocked', message=reason, recovery={'kind': 'no_progress', 'automatic_retry': False})
