@@ -18,7 +18,7 @@ def main(argv=None):
     parser.add_argument('--state-root', type=Path)
     group = parser.add_subparsers(dest='group', required=True).add_parser('work')
     commands = group.add_subparsers(dest='command', required=True)
-    for name in ('enable', 'run', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch'):
+    for name in ('enable', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch'):
         command = commands.add_parser(name)
         command.add_argument('id')
         command.add_argument('--json', action='store_true')
@@ -48,6 +48,9 @@ def main(argv=None):
             result = workflow.enable(args.id, args.revision, read_json(args.profile))
         elif args.command == 'run':
             result = workflow.run(args.id, steps=args.steps)
+        elif args.command in ('start', 'runner'):
+            from .runner import start, status
+            result = (start if args.command == 'start' else status)(workflow.ledger, args.id)
         elif args.command == 'status':
             seq, state = workflow.state(args.id)
             result = {'sequence': seq, 'state': state, 'control': workflow.control.status(args.id),

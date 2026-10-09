@@ -1,5 +1,16 @@
 # Proposal Coverage
 
+## Background controller slice
+
+Baseline `7b14ddc`; [guide](background-runner.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| BG01 | Local controller survives launcher exit, duplicate start does not duplicate worker | runner.start/loop/status, detached native Python, process identity and runner lock | real subprocess launcher exit, duplicate identity, cancel termination | Complete |
+| BG02 | User/pause waits do not consume model calls or extend root deadline | checkpoint loop with SQLite-only polling and absolute deadline | paused daemon used_calls=0; virtual clock crosses deadline by 8h, blocks without dispatch | Complete |
+
+Two focused tests pass in 1.284 seconds. Full suite: 129 tests passed in 39.794 seconds on Windows. Not an OS boot service, authenticated messaging connector, automatic triage engine or live eight-hour soak. A blocked workflow still needs policy-compliant resume. Docker Engine remains unavailable to bounded info probes after starting installed Docker Desktop; no product runtime gate claimed from that environment.
+
 ## P2 adapter slice — Kiro artifacts and checkpoint handoff
 
 Baseline `8b61305`. [Provider guide](providers.vi.md), [evidence](provider-evidence.json).

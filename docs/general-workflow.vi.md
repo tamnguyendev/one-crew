@@ -18,7 +18,7 @@ Ví dụ [profile](../examples/workflow-profile.json) và [grant](../examples/wo
 
 Lấy `task-sha256` từ submit/status; khác với hash của spec. `enable` là hành động local operator cấp quyền chạy profile cụ thể theo `artifact.generate`, không tự nâng lời trả lời inbox thành quyền thực thi. Hiện entry CLI dùng quyền tài khoản OS local, chưa là xác thực đa người dùng.
 
-`run` chạy trong terminal cho tới kết thúc, blocker hoặc giới hạn đã cấp. `--steps 1` dừng tại checkpoint kế tiếp, thuận tiện review. Mỗi worker do supervisor native Windows quản lý; đóng terminal chứa controller có thể dừng worker, sau đó cần reconnect/reconcile. Chưa có service nền được cài tự động.
+`run` chạy trong terminal cho tới kết thúc, blocker hoặc giới hạn đã cấp. `--steps 1` dừng tại checkpoint kế tiếp, thuận tiện review. Để độc lập với terminal/chat, dùng [work start — controller chạy nền](background-runner.vi.md). Mỗi worker vẫn do supervisor native Windows quản lý; chưa cài Windows service tự restart sau reboot.
 
 ## Xem, review và điều chỉnh
 
