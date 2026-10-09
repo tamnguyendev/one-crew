@@ -14,7 +14,7 @@ def main(argv=None):
     commands=group.add_subparsers(dest='command',required=True)
     p=commands.add_parser('submit')
     p.add_argument('--goal',required=True);p.add_argument('--key',required=True)
-    p.add_argument('--mode',choices=['audit','change','delivery'],default='audit')
+    p.add_argument('--mode',choices=['audit','change','delivery','branch'],default='audit')
     p.add_argument('--provider',choices=['codex','claude','kiro'],default='codex')
     p.add_argument('--model',default='gpt-6-luna')
     p.add_argument('--max-calls',type=int,default=20);p.add_argument('--max-seconds',type=int,default=1200)
@@ -72,6 +72,6 @@ def output_card(runtime,task_id,state):
             'report':state.get('report'),'candidate_snapshot':state['snapshot'],'original_workspace_modified':False,
             'changes':changes,'tests':[{'passed':t['passed'],'snapshot':t['evidence']['snapshot'],
                 'exit_code':t['evidence']['exit_code']} for t in state['tests']],
-            'deliveries':state['deliveries'],'pending_questions':runtime.ledger.requests(task_id,pending=True),
+            'deliveries':state['deliveries'],'branches':state.get('branches',[]),'pending_questions':runtime.ledger.requests(task_id,pending=True),
             'usage':summarize(state['usage'],control['attempts']),'review':state.get('reviews',[]),
             'tool_receipts':state['receipts'],'acceptance':state['acceptance']}

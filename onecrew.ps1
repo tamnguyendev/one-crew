@@ -12,5 +12,5 @@ if (-not $onecrewPython) {
     Write-Error 'Python 3.10+ required. Set ONECREW_PYTHON to its executable path.'
     exit 2
 }
-& $onecrewPython (Join-Path $PSScriptRoot 'onecrew_cli.py') @args
+& $onecrewPython -X utf8 (Join-Path $PSScriptRoot 'onecrew_cli.py') @args
 exit $LASTEXITCODE

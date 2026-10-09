@@ -66,3 +66,11 @@ Khi cần quyết định, OneCrew tạo inbox request có các lựa chọn. D�
 - Chưa nghiệm thu soak tám giờ, tất cả loại task/ngôn ngữ, auto-routing/JEV/learning hoặc authenticated native entry integration. Đây là milestone OE01–OE07; backlog OC/LR cũ vẫn giữ trạng thái riêng.
 
 Evidence live được ghi tại [owned-execution-evidence.json](owned-execution-evidence.json); lịch sử triển khai và tests tại [proposal coverage](proposal-coverage.md).
+
+## Tìm mốc lịch sử và tách nhánh local
+
+`job submit --mode branch --branch onecrew/<tên-mới> --goal "Tìm đợt thay đổi UI gần nhất và tạo nhánh trước đợt đó" --start` cấp quyền tạo nhánh local, không cấp commit/push/checkout. Không truyền remote trong mode này.
+
+Worker có `git_log` (first-parent, phân trang, lọc message literal) và `git_show` (metadata, danh sách file, diff theo file/phân trang). HEAD được chốt ở lần đọc lịch sử đầu tiên; chỉ inspect các commit nằm trong ancestry đó. Worker tự xác định đợt thay đổi; nếu ranh giới chưa rõ thì hỏi qua inbox. Message commit không thay cho bằng chứng diff.
+
+`branch_before` phải có diff của commit được chọn và qua model review evidence trước khi core tạo ref. Core lấy đúng first parent của commit đó, kiểm tra HEAD chưa đổi, tạo nhánh mới bằng compare-and-swap và ghi action receipt. Ref đã tồn tại không bị ghi đè. Kết quả không rõ chỉ được reconcile; không chạy lại update-ref. Working files, checkout và index không bị thay đổi. Báo cáo cuối được review và xác minh lại ref.

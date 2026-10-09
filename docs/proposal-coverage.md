@@ -1,5 +1,13 @@
 # Proposal Coverage
 
+## Historical branch tools — GH01–GH03 / 09/10/2026
+
+User assigned OneCrew to inspect flutter_vimes UI history and create a pre-UI branch. Existing job tools lacked history and historical ref creation; adding generic capabilities is recorded separately from worker execution, not claimed as unassisted capability already present.
+
+- GH01 Complete: git_history.py provides pinned-HEAD first-parent pagination/literal search, commit metadata/file lists and policy-filtered historical diffs; full-SHA ancestry/path guards.
+- GH02 Complete: branch mode grants local ref creation only; actual selected-commit diff and AI evidence review before action, exact first-parent target, fresh HEAD, new-ref CAS, receipt/reconcile and final ref observation. No checkout/reset/push. Five history tests pass, including dirty file/index preservation and lost acknowledgement without replay; 22 owned/intake regressions pass.
+- GH03 Partial: real OneCrew task TASK-aeb5446a96ec4edd9133bf41da39aec6 is running against the user-selected project. Entry supplied goal/root/branch/grant/budget only. No host-selected commit or prepared source evidence. Task cap 30 calls/1800 seconds. PowerShell initially could not print Vietnamese JSON after successful dispatch; UTF-8 launcher fixed, confirmed same task/runner, no duplicate submission; UTF-8 launcher regression passes.
+
 ## Runtime-owned execution — SPEC-007 / revision 3
 
 Baseline `ab25eeb`. CTS audit/delivery were assisted: chat host selected files, gathered evidence and wrote task-local adapters. Their successful receipts do not complete OE requirements. Current iteration 1; proposal `specs/SPEC-007-owned-execution.md`, plan `docs/owned-execution.vi.md`.
