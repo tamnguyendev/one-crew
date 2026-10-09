@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Explicit root budget extensions
+
+Baseline `e94522c`; [guide](budget-extension.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| BU01 | Finite revision-bound local extension with immutable original grant and retained usage | budget.current/extend; ledger/control effective budget; work extend CLI | exhausted root/restart/new dispatch; stale/idempotent/conflicting and concurrent extensions | Complete |
+| BU02 | Preserve absolute eight-hour maximum and old/unknown/cancel boundaries | transactional checks, task lock, admission/launch/supervisor effective deadline | strict types/shrink/nine-hour/unknown rejection; failed commit rollback | Complete |
+| BU03 | Extension never silently resumes or authorizes an old inbox answer | triage budget revision binding; explicit resume/start; runner resume_phase at expiry | changed-budget race rejected; expired wait resumes only after explicit extension | Complete |
+
+Five budget tests, eight triage tests and three runner tests pass. Final full suite: 168 tests pass in 58.794 seconds. No model calls. Authority remains local operator; authenticated multi-entry grant and live eight-hour soak are still unverified. Budget lineage is append-only; no schema/data rewrite. Prior functional gate contract is committed at `e94522c` with 161 regression tests passing.
+
 ## Functional gate contract — isolated container tests
 
 Baseline `2cdc632`; [guide](container-gates.vi.md).

@@ -52,6 +52,19 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(f.worker.calls, [])
         self.assertEqual(f.workflow.control.status(f.task['id'])['deadline'], deadline)
 
+    def test_explicit_extension_after_wait_deadline_retains_resume_phase(self):
+        from onecrew.budget import extend
+        f = self.fixture
+        old = f.ledger.task(f.task['id'])['budget']
+        f.workflow.control.clock = lambda: dt.datetime.fromisoformat(old['deadline']) + dt.timedelta(seconds=1)
+        with patch('onecrew.runner.Workflow', return_value=f.workflow):
+            self.assertEqual(loop(f.ledger, f.task['id']), 'deadline')
+        future = (dt.datetime.fromisoformat(f.task['created_at']) + dt.timedelta(hours=1)).isoformat()
+        extend(f.workflow.control, f.task['id'], old['revision'], 'more-time', 6, future, 'Resume approved scope')
+        self.assertEqual(f.workflow.resume(f.task['id'])['phase'], 'planning')
+        self.assertEqual(f.workflow.run(f.task['id'])['phase'], 'completed')
+        self.assertEqual(f.workflow.control.status(f.task['id'])['used_calls'], 3)
+
 
 if __name__ == '__main__':
     unittest.main()

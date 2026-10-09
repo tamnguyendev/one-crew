@@ -533,6 +533,8 @@ class Workflow:
                 from .triage import fingerprint
                 if not state or state['phase'] != 'blocked' or fingerprint(state) != triage_receipt['fingerprint']:
                     raise LedgerError('Blocker changed before applying reply.')
+                if control['budget']['revision'] != triage_receipt['budget_revision']:
+                    raise LedgerError('Budget changed before applying reply.')
             if not state or control['cancel_requested'] or state['phase'] in ('completed', 'failed'):
                 raise LedgerError('Task cannot resume.')
             if any(a['status'] != 'settled' for a in control['attempts']):

@@ -15,11 +15,12 @@ def ensure_request(workflow, task_id):
     if not state or state['phase'] != 'blocked':
         return None
     bound = fingerprint(state)
+    control = workflow.control.status(task_id)
+    budget_revision = control['budget']['revision']
     for request in workflow.ledger.requests(task_id):
         action = request['question']['action']
-        if action == {'type': 'workflow.triage', 'parameters': {'fingerprint': bound}}:
+        if action == {'type': 'workflow.triage', 'parameters': {'fingerprint': bound, 'budget_revision': budget_revision}}:
             return request
-    control = workflow.control.status(task_id)
     task = workflow.ledger.task(task_id, full=True)
     profile = control['configuration']['profile']
     left = task['budget']['limits']['max_calls'] - control['used_calls'] - control['reserved_calls']
@@ -35,8 +36,8 @@ def ensure_request(workflow, task_id):
                 'options': [{'id': first, 'label': 'Thử lại trong phạm vi cũ' if safe else 'Xem output và xử lý nguyên nhân'},
                             {'id': 'stop', 'label': 'Dừng task, giữ lại output'}],
                 'recommendation': first,
-                'action': {'type': 'workflow.triage', 'parameters': {'fingerprint': bound}}}
-    return workflow.ledger.create_request(task_id, 'triage:' + bound, question)
+                'action': {'type': 'workflow.triage', 'parameters': {'fingerprint': bound, 'budget_revision': budget_revision}}}
+    return workflow.ledger.create_request(task_id, 'triage:' + content_hash(question['action']), question)
 
 
 def handle(workflow, task_id):
@@ -55,6 +56,7 @@ def handle(workflow, task_id):
     answer = request['answer']
     receipt = {'request_id': request['id'], 'reply_id': answer['id'], 'choice': answer['choice'],
                'fingerprint': bound, 'authority': 'existing_local_operator_grant',
+               'budget_revision': request['question']['action']['parameters']['budget_revision'],
                'scope_expanded': False, 'budget_extended': False}
     if answer['choice'] == 'retry':
         control = workflow.control.status(task_id)
@@ -72,6 +74,8 @@ def handle(workflow, task_id):
         seq, state = workflow.state(task_id)
         if fingerprint(state) != bound:
             raise LedgerError('Blocker changed before applying reply.')
+        if workflow.control.status(task_id)['budget']['revision'] != receipt['budget_revision']:
+            raise LedgerError('Budget changed before applying reply.')
         if answer['choice'] == 'stop':
             workflow.control.cancel(task_id)
             receipt['effect'] = 'cancel_requested'

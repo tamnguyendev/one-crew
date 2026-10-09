@@ -8,6 +8,7 @@ import sqlite3
 import uuid
 
 from .ledger import Ledger, LedgerError, canonical, content_hash, key_field, utcnow
+from .budget import current as current_budget
 
 ACTIVE = ('reserved', 'running', 'unknown')
 
@@ -118,11 +119,12 @@ class Control:
                 return dict(old)
             if execution['cancel_requested'] or execution['status'] in ('cancelled', 'completed', 'failed', 'paused'):
                 raise LedgerError('Execution is stopped or terminal.')
-            if self.clock() >= dt.datetime.fromisoformat(task['deadline']):
+            budget = current_budget(conn, task)
+            if self.clock() >= dt.datetime.fromisoformat(budget['deadline']):
                 raise LedgerError('Root deadline exhausted.')
             if conn.execute("SELECT 1 FROM requests WHERE task_id=? AND state='pending'", (task_id,)).fetchone():
                 raise LedgerError('Task is waiting for user input.')
-            limits = json.loads(task['payload'])['grant']['limits']
+            limits = budget['limits']
             if execution['used_calls'] + execution['reserved_calls'] >= limits['max_calls']:
                 raise LedgerError('Root call budget exhausted.')
             if unit != 'root' and conn.execute('PRAGMA user_version').fetchone()[0] < 3:
@@ -170,7 +172,7 @@ class Control:
             if row['status'] != 'reserved':
                 raise LedgerError('Attempt cannot launch from current state.')
             task, execution = self._execution(conn, row['task_id'])
-            if execution['cancel_requested'] or execution['status'] == 'paused' or self.clock() >= dt.datetime.fromisoformat(task['deadline']):
+            if execution['cancel_requested'] or execution['status'] == 'paused' or self.clock() >= dt.datetime.fromisoformat(current_budget(conn, task)['deadline']):
                 raise LedgerError('Cancel or deadline prevents launch.')
             if conn.execute("SELECT 1 FROM requests WHERE task_id=? AND state='pending'", (row['task_id'],)).fetchone():
                 raise LedgerError('Pending question prevents launch.')
@@ -237,7 +239,8 @@ class Control:
             task, execution = self._execution(conn, task_id)
             result = dict(execution)
             result['configuration'] = json.loads(execution['configuration'])
-            result['deadline'] = task['deadline']
+            result['budget'] = current_budget(conn, task)
+            result['deadline'] = result['budget']['deadline']
             result['attempts'] = [dict(r) for r in conn.execute('SELECT * FROM attempts WHERE task_id=? ORDER BY generation', (task_id,))]
             return result
 

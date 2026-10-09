@@ -48,6 +48,8 @@ def loop(ledger, task_id, interval=.5):
                 if workflow.control.clock() >= dt.datetime.fromisoformat(control['deadline']):
                     with task_lock(ledger, task_id):
                         seq, state = workflow.state(task_id)
+                        if state['phase'] != 'blocked':
+                            state['resume_phase'] = state['phase']
                         state['phase'] = 'blocked'
                         state['message'] = 'Root deadline exhausted, including queue/user/pause waits.'
                         workflow.persist(task_id, seq, state)

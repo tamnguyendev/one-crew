@@ -82,6 +82,28 @@ class TriageTests(unittest.TestCase):
         self.assertEqual(handle(f.workflow, f.task['id'])['status'], 'cancelled')
         self.assertEqual(f.workflow.state(f.task['id'])[0], seq)
 
+    def test_extension_invalidates_old_answer_even_between_read_and_resume(self):
+        from onecrew.budget import extend
+        f = self.f
+        question = ensure_request(f.workflow, f.task['id'])
+        budget = f.ledger.task(f.task['id'])['budget']
+        with self.assertRaisesRegex(LedgerError, 'pending question'):
+            extend(f.workflow.control, f.task['id'], budget['revision'], 'extra', 7, budget['deadline'], 'Finish same scope')
+        self.reply(question, 'retry')
+        original = f.workflow.resume
+
+        def changed(task_id, **kwargs):
+            extend(f.workflow.control, task_id, budget['revision'], 'extra', 7, budget['deadline'], 'Finish same scope')
+            return original(task_id, **kwargs)
+
+        with patch.object(f.workflow, 'resume', side_effect=changed):
+            with self.assertRaisesRegex(LedgerError, 'Budget changed'):
+                handle(f.workflow, f.task['id'])
+        new_question = ensure_request(f.workflow, f.task['id'])
+        self.assertNotEqual(new_question['id'], question['id'])
+        self.assertEqual(new_question['state'], 'pending')
+        self.assertEqual(len(f.worker.calls), 2)
+
     def test_receipt_write_failure_rolls_back_checkpoint_and_can_retry(self):
         f = self.f
         question = ensure_request(f.workflow, f.task['id'])
