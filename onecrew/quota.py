@@ -14,6 +14,7 @@ import time
 from .ledger import LedgerError
 from .providers import doctor, executable
 from .supervisor import Job, validate_executable
+from .subscription import environment, CODEX_AUTH_ARGS
 
 
 class ReadOnlyRPC:
@@ -28,7 +29,7 @@ class ReadOnlyRPC:
         self.errors = tempfile.TemporaryFile()
         try:
             self.child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.errors,
-                                          creationflags=0x4 | 0x08000000)
+                                          creationflags=0x4 | 0x08000000, env=environment())
             self.job.assign(self.child)
             nt = ctypes.WinDLL('ntdll')
             nt.NtResumeProcess.argtypes = [w.HANDLE]
@@ -164,7 +165,7 @@ def codex(rpc_factory=ReadOnlyRPC, capability=None):
     capability = capability or doctor('codex')
     if not capability.get('available'):
         raise LedgerError('Verified Codex CLI unavailable for quota read.')
-    argv = [executable('codex'), '--no-daemon', 'app-server', '--stdio', '--disable', 'hooks',
+    argv = [executable('codex'), '--no-daemon', *CODEX_AUTH_ARGS, 'app-server', '--stdio', '--disable', 'hooks',
             '--disable', 'apps', '--disable', 'plugins', '--disable', 'shell_tool']
     rpc = rpc_factory(argv)
     try:

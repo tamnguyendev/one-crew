@@ -43,7 +43,7 @@ class ProviderTests(unittest.TestCase):
     def test_unauthenticated_claude_and_changed_version_are_unavailable(self):
         with patch('onecrew.providers.executable', return_value='native.exe'), \
              patch('onecrew.providers.subprocess.check_output', return_value=b'2.1.286 (Claude Code)'), \
-             patch('onecrew.providers.subprocess.run', return_value=SimpleNamespace(stdout=b'{"loggedIn":false}')):
+             patch('onecrew.providers.subprocess.run', return_value=SimpleNamespace(returncode=0, stdout=b'{"loggedIn":false}')):
             result = doctor('claude')
         self.assertFalse(result['available'])
         self.assertFalse(result['authenticated'])

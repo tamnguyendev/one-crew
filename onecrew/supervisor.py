@@ -142,7 +142,7 @@ class Supervisor:
     def __init__(self, control):
         self.control = control
 
-    def run(self, attempt, argv, *, cwd, stdin='', timeout=120):
+    def run(self, attempt, argv, *, cwd, stdin='', timeout=120, env=None):
         if not isinstance(argv, list) or not argv or not argv[0] or not all(isinstance(a, str) for a in argv):
             raise LedgerError('Command must be a non-empty argv list.')
         if type(timeout) not in (int, float) or not 0 < timeout <= 28800:
@@ -165,7 +165,7 @@ class Supervisor:
         reason = None
         try:
             with input_path.open('rb') as input_stream, (root/'stdout.txt').open('wb') as out, (root/'stderr.txt').open('wb') as err:
-                child = subprocess.Popen(argv, cwd=cwd, stdin=input_stream, stdout=out, stderr=err,
+                child = subprocess.Popen(argv, cwd=cwd, stdin=input_stream, stdout=out, stderr=err, env=env,
                                          creationflags=0x4 | 0x08000000)  # suspended + no console window
                 job.assign(child)
                 token = {'worker': identity(child.pid), 'supervisor': identity(os.getpid()), 'job_contained': True}

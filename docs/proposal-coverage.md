@@ -1,5 +1,11 @@
 # Proposal Coverage
 
+## Subscription admission and worker environment
+
+Baseline `0e58aab`; [contract](subscription-auth.vi.md). SA01 Complete: pinned Codex now requires confirmed ChatGPT login; Claude requires a successful subscription auth receipt using the same restricted settings as its worker. SA02 Complete: worker and quota child environments remove API credentials/provider overrides without modifying user settings, Codex pins ChatGPT/OpenAI and Claude preserves OAuth-compatible restricted/safe mode. Managed policy remains authoritative; this does not independently disable subscription Extra Usage.
+
+Four subscription tests, four provider tests, five quota tests and 18 native control tests pass. Read-only live probes on 2026-10-09 confirm Codex subscription and quota (zero model calls); Claude unavailable because authentication is absent. Claude live remains Blocked. Prior full regression: 222 tests pass. Commit-vector cycle committed as `0e58aab`.
+
 ## Multi-repository commit-vector verification
 
 Baseline `0e49852`; [contract](commit-vector.vi.md).
