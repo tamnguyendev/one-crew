@@ -10,6 +10,12 @@ import uuid
 from .ledger import Ledger, LedgerError, canonical, content_hash, key_field, utcnow
 
 ACTIVE = ('reserved', 'running', 'unknown')
+
+
+class CapacityWait(LedgerError):
+    """Transient global pressure is queued, not a failed task or permission request."""
+
+
 SCHEMA = (
     """CREATE TABLE executions (
         task_id TEXT PRIMARY KEY REFERENCES tasks(id), configuration TEXT NOT NULL,
@@ -118,7 +124,7 @@ class Control:
                             (task_id,)).fetchone():
                 raise LedgerError('Previous attempt must stop and reconcile first.')
             if conn.execute("SELECT COUNT(*) FROM attempts WHERE status IN ('reserved','running','unknown')").fetchone()[0] >= 2:
-                raise LedgerError('Global worker capacity exhausted.')
+                raise CapacityWait('Global worker capacity exhausted.')
             generation = conn.execute('SELECT COALESCE(MAX(generation),0)+1 FROM attempts WHERE task_id=?',
                                       (task_id,)).fetchone()[0]
             attempt_id = 'ATT-' + uuid.uuid4().hex

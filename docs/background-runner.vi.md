@@ -1,5 +1,7 @@
 # Controller chạy nền trên Windows
 
+Nhiều TASK- ở các project dùng chung state-root có thể chạy đồng thời, tối đa hai managed workers toàn ledger. Task thứ ba chờ capacity, không báo thất bại hoặc gọi model để hỏi lại. Khi slot được giải phóng, controller tiếp tục. Unknown attempt giữ slot cho tới reconcile. Giới hạn này thuộc workflow mới; runtime CV RUN- cũ chưa chung admission ledger. Mỗi root hiện chạy plan tuần tự; DAG song song trong cùng root vẫn chưa hoàn tất.
+
 Sau `work enable`, dùng:
 
 ```powershell

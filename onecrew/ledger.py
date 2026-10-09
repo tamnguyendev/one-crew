@@ -242,6 +242,8 @@ class Ledger:
                     result.update(verification=workflow['verification'], acceptance=workflow['acceptance'],
                                   snapshot=workflow['snapshot'], message=workflow['message'],
                                   dispatch_enabled=True, grant_status='local_operator_enabled')
+                    if workflow.get('waiting_reason') and execution['status'] not in ('cancelled', 'completed', 'failed', 'paused'):
+                        result.update(execution='waiting', waiting_reason=workflow['waiting_reason'])
         if full:
             result['handoff'] = payload
             result['requests'] = [self._request_view(r) for r in conn.execute(

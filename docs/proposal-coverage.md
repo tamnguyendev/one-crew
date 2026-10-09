@@ -1,5 +1,19 @@
 # Proposal Coverage
 
+## Routing and review-branch slices
+
+Baseline `94136f9`; [routing guide](routing-policy.vi.md), [review-branch guide](review-branch.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| RP01 | Typed routing recommendation filters rights/capability/risk/complexity and every supplied fresh quota window | routing.choose; provider choose CLI | six tests: tier floor, short/week quota, stale/unknown/reserves, forbidden paid API, strict types | Complete |
+| RP02 | Optional AI decision is only a bounded proposal using known actions/evidence | validate_decision | invalid action/evidence/confidence rejected; proposal_only retained | Complete |
+| CQ01 | Independent roots share two-worker capacity and queue transient pressure without model calls | Control CapacityWait, Workflow admission wait, runner polling | two occupied slots queue third root with zero calls; releasing reservations lets it complete | Complete |
+| IB01 | Build a local review branch from captured dirty baseline without mutating checkout/index | Integration.tree/branch, temporary index, no-filters, disabled hooks/signing | real Git tree/bytes/index preservation and hook denial test | Complete |
+| IB02 | Verify actual Git candidate, reject stale source and reconcile lost ref-update ack | inspect_tree/verify, source CAS checks, action broker receipt | gate failure/no branch, existing ref/source change rejected, effect-then-error reconciled | Complete |
+
+Final validation: 140 tests passed in 43.394 seconds on Windows, including routing (6), integration (4), workflow (14), and runner (2). Actual-tree checks and hook denial are included. Git diff whitespace check passed before commit. These slices do not complete OC08/OC10: recommendation is not quota reservation or automatic routing; review branch is not target merge, rebase, multi-repo commit vector or functional application verification. No external model calls in these slices.
+
 ## Background controller slice
 
 Baseline `7b14ddc`; [guide](background-runner.vi.md).
@@ -121,19 +135,19 @@ These counts measure the new SPEC-006 implementation requirements, not documenta
 | ID | Proposal section | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
 |---|---|---|---|---|---|---|---|
 | OC01 | Entry | Portable submit/connect/query | API | ledger.py / ledger_cli.py submit, queue, status, connect and events | P1a T01/T18 subsets via process/concurrency/isolation tests; no live entry connector evidence | Partial | CLI transport works; Claude/Kiro/Codex entry integration remains |
-| OC02 | Planning | Spec and real repo to general plan | Functional | specs.py review; incremental_profile.py fixed CV DAG | SR tests and IA01 only; planned T01/T02/T19 | Partial | General decomposition missing |
-| OC03 | Core | Durable authority, recovery, one writer | Reliability | runtime.py bounded controller/cancel/checkpoints | IA03 within-process retry; planned T03/T04/T10/T14 | Partial | No restart reconcile or independent service |
-| OC04 | Workers | Replaceable verified adapters | API | Current Codex read-only artifact worker | SPEC-005 live Codex; planned T04/T07 | Partial | Claude/Kiro adapters and cross-provider handoff missing |
+| OC02 | Planning | Spec and real repo to general plan | Functional | workflow.py scope/AC planner and owned artifacts | WF01–WF03 fixtures plus two live JSON tasks | Partial | General application functional gates and automatic ambiguity triage remain |
+| OC03 | Core | Durable authority, recovery, one writer | Reliability | Control reservations/receipts, Job supervisor, workflow locks, detached runner | CB01–CB04 / WF02 / BG01; crash and lost-ack tests | Partial | Unidentified launch needs manual reconciliation; full transition coverage remains |
+| OC04 | Workers | Replaceable verified adapters | API | Codex/Kiro artifact adapters, Claude transport blocked on login | PA01–PA03 live Kiro and Codex→Kiro checkpoint handoff | Partial | Claude live auth/authority/cancel and mid-write handoff remain |
 | OC05 | Inbox | Durable requests and trusted revision replies | Security | ledger.py request create/revise/reply, revision history, transactional local receipts | P1a T05/T22 persistence/conflict subsets pass; trusted caller/worker isolation not proven | Partial | Local attribution only; replies never authorize or apply execution actions |
-| OC06 | Memory | Shared decisions/checkpoints/provenance | Data | Spec snapshots, run logs and file checkpoints | SR history, IA02; planned T03/T06/T07/T18 | Partial | Portable memory/ack/isolation semantics missing |
-| OC07 | DAG | Parallel dependency/ownership scheduling | Architecture | Fixed sequential CV graph validation | IA01 fixed-profile checks; planned T09/T10/T13 | Partial | General parallel scheduler missing |
-| OC08 | Integration | Verified merged result across branches/repos | Testing | Host CV gates and independent review | SPEC-005 19 live checks; planned T11 | Partial | No multi-worktree integration owner |
-| OC09 | Long jobs | Root budgets, recovery and optional 8h | Reliability | Run deadline/calls/repair counters; CLI capped at 1h | Bounded runtime/IA03 tests; planned T07/T09/T13/T14/T15/T17 | Partial | Durable cross-attempt/parallel grants and 8h validation missing |
-| OC10 | Routing | Task/risk/capability plus account quota | Performance | incremental model rules; JEV connection only | Routing regressions, connectivity probe; planned T15/T16/T18 | Partial | No quota windows/reservation/routing benchmark |
-| OC11 | Review | Partial review, feedback and reorder | UI | outputs/checkpoints/preview | IA02/IA05; planned T10/T12/T13 | Partial | Revision feedback/acceptance/pause/reorder missing |
+| OC06 | Memory | Shared decisions/checkpoints/provenance | Data | ledger events, immutable spec/profile, content-addressed working/index snapshots | CP01–CP03 dirty/binary/deletion recovery; live handoff preserves source | Partial | Authenticated entry connectors and full transcript-free continuation proof remain |
+| OC07 | DAG | Parallel dependency/ownership scheduling | Architecture | Generic validated DAG sequential per root; two workers across independent roots | WF plan cycle/dependency tests, CQ01 queue/capacity test | Partial | Parallel branches within root and descendant invalidation remain |
+| OC08 | Integration | Verified merged result across branches/repos | Testing | Actual Git candidate checks and immutable local review branches | IB01–IB02 Git/dirty index/gate/lost-ref-ack tests | Partial | Target merge/rebase, application gates and multi-repo commit vector remain |
+| OC09 | Long jobs | Root budgets, recovery and optional 8h | Reliability | Absolute max-8h grant, durable counters/reservations, background waits | CB02/BG02/CQ01; live handoff preserves deadline/counters | Partial | Live eight-hour soak and authenticated budget extension remain |
+| OC10 | Routing | Task/risk/capability plus account quota | Performance | Typed risk/tier/quota recommendation and bounded AI proposal validator | RP01–RP02 multi-window/stale/unknown/type tests | Partial | Automatic quota feeds/reservation, calibrated routing and fallback remain |
+| OC11 | Review | Partial review, feedback and reorder | UI | Output cards/diff, concurrent feedback, revision accept/reorder/pause | WF04 checkpoint/stale/feedback tests | Partial | Automatic feedback-to-repair and review alongside same-root parallel workers remain |
 | OC12 | Authority | Scope/grant enforcement separate from acceptance | Security | Fixed CV sealed gates and worker artifact validation | SPEC-004 boundary tests/IA04; planned T01/T08/T11/T16/T19 | Partial | Trusted multi-entry caller/worker authority isolation missing |
 
-Documentation cycle: updated canonical architecture, readable SPEC-006, four delivery phases and T01–T19 acceptance scenarios; preserved dated architecture/backlog snapshots. Validation for this cycle is spec parsing/brief limit, current CLI read-only smoke, requirement coverage, local links/fences and Git whitespace checks. Runtime tests recorded above belong to prior cycles; they were not rerun as evidence for new runtime capabilities. The new proposal remains unapproved. The review/update task does not authorize implementing the entire new roadmap.
+Historical documentation-only cycle (implementation was authorized by later user requests): updated canonical architecture, readable SPEC-006, four delivery phases and T01–T19 acceptance scenarios; preserved dated architecture/backlog snapshots. Validation for this cycle is spec parsing/brief limit, current CLI read-only smoke, requirement coverage, local links/fences and Git whitespace checks. Runtime tests recorded above belong to prior cycles; they were not rerun as evidence for new runtime capabilities. The new proposal remains unapproved. The review/update task does not authorize implementing the entire new roadmap.
 
 Validation result (2026-10-09): all seven changed/new documentation files pass local link/fence/encoding checks; brief is 233/350 whitespace-delimited words; OC01–OC12 and T01–T19 are present and mapped. Dated snapshots match the pre-edit drafts. `python -X utf8 -m onecrew spec review SPEC-006` (brief and `--full`) and `task run --help` exit 0. Initial strict question-section parsing failed on extra prose after “Không có.”; the proposal format was corrected, without changing the parser. No runtime source or tests changed.
 

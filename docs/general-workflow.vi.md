@@ -46,4 +46,4 @@ Planner dùng schema enum cho đúng AC/path. JSON/schema sai được sửa tro
 
 Adapter pin Codex CLI 0.160.0 trên Windows, read-only và tắt shell/apps/plugins/hooks/multi-agent. CLI chạy ở thư mục IO riêng, context được gửi qua stdin; worker chỉ trả JSON. Code core là bên duy nhất áp dụng bytes vào snapshot. Không cấp ledger/control tool cho model. Phiên bản khác cần kiểm chứng trước khi bật, không tự fallback full-access.
 
-Chưa thuộc bản này: integration vào Git source, worker Claude/Kiro, tự xử lý feedback/inbox từ entry có xác thực, scheduler hai nhánh cùng root, quota fallback, service nền và soak 8 giờ. Roadmap vẫn giữ các gate đó; không dùng hai bài JSON để đánh dấu toàn bộ P1/P2 hoàn tất.
+Đã bổ sung Kiro worker/handoff, controller nền và nhánh Git để review; xem các hướng dẫn tương ứng trong README. Còn thiếu merge vào target, Claude live (chờ login), tự xử lý feedback/inbox từ entry có xác thực, DAG hai nhánh cùng root, quota fallback và soak 8 giờ. Roadmap vẫn giữ các gate đó; không dùng hai bài JSON để đánh dấu toàn bộ P1/P2 hoàn tất.

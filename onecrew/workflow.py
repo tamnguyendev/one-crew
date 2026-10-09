@@ -10,7 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from .control import Control, migrate
+from .control import Control, CapacityWait, migrate
 from .ledger import LedgerError, canonical, content_hash, exact_fields, key_field, text_field
 from .snapshots import Snapshots, durable_write, scope_list
 from .supervisor import Supervisor
@@ -74,7 +74,7 @@ def validate_profile(profile):
     for check in checks:
         exact_fields(check, ('id', 'acceptance', 'kind', 'path', 'expected'), 'Check')
         check_ids.append(key_field(check['id']))
-        if not isinstance(check['acceptance'], list) or not check['acceptance'] or not set(check['acceptance']) <= set(ids):
+        if not isinstance(check['acceptance'], list) or not check['acceptance'] or not all(isinstance(x, str) for x in check['acceptance']) or not set(check['acceptance']) <= set(ids):
             raise LedgerError('Check acceptance IDs must exist.')
         covered.update(check['acceptance'])
         if check['path'] not in context:
@@ -105,10 +105,10 @@ def validate_plan(value, profile):
         if not owned <= set(profile['owned']):
             raise LedgerError('Plan expanded file ownership.')
         owners.update(owned)
-        if not isinstance(row['depends_on'], list) or len(set(row['depends_on'])) != len(row['depends_on']):
+        if not isinstance(row['depends_on'], list) or not all(isinstance(x, str) for x in row['depends_on']) or len(set(row['depends_on'])) != len(row['depends_on']):
             raise LedgerError('Invalid task dependencies.')
         ac = row['acceptance']
-        if not isinstance(ac, list) or not ac or not set(ac) <= {a['id'] for a in profile['acceptance']}:
+        if not isinstance(ac, list) or not ac or not all(isinstance(x, str) for x in ac) or not set(ac) <= {a['id'] for a in profile['acceptance']}:
             raise LedgerError('Plan changed acceptance criteria.')
         covered.update(ac)
     if len(ids) != len(set(ids)) or covered != {a['id'] for a in profile['acceptance']} or owners != set(profile['owned']):
@@ -365,11 +365,22 @@ class Workflow:
                     return state
                 if state['phase'] in ('completed', 'blocked', 'failed'):
                     return state
-                if self.worker.capability() != selected['capability']:
-                    raise LedgerError('Worker capability changed since enable.')
-                context = self.store.context(state['snapshot'])
-                common = '\nSPEC\n' + task['handoff']['spec_text'] + '\nSEALED PROFILE\n' + canonical(profile) + '\nSOURCE\n' + canonical(context)
+                wants_worker = state['phase'] in ('planning', 'repairing') or (
+                    state['phase'] == 'working' and any(r['id'] not in state['done'] for r in state['plan']['tasks']))
+                if wants_worker and not state['pending']:
+                    with self.ledger.transaction() as conn:
+                        occupied = conn.execute("SELECT COUNT(*) FROM attempts WHERE status IN ('reserved','running','unknown')").fetchone()[0]
+                    if occupied >= 2:
+                        if state.get('waiting_reason') != 'capacity':
+                            state['waiting_reason'] = 'capacity'
+                            self.persist(task_id, sequence, state)
+                        return state
+                    state.pop('waiting_reason', None)
                 try:
+                    if wants_worker and not state['pending'] and self.worker.capability() != selected['capability']:
+                        raise LedgerError('Worker capability changed since enable.')
+                    context = self.store.context(state['snapshot'])
+                    common = '\nSPEC\n' + task['handoff']['spec_text'] + '\nSEALED PROFILE\n' + canonical(profile) + '\nSOURCE\n' + canonical(context)
                     if state['phase'] == 'planning':
                         sequence, value = self._invoke(task_id, sequence, state, 'plan',
                             'Plan only the supplied scope. Every acceptance ID and owned file must be covered. acceptance arrays contain ONLY exact IDs, never descriptions. No tools; no extra features.' + common,
@@ -426,6 +437,11 @@ class Workflow:
                     else:
                         raise LedgerError('Unknown workflow phase.')
                     sequence = self.persist(task_id, sequence, state)
+                except CapacityWait:
+                    sequence, state = self.state(task_id)
+                    state['waiting_reason'] = 'capacity'
+                    self.persist(task_id, sequence, state)
+                    return state
                 except (LedgerError, OSError, ValueError) as error:
                     # Reload the last durable checkpoint: never publish partially processed model output.
                     sequence, state = self.state(task_id)

@@ -58,7 +58,9 @@ def loop(ledger, task_id, interval=.5):
                     time.sleep(interval)
                     continue
                 try:
-                    workflow.run(task_id, steps=1)
+                    result = workflow.run(task_id, steps=1)
+                    if result.get('waiting_reason') == 'capacity':
+                        time.sleep(interval)
                 except LedgerError as error:
                     # A foreground command may briefly own a checkpoint. Never launch through it.
                     if 'already owns' not in str(error):

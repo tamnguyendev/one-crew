@@ -235,6 +235,22 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(LedgerError):
             self.workflow.switch(self.task['id'], content_hash(state), 'kiro', 'anything')
 
+    def test_global_two_worker_pressure_queues_without_calls_then_continues(self):
+        self.enable()
+        handoff = self.ledger.task(self.task['id'], full=True)['handoff']
+        held = []
+        for number in range(2):
+            task = self.ledger.submit('SPEC-001', handoff['spec_revision'], 'occupied-'+str(number), handoff['grant'])
+            config = self.workflow.control.configure(task['id'], task['revision'], {'fixture': True})
+            held.append(self.workflow.control.reserve(task['id'], config['revision'], 'occupied', {'test': True}))
+        waiting = self.workflow.run(self.task['id'])
+        self.assertEqual(waiting['waiting_reason'], 'capacity')
+        self.assertEqual(self.worker.calls, [])
+        self.assertEqual(self.ledger.task(self.task['id'])['execution'], 'waiting')
+        for attempt in held:
+            self.workflow.control.finish(attempt['id'], attempt['generation'], {'not_started': True}, not_started=True)
+        self.assertEqual(self.workflow.run(self.task['id'])['phase'], 'completed')
+
 
 if __name__ == '__main__':
     unittest.main()

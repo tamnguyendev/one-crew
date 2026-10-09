@@ -18,7 +18,7 @@ def main(argv=None):
     parser.add_argument('--state-root', type=Path)
     group = parser.add_subparsers(dest='group', required=True).add_parser('work')
     commands = group.add_subparsers(dest='command', required=True)
-    for name in ('enable', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch'):
+    for name in ('enable', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
         command = commands.add_parser(name)
         command.add_argument('id')
         command.add_argument('--json', action='store_true')
@@ -29,8 +29,10 @@ def main(argv=None):
             command.add_argument('--steps', type=int, default=100)
         if name == 'resume':
             command.add_argument('--reuse-output', action='store_true', help='Reprocess a settled receipt after a parser fix; no new worker call.')
-        if name in ('review', 'reorder', 'export', 'switch'):
+        if name in ('review', 'reorder', 'export', 'switch', 'branch'):
             command.add_argument('--revision', required=True)
+        if name == 'branch':
+            command.add_argument('--name', required=True)
         if name == 'switch':
             command.add_argument('--provider', choices=('codex', 'claude', 'kiro'), required=True)
             command.add_argument('--model', required=True)
@@ -69,6 +71,9 @@ def main(argv=None):
             result = workflow.review(args.id, args.revision, args.decision, args.comment)
         elif args.command == 'switch':
             result = workflow.switch(args.id, args.revision, args.provider, args.model)
+        elif args.command == 'branch':
+            from .integration import Integration
+            result = Integration(workflow).branch(args.id, args.revision, args.name)
         else:
             _, state = workflow.state(args.id)
             if not state or args.revision not in {r['revision'] for r in state['outputs']}:

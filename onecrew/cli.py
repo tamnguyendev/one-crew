@@ -19,8 +19,8 @@ def main(argv=None):
               '  task       run / list / status / cancel / outputs / preview (CV RUN- IDs)\n'
               '  request    create / list / show / revise / reply\n'
               '  core       migrate / status / cancel / reconcile\n'
-              '  work       enable / run / start / runner / status / outputs / pause / resume / switch / reorder / review / export\n'
-              '  provider   doctor [codex|claude|kiro]\n'
+              '  work       enable / run / start / runner / status / outputs / pause / resume / switch / reorder / review / export / branch\n'
+              '  provider   doctor [codex|claude|kiro] / choose --file <policy.json>\n'
               '  decision   JEV credential and connectivity commands\n'
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')
         return 0

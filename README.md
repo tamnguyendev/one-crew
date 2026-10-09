@@ -17,6 +17,8 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [Workflow tổng quát](docs/general-workflow.vi.md) | CLI chạy Codex từ spec/profile, review từng phần, resume, reorder và bằng chứng live |
 | [Workers và handoff](docs/providers.vi.md) | Codex/Kiro live, Claude chờ login; doctor và switch tại checkpoint |
 | [Controller chạy nền](docs/background-runner.vi.md) | Start/reconnect, chờ reply không gọi model, giữ deadline qua pause |
+| [Routing policy](docs/routing-policy.vi.md) | Đề xuất model theo tier/risk/quota, chưa tự dispatch |
+| [Nhánh Git để review](docs/review-branch.vi.md) | Kiểm candidate tree rồi tạo local branch, giữ nguyên source/index |
 | [Snapshot](docs/snapshots.vi.md) | Bảo toàn working/index bytes trong scope và output bất biến |
 | [CLI spec](docs/spec-review-cli.vi.md) | Review/approve theo revision, diff/history |
 | [Runtime và bằng chứng SPEC-005](docs/incremental-autonomy.vi.md) | Chạy CV từ thư mục trống, test/review/repair và preview |
@@ -46,7 +48,7 @@ Có task run/list/status/cancel/outputs/preview cho CV; hướng dẫn nằm tro
 
 Run RUN-20261008-232057-1d06d8 tự tạo app CV từ thư mục trống trong 585,21 giây, 14 model calls, một repair thật; 19 gate checks đạt và independent review không có findings. Product commit ad3c748, runtime commit bf2e673. Lượt đó ghi nhận 69 tests đạt; xem evidence và giới hạn trong tài liệu SPEC-005.
 
-Workflow mới đã chạy hai cấu trúc JSON ngoài CV, dùng 4 và 3 calls gồm planner retry, giữ source gốc và acceptance pending. Có fault tests crash/receipt/snapshot; chưa có multi-provider handoff, Git integration đa repo, scheduler song song đầy đủ hoặc soak 8 giờ. JEV kết nối được không đồng nghĩa routing đã hoạt động. Kết quả CV vẫn chờ khách hàng review; hiệu quả chống bot thực tế chưa được chứng minh.
+Workflow mới đã chạy hai cấu trúc JSON ngoài CV, dùng 4 và 3 calls gồm planner retry, giữ source gốc và acceptance pending. Có fault tests crash/receipt/snapshot; đã có Codex→Kiro checkpoint handoff, còn thiếu Git integration đa repo, DAG song song đầy đủ và soak 8 giờ. JEV kết nối được không đồng nghĩa routing đã hoạt động. Kết quả CV vẫn chờ khách hàng review; hiệu quả chống bot thực tế chưa được chứng minh.
 
 Đã bắt đầu nền lưu bền task/inbox bằng P1a. Mục tiêu tiếp theo là admission/budget/supervisor, rồi nối worker vào ledger để tiếp tục thực thi sau crash. Sau đó mới mở rộng entry/worker, song song và quota. Kế hoạch này không tự cấp quyền chạy trả phí hoặc deploy.
 
