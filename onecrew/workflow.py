@@ -470,9 +470,10 @@ class Workflow:
                             failures = [r for r in result['checks'] if not r['passed']]
                             fingerprint = content_hash([{'id': r['id'], 'detail': r['detail']} for r in failures])
                             state['failures'] = failures
-                            if fingerprint == state['last_failure'] or state['repairs'] >= profile['max_repairs']:
+                            if state.get('verification_only') or fingerprint == state['last_failure'] or state['repairs'] >= profile['max_repairs']:
                                 state['phase'] = 'blocked'
-                                state['message'] = 'Repeated failure or repair limit reached; review required.'
+                                state['message'] = ('Verification-only check failed; no model repair requested.' if state.get('verification_only') else
+                                                    'Repeated failure or repair limit reached; review required.')
                             else:
                                 state['last_failure'] = fingerprint
                                 state['repairs'] += 1
@@ -523,6 +524,26 @@ class Workflow:
                 'verification': state['verification'], 'acceptance': state['acceptance'],
                 'checks': state.get('checks'), 'backlog': state['backlog'], 'reviews': state.get('reviews', []) + feedback,
                 'outputs': [dict(row, diff=self.store.diff(row['base'], row['revision'])) for row in state['outputs']]}
+
+    def recheck(self, task_id, revision):
+        """Re-run trusted gates on an already produced candidate; never call a model."""
+        with task_lock(self.ledger, task_id):
+            sequence, state = self.state(task_id)
+            control = self.control.status(task_id)
+            if not state or revision != state['snapshot']:
+                raise LedgerError('Stale candidate revision.')
+            if control['cancel_requested'] or any(a['status'] != 'settled' for a in control['attempts']):
+                raise LedgerError('Stop/reconcile all attempts before rechecking a non-cancelled task.')
+            if not state['plan'] or set(state['done']) != {r['id'] for r in state['plan']['tasks']}:
+                raise LedgerError('Finish planned implementation before checking the final candidate.')
+            state.update(phase='verifying', verification='pending', acceptance='pending', message=None,
+                         verification_only=True, pending=None, parallel_pending=[])
+            state.pop('resume_phase', None)
+            for output in state['outputs']:
+                if output['revision'] == revision:
+                    output.update(verification='pending', acceptance='pending')
+            self.persist(task_id, sequence, state, unpause=True)
+        return self.run(task_id, steps=1)
 
     def resume(self, task_id, *, reuse_output=False, triage_receipt=None):
         """Explicit operator retry of a settled failure; never resets root counters."""

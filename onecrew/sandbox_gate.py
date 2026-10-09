@@ -160,7 +160,7 @@ class ContainerGate:
         argv = ['create', '--pull', 'never', '--name', name, '--label', 'onecrew.gate='+key,
                 '--network', 'none', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
                 '--user', '65534:65534', '--pids-limit', '64', '--memory', '256m', '--memory-swap', '256m', '--cpus', '1', '--no-healthcheck',
-                '--log-driver', 'local', '--log-opt', 'max-size=2m', '--log-opt', 'max-file=1',
+                '--log-driver', 'local', '--log-opt', 'max-size=2m', '--log-opt', 'max-file=1', '--log-opt', 'compress=false',
                 '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777',
                 '--mount', f'type=bind,source={workspace},target=/work,readonly', '--workdir', '/work',
                 '--env', 'HOME=/tmp', '--env', 'PYTHONDONTWRITEBYTECODE=1',
@@ -178,6 +178,8 @@ class ContainerGate:
                 raise GateUnavailable('Container exit state unavailable.') from None
             if inspect_code or not isinstance(state, dict) or state.get('Running') is not False or type(state.get('ExitCode')) is not int:
                 raise GateUnavailable('Container exit was not confirmed.')
+            if state.get('Error') or str(state.get('StartedAt', '')).startswith('0001-'):
+                raise GateUnavailable('Container failed before tests ran: '+str(state.get('Error') or err)[:500])
             passed = code == 0 and state['ExitCode'] == 0 and state.get('OOMKilled') is False and not state.get('Error')
             result = {'passed': passed, 'detail': 'Container tests passed.' if passed else (out+err)[-2000:] or 'Container test failed.',
                       'evidence': {'snapshot': snapshot, 'check_revision': content_hash(check), 'image': value['image'],

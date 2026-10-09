@@ -18,10 +18,12 @@ def main(argv=None):
     parser.add_argument('--state-root', type=Path)
     group = parser.add_subparsers(dest='group', required=True).add_parser('work')
     commands = group.add_subparsers(dest='command', required=True)
-    for name in ('enable', 'plan', 'triage', 'extend', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
+    for name in ('enable', 'plan', 'triage', 'extend', 'recheck', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
         command = commands.add_parser(name)
         command.add_argument('id')
         command.add_argument('--json', action='store_true')
+        if name == 'outputs':
+            command.add_argument('--full', action='store_true', help='Include diffs and gate evidence in the human review card.')
         if name == 'enable':
             command.add_argument('--profile', type=Path, required=True)
             command.add_argument('--revision', required=True)
@@ -29,7 +31,7 @@ def main(argv=None):
             command.add_argument('--steps', type=int, default=100)
         if name == 'resume':
             command.add_argument('--reuse-output', action='store_true', help='Reprocess a settled receipt after a parser fix; no new worker call.')
-        if name in ('plan', 'review', 'reorder', 'export', 'switch', 'branch', 'extend'):
+        if name in ('plan', 'review', 'reorder', 'export', 'switch', 'branch', 'extend', 'recheck'):
             command.add_argument('--revision', required=True)
         if name == 'extend':
             command.add_argument('--request-id', required=True)
@@ -65,6 +67,8 @@ def main(argv=None):
         elif args.command == 'extend':
             from .budget import extend
             result = extend(workflow.control, args.id, args.revision, args.request_id, args.max_calls, args.deadline, args.reason)
+        elif args.command == 'recheck':
+            result = workflow.recheck(args.id, args.revision)
         elif args.command in ('start', 'runner'):
             from .runner import start, status
             result = (start if args.command == 'start' else status)(workflow.ledger, args.id)
@@ -94,7 +98,11 @@ def main(argv=None):
             if not state or args.revision not in {r['revision'] for r in state['outputs']}:
                 raise ValueError('Only this task\'s published output revisions may be exported.')
             result = {'directory': str(workflow.store.materialize(args.revision, args.to)), 'revision': args.revision}
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if not args.json and args.command in ('status', 'outputs'):
+            from . import work_view
+            print(work_view.status(result) if args.command == 'status' else work_view.outputs(result, args.full))
+        else:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (ValueError, OSError, sqlite3.Error) as error:
         print(json.dumps({'error': str(error)}, ensure_ascii=False))

@@ -1,6 +1,6 @@
 # Chạy công việc theo spec và review từng phần
 
-Đã có luồng Windows/Codex: spec đã lưu → profile giới hạn → plan → file artifacts → snapshot từng phần → gate → output chờ review. Không còn bị cố định vào bài CV. Hai bài live là JSON bản dịch và JSON routing; bằng chứng ở [general-workflow-evidence.json](general-workflow-evidence.json). Đây chưa phải bằng chứng thực thi chức năng ứng dụng bất kỳ.
+Đã có luồng Windows/Codex/Kiro: spec đã lưu → profile giới hạn → plan → file artifacts → snapshot từng phần → gate → output chờ review. Hai bài JSON ở [general-workflow-evidence.json](general-workflow-evidence.json); kiểm thử hành vi đơn hàng và nhập CSV trong container ở [functional-evidence.json](functional-evidence.json). Các bằng chứng có phạm vi riêng, không bảo đảm mọi ứng dụng đều chạy được.
 
 ## Giao việc
 
@@ -22,6 +22,8 @@ Lấy `task-sha256` từ submit/status; khác với hash của spec. `enable` l�
 
 ## Xem, review và điều chỉnh
 
+`work status` hiện bản ngắn: tiến độ, calls, deadline, việc ready, vấn đề và các revision cần thao tác. `work outputs` hiện từng card có summary/revision/gate/review; thêm `--full` để xem diff/evidence hoặc `--json` cho connector. Không gọi model để tóm tắt lại.
+
 ```powershell
 .\onecrew.ps1 --project D:\MyProject work status TASK-...
 .\onecrew.ps1 --project D:\MyProject work outputs TASK-...
@@ -40,7 +42,7 @@ Pause dừng worker đang chạy và giữ snapshot đã công bố, calls/deadl
 
 ## Phạm vi gate và giới hạn
 
-Đã thêm [container_test](container-gates.vi.md) cho test chức năng theo snapshot. Contract và timeout đã được kiểm thử; thực thi container live đang chờ Docker Linux Engine trên máy.
+Đã thêm [container_test](container-gates.vi.md) cho test chức năng theo snapshot; có live Docker evidence. `work recheck TASK-... --revision <snapshot>` chỉ kiểm lại candidate đã đủ implementation, không gọi model repair. Lỗi hạ tầng không được coi là lỗi code để đốt thêm token.
 
 Gate v1: `json_equal`, `text_equal`, `text_contains`, `python_syntax`, `absent`. Tất cả AC phải có check; kiểu dữ liệu strict, `true` khác `1`. Syntax/text check không chứng minh chương trình chạy đúng. `completed` nghĩa đã hoàn tất pipeline và pass **checks được cấu hình**; acceptance vẫn `pending`. Chưa chạy lệnh test tùy ý do AI cung cấp trên host.
 

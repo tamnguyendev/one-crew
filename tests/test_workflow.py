@@ -144,6 +144,31 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('No source progress', failed['message'])
         self.assertEqual(len(self.worker.calls), 4)
 
+    def test_recheck_cannot_spend_model_calls_or_accept_failed_candidate(self):
+        self.enable()
+        self.worker.responses[1] = artifact('settings.json', '{"enabled":false,"workers":2}')
+        self.worker.responses.append(artifact('settings.json', '{"enabled":false,"workers":2}'))
+        blocked = self.workflow.run(self.task['id'])
+        before = len(self.worker.calls)
+        result = self.workflow.recheck(self.task['id'], blocked['snapshot'])
+        self.assertEqual(result['phase'], 'blocked')
+        self.assertEqual(result['verification'], 'failed')
+        self.assertEqual(len(self.worker.calls), before)
+        with self.assertRaises(LedgerError):
+            self.workflow.review(self.task['id'], result['snapshot'], 'accept', 'Must not pass')
+
+    def test_recheck_revokes_acceptance_and_keeps_budget(self):
+        self.enable()
+        done = self.workflow.run(self.task['id'])
+        self.workflow.review(self.task['id'], done['snapshot'], 'accept', 'Reviewed')
+        before = self.workflow.control.status(self.task['id'])['used_calls']
+        result = self.workflow.recheck(self.task['id'], done['snapshot'])
+        self.assertEqual(result['phase'], 'completed')
+        self.assertEqual(result['acceptance'], 'pending')
+        self.assertEqual(self.workflow.control.status(self.task['id'])['used_calls'], before)
+        with self.assertRaisesRegex(LedgerError, 'Stale'):
+            self.workflow.recheck(self.task['id'], '0'*64)
+
     def test_true_is_not_numeric_one_and_repair_changes_only_owned_files(self):
         self.enable()
         self.worker.responses[1] = artifact('settings.json', '{"enabled":1,"workers":2}')

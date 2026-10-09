@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Readable review and live functional recovery
+
+Baseline `1e4c33b`; [functional evidence](functional-evidence.json), [gate guide](container-gates.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| RV01 | Human-readable status/output cards with exact revisions, optional diff/evidence and stable JSON | work_view, CLI --full/--json | two real CLI fixture tests; no model calls for display | Complete |
+| FG04 | Distinguish container startup errors from product failure and recheck without AI repair | Docker startup state guard, log configuration, work recheck | regression test for logging error; recheck failure/acceptance/budget tests; live recheck zero extra calls | Complete |
+| FG03 | Live functional gates and concrete container boundary checks | Docker 28.3.2, pinned official Python image, product tests on snapshot and Git candidate | order quote 5 test methods and CSV regression 4 methods pass; mount/rootfs/network/socket/env assertions; source/index preserved | Complete |
+
+173 tests pass in 71.702 seconds. Three live trials total 7 managed calls: Kiro order 3 (completed after zero-call gate recheck), Kiro CSV 3 (retained as blocked for real Unicode defect), Codex CSV regression 1 (completed; supplied operator plan). Initial infrastructure misclassification and unnecessary repairs remain in evidence. No budget reset: separate regression is explicitly related and aggregate costs include all roots. Acceptance pending. All attempts settled and no gate containers remain. This does not prove eight-hour soak or authenticated entry integration.
+
 ## Explicit root budget extensions
 
 Baseline `e94522c`; [guide](budget-extension.vi.md).
@@ -20,7 +32,7 @@ Baseline `2cdc632`; [guide](container-gates.vi.md).
 |---|---|---|---|---|
 | FG01 | Operator-sealed functional test command and immutable candidate/image | sandbox_gate.validate/evaluate, workflow and Git-candidate verify | six tests for owned-test rejection, immutable image, candidate-only mount, exit/cleanup, infrastructure failure without model repair | Complete |
 | FG02 | Bounded native client, recovery cleanup and explicit unavailable result | Job Object client, deterministic resource marker, preflight before enable | real native timeout and contract cleanup/unknown tests; engine probe fails promptly | Complete |
-| FG03 | Live application behavior and sandbox boundary | container configuration and receipts implemented | local Docker Linux Engine unavailable; user is starting Docker Desktop | Blocked |
+| FG03 | Live application behavior and sandbox boundary | container configuration and receipts implemented | now verified in the live recovery cycle above after Docker startup | Complete |
 
 FG01/FG02 are contract/client guarantees, not live container evidence. No new model calls. Abrupt controller death can leave a networkless container until recovery cleanup; no reboot cleanup guarantee. Initial broad suite found a transient Windows redirected-handle cleanup error; native client now always waits for exit and fixture uses the existing supervisor suite's bounded cleanup retry. Final full suite: 161 tests pass in 64.052 seconds. Python compilation and Git whitespace checks pass.
 

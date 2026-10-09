@@ -32,6 +32,7 @@ class FakeEngine:
         self.fail_cleanup = False
         self.timeout = False
         self.volumes = None
+        self.startup_error = ''
 
     def __call__(self, argv, directory, timeout, guard):
         args = argv[5:]
@@ -47,7 +48,7 @@ class FakeEngine:
                 raise GateUnavailable('test timeout')
             return self.exit_code, 'assertion failure' if self.exit_code else '2 tests passed', ''
         if args[0] == 'inspect':
-            return 0, json.dumps({'Running': self.running, 'ExitCode': self.exit_code, 'OOMKilled': False, 'Error': ''}), ''
+            return 0, json.dumps({'Running': self.running, 'ExitCode': self.exit_code, 'OOMKilled': False, 'Error': self.startup_error}), ''
         if args[0] in ('rm', 'container') and self.fail_cleanup:
             return 1, '', 'engine lost'
         return 0, '', ''
@@ -123,6 +124,13 @@ class SandboxGateTests(unittest.TestCase):
         self.engine.volumes = {'/data': {}}
         with self.assertRaisesRegex(GateUnavailable, 'volumes'):
             self.gate.preflight(self.profile['checks'])
+
+    def test_startup_failure_is_infrastructure_not_product_failure(self):
+        self.engine.exit_code = 128
+        self.engine.startup_error = 'failed to initialize logging driver'
+        with self.assertRaisesRegex(GateUnavailable, 'before tests ran'):
+            self.gate.evaluate(self.snapshot, self.profile['checks'][0])
+        self.assertEqual(self.engine.calls[-1][0], 'rm')
 
     def test_infrastructure_failure_before_enable_has_zero_model_calls(self):
         with patch('onecrew.sandbox_gate.ContainerGate.preflight', side_effect=GateUnavailable('engine unavailable')):

@@ -1,0 +1,393 @@
+{
+  "date": "2026-10-09",
+  "runtime_baseline": "1e4c33b plus gate startup-classification/recheck fix",
+  "total_managed_calls": 7,
+  "entry": "local operator CLI/API",
+  "limits": [
+    "The failed inventory trial is retained, not counted as completed.",
+    "Separate one-call regression references the failed task; aggregate cost includes both roots.",
+    "No authenticated multi-entry or eight-hour soak proof."
+  ],
+  "trials": [
+    {
+      "case": "order-quote",
+      "project": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\functional-live-23a2364a\\order-quote",
+      "state_root": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\functional-live-23a2364a\\state",
+      "task": "TASK-84677ed842e14f8fa3437e219c766ec8",
+      "phase": "completed",
+      "message": null,
+      "verification": "passed",
+      "acceptance": "pending",
+      "used_calls": 3,
+      "snapshot": "3cd323d79c59b5a871b8f0e6d3880fcafd1923631243e89391b1f5347983fff7",
+      "usage": [
+        {
+          "attempt": "ATT-e8049443801849a8bf10a8f9db84e929",
+          "reported": [
+            {
+              "metering": [
+                {
+                  "unit": "credit",
+                  "unitPlural": "credits",
+                  "value": 0.013904991509121062
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "attempt": "ATT-fb69269ae36a4838915e1da72e191aff",
+          "reported": [
+            {
+              "metering": [
+                {
+                  "unit": "credit",
+                  "unitPlural": "credits",
+                  "value": 0.048244750845771144
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "attempt": "ATT-7a9bb1ef966a4a1c9fd4173d7dc1555c",
+          "reported": [
+            {
+              "metering": [
+                {
+                  "value": 0.04603796039800995,
+                  "unit": "credit",
+                  "unitPlural": "credits"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "checks": {
+        "passed": true,
+        "checks": [
+          {
+            "passed": true,
+            "detail": "Container tests passed.",
+            "evidence": {
+              "snapshot": "3cd323d79c59b5a871b8f0e6d3880fcafd1923631243e89391b1f5347983fff7",
+              "check_revision": "1277b6d0c6c8011082506d5e9a44c693371c2332ca0c8b9c20f5c5b6096da0d2",
+              "image": "sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a",
+              "environment": {
+                "engine": "28.3.2",
+                "os": "linux",
+                "transport": "local_desktop_pipe"
+              },
+              "exit_code": 0,
+              "oom_killed": false,
+              "stdout": "Boundary checks passed\n",
+              "stderr": ".....\n----------------------------------------------------------------------\nRan 5 tests in 0.001s\n\nOK\n",
+              "network": "none",
+              "source_mount": "read-only"
+            },
+            "id": "functional",
+            "acceptance": [
+              "AC-FUNCTION"
+            ],
+            "kind": "container_test"
+          }
+        ],
+        "limits": "Only configured checks were evaluated; syntax/content checks do not prove runtime behavior."
+      },
+      "baseline_failed": true,
+      "source_unchanged": true,
+      "index_unchanged": true,
+      "initial_trial": {
+        "phase": "blocked",
+        "message": "No source progress; automatic repetition stopped.",
+        "checks": {
+          "checks": [
+            {
+              "acceptance": [
+                "AC-FUNCTION"
+              ],
+              "detail": "Error response from daemon: failed to create task for container: failed to initialize logging driver: compression cannot be enabled when max file count is 1\n",
+              "evidence": {
+                "check_revision": "1277b6d0c6c8011082506d5e9a44c693371c2332ca0c8b9c20f5c5b6096da0d2",
+                "environment": {
+                  "engine": "28.3.2",
+                  "os": "linux",
+                  "transport": "local_desktop_pipe"
+                },
+                "exit_code": 128,
+                "image": "sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a",
+                "network": "none",
+                "oom_killed": false,
+                "snapshot": "3cd323d79c59b5a871b8f0e6d3880fcafd1923631243e89391b1f5347983fff7",
+                "source_mount": "read-only",
+                "stderr": "Error response from daemon: failed to create task for container: failed to initialize logging driver: compression cannot be enabled when max file count is 1\n",
+                "stdout": ""
+              },
+              "id": "functional",
+              "kind": "container_test",
+              "passed": false
+            }
+          ],
+          "limits": "Only configured checks were evaluated; syntax/content checks do not prove runtime behavior.",
+          "passed": false
+        }
+      },
+      "model_calls_during_recheck": 0,
+      "baseline_after_gate_fix": {
+        "passed": false,
+        "checks": [
+          {
+            "passed": false,
+            "detail": "Boundary checks passed\nTraceback (most recent call last):\n  File \"/work/checks.py\", line 24, in <module>\n    from product import quote\nImportError: cannot import name 'quote' from 'product' (/work/product.py)\n",
+            "evidence": {
+              "snapshot": "43daa4f4f2e83d7c9fcc3b1568ec9c1b8edfc2458a9aab5647afc0a476010724",
+              "check_revision": "1277b6d0c6c8011082506d5e9a44c693371c2332ca0c8b9c20f5c5b6096da0d2",
+              "image": "sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a",
+              "environment": {
+                "engine": "28.3.2",
+                "os": "linux",
+                "transport": "local_desktop_pipe"
+              },
+              "exit_code": 1,
+              "oom_killed": false,
+              "stdout": "Boundary checks passed\n",
+              "stderr": "Traceback (most recent call last):\n  File \"/work/checks.py\", line 24, in <module>\n    from product import quote\nImportError: cannot import name 'quote' from 'product' (/work/product.py)\n",
+              "network": "none",
+              "source_mount": "read-only"
+            },
+            "id": "functional",
+            "acceptance": [
+              "AC-FUNCTION"
+            ],
+            "kind": "container_test"
+          }
+        ],
+        "limits": "Only configured checks were evaluated; syntax/content checks do not prove runtime behavior."
+      },
+      "branch": {
+        "action": "ACT-fa9c14c0ac8648a3aaaf12296ae651db",
+        "revision": "a681740bde5f61dbf7cafff6b3aa63c29d8083a44e0ba7f9c6cf595b87d2b43b",
+        "receipt": {
+          "status": "verified",
+          "result": {
+            "verified": true,
+            "ref": "refs/heads/onecrew/functional-order-quote",
+            "commit": "b62fae70287f671414cc685bddd1ec670ce0e58f",
+            "tree": "36f6dbc88050d1e4cb0b67ce1fcf901bb7f94b5c",
+            "source_modified": false,
+            "gate_snapshot": "0dc650e844e98a492380a04591d4a59a0c29b659587f2ae6e6b145800b50bab5"
+          }
+        }
+      },
+      "source_snapshot_still_matches": true,
+      "all_attempts_settled": true
+    },
+    {
+      "case": "inventory-csv",
+      "project": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\functional-live-23a2364a\\inventory-csv",
+      "state_root": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\functional-live-23a2364a\\state",
+      "task": "TASK-d946ff86f32a4eee9e8db62b1f379c12",
+      "phase": "blocked",
+      "message": "Verification-only check failed; no model repair requested.",
+      "verification": "failed",
+      "acceptance": "pending",
+      "used_calls": 3,
+      "snapshot": "a0d458485916b22de356be1c0698d2c23d3d990dd424452defa1386e0c77bd34",
+      "usage": [
+        {
+          "attempt": "ATT-09238d2c937f470ca25b730839dc1e9e",
+          "reported": [
+            {
+              "metering": [
+                {
+                  "unit": "credit",
+                  "unitPlural": "credits",
+                  "value": 0.012752134527363184
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "attempt": "ATT-7aeffa75355c473493266338f24c7818",
+          "reported": [
+            {
+              "metering": [
+                {
+                  "unit": "credit",
+                  "unitPlural": "credits",
+                  "value": 0.030820351840796015
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "attempt": "ATT-8be3db3aa2ea4bc68758a3cb32f1c8ed",
+          "reported": [
+            {
+              "metering": [
+                {
+                  "value": 0.03259543203980099,
+                  "unit": "credit",
+                  "unitPlural": "credits"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "checks": {
+        "passed": false,
+        "checks": [
+          {
+            "passed": false,
+            "detail": "Boundary checks passed\n.F..\n======================================================================\nFAIL: test_invalid (__main__.Cases.test_invalid) (text='sku,quantity\\nA,١')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/work/checks.py\", line 34, in test_invalid\n    with self.subTest(text=text),self.assertRaises(ValueError):\n                                 ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 4 tests in 0.005s\n\nFAILED (failures=1)\n",
+            "evidence": {
+              "snapshot": "a0d458485916b22de356be1c0698d2c23d3d990dd424452defa1386e0c77bd34",
+              "check_revision": "1277b6d0c6c8011082506d5e9a44c693371c2332ca0c8b9c20f5c5b6096da0d2",
+              "image": "sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a",
+              "environment": {
+                "engine": "28.3.2",
+                "os": "linux",
+                "transport": "local_desktop_pipe"
+              },
+              "exit_code": 1,
+              "oom_killed": false,
+              "stdout": "Boundary checks passed\n",
+              "stderr": ".F..\n======================================================================\nFAIL: test_invalid (__main__.Cases.test_invalid) (text='sku,quantity\\nA,١')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/work/checks.py\", line 34, in test_invalid\n    with self.subTest(text=text),self.assertRaises(ValueError):\n                                 ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\nAssertionError: ValueError not raised\n\n----------------------------------------------------------------------\nRan 4 tests in 0.005s\n\nFAILED (failures=1)\n",
+              "network": "none",
+              "source_mount": "read-only"
+            },
+            "id": "functional",
+            "acceptance": [
+              "AC-FUNCTION"
+            ],
+            "kind": "container_test"
+          }
+        ],
+        "limits": "Only configured checks were evaluated; syntax/content checks do not prove runtime behavior."
+      },
+      "baseline_failed": true,
+      "source_unchanged": true,
+      "index_unchanged": true,
+      "initial_trial": {
+        "phase": "blocked",
+        "message": "No source progress; automatic repetition stopped.",
+        "checks": {
+          "checks": [
+            {
+              "acceptance": [
+                "AC-FUNCTION"
+              ],
+              "detail": "Error response from daemon: failed to create task for container: failed to initialize logging driver: compression cannot be enabled when max file count is 1\n",
+              "evidence": {
+                "check_revision": "1277b6d0c6c8011082506d5e9a44c693371c2332ca0c8b9c20f5c5b6096da0d2",
+                "environment": {
+                  "engine": "28.3.2",
+                  "os": "linux",
+                  "transport": "local_desktop_pipe"
+                },
+                "exit_code": 128,
+                "image": "sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a",
+                "network": "none",
+                "oom_killed": false,
+                "snapshot": "a0d458485916b22de356be1c0698d2c23d3d990dd424452defa1386e0c77bd34",
+                "source_mount": "read-only",
+                "stderr": "Error response from daemon: failed to create task for container: failed to initialize logging driver: compression cannot be enabled when max file count is 1\n",
+                "stdout": ""
+              },
+              "id": "functional",
+              "kind": "container_test",
+              "passed": false
+            }
+          ],
+          "limits": "Only configured checks were evaluated; syntax/content checks do not prove runtime behavior.",
+          "passed": false
+        }
+      },
+      "model_calls_during_recheck": 0,
+      "source_snapshot_still_matches": true,
+      "all_attempts_settled": true
+    },
+    {
+      "case": "inventory-ascii-regression",
+      "task": "TASK-909c4da9f2184f0abb9b20c52dcea844",
+      "project": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\functional-live-23a2364a\\inventory-regression",
+      "state_root": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\functional-live-23a2364a\\state",
+      "phase": "completed",
+      "message": null,
+      "verification": "passed",
+      "acceptance": "pending",
+      "used_calls": 1,
+      "snapshot": "028a97bf35f3d502c05f3a955d4a527bae7a3770f35e70cb46d4ead9838290f0",
+      "checks": {
+        "passed": true,
+        "checks": [
+          {
+            "passed": true,
+            "detail": "Container tests passed.",
+            "evidence": {
+              "snapshot": "028a97bf35f3d502c05f3a955d4a527bae7a3770f35e70cb46d4ead9838290f0",
+              "check_revision": "1277b6d0c6c8011082506d5e9a44c693371c2332ca0c8b9c20f5c5b6096da0d2",
+              "image": "sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a",
+              "environment": {
+                "engine": "28.3.2",
+                "os": "linux",
+                "transport": "local_desktop_pipe"
+              },
+              "exit_code": 0,
+              "oom_killed": false,
+              "stdout": "Boundary checks passed\n",
+              "stderr": "....\n----------------------------------------------------------------------\nRan 4 tests in 0.001s\n\nOK\n",
+              "network": "none",
+              "source_mount": "read-only"
+            },
+            "id": "functional",
+            "acceptance": [
+              "AC-FUNCTION"
+            ],
+            "kind": "container_test"
+          }
+        ],
+        "limits": "Only configured checks were evaluated; syntax/content checks do not prove runtime behavior."
+      },
+      "usage": [
+        {
+          "attempt": "ATT-013f81e8f3d8487cb87714e16396edd9",
+          "reported": [
+            {
+              "input_tokens": 7542,
+              "cached_input_tokens": 0,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 384,
+              "reasoning_output_tokens": 0
+            }
+          ]
+        }
+      ],
+      "original_task": "TASK-d946ff86f32a4eee9e8db62b1f379c12",
+      "plan_source": "local_operator",
+      "source_unchanged": true,
+      "branch": {
+        "action": "ACT-8b921bc270c74e46a06690cd6649ae6e",
+        "revision": "523e6aeb7a5d1685411650a1230616c1b960085971991e122eb1b7ff2eb0be7d",
+        "receipt": {
+          "status": "verified",
+          "result": {
+            "verified": true,
+            "ref": "refs/heads/onecrew/inventory-ascii-fixed",
+            "commit": "b8c6ce76f54d3a778fc26debc9b1cd227b65dac9",
+            "tree": "5b96529a38d3593e69acffd5d92d983568f1b377",
+            "source_modified": false,
+            "gate_snapshot": "1c629b1f47e1e5d9154184d6b58cccb90fd9dd07cf5026a21f8ae49b619dcbd9"
+          }
+        }
+      },
+      "index_unchanged": true,
+      "source_snapshot_still_matches": true,
+      "all_attempts_settled": true
+    }
+  ]
+}
