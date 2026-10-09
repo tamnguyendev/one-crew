@@ -220,5 +220,16 @@ class OwnedTests(unittest.TestCase):
         self.assertEqual(state['deliveries'][0]['status'],'verified')
         self.assertTrue(state['deliveries'][0]['reconciled'])
 
+    def test_git_status_preserves_exact_index_bytes_after_stat_change(self):
+        import os
+        self.setup_git()
+        run,task,_=self.runtime([],mode='delivery',branch='onecrew/stat',remote='origin')
+        adapter=GitDelivery(run,task,run.control.status(task)['configuration']['profile'],'')
+        index=(self.root/'.git/index').read_bytes()
+        path=self.root/'test_calc.py';stat=path.stat()
+        os.utime(path,ns=(stat.st_atime_ns,stat.st_mtime_ns+10000000000))
+        adapter.status()
+        self.assertEqual((self.root/'.git/index').read_bytes(),index)
+
 
 if __name__=='__main__': unittest.main()

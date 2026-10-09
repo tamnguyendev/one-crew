@@ -48,7 +48,9 @@ class GitDelivery:
         top=self.git('rev-parse','--show-toplevel').decode().strip()
         if Path(top).resolve()!=self.root.resolve(): raise LedgerError('Select a repository root, not a subdirectory.')
 
-    def git(self,*args,**kwargs): return self.integration.git(*args,**kwargs)
+    def git(self,*args,**kwargs):
+        # Even a status probe must not refresh/write the user's index stat cache.
+        return self.integration.git('--no-optional-locks',*args,**kwargs)
 
     def status(self):
         data=self.git('status','--porcelain=v1','-z','--untracked-files=all')

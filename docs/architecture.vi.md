@@ -4,7 +4,7 @@
 
 OneCrew là bộ điều phối local nhận yêu cầu đã làm rõ từ Codex, Claude hoặc Kiro; chia việc, gọi worker phù hợp, kiểm chứng và giữ tiến độ chung. Người dùng tiếp tục trao đổi trong công cụ đang dùng. OneCrew không cần xây thêm ứng dụng chat hoặc hệ thống Agile đầy đủ.
 
-**Đây là kiến trúc sẽ triển khai.** Cập nhật tài liệu không cấp quyền chạy job 8 giờ, gọi API trả phí hay nghiệm thu sản phẩm. [SPEC-006](../specs/SPEC-006-portable-orchestration.md) là bản duyệt nhanh; [backlog](mvp-backlog.vi.md) xác định thứ tự; [coverage](proposal-coverage.md) phân biệt code đã có với phần còn thiếu.
+**Trạng thái:** milestone OE01–OE07 của revision 3 đã triển khai và có fixture/live evidence; các contract OC/LR chưa hoàn tất vẫn được theo dõi riêng. Cập nhật tài liệu không cấp quyền chạy job 8 giờ, gọi API trả phí hay nghiệm thu sản phẩm. [SPEC-006](../specs/SPEC-006-portable-orchestration.md) là bản duyệt nhanh; [backlog](mvp-backlog.vi.md) xác định thứ tự; [coverage](proposal-coverage.md) phân biệt code đã có với phần còn thiếu.
 
 Revision 2 tiếp thu review source của chín dự án trong mục 12. Các quyết định được chuyển thành contract bắt buộc tại mục 13 và ca nghiệm thu T20–T30; không đưa chín framework vào dependency. OC01–OC12 vẫn là bộ yêu cầu hiện hành, không tạo roadmap thứ hai. Phạm vi bằng chứng là các đường chạy/test đã đọc, không phải audit toàn bộ code của từng repo.
 

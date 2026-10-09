@@ -2,12 +2,16 @@
 
 OneCrew hướng tới một core local để nhận công việc đã làm rõ từ **Codex / Claude / Kiro**, điều phối **Codex / Claude Code / Kiro CLI**, lưu tiến độ và kiểm chứng kết quả. CLI trước; công cụ chat và worker có thể thay độc lập.
 
-**Đã chạy được workflow tổng quát với Codex, Kiro và Claude:** spec-to-plan, snapshot giữ dirty bytes, tối đa hai worker, inbox theo nhánh, controller nền, review/sửa từng phần, thay đổi yêu cầu và gia hạn hữu hạn. Test chức năng trong Docker, ghép target local và kiểm tương thích bộ commit đa repo đã có evidence thật. Có ngân sách chung và hủy toàn nhóm đã duyệt. Entry connectors có xác thực, điều phối đa repo tự động, routing tự động và soak tám giờ còn chưa hoàn tất. Baseline kiến trúc 09/10/2026, revision 2; trạng thái chi tiết trong coverage.
+**Luồng mới `job` — runtime tự làm việc:** giao mục tiêu + project root + quyền/ngân sách; OneCrew tự discovery, gọi worker, dùng tools, sửa candidate, kiểm thử và bàn giao Git. Entry không phải chọn file hoặc chuẩn bị evidence/profile. Ba loại task đã có Codex live evidence trong repo thử nghiệm; sandbox test của luồng mới hiện hỗ trợ Python unittest. Xem [hướng dẫn và giới hạn](docs/owned-execution.vi.md). Kiến trúc hiện hành revision 3, SPEC-007; các luồng `work`/spec cũ vẫn giữ tương thích.
+
+**Đã chạy được workflow tổng quát với Codex, Kiro và Claude:** spec-to-plan, snapshot giữ dirty bytes, tối đa hai worker, inbox theo nhánh, controller nền, review/sửa từng phần, thay đổi yêu cầu và gia hạn hữu hạn. Test chức năng trong Docker, ghép target local và kiểm tương thích bộ commit đa repo đã có evidence thật. Có ngân sách chung và hủy toàn nhóm đã duyệt. Entry connectors có xác thực, điều phối đa repo tự động, routing tự động và soak tám giờ còn chưa hoàn tất. Đây là các năng lực nền của revision 2; trạng thái hiện hành nằm trong coverage revision 3.
 
 ## Tài liệu hiện hành
 
 | Tài liệu | Nội dung |
 |---|---|
+| [SPEC-007 — tự sở hữu công việc](specs/SPEC-007-owned-execution.md) | Goal intake, tools, candidate/test, Git delivery và runner độc lập chat |
+| [Vận hành `job`](docs/owned-execution.vi.md) | CLI mới, ranh giới trách nhiệm, evidence và giới hạn đã kiểm chứng |
 | [SPEC-006 — duyệt nhanh](specs/SPEC-006-portable-orchestration.md) | Bản ngắn cho người dùng và 12 yêu cầu chi tiết |
 | [Kiến trúc](docs/architecture.vi.md) | Core/adapter/inbox; mục 12 ghi nguồn và quyết định áp dụng, mục 13 chốt contract thực thi |
 | [Kế hoạch triển khai](docs/mvp-backlog.vi.md) | Bốn mốc, P1 chia bốn lát nhỏ; 35 ca nghiệm thu dự kiến |
