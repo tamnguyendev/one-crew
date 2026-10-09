@@ -17,7 +17,8 @@ def main(argv=None):
               '  spec       list / review / diff / approve / request-changes / history\n'
               '  task       submit / queue / connect / events / status (durable TASK- IDs)\n'
               '  task       run / list / status / cancel / outputs / preview (CV RUN- IDs)\n'
-              '  request    create / list / show / revise / reply\n'
+              '  request    create / list / show / revise / reply / defer\n'
+              '  notifications pull / ack (durable delivery; never approves)\n'
               '  entry      connect / note (portable local context, no dispatch)\n'
               '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
               '  core       migrate / status / cancel / reconcile\n'
@@ -25,10 +26,13 @@ def main(argv=None):
               '  work       group / vector / quota / extend / amend / triage / request-changes / recheck / reorder / review / export / branch / merge\n'
               '  provider   doctor [codex|claude|kiro] / quota codex / choose --file <policy.json>\n'
               '  decision   JEV credential and connectivity commands\n'
-              '  android    build / status (operator-authorized native debug APK build)\n'
+              '  android    build / status / cancel (background native debug APK; --foreground to wait)\n'
               '  monitor    grouped workers / --verbose / --terminal / --all-projects\n'
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')
         return 0
+    if len(args)>index and args[index]=='notifications':
+        from .notifications import main as notifications_main
+        return notifications_main(args)
     if len(args)>index and args[index]=='monitor':
         from .monitor import main as monitor_main
         return monitor_main(args)

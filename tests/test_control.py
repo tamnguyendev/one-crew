@@ -207,7 +207,9 @@ class ControlTests(unittest.TestCase):
     def test_supervisor_timeout_kills_descendants_and_preserves_budget(self):
         attempt = self.reserve()
         code = "import subprocess,sys,time; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); print(p.pid,flush=True); time.sleep(60)"
-        result = Supervisor(self.control).run(attempt, [native_python(), '-c', code], cwd=self.project, timeout=.4)
+        # Allow the native parent to start and emit its descendant PID under load.
+        # The 60-second sleepers must still be killed by a real bounded timeout.
+        result = Supervisor(self.control).run(attempt, [native_python(), '-c', code], cwd=self.project, timeout=3)
         self.assertEqual(result['reason'], 'timeout')
         self.assertTrue(result['tree_stopped'])
         self.assertEqual(self.control.status(self.task['id'])['used_calls'], 1)

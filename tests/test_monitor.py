@@ -46,6 +46,19 @@ class MonitorTests(unittest.TestCase):
             'reason':'Need boundary','impact':'Wait','options':[{'id':'a','label':'A'},{'id':'b','label':'B'}],'recommendation':'a',
             'action':{'type':'job.clarification','parameters':{}}})
         self.assertIn('Choose scope?',render(snapshot(self.f.ledger)))
+        self.assertIn('request reply REQ-',render(snapshot(self.f.ledger)))
+        self.assertIn('skip does not approve',render(snapshot(self.f.ledger)))
+
+    def test_queued_build_prioritizes_completed_parent_and_reports_dead_runner(self):
+        seq,state=self.run.state(self.task);state['phase']='completed';self.run.persist(self.task,seq,state)
+        submit(self.f.ledger,'Newer queued task','newer')
+        with self.f.ledger.transaction(write=True) as conn:
+            self.f.ledger._event(conn,self.task,'android.job',{'request':{'key':'background'},'status':'queued','identity':{'pid':123}})
+        with patch('onecrew.monitor.probe',return_value='dead'):
+            value=snapshot(self.f.ledger,limit=1)
+        task=value['projects'][0]['tasks'][0]
+        self.assertEqual(task['id'],self.task)
+        self.assertEqual(task['builds'][0]['status'],'interrupted')
 
     def test_snapshot_cli_once_does_not_dispatch(self):
         output=io.StringIO()

@@ -1,5 +1,23 @@
 # Proposal Coverage
 
+## Background handoff — BG01–BG03 / IN01–IN03 / UX01
+
+Contract: [background-handoff.vi.md](background-handoff.vi.md). Implementation phases: native detached Android execution, then durable deferred questions and acknowledged notification feed. Baseline b60469e; no product/SRM edits or live worker calls in this change.
+
+| ID | Status | Evidence |
+|---|---|---|
+| BG01 | Complete | android_jobs.py, android_build.py default background CLI; native launcher exits while queued child remains alive; bounded handshake and separate status/cancel |
+| BG02 | Complete | Shared OS lock for foreground/background across projects in one state-root; queue fixture and cross-project slot test prevent command execution; wait uses zero model calls |
+| BG03 | Complete | Exact request/key conflict checks, process creation identity, durable job/recipe receipts, separate cancel marker, queue timeout, interrupted detection/reconciliation, no replay, duplicate artifact tamper rejection; eight background tests plus seven recipe tests |
+| IN01 | Complete | request defer persists pending/revision without answers or deadline extension; stale/answered defer rejected; reply from another entry retains revision checks; AGENTS.md requires durable create before chat card; no interception of arbitrary third-party UI cards claimed |
+| IN02 | Complete | notifications.py bounded persisted batch/explicit ack; independent consumer/scope, restart/retry, pagination, stale question filtering, transition deduplication, killed-build reconciliation; seven notification tests; no ack grants authority |
+| IN03 | Blocked | Codex heartbeat `onecrew-k-t-qu-v-c-u-h-i` created ACTIVE in current chat, every 5 minutes; CLI empty pull/ack verified against explicit real state-root. First scheduled user-visible delivery not yet observed. Depends on app scheduler/host lifecycle; no realtime or all-client push claim |
+| UX01 | Complete | Monitor merges job/build events, prioritizes parents of active builds, shows process death and request options/reply revision; nine monitor tests including real console independence; logical project/task/unit grouping |
+
+Targeted evidence: initial 28 build/notification/monitor tests pass; added artifact-success/pagination/monitor-priority cases pass in 17-test subset. Three runner and 24 entry/branch-inbox/native-gate/intake regressions pass, plus ledger regressions. Full discovery ran 306 tests in 632.726s: 305 passed, one pre-existing containment fixture failed because its 0.4-second startup/timeout budget expired before printing a descendant PID. The unchanged test passed alone (0.560s); fixture timeout was then raised to 3 seconds, retaining real timeout/descendant-death/budget assertions. All 18 control tests passed after that fix (4.643s). No production timeout was weakened. Other 288 tests passed in the full run; no second full pass is claimed. The final required-input build guard passed separately. Changed Python modules also parse with Python 3.10 syntax; git diff checks pass. No configured lint/type-check command exists. Native subprocess ResourceWarnings indicate intentionally detached live children at Popen finalization; fixtures cancel/observe process death and clean up. One initial direct import invocation failed on legacy `test_workflow` module lookup; rerun with repository test discovery/import path passed, no weakened tests.
+
+Bridge limits: polling can consume Codex usage and requires the host application to run; existing unchanged state is quiet. Consumer starts at real ledger cursor 332, so no historical notification flood. Feed ack means delivery consumption, not a cryptographic proof the UI rendered; failures between delivery and ack can cause replay, or host acknowledgement before UI failure can need manual inbox review. Required questions remain durable independently. Claude/Kiro use shared CLI context/replies; no verified push bridge to those UI clients. Workflow deadlines still include user wait and do not auto-extend. Foreground build is explicit; one slot is per state-root, not per physical machine. Native build remains a trusted recipe, not a filesystem sandbox. Coverage: 6 Complete, 1 Blocked (first scheduled host UI delivery), 0 Partial/Missing; no unqualified completion claim. Existing user changes below SPEC-005 retained.
+
 ## Grouped terminal monitor — TM01–TM03 / 09/10/2026
 
 User requested a terminal at OneCrew start with verbose work and grouped agents. [Contract and usage](terminal-monitor.vi.md). No new scheduler, model role or budget group is added.

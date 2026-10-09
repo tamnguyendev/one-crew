@@ -1,4 +1,6 @@
-# Kiến trúc OneCrew — baseline 09/10/2026, revision 3
+# Kiến trúc OneCrew — baseline 09/10/2026, revision 4
+
+**Revision 4 — giao việc nền và inbox:** [contract BG/IN/UX](background-handoff.vi.md). Entry giao việc rồi trả chat; runner giữ workflow, runner recipe riêng giữ build dài. Cả foreground và background Android cùng một slot native trên mỗi state-root, không thêm model điều phối. Terminal chỉ quan sát project → task → worker/build. Câu hỏi bắt buộc là REQ có revision; skip/defer vẫn pending. Feed sự kiện có batch/ack độc lập với approval; host bridge đưa thông báo về chat. Chat đóng/mất usage không làm mất inbox. Deadline workflow vẫn giữ nguyên, không tự cấp thêm thời gian khi chờ người dùng. [Coverage](proposal-coverage.md) ghi rõ phần đã kiểm chứng và giới hạn bridge.
 
 **Ưu tiên revision 3:** [OneCrew sở hữu vòng thực thi](owned-execution.vi.md), [SPEC-007](../specs/SPEC-007-owned-execution.md). Entry chỉ giao mục tiêu/root/quyền/budget; runtime tự khảo sát và thực hiện. Những contract revision 2 dưới đây vẫn áp dụng về quyền/recovery, nhưng không được dùng yêu cầu profile/file list làm điều kiện bắt entry chuẩn bị công việc. Luồng CTS audit/push trước đó cần host hỗ trợ nên không chứng minh autonomy. OE01–OE07 là gate nâng cấp; learning/JEV và các phần OC còn thiếu giữ backlog riêng.
 

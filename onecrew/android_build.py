@@ -216,7 +216,16 @@ class AndroidBuild:
         override.write_text('\n'.join(lines)+'\n',encoding='utf-8')
         receipt['build_only_override']=str(override)
 
-    def build(self, task, key, flutter_root, android_sdk, *, max_seconds=1200, dependency_policy='as-of', native_authorized=False, dependency_root=None):
+    def build(self, *args, **kwargs):
+        # Shared across projects and both foreground/background entry points.
+        task=kwargs.get('task',args[0] if args else None)
+        key=kwargs.get('key',args[1] if len(args)>1 else None)
+        if (self.location(task,key)/'job.json').exists():
+            raise LedgerError('Build key belongs to a background job; use android status.')
+        with task_lock(self.ledger, 'android.capacity'):
+            return self._build(*args, **kwargs)
+
+    def _build(self, task, key, flutter_root, android_sdk, *, max_seconds=1200, dependency_policy='as-of', native_authorized=False, dependency_root=None, external_guard=None):
         if not native_authorized: raise LedgerError('Explicit trusted native build authorization required.')
         if type(max_seconds) is not int or not 10<=max_seconds<=1800: raise LedgerError('Build limit must be 10-1800 seconds.')
         if dependency_policy not in ('as-of','head'): raise LedgerError('Unknown dependency policy.')
@@ -241,15 +250,18 @@ class AndroidBuild:
             branch=state['branches'][0]['result'];profile=runtime.control.status(task)['configuration']['profile']
             history=History(runtime,task,profile,branch['directory'])
             if not history.observe_branch(branch)['verified']: raise LedgerError('Historical branch moved; build refused.')
-            root.mkdir(parents=True)
+            root.mkdir(parents=True,exist_ok=True)
             receipt={'request':request,'status':'preparing','branch':branch,'repositories':[],
                      'isolation':'separate source copy; native process tree; NOT filesystem sandbox',
                      'logs':str(root),'apk':None,'started_at':utcnow()}
             self.save(root,task,receipt);deadline=time.monotonic()+max_seconds
             def guard():
+                if external_guard: external_guard()
+                if self.ledger.requests(task,pending=True): raise LedgerError('Required user input is pending; build stopped without approval.')
                 if time.monotonic()>=deadline: raise LedgerError('Android build deadline exceeded.')
                 if runtime.control.status(task)['cancel_requested']: raise LedgerError('Android build cancelled.')
             try:
+                guard()
                 dart=flutter_root/'bin/cache/dart-sdk/bin/dart.exe'
                 snapshot=flutter_root/'bin/cache/flutter_tools.snapshot'
                 packages=flutter_root/'packages/flutter_tools/.dart_tool/package_config.json'
@@ -285,19 +297,37 @@ def main(argv=None):
     parser=argparse.ArgumentParser()
     parser.add_argument('--project',type=Path,default=Path.cwd());parser.add_argument('--state-root',type=Path)
     sub=parser.add_subparsers(dest='group',required=True).add_parser('android').add_subparsers(dest='command',required=True)
-    for name in ('build','status'):
+    for name in ('build','status','cancel'):
         command=sub.add_parser(name);command.add_argument('--from-task',required=True);command.add_argument('--key',required=True)
         if name=='build':
             command.add_argument('--flutter-root',type=Path,required=True);command.add_argument('--android-sdk',type=Path,required=True)
             command.add_argument('--max-seconds',type=int,default=1200);command.add_argument('--dependency-policy',choices=['as-of','head'],default='as-of')
             command.add_argument('--allow-trusted-native-build',action='store_true')
             command.add_argument('--dependency-root',type=Path)
+            command.add_argument('--foreground',action='store_true',help='Wait here instead of dispatching.')
+            command.add_argument('--terminal',action='store_true')
+            command.add_argument('--queue-seconds',type=int,default=1800)
     args=parser.parse_args(argv)
     try:
         builder=AndroidBuild(Ledger(args.project,args.state_root))
-        if args.command=='status': result=builder.status(args.from_task,args.key)
-        else: result=builder.build(args.from_task,args.key,args.flutter_root,args.android_sdk,max_seconds=args.max_seconds,
-                                  dependency_policy=args.dependency_policy,native_authorized=args.allow_trusted_native_build,dependency_root=args.dependency_root)
-        print(json.dumps(result,ensure_ascii=False,indent=2));return 0 if result['status']=='succeeded' else 2
+        from .android_jobs import dispatch, status, cancel
+        if args.command=='status': result=status(builder.ledger,args.from_task,args.key)
+        elif args.command=='cancel': result=cancel(builder.ledger,args.from_task,args.key)
+        else:
+            options=dict(max_seconds=args.max_seconds,dependency_policy=args.dependency_policy,
+                         native_authorized=args.allow_trusted_native_build,dependency_root=args.dependency_root)
+            if args.foreground:
+                if args.terminal: parser.error('--terminal requires background dispatch.')
+                result=builder.build(args.from_task,args.key,args.flutter_root,args.android_sdk,**options)
+            else:
+                result=dispatch(builder.ledger,args.from_task,args.key,args.flutter_root,args.android_sdk,
+                                queue_seconds=args.queue_seconds,**options)
+                if args.terminal:
+                    from .monitor import open_terminal
+                    try: result['terminal']=open_terminal(builder.ledger)
+                    except (ValueError,OSError) as error:
+                        result['terminal']={'status':'unavailable','error':str(error),'runner_unaffected':True}
+        print(json.dumps(result,ensure_ascii=False,indent=2))
+        return 2 if result['status'] in ('blocked','interrupted','unknown') else 0
     except (ValueError,OSError) as error:
         print(json.dumps({'error':str(error)},ensure_ascii=False));return 2

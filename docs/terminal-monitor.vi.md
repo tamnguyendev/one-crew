@@ -25,4 +25,4 @@ Chat entry chỉ cần gọi start, xác nhận runner đã khởi động rồi
 
 Viewer là tiến trình riêng và không giữ process handle điều khiển worker. Scope/global filter chỉ thay đổi cách xem, không đổi quyền/budget/dependency của task. Console có thể chứa thông tin dự án; bộ lọc secret là bảo vệ bổ sung, không bảo đảm nhận ra mọi dạng dữ liệu nhạy cảm.
 
-Giới hạn: đây là nhóm logic trong một console, chưa phải các tab/pane Windows Terminal cho từng agent. Android build hiện có thể được theo dõi qua events/log trong viewer nhưng lệnh build vẫn foreground; monitor không tự biến nó thành background job. Không có callback tự đẩy kết quả vào chat ở chu kỳ này.
+Giới hạn: đây là nhóm logic trong một console, chưa phải các tab/pane Windows Terminal cho từng agent. Android build mặc định có runner nền riêng, viewer hiển thị queue/input/running/final và liveness quan sát được, kèm tail log khi verbose. Câu hỏi có options/revision/lệnh reply; viewer không trả lời hộ. Feed `notifications pull/ack` và bridge của chat độc lập với viewer; xem [giao việc nền](background-handoff.vi.md). Đóng terminal không hủy task/build.

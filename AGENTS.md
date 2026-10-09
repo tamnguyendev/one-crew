@@ -1,0 +1,13 @@
+# OneCrew entry contract
+
+For user-assigned OneCrew jobs (including work in other repositories), the chat is an entry/review surface; OneCrew owns execution.
+
+- Submit a clarified goal with the authorized scope/budget. Use `job submit --start --terminal` or `job start --terminal`. Android builds default to background; use `--terminal`. Do not use `job run` or `android build --foreground` for a long job unless the user explicitly wants a foreground session.
+- Read the bounded dispatch response, report its TASK ID/build key and observed runner state, then end the chat turn. Do not poll a long job repeatedly in the same turn. On a status question, read once.
+- A required decision/approval must be persisted with `request create` before displaying a chat question. Show the returned request ID and revision. User silence, timeout, a preselected option, a dismissed card, and a delivery acknowledgement are not answers. Use `request defer` to record dismissal and leave the request pending. Record only an actual user answer with `request reply` and its current revision/source/reference.
+- Optional preferences may use an explicitly stated assumption within existing authority after allowing reasonable response time. Do not turn required approvals into optional questions. Independent work may continue only when it does not depend on the unanswered decision.
+- When changing chat tools, use `entry connect` against the same project/state-root. Do not recreate the task or reset its budget. Expired deadlines need authorized extension before resume; no implicit extension while waiting.
+- Use `notifications pull` for delivery; acknowledge the exact batch only after consuming it. This does not approve requests or resume jobs. A Codex heartbeat is a host polling bridge, not a realtime webhook. Never promise notifications unless a bridge is configured and working.
+- Closing the grouped monitor does not cancel execution. Use the explicit job/build cancellation command. Do not claim an unassisted run if the chat repaired infrastructure during it.
+
+Implementation contracts and evidence: `docs/background-handoff.vi.md`, `docs/proposal-coverage.md`. Preserve unrelated changes and use focused tests/commits. Do not push unless requested.

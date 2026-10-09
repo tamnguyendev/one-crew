@@ -372,6 +372,17 @@ class Ledger:
             self._event(conn, row['task_id'], 'request.revised', view)
             return view
 
+    def defer(self, request_id, revision, source='terminal', reference='No answer yet'):
+        text_field(source, 'source', 200)
+        text_field(reference, 'reference')
+        with self.transaction(write=True) as conn:
+            row=self._request(conn,request_id)
+            if row['revision']!=revision or row['state']!='pending':
+                raise LedgerError('Stale revision or request already answered.')
+            self._event(conn,row['task_id'],'request.deferred',dict(request_id=request_id,
+                revision=revision,source=source,reference=reference,answer_recorded=False))
+            return self._request_view(row)
+
     def reply(self, request_id, revision, choice, source='terminal', reference='local user input'):
         text_field(source, 'source', 200)
         text_field(reference, 'reference')

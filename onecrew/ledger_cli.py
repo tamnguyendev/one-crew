@@ -36,7 +36,7 @@ def parser():
     create.add_argument('--request-id', required=True)
     create.add_argument('--file', type=Path, required=True)
     commands += [listing, create]
-    for name in ('show', 'revise', 'reply'):
+    for name in ('show', 'revise', 'reply', 'defer'):
         command = requests.add_parser(name)
         command.add_argument('id')
         if name != 'show':
@@ -45,6 +45,7 @@ def parser():
             command.add_argument('--file', type=Path, required=True)
         if name == 'reply':
             command.add_argument('--choice', required=True)
+        if name in ('reply','defer'):
             command.add_argument('--source', default='terminal')
             command.add_argument('--reference', default='local user input')
         commands.append(command)
@@ -72,6 +73,8 @@ def execute(args):
         return {'requests': ledger.requests(args.task, args.pending)}
     if args.command == 'reply':
         return ledger.reply(args.id, args.revision, args.choice, args.source, args.reference)
+    if args.command == 'defer':
+        return ledger.defer(args.id, args.revision, args.source, args.reference)
     return ledger.request(args.id)
 
 

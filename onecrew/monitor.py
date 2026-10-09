@@ -37,7 +37,12 @@ def snapshot(ledger, task=None, all_projects=False, limit=12, verbose=False):
         result['total_tasks']=conn.execute('SELECT COUNT(*) FROM tasks t WHERE '+where,args).fetchone()[0]
         rows=conn.execute("""SELECT t.*, (SELECT payload FROM events e WHERE e.task_id=t.id
             AND e.kind='workflow.checkpoint' ORDER BY seq DESC LIMIT 1) AS checkpoint
-            FROM tasks t WHERE """+where+""" ORDER BY CASE WHEN json_extract(checkpoint,'$.phase')
+            FROM tasks t WHERE """+where+""" ORDER BY CASE WHEN EXISTS (
+                SELECT 1 FROM events b WHERE b.task_id=t.id AND b.kind='android.job'
+                AND json_extract(b.payload,'$.status') IN ('queued','waiting_input','running')
+                AND b.seq=(SELECT MAX(b2.seq) FROM events b2 WHERE b2.task_id=t.id AND b2.kind='android.job'
+                    AND json_extract(b2.payload,'$.request.key')=json_extract(b.payload,'$.request.key'))
+            ) THEN 0 ELSE 1 END, CASE WHEN json_extract(checkpoint,'$.phase')
             IN ('completed','cancelled','failed') THEN 1 ELSE 0 END, t.created_at DESC LIMIT ?""",args+[limit]).fetchall()
         version=conn.execute('PRAGMA user_version').fetchone()[0];projects={}
         for row in rows:
@@ -66,14 +71,25 @@ def snapshot(ledger, task=None, all_projects=False, limit=12, verbose=False):
                         'provider':safe(op.get('provider',worker.get('provider','unknown'))),
                         'model':safe(op.get('model',worker.get('model','unknown'))),
                         'model_source':'attempt' if op.get('model') else 'current configuration'})
-            for req in conn.execute("SELECT id,payload FROM requests WHERE task_id=? AND state='pending' ORDER BY created_at LIMIT 5",(row['id'],)):
-                item['questions'].append({'id':req['id'],'question':safe(json.loads(req['payload'])['question'])})
+            for req in conn.execute("SELECT id,revision,payload FROM requests WHERE task_id=? AND state='pending' ORDER BY created_at LIMIT 5",(row['id'],)):
+                question=json.loads(req['payload'])
+                item['questions'].append({'id':req['id'],'question':safe(question['question']),
+                    'revision':req['revision'],'options':[{k:safe(v,200) for k,v in o.items()} for o in question['options']],
+                    'reply_command':f"request reply {req['id']} --revision {req['revision']} --choice <option-id>"})
             build_keys=set()
-            for event in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='android.build' ORDER BY seq DESC LIMIT 40",(row['id'],)):
+            for event in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind IN ('android.build','android.job') ORDER BY seq DESC LIMIT 80",(row['id'],)):
                 build=json.loads(event['payload']);key=build['request']['key']
                 if key in build_keys: continue
                 build_keys.add(key)
                 value={'key':safe(key),'status':safe(build['status']),'error':safe(build.get('error'))}
+                latest_job=conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='android.job' AND json_extract(payload,'$.request.key')=? ORDER BY seq DESC LIMIT 1",(row['id'],key)).fetchone()
+                if latest_job:
+                    job=json.loads(latest_job['payload']);value['status']=job['status']
+                    if job['status'] in ('running','queued','waiting_input') and job.get('identity') and probe(job['identity'])=='dead':
+                        value.update(status='interrupted',error='Build controller stopped; no automatic replay.')
+                    value['runner']=probe(job.get('identity')) if job.get('identity') else 'unknown'
+                    receipt=conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='android.build' AND json_extract(payload,'$.request.key')=? ORDER BY seq DESC LIMIT 1",(row['id'],key)).fetchone()
+                    if receipt: build=json.loads(receipt['payload'])
                 if build.get('apk'): value['apk']=safe(build['apk'].get('path'),500)
                 if verbose:
                     value['log_tail']=build_tail(row['id'],key,build)
@@ -118,7 +134,10 @@ def render(value, verbose=False):
             if not task['workers']: lines.append('    No worker invocation recorded.')
             for worker in task['workers']:
                 lines.append(f"    - {worker['unit']} [{worker['status']}] {worker['stage']} | {worker['provider']} / {worker['model']} ({worker['model_source']})")
-            for question in task['questions']: lines.append(f"    INPUT {question['id']}: {question['question']}")
+            for question in task['questions']:
+                lines.append(f"    INPUT {question['id']}: {question['question']} [waiting; skip does not approve]")
+                lines += [f"      {o['id']}: {o['label']}" for o in question['options']]
+                lines.append('      '+question['reply_command'])
             for build in task['builds']:
                 lines.append(f"    BUILD {build['key']} [{build['status']}] {build.get('error','')}")
                 if build.get('apk'): lines.append('      APK: '+build['apk'])
