@@ -8,7 +8,7 @@ from .ledger import LedgerError, canonical, content_hash, key_field, text_field,
 
 
 def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None,
-           max_calls=20, max_seconds=1200, image=None, branch=None, remote=None, android_build=None):
+           max_calls=20, max_seconds=1200, image=None, branch=None, remote=None, android_build=None, native_change=None):
     goal = text_field(goal, 'goal', 12000)
     key_field(request_key)
     # Idempotent replay retains the original choice after operator preferences change.
@@ -26,7 +26,12 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     text_field(model, 'model', 120)
     if image is not None and not re.fullmatch(r'sha256:[a-f0-9]{64}',image):
         raise LedgerError('Image must be a locally installed immutable sha256 image ID.')
-    if mode == 'change' and not image:
+    if native_change is not None:
+        from .native_change import validate
+        native_change=validate(native_change)
+        if mode!='change' or provider!='claude' or branch or remote or image:
+            raise LedgerError('Native change requires Claude change mode without publication/container options.')
+    if mode == 'change' and not image and not native_change:
         raise LedgerError('Change jobs require an authorized sandbox image.')
     if mode in ('delivery','branch') or branch or remote:
         if mode=='audit': raise LedgerError('Audit jobs cannot publish Git changes.')
@@ -40,6 +45,7 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     if android_build and mode != 'branch': raise LedgerError('Historical Android recipe requires branch mode.')
     permissions = ['discover','report'] + (['candidate.write','sandbox.test'] if mode == 'change' else [])
     if android_build: permissions += ['android.build']
+    if native_change: permissions += ['native.test','workspace.apply']
     if branch and remote:
         permissions += ['git.branch','git.commit','git.push']
     elif mode=='branch': permissions += ['git.branch']
@@ -51,6 +57,7 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     elif not previous and inherit_fallbacks and preference.get('fallbacks'):
         options['fallbacks'] = preference['fallbacks']
     if android_build: options['android_build'] = android_build
+    if native_change: options['native_change'] = native_change
     payload = dict(schema_version=1,project_id=ledger.project_id,project_path=ledger.project_path,
                    spec_id='GOAL',spec_revision=content_hash(goal),spec_text=goal,title=goal[:200],
                    goal=goal,owned_execution=options,grant=grant)

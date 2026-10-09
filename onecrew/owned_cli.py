@@ -20,6 +20,7 @@ def main(argv=None):
     p.add_argument('--max-calls',type=int,default=20);p.add_argument('--max-seconds',type=int,default=1200)
     p.add_argument('--image');p.add_argument('--branch');p.add_argument('--remote')
     p.add_argument('--android-build-config',type=Path,help='Operator-authorized fixed Android recipe JSON, not worker shell commands.')
+    p.add_argument('--native-change-config',type=Path,help='Scoped Claude patch and fixed trusted Flutter verification recipe.')
     p.add_argument('--start',action='store_true')
     p.add_argument('--terminal',action='store_true',help='Start in background and open the grouped verbose monitor.')
     p=commands.add_parser('native-audit')
@@ -34,8 +35,9 @@ def main(argv=None):
     try:
         if args.command=='submit':
             build=json.loads(args.android_build_config.read_text(encoding='utf-8-sig')) if args.android_build_config else None
+            change=json.loads(args.native_change_config.read_text(encoding='utf-8-sig')) if args.native_change_config else None
             result=submit(ledger,args.goal,args.key,**{k:getattr(args,k) for k in
-                ('mode','provider','model','max_calls','max_seconds','image','branch','remote')},android_build=build)
+                ('mode','provider','model','max_calls','max_seconds','image','branch','remote')},android_build=build,native_change=change)
             if args.start or args.terminal:
                 from .owned import Owned
                 from .runner import start
@@ -89,7 +91,8 @@ def output_card(runtime,task_id,state):
     return {'task':task_id,'phase':state['phase'],'message':state['message'],'plan':state['plan'],
             'native_audit':{k:v for k,v in state.get('native_audit',{}).items()
                             if k in ('stage','repairs','attempts','baseline_calls','workspace')},
-            'report':state.get('report'),'candidate_snapshot':state['snapshot'],'original_workspace_modified':False,
+            'native_change':state.get('native_change'),
+            'report':state.get('report'),'candidate_snapshot':state['snapshot'],'original_workspace_modified':bool(state.get('workspace_applied')),
             'skills':[{k:s[k] for k in ('id','revision','reason')} for s in state.get('skills',[])],
             'skill_candidates':[v for v in skill_review(runtime.ledger)
                                 if v['status']=='proposed' and task_id in v['tasks']],

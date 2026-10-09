@@ -1,5 +1,19 @@
 # Proposal Coverage
 
+## Native Flutter change — NC01–NC04
+
+Proposal: `docs/native-change.vi.md`; follow-up request delegates Cloud Auth repair through OneCrew.
+
+| ID | Requirement | Evidence | Status | Limits |
+|---|---|---|---|---|
+| NC01 | Native whole-unit scoped patches | native_change, intake/CLI, scope tests | Implemented | Claude only; structured patches, native read tools |
+| NC02 | Fixed Flutter verification tied to candidate | command/receipt checks, failed-exit regression | Implemented | Trusted host tests, no device/server verification; live task pending |
+| NC03 | Independent diff review, bounded session repair/checkpoints | native-change and native-audit fixtures | Implemented | Native quota failover remains pending |
+| NC04 | Apply only checked/reviewed bytes, preserve dirty edits | conflict, idempotency, full-cycle fixtures | Implemented | Atomic per file, partial apply recoverable; live task pending |
+
+35 targeted tests passed. Runtime integration was prepared by Codex; product fix is delegated to Claude through OneCrew.
+
+
 ## Native audit trial — NA01–NA04
 
 Proposal: `docs/native-audit-trial.vi.md`; baseline e0285c3. User approved trial, not removal of scope or evidence standards.
