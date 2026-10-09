@@ -32,6 +32,9 @@ def status(value):
     if state.get('quota_binding'):
         binding = state['quota_binding']
         lines.append(f"Quota: {binding['provider']}/{binding['bucket']} | observation hết hạn {binding['quota']['expires_at']} | có reservation dự toán")
+    if control['budget'].get('goal'):
+        goal = control['budget']['goal']
+        lines.append(f"Mục tiêu chung: {goal['owner_task_id']} | {goal['used_calls']}/{goal['max_calls']} calls đã dùng; {goal['reserved_calls']} đang giữ; {len(goal['members'])} tasks.")
     lines += [f"Workflow revision: {value['workflow_revision']}",
               f"Plan revision: {value['plan_revision'] or 'chưa có'}",
               f"Budget revision: {control['budget']['revision']}",

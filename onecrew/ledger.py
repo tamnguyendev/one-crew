@@ -231,6 +231,8 @@ class Ledger:
                       dispatch_enabled=False, grant_status='unverified_local',
                       budget=dict(budget, used_calls=0, reserved_calls=0), deadline=budget['deadline'],
                       deadline_expired=dt.datetime.now(dt.timezone.utc) >= dt.datetime.fromisoformat(budget['deadline']))
+        if budget.get('goal'):
+            result['root_task_id'] = budget['goal']['owner_task_id']
         if conn.execute('PRAGMA user_version').fetchone()[0] >= 2:
             execution = conn.execute('SELECT * FROM executions WHERE task_id=?', (row['id'],)).fetchone()
             if execution:

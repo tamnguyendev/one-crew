@@ -2,6 +2,7 @@
 import datetime as dt
 
 from .ledger import LedgerError, content_hash
+from .budget import remaining
 
 
 def fingerprint(state):
@@ -24,7 +25,7 @@ def ensure_request(workflow, task_id):
     task = workflow.ledger.task(task_id, full=True)
     from .amendment import profile_for
     profile = profile_for(state, control)
-    left = task['budget']['limits']['max_calls'] - control['used_calls'] - control['reserved_calls']
+    left = remaining(task['budget'],control['used_calls'],control['reserved_calls'])
     safe = (bool(state.get('resume_phase')) and left > 0 and not control['cancel_requested']
             and state['failed_calls'] < profile['max_repairs']
             and all(a['status'] == 'settled' for a in control['attempts'])
@@ -69,8 +70,7 @@ def handle(workflow, task_id):
                'scope_expanded': False, 'budget_extended': False}
     if answer['choice'] == 'retry':
         control = workflow.control.status(task_id)
-        limits = workflow.ledger.task(task_id)['budget']['limits']
-        if (control['used_calls'] + control['reserved_calls'] >= limits['max_calls']
+        if (remaining(control['budget'],control['used_calls'],control['reserved_calls']) <= 0
                 or workflow.control.clock() >= dt.datetime.fromisoformat(control['deadline'])):
             return {'status': 'blocked', 'reason': 'Budget/deadline exhausted after the question was created.'}
         receipt['effect'] = 'resumed_existing_scope'

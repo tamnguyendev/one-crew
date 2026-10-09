@@ -34,8 +34,8 @@ Giữ [kiến trúc cũ](architecture-2026-10-08.vi.md) và [backlog cũ](mvp-ba
 | CLI spec | onecrew/specs.py: list/review/diff/approve/request-changes/history | Approval local chưa xác thực/cách ly worker |
 | Ledger/inbox/core | SQLite ngoài source, admission/counters, Windows Job supervisor, root/branch triage, reply effects lưu transaction | Caller hiện là local operator; trusted multi-entry và đầy đủ fault transitions còn thiếu |
 | Workflow tổng quát | Spec/profile→plan→artifact→snapshot→gates; Codex/Kiro live, background/recovery, dirty bytes | Claude live chờ login; test đầy đủ cancel/handoff theo từng adapter còn thiếu |
-| Phân việc/model | DAG tối đa hai worker chung root, dependency/ownership, amendment; typed routing recommendation và quota Codex chỉ đọc | Chưa atomic account reservations/usage dedup, routing dispatch/fallback hoặc multi-repo vector |
-| Output | Card/diff/revision, review từng phần, request-changes bounded, reorder, verified local Git branch | Target merge/rebase và authenticated entry acceptance còn thiếu |
+| Phân việc/model | DAG hai worker, amendment; quota Codex chỉ đọc, optional account reservation và usage dedup; fixed goal budget nhiều repo | Chưa authoritative cumulative settlement, routing dispatch/fallback, cross-repo scheduler/vector |
+| Output | Card/diff/revision, scoped request-changes, reorder, verified review branch và target CAS merge mức file | Tự rebase/conflict repair và authenticated entry acceptance còn thiếu |
 | JEV | Credential DPAPI và doctor kết nối được | Chưa semantic routing/benchmark |
 
 [SPEC-005 đã bàn giao](incremental-autonomy.vi.md) app CV từ thư mục trống: run RUN-20261008-232057-1d06d8, 585,21 giây, 14 calls, một repair thật, 19 gate checks đạt; runtime commit bf2e673, product commit ad3c748. Bộ kiểm thử được ghi nhận ở lượt đó là 69 tests. Đây là bằng chứng profile local/Codex, không chứng minh orchestration tổng quát hoặc khả năng chặn mọi AI bot ngoài production; khách hàng chưa nghiệm thu.
@@ -175,7 +175,7 @@ Review card: “đã làm gì / cách thử / diff-preview / checks đạt và c
 
 Priority chỉ áp task queued đủ dependency, cập nhật plan revision bằng compare-and-set. Không bỏ A để chạy B, tự stop worker hoặc cấp budget mới. Ngắt việc đang chạy dùng pause/cancel rõ ràng, đợi xác nhận; resume dùng checkpoint và grant còn hiệu lực.
 
-P1a đã triển khai submit/connect và request list/reply trong các lệnh dưới đây; submit cần thêm `--request-id` để chống trùng, xem [hướng dẫn](durable-ledger.vi.md). Các lệnh pause/resume/move và output review/accept/request-changes vẫn là **đề xuất, chưa triển khai**:
+Các tên lệnh dưới đây là contract thiết kế ban đầu. CLI thực dùng `task submit/connect`, `request list/reply`, và nhóm `work pause/resume/reorder/review/request-changes`; xem [workflow](general-workflow.vi.md) và [review correction](review-corrections.vi.md). `task move`/`output ...` chưa là alias CLI; không copy những tên đề xuất đó để chạy:
 
 ```text
 onecrew task submit --spec <spec-id> --revision <hash> --grant <grant-file> --request-id <client-key>

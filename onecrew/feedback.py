@@ -40,7 +40,8 @@ def request_changes(workflow, task_id, revision, output_revision, selected, comm
         profile = profile_for(state, control)
         if state['repairs'] >= profile['max_repairs']:
             raise LedgerError('Repair cap reached; feedback cannot reset or extend it.')
-        if control['used_calls'] + control['reserved_calls'] >= control['budget']['limits']['max_calls']:
+        from .budget import remaining
+        if remaining(control['budget'],control['used_calls'],control['reserved_calls']) <= 0:
             raise LedgerError('Root call budget exhausted; no implicit extension.')
         if dt.datetime.fromisoformat(control['deadline']) <= dt.datetime.now(dt.timezone.utc):
             raise LedgerError('Root deadline expired; no implicit extension.')

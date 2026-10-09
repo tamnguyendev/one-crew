@@ -6,13 +6,30 @@ import json
 from .ledger import LedgerError, content_hash, key_field, text_field
 
 
-def current(conn, task):
+def local_current(conn, task):
     row = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='grant.extended' ORDER BY seq DESC LIMIT 1", (task['id'],)).fetchone()
     if row:
         return json.loads(row['payload'])['budget']
     grant = json.loads(task['payload'])['grant']
     return {'limits': grant['limits'], 'deadline': task['deadline'],
             'revision': content_hash({'task_revision': task['revision'], 'grant': grant, 'deadline': task['deadline']})}
+
+
+def current(conn, task):
+    result = local_current(conn,task)
+    from .goal_budget import group
+    shared = group(conn,task['id'])
+    if shared:
+        result['local_revision'] = result['revision']
+        result['revision'] = content_hash({'local_revision':result['revision'],'goal_revision':shared['revision']})
+        result['deadline'] = min(result['deadline'],shared['deadline'],key=dt.datetime.fromisoformat)
+        result['goal'] = shared
+    return result
+
+
+def remaining(budget, used, reserved):
+    left = budget['limits']['max_calls']-used-reserved
+    return min(left,budget['goal']['remaining_calls']) if budget.get('goal') else left
 
 
 def extend(control, task_id, revision, request_key, max_calls, deadline, reason):
@@ -49,7 +66,7 @@ def extend(control, task_id, revision, request_key, max_calls, deadline, reason)
             raise LedgerError('Resolve the pending question before changing its budget revision.')
         created = dt.datetime.fromisoformat(task['created_at'])
         seconds = (end-created).total_seconds()
-        old_end = dt.datetime.fromisoformat(old['deadline'])
+        old_end = dt.datetime.fromisoformat(local_current(conn,task)['deadline'])
         if (not 0 < seconds <= 28800 or end <= control.clock() or end < old_end
                 or max_calls < old['limits']['max_calls'] or max_calls < execution['used_calls'] + execution['reserved_calls']):
             raise LedgerError('Extension must preserve used/old limits and have a future deadline within eight hours of original submission.')

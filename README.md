@@ -19,6 +19,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [Workers và handoff](docs/providers.vi.md) | Codex/Kiro live, Claude chờ login; doctor và switch tại checkpoint |
 | [Controller chạy nền](docs/background-runner.vi.md) | Start/reconnect, chờ reply không gọi model, giữ deadline qua pause |
 | [Gia hạn có giới hạn](docs/budget-extension.vi.md) | Tăng trần tổng bằng revision riêng, giữ chi phí đã dùng và deadline tối đa tám giờ |
+| [Ngân sách chung nhiều repo](docs/goal-budget.vi.md) | Nhóm task đã duyệt chia sẻ trần tổng; không reset khi chia task hoặc restart |
 | [Xử lý vấn đề qua inbox](docs/inbox-triage.vi.md) | Tự tạo câu hỏi ngắn, chờ reply và resume trong grant cũ |
 | [Routing policy](docs/routing-policy.vi.md) | Đề xuất model theo tier/risk/quota, chưa tự dispatch |
 | [Quota Codex](docs/quota-feed.vi.md) | Đọc quota subscription không gọi model; unknown/stale chặn routing |

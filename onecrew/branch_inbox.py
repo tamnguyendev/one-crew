@@ -4,6 +4,7 @@ import json
 
 from .amendment import affected_tasks, plan_revision, profile_for
 from .ledger import LedgerError, content_hash
+from .budget import remaining
 
 
 def blocks(conn, task_id, unit='root'):
@@ -39,7 +40,7 @@ def question(workflow, task_id, state, error):
         if old['question']['action'] == action:
             return old
     profile = profile_for(state, control)
-    left = control['budget']['limits']['max_calls'] - control['used_calls'] - control['reserved_calls']
+    left = remaining(control['budget'],control['used_calls'],control['reserved_calls'])
     can_retry = left > 0 and state['failed_calls'] < profile['max_repairs'] and not error['no_progress']
     choice = 'retry' if can_retry else 'inspect'
     value = {'schema_version': 1, 'question': f"Nhánh {error['task']} đang chờ xử lý. Anh chọn cách nào?",
@@ -69,7 +70,7 @@ def process(workflow, task_id, sequence, state):
             if (attempt['status'] != 'settled' or control['cancel_requested']
                     or control['budget']['revision'] != action['budget_revision']
                     or state['failed_calls'] >= profile['max_repairs'] or error['no_progress']
-                    or control['used_calls']+control['reserved_calls'] >= control['budget']['limits']['max_calls']
+                    or remaining(control['budget'],control['used_calls'],control['reserved_calls']) <= 0
                     or workflow.control.clock() >= dt.datetime.fromisoformat(control['deadline'])):
                 continue  # Reply is recorded, but no unsafe launch or extra budget is authorized.
             del state['branch_errors'][unit]

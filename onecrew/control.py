@@ -128,6 +128,8 @@ class Control:
             limits = budget['limits']
             if execution['used_calls'] + execution['reserved_calls'] >= limits['max_calls']:
                 raise LedgerError('Root call budget exhausted.')
+            if budget.get('goal') and budget['goal']['remaining_calls'] <= 0:
+                raise LedgerError('Shared goal call budget exhausted; child task cannot reset it.')
             if unit != 'root' and conn.execute('PRAGMA user_version').fetchone()[0] < 3:
                 raise LedgerError('Parallel work units require core migrate to schema v3.')
             active = conn.execute("SELECT operation FROM attempts WHERE task_id=? AND status IN ('reserved','running','unknown')", (task_id,)).fetchall()

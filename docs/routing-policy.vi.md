@@ -26,4 +26,4 @@ Ví dụ shape (thay timestamps/số liệu bằng evidence mới trước khi d
 }
 ```
 
-Sáu test kiểm risk/complexity floor, nhiều quota windows, unknown/stale/reserve, quyền/capability/API, kiểu dữ liệu strict và AI không tự tạo authority/evidence. Atomic root-call reservation vẫn thuộc Control; phối hợp atomic quota reservation + usage feed/fallback còn thiếu để hoàn thành OC10.
+Sáu test của recommendation kiểm risk/complexity floor, nhiều quota windows, unknown/stale/reserve, quyền/capability/API, kiểu dữ liệu strict và AI không tự tạo authority/evidence. [Account reservation](account-reservations.vi.md) đã nối optional binding vào Control và dedup attempt usage; [feed Codex](quota-feed.vi.md) đọc được subscription. Recommendation vẫn không tự dispatch. Authoritative cumulative settlement, calibrated auto-routing/fallback và feed Claude/Kiro còn thiếu để hoàn thành OC10.

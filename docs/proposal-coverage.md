@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Fixed cross-project goal budgets
+
+Baseline `bf2fc13`; [guide and boundaries](goal-budget.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| GB01 | A reviewed fixed task set shares finite calls without erasing prior local counters | goal_budget create/group, transactional Control admission across one ledger | two-project race, prior spend, unknown holds and restart tests | Complete |
+| GB02 | Preserve every local grant and enforce earliest applicable deadline; no regroup/reset shortcut | budget current/remaining, immutable group event, owner grant and earliest submission checks | stale/project/active/overlap/cap rejection, reserve/launch deadline, rollback, local extension cannot increase group | Complete |
+| GB03 | Expose lineage/remaining calls and prevent misleading retry offers | ledger root_task_id/group, work status, triage/branch/feedback remaining checks | exhausted shared goal offers inspect with zero remaining calls; no worker invocation | Complete |
+
+Six focused fixture tests pass; full regression: 217 tests pass in 290.366 seconds. No model calls. This is an immutable budget grouping, not a cross-repo scheduler; each task retains its own pause/cancel/worker and scope. Adding members/group extension, cross-repo DAG and compatibility vectors remain separate. Target integration milestone committed as `bf2fc13`.
+
 ## Verified local target integration
 
 Baseline `5b77dcc`; [guide](target-integration.vi.md).
@@ -274,7 +286,7 @@ These counts measure the new SPEC-006 implementation requirements, not documenta
 | OC06 | Memory | Shared decisions/checkpoints/provenance | Data | ledger events, immutable spec/profile, content-addressed working/index snapshots | CP01–CP03 dirty/binary/deletion recovery; live handoff preserves source | Partial | Authenticated entry connectors and full transcript-free continuation proof remain |
 | OC07 | DAG | Parallel dependency/ownership scheduling | Architecture | two disjoint units/global capacity, branch waits, amendment descendant/ownership invalidation | PD01–PD04 native parallel Kiro plus BI/AM fixture closures | Partial | Full parallel crash matrix and multi-repo execution remain |
 | OC08 | Integration | Verified merged result across branches/repos | Testing | review branches and conservative three-way target integration, actual Git candidate gates and ref CAS | IB/IM real-Git tests; FG03 live container branch tests | Partial | Automatic rebase/conflict repair and multi-repo commit vector/compatibility remain |
-| OC09 | Long jobs | Root budgets, recovery and optional 8h | Reliability | absolute max-8h grant, counters/reservations, background waits, finite extension | CB/BG/CQ/BU tests; live handoff preserves deadline/counters | Partial | Eight-hour soak, authenticated grants and shared goal lineage across roots remain |
+| OC09 | Long jobs | Root budgets, recovery and optional 8h | Reliability | absolute max-8h grants, durable counters, finite extensions, fixed multi-project shared goal cap | CB/BG/CQ/BU/GB tests; live handoff preserves deadline/counters | Partial | Eight-hour soak, authenticated grants and dynamic cross-repo goal orchestration remain |
 | OC10 | Routing | Task/risk/capability plus account quota | Performance | typed recommendation, read-only Codex feed, opt-in transactional account estimates and attempt usage dedup | RP/QF/QB/US tests, timestamped feed probe | Partial | Authoritative cumulative settlement, automatic calibrated routing/fallback and Claude/Kiro feed remain |
 | OC11 | Review | Partial review, feedback and reorder | UI | readable cards, concurrent feedback, revision accept/reorder/pause and bounded corrections | WF04/PD02/RV01/RF01–RF03; B feedback while C runs | Partial | Full authenticated multi-entry and multi-repo review/integration evidence remain |
 | OC12 | Authority | Scope/grant enforcement separate from acceptance | Security | Fixed CV sealed gates and worker artifact validation | SPEC-004 boundary tests/IA04; planned T01/T08/T11/T16/T19 | Partial | Trusted multi-entry caller/worker authority isolation missing |
