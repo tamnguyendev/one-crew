@@ -1,5 +1,19 @@
 # Proposal Coverage
 
+## Quota fallback increment — FB01–FB03
+
+User request: prefer Claude, switch to Codex or Kiro when exhausted. Cycle 1, baseline `b85ab17`; no user product job or live quota exhaustion trial authorized by this validation plan.
+
+| ID | Requirement | Implementation / planned evidence | Status | Limits |
+|---|---|---|---|---|
+| FB01 | Persist ordered explicit fallback models in new default owned jobs; preserve replay and explicit overrides | model_preferences, intake, provider CLI; preference/replay/explicit pin/CLI tests | Complete | Existing jobs stay sealed; no automatic JEV selection |
+| FB02 | Recognize native quota exhaustion and forward handoff only after settlement | provider_limits, provider_fallback, owned; adapter envelopes, chain, restart, unavailable provider and unknown-process tests | Complete | Conservative known envelopes only; no arbitrary log keyword/429 routing |
+| FB03 | Preserve evidence, review state, grants, root budget, cancellation and history | checkpoint + existing admission + learning; budget, pending approval, deadline, account binding, review continuation and outcome tests | Complete | No fresh Claude/Kiro quota feed; no automatic reset/loop back or paid API |
+
+Validation: owned/provider/advisor/learning/subscription/MCP subset **53 tests passed in 28.555s**; workflow/quota-budget/usage/entry/intake/revision-5 subset **51 passed in 17.750s**; final fallback/provider subset **18 passed in 3.698s**, including CLI persistence, native nonzero-exit adapters and extra deadline guard. The second subset needs `tests` on `sys.path` because existing tests use unqualified fixture imports. Existing detached-process ResourceWarning remains in the first subset; cleanup assertions pass. Full suite not rerun. Synthetic native receipts and runtime fixtures cover Claude → Codex → Kiro, exhausted chain, restart and review continuation. Real subscription exhaustion is not deliberately induced; no user product task or live model inference performed.
+
+Active shared state preference saved/read back as Claude `sonnet` → Codex `gpt-6.1-sol` → Kiro `claude-sonnet-5`; default state-root resolution reads the same policy. All three pinned CLI/auth probes available. Kiro model catalog lists the selected model; Codex local model cache lists the selected slug. These checks do not measure current remaining quota or prove quality equivalence. This increment completes only FB01–FB03's bounded behavior, not the broader routing/soak roadmap.
+
 ## Revision 6 — recurring skills and model preference
 
 Source: user discussion and [skills-routing.vi.md](skills-routing.vi.md), baseline `081307d`. This scope adds skills after recurring work is evidenced; it does not close unrelated revision 5 gaps. Preserve user edits below SPEC-005.

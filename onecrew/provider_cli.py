@@ -16,6 +16,8 @@ def main(argv=None):
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--file', type=Path)
     parser.add_argument('--model')
+    parser.add_argument('--fallback', action='append', default=[], metavar='PROVIDER:MODEL',
+                        help='Ordered quota-only fallback for new default jobs; repeat up to twice.')
     parser.add_argument('--reset-hint',help='User-reported ISO timestamp only; never establishes quota.')
     parser.add_argument('--jev',action='store_true',help='One optional external evaluator call; shadow only, no dispatch.')
     parser.add_argument('--brief',help='Sanitized task description to send to Jev; no source or transcripts.')
@@ -25,7 +27,12 @@ def main(argv=None):
         ledger=Ledger(args.project,args.state_root)
         if args.command=='prefer':
             if not args.provider or not args.model: raise ValueError('prefer requires provider and --model.')
-            result=save(ledger,args.provider,args.model,args.reset_hint)
+            fallbacks=[]
+            for entry in args.fallback:
+                provider, separator, model=entry.partition(':')
+                if not separator or not model: raise ValueError('--fallback requires PROVIDER:MODEL.')
+                fallbacks.append({'provider':provider,'model':model})
+            result=save(ledger,args.provider,args.model,args.reset_hint,fallbacks)
         elif args.command=='preference': result=dict(read(ledger),quota_verified=False)
         elif args.command == 'choose':
             if not args.file:

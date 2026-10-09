@@ -1,5 +1,19 @@
 # Revision 6 — skill từ lịch sử và ưu tiên model
 
+## Bổ sung FB01–FB03: chuyển provider khi hết quota
+
+Yêu cầu operator mới: **Claude → Codex → Kiro**. `provider prefer` nhận các `--fallback PROVIDER:MODEL` theo thứ tự; lưu vào shared state và snapshot trong payload của **job mặc định mới**. Explicit provider/model pin lựa chọn; task cũ/replay không tự nhận chain mới. Bỏ các cờ fallback khi lưu preference sẽ tắt fallback cho job mới.
+
+Runtime chỉ chuyển khi adapter nhận lỗi quota từ error envelope native và supervisor đã xác nhận attempt settled. Không suy quota từ nội dung model/source, HTTP 429 chung, timeout, lỗi đăng nhập hay SDK. Chuyển một chiều theo chain, bỏ qua CLI chưa sẵn sàng qua probe không gọi model, tối đa hai lần; hết chain thì blocked. Checkpoint giữ candidate, tool receipts, câu trả lời, bước review, quyền và root budget. Mọi lượt lỗi đã launch vẫn tính budget. Pending approval, cancel, deadline, quota binding riêng và process chưa reconcile không được vượt qua.
+
+Lựa chọn mới ghi trong checkpoint trước dispatch; restart dùng đúng provider đã chuyển. Outcome ghi provider cuối cùng và handoff history; usage đã có provider/model theo attempt. Native error format không nhận diện được vẫn dùng đường lỗi hiện tại, không đoán exhaustion. Không có cam kết mọi phiên bản CLI đều được hỗ trợ; vẫn khóa pinned CLI capability. Chưa có live trial cố tình dùng hết subscription.
+
+```text
+onecrew provider prefer claude --model sonnet --fallback codex:gpt-6.1-sol --fallback kiro:claude-sonnet-5 --reset-hint 2026-10-09T23:00:00+07:00
+```
+
+Đây là default cụ thể cho yêu cầu mới, không phải kết luận model tối ưu từ JEV. Không gọi JEV cho mỗi tool hoặc mỗi lần lỗi; JEV vẫn shadow. Task mới tiếp theo lại ưu tiên Claude; không tự bật lại Claude giữa một task khi đồng hồ tới reset hint. Claude/Kiro remaining quota vẫn unknown trước inference nếu chưa có observation. Hết quota được nhận diện trong lần thực thi có giới hạn, không giả định còn quota.
+
 Ngày 09/10/2026, Asia/Saigon. Bổ sung revision 5, không thay scheduler hoặc quyền hiện có. Yêu cầu nguồn: chỉ công việc lặp mới đáng tạo skill; đánh giá sau kết quả, ưu tiên Claude và dùng JEV để đề xuất model phù hợp.
 
 ## SK01–SK04: history → recurrence → skill

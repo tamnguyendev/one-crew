@@ -12,9 +12,11 @@ def record(conn, ledger, task_id, state):
     task=ledger._task(conn,task_id)
     config=conn.execute('SELECT * FROM executions WHERE task_id=?',(task_id,)).fetchone()
     payload=json.loads(task['payload']);profile=json.loads(config['configuration']).get('profile',{})
+    selected=state.get('worker',profile)
     attempts=[dict(r) for r in conn.execute('SELECT * FROM attempts WHERE task_id=?',(task_id,))]
     data={'version':1,'task':task_id,'task_revision':task['revision'],'spec_revision':payload['spec_revision'],
-        'phase':phase,'mode':profile.get('mode'),'provider':profile.get('provider'),'model':profile.get('model'),
+        'phase':phase,'mode':profile.get('mode'),'provider':selected.get('provider'),'model':selected.get('model'),
+        'provider_handoffs':state.get('handoffs',[]),
         'snapshot':state.get('snapshot'),'verification':state.get('verification'),'acceptance':state.get('acceptance'),
         'progress':{k:v for k,v in state.get('progress',{}).items() if k!='results'},
         'recovery':state.get('recovery'),'managed_calls':config['used_calls'],

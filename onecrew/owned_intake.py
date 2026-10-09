@@ -15,9 +15,12 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     with ledger.transaction() as conn:
         prior=conn.execute('SELECT payload FROM tasks WHERE project_id=? AND request_key=?',
                           (ledger.project_id,request_key)).fetchone() if conn else None
-    from .model_preferences import resolve
+    from .model_preferences import resolve, read
     previous=json.loads(prior['payload']).get('owned_execution') if prior else None
-    provider,model=resolve(ledger,provider,model,previous)
+    # An explicit provider/model pins this job; only default intake inherits the chain.
+    inherit_fallbacks = provider is None and model is None
+    preference = previous or read(ledger)
+    provider,model=resolve(ledger,provider,model,preference)
     if mode not in ('audit','change','delivery','branch') or provider not in ('codex','claude','kiro'):
         raise LedgerError('Unsupported job mode or provider.')
     text_field(model, 'model', 120)
@@ -43,6 +46,10 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     grant = validate_grant({'schema_version':1,'permissions':permissions,
                            'limits':{'max_calls':max_calls,'max_seconds':max_seconds},'source':'local operator: job submit'})
     options = dict(mode=mode,provider=provider,model=model,image=image,branch=branch,remote=remote)
+    if previous and 'fallbacks' in previous:
+        options['fallbacks'] = previous['fallbacks']
+    elif not previous and inherit_fallbacks and preference.get('fallbacks'):
+        options['fallbacks'] = preference['fallbacks']
     if android_build: options['android_build'] = android_build
     payload = dict(schema_version=1,project_id=ledger.project_id,project_path=ledger.project_path,
                    spec_id='GOAL',spec_revision=content_hash(goal),spec_text=goal,title=goal[:200],

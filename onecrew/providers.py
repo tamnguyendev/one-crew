@@ -84,8 +84,9 @@ class ExternalArtifact:
         directory.mkdir(parents=True, exist_ok=False)
         return directory
 
-    @staticmethod
-    def stdout(attempt):
+    def stdout(self, attempt):
+        from .provider_limits import check_attempt
+        check_attempt(self.provider, attempt)
         receipt = json.loads(attempt['result'])
         if receipt.get('exit_code') != 0 or receipt.get('reason'):
             raise LedgerError('Provider did not complete; inspect local attempt logs.')
@@ -110,6 +111,8 @@ class ClaudeArtifact(ExternalArtifact):
 
     def result(self, attempt):
         value = json.loads(self.stdout(attempt))
+        from .provider_limits import check_event
+        check_event(self.provider, value)
         if value.get('type') != 'result' or value.get('is_error') is not False or value.get('subtype') != 'success':
             raise LedgerError('Claude did not report a successful typed result.')
         result = value.get('structured_output')
@@ -158,6 +161,8 @@ class KiroArtifact(ExternalArtifact):
                 event = json.loads(line)
             except ValueError:
                 continue
+            from .provider_limits import check_event
+            check_event(self.provider, event)
             # ACP session/update stream; reject tool activity before interpreting model output.
             update = event.get('data', {}).get('update', event.get('params', {}).get('update', event.get('update', {})))
             kind = update.get('sessionUpdate')

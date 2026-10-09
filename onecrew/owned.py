@@ -305,9 +305,6 @@ class Owned(Workflow):
             control=self.control.status(task_id);profile=control['configuration']['profile']
             tool_prompt,tool_schema,delivery_contract=contract(profile)
             task=self.ledger.task(task_id,full=True)
-            if not self.custom_worker:
-                from .providers import make_worker
-                self.worker=make_worker(self.control,profile['provider'])
             for _ in range(steps):
                 control=self.control.status(task_id)
                 if control['cancel_requested'] or control['status']=='paused' or state['phase'] in ('completed','blocked','failed','cancelled'): return state
@@ -327,8 +324,14 @@ class Owned(Workflow):
                         for r in self.ledger.requests(task_id) if r['state']=='answered']
                     seq=self.persist(task_id,seq,state)
                 try:
+                    selected=state['worker']
+                    profile=dict(profile,provider=selected['provider'],model=selected['model'])
+                    if not self.custom_worker:
+                        from .providers import make_worker
+                        self.worker=make_worker(self.control,profile['provider'])
+                    expected=selected.get('capability',control['configuration']['capability'])
+                    if self.worker.capability()!=expected: raise LedgerError('Provider capability changed.')
                     if state['response'] is None:
-                        if self.worker.capability()!=control['configuration']['capability']: raise LedgerError('Provider capability changed.')
                         recent=[]
                         for ref in state['receipts'][-3:]:
                             recent.append({'index':ref['index'],'result':json.loads(self.store.read_blob(ref['blob']))})
@@ -439,6 +442,11 @@ class Owned(Workflow):
                         from .progress import classify
                         kind=classify(error)
                         state['recovery']={'kind':kind,'automatic_retry':False}
+                        from .provider_fallback import advance as fallback
+                        switched=fallback(self,task_id,seq,state,error)
+                        if switched is not None:
+                            seq=switched
+                            continue
                         if attempt['status']=='settled' and failures<=1 and kind in ('unknown','transient'):
                             state.update(pending=None,provider_failures=failures,step=state['step']+1,
                                          message='One bounded retry after settled provider failure: '+str(error)[:500])

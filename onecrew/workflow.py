@@ -256,6 +256,8 @@ class CodexArtifact:
                                              timeout=profile['step_seconds'], env=environment())
 
     def result(self, attempt):
+        from .provider_limits import check_attempt
+        check_attempt('codex', attempt)
         receipt = json.loads(attempt['result'])
         if receipt.get('exit_code') != 0 or receipt.get('reason'):
             raise LedgerError('Worker did not complete; inspect attempt receipt before retry.')
@@ -361,7 +363,7 @@ class Workflow:
         config = self.control.status(task_id)
         operation = {'stage': stage, 'prompt_hash': content_hash(prompt), 'snapshot': state['snapshot'],
                      'schema_hash': content_hash(schema)}
-        if state.get('quota_binding'):
+        if state.get('quota_binding') or profile.get('fallbacks'):
             operation.update(provider=profile['provider'], model=profile['model'])
         if unit:
             operation['unit'] = 'task:'+unit
