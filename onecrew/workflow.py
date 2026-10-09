@@ -351,6 +351,8 @@ class Workflow:
         config = self.control.status(task_id)
         operation = {'stage': stage, 'prompt_hash': content_hash(prompt), 'snapshot': state['snapshot'],
                      'schema_hash': content_hash(schema)}
+        if state.get('quota_binding'):
+            operation.update(provider=profile['provider'], model=profile['model'])
         if unit:
             operation['unit'] = 'task:'+unit
         if state['pending']:
@@ -377,7 +379,8 @@ class Workflow:
                 self.worker.run(attempt, prompt, schema, profile)
             attempt = self.control.attempt(attempt['id'])
         value, usage = self.worker.result(attempt)
-        state['usage'].append({'attempt': attempt['id'], 'reported': usage})
+        from .usage import record
+        record(state, attempt['id'], usage, profile['provider'], profile['model'])
         state['pending'] = None
         state.pop('revalidate_pending', None)
         return seq, value
@@ -523,8 +526,8 @@ class Workflow:
                         if attempt['status'] == 'settled':
                             try:
                                 _, usage = self.worker.result(attempt)
-                                if not any(r['attempt'] == attempt['id'] for r in state['usage']):
-                                    state['usage'].append({'attempt': attempt['id'], 'reported': usage})
+                                from .usage import record
+                                record(state, attempt['id'], usage, profile['provider'], profile['model'])
                             except (ValueError, OSError):
                                 pass
                             if (state['phase'] == 'planning' and isinstance(error, ValueError)
@@ -552,14 +555,17 @@ class Workflow:
             return state
 
     def outputs(self, task_id):
+        from .usage import summarize
         _, state = self.state(task_id)
         if not state:
             raise LedgerError('Workflow has no outputs.')
         with self.ledger.transaction() as conn:
             feedback = [json.loads(row['payload']) for row in conn.execute(
                 "SELECT payload FROM events WHERE task_id=? AND kind='output.feedback' ORDER BY seq", (task_id,))]
+        control = self.control.status(task_id)
         return {'task_id': task_id, 'phase': state['phase'], 'message': state['message'],
-                'execution': self.control.status(task_id)['status'],
+                'usage_summary': summarize(state['usage'], control['attempts']),
+                'execution': control['status'],
                 'verification': state['verification'], 'acceptance': state['acceptance'],
                 'checks': state.get('checks'), 'backlog': state['backlog'], 'reviews': state.get('reviews', []) + feedback,
                 'outputs': [dict(row, diff=self.store.diff(row['base'], row['revision'])) for row in state['outputs']]}

@@ -12,6 +12,6 @@ Quan sát live lúc 2026-10-09T01:46:38Z: bucket codex, primary 10080 phút, use
 
 Hàm `routing_quota` yêu cầu chọn rõ bucket và các cửa sổ bắt buộc, dự toán dương và phần giữ cho chat. Nó chuyển tất cả cửa sổ quan sát được sang policy; một cửa sổ hết quota đủ để chặn lựa chọn. Thiếu cửa sổ bắt buộc hoặc spend-control observation thì từ chối. `provider choose` tiếp tục kiểm freshness/reset và quyền/capability/tier.
 
-Feed này chưa tự chọn model hoặc dispatch. Dự toán chưa phải hard cap; chưa có reservation quota tài khoản giữa các worker. Claude/Kiro chưa có feed đã xác minh, không coi là unlimited. Dữ liệu không được dùng để cộng phần trăm quota với token hoặc managed calls.
+Feed này chưa tự chọn model hoặc dispatch. Có thể đưa observation đã ánh xạ vào [binding quota của workflow](account-reservations.vi.md), để admission giữ dự toán giữa workers dùng cùng ledger. Dự toán chưa phải hard cap hoặc settlement thực. Claude/Kiro chưa có feed đã xác minh, không coi là unlimited. Dữ liệu không được dùng để cộng phần trăm quota với token hoặc managed calls.
 
 Đối chiếu schema được sinh từ CLI cài tại máy và [giao thức App Server chính thức](https://learn.chatgpt.com/docs/app-server). Test fixture kiểm bucket, tuần hết dù cửa sổ ngắn còn, stale/missing/strict types, subscription-only và danh sách RPC chỉ đọc. Live probe riêng ghi zero model calls.

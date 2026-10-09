@@ -18,7 +18,7 @@ def main(argv=None):
     parser.add_argument('--state-root', type=Path)
     group = parser.add_subparsers(dest='group', required=True).add_parser('work')
     commands = group.add_subparsers(dest='command', required=True)
-    for name in ('enable', 'plan', 'triage', 'extend', 'amend', 'request-changes', 'recheck', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
+    for name in ('enable', 'plan', 'quota', 'triage', 'extend', 'amend', 'request-changes', 'recheck', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
         command = commands.add_parser(name)
         command.add_argument('id')
         command.add_argument('--json', action='store_true')
@@ -31,7 +31,7 @@ def main(argv=None):
             command.add_argument('--steps', type=int, default=100)
         if name == 'resume':
             command.add_argument('--reuse-output', action='store_true', help='Reprocess a settled receipt after a parser fix; no new worker call.')
-        if name in ('plan', 'review', 'reorder', 'export', 'switch', 'branch', 'extend', 'recheck', 'amend', 'request-changes'):
+        if name in ('plan', 'quota', 'review', 'reorder', 'export', 'switch', 'branch', 'extend', 'recheck', 'amend', 'request-changes'):
             command.add_argument('--revision', required=True)
         if name == 'request-changes':
             command.add_argument('--output', required=True)
@@ -48,7 +48,7 @@ def main(argv=None):
             command.add_argument('--max-calls', type=int, required=True)
             command.add_argument('--deadline', required=True)
             command.add_argument('--reason', required=True)
-        if name == 'plan':
+        if name in ('plan', 'quota'):
             command.add_argument('--file', type=Path, required=True)
         if name == 'branch':
             command.add_argument('--name', required=True)
@@ -71,6 +71,9 @@ def main(argv=None):
             result = workflow.run(args.id, steps=args.steps)
         elif args.command == 'plan':
             result = workflow.set_plan(args.id, args.revision, read_json(args.file))
+        elif args.command == 'quota':
+            from .quota_budget import bind
+            result = bind(workflow, args.id, args.revision, read_json(args.file))
         elif args.command == 'triage':
             from .triage import handle
             result = handle(workflow, args.id)
@@ -90,9 +93,12 @@ def main(argv=None):
             result = (start if args.command == 'start' else status)(workflow.ledger, args.id)
         elif args.command == 'status':
             from .amendment import plan_revision
+            from .usage import summarize
             seq, state = workflow.state(args.id)
-            result = {'sequence': seq, 'state': state, 'control': workflow.control.status(args.id),
+            control = workflow.control.status(args.id)
+            result = {'sequence': seq, 'state': state, 'control': control,
                       'workflow_revision': content_hash(state) if state else None,
+                      'usage_summary': summarize(state['usage'], control['attempts']) if state else None,
                       'plan_revision': plan_revision(state)}
         elif args.command == 'outputs':
             result = workflow.outputs(args.id)

@@ -22,6 +22,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [Xử lý vấn đề qua inbox](docs/inbox-triage.vi.md) | Tự tạo câu hỏi ngắn, chờ reply và resume trong grant cũ |
 | [Routing policy](docs/routing-policy.vi.md) | Đề xuất model theo tier/risk/quota, chưa tự dispatch |
 | [Quota Codex](docs/quota-feed.vi.md) | Đọc quota subscription không gọi model; unknown/stale chặn routing |
+| [Giữ quota giữa workers](docs/account-reservations.vi.md) | Admission có reservation trong cùng ledger, usage dedup và phần dữ liệu chưa rõ |
 | [Nhánh Git để review](docs/review-branch.vi.md) | Kiểm candidate tree rồi tạo local branch, giữ nguyên source/index |
 | [DAG song song](docs/parallel-dag.vi.md) | Hai nhánh độc lập cùng root, output từng phần và budget chung; live Kiro đã đạt |
 | [Inbox theo nhánh](docs/branch-inbox.vi.md) | Nhánh lỗi/dependents chờ quyết định, nhánh độc lập vẫn tiến triển |

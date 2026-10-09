@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Transactional account quota admission and observed usage
+
+Baseline `f00e5dc`; [limits and operation](account-reservations.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| QB01 | Optional current-worker binding reserves account windows with root admission across one ledger | quota_budget bind/reserve, Control transaction and prelaunch checks, serial/parallel operations | concurrent roots only one admitted; real workflow fixture creates three reservations; failed checkpoint rollback | Complete |
+| QB02 | Preserve uncertain/charged estimates, require fresh windows and prevent mapping-reset shortcuts | state binding history, settled/refund checks and conservative cross-reset handling | known-not-started refund, unknown/settled holds, launch expiry, old-window reset and pinned aliases/windows | Complete |
+| US01 | Deduplicate observed attempt receipts and avoid adding cached input twice | usage.record/summarize, serial/parallel result paths, CLI status/output | replay vs distinct attempts, conflicting/missing/cumulative unknown, token types and separate Kiro credits | Complete |
+
+Focused tests: six account-admission and three usage cases. Full suite: 204 tests pass in 85.139 seconds. No model calls. Optional alias/bucket mapping is local operator input, not authenticated account identity; all participating projects must share ledger/mapping. Estimates are intentionally conservative and can double-reserve spend already reflected by a fresh observation. Cross-reset unknown usage remains held. General cumulative event settlement and automatic routing remain Partial. Review-correction milestone committed as `f00e5dc`.
+
 ## Scoped review corrections and current-status reconciliation
 
 Baseline `9751b6d`; [guide](review-corrections.vi.md).
@@ -251,7 +263,7 @@ These counts measure the new SPEC-006 implementation requirements, not documenta
 | OC07 | DAG | Parallel dependency/ownership scheduling | Architecture | two disjoint units/global capacity, branch waits, amendment descendant/ownership invalidation | PD01–PD04 native parallel Kiro plus BI/AM fixture closures | Partial | Full parallel crash matrix and multi-repo execution remain |
 | OC08 | Integration | Verified merged result across branches/repos | Testing | actual Git candidate functional gates and immutable local review branches | IB01–IB02; FG03 live container tests on review branch candidate | Partial | Target merge/rebase and multi-repo commit vector remain |
 | OC09 | Long jobs | Root budgets, recovery and optional 8h | Reliability | absolute max-8h grant, counters/reservations, background waits, finite extension | CB/BG/CQ/BU tests; live handoff preserves deadline/counters | Partial | Eight-hour soak, authenticated grants and shared goal lineage across roots remain |
-| OC10 | Routing | Task/risk/capability plus account quota | Performance | typed recommendation, bounded AI proposal validator, live read-only Codex quota | RP/QF multi-window/stale/unknown/type tests and timestamped probe | Partial | Atomic account reservations/usage dedup, calibrated automatic routing/fallback; Claude/Kiro feed unknown |
+| OC10 | Routing | Task/risk/capability plus account quota | Performance | typed recommendation, read-only Codex feed, opt-in transactional account estimates and attempt usage dedup | RP/QF/QB/US tests, timestamped feed probe | Partial | Authoritative cumulative settlement, automatic calibrated routing/fallback and Claude/Kiro feed remain |
 | OC11 | Review | Partial review, feedback and reorder | UI | readable cards, concurrent feedback, revision accept/reorder/pause and bounded corrections | WF04/PD02/RV01/RF01–RF03; B feedback while C runs | Partial | Full authenticated multi-entry and multi-repo review/integration evidence remain |
 | OC12 | Authority | Scope/grant enforcement separate from acceptance | Security | Fixed CV sealed gates and worker artifact validation | SPEC-004 boundary tests/IA04; planned T01/T08/T11/T16/T19 | Partial | Trusted multi-entry caller/worker authority isolation missing |
 

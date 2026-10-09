@@ -40,6 +40,8 @@ def round(workflow, task_id, sequence, state, ready, common, profile):
             operation = {'unit': 'task:' + item['id'], 'stage': item['id'], 'snapshot': base,
                          'owned': item['owned'], 'prompt_hash': content_hash(prompt),
                          'schema_hash': content_hash(schema)}
+            if state.get('quota_binding'):
+                operation.update(provider=profile['provider'], model=profile['model'])
             next_sequence = [sequence]
 
             def checkpoint(conn, attempt):
@@ -79,8 +81,8 @@ def round(workflow, task_id, sequence, state, ready, common, profile):
             record = futures[future]
             try:
                 value, usage = future.result()
-                if not any(r['attempt'] == record['attempt'] for r in state['usage']):
-                    state['usage'].append({'attempt': record['attempt'], 'reported': usage})
+                from .usage import record as record_usage
+                record_usage(state, record['attempt'], usage, profile['provider'], profile['model'])
                 changes = artifacts(value, record['owned'])
                 before = state['snapshot']
                 # Disjoint ownership is validated before dispatch. Never merge a changed owned baseline.

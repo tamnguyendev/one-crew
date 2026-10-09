@@ -25,6 +25,13 @@ def status(value):
         lines.append('Vấn đề: '+compact(state['message']))
     if state.get('waiting_reason'):
         lines.append('Đang chờ: '+state['waiting_reason'])
+    usage = value.get('usage_summary')
+    if usage:
+        totals = usage['totals_observed_only']
+        lines.append(f"Usage đã quan sát: {totals['total_tokens']} Codex tokens; {totals['kiro_credits']:.6f} Kiro credits; {len(usage['unknown_attempts'])} attempts chưa rõ usage.")
+    if state.get('quota_binding'):
+        binding = state['quota_binding']
+        lines.append(f"Quota: {binding['provider']}/{binding['bucket']} | observation hết hạn {binding['quota']['expires_at']} | có reservation dự toán")
     lines += [f"Workflow revision: {value['workflow_revision']}",
               f"Plan revision: {value['plan_revision'] or 'chưa có'}",
               f"Budget revision: {control['budget']['revision']}",

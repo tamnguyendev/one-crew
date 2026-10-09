@@ -145,6 +145,8 @@ class Control:
             conn.execute("UPDATE executions SET reserved_calls=reserved_calls+1,status='running' WHERE task_id=?", (task_id,))
             self.ledger._event(conn, task_id, 'attempt.reserved', {'id': attempt_id, 'generation': generation})
             row = dict(conn.execute('SELECT * FROM attempts WHERE id=?', (attempt_id,)).fetchone())
+            from .quota_budget import reserve as reserve_quota
+            reserve_quota(self, conn, row)
             if on_reserved:
                 on_reserved(conn, row)
             return row
@@ -178,6 +180,8 @@ class Control:
             from .branch_inbox import blocks
             if blocks(conn, row['task_id'], json.loads(row['operation']).get('unit', 'root')):
                 raise LedgerError('Pending question prevents launch.')
+            from .quota_budget import before_launch
+            before_launch(self, conn, row)
             conn.execute("UPDATE attempts SET status='running',charged=1,identity=?,updated_at=? WHERE id=?",
                          (encoded, utcnow(), attempt_id))
             conn.execute('UPDATE executions SET used_calls=used_calls+1,reserved_calls=reserved_calls-1 WHERE task_id=?',
@@ -213,7 +217,7 @@ class Control:
                 conn.execute('UPDATE executions SET reserved_calls=reserved_calls-1,used_calls=used_calls+? WHERE task_id=?',
                              (0 if not_started else 1, row['task_id']))
             conn.execute("UPDATE attempts SET status='settled',charged=?,result=?,updated_at=? WHERE id=?",
-                         (0 if not_started else 1, encoded, utcnow(), attempt_id))
+                         (0 if not_started else 1, encoded, self.clock().isoformat(), attempt_id))
             active = conn.execute("SELECT 1 FROM attempts WHERE task_id=? AND status IN ('reserved','running','unknown')", (row['task_id'],)).fetchone()
             conn.execute("UPDATE executions SET status=CASE WHEN cancel_requested=1 THEN ? WHEN status='paused' THEN 'paused' ELSE ? END WHERE task_id=?",
                          ('cancelling' if active else 'cancelled', 'running' if active else 'queued', row['task_id']))
