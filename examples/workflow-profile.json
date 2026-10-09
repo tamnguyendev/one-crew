@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "context": ["config/routing.json"],
+  "owned": ["config/routing.json"],
+  "acceptance": [{"id": "AC-ROUTE", "description": "Cấu hình default small, security_review large, tối đa hai worker."}],
+  "checks": [{"id": "routing-json", "acceptance": ["AC-ROUTE"], "kind": "json_equal", "path": "config/routing.json", "expected": {"default": "small", "security_review": "large", "max_workers": 2}}],
+  "max_repairs": 1,
+  "model": "gpt-6-luna",
+  "step_seconds": 120
+}

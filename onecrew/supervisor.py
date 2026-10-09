@@ -179,6 +179,8 @@ class Supervisor:
                     state = self.control.status(attempt['task_id'])
                     if state['cancel_requested']:
                         reason = 'cancelled'
+                    elif state['status'] == 'paused':
+                        reason = 'paused'
                     elif self.control.clock() >= dt.datetime.fromisoformat(state['deadline']):
                         reason = 'deadline'
                     elif time.monotonic()-began >= timeout:

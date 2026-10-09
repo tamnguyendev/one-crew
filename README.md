@@ -2,7 +2,7 @@
 
 OneCrew hướng tới một core local để nhận công việc đã làm rõ từ **Codex / Claude / Kiro**, điều phối **Codex / Claude Code / Kiro CLI**, lưu tiến độ và kiểm chứng kết quả. CLI trước; công cụ chat và worker có thể thay độc lập.
 
-**Hiện đã chạy được profile CV/local/Codex; orchestration tổng quát vẫn đang thiết kế.** Baseline kiến trúc cập nhật 09/10/2026, revision 2 (Asia/Saigon), sau review source chín dự án.
+**Đã có CV runtime và workflow Codex artifact tổng quát:** ledger/inbox, budget/supervisor, snapshot dirty bytes, spec-to-plan, output từng phần, pause/resume/reorder/review. Workflow mới đã chạy hai bài JSON thật; gate ứng dụng, đa provider, integration và chạy dài vẫn cần hoàn thiện. Baseline kiến trúc 09/10/2026, revision 2.
 
 ## Tài liệu hiện hành
 
@@ -14,6 +14,8 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [Coverage](docs/proposal-coverage.md) | Phân biệt code đã có với phần còn thiếu |
 | [P1a — task và inbox lưu bền](docs/durable-ledger.vi.md) | Submit/queue/connect, câu hỏi/revision/reply qua CLI; chưa dispatch worker |
 | [P1b — admission và supervisor](docs/control-runtime.vi.md) | Schema migration, reservation/counters, action receipts, native Windows process containment |
+| [Workflow tổng quát](docs/general-workflow.vi.md) | CLI chạy Codex từ spec/profile, review từng phần, resume, reorder và bằng chứng live |
+| [Snapshot](docs/snapshots.vi.md) | Bảo toàn working/index bytes trong scope và output bất biến |
 | [CLI spec](docs/spec-review-cli.vi.md) | Review/approve theo revision, diff/history |
 | [Runtime và bằng chứng SPEC-005](docs/incremental-autonomy.vi.md) | Chạy CV từ thư mục trống, test/review/repair và preview |
 | [JEV connection](docs/jev-connection.vi.md) | Kết nối đã kiểm chứng; chưa semantic routing |
@@ -36,13 +38,13 @@ Từ thư mục project trên Windows, Python 3.10+; launcher dùng .venv local 
 
 Dùng revision vừa xem cho lệnh spec approve; sửa nội dung cần duyệt revision mới. Có diff, request-changes và history. Bản nhanh tối đa 350 từ, chung file/hash với chi tiết cho AI. Các lệnh đọc/duyệt không gọi model. Approval hiện là sổ local, chưa có xác thực/cách ly worker và không tự cấp quyền runtime tổng quát.
 
-Có task run/list/status/cancel/outputs/preview cho profile hiện tại; hướng dẫn chạy thật nằm trong tài liệu SPEC-005. **P1a đã có task submit/queue/connect/events/status và request create/list/show/revise/reply**, lưu task/inbox qua restart terminal. Các lệnh này chưa dispatch worker; câu trả lời local chưa là quyền thực thi đã xác thực. Pause/resume worker, reorder và output acceptance vẫn là tính năng dự kiến. Xem hướng dẫn P1a để dùng JSON/examples.
+Có task run/list/status/cancel/outputs/preview cho CV; hướng dẫn nằm trong SPEC-005. **task submit/queue/connect/events/status và request create/list/show/revise/reply** lưu task/inbox qua restart. Nhóm **work enable/run/status/outputs/pause/resume/reorder/review/export** nối TASK- với Codex artifact workflow; xem hướng dẫn workflow và JSON/examples. Câu trả lời local chưa là quyền thực thi đã xác thực đa entry.
 
 ## Đã chứng minh và chưa chứng minh
 
 Run RUN-20261008-232057-1d06d8 tự tạo app CV từ thư mục trống trong 585,21 giây, 14 model calls, một repair thật; 19 gate checks đạt và independent review không có findings. Product commit ad3c748, runtime commit bf2e673. Lượt đó ghi nhận 69 tests đạt; xem evidence và giới hạn trong tài liệu SPEC-005.
 
-Chưa có general spec-to-plan, đa repo, worker Claude/Kiro, cross-entry inbox, crash resume, parallel scheduler hoặc run 8 giờ. JEV kết nối được không đồng nghĩa routing đã hoạt động. Kết quả CV đang chờ khách hàng review; dịch vụ chống bot bên ngoài và hiệu quả thực tế chưa được chứng minh.
+Workflow mới đã chạy hai cấu trúc JSON ngoài CV, dùng 4 và 3 calls gồm planner retry, giữ source gốc và acceptance pending. Có fault tests crash/receipt/snapshot; chưa có multi-provider handoff, Git integration đa repo, scheduler song song đầy đủ hoặc soak 8 giờ. JEV kết nối được không đồng nghĩa routing đã hoạt động. Kết quả CV vẫn chờ khách hàng review; hiệu quả chống bot thực tế chưa được chứng minh.
 
 Đã bắt đầu nền lưu bền task/inbox bằng P1a. Mục tiêu tiếp theo là admission/budget/supervisor, rồi nối worker vào ledger để tiếp tục thực thi sau crash. Sau đó mới mở rộng entry/worker, song song và quota. Kế hoạch này không tự cấp quyền chạy trả phí hoặc deploy.
 

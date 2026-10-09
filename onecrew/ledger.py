@@ -236,6 +236,12 @@ class Ledger:
                 result['budget'].update(used_calls=execution['used_calls'], reserved_calls=execution['reserved_calls'])
                 result['control_revision'] = execution['revision']
                 result['cancel_requested'] = bool(execution['cancel_requested'])
+                checkpoint = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.checkpoint' ORDER BY seq DESC LIMIT 1", (row['id'],)).fetchone()
+                if checkpoint:
+                    workflow = json.loads(checkpoint['payload'])
+                    result.update(verification=workflow['verification'], acceptance=workflow['acceptance'],
+                                  snapshot=workflow['snapshot'], message=workflow['message'],
+                                  dispatch_enabled=True, grant_status='local_operator_enabled')
         if full:
             result['handoff'] = payload
             result['requests'] = [self._request_view(r) for r in conn.execute(

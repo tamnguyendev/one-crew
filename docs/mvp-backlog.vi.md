@@ -26,7 +26,7 @@ Phạm vi: nền OC02/OC03/OC05/OC06/OC09/OC12 và CLI contract OC01; một Code
 
 Chia P1 thành các lát bàn giao, mỗi lát có demo/coverage riêng:
 
-P1a đã có implementation ledger/CLI và [hướng dẫn dùng thử](durable-ledger.vi.md); xem coverage cho evidence. Trạng thái các lát khác vẫn là kế hoạch. Đây chưa phải P1 hoàn tất hoặc trusted multi-entry approval.
+P1a đã có ledger/CLI; P1b có budget/action/supervisor; P1c/P1d đã có snapshot và [workflow Codex artifact](general-workflow.vi.md) chạy hai bài JSON ngoài CV. Gate ứng dụng, tự xử lý inbox/authority và đầy đủ recovery vẫn chưa đạt toàn bộ P1. Xem coverage cho evidence; các điều kiện dưới đây vẫn là chuẩn nghiệm thu, không tự coi cả mốc đã xong.
 
 | Lát | Kết quả thử được | Gate trước khi sang lát sau |
 |---|---|---|

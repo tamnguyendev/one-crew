@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "permissions": ["artifact.generate"],
+  "limits": {"max_calls": 4, "max_seconds": 480},
+  "source": "Local operator authorizes a bounded artifact-only task; no source integration or deployment."
+}

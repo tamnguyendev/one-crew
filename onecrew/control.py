@@ -154,7 +154,7 @@ class Control:
             if row['status'] != 'reserved':
                 raise LedgerError('Attempt cannot launch from current state.')
             task, execution = self._execution(conn, row['task_id'])
-            if execution['cancel_requested'] or self.clock() >= dt.datetime.fromisoformat(task['deadline']):
+            if execution['cancel_requested'] or execution['status'] == 'paused' or self.clock() >= dt.datetime.fromisoformat(task['deadline']):
                 raise LedgerError('Cancel or deadline prevents launch.')
             if conn.execute("SELECT 1 FROM requests WHERE task_id=? AND state='pending'", (row['task_id'],)).fetchone():
                 raise LedgerError('Pending question prevents launch.')
@@ -194,7 +194,7 @@ class Control:
                              (0 if not_started else 1, row['task_id']))
             conn.execute("UPDATE attempts SET status='settled',charged=?,result=?,updated_at=? WHERE id=?",
                          (0 if not_started else 1, encoded, utcnow(), attempt_id))
-            conn.execute("UPDATE executions SET status=CASE WHEN cancel_requested=1 THEN 'cancelled' ELSE 'queued' END WHERE task_id=?",
+            conn.execute("UPDATE executions SET status=CASE WHEN cancel_requested=1 THEN 'cancelled' WHEN status='paused' THEN 'paused' ELSE 'queued' END WHERE task_id=?",
                          (row['task_id'],))
             self.ledger._event(conn, row['task_id'], 'attempt.settled', {'id': attempt_id, 'result': result})
 
@@ -206,6 +206,14 @@ class Control:
             conn.execute('UPDATE executions SET cancel_requested=1,status=? WHERE task_id=?',
                          ('cancelling' if active else 'cancelled', task_id))
             self.ledger._event(conn, task_id, 'execution.cancel_requested', {})
+
+    def pause(self, task_id):
+        with self.ledger.transaction(write=True) as conn:
+            _, execution = self._execution(conn, task_id)
+            if execution['status'] in ('completed', 'cancelled', 'failed'):
+                raise LedgerError('Terminal execution cannot be paused.')
+            conn.execute("UPDATE executions SET status='paused' WHERE task_id=?", (task_id,))
+            self.ledger._event(conn, task_id, 'execution.pause_requested', {})
 
     def status(self, task_id):
         with self.ledger.transaction() as conn:

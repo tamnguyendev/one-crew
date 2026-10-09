@@ -19,9 +19,13 @@ def main(argv=None):
               '  task       run / list / status / cancel / outputs / preview (CV RUN- IDs)\n'
               '  request    create / list / show / revise / reply\n'
               '  core       migrate / status / cancel / reconcile\n'
+              '  work       enable / run / status / outputs / pause / resume / reorder / review / export\n'
               '  decision   JEV credential and connectivity commands\n'
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')
         return 0
+    if len(args)>index and args[index]=='work':
+        from .workflow_cli import main as work_main
+        return work_main(args)
     if len(args)>index and args[index]=='core':
         from .control_cli import main as core_main
         return core_main(args)

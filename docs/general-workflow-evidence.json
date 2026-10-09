@@ -1,0 +1,42 @@
+{
+  "codex_version": "0.160.0",
+  "model": "gpt-6-luna",
+  "mode": "artifact-tools-disabled",
+  "cases": [
+    {
+      "case": "localization",
+      "task": "TASK-dcd97d6edf784d74bb233f66ed82570a",
+      "calls": 4,
+      "usage": {
+        "input_tokens": 25728,
+        "cached_input_tokens": 0,
+        "output_tokens": 383
+      },
+      "missing_usage": [],
+      "execution": "completed",
+      "verification": "passed",
+      "acceptance": "pending",
+      "snapshot": "4c128aa121c6e5f12a7a977a5458b57b23f228e4e8ebcda52a5313341815704c"
+    },
+    {
+      "case": "routing",
+      "task": "TASK-f93c5e70836e42e087ea386cf1ff0bb1",
+      "calls": 3,
+      "usage": {
+        "input_tokens": 18948,
+        "cached_input_tokens": 0,
+        "output_tokens": 230
+      },
+      "missing_usage": [],
+      "execution": "completed",
+      "verification": "passed",
+      "acceptance": "pending",
+      "snapshot": "273ccf5c4c6188307f7dd077c56c38f7ec6ccf67056748b083f29984386b825a"
+    }
+  ],
+  "initial_failure": "Planner included descriptions in acceptance ID arrays; rejected. Dynamic enum schema fixed it. Same tasks resumed without counter/deadline reset.",
+  "limits": [
+    "JSON configuration tasks only; no application runtime claims.",
+    "No source integration, no Claude/Kiro worker, no eight-hour soak."
+  ]
+}

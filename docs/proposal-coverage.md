@@ -1,5 +1,20 @@
 # Proposal Coverage
 
+## P1c/P1d workflow — bounded Codex artifacts and incremental review
+
+Baseline `08bdfb5`. Requirements below cover the small generic workflow, not every P1/P3 acceptance scenario.
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| WF01 | Scope/AC-bound plan and owned artifacts from immutable task spec/profile | workflow.validate_profile/validate_plan/artifacts, dynamic enum schema, local enable | strict schema/scope/cycle tests; two live non-CV JSON task structures | Complete |
+| WF02 | Resume acknowledged worker output without replay or budget reset | checkpoint events, stable controller lock, pending attempt receipts | crash after enable, crash after worker receipt, concurrent controller, disk failure tests | Complete |
+| WF03 | Bounded repair, no-progress stop and separate verification/acceptance | workflow.run/verify; checks held by controller | parse retry budget, wrong JSON boolean, repair/no-progress tests; live invalid planner rejected then fixed | Complete |
+| WF04 | Partial outputs, concurrent feedback, revision-bound review/reorder/export | workflow_cli, snapshot diff, feedback events | checkpoint review/restart, stale acceptance/reorder, dependency ordering, pause/resume; real CLI output card smoke | Complete |
+
+Validation: 121 tests pass in 33.768 seconds on Windows (11 new workflow tests). [User guide](general-workflow.vi.md) and [live evidence](general-workflow-evidence.json). Codex 0.160.0/gpt-6-luna completed localization (4 calls) and routing (3 calls), including the initially invalid planner calls; counters and original deadlines survived resume. All seven attempts have CLI usage evidence: total 44,676 input and 613 output tokens, zero cached input. No user source edits, source integration or user acceptance. CLI command examples checked against parser; output card smoke executed against the real task.
+
+Limitations: these are JSON configuration features with trusted content gates, not general application execution. P1 remains Partial for automatic inbox triage/authority proof, general functional gates, and full recovery transition coverage. P2/P3/P4 remain incomplete. Feedback is durable but does not auto-trigger repair; no daemon installed. Native Claude binary was found outside PATH; no Claude/Kiro worker execution claimed. Docker executable exists, but engine readiness was not confirmed. Snapshot/gate/provider evidence never substitutes for an eight-hour soak.
+
 ## P1c foundation — scoped portable snapshots
 
 Baseline `983747a`. Scope is snapshot storage; provider dispatch remains separate.
@@ -65,7 +80,7 @@ Documentation coverage: OA01–OA03 = 3/3 Complete. Validation used the existing
 
 Proposal source: `specs/SPEC-006-portable-orchestration.md`.
 Last reviewed implementation: `bf2e673` (runtime), with evidence documentation at `6f6d44a`.
-Current implementation cycle: P1a ledger/inbox (above); earlier documentation-only cycles did not implement orchestration. No paid worker run in P1a.
+Current implementation: P1a ledger/inbox, P1b control, scoped snapshots and WF01–WF04 generic Codex artifact workflow above. P1a/P1b had no paid worker runs; WF validation adds seven bounded Codex CLI invocations.
 
 The current baseline is [architecture](architecture.vi.md) and [implementation sequence](mvp-backlog.vi.md). It replaces the Kiro Crew-first host exploration and broad DecisionEvaluator-first sequence in the historical 08/10 documents. One independent core owns state, budgets and dispatch; entry connectors and worker adapters are separate; JEV is optional after evidence. Historical R/CN/DF rows below are not the current implementation plan. Existing SPEC-005 and spec-CLI achievements remain valid within their original scope.
 
