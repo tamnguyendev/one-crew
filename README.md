@@ -2,7 +2,9 @@
 
 OneCrew hướng tới một core local để nhận công việc đã làm rõ từ **Codex / Claude / Kiro**, điều phối **Codex / Claude Code / Kiro CLI**, lưu tiến độ và kiểm chứng kết quả. CLI trước; công cụ chat và worker có thể thay độc lập.
 
-**Luồng mới `job` — runtime tự làm việc:** giao mục tiêu + project root + quyền/ngân sách; OneCrew tự discovery, gọi worker, dùng tools, sửa candidate, kiểm thử và bàn giao Git. Entry không phải chọn file hoặc chuẩn bị evidence/profile. Ba loại task đã có Codex live evidence trong repo thử nghiệm; sandbox test của luồng mới hiện hỗ trợ Python unittest. Xem [hướng dẫn và giới hạn](docs/owned-execution.vi.md). Kiến trúc hiện hành revision 4, SPEC-007 và [giao việc nền/inbox](docs/background-handoff.vi.md); các luồng `work`/spec cũ vẫn giữ tương thích.
+**Luồng mới `job` — runtime tự làm việc:** giao mục tiêu + project root + quyền/ngân sách; OneCrew tự discovery, gọi worker, dùng tools, sửa candidate, kiểm thử và bàn giao Git. Entry không phải chọn file hoặc chuẩn bị evidence/profile. Ba loại task đã có Codex live evidence trong repo thử nghiệm; sandbox test của luồng mới hiện hỗ trợ Python unittest. Xem [hướng dẫn và giới hạn](docs/owned-execution.vi.md). Kiến trúc hiện hành revision 5, [hợp nhất KiroCrew + CAO](docs/architecture-kiro-cao.vi.md), SPEC-007 và [giao việc nền/inbox](docs/background-handoff.vi.md); các luồng `work`/spec cũ vẫn giữ tương thích.
+
+Revision 5 là thiết kế nâng cấp, chưa phải implementation hoàn tất. Giữ một core và runner Windows; CAO là adapter tùy chọn chưa chạy thử. Bridge Codex mỗi 5 phút đã tạm dừng; notification lifecycle bằng code còn pending. Các khoảng thiếu P0 phải qua task thực tế không cần chat chạy hộ trước khi tuyên bố autonomy.
 
 `job submit --start --terminal` giao việc nền và mở viewer nhóm agent. `android build --terminal` cũng chạy nền mặc định, có `android status/cancel`; một slot build chung trên state-root. Entry trả chat sau dispatch. `request defer` giữ câu hỏi pending; `notifications pull/ack` nhận thông báo bền vững mà không approve. Cầu nối chat là cấu hình host riêng, không phải callback realtime mặc định cho mọi công cụ.
 
@@ -16,7 +18,8 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [Vận hành `job`](docs/owned-execution.vi.md) | CLI mới, ranh giới trách nhiệm, evidence và giới hạn đã kiểm chứng |
 | [SPEC-006 — duyệt nhanh](specs/SPEC-006-portable-orchestration.md) | Bản ngắn cho người dùng và 12 yêu cầu chi tiết |
 | [Kiến trúc](docs/architecture.vi.md) | Core/adapter/inbox; mục 12 ghi nguồn và quyết định áp dụng, mục 13 chốt contract thực thi |
-| [Kế hoạch triển khai](docs/mvp-backlog.vi.md) | Bốn mốc, P1 chia bốn lát nhỏ; 35 ca nghiệm thu dự kiến |
+| [Kiến trúc revision 5 — KiroCrew + CAO](docs/architecture-kiro-cao.vi.md) | Luồng trọn task, ranh giới CAO, event delivery, recovery và gate P0/P1/P2 |
+| [Kế hoạch triển khai](docs/mvp-backlog.vi.md) | Ưu tiên revision 5; giữ contract và ca nghiệm thu nền P1–P4 |
 | [Coverage](docs/proposal-coverage.md) | Phân biệt code đã có với phần còn thiếu |
 | [P1a — task và inbox lưu bền](docs/durable-ledger.vi.md) | Submit/queue/connect, câu hỏi/revision/reply qua CLI; chưa dispatch worker |
 | [P1b — admission và supervisor](docs/control-runtime.vi.md) | Schema migration, reservation/counters, action receipts, native Windows process containment |

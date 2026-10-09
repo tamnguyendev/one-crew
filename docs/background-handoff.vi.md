@@ -1,5 +1,7 @@
 # Giao việc nền và chờ quyết định — 09/10/2026
 
+**Cập nhật revision 5:** [vòng đời thông báo](architecture-kiro-cao.vi.md#6-sự-kiện-câu-hỏi-và-chat-không-bị-chiếm). Bridge Codex chạy cố định 5 phút đã PAUSED vì đánh thức chat khi rảnh. IN03 chưa chứng minh xong; thiết kế mới dùng observer/delivery bằng code và chỉ gửi sự kiện cần xử lý. Không bật lịch AI toàn chat để thay callback thiếu. Pull/ack và inbox hiện có giữ nguyên; tự quản lý lifecycle delivery còn pending.
+
 Phạm vi: các comment về trả lại chat sau dispatch, build dài, terminal verbose nhóm agent, thông báo và skip câu hỏi. Không mở rộng model routing hay sửa sản phẩm SRM.
 
 | ID | Yêu cầu nghiệm thu |

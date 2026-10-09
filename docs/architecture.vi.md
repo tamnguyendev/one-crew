@@ -1,4 +1,8 @@
-# Kiến trúc OneCrew — baseline 09/10/2026, revision 4
+# Kiến trúc OneCrew — baseline 09/10/2026, revision 5
+
+**Revision 5 — hợp nhất KiroCrew và CAO:** [thiết kế và kế hoạch áp dụng](architecture-kiro-cao.vi.md) là phần bổ sung hiện hành, ưu tiên khi có khác biệt với thứ tự triển khai cũ bên dưới. OneCrew giữ duy nhất scheduler, scope, approval, budget và completion gate; học vòng thực thi/phục hồi của KiroCrew và entry bất đồng bộ/event/provider boundary của CAO. CAO là adapter tùy chọn cần spike, không là scheduler thứ hai; giữ runner Windows hiện có trong lúc kiểm chứng. Các khoảng thiếu revision 5 vẫn pending, không được tính đã triển khai từ tài liệu. P0 gồm thực thi trọn task, chống lặp/phục hồi, evidence và notification lifecycle không gọi AI lúc idle.
+
+**Trạng thái thông báo:** automation Codex 5 phút đã PAUSED ngày 09/10 vì vẫn đánh thức chat khi không có task. Pull/ack hiện có; tự quản lý vòng đời observer/host delivery chưa hoàn tất. Không hứa callback chat nếu host chưa có tích hợp đã kiểm chứng.
 
 **Revision 4 — giao việc nền và inbox:** [contract BG/IN/UX](background-handoff.vi.md). Entry giao việc rồi trả chat; runner giữ workflow, runner recipe riêng giữ build dài. Cả foreground và background Android cùng một slot native trên mỗi state-root, không thêm model điều phối. Terminal chỉ quan sát project → task → worker/build. Câu hỏi bắt buộc là REQ có revision; skip/defer vẫn pending. Feed sự kiện có batch/ack độc lập với approval; host bridge đưa thông báo về chat. Chat đóng/mất usage không làm mất inbox. Deadline workflow vẫn giữ nguyên, không tự cấp thêm thời gian khi chờ người dùng. [Coverage](proposal-coverage.md) ghi rõ phần đã kiểm chứng và giới hạn bridge.
 
@@ -82,7 +86,7 @@ Core là state machine xác định bằng code, với transaction + event/outbo
 
 Claude Desktop có thể là entry; Claude Code là worker khác. Không giả định mọi host có cùng API push, ACP, session resume hoặc quota API. V0 dùng CLI connector mỏng theo khả năng tool từng host; host chưa gọi được CLI cần thao tác terminal rõ ràng, không gắn nhãn đã tích hợp tự động. MCP là transport bổ sung khi cần, cùng contract/quyền.
 
-Kiro Crew cung cấp ý tưởng Conductor/work ledger; OneCrew kết hợp hai trách nhiệm tối thiểu, không chỉ là worker lá. Adapter Kiro Crew, Antigravity, DeepSeek Harness chỉ xem xét khi có nhu cầu và contract test; không bọc scheduler thứ hai.
+KiroCrew cung cấp bài học vòng thực thi/recovery; CAO cung cấp bài học entry/MCP, provider/backend và event delivery. OneCrew giữ điều phối nghiệp vụ và ledger; CAO có thể được thử làm adapter chạy một worker/attempt, tắt điều phối đệ quy/workflow bên dưới. Antigravity và DeepSeek Harness chỉ xem xét khi có nhu cầu và contract test. Chi tiết ranh giới, điều kiện CAO và thứ tự triển khai nằm trong [revision 5](architecture-kiro-cao.vi.md); không bọc scheduler thứ hai.
 
 ## 4. Từ trao đổi đến giao việc
 
@@ -329,6 +333,6 @@ Kết quả đánh giá parse bằng schema versioned, boolean thực (`true/fal
 
 ### 13.9. Triển khai vừa đủ và quan sát được
 
-P1 giao trước ledger/inbox/approval, admission/budget, checkpoint và một worker tuần tự. P2 mới thêm từng entry/worker có capability evidence; P3 thêm hai worker và integration; P4 thêm quota optimization/soak. Không nhập nguyên framework, role hierarchy hoặc scheduler thứ hai. Từng mốc dùng được độc lập, không chờ “học hết” rồi mới bàn giao chức năng.
+P1–P4 là thứ tự xây nền của revision 2: ledger/inbox/approval → entry/worker → parallel/integration → quota/soak. Sau các trial thực tế, thứ tự nâng cấp hiện hành chuyển sang P0/P1/P2 trong [revision 5, mục 8](architecture-kiro-cao.vi.md#8-thứ-tự-triển-khai-và-điều-kiện-nghiệm-thu); giữ các contract và evidence nền, không làm lại từ đầu. Không nhập nguyên framework, role hierarchy hoặc scheduler thứ hai. Từng mốc dùng được độc lập, không chờ “học hết” rồi mới bàn giao chức năng.
 
 Status lấy từ ledger: AC đạt/còn thiếu, output thử được mới nhất, owner/phase/wait reason, last verified progress, used/reserved/unknown budget, deadline và câu hỏi cần trả lời. Không dùng số token/log/spec làm tỷ lệ hoàn thành. Memory handoff có giới hạn theo task, chỉ lấy contract/quyết định/evidence liên quan và links tra cứu thêm; tóm tắt không thay nguồn thật. Query không gọi model. Ca T29/T30 kiểm no-progress và migration/restore; T01–T19 vẫn giữ hiệu lực.

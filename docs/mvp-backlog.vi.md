@@ -1,10 +1,12 @@
-# Kế hoạch triển khai OneCrew — 09/10/2026, revision 3
+# Kế hoạch triển khai OneCrew — 09/10/2026, revision 5
 
-Đã hoàn thành milestone OE01–OE07 với ba loại task live; bước tiếp theo là task thử thực tế do người dùng giao. Các chu kỳ và giới hạn được ghi trong [kế hoạch vòng thực thi](owned-execution.vi.md); P4/JEV/learning vẫn là backlog tiếp theo. Entry không chuẩn bị evidence/plan/adapter riêng cho task. P1–P4 bên dưới giữ contract nền và các năng lực chưa hoàn tất; không coi các assisted trial là đã đạt autonomy.
+**Thứ tự hiện hành:** [revision 5 — KiroCrew + CAO, mục 8](architecture-kiro-cao.vi.md#8-thứ-tự-triển-khai-và-điều-kiện-nghiệm-thu). P0: runtime tự thực thi trọn task → chống lặp/phục hồi hữu hạn → completion gate → observer/notification không gọi AI lúc idle. P1: entry chung và spike CAO một worker → dependency/integration → routing/lessons được đánh giá. P2: fault matrix và soak dài. Đây là kế hoạch, các khoảng thiếu chưa được triển khai trong lần cập nhật tài liệu này.
+
+Milestone OE01–OE07 có ba loại task live và giữ evidence cũ. Task lịch sử UI/build sau đó vẫn cần Codex hỗ trợ sửa hạ tầng, nên chưa chứng minh autonomy cho luồng đó. Ưu tiên tiếp theo là đóng P0 trên nền hiện có rồi chạy một task thực tế không hỗ trợ ngoài runtime. Entry không chuẩn bị evidence/plan/adapter riêng cho task. P1–P4 bên dưới giữ contract nền và các năng lực chưa hoàn tất, không phải thứ tự ưu tiên mới.
 
 Đích: giao yêu cầu đã làm rõ từ Codex/Claude/Kiro cho một core local; tiếp tục qua đổi entry/worker, review từng phần và chạy công việc liên quan trong scope/budget. [Kiến trúc](architecture.vi.md) và [SPEC-006](../specs/SPEC-006-portable-orchestration.md) là baseline. [Backlog 08/10](mvp-backlog-2026-10-08.vi.md) giữ lịch sử; không triển khai song song hai roadmap.
 
-Revision 2 chuyển bài học từ chín repo thành contract kiến trúc mục 13 và T20–T30. Thứ tự vẫn P1→P2→P3→P4; không cài thêm framework hoặc mở phase riêng cho từng repo. Nguồn và quyết định chọn/bỏ nằm trong mục 12 của kiến trúc.
+Revision 2 chuyển bài học từ chín repo thành contract kiến trúc mục 13 và T20–T30. Revision 5 giữ các contract này, thay thứ tự ưu tiên bằng P0/P1/P2 nêu trên và bổ sung nguồn KiroCrew/CAO cố định. Không cài thêm framework hoặc mở phase riêng cho từng repo.
 
 ## 0. Điểm xuất phát và nguyên tắc nghiệm thu
 
