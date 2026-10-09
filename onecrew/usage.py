@@ -32,6 +32,7 @@ def summarize(records, attempt_rows=()):
         if row.get('charged') or row['status'] == 'unknown':
             attempts.setdefault(row['id'], {'attempt': row['id'], 'reported': None})
     totals = {'input_tokens': 0, 'cached_input_tokens': 0, 'uncached_input_tokens': 0,
+              'cache_creation_input_tokens': 0,
               'output_tokens': 0, 'total_tokens': 0, 'kiro_credits': 0.0}
     unknown, measured = [], []
     for key, row in attempts.items():
@@ -64,9 +65,24 @@ def summarize(records, attempt_rows=()):
                     totals['kiro_credits'] += items[0]['value']
                     measured.append(key)
                     continue
+        if provider == 'claude' and len(reports) == 1 and isinstance(reports[0],dict):
+            value = reports[0]
+            inp, created, cached, out = (value.get(k) for k in
+                ('input_tokens','cache_creation_input_tokens','cache_read_input_tokens','output_tokens'))
+            if all(_count(v) for v in (inp,created,cached,out)):
+                # Claude's aggregate terminal receipt has disjoint input counters.
+                # Nested iterations/cache duration breakdowns must not be added again.
+                totals['input_tokens'] += inp+created+cached
+                totals['uncached_input_tokens'] += inp+created
+                totals['cached_input_tokens'] += cached
+                totals['cache_creation_input_tokens'] += created
+                totals['output_tokens'] += out
+                totals['total_tokens'] += inp+created+cached+out
+                measured.append(key)
+                continue
         # Legacy records without provenance, missing/ambiguous cumulative counters,
         # and unverified provider formats remain unknown rather than free.
         unknown.append(key)
     return {'totals_observed_only': totals, 'measured_attempts': measured, 'unknown_attempts': unknown,
             'attempts': len(attempts), 'cost_usd': None,
-            'note': 'Cached input is a subset of Codex input; credits, tokens and account percentages are separate units. Ambiguous cumulative reports require a verified event/session contract.'}
+            'note': 'Codex input includes cached tokens; Claude input is input + cache creation + cache read, without adding nested iterations. Tokens, Kiro credits and account percentages are separate units; no subscription cost inferred.'}

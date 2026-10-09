@@ -12,7 +12,7 @@ from .workflow import Workflow, task_lock
 TOOLS = '''You are the decision worker inside OneCrew. Return JSON actions for the OneCrew CORE to execute. Native CLI tools are disabled, but the core actions below ARE available: do not confuse native read-only restrictions with the core's explicit grants. Never claim the tools are unavailable when receipts show successful actions.
 Choose one action per response. arguments is a JSON object encoded as a string.
 list: {directory:"",cursor:0} immediate directory, paginated, includes child repos.
-search: {directory:"",query:"literal",cursor:0} current directory; returns child directories to explore.
+search: {directory:"",query:"literal",cursor:0} recursive bounded text search. Results identify directory/query/page. Follow next_cursor; if tree_truncated narrow scope. Empty matches cover only scanned permitted files, not all source.
 read: {path:"relative/file",cursor:0} reads/captures source or candidate; continue cursor if needed.
 write: {path:"relative/file",expected_hash:"hash from read or null for new file",text:"complete new contents"}
 test: {path:"test_*.py"} runs an existing captured Python unittest file in the authorized container.
@@ -34,6 +34,7 @@ Audit must read source and cite evidence; unknown findings are acceptable when e
 Keep scope to the goal and the user's latest clarified boundary. Once sufficient evidence exists, act; do not repeatedly inspect the same complete diff or keep expanding the historical search after the user has selected a boundary. Do not create architecture/spec paperwork unless that is the goal.
 Update plan with a concise running checklist and findings needed for the next step.
 Recent results are bounded; use receipt for older results. Tools and grants are enforced by core.
+If a message or symbol is absent from the app, read its package manifest (e.g. pubspec.yaml) and follow local dependencies within the project. Do not repeatedly guess subdirectories. Legacy search receipts without query/directory lack search scope; never infer their query from memory.
 '''
 SCHEMA = {'type':'object','properties':{
     'plan':{'type':'string'},'action':{'type':'string','enum':['list','search','read','write','test','git_status','git_diff','git_log','git_show','branch_before','android_build','deliver','receipt','ask','finish']},
@@ -123,6 +124,15 @@ class Owned(Workflow):
         unique={ref['blob']:ref for ref in state['receipts']}
         index=[]
         for ref in list(unique.values())[-60:]:
+            if ref['action'] == 'search':
+                record=json.loads(self.store.read_blob(ref['blob']))
+                result=record['result']
+                if 'arguments' in record:
+                    index.append({'index':ref['index'],'action':'search','arguments':record['arguments'],
+                                  'matches':result.get('matches',[])[:20],
+                                  'next_cursor':result.get('next_cursor'),'tree_truncated':result.get('tree_truncated'),
+                                  'error':result.get('error')})
+                continue
             if ref['action'] not in ('git_log','git_show'): continue
             value=json.loads(self.store.read_blob(ref['blob']))['result']
             item={k:value[k] for k in ('commit','parents','date','subject','path','paths','next_cursor','error') if k in value}
@@ -420,6 +430,7 @@ class Owned(Workflow):
                         if isinstance(error,EffectUnknown):
                             state.update(phase='blocked',message=str(error));preserve_intent=True
                     record={'action':value['action'],'result':result}
+                    if value['action']=='search': record['arguments']=args
                     from .progress import observe
                     observe(state,value['action'],args,result)
                     blob=self.store.blob(canonical(record).encode())

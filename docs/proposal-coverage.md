@@ -1,5 +1,22 @@
 # Proposal Coverage
 
+## Search recovery cycle — SR01–SR04
+
+Source: Cloud Auth task `TASK-0236a265d0ef4dd19d5cd14f8e600e95`, user request to fix OneCrew and rerun; baseline `1f2c89b`. Eleven successful Claude attempts stopped on three different empty searches; only one app configuration file had been read. Scope is runtime repair, not application code repair.
+
+| ID | Requirement | Evidence planned | Status | Limits |
+|---|---|---|---|---|
+| SR01 | Recursive bounded paginated search with explicit coverage and Flutter ARB support | discovery + tests for nested dependency, paging, exclusions and truncation; real source match at page cursor 200 | Complete | 10,000 enumerated entries, depth 32, 100 candidate files/page; unchanged secret/link policy |
+| SR02 | Distinguish empty search scopes and credit new source evidence without removing repetition/root caps | progress + empty/positive repeat, read progress, root cap tests | Complete | Different searches still hit exploration limit; positive repeated evidence still stops |
+| SR03 | Persist search arguments and compact search history; guide manifest dependency discovery | owned receipts, evidence index, worker contract + restart test | Complete | Legacy receipts remain without invented query metadata |
+| SR04 | Sum Claude terminal usage without adding nested counters twice | usage + strict counter/dedup tests; 11 persisted Claude records now measured | Complete | Observed tokens only, no subscription quota/cost inference |
+
+Validation plan: focused regressions, existing owned/revision-5/usage/fallback suites, read-only search on real source. Then commit, retain original task and cumulative usage, explicitly record a bounded deadline extension if needed under the user's rerun instruction, and resume detached with grouped terminal. No waiting loop in chat after dispatch. This rerun is assisted by runtime repairs, not an unassisted acceptance pass.
+
+Claude usage semantics: [official prompt caching documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching): three disjoint input fields; cache duration and iteration breakdowns are not additional usage.
+
+Validation: targeted search/revision-5/usage/owned/fallback run passed 71 test executions in 50.243s (included imported fixture tests). After restricting discovery to the intended test class, final seven search-recovery tests passed in 0.488s. Existing native-process ResourceWarnings appeared; explicit cleanup assertions passed. Read-only real-source search paged through cursors 0/100/200 and found `flutter_base/lib/usr/admin/setting_page.dart:371`. Stored Claude records now show 58,180 input (58,158 cache creation, 0 cache reads), 2,396 output, 60,576 total observed tokens, 11 measured and no unknown attempts. No new inference used for this validation. Full suite and application/device tests were not run; bug diagnosis remains the resumed task's work.
+
 ## Quota fallback increment — FB01–FB03
 
 User request: prefer Claude, switch to Codex or Kiro when exhausted. Cycle 1, baseline `b85ab17`; no user product job or live quota exhaustion trial authorized by this validation plan.

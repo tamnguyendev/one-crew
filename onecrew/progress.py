@@ -24,13 +24,25 @@ def observe(state, action, args, result):
         'writes': 0, 'failed_tests': 0, 'review_rejections': 0, 'results': {}})
     limits = p['policy']
     # Results, rather than query text, catch differently worded searches yielding the same data.
-    key = content_hash({'action': action, 'snapshot': state.get('snapshot'), 'result': result})
+    evidence = result
+    intent = None
+    if action == 'search' and 'error' not in result:
+        # The new receipt includes query/scope/counters. Positive duplicate evidence
+        # still counts across cosmetic queries; empty results are scoped observations.
+        evidence = {k: result.get(k) for k in ('matches','directories','next_cursor')}
+        if not result.get('matches'):
+            intent = {'directory':args.get('directory',''), 'query':args.get('query','').casefold(),
+                      'cursor':args.get('cursor',0)}
+    key = content_hash({'action': action, 'snapshot': state.get('snapshot'), 'result': evidence,
+                        'search_intent':intent})
     p['results'][key] = p['results'].get(key, 0) + 1
     reason = None
     if p['results'][key] >= limits['same_result_limit']:
         reason = 'Repeated equivalent tool result; stopped without progress.'
     if action in ('list', 'search', 'read', 'receipt', 'git_status', 'git_diff', 'git_log', 'git_show'):
-        p['observations'] += 1
+        if action == 'read' and 'error' not in result and p['results'][key] == 1:
+            p['observations'] = 0  # New source/page is evidence, not blind exploration.
+        else: p['observations'] += 1
         if p['observations'] >= limits['observation_limit']:
             reason = 'Exploration limit reached: act on existing evidence or clarify scope before continuing.'
     if action in ('write', 'deliver', 'branch_before', 'android_build') and 'error' not in result:

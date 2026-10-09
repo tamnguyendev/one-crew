@@ -15,7 +15,10 @@ SECRET = re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|'
                     r'(?i:["\x27](?:password|client_secret|api_key|access_token|refresh_token)["\x27]\s*:\s*["\x27][^"\x27]{8,})')
 TEXT = {'.py','.js','.ts','.tsx','.jsx','.json','.md','.txt','.toml','.yaml','.yml',
         '.dart','.xml','.sql','.xsql','.html','.css','.scss','.go','.rs','.java',
-        '.kt','.cs','.cpp','.c','.h','.sh','.ps1','.bat','.ini','.cfg','.lock'}
+        '.kt','.cs','.cpp','.c','.h','.sh','.ps1','.bat','.ini','.cfg','.lock','.arb'}
+
+SEARCH_ENTRIES = 10000
+SEARCH_PAGE = 100
 
 
 def permitted(name):
@@ -88,17 +91,54 @@ class Discovery:
     def search(self, directory, query, cursor=0):
         if not isinstance(query, str) or not 1 <= len(query) <= 200:
             raise LedgerError('Search requires 1-200 literal characters.')
-        page = self.list(directory, cursor)
-        matches = []
-        for entry in page['entries']:
-            if entry['kind'] != 'file':
-                continue
+        if type(cursor) is not int or cursor < 0:
+            raise LedgerError('Cursor must be a nonnegative integer.')
+        root = self.root if directory == '' else self.path(directory)
+        if not root.is_dir(): raise LedgerError('Directory does not exist.')
+        # Deterministic bounded DFS. Never traverse excluded paths or links.
+        stack = [(root, 0)]; files = []; directories = []; visited = 0
+        truncated = False; omitted = 0
+        while stack:
+            current, depth = stack.pop()
+            children = []
             try:
-                value = scan_text(self.data(entry['path']))
-            except LedgerError:
-                continue
+                for p in current.iterdir():
+                    visited += 1
+                    if visited > SEARCH_ENTRIES:
+                        truncated = True; break
+                    name = p.relative_to(self.root).as_posix()
+                    if p.is_symlink() or (hasattr(p, 'is_junction') and p.is_junction()) or not permitted(name):
+                        omitted += 1; continue
+                    children.append(p)
+            except OSError:
+                omitted += 1; continue
+            # Discard a partially enumerated directory rather than page an unstable prefix.
+            if truncated: break
+            pending = []
+            for p in sorted(children, key=lambda p: p.name.casefold()):
+                name = p.relative_to(self.root).as_posix()
+                if p.is_dir():
+                    if depth == 0: directories.append(name)
+                    if depth < 32: pending.append((p, depth+1))
+                    else: omitted += 1
+                elif p.suffix.lower() in TEXT or p.name in ('Dockerfile','Makefile','LICENSE','.gitignore'):
+                    files.append(name)
+                else: omitted += 1
+            stack.extend(reversed(pending))
+        matches = []; scanned = 0; unreadable = 0
+        for name in files[cursor:cursor+SEARCH_PAGE]:
+            try:
+                value = scan_text(self.data(name))
+            except (LedgerError, OSError):
+                unreadable += 1; continue
+            scanned += 1
             hits = [i+1 for i,line in enumerate(value.splitlines()) if query.casefold() in line.casefold()]
             if hits:
-                matches.append({'path': entry['path'], 'lines': hits[:20], 'total_matches':len(hits)})
-        return {'matches':matches, 'directories':[e['path'] for e in page['entries'] if e['kind']=='directory'],
-                'next_cursor':page['next_cursor']}
+                matches.append({'path': name, 'lines': hits[:20], 'total_matches':len(hits)})
+        end = cursor+SEARCH_PAGE
+        return {'matches':matches, 'directories':directories[:100], 'directory':directory,
+                'query':query, 'cursor':cursor, 'recursive':True,
+                'next_cursor':end if end < len(files) else None,
+                'files_scanned':scanned, 'files_withheld_or_unreadable':unreadable,
+                'entries_excluded':omitted, 'tree_truncated':truncated,
+                'coverage':'Only this page of permitted readable text files; follow next_cursor, or narrow directory if tree_truncated.'}

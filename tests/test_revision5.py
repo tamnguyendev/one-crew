@@ -76,7 +76,8 @@ class Revision5Tests(unittest.TestCase):
 
     def test_equivalent_results_with_different_query_text_stop(self):
         state={'phase':'running','snapshot':None}
-        for query in ('one','two','three'): observe(state,'search',{'query':query},{'matches':[]})
+        # Repeated positive evidence remains a loop; different empty searches do not.
+        for query in ('one','two','three'): observe(state,'search',{'query':query},{'matches':[{'path':'same.py','lines':[1]}]})
         self.assertEqual(state['phase'],'blocked')
 
     def test_exploration_limit_and_resume_does_not_reset_it(self):
