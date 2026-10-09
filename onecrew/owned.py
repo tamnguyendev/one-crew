@@ -335,6 +335,17 @@ class Owned(Workflow):
                 seq,wait_for_user=check_effort(self,task_id,seq,state)
                 if wait_for_user: return state
                 if self.ledger.requests(task_id,pending=True): return state
+                if state.get('native_audit'):
+                    from .native_audit import advance
+                    try:
+                        return advance(self,task_id,seq,state,profile)
+                    except CapacityWait:
+                        state['waiting_reason']='capacity';self.persist(task_id,seq,state);return state
+                    except (ValueError,OSError) as error:
+                        seq,state=self.state(task_id)
+                        state.update(phase='blocked',message='Native audit: '+str(error)[:1000],
+                                     recovery={'kind':'native_audit','automatic_retry':False})
+                        self.persist(task_id,seq,state);return state
                 if state['phase']=='waiting_operation':
                     from .owned_recipes import advance
                     try:

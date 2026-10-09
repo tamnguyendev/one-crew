@@ -22,6 +22,9 @@ def main(argv=None):
     p.add_argument('--android-build-config',type=Path,help='Operator-authorized fixed Android recipe JSON, not worker shell commands.')
     p.add_argument('--start',action='store_true')
     p.add_argument('--terminal',action='store_true',help='Start in background and open the grouped verbose monitor.')
+    p=commands.add_parser('native-audit')
+    p.add_argument('task');p.add_argument('--reference',required=True)
+    p.add_argument('--terminal',action='store_true')
     for name in ('start','run','status','outputs','cancel','resume'):
         p=commands.add_parser(name);p.add_argument('task')
         if name=='outputs': p.add_argument('--details',action='store_true')
@@ -48,6 +51,11 @@ def main(argv=None):
                 if state is None: raise LedgerError('Job is queued with no outputs; use job start to enable execution.')
                 result=state if args.details else output_card(runtime,args.task,state)
             elif args.command=='cancel': result=runtime.control.cancel(args.task)
+            elif args.command=='native-audit':
+                from .native_audit import enable
+                from .runner import start
+                enable(runtime,args.task,args.reference)
+                result=start(ledger,args.task)
             elif args.command=='run':
                 runtime.enable(args.task);result=runtime.run(args.task,steps=100)
             else:
@@ -79,6 +87,8 @@ def output_card(runtime,task_id,state):
         changes.append({'path':path,'original':original,'candidate':blob,'diff':diff[:16000],'truncated':len(diff)>16000})
     control=runtime.control.status(task_id)
     return {'task':task_id,'phase':state['phase'],'message':state['message'],'plan':state['plan'],
+            'native_audit':{k:v for k,v in state.get('native_audit',{}).items()
+                            if k in ('stage','repairs','attempts','baseline_calls','workspace')},
             'report':state.get('report'),'candidate_snapshot':state['snapshot'],'original_workspace_modified':False,
             'skills':[{k:s[k] for k in ('id','revision','reason')} for s in state.get('skills',[])],
             'skill_candidates':[v for v in skill_review(runtime.ledger)

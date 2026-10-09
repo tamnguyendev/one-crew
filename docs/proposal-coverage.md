@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Native audit trial — NA01–NA04
+
+Proposal: `docs/native-audit-trial.vi.md`; baseline e0285c3. User approved trial, not removal of scope or evidence standards.
+
+| ID | Requirement | Evidence planned | Status | Limits |
+|---|---|---|---|---|
+| NA01 | One native tool loop per work unit, reuse session for repair | Claude adapter/phase state, fixture and live native tools | Complete | Claude audit only; live repair continuity not yet demonstrated |
+| NA02 | Read-only scoped snapshot and tool restrictions | snapshot/filter/escape tests and live denied read | Complete | Provider boundary, not OS sandbox; one live outside-read case |
+| NA03 | Independent review, citation verification, usage and bounded recovery | session repair/restart/failure tests | Complete | Native turns differ from managed calls; 30 turns/600 seconds per invocation, no implicit fallback |
+| NA04 | Same Cloud Auth task, real result and lessons | live task outcome and evidence | Partial | No claimed success before accepted report |
+
+
 ## Review repair and autonomous audit — RV01–RV04
 
 User asks to keep repairing OneCrew until it finishes the Cloud Auth audit, then record lessons. Baseline `7c5c70a`; retain task ID, prior attempts and source workspace. This explicit request authorizes following the bounded verification run through its outcome, while worker execution remains detached. Missing user/device evidence still requires an inbox question; no invented approvals.
