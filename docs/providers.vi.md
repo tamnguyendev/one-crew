@@ -4,6 +4,15 @@
 
 Profile workflow có trường tùy chọn `provider`: `codex` (mặc định), `kiro`, `claude`; `model` phải thuộc provider. Codex/Kiro đã chạy artifact workflow thật. Claude đã có command/strict result parser và contract tests, nhưng **Blocked cho live verification** vì `auth status` trả `loggedIn=false` trên máy hiện tại. Cần đăng nhập subscription bằng Claude Code, không gửi key vào chat. Adapter Claude không tự chuyển sang paid API.
 
+Đăng nhập Claude Desktop/trình duyệt chưa xác thực worker Claude Code CLI. `provider doctor claude --json` hiện đường dẫn `executable` và `login_argv` để tránh đăng nhập nhầm bản cài. Với bản native hiện tại, chạy PowerShell:
+
+```powershell
+& "$env:USERPROFILE\.local\bin\claude.exe" auth login --claudeai
+.\onecrew.ps1 provider doctor claude --json
+```
+
+Hoàn tất bước xác thực trên trình duyệt rồi đợi terminal báo thành công. Doctor phải có `authenticated=true`, `subscription_auth=true`, `available=true` trước khi chạy worker. Đó là bằng chứng đăng nhập, chưa phải bằng chứng thực thi/cancel live. Không sao chép credential Desktop vào ledger hoặc gửi token vào chat.
+
 Kiro sử dụng agent riêng trong worker IO, `tools: []`, `allowedTools: []`, `resources: []`, `mcpServers: {}`, `includeMcpJson: false`, hooks rỗng; CLI validate config trước launch. Theo [configuration reference của Kiro](https://kiro.dev/docs/custom-agents/configuration-reference/), tools và MCP là các phần cấu hình riêng. Model được đối chiếu danh sách CLI để chặn fallback ngầm sang model mặc định. V2 stream được kiểm terminal success, truncation và tool calls, sau đó parse JSON. Quota được ghi theo metering credit nếu CLI trả; không suy context usage thành số credit còn lại.
 
 Claude dùng `--restricted --tools "" --permission-mode dontAsk`, strict MCP rỗng, tắt hooks/skills và không lưu session. [Thứ tự ưu tiên settings của Claude](https://code.claude.com/docs/en/settings) vẫn có managed settings; vì vậy chưa xem parser tests là bằng chứng authority/cancel live. Header version và trạng thái auth không chứng minh mọi năng lực runtime.

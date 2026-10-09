@@ -1,5 +1,9 @@
 # Proposal Coverage
 
+## Claude CLI authentication diagnostics
+
+Baseline `fa0f4ef`. CL01 Complete: doctor identifies the actual native executable and subscription login argv, distinguishes Desktop/browser login from CLI authentication, rejects malformed/non-object auth payloads and never returns auth payload identities/tokens. Six subscription tests, four provider tests and five quota tests pass. Direct normal/clean/restricted/safe/worker probes on 2026-10-09 all reported no CLI login; user confirmed the earlier login was Desktop/browser and is now logging into Claude Code. Claude execution/cancellation/handoff verification remains Blocked until CLI authentication succeeds. No model calls in this diagnostic cycle.
+
 ## Confirmed cancellation across a fixed goal group
 
 Baseline `f19a489`; [CLI behavior](goal-budget.vi.md). GC01 Complete: cancelling an approved group's owner atomically marks every member across projects; member-only cancellation remains local and duplicate cancellation does not reset reservations. GC02 Complete: owner status, task connect, runner outcome and human status retain cancelling while any member attempt is reserved/running/unknown. Final settlement is required before reporting cancelled.

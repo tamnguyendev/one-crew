@@ -64,3 +64,26 @@ class SubscriptionTests(unittest.TestCase):
                 self.assertIn('--restricted',argv)
                 self.assertNotIn('--bare',argv)  # bare cannot use subscription OAuth
                 self.assertNotIn('ANTHROPIC_API_KEY',run.call_args.kwargs['env'])
+
+    def test_claude_diagnostics_identify_cli_without_exposing_auth_payload(self):
+        import json
+        data = {'loggedIn':False,'authMethod':'none','email':'private@example.invalid','token':'secret-fixture'}
+        with patch('onecrew.providers.executable',return_value='C:/native/claude.exe'), \
+             patch('onecrew.providers.subprocess.check_output',return_value=b'2.1.286 (Claude Code)'), \
+             patch('onecrew.providers.subprocess.run',return_value=SimpleNamespace(returncode=1,stdout=json.dumps(data).encode())):
+            result = doctor('claude')
+        self.assertEqual(result['executable'],'C:/native/claude.exe')
+        self.assertEqual(result['login_argv'],['C:/native/claude.exe','auth','login','--claudeai'])
+        self.assertIn('Desktop/browser',result['reason'])
+        self.assertNotIn('private@',json.dumps(result))
+        self.assertNotIn('secret-fixture',json.dumps(result))
+
+    def test_claude_malformed_auth_is_unavailable_without_traceback(self):
+        for raw in (b'[]',b'null',b'false',b'not-json',b'{"loggedIn":"true","authMethod":"oauth"}'):
+            with self.subTest(raw=raw), \
+                 patch('onecrew.providers.executable',return_value='native.exe'), \
+                 patch('onecrew.providers.subprocess.check_output',return_value=b'2.1.286 (Claude Code)'), \
+                 patch('onecrew.providers.subprocess.run',return_value=SimpleNamespace(returncode=0,stdout=raw)):
+                result = doctor('claude')
+                self.assertFalse(result['available'])
+                self.assertFalse(result['live_verified'])

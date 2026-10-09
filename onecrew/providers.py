@@ -21,7 +21,7 @@ def executable(provider):
 
 def doctor(provider):
     binary = executable(provider)
-    result = {'provider': provider, 'installed': bool(binary), 'os': os.name,
+    result = {'provider': provider, 'installed': bool(binary), 'executable': binary, 'os': os.name,
               'live_verified': False, 'internal_model_call_cap': False}
     if not binary:
         return result | {'available': False, 'reason': 'CLI not installed.'}
@@ -34,11 +34,16 @@ def doctor(provider):
         if not result['available']:
             return result | {'reason': 'Pinned Windows CLI capability unavailable.'}
         if provider == 'claude':
+            result['login_argv'] = [binary, 'auth', 'login', '--claudeai']
             auth = subprocess.run([binary, *CLAUDE_AUTH_ARGS, 'auth', 'status', '--json'], capture_output=True, timeout=15, env=env)
             data = json.loads(auth.stdout)
+            if not isinstance(data, dict):
+                raise ValueError('Invalid authentication object.')
             result['authenticated'] = auth.returncode == 0 and data.get('loggedIn') is True
             result['subscription_auth'] = data.get('authMethod') in ('claude.ai', 'oauth')
             result['available'] &= result['authenticated'] and result['subscription_auth']
+            if not result['available']:
+                result['reason'] = 'Claude Code CLI subscription login unavailable. Desktop/browser login alone does not authenticate this worker; use login_argv in your terminal.'
         elif provider == 'codex':
             auth = subprocess.run([binary, *CODEX_AUTH_ARGS, 'login', 'status'], capture_output=True, timeout=15, env=env)
             status = (auth.stdout + auth.stderr).decode('utf-8', errors='replace').strip()
@@ -51,7 +56,7 @@ def doctor(provider):
             result['available'] &= result['authenticated']
         result['live_verified'] = result['available'] and provider in ('codex', 'kiro')
         if not result['available']:
-            result['reason'] = 'Authentication or pinned Windows CLI capability unavailable.'
+            result.setdefault('reason', 'Authentication or pinned Windows CLI capability unavailable.')
     except (OSError, ValueError, subprocess.SubprocessError):
         result.update(available=False, reason='CLI/auth probe failed or timed out.')
     return result
