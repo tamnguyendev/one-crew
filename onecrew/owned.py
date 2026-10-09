@@ -75,7 +75,11 @@ class Owned(Workflow):
                     'paused' if execution['status']=='paused' and not unpause else state['phase'])
             conn.execute('UPDATE executions SET status=? WHERE task_id=?',(status,task_id))
             from .learning import record
-            record(conn,self.ledger,task_id,state)
+            new_outcome=record(conn,self.ledger,task_id,state)
+        if new_outcome:
+            from .skills import refresh
+            try: refresh(self.ledger)
+            except (ValueError,OSError): pass  # History is durable; explicit skills scan can recover.
         from .delivery import best_effort
         best_effort(self.ledger)
         return seq
@@ -331,7 +335,11 @@ class Owned(Workflow):
                         with self.ledger.transaction() as conn:
                             notes=[json.loads(r['payload']) for r in conn.execute(
                                 "SELECT payload FROM events WHERE task_id=? AND kind='entry.note' ORDER BY seq DESC LIMIT 5",(task_id,))]
+                        from .skills import select
+                        if not state.get('context_prompt'):
+                            state['skills']=select(self.ledger,task['handoff']['goal'],profile,state,task['handoff']['grant']['permissions'])
                         prompt=tool_prompt+'\n'+canonical({'goal':task['handoff']['goal'],'permissions':task['handoff']['grant']['permissions'],
+                            'approved_skill_guides':state['skills'],
                             'mode':profile['mode'],'plan':state['plan'],'step':state['step'],
                             'build_evidence':state.get('build_evidence'),'progress_limits':state.get('progress'),
                             'max_calls':control['budget']['limits']['max_calls'],

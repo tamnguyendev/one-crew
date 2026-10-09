@@ -21,9 +21,15 @@ def record(conn, ledger, task_id, state):
         'usage':summarize(state.get('usage',[]),attempts),
         'assistance':'unknown','quality_score':None,'routing_policy':'explicit-profile',
         'device_tested':False,'candidate_files':len(state.get('files',{}))}
-    data['id']=content_hash(data)
+    from .skills import signature, STEPS
+    data['signature']=signature(payload.get('goal',payload['spec_text']),profile.get('mode'),state.get('files',{}))
+    data['procedure']=list(dict.fromkeys(r['action'] for r in state.get('receipts',[]) if r['action'] in STEPS))
+    data['skills']=[{k:s[k] for k in ('id','revision','reason')} for s in state.get('skills',[])]
+    data['id']=content_hash({k:v for k,v in data.items() if k!='id'})
     if not conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='learning.outcome' AND json_extract(payload,'$.id')=?",(task_id,data['id'])).fetchone():
         ledger._event(conn,task_id,'learning.outcome',data)
+        return True
+    return False
 
 
 def outcomes(ledger,limit=50):

@@ -1,5 +1,21 @@
 # Proposal Coverage
 
+## Revision 6 — recurring skills and model preference
+
+Source: user discussion and [skills-routing.vi.md](skills-routing.vi.md), baseline `081307d`. This scope adds skills after recurring work is evidenced; it does not close unrelated revision 5 gaps. Preserve user edits below SPEC-005.
+
+| ID | Requirement | Evidence | Status | Limits |
+|---|---|---|---|---|
+| SK01 | Persist history signatures, procedure, skill provenance; count latest outcome per distinct task | learning.py, skills.latest; duplicate checkpoint/retry tests | Complete | Last 200 outcome events/project; no private chat import or invented backfill |
+| SK02 | Propose only after recurrence plus successful evidence; no idle/model loop | skills.refresh; independent-task/failure/unrelated-goal tests | Complete | 3 tasks, 2 successes, lexical match; requires captured source extensions |
+| SK03 | Review candidate/evidence/SKILL.md; revision-bound approval/rejection | skills CLI; stale revision/evidence/tamper/restart tests | Complete | Local operator trust; generated procedure scaffold requires human suitability review |
+| SK04 | Load approved relevant skill within scope/permissions; record provenance | owned worker context + outputs + outcome; real runtime with fixture worker | Complete | One skill; no native script execution or semantic suitability guarantee |
+| MR01 | Persistent Claude preference for new jobs; explicit override and replay stability | In progress | Partial | Does not switch active jobs |
+| MR02 | Provider priority after quota/capability/risk gates; reset hint not quota | In progress | Partial | Claude quota feed remains unavailable |
+| MR03 | Bounded typed JEV shadow recommendation, failure fallback and evidence | In progress | Partial | No automatic dispatch or calibrated quality claim |
+
+Cycle 1: 26 owned/skills/learning tests passed in 41.495s. Runtime fixtures use zero live model calls. Detached-process fixture emitted ResourceWarning, and its explicit stop/liveness assertions passed. No new user task dispatched.
+
 ## Revision 5 implementation — KiroCrew + CAO
 
 Source: [architecture-kiro-cao.vi.md](architecture-kiro-cao.vi.md), baseline `0f3d514`. Cycle 1 (`2117dce`): owned recipes, progress/evidence gates and local event sink. Cycle 2: common MCP entry, outcome/lesson evidence, delivery-specific worker/reviewer contracts and an isolated live trial. See [implementation contracts](revision5-implementation.vi.md). Existing evidence below remains scoped to its original trials. No CAO installation, heartbeat reactivation or SRM modification implied.

@@ -1,4 +1,6 @@
-# Kiến trúc OneCrew — baseline 09/10/2026, revision 5
+# Kiến trúc OneCrew — baseline 09/10/2026, revision 6
+
+**Revision 6 — skill từ công việc lặp và model preference:** [contract SK01–SK04 / MR01–MR03](skills-routing.vi.md). History giữ cả failures; recurrence đếm task độc lập, chỉ đề xuất skill sau đánh giá kết quả. Candidate phải review đúng revision trước khi dùng; core chọn theo project/mode/công nghệ/mục tiêu/quyền và ghi provenance. Model preference áp cho job mới, JEV chỉ shadow proposal sau hard gates. Reset quota do người dùng báo không là quota đã quan sát. [Coverage](proposal-coverage.md) ghi trạng thái triển khai; các khoảng revision 5 chưa đóng vẫn giữ nguyên.
 
 **Revision 5 — hợp nhất KiroCrew và CAO:** [thiết kế và kế hoạch áp dụng](architecture-kiro-cao.vi.md) là phần bổ sung hiện hành, ưu tiên khi có khác biệt với thứ tự triển khai cũ bên dưới. OneCrew giữ duy nhất scheduler, scope, approval, budget và completion gate; học vòng thực thi/phục hồi của KiroCrew và entry bất đồng bộ/event/provider boundary của CAO. CAO là adapter tùy chọn cần spike, không là scheduler thứ hai; giữ runner Windows hiện có trong lúc kiểm chứng. Các khoảng thiếu revision 5 vẫn pending, không được tính đã triển khai từ tài liệu. P0 gồm thực thi trọn task, chống lặp/phục hồi, evidence và notification lifecycle không gọi AI lúc idle.
 

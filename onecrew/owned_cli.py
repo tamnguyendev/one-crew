@@ -68,6 +68,7 @@ def main(argv=None):
 def output_card(runtime,task_id,state):
     import difflib
     from .usage import summarize
+    from .skills import review as skill_review
     changes=[]
     for path,blob in state['files'].items():
         original=state['original'].get(path)
@@ -79,6 +80,9 @@ def output_card(runtime,task_id,state):
     control=runtime.control.status(task_id)
     return {'task':task_id,'phase':state['phase'],'message':state['message'],'plan':state['plan'],
             'report':state.get('report'),'candidate_snapshot':state['snapshot'],'original_workspace_modified':False,
+            'skills':[{k:s[k] for k in ('id','revision','reason')} for s in state.get('skills',[])],
+            'skill_candidates':[v for v in skill_review(runtime.ledger)
+                                if v['status']=='proposed' and task_id in v['tasks']],
             'build':state.get('build_evidence'),'operation':state.get('operation'),
             'progress':state.get('progress'),'recovery':state.get('recovery'),
             'changes':changes,'tests':[{'passed':t['passed'],'snapshot':t['evidence']['snapshot'],

@@ -12,6 +12,8 @@ Revision 5 đã có runtime recipe Android, giới hạn lặp/repair, kiểm ev
 
 ## Tài liệu hiện hành
 
+Revision 6 bổ sung [skill từ history và model preference/JEV](docs/skills-routing.vi.md). `skills list/review/approve/reject` quản lý candidate từ quy trình lặp; task đơn lẻ không tự tạo skill dùng chung. Trạng thái từng phần ở coverage.
+
 | Tài liệu | Nội dung |
 |---|---|
 | [SPEC-007 — tự sở hữu công việc](specs/SPEC-007-owned-execution.md) | Goal intake, tools, candidate/test, Git delivery và runner độc lập chat |
