@@ -27,13 +27,13 @@ def workspace_path(state_root, task_id):
     base=Path(state_root)/'native-audits'
     if os.name=='nt' and len(str(base))>100:
         base=Path.home()/'.onecrew'/'workspaces'
-    return base/task_id[-12:]/uuid.uuid4().hex[:12]/'source'
+    return base/uuid.uuid4().hex[:12]
 
 
 def capture(runtime, destination):
     """Copy permitted UTF-8 working bytes; never traverse links or copy Git/settings."""
     destination=Path(destination);destination.mkdir(parents=True,exist_ok=False)
-    discovery=Discovery(runtime.ledger.project);manifest={};repos=[];omitted=0;visited=0;total=0
+    discovery=Discovery(runtime.ledger.project);manifest={};repos=[];omitted=0;long_paths=0;visited=0;total=0
     for directory,dirs,files in os.walk(discovery.root,followlinks=False):
         root=Path(directory);relative=root.relative_to(discovery.root).as_posix()
         if (root/'.git').exists():
@@ -46,15 +46,18 @@ def capture(runtime, destination):
         if visited>100000: raise LedgerError('Native audit capture exceeds entry limit; narrow scope.')
         for name in sorted(files):
             path=root/name;relative=path.relative_to(discovery.root).as_posix()
+            target=destination/relative
+            if os.name=='nt' and len(str(target))>245:
+                omitted+=1;long_paths+=1;continue
             try: data=discovery.data(relative)
             except (ValueError,OSError): omitted+=1;continue
             total+=len(data)
             if len(manifest)>=20000 or total>128_000_000:
                 raise LedgerError('Native audit capture exceeds text limit; narrow scope.')
-            target=destination/relative;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data)
+            target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data)
             manifest[relative]=bytes_hash(data)
     if not manifest: raise LedgerError('No permitted source for native audit.')
-    metadata={'original_project':str(discovery.root),'repositories':repos,'omitted_files':omitted,
+    metadata={'original_project':str(discovery.root),'repositories':repos,'omitted_files':omitted,'omitted_windows_long_paths':long_paths,
               'meaning':'Permitted working-tree text snapshot, not necessarily the code in the installed APK. '
                         'Excluded credentials, links, binary/large files and tool settings. Missing files are not proven absent from the original project.'}
     durable_write(destination/'ONECREW_AUDIT_CONTEXT.json',canonical(metadata).encode())

@@ -22,3 +22,5 @@ Giới hạn: native CLI có vòng model nội bộ; hard cap của OneCrew hi�
 References: [Claude CLI flags](https://code.claude.com/docs/en/cli-reference), locally verified Claude Code 2.1.286 help. Source paths are data, not instructions.
 
 Live dispatch preparation hit Windows WinError 206 under the long Store-Python state root before any inference. Snapshots now use a short managed ~/.onecrew/workspaces path when needed; ledger still binds exact workspace/manifest. Nine native tests passed including this path selection. The failed partial copy was not reused.
+
+Some vendored iOS header paths still exceeded Windows limits after shortening. Snapshot root now uses one short unique directory; unsupported paths over 245 characters are counted explicitly in metadata, alongside existing binary/secret/size omissions. No silent claim of complete repository coverage.
