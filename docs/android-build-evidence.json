@@ -1,0 +1,209 @@
+{
+  "task": "TASK-aeb5446a96ec4edd9133bf41da39aec6",
+  "branch": {
+    "checkout_modified": false,
+    "commit": "5e6a89767678008c12d9988d5641c2f779d929a2",
+    "directory": "",
+    "first_change": "468fea0df0206b443f26e1929beee76a48376cf3",
+    "head": "53b9c539ba3dc35cd86327f5dc56ac35404865b7",
+    "index_modified": false,
+    "kind": "historical_branch",
+    "pushed": false,
+    "ref": "refs/heads/onecrew/pre-ui-20261009",
+    "verified": true
+  },
+  "managed_calls": 42,
+  "runs": [
+    {
+      "request": {
+        "android_sdk": "C:\\Users\\NUC\\AppData\\Local\\Android\\Sdk",
+        "dependency_policy": "as-of",
+        "flutter_root": "D:\\flutter",
+        "key": "old-ui-apk-01",
+        "max_seconds": 1200,
+        "native_authorized": true,
+        "task": "TASK-aeb5446a96ec4edd9133bf41da39aec6"
+      },
+      "status": "blocked",
+      "started_at": "2026-10-09T06:32:40.843353+00:00",
+      "updated_at": "2026-10-09T06:32:42.712012+00:00",
+      "error": "[Errno 2] No such file or directory: 'C:\\\\Users\\\\NUC\\\\AppData\\\\Local\\\\Packages\\\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\\\LocalCache\\\\Local\\\\OneCrew\\\\android-builds\\\\b59506805e18f911cfe7d220\\\\source\\\\flutter_vimes\\\\assets\\\\s\\\\notosans\\\\o-0mIpQlx3QUlC5A4PNB6Ryti20_6n1iPHjcz6L1SoM-jCpoiyD9A99Y41P6zHtY.woff2'",
+      "exit_code": null,
+      "logs": "C:\\Users\\NUC\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\LocalCache\\Local\\OneCrew\\android-builds\\b59506805e18f911cfe7d220",
+      "apk": null,
+      "git_dependency_pins": null
+    },
+    {
+      "request": {
+        "android_sdk": "C:\\Users\\NUC\\AppData\\Local\\Android\\Sdk",
+        "dependency_policy": "as-of",
+        "flutter_root": "D:\\flutter",
+        "key": "old-ui-apk-02",
+        "max_seconds": 1200,
+        "native_authorized": true,
+        "task": "TASK-aeb5446a96ec4edd9133bf41da39aec6"
+      },
+      "status": "blocked",
+      "started_at": "2026-10-09T06:33:14.847151+00:00",
+      "updated_at": "2026-10-09T06:33:17.288127+00:00",
+      "error": "Flutter build failed; see stdout.log and stderr.log.",
+      "exit_code": 255,
+      "logs": "C:\\Users\\NUC\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\LocalCache\\Local\\OneCrew\\android-builds\\cb227d935bd92d79542283eb",
+      "apk": null,
+      "git_dependency_pins": null
+    },
+    {
+      "request": {
+        "android_sdk": "C:\\Users\\NUC\\AppData\\Local\\Android\\Sdk",
+        "dependency_policy": "as-of",
+        "flutter_root": "D:\\flutter",
+        "key": "old-ui-apk-03",
+        "max_seconds": 1200,
+        "native_authorized": true,
+        "task": "TASK-aeb5446a96ec4edd9133bf41da39aec6"
+      },
+      "status": "blocked",
+      "started_at": "2026-10-09T06:33:37.132779+00:00",
+      "updated_at": "2026-10-09T06:34:41.291261+00:00",
+      "error": "Flutter build failed; see stdout.log and stderr.log.",
+      "exit_code": 1,
+      "logs": "C:\\Users\\NUC\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\LocalCache\\Local\\OneCrew\\android-builds\\b3702303dd6ebe65c586f87f",
+      "apk": null,
+      "git_dependency_pins": null
+    },
+    {
+      "request": {
+        "android_sdk": "C:\\Users\\NUC\\AppData\\Local\\Android\\Sdk",
+        "dependency_policy": "as-of",
+        "dependency_root": "D:\\TamNT\\Workspace\\1.Vimes\\7.SRM",
+        "flutter_root": "D:\\flutter",
+        "key": "old-ui-apk-04",
+        "max_seconds": 1200,
+        "native_authorized": true,
+        "task": "TASK-aeb5446a96ec4edd9133bf41da39aec6"
+      },
+      "status": "blocked",
+      "started_at": "2026-10-09T06:37:35.499502+00:00",
+      "updated_at": "2026-10-09T06:37:39.327200+00:00",
+      "error": "No matching historical local revision for: hmscore",
+      "exit_code": null,
+      "logs": "C:\\Users\\NUC\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\LocalCache\\Local\\OneCrew\\android-builds\\ca190f33a95c667f3ae3ce4e",
+      "apk": null,
+      "git_dependency_pins": {
+        "base": {
+          "reason": "historical lockfile",
+          "ref": "436226fb7d4ad16686429dc77ed6a2ff815f2d4e",
+          "url": "https://github.com/hayhv/flutter_base.git"
+        }
+      }
+    },
+    {
+      "request": {
+        "android_sdk": "C:\\Users\\NUC\\AppData\\Local\\Android\\Sdk",
+        "dependency_policy": "as-of",
+        "dependency_root": "D:\\TamNT\\Workspace\\1.Vimes\\7.SRM",
+        "flutter_root": "D:\\flutter",
+        "key": "old-ui-apk-05",
+        "max_seconds": 1200,
+        "native_authorized": true,
+        "task": "TASK-aeb5446a96ec4edd9133bf41da39aec6"
+      },
+      "status": "blocked",
+      "started_at": "2026-10-09T06:38:35.252063+00:00",
+      "updated_at": "2026-10-09T06:39:08.431693+00:00",
+      "error": "Flutter build failed; see stdout.log and stderr.log.",
+      "exit_code": 1,
+      "logs": "C:\\Users\\NUC\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\LocalCache\\Local\\OneCrew\\android-builds\\70540dc1eac54085bf26236b",
+      "apk": null,
+      "git_dependency_pins": {
+        "base": {
+          "reason": "historical lockfile",
+          "ref": "436226fb7d4ad16686429dc77ed6a2ff815f2d4e",
+          "url": "https://github.com/hayhv/flutter_base.git"
+        },
+        "hmscore": {
+          "reason": "local first-parent as-of app commit",
+          "ref": "100a7800ae9b9e6766563e583f7634ceb809169b",
+          "repository": "D:\\TamNT\\Workspace\\1.Vimes\\7.SRM\\flutter_hmscore",
+          "url": "https://github.com/hayhv/flutter_hmscore.git",
+          "version": "1.0.12"
+        }
+      }
+    },
+    {
+      "request": {
+        "android_sdk": "C:\\Users\\NUC\\AppData\\Local\\Android\\Sdk",
+        "dependency_policy": "as-of",
+        "dependency_root": "D:\\TamNT\\Workspace\\1.Vimes\\7.SRM",
+        "flutter_root": "D:\\flutter",
+        "key": "old-ui-apk-06",
+        "max_seconds": 1200,
+        "native_authorized": true,
+        "task": "TASK-aeb5446a96ec4edd9133bf41da39aec6"
+      },
+      "status": "blocked",
+      "started_at": "2026-10-09T06:39:40.677158+00:00",
+      "updated_at": "2026-10-09T06:51:21.076671+00:00",
+      "error": "Flutter build failed; see stdout.log and stderr.log.",
+      "exit_code": 1,
+      "logs": "C:\\Users\\NUC\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\LocalCache\\Local\\OneCrew\\android-builds\\159ab1499b468b0662bf6889",
+      "apk": null,
+      "git_dependency_pins": {
+        "base": {
+          "reason": "historical lockfile",
+          "ref": "436226fb7d4ad16686429dc77ed6a2ff815f2d4e",
+          "url": "https://github.com/hayhv/flutter_base.git"
+        },
+        "hmscore": {
+          "reason": "local first-parent as-of app commit",
+          "ref": "100a7800ae9b9e6766563e583f7634ceb809169b",
+          "repository": "D:\\TamNT\\Workspace\\1.Vimes\\7.SRM\\flutter_hmscore",
+          "url": "https://github.com/hayhv/flutter_hmscore.git",
+          "version": "1.0.12"
+        }
+      }
+    },
+    {
+      "request": {
+        "android_sdk": "C:\\Users\\NUC\\AppData\\Local\\Android\\Sdk",
+        "dependency_policy": "as-of",
+        "dependency_root": "D:\\TamNT\\Workspace\\1.Vimes\\7.SRM",
+        "flutter_root": "D:\\flutter",
+        "key": "old-ui-apk-07",
+        "max_seconds": 1200,
+        "native_authorized": true,
+        "task": "TASK-aeb5446a96ec4edd9133bf41da39aec6"
+      },
+      "status": "succeeded",
+      "started_at": "2026-10-09T06:52:01.427460+00:00",
+      "updated_at": "2026-10-09T07:03:18.547780+00:00",
+      "error": null,
+      "exit_code": 0,
+      "logs": "C:\\Users\\NUC\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\LocalCache\\Local\\OneCrew\\android-builds\\30cc3985d232c013500e33e9",
+      "apk": {
+        "bytes": 263720252,
+        "path": "C:\\Users\\NUC\\OneCrewBuilds\\30cc3985d232c013500e33e9\\source\\flutter_vimes\\build\\app\\outputs\\flutter-apk\\app-debug.apk",
+        "sha256": "83bb80cd349f85d91497ff3b2f8ed709e9a4b2da1ca50bfd80696507c7c356a7"
+      },
+      "git_dependency_pins": {
+        "base": {
+          "reason": "local first-parent as-of app commit",
+          "ref": "ecac13a669c5b768f72609c1c98e2c3a64ec7ab3",
+          "repository": "D:\\TamNT\\Workspace\\1.Vimes\\7.SRM\\flutter_base",
+          "url": "https://github.com/hayhv/flutter_base.git",
+          "version": "1.0.12"
+        },
+        "hmscore": {
+          "reason": "local first-parent as-of app commit",
+          "ref": "100a7800ae9b9e6766563e583f7634ceb809169b",
+          "repository": "D:\\TamNT\\Workspace\\1.Vimes\\7.SRM\\flutter_hmscore",
+          "url": "https://github.com/hayhv/flutter_hmscore.git",
+          "version": "1.0.12"
+        }
+      }
+    }
+  ],
+  "verification": "Build exit 0, APK manifest/classes and ZIP integrity checked; SHA-256 rechecked through idempotent build command, no new build executed.",
+  "device_test": "Not performed; user UI acceptance pending.",
+  "intervention": "Chat repaired generic history/review/build adapters during trial; not claimed as an unassisted autonomous success."
+}

@@ -24,3 +24,7 @@ Lệnh hiện chạy foreground trong tiến trình CLI; giới hạn thời gia
 Biên nhận được ghi vào ledger events (`android.build`) và `android-builds/<id>/receipt.json`. Log đầy đủ trong `stdout.log`/`stderr.log`; khi timeout, log tiến trình `.out`/`.err` còn trong build directory. Không cài SDK, không đồng ý license, không ký release, không push, không sửa source sản phẩm.
 
 Kiểm chứng: fixture kiểm tra exact commit export, checkout/index preservation, idempotency, artifact tamper, missing artifact/nonzero exit, moved branch, missing native authority, dependency pin/boundary, archive traversal/symlink. Live build và các can thiệp sửa adapter phải ghi riêng trong proposal coverage.
+
+## Kết quả live ngày 09/10/2026
+
+Build `old-ui-apk-07` thành công, APK debug 263720252 bytes, exit code 0. SHA-256 `83bb80cd349f85d91497ff3b2f8ed709e9a4b2da1ca50bfd80696507c7c356a7`. App `5e6a897`, base `ecac13a6`, hmscore `100a7800`. [Biên nhận các lần thử](android-build-evidence.json) giữ cả lỗi và can thiệp của chat; không gọi đây là một lần chạy không cần hỗ trợ. Chưa cài thử trên thiết bị Android.
