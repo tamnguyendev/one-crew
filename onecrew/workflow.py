@@ -47,6 +47,12 @@ def validate_profile(profile):
     profile = dict(profile)
     profile.pop('provider', None)
     parallel = profile.pop('parallel', False)
+    tool_policy = profile.pop('tools', None)
+    if tool_policy is not None:
+        from .worker_tools import validate_policy
+        tool_policy = validate_policy(tool_policy)
+        if parallel:
+            raise LedgerError('Worker tool conversations currently require a serial profile.')
     if type(parallel) is not bool:
         raise LedgerError('parallel must be a JSON boolean.')
     exact_fields(profile, ('version', 'context', 'owned', 'acceptance', 'checks',
@@ -94,7 +100,8 @@ def validate_profile(profile):
             validate(check, profile)
     if covered != set(ids) or len(check_ids) != len(set(check_ids)):
         raise LedgerError('Every acceptance criterion needs a distinct identified check; check IDs must be unique.')
-    return json.loads(canonical(profile)) | {'provider': provider} | ({'parallel': True} if parallel else {})
+    return (json.loads(canonical(profile)) | {'provider': provider}
+            | ({'parallel': True} if parallel else {}) | ({'tools': tool_policy} if tool_policy else {}))
 
 
 def validate_plan(value, profile):
@@ -318,6 +325,9 @@ class Workflow:
                 raise LedgerError('Stale task revision.')
             if 'artifact.generate' not in task['handoff']['grant']['permissions']:
                 raise LedgerError('Task grant intent must include artifact.generate; local operator enable is explicit authority.')
+            if profile.get('tools'):
+                from .worker_tools import authorize
+                authorize(profile, task)
             sequence, state = self.state(task_id)
             if state:
                 configuration = self.control.status(task_id)['configuration']
@@ -419,6 +429,7 @@ class Workflow:
                 wants_worker = state['phase'] in ('planning', 'repairing') or (
                     state['phase'] == 'working' and any(r['id'] not in state['done'] and r['id'] not in state.get('branch_errors', {})
                                                       and set(r['depends_on']) <= set(state['done']) for r in state['plan']['tasks']))
+                wants_worker = wants_worker and not state.get('tool_pending')
                 if wants_worker and not state['pending'] and not state.get('parallel_pending'):
                     with self.ledger.transaction() as conn:
                         occupied = conn.execute("SELECT COUNT(*) FROM attempts WHERE status IN ('reserved','running','unknown')").fetchone()[0]
@@ -432,7 +443,10 @@ class Workflow:
                     if wants_worker and not state['pending'] and not state.get('parallel_pending') and self.worker.capability() != selected['capability']:
                         raise LedgerError('Worker capability changed since enable.')
                     context = self.store.context(state['snapshot'])
-                    common = '\nSPEC\n' + spec_for(state, task) + '\nSEALED PROFILE\n' + canonical(profile) + '\nSOURCE\n' + canonical(context)
+                    source = ({name: {'kind': 'text', 'characters': len(data)} if isinstance(data, str) else data
+                               for name, data in context.items()}
+                              if 'read_file' in profile.get('tools', {}).get('allowed', []) and state['phase'] != 'planning' else context)
+                    common = '\nSPEC\n' + spec_for(state, task) + '\nSEALED PROFILE\n' + canonical(profile) + '\nSOURCE\n' + canonical(source)
                     if state['phase'] == 'planning':
                         sequence, value = self._invoke(task_id, sequence, state, 'plan',
                             'Plan only the supplied scope. Every acceptance ID and owned file must be covered. acceptance arrays contain ONLY exact IDs, never descriptions. No tools; no extra features.' + common,
@@ -466,9 +480,23 @@ class Workflow:
                         if feedback:
                             instruction['review_correction'] = feedback
                             instruction['constraint'] = 'Correct only within the unchanged sealed requirements. New requirements belong in backlog. Preserve completed independent work.'
-                        sequence, value = self._invoke(task_id, sequence, state, stage,
-                            'Implement only the assigned task. No tools. Return complete UTF-8 file contents; null deletes a file. Out-of-scope ideas go to backlog, never implementation.' + common + '\nYOUR ONLY ASSIGNMENT (other project files are read-only)\n' + canonical(instruction),
-                            artifact_schema(owned), profile, unit=item['id'] if not repair and profile.get('parallel') else None)
+                        if profile.get('tools'):
+                            from .worker_tools import prompt, response_schema, prepare, execute_pending
+                            if state.get('tool_pending'):
+                                sequence = execute_pending(self, task_id, sequence, state, stage, profile)
+                                continue
+                            sequence, value = self._invoke(task_id, sequence, state, stage,
+                                'Implement only your assignment. Use the CORE TOOLS response protocol below; no native tools. '
+                                + common + '\nYOUR ONLY ASSIGNMENT\n' + canonical(instruction)
+                                + prompt(state, profile, stage), response_schema(owned, profile['tools']), profile)
+                            sequence, value = prepare(self, task_id, sequence, state, stage, owned, profile, value)
+                            if value is None:
+                                sequence = execute_pending(self, task_id, sequence, state, stage, profile)
+                                continue
+                        else:
+                            sequence, value = self._invoke(task_id, sequence, state, stage,
+                                'Implement only the assigned task. No tools. Return complete UTF-8 file contents; null deletes a file. Out-of-scope ideas go to backlog, never implementation.' + common + '\nYOUR ONLY ASSIGNMENT (other project files are read-only)\n' + canonical(instruction),
+                                artifact_schema(owned), profile, unit=item['id'] if not repair and profile.get('parallel') else None)
                         changes = artifacts(value, owned)
                         before = state['snapshot']
                         after = self.store.overlay(before, changes, owned)
@@ -572,6 +600,8 @@ class Workflow:
         return {'task_id': task_id, 'phase': state['phase'], 'message': state['message'],
                 'usage_summary': summarize(state['usage'], control['attempts']),
                 'integration_issues': integration_issues, 'deliveries': deliveries,
+                'tools': {'used': state.get('tool_requests', 0), 'pending': state.get('tool_pending'),
+                          'receipts': state.get('tool_receipts', [])},
                 'commit_vectors': vectors,
                 'execution': control['status'],
                 'verification': state['verification'], 'acceptance': state['acceptance'],
@@ -585,7 +615,7 @@ class Workflow:
             control = self.control.status(task_id)
             if not state or revision != state['snapshot']:
                 raise LedgerError('Stale candidate revision.')
-            if state.get('feedback_repair'):
+            if state.get('feedback_repair') or state.get('tool_pending'):
                 raise LedgerError('Finish the scheduled review correction before verification-only recheck.')
             if control['cancel_requested'] or any(a['status'] != 'settled' for a in control['attempts']):
                 raise LedgerError('Stop/reconcile all attempts before rechecking a non-cancelled task.')
@@ -638,7 +668,7 @@ class Workflow:
             seq, state = self.state(task_id)
             if not state or not state['plan'] or plan_revision(state) != revision:
                 raise LedgerError('Stale or missing plan revision.')
-            if state['pending'] or state.get('parallel_pending') or state['phase'] != 'working':
+            if state['pending'] or state.get('parallel_pending') or state.get('tool_pending') or state['phase'] != 'working':
                 raise LedgerError('Reorder is allowed only between work checkpoints.')
             rows = state['plan']['tasks']
             queued = {r['id']: r for r in rows if r['id'] not in state['done']}
@@ -674,7 +704,7 @@ class Workflow:
             control = self.control.status(task_id)
             if control['cancel_requested'] or state['phase'] in ('completed', 'failed'):
                 raise LedgerError('Terminal/cancelled workflow cannot switch worker.')
-            if state['pending'] or state.get('parallel_pending') or any(a['status'] != 'settled' for a in control['attempts']):
+            if state['pending'] or state.get('parallel_pending') or state.get('tool_pending') or any(a['status'] != 'settled' for a in control['attempts']):
                 raise LedgerError('Stop/reconcile and consume or discard the pending result before switching.')
             capability = make_worker(self.control, provider).capability()
             self.store.load(state['snapshot'])

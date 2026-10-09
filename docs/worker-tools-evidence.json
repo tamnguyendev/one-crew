@@ -1,0 +1,72 @@
+{
+  "kind": "fixture-worker-with-native-Docker",
+  "model_calls": 0,
+  "fixture_invocations": 3,
+  "project": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\workflow-tests\\tmpen1ojh3f\\project",
+  "state_root": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\workflow-tests\\tmpen1ojh3f\\state",
+  "task": "TASK-bfcbbc889d664a928b71de4a31fe6430",
+  "tool_receipt": {
+    "request_id": "26c16e0ecefab4a08917b196177a31b91759ea52ee34357a315787283f9f605a",
+    "action": "run_check",
+    "argument": "config",
+    "stage": "config",
+    "snapshot": "0f80094dbd158537970c8865b662e7791ec004192cb9c786bd58884bbb77b0ab",
+    "source": "092d39dd82e06194f3f9c8403e1887e6c63d87443ecdb813ecc17172ebbb360b",
+    "profile_revision": "3f7c9c09d41162d6203569c9405eee9aad534e049d47dd0a1c4a00da3f5b5e93",
+    "result": {
+      "passed": true,
+      "check": "config",
+      "details": [
+        "Container tests passed."
+      ]
+    }
+  },
+  "final_snapshot": "04600bd92d63eda229d0fed65715c48703120ec4f4a15cb5a7208420088f169e",
+  "checks": {
+    "passed": true,
+    "checks": [
+      {
+        "passed": true,
+        "detail": "Container tests passed.",
+        "evidence": {
+          "snapshot": "04600bd92d63eda229d0fed65715c48703120ec4f4a15cb5a7208420088f169e",
+          "check_revision": "6724145fcc19e374d0e0fa32df7027855694313054352d0f99f3aedf76d182a4",
+          "image": "sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a",
+          "environment": {
+            "engine": "28.3.2",
+            "os": "linux",
+            "transport": "local_desktop_pipe"
+          },
+          "exit_code": 0,
+          "oom_killed": false,
+          "stdout": "worker-requested sandbox check passed\n",
+          "stderr": "",
+          "network": "none",
+          "source_mount": "read-only"
+        },
+        "id": "config",
+        "acceptance": [
+          "AC-CONFIG"
+        ],
+        "kind": "container_test"
+      },
+      {
+        "id": "doc",
+        "acceptance": [
+          "AC-DOC"
+        ],
+        "kind": "text_equal",
+        "passed": true,
+        "evidence": {
+          "path": "README.txt",
+          "snapshot": "04600bd92d63eda229d0fed65715c48703120ec4f4a15cb5a7208420088f169e"
+        },
+        "detail": "Passed configured check."
+      }
+    ],
+    "limits": "Only configured checks were evaluated; syntax/content checks do not prove runtime behavior."
+  },
+  "source_unchanged": true,
+  "acceptance": "pending",
+  "limits": "Proves broker to native sandbox path; no live model selection of tools or native shell/MCP support."
+}

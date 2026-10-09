@@ -25,6 +25,9 @@ def status(value):
         lines.append('Vấn đề: '+compact(state['message']))
     if state.get('waiting_reason'):
         lines.append('Đang chờ: '+state['waiting_reason'])
+    if state.get('tool_requests'):
+        lines.append(f"Tools qua core: {state['tool_requests']} yêu cầu; "
+                     + ('đang chờ '+state['tool_pending']['action'] if state.get('tool_pending') else 'đã lưu kết quả'))
     usage = value.get('usage_summary')
     if usage:
         totals = usage['totals_observed_only']
@@ -50,6 +53,8 @@ def outputs(value, full=False):
         lines.append('Tương thích đa repo (lần kiểm mới nhất): '+value['commit_vectors'][0]['status']+' | Nghiệm thu nhóm: pending')
     if value.get('message'):
         lines.append('Vấn đề: '+compact(value['message']))
+    if value.get('tools', {}).get('used'):
+        lines.append(f"Tools qua core: {value['tools']['used']} yêu cầu; không có native shell/browser/MCP.")
     if not value['outputs']:
         lines.append('Chưa có output được công bố.')
     for index, item in enumerate(value['outputs'], 1):

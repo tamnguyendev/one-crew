@@ -28,7 +28,7 @@ def request_changes(workflow, task_id, revision, output_revision, selected, comm
         control = workflow.control.status(task_id)
         if control['cancel_requested'] or state['phase'] not in ('working', 'completed'):
             raise LedgerError('Corrections require a non-cancelled working/completed checkpoint.')
-        if state['pending'] or state.get('parallel_pending') or any(a['status'] != 'settled' for a in control['attempts']):
+        if state['pending'] or state.get('parallel_pending') or state.get('tool_pending') or any(a['status'] != 'settled' for a in control['attempts']):
             raise LedgerError('Stop/reconcile pending writers before requesting a correction; feedback comments can be saved while they run.')
         if workflow.ledger.task(task_id)['pending_requests'] or state.get('branch_errors'):
             raise LedgerError('Resolve pending blockers before scheduling a correction.')

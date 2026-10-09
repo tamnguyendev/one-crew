@@ -171,7 +171,7 @@ Conductor chỉ đánh giá ngữ nghĩa khi plan/lỗi/scope chưa rõ. JEV là
 
 ### 9.1. Chọn model có bằng chứng — bổ sung từ trao đổi 09/10/2026
 
-Hiện trạng: worker dùng model trong profile hoặc lệnh switch explicit; `provider choose` chỉ đề xuất bằng rule. Complexity/tier/cost_rank do đầu vào cung cấp, chưa được calibration bằng lịch sử. Test rule đúng không chứng minh model được chọn là tối ưu. JEV mới có kết nối synthetic, chưa quyết định route. Worker hiện ở artifact mode, tắt tools; task cần browser/MCP/shell không được coi là đã hỗ trợ chỉ vì tên model phù hợp.
+Hiện trạng: worker dùng model trong profile hoặc lệnh switch explicit; `provider choose` chỉ đề xuất bằng rule. Complexity/tier/cost_rank do đầu vào cung cấp, chưa được calibration bằng lịch sử. Test rule đúng không chứng minh model được chọn là tối ưu. JEV mới có kết nối synthetic, chưa quyết định route. Worker native tools vẫn tắt; artifact mode đã có broker read/search/sealed-check tuần tự với quyền/cap riêng. Task cần browser/MCP/shell tùy ý chưa được hỗ trợ; broker mới có fixture và Docker evidence, chưa tự coi là live model-tool verification.
 
 Đơn vị đánh giá là cấu hình làm việc: provider/model/version, reasoning, adapter/CLI version, prompt/context strategy và tools được cấp. Phân loại task theo loại việc, stack/repo, mức rõ của yêu cầu, rủi ro, dependency, context và tools cần thiết. Chỉ sau bộ lọc quyền/capability/risk mới so bằng chứng chất lượng, tổng usage đến kết quả đạt, latency và quota. Không xếp hạng model chỉ theo tên, kích thước, giá một lượt hay số dòng code.
 

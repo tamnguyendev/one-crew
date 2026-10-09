@@ -43,7 +43,7 @@ def apply(workflow, task_id, revision, spec_revision, profile, selected, reason)
         control = workflow.control.status(task_id)
         if not state or content_hash(state) != revision:
             raise LedgerError('Stale workflow revision; review the current plan/output before amendment.')
-        if state.get('feedback_repair'):
+        if state.get('feedback_repair') or state.get('tool_pending'):
             raise LedgerError('Finish the scheduled review correction before changing its requirements.')
         if not state['plan'] or control['cancel_requested']:
             raise LedgerError('A non-cancelled planned task is required.')
@@ -59,7 +59,7 @@ def apply(workflow, task_id, revision, spec_revision, profile, selected, reason)
         for field in ('context', 'owned'):
             if set(profile[field]) != set(original[field]):
                 raise LedgerError('Requirement amendment cannot expand or replace the sealed file scope.')
-        for field in ('provider', 'model', 'parallel', 'max_repairs', 'step_seconds'):
+        for field in ('provider', 'model', 'parallel', 'max_repairs', 'step_seconds', 'tools'):
             if profile.get(field) != old_profile.get(field):
                 raise LedgerError('Use the dedicated controls for worker/budget changes; amendment only changes acceptance/checks.')
         if {a['id'] for a in profile['acceptance']} != {a['id'] for a in old_profile['acceptance']}:

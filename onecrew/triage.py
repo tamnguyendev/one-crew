@@ -8,7 +8,8 @@ from .budget import remaining
 def fingerprint(state):
     return content_hash({key: state.get(key) for key in
                          ('phase', 'task_revision', 'snapshot', 'plan', 'done', 'worker', 'amendment',
-                          'message', 'resume_phase', 'pending', 'parallel_pending', 'failed_calls', 'repairs')})
+                          'message', 'resume_phase', 'pending', 'parallel_pending', 'failed_calls', 'repairs',
+                          'tool_pending', 'tool_requests')})
 
 
 def ensure_request(workflow, task_id):

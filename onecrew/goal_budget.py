@@ -80,7 +80,7 @@ def create(workflow, owner_id, revision, proposal):
             state = json.loads(checkpoint['payload'])
             if execution['cancel_requested'] or execution['status'] in ('failed','cancelled'):
                 raise LedgerError('Cancelled/failed tasks cannot join a goal budget.')
-            if state['pending'] or state.get('parallel_pending') or conn.execute("SELECT 1 FROM attempts WHERE task_id=? AND status!='settled'",(key,)).fetchone():
+            if state['pending'] or state.get('parallel_pending') or state.get('tool_pending') or conn.execute("SELECT 1 FROM attempts WHERE task_id=? AND status!='settled'",(key,)).fetchone():
                 raise LedgerError('Stop/reconcile all member attempts before grouping.')
             if conn.execute("SELECT 1 FROM requests WHERE task_id=? AND state='pending'",(key,)).fetchone():
                 raise LedgerError('Resolve member inbox questions before changing their effective budget.')

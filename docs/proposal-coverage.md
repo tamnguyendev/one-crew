@@ -1,5 +1,11 @@
 # Proposal Coverage
 
+## Bounded worker tools through the core — WT01–WT03
+
+Baseline `92ac908`. WT01 Complete: sealed read/search/check policy, explicit grant, scoped immutable files, owned candidate edits and normal final artifact gates. WT02 Complete: durable tool intent/receipts, task-wide cap and identical-request stop; restart resumes readonly tools without another model call, cancellation discards late results, and handoff/amendment/reorder cannot invalidate pending intent. WT03 Complete: bounded tool results, CLI status/output receipts and operator guide. Implementation: `worker_tools.py`, workflow and mutation guards; eight focused tests. Full regression: 240 tests pass in 206.036 seconds before the final reorder guard; eight tools and eight triage tests pass after the final guards.
+
+[Docker evidence](worker-tools-evidence.json) verifies candidate check and final checks with deterministic workers, zero live model calls, unchanged original source and acceptance pending. Native provider shell/browser/MCP remain disabled. Serial profiles only; live model-selected tools remain unverified until the user's real task. This closes a bounded tool transport slice, not all OC04/OC11 or the learning/routing backlog. [Guide](worker-tools.vi.md).
+
 ## Model selection, knowledge and outcome learning — proposal addendum 09/10/2026
 
 Baseline `fc01c35`. User requested recording the discussion into OneCrew documentation. Architecture 9.1–9.3, SPEC-006 LR01–LR05, backlog T31–T35 and routing guide now define the intended learning loop. This cycle changes documentation only; it does not enable tools, automatic routing, JEV decisions, a knowledge service or new model calls.
