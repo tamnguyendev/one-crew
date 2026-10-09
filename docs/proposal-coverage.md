@@ -1,5 +1,9 @@
 # Proposal Coverage
 
+## Usage identity correction
+
+Baseline `f5140ec`. US02 Complete: receipt dedup uses the verified attempt ID, while repeated equal counters inside one receipt remain unknown without a verified provider event/session identity. This avoids silently undercounting distinct turns that happen to consume equal amounts. The earlier US01 counter-value dedup assumption is superseded by this stricter rule. Four usage tests, two CLI view tests and four provider parser tests pass; no model calls. Full 217-test regression passed before this isolated summary correction. Goal-budget milestone committed as `f5140ec`.
+
 ## Fixed cross-project goal budgets
 
 Baseline `bf2fc13`; [guide and boundaries](goal-budget.vi.md).

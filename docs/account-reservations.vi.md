@@ -18,4 +18,6 @@ Chỉ hoàn reservation khi xác nhận chưa launch. Running/unknown tiếp t�
 
 `work status --json` và `work outputs --json` có `usage_summary`. Receipt cùng attempt được dedup; cached input Codex là phần của input, tổng token = input + output. Kiro credits được ghi riêng. Missing, conflicting hoặc nhiều cumulative reports chưa xác định session/event semantics hiện unknown; không suy thành zero. Format Claude chưa có live verification nên chưa chuẩn hóa totals. Legacy record thiếu provider không bị gán provider hiện tại sau handoff.
 
+Hai counter bằng nhau không đủ chứng minh là cùng event. Nếu một receipt có nhiều token/metering records mà không có định danh/semantics đã xác minh, summary ghi unknown; không gom theo giá trị rồi báo chi phí thấp hơn có thể đã tiêu.
+
 Fixture kiểm concurrent roots, rollback admission, launch freshness, known-not-started refund, unknown/cross-reset, pinned mapping và workflow thực qua core. Usage tests kiểm replay, cache, tín hiệu mâu thuẫn và missing receipts. Feed Codex có live evidence riêng; cycle admission này không tiêu model calls. Tự refresh nhiều provider, cumulative settlement và calibrated routing/fallback vẫn là phần còn thiếu của OC10.

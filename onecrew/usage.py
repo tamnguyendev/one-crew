@@ -40,9 +40,11 @@ def summarize(records, attempt_rows=()):
         if key in conflicts or row.get('usage_conflict') or not isinstance(reports, list):
             unknown.append(key)
             continue
-        unique = {content_hash(r): r for r in reports if isinstance(r, dict)}
-        if provider == 'codex' and len(unique) == 1:
-            value = next(iter(unique.values()))
+        # Identical counters do not identify an event: two separate turns can
+        # legitimately consume the same token count. Only the outer attempt
+        # receipt has a verified dedup identity in these adapters today.
+        if provider == 'codex' and len(reports) == 1 and isinstance(reports[0],dict):
+            value = reports[0]
             inp, cached, out = (value.get(k) for k in ('input_tokens','cached_input_tokens','output_tokens'))
             if all(_count(v) for v in (inp,cached,out)) and cached <= inp:
                 totals['input_tokens'] += inp
@@ -53,9 +55,9 @@ def summarize(records, attempt_rows=()):
                 measured.append(key)
                 continue
         if provider == 'kiro':
-            metering = {content_hash(r['metering']): r['metering'] for r in unique.values() if 'metering' in r}
+            metering = [r['metering'] for r in reports if isinstance(r,dict) and 'metering' in r]
             if len(metering) == 1:
-                items = next(iter(metering.values()))
+                items = metering[0]
                 if (isinstance(items, list) and len(items) == 1 and isinstance(items[0], dict)
                         and items[0].get('unit') == 'credit' and type(items[0].get('value')) in (int,float)
                         and math.isfinite(items[0]['value']) and items[0]['value'] >= 0):

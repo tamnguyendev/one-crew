@@ -9,7 +9,7 @@ class UsageTests(unittest.TestCase):
         state = {'usage': []}
         tokens = {'input_tokens':100, 'cached_input_tokens':60, 'output_tokens':20}
         for _ in range(3):
-            record(state,'first',[tokens,tokens],'codex','fixture')
+            record(state,'first',[tokens],'codex','fixture')
         summary = summarize(state['usage']*2)
         self.assertEqual(summary['attempts'],1)
         self.assertEqual(summary['totals_observed_only']['total_tokens'],120)
@@ -34,13 +34,23 @@ class UsageTests(unittest.TestCase):
     def test_kiro_credits_separate_and_invalid_token_types_never_coerced(self):
         state = {'usage': []}
         meter = {'metering':[{'unit':'credit','value':.125}]}
-        record(state,'kiro',[meter,meter],'kiro','fixture')
+        record(state,'kiro',[meter],'kiro','fixture')
         for index,invalid in enumerate((True,-1,1.5,120)):
             record(state,str(index),[{'input_tokens':100,'cached_input_tokens':invalid,'output_tokens':20}],'codex','fixture')
         summary = summarize(state['usage'])
         self.assertEqual(summary['totals_observed_only']['kiro_credits'],.125)
         self.assertEqual(summary['measured_attempts'],['kiro'])
         self.assertEqual(len(summary['unknown_attempts']),4)
+
+    def test_equal_counters_without_event_identity_are_not_assumed_replays(self):
+        tokens = {'input_tokens':100,'cached_input_tokens':60,'output_tokens':20}
+        meter = {'metering':[{'unit':'credit','value':.125}]}
+        state = {'usage': []}
+        record(state,'two-turns',[tokens,tokens],'codex','fixture')
+        record(state,'two-meters',[meter,meter],'kiro','fixture')
+        summary = summarize(state['usage'])
+        self.assertEqual(set(summary['unknown_attempts']),{'two-turns','two-meters'})
+        self.assertEqual(summary['measured_attempts'],[])
 
 
 if __name__ == '__main__':
