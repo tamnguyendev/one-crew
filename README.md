@@ -18,6 +18,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [Gate container](docs/container-gates.vi.md) | Test chức năng trên snapshot/Git candidate; hai chức năng live đạt, có cả evidence lỗi và sửa |
 | [Đăng nhập subscription](docs/subscription-auth.vi.md) | Kiểm tra auth trước dispatch, lọc API key khỏi môi trường worker; không thay cấu hình người dùng |
 | [Tools qua core](docs/worker-tools.vi.md) | Worker yêu cầu đọc/tìm source và chạy check đã cấp; serial, native tools vẫn tắt |
+| [Context giữa các công cụ chat](docs/entry-context.vi.md) | entry connect/note: tiến độ, câu hỏi và quyết định qua CLI; không tự dispatch/approve |
 | [Workers và handoff](docs/providers.vi.md) | Ba worker live có evidence; doctor và switch tại checkpoint |
 | [Controller chạy nền](docs/background-runner.vi.md) | Start/reconnect, chờ reply không gọi model, giữ deadline qua pause |
 | [Gia hạn có giới hạn](docs/budget-extension.vi.md) | Tăng trần tổng bằng revision riêng, giữ chi phí đã dùng và deadline tối đa tám giờ |

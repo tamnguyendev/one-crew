@@ -1,5 +1,11 @@
 # Proposal Coverage
 
+## Portable local entry context — EC01–EC03
+
+Baseline `80a542b` (WT01–WT03 committed). EC01 Complete: read-only bounded packet from one ledger transaction, pinned/amended spec, current task budget/worker, plan/progress/output refs and pending question revisions. EC02 Complete: proposal/decision notes persist with revision CAS, idempotent request IDs, actor/source attribution and no execution authority; restart preserves notes without dispatch. EC03 Complete: CLI connect/note, readable view, bounded recent answers/notes and detail cursors; documentation distinguishes chat continuation from worker switching and explicit amendments.
+
+Implementation: `entry.py`, `entry_cli.py`, CLI routing. Seven focused tests cover persistence, stale/conflicting writes, concurrent entry decisions, project isolation, read-only/no-dispatch behavior, bounded results and CLI. Nineteen ledger and 24 spec regression tests pass. These slices support OC01/OC06/T18; authenticated native entry integration and the LR02 lesson lifecycle remain incomplete. Zero live model calls; user will describe the real trial task.
+
 ## Bounded worker tools through the core — WT01–WT03
 
 Baseline `92ac908`. WT01 Complete: sealed read/search/check policy, explicit grant, scoped immutable files, owned candidate edits and normal final artifact gates. WT02 Complete: durable tool intent/receipts, task-wide cap and identical-request stop; restart resumes readonly tools without another model call, cancellation discards late results, and handoff/amendment/reorder cannot invalidate pending intent. WT03 Complete: bounded tool results, CLI status/output receipts and operator guide. Implementation: `worker_tools.py`, workflow and mutation guards; eight focused tests. Full regression: 240 tests pass in 206.036 seconds before the final reorder guard; eight tools and eight triage tests pass after the final guards.

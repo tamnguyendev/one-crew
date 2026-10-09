@@ -38,6 +38,8 @@ Giữ [kiến trúc cũ](architecture-2026-10-08.vi.md) và [backlog cũ](mvp-ba
 | Output | Card/diff/revision, scoped request-changes, reorder, verified review branch và target CAS merge mức file | Tự rebase/conflict repair và authenticated entry acceptance còn thiếu |
 | JEV | Credential DPAPI và doctor kết nối được | Chưa semantic routing/benchmark |
 
+Entry CLI hiện có `entry connect/note`: packet đọc nhất quán từ ledger chứa spec/plan/progress/questions/notes; note có revision, idempotency và provenance local. Đổi chat không đổi worker hoặc reset budget. Đây là transport local, chưa xác thực multi-entry; note không tự trở thành amendment, approval hoặc lesson đã kiểm chứng. [Hướng dẫn và giới hạn](entry-context.vi.md).
+
 [SPEC-005 đã bàn giao](incremental-autonomy.vi.md) app CV từ thư mục trống: run RUN-20261008-232057-1d06d8, 585,21 giây, 14 calls, một repair thật, 19 gate checks đạt; runtime commit bf2e673, product commit ad3c748. Bộ kiểm thử được ghi nhận ở lượt đó là 69 tests. Đây là bằng chứng profile local/Codex, không chứng minh orchestration tổng quát hoặc khả năng chặn mọi AI bot ngoài production; khách hàng chưa nghiệm thu.
 
 Các trần 3.600 giây/run, 32 calls, 4 repair và 600 giây/call thuộc runtime CV cũ. Workflow `TASK-` mới dùng grant hữu hạn tối đa tám giờ từ submit và 10.000 managed calls, profile tối đa ba repairs/600 giây mỗi bước. Extension giữ used/deadline gốc tối đa; đã có fixture recovery và Codex→Kiro checkpoint handoff. Chưa kiểm chứng soak tám giờ. Phân biệt giới hạn cấu hình với bằng chứng vận hành.
