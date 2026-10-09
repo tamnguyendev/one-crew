@@ -315,7 +315,11 @@ class Ledger:
 
     def request(self, request_id):
         with self.transaction() as conn:
-            return self._request_view(self._request(conn, request_id))
+            view = self._request_view(self._request(conn, request_id))
+            effect = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='request.consumed' AND json_extract(payload,'$.request_id')=? ORDER BY seq DESC LIMIT 1",
+                                  (view['task_id'], request_id)).fetchone()
+            view['controller_effect'] = json.loads(effect['payload']) if effect else None
+            return view
 
     def create_request(self, task_id, request_key, question):
         key_field(request_key)

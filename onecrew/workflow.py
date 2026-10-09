@@ -274,7 +274,7 @@ class Workflow:
                                (task_id,)).fetchone()
             return (row['seq'], json.loads(row['payload'])) if row else (0, None)
 
-    def persist(self, task_id, sequence, state):
+    def persist(self, task_id, sequence, state, *, unpause=False):
         self.store.load(state['snapshot'])
         with self.ledger.transaction(write=True) as conn:
             task, execution = self.control._execution(conn, task_id)
@@ -282,11 +282,15 @@ class Workflow:
             if latest != sequence:
                 raise LedgerError('Workflow changed concurrently; reload before continuing.')
             self.ledger._event(conn, task_id, 'workflow.checkpoint', state)
+            checkpoint_sequence = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+            receipt = state.get('triage_receipt')
+            if receipt and not conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='request.consumed' AND json_extract(payload,'$.reply_id')=?", (task_id, receipt['reply_id'])).fetchone():
+                self.ledger._event(conn, task_id, 'request.consumed', receipt)
             active = conn.execute("SELECT 1 FROM attempts WHERE task_id=? AND status IN ('reserved','running','unknown')", (task_id,)).fetchone()
             status = (('cancelling' if active else 'cancelled') if execution['cancel_requested'] else
-                      'paused' if execution['status'] == 'paused' else state['phase'])
+                      'paused' if execution['status'] == 'paused' and not unpause else state['phase'])
             conn.execute('UPDATE executions SET status=? WHERE task_id=?', (status, task_id))
-            return conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+            return checkpoint_sequence
 
     def enable(self, task_id, revision, profile):
         profile = validate_profile(profile)
@@ -507,11 +511,15 @@ class Workflow:
                 'checks': state.get('checks'), 'backlog': state['backlog'], 'reviews': state.get('reviews', []) + feedback,
                 'outputs': [dict(row, diff=self.store.diff(row['base'], row['revision'])) for row in state['outputs']]}
 
-    def resume(self, task_id, *, reuse_output=False):
+    def resume(self, task_id, *, reuse_output=False, triage_receipt=None):
         """Explicit operator retry of a settled failure; never resets root counters."""
         with task_lock(self.ledger, task_id):
             seq, state = self.state(task_id)
             control = self.control.status(task_id)
+            if triage_receipt:
+                from .triage import fingerprint
+                if not state or state['phase'] != 'blocked' or fingerprint(state) != triage_receipt['fingerprint']:
+                    raise LedgerError('Blocker changed before applying reply.')
             if not state or control['cancel_requested'] or state['phase'] in ('completed', 'failed'):
                 raise LedgerError('Task cannot resume.')
             if any(a['status'] != 'settled' for a in control['attempts']):
@@ -529,9 +537,9 @@ class Workflow:
             if state['phase'] == 'blocked':
                 raise LedgerError('Repair/no-progress boundary requires a revised task, not a blind retry.')
             state['message'] = None
-            with self.ledger.transaction(write=True) as conn:
-                conn.execute('UPDATE executions SET status=? WHERE task_id=?', (state['phase'], task_id))
-            self.persist(task_id, seq, state)
+            if triage_receipt:
+                state['triage_receipt'] = triage_receipt
+            self.persist(task_id, seq, state, unpause=True)
             return state
 
     def reorder(self, task_id, revision, order):

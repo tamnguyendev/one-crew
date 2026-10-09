@@ -17,6 +17,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [Workflow tổng quát](docs/general-workflow.vi.md) | CLI chạy Codex từ spec/profile, review từng phần, resume, reorder và bằng chứng live |
 | [Workers và handoff](docs/providers.vi.md) | Codex/Kiro live, Claude chờ login; doctor và switch tại checkpoint |
 | [Controller chạy nền](docs/background-runner.vi.md) | Start/reconnect, chờ reply không gọi model, giữ deadline qua pause |
+| [Xử lý vấn đề qua inbox](docs/inbox-triage.vi.md) | Tự tạo câu hỏi ngắn, chờ reply và resume trong grant cũ |
 | [Routing policy](docs/routing-policy.vi.md) | Đề xuất model theo tier/risk/quota, chưa tự dispatch |
 | [Nhánh Git để review](docs/review-branch.vi.md) | Kiểm candidate tree rồi tạo local branch, giữ nguyên source/index |
 | [DAG song song](docs/parallel-dag.vi.md) | Hai nhánh độc lập cùng root, output từng phần và budget chung; live Kiro đã đạt |

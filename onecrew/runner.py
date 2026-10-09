@@ -42,7 +42,7 @@ def loop(ledger, task_id, interval=.5):
                 if control['cancel_requested']:
                     outcome = 'cancelled'
                     return outcome
-                if state['phase'] in ('completed', 'cancelled', 'failed', 'blocked'):
+                if state['phase'] in ('completed', 'cancelled', 'failed'):
                     outcome = state['phase']
                     return outcome
                 if workflow.control.clock() >= dt.datetime.fromisoformat(control['deadline']):
@@ -53,6 +53,15 @@ def loop(ledger, task_id, interval=.5):
                         workflow.persist(task_id, seq, state)
                     outcome = 'deadline'
                     return outcome
+                if state['phase'] == 'blocked':
+                    from .triage import handle
+                    result = handle(workflow, task_id)
+                    if result['status'] in ('blocked', 'cancelled'):
+                        outcome = result['status']
+                        return outcome
+                    if result['status'] == 'waiting':
+                        time.sleep(interval)
+                    continue
                 task = ledger.task(task_id)
                 if control['status'] == 'paused' or task['pending_requests']:
                     time.sleep(interval)
@@ -79,7 +88,7 @@ def start(ledger, task_id):
         return current
     workflow = Workflow(ledger)
     _, state = workflow.state(task_id)
-    if state is None or state['phase'] in ('completed', 'failed', 'blocked', 'cancelled'):
+    if state is None or state['phase'] in ('completed', 'failed', 'cancelled'):
         raise LedgerError('Enable/resume a non-terminal workflow before start.')
     directory = ledger.state_root/'runners'/uuid.uuid4().hex
     directory.mkdir(parents=True)

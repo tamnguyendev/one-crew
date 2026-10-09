@@ -18,7 +18,7 @@ def main(argv=None):
     parser.add_argument('--state-root', type=Path)
     group = parser.add_subparsers(dest='group', required=True).add_parser('work')
     commands = group.add_subparsers(dest='command', required=True)
-    for name in ('enable', 'plan', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
+    for name in ('enable', 'plan', 'triage', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
         command = commands.add_parser(name)
         command.add_argument('id')
         command.add_argument('--json', action='store_true')
@@ -54,6 +54,9 @@ def main(argv=None):
             result = workflow.run(args.id, steps=args.steps)
         elif args.command == 'plan':
             result = workflow.set_plan(args.id, args.revision, read_json(args.file))
+        elif args.command == 'triage':
+            from .triage import handle
+            result = handle(workflow, args.id)
         elif args.command in ('start', 'runner'):
             from .runner import start, status
             result = (start if args.command == 'start' else status)(workflow.ledger, args.id)

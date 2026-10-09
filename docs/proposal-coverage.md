@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Inbox triage — resume an existing grant from a durable reply
+
+Baseline `3f31689`; [guide](inbox-triage.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| TI01 | Automatically create a short durable blocker question and wait without model calls | triage.ensure_request; runner blocked-state loop; work triage | restart/poll and background-controller reply tests | Complete |
+| TI02 | Resume only the same blocker within existing scope, retry cap, budget and deadline | locked fingerprint check, settled-attempt guard, unchanged sealed profile | changed-blocker race, expiry, conflict and budget preservation tests | Complete |
+| TI03 | Commit controller effect with resume checkpoint and expose receipt separately from answer | workflow.persist transaction; request show controller_effect | receipt write rollback/retry and stop idempotence tests | Complete |
+
+Full suite: 155 tests passed in 44.575 seconds; final atomic-unpause change additionally passes 7 triage and 15 workflow tests. No live model calls in this cycle. This is local operator triage, not authenticated multi-entry approval or branch-specific continuation. Existing execution authority is reused; no reply expands scope/budget/provider rights. Baseline DAG milestone committed as `3f31689`.
+
 ## P3 DAG slice — disjoint parallel units
 
 Baseline `fb98e3a`; [guide](parallel-dag.vi.md), [live trials](parallel-evidence.json).

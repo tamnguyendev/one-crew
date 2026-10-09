@@ -89,14 +89,17 @@ def human(result):
                   for o in q['options']]
         lines += [f"Action: {json.dumps(q['action'], ensure_ascii=False)}", f"Revision: {result['revision']}"]
         if result['answer']:
-            lines.append(f"Đã ghi nhận: {result['answer']['choice']} — chưa áp dụng hành động.")
+            effect = result.get('controller_effect')
+            lines.append(f"Đã ghi nhận: {result['answer']['choice']} — " +
+                         (f"controller: {effect['effect']}." if effect else 'chưa có biên nhận áp dụng.'))
         return '\n'.join(lines)
     if 'execution' in result:
         lines = [f"{result['id']} | {result['title']}",
                  f"Trạng thái: {result['execution']} | câu hỏi chờ: {result['pending_requests']}",
                  f"Spec: {result['spec_id']} @ {result['spec_revision']}",
                  f"Deadline: {result['deadline']} | đã hết hạn: {result['deadline_expired']}",
-                 'P1a: chỉ lưu công việc; chưa chạy worker, grant chưa được xác thực.']
+                 ('Đã enable local workflow; quyền theo local operator.' if result.get('dispatch_enabled') else
+                  'Chỉ lưu công việc; chưa enable worker.')]
         if 'handoff' in result:
             lines.append(result['handoff']['spec_text'])
             lines += [human(r) for r in result['requests']]
