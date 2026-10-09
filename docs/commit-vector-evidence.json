@@ -1,0 +1,152 @@
+{
+  "native_git_and_docker": true,
+  "live_model_calls": 0,
+  "trials": [
+    {
+      "right_workers": 2,
+      "source_preparation": "deterministic fixture workers, no live model calls",
+      "individual_verification": [
+        "passed",
+        "passed"
+      ],
+      "scratch": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\workflow-tests\\tmptgu9mrfz",
+      "receipt": {
+        "revision": "0358287548b0bb1b8736704c2605ec25fbbae49f2d60a5115b31fa3fa0ec7968",
+        "goal_revision": "5ed44ff820e3fd8d669c4ce5ebb473b046fac4883ed1e6293ad8659ecdf4144e",
+        "commit_vector": [
+          {
+            "task_id": "TASK-ea12e0c26c004da9b4e78048f2a7958a",
+            "project": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\workflow-tests\\tmptgu9mrfz\\project",
+            "alias": "left",
+            "snapshot": "22608f68073021955b81eb001456096ff0bb80cd2315aeec27082ba06948499c",
+            "ref": "refs/heads/onecrew/vector",
+            "commit": "542ef07c070826c9243bef859cab38d5f317a02f",
+            "tree": "6e45b9e8a31ef629283b50f27d102b8df3142f24",
+            "gate_snapshot": "037fc701965eb63b1bd4dc56f4a6907316dec5ff1b44dcc8edc15ae85e265972"
+          },
+          {
+            "task_id": "TASK-aed01dff068348c0840183b5a923f5bc",
+            "project": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\workflow-tests\\tmptgu9mrfz\\other-project",
+            "alias": "right",
+            "snapshot": "cabb85849b1188a14d81bae401989c5c01b0fc5e673c20ed10ab4fbd594ceacd",
+            "ref": "refs/heads/onecrew/vector",
+            "commit": "ddee54e7bfcb20995eaba0f25ca0c076e933ac67",
+            "tree": "31cfad32034046e31a2851d5a26a0fe586ed1284",
+            "gate_snapshot": "3b67cb8efe2abbb7afc81127adaa83f4e387eff376e2b9f7489c0371f209070a"
+          }
+        ],
+        "snapshot": "7b48d7280ea29de48e5dec12bb33c75863ea98d5654fcbeede4b7eaed37579e8",
+        "status": "passed",
+        "checks": {
+          "passed": true,
+          "checks": [
+            {
+              "passed": true,
+              "detail": "Container tests passed.",
+              "evidence": {
+                "snapshot": "7b48d7280ea29de48e5dec12bb33c75863ea98d5654fcbeede4b7eaed37579e8",
+                "check_revision": "a33370c66a2f41734c5ad4676c2179101e87a09749cccbd419099aafb8235afc",
+                "image": "sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a",
+                "environment": {
+                  "engine": "28.3.2",
+                  "os": "linux",
+                  "transport": "local_desktop_pipe"
+                },
+                "exit_code": 0,
+                "oom_killed": false,
+                "stdout": "cross-repo compatibility passed\n",
+                "stderr": "",
+                "network": "none",
+                "source_mount": "read-only"
+              },
+              "id": "compat",
+              "acceptance": [
+                "AC-VECTOR"
+              ],
+              "kind": "container_test"
+            }
+          ],
+          "limits": "Only configured checks were evaluated; syntax/content checks do not prove runtime behavior."
+        },
+        "observed_at": "2026-10-09T02:35:18.550270+00:00",
+        "model_calls": 0,
+        "refs_updated": false,
+        "acceptance": "pending",
+        "atomic_cross_repo_commit": false
+      }
+    },
+    {
+      "right_workers": 3,
+      "source_preparation": "deterministic fixture workers, no live model calls",
+      "individual_verification": [
+        "passed",
+        "passed"
+      ],
+      "scratch": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\workflow-tests\\tmpbtwgdwzc",
+      "receipt": {
+        "revision": "4c0a7792d45b21b49255b9e5d031086c62138ba688d9812e471c2aa5e52c9f79",
+        "goal_revision": "1b41a9ce716ad5ecb8b760209618dc1a0c810de3b5b923eeb20389955f7f955b",
+        "commit_vector": [
+          {
+            "task_id": "TASK-01ab6adeae86433a9bc610d4eb6e22e6",
+            "project": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\workflow-tests\\tmpbtwgdwzc\\project",
+            "alias": "left",
+            "snapshot": "e4a376f5c89240174809202234e1c250fb2dde9100925cd686284b610ff3fd10",
+            "ref": "refs/heads/onecrew/vector",
+            "commit": "14703e765083bfa8cf2d1bc67324f5b9a44d5948",
+            "tree": "6e45b9e8a31ef629283b50f27d102b8df3142f24",
+            "gate_snapshot": "4bf9fae155af71e51902bb1bcfd024919ac060a882946827b91c7ecdb7459166"
+          },
+          {
+            "task_id": "TASK-1f6a97e84ca14da3b10a61badb64f1f2",
+            "project": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\workflow-tests\\tmpbtwgdwzc\\other-project",
+            "alias": "right",
+            "snapshot": "1447a228693741dfaee7162d4e2883b42ebfd1a9ec854569dbbe4608f6f4d469",
+            "ref": "refs/heads/onecrew/vector",
+            "commit": "284c92ec31a22b3d4efcd5a04e063c79b9e71c0c",
+            "tree": "ada4682cc2ea58be76ce05aa4da4deb35a209239",
+            "gate_snapshot": "a67c3e6e5e533e2045546ce0b600eb486bcc1c415366bf9b7927dccd5f1e55d0"
+          }
+        ],
+        "snapshot": "d103643db029de23ae2603909f0b31c58dc1cc4164b87efec8582fa5e3e4f42c",
+        "status": "failed",
+        "checks": {
+          "passed": false,
+          "checks": [
+            {
+              "passed": false,
+              "detail": "Traceback (most recent call last):\n  File \"/work/left/compat.py\", line 5, in <module>\n    assert left['workers'] == right['workers'], 'worker contract mismatch'\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: worker contract mismatch\n",
+              "evidence": {
+                "snapshot": "d103643db029de23ae2603909f0b31c58dc1cc4164b87efec8582fa5e3e4f42c",
+                "check_revision": "a33370c66a2f41734c5ad4676c2179101e87a09749cccbd419099aafb8235afc",
+                "image": "sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a",
+                "environment": {
+                  "engine": "28.3.2",
+                  "os": "linux",
+                  "transport": "local_desktop_pipe"
+                },
+                "exit_code": 1,
+                "oom_killed": false,
+                "stdout": "",
+                "stderr": "Traceback (most recent call last):\n  File \"/work/left/compat.py\", line 5, in <module>\n    assert left['workers'] == right['workers'], 'worker contract mismatch'\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: worker contract mismatch\n",
+                "network": "none",
+                "source_mount": "read-only"
+              },
+              "id": "compat",
+              "acceptance": [
+                "AC-VECTOR"
+              ],
+              "kind": "container_test"
+            }
+          ],
+          "limits": "Only configured checks were evaluated; syntax/content checks do not prove runtime behavior."
+        },
+        "observed_at": "2026-10-09T02:35:39.722162+00:00",
+        "model_calls": 0,
+        "refs_updated": false,
+        "acceptance": "pending",
+        "atomic_cross_repo_commit": false
+      }
+    }
+  ]
+}

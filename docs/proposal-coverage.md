@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Multi-repository commit-vector verification
+
+Baseline `0e49852`; [contract](commit-vector.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| CV01 | Bind an exact approved goal set to verified Git delivery commits and immutable scoped bytes | vector.verify_vector, task locks, receipt/ref/tree checks, combined snapshot | four focused real-Git fixture tests pass; native Docker positive trial | Complete |
+| CV02 | Verify a sealed readonly compatibility test before certifying the vector; independent pass is insufficient | container_test contract, refs checked after gate, durable vector receipt and output history | native Docker negative trial: each repo passes alone, combined contract fails; mid-gate ref race fixture | Complete |
+| CV03 | Reuse immutable successful evidence only while current task/delivery/refs match; no cross-repo ref mutation or automatic acceptance | recipe hash and cached receipt checks, refs_updated=false and acceptance pending | duplicate request runs gate once; stale snapshot/missing member/unverified delivery/owned-test rejection | Complete |
+
+[Native Git/Docker evidence](commit-vector-evidence.json) contains one passing and one failing vector, with source prepared by deterministic fixture workers; zero live model calls. It is not evidence of AI automatically decomposing a multi-repo feature. Both gate containers were cleaned. Full regression: 222 tests pass in 453.524 seconds. No atomic multi-repo publish or automatic acceptance is claimed.
+
 ## Usage identity correction
 
 Baseline `f5140ec`. US02 Complete: receipt dedup uses the verified attempt ID, while repeated equal counters inside one receipt remain unknown without a verified provider event/session identity. This avoids silently undercounting distinct turns that happen to consume equal amounts. The earlier US01 counter-value dedup assumption is superseded by this stricter rule. Four usage tests, two CLI view tests and four provider parser tests pass; no model calls. Full 217-test regression passed before this isolated summary correction. Goal-budget milestone committed as `f5140ec`.
@@ -289,7 +301,7 @@ These counts measure the new SPEC-006 implementation requirements, not documenta
 | OC05 | Inbox | Durable requests and trusted revision replies | Security | durable request revisions, root/branch triage and atomic effect receipts | TI01–TI03, BI01–BI03; independent branches proceed while blockers wait | Partial | Reply effects reuse existing rights; authenticated cross-entry caller provenance remains |
 | OC06 | Memory | Shared decisions/checkpoints/provenance | Data | ledger events, immutable spec/profile, content-addressed working/index snapshots | CP01–CP03 dirty/binary/deletion recovery; live handoff preserves source | Partial | Authenticated entry connectors and full transcript-free continuation proof remain |
 | OC07 | DAG | Parallel dependency/ownership scheduling | Architecture | two disjoint units/global capacity, branch waits, amendment descendant/ownership invalidation | PD01–PD04 native parallel Kiro plus BI/AM fixture closures | Partial | Full parallel crash matrix and multi-repo execution remain |
-| OC08 | Integration | Verified merged result across branches/repos | Testing | review branches and conservative three-way target integration, actual Git candidate gates and ref CAS | IB/IM real-Git tests; FG03 live container branch tests | Partial | Automatic rebase/conflict repair and multi-repo commit vector/compatibility remain |
+| OC08 | Integration | Verified merged result across branches/repos | Testing | review branches, conservative target integration/CAS, explicit commit vectors and container compatibility gates | IB/IM/CV real-Git tests; native container branch and positive/negative multi-repo evidence | Partial | Automatic rebase/conflict repair and dynamic cross-repo integration orchestration remain |
 | OC09 | Long jobs | Root budgets, recovery and optional 8h | Reliability | absolute max-8h grants, durable counters, finite extensions, fixed multi-project shared goal cap | CB/BG/CQ/BU/GB tests; live handoff preserves deadline/counters | Partial | Eight-hour soak, authenticated grants and dynamic cross-repo goal orchestration remain |
 | OC10 | Routing | Task/risk/capability plus account quota | Performance | typed recommendation, read-only Codex feed, opt-in transactional account estimates and attempt usage dedup | RP/QF/QB/US tests, timestamped feed probe | Partial | Authoritative cumulative settlement, automatic calibrated routing/fallback and Claude/Kiro feed remain |
 | OC11 | Review | Partial review, feedback and reorder | UI | readable cards, concurrent feedback, revision accept/reorder/pause and bounded corrections | WF04/PD02/RV01/RF01–RF03; B feedback while C runs | Partial | Full authenticated multi-entry and multi-repo review/integration evidence remain |

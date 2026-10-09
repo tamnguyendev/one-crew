@@ -45,6 +45,8 @@ def status(value):
 def outputs(value, full=False):
     lines = [f"{value['task_id']} | {value.get('execution', value['phase'])}",
              f"Kiểm chứng: {value['verification']} | Nghiệm thu: {value['acceptance']}"]
+    if value.get('commit_vectors'):
+        lines.append('Tương thích đa repo (lần kiểm mới nhất): '+value['commit_vectors'][0]['status']+' | Nghiệm thu nhóm: pending')
     if value.get('message'):
         lines.append('Vấn đề: '+compact(value['message']))
     if not value['outputs']:
@@ -77,6 +79,10 @@ def outputs(value, full=False):
         lines += ['', 'Git delivery:']
         for item in value['deliveries']:
             lines.append('  '+item['id']+' | '+item['status'])
+    if value.get('commit_vectors'):
+        lines += ['', 'Bộ commit đa repo đã kiểm (bằng chứng tại thời điểm ghi):']
+        for item in value['commit_vectors']:
+            lines.append('  '+item['revision'][:12]+' | '+item['status']+' | '+item['observed_at'])
     lines += ['', f"Chi tiết diff/evidence: work outputs {value['task_id']} --full",
               f"Góp ý: work review {value['task_id']} --revision <revision ở trên> --decision feedback --comment <nội dung>",
               'Chỉ accept revision hiện tại đã pass gate. Pass test chưa phải khách hàng nghiệm thu.']

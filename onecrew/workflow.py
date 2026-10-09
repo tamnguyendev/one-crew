@@ -566,10 +566,13 @@ class Workflow:
                 "SELECT kind,payload FROM events WHERE task_id=? AND kind IN ('integration.conflict','integration.failed') ORDER BY seq DESC LIMIT 5", (task_id,))]
             deliveries = [{'id':row['id'],'status':row['status'], 'receipt':json.loads(row['receipt']) if row['receipt'] else None}
                           for row in conn.execute("SELECT id,status,receipt FROM actions WHERE task_id=? AND (request_key LIKE 'branch:%' OR request_key LIKE 'merge:%')",(task_id,))]
+            vectors = [json.loads(row['payload']) for row in conn.execute(
+                "SELECT payload FROM events WHERE task_id=? AND kind='integration.vector' ORDER BY seq DESC LIMIT 5",(task_id,))]
         control = self.control.status(task_id)
         return {'task_id': task_id, 'phase': state['phase'], 'message': state['message'],
                 'usage_summary': summarize(state['usage'], control['attempts']),
                 'integration_issues': integration_issues, 'deliveries': deliveries,
+                'commit_vectors': vectors,
                 'execution': control['status'],
                 'verification': state['verification'], 'acceptance': state['acceptance'],
                 'checks': state.get('checks'), 'backlog': state['backlog'], 'reviews': state.get('reviews', []) + feedback,
