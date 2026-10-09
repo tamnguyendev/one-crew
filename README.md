@@ -15,6 +15,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [P1a — task và inbox lưu bền](docs/durable-ledger.vi.md) | Submit/queue/connect, câu hỏi/revision/reply qua CLI; chưa dispatch worker |
 | [P1b — admission và supervisor](docs/control-runtime.vi.md) | Schema migration, reservation/counters, action receipts, native Windows process containment |
 | [Workflow tổng quát](docs/general-workflow.vi.md) | CLI chạy Codex từ spec/profile, review từng phần, resume, reorder và bằng chứng live |
+| [Gate container](docs/container-gates.vi.md) | Contract test chức năng theo snapshot; live đang chờ Docker Linux Engine |
 | [Workers và handoff](docs/providers.vi.md) | Codex/Kiro live, Claude chờ login; doctor và switch tại checkpoint |
 | [Controller chạy nền](docs/background-runner.vi.md) | Start/reconnect, chờ reply không gọi model, giữ deadline qua pause |
 | [Xử lý vấn đề qua inbox](docs/inbox-triage.vi.md) | Tự tạo câu hỏi ngắn, chờ reply và resume trong grant cũ |

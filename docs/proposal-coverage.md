@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Functional gate contract — isolated container tests
+
+Baseline `2cdc632`; [guide](container-gates.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| FG01 | Operator-sealed functional test command and immutable candidate/image | sandbox_gate.validate/evaluate, workflow and Git-candidate verify | six tests for owned-test rejection, immutable image, candidate-only mount, exit/cleanup, infrastructure failure without model repair | Complete |
+| FG02 | Bounded native client, recovery cleanup and explicit unavailable result | Job Object client, deterministic resource marker, preflight before enable | real native timeout and contract cleanup/unknown tests; engine probe fails promptly | Complete |
+| FG03 | Live application behavior and sandbox boundary | container configuration and receipts implemented | local Docker Linux Engine unavailable; user is starting Docker Desktop | Blocked |
+
+FG01/FG02 are contract/client guarantees, not live container evidence. No new model calls. Abrupt controller death can leave a networkless container until recovery cleanup; no reboot cleanup guarantee. Initial broad suite found a transient Windows redirected-handle cleanup error; native client now always waits for exit and fixture uses the existing supervisor suite's bounded cleanup retry. Final full suite: 161 tests pass in 64.052 seconds. Python compilation and Git whitespace checks pass.
+
 ## Inbox triage — resume an existing grant from a durable reply
 
 Baseline `3f31689`; [guide](inbox-triage.vi.md).

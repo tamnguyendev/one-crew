@@ -6,7 +6,7 @@ from .ledger import LedgerError, content_hash
 
 def fingerprint(state):
     return content_hash({key: state.get(key) for key in
-                         ('phase', 'task_revision', 'snapshot', 'plan', 'done', 'worker_override',
+                         ('phase', 'task_revision', 'snapshot', 'plan', 'done', 'worker',
                           'message', 'resume_phase', 'pending', 'parallel_pending', 'failed_calls', 'repairs')})
 
 

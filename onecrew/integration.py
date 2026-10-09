@@ -91,7 +91,8 @@ class Integration:
                                        '-m', f'OneCrew captured source bytes for {task_id} (includes user changes)').decode().strip()
             candidate_tree = self.tree(candidate, baseline_commit, index)
             gate_snapshot = self.inspect_tree(candidate_tree, revision)
-            checks = verify(self.store, gate_snapshot, profile)
+            from .sandbox_gate import task_guard
+            checks = verify(self.store, gate_snapshot, profile, guard=task_guard(self.workflow.control, task_id))
             if not checks['passed']:
                 raise LedgerError('Actual Git candidate failed configured checks; branch not published.')
             commit = self.git('commit-tree', candidate_tree, '-p', baseline_commit,

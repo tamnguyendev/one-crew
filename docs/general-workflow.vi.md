@@ -40,6 +40,8 @@ Pause dừng worker đang chạy và giữ snapshot đã công bố, calls/deadl
 
 ## Phạm vi gate và giới hạn
 
+Đã thêm [container_test](container-gates.vi.md) cho test chức năng theo snapshot. Contract và timeout đã được kiểm thử; thực thi container live đang chờ Docker Linux Engine trên máy.
+
 Gate v1: `json_equal`, `text_equal`, `text_contains`, `python_syntax`, `absent`. Tất cả AC phải có check; kiểu dữ liệu strict, `true` khác `1`. Syntax/text check không chứng minh chương trình chạy đúng. `completed` nghĩa đã hoàn tất pipeline và pass **checks được cấu hình**; acceptance vẫn `pending`. Chưa chạy lệnh test tùy ý do AI cung cấp trên host.
 
 Planner dùng schema enum cho đúng AC/path. JSON/schema sai được sửa trong trần; repair không tiến triển hoặc lặp failure dừng. Out-of-scope output bị từ chối. Cấu hình execution và ngân sách root không được reset bằng enable/retry; deadline tính từ submit, gồm thời gian chờ. `max_calls` giới hạn managed CLI invocations, không phải mọi request nội bộ provider. Usage có nguồn từ event CLI; chưa có bộ routing theo quota subscription.

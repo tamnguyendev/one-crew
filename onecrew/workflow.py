@@ -82,12 +82,15 @@ def validate_profile(profile):
         covered.update(check['acceptance'])
         if check['path'] not in context:
             raise LedgerError('Check path must be in context.')
-        if check['kind'] not in ('json_equal', 'text_equal', 'text_contains', 'python_syntax', 'absent'):
+        if check['kind'] not in ('json_equal', 'text_equal', 'text_contains', 'python_syntax', 'absent', 'container_test'):
             raise LedgerError('Unsupported trusted check. Arbitrary host commands are not accepted.')
         if check['kind'] in ('text_equal', 'text_contains') and not isinstance(check['expected'], str):
             raise LedgerError('Text checks require a string.')
         if check['kind'] in ('python_syntax', 'absent') and check['expected'] is not None:
             raise LedgerError('This check requires expected=null.')
+        if check['kind'] == 'container_test':
+            from .sandbox_gate import validate
+            validate(check, profile)
     if covered != set(ids) or len(check_ids) != len(set(check_ids)):
         raise LedgerError('Every acceptance criterion needs a distinct identified check; check IDs must be unique.')
     return json.loads(canonical(profile)) | {'provider': provider} | ({'parallel': True} if parallel else {})
@@ -177,12 +180,17 @@ def artifacts(value, owned):
     return result
 
 
-def verify(store, snapshot, profile):
+def verify(store, snapshot, profile, *, guard=None):
     context = store.context(snapshot)
     rows = []
     for check in profile['checks']:
         content = context[check['path']]
         kind, expected = check['kind'], check['expected']
+        if kind == 'container_test':
+            from .sandbox_gate import ContainerGate
+            result = ContainerGate(store).evaluate(snapshot, check, guard)
+            rows.append(dict(result, id=check['id'], acceptance=check['acceptance'], kind=kind))
+            continue
         passed, detail = False, 'Content did not match the trusted check.'
         try:
             if kind == 'absent':
@@ -294,6 +302,10 @@ class Workflow:
 
     def enable(self, task_id, revision, profile):
         profile = validate_profile(profile)
+        container_checks = [c for c in profile['checks'] if c['kind'] == 'container_test']
+        if container_checks:
+            from .sandbox_gate import ContainerGate
+            ContainerGate(self.store).preflight(container_checks)
         if not self.custom_worker:
             from .providers import make_worker
             self.worker = make_worker(self.control, profile['provider'])
@@ -445,7 +457,8 @@ class Workflow:
                             state['done'].append(item['id'])
                         state['phase'] = 'verifying' if repair else 'working'
                     elif state['phase'] == 'verifying':
-                        result = verify(self.store, state['snapshot'], profile)
+                        from .sandbox_gate import task_guard
+                        result = verify(self.store, state['snapshot'], profile, guard=task_guard(self.control, task_id))
                         state['verification'] = 'passed' if result['passed'] else 'failed'
                         state['checks'] = result
                         if result['passed']:
