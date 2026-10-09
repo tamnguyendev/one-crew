@@ -13,6 +13,13 @@ from .supervisor import identity, native_python, probe
 from .workflow import Workflow, task_lock
 
 
+def workflow_for(ledger, task_id):
+    if ledger.task(task_id, full=True)['handoff'].get('owned_execution'):
+        from .owned import Owned
+        return Owned(ledger)
+    return Workflow(ledger)
+
+
 def status(ledger, task_id):
     with ledger.transaction() as conn:
         ledger._task(conn, task_id)
@@ -27,7 +34,7 @@ def status(ledger, task_id):
 
 def loop(ledger, task_id, interval=.5):
     with task_lock(ledger, task_id + '.runner'):
-        workflow = Workflow(ledger)
+        workflow = workflow_for(ledger, task_id)
         record = {'identity': identity(os.getpid()), 'started_at': dt.datetime.now(dt.timezone.utc).isoformat()}
         with ledger.transaction(write=True) as conn:
             workflow.control._execution(conn, task_id)
@@ -56,6 +63,9 @@ def loop(ledger, task_id, interval=.5):
                     outcome = 'deadline'
                     return outcome
                 if state['phase'] == 'blocked':
+                    if state.get('mode') == 'owned_execution':
+                        outcome = 'blocked'
+                        return outcome
                     from .triage import handle
                     result = handle(workflow, task_id)
                     if result['status'] in ('blocked', 'cancelled'):
@@ -91,7 +101,7 @@ def start(ledger, task_id):
     current = status(ledger, task_id)
     if current['status'] != 'stopped':
         return current
-    workflow = Workflow(ledger)
+    workflow = workflow_for(ledger, task_id)
     _, state = workflow.state(task_id)
     if state is None or state['phase'] in ('completed', 'failed', 'cancelled'):
         raise LedgerError('Enable/resume a non-terminal workflow before start.')

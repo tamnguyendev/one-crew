@@ -6,15 +6,17 @@ Baseline `ab25eeb`. CTS audit/delivery were assisted: chat host selected files, 
 
 | ID | Requirement | Implementation evidence | Test evidence | Status |
 |---|---|---|---|---|
-| OE01 | Natural goal intake, no prepared profile/spec/file set | Existing ledger only accepts a prepared spec | None | Missing |
-| OE02 | Policy-bound dynamic repo discovery/read/search | Existing tools only read a preselected snapshot | None | Missing |
-| OE03 | Runtime owns generic observe/act loop and durable context | Existing artifact workflow has bounded tools but needs manual preparation | Existing WT/EC tests only | Partial |
-| OE04 | Isolated edits and independently evidenced candidate tests | Existing snapshots/container gates require a prepared profile | Existing snapshot/gate tests only | Partial |
-| OE05 | Reusable bounded Git delivery and completion after receipts | Local branch/integration exists; CTS push was a task-local script | Existing integration tests, assisted CTS receipts only | Partial |
-| OE06 | Background/inbox/recovery for new loop | Existing runner/ledger needs new mode wiring | Existing runner/inbox tests only | Partial |
-| OE07 | Three different tasks without host-prepared evidence/adapters | Not yet demonstrated | None | Missing |
+| OE01 | Natural goal intake, no prepared profile/spec/file set | owned_intake.py, owned_cli.py; dc5c940 | Five intake/CLI/discovery tests, duplicate/conflict and queued output | Complete |
+| OE02 | Policy-bound dynamic discovery/read/search | discovery.py; root/cursor/credential/link rules, persisted inventory | Nested discovery, pagination, escape/content tests; live agent-selected reads | Complete |
+| OE03 | Runtime owns generic observe/act loop | owned.py; durable response, frozen invocation context, receipts, plan, bounded retry/no-progress | Fake/live workers; replay without new model; final evidence review rejection; original/candidate distinction | Complete |
+| OE04 | Isolated candidate edits and tests | Dynamic snapshots; original tests immutable; ContainerGate; exact snapshot gate | Fixture and live fail→repair→pass; stale test rejection; partial-state rollback; source preserved | Complete |
+| OE05 | Reusable Git delivery and completion receipts | owned_git.py; sealed remote, temp index, new-ref lease, action journal, final ref observation | Real bare remote; candidate bytes, tracked deletion, source race, lost ack and runtime resume without duplicate model/effect | Complete |
+| OE06 | Background/inbox/recovery | Existing runner mode dispatch, entry context and request consumption | Native detached pause/cancel; question/reply/restart; unknown-effect replay; live runners stop after completion | Complete |
+| OE07 | Three tasks without host-prepared evidence/adapters | tests/live_owned.py and read-only evidence collector | All three types passed live; evidence registration and final documentation next | Partial |
 
-Summary: Complete 0, Partial 4, Missing 3, Blocked 0, Not applicable 0; verified coverage 0/7. Native full-access workers, new routing/KB and eight-hour soak are not included in this milestone. No source SRM is used as an implementation sandbox.
+Cycle 1: dc5c940. Cycle 2: runtime/tools/delivery implemented; full regression **267 tests pass in 324.012s**. The final queued-output CLI guard and fifth intake test pass separately (five intake tests, 0.837s); no changes to execution followed full-suite dispatch. Sixteen owned-runtime tests cover regular, failed, ambiguous and resumed execution. Documentation links/fences and SPEC-007 parse pass. The earlier full suite passed 259 tests; direct package invocation of two legacy suites initially failed because their historical test_workflow import requires discovery, subsequently corrected without product/test weakening.
+
+Complete 6, Partial 1, Missing 0, Blocked 0. This is bounded OE coverage, not all OC/LR requirements. Native full access, additional sandbox frameworks, authenticated native entry, routing/KB and eight-hour soak remain outside this milestone. No SRM/source task was used as an implementation sandbox.
 
 ## Portable local entry context — EC01–EC03
 

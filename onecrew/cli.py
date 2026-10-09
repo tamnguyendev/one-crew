@@ -19,6 +19,7 @@ def main(argv=None):
               '  task       run / list / status / cancel / outputs / preview (CV RUN- IDs)\n'
               '  request    create / list / show / revise / reply\n'
               '  entry      connect / note (portable local context, no dispatch)\n'
+              '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
               '  core       migrate / status / cancel / reconcile\n'
               '  work       enable / plan / run / start / runner / status / outputs / cancel / pause / resume / switch\n'
               '  work       group / vector / quota / extend / amend / triage / request-changes / recheck / reorder / review / export / branch / merge\n'

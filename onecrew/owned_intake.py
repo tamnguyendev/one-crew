@@ -18,15 +18,14 @@ def submit(ledger, goal, request_key, *, mode='audit', provider='codex', model='
         raise LedgerError('Image must be a locally installed immutable sha256 image ID.')
     if mode == 'change' and not image:
         raise LedgerError('Change jobs require an authorized sandbox image.')
-    if mode == 'delivery':
+    if mode == 'delivery' or branch or remote:
+        if mode=='audit': raise LedgerError('Audit jobs cannot publish Git changes.')
         if not branch or not re.fullmatch(r'onecrew/[A-Za-z0-9][A-Za-z0-9._/-]{0,100}', branch) or '..' in branch:
             raise LedgerError('Delivery needs an explicit new onecrew/... branch.')
         if not remote or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,60}',remote):
             raise LedgerError('Delivery needs an explicit existing Git remote name.')
-    elif branch or remote:
-        raise LedgerError('Git authority is available only in delivery mode.')
     permissions = ['discover','report'] + (['candidate.write','sandbox.test'] if mode == 'change' else [])
-    if mode == 'delivery':
+    if branch and remote:
         permissions += ['git.branch','git.commit','git.push']
     grant = validate_grant({'schema_version':1,'permissions':permissions,
                            'limits':{'max_calls':max_calls,'max_seconds':max_seconds},'source':'local operator: job submit'})

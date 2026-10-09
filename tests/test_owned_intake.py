@@ -1,6 +1,8 @@
 import tempfile
 from pathlib import Path
 import unittest
+import io
+from contextlib import redirect_stdout
 from onecrew.ledger import Ledger, LedgerError
 from onecrew.owned_intake import submit
 from onecrew.discovery import Discovery
@@ -23,6 +25,15 @@ class IntakeTests(unittest.TestCase):
     def test_permissions_are_explicit(self):
         with self.assertRaises(LedgerError): submit(self.ledger,'Fix bug','a',mode='change')
         with self.assertRaises(LedgerError): submit(self.ledger,'Push','b',mode='delivery',branch='main',remote='origin')
+
+    def test_cli_queued_outputs_has_actionable_error_without_dispatch(self):
+        from onecrew.owned_cli import main
+        task=submit(self.ledger,'Review architecture','queued')
+        output=io.StringIO()
+        with redirect_stdout(output):
+            code=main(['--project',str(self.root),'--state-root',str(self.ledger.state_root),'job','outputs',task['id']])
+        self.assertEqual(code,2);self.assertIn('queued with no outputs',output.getvalue())
+        self.assertEqual(self.ledger.task(task['id'])['budget']['used_calls'],0)
 
     def test_discovery_nested_and_paged(self):
         (self.root/'child/.git').mkdir(parents=True)

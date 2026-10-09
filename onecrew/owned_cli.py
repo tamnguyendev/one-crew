@@ -22,6 +22,7 @@ def main(argv=None):
     p.add_argument('--start',action='store_true')
     for name in ('start','run','status','outputs','cancel','resume'):
         p=commands.add_parser(name);p.add_argument('task')
+        if name=='outputs': p.add_argument('--details',action='store_true')
     args=parser.parse_args(argv)
     ledger=Ledger(args.project,args.state_root)
     try:
@@ -38,7 +39,10 @@ def main(argv=None):
         else:
             from .owned import Owned
             runtime=Owned(ledger)
-            if args.command=='outputs': result=runtime.state(args.task)[1]
+            if args.command=='outputs':
+                state=runtime.state(args.task)[1]
+                if state is None: raise LedgerError('Job is queued with no outputs; use job start to enable execution.')
+                result=state if args.details else output_card(runtime,args.task,state)
             elif args.command=='cancel': result=runtime.control.cancel(args.task)
             elif args.command=='run':
                 runtime.enable(args.task);result=runtime.run(args.task,steps=100)
@@ -50,3 +54,24 @@ def main(argv=None):
         print(json.dumps(result,ensure_ascii=False,indent=2));return 0
     except (ValueError,OSError) as error:
         print(json.dumps({'error':str(error)},ensure_ascii=False));return 2
+
+
+def output_card(runtime,task_id,state):
+    import difflib
+    from .usage import summarize
+    changes=[]
+    for path,blob in state['files'].items():
+        original=state['original'].get(path)
+        if original==blob: continue
+        before=runtime.store.read_blob(original).decode('utf-8-sig') if original else ''
+        after=runtime.store.read_blob(blob).decode('utf-8-sig')
+        diff=''.join(difflib.unified_diff(before.splitlines(True),after.splitlines(True),fromfile=path,tofile=path))
+        changes.append({'path':path,'original':original,'candidate':blob,'diff':diff[:16000],'truncated':len(diff)>16000})
+    control=runtime.control.status(task_id)
+    return {'task':task_id,'phase':state['phase'],'message':state['message'],'plan':state['plan'],
+            'report':state.get('report'),'candidate_snapshot':state['snapshot'],'original_workspace_modified':False,
+            'changes':changes,'tests':[{'passed':t['passed'],'snapshot':t['evidence']['snapshot'],
+                'exit_code':t['evidence']['exit_code']} for t in state['tests']],
+            'deliveries':state['deliveries'],'pending_questions':runtime.ledger.requests(task_id,pending=True),
+            'usage':summarize(state['usage'],control['attempts']),'review':state.get('reviews',[]),
+            'tool_receipts':state['receipts'],'acceptance':state['acceptance']}

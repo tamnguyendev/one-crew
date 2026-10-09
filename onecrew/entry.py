@@ -19,7 +19,11 @@ def _packet(ledger, conn, task_id):
     latest = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.checkpoint' ORDER BY seq DESC LIMIT 1", (task_id,)).fetchone()
     state = json.loads(latest['payload']) if latest else {}
     amendment = state.get('amendment') or {}
-    spec = Spec.parse(amendment.get('spec_text', payload['spec_text']), Path(payload['spec_id']+'.md'))
+    if payload.get('owned_execution'):
+        from types import SimpleNamespace
+        spec = SimpleNamespace(revision=payload['spec_revision'], brief=payload['goal'])
+    else:
+        spec = Spec.parse(amendment.get('spec_text', payload['spec_text']), Path(payload['spec_id']+'.md'))
     profile = {}
     if conn.execute('PRAGMA user_version').fetchone()[0] >= 2:
         execution = conn.execute('SELECT configuration FROM executions WHERE task_id=?', (task_id,)).fetchone()
@@ -27,7 +31,7 @@ def _packet(ledger, conn, task_id):
             profile = json.loads(execution['configuration']).get('profile', {})
     profile = amendment.get('profile', profile)
     worker = state.get('worker', profile)
-    plans = (state.get('plan') or {}).get('tasks', [])
+    plans = (state.get('plan') or {}).get('tasks', []) if isinstance(state.get('plan'),dict) else []
     questions = []
     for request in conn.execute("SELECT * FROM requests WHERE task_id=? AND state='pending' ORDER BY created_at,id LIMIT 10", (task_id,)):
         question = json.loads(request['payload'])
@@ -69,6 +73,12 @@ def _packet(ledger, conn, task_id):
     # Time passing alone must not invalidate a recorded discussion note. Budget and
     # execution changes do invalidate it, including updates outside checkpoints.
     stable = dict(result, task={k: v for k, v in task.items() if k != 'deadline_expired'})
+    if payload.get('owned_execution'):
+        result.update(execution_mode='owned_execution',runtime_plan=clipped(state.get('plan'),5000),
+                      root_scope=payload['project_path'],candidate_snapshot=state.get('snapshot'))
+        result['detail_commands']=['job status '+task_id,'job outputs '+task_id,
+                                  'task events '+task_id+' --after 0 --json']
+        stable=dict(result,task={k:v for k,v in task.items() if k!='deadline_expired'})
     result['revision'] = content_hash(stable)
     return result
 
