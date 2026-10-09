@@ -1,5 +1,19 @@
 # Proposal Coverage
 
+## Effort-warning cycle — EW01–EW03
+
+Source: user asks to warn when work takes too long so the user chooses; follows explicit expansion of the Cloud Auth task budget. Cycle baseline `d583219`. Soft warnings do not revoke the existing hard grant or silently extend it.
+
+| ID | Requirement | Evidence planned | Status | Limits |
+|---|---|---|---|---|
+| EW01 | At a settled owned checkpoint, warn after 20 calls or 600 elapsed seconds since tracking baseline with progress/usage | effort_watch deterministic request; clock/call tests | Complete | Elapsed time can include waits; no interruption of a live worker or build |
+| EW02 | Durable continue/pause/stop decision; silence/defer/ack never answer; restart dedup | revision-bound inbox + reply consumption, restart/crash-gap, silence/pause/stop tests | Complete | Continue does not increase hard grant/deadline; pause adjustment requires discussion |
+| EW03 | Surface through output card/monitor/local notification feed without AI polling | existing request delivery and output card; notification delivery/ack test | Complete | No automatic callback to this chat; old running Python processes need restart to load code |
+
+Validation plan: deterministic threshold/reply/restart/crash-gap tests, relevant owned/runner/inbox/delivery regressions. Existing blocked/terminal jobs are not silently resumed. No new worker calls needed for this implementation.
+
+Validation: effort-watch/owned/runner/notifications/delivery/fallback subset passed 53 tests in 22.349s; existing native-process ResourceWarning remains, with cleanup assertions passing. No product inference or task resume performed. Cloud Auth task observed blocked at 32 calls after evidence review rejection; the raised hard budget did not cause this stop. Terminal and inbox use existing request lifecycle; no chat callback or legacy workflow/build-midflight warning is claimed.
+
 ## Search recovery cycle — SR01–SR04
 
 Source: Cloud Auth task `TASK-0236a265d0ef4dd19d5cd14f8e600e95`, user request to fix OneCrew and rerun; baseline `1f2c89b`. Eleven successful Claude attempts stopped on three different empty searches; only one app configuration file had been read. Scope is runtime repair, not application code repair.

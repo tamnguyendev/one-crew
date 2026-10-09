@@ -318,6 +318,9 @@ class Owned(Workflow):
             for _ in range(steps):
                 control=self.control.status(task_id)
                 if control['cancel_requested'] or control['status']=='paused' or state['phase'] in ('completed','blocked','failed','cancelled'): return state
+                from .effort_watch import check as check_effort
+                seq,wait_for_user=check_effort(self,task_id,seq,state)
+                if wait_for_user: return state
                 if self.ledger.requests(task_id,pending=True): return state
                 if state['phase']=='waiting_operation':
                     from .owned_recipes import advance

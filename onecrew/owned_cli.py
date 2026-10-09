@@ -85,6 +85,7 @@ def output_card(runtime,task_id,state):
                                 if v['status']=='proposed' and task_id in v['tasks']],
             'build':state.get('build_evidence'),'operation':state.get('operation'),
             'progress':state.get('progress'),'recovery':state.get('recovery'),
+            'effort_watch':state.get('effort_watch'),
             'changes':changes,'tests':[{'passed':t['passed'],'snapshot':t['evidence']['snapshot'],
                 'exit_code':t['evidence']['exit_code']} for t in state['tests']],
             'deliveries':state['deliveries'],'branches':state.get('branches',[]),'pending_questions':runtime.ledger.requests(task_id,pending=True),
