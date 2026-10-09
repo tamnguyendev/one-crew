@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import datetime as dt
+import time
 import unittest
 from unittest.mock import patch
 
@@ -140,6 +141,77 @@ class GoalBudgetTests(unittest.TestCase):
         question = ensure_request(self.f.workflow,self.f.task['id'])
         self.assertEqual(question['question']['recommendation'],'inspect')
         self.assertIn('0 lượt',question['question']['impact'])
+
+    def test_owner_cancel_reaches_other_repo_and_waits_for_unknown_across_restart(self):
+        self.group()
+        row = self.reserve(self.workflow.control,self.task,'unknown')
+        self.workflow.control.unknown(row['id'],'lost acknowledgement')
+        self.f.workflow.control.cancel(self.f.task['id'])
+        root = Control(Ledger(self.f.project,self.f.ledger.state_root))
+        self.assertEqual(root.status(self.f.task['id'])['status'],'cancelling')
+        self.assertEqual(self.f.ledger.task(self.f.task['id'])['execution'],'cancelling')
+        self.assertTrue(self.workflow.control.status(self.task['id'])['cancel_requested'])
+        self.assertEqual(root.status(self.f.task['id'])['budget']['goal']['unknown_attempts'],1)
+        from onecrew.runner import loop
+        with patch('onecrew.runner.Workflow',return_value=self.f.workflow):
+            self.assertEqual(loop(self.f.ledger,self.f.task['id']),'cancelling')
+        with self.assertRaises(LedgerError):
+            self.reserve(self.workflow.control,self.task,'after-cancel')
+        root.cancel(self.f.task['id'])  # repeat does not release uncertain calls
+        self.assertEqual(root.status(self.f.task['id'])['budget']['goal']['reserved_calls'],1)
+        self.workflow.control.finish(row['id'],row['generation'],{'confirmed_stopped':True})
+        self.assertEqual(root.status(self.f.task['id'])['status'],'cancelled')
+        self.assertEqual(self.f.ledger.task(self.f.task['id'])['execution'],'cancelled')
+        self.assertEqual(root.status(self.f.task['id'])['budget']['goal']['used_calls'],1)
+
+    def test_child_cancel_stays_local_and_group_write_failure_rolls_back(self):
+        self.group()
+        with patch.object(self.f.ledger,'_event',side_effect=OSError('disk full')):
+            with self.assertRaises(OSError):
+                self.f.workflow.control.cancel(self.f.task['id'])
+        self.assertFalse(self.f.workflow.control.status(self.f.task['id'])['cancel_requested'])
+        self.assertFalse(self.workflow.control.status(self.task['id'])['cancel_requested'])
+        self.workflow.control.cancel(self.task['id'])
+        self.assertFalse(self.f.workflow.control.status(self.f.task['id'])['cancel_requested'])
+        self.assertEqual(self.workflow.control.status(self.task['id'])['status'],'cancelled')
+        row = self.reserve(self.f.workflow.control,self.f.task,'independent')
+        self.f.workflow.control.finish(row['id'],row['generation'],{'not_started':True},not_started=True)
+
+    def test_owner_cancel_stops_native_worker_in_other_project(self):
+        from onecrew.supervisor import Supervisor, native_python
+        self.group()
+        row = self.reserve(self.workflow.control,self.task,'native')
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(Supervisor(self.workflow.control).run,row,
+                                 [native_python(),'-c','import time; time.sleep(30)'],
+                                 cwd=self.other.project,timeout=10)
+            try:
+                end = time.monotonic()+8
+                while time.monotonic() < end:
+                    if self.workflow.control.attempt(row['id'])['status'] == 'running':
+                        break
+                    time.sleep(.02)
+                self.assertEqual(self.workflow.control.attempt(row['id'])['status'],'running')
+                self.f.workflow.control.cancel(self.f.task['id'])
+                future.result(timeout=8)
+                self.assertEqual(self.workflow.control.attempt(row['id'])['status'],'settled')
+                self.assertEqual(self.f.workflow.control.status(self.f.task['id'])['status'],'cancelled')
+                self.assertEqual(self.f.workflow.control.status(self.f.task['id'])['budget']['goal']['active_attempts'],0)
+            finally:
+                self.f.workflow.control.cancel(self.f.task['id'])
+
+    def test_work_cancel_cli_reports_group_status(self):
+        from contextlib import redirect_stdout
+        import io
+        import json
+        from onecrew.workflow_cli import main
+        self.group()
+        with redirect_stdout(io.StringIO()) as stream:
+            code = main(['--project',str(self.f.project),'--state-root',str(self.f.ledger.state_root),
+                         'work','cancel',self.f.task['id'],'--json'])
+        self.assertEqual(code,0)
+        self.assertEqual(json.loads(stream.getvalue())['status'],'cancelled')
+        self.assertTrue(self.workflow.control.status(self.task['id'])['cancel_requested'])
 
 
 if __name__ == '__main__':

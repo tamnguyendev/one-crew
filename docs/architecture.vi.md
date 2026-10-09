@@ -32,8 +32,8 @@ Giữ [kiến trúc cũ](architecture-2026-10-08.vi.md) và [backlog cũ](mvp-ba
 | Năng lực | Code hiện có | Khoảng thiếu |
 |---|---|---|
 | CLI spec | onecrew/specs.py: list/review/diff/approve/request-changes/history | Approval local chưa xác thực/cách ly worker |
-| Ledger/inbox/core | SQLite ngoài source, admission/counters, Windows Job supervisor, root/branch triage, reply effects lưu transaction | Caller hiện là local operator; trusted multi-entry và đầy đủ fault transitions còn thiếu |
-| Workflow tổng quát | Spec/profile→plan→artifact→snapshot→gates; Codex/Kiro live, background/recovery, dirty bytes | Claude live chờ login; test đầy đủ cancel/handoff theo từng adapter còn thiếu |
+| Ledger/inbox/core | SQLite ngoài source, admission/counters, Windows Job supervisor, root/branch triage, reply effects và hủy nhóm lưu transaction | Caller hiện là local operator; trusted multi-entry và đầy đủ fault transitions còn thiếu |
+| Workflow tổng quát | Spec/profile→plan→artifact→snapshot→gates; Codex/Kiro live, background/recovery, dirty bytes | Auth subscription được kiểm tra trước dispatch; Claude live chờ login; test đầy đủ cancel/handoff theo từng adapter còn thiếu |
 | Phân việc/model | DAG hai worker, amendment; quota Codex chỉ đọc, optional account reservation và usage dedup; fixed goal budget và commit-vector gate nhiều repo | Chưa authoritative cumulative settlement, routing dispatch/fallback và dynamic cross-repo scheduler |
 | Output | Card/diff/revision, scoped request-changes, reorder, verified review branch và target CAS merge mức file | Tự rebase/conflict repair và authenticated entry acceptance còn thiếu |
 | JEV | Credential DPAPI và doctor kết nối được | Chưa semantic routing/benchmark |

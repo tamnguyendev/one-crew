@@ -226,13 +226,23 @@ class Control:
             self.ledger._event(conn, row['task_id'], 'attempt.settled', {'id': attempt_id, 'result': result})
 
     def cancel(self, task_id):
+        from .goal_budget import group
         with self.ledger.transaction(write=True) as conn:
             self._execution(conn, task_id)
-            active = conn.execute("SELECT 1 FROM attempts WHERE task_id=? AND status IN ('reserved','running','unknown')",
-                                  (task_id,)).fetchone()
-            conn.execute('UPDATE executions SET cancel_requested=1,status=? WHERE task_id=?',
-                         ('cancelling' if active else 'cancelled', task_id))
-            self.ledger._event(conn, task_id, 'execution.cancel_requested', {})
+            goal = group(conn,task_id)
+            members = [row['task_id'] for row in goal['members']] if goal and goal['owner_task_id'] == task_id else [task_id]
+            # Group membership is already approved and immutable. One write transaction
+            # fences concurrent admission in every member project of this ledger.
+            for member in members:
+                execution = conn.execute('SELECT * FROM executions WHERE task_id=?',(member,)).fetchone()
+                if not execution:
+                    raise LedgerError('Goal member execution missing; cancellation rolled back.')
+                active = conn.execute("SELECT 1 FROM attempts WHERE task_id=? AND status IN ('reserved','running','unknown')",
+                                      (member,)).fetchone()
+                conn.execute('UPDATE executions SET cancel_requested=1,status=? WHERE task_id=?',
+                             ('cancelling' if active else 'cancelled', member))
+                if not execution['cancel_requested']:
+                    self.ledger._event(conn, member, 'execution.cancel_requested', {'requested_by_task':task_id})
 
     def pause(self, task_id):
         with self.ledger.transaction(write=True) as conn:
@@ -248,6 +258,8 @@ class Control:
             result = dict(execution)
             result['configuration'] = json.loads(execution['configuration'])
             result['budget'] = current_budget(conn, task)
+            from .goal_budget import cancellation_status
+            result['status'] = cancellation_status(task_id,execution,result['budget'])
             result['deadline'] = result['budget']['deadline']
             result['attempts'] = [dict(r) for r in conn.execute('SELECT * FROM attempts WHERE task_id=? ORDER BY generation', (task_id,))]
             return result

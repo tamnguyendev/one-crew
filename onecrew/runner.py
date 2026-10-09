@@ -40,7 +40,7 @@ def loop(ledger, task_id, interval=.5):
                 if state is None:
                     raise LedgerError('Enable a workflow before starting its controller.')
                 if control['cancel_requested']:
-                    outcome = 'cancelled'
+                    outcome = control['status']  # may still be cancelling/unknown
                     return outcome
                 if state['phase'] in ('completed', 'cancelled', 'failed'):
                     outcome = state['phase']

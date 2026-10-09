@@ -236,7 +236,8 @@ class Ledger:
         if conn.execute('PRAGMA user_version').fetchone()[0] >= 2:
             execution = conn.execute('SELECT * FROM executions WHERE task_id=?', (row['id'],)).fetchone()
             if execution:
-                result['execution'] = execution['status']
+                from .goal_budget import cancellation_status
+                result['execution'] = cancellation_status(row['id'],execution,budget)
                 result['budget'].update(used_calls=execution['used_calls'], reserved_calls=execution['reserved_calls'])
                 result['control_revision'] = execution['revision']
                 result['cancel_requested'] = bool(execution['cancel_requested'])
@@ -250,7 +251,7 @@ class Ledger:
                         result['current_spec_revision'] = workflow['amendment']['spec_revision']
                         if full:
                             result['accepted_amendment'] = workflow['amendment']
-                    if workflow.get('waiting_reason') and execution['status'] not in ('cancelled', 'completed', 'failed', 'paused'):
+                    if workflow.get('waiting_reason') and result['execution'] not in ('cancelling', 'cancelled', 'completed', 'failed', 'paused'):
                         result.update(execution='waiting', waiting_reason=workflow['waiting_reason'])
         if full:
             result['handoff'] = payload

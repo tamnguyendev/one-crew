@@ -18,7 +18,7 @@ def main(argv=None):
     parser.add_argument('--state-root', type=Path)
     group = parser.add_subparsers(dest='group', required=True).add_parser('work')
     commands = group.add_subparsers(dest='command', required=True)
-    for name in ('enable', 'plan', 'quota', 'group', 'vector', 'triage', 'extend', 'amend', 'request-changes', 'recheck', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch', 'merge'):
+    for name in ('enable', 'plan', 'quota', 'group', 'vector', 'triage', 'extend', 'amend', 'request-changes', 'recheck', 'run', 'start', 'runner', 'status', 'outputs', 'cancel', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch', 'merge'):
         command = commands.add_parser(name)
         command.add_argument('id')
         command.add_argument('--json', action='store_true')
@@ -111,8 +111,8 @@ def main(argv=None):
                       'plan_revision': plan_revision(state)}
         elif args.command == 'outputs':
             result = workflow.outputs(args.id)
-        elif args.command == 'pause':
-            workflow.control.pause(args.id)
+        elif args.command in ('pause','cancel'):
+            getattr(workflow.control,args.command)(args.id)
             result = workflow.control.status(args.id)
         elif args.command == 'resume':
             result = workflow.resume(args.id, reuse_output=args.reuse_output)

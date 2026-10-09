@@ -35,6 +35,7 @@ def status(value):
     if control['budget'].get('goal'):
         goal = control['budget']['goal']
         lines.append(f"Mục tiêu chung: {goal['owner_task_id']} | {goal['used_calls']}/{goal['max_calls']} calls đã dùng; {goal['reserved_calls']} đang giữ; {len(goal['members'])} tasks.")
+        lines.append(f"Worker toàn nhóm: {goal['active_attempts']} active; {goal['unknown_attempts']} chưa xác minh dừng.")
     lines += [f"Workflow revision: {value['workflow_revision']}",
               f"Plan revision: {value['plan_revision'] or 'chưa có'}",
               f"Budget revision: {control['budget']['revision']}",

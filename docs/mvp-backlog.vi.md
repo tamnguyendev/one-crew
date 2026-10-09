@@ -6,7 +6,7 @@ Revision 2 chuyển bài học từ chín repo thành contract kiến trúc mụ
 
 ## 0. Điểm xuất phát và nguyên tắc nghiệm thu
 
-Điểm xuất phát của baseline: CLI spec và runtime CV/Codex, SPEC-005 có live delivery/69 tests. Cập nhật triển khai 09/10: đã có general planner, supervisor/checkpoint recovery, Codex/Kiro handoff, DAG hai worker, branch inbox, amendment, review correction, extension hữu hạn, Docker gates/local review branch và quota Codex chỉ đọc. Coverage/evidence ghi riêng fixture và live. Claude live, authenticated entry, đa repo/target merge, quota dispatch/fallback và soak tám giờ vẫn còn thiếu; JEV chưa semantic routing.
+Điểm xuất phát của baseline: CLI spec và runtime CV/Codex, SPEC-005 có live delivery/69 tests. Cập nhật triển khai 09/10: đã có general planner, supervisor/checkpoint recovery, Codex/Kiro handoff, DAG hai worker, branch inbox, amendment, review correction, extension hữu hạn, Docker gates/local review branch và quota Codex chỉ đọc. Coverage/evidence ghi riêng fixture và live. Đã bổ sung target merge mức file, gate bộ commit đa repo, account reservation, ngân sách nhóm và hủy cả nhóm. Claude live, authenticated entry, điều phối đa repo động, routing/fallback tự động và soak tám giờ vẫn còn thiếu; JEV chưa semantic routing.
 
 Mỗi mốc cần một kết quả người dùng thử được, code/commit/evidence và giới hạn còn lại; không tính tài liệu kiến trúc là feature hoàn tất. Mốc đang chờ approval chỉ giữ nhánh phụ thuộc. Không kéo thêm dashboard/roles/JEV vào đường găng. Gate phù hợp từng thay đổi; không lặp full suite khi không có thay đổi hoặc nghi vấn mới.
 
