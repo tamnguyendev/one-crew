@@ -1,5 +1,18 @@
 # Proposal Coverage
 
+## Native tool receipt recovery — 2026-10-09
+
+Approved scope: user requested fixing the Cloud Auth task blocker and running the existing task again after the recorded diagnosis. Baseline a1bfd70. This repairs OneCrew infrastructure; application acceptance remains separate.
+
+| ID | Requirement | Implementation / verification evidence | Status | Boundary |
+|---|---|---|---|---|
+| NR01 | Distinguish disabled tool attempts from executed/unknown calls | native_audit.check_native_tools; exact CLI denial, ordered unique IDs, advertised capability; six receipt tests with adversarial variants | Complete | Unknown errors, successful calls, missing/duplicate receipts remain blocked; no new tool grants |
+| NR02 | Recover settled patch without repeat inference; clarify tool use | native_change read-only prompt; native recovery test retains one call and records denied attempts; real ATT-39dfd79f76914fd8b8beafa9916439d8 parses six files / four denied Edit attempts offline | Complete | Original transcript and budget counters retained |
+| NR03 | Preserve source and test/review gates | Snapshot check before patch installation; mutation masking test; 88 native/owned/workflow/solution/effort tests pass | Complete | A parsed patch is not a verified Cloud Auth fix |
+| NR04 | Explicit restart excludes prior blocked idle time from next warning interval | Owned.resume renews baseline only after settled block and without pending requests; regression preserves hard budget and pending warning | Complete | No automatic reply or resume; prior checkpoints and cumulative calls retained |
+
+Evidence: Claude CLI 2.1.286 advertised only Read/Glob/Grep/StructuredOutput. Four Edit attempts each returned an exact disabled-tool error; terminal result was successful after 200.316 seconds. All 2,414 captured source files matched the manifest. No model called during offline replay. The existing task will resume through fixed Flutter tests, independent review and guarded application; no production endpoint or device testing is implied. Regression suite emits an existing subprocess ResourceWarning; 88 tests complete successfully.
+
 ## Revision 9 implementation — current tracking
 
 Sources: architecture.vi.md, shared-conversation.vi.md, solution-approval.vi.md, discussion-routing.vi.md. Baseline 15d1cbe; conversation foundation 48e579b. User authorized implementation of this architecture, not blanket approval of future product solutions. Current cycles 2–4 completed: runtime gate, consultation/adapters, slice/outbox integration. Historical tables below retain their original baseline dates/statuses.

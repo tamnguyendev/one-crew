@@ -121,6 +121,16 @@ class Owned(Workflow):
         with task_lock(self.ledger,task_id):
             seq,state=self.state(task_id)
             if state['phase'] in ('completed','cancelled','failed'): raise LedgerError('Cannot resume a terminal job.')
+            # An explicit operator restart after a settled block begins a new
+            # warning interval, not a new budget. Never consume a pending question.
+            control=self.control.status(task_id)
+            if (state['phase']=='blocked' and state.get('effort_watch')
+                    and not self.ledger.requests(task_id,pending=True)
+                    and all(a['status']=='settled' for a in control['attempts'])):
+                watch=state['effort_watch']
+                watch.update(round=watch['round']+1,started_at=self.control.clock().isoformat(),
+                    calls=control['used_calls'],request=None,
+                    source='explicit operator resume after settled block; prior checkpoints and hard budget retained')
             state['phase']='waiting_operation' if state.get('operation') and not state.get('build_evidence') else 'running'
             state.pop('waiting_reason',None)
             if not state.get('pending'):

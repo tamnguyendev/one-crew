@@ -74,6 +74,63 @@ class NativeChangeTests(unittest.TestCase):
         self.assertFalse(result['passed']);self.assertIn('--no-pub',call.call_args.args[0])
         self.assertEqual(result['evidence']['snapshot'],state['snapshot'])
 
+    def test_rejected_tool_receipt_can_recover_without_second_model_call(self):
+        from onecrew.native_audit import NativeClaude
+        from tests.test_native_tool_receipts import denied_events
+        self.worker.responses=[self.candidate()]
+        with patch.object(self.worker,'result',side_effect=LedgerError('Old parser rejects attempted Edit')):
+            state=self.run.run(self.task,steps=1)
+        self.assertEqual(state['phase'],'blocked');self.assertIsNotNone(state['pending'])
+        events=denied_events()+[{'type':'result','subtype':'success','is_error':False,
+            'structured_output':self.candidate()}]
+        class Recorded:
+            def stdout(self,attempt):return '\n'.join(json.dumps(e) for e in events)
+        def recovered(attempt):
+            return NativeClaude.result(Recorded(),dict(attempt,result=json.dumps({'stdout':'fixture.jsonl'})))
+        self.run.resume(self.task)
+        with patch.object(self.worker,'result',side_effect=recovered):state=self.run.run(self.task,steps=1)
+        self.assertEqual(state['native_change']['stage'],'verify')
+        self.assertEqual(len(self.worker.calls),1)
+        self.assertEqual(self.run.control.status(self.task)['used_calls'],1)
+        self.assertEqual(state['native_change']['attempts'][0]['denied_tool_calls'][0]['name'],'Edit')
+        self.assertIn('a-b',(self.f.root/'app/lib/main.dart').read_text())
+
+    def test_snapshot_mutation_is_detected_before_patch_can_mask_it(self):
+        state=self.run.state(self.task)[1]
+        target=Path(state['native_change']['workspace'])/'app/lib/main.dart'
+        target.write_text('unauthorized change')
+        self.worker.responses=[self.candidate()]
+        state=self.run.run(self.task,steps=1)
+        self.assertEqual(state['phase'],'blocked')
+        self.assertIn('Captured source changed',state['message'])
+        self.assertEqual(target.read_text(),'unauthorized change')
+        self.assertFalse(state.get('workspace_applied'))
+
+    def test_explicit_resume_after_block_resets_idle_warning_not_calls_or_pending_question(self):
+        import datetime as dt
+        seq,state=self.run.state(self.task)
+        state.update(phase='blocked')
+        state['effort_watch']['started_at']=(self.run.control.clock()-dt.timedelta(hours=2)).isoformat()
+        self.run.persist(self.task,seq,state)
+        before=self.run.control.status(self.task)
+        self.run.resume(self.task)
+        state=self.run.state(self.task)[1]
+        self.assertEqual(state['effort_watch']['round'],1)
+        self.assertEqual(self.run.control.status(self.task)['budget'],before['budget'])
+        from onecrew.effort_watch import check
+        seq,state=self.run.state(self.task)
+        self.assertFalse(check(self.run,self.task,seq,state)[1])
+        state['effort_watch']['started_at']=(self.run.control.clock()-dt.timedelta(hours=2)).isoformat()
+        seq=self.run.persist(self.task,seq,state)
+        self.assertTrue(check(self.run,self.task,seq,state)[1])
+        request=self.f.ledger.requests(self.task,pending=True)[0]
+        seq,state=self.run.state(self.task);state['phase']='blocked';self.run.persist(self.task,seq,state)
+        self.run.resume(self.task)
+        self.assertEqual(self.run.state(self.task)[1]['effort_watch']['round'],1)
+        self.assertEqual(self.f.ledger.requests(self.task,pending=True)[0]['id'],request['id'])
+        self.run.run(self.task,steps=1)
+        self.assertEqual(self.worker.calls,[])
+
     def test_repair_limit_preserves_session_and_never_applies(self):
         self.worker.responses=[self.candidate()]*3
         sessions=[]

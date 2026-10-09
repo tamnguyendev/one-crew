@@ -22,6 +22,47 @@ REVIEW_SCHEMA={'type':'object','properties':{'accepted':{'type':'boolean'},'feed
     'required':['accepted','feedback'],'additionalProperties':False}
 
 
+def check_native_tools(events):
+    """Accept unavailable tools only with a unique, ordered CLI denial receipt.
+
+    An error from an available tool can follow a side effect and is NOT a denial.
+    Keep attempted calls in telemetry, but never expand the session capability.
+    """
+    allowed={'Read','Grep','Glob','StructuredOutput'}
+    init=[e for e in events if e.get('type')=='system' and e.get('subtype')=='init']
+    calls=[];results={};seen=set()
+    for position,event in enumerate(events):
+        blocks=event.get('message',{}).get('content',[])
+        if not isinstance(blocks,list): continue
+        for block in blocks:
+            if event.get('type')=='assistant' and block.get('type')=='tool_use':
+                calls.append((position,block))
+            elif event.get('type')=='user' and block.get('type')=='tool_result':
+                results.setdefault(block.get('tool_use_id'),[]).append((position,block))
+    denied=[]
+    for position,call in calls:
+        name=call.get('name');key=call.get('id')
+        if not isinstance(key,str) or not key or key in seen:
+            raise LedgerError('Ambiguous native tool call identity; inspect receipt before continuation.')
+        seen.add(key)
+        if name in allowed: continue
+        receipt=results.get(key,[])
+        advertised=init[0].get('tools') if len(init)==1 else None
+        if (not isinstance(name,str) or not isinstance(advertised,list)
+                or not all(isinstance(tool,str) for tool in advertised)
+                or not set(advertised)<=allowed or name in advertised
+                or len(receipt)!=1 or receipt[0][0]<=position):
+            raise LedgerError('Unexpected native tool without an unambiguous denial: '+str(name))
+        block=receipt[0][1];content=block.get('content')
+        if isinstance(content,list) and len(content)==1 and content[0].get('type')=='text':
+            content=content[0].get('text')
+        expected=f'<tool_use_error>Error: No such tool available: {name}. {name} is disabled for this session, in subagents as well as here.</tool_use_error>'
+        if block.get('is_error') is not True or content!=expected:
+            raise LedgerError('Unexpected native tool may have executed: '+name)
+        denied.append({'id':key,'name':name,'reason':'CLI tool unavailable; not executed'})
+    return [call for _,call in calls],denied
+
+
 def workspace_path(state_root, task_id):
     # Store-Python state roots can already consume most of Windows MAX_PATH.
     # Keep snapshots in a short managed directory; the ledger retains the binding.
@@ -108,13 +149,10 @@ class NativeClaude(ClaudeArtifact):
             raise LedgerError('Native audit did not complete successfully; no automatic replay.')
         value=result.get('structured_output')
         if not isinstance(value,dict): raise LedgerError('Native audit lacks structured output.')
-        calls=[b for e in events if e.get('type')=='assistant' for b in e.get('message',{}).get('content',[])
-               if b.get('type')=='tool_use']
-        if any(b['name'] not in ('Read','Grep','Glob','StructuredOutput') for b in calls):
-            raise LedgerError('Unexpected native tool observed; inspect capability before continuation.')
+        calls,denied=check_native_tools(events)
         value['_native']={'session_id':result.get('session_id'),'num_turns':result.get('num_turns'),
             'tool_calls':len(calls),'tools':sorted(set(b['name'] for b in calls)),
-            'log':json.loads(attempt['result'])['stdout']}
+            'denied_tool_calls':denied,'log':json.loads(attempt['result'])['stdout']}
         return value,[result.get('usage')]
 
 
