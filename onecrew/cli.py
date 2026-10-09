@@ -25,8 +25,12 @@ def main(argv=None):
               '  work       group / vector / quota / extend / amend / triage / request-changes / recheck / reorder / review / export / branch / merge\n'
               '  provider   doctor [codex|claude|kiro] / quota codex / choose --file <policy.json>\n'
               '  decision   JEV credential and connectivity commands\n'
+              '  android    build / status (operator-authorized native debug APK build)\n'
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')
         return 0
+    if len(args)>index and args[index]=='android':
+        from .android_build import main as android_main
+        return android_main(args)
     if len(args)>index and args[index]=='job':
         from .owned_cli import main as job_main
         return job_main(args)

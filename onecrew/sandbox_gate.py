@@ -38,8 +38,8 @@ def validate(check, profile):
         raise LedgerError('Container test timeout must be 1-300 seconds.')
 
 
-def command(argv, directory, timeout, guard=None):
-    """Bound native Docker client including its child tree; never wait on inherited pipes."""
+def command(argv, directory, timeout, guard=None, environment_extra=None):
+    """Bound an operator-selected native client and its child tree, not a filesystem sandbox."""
     validate_executable(argv)
     directory.mkdir(parents=True, exist_ok=True)
     token = uuid.uuid4().hex
@@ -47,7 +47,13 @@ def command(argv, directory, timeout, guard=None):
     child, job = None, Job()
     try:
         environment = {k: v for k, v in os.environ.items() if k.upper() in
-                       ('SYSTEMROOT', 'WINDIR', 'PATH', 'TEMP', 'TMP', 'USERPROFILE', 'LOCALAPPDATA', 'APPDATA')}
+                       ('SYSTEMROOT', 'WINDIR', 'PATH', 'PATHEXT', 'COMSPEC', 'TEMP', 'TMP',
+                        'USERPROFILE', 'LOCALAPPDATA', 'APPDATA', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMDATA')}
+        if environment_extra:
+            if set(environment_extra) - {'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'FLUTTER_ROOT',
+                                         'GRADLE_USER_HOME', 'CI', 'FLUTTER_SUPPRESS_ANALYTICS', 'DART_SUPPRESS_ANALYTICS'}:
+                raise GateUnavailable('Unsupported native client environment override.')
+            environment.update(environment_extra)
         with outpath.open('wb') as out, errpath.open('wb') as err:
             child = subprocess.Popen(argv, cwd=directory, env=environment, stdin=subprocess.DEVNULL,
                                      stdout=out, stderr=err, creationflags=0x4 | 0x08000000)
@@ -55,20 +61,20 @@ def command(argv, directory, timeout, guard=None):
             nt = ctypes.WinDLL('ntdll')
             nt.NtResumeProcess.argtypes = [w.HANDLE]
             if nt.NtResumeProcess(w.HANDLE(int(child._handle))) != 0:
-                raise GateUnavailable('Cannot resume contained Docker client.')
+                raise GateUnavailable('Cannot resume contained native client.')
             deadline = time.monotonic() + timeout
             while child.poll() is None:
                 if guard:
                     guard()
                 if time.monotonic() >= deadline:
-                    raise GateUnavailable('Docker command deadline exceeded.')
+                    raise GateUnavailable('Native command deadline exceeded.')
                 if max(outpath.stat().st_size, errpath.stat().st_size) > 2_000_000:
-                    raise GateUnavailable('Docker command exceeded output limit.')
+                    raise GateUnavailable('Native command exceeded output limit.')
                 time.sleep(.05)
             job.stop()
             child.wait(timeout=5)
         if max(outpath.stat().st_size, errpath.stat().st_size) > 2_000_000:
-            raise GateUnavailable('Docker command exceeded output limit.')
+            raise GateUnavailable('Native command exceeded output limit.')
         return child.returncode, outpath.read_text(encoding='utf-8', errors='replace'), errpath.read_text(encoding='utf-8', errors='replace')
     finally:
         try:
