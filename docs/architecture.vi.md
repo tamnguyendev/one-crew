@@ -1,4 +1,8 @@
-# Kiến trúc OneCrew — baseline 09/10/2026, revision 6
+# Kiến trúc OneCrew — baseline 09/10/2026, revision 7
+
+**Revision 7 — duyệt solution trước implement:** [contract SG01–SG05](solution-approval.vi.md). OneCrew khảo sát và đề xuất hướng giải quyết; người dùng trao đổi với entry Codex/Claude/Kiro rồi chốt đúng revision trước khi implement. Khi cần thay đổi hành vi/phạm vi/contract đã duyệt, dừng phần bị ảnh hưởng và mở change request; entry không tự approve thay người dùng. Mặc định một implementation worker cho một feature, mở song song khi contract/ownership/dependency rõ và lát đầu được kiểm chứng. Đây là thiết kế và entry policy mới; binding approval vào owned/native job, typed change gate và callback chat còn pending, không được coi là đã triển khai từ tài liệu. Quyền của task đã giao trước revision này không tự bị thu hồi.
+
+**Native Flutter change NC01–NC04:** [contract và giới hạn](native-change.vi.md). Runtime nhận patch theo scope từ Claude, chạy fixed Flutter tests, reviewer độc lập đọc diff, rồi apply theo baseline hashes. Đây là profile opt-in riêng với audit; chưa có solution approval gate SG01–SG05. Kiểm thử runtime không chứng minh task sản phẩm thật đã hoàn tất.
 
 **Native audit trial NA01–NA04:** [contract và evidence](native-audit-trial.vi.md). Operator chọn `job native-audit TASK --reference ... --terminal` trên task Claude audit đã dừng runner và settle attempts. Agent dùng Read/Grep/Glob trong snapshot text được lọc, session worker giữ qua sửa, reviewer là session riêng. Core vẫn giữ task/usage/inbox/deadline; citation đối chiếu source thật trước completion. Trial Cloud Auth đã completed với reviewer accepted (outcome 739), có ghi chú nghiệm thu và APK chưa xác minh. Đây là mode opt-in cho audit, chưa thay change/build hoặc provider khác. 30 native turns/600 giây mỗi invocation; managed calls không đại diện tổng model turns. Không tự fallback sang adapter khác khi lỗi.
 
