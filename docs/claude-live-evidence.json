@@ -1,0 +1,192 @@
+{
+  "started_at": "2026-10-09T03:11:27.076803+00:00",
+  "task": "TASK-e66990f384654c43a5e7e830b39d9457",
+  "project": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\claude-live-f8f27466\\project",
+  "state_root": "D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.onecrew\\claude-live-f8f27466\\state",
+  "baseline_failed": true,
+  "claude": {
+    "phase": "working",
+    "done": [
+      "code"
+    ],
+    "message": null,
+    "snapshot": "9e8ac61332fc70929c76c7eef97203e698756962f3c3d30a54c3a6410d06707b",
+    "used_calls": 1,
+    "model_ids": [
+      "claude-haiku-4-5-20251001"
+    ],
+    "native_num_turns": 3,
+    "duration_ms": 43059,
+    "usage_reported": {
+      "input_tokens": 2429,
+      "cache_creation_input_tokens": 5876,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 6289,
+      "output_tokens_details": {
+        "thinking_tokens": 4280
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 5876,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 8,
+          "output_tokens": 2890,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 5876,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 5876
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard",
+      "fallback_credit": null
+    },
+    "permission_denials_count": 0,
+    "tree_stopped": true
+  },
+  "handoff": {
+    "phase": "completed",
+    "verification": "passed",
+    "acceptance": "pending",
+    "used_calls": 2,
+    "deadline_preserved": true,
+    "snapshot": "1d2c6a9ec662b58b7f8c7d403fdba70ba2d0c0600a4032fe3c4cbedb5defc8ed",
+    "checks": {
+      "passed": true,
+      "checks": [
+        {
+          "passed": true,
+          "detail": "Container tests passed.",
+          "evidence": {
+            "snapshot": "1d2c6a9ec662b58b7f8c7d403fdba70ba2d0c0600a4032fe3c4cbedb5defc8ed",
+            "check_revision": "f74a3868d7439930202f2e8d1090d35573ae8a493a0cf7079b8b15fd6ab4ff7f",
+            "image": "sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a",
+            "environment": {
+              "engine": "28.3.2",
+              "os": "linux",
+              "transport": "local_desktop_pipe"
+            },
+            "exit_code": 0,
+            "oom_killed": false,
+            "stdout": "",
+            "stderr": "....\n----------------------------------------------------------------------\nRan 4 tests in 0.001s\n\nOK\n",
+            "network": "none",
+            "source_mount": "read-only"
+          },
+          "id": "behavior",
+          "acceptance": [
+            "AC-CODE"
+          ],
+          "kind": "container_test"
+        },
+        {
+          "id": "doc",
+          "acceptance": [
+            "AC-DOC"
+          ],
+          "kind": "text_equal",
+          "passed": true,
+          "evidence": {
+            "path": "usage.txt",
+            "snapshot": "1d2c6a9ec662b58b7f8c7d403fdba70ba2d0c0600a4032fe3c4cbedb5defc8ed"
+          },
+          "detail": "Passed configured check."
+        }
+      ],
+      "limits": "Only configured checks were evaluated; syntax/content checks do not prove runtime behavior."
+    },
+    "source_unchanged": true,
+    "usage": [
+      {
+        "attempt": "ATT-19ca5bd908fe4f37869ec3647196ec40",
+        "model": "claude-haiku-4-5-20251001",
+        "provider": "claude",
+        "reported": [
+          {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 5876,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 5876,
+            "cache_read_input_tokens": 0,
+            "fallback_credit": null,
+            "inference_geo": "not_available",
+            "input_tokens": 2429,
+            "iterations": [
+              {
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 5876,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 5876,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 8,
+                "output_tokens": 2890,
+                "type": "message"
+              }
+            ],
+            "output_tokens": 6289,
+            "output_tokens_details": {
+              "thinking_tokens": 4280
+            },
+            "server_tool_use": {
+              "web_fetch_requests": 0,
+              "web_search_requests": 0
+            },
+            "service_tier": "standard",
+            "speed": "standard"
+          }
+        ]
+      },
+      {
+        "attempt": "ATT-b5ab1fc13aac4a0aba4eafc7ba57b35b",
+        "reported": [
+          {
+            "input_tokens": 7484,
+            "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 44,
+            "reasoning_output_tokens": 0
+          }
+        ],
+        "provider": "codex",
+        "model": "gpt-6-luna"
+      }
+    ]
+  },
+  "cancel": {
+    "task": "TASK-8523fa4f99e94e9581dea293c3c4077e",
+    "before_status": "running",
+    "after_status": "settled",
+    "result_reason": "cancelled",
+    "tree_stopped": true,
+    "worker_probe": "dead",
+    "used_calls": 1,
+    "verified": true
+  },
+  "claude_cli": "2.1.286",
+  "codex_cli": "0.160.0",
+  "os": "native Windows",
+  "auth_mode": "subscription",
+  "total_managed_calls": 3,
+  "automatic_retries": 0,
+  "plan_source": "local_operator",
+  "internal_model_call_cap": false,
+  "limitations": [
+    "Operator-supplied plan, not a Claude planner trial.",
+    "One managed invocation may contain multiple internal CLI turns; this Claude invocation reported three.",
+    "Cancellation confirmed while native CLI running; no claim of server-side request rollback or usage refund.",
+    "No authenticated entry connector, 8-hour soak or full crash/handoff matrix is claimed.",
+    "Malformed local probe spec failed before admission with zero model calls; corrected before recorded trial."
+  ]
+}

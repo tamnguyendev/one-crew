@@ -2,7 +2,7 @@
 
 OneCrew hướng tới một core local để nhận công việc đã làm rõ từ **Codex / Claude / Kiro**, điều phối **Codex / Claude Code / Kiro CLI**, lưu tiến độ và kiểm chứng kết quả. CLI trước; công cụ chat và worker có thể thay độc lập.
 
-**Đã chạy được workflow tổng quát với Codex và Kiro:** spec-to-plan, snapshot giữ dirty bytes, tối đa hai worker, inbox theo nhánh, controller nền, review/sửa từng phần, thay đổi yêu cầu và gia hạn hữu hạn. Test chức năng trong Docker, ghép target local và kiểm tương thích bộ commit đa repo đã có evidence thật. Có ngân sách chung và hủy toàn nhóm đã duyệt. Claude live, entry connectors có xác thực, điều phối đa repo tự động, routing tự động và soak tám giờ còn chưa hoàn tất. Baseline kiến trúc 09/10/2026, revision 2; trạng thái chi tiết trong coverage.
+**Đã chạy được workflow tổng quát với Codex, Kiro và Claude:** spec-to-plan, snapshot giữ dirty bytes, tối đa hai worker, inbox theo nhánh, controller nền, review/sửa từng phần, thay đổi yêu cầu và gia hạn hữu hạn. Test chức năng trong Docker, ghép target local và kiểm tương thích bộ commit đa repo đã có evidence thật. Có ngân sách chung và hủy toàn nhóm đã duyệt. Entry connectors có xác thực, điều phối đa repo tự động, routing tự động và soak tám giờ còn chưa hoàn tất. Baseline kiến trúc 09/10/2026, revision 2; trạng thái chi tiết trong coverage.
 
 ## Tài liệu hiện hành
 
@@ -17,7 +17,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [Workflow tổng quát](docs/general-workflow.vi.md) | CLI chạy Codex từ spec/profile, review từng phần, resume, reorder và bằng chứng live |
 | [Gate container](docs/container-gates.vi.md) | Test chức năng trên snapshot/Git candidate; hai chức năng live đạt, có cả evidence lỗi và sửa |
 | [Đăng nhập subscription](docs/subscription-auth.vi.md) | Kiểm tra auth trước dispatch, lọc API key khỏi môi trường worker; không thay cấu hình người dùng |
-| [Workers và handoff](docs/providers.vi.md) | Codex/Kiro live, Claude chờ login; doctor và switch tại checkpoint |
+| [Workers và handoff](docs/providers.vi.md) | Ba worker live có evidence; doctor và switch tại checkpoint |
 | [Controller chạy nền](docs/background-runner.vi.md) | Start/reconnect, chờ reply không gọi model, giữ deadline qua pause |
 | [Gia hạn có giới hạn](docs/budget-extension.vi.md) | Tăng trần tổng bằng revision riêng, giữ chi phí đã dùng và deadline tối đa tám giờ |
 | [Ngân sách chung nhiều repo](docs/goal-budget.vi.md) | Nhóm task đã duyệt chia sẻ trần tổng; không reset khi chia task hoặc restart |
@@ -63,6 +63,6 @@ Run RUN-20261008-232057-1d06d8 tự tạo app CV từ thư mục trống trong 5
 
 Workflow mới đã chạy hai cấu trúc JSON ngoài CV, dùng 4 và 3 calls gồm planner retry. Có Codex→Kiro checkpoint handoff, hai Kiro workers cùng root và test chức năng đơn hàng/CSV trong Docker. Ba trial chức năng dùng tổng 7 calls, giữ cả trial lỗi và regression riêng trong evidence; không che chi phí repair do lỗi hạ tầng ban đầu. Source/index gốc giữ nguyên, acceptance pending. JEV kết nối được không đồng nghĩa routing đã hoạt động. Kết quả CV vẫn chờ khách hàng review; hiệu quả chống bot thực tế chưa được chứng minh.
 
-Các phần còn thiếu được theo dõi theo OC01–OC12 trong coverage: entry có xác thực, Claude live/cancel, đầy đủ fault transitions, điều phối đa repo tự động, routing/fallback, settlement usage đầy đủ và soak dài. CLI hiện dùng local operator; không tự cấp quyền chạy API trả phí hoặc deploy.
+Các phần còn thiếu được theo dõi theo OC01–OC12 trong coverage: entry có xác thực, đầy đủ fault/cancel/handoff transitions, điều phối đa repo tự động, routing/fallback, settlement usage đầy đủ và soak dài. CLI hiện dùng local operator; không tự cấp quyền chạy API trả phí hoặc deploy.
 
 Kiểm thử code khi có thay đổi runtime: python -m unittest discover -s tests -v.

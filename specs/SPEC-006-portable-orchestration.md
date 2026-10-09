@@ -15,7 +15,7 @@ Chat app riêng, dashboard, vector DB, điều phối đa máy, JEV bắt buộc
 Khởi động lại không lặp việc; đổi entry vẫn thấy cùng câu hỏi và output; đổi worker không có hai writer hoặc reset budget. Duyệt đúng nội dung, giữ phần code chưa commit; lỗi checkpoint phải hiện rõ. Task liên quan chỉ chạy khi dependency đạt; kiểm thử đúng bản ghép trước bàn giao. Không mở rộng scope ngoài quyền đã cấp.
 
 ### Lưu ý
-Đã có Codex/Kiro workflow, checkpoint handoff, DAG hai worker và gate container với evidence. Có ghép target local, gate bộ commit đa repo, quota reservation và ngân sách/hủy nhóm. Claude live, entry có xác thực, điều phối đa repo tự động, routing tự động và soak tám giờ còn thiếu. History chat chưa lưu vào OneCrew không tự chuyển được. Coverage ghi trạng thái từng phần.
+Đã có Codex/Kiro/Claude workflow, checkpoint handoff, DAG hai worker và gate container với evidence. Có ghép target local, gate bộ commit đa repo, quota reservation và ngân sách/hủy nhóm. Entry có xác thực, điều phối đa repo tự động, routing tự động và soak tám giờ còn thiếu. History chat chưa lưu vào OneCrew không tự chuyển được. Coverage ghi trạng thái từng phần.
 
 ### Ngân sách
 Triển khai theo bốn mốc có bằng chứng. Mỗi lượt model/live run cần grant cụ thể, giữ tổng chi phí theo mục tiêu. Tám giờ là trần tùy chọn, gồm thời gian chờ, không phải số giờ phải dùng hết.

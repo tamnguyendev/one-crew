@@ -54,7 +54,9 @@ def doctor(provider):
             auth = subprocess.run([binary, 'whoami'], capture_output=True, timeout=15, env=env)
             result['authenticated'] = auth.returncode == 0
             result['available'] &= result['authenticated']
-        result['live_verified'] = result['available'] and provider in ('codex', 'kiro')
+        # Pinned native protocols have bounded live evidence in docs/*-evidence.json.
+        # This does not attest every handoff/crash transition or internal call caps.
+        result['live_verified'] = result['available'] and provider in ('codex', 'kiro', 'claude')
         if not result['available']:
             result.setdefault('reason', 'Authentication or pinned Windows CLI capability unavailable.')
     except (OSError, ValueError, subprocess.SubprocessError):

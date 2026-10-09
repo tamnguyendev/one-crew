@@ -43,7 +43,9 @@ class SubscriptionTests(unittest.TestCase):
             with patch('onecrew.providers.executable',return_value='native.exe'), \
                  patch('onecrew.providers.subprocess.check_output',return_value=b'2.1.286 (Claude Code)'), \
                  patch('onecrew.providers.subprocess.run',return_value=SimpleNamespace(returncode=code,stdout=json.dumps({'loggedIn':True,'authMethod':method}).encode())) as run:
-                self.assertEqual(doctor('claude')['available'],expected and os.name == 'nt')
+                result = doctor('claude')
+                self.assertEqual(result['available'],expected and os.name == 'nt')
+                self.assertEqual(result['live_verified'],expected and os.name == 'nt')
                 self.assertEqual(run.call_args.args[0][1:-3], CLAUDE_AUTH_ARGS)
 
     def test_worker_launches_receive_auth_flags_and_clean_environment(self):
