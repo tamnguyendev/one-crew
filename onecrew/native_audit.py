@@ -1,5 +1,6 @@
 """Opt-in native Claude audit: bounded whole work units, immutable source copy."""
 import json
+import itertools
 import os
 from pathlib import Path
 import uuid
@@ -30,11 +31,25 @@ def workspace_path(state_root, task_id):
     return base/uuid.uuid4().hex[:12]
 
 
-def capture(runtime, destination):
+def source_roots(runtime,state):
+    roots=[]
+    for ref in state.get('receipts',[]):
+        if ref['action']!='git_status' or not ref.get('successful'): continue
+        result=json.loads(runtime.store.read_blob(ref['blob']))['result']
+        if 'repository' in result and 'head' in result: roots.append(result['repository'])
+    # Reuse the task's own discovered repositories, never a chat-prepared file list.
+    roots=sorted(set(roots))
+    if not roots or '' in roots: return ['']
+    return [p for p in roots if not any(p.startswith(parent+'/') for parent in roots if parent!=p)]
+
+
+def capture(runtime, destination, roots=None):
     """Copy permitted UTF-8 working bytes; never traverse links or copy Git/settings."""
     destination=Path(destination);destination.mkdir(parents=True,exist_ok=False)
     discovery=Discovery(runtime.ledger.project);manifest={};repos=[];omitted=0;long_paths=0;visited=0;total=0
-    for directory,dirs,files in os.walk(discovery.root,followlinks=False):
+    roots=[''] if roots is None else roots
+    trees=[discovery.root if not p else discovery.path(p) for p in roots]
+    for directory,dirs,files in itertools.chain.from_iterable(os.walk(tree,followlinks=False) for tree in trees):
         root=Path(directory);relative=root.relative_to(discovery.root).as_posix()
         if (root/'.git').exists():
             from .owned_git import GitDelivery
@@ -57,7 +72,7 @@ def capture(runtime, destination):
             target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data)
             manifest[relative]=bytes_hash(data)
     if not manifest: raise LedgerError('No permitted source for native audit.')
-    metadata={'original_project':str(discovery.root),'repositories':repos,'omitted_files':omitted,'omitted_windows_long_paths':long_paths,
+    metadata={'original_project':str(discovery.root),'source_roots':roots,'repositories':repos,'omitted_files':omitted,'omitted_windows_long_paths':long_paths,
               'meaning':'Permitted working-tree text snapshot, not necessarily the code in the installed APK. '
                         'Excluded credentials, links, binary/large files and tool settings. Missing files are not proven absent from the original project.'}
     durable_write(destination/'ONECREW_AUDIT_CONTEXT.json',canonical(metadata).encode())
@@ -116,7 +131,7 @@ def enable(runtime,task_id,reference):
         if runtime.ledger.requests(task_id,pending=True): raise LedgerError('Answer the pending request before changing execution mode.')
         if state.get('native_audit'): return state
         workspace=workspace_path(runtime.ledger.state_root,task_id)
-        captured=capture(runtime,workspace)
+        captured=capture(runtime,workspace,source_roots(runtime,state))
         state['native_audit']={'version':1,'workspace':str(workspace),'manifest':runtime.store.blob(canonical(captured).encode()),
             'stage':'work','worker_session':str(uuid.uuid4()),'review_session':str(uuid.uuid4()),
             'worker_started':False,'review_started':False,'repairs':0,'attempts':[],

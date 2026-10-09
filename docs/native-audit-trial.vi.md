@@ -24,3 +24,5 @@ References: [Claude CLI flags](https://code.claude.com/docs/en/cli-reference), l
 Live dispatch preparation hit Windows WinError 206 under the long Store-Python state root before any inference. Snapshots now use a short managed ~/.onecrew/workspaces path when needed; ledger still binds exact workspace/manifest. Nine native tests passed including this path selection. The failed partial copy was not reused.
 
 Some vendored iOS header paths still exceeded Windows limits after shortening. Snapshot root now uses one short unique directory; unsupported paths over 245 characters are counted explicitly in metadata, alongside existing binary/secret/size omissions. No silent claim of complete repository coverage.
+
+Whole-root capture reached the text bound before inference. Migration now derives source roots from successful git_status receipts of the same task, removes overlapping roots, and discloses source_roots in metadata. No chat-prepared source/file selection. A task without prior repository discovery still uses its project root and may require narrower intake. Ten native tests passed, including excluding an unrelated sibling repo from capture.

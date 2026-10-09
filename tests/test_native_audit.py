@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 from tests import test_owned as fixtures
-from onecrew.native_audit import capture,enable,citations,NativeClaude,workspace_path
+from onecrew.native_audit import capture,enable,citations,NativeClaude,workspace_path,source_roots
 from onecrew.ledger import LedgerError
 
 
@@ -111,6 +111,17 @@ class NativeAuditTests(unittest.TestCase):
             target=workspace_path(self.f.root/('long'*40),'TASK-'+('a'*32))
         self.assertTrue(target.is_relative_to(self.f.root/'.onecrew/workspaces'))
         self.assertNotIn('longlong',str(target));self.assertLess(len(target.name),20)
+
+    def test_capture_uses_prior_task_repo_discovery_not_entire_multi_repo_root(self):
+        from onecrew.ledger import canonical
+        (self.f.root/'app').mkdir();(self.f.root/'app/main.py').write_text('x=1')
+        (self.f.root/'unrelated').mkdir();(self.f.root/'unrelated/many.py').write_text('x=2')
+        run,task,_=self.f.runtime([])
+        blob=run.store.blob(canonical({'action':'git_status','result':{'repository':'app','head':'abc'}}).encode())
+        state={'receipts':[{'index':0,'blob':blob,'action':'git_status','successful':True}]}
+        self.assertEqual(source_roots(run,state),['app'])
+        result=capture(run,Path(self.f.temp.name)/'scoped',source_roots(run,state))
+        self.assertEqual(list(result['files']),['app/main.py']);self.assertEqual(result['metadata']['source_roots'],['app'])
 
 
 if __name__=='__main__': unittest.main()
