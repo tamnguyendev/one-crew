@@ -28,7 +28,8 @@ def round(workflow, task_id, sequence, state, ready, common, profile):
         configuration = control.status(task_id)
         for item in ready[:2]:
             context = workflow.store.context(base)
-            spec = ledger.task(task_id, full=True)['handoff']['spec_text']
+            from .amendment import spec_for
+            spec = spec_for(state, ledger.task(task_id, full=True))
             prompt = ('You implement ONE SLICE, not the entire project. No tools. Return complete UTF-8 contents only for the exact owned paths of YOUR ASSIGNMENT. All other paths are read-only, even if the full spec mentions them.\nREAD-ONLY PROJECT SPEC\n'
                       + spec + '\nREAD-ONLY SOURCE\n' + canonical(context)
                       + '\nYOUR ONLY ASSIGNMENT\n' + canonical(item)

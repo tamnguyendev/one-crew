@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Requirement amendment and dependent invalidation
+
+Baseline `74bde44`; [guide](requirement-amendment.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| AM01 | Explicit in-scope spec/profile revision invalidates selected/changed-AC descendants and overlapping owners | amendment.apply/affected_tasks; effective profile/spec used in serial/parallel and integration | A→(B,C)→D B/D rerun preserves A/C; mandatory changed check and overlap closure | Complete |
+| AM02 | Keep counters, deadline, dirty source and immutable history; reject stale/running/user-source conflict | workflow lock/CAS, scope/cap guards, baseline capture/overlay, stale output/plan revisions | no counter reset, old acceptance/reorder rejection, running and user-edit guards, persistence rollback | Complete |
+| AM03 | Refresh operator-owned readonly context and expose acknowledged amendment to another entry | refreshed baseline, ledger accepted_amendment, spec_for/profile_for | changed readonly contract survives snapshot and next worker prompt sees new spec | Complete |
+
+Five focused tests pass in 3.338 seconds; full suite: 178 tests pass in 66.374 seconds. CLI amend help and Git whitespace checks pass. No live model calls in this cycle. Semantic dependencies absent from the graph still require operator-selected affected tasks; no new paths/AC IDs/tools or automatic budget extension. Branch-local waiting/triage remains separate. Prior review/live functional milestone committed as `74bde44`.
+
 ## Readable review and live functional recovery
 
 Baseline `1e4c33b`; [functional evidence](functional-evidence.json), [gate guide](container-gates.vi.md).

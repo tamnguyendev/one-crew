@@ -244,6 +244,10 @@ class Ledger:
                     result.update(verification=workflow['verification'], acceptance=workflow['acceptance'],
                                   snapshot=workflow['snapshot'], message=workflow['message'],
                                   dispatch_enabled=True, grant_status='local_operator_enabled')
+                    if workflow.get('amendment'):
+                        result['current_spec_revision'] = workflow['amendment']['spec_revision']
+                        if full:
+                            result['accepted_amendment'] = workflow['amendment']
                     if workflow.get('waiting_reason') and execution['status'] not in ('cancelled', 'completed', 'failed', 'paused'):
                         result.update(execution='waiting', waiting_reason=workflow['waiting_reason'])
         if full:

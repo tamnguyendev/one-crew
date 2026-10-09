@@ -6,7 +6,7 @@ from .ledger import LedgerError, content_hash
 
 def fingerprint(state):
     return content_hash({key: state.get(key) for key in
-                         ('phase', 'task_revision', 'snapshot', 'plan', 'done', 'worker',
+                         ('phase', 'task_revision', 'snapshot', 'plan', 'done', 'worker', 'amendment',
                           'message', 'resume_phase', 'pending', 'parallel_pending', 'failed_calls', 'repairs')})
 
 
@@ -22,7 +22,8 @@ def ensure_request(workflow, task_id):
         if action == {'type': 'workflow.triage', 'parameters': {'fingerprint': bound, 'budget_revision': budget_revision}}:
             return request
     task = workflow.ledger.task(task_id, full=True)
-    profile = control['configuration']['profile']
+    from .amendment import profile_for
+    profile = profile_for(state, control)
     left = task['budget']['limits']['max_calls'] - control['used_calls'] - control['reserved_calls']
     safe = (bool(state.get('resume_phase')) and left > 0 and not control['cancel_requested']
             and state['failed_calls'] < profile['max_repairs']

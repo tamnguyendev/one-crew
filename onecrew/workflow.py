@@ -14,6 +14,7 @@ from .control import Control, CapacityWait, migrate
 from .ledger import LedgerError, canonical, content_hash, exact_fields, key_field, text_field
 from .snapshots import Snapshots, durable_write, scope_list
 from .supervisor import Supervisor
+from .amendment import profile_for, spec_for, plan_revision
 
 
 @contextmanager
@@ -386,7 +387,7 @@ class Workflow:
             if state is None:
                 raise LedgerError('Enable a sealed workflow profile first.')
             configuration = self.control.status(task_id)['configuration']
-            profile = configuration['profile']
+            profile = profile_for(state, self.control.status(task_id))
             selected = state.get('worker', {'provider': profile.get('provider', 'codex'),
                                             'model': profile['model'], 'capability': configuration['capability']})
             profile = dict(profile, provider=selected['provider'], model=selected['model'])
@@ -415,7 +416,7 @@ class Workflow:
                     if wants_worker and not state['pending'] and not state.get('parallel_pending') and self.worker.capability() != selected['capability']:
                         raise LedgerError('Worker capability changed since enable.')
                     context = self.store.context(state['snapshot'])
-                    common = '\nSPEC\n' + task['handoff']['spec_text'] + '\nSEALED PROFILE\n' + canonical(profile) + '\nSOURCE\n' + canonical(context)
+                    common = '\nSPEC\n' + spec_for(state, task) + '\nSEALED PROFILE\n' + canonical(profile) + '\nSOURCE\n' + canonical(context)
                     if state['phase'] == 'planning':
                         sequence, value = self._invoke(task_id, sequence, state, 'plan',
                             'Plan only the supplied scope. Every acceptance ID and owned file must be covered. acceptance arrays contain ONLY exact IDs, never descriptions. No tools; no extra features.' + common,
@@ -561,7 +562,7 @@ class Workflow:
             if any(a['status'] != 'settled' for a in control['attempts']):
                 raise LedgerError('Reconcile the previous attempt before resuming.')
             if (state['pending'] or state.get('parallel_pending')) and not reuse_output:
-                profile = control['configuration']['profile']
+                profile = profile_for(state, control)
                 if state['failed_calls'] >= profile['max_repairs']:
                     raise LedgerError('Failed-call retry cap reached; no automatic budget extension.')
                 state['failed_calls'] += 1
@@ -581,7 +582,7 @@ class Workflow:
     def reorder(self, task_id, revision, order):
         with task_lock(self.ledger, task_id):
             seq, state = self.state(task_id)
-            if not state or not state['plan'] or content_hash(state['plan']) != revision:
+            if not state or not state['plan'] or plan_revision(state) != revision:
                 raise LedgerError('Stale or missing plan revision.')
             if state['pending'] or state.get('parallel_pending') or state['phase'] != 'working':
                 raise LedgerError('Reorder is allowed only between work checkpoints.')
@@ -591,7 +592,7 @@ class Workflow:
                 raise LedgerError('Order must contain each queued task exactly once.')
             state['plan']['tasks'] = [r for r in rows if r['id'] in state['done']] + [queued[k] for k in order]
             self.persist(task_id, seq, state)
-            return {'plan_revision': content_hash(state['plan']), 'plan': state['plan']}
+            return {'plan_revision': plan_revision(state), 'plan': state['plan']}
 
     def set_plan(self, task_id, revision, plan):
         """Accept an operator-supplied plan instead of paying for another planning call."""

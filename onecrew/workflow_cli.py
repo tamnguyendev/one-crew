@@ -18,7 +18,7 @@ def main(argv=None):
     parser.add_argument('--state-root', type=Path)
     group = parser.add_subparsers(dest='group', required=True).add_parser('work')
     commands = group.add_subparsers(dest='command', required=True)
-    for name in ('enable', 'plan', 'triage', 'extend', 'recheck', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
+    for name in ('enable', 'plan', 'triage', 'extend', 'amend', 'recheck', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
         command = commands.add_parser(name)
         command.add_argument('id')
         command.add_argument('--json', action='store_true')
@@ -31,8 +31,13 @@ def main(argv=None):
             command.add_argument('--steps', type=int, default=100)
         if name == 'resume':
             command.add_argument('--reuse-output', action='store_true', help='Reprocess a settled receipt after a parser fix; no new worker call.')
-        if name in ('plan', 'review', 'reorder', 'export', 'switch', 'branch', 'extend', 'recheck'):
+        if name in ('plan', 'review', 'reorder', 'export', 'switch', 'branch', 'extend', 'recheck', 'amend'):
             command.add_argument('--revision', required=True)
+        if name == 'amend':
+            command.add_argument('--spec-revision', required=True)
+            command.add_argument('--profile', type=Path, required=True)
+            command.add_argument('--affected', nargs='+', required=True)
+            command.add_argument('--reason', required=True)
         if name == 'extend':
             command.add_argument('--request-id', required=True)
             command.add_argument('--max-calls', type=int, required=True)
@@ -69,14 +74,18 @@ def main(argv=None):
             result = extend(workflow.control, args.id, args.revision, args.request_id, args.max_calls, args.deadline, args.reason)
         elif args.command == 'recheck':
             result = workflow.recheck(args.id, args.revision)
+        elif args.command == 'amend':
+            from .amendment import apply
+            result = apply(workflow, args.id, args.revision, args.spec_revision, read_json(args.profile), args.affected, args.reason)
         elif args.command in ('start', 'runner'):
             from .runner import start, status
             result = (start if args.command == 'start' else status)(workflow.ledger, args.id)
         elif args.command == 'status':
+            from .amendment import plan_revision
             seq, state = workflow.state(args.id)
             result = {'sequence': seq, 'state': state, 'control': workflow.control.status(args.id),
                       'workflow_revision': content_hash(state) if state else None,
-                      'plan_revision': content_hash(state['plan']) if state and state['plan'] else None}
+                      'plan_revision': plan_revision(state)}
         elif args.command == 'outputs':
             result = workflow.outputs(args.id)
         elif args.command == 'pause':

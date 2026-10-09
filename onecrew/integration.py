@@ -75,7 +75,8 @@ class Integration:
                     self.workflow.control.authorize_action(existing['id'], existing['revision'])
                     existing['status'] = 'authorized'
                 return self._apply(existing)
-            profile = self.workflow.control.status(task_id)['configuration']['profile']
+            from .amendment import profile_for
+            profile = profile_for(state, self.workflow.control.status(task_id))
             base = self.store.load(state['base'])
             candidate = self.store.load(revision)
             if not base['head']:
