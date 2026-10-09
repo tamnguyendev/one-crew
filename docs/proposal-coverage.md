@@ -9,8 +9,10 @@ Proposal: `docs/native-audit-trial.vi.md`; baseline e0285c3. User approved trial
 | NA01 | One native tool loop per work unit, reuse session for repair | Claude adapter/phase state, fixture and live native tools | Complete | Claude audit only; live repair continuity not yet demonstrated |
 | NA02 | Read-only scoped snapshot and tool restrictions | snapshot/filter/escape tests and live denied read | Complete | Provider boundary, not OS sandbox; one live outside-read case |
 | NA03 | Independent review, citation verification, usage and bounded recovery | session repair/restart/failure tests | Complete | Native turns differ from managed calls; 30 turns/600 seconds per invocation, no implicit fallback |
-| NA04 | Same Cloud Auth task, real result and lessons | live task outcome and evidence | Partial | No claimed success before accepted report |
+| NA04 | Same Cloud Auth task, real result and lessons | live task outcome and evidence | Complete | Outcome 739: source audit accepted; APK unverified, report qualifications documented |
 
+
+Native trial validation: 41 native/owned/effort/review tests passed; native fixture completed with actual outside read denied. Production trial completed with independent acceptance, 54 cumulative calls; details, token breakdown, preparation failures and report limitations in `docs/native-audit-trial.vi.md`. Credential JSON-key regression added after observed gap. General multi-provider native mode and native quota failover remain outside this slice.
 
 ## Review repair and autonomous audit — RV01–RV04
 
@@ -21,7 +23,7 @@ User asks to keep repairing OneCrew until it finishes the Cloud Auth audit, then
 | RV01 | Typed review rejection cannot become quota/auth/environment failure from feedback text | ReviewRejected, classifier regression with 429/OAuth/SDK strings | Complete | Existing real provider handling unchanged |
 | RV02 | Full bounded immutable review evidence plus explicit receipt retrieval | review_evidence manifest/full receipts, bounded retrieval rounds and restart tests | Complete | 45,000 receipt chars, max 4 requested indices/round, 3 retrieval rounds, same root budget |
 | RV03 | Source/read and Git metadata retained; explicit resume adopts warning policy without retroactive auto-answers | read cursor/start_line, branch/dirty status, evidence index, resume tests | Complete | No reset of historical calls/usage; pending requests remain pending |
-| RV04 | OneCrew completes actual audit with checked evidence; proposed lessons tied to outcomes | live task checkpoint/report, lesson evidence | Partial | Application/device correctness not implied; no manual app repair or false unassisted history |
+| RV04 | OneCrew completes actual audit with checked evidence; proposed lessons tied to outcomes | live task checkpoint/report, lesson evidence | Complete | Completed via native audit outcome 739; application/device correctness not implied; assisted runtime migration |
 
 New review protocol counts its genuine rejected reports separately from legacy reviews that received truncated evidence; preserves the legacy total and the existing three-rejection limit for new-protocol reviews. This is a protocol migration, not erasing failure history or relaxing acceptance. No requirement removed from the original task.
 

@@ -123,5 +123,11 @@ class NativeAuditTests(unittest.TestCase):
         result=capture(run,Path(self.f.temp.name)/'scoped',source_roots(run,state))
         self.assertEqual(list(result['files']),['app/main.py']);self.assertEqual(result['metadata']['source_roots'],['app'])
 
+    def test_uppercase_json_credential_values_are_withheld_but_env_lookups_remain_readable(self):
+        from onecrew.discovery import scan_text
+        for key in ('AUTH_SERVICE_PASSWORD','AUTH_TOKEN','CLIENT_SECRET','api_key'):
+            with self.assertRaises(LedgerError): scan_text(json.dumps({key:'fixture-value-123456'}).encode())
+        self.assertIn('String.fromEnvironment',scan_text(b"const value = String.fromEnvironment('AUTH_SERVICE_PASSWORD');"))
+
 
 if __name__=='__main__': unittest.main()

@@ -2,13 +2,17 @@
 
 Ngày 09/10/2026. Task `TASK-0236a265d0ef4dd19d5cd14f8e600e95`, project `D:\TamNT\Workspace\1.Vimes\7.SRM`. Phạm vi là kiểm tra source cho thông báo Cloud Auth trong ảnh, không sửa app, build, commit hay push source ứng dụng.
 
-## Trạng thái kiểm chứng
+## Trạng thái hiện tại
 
-**Chưa hoàn thành.** Lần tiếp tục sau commit `e3359e1` đi từ 32 đến 52 lượt trong khoảng 5 phút. OneCrew tự lấy Git metadata, đọc luồng thiết lập và route app, rồi hai lần sửa báo cáo theo reviewer. Reviewer vẫn phát hiện báo cáo bỏ sót hoặc phủ nhận dữ liệu đã đọc. Tổng quan sát tại mốc cảnh báo: 673.037 token; đây không phải giá tiền hay quota subscription còn lại.
+Native audit đã completed, outcome 739, thêm 2 managed calls (13+7 native turns), reviewer accepted. Source ứng dụng không sửa; APK chưa kiểm chứng. [Chi tiết và giới hạn nghiệm thu](native-audit-trial.vi.md). Bốn lesson từ kết quả được lưu proposed, chưa tạo skill.
 
-REQ `REQ-4c43f23b52ce47d59220cff6943f4817`, revision `4041a4b678a5dfebbf128b6bd2451af2642cb5c4e80965acfc3dcac99c84de53`, đang chờ lựa chọn continue/pause/stop. Không tự trả lời từ việc người dùng từng tăng ngân sách. Hard cap vẫn 10.000 lượt, deadline 01:44:25 ngày 10/10/2026 giờ Việt Nam; thời gian chờ không tự gia hạn.
+## Lịch sử trước lần chạy native
 
-Worker dùng Claude Sonnet; chưa có chuyển provider do quota. Codex đã sửa runtime giữa các lượt. Vì vậy không thể gọi cả trial là tự vận hành không hỗ trợ. Chưa có báo cáo cuối được chấp nhận, chưa tái hiện trên thiết bị, chưa chứng minh APK đang cài tương ứng với working tree đã khảo sát.
+**Ở mốc này task chưa hoàn thành.** Lần tiếp tục sau commit `e3359e1` đi từ 32 đến 52 lượt trong khoảng 5 phút. OneCrew tự lấy Git metadata, đọc luồng thiết lập và route app, rồi hai lần sửa báo cáo theo reviewer. Reviewer vẫn phát hiện báo cáo bỏ sót hoặc phủ nhận dữ liệu đã đọc. Tổng quan sát tại mốc cảnh báo: 673.037 token; đây không phải giá tiền hay quota subscription còn lại.
+
+REQ `REQ-4c43f23b52ce47d59220cff6943f4817`, revision `4041a4b678a5dfebbf128b6bd2451af2642cb5c4e80965acfc3dcac99c84de53`, sau đó đã được trả lời continue từ yêu cầu “ok, làm thử đi”. Không tự trả lời từ việc người dùng từng tăng ngân sách. Hard cap vẫn 10.000 lượt, deadline 01:44:25 ngày 10/10/2026 giờ Việt Nam; thời gian chờ không tự gia hạn.
+
+Worker dùng Claude Sonnet; chưa có chuyển provider do quota. Codex đã sửa runtime giữa các lượt. Vì vậy không thể gọi cả trial là tự vận hành không hỗ trợ. Ở thời điểm đó chưa có báo cáo cuối được chấp nhận, chưa tái hiện trên thiết bị, chưa chứng minh APK đang cài tương ứng với working tree đã khảo sát.
 
 ## Bài học từ lỗi đã có bằng chứng
 

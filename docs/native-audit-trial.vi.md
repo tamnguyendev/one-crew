@@ -26,3 +26,19 @@ Live dispatch preparation hit Windows WinError 206 under the long Store-Python s
 Some vendored iOS header paths still exceeded Windows limits after shortening. Snapshot root now uses one short unique directory; unsupported paths over 245 characters are counted explicitly in metadata, alongside existing binary/secret/size omissions. No silent claim of complete repository coverage.
 
 Whole-root capture reached the text bound before inference. Migration now derives source roots from successful git_status receipts of the same task, removes overlapping roots, and discloses source_roots in metadata. No chat-prepared source/file selection. A task without prior repository discovery still uses its project root and may require narrower intake. Ten native tests passed, including excluding an unrelated sibling repo from capture.
+
+## Kết quả task thật — outcome 739
+
+`TASK-0236a265d0ef4dd19d5cd14f8e600e95` completed; reviewer accepted lần đầu, 0 repair. Giữ nguyên task, 52 calls cũ → 54 tổng. Native worker session aa5aff35-4d55-4858-a434-331503789254: 13 reported turns, 12 tool calls (gồm StructuredOutput), 76.656s. Reviewer session 7f828f91-6c2a-49eb-b156-ca87ef18bd0d: 7 turns, 6 tool calls, 16.299s. Tổng process 92.955s, không gồm phát triển runtime, capture hoặc các capture thất bại. Runner bắt đầu 21:03:53 ngày 09/10/2026 giờ Việt Nam, dừng sau hoàn tất.
+
+Snapshot 2.417 file, hai roots từ lịch sử task. Core kiểm citation quote/range khớp snapshot; đối chiếu hash các source đã trích vẫn khớp workspace gốc sau run. Task không sửa app, build hay gọi API. Lượt native tự khảo sát và review, nhưng cả trial có hỗ trợ sửa runtime trước đó.
+
+Usage native: 140.095 total tokens = 32.265 uncached input + 99.398 cached input + 8.432 output. Trước native: 673.037 tokens, 0 cached input quan sát, 52 managed calls và chưa có báo cáo accepted. Đây không phải A/B benchmark độc lập; native hưởng phạm vi repo đã tìm trước đó. Không suy số tiền hoặc quota còn lại. Giữ phân biệt managed calls và native turns.
+
+Báo cáo xác nhận snackbar do token null/rỗng trước bước lookup bệnh viện; đề xuất thống nhất credential và phân loại lỗi. APK/runtime/server chưa được kiểm chứng. Entry đã ghi chú nghiệm thu: AUTH_TOKEN có thể được truyền qua nhiều cơ chế dart-define, không chỉ file; guard AppSecrets chưa đọc được; trường hợp “4” trong report thực tế liệt kê 5. AI reviewer accepted không đồng nghĩa mọi câu tuyệt đối đều đúng. Báo cáo gốc trong ledger không bị sửa; bản xuất kèm chú thích ở `.onecrew/reports/TASK-0236a265d0ef4dd19d5cd14f8e600e95-native-audit.md`.
+
+Trial còn phát hiện scanner bỏ sót JSON credential keys viết hoa như AUTH_SERVICE_PASSWORD/AUTH_TOKEN. Đã bổ sung regex và regression: JSON có giá trị credential bị withheld, Dart String.fromEnvironment vẫn đọc được. Probe đọc file cấu hình thật chỉ trả boolean xác nhận withheld, không in giá trị. Snapshot/transcript trước bản sửa được giữ làm lịch sử; không tuyên bố dữ liệu đó chưa từng vào context hoặc đã bị xóa. Scanner là heuristic, không bảo đảm phát hiện mọi secret.
+
+Bốn lesson mới được lưu proposed trong shared ledger gắn outcome 739: whole-task native loop; capture theo repo đã khám phá; đo turns/cache/time riêng; kiểm chứng report và credential filters. Không tự inject, không tạo skill. Live repair session continuity chưa được thử do báo cáo đạt ở vòng đầu; regression kiểm cùng session và crash/restart đã qua.
+
+Final credential-filter/native/owned/search regression: 35 tests passed in 23.842s; existing native fixture ResourceWarning remains with cleanup assertions passing. No application/device tests or source edits.
