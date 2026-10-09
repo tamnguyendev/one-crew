@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Branch-local waiting and reply consumption
+
+Baseline `a24ea54`; [guide](branch-inbox.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| BI01 | Failed DAG unit blocks affected dependencies/owners while independent ready units continue | branch_inbox, unit-scoped admission/launch, parallel failure records | A→(B,C)→D plus C→E: B/D wait, C/E complete under one root | Complete |
+| BI02 | Durable branch reply resumes only after stop/reconcile and within shared root limits | plan/failure/budget-bound question, atomic checkpoint/effect, no-progress/cap guard | restart/reply exactly one retry; unknown writer retains slot and prevents duplicate; second failure offers inspect | Complete |
+| BI03 | Background wait spends no model calls and global questions retain authority | runner wait state, blocks root/scheduler/unit distinctions | pending polls unchanged calls; background reply then completion; global question blocks E | Complete |
+
+Five branch tests pass in 2.238 seconds and existing five DAG tests pass. Full suite: 183 tests pass in 60.378 seconds. No new live model calls; fixture branch fault coverage is separate from earlier native Kiro parallel evidence. Local operator provenance remains; no claim of authenticated host reply. Amendment milestone is committed as `a24ea54`.
+
 ## Requirement amendment and dependent invalidation
 
 Baseline `74bde44`; [guide](requirement-amendment.vi.md).

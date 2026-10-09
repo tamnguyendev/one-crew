@@ -23,6 +23,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [Routing policy](docs/routing-policy.vi.md) | Đề xuất model theo tier/risk/quota, chưa tự dispatch |
 | [Nhánh Git để review](docs/review-branch.vi.md) | Kiểm candidate tree rồi tạo local branch, giữ nguyên source/index |
 | [DAG song song](docs/parallel-dag.vi.md) | Hai nhánh độc lập cùng root, output từng phần và budget chung; live Kiro đã đạt |
+| [Inbox theo nhánh](docs/branch-inbox.vi.md) | Nhánh lỗi/dependents chờ quyết định, nhánh độc lập vẫn tiến triển |
 | [Thay đổi yêu cầu](docs/requirement-amendment.vi.md) | Revision mới chỉ làm lại nhánh bị ảnh hưởng và dependency, giữ kết quả độc lập |
 | [Snapshot](docs/snapshots.vi.md) | Bảo toàn working/index bytes trong scope và output bất biến |
 | [CLI spec](docs/spec-review-cli.vi.md) | Review/approve theo revision, diff/history |

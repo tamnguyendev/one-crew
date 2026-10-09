@@ -108,6 +108,7 @@ def apply(workflow, task_id, revision, spec_revision, profile, selected, reason)
         state['base'] = new_base_id
         state['snapshot'] = candidate
         state['done'] = [key for key in state['done'] if key not in affected]
+        state['branch_errors'] = {key: value for key, value in state.get('branch_errors', {}).items() if key not in affected}
         state.update(phase='working', verification='pending', acceptance='not_requested', message=None,
                      checks=None, pending=None, parallel_pending=[], failures=[], last_failure=None)
         state.pop('verification_only', None)

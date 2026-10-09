@@ -345,16 +345,19 @@ class Workflow:
             self.persist(task_id, sequence, state)
             return state
 
-    def _invoke(self, task_id, seq, state, stage, prompt, schema, profile):
+    def _invoke(self, task_id, seq, state, stage, prompt, schema, profile, *, unit=None):
         if len(prompt) > 80_000:
             raise LedgerError('Worker context exceeds 80000 characters; narrow explicit context.')
         config = self.control.status(task_id)
         operation = {'stage': stage, 'prompt_hash': content_hash(prompt), 'snapshot': state['snapshot'],
                      'schema_hash': content_hash(schema)}
+        if unit:
+            operation['unit'] = 'task:'+unit
         if state['pending']:
             attempt = self.control.attempt(state['pending'])
             previous = json.loads(attempt['operation'])
-            if previous != operation:
+            legacy_root_unit = unit and 'unit' not in previous and previous == {k: v for k, v in operation.items() if k != 'unit'}
+            if previous != operation and not legacy_root_unit:
                 compatible_revalidation = (state.get('revalidate_pending') is True
                                            and previous.get('stage') == stage
                                            and previous.get('snapshot') == state['snapshot'])
@@ -397,12 +400,22 @@ class Workflow:
             task = self.ledger.task(task_id, full=True)
             for _ in range(steps):
                 control = self.control.status(task_id)
-                if control['cancel_requested'] or control['status'] == 'paused' or task['pending_requests']:
+                if control['cancel_requested'] or control['status'] == 'paused':
+                    return state
+                from .branch_inbox import blocks, process
+                if state.get('branch_errors'):
+                    sequence = process(self, task_id, sequence, state)
+                    if self.control.status(task_id)['cancel_requested']:
+                        return state
+                with self.ledger.transaction() as conn:
+                    question_blocks = blocks(conn, task_id, 'scheduler' if profile.get('parallel') and state['phase'] in ('working', 'waiting_branches') else 'root')
+                if question_blocks or state['phase'] == 'waiting_branches':
                     return state
                 if state['phase'] in ('completed', 'blocked', 'failed'):
                     return state
                 wants_worker = state['phase'] in ('planning', 'repairing') or (
-                    state['phase'] == 'working' and any(r['id'] not in state['done'] for r in state['plan']['tasks']))
+                    state['phase'] == 'working' and any(r['id'] not in state['done'] and r['id'] not in state.get('branch_errors', {})
+                                                      and set(r['depends_on']) <= set(state['done']) for r in state['plan']['tasks']))
                 if wants_worker and not state['pending'] and not state.get('parallel_pending'):
                     with self.ledger.transaction() as conn:
                         occupied = conn.execute("SELECT COUNT(*) FROM attempts WHERE status IN ('reserved','running','unknown')").fetchone()[0]
@@ -433,8 +446,13 @@ class Workflow:
                                 sequence = parallel_round(self, task_id, sequence, state, batch, common, profile)
                                 task = self.ledger.task(task_id, full=True)
                                 continue
-                        item = None if repair else next((r for r in state['plan']['tasks'] if r['id'] not in state['done'] and set(r['depends_on']) <= set(state['done'])), None)
+                        item = None if repair else next((r for r in state['plan']['tasks'] if r['id'] not in state['done'] and r['id'] not in state.get('branch_errors', {}) and set(r['depends_on']) <= set(state['done'])), None)
                         if not repair and item is None:
+                            if state.get('branch_errors'):
+                                state['phase'] = 'waiting_branches'
+                                state['message'] = 'Independent work finished; waiting for branch replies: '+', '.join(state['branch_errors'])
+                                self.persist(task_id, sequence, state)
+                                return state
                             state['phase'] = 'verifying'
                             sequence = self.persist(task_id, sequence, state)
                             continue
@@ -443,7 +461,7 @@ class Workflow:
                         instruction = {'task': item, 'owned': owned, 'failures': state['failures'] if repair else []}
                         sequence, value = self._invoke(task_id, sequence, state, stage,
                             'Implement only the assigned task. No tools. Return complete UTF-8 file contents; null deletes a file. Out-of-scope ideas go to backlog, never implementation.' + common + '\nYOUR ONLY ASSIGNMENT (other project files are read-only)\n' + canonical(instruction),
-                            artifact_schema(owned), profile)
+                            artifact_schema(owned), profile, unit=item['id'] if not repair and profile.get('parallel') else None)
                         changes = artifacts(value, owned)
                         before = state['snapshot']
                         after = self.store.overlay(before, changes, owned)
@@ -506,6 +524,15 @@ class Workflow:
                                 state['message'] = 'Retrying invalid planner response within existing budget: ' + str(error)
                                 sequence = self.persist(task_id, sequence, state)
                                 continue
+                        if profile.get('parallel') and state['phase'] == 'working' and not isinstance(error, OSError):
+                            operation = json.loads(attempt['operation'])
+                            unit = next((r for r in state['plan']['tasks'] if r['id'] == operation['stage']), None)
+                            if unit:
+                                from .branch_inbox import record_failure
+                                record_failure(state, {'task': unit['id'], 'attempt': attempt['id'], 'owned': unit['owned'],
+                                                       'base': operation['snapshot']}, error)
+                                sequence = self.persist(task_id, sequence, state)
+                                continue
                     state['resume_phase'] = state['phase']
                     state['phase'] = 'blocked'
                     state['message'] = str(error)
@@ -522,6 +549,7 @@ class Workflow:
             feedback = [json.loads(row['payload']) for row in conn.execute(
                 "SELECT payload FROM events WHERE task_id=? AND kind='output.feedback' ORDER BY seq", (task_id,))]
         return {'task_id': task_id, 'phase': state['phase'], 'message': state['message'],
+                'execution': self.control.status(task_id)['status'],
                 'verification': state['verification'], 'acceptance': state['acceptance'],
                 'checks': state.get('checks'), 'backlog': state['backlog'], 'reviews': state.get('reviews', []) + feedback,
                 'outputs': [dict(row, diff=self.store.diff(row['base'], row['revision'])) for row in state['outputs']]}

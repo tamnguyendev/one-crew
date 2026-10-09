@@ -99,7 +99,7 @@ class ParallelTests(unittest.TestCase):
         self.worker.bad_b=True
         self.worker.hold_c.set()
         state=self.workflow.run(self.f.task['id'])
-        self.assertEqual(state['phase'],'blocked')
+        self.assertEqual(state['phase'],'waiting_branches')
         self.assertIn('C',state['done'])
         self.assertNotIn('B',state['done'])
         self.assertNotIn('D',self.worker.calls)

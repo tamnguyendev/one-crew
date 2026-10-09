@@ -13,7 +13,7 @@ def status(value):
         return 'Chưa enable workflow.'
     plan = (state.get('plan') or {}).get('tasks', [])
     done = set(state['done'])
-    ready = [r['id'] for r in plan if r['id'] not in done and set(r['depends_on']) <= done]
+    ready = [r['id'] for r in plan if r['id'] not in done and r['id'] not in state.get('branch_errors', {}) and set(r['depends_on']) <= done]
     active = [a for a in control['attempts'] if a['status'] != 'settled']
     limits = control['budget']['limits']
     lines = [f"{control['task_id']} | {control['status']} | {len(done)}/{len(plan)} việc",
@@ -33,7 +33,7 @@ def status(value):
 
 
 def outputs(value, full=False):
-    lines = [f"{value['task_id']} | {value['phase']}",
+    lines = [f"{value['task_id']} | {value.get('execution', value['phase'])}",
              f"Kiểm chứng: {value['verification']} | Nghiệm thu: {value['acceptance']}"]
     if value.get('message'):
         lines.append('Vấn đề: '+compact(value['message']))

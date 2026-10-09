@@ -122,7 +122,8 @@ class Control:
             budget = current_budget(conn, task)
             if self.clock() >= dt.datetime.fromisoformat(budget['deadline']):
                 raise LedgerError('Root deadline exhausted.')
-            if conn.execute("SELECT 1 FROM requests WHERE task_id=? AND state='pending'", (task_id,)).fetchone():
+            from .branch_inbox import blocks
+            if blocks(conn, task_id, unit):
                 raise LedgerError('Task is waiting for user input.')
             limits = budget['limits']
             if execution['used_calls'] + execution['reserved_calls'] >= limits['max_calls']:
@@ -174,7 +175,8 @@ class Control:
             task, execution = self._execution(conn, row['task_id'])
             if execution['cancel_requested'] or execution['status'] == 'paused' or self.clock() >= dt.datetime.fromisoformat(current_budget(conn, task)['deadline']):
                 raise LedgerError('Cancel or deadline prevents launch.')
-            if conn.execute("SELECT 1 FROM requests WHERE task_id=? AND state='pending'", (row['task_id'],)).fetchone():
+            from .branch_inbox import blocks
+            if blocks(conn, row['task_id'], json.loads(row['operation']).get('unit', 'root')):
                 raise LedgerError('Pending question prevents launch.')
             conn.execute("UPDATE attempts SET status='running',charged=1,identity=?,updated_at=? WHERE id=?",
                          (encoded, utcnow(), attempt_id))

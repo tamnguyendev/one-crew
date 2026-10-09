@@ -4,7 +4,7 @@ Profile có thể đặt `"parallel": true`. Core chỉ chọn tối đa hai tas
 
 Schema v3 thay unique active-owner theo root bằng active-owner theo work unit; root operations vẫn khóa độc quyền toàn root. `core migrate` backup v1/v2 trước khi nâng cấp, giữ nguyên task/request/counters/unknown attempts. Unknown root owner vẫn chặn các unit mới. Admission và checkpoint intent của parallel unit được commit trong cùng transaction; lỗi checkpoint rollback reservation.
 
-Một coordinator giữ quyền ghi state. Workers chỉ ghi IO riêng và trả artifacts; coordinator kiểm scope, snapshot gốc của file được giao, rồi ghép lần lượt vào snapshot mới. Output B có thể được xem/comment trong khi C đang chạy; D chỉ chạy sau cả B/C. Gate cuối kiểm snapshot đã ghép. Nếu một response sai, kết quả hợp lệ của sibling vẫn được lưu; root dừng ở blocker, chưa có triage/resume tự động riêng cho từng nhánh lỗi.
+Một coordinator giữ quyền ghi state. Workers chỉ ghi IO riêng và trả artifacts; coordinator kiểm scope, snapshot gốc của file được giao, rồi ghép lần lượt vào snapshot mới. Output B có thể được xem/comment trong khi C đang chạy; D chỉ chạy sau cả B/C. Gate cuối kiểm snapshot đã ghép. Nếu một response sai, kết quả hợp lệ của sibling vẫn được lưu. [Inbox theo nhánh](branch-inbox.vi.md) giữ nhánh lỗi/dependents ở trạng thái chờ và tiếp tục nhánh độc lập; reply retry giữ nguyên root budget.
 
 Khi đã có plan rõ ràng, tránh tốn thêm một planner call:
 

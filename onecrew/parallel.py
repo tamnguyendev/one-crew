@@ -7,7 +7,7 @@ from .supervisor import Supervisor
 
 
 def ready_batch(state):
-    ready = [r for r in state['plan']['tasks'] if r['id'] not in state['done'] and set(r['depends_on']) <= set(state['done'])]
+    ready = [r for r in state['plan']['tasks'] if r['id'] not in state['done'] and r['id'] not in state.get('branch_errors', {}) and set(r['depends_on']) <= set(state['done'])]
     if len(ready) < 2:
         return ready[:1]
     first = ready[0]
@@ -73,7 +73,6 @@ def round(workflow, task_id, sequence, state, ready, common, profile):
         return workflow.worker.result(control.attempt(attempt['id']))
 
     # Thread workers write only their isolated provider IO; the coordinator alone merges artifacts.
-    errors = []
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = {pool.submit(execute, record): record for record in records}
         for future in as_completed(futures):
@@ -99,8 +98,7 @@ def round(workflow, task_id, sequence, state, ready, common, profile):
                 state['backlog'].extend(value['backlog'])
                 state['parallel_pending'] = [r for r in state['parallel_pending'] if r['attempt'] != record['attempt']]
             except ValueError as error:
-                errors.append(record['task'] + ': ' + str(error))
+                from .branch_inbox import record_failure
+                record_failure(state, record, error)
             sequence = workflow.persist(task_id, sequence, state)
-    if errors:
-        raise LedgerError('; '.join(errors))
     return sequence

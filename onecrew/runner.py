@@ -64,13 +64,16 @@ def loop(ledger, task_id, interval=.5):
                     if result['status'] == 'waiting':
                         time.sleep(interval)
                     continue
-                task = ledger.task(task_id)
-                if control['status'] == 'paused' or task['pending_requests']:
+                from .branch_inbox import blocks
+                from .amendment import profile_for
+                with ledger.transaction() as conn:
+                    question_blocks = blocks(conn, task_id, 'scheduler' if profile_for(state, control).get('parallel') and state['phase'] in ('working', 'waiting_branches') else 'root')
+                if control['status'] == 'paused' or question_blocks:
                     time.sleep(interval)
                     continue
                 try:
                     result = workflow.run(task_id, steps=1)
-                    if result.get('waiting_reason') == 'capacity':
+                    if result.get('waiting_reason') == 'capacity' or result['phase'] == 'waiting_branches':
                         time.sleep(interval)
                 except LedgerError as error:
                     # A foreground command may briefly own a checkpoint. Never launch through it.

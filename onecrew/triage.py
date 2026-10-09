@@ -42,6 +42,14 @@ def ensure_request(workflow, task_id):
 
 
 def handle(workflow, task_id):
+    _, current = workflow.state(task_id)
+    if current and current.get('branch_errors') and current['phase'] in ('working', 'waiting_branches'):
+        from .workflow import task_lock
+        from .branch_inbox import process
+        with task_lock(workflow.ledger, task_id):
+            seq, current = workflow.state(task_id)
+            process(workflow, task_id, seq, current)
+        return {'status': current['phase'], 'requests': workflow.ledger.requests(task_id, pending=True)}
     request = ensure_request(workflow, task_id)
     if request is None:
         return {'status': 'not_blocked'}
