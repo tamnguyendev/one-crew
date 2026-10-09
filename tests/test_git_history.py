@@ -55,10 +55,30 @@ class HistoryTests(unittest.TestCase):
             action('branch_before',first_change=self.change),{'accepted':True,'feedback':'Boundary backed by diff.'},
             action('finish',report='Created local branch before the UI palette change; original checkout retained.'),
             {'accepted':True,'feedback':'Receipt verified.'}]
-        state=self.run.run(self.task)
+        with patch.object(self.worker,'run',wraps=self.worker.run) as invoke:
+            state=self.run.run(self.task)
+        review_calls=[c for c in invoke.call_args_list if 'review_phase' in c.args[1]]
+        before=json.loads(review_calls[0].args[1].split('\n',1)[1])
+        after=json.loads(review_calls[1].args[1].split('\n',1)[1])
+        self.assertEqual(before['review_phase'],'pre_execution');self.assertEqual(before['branch_receipts'],[])
+        self.assertEqual(after['review_phase'],'completion');self.assertEqual(len(after['branch_receipts']),1)
         self.assertEqual(state['phase'],'completed',state['message'])
         self.assertEqual(state['branches'][0]['result']['commit'],self.base)
         self.assertEqual(len(self.worker.calls),6)
+
+    def test_history_index_survives_recent_window_and_normalizes_empty_path(self):
+        state=self.run.state(self.task)[1]
+        result=self.run._tool(self.task,state,'git_show',{'commit':self.change,'path':''},self.profile)
+        self.assertEqual(result['commit'],self.change)
+        blob=self.run.store.blob(json.dumps({'action':'git_show','result':result}).encode())
+        state['receipts']=[{'index':0,'action':'git_show','blob':blob}]+[
+            {'index':i,'action':'list','blob':self.run.store.blob(b'{"action":"list","result":{}}')} for i in range(1,8)]
+        self.assertEqual(self.run.evidence_index(state)[0]['commit'],self.change)
+        seq,_=self.run.state(self.task)
+        state.update(phase='blocked',context_prompt='stale',review_prompt='stale')
+        self.run.persist(self.task,seq,state)
+        resumed=self.run.resume(self.task)
+        self.assertIsNone(resumed['context_prompt']);self.assertIsNone(resumed['review_prompt'])
 
 
 if __name__=='__main__': unittest.main()
