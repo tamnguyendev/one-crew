@@ -27,3 +27,9 @@ Ví dụ shape (thay timestamps/số liệu bằng evidence mới trước khi d
 ```
 
 Sáu test của recommendation kiểm risk/complexity floor, nhiều quota windows, unknown/stale/reserve, quyền/capability/API, kiểu dữ liệu strict và AI không tự tạo authority/evidence. [Account reservation](account-reservations.vi.md) đã nối optional binding vào Control và dedup attempt usage; [feed Codex](quota-feed.vi.md) đọc được subscription. Recommendation vẫn không tự dispatch. Authoritative cumulative settlement, calibrated auto-routing/fallback và feed Claude/Kiro còn thiếu để hoàn thành OC10.
+
+## Bổ sung cần triển khai: hiệu chỉnh từ lịch sử
+
+[Kiến trúc mục 9.1–9.3](architecture.vi.md) và LR01–LR05 trong [SPEC-006](../specs/SPEC-006-portable-orchestration.md) quy định hồ sơ quyết định/kết quả, knowledge project, lessons có evidence, đánh giá sau task và benchmark/promotion/rollback policy. T31–T35 trong backlog là các ca nghiệm thu dự kiến.
+
+Model thực chạy hiện vẫn do profile hoặc lệnh switch explicit quyết định. Chưa tự sinh tier/cost_rank từ lịch sử; chưa có kho lessons được router sử dụng. Test bộ chọn chỉ chứng minh tuân thủ rule, chưa chứng minh rule tối ưu. Hiệu quả phải đo trên cùng loại task/cấu hình bằng tổng chi phí tới kết quả đạt, kể cả sửa lỗi/review và can thiệp; dữ liệu thiếu không coi là miễn phí. Bài học AI đề xuất chưa là fact, và một lần thành công chưa đủ thay policy. JEV vẫn chưa nằm trong đường dispatch.

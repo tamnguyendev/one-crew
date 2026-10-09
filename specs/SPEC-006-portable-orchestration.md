@@ -8,6 +8,8 @@ Trao đổi ở Codex, Claude hoặc Kiro rồi giao yêu cầu đã rõ cho One
 ### Phạm vi
 Core local lưu task, quyết định, checkpoint và ngân sách; chia việc theo source/spec; kết nối các worker; review từng phần. Làm tuần tự trước, sau đó tối đa hai worker song song có kiểm soát phụ thuộc.
 
+Lưu kiến thức/bài học có bằng chứng; đánh giá chất lượng và tổng chi phí sau task để cải tiến chọn model và tái sử dụng cách làm hiệu quả.
+
 ### Không làm
 Chat app riêng, dashboard, vector DB, điều phối đa máy, JEV bắt buộc hoặc tự deploy/mua API credits.
 
@@ -78,6 +80,20 @@ Các dòng dưới đây là điều kiện của OC hiện hữu, không tạo 
 | OC08, OC11 | Test đúng integration candidate, thiếu worktree không fallback; base đổi thì stale; evidence/acceptance theo snapshot | 13.7 | T26 |
 | OC09, OC10 | Reserve trước từng managed invocation; internal CLI calls chỉ hard-cap nếu adapter enforce; extension hữu hạn, giữ used/unknown | 13.1, 13.5 | T20, T27 |
 | OC09, OC12 | No-progress có ngưỡng policy/root budget; không tự mở scope, reset qua retry hoặc gỡ sandbox | 13.5, 13.8, 13.9 | T27, T29 |
+
+## Bổ sung: học từ kết quả và hiệu chỉnh model — 09/10/2026
+
+Contract chi tiết ở kiến trúc mục 9.1–9.3; đây là yêu cầu cần triển khai, không phải tính năng đã bật. Mở rộng OC02/OC06/OC09/OC10/OC12, giữ 12 nhóm OC hiện hữu.
+
+| ID | Kết quả phải đạt | Nghiệm thu |
+|---|---|---|
+| LR01 | Lưu đặc điểm task, cấu hình model/tools/context, quyết định route/policy và kết quả toàn bộ attempts | T31: restart/replay không nhân usage; giữ cả fail/cancel/unknown; trace được lựa chọn tới evidence/revision |
+| LR02 | Knowledge project, lịch sử năng lực và lessons có scope/provenance/evidence, vòng đời verified/stale | T32: truy xuất đúng project/context budget; nguồn đổi làm stale; không promote nhận xét AI hoặc lộ secret |
+| LR03 | Đánh giá mốc/final bằng AC/gates, phân biệt hiệu quả route và nguyên nhân thất bại | T33: lỗi môi trường không bị gán thành lỗi model; acceptance riêng; query/evaluation bằng rule không gọi LLM |
+| LR04 | So policy trên bộ task đại diện có version, mẫu kiểm chứng riêng và promotion/rollback | T34: mẫu ít giữ bất định; gate/risk regression chặn promotion; không đổi quyền/budget hoặc attempt đang chạy |
+| LR05 | Reuse còn hợp lệ trước gọi model; JEV chỉ thử khi có lợi ích đo được | T35: input/source/tool đổi chặn cache cũ; chi phí evaluator tính đủ; JEV chưa đạt benchmark không tự route |
+
+Đánh giá hiệu quả tính cả repair, retry, review, fallback và can thiệp người dùng; không suy model tối ưu từ một lần pass hoặc chi phí một call. Dùng SQLite/Markdown hiện có, không thêm vector DB hay fine-tuning vào scope. Benchmark có tập chọn lọc và budget riêng, không chạy lại mọi task qua tất cả model. Promotion trong quyền đã cấp không hỏi lại; ngoài quyền phải có request. Bản quick/chi tiết chung revision; cập nhật proposal không tự cấp runtime grant.
 
 ## Ràng buộc migration
 

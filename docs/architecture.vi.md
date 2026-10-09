@@ -169,6 +169,38 @@ Có thể ưu tiên capacity sắp reset nếu đủ năng lực và các cửa 
 
 Conductor chỉ đánh giá ngữ nghĩa khi plan/lỗi/scope chưa rõ. JEV là evaluator tùy chọn, shadow/benchmark trước; không approve/dispatch. Kết nối được không chứng minh router tiết kiệm. Chỉ thêm khi giảm tổng usage tới kết quả đạt, latency hoặc can thiệp mà không giảm chất lượng; không dựng đủ 16 decision points cũ như điều kiện MVP.
 
+### 9.1. Chọn model có bằng chứng — bổ sung từ trao đổi 09/10/2026
+
+Hiện trạng: worker dùng model trong profile hoặc lệnh switch explicit; `provider choose` chỉ đề xuất bằng rule. Complexity/tier/cost_rank do đầu vào cung cấp, chưa được calibration bằng lịch sử. Test rule đúng không chứng minh model được chọn là tối ưu. JEV mới có kết nối synthetic, chưa quyết định route. Worker hiện ở artifact mode, tắt tools; task cần browser/MCP/shell không được coi là đã hỗ trợ chỉ vì tên model phù hợp.
+
+Đơn vị đánh giá là cấu hình làm việc: provider/model/version, reasoning, adapter/CLI version, prompt/context strategy và tools được cấp. Phân loại task theo loại việc, stack/repo, mức rõ của yêu cầu, rủi ro, dependency, context và tools cần thiết. Chỉ sau bộ lọc quyền/capability/risk mới so bằng chứng chất lượng, tổng usage đến kết quả đạt, latency và quota. Không xếp hạng model chỉ theo tên, kích thước, giá một lượt hay số dòng code.
+
+**LR01 — Hồ sơ quyết định và kết quả.** Trước dispatch lưu task/spec/snapshot/policy revision, đặc điểm công việc, các candidate/nguồn evidence, lựa chọn và lý do. Sau task lưu AC/gate đạt và chưa kiểm, user acceptance riêng, tất cả attempts/repair/review/fallback, usage đã biết/chưa biết, thời gian active/wait, lần cần người can thiệp. Gắn internal turns nếu adapter báo, không đồng nhất với managed calls; không cộng lẫn tokens, credits và phần trăm quota. Dùng attempt/event identity để dedup. Kết quả fail/cancel/unknown cũng được giữ, không chỉ học từ task thành công.
+
+### 9.2. Knowledge và lessons learned
+
+**LR02 — Kho kiến thức có phạm vi và nguồn.** Tận dụng SQLite cho record/query, Markdown cho phần người đọc; snapshot/Git chứa nguồn bằng chứng. Chưa cần vector DB hoặc service mới.
+
+| Nhóm | Nội dung và cách dùng |
+|---|---|
+| Knowledge project | Kiến trúc, quy ước, lệnh test, quyết định nghiệp vụ, lỗi đã biết; gắn project/repo, revision nguồn và điều kiện còn hiệu lực |
+| Lịch sử năng lực | Hồ sơ LR01 để thống kê theo loại việc và cấu hình worker; không coi một lần pass là chứng minh cho mọi repo |
+| Lessons learned | Bài học ngắn, điều kiện áp dụng, evidence refs, tác động dự kiến, phạm vi, trạng thái proposed/verified/stale/superseded và provenance |
+
+Ví dụ bài học: “Đổi API này cần kiểm cả client Flutter và backend” với refs tới contract/test; không lưu nhận xét chung “model X kém” như một fact. Chỉ core ghi/promotion; worker/evaluator đề xuất. Model tự khai confidence không đủ nâng thành verified. Khi nguồn/model/tools thay đổi phải đánh giá độ còn hiệu lực; bài học stale hoặc sai project không tự đưa vào context. Chỉ lấy bài học liên quan trong context budget, giữ link tới nguồn. Không lưu credentials hoặc transcript riêng tư làm knowledge dùng chung; bằng chứng cấp project không tự chia sang repo khác.
+
+### 9.3. Đánh giá và cải tiến sau công việc
+
+**LR03 — Đánh giá kết quả và nguyên nhân.** Mỗi mốc đã cấu hình và khi task kết thúc tạo outcome record bằng code, ưu tiên test/AC/integration evidence. Tách chất lượng sản phẩm với hiệu quả route; pass test không tự user acceptance. Phân loại nguyên nhân theo evidence: code/model, thiếu/sai context, yêu cầu mơ hồ, tools/capability, môi trường, quota hoặc unknown; có thể nhiều nguyên nhân. Hạ tầng Docker lỗi không tự trừ điểm năng lực code. Self-review không thay kiểm chứng độc lập; reviewer chỉ theo risk/policy. AI/JEV được dùng khi cần hiểu ngữ nghĩa, trong budget, và kết quả còn là proposal cho đến khi được kiểm chứng. Không bắt buộc gọi thêm AI cho mọi task.
+
+**LR04 — Hiệu chỉnh policy có kiểm soát.** Chu trình: record → đánh giá → đề xuất bài học/policy → kiểm trên bộ task đại diện → áp dụng có giới hạn → theo dõi/rollback. Version bộ task, source, prompt, model/tools, policy và rubric; cùng điều kiện khi so sánh, có tập kiểm chứng tách khỏi dữ liệu dùng để chỉnh policy. Báo số mẫu, phạm vi và bất định; dữ liệu ít hoặc không so sánh được giữ unknown, không tự kết luận thắng/thua. Đặt ngưỡng chất lượng/rủi ro và trần usage/thời gian trước thử nghiệm; không tối ưu chi phí bằng hạ gate hoặc bỏ case khó. Không chạy mọi task qua nhiều model; chỉ một tập chọn lọc trong ngân sách thử nghiệm được cấp.
+
+Policy mới phải có evidence, version, tiêu chí promotion/rollback và quyền áp dụng; thay đổi trong quyền đã cấp không hỏi lại từng lần, vượt quyền tạo request ngắn. Ghi policy revision vào task mới; không đổi model/quyền âm thầm giữa attempt đang chạy, không đổi lịch sử task cũ. Regression chất lượng/rủi ro chặn promotion hoặc khôi phục policy trước. “Tự cải tiến” ở đây là cải tiến context/tools/routing/workflow, không tự sửa core, grant, gate hoặc tự fine-tune model.
+
+**LR05 — Việc lặp lại và vai trò JEV.** Trước một model call, xem có script/template/test hoặc kết quả đã kiểm chứng còn hợp lệ để tái sử dụng không. Khóa reuse gồm scope, input/source/contract và tool/environment revision liên quan; nguồn thay đổi phải invalidate hoặc kiểm lại, không trả cache stale để tiết kiệm token. JEV chỉ nên đề xuất phân loại task/triage khi rule chưa đủ; benchmark ở chế độ chỉ ghi đề xuất trước khi tác động routing. Toàn bộ chi phí evaluator và benchmark được tính; chưa chứng minh cải thiện thì giữ rule baseline.
+
+Thứ tự triển khai: LR01 telemetry → LR03 đánh giá → LR02 lessons có evidence → LR04 calibration/promotion → LR05 reuse và JEV tùy kết quả benchmark. Các contract này bổ sung OC02/OC06/OC09/OC10/OC12; chưa được tính là tính năng đã hoàn thành.
+
 ## 10. Review từng phần và đổi thứ tự
 
 Review card: “đã làm gì / cách thử / diff-preview / checks đạt và chưa chạy / giới hạn / quyết định cần anh”. Card trỏ immutable snapshot; feedback/accept/request-changes gắn revision. Output mới không tự kế thừa acceptance cũ. Human gate chỉ ở mốc đã thỏa thuận; việc độc lập tiếp tục.

@@ -71,6 +71,16 @@ Phụ thuộc P1–P3; hoàn thiện OC09/OC10.
 - Fault injection dùng clock giả trước; soak run live có mục tiêu/giới hạn được cấp riêng, báo thời gian thật và usage, không gọi model 8 giờ chỉ để tiêu thời gian.
 - Đo tổng usage đến kết quả đạt, tỷ lệ AC đạt, latency và can thiệp theo loại việc. JEV chỉ vào shadow benchmark nếu rule baseline cho thấy cần semantic classifier.
 
+Bổ sung từ trao đổi 09/10/2026, triển khai theo contract kiến trúc 9.1–9.3 và LR01–LR05 của SPEC-006:
+
+1. LR01: chuẩn hóa hồ sơ task/route/outcome theo revision, bao gồm fail/unknown và toàn bộ chi phí; tận dụng ledger hiện có.
+2. LR03: outcome evaluator bằng code và phân loại nguyên nhân có evidence; AI chỉ cho ca cần ngữ nghĩa, không thêm một lượt tổng kết mặc định cho mọi task.
+3. LR02: knowledge project và lessons có provenance/lifecycle/context budget; Markdown cho người đọc, SQLite cho tra cứu. Có dữ liệu nguồn mới promote bài học.
+4. LR04: bộ task benchmark có version/tập kiểm chứng riêng, thống kê theo loại việc/cấu hình, policy revision và rollback; chưa đủ mẫu thì báo chưa đủ bằng chứng.
+5. LR05: reuse script/template/kết quả còn hợp lệ, sau đó thử JEV ở chế độ chỉ ghi đề xuất nếu cần. Auto-routing chỉ dùng policy đã qua tiêu chí chất lượng/risk/chi phí và có quyền áp dụng.
+
+Không mở thêm dashboard/vector DB/framework, không tự fine-tune, không sửa gate để cải thiện điểm. Bộ thử nghiệm có ngân sách giới hạn riêng; không nhân chi phí bằng cách cho mọi model làm mọi task. Các lát này chưa được triển khai đầy đủ; status nằm trong coverage.
+
 Điều kiện qua mốc: các tình huống deadline/restart/quota trong ma trận đạt; soak live có evidence riêng. Chưa có soak thì ghi chưa kiểm chứng vận hành dài, dù virtual-clock tests đạt. Không cam kết mọi feature xong trong 8 giờ hoặc chạy khi máy sleep.
 
 ## 5. Ma trận nghiệm thu
@@ -109,8 +119,15 @@ Các ca dưới đây là kế hoạch test, chưa phải kết quả đã pass.
 | T28 | Reviewer/evaluator trả chuỗi false, enum sai, thiếu field/evidence, timeout: invalid/unknown, không pass; retry parse tính root budget | OC02, OC10, OC12 | P1/P4 |
 | T29 | Repair không đổi source, failure fingerprint lặp, đổi provider không có AC tiến triển: dừng theo policy; output/status nêu lý do và không gọi model để poll | OC02, OC09, OC11, OC12 | P1/P4 |
 | T30 | Migration/backup-restore giữ ID/hash/approval provenance/root counters; in-flight unknown vẫn reconcile; snapshot còn reference không bị cleanup | OC03, OC06, OC09, OC12 | P1 |
+| T31 | Decision/outcome gắn task/source/policy/model/tools revision; duplicate/restart không nhân usage; giữ fail/cancel/unknown và internal turns riêng | LR01, OC09, OC10 | P4 |
+| T32 | Knowledge/lesson đúng project và context budget; nguồn đổi thành stale; AI self-report không thành verified, credential không thành memory | LR02, OC06, OC12 | P4 |
+| T33 | AC/test/acceptance tách biệt; lỗi môi trường/thiếu context không tự quy lỗi model; unknown giữ unknown; không gọi evaluator AI khi rule đủ | LR03, OC02, OC10 | P4 |
+| T34 | Benchmark cùng điều kiện, tập kiểm chứng riêng; mẫu ít không chứng minh model thắng; chất lượng/risk regression chặn promotion, rollback giữ history/grant | LR04, OC10, OC12 | P4 |
+| T35 | Reuse đúng input/source/contract/tools revision; stale phải kiểm lại; JEV proposal không dispatch và chi phí đánh giá nằm trong budget | LR05, OC06, OC09, OC10 | P4 |
 
 T20–T30 xuất phát từ contract mục 13 của kiến trúc, không phải kết quả test upstream hoặc test OneCrew đã chạy. Case nhiều mốc phải tách evidence fixture/live theo capability thực; mọi acceptance ID ở đây cần được link tới test cụ thể khi implement.
+
+T31–T35 bổ sung cho vòng học từ kết quả ở mục 9.1–9.3, mới là tiêu chí nghiệm thu dự kiến. Việc ghi các ca này không có nghĩa đã chạy hoặc đạt test.
 
 ## 6. Migration và giao hàng
 
