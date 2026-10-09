@@ -8,7 +8,7 @@ from .ledger import LedgerError, canonical, content_hash, key_field, text_field,
 
 
 def submit(ledger, goal, request_key, *, mode='audit', provider='codex', model='gpt-6-luna',
-           max_calls=20, max_seconds=1200, image=None, branch=None, remote=None):
+           max_calls=20, max_seconds=1200, image=None, branch=None, remote=None, android_build=None):
     goal = text_field(goal, 'goal', 12000)
     key_field(request_key)
     if mode not in ('audit','change','delivery','branch') or provider not in ('codex','claude','kiro'):
@@ -25,13 +25,18 @@ def submit(ledger, goal, request_key, *, mode='audit', provider='codex', model='
         if mode=='branch' and remote: raise LedgerError('Historical branch mode is local only.')
         if mode!='branch' and (not remote or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,60}',remote)):
             raise LedgerError('Delivery needs an explicit existing Git remote name.')
+    from .owned_recipes import validate
+    android_build = validate(android_build)
+    if android_build and mode != 'branch': raise LedgerError('Historical Android recipe requires branch mode.')
     permissions = ['discover','report'] + (['candidate.write','sandbox.test'] if mode == 'change' else [])
+    if android_build: permissions += ['android.build']
     if branch and remote:
         permissions += ['git.branch','git.commit','git.push']
     elif mode=='branch': permissions += ['git.branch']
     grant = validate_grant({'schema_version':1,'permissions':permissions,
                            'limits':{'max_calls':max_calls,'max_seconds':max_seconds},'source':'local operator: job submit'})
     options = dict(mode=mode,provider=provider,model=model,image=image,branch=branch,remote=remote)
+    if android_build: options['android_build'] = android_build
     payload = dict(schema_version=1,project_id=ledger.project_id,project_path=ledger.project_path,
                    spec_id='GOAL',spec_revision=content_hash(goal),spec_text=goal,title=goal[:200],
                    goal=goal,owned_execution=options,grant=grant)

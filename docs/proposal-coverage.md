@@ -1,5 +1,22 @@
 # Proposal Coverage
 
+## Revision 5 implementation — KiroCrew + CAO
+
+Source: [architecture-kiro-cao.vi.md](architecture-kiro-cao.vi.md), baseline `0f3d514`. Cycle 1: owned recipes, progress/evidence gates and local event sink. See [implementation contracts](revision5-implementation.vi.md). Existing evidence below remains scoped to its original trials. No CAO installation, heartbeat reactivation or external task execution implied.
+
+| ID | Proposal section | Requirement / mapping | Type | Implementation evidence | Test evidence | Status | Notes |
+|---|---|---|---|---|---|---|---|
+| V5-01 | 3–4 | Runtime-owned recipe dispatch/wait and root limits; OE/BG | Functional | owned_recipes + grant-bound Android dispatch/wait + root guard | test_revision5 (11 cases) and Android regression | Partial | Fixed historical Android recipe first; no arbitrary shell |
+| V5-02 | 5 | Persistent exploration/repair caps and error classification; OC09/12 | Reliability | progress.py counters, error taxonomy, persisted owned checkpoints | test_revision5 + test_owned repetition/auth cases | Partial | Same root budget after resume |
+| V5-03 | 7 | Evidence completion and immutable artifact checks; OC08/11 | Functional | owned_verification all captured tests on current snapshot; APK hash recheck | test_revision5 stale/failing/tampered evidence | Partial | User acceptance separate; broader AC coverage pending |
+| V5-04 | 6 | Delivery lifecycle with no idle AI calls; BG/IN | Observability | delivery.py driven by owned checkpoints/runner stop/build finish; bridge PAUSED | test_delivery 4 cases + notification regressions | Partial | Local file sink implemented; direct chat callback unavailable |
+| V5-05 | 4,8 | Single scheduler, CAO capability spike; OC04 | Architecture | Native adapters retained | Pending | Missing | No migration before verified containment/cancel |
+| V5-06 | 3,6 | Common entry surface and durable cross-entry questions; OC01/05/06 | API | entry CLI/inbox already available | Existing entry tests; new transport pending | Partial | No authenticated external endpoint |
+| V5-07 | 3,8 | Dependencies, writer isolation and integration; OC07/08/11 | Reliability | Existing DAG/merge/vector | Existing scoped fixtures/live; owned-job integration pending | Partial | Dynamic multi-repo scheduling not complete |
+| V5-08 | 7 | Outcomes, lessons and evaluated routing policy; LR01–04 | Data | Existing deterministic recommendations | Benchmark pending | Partial | No automatic JEV promotion |
+| V5-09 | 8 | Restart/network/quota/sleep/8-hour endurance; OC03/09 | Testing | Existing checkpoints/supervisor | Full fault matrix and live soak pending | Partial | Do not claim 8-hour verification |
+| V5-10 | 1,8 | Fresh real task without external repairs | Testing | Pending | Pending | Missing | User will provide acceptance task after readiness report |
+
 ## Background handoff — BG01–BG03 / IN01–IN03 / UX01
 
 Contract: [background-handoff.vi.md](background-handoff.vi.md). Implementation phases: native detached Android execution, then durable deferred questions and acknowledged notification feed. Baseline b60469e; implementation commit `698b97f`. No product/SRM edits or live worker calls in this change.
@@ -11,7 +28,7 @@ Contract: [background-handoff.vi.md](background-handoff.vi.md). Implementation p
 | BG03 | Complete | Exact request/key conflict checks, process creation identity, durable job/recipe receipts, separate cancel marker, queue timeout, interrupted detection/reconciliation, no replay, duplicate artifact tamper rejection; eight background tests plus seven recipe tests |
 | IN01 | Complete | request defer persists pending/revision without answers or deadline extension; stale/answered defer rejected; reply from another entry retains revision checks; AGENTS.md requires durable create before chat card; no interception of arbitrary third-party UI cards claimed |
 | IN02 | Complete | notifications.py bounded persisted batch/explicit ack; independent consumer/scope, restart/retry, pagination, stale question filtering, transition deduplication, killed-build reconciliation; seven notification tests; no ack grants authority |
-| IN03 | Blocked | Codex heartbeat `onecrew-k-t-qu-v-c-u-h-i` created ACTIVE in current chat, every 5 minutes; CLI empty pull/ack verified against explicit real state-root. First scheduled user-visible delivery not yet observed. Depends on app scheduler/host lifecycle; no realtime or all-client push claim |
+| IN03 | Blocked | Codex heartbeat `onecrew-k-t-qu-v-c-u-h-i` is PAUSED after idle wakeups; do not reactivate. CLI pull/ack exists, lifecycle-aware local delivery planned under V5-04; direct chat callback remains unverified |
 | UX01 | Complete | Monitor merges job/build events, prioritizes parents of active builds, shows process death and request options/reply revision; nine monitor tests including real console independence; logical project/task/unit grouping |
 
 Targeted evidence: initial 28 build/notification/monitor tests pass; added artifact-success/pagination/monitor-priority cases pass in 17-test subset. Three runner and 24 entry/branch-inbox/native-gate/intake regressions pass, plus ledger regressions. Full discovery ran 306 tests in 632.726s: 305 passed, one pre-existing containment fixture failed because its 0.4-second startup/timeout budget expired before printing a descendant PID. The unchanged test passed alone (0.560s); fixture timeout was then raised to 3 seconds, retaining real timeout/descendant-death/budget assertions. All 18 control tests passed after that fix (4.643s). No production timeout was weakened. Other 288 tests passed in the full run; no second full pass is claimed. The final required-input build guard passed separately. Changed Python modules also parse with Python 3.10 syntax; git diff checks pass. No configured lint/type-check command exists. Native subprocess ResourceWarnings indicate intentionally detached live children at Popen finalization; fixtures cancel/observe process death and clean up. One initial direct import invocation failed on legacy `test_workflow` module lookup; rerun with repository test discovery/import path passed, no weakened tests.

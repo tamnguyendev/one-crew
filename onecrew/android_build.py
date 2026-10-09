@@ -245,9 +245,15 @@ class AndroidBuild:
             from .owned import Owned
             from .git_history import History
             runtime=Owned(self.ledger);state=runtime.state(task)[1]
-            if not state or state['phase']!='completed' or len(state.get('branches',[]))!=1:
-                raise LedgerError('Build needs one completed, verified historical branch receipt.')
-            branch=state['branches'][0]['result'];profile=runtime.control.status(task)['configuration']['profile']
+            profile=runtime.control.status(task)['configuration']['profile']
+            owned_recipe=profile.get('android_build')
+            active_owned=bool(owned_recipe and state and state['phase'] in ('running','waiting_operation'))
+            if not state or (state['phase']!='completed' and not active_owned) or len(state.get('branches',[]))!=1:
+                raise LedgerError('Build needs one completed or recipe-authorized active historical branch receipt.')
+            if owned_recipe:
+                if any(request[k]!=owned_recipe[k] for k in owned_recipe if k!='queue_seconds'):
+                    raise LedgerError('Build request differs from the owned job recipe grant.')
+            branch=state['branches'][0]['result']
             history=History(runtime,task,profile,branch['directory'])
             if not history.observe_branch(branch)['verified']: raise LedgerError('Historical branch moved; build refused.')
             root.mkdir(parents=True,exist_ok=True)
@@ -257,6 +263,9 @@ class AndroidBuild:
             self.save(root,task,receipt);deadline=time.monotonic()+max_seconds
             def guard():
                 if external_guard: external_guard()
+                if owned_recipe:
+                    from .sandbox_gate import task_guard
+                    task_guard(runtime.control,task)()
                 if self.ledger.requests(task,pending=True): raise LedgerError('Required user input is pending; build stopped without approval.')
                 if time.monotonic()>=deadline: raise LedgerError('Android build deadline exceeded.')
                 if runtime.control.status(task)['cancel_requested']: raise LedgerError('Android build cancelled.')

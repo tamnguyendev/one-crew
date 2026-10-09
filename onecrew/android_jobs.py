@@ -142,11 +142,19 @@ def run(ledger, task, key, interval=.5, builder=None):
             return (root/'cancel.json').exists() or Control(ledger).status(task)['cancel_requested']
         def guard():
             if cancelled(): raise LedgerError('Android build cancelled.')
+            control=Control(ledger)
+            if control.status(task)['configuration']['profile'].get('android_build'):
+                from .sandbox_gate import task_guard
+                task_guard(control,task)()
             if ledger.requests(task,pending=True): raise LedgerError('Required input arrived during build; stopped, no automatic replay.')
         try:
             while True:
                 if cancelled():
                     record.update(status='cancelled');break
+                control=Control(ledger)
+                if control.status(task)['configuration']['profile'].get('android_build'):
+                    from .sandbox_gate import task_guard
+                    task_guard(control,task)()
                 if dt.datetime.now(dt.timezone.utc)>=dt.datetime.fromisoformat(record['queue_deadline']):
                     record.update(status='blocked',error='Queue deadline exhausted; no build started.');break
                 waiting='waiting_input' if ledger.requests(task,pending=True) else 'queued'
@@ -167,6 +175,8 @@ def run(ledger, task, key, interval=.5, builder=None):
         except (ValueError,OSError) as error:
             record.update(status='blocked',error=str(error))
         record['finished_at']=utcnow();save(ledger,task,path,record)
+        from .delivery import best_effort
+        best_effort(ledger)
         return record
 
 

@@ -21,6 +21,7 @@ git_diff: {directory:"",path:"relative/to/repo/file"} inspect original HEAD vers
 git_log: {directory:"",cursor:0,query:""} paginated first-parent commit history, optional literal message filter.
 git_show: {directory:"",commit:"full SHA",path:null,cursor:0} metadata/changed files; supply path for paginated diff against first parent.
 branch_before: {directory:"",first_change:"full SHA"} create the authorized LOCAL branch at that change's first parent. Inspect actual historical diffs before selecting the earliest commit of the requested change series. Ask if the UI boundary is ambiguous. No checkout or push.
+android_build: {} start the pre-authorized fixed Android recipe after branch_before. SDKs, dependency policy and limits come from the operator grant. Core waits without model calls. Required when permissions include android.build; cannot finish without a verified APK.
 deliver: {directory:"",paths:["relative/to/repo/file"],message:"commit message"} publish selected source bytes to operator-authorized new branch/remote.
 receipt: {index:0} retrieve any previous tool result from durable storage.
 ask: {question:"...",reason:"...",options:[{id:"a",label:"..."},{id:"b",label:"..."}],recommendation:"a"} await user clarification; cannot add authority.
@@ -35,7 +36,7 @@ Update plan with a concise running checklist and findings needed for the next st
 Recent results are bounded; use receipt for older results. Tools and grants are enforced by core.
 '''
 SCHEMA = {'type':'object','properties':{
-    'plan':{'type':'string'},'action':{'type':'string','enum':['list','search','read','write','test','git_status','git_diff','git_log','git_show','branch_before','deliver','receipt','ask','finish']},
+    'plan':{'type':'string'},'action':{'type':'string','enum':['list','search','read','write','test','git_status','git_diff','git_log','git_show','branch_before','android_build','deliver','receipt','ask','finish']},
     'arguments':{'type':'string'}},'required':['plan','action','arguments'],'additionalProperties':False}
 REVIEW_SCHEMA={'type':'object','properties':{'accepted':{'type':'boolean'},'feedback':{'type':'string'}},
                'required':['accepted','feedback'],'additionalProperties':False}
@@ -56,7 +57,9 @@ class Owned(Workflow):
             status=('cancelled' if execution['cancel_requested'] else
                     'paused' if execution['status']=='paused' and not unpause else state['phase'])
             conn.execute('UPDATE executions SET status=? WHERE task_id=?',(status,task_id))
-            return seq
+        from .delivery import best_effort
+        best_effort(self.ledger)
+        return seq
 
     def enable(self, task_id):
         task=self.ledger.task(task_id,full=True)
@@ -85,7 +88,8 @@ class Owned(Workflow):
         with task_lock(self.ledger,task_id):
             seq,state=self.state(task_id)
             if state['phase'] in ('completed','cancelled','failed'): raise LedgerError('Cannot resume a terminal job.')
-            state['phase']='running';state.pop('waiting_reason',None)
+            state['phase']='waiting_operation' if state.get('operation') and not state.get('build_evidence') else 'running'
+            state.pop('waiting_reason',None)
             if not state.get('pending'):
                 state['context_prompt']=None;state['review_prompt']=None
             self.persist(task_id,seq,state,unpause=True)
@@ -129,6 +133,9 @@ class Owned(Workflow):
         from .sandbox_gate import task_guard
         task_guard(self.control,task_id)()
         discovery=Discovery(self.ledger.project)
+        if action=='android_build':
+            from .owned_recipes import dispatch
+            return dispatch(self,task_id,state,args,profile)
         if action=='list':
             result=discovery.list(args.get('directory',''),args.get('cursor',0))
             inventory=state.setdefault('inventory',{})
@@ -173,6 +180,7 @@ class Owned(Workflow):
             result=ContainerGate(self.store).evaluate(state['snapshot'],check,guard=task_guard(self.control,task_id))
             output=result['evidence']['stdout']+result['evidence']['stderr']
             result['passed']=result['passed'] and bool(re.search(r'Ran [1-9][0-9]* tests? in',output))
+            result['test_path']=name
             state['tests'].append(result)
             state['verification']='passed' if result['passed'] else 'failed'
             return result
@@ -204,6 +212,9 @@ class Owned(Workflow):
             if not profile.get('branch') or not profile.get('remote'): raise LedgerError('Git publication not authorized.')
             if profile['mode']=='change' and not any(t['passed'] and t['evidence']['snapshot']==state['snapshot'] for t in state['tests']):
                 raise LedgerError('Current candidate must pass tests before Git delivery.')
+            if profile['mode']=='change':
+                from .owned_verification import check_tests
+                check_tests(state)
             receipt=adapter.deliver(args['paths'],args['message'],f"job:{state['step']}",
                                     candidate=state if profile['mode']=='change' else None)
             if receipt['status']=='verified': state['deliveries'].append(receipt)
@@ -220,6 +231,8 @@ class Owned(Workflow):
             state.update(phase='waiting',waiting_reason='user')
             return request
         if action=='finish':
+            from .owned_recipes import verify_completion
+            verify_completion(self,task_id,state,profile)
             with self.ledger.transaction() as conn:
                 unresolved=conn.execute("SELECT 1 FROM actions WHERE task_id=? AND status!='verified'",(task_id,)).fetchone()
             if unresolved: raise LedgerError('An external action remains unverified; completion is forbidden.')
@@ -227,8 +240,8 @@ class Owned(Workflow):
             if not isinstance(report,str) or not 20<=len(report)<=20000: raise LedgerError('Provide a bounded evidence-based report.')
             if not state['files'] and not state['deliveries'] and not state.get('history_evidence'): raise LedgerError('No source evidence collected.')
             if profile['mode']=='change':
-                if not any(t['passed'] and t['evidence']['snapshot']==state['snapshot'] for t in state['tests']):
-                    raise LedgerError('Current candidate has no passing sandbox test receipt.')
+                from .owned_verification import check_tests
+                state['verification_evidence']=check_tests(state)
                 if state['files']==state['original']: raise LedgerError('No implementation change in candidate.')
             if profile.get('branch') and profile['mode']!='branch' and not state['deliveries']: raise LedgerError('No verified publication receipt.')
             if profile['mode']=='branch':
@@ -273,6 +286,14 @@ class Owned(Workflow):
                 control=self.control.status(task_id)
                 if control['cancel_requested'] or control['status']=='paused' or state['phase'] in ('completed','blocked','failed','cancelled'): return state
                 if self.ledger.requests(task_id,pending=True): return state
+                if state['phase']=='waiting_operation':
+                    from .owned_recipes import advance
+                    try:
+                        changed=advance(self,task_id,state)
+                    except (ValueError,OSError) as error:
+                        state.update(phase='blocked',message=str(error)[:1000]);changed=True
+                    if changed: self.persist(task_id,seq,state)
+                    return state  # Re-enter on next controller step; never ask a model to poll.
                 if state['phase']=='waiting':
                     state['phase']='running';state.pop('waiting_reason',None)
                     state['consumed_replies']=[{'request_id':r['id'],'reply_id':r['answer']['id'],
@@ -290,6 +311,7 @@ class Owned(Workflow):
                                 "SELECT payload FROM events WHERE task_id=? AND kind='entry.note' ORDER BY seq DESC LIMIT 5",(task_id,))]
                         prompt=TOOLS+'\n'+canonical({'goal':task['handoff']['goal'],'permissions':task['handoff']['grant']['permissions'],
                             'mode':profile['mode'],'plan':state['plan'],'step':state['step'],
+                            'build_evidence':state.get('build_evidence'),'progress_limits':state.get('progress'),
                             'max_calls':control['budget']['limits']['max_calls'],
                             'remaining_calls':control['budget']['limits']['max_calls']-control['used_calls']-control['reserved_calls'],
                             'observed_history':self.evidence_index(state),
@@ -328,6 +350,7 @@ class Owned(Workflow):
                                 'mode':profile['mode'],'inventory':state.get('inventory',{}),'original_files':state['original'],'candidate_files':state['files'],
                                 'test_receipts':state['tests'],'delivery_receipts':state['deliveries'],
                                 'branch_receipts':state.get('branches',[]),'observed_history':self.evidence_index(state),
+                                'build_evidence':state.get('build_evidence'),
                                 'user_answers':[{'question':r['question']['question'],'answer':r['answer']} for r in self.ledger.requests(task_id) if r['state']=='answered'],
                                 'evidence':evidence}))
                         if state.get('review_prompt'):
@@ -338,7 +361,7 @@ class Owned(Workflow):
                         if not isinstance(review,dict) or type(review.get('accepted')) is not bool or not isinstance(review.get('feedback'),str):
                             raise LedgerError('Invalid final review response.')
                         state['review']=review;state['review_prompt']=None;seq=self.persist(task_id,seq,state)
-                    preserve_intent=False
+                    preserve_intent=False;args={}
                     try:
                         args=json.loads(value['arguments'])
                         if not isinstance(args,dict): raise LedgerError('Tool arguments must be an object.')
@@ -349,6 +372,12 @@ class Owned(Workflow):
                         state=candidate
                     except (ValueError,KeyError,TypeError,OSError) as error:
                         result={'error':str(error)[:1000],'type':type(error).__name__}
+                        from .progress import classify
+                        failure_kind=classify(error)
+                        result['failure_kind']=failure_kind
+                        if failure_kind in ('environment','auth','quota','effect_unknown'):
+                            state.update(phase='blocked',message=str(error)[:1000],
+                                         recovery={'kind':failure_kind,'automatic_retry':False})
                         from .sandbox_gate import GateUnavailable
                         if isinstance(error,GateUnavailable):
                             state.update(phase='blocked',message='Sandbox infrastructure: '+str(error)[:900])
@@ -356,11 +385,8 @@ class Owned(Workflow):
                         if isinstance(error,EffectUnknown):
                             state.update(phase='blocked',message=str(error));preserve_intent=True
                     record={'action':value['action'],'result':result}
-                    signature=content_hash({'request':value['action']+value['arguments'],'result':result})
-                    recent_signatures=state.setdefault('recent_signatures',[])
-                    recent_signatures.append(signature);state['recent_signatures']=recent_signatures[-6:]
-                    if state['phase']=='running' and state['recent_signatures'].count(signature)>=3:
-                        state.update(phase='blocked',message='Repeated identical tool result; stopped without progress.')
+                    from .progress import observe
+                    observe(state,value['action'],args,result)
                     blob=self.store.blob(canonical(record).encode())
                     state['receipts'].append({'index':len(state['receipts']),'action':value['action'],'blob':blob})
                     if not preserve_intent:
@@ -377,7 +403,10 @@ class Owned(Workflow):
                         state=latest
                         attempt=self.control.attempt(state['pending'])
                         failures=state.get('provider_failures',0)+1
-                        if attempt['status']=='settled' and failures<=1:
+                        from .progress import classify
+                        kind=classify(error)
+                        state['recovery']={'kind':kind,'automatic_retry':False}
+                        if attempt['status']=='settled' and failures<=1 and kind in ('unknown','transient'):
                             state.update(pending=None,provider_failures=failures,step=state['step']+1,
                                          message='One bounded retry after settled provider failure: '+str(error)[:500])
                             seq=self.persist(task_id,seq,state)

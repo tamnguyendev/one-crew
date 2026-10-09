@@ -112,13 +112,18 @@ def main(argv=None):
     p=argparse.ArgumentParser()
     p.add_argument('--project',type=Path,default=Path.cwd());p.add_argument('--state-root',type=Path)
     sub=p.add_subparsers(dest='group',required=True).add_parser('notifications').add_subparsers(dest='command',required=True)
-    for name in ('pull','ack'):
+    for name in ('pull','ack','deliver','feed'):
         c=sub.add_parser(name);c.add_argument('--consumer',required=True);c.add_argument('--all-projects',action='store_true')
         if name=='pull': c.add_argument('--from-now',action='store_true')
-        else: c.add_argument('--batch',required=True)
+        elif name=='ack': c.add_argument('--batch',required=True)
     a=p.parse_args(argv);ledger=Ledger(a.project,a.state_root)
     try:
-        result=pull(ledger,a.consumer,a.all_projects,a.from_now) if a.command=='pull' else ack(ledger,a.consumer,a.batch,a.all_projects)
+        if a.command in ('deliver','feed'):
+            if a.all_projects: raise LedgerError('Local delivery/feed is scoped to one project.')
+            from .delivery import deliver, feed
+            result=(deliver if a.command=='deliver' else feed)(ledger,a.consumer)
+        else:
+            result=pull(ledger,a.consumer,a.all_projects,a.from_now) if a.command=='pull' else ack(ledger,a.consumer,a.batch,a.all_projects)
         print(json.dumps(result,ensure_ascii=False,indent=2));return 0
     except (ValueError,OSError) as error:
         print(json.dumps({'error':str(error)},ensure_ascii=False));return 2

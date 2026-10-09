@@ -18,7 +18,7 @@ def main(argv=None):
               '  task       submit / queue / connect / events / status (durable TASK- IDs)\n'
               '  task       run / list / status / cancel / outputs / preview (CV RUN- IDs)\n'
               '  request    create / list / show / revise / reply / defer\n'
-              '  notifications pull / ack (durable delivery; never approves)\n'
+              '  notifications pull / ack / deliver / feed (local event delivery; never approves)\n'
               '  entry      connect / note (portable local context, no dispatch)\n'
               '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
               '  core       migrate / status / cancel / reconcile\n'

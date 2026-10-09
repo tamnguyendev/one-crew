@@ -83,7 +83,7 @@ def loop(ledger, task_id, interval=.5):
                     continue
                 try:
                     result = workflow.run(task_id, steps=1)
-                    if result.get('waiting_reason') == 'capacity' or result['phase'] == 'waiting_branches':
+                    if result.get('waiting_reason') == 'capacity' or result['phase'] in ('waiting_branches','waiting_operation'):
                         time.sleep(interval)
                 except LedgerError as error:
                     # A foreground command may briefly own a checkpoint. Never launch through it.
@@ -93,6 +93,8 @@ def loop(ledger, task_id, interval=.5):
         finally:
             with ledger.transaction(write=True) as conn:
                 ledger._event(conn, task_id, 'runner.stopped', {'identity': record['identity'], 'outcome': outcome})
+            from .delivery import best_effort
+            best_effort(ledger)
 
 
 def start(ledger, task_id):
