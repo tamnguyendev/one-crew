@@ -2,20 +2,35 @@
 
 ## Revision 5 implementation — KiroCrew + CAO
 
-Source: [architecture-kiro-cao.vi.md](architecture-kiro-cao.vi.md), baseline `0f3d514`. Cycle 1: owned recipes, progress/evidence gates and local event sink. See [implementation contracts](revision5-implementation.vi.md). Existing evidence below remains scoped to its original trials. No CAO installation, heartbeat reactivation or external task execution implied.
+Source: [architecture-kiro-cao.vi.md](architecture-kiro-cao.vi.md), baseline `0f3d514`. Cycle 1 (`2117dce`): owned recipes, progress/evidence gates and local event sink. Cycle 2: common MCP entry, outcome/lesson evidence, delivery-specific worker/reviewer contracts and an isolated live trial. See [implementation contracts](revision5-implementation.vi.md). Existing evidence below remains scoped to its original trials. No CAO installation, heartbeat reactivation or SRM modification implied.
 
 | ID | Proposal section | Requirement / mapping | Type | Implementation evidence | Test evidence | Status | Notes |
 |---|---|---|---|---|---|---|---|
-| V5-01 | 3–4 | Runtime-owned recipe dispatch/wait and root limits; OE/BG | Functional | owned_recipes + grant-bound Android dispatch/wait + root guard | test_revision5 (11 cases) and Android regression | Partial | Fixed historical Android recipe first; no arbitrary shell |
+| V5-01 | 3–4 | Runtime-owned recipe dispatch/wait and root limits; OE/BG | Functional | owned_recipes + grant-bound Android dispatch/wait + root guard | test_revision5 (12 cases) and Android regression | Partial | Fixed historical Android recipe first; no arbitrary shell |
 | V5-02 | 5 | Persistent exploration/repair caps and error classification; OC09/12 | Reliability | progress.py counters, error taxonomy, persisted owned checkpoints | test_revision5 + test_owned repetition/auth cases | Partial | Same root budget after resume |
 | V5-03 | 7 | Evidence completion and immutable artifact checks; OC08/11 | Functional | owned_verification all captured tests on current snapshot; APK hash recheck | test_revision5 stale/failing/tampered evidence | Partial | User acceptance separate; broader AC coverage pending |
 | V5-04 | 6 | Delivery lifecycle with no idle AI calls; BG/IN | Observability | delivery.py driven by owned checkpoints/runner stop/build finish; bridge PAUSED | test_delivery 4 cases + notification regressions | Partial | Local file sink implemented; direct chat callback unavailable |
-| V5-05 | 4,8 | Single scheduler, CAO capability spike; OC04 | Architecture | Native adapters retained | Pending | Missing | No migration before verified containment/cancel |
-| V5-06 | 3,6 | Common entry surface and durable cross-entry questions; OC01/05/06 | API | entry CLI/inbox already available | Existing entry tests; new transport pending | Partial | No authenticated external endpoint |
+| V5-05 | 4,8 | Single scheduler, CAO capability spike; OC04 | Architecture | Native adapters retained; native cao/tmux absent, WSL only docker-desktop | Read-only prerequisite probe 2026-10-09 | Blocked | Live spike needs suitable authenticated CAO environment; adapter not implemented |
+| V5-06 | 3,6 | Common entry surface and durable cross-entry questions; OC01/05/06 | API | mcp_entry stdio, project-bound controls, durable CLI | 5 MCP tests: real stdio, read-only, revision, schema, launch failure/replay | Partial | No authenticated multi-user endpoint or verified connections from all hosts |
 | V5-07 | 3,8 | Dependencies, writer isolation and integration; OC07/08/11 | Reliability | Existing DAG/merge/vector | Existing scoped fixtures/live; owned-job integration pending | Partial | Dynamic multi-repo scheduling not complete |
-| V5-08 | 7 | Outcomes, lessons and evaluated routing policy; LR01–04 | Data | Existing deterministic recommendations | Benchmark pending | Partial | No automatic JEV promotion |
+| V5-08 | 7 | Outcomes, lessons and evaluated routing policy; LR01–04 | Data | learning.py transactional outcomes and proposed lessons; existing routing | 3 learning tests; benchmark pending | Partial | Unknown quality/assistance retained; no automatic JEV promotion |
 | V5-09 | 8 | Restart/network/quota/sleep/8-hour endurance; OC03/09 | Testing | Existing checkpoints/supervisor | Full fault matrix and live soak pending | Partial | Do not claim 8-hour verification |
-| V5-10 | 1,8 | Fresh real task without external repairs | Testing | Pending | Pending | Missing | User will provide acceptance task after readiness report |
+| V5-10 | 1,8 | Fresh real task without external repairs | Testing | Isolated Codex trial completed in 8 calls, original source preserved | revision5-live-evidence-d2151ab1.json; prior 12-call failure retained | Partial | Tiny function only; user will provide acceptance task after readiness report |
+
+Completed slices (parent requirements above deliberately remain Partial where broader gates are open):
+
+| Slice | Status | Evidence |
+|---|---|---|
+| V5-01a fixed historical Android operation with root limits and no model polling | Complete | owned_recipes.py; active-parent/queue/deadline/artifact fixtures, existing Android regressions |
+| V5-02a persisted repeat/exploration/write/test/review limits and infra/auth classification | Complete | progress.py; test_revision5 + test_owned; real initial trial stopped at call cap |
+| V5-03a current captured tests and artifact integrity, delivery-specific action/review contract | Complete | owned_verification.py, owned.contract; stale/tampered fixtures; second live trial |
+| V5-04a local event sink with retry/dedup/pending revision checks and no AI scheduler | Complete | delivery.py; 4 tests; Codex heartbeat remains PAUSED |
+| V5-06a local stdio operator entry | Complete | mcp_entry.py; 5 tests; no installed host connection claimed |
+| V5-08a durable outcomes and source-bound proposed lessons | Complete | learning.py; 3 tests; no policy promotion claimed |
+
+Validation: full discovery passed **328 tests in 319.210s**. The subsequent delivery-contract fix passed all **12 revision5 tests and 17 owned tests**, and the final MCP launch-failure fix passed **8 MCP/learning tests**. Full-suite count refers to the earlier checkpoint, not a second full run of the final tree. Windows subprocess ResourceWarnings occurred during detached-process fixtures; their explicit stop/liveness assertions passed. No lint/type-check command is configured. Live evidence records both trials; observed token counts are not a pricing estimate or proof of routing efficiency. The successful trial used 8 managed calls and 70,113 observed tokens including repeated context; token optimization remains open.
+
+Remaining mandatory roadmap gaps: broader AC coverage/discovery, generic framework recipes/workspace mode, bounded transient backoff, authenticated host integration/chat callbacks, owned-task dynamic DAG/integration, calibrated routing/lesson promotion and full fault/8-hour soak. The user acceptance task has not been dispatched. Readiness means a controlled trial on currently supported capabilities, not all revision 5 requirements completed.
 
 ## Background handoff — BG01–BG03 / IN01–IN03 / UX01
 

@@ -1,6 +1,6 @@
 # OneCrew revision 5 — hợp nhất bài học KiroCrew và CAO
 
-Ngày: 09/10/2026, Asia/Saigon. **Trạng thái: thiết kế đã cập nhật; chưa triển khai các khoảng thiếu trong tài liệu này.** Đây là phần bổ sung có hiệu lực của [kiến trúc tổng thể](architecture.vi.md), không phải sản phẩm hay roadmap thứ hai. Giữ ID OC/OE/BG/IN/LR hiện có; không coi việc đọc source upstream là evidence OneCrew đã chạy được.
+Ngày: 09/10/2026, Asia/Saigon. **Trạng thái: đã triển khai một phần revision 5; [coverage](proposal-coverage.md) và [implementation](revision5-implementation.vi.md) ghi rõ từng gate và phần còn thiếu.** Đây là phần bổ sung có hiệu lực của [kiến trúc tổng thể](architecture.vi.md), không phải sản phẩm hay roadmap thứ hai. Giữ ID OC/OE/BG/IN/LR hiện có; không coi việc đọc source upstream là evidence OneCrew đã chạy được.
 
 ## 1. Quyết định và bản duyệt nhanh
 
@@ -115,7 +115,7 @@ DB là nguồn trạng thái bền vững; event bus trong process chỉ đánh 
 - Entry mới connect cùng task: nhận progress/output/questions và quyền thực tế. Trả lời CAS đúng revision từ entry có quyền; worker không được giả người dùng.
 - Nếu host không có callback đã kiểm chứng: báo rõ chỉ có terminal/CLI/inbox; không hứa tự hiện trong chat. Polling dự phòng chạy bằng code; không thay bằng gọi AI định kỳ.
 
-**Hiện trạng 09/10:** bridge Codex mỗi 5 phút đã PAUSED do chạy cả khi không có việc. Feed pull/ack đã có; tự quản lý lifecycle notification/host callback chưa triển khai. Không bật lại automation trong lần cập nhật tài liệu này.
+**Hiện trạng 09/10:** bridge Codex mỗi 5 phút giữ PAUSED. Owned checkpoint/runner/build chuyển outbox sang feed local bằng code; lỗi sink giữ batch để retry, không gọi model. Host callback vào chat chưa có; không bật lại automation. Xem contract delivery trong tài liệu implementation.
 
 ## 7. Evidence, memory, routing và JEV
 
@@ -129,7 +129,7 @@ Rule/code xử lý status, hash, budget, permission, readiness, retries đã đ�
 
 ## 8. Thứ tự triển khai và điều kiện nghiệm thu
 
-Các dòng sau là **pending** của revision 5; tái sử dụng nền đã có, không xóa evidence milestone cũ. Thứ tự này thay các nhãn phase P1–P4 lịch sử khi quyết định việc tiếp theo.
+Các dòng sau là **gate mục tiêu** của revision 5; trạng thái đã làm/thiếu nằm trong coverage. Tái sử dụng nền đã có, không xóa evidence milestone cũ. Thứ tự này thay các nhãn phase P1–P4 lịch sử khi quyết định việc tiếp theo.
 
 | Ưu tiên/lát | Khoảng cần đóng | Gate chấp nhận | Mapping |
 |---|---|---|---|

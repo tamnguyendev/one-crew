@@ -4,7 +4,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 
 **Luồng mới `job` — runtime tự làm việc:** giao mục tiêu + project root + quyền/ngân sách; OneCrew tự discovery, gọi worker, dùng tools, sửa candidate, kiểm thử và bàn giao Git. Entry không phải chọn file hoặc chuẩn bị evidence/profile. Ba loại task đã có Codex live evidence trong repo thử nghiệm; sandbox test của luồng mới hiện hỗ trợ Python unittest. Xem [hướng dẫn và giới hạn](docs/owned-execution.vi.md). Kiến trúc hiện hành revision 5, [hợp nhất KiroCrew + CAO](docs/architecture-kiro-cao.vi.md), SPEC-007 và [giao việc nền/inbox](docs/background-handoff.vi.md); các luồng `work`/spec cũ vẫn giữ tương thích.
 
-Revision 5 là thiết kế nâng cấp, chưa phải implementation hoàn tất. Giữ một core và runner Windows; CAO là adapter tùy chọn chưa chạy thử. Bridge Codex mỗi 5 phút đã tạm dừng; notification lifecycle bằng code còn pending. Các khoảng thiếu P0 phải qua task thực tế không cần chat chạy hộ trước khi tuyên bố autonomy.
+Revision 5 đã có runtime recipe Android, giới hạn lặp/repair, kiểm evidence theo snapshot, local event delivery, stdio MCP entry và outcome/lesson có nguồn. Xem [phạm vi triển khai](docs/revision5-implementation.vi.md) và [coverage](docs/proposal-coverage.md). Giữ một core và runner Windows; CAO tùy chọn chưa đủ điều kiện chạy thử trên máy này. Bridge Codex mỗi 5 phút giữ PAUSED; local feed chạy bằng code, chưa có callback vào chat. Chưa hoàn tất toàn roadmap hoặc nghiệm thu task thực tế tiếp theo.
 
 `job submit --start --terminal` giao việc nền và mở viewer nhóm agent. `android build --terminal` cũng chạy nền mặc định, có `android status/cancel`; một slot build chung trên state-root. Entry trả chat sau dispatch. `request defer` giữ câu hỏi pending; `notifications pull/ack` nhận thông báo bền vững mà không approve. Cầu nối chat là cấu hình host riêng, không phải callback realtime mặc định cho mọi công cụ.
 
@@ -19,6 +19,8 @@ Revision 5 là thiết kế nâng cấp, chưa phải implementation hoàn tất
 | [SPEC-006 — duyệt nhanh](specs/SPEC-006-portable-orchestration.md) | Bản ngắn cho người dùng và 12 yêu cầu chi tiết |
 | [Kiến trúc](docs/architecture.vi.md) | Core/adapter/inbox; mục 12 ghi nguồn và quyết định áp dụng, mục 13 chốt contract thực thi |
 | [Kiến trúc revision 5 — KiroCrew + CAO](docs/architecture-kiro-cao.vi.md) | Luồng trọn task, ranh giới CAO, event delivery, recovery và gate P0/P1/P2 |
+| [Triển khai revision 5](docs/revision5-implementation.vi.md) | Recipe được cấp quyền, chống lặp, evidence, local delivery, outcomes và giới hạn |
+| [MCP entry](docs/entry-mcp.vi.md) | Cổng stdio local dùng chung, read-only mặc định; điều khiển do operator bật |
 | [Kế hoạch triển khai](docs/mvp-backlog.vi.md) | Ưu tiên revision 5; giữ contract và ca nghiệm thu nền P1–P4 |
 | [Coverage](docs/proposal-coverage.md) | Phân biệt code đã có với phần còn thiếu |
 | [P1a — task và inbox lưu bền](docs/durable-ledger.vi.md) | Submit/queue/connect, câu hỏi/revision/reply qua CLI; chưa dispatch worker |

@@ -46,4 +46,3 @@ def observe(state, action, args, result):
         if p['review_rejections'] >= limits['review_rejection_limit']: reason = 'Evidence review rejection limit reached.'
     if reason and state['phase'] == 'running':
         state.update(phase='blocked', message=reason, recovery={'kind': 'no_progress', 'automatic_retry': False})
-

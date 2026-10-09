@@ -42,3 +42,28 @@ Feed ở `<state-root>/notifications/delivered/<consumer-scope-hash>/`. `deliver
 `tests/test_revision5.py`: grants, restart chờ build không model calls, artifact tamper, failed build, exploration/duplicate-result caps, auth no retry, all captured tests/current snapshot, active parent build và root deadline. `tests/test_delivery.py`: checkpoint→local delivery, retry sink failure, idempotency, pending questions và empty feed. Fixture APK chỉ chứng minh protocol/integrity; không phải Android app thực tế hoặc test thiết bị.
 
 Trạng thái tổng thể và các khoảng P1/P2 còn thiếu được giữ trong [coverage](proposal-coverage.md). Không coi các tests này là chứng minh hoàn tất mọi yêu cầu revision 5 hoặc soak tám giờ.
+
+## Entry và learning
+
+[Stdio MCP entry](entry-mcp.vi.md) dùng cùng task/inbox/runner, mặc định read-only. Điều khiển cần operator cấu hình `--allow-control`. Chưa tự sửa cấu hình host hoặc mở network endpoint.
+
+Owned checkpoints terminal (`completed`, `failed`, `blocked`, `cancelled`) ghi outcome cùng transaction với checkpoint. Idempotency theo dữ liệu kết quả; lưu provider/model, số managed calls, usage known/unknown, snapshot, progress/recovery và trạng thái verification/acceptance. Assistance và quality chưa có evidence thì là unknown/null, không tự đánh giá model tốt từ một test xanh.
+
+```text
+onecrew --project <repo> learning outcomes
+onecrew --project <repo> learning propose <TASK-ID> --evidence <outcome-event-id> --text "Bài học có phạm vi"
+onecrew --project <repo> learning lessons
+```
+
+Lesson phải trỏ đúng outcome của task/project, chỉ `proposed`, không tự nạp vào worker hay đổi routing. Snapshot thay đổi làm lesson stale. Đây là nền outcome/lesson, chưa hoàn tất calibration/benchmark model hoặc promotion tự động. JEV vẫn giữ kết nối hiện có, chưa đưa lên đường quyết định.
+
+## Trial thật và phạm vi bàn giao
+
+Harness chạy thủ công: `.venv/Scripts/python.exe -X utf8 -m tests.live_revision5` (gọi subscription thật, không nằm trong unittest discovery). Hai trial đều giới hạn 12 managed calls/600 giây, Codex `gpt-6-luna`, Docker image khóa SHA; source trong thư mục thử riêng.
+
+- [Trial đầu](revision5-live-evidence.json): sửa đúng và test đạt nhưng thử Git ngoài scope, review không thống nhất delivery rồi hết 12 calls. Giữ trạng thái blocked; không gia hạn hoặc xóa chi phí. Đây là baseline trước khi sửa contract.
+- [Trial sau](revision5-live-evidence-d2151ab1.json): completed với 8 calls, tự list/read, tái hiện 2 tests fail, sửa một hàm, 3 tests pass, review accepted; source gốc nguyên vẹn. Không can thiệp trong lượt chạy. Sau trial đầu, runtime được sửa và task mới được tạo; không gọi cả quá trình phát triển là unassisted.
+
+Worker chỉ được nhìn action phù hợp grant; reviewer nhận cùng delivery contract. Candidate không cấp Git sẽ không bị yêu cầu publish để completed. Live evidence dùng HEAD `2117dce` cộng thay đổi cycle 2 chưa commit; trial sau có SHA256 từng source module, không suy toàn bộ code đã nằm trong HEAD đó. Bản MCP xử lý lỗi launch được bổ sung sau trial và kiểm chứng riêng, không ảnh hưởng vòng runtime đã chạy.
+
+Trial nhỏ chứng minh vòng discovery → sửa → test → review, không chứng minh chất lượng trên repo lớn, APK thật hay tám giờ. 70.113 tokens quan sát/8 calls vẫn có overhead lớn cho việc rất nhỏ; chưa tuyên bố tối ưu token. Cần task thực tế tiếp theo để đo thời gian, chi phí, độ đúng và mức can thiệp. Entry sẽ giao nền, báo Task ID rồi trả chat; thông báo chủ động vào chat vẫn chưa có.

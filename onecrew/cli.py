@@ -20,6 +20,7 @@ def main(argv=None):
               '  request    create / list / show / revise / reply / defer\n'
               '  notifications pull / ack / deliver / feed (local event delivery; never approves)\n'
               '  entry      connect / note (portable local context, no dispatch)\n'
+              '  learning   outcomes / lessons / propose (evidence only; no automatic routing promotion)\n'
               '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
               '  core       migrate / status / cancel / reconcile\n'
               '  work       enable / plan / run / start / runner / status / outputs / cancel / pause / resume / switch\n'
@@ -30,6 +31,9 @@ def main(argv=None):
               '  monitor    grouped workers / --verbose / --terminal / --all-projects\n'
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')
         return 0
+    if len(args)>index and args[index]=='learning':
+        from .learning import main as learning_main
+        return learning_main(args)
     if len(args)>index and args[index]=='notifications':
         from .notifications import main as notifications_main
         return notifications_main(args)

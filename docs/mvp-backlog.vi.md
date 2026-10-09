@@ -1,6 +1,6 @@
 # Kế hoạch triển khai OneCrew — 09/10/2026, revision 5
 
-**Thứ tự hiện hành:** [revision 5 — KiroCrew + CAO, mục 8](architecture-kiro-cao.vi.md#8-thứ-tự-triển-khai-và-điều-kiện-nghiệm-thu). P0: runtime tự thực thi trọn task → chống lặp/phục hồi hữu hạn → completion gate → observer/notification không gọi AI lúc idle. P1: entry chung và spike CAO một worker → dependency/integration → routing/lessons được đánh giá. P2: fault matrix và soak dài. Đây là kế hoạch, các khoảng thiếu chưa được triển khai trong lần cập nhật tài liệu này.
+**Thứ tự hiện hành:** [revision 5 — KiroCrew + CAO, mục 8](architecture-kiro-cao.vi.md#8-thứ-tự-triển-khai-và-điều-kiện-nghiệm-thu). P0: runtime tự thực thi trọn task → chống lặp/phục hồi hữu hạn → completion gate → observer/notification không gọi AI lúc idle. P1: entry chung và spike CAO một worker → dependency/integration → routing/lessons được đánh giá. P2: fault matrix và soak dài. [Implementation](revision5-implementation.vi.md) ghi phần đã triển khai, [coverage](proposal-coverage.md) phân biệt từng gate còn thiếu; không tính toàn roadmap đã hoàn tất.
 
 Milestone OE01–OE07 có ba loại task live và giữ evidence cũ. Task lịch sử UI/build sau đó vẫn cần Codex hỗ trợ sửa hạ tầng, nên chưa chứng minh autonomy cho luồng đó. Ưu tiên tiếp theo là đóng P0 trên nền hiện có rồi chạy một task thực tế không hỗ trợ ngoài runtime. Entry không chuẩn bị evidence/plan/adapter riêng cho task. P1–P4 bên dưới giữ contract nền và các năng lực chưa hoàn tất, không phải thứ tự ưu tiên mới.
 

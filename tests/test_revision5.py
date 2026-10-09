@@ -29,6 +29,17 @@ class Revision5Tests(unittest.TestCase):
         config['native_authorized']='true'
         with self.assertRaises(LedgerError): validate(config)
 
+    def test_worker_and_reviewer_contract_excludes_ungranted_publication(self):
+        from onecrew.owned import contract
+        prompt,schema,delivery=contract({'mode':'change','branch':None,'remote':None})
+        self.assertEqual(delivery,'isolated_candidate');self.assertNotIn('deliver',schema['properties']['action']['enum'])
+        self.assertNotIn('\ndeliver:',prompt);self.assertIn('neither required nor authorized',prompt)
+        run,task,_=self.f.runtime([],mode='change',image='sha256:'+'a'*64)
+        with patch('onecrew.owned_git.GitDelivery') as git:
+            with self.assertRaisesRegex(LedgerError,'not authorized'):
+                run._tool(task,run.state(task)[1],'deliver',{'directory':''},run.control.status(task)['configuration']['profile'])
+            git.assert_not_called()
+
     def test_worker_cannot_choose_build_command_or_sdk(self):
         run,task,_=self.f.runtime([],mode='branch',branch='onecrew/old',android_build=self.config())
         state=run.state(task)[1];state['branches']=[{'result':{}}]

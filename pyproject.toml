@@ -7,6 +7,7 @@ dependencies = []
 
 [project.scripts]
 onecrew = "onecrew.cli:main"
+onecrew-entry-mcp = "onecrew.mcp_entry:main"
 
 [build-system]
 requires = ["setuptools>=61"]

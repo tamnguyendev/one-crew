@@ -1,0 +1,157 @@
+{
+  "recorded_at": "2026-10-09T08:49:08.348043+00:00",
+  "task": "TASK-6b3935789f9f440f8b57529c128f0c80",
+  "runtime_commit": "2117dce50529e4a758037ad8df03d67147d5cb18",
+  "workspace": "C:\\Users\\NUC\\AppData\\Local\\Temp\\onecrew-v5-trial-t0p75juc",
+  "result": {
+    "task": "TASK-6b3935789f9f440f8b57529c128f0c80",
+    "phase": "blocked",
+    "message": "Root call budget exhausted.",
+    "plan": "Fix and candidate tests are complete. Report baseline failure, candidate success, and undelivered status with receipt evidence.",
+    "report": null,
+    "candidate_snapshot": "3de46a43d97ad3ebb961bc41cc353e0e6b05ab2f7635733128eededa9b033dad",
+    "original_workspace_modified": false,
+    "build": null,
+    "operation": null,
+    "progress": {
+      "policy": {
+        "version": 1,
+        "same_result_limit": 3,
+        "observation_limit": 16,
+        "write_limit": 8,
+        "failed_test_limit": 3,
+        "review_rejection_limit": 3
+      },
+      "observations": 2,
+      "writes": 1,
+      "failed_tests": 1,
+      "review_rejections": 1,
+      "results": {
+        "7dee12d2be7af381e5b3f0fc6e5ecdf385955c099b60240c26f55aabc0b70de3": 1,
+        "88a7fb626bfee235f2389076790581b33a9354c0b1338e026decee5c0a42460b": 1,
+        "fda055e9192652af8bd34cd75addbbcf629c43a2dba3a56be5764cb40052a23c": 1,
+        "c19108d9ec5f832f6a9d43de1f571d2f9bc030d10aa627fc57af8a19bf290941": 1,
+        "b781205e4e26c913e3b9d542210a8f1d5c051f30db9cba4c2fc6e8cb4b7bb0ad": 1,
+        "47078764b28f6c8c0a4ecf3bc56d47bfaa134f1639a06a6484202677d7cee6f4": 1,
+        "57f3c642b3879a4242f5918816d3feb968dd327c824e58d4ae85df6fb73aa93a": 1,
+        "8a17847eb5793a3e1b8f21c4fd70936add0555b64f00158c8e7c4e2b98c74e58": 1,
+        "dfdb7e1492e3cf2bdcb679fe54996f2392ff74b88d86e2dc880bafd24c158114": 1,
+        "c74affd48e0fc3f0e88ad698ae3a2bc9c6e6f00510fb49cc5334f7e5f8f87a6d": 1
+      }
+    },
+    "recovery": null,
+    "changes": [
+      {
+        "path": "calculator.py",
+        "original": "79eb131751a2f636f5a53755bc9bed41e047ce2eb333cd221dcfe43c92f3f38d",
+        "candidate": "c59afe37bd0cf751d180214ca37463f3c8ae0e173fe9b0e3fd1572d55fe85b36",
+        "diff": "--- calculator.py\n+++ calculator.py\n@@ -1,2 +1,2 @@\n def total(values):\r\n-    return len(values)\r\n+    return sum(values)\r\n",
+        "truncated": false
+      }
+    ],
+    "tests": [
+      {
+        "passed": false,
+        "snapshot": "937051f3fd40c19db9284ec7d3c3c516b1d166e0f88c14b2df91197f01cf5f2a",
+        "exit_code": 1
+      },
+      {
+        "passed": true,
+        "snapshot": "3de46a43d97ad3ebb961bc41cc353e0e6b05ab2f7635733128eededa9b033dad",
+        "exit_code": 0
+      }
+    ],
+    "deliveries": [],
+    "branches": [],
+    "pending_questions": [],
+    "usage": {
+      "totals_observed_only": {
+        "input_tokens": 95478,
+        "cached_input_tokens": 11520,
+        "uncached_input_tokens": 83958,
+        "output_tokens": 1741,
+        "total_tokens": 97219,
+        "kiro_credits": 0.0
+      },
+      "measured_attempts": [
+        "ATT-7521baa6aadc492b9276911c25407c3e",
+        "ATT-8ebacd8ef0c540db84e6e0c6e736f84f",
+        "ATT-a1844b56a4f04628acb1d3d357d0fd3e",
+        "ATT-b224b890c6ea4a90ae3e1557b8864c83",
+        "ATT-a8721ff1d596479a9370897d5409ced1",
+        "ATT-e0d0a644269c4085b614589395545a22",
+        "ATT-89444e81b7d3422d909979392718f8ea",
+        "ATT-47a93adadc22468bb311afc40b50a686",
+        "ATT-72e904aa7c59471f9fecc366df192361",
+        "ATT-b6f06e6ed3ec41a7bda73609105a62f8",
+        "ATT-63016bd0a72c4c88a0d634b3e13c3645",
+        "ATT-fe6b80f7b3c846909f7f69684ce301ff"
+      ],
+      "unknown_attempts": [],
+      "attempts": 12,
+      "cost_usd": null,
+      "note": "Cached input is a subset of Codex input; credits, tokens and account percentages are separate units. Ambiguous cumulative reports require a verified event/session contract."
+    },
+    "review": [
+      {
+        "accepted": false,
+        "feedback": "The report says the original tests passed, but evidence shows the original checkout failed 2 of 3 tests; only the isolated candidate passed all 3. It accurately notes delivery failed and no delivery is claimed. Revise wording to distinguish baseline failure from candidate success; delivery remains incomplete."
+      }
+    ],
+    "tool_receipts": [
+      {
+        "index": 0,
+        "action": "list",
+        "blob": "f6c6b4067007464987c0034834a83c9ad1bb1eb0e058673d861187d97a6efc68"
+      },
+      {
+        "index": 1,
+        "action": "read",
+        "blob": "1417ced32d51930ae7846f1e64aa3bda8d0e3fc2ed07ca57e869bf3250085b46"
+      },
+      {
+        "index": 2,
+        "action": "read",
+        "blob": "b208533c4b9a53f9210e0d779285d3acbfaae1d6adeb245b438eafd5a83ec7e7"
+      },
+      {
+        "index": 3,
+        "action": "test",
+        "blob": "90d68b410e7d4788c776d48950ea4327ac5ae78b4c985623c4be24c0a33fe9dc"
+      },
+      {
+        "index": 4,
+        "action": "write",
+        "blob": "80d769ad25108f9fa12cec24c6e1284cee8679786b7549e01953ff62770cff11"
+      },
+      {
+        "index": 5,
+        "action": "read",
+        "blob": "2229a7b1619e83c570d48da4f24ac0377ef27dd8c923fbafd8f2948ff877cb1c"
+      },
+      {
+        "index": 6,
+        "action": "test",
+        "blob": "27cb4aeeb0e118ddff0b68693cf3f5eeb3b297da0c6c958c3072f804b89e913b"
+      },
+      {
+        "index": 7,
+        "action": "deliver",
+        "blob": "e6793b59cda988b7f99bbfe4bbeceb8c018ca605f05dbbdb04c24b45c513c8ef"
+      },
+      {
+        "index": 8,
+        "action": "receipt",
+        "blob": "9ab7bf1053880fc51fb26f64570e9d99126475cd6d9525997979429b2729f64c"
+      },
+      {
+        "index": 9,
+        "action": "finish",
+        "blob": "e2feffb3dc9f106dfca390414385e6db492b2bf4d6628bc3556acd0d93729c83"
+      }
+    ],
+    "acceptance": "not_requested"
+  },
+  "assistance": "none during this trial",
+  "original_preserved": true
+}

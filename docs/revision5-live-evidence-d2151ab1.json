@@ -1,0 +1,195 @@
+{
+  "recorded_at": "2026-10-09T08:55:33.318997+00:00",
+  "task": "TASK-d2151ab1d73b424984d1f9955ee80218",
+  "runtime_commit": "2117dce50529e4a758037ad8df03d67147d5cb18",
+  "workspace": "C:\\Users\\NUC\\AppData\\Local\\Temp\\onecrew-v5-trial-o_efwunh",
+  "result": {
+    "task": "TASK-d2151ab1d73b424984d1f9955ee80218",
+    "phase": "completed",
+    "message": "Runtime completed; user acceptance remains separate.",
+    "plan": "Complete: minimal candidate fix applied and verified with the original test suite; original checkout preserved.",
+    "report": "## Result\nFixed `total(values)` in `calculator.py` so it sums all values, including empty and negative inputs. Only that function was changed.\n\n## Evidence\n- Original tests reproduced two failures: `test_signed` returned 2 instead of 3, and `test_values` returned 3 instead of 13 (receipt 3).\n- The isolated candidate write changed `calculator.py` from `79eb131751a2f636f5a53755bc9bed41e047ce2eb333cd221dcfe43c92f3f38d` to `c59afe37bd0cf751d180214ca37463f3c8ae0e173fe9b0e3fd1572d55fe85b36`; original workspace remained unmodified (receipt 4).\n- Original test file passed after the fix: all 3 tests passed (receipt 5).\n\nDelivered as an isolated candidate snapshot; no Git publication performed.",
+    "candidate_snapshot": "afd815de10d55e2a8bd851108521087d25c395854a6bfd0cd9c1f638420f0f73",
+    "original_workspace_modified": false,
+    "build": null,
+    "operation": null,
+    "progress": {
+      "policy": {
+        "version": 1,
+        "same_result_limit": 3,
+        "observation_limit": 16,
+        "write_limit": 8,
+        "failed_test_limit": 3,
+        "review_rejection_limit": 3
+      },
+      "observations": 0,
+      "writes": 1,
+      "failed_tests": 1,
+      "review_rejections": 0,
+      "results": {
+        "7dee12d2be7af381e5b3f0fc6e5ecdf385955c099b60240c26f55aabc0b70de3": 1,
+        "a65244433a6001ae2c33c4eb3e7fac61499e81243bb54c31662585b2d856b7fc": 1,
+        "1a1133e2543e45228b54d31496d40671b71f034ffe6b404e083297799df15907": 1,
+        "2dccd738b8c76ba5ec96b4aa886e24ac40a97d0bf476c585cdb401c3ecc82d1b": 1,
+        "5d58643e2226c078b17ed826664c7cc4634a5f2e4fa45bd769293c52b37a63ca": 1,
+        "c661b8ac139db3409b245c6217fb2e706a2f6d9daad429ebef29585d47cc166b": 1,
+        "250195ef061be83c6cd2a470b9430c8519d5488e6a6397fc04006085dd883341": 1
+      }
+    },
+    "recovery": null,
+    "changes": [
+      {
+        "path": "calculator.py",
+        "original": "79eb131751a2f636f5a53755bc9bed41e047ce2eb333cd221dcfe43c92f3f38d",
+        "candidate": "c59afe37bd0cf751d180214ca37463f3c8ae0e173fe9b0e3fd1572d55fe85b36",
+        "diff": "--- calculator.py\n+++ calculator.py\n@@ -1,2 +1,2 @@\n def total(values):\r\n-    return len(values)\r\n+    return sum(values)\r\n",
+        "truncated": false
+      }
+    ],
+    "tests": [
+      {
+        "passed": false,
+        "snapshot": "26ade3048f171c4cb6d71f2b5724dadb3a4432dbe0b0df4269291726a9429ec2",
+        "exit_code": 1
+      },
+      {
+        "passed": true,
+        "snapshot": "afd815de10d55e2a8bd851108521087d25c395854a6bfd0cd9c1f638420f0f73",
+        "exit_code": 0
+      }
+    ],
+    "deliveries": [],
+    "branches": [],
+    "pending_questions": [],
+    "usage": {
+      "totals_observed_only": {
+        "input_tokens": 69099,
+        "cached_input_tokens": 5888,
+        "uncached_input_tokens": 63211,
+        "output_tokens": 1014,
+        "total_tokens": 70113,
+        "kiro_credits": 0.0
+      },
+      "measured_attempts": [
+        "ATT-8389d77dcc2c42b1bc309e206dcded4c",
+        "ATT-b04bd7698d814006960c8e2d9e1f1985",
+        "ATT-d139a114f36d4a898b1705a8a37b0541",
+        "ATT-0991dce8a04f47479b3f70fdc73470db",
+        "ATT-bbc7a8599f2a4e65af40728321792b71",
+        "ATT-c09b89f824184e9388418f15af9c5f88",
+        "ATT-ba4b62fdfd544c1a9ab9c343646545be",
+        "ATT-6ffa37823f24408790c71b2fe5bc1a66"
+      ],
+      "unknown_attempts": [],
+      "attempts": 8,
+      "cost_usd": null,
+      "note": "Cached input is a subset of Codex input; credits, tokens and account percentages are separate units. Ambiguous cumulative reports require a verified event/session contract."
+    },
+    "review": [
+      {
+        "accepted": true,
+        "feedback": "The report matches the goal and evidence: it reproduces the original failures, limits the fix to `calculator.py`, and reports the unchanged original test file passing against the candidate snapshot `afd815de…`. The isolated-candidate contract requires no Git publication."
+      }
+    ],
+    "tool_receipts": [
+      {
+        "index": 0,
+        "action": "list",
+        "blob": "f6c6b4067007464987c0034834a83c9ad1bb1eb0e058673d861187d97a6efc68"
+      },
+      {
+        "index": 1,
+        "action": "read",
+        "blob": "1417ced32d51930ae7846f1e64aa3bda8d0e3fc2ed07ca57e869bf3250085b46"
+      },
+      {
+        "index": 2,
+        "action": "read",
+        "blob": "b208533c4b9a53f9210e0d779285d3acbfaae1d6adeb245b438eafd5a83ec7e7"
+      },
+      {
+        "index": 3,
+        "action": "test",
+        "blob": "d55a2ce1e2255e019717e1221b51cddd0321aa562f7d4a733fa46f2a7ddaf662"
+      },
+      {
+        "index": 4,
+        "action": "write",
+        "blob": "82f0fd6bbb8f0481763bd6d154e51861a6d6a0600a9691aea2db905450b7073a"
+      },
+      {
+        "index": 5,
+        "action": "test",
+        "blob": "7656536a5df878caf3d9b32bf58683732bae5b45528884ac725a01f3632b01b4"
+      },
+      {
+        "index": 6,
+        "action": "finish",
+        "blob": "c4cf1fa62ac041c909481037c31e94b7c624e7224bc90cea48a8e3691e10ab9e"
+      }
+    ],
+    "acceptance": "not_requested"
+  },
+  "assistance": "none during this trial",
+  "original_preserved": true,
+  "runtime_source_hashes": {
+    "onecrew\\__init__.py": "8e05ab518d62dc53c17b40ebccfe23533d5eb2c5904c821a6bed48a653dd24d7",
+    "onecrew\\__main__.py": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d",
+    "onecrew\\amendment.py": "6221668b55598b3c134abf49839391b17f4894bc0a1ff5ee2bdf1acda55a8c7f",
+    "onecrew\\android_build.py": "d84eb068cf569856172c2ec38b4afb7fa56cbb96de6a66953f30cda01fed331b",
+    "onecrew\\android_jobs.py": "5196039a2ef128907b1214e0a8137300489e742c433d0e0c5fd3582a96ae7fdf",
+    "onecrew\\branch_inbox.py": "6d69e7e2eb317c6ede2f92428f944dbc943725f847d710f537a7cc0686ce24f3",
+    "onecrew\\budget.py": "e07dab2e92c31cf984836e357661455ec9d5046108ea165d156e63cad981e4b2",
+    "onecrew\\cli.py": "639546c9058548f44db07527ec519dce55ff894c70f187e3a0f4cd0f1385c849",
+    "onecrew\\control.py": "ba47a55eff4d28ca057b6c6a4504f127f60d57c16096e92eca0e5588603c6974",
+    "onecrew\\control_cli.py": "2ed3558f0aa79ef49ac513b6440894caff7dbaa30733286eeba801ab0da1eb18",
+    "onecrew\\cv_gate.py": "1d0f686a4c002f70d7ad6d9bfc0dae2c1e7d6457c2ae8d6175f1213d8ef30f99",
+    "onecrew\\delivery.py": "10af1bef23c18b9d1087b46a489f7bb60449e6090a706402f99f14be78f4fb95",
+    "onecrew\\discovery.py": "215ea878ce5bc25a51f2acaffb4eb2b5861ccb1042319901917b0b18f421538e",
+    "onecrew\\entry.py": "48b4029afbd67eb0a620f47bb004aefcdb52b74251ed4297102e7bf9a5dee127",
+    "onecrew\\entry_cli.py": "727828caa9b7131a4c47c00950381f10e6e58b11bda58b63c0f34571cbed8e77",
+    "onecrew\\feedback.py": "9e4da60ce66e2edb726a3db93c6e231267a09e980b26ed2789fce214d49483ca",
+    "onecrew\\git_history.py": "9f050db1af4eedb5bab95e9f233189a393ecbc7f537be68a550f32ce2453eb86",
+    "onecrew\\goal_budget.py": "4f1eb72bbdba622383a1b703196f310e014f414937bd1a39083cbfc808e49dbc",
+    "onecrew\\incremental.py": "0ef591930552ac38d3ca6334424f19f60ce44700eb8452919c8deb6cd7f10534",
+    "onecrew\\incremental_profile.py": "2fa4b7473b4a11b45101c92222d8118f9a72d2ad1e769c3bb58207ae91e06267",
+    "onecrew\\integration.py": "684b6e9b169d77189368ba980b6b892454dbbec94e99c4edace18d75687d693d",
+    "onecrew\\jev.py": "00b410e89adca693655b13b7c30cd73e6c482c3b51b134735bd13222325728d4",
+    "onecrew\\learning.py": "2db1813a132ebeb68892d2db908da3a843b83e26989b77b06aae4113f1ff256d",
+    "onecrew\\ledger.py": "90973c5f5cc8e85edffc82792930073efb5b1c10c29ea4ce5d5687684ed851fa",
+    "onecrew\\ledger_cli.py": "66cbe3e528e233f5f4ebc02df928d411854c1e9a6ffd6423d5c9773059742743",
+    "onecrew\\mcp_entry.py": "78b3fd82829d5a5a7fb0a66834a25d5042a4cf5ab53db9edf077fdc2e8ad5326",
+    "onecrew\\merge.py": "42ff42ee01bd820470769ff46f24c6c98cd7f99fd14f645e68b6af3ca19af1e7",
+    "onecrew\\monitor.py": "1b5f00771af8512e3d159dd601bebef5a799b778e5d57033b6c844f317936292",
+    "onecrew\\notifications.py": "8ae6d969a47193dc1977ba4b876c5869fc43a20d293afb0197960ca1c33cdbc9",
+    "onecrew\\owned.py": "f20ade4eaabfb9e3e2175752af7dd9423b6f472d9f64cedb68926286eebf74b9",
+    "onecrew\\owned_cli.py": "c4acbf52063c31c6f5e0386d680207d4bd5ebf9a9832f81214d6f79fa85b7f03",
+    "onecrew\\owned_git.py": "d1a5c1be9dbe661bdd2ce9c7a4255936e7bbddcc5f8392f5405b7b736910e0aa",
+    "onecrew\\owned_intake.py": "a3aae1912d2e0d754eafe950accef66ae88450f547f5ce2b687877f94535e261",
+    "onecrew\\owned_recipes.py": "c3b2ccc3945b4ef5a2e226ec7b960d5c7370605d32de8e0f2606182c116141fe",
+    "onecrew\\owned_verification.py": "a98e1c33620b40241b5e64854b176a4c670103b8060c8b87217bf7e146c7c042",
+    "onecrew\\parallel.py": "8634b22a6096c89396245a3d68ef2dd9e9e5b825e17db09c902c5552f0950045",
+    "onecrew\\preview.py": "120c04de362f768789f4deed2af5a239f37a34ac28bd351d08dab9662cc5132f",
+    "onecrew\\profiles.py": "1569a0ee678d6b6ac36f002a16d0e1eb60919c213c79db139e962b9f6c12fe32",
+    "onecrew\\progress.py": "667fda2f73be03c0e9fe8027919dacb5332852e2f2b346db1bb3a734f7630d85",
+    "onecrew\\provider_cli.py": "4675ed5894009ac1413664bd18593d0363ba572f1eaa5c9c5f94ec6ec778bbfc",
+    "onecrew\\providers.py": "44b82ecfe5da4e2b82cac949bc79bd5322504324520533051f3516c6d182f036",
+    "onecrew\\quota.py": "981a6112d9c1a3c9bfe41fbcda0a20470ed14a2fbdf1a49f69a3110efa601455",
+    "onecrew\\quota_budget.py": "da838b81d4ac80ed0321bfbffc4914eaf07384fdc10dcc9907ec91a5babf5336",
+    "onecrew\\routing.py": "cdc60c3eaca3aa713c350571413c05adc33b70566dd7b594f8c0d6144c2f84cb",
+    "onecrew\\runner.py": "ce6a4a4bc45260ad9a29e3a847637a33958b995935538ab0d716beda1a44c740",
+    "onecrew\\runtime.py": "eb8d5b0e8e6fe13f8cd8dfe0666ad7c17e4608ca2ef46c7e07dc0441163fcb92",
+    "onecrew\\sandbox_gate.py": "1623286aba69b140d35f88e5b72ee4f6c9c4c151503aed9c2e547729376c875c",
+    "onecrew\\snapshots.py": "8a15154a897f0e1493f00e8f8ae983e1f829935e86949ff3d03852a10b63d690",
+    "onecrew\\specs.py": "44e6479949a934e6da7f992669925dd3efbc020ea8832e0963f6421e4d216b46",
+    "onecrew\\subscription.py": "312576855c6f24c7cf1a72c880d77e612eabb1c05a3b42dc1d1142f641895b5b",
+    "onecrew\\supervisor.py": "7b371e094e57e0ca01f62e43ec9148f783bd336ae3125d4795699ed3d8807f8a",
+    "onecrew\\triage.py": "8c28cceea9ef488672bcab44e93a713fe72c2b5520c15fd8c53100b3f9c845ff",
+    "onecrew\\usage.py": "e24aae53235ed01d0a455be0c5e1dc68cb4b00ab7b6f15fc7c3f297293241d7a",
+    "onecrew\\vector.py": "edff958a0526844f271653df4c680ff762ed2c7685cc1d12d9cdacfdbdc79aba",
+    "onecrew\\work_view.py": "540586171c1cb178b594872cd12188226cf65418f01f70d20a87795294ae1261",
+    "onecrew\\worker_tools.py": "d58a22733e8b2bfc86163d1f5cbe8f9adbed29145586a8a82ad861efd71d4500",
+    "onecrew\\workflow.py": "cb4932de2c274554629a129ea5955df3122c72cf4fcd0883a911a946aae70fb2",
+    "onecrew\\workflow_cli.py": "7043278f6ffd6c30d65eaa375ee833345cf28c539145adf460325ad3ff614f6d"
+  }
+}
