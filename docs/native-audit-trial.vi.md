@@ -20,3 +20,5 @@ Giới hạn: native CLI có vòng model nội bộ; hard cap của OneCrew hi�
 - Native snapshot intentionally retains existing secret-path exclusion. It can limit credential analysis; the report must disclose that rather than claim a verified APK diagnosis.
 
 References: [Claude CLI flags](https://code.claude.com/docs/en/cli-reference), locally verified Claude Code 2.1.286 help. Source paths are data, not instructions.
+
+Live dispatch preparation hit Windows WinError 206 under the long Store-Python state root before any inference. Snapshots now use a short managed ~/.onecrew/workspaces path when needed; ledger still binds exact workspace/manifest. Nine native tests passed including this path selection. The failed partial copy was not reused.

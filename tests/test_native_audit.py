@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 from tests import test_owned as fixtures
-from onecrew.native_audit import capture,enable,citations,NativeClaude
+from onecrew.native_audit import capture,enable,citations,NativeClaude,workspace_path
 from onecrew.ledger import LedgerError
 
 
@@ -105,6 +105,12 @@ class NativeAuditTests(unittest.TestCase):
             with self.assertRaises(RuntimeError): run.run(task,steps=1)
         state=run.run(task,steps=1)
         self.assertEqual(state['native_audit']['stage'],'review');self.assertEqual(len(worker.calls),1)
+
+    def test_long_windows_state_root_uses_short_bound_workspace(self):
+        with patch('onecrew.native_audit.os.name','nt'),patch('onecrew.native_audit.Path.home',return_value=self.f.root):
+            target=workspace_path(self.f.root/('long'*40),'TASK-'+('a'*32))
+        self.assertTrue(target.is_relative_to(self.f.root/'.onecrew/workspaces'))
+        self.assertNotIn('longlong',str(target));self.assertLess(len(target.name),20)
 
 
 if __name__=='__main__': unittest.main()

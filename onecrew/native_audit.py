@@ -21,6 +21,15 @@ REVIEW_SCHEMA={'type':'object','properties':{'accepted':{'type':'boolean'},'feed
     'required':['accepted','feedback'],'additionalProperties':False}
 
 
+def workspace_path(state_root, task_id):
+    # Store-Python state roots can already consume most of Windows MAX_PATH.
+    # Keep snapshots in a short managed directory; the ledger retains the binding.
+    base=Path(state_root)/'native-audits'
+    if os.name=='nt' and len(str(base))>100:
+        base=Path.home()/'.onecrew'/'workspaces'
+    return base/task_id[-12:]/uuid.uuid4().hex[:12]/'source'
+
+
 def capture(runtime, destination):
     """Copy permitted UTF-8 working bytes; never traverse links or copy Git/settings."""
     destination=Path(destination);destination.mkdir(parents=True,exist_ok=False)
@@ -103,7 +112,7 @@ def enable(runtime,task_id,reference):
             raise LedgerError('Native audit requires a nonterminal settled task.')
         if runtime.ledger.requests(task_id,pending=True): raise LedgerError('Answer the pending request before changing execution mode.')
         if state.get('native_audit'): return state
-        workspace=runtime.ledger.state_root/'native-audits'/task_id/uuid.uuid4().hex/'source'
+        workspace=workspace_path(runtime.ledger.state_root,task_id)
         captured=capture(runtime,workspace)
         state['native_audit']={'version':1,'workspace':str(workspace),'manifest':runtime.store.blob(canonical(captured).encode()),
             'stage':'work','worker_session':str(uuid.uuid4()),'review_session':str(uuid.uuid4()),
