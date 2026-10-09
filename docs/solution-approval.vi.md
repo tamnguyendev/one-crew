@@ -4,14 +4,28 @@ Nguồn: người dùng yêu cầu giảm hiểu sai/rework, trao đổi với C
 
 ## Luồng người dùng
 
-1. Người dùng mô tả kết quả cần có, Codex làm rõ tình huống và tiêu chí nghiệm thu.
+1. Người dùng mô tả kết quả cần có; trợ lý tại công cụ người dùng chọn làm rõ tình huống và tiêu chí nghiệm thu.
 2. OneCrew khảo sát source trong phạm vi/budget đọc được cấp và đề xuất solution. Chưa cấp quyền sửa sản phẩm. Nếu cần spike chạy code, nêu riêng mục tiêu, giới hạn và quyền cần có; không coi khảo sát là quyền triển khai.
-3. Codex trình bày bản duyệt nhanh, giải thích lựa chọn, phản biện giả định và cùng người dùng điều chỉnh. Thảo luận chưa phải approval.
+3. Trợ lý tại entry đang dùng trình bày bản duyệt nhanh, giải thích lựa chọn, phản biện giả định và cùng người dùng điều chỉnh. Người dùng có thể đổi công cụ hoặc lấy ý kiến nhiều trợ lý. Thảo luận chưa phải approval.
 4. Người dùng chốt solution hiện hành. Entry ghi quyết định đúng revision và provenance; core mới cấp/kiểm quyền implement trong scope đã chốt. Approval solution không tự cấp shell, publication, budget hay quyền khác.
 5. OneCrew triển khai từng lát, test và review theo acceptance của solution. Bàn giao lát đầu để kiểm tra sớm trước khi nhân rộng cùng pattern.
 6. Nếu phát hiện solution không khả thi hoặc cần đổi hợp đồng, dừng phần bị ảnh hưởng, lưu checkpoint và đề nghị thay đổi; chỉ tiếp tục sau quyết định đúng revision.
 
 Không cần viết lại tài liệu dài sau mỗi câu chat. Một solution có bản nhanh cho người dùng và chi tiết triển khai cho worker, cùng revision; phần chi tiết không được thêm nghĩa vụ ẩn. Spec đã được người dùng chốt và đủ nội dung solution thì tái sử dụng, không yêu cầu duyệt lại cùng quyết định.
+
+## Trao đổi qua nhiều công cụ
+
+Làm rõ theo yêu cầu tiếp theo của người dùng: entry là vai trò, không gắn riêng với Codex. Mọi chỗ nhắc Codex trong ví dụ của tài liệu này đều có thể thay bằng trợ lý tại entry người dùng chọn. Người dùng tự do trao đổi với Codex, Claude, Kiro hoặc công cụ khác để tìm giải pháp; Codex không phải trung gian bắt buộc hay người duyệt có đặc quyền.
+
+Ví dụ: bàn yêu cầu ở Kiro → phản biện phương án ở Claude → chốt ở Codex → OneCrew giao worker Claude implement. Có thể chốt tại bất kỳ entry đã kết nối nào. Công cụ trao đổi độc lập với provider thực thi; đổi chat không tự đổi worker đang chạy.
+
+OneCrew giữ solution dùng chung: ID/revision, mục tiêu, phương án và lý do, bằng chứng, giả định, câu hỏi mở, quyết định người dùng và change request. Entry mới đọc cùng packet để tiếp tục. Không tự thu thập toàn bộ private chat từ mọi nhà cung cấp; chỉ đồng bộ nội dung người dùng giao cho OneCrew. Công cụ chưa có adapter cần gói bàn giao thủ công được kiểm tra revision; chưa tích hợp thì không tuyên bố tự đồng bộ.
+
+Ý kiến từ nhiều trợ lý là đề xuất có nguồn và base revision. Nếu hai entry cùng sửa, giữ cả hai đề xuất để đối chiếu, từ chối ghi đè revision cũ; không dùng quy tắc “tin nhắn cuối thắng”. Người dùng chốt một revision làm hợp đồng triển khai. Các trợ lý có cùng vai trò tư vấn, không được approve thay người dùng.
+
+Khi cần đổi solution, request thuộc OneCrew/task, không thuộc chat ban đầu. Người dùng có thể đọc và trả lời từ entry khác trên cùng ID/revision; đóng chat hoặc hết usage không làm mất câu hỏi. Chỉ định nơi nhận thông báo không đồng nghĩa đã có callback hoạt động. Tự do chọn công cụ trao đổi không tự cấp budget hoặc quyền gửi nội dung sang các chat khác.
+
+Phần cần kiểm chứng thêm trong SG02/SG03: chuyển entry giữ solution và pending request; proposal đồng thời không ghi đè; trả lời từ entry khác chỉ có hiệu lực với revision hiện hành. Hiện đã có nền tảng entry packet/inbox; luồng solution đa entry đầy đủ vẫn pending.
 
 ## Bản duyệt nhanh
 
@@ -31,14 +45,14 @@ Ví dụ Cloud Auth: thống nhất credential kiểm tra và credential gửi; 
 | Tình huống | Xử lý |
 |---|---|
 | Sửa compile error, đổi tên helper, thêm test, retry trong giới hạn đã chốt | Worker tự làm, ghi evidence; không hỏi lại người dùng |
-| Khó khăn kỹ thuật, chưa biết có thể giữ nguyên solution không | OneCrew giữ checkpoint, tạo yêu cầu technical review cho entry; Codex khảo sát/giải thích trong quyền hiện có |
-| Đổi hành vi người dùng, UX chính, API contract, schema/migration, bảo mật, dependency nền tảng, phạm vi hay tiêu chí nghiệm thu | Solution change request; Codex trình bày và người dùng quyết định trước khi chạy phần bị ảnh hưởng |
+| Khó khăn kỹ thuật, chưa biết có thể giữ nguyên solution không | OneCrew giữ checkpoint, tạo yêu cầu technical review cho entry người dùng chọn; trợ lý tại đó khảo sát/giải thích trong quyền hiện có |
+| Đổi hành vi người dùng, UX chính, API contract, schema/migration, bảo mật, dependency nền tảng, phạm vi hay tiêu chí nghiệm thu | Solution change request; entry trình bày và người dùng quyết định trước khi chạy phần bị ảnh hưởng |
 | Muốn bỏ tính năng, thay bằng mock/stub, giảm test để pass, hoặc coi yêu cầu không khả thi là completed | Không được tự làm; báo bằng chứng và phương án cho người dùng |
 | Vượt quyền, budget, số lần phục hồi hoặc cần nguồn lực bên ngoài | Dùng request/grant tương ứng; technical review không cấp quyền thay người dùng |
 
 Change card gồm: solution/revision gốc; vướng mắc và bằng chứng; vì sao không thể tiếp tục theo cách cũ; phương án đề xuất và lựa chọn; ảnh hưởng hành vi/file/task/test/thời gian; phần nào đang dừng, phần nào độc lập còn chạy. Không yêu cầu người dùng đọc toàn bộ log.
 
-Codex được phản biện và đề xuất, không tự approve thay đổi sản phẩm. Chưa có câu trả lời thì vẫn chờ; timeout/skip/ack không là đồng ý. Chỉ worker trong phần độc lập, còn đúng hợp đồng đã duyệt, mới tiếp tục. Approval cũ không hợp lệ với revision solution đã đổi; evidence của các nhánh phụ thuộc phải được kiểm lại.
+Trợ lý tại entry được phản biện và đề xuất, không tự approve thay đổi sản phẩm. Chưa có câu trả lời thì vẫn chờ; timeout/skip/ack không là đồng ý. Chỉ worker trong phần độc lập, còn đúng hợp đồng đã duyệt, mới tiếp tục. Approval cũ không hợp lệ với revision solution đã đổi; evidence của các nhánh phụ thuộc phải được kiểm lại.
 
 ## Song song có điều kiện
 
