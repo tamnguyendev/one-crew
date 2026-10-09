@@ -1,0 +1,46 @@
+{
+  "recorded_at": "2026-10-09T09:20:49.175412+00:00",
+  "scope": "Jev transport/schema smoke only; synthetic tier/cost/quota; no worker launched; not routing calibration",
+  "core": {
+    "status": "recommended",
+    "selected": {
+      "id": "claude-standard",
+      "provider": "claude",
+      "model": "sonnet",
+      "tier": 2
+    },
+    "required_tier": 2,
+    "rejected": [],
+    "eligible": [
+      "claude-standard",
+      "claude-heavy"
+    ],
+    "preferred_provider": "claude",
+    "reason": "Operator provider preference, then supplied cost rank, after all required constraints.",
+    "reservation": "not_reserved",
+    "quota_limit": "Estimate only; provider internal usage is not a hard cap."
+  },
+  "jev": {
+    "status": "proposal",
+    "selected": "claude-standard",
+    "confidence": 0.88,
+    "probabilities": {
+      "abstain": 0.08,
+      "claude-standard": 0.92,
+      "claude-heavy": 0.0
+    },
+    "requires_review": false,
+    "authority": "proposal_only",
+    "dispatch_enabled": false,
+    "automatic_application": false,
+    "calls": 1,
+    "evidence": "66843a31382a18cd386585e37e2db275bd7fb13db404d8d8638cadc6cbce8804",
+    "model": "jev-1.13.0",
+    "usage": {
+      "input_tokens": 557,
+      "output_tokens": 43
+    },
+    "latency_ms": 828,
+    "quality_calibrated": false
+  }
+}

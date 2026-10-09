@@ -1,4 +1,6 @@
-# Kế hoạch triển khai OneCrew — 09/10/2026, revision 5
+# Kế hoạch triển khai OneCrew — 09/10/2026, revision 6
+
+**Bổ sung theo yêu cầu mới:** [SK01–SK04 / MR01–MR03](skills-routing.vi.md) triển khai trước task nghiệm thu tiếp theo: history→recurrence→candidate skill có duyệt, provider preference cho job mới và JEV shadow. Routing calibrated, tự cập nhật skill và những khoảng P0/P1/P2 bên dưới không được coi đã đóng bởi nâng cấp này.
 
 **Thứ tự hiện hành:** [revision 5 — KiroCrew + CAO, mục 8](architecture-kiro-cao.vi.md#8-thứ-tự-triển-khai-và-điều-kiện-nghiệm-thu). P0: runtime tự thực thi trọn task → chống lặp/phục hồi hữu hạn → completion gate → observer/notification không gọi AI lúc idle. P1: entry chung và spike CAO một worker → dependency/integration → routing/lessons được đánh giá. P2: fault matrix và soak dài. [Implementation](revision5-implementation.vi.md) ghi phần đã triển khai, [coverage](proposal-coverage.md) phân biệt từng gate còn thiếu; không tính toàn roadmap đã hoàn tất.
 

@@ -420,7 +420,8 @@ class Owned(Workflow):
                     from .progress import observe
                     observe(state,value['action'],args,result)
                     blob=self.store.blob(canonical(record).encode())
-                    state['receipts'].append({'index':len(state['receipts']),'action':value['action'],'blob':blob})
+                    state['receipts'].append({'index':len(state['receipts']),'action':value['action'],'blob':blob,
+                                              'successful': 'error' not in result})
                     if not preserve_intent:
                         state['response']=None;state['step']+=1
                     if value['action'] in ('finish','branch_before') and not preserve_intent:

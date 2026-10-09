@@ -22,3 +22,26 @@ Nguồn API: [TypeSafe OpenAPI](https://api.typesafe.ai/openapi.json), `POST /v1
 ## Kiểm chứng trước task tiếp theo
 
 Test phân biệt 3 task với 3 retry, nhóm sai công nghệ/mục tiêu, failures, approval stale/hash tamper, project isolation, quyền tool, bounded context, restart và automatic runtime injection. Routing kiểm preferred provider không vượt hard gates, explicit override/idempotent submit, hết quota/reset hint, JEV invalid/timeout/abstain. Chạy lại regression owned/learning/routing/entry. Không giao task sản phẩm trong lần nâng cấp này.
+
+## Vận hành đã triển khai
+
+```text
+onecrew --project <repo> --state-root <state> skills list
+onecrew --project <repo> --state-root <state> skills review <skill-id>
+onecrew --project <repo> --state-root <state> skills approve <skill-id> --revision <reviewed-hash> --reference "Câu trả lời thật của operator"
+onecrew --project <repo> --state-root <state> skills reject <skill-id> --revision <reviewed-hash> --reference "Lý do không dùng"
+onecrew --project <repo> --state-root <state> skills scan
+onecrew --project <repo> --state-root <state> provider prefer claude --model sonnet --reset-hint 2026-10-09T23:00:00+07:00
+onecrew --project <repo> --state-root <state> provider preference
+onecrew --project <repo> --state-root <state> provider choose --file routing.json --jev --brief "Mô tả task đã loại dữ liệu nhạy cảm"
+```
+
+`scan` khôi phục đề xuất nếu chuyển outcome→candidate từng bị lỗi I/O; không phải cron. `job outputs` có skill đã dùng và candidate liên quan. Xem đề xuất qua CLI/terminal; callback chat chưa có. Không skill nào được approve trong lần triển khai này. Candidate bị reject không tự đề xuất lại cùng nhóm. V1 chưa có edit/promote phiên bản kế tiếp hoặc import kho bên ngoài.
+
+`routing.json` dùng workload/candidates đúng schema trong [routing policy](routing-policy.vi.md). Model tier/cost_rank do operator cung cấp, chưa suy từ history. `--jev` chỉ gửi brief và metadata model. Một lệnh là một đánh giá độc lập ngoài root task, ghi receipt trong `<state>/routing-decisions/`; không tự gọi ở mỗi worker/tool step. Chi phí evaluator lưu riêng với Claude subscription. Receipt không submit job.
+
+Preference ở `<state>/model-preference.json`, dùng chung các project cùng state-root. Job cũ/replay giữ model trong payload. Explicit `--provider codex` dùng default model của Codex; Kiro cần model explicit nếu chưa có preference phù hợp. MCP submit có thể bỏ provider/model để dùng preference. Không sửa cấu hình mặc định của ứng dụng Claude/Codex/Kiro.
+
+Đã cấu hình state-root đang vận hành ưu tiên **Claude / sonnet**. Alias `sonnet` được CLI local hỗ trợ; provider resolve model thực tế, không khẳng định alias ghim một phiên bản. Reset hint hết hạn không reset quota hoặc đổi model. Explicit job là lựa chọn operator có root budget; auto recommendation vẫn cần quota mới, chưa có hard token cap.
+
+Live [JEV smoke evidence](revision6-jev-evidence.json): một request, 557 input + 43 output tokens quan sát, 828 ms; đề xuất `sonnet` giữa hai ứng viên Claude tổng hợp, confidence 0.88. Tier/cost/quota của trial là **synthetic**, không là số liệu tài khoản. Không dùng để dispatch hoặc kết luận routing tối ưu. Claude doctor xác nhận CLI 2.1.286 đăng nhập subscription; chưa chạy task sản phẩm tiếp theo.

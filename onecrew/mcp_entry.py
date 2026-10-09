@@ -22,7 +22,7 @@ TOOLS={
             'provider':{'type':'string','enum':['codex','claude','kiro']},'model':STRING,
             'max_calls':{'type':'integer','minimum':1,'maximum':10000},
             'max_seconds':{'type':'integer','minimum':1,'maximum':28800},
-            'image':STRING,'branch':STRING,'remote':STRING},('goal','request_key','provider','model','max_calls','max_seconds'))),
+            'image':STRING,'branch':STRING,'remote':STRING},('goal','request_key','max_calls','max_seconds'))),
     'reply':('Record an actual user answer to the current request revision. Silence/skip is not an answer. Does not extend budget or grant new permissions.',
         schema({'request':STRING,'revision':STRING,'choice':STRING,'reference':STRING},('request','revision','choice','reference'))),
     'resume':('Resume an authorized task without resetting counters/deadline; pending questions still block.',TASK),

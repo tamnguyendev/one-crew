@@ -7,10 +7,17 @@ import uuid
 from .ledger import LedgerError, canonical, content_hash, key_field, text_field, utcnow, validate_grant
 
 
-def submit(ledger, goal, request_key, *, mode='audit', provider='codex', model='gpt-6-luna',
+def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None,
            max_calls=20, max_seconds=1200, image=None, branch=None, remote=None, android_build=None):
     goal = text_field(goal, 'goal', 12000)
     key_field(request_key)
+    # Idempotent replay retains the original choice after operator preferences change.
+    with ledger.transaction() as conn:
+        prior=conn.execute('SELECT payload FROM tasks WHERE project_id=? AND request_key=?',
+                          (ledger.project_id,request_key)).fetchone() if conn else None
+    from .model_preferences import resolve
+    previous=json.loads(prior['payload']).get('owned_execution') if prior else None
+    provider,model=resolve(ledger,provider,model,previous)
     if mode not in ('audit','change','delivery','branch') or provider not in ('codex','claude','kiro'):
         raise LedgerError('Unsupported job mode or provider.')
     text_field(model, 'model', 120)

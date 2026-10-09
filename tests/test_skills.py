@@ -14,12 +14,13 @@ class SkillTests(unittest.TestCase):
         self.goal='Inspect calculation implementation and report subtraction evidence'
         self.counter=0
 
-    def run_task(self, goal=None, fail=False):
+    def run_task(self, goal=None, fail=False, bad_action=False):
         self.counter+=1
         task=submit(self.f.ledger,goal or self.goal,'history-'+str(self.counter))['id']
         worker=fixtures.FixtureWorker(self.f.ledger,[fixtures.action('read',path='calc.py'),
             fixtures.action('finish',report='calc.py subtracts numbers; runtime not tested.'),
             {'accepted':True,'feedback':'Source evidence sufficient for audit.'}])
+        if bad_action: worker.responses.insert(0,fixtures.action('deliver',directory='',paths=['calc.py'],message='not granted'))
         runtime=Owned(self.f.ledger,worker); runtime.enable(task)
         if fail:
             runtime.run(task,steps=1); seq,state=runtime.state(task)
@@ -34,8 +35,9 @@ class SkillTests(unittest.TestCase):
 
     def test_retries_and_checkpoint_duplicates_are_not_three_tasks(self):
         runtime,task,_=self.run_task()
-        for _ in range(4):
-            seq,state=runtime.state(task);state['message']='changed';runtime.persist(task,seq,state)
+        for i in range(4):
+            seq,state=runtime.state(task);state['progress']['observations']=i;runtime.persist(task,seq,state)
+        self.assertGreater(len(outcomes(self.f.ledger)),1)
         self.assertEqual(skills.review(self.f.ledger),[])
         self.run_task();self.assertEqual(skills.review(self.f.ledger),[])
         self.run_task();self.assertEqual(len(skills.review(self.f.ledger)),1)
@@ -88,5 +90,17 @@ class SkillTests(unittest.TestCase):
             self.f.ledger._event(conn,value['tasks'][0],'skill.state',value)
         selected=skills.select(self.f.ledger,self.goal,{'mode':'audit'},{'files':{'calc.py':'hash'}},['discover','report'])
         self.assertEqual(selected,[])
+
+    def test_rejected_skill_is_not_reproposed_or_loaded(self):
+        value=self.candidate()
+        skills.decide(self.f.ledger,value['id'],value['revision'],'rejected','Not useful enough')
+        runtime,task,_=self.run_task()
+        self.assertEqual(runtime.state(task)[1]['skills'],[])
+        self.assertEqual(skills.refresh(self.f.ledger),[])
+
+    def test_failed_tool_action_not_taught_as_successful_procedure(self):
+        self.run_task(bad_action=True)
+        row=outcomes(self.f.ledger)[0]
+        self.assertNotIn('deliver',row['procedure']);self.assertIn('read',row['procedure'])
 
 if __name__=='__main__': unittest.main()

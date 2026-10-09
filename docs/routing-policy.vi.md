@@ -1,5 +1,7 @@
 # Chọn model từ công việc và quota
 
+Revision 6 thêm [preference và JEV shadow](skills-routing.vi.md): ưu tiên provider sau hard gates rồi mới cost_rank; `--jev --brief ...` là opt-in một request evaluator bên ngoài, không tự dispatch. Không có `--jev` thì vẫn chạy hoàn toàn bằng code. Preference và reset hint không thay quota evidence hoặc benchmark. CLI `provider prefer/preference` quản lý default cho job mới.
+
 `onecrew provider choose --file policy.json --json` là decision layer deterministic, không gọi model. Input gồm `workload` và `candidates`; code ở `onecrew/routing.py`. Đây là đề xuất có lý do, **chưa reserve quota subscription hoặc tự dispatch/switch**.
 
 Workload có `complexity` 1–3, `risk` low/medium/high và danh sách provider được phép. Mỗi candidate có ID/provider/model, tier 1–3, `cost_rank` do policy cung cấp, boolean capability_verified, auth_mode=subscription và quota evidence. Tier tối thiểu bằng max(complexity, risk floor); chỉ sau khi đạt quyền/capability/tier/quota mới chọn cost_rank thấp nhất. Không tự coi model nhỏ luôn phù hợp, hoặc model đắt luôn cần thiết. Tier/cost_rank cần calibration cho nhóm việc thực tế; chưa phải benchmark đã chứng minh.

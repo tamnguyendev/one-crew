@@ -1,5 +1,7 @@
 # Revision 5 — triển khai và giới hạn kiểm chứng
 
+Phần tiếp nối [revision 6](skills-routing.vi.md) đã bổ sung skill candidate từ lịch sử lặp, preference Claude và JEV shadow. Các giới hạn/evidence revision 5 bên dưới giữ phạm vi lịch sử; JEV hiện có proposal opt-in nhưng chưa tự dispatch.
+
 ## Runtime và recipe
 
 `job submit --mode branch --branch onecrew/<name> --android-build-config <file.json>` cấp một recipe cố định cho task lịch sử Android. Cấu hình được đóng trong grant, cùng request key khác cấu hình bị từ chối:

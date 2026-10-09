@@ -1,5 +1,7 @@
 # Entry MCP local — revision 5
 
+Revision 6: `submit` có thể bỏ provider/model để dùng preference của OneCrew trong state-root chung. Explicit provider/model vẫn ưu tiên; replay giữ lựa chọn gốc. Skill approval qua operator CLI, không cấp cho worker MCP. Xem [contract skill/routing](skills-routing.vi.md).
+
 OneCrew có stdio MCP độc lập với worker. Chạy từ thư mục OneCrew:
 
 ```text

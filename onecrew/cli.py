@@ -26,7 +26,7 @@ def main(argv=None):
               '  core       migrate / status / cancel / reconcile\n'
               '  work       enable / plan / run / start / runner / status / outputs / cancel / pause / resume / switch\n'
               '  work       group / vector / quota / extend / amend / triage / request-changes / recheck / reorder / review / export / branch / merge\n'
-              '  provider   doctor [codex|claude|kiro] / quota codex / choose --file <policy.json>\n'
+              '  provider   doctor / quota / prefer / preference / choose --file <policy.json> [--jev --brief ...]\n'
               '  decision   JEV credential and connectivity commands\n'
               '  android    build / status / cancel (background native debug APK; --foreground to wait)\n'
               '  monitor    grouped workers / --verbose / --terminal / --all-projects\n'
@@ -55,7 +55,7 @@ def main(argv=None):
         return entry_main(args)
     if len(args)>index and args[index]=='provider':
         from .provider_cli import main as provider_main
-        return provider_main(args[index+1:])
+        return provider_main(args[:index]+args[index+1:])
     if len(args)>index and args[index]=='work':
         from .workflow_cli import main as work_main
         return work_main(args)

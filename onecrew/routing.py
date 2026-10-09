@@ -21,9 +21,11 @@ def instant(value):
         raise LedgerError('Quota timestamps require ISO-8601 with timezone.') from None
 
 
-def choose(workload, candidates, now=None):
+def choose(workload, candidates, now=None, preferred_provider=None):
     """Recommendation only. Core admission still owns atomic call/capacity reservations."""
     now = now or dt.datetime.now(dt.timezone.utc)
+    if preferred_provider is not None and preferred_provider not in ('claude','codex','kiro'):
+        raise LedgerError('Unknown preferred provider.')
     exact_fields(workload, ('complexity', 'risk', 'allowed_providers'), 'Workload')
     if type(workload['complexity']) is not int or workload['complexity'] not in (1, 2, 3):
         raise LedgerError('complexity must be integer 1-3.')
@@ -91,10 +93,11 @@ def choose(workload, candidates, now=None):
     if not eligible:
         return {'status': 'blocked', 'selected': None, 'required_tier': required, 'rejected': rejected,
                 'reason': 'No authorized, capable candidate with fresh sufficient quota evidence.'}
-    selected = min(eligible, key=lambda c: (c['cost_rank'], c['tier'], c['id']))
+    selected = min(eligible, key=lambda c: (bool(preferred_provider and c['provider'] != preferred_provider),c['cost_rank'], c['tier'], c['id']))
     return {'status': 'recommended', 'selected': {k: selected[k] for k in ('id', 'provider', 'model', 'tier')},
             'required_tier': required, 'rejected': rejected,
-            'reason': 'Lowest supplied cost rank among candidates meeting all required constraints.',
+            'eligible': [c['id'] for c in eligible], 'preferred_provider': preferred_provider,
+            'reason': 'Operator provider preference, then supplied cost rank, after all required constraints.',
             'reservation': 'not_reserved', 'quota_limit': 'Estimate only; provider internal usage is not a hard cap.'}
 
 

@@ -10,11 +10,17 @@ Source: user discussion and [skills-routing.vi.md](skills-routing.vi.md), baseli
 | SK02 | Propose only after recurrence plus successful evidence; no idle/model loop | skills.refresh; independent-task/failure/unrelated-goal tests | Complete | 3 tasks, 2 successes, lexical match; requires captured source extensions |
 | SK03 | Review candidate/evidence/SKILL.md; revision-bound approval/rejection | skills CLI; stale revision/evidence/tamper/restart tests | Complete | Local operator trust; generated procedure scaffold requires human suitability review |
 | SK04 | Load approved relevant skill within scope/permissions; record provenance | owned worker context + outputs + outcome; real runtime with fixture worker | Complete | One skill; no native script execution or semantic suitability guarantee |
-| MR01 | Persistent Claude preference for new jobs; explicit override and replay stability | In progress | Partial | Does not switch active jobs |
-| MR02 | Provider priority after quota/capability/risk gates; reset hint not quota | In progress | Partial | Claude quota feed remains unavailable |
-| MR03 | Bounded typed JEV shadow recommendation, failure fallback and evidence | In progress | Partial | No automatic dispatch or calibrated quality claim |
+| MR01 | Persistent Claude preference for new jobs; explicit override and replay stability | model_preferences + intake/CLI/MCP; persistence/replay/override tests; active state preference verified Claude/sonnet | Complete | Does not switch active jobs; defaults are explicit operator choices, not auto routing |
+| MR02 | Provider priority after quota/capability/risk gates; reset hint not quota | routing.choose + provider CLI; quota/risk/capability regression; user hint 2026-10-09 23:00+07 | Complete | Claude quota feed remains unavailable; insufficient/unknown data still blocks automatic recommendation |
+| MR03 | Bounded typed JEV shadow recommendation, failure fallback and evidence | model_advisor, provider choose --jev; malformed/timeout/abstain/filter tests; revision6-jev-evidence.json | Complete | One opt-in preflight call, separately recorded; no automatic dispatch or calibrated quality claim |
 
 Cycle 1: 26 owned/skills/learning tests passed in 41.495s. Runtime fixtures use zero live model calls. Detached-process fixture emitted ResourceWarning, and its explicit stop/liveness assertions passed. No new user task dispatched.
+
+Cycle 1 commit: `c762516`. Cycle 2 also refines SK02 to exclude tool operations with error receipts from learned procedures, adds a readable candidate title and rejection/no-reproposal tests. Eight skill tests now cover these paths. Approval/user acceptance is never inferred from recurrence or tests; no real skill was approved during implementation.
+
+Validation: full discovery passed **342 tests in 380.133s** at the cycle-2 checkpoint. Final owned/skills/learning/advisor/MCP/intake subset passed **44 tests in 78.156s**, including the later procedure/title fixes and two added skill tests. Final preference-default compatibility adjustment passed **12 advisor/routing tests** separately. Python 3.10 syntax checks pass for changed modules; no lint/typecheck command configured. Full suite was not rerun after these targeted final fixes. Live JEV smoke: 1 request, 557 input/43 output observed tokens, 828 ms, sonnet proposal with confidence .88; synthetic quota/cost/tier, no worker dispatch or performance benchmark. Claude doctor verifies subscription auth; preference read back from active shared state-root. Existing detached-process ResourceWarnings remained; liveness/cleanup assertions passed.
+
+Coverage for this bounded revision-6 slice: **7 Complete, 0 Partial, 0 Missing, 0 Blocked**. This does not complete revision-5 autonomy, semantic clustering, skill edit/import/version promotion, skill effectiveness trials, Claude quota observation, or calibrated automatic routing. Manual skill approval and the user's next product acceptance task remain future actions, not fabricated verification.
 
 ## Revision 5 implementation — KiroCrew + CAO
 

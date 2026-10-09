@@ -80,6 +80,11 @@ def refresh(ledger):
             if len(group) < POLICY['min_tasks'] or len(successful) < POLICY['min_successes']: continue
             procedure = seed.get('procedure', [])
             if not procedure or not set(procedure) <= set(STEPS): continue
+            source_task=ledger._task(conn,seed['task'])
+            example=json.loads(source_task['payload']).get('goal',source_task['request_key'])[:200]
+            from .discovery import scan_text
+            try: scan_text(example.encode())
+            except ValueError: example='Recurring '+sig['mode']+' task; inspect authorized history for details.'
             name = 'repeat-' + content_hash(sig)[:16]
             required = sorted({p for action in procedure for p in PERMISSIONS.get(action, [])})
             body = ('---\nname: '+name+'\ndescription: Reviewed recurring '+sig['mode']+' procedure\n---\n\n'
@@ -89,7 +94,7 @@ def refresh(ledger):
                 '\n'.join(str(i+1)+'. '+STEPS[action] for i, action in enumerate(procedure)) +
                 '\n\nTask acceptance, permissions and budget override this guide. '
                 'These steps are a draft derived from observed action types, not proof of universal correctness.\n')
-            value = {'id': name, 'project': ledger.project_id, 'signature': sig,
+            value = {'id': name, 'title': example, 'project': ledger.project_id, 'signature': sig,
                 'policy': dict(POLICY), 'status': 'proposed', 'body': body,
                 'required_permissions': required, 'tasks': [r['task'] for r in group],
                 'evidence': [{'task': r['task'], 'event': r['event'], 'snapshot': r['snapshot'], 'success': good(r)} for r in group],
@@ -124,7 +129,7 @@ def review(ledger, name=None):
     with ledger.transaction() as conn:
         values = records(ledger, conn) if conn else {}
         if name is None:
-            return [{k: v[k] for k in ('id','revision','status','tasks','successes','failures','reason')} for v in values.values()]
+            return [{k: v.get(k) for k in ('id','title','revision','status','tasks','successes','failures','reason')} for v in values.values()]
         if name not in values: raise LedgerError('Unknown skill in this project.')
         value = values[name]
         try: validate_evidence(ledger, conn, value); value['usable_evidence'] = True
