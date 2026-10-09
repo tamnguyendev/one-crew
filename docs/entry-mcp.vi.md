@@ -1,5 +1,7 @@
 # Entry MCP local — revision 5
 
+Kiến trúc hiện hành revision 8 bổ sung [conversation chung](shared-conversation.vi.md). Server mô tả bên dưới hiện chỉ có task status/outputs/inbox và các control đã liệt kê; chưa có conversation create/attach/read/append hoặc MCP entry note. Host phải thực sự gọi tool/hook và nhận durable ACK mới được báo đã sync; MCP server không tự thu thập mọi tin nhắn từ giao diện chat. Conversation APIs/adapter live còn pending.
+
 Revision 6: `submit` có thể bỏ provider/model để dùng preference của OneCrew trong state-root chung. Explicit provider/model vẫn ưu tiên; replay giữ lựa chọn gốc. Skill approval qua operator CLI, không cấp cho worker MCP. Xem [contract skill/routing](skills-routing.vi.md).
 
 OneCrew có stdio MCP độc lập với worker. Chạy từ thư mục OneCrew:

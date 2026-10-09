@@ -1,4 +1,23 @@
-# Kiến trúc OneCrew — baseline 09/10/2026, revision 7
+# Kiến trúc OneCrew — baseline 09/10/2026, revision 8
+
+## Tổng thể hiện hành
+
+OneCrew giữ **conversation chung → solution được duyệt → task thực thi → evidence và phản hồi**, xuyên suốt Codex, Claude, Kiro và các entry có adapter phù hợp. Conversation tồn tại trước task; người dùng không cần copy nội dung đã được ACK trong OneCrew khi đổi entry. Công cụ trao đổi và model thực hiện được chọn độc lập. Một cửa sổ chat chung là UI tùy chọn; dùng chung dữ liệu không ghép các native chat window thành một.
+
+Revision 8 và [contract conversation CS01–CS06](shared-conversation.vi.md) là thiết kế hiện hành cho collaboration, bổ sung [solution approval SG01–SG05](solution-approval.vi.md). Khi nội dung entry/trao đổi trong revision cũ khác, dùng contract này. Các giới hạn quyền, runtime, verification, budget và bài học KiroCrew/CAO vẫn giữ; không thay bằng một framework hay scheduler mới.
+
+| Khối | Trách nhiệm | Hiện trạng |
+|---|---|---|
+| Entry adapters MCP/CLI | Attach conversation, đọc delta, ghi contribution, chuyển quyết định thực của người dùng | MCP task status/control có sẵn; conversation read/write và adapter live còn thiếu |
+| Conversation/context | Lịch sử chia sẻ có nguồn, summary + delta, pending questions, chống ghi đè đề xuất | CS01–CS04 chưa triển khai; entry notes hiện gắn task |
+| Solution/approval | Bản nhanh + chi tiết cùng revision, review/diff, approval và change request | Spec CLI/inbox có nền tảng; SG gates chưa bind đầy đủ vào owned/native jobs |
+| Runtime/execution | Admission, một scheduler, worker/recipe, checkpoint, quota/budget, recovery | Đã có runner/adapters; từng mode có giới hạn riêng, xem coverage |
+| Verification/delivery | Test và review đúng candidate + solution; integration, local apply/publish theo grant | Có gates theo mode; solution-aware completion và integration tổng quát còn thiếu |
+| Learning/routing | Usage/outcomes, lessons/skill có evidence, provider policy/JEV có kiểm chứng | Có history/preferences/skill candidates; không tự promote hay coi JEV là quyền dispatch |
+
+Thứ tự nâng cấp: conversation/cursor → solution gate → MCP và hai adapter thực tế → change request quay về conversation → review từng lát và song song theo contract. [Backlog](mvp-backlog.vi.md) và [coverage](proposal-coverage.md) ghi rõ pending. Lượt cập nhật này chỉ sửa tài liệu, không thay trạng thái task đang chạy hoặc tuyên bố các adapter đã kết nối.
+
+## Các nền tảng được kế thừa
 
 **Entry không phụ thuộc nhà cung cấp:** người dùng có thể trao đổi, phản biện và chốt solution tại Codex, Claude, Kiro hoặc công cụ khác đã kết nối. OneCrew giữ solution/revision, quyết định và inbox dùng chung; Codex không là trung gian bắt buộc. Nhiều đề xuất cùng revision được đối chiếu, không ghi đè im lặng. Công cụ tư vấn độc lập với worker thực thi. Luồng solution đa entry/adapter đầy đủ còn pending; không tự suy đã có quyền truy cập hoặc đồng bộ private chat. Xem [quy trình nhiều công cụ](solution-approval.vi.md#trao-đổi-qua-nhiều-công-cụ).
 
@@ -20,7 +39,7 @@
 
 **Revision 6 — skill từ công việc lặp và model preference:** [contract SK01–SK04 / MR01–MR03](skills-routing.vi.md). History giữ cả failures; recurrence đếm task độc lập, chỉ đề xuất skill sau đánh giá kết quả. Candidate phải review đúng revision trước khi dùng; core chọn theo project/mode/công nghệ/mục tiêu/quyền và ghi provenance. Model preference áp cho job mới, JEV chỉ shadow proposal sau hard gates. Reset quota do người dùng báo không là quota đã quan sát. [Coverage](proposal-coverage.md) ghi trạng thái triển khai; các khoảng revision 5 chưa đóng vẫn giữ nguyên.
 
-**Revision 5 — hợp nhất KiroCrew và CAO:** [thiết kế và kế hoạch áp dụng](architecture-kiro-cao.vi.md) là phần bổ sung hiện hành, ưu tiên khi có khác biệt với thứ tự triển khai cũ bên dưới. OneCrew giữ duy nhất scheduler, scope, approval, budget và completion gate; học vòng thực thi/phục hồi của KiroCrew và entry bất đồng bộ/event/provider boundary của CAO. CAO là adapter tùy chọn cần spike, không là scheduler thứ hai; giữ runner Windows hiện có trong lúc kiểm chứng. Các khoảng thiếu revision 5 vẫn pending, không được tính đã triển khai từ tài liệu. P0 gồm thực thi trọn task, chống lặp/phục hồi, evidence và notification lifecycle không gọi AI lúc idle.
+**Revision 5 — hợp nhất KiroCrew và CAO:** [thiết kế và kế hoạch áp dụng](architecture-kiro-cao.vi.md) là nền tảng thực thi được giữ lại; thứ tự nâng cấp hiện hành dùng revision 8 phía trên. OneCrew giữ duy nhất scheduler, scope, approval, budget và completion gate; học vòng thực thi/phục hồi của KiroCrew và entry bất đồng bộ/event/provider boundary của CAO. CAO là adapter tùy chọn cần spike, không là scheduler thứ hai; giữ runner Windows hiện có trong lúc kiểm chứng. Các khoảng thiếu revision 5 vẫn pending, không được tính đã triển khai từ tài liệu. P0 gồm thực thi trọn task, chống lặp/phục hồi, evidence và notification lifecycle không gọi AI lúc idle.
 
 **Trạng thái triển khai revision 5:** [runtime/recipe, progress/evidence, local delivery, MCP entry và outcomes](revision5-implementation.vi.md) đã có code/test; [coverage](proposal-coverage.md) giữ các gate còn thiếu. Automation Codex 5 phút giữ PAUSED. Checkpoint/runner/build chuyển outbox sang file local bằng code; callback vào chat chưa có. Không hứa callback khi host chưa có tích hợp đã kiểm chứng.
 
@@ -28,7 +47,7 @@
 
 **Ưu tiên revision 3:** [OneCrew sở hữu vòng thực thi](owned-execution.vi.md), [SPEC-007](../specs/SPEC-007-owned-execution.md). Entry chỉ giao mục tiêu/root/quyền/budget; runtime tự khảo sát và thực hiện. Những contract revision 2 dưới đây vẫn áp dụng về quyền/recovery, nhưng không được dùng yêu cầu profile/file list làm điều kiện bắt entry chuẩn bị công việc. Luồng CTS audit/push trước đó cần host hỗ trợ nên không chứng minh autonomy. OE01–OE07 là gate nâng cấp; learning/JEV và các phần OC còn thiếu giữ backlog riêng.
 
-OneCrew là bộ điều phối local nhận yêu cầu đã làm rõ từ Codex, Claude hoặc Kiro; chia việc, gọi worker phù hợp, kiểm chứng và giữ tiến độ chung. Người dùng tiếp tục trao đổi trong công cụ đang dùng. OneCrew không cần xây thêm ứng dụng chat hoặc hệ thống Agile đầy đủ.
+OneCrew là core local giữ quá trình trao đổi và thực thi: nhận đóng góp từ các entry, giữ solution đã chốt, chia việc, gọi worker phù hợp, kiểm chứng và giữ tiến độ chung. Người dùng tiếp tục trao đổi trong công cụ đang dùng. Conversation là module dữ liệu trong core; UI chat hợp nhất là tùy chọn sau adapter, không cần hệ thống Agile đầy đủ.
 
 **Trạng thái:** milestone OE01–OE07 của revision 3 đã triển khai và có fixture/live evidence; các contract OC/LR chưa hoàn tất vẫn được theo dõi riêng. Cập nhật tài liệu không cấp quyền chạy job 8 giờ, gọi API trả phí hay nghiệm thu sản phẩm. [SPEC-006](../specs/SPEC-006-portable-orchestration.md) là bản duyệt nhanh; [backlog](mvp-backlog.vi.md) xác định thứ tự; [coverage](proposal-coverage.md) phân biệt code đã có với phần còn thiếu.
 
@@ -41,11 +60,11 @@ Revision 2 tiếp thu review source của chín dự án trong mục 12. Các qu
 | OneTechAI làm nhiều ngày, tốn token, khó kiểm soát | Lát bàn giao nhỏ có AC, bằng chứng và budget chung; đo kết quả thay vì số agent/spec | OC02, OC09, OC12 |
 | Specs dễ đọc, CLI duyệt | Một nội dung có bản nhanh và chi tiết, cùng revision; không tạo spec sau mỗi tin nhắn | OC02 |
 | Vai Conductor/Scrum Master | Conductor mỏng lập plan, triage và báo cáo; code giữ scheduler và thẩm quyền | OC03, OC12 |
-| Trao đổi trước khi giao việc | Trao đổi ở công cụ đầu vào; bàn giao điều đã chốt và câu hỏi còn mở | OC01, OC06 |
+| Trao đổi trước khi giao việc | Conversation chung trước task; nhiều entry đọc/ghi cùng nội dung, solution được chốt rồi mới implement | OC01, OC06, CS01–CS05, SG01–SG02 |
 | Codex/Claude/Kiro đều giao và nhận việc | Entry connector độc lập với worker adapter; không buộc hai phía cùng hãng | OC01, OC04 |
 | Hết usage Kiro, sang Claude | Kết nối cùng task; câu hỏi và approval đang chờ thuộc OneCrew | OC01, OC05, OC06 |
 | Khó khăn cần hỏi lại | Inbox bền vững, câu hỏi ngắn có lựa chọn/khuyến nghị; chỉ nhánh phụ thuộc chờ | OC05 |
-| Memory chung | Spec, quyết định, checkpoint và evidence có nguồn; không chuyển nguyên private chat | OC06 |
+| Memory chung | Lịch sử conversation đã chia sẻ, summary + delta, solution, quyết định và evidence có nguồn; không tự nhập private chat | OC06, CS02–CS03 |
 | Nhiều task liên quan | DAG, contract trước, ownership/worktree riêng, ghép tuần tự có gate | OC07, OC08 |
 | Review từng phần, đổi thứ tự | Review snapshot theo revision; ưu tiên chỉ tác động việc chờ đủ dependency | OC11 |
 | Model theo độ khó, tận dụng quota | Rule trước; capability/risk trước quota; JEV thêm sau benchmark | OC10 |
@@ -77,10 +96,13 @@ Các trần 3.600 giây/run, 32 calls, 4 repair và 600 giây/call thuộc runti
 ```mermaid
 flowchart TD
     U[Khách hàng] <--> E[Codex / Claude / Kiro: trao đổi và review]
-    E <--> C[Entry connector: CLI trước, MCP tùy chọn]
-    C <--> O[OneCrew core: policy, scheduler, inbox, ledger]
+    E <--> C[Entry adapters: MCP / CLI]
+    C <--> H[Conversation chung: events / summary / delta]
+    H <--> S[Solution revision / user approval / change request]
+    S --> O[OneCrew core: policy, scheduler, inbox, ledger]
     O <--> P[Conductor: đề xuất plan và triage khi cần]
-    O <--> S[SQLite + spec Markdown + Git/snapshots]
+    H <--> L[SQLite + Markdown + Git/snapshots]
+    O <--> L
     O --> A[Worker adapters có capability đã kiểm chứng]
     A --> W[Codex / Claude Code / Kiro CLI]
     W --> R[Artifact, log, usage và blocker]
@@ -88,7 +110,7 @@ flowchart TD
     O --> V[Verifier trên snapshot và integration]
     V --> O
     O --> Q[Kết quả từng phần và câu hỏi có revision]
-    Q --> C
+    Q --> H
 ```
 
 Một ứng dụng Python local, tái sử dụng CLI và SQLite; các khối là module, không phải mỗi khối một service. Core chạy độc lập với cửa sổ chat; một instance sở hữu queue/lease/process tree. Mutation đi qua core; query không gọi model. Khi core chưa chạy, CLI báo rõ hoặc khởi động đúng instance qua khóa, không tạo scheduler thứ hai. Máy và process phải hoạt động; sleep/offline không được báo là đang tính toán.
@@ -97,7 +119,9 @@ Core là state machine xác định bằng code, với transaction + event/outbo
 
 | Thành phần | Trách nhiệm | Ranh giới |
 |---|---|---|
-| Entry connector | Submit/attach/query/reply; chuyển ý định khách hàng có nguồn | Không sở hữu task hoặc giả approval |
+| Entry connector | Attach conversation, read delta/append contribution, submit/query/reply; chuyển ý định khách hàng có nguồn | Không sở hữu task hoặc giả approval; chỉ báo synced sau durable ACK |
+| Conversation/context | Giữ nội dung chia sẻ, provenance, cursor/summary và questions xuyên entry | Tồn tại trước task; không tự nhập private history, gọi model hay cấp quyền |
+| Solution/decision | Revision của brief/chi tiết, proposals, approval, change request | Một revision được duyệt cho mỗi task; ý kiến AI không là quyết định người dùng |
 | Conductor | Đọc repo, phân rã spec, triage, tóm tắt | Chỉ đề xuất; không scheduler/retry loop/budget riêng |
 | Core | Kiểm revision/quyền/scope/budget/dependency; dispatch, cancel, recovery | Nguồn trạng thái duy nhất |
 | Worker adapter | Launch/events/cancel/reconcile/artifact/usage | Capability thực; unsupported/unknown hiển thị rõ |
@@ -110,14 +134,15 @@ KiroCrew cung cấp bài học vòng thực thi/recovery; CAO cung cấp bài h�
 
 ## 4. Từ trao đổi đến giao việc
 
-1. Người dùng và AI ở entry trao đổi/tra cứu/làm rõ. Ý tưởng chưa chốt không tự thành task chạy.
-2. Connector lưu brief, quyết định người dùng đã đồng ý và nguồn; core trả durable acknowledgment. Nội dung chưa bàn giao không tự xuất hiện khi đổi công cụ.
-3. Spec có bản nhanh tối đa 350 từ, chi tiết đủ thực thi, AC và non-goals. Duyệt spec và quyền chạy có thể được cấp cùng một lời giao việc rõ ràng; không hỏi lại quyền còn hợp lệ.
-4. Core nhận handoff, trả task ID. Conductor đọc repo thực tế, chia theo kết quả kiểm chứng được. Code kiểm DAG/ownership/coverage AC và giới hạn trước dispatch.
-5. Worker làm từng bước; core checkpoint, verify, đưa phần dùng được ra review. Lựa chọn kỹ thuật và sửa test fail trong scope tự xử lý trong budget.
-6. Hỏi khi cần đổi hành vi chưa rõ, quyền, scope hoặc budget. Bàn giao khi AC/gate đạt; ghi user acceptance riêng.
+1. Người dùng tạo/chọn CONV tại entry đang dùng. Trao đổi trước khi có task; append contributions có provenance/idempotency và durable ACK. Đổi entry đọc summary + delta và pending questions của cùng CONV.
+2. OneCrew khảo sát trong quyền đọc/budget được cấp và đề xuất solution; entry khác có thể phản biện. Không tự gọi tất cả model ở mỗi lượt. Proposal song song giữ base revision, không ghi đè ý kiến của nhau.
+3. Solution có bản nhanh tối đa 350 từ và chi tiết, ví dụ nghiệm thu, giả định/evidence, AC/non-goals cùng revision. Người dùng trao đổi tới khi chốt; discussion không là approval. Spec đã duyệt đầy đủ thì tái sử dụng.
+4. Core kiểm approval đúng solution revision và execution grant, tạo task idempotent liên kết CONV/SOL. Duyệt solution và quyền chạy có thể trong cùng lời giao việc rõ ràng; không hỏi lại quyền còn hợp lệ. Legacy job chưa có binding phải hiển thị rõ, không tự tạo approval giả.
+5. Conductor phân rã theo kết quả kiểm chứng được; core kiểm DAG/ownership/coverage AC trước dispatch. Mặc định một implementation worker cho một feature, đưa lát đầu ra review trước khi nhân rộng.
+6. Worker tự xử lý kỹ thuật trong hợp đồng; core checkpoint/test/review. Vướng mắc cần đổi solution tạo change request về CONV, hold phần bị ảnh hưởng trước apply/delivery; phần độc lập có thể tiếp tục.
+7. Người dùng có thể quyết định từ entry khác. Core kiểm request/solution revision, ghi thay đổi và invalidate evidence liên quan trước resume. Hoàn thành phải có evidence theo solution; user acceptance ghi riêng.
 
-Handoff tối thiểu: project ID, client_request_id chống submit lặp, spec ID/hash, mục tiêu/AC/non-goals, decision refs, repo paths + base refs/dirty snapshot, quyền theo hành động, root budget/deadline, provider/model policy, dependencies và review checkpoints. Core ghi root_task_id, plan/policy/grant revision. Thiếu dữ liệu repo được khảo sát trong quyền đã cấp; thiếu quyết định nghiệp vụ thì tạo request.
+Handoff tối thiểu: conversation/project ID, client_request_id chống submit lặp, solution/spec ID/hash và approval reference, mục tiêu/AC/non-goals, decision refs, repo paths + base refs/dirty snapshot, quyền theo hành động, root budget/deadline, provider/model policy, dependencies và review checkpoints. Core ghi root_task_id, plan/policy/grant revision. Thiếu dữ liệu repo được khảo sát trong quyền đã cấp; thiếu quyết định nghiệp vụ thì tạo request. Conversation không có task không tự có execution budget/deadline; tư vấn/khảo sát dùng grant riêng khi được giao.
 
 Worker báo “xong” không đủ. Completion trỏ đúng source snapshot, gate version và evidence. Allowlist file không phải bằng chứng duy nhất rằng chức năng còn trong scope.
 
@@ -127,6 +152,8 @@ Kho local thuộc core/project, ngoài worktree được phép sửa. SQLite gi�
 
 | Record | Dữ liệu cần giữ |
 |---|---|
+| Conversation/contribution/entry cursor | CONV trước task, project bindings, message/reply refs, seq, actor/source, idempotency key, ACK và last-seen cursor |
+| Context/solution/decision | Summary có covered_seq/evidence refs, proposals với base revision, brief + detail/hash, approval thực của người dùng, task binding và change request |
 | Project/root/task/edge | Repo, AC coverage, plan revision, dependency, priority, ownership/state |
 | Attempt/lease/dispatch intent | Backend/native ID, process identity, fencing generation, heartbeat, idempotency/reconcile |
 | Request/reply/grant | Câu hỏi/options, action revision, actor/provenance, quyền và trạng thái xử lý |
@@ -136,7 +163,7 @@ Kho local thuộc core/project, ngoài worktree được phép sửa. SQLite gi�
 
 Mở rộng record: `ActionIntent/Receipt` lưu payload hash, idempotency key và kết quả confirmed/unknown; `Handoff` lưu source/target generation, từng transition và ownership; `CapabilityEvidence` lưu adapter/CLI/OS version, auth mode và probe/test refs. Budget tách reservation, actual usage và khoản chưa xác định. AC/gate/task/spec có revision riêng để invalidation chính xác. Các bảng thuộc cùng core, không tạo ledger độc lập trong mỗi adapter.
 
-Spec/brief/decision summary là Markdown có revision; source/artifact là Git hoặc immutable snapshot, DB giữ hash/ref. Không ghi secrets, CV thật hoặc toàn transcript vào memory. Tách fact có nguồn, giả định, đề xuất AI, quyết định khách hàng và kết quả verified. Summary ghi evidence revision, đánh dấu stale khi đầu vào đổi; project isolation ngăn dùng nhầm memory/repo.
+Spec/brief/decision summary là Markdown có revision; source/artifact là Git hoặc immutable snapshot, DB giữ hash/ref. Chỉ lưu conversation content đã được chia sẻ, không tự nhập private transcript/hidden reasoning, secrets hoặc CV thật vào memory. Lịch sử đã chia sẻ giữ nguồn để truy hồi; packet không gửi lại toàn bộ ở mỗi lượt. Tách fact, giả định, đề xuất AI, quyết định khách hàng và kết quả verified. Summary có covered_seq/evidence revision, đánh dấu stale khi đầu vào đổi, không làm mất pending decisions khi rút gọn. Project isolation ngăn dùng nhầm memory/repo. [Data và API contract](shared-conversation.vi.md) mô tả race/idempotency/CAS; các record CS còn là thiết kế.
 
 Ba chiều trạng thái độc lập: execution (queued/running/waiting/recovering/stopped/failed/completed), verification (pending/passed/failed/stale), acceptance (not_requested/pending/accepted/changes_requested). Waiting reason phân biệt dependency/user/quota/environment/budget. Cancel requested khác cancel confirmed; không báo dừng khi process còn chạy.
 
@@ -144,13 +171,13 @@ Worker không được reply như khách hàng hoặc sửa grant/ledger/gate. C
 
 ## 6. Hỏi lại và chuyển công cụ
 
-Request lưu ID, task/plan/spec revision, câu hỏi ngắn, lý do cần người dùng, khuyến nghị/options, tác động scope/thời gian/quyền, proposed action revision và tasks bị ảnh hưởng. Trạng thái pending/answered/applied/rejected/expired/superseded. Poll inbox không gọi model; push tùy capability, không là điều kiện để nhận câu hỏi.
+Request lưu ID, conversation/solution revision và task/plan revision khi đã thực thi, câu hỏi ngắn, lý do cần người dùng, khuyến nghị/options, tác động scope/thời gian/quyền, proposed action revision và tasks bị ảnh hưởng. Trạng thái pending/answered/applied/rejected/expired/superseded. Request giai đoạn thảo luận không cần tạo fake task. Poll inbox không gọi model; push tùy capability, không là điều kiện để nhận câu hỏi. Conversation-level request là phần cần thêm; ledger hiện còn ràng buộc task.
 
 Ví dụ CV chưa chốt thời hạn lưu: core hỏi “Giữ CV bao lâu?”, nêu lựa chọn và phần storage đang chờ. Task CSS độc lập có thể tiếp tục. Im lặng không phải approval. Gộp request tương đương cùng revision thay vì hỏi lại nhiều lần.
 
 Kiro hết usage, chuyển Claude:
 
-1. Connect cùng project/task ID; nhận mục tiêu, output verified, phần đang chạy và request pending.
+1. Attach cùng project/conversation ID; nhận solution/decisions + delta, task liên kết nếu có, output verified và request pending. Trong code hiện tại dùng entry connect theo task; attach CONV là nâng cấp pending.
 2. Claude hiển thị cùng request; người dùng trả lời, connector gửi request/action revision và provenance.
 3. Core kiểm quyền/freshness rồi áp dụng một lần. Reply lặp trả kết quả cũ; reply khác cho request đã áp dụng báo conflict. Reply cho nội dung cũ phải đối chiếu lại, không áp lên action mới.
 4. Tiếp tục bằng checkpoint/budget cũ. Đổi entry không đổi worker; worker độc lập không bị khởi động lại.
@@ -161,7 +188,7 @@ Handoff dùng state machine bền vững ở mục 13.4. Đổi entry chỉ là 
 
 ## 7. Nhiều task liên quan
 
-Bắt đầu tối đa **2 worker toàn core**, có giới hạn từng repo/provider; không phải 2 cho mỗi root task. Kiểm root budget và capacity chung khi dispatch. Ownership và worktree/snapshot riêng; không tự stash/reset phần sửa của người dùng.
+Bắt đầu mặc định **một implementation worker cho một feature**; chỉ mở song song khi contract/dependency/ownership rõ và có mốc review lát đầu. Trần thiết kế **2 worker toàn core** là capacity cap, không phải mục tiêu luôn lấp đầy và không phải 2 cho mỗi root task. Kiểm root budget và capacity chung khi dispatch. Ownership và worktree/snapshot riêng; không tự stash/reset phần sửa của người dùng.
 
 Ví dụ A: contract API → (B: backend, C: frontend) → D: integration. B/C chỉ chạy sau A; việc cùng file/schema hoặc không tách ownership chạy tuần tự. Graph cycle bị từ chối hoặc gom thành bước tuần tự có giải thích.
 
@@ -256,14 +283,15 @@ Nhóm task run/list/status/cancel/outputs/preview và spec hiện có giữ tư�
 
 ## 11. Thứ tự xây và phần để sau
 
-1. Core bền vững + spec-to-plan tổng quát + inbox, một Codex worker tuần tự; chứng minh restart không lặp việc, quyền/budget giữ nguyên.
-2. Entry Codex/Claude/Kiro, worker Claude Code/Kiro CLI; đổi entry, reply cùng request và handoff worker thực.
-3. Hai worker song song, dependency/ownership/integration; review từng phần và reorder đầy đủ.
-4. Routing có quota và giới hạn dài; fault injection trước soak run có ngân sách riêng.
+1. CS01–CS03: conversation trước task, contribution/ACK/idempotency, context summary + delta có provenance; query không gọi AI.
+2. SG01–SG02/CS05: solution revision + approval binding bắt buộc ở mọi đường start/submit/resume phù hợp; không tự đổi quyền task legacy.
+3. CS04: expose MCP/CLI và adapter đọc/ghi; thử hai entry thực tế luân phiên cùng CONV không copy/paste, sau đó mở rộng công cụ khác.
+4. SG03/SG05/CS06: change request quay về conversation, hold phần bị ảnh hưởng, trả lời từ entry khác, output theo solution và event lifecycle không AI polling.
+5. SG04: review lát đầu, contract/dependency/ownership rồi mới chạy song song và kiểm bản ghép. Giữ backlog recovery/native provider fallback, routing/lessons có evidence và fault/soak chưa hoàn thành.
 
 [Backlog](mvp-backlog.vi.md) ghi điều kiện qua từng mốc. Không cần chờ toàn roadmap mới dùng lát đã đạt.
 
-Để sau: dashboard/chat UI riêng, vector DB, multi-user/distributed registry, marketplace, tự sửa policy production, JEV bắt buộc, tự publish/deploy. Chỉ thêm khi workflow thực cần. Đo chức năng dùng thử được, tổng chi phí tới kết quả đạt, số lần can thiệp và thời gian chờ có lý do; số spec/agent/commit không thay kết quả.
+Để sau: viewer/chat UI hợp nhất, vector DB, multi-user/distributed registry, marketplace, tự sửa policy production, JEV bắt buộc, tự publish/deploy. Conversation storage/API là phần lõi cần xây trước, khác với UI riêng. Đo acceptance ở lần review đầu, rework do hiểu sai, lỗi khi tích hợp, tổng chi phí tới kết quả đạt, số can thiệp và thời gian chờ có lý do; số spec/agent/commit không thay kết quả.
 
 ## 12. Nguồn tham khảo và quyết định áp dụng
 

@@ -1,6 +1,8 @@
 # Duyệt solution trước implement — SG01–SG05
 
-Nguồn: người dùng yêu cầu giảm hiểu sai/rework, trao đổi với Codex trước khi chốt solution, kiểm soát thay đổi khi triển khai và chất lượng task song song. Đây là thiết kế bổ sung ngày 09/10/2026. Hướng dẫn entry áp dụng cho việc giao task mới; runtime gates dưới đây CHƯA triển khai đầy đủ. Không thu hồi quyền của task đã được giao trước thay đổi này.
+Revision 8: [conversation chung CS01–CS06](shared-conversation.vi.md) giữ thảo luận trước task, proposals/decisions và pending requests xuyên entry. Solution approval của tài liệu này gắn vào CONV/SOL revision; task implement chỉ sinh sau gate. Đây là một phần của [kiến trúc tổng thể](architecture.vi.md), không là một workflow riêng cạnh runtime.
+
+Nguồn: người dùng yêu cầu giảm hiểu sai/rework, trao đổi qua công cụ người dùng chọn trước khi chốt solution, kiểm soát thay đổi khi triển khai và chất lượng task song song. Đây là thiết kế bổ sung ngày 09/10/2026. Hướng dẫn entry áp dụng cho việc giao task mới; runtime gates dưới đây CHƯA triển khai đầy đủ. Không thu hồi quyền của task đã được giao trước thay đổi này.
 
 ## Luồng người dùng
 

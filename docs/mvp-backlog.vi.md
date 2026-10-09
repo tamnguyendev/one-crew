@@ -1,10 +1,26 @@
-# Kế hoạch triển khai OneCrew — 09/10/2026, revision 6
+# Kế hoạch triển khai OneCrew — 09/10/2026, revision 8
 
-**Bổ sung theo yêu cầu mới:** [SK01–SK04 / MR01–MR03](skills-routing.vi.md) triển khai trước task nghiệm thu tiếp theo: history→recurrence→candidate skill có duyệt, provider preference cho job mới và JEV shadow. Routing calibrated, tự cập nhật skill và những khoảng P0/P1/P2 bên dưới không được coi đã đóng bởi nâng cấp này.
+## Ưu tiên hiện hành: conversation → solution → execution
 
-**Thứ tự hiện hành:** [revision 5 — KiroCrew + CAO, mục 8](architecture-kiro-cao.vi.md#8-thứ-tự-triển-khai-và-điều-kiện-nghiệm-thu). P0: runtime tự thực thi trọn task → chống lặp/phục hồi hữu hạn → completion gate → observer/notification không gọi AI lúc idle. P1: entry chung và spike CAO một worker → dependency/integration → routing/lessons được đánh giá. P2: fault matrix và soak dài. [Implementation](revision5-implementation.vi.md) ghi phần đã triển khai, [coverage](proposal-coverage.md) phân biệt từng gate còn thiếu; không tính toàn roadmap đã hoàn tất.
+[Kiến trúc revision 8](architecture.vi.md), [CS01–CS06](shared-conversation.vi.md) và [SG01–SG05](solution-approval.vi.md) là thứ tự nâng cấp tiếp theo. Các gate runtime/recovery/learning cũ chưa hoàn tất vẫn giữ; không đổi trạng thái task đang chạy bởi việc cập nhật tài liệu.
 
-Milestone OE01–OE07 có ba loại task live và giữ evidence cũ. Task lịch sử UI/build sau đó vẫn cần Codex hỗ trợ sửa hạ tầng, nên chưa chứng minh autonomy cho luồng đó. Ưu tiên tiếp theo là đóng P0 trên nền hiện có rồi chạy một task thực tế không hỗ trợ ngoài runtime. Entry không chuẩn bị evidence/plan/adapter riêng cho task. P1–P4 bên dưới giữ contract nền và các năng lực chưa hoàn tất, không phải thứ tự ưu tiên mới.
+| Lát | Kết quả | Gate nghiệm thu trước khi mở rộng |
+|---|---|---|
+| 1 — CS01–CS03 | Conversation độc lập task; event có nguồn/ACK; summary + delta | Restart, append đồng thời/idempotency, project isolation; không mất decision/question khi rút context; chưa chạy worker |
+| 2 — SG01–SG02, CS05 | Solution review/approval và task binding | Stale approval/submit race bị chặn; mọi CLI/MCP đường chạy phù hợp kiểm cùng gate; legacy migration không giả approval |
+| 3 — CS04 | MCP/CLI read/write + adapter theo host | Hai host thực tế tiếp tục cùng CONV không copy; ghi nhận ACK/lỗi sync; smoke test server chưa đủ |
+| 4 — SG03/SG05, CS06 | Change request và output quay về conversation | Pending qua restart/đổi entry; hold/cancel/reconcile phần bị ảnh hưởng; không apply lệch revision; idle không model calls |
+| 5 — SG04 | Lát đầu đạt trước khi nhân rộng song song | Shared contract + ownership/dependency + integration tests; approval thay đổi chỉ invalidate nhánh liên quan |
+
+Kịch bản live: đề xuất ở entry A → phản biện ở B → người dùng chốt → một task nhỏ → change request → người dùng trả lời tại entry khác → test/review/bàn giao. Lưu evidence rõ từng host/tool/version; không mặc định mọi ứng dụng đã tích hợp. UI conversation hợp nhất là tùy chọn sau sync, không chặn MVP.
+
+## Nền tảng và backlog được giữ lại
+
+**Nền tảng revision 6:** [SK01–SK04 / MR01–MR03](skills-routing.vi.md) triển khai trước task nghiệm thu tiếp theo: history→recurrence→candidate skill có duyệt, provider preference cho job mới và JEV shadow. Routing calibrated, tự cập nhật skill và những khoảng P0/P1/P2 bên dưới không được coi đã đóng bởi nâng cấp này.
+
+**Thứ tự revision 5 được giữ làm lịch sử:** [revision 5 — KiroCrew + CAO, mục 8](architecture-kiro-cao.vi.md#8-thứ-tự-triển-khai-và-điều-kiện-nghiệm-thu). P0: runtime tự thực thi trọn task → chống lặp/phục hồi hữu hạn → completion gate → observer/notification không gọi AI lúc idle. P1: entry chung và spike CAO một worker → dependency/integration → routing/lessons được đánh giá. P2: fault matrix và soak dài. [Implementation](revision5-implementation.vi.md) ghi phần đã triển khai, [coverage](proposal-coverage.md) phân biệt từng gate còn thiếu; không tính toàn roadmap đã hoàn tất.
+
+Milestone OE01–OE07 có ba loại task live và giữ evidence cũ. Task lịch sử UI/build sau đó vẫn cần Codex hỗ trợ sửa hạ tầng, nên chưa chứng minh autonomy cho luồng đó. Các khoảng P0 này vẫn cần đóng trên nền hiện có; thứ tự nâng cấp tiếp theo được ghi ở revision 8 phía trên. Entry không chuẩn bị evidence/plan/adapter riêng cho task. P1–P4 bên dưới giữ contract nền và các năng lực chưa hoàn tất, không phải thứ tự ưu tiên mới.
 
 Đích: giao yêu cầu đã làm rõ từ Codex/Claude/Kiro cho một core local; tiếp tục qua đổi entry/worker, review từng phần và chạy công việc liên quan trong scope/budget. [Kiến trúc](architecture.vi.md) và [SPEC-006](../specs/SPEC-006-portable-orchestration.md) là baseline. [Backlog 08/10](mvp-backlog-2026-10-08.vi.md) giữ lịch sử; không triển khai song song hai roadmap.
 

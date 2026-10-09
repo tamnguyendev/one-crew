@@ -1,5 +1,20 @@
 # Proposal Coverage
 
+## Shared conversation and solution gates — revision 8
+
+Architecture: `docs/architecture.vi.md`; contracts: `docs/shared-conversation.vi.md`, `docs/solution-approval.vi.md`. Documentation update only; existing implementation evidence below is unchanged.
+
+| IDs | Requirement | Existing foundation | Status / required evidence |
+|---|---|---|---|
+| CS01–CS02 | Conversation before tasks, durable contributions/ACK/cursors | SQLite and task-bound entry notes | Pending; concurrent append/retry/restart and scope tests |
+| CS03 | Source-backed summary + delta preserving decisions/questions | Bounded task context packet | Pending; stale/truncated summary recovery tests |
+| CS04 | MCP/CLI discussion read/write and host adapters | Task MCP status/outputs/inbox/control; note available via CLI | Pending; two live hosts sharing CONV without copy/paste |
+| SG01–SG02, CS05 | Approved solution revision gates all applicable execution paths | Spec approval hashes, intake/grants | Pending runtime binding; entry policy documented; stale/CAS/submit-race tests required |
+| SG03, SG05, CS06 | Change requests/output return to conversation, revision-aware review, event lifecycle | Task inbox/outbox/runner/reviewer | Pending conversation linkage/holds/host delivery; no idle model polling |
+| SG04 | Contract-first parallelism after early review | Legacy DAG/ownership/amend/integration | Pending owned/native solution integration and live quality evidence |
+
+No new runtime tests claimed by this documentation change. CS/SG APIs are proposed, not installed CLI commands; no model call, task restart or host connection is authorized by editing these documents.
+
 ## Native Flutter change — NC01–NC04
 
 Proposal: `docs/native-change.vi.md`; follow-up request delegates Cloud Auth repair through OneCrew.
