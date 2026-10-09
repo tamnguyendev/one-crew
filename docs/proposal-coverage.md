@@ -2,7 +2,7 @@
 
 ## Background handoff — BG01–BG03 / IN01–IN03 / UX01
 
-Contract: [background-handoff.vi.md](background-handoff.vi.md). Implementation phases: native detached Android execution, then durable deferred questions and acknowledged notification feed. Baseline b60469e; no product/SRM edits or live worker calls in this change.
+Contract: [background-handoff.vi.md](background-handoff.vi.md). Implementation phases: native detached Android execution, then durable deferred questions and acknowledged notification feed. Baseline b60469e; implementation commit `698b97f`. No product/SRM edits or live worker calls in this change.
 
 | ID | Status | Evidence |
 |---|---|---|
