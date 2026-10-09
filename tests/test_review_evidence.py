@@ -90,5 +90,36 @@ class ReviewEvidenceTests(unittest.TestCase):
         result=adapter.status()
         self.assertIsNone(result['branch']);self.assertTrue(result['detached'])
 
+    def test_worker_keeps_older_source_and_feedback_without_duplicate_receipt_context(self):
+        run,task,worker=self.f.runtime([]);_,state=run.state(task)
+        source={'action':'read','result':{'path':'calc.py','text':'OLD_SOURCE_EVIDENCE','sha256':'abc','cursor':0}}
+        records=[source]+[{'action':'search','arguments':{'query':str(i)},'result':{'matches':[]}} for i in range(4)]
+        records.append({'action':'receipt','result':source})
+        for i,record in enumerate(records):
+            state['receipts'].append({'index':i,'action':record['action'],'blob':run.store.blob(canonical(record).encode())})
+        bundle=packet(run,state,worker=True)
+        self.assertEqual(canonical(bundle['full_receipts']).count('OLD_SOURCE_EVIDENCE'),1)
+        self.assertEqual(bundle['manifest'][0]['sha256'],'abc')
+        self.assertNotIn('evidence_requests',bundle['instructions'])
+        # Actual worker prompt retains old source even after three unrelated actions.
+        prompts=[];native=worker.run
+        def capture(attempt,prompt,schema,profile):
+            prompts.append(prompt);return native(attempt,prompt,schema,profile)
+        worker.run=capture
+        seq,live=run.state(task);live['receipts']=state['receipts'];live['reviews']=[{'accepted':False,'feedback':'KEEP_CORRECTION'}]
+        run.persist(task,seq,live)
+        worker.responses=[fixtures.action('list')]
+        run.run(task,steps=1)
+        self.assertIn('OLD_SOURCE_EVIDENCE',prompts[0]);self.assertIn('KEEP_CORRECTION',prompts[0])
+        self.assertLess(len(prompts[0]),80000)
+
+    def test_denied_read_retains_path_without_exposing_contents(self):
+        (self.f.root/'app_secrets.dart').write_text('DO_NOT_EXPOSE_THIS_CONTENT')
+        run,task,_=self.f.runtime([fixtures.action('read',path='app_secrets.dart')])
+        state=run.run(task,steps=1);bundle=packet(run,state,worker=True)
+        self.assertEqual(bundle['manifest'][0]['path'],'app_secrets.dart')
+        self.assertIn('excluded',bundle['manifest'][0]['error'])
+        self.assertNotIn('DO_NOT_EXPOSE_THIS_CONTENT',canonical(bundle))
+
 
 if __name__=='__main__': unittest.main()

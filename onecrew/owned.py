@@ -358,9 +358,7 @@ class Owned(Workflow):
                     expected=selected.get('capability',control['configuration']['capability'])
                     if self.worker.capability()!=expected: raise LedgerError('Provider capability changed.')
                     if state['response'] is None:
-                        recent=[]
-                        for ref in state['receipts'][-3:]:
-                            recent.append({'index':ref['index'],'result':json.loads(self.store.read_blob(ref['blob']))})
+                        from .review_evidence import packet
                         with self.ledger.transaction() as conn:
                             notes=[json.loads(r['payload']) for r in conn.execute(
                                 "SELECT payload FROM events WHERE task_id=? AND kind='entry.note' ORDER BY seq DESC LIMIT 5",(task_id,))]
@@ -373,11 +371,12 @@ class Owned(Workflow):
                             'build_evidence':state.get('build_evidence'),'progress_limits':state.get('progress'),
                             'max_calls':control['budget']['limits']['max_calls'],
                             'remaining_calls':control['budget']['limits']['max_calls']-control['used_calls']-control['reserved_calls'],
-                            'observed_history':self.evidence_index(state),
+                            'evidence':packet(self,state,worker=True),
+                            'latest_review_feedback':[{'accepted':x['accepted'],'feedback':x['feedback'][:4000]}
+                                                      for x in state.get('reviews',[])[-1:]],
                             'files':state['files'],'candidate_changes':{p:{'original':state['original'].get(p),'candidate':h}
                                 for p,h in state['files'].items() if h!=state['original'].get(p)},
                             'discovered_inventory':state.get('inventory',{}),
-                            'receipt_index':state['receipts'],'recent_results':recent,
                             'entry_notes_untrusted':notes,
                             'answers':[{'question':r['question']['question'],'answer':r['answer']} for r in self.ledger.requests(task_id) if r['state']=='answered']})
                         if state.get('context_prompt'):
@@ -456,6 +455,7 @@ class Owned(Workflow):
                             state.update(phase='blocked',message=str(error));preserve_intent=True
                     record={'action':value['action'],'result':result}
                     if value['action']=='search': record['arguments']=args
+                    if value['action']=='read': record['arguments']={k:args[k] for k in ('path','cursor') if k in args}
                     from .progress import observe
                     observe(state,value['action'],args,result)
                     blob=self.store.blob(canonical(record).encode())

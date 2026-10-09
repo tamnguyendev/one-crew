@@ -15,6 +15,8 @@ New review protocol counts its genuine rejected reports separately from legacy r
 
 Validation: 57 targeted tests passed (review/owned/revision5/effort/fallback); the final seven review tests passed in 1.725s, including real Git branch/detached/index preservation. Existing native fixture ResourceWarning remains with cleanup assertions passing. Live audit acceptance is still pending.
 
+Follow-up: live resume reached 52 total calls (20 new) in ~5 minutes and correctly opened effort REQ `REQ-4c43f23b52ce47d59220cff6943f4817`; no additional inference until user answer. Two protocol-2 reviews rejected reports that forgot already-observed dirty/endpoint facts. RV02 now also supplies the decision worker a deduplicated 36,000-character receipt budget, compact manifest and persistent latest review feedback, replacing last-three-only context. Read failures retain path/cursor without exposing withheld files. Test evidence: 31 owned/search/review regressions passed; 23 final review/effort/history tests passed in 22.794s. RV04 remains pending; warning is not auto-approved.
+
 ## Effort-warning cycle — EW01–EW03
 
 Source: user asks to warn when work takes too long so the user chooses; follows explicit expansion of the Cloud Auth task budget. Cycle baseline `d583219`. Soft warnings do not revoke the existing hard grant or silently extend it.
