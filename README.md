@@ -2,7 +2,7 @@
 
 OneCrew hướng tới một core local giữ **conversation chung → solution được duyệt → task thực thi → kết quả và phản hồi**, xuyên **Codex / Claude / Kiro** và các công cụ có adapter phù hợp. Công cụ trao đổi và worker thực hiện được chọn độc lập.
 
-**Kiến trúc hiện hành: [revision 8](docs/architecture.vi.md).** [Conversation chung CS01–CS06](docs/shared-conversation.vi.md) và [solution approval SG01–SG05](docs/solution-approval.vi.md) cho phép thiết kế việc trao đổi trước task, đổi entry không copy nội dung đã lưu, rồi chốt solution trước implement. Đây là phần nâng cấp đang pending: entry/MCP hiện có chủ yếu phục vụ task, chưa đồng bộ conversation trọn vẹn. [Backlog](docs/mvp-backlog.vi.md) ghi thứ tự xây; [coverage](docs/proposal-coverage.md) phân biệt thiết kế và code đã kiểm chứng.
+**Kiến trúc hiện hành: [revision 9](docs/architecture.vi.md).** [Discussion routing DR01–DR06](docs/discussion-routing.vi.md) thêm quy tắc current-entry mặc định, explicit provider/model ưu tiên, consultation review trả cùng conversation và JEV tùy chọn khi auto được cho phép; phần này chưa triển khai. [Conversation chung CS01–CS06](docs/shared-conversation.vi.md) và [solution approval SG01–SG05](docs/solution-approval.vi.md) cho phép thiết kế việc trao đổi trước task, đổi entry không copy nội dung đã lưu, rồi chốt solution trước implement. Đây là phần nâng cấp đang pending: entry/MCP hiện có chủ yếu phục vụ task, chưa đồng bộ conversation trọn vẹn. [Backlog](docs/mvp-backlog.vi.md) ghi thứ tự xây; [coverage](docs/proposal-coverage.md) phân biệt thiết kế và code đã kiểm chứng.
 
 **Luồng mới `job` — runtime tự làm việc:** giao mục tiêu + project root + quyền/ngân sách; OneCrew tự discovery, gọi worker, dùng tools, sửa candidate, kiểm thử và bàn giao Git. Entry không phải chọn file hoặc chuẩn bị evidence/profile. Ba loại task đã có Codex live evidence trong repo thử nghiệm; sandbox test của luồng mới hiện hỗ trợ Python unittest. Xem [hướng dẫn và giới hạn](docs/owned-execution.vi.md). Nền tảng revision 6 bổ sung [skill/routing](docs/skills-routing.vi.md) trên nền [hợp nhất KiroCrew + CAO](docs/architecture-kiro-cao.vi.md), SPEC-007 và [giao việc nền/inbox](docs/background-handoff.vi.md); các luồng `work`/spec cũ vẫn giữ tương thích.
 
@@ -21,13 +21,14 @@ Revision 6 bổ sung [skill từ history và model preference/JEV](docs/skills-r
 | [SPEC-007 — tự sở hữu công việc](specs/SPEC-007-owned-execution.md) | Goal intake, tools, candidate/test, Git delivery và runner độc lập chat |
 | [Vận hành `job`](docs/owned-execution.vi.md) | CLI mới, ranh giới trách nhiệm, evidence và giới hạn đã kiểm chứng |
 | [SPEC-006 — duyệt nhanh](specs/SPEC-006-portable-orchestration.md) | Bản ngắn cho người dùng và 12 yêu cầu chi tiết |
-| [Kiến trúc revision 8](docs/architecture.vi.md) | Conversation → solution → execution, ranh giới trách nhiệm và hiện trạng |
+| [Kiến trúc revision 9](docs/architecture.vi.md) | Conversation → solution → execution, ranh giới trách nhiệm và hiện trạng |
+| [Điều hướng thảo luận](docs/discussion-routing.vi.md) | DR01–DR06: current-entry, provider pin, consultation, JEV shadow/auto và lifecycle |
 | [Conversation chung](docs/shared-conversation.vi.md) | CS01–CS06: dữ liệu, MCP/CLI đề xuất, adapters, sync và nghiệm thu |
 | [Duyệt solution](docs/solution-approval.vi.md) | SG01–SG05: review trước implement, change requests và chất lượng song song |
 | [Kiến trúc revision 5 — KiroCrew + CAO](docs/architecture-kiro-cao.vi.md) | Luồng trọn task, ranh giới CAO, event delivery, recovery và gate P0/P1/P2 |
 | [Triển khai revision 5](docs/revision5-implementation.vi.md) | Recipe được cấp quyền, chống lặp, evidence, local delivery, outcomes và giới hạn |
 | [MCP entry](docs/entry-mcp.vi.md) | Cổng stdio local dùng chung, read-only mặc định; điều khiển do operator bật |
-| [Kế hoạch triển khai](docs/mvp-backlog.vi.md) | Ưu tiên revision 8; giữ backlog và ca nghiệm thu nền chưa hoàn tất |
+| [Kế hoạch triển khai](docs/mvp-backlog.vi.md) | Ưu tiên revision 9; giữ backlog và ca nghiệm thu nền chưa hoàn tất |
 | [Coverage](docs/proposal-coverage.md) | Phân biệt code đã có với phần còn thiếu |
 | [P1a — task và inbox lưu bền](docs/durable-ledger.vi.md) | Submit/queue/connect, câu hỏi/revision/reply qua CLI; chưa dispatch worker |
 | [P1b — admission và supervisor](docs/control-runtime.vi.md) | Schema migration, reservation/counters, action receipts, native Windows process containment |

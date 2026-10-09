@@ -1,21 +1,22 @@
-# Kiến trúc OneCrew — baseline 09/10/2026, revision 8
+# Kiến trúc OneCrew — baseline 09/10/2026, revision 9
 
 ## Tổng thể hiện hành
 
 OneCrew giữ **conversation chung → solution được duyệt → task thực thi → evidence và phản hồi**, xuyên suốt Codex, Claude, Kiro và các entry có adapter phù hợp. Conversation tồn tại trước task; người dùng không cần copy nội dung đã được ACK trong OneCrew khi đổi entry. Công cụ trao đổi và model thực hiện được chọn độc lập. Một cửa sổ chat chung là UI tùy chọn; dùng chung dữ liệu không ghép các native chat window thành một.
 
-Revision 8 và [contract conversation CS01–CS06](shared-conversation.vi.md) là thiết kế hiện hành cho collaboration, bổ sung [solution approval SG01–SG05](solution-approval.vi.md). Khi nội dung entry/trao đổi trong revision cũ khác, dùng contract này. Các giới hạn quyền, runtime, verification, budget và bài học KiroCrew/CAO vẫn giữ; không thay bằng một framework hay scheduler mới.
+Revision 9 bổ sung [điều hướng thảo luận DR01–DR06](discussion-routing.vi.md) trên nền [conversation CS01–CS06](shared-conversation.vi.md) và [solution approval SG01–SG05](solution-approval.vi.md). Mặc định trợ lý trong cửa sổ hiện tại trả lời; yêu cầu rõ “hỏi Claude review” tạo một lượt tư vấn Claude rồi trả kết quả về cùng conversation. Chỉ auto-route khi người dùng cho phép; JEV là evaluator có kiểm chứng, không ghi đè provider/model được chỉ định. Discussion routing độc lập với preference worker implement. Khi nội dung entry/trao đổi trong revision cũ khác, dùng contract này. Các giới hạn quyền, runtime, verification, budget và bài học KiroCrew/CAO vẫn giữ; không thay bằng một framework hay scheduler mới.
 
 | Khối | Trách nhiệm | Hiện trạng |
 |---|---|---|
 | Entry adapters MCP/CLI | Attach conversation, đọc delta, ghi contribution, chuyển quyết định thực của người dùng | MCP task status/control có sẵn; conversation read/write và adapter live còn thiếu |
 | Conversation/context | Lịch sử chia sẻ có nguồn, summary + delta, pending questions, chống ghi đè đề xuất | CS01–CS04 chưa triển khai; entry notes hiện gắn task |
+| Discussion router/consultation | Current-entry hoặc provider/model pin; bounded review theo solution revision, JEV tùy chọn sau hard gates | DR01–DR06 pending; có nền provider adapters/JEV shadow, chưa có conversation consultation dispatch |
 | Solution/approval | Bản nhanh + chi tiết cùng revision, review/diff, approval và change request | Spec CLI/inbox có nền tảng; SG gates chưa bind đầy đủ vào owned/native jobs |
 | Runtime/execution | Admission, một scheduler, worker/recipe, checkpoint, quota/budget, recovery | Đã có runner/adapters; từng mode có giới hạn riêng, xem coverage |
 | Verification/delivery | Test và review đúng candidate + solution; integration, local apply/publish theo grant | Có gates theo mode; solution-aware completion và integration tổng quát còn thiếu |
 | Learning/routing | Usage/outcomes, lessons/skill có evidence, provider policy/JEV có kiểm chứng | Có history/preferences/skill candidates; không tự promote hay coi JEV là quyền dispatch |
 
-Thứ tự nâng cấp: conversation/cursor → solution gate → MCP và hai adapter thực tế → change request quay về conversation → review từng lát và song song theo contract. [Backlog](mvp-backlog.vi.md) và [coverage](proposal-coverage.md) ghi rõ pending. Lượt cập nhật này chỉ sửa tài liệu, không thay trạng thái task đang chạy hoặc tuyên bố các adapter đã kết nối.
+Thứ tự nâng cấp: conversation/cursor → solution gate → MCP và hai adapter thực tế → explicit consultation review → change request quay về conversation → review từng lát và song song theo contract. [Backlog](mvp-backlog.vi.md) và [coverage](proposal-coverage.md) ghi rõ pending. Lượt cập nhật này chỉ sửa tài liệu, không thay trạng thái task đang chạy hoặc tuyên bố các adapter đã kết nối.
 
 ## Các nền tảng được kế thừa
 
@@ -39,7 +40,7 @@ Thứ tự nâng cấp: conversation/cursor → solution gate → MCP và hai ad
 
 **Revision 6 — skill từ công việc lặp và model preference:** [contract SK01–SK04 / MR01–MR03](skills-routing.vi.md). History giữ cả failures; recurrence đếm task độc lập, chỉ đề xuất skill sau đánh giá kết quả. Candidate phải review đúng revision trước khi dùng; core chọn theo project/mode/công nghệ/mục tiêu/quyền và ghi provenance. Model preference áp cho job mới, JEV chỉ shadow proposal sau hard gates. Reset quota do người dùng báo không là quota đã quan sát. [Coverage](proposal-coverage.md) ghi trạng thái triển khai; các khoảng revision 5 chưa đóng vẫn giữ nguyên.
 
-**Revision 5 — hợp nhất KiroCrew và CAO:** [thiết kế và kế hoạch áp dụng](architecture-kiro-cao.vi.md) là nền tảng thực thi được giữ lại; thứ tự nâng cấp hiện hành dùng revision 8 phía trên. OneCrew giữ duy nhất scheduler, scope, approval, budget và completion gate; học vòng thực thi/phục hồi của KiroCrew và entry bất đồng bộ/event/provider boundary của CAO. CAO là adapter tùy chọn cần spike, không là scheduler thứ hai; giữ runner Windows hiện có trong lúc kiểm chứng. Các khoảng thiếu revision 5 vẫn pending, không được tính đã triển khai từ tài liệu. P0 gồm thực thi trọn task, chống lặp/phục hồi, evidence và notification lifecycle không gọi AI lúc idle.
+**Revision 5 — hợp nhất KiroCrew và CAO:** [thiết kế và kế hoạch áp dụng](architecture-kiro-cao.vi.md) là nền tảng thực thi được giữ lại; thứ tự nâng cấp hiện hành dùng revision 9 phía trên. OneCrew giữ duy nhất scheduler, scope, approval, budget và completion gate; học vòng thực thi/phục hồi của KiroCrew và entry bất đồng bộ/event/provider boundary của CAO. CAO là adapter tùy chọn cần spike, không là scheduler thứ hai; giữ runner Windows hiện có trong lúc kiểm chứng. Các khoảng thiếu revision 5 vẫn pending, không được tính đã triển khai từ tài liệu. P0 gồm thực thi trọn task, chống lặp/phục hồi, evidence và notification lifecycle không gọi AI lúc idle.
 
 **Trạng thái triển khai revision 5:** [runtime/recipe, progress/evidence, local delivery, MCP entry và outcomes](revision5-implementation.vi.md) đã có code/test; [coverage](proposal-coverage.md) giữ các gate còn thiếu. Automation Codex 5 phút giữ PAUSED. Checkpoint/runner/build chuyển outbox sang file local bằng code; callback vào chat chưa có. Không hứa callback khi host chưa có tích hợp đã kiểm chứng.
 
@@ -214,6 +215,9 @@ Không tiến triển, repair không đổi source, lỗi môi trường lặp h
 
 ## 9. Model và quota
 
+Revision 9 tách discussion policy khỏi execution policy: [DR01–DR06](discussion-routing.vi.md). Trò chuyện mặc định dùng chính host/session hiện tại, không spawn một worker cùng hãng. “Hỏi Claude” pin lượt consultation, không đổi task model hoặc default lượt chat tiếp theo. Auto/JEV chỉ khi được chọn và đủ policy/evidence; explicit pin thắng. Preference Claude-first bên dưới dành cho job implement. Discussion routing vẫn pending; JEV hiện shadow.
+
+
 Thứ tự chọn: quyền/capability → loại việc/rủi ro/context → bằng chứng năng lực → quota/budget/latency. List/status/diff/test có sẵn dùng code. Việc rõ, ít rủi ro dùng model tiết kiệm đã kiểm chứng; kiến trúc/phân quyền/đa repo dùng cấu hình đủ năng lực. Số dòng/file không quyết định độ khó.
 
 Quota snapshot lưu provider/account/window/reset/source/observed-at; hỗ trợ nhiều cửa sổ ngắn/tuần/credits tháng theo adapter thực tế. Còn cửa sổ ngắn không đủ nếu tuần đã hết. Có reserve cấu hình được cho trao đổi/review. Dữ liệu thiếu/cũ là unknown, không phải 0 hoặc unlimited. “MAX” chưa xác nhận biến thể và gói Kiro; không hardcode gói, phần trăm hay giờ reset trong policy.
@@ -285,7 +289,7 @@ Nhóm task run/list/status/cancel/outputs/preview và spec hiện có giữ tư�
 
 1. CS01–CS03: conversation trước task, contribution/ACK/idempotency, context summary + delta có provenance; query không gọi AI.
 2. SG01–SG02/CS05: solution revision + approval binding bắt buộc ở mọi đường start/submit/resume phù hợp; không tự đổi quyền task legacy.
-3. CS04: expose MCP/CLI và adapter đọc/ghi; thử hai entry thực tế luân phiên cùng CONV không copy/paste, sau đó mở rộng công cụ khác.
+3. CS04: expose MCP/CLI và adapter đọc/ghi; thử hai entry thực tế luân phiên cùng CONV không copy/paste, sau đó mở rộng công cụ khác. DR01/DR02/DR04/DR05 tiếp nối: rules current-entry/explicit pin, một consultation review theo revision và trả kết quả về CONV; không cần JEV để gọi provider đã chỉ định.
 4. SG03/SG05/CS06: change request quay về conversation, hold phần bị ảnh hưởng, trả lời từ entry khác, output theo solution và event lifecycle không AI polling.
 5. SG04: review lát đầu, contract/dependency/ownership rồi mới chạy song song và kiểm bản ghép. Giữ backlog recovery/native provider fallback, routing/lessons có evidence và fault/soak chưa hoàn thành.
 

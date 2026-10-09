@@ -1,5 +1,7 @@
 # Chọn model từ công việc và quota
 
+Revision 9: [discussion routing DR01–DR06](discussion-routing.vi.md) tách lựa chọn lượt thảo luận khỏi worker execution. Default chat là host hiện tại; user pin thắng; JEV chỉ khi auto/shadow được cho phép. Các lệnh provider và evidence dưới đây là nền hiện có, chưa chứng minh consultation routing đã tích hợp. Không áp preference Claude-first của job lên mọi lượt chat.
+
 Revision 6 thêm [preference và JEV shadow](skills-routing.vi.md): ưu tiên provider sau hard gates rồi mới cost_rank; `--jev --brief ...` là opt-in một request evaluator bên ngoài, không tự dispatch. Không có `--jev` thì vẫn chạy hoàn toàn bằng code. Preference và reset hint không thay quota evidence hoặc benchmark. CLI `provider prefer/preference` quản lý default cho job mới.
 
 `onecrew provider choose --file policy.json --json` là decision layer deterministic, không gọi model. Input gồm `workload` và `candidates`; code ở `onecrew/routing.py`. Đây là đề xuất có lý do, **chưa reserve quota subscription hoặc tự dispatch/switch**.

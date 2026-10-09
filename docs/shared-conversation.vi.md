@@ -12,6 +12,9 @@ MVP ưu tiên các công cụ trên cùng máy dùng chung state-root qua MCP st
 
 ## 2. Luồng đầy đủ
 
+Revision 9 thêm [discussion routing DR01–DR06](discussion-routing.vi.md): từ một cửa sổ có thể yêu cầu provider khác review một solution đã pin. Một consultation lưu kết quả vào CONV, không chuyển toàn bộ chat, không tạo quyền implement hoặc đổi execution preference. Không chỉ định thì trợ lý hiện tại trả lời; auto chọn model/JEV là lựa chọn riêng. Phần này chưa triển khai.
+
+
 ```mermaid
 flowchart TD
     U[Người dùng chọn nơi trao đổi] --> E[Codex / Claude / Kiro / entry khác]
@@ -44,6 +47,7 @@ Người dùng có thể yêu cầu nhiều góc nhìn. Mặc định chỉ tr�
 | Decision | Solution ID/hash, lựa chọn người dùng, provenance/câu trả lời gốc, thời điểm; proposal/critique không tự trở thành decision |
 | Task binding | Conversation ID, solution ID/hash đã duyệt, approval reference, execution grant revision, repo baseline và existing budget lineage |
 | Change request | Conversation + task/solution revision, bằng chứng trở ngại, delta đề xuất, impacted tasks, options và trạng thái pending/answered/applied/superseded |
+| Consultation/route receipt | Lượt tư vấn gắn CONV/message/solution revision; requested/selected/actual model, selection source, grant/usage, output/stale state, origin/destination entry; không bắt buộc implementation task |
 | Entry binding/cursor | Host/session reference khi có, conversation được chọn, quyền theo scope, last-seen seq và khả năng pull/push; không coi host session ID là native worker session |
 
 Lưu trong cùng SQLite thuộc OneCrew; artifact/source lớn ở immutable snapshot, DB giữ ref/hash. Không thêm vector DB, message broker hoặc scheduler thứ hai. `entry.note` cũ tiếp tục đọc được với provenance legacy; không giả dữ liệu note là đầy đủ transcript hoặc approval.
@@ -58,6 +62,7 @@ Nhóm thao tác dự kiến (tên contract, CHƯA là lệnh CLI):
 | conversation read | Summary có nguồn, solution hiện hành, quyết định, pending requests và events sau cursor; phân trang khi cần |
 | conversation append | Ghi contribution với idempotency key và provenance, trả durable ACK/message ID/seq |
 | solution propose/review/diff | Lưu revision đề xuất, so với bản đã duyệt, trình bày bản nhanh và chi tiết cùng hash |
+| consultation request/status/result/cancel | Contract đề xuất cho lượt review/explain theo provider pin hoặc auto policy; core giữ budget/revision/idempotency, callback tùy host; không phải CLI đã có |
 | solution decide | Ghi câu trả lời thực của người dùng đối với revision đang review; không nhận approval tự suy từ assistant text |
 | task submit from solution | Kiểm approval + grants + idempotency trong transaction trước khi dispatch; gắn immutable solution revision |
 | conversation inbox/reply | Đọc và trả lời request từ entry bất kỳ trong quyền; stale/conflicting reply không được áp dụng |

@@ -1,5 +1,19 @@
 # Proposal Coverage
 
+## Discussion routing — revision 9
+
+Contract: `docs/discussion-routing.vi.md`; documentation only, no model dispatch or preference changes.
+
+| IDs | Requirement | Existing foundation | Status / required evidence |
+|---|---|---|---|
+| DR01–DR02 | Explicit user pin / current-entry default / independent discussion policy | Provider preference and explicit job pin | Pending discussion integration; intent examples, no duplicate host worker, no execution policy override |
+| DR03 | Optional JEV after hard gates; shadow before auto | JEV connection and shadow proposal receipts | Pending discussion benchmark; no authority from confidence, quota or model-name guesses |
+| DR04–DR05 | Bounded revision-bound consultation and return to CONV | Provider supervisor and local outbox | Pending; live provider review, crash/idempotency, stale result, cancel, host callback or explicit pull |
+| DR06 | Routing quality/usage evaluation | Outcome history and proposed lessons | Pending; workload-specific evidence includes evaluator cost and failures |
+
+Rules/explicit consultation precede JEV auto-routing. This document does not claim runtime tests or live cross-provider discussion has passed.
+
+
 ## Shared conversation and solution gates — revision 8
 
 Architecture: `docs/architecture.vi.md`; contracts: `docs/shared-conversation.vi.md`, `docs/solution-approval.vi.md`. Documentation update only; existing implementation evidence below is unchanged.
