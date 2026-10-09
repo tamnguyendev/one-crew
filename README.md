@@ -2,7 +2,7 @@
 
 OneCrew hướng tới một core local để nhận công việc đã làm rõ từ **Codex / Claude / Kiro**, điều phối **Codex / Claude Code / Kiro CLI**, lưu tiến độ và kiểm chứng kết quả. CLI trước; công cụ chat và worker có thể thay độc lập.
 
-**Đã có CV runtime và workflow Codex artifact tổng quát:** ledger/inbox, budget/supervisor, snapshot dirty bytes, spec-to-plan, output từng phần, pause/resume/reorder/review. Workflow mới đã chạy hai bài JSON thật; gate ứng dụng, đa provider, integration và chạy dài vẫn cần hoàn thiện. Baseline kiến trúc 09/10/2026, revision 2.
+**Đã chạy được workflow tổng quát với Codex và Kiro:** spec-to-plan, snapshot giữ dirty bytes, tối đa hai worker, inbox theo nhánh, controller nền, review/sửa từng phần, thay đổi yêu cầu và gia hạn hữu hạn. Test chức năng trong Docker và nhánh Git review đã có evidence thật. Claude live, entry connectors có xác thực, merge đa repo, routing tự động và soak tám giờ còn chưa hoàn tất. Baseline kiến trúc 09/10/2026, revision 2; trạng thái chi tiết trong coverage.
 
 ## Tài liệu hiện hành
 
@@ -26,6 +26,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [DAG song song](docs/parallel-dag.vi.md) | Hai nhánh độc lập cùng root, output từng phần và budget chung; live Kiro đã đạt |
 | [Inbox theo nhánh](docs/branch-inbox.vi.md) | Nhánh lỗi/dependents chờ quyết định, nhánh độc lập vẫn tiến triển |
 | [Thay đổi yêu cầu](docs/requirement-amendment.vi.md) | Revision mới chỉ làm lại nhánh bị ảnh hưởng và dependency, giữ kết quả độc lập |
+| [Yêu cầu sửa sau review](docs/review-corrections.vi.md) | Sửa phần liên quan trong requirements/caps cũ, giữ nhánh độc lập |
 | [Snapshot](docs/snapshots.vi.md) | Bảo toàn working/index bytes trong scope và output bất biến |
 | [CLI spec](docs/spec-review-cli.vi.md) | Review/approve theo revision, diff/history |
 | [Runtime và bằng chứng SPEC-005](docs/incremental-autonomy.vi.md) | Chạy CV từ thư mục trống, test/review/repair và preview |
@@ -33,7 +34,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 
 Kiến trúc mới thay hướng Kiro Crew làm host bắt buộc bằng core OneCrew độc lập. Conductor chỉ lập plan/triage khi cần; code giữ queue, quyền, scope và budget. JEV tùy chọn sau benchmark. [Kiến trúc cũ](docs/architecture-2026-10-08.vi.md) và [backlog cũ](docs/mvp-backlog-2026-10-08.vi.md) được giữ làm lịch sử.
 
-Revision 2 học handoff của Agent Orchestrator, action/budget broker của Agent Loop System, adapter của CAO, task claim của Beads, pause/replay của LangGraph, integration của Stoneforge, policy của Omnigent, checkpoint của Gas Town và loop của Athena. Giữ một core Python/SQLite; không thêm chín framework. Những giới hạn thấy trong source được chuyển thành điều kiện nghiệm thu: approval theo nội dung, stop trước đổi writer, reservation mỗi invocation, snapshot đủ dữ liệu, lỗi checkpoint không báo xong và test đúng candidate tích hợp. Đây là cập nhật thiết kế, chưa triển khai các năng lực đó.
+Revision 2 học handoff của Agent Orchestrator, action/budget broker của Agent Loop System, adapter của CAO, task claim của Beads, pause/replay của LangGraph, integration của Stoneforge, policy của Omnigent, checkpoint của Gas Town và loop của Athena. Giữ một core Python/SQLite; không thêm chín framework. Các contract được triển khai từng lát; coverage ghi bằng chứng code/test/live và phần thiếu, thay vì coi toàn thiết kế đã hoàn thành.
 
 ## Dùng CLI hiện có
 
@@ -55,8 +56,8 @@ Có task run/list/status/cancel/outputs/preview cho CV; hướng dẫn nằm tro
 
 Run RUN-20261008-232057-1d06d8 tự tạo app CV từ thư mục trống trong 585,21 giây, 14 model calls, một repair thật; 19 gate checks đạt và independent review không có findings. Product commit ad3c748, runtime commit bf2e673. Lượt đó ghi nhận 69 tests đạt; xem evidence và giới hạn trong tài liệu SPEC-005.
 
-Workflow mới đã chạy hai cấu trúc JSON ngoài CV, dùng 4 và 3 calls gồm planner retry, giữ source gốc và acceptance pending. Có fault tests crash/receipt/snapshot; đã có Codex→Kiro checkpoint handoff, còn thiếu Git integration đa repo, DAG song song đầy đủ và soak 8 giờ. JEV kết nối được không đồng nghĩa routing đã hoạt động. Kết quả CV vẫn chờ khách hàng review; hiệu quả chống bot thực tế chưa được chứng minh.
+Workflow mới đã chạy hai cấu trúc JSON ngoài CV, dùng 4 và 3 calls gồm planner retry. Có Codex→Kiro checkpoint handoff, hai Kiro workers cùng root và test chức năng đơn hàng/CSV trong Docker. Ba trial chức năng dùng tổng 7 calls, giữ cả trial lỗi và regression riêng trong evidence; không che chi phí repair do lỗi hạ tầng ban đầu. Source/index gốc giữ nguyên, acceptance pending. JEV kết nối được không đồng nghĩa routing đã hoạt động. Kết quả CV vẫn chờ khách hàng review; hiệu quả chống bot thực tế chưa được chứng minh.
 
-Đã bắt đầu nền lưu bền task/inbox bằng P1a. Mục tiêu tiếp theo là admission/budget/supervisor, rồi nối worker vào ledger để tiếp tục thực thi sau crash. Sau đó mới mở rộng entry/worker, song song và quota. Kế hoạch này không tự cấp quyền chạy trả phí hoặc deploy.
+Các phần còn thiếu được theo dõi theo OC01–OC12 trong coverage: entry có xác thực, Claude live/cancel, đầy đủ fault transitions, target merge/vector đa repo, reservation quota/routing/fallback và soak dài. CLI hiện dùng local operator; không tự cấp quyền chạy API trả phí hoặc deploy.
 
 Kiểm thử code khi có thay đổi runtime: python -m unittest discover -s tests -v.

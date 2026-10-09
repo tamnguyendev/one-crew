@@ -43,6 +43,8 @@ def apply(workflow, task_id, revision, spec_revision, profile, selected, reason)
         control = workflow.control.status(task_id)
         if not state or content_hash(state) != revision:
             raise LedgerError('Stale workflow revision; review the current plan/output before amendment.')
+        if state.get('feedback_repair'):
+            raise LedgerError('Finish the scheduled review correction before changing its requirements.')
         if not state['plan'] or control['cancel_requested']:
             raise LedgerError('A non-cancelled planned task is required.')
         if any(a['status'] != 'settled' for a in control['attempts']):

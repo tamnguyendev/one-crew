@@ -36,7 +36,7 @@ Lấy `task-sha256` từ submit/status; khác với hash của spec. `enable` l�
 .\onecrew.ps1 --project D:\MyProject work export TASK-... --revision <output-sha256> --to D:\Review\new-directory
 ```
 
-Output card chứa summary, diff, snapshot, verification, acceptance và backlog. Feedback gắn revision được ghi kể cả khi controller đang chạy phần khác; đây là ghi nhận feedback, **chưa tự biến feedback thành yêu cầu sửa**. Acceptance chỉ nhận snapshot hiện tại đã pass gate. Export tạo thư mục mới; không ghi đè repo nguồn. `reorder` cần toàn bộ ID chưa hoàn thành, chỉ thực hiện giữa checkpoint; dù ưu tiên task phụ thuộc lên đầu, core vẫn chờ dependency.
+Output card chứa summary, diff, snapshot, verification, acceptance và backlog. Feedback gắn revision được ghi kể cả khi controller đang chạy phần khác. Muốn giao sửa, dùng [work request-changes](review-corrections.vi.md) ở checkpoint: core giữ scope/caps và đưa feedback vào một repair có giới hạn. Acceptance chỉ nhận snapshot hiện tại đã pass gate. Export tạo thư mục mới; không ghi đè repo nguồn. `reorder` cần toàn bộ ID chưa hoàn thành, chỉ thực hiện giữa checkpoint; dù ưu tiên task phụ thuộc lên đầu, core vẫn chờ dependency.
 
 Pause dừng worker đang chạy và giữ snapshot đã công bố, calls/deadline. Resume là explicit retry có giới hạn: phải biết attempt cũ đã dừng; không tiếp tục kết quả JSON viết dở. Trường hợp launch mất identity vẫn giữ reservation, cần reconcile trước khi có worker mới. Với crash sau khi receipt đã lưu, runtime đọc lại output cũ thay vì gọi model lần nữa.
 
@@ -50,4 +50,4 @@ Planner dùng schema enum cho đúng AC/path. JSON/schema sai được sửa tro
 
 Adapter pin Codex CLI 0.160.0 trên Windows, read-only và tắt shell/apps/plugins/hooks/multi-agent. CLI chạy ở thư mục IO riêng, context được gửi qua stdin; worker chỉ trả JSON. Code core là bên duy nhất áp dụng bytes vào snapshot. Không cấp ledger/control tool cho model. Phiên bản khác cần kiểm chứng trước khi bật, không tự fallback full-access.
 
-Đã bổ sung Kiro worker/handoff, controller nền và nhánh Git để review; xem các hướng dẫn tương ứng trong README. Còn thiếu merge vào target, Claude live (chờ login), tự xử lý feedback/inbox từ entry có xác thực, triage từng nhánh/contract invalidation, quota fallback và soak 8 giờ. DAG hai nhánh độc lập đã có qua parallel=true. Roadmap vẫn giữ các gate đó; không dùng hai bài JSON để đánh dấu toàn bộ P1/P2 hoàn tất.
+Đã bổ sung Kiro worker/handoff, controller nền, nhánh Git review, branch inbox, amendment và repair theo review; xem các hướng dẫn trong README. DAG hai nhánh độc lập đã có qua parallel=true. Còn thiếu merge vào target, Claude live (chờ login), entry có xác thực, atomic quota reservation/fallback và soak 8 giờ. Codex quota feed chỉ đọc đã có, chưa tự dispatch. Không dùng các trial hiện tại để đánh dấu toàn bộ P1–P4 hoàn tất.

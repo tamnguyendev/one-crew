@@ -32,15 +32,15 @@ Giữ [kiến trúc cũ](architecture-2026-10-08.vi.md) và [backlog cũ](mvp-ba
 | Năng lực | Code hiện có | Khoảng thiếu |
 |---|---|---|
 | CLI spec | onecrew/specs.py: list/review/diff/approve/request-changes/history | Approval local chưa xác thực/cách ly worker |
-| Ledger/inbox P1a | ledger.py, ledger_cli.py: submit/queue/status/connect/events, request create/revise/reply; SQLite ngoài source | Chưa supervisor/dispatch, trusted entry hoặc áp dụng action; xem [hướng dẫn](durable-ledger.vi.md) |
-| Runtime | runtime.py, incremental.py: Codex, budget/cancel/checkpoint/test/review/repair/delivery | Profile CV cố định, chưa planner tổng quát |
-| Phân việc/model | incremental_profile.py: graph 10 file CV, rule theo task/rủi ro | Tuần tự, chưa đa repo/provider/quota |
-| Output | Snapshot, outputs và preview local | Chưa feedback inbox/reorder/resume sau crash |
+| Ledger/inbox/core | SQLite ngoài source, admission/counters, Windows Job supervisor, root/branch triage, reply effects lưu transaction | Caller hiện là local operator; trusted multi-entry và đầy đủ fault transitions còn thiếu |
+| Workflow tổng quát | Spec/profile→plan→artifact→snapshot→gates; Codex/Kiro live, background/recovery, dirty bytes | Claude live chờ login; test đầy đủ cancel/handoff theo từng adapter còn thiếu |
+| Phân việc/model | DAG tối đa hai worker chung root, dependency/ownership, amendment; typed routing recommendation và quota Codex chỉ đọc | Chưa atomic account reservations/usage dedup, routing dispatch/fallback hoặc multi-repo vector |
+| Output | Card/diff/revision, review từng phần, request-changes bounded, reorder, verified local Git branch | Target merge/rebase và authenticated entry acceptance còn thiếu |
 | JEV | Credential DPAPI và doctor kết nối được | Chưa semantic routing/benchmark |
 
 [SPEC-005 đã bàn giao](incremental-autonomy.vi.md) app CV từ thư mục trống: run RUN-20261008-232057-1d06d8, 585,21 giây, 14 calls, một repair thật, 19 gate checks đạt; runtime commit bf2e673, product commit ad3c748. Bộ kiểm thử được ghi nhận ở lượt đó là 69 tests. Đây là bằng chứng profile local/Codex, không chứng minh orchestration tổng quát hoặc khả năng chặn mọi AI bot ngoài production; khách hàng chưa nghiệm thu.
 
-CLI hiện tại tối đa 3.600 giây/run, 32 calls, 4 repair, 600 giây/call; mặc định 1.800/24/3/120. Chưa có run 8 giờ hoặc resume sau crash. Tài liệu này không thay giới hạn code.
+Các trần 3.600 giây/run, 32 calls, 4 repair và 600 giây/call thuộc runtime CV cũ. Workflow `TASK-` mới dùng grant hữu hạn tối đa tám giờ từ submit và 10.000 managed calls, profile tối đa ba repairs/600 giây mỗi bước. Extension giữ used/deadline gốc tối đa; đã có fixture recovery và Codex→Kiro checkpoint handoff. Chưa kiểm chứng soak tám giờ. Phân biệt giới hạn cấu hình với bằng chứng vận hành.
 
 ## 3. Một core, hai nhóm kết nối
 

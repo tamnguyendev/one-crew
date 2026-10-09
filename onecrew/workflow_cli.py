@@ -18,7 +18,7 @@ def main(argv=None):
     parser.add_argument('--state-root', type=Path)
     group = parser.add_subparsers(dest='group', required=True).add_parser('work')
     commands = group.add_subparsers(dest='command', required=True)
-    for name in ('enable', 'plan', 'triage', 'extend', 'amend', 'recheck', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
+    for name in ('enable', 'plan', 'triage', 'extend', 'amend', 'request-changes', 'recheck', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
         command = commands.add_parser(name)
         command.add_argument('id')
         command.add_argument('--json', action='store_true')
@@ -31,8 +31,13 @@ def main(argv=None):
             command.add_argument('--steps', type=int, default=100)
         if name == 'resume':
             command.add_argument('--reuse-output', action='store_true', help='Reprocess a settled receipt after a parser fix; no new worker call.')
-        if name in ('plan', 'review', 'reorder', 'export', 'switch', 'branch', 'extend', 'recheck', 'amend'):
+        if name in ('plan', 'review', 'reorder', 'export', 'switch', 'branch', 'extend', 'recheck', 'amend', 'request-changes'):
             command.add_argument('--revision', required=True)
+        if name == 'request-changes':
+            command.add_argument('--output', required=True)
+            command.add_argument('--affected', nargs='+', required=True)
+            command.add_argument('--comment', required=True)
+            command.add_argument('--request-id', required=True)
         if name == 'amend':
             command.add_argument('--spec-revision', required=True)
             command.add_argument('--profile', type=Path, required=True)
@@ -77,6 +82,9 @@ def main(argv=None):
         elif args.command == 'amend':
             from .amendment import apply
             result = apply(workflow, args.id, args.revision, args.spec_revision, read_json(args.profile), args.affected, args.reason)
+        elif args.command == 'request-changes':
+            from .feedback import request_changes
+            result = request_changes(workflow, args.id, args.revision, args.output, args.affected, args.comment, args.request_id)
         elif args.command in ('start', 'runner'):
             from .runner import start, status
             result = (start if args.command == 'start' else status)(workflow.ledger, args.id)

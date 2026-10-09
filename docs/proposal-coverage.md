@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Scoped review corrections and current-status reconciliation
+
+Baseline `9751b6d`; [guide](review-corrections.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| RF01 | Request a bounded correction before the entire task finishes, preserving independent output | feedback.request_changes, scoped repair prompt/schema, continue unfinished DAG | partial config correction then doc; completed sibling bytes retained; dependency closure | Complete |
+| RF02 | Bind review/workflow revisions and idempotency; preserve existing scope, gates and budgets | request hash, reviewed bytes check, repair/root/deadline guards, stale output invalidation | dedup/conflict, stale source, scope escape, unchanged gate failure, cancel/unknown, exhausted cap, rollback | Complete |
+| RF03 | Resume a settled correction receipt without another call and prohibit bypass by recheck/amend | durable feedback_repair and checkpoint, existing attempt recovery, verification/acceptance guard | crash-after-receipt fixture calls unchanged; correction remains pending until processed | Complete |
+
+Seven focused tests and full 195-test suite pass (66.596 seconds). No new live model calls. Human comments may be saved while a sibling runs; scheduling a source correction requires a settled checkpoint and local operator authority. Semantic scope is still governed by sealed requirements/gates, not guaranteed by path allowlists alone. Quota feed is committed as `9751b6d`. README/spec status/backlog/architecture current-state notes were reconciled with code; historical cycle evidence remains unchanged.
+
 ## Read-only Codex quota feed
 
 Baseline `2a7a0cf`; [guide and timestamped live observation](quota-feed.vi.md).
@@ -231,16 +243,16 @@ These counts measure the new SPEC-006 implementation requirements, not documenta
 | ID | Proposal section | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
 |---|---|---|---|---|---|---|---|
 | OC01 | Entry | Portable submit/connect/query | API | ledger.py / ledger_cli.py submit, queue, status, connect and events | P1a T01/T18 subsets via process/concurrency/isolation tests; no live entry connector evidence | Partial | CLI transport works; Claude/Kiro/Codex entry integration remains |
-| OC02 | Planning | Spec and real repo to general plan | Functional | workflow.py scope/AC planner and owned artifacts | WF01–WF03 fixtures plus two live JSON tasks | Partial | General application functional gates and automatic ambiguity triage remain |
+| OC02 | Planning | Spec and real repo to general plan | Functional | scope/AC planner, owned artifacts, functional container gates, in-scope amendment | WF01–WF03; live JSON and order/CSV functional trials; AM01–AM03 | Partial | Semantic ambiguity triage and full provenance across entry changes remain |
 | OC03 | Core | Durable authority, recovery, one writer | Reliability | Control reservations/receipts, Job supervisor, workflow locks, detached runner | CB01–CB04 / WF02 / BG01; crash and lost-ack tests | Partial | Unidentified launch needs manual reconciliation; full transition coverage remains |
 | OC04 | Workers | Replaceable verified adapters | API | Codex/Kiro artifact adapters, Claude transport blocked on login | PA01–PA03 live Kiro and Codex→Kiro checkpoint handoff | Partial | Claude live auth/authority/cancel and mid-write handoff remain |
-| OC05 | Inbox | Durable requests and trusted revision replies | Security | ledger.py request create/revise/reply, revision history, transactional local receipts | P1a T05/T22 persistence/conflict subsets pass; trusted caller/worker isolation not proven | Partial | Local attribution only; replies never authorize or apply execution actions |
+| OC05 | Inbox | Durable requests and trusted revision replies | Security | durable request revisions, root/branch triage and atomic effect receipts | TI01–TI03, BI01–BI03; independent branches proceed while blockers wait | Partial | Reply effects reuse existing rights; authenticated cross-entry caller provenance remains |
 | OC06 | Memory | Shared decisions/checkpoints/provenance | Data | ledger events, immutable spec/profile, content-addressed working/index snapshots | CP01–CP03 dirty/binary/deletion recovery; live handoff preserves source | Partial | Authenticated entry connectors and full transcript-free continuation proof remain |
-| OC07 | DAG | Parallel dependency/ownership scheduling | Architecture | Generic validated DAG, optional two disjoint units per root, two workers globally | WF/CQ01 tests, PD01–PD04 A→(B,C)→D and native parallel Kiro evidence | Partial | Branch-specific triage, descendant invalidation and full parallel crash matrix remain |
-| OC08 | Integration | Verified merged result across branches/repos | Testing | Actual Git candidate checks and immutable local review branches | IB01–IB02 Git/dirty index/gate/lost-ref-ack tests | Partial | Target merge/rebase, application gates and multi-repo commit vector remain |
-| OC09 | Long jobs | Root budgets, recovery and optional 8h | Reliability | Absolute max-8h grant, durable counters/reservations, background waits | CB02/BG02/CQ01; live handoff preserves deadline/counters | Partial | Live eight-hour soak and authenticated budget extension remain |
-| OC10 | Routing | Task/risk/capability plus account quota | Performance | Typed risk/tier/quota recommendation and bounded AI proposal validator | RP01–RP02 multi-window/stale/unknown/type tests | Partial | Automatic quota feeds/reservation, calibrated routing and fallback remain |
-| OC11 | Review | Partial review, feedback and reorder | UI | Output cards/diff, concurrent feedback, revision accept/reorder/pause | WF04 checkpoint/stale/feedback tests | Partial | Automatic feedback-to-repair and review alongside same-root parallel workers remain |
+| OC07 | DAG | Parallel dependency/ownership scheduling | Architecture | two disjoint units/global capacity, branch waits, amendment descendant/ownership invalidation | PD01–PD04 native parallel Kiro plus BI/AM fixture closures | Partial | Full parallel crash matrix and multi-repo execution remain |
+| OC08 | Integration | Verified merged result across branches/repos | Testing | actual Git candidate functional gates and immutable local review branches | IB01–IB02; FG03 live container tests on review branch candidate | Partial | Target merge/rebase and multi-repo commit vector remain |
+| OC09 | Long jobs | Root budgets, recovery and optional 8h | Reliability | absolute max-8h grant, counters/reservations, background waits, finite extension | CB/BG/CQ/BU tests; live handoff preserves deadline/counters | Partial | Eight-hour soak, authenticated grants and shared goal lineage across roots remain |
+| OC10 | Routing | Task/risk/capability plus account quota | Performance | typed recommendation, bounded AI proposal validator, live read-only Codex quota | RP/QF multi-window/stale/unknown/type tests and timestamped probe | Partial | Atomic account reservations/usage dedup, calibrated automatic routing/fallback; Claude/Kiro feed unknown |
+| OC11 | Review | Partial review, feedback and reorder | UI | readable cards, concurrent feedback, revision accept/reorder/pause and bounded corrections | WF04/PD02/RV01/RF01–RF03; B feedback while C runs | Partial | Full authenticated multi-entry and multi-repo review/integration evidence remain |
 | OC12 | Authority | Scope/grant enforcement separate from acceptance | Security | Fixed CV sealed gates and worker artifact validation | SPEC-004 boundary tests/IA04; planned T01/T08/T11/T16/T19 | Partial | Trusted multi-entry caller/worker authority isolation missing |
 
 Historical documentation-only cycle (implementation was authorized by later user requests): updated canonical architecture, readable SPEC-006, four delivery phases and T01–T19 acceptance scenarios; preserved dated architecture/backlog snapshots. Validation for this cycle is spec parsing/brief limit, current CLI read-only smoke, requirement coverage, local links/fences and Git whitespace checks. Runtime tests recorded above belong to prior cycles; they were not rerun as evidence for new runtime capabilities. The new proposal remains unapproved. The review/update task does not authorize implementing the entire new roadmap.

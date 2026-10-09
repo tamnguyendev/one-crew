@@ -456,9 +456,13 @@ class Workflow:
                             state['phase'] = 'verifying'
                             sequence = self.persist(task_id, sequence, state)
                             continue
-                        owned = profile['owned'] if repair else item['owned']
+                        feedback = state.get('feedback_repair') if repair else None
+                        owned = (feedback['owned'] if feedback else profile['owned']) if repair else item['owned']
                         stage = 'repair' if repair else item['id']
                         instruction = {'task': item, 'owned': owned, 'failures': state['failures'] if repair else []}
+                        if feedback:
+                            instruction['review_correction'] = feedback
+                            instruction['constraint'] = 'Correct only within the unchanged sealed requirements. New requirements belong in backlog. Preserve completed independent work.'
                         sequence, value = self._invoke(task_id, sequence, state, stage,
                             'Implement only the assigned task. No tools. Return complete UTF-8 file contents; null deletes a file. Out-of-scope ideas go to backlog, never implementation.' + common + '\nYOUR ONLY ASSIGNMENT (other project files are read-only)\n' + canonical(instruction),
                             artifact_schema(owned), profile, unit=item['id'] if not repair and profile.get('parallel') else None)
@@ -469,12 +473,18 @@ class Workflow:
                         if self.store.context(before) == self.store.context(after):
                             raise LedgerError('No source progress; automatic repetition stopped.')
                         state['snapshot'] = after
-                        state['outputs'].append({'revision': after, 'base': before, 'summary': value['summary'],
-                                                 'stage': stage, 'verification': 'pending', 'acceptance': 'pending'})
+                        output = {'revision': after, 'base': before, 'summary': value['summary'],
+                                  'stage': stage, 'verification': 'pending', 'acceptance': 'pending'}
+                        if feedback:
+                            output['affected_tasks'] = [r['id'] for r in feedback['tasks']]
+                            record = next(r for r in state['reviews'] if r.get('request_id') == feedback['request_id'])
+                            record.update(status='candidate_produced', candidate_revision=after)
+                            state.pop('feedback_repair')
+                        state['outputs'].append(output)
                         state['backlog'].extend(value['backlog'])
                         if not repair:
                             state['done'].append(item['id'])
-                        state['phase'] = 'verifying' if repair else 'working'
+                        state['phase'] = 'verifying' if repair and not feedback else 'working'
                     elif state['phase'] == 'verifying':
                         from .sandbox_gate import task_guard
                         result = verify(self.store, state['snapshot'], profile, guard=task_guard(self.control, task_id))
@@ -561,6 +571,8 @@ class Workflow:
             control = self.control.status(task_id)
             if not state or revision != state['snapshot']:
                 raise LedgerError('Stale candidate revision.')
+            if state.get('feedback_repair'):
+                raise LedgerError('Finish the scheduled review correction before verification-only recheck.')
             if control['cancel_requested'] or any(a['status'] != 'settled' for a in control['attempts']):
                 raise LedgerError('Stop/reconcile all attempts before rechecking a non-cancelled task.')
             if not state['plan'] or set(state['done']) != {r['id'] for r in state['plan']['tasks']}:
@@ -684,7 +696,8 @@ class Workflow:
             output = next((r for r in (state or {}).get('outputs', []) if r['revision'] == revision), None)
             if not output:
                 raise LedgerError('Unknown output revision.')
-            if decision == 'accept' and (revision != state['snapshot'] or output['verification'] != 'passed'):
+            if decision == 'accept' and (revision != state['snapshot'] or output['verification'] != 'passed'
+                                         or state['verification'] != 'passed' or state['phase'] != 'completed'):
                 raise LedgerError('Only the current verified output can be accepted; use feedback on partial output.')
             record = {'revision': revision, 'decision': decision, 'comment': comment,
                       'provenance': 'local_operator', 'applied_to_source': False}

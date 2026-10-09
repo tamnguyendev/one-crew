@@ -6,7 +6,7 @@ Revision 2 chuyển bài học từ chín repo thành contract kiến trúc mụ
 
 ## 0. Điểm xuất phát và nguyên tắc nghiệm thu
 
-Đã có CLI spec, runtime local/Codex cho profile CV cố định, gate/review/repair/checkpoint và preview. SPEC-005 có live delivery và 69 tests ghi nhận; xem [evidence](incremental-autonomy.vi.md). JEV đã kết nối; chưa làm semantic routing. Chưa có general planner, inbox đa entry, crash resume, worker Claude/Kiro, scheduler song song hoặc job 8 giờ.
+Điểm xuất phát của baseline: CLI spec và runtime CV/Codex, SPEC-005 có live delivery/69 tests. Cập nhật triển khai 09/10: đã có general planner, supervisor/checkpoint recovery, Codex/Kiro handoff, DAG hai worker, branch inbox, amendment, review correction, extension hữu hạn, Docker gates/local review branch và quota Codex chỉ đọc. Coverage/evidence ghi riêng fixture và live. Claude live, authenticated entry, đa repo/target merge, quota dispatch/fallback và soak tám giờ vẫn còn thiếu; JEV chưa semantic routing.
 
 Mỗi mốc cần một kết quả người dùng thử được, code/commit/evidence và giới hạn còn lại; không tính tài liệu kiến trúc là feature hoàn tất. Mốc đang chờ approval chỉ giữ nhánh phụ thuộc. Không kéo thêm dashboard/roles/JEV vào đường găng. Gate phù hợp từng thay đổi; không lặp full suite khi không có thay đổi hoặc nghi vấn mới.
 
@@ -26,7 +26,7 @@ Phạm vi: nền OC02/OC03/OC05/OC06/OC09/OC12 và CLI contract OC01; một Code
 
 Chia P1 thành các lát bàn giao, mỗi lát có demo/coverage riêng:
 
-P1a đã có ledger/CLI; P1b có budget/action/supervisor; P1c/P1d đã có snapshot và [workflow Codex artifact](general-workflow.vi.md) chạy hai bài JSON ngoài CV. Gate ứng dụng, tự xử lý inbox/authority và đầy đủ recovery vẫn chưa đạt toàn bộ P1. Xem coverage cho evidence; các điều kiện dưới đây vẫn là chuẩn nghiệm thu, không tự coi cả mốc đã xong.
+P1a–P1d đã có ledger, budget/action/supervisor, snapshot và [workflow artifact](general-workflow.vi.md). Ngoài hai bài JSON còn có gate ứng dụng Docker và inbox triage. Trusted entry authority và đầy đủ recovery transitions chưa đạt toàn bộ chuẩn; xem coverage. Các điều kiện dưới đây vẫn là chuẩn nghiệm thu, không tự coi cả mốc đã xong.
 
 | Lát | Kết quả thử được | Gate trước khi sang lát sau |
 |---|---|---|
