@@ -26,6 +26,9 @@ def main(argv=None):
               '  decision   JEV credential and connectivity commands\n'
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')
         return 0
+    if len(args)>index and args[index]=='job':
+        from .owned_cli import main as job_main
+        return job_main(args)
     if len(args)>index and args[index]=='entry':
         from .entry_cli import main as entry_main
         return entry_main(args)

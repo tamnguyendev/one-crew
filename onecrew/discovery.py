@@ -1,0 +1,103 @@
+"""Bounded, root-scoped discovery shared by all owned-execution jobs."""
+from pathlib import Path
+import re
+
+from .ledger import LedgerError
+from .snapshots import safe_file, bytes_hash
+
+EXCLUDED = {'.git', '.onecrew', '.ssh', '.aws', '.azure', '.config', '.codex',
+            '.claude', '.kiro', '.venv', 'venv', 'node_modules', '__pycache__',
+            'build', 'dist', '.dart_tool', '.idea', '.vscode'}
+PRIVATE = re.compile(r'(credential|secret|token|password|private.?key|id_rsa|id_ed25519)', re.I)
+SECRET = re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|'
+                    r'\b(?:ghp_|github_pat_|sk-proj-|sk-ant-|apikey_)[A-Za-z0-9_-]{15,}|'
+                    r'(?im:^\s*(?:[A-Z_]*(?:PASSWORD|SECRET|API_KEY|ACCESS_TOKEN))\s*[=:]\s*["\x27]?[^\s"\x27]{8,})')
+TEXT = {'.py','.js','.ts','.tsx','.jsx','.json','.md','.txt','.toml','.yaml','.yml',
+        '.dart','.xml','.sql','.xsql','.html','.css','.scss','.go','.rs','.java',
+        '.kt','.cs','.cpp','.c','.h','.sh','.ps1','.bat','.ini','.cfg','.lock'}
+
+
+def permitted(name):
+    parts = name.split('/')
+    return not any(p.lower() in EXCLUDED or p.lower().startswith('.env') or PRIVATE.search(p) for p in parts)
+
+
+def scan_text(data):
+    try:
+        value = data.decode('utf-8-sig')
+    except UnicodeError:
+        raise LedgerError('Binary/non-UTF8 content is not available to workers.') from None
+    if '\0' in value or SECRET.search(value):
+        raise LedgerError('Potential credential or binary content withheld by discovery policy.')
+    return value
+
+
+class Discovery:
+    def __init__(self, project):
+        self.root = Path(project).resolve()
+
+    def path(self, name):
+        if not permitted(name):
+            raise LedgerError('Path excluded by discovery policy.')
+        return safe_file(self.root, name)
+
+    def data(self, name):
+        path = self.path(name)
+        if path.suffix.lower() not in TEXT and path.name not in ('Dockerfile','Makefile','LICENSE','.gitignore'):
+            raise LedgerError('File type unavailable to workers.')
+        if not path.is_file() or path.stat().st_size > 200_000:
+            raise LedgerError('Read requires a regular file of at most 200000 bytes.')
+        data = path.read_bytes()
+        scan_text(data)
+        return data
+
+    def list(self, directory='', cursor=0):
+        if type(cursor) is not int or cursor < 0:
+            raise LedgerError('Cursor must be a nonnegative integer.')
+        root = self.root if directory == '' else self.path(directory)
+        if not root.is_dir():
+            raise LedgerError('Directory does not exist.')
+        # Bound enumeration as well as returned JSON. Large trees are traversed directory by directory.
+        entries = []
+        for p in root.iterdir():
+            if len(entries) >= 10000:
+                raise LedgerError('Directory exceeds discovery enumeration limit.')
+            entries.append(p)
+        entries.sort(key=lambda p: p.name.casefold())
+        output = []
+        for p in entries[cursor:cursor+100]:
+            name = p.relative_to(self.root).as_posix()
+            linked = p.is_symlink() or (hasattr(p, 'is_junction') and p.is_junction())
+            if linked or not permitted(name):
+                continue
+            output.append({'path': name, 'kind': 'directory' if p.is_dir() else 'file',
+                           'repository': p.is_dir() and (p/'.git').exists()})
+        end = cursor+100
+        return {'entries': output, 'next_cursor': end if end < len(entries) else None,
+                'repository': (root/'.git').exists()}
+
+    def read(self, name, cursor=0):
+        if type(cursor) is not int or cursor < 0:
+            raise LedgerError('Cursor must be a nonnegative integer.')
+        data = self.data(name)
+        value = scan_text(data)
+        return {'path': name, 'sha256': bytes_hash(data), 'text': value[cursor:cursor+12000],
+                'next_cursor': cursor+12000 if cursor+12000 < len(value) else None}
+
+    def search(self, directory, query, cursor=0):
+        if not isinstance(query, str) or not 1 <= len(query) <= 200:
+            raise LedgerError('Search requires 1-200 literal characters.')
+        page = self.list(directory, cursor)
+        matches = []
+        for entry in page['entries']:
+            if entry['kind'] != 'file':
+                continue
+            try:
+                value = scan_text(self.data(entry['path']))
+            except LedgerError:
+                continue
+            hits = [i+1 for i,line in enumerate(value.splitlines()) if query.casefold() in line.casefold()]
+            if hits:
+                matches.append({'path': entry['path'], 'lines': hits[:20], 'total_matches':len(hits)})
+        return {'matches':matches, 'directories':[e['path'] for e in page['entries'] if e['kind']=='directory'],
+                'next_cursor':page['next_cursor']}
