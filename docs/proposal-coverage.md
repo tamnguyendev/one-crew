@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Verified local target integration
+
+Baseline `5b77dcc`; [guide](target-integration.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| IM01 | Merge scoped candidate against known descendant target without touching checkout/index or losing target files | merge.entry/merge, dedicated Git index, whole-file three-way and explicit parents | real Git fixture retains target-only file and staged/unstaged bytes | Complete |
+| IM02 | Test actual merged tree before CAS; preserve conflicts and stale-target evidence | immutable gate_snapshot, sealed container-entry check, expected-ref update | actual text gate fails on target contract change; conflict paths stored; target changed during test rejected | Complete |
+| IM03 | Refuse checked-out/cancelled delivery and reconcile lost update acknowledgment without replay | worktree target guard, action broker exact-ref observe, output integration history | cancellation/checked-out guard and lost-ack Git fixture | Complete |
+
+Seven focused real-Git tests and the full 211-test suite pass (94.857 seconds), including the final source-race guard. No model calls. This is conservative single-repo integration; line-level conflict resolution/rebase and multi-repo vector/compatibility gates remain. External Git checkout operations are outside OneCrew's task locks. Quota/usage milestone committed as `5b77dcc`.
+
 ## Transactional account quota admission and observed usage
 
 Baseline `f00e5dc`; [limits and operation](account-reservations.vi.md).
@@ -261,7 +273,7 @@ These counts measure the new SPEC-006 implementation requirements, not documenta
 | OC05 | Inbox | Durable requests and trusted revision replies | Security | durable request revisions, root/branch triage and atomic effect receipts | TI01–TI03, BI01–BI03; independent branches proceed while blockers wait | Partial | Reply effects reuse existing rights; authenticated cross-entry caller provenance remains |
 | OC06 | Memory | Shared decisions/checkpoints/provenance | Data | ledger events, immutable spec/profile, content-addressed working/index snapshots | CP01–CP03 dirty/binary/deletion recovery; live handoff preserves source | Partial | Authenticated entry connectors and full transcript-free continuation proof remain |
 | OC07 | DAG | Parallel dependency/ownership scheduling | Architecture | two disjoint units/global capacity, branch waits, amendment descendant/ownership invalidation | PD01–PD04 native parallel Kiro plus BI/AM fixture closures | Partial | Full parallel crash matrix and multi-repo execution remain |
-| OC08 | Integration | Verified merged result across branches/repos | Testing | actual Git candidate functional gates and immutable local review branches | IB01–IB02; FG03 live container tests on review branch candidate | Partial | Target merge/rebase and multi-repo commit vector remain |
+| OC08 | Integration | Verified merged result across branches/repos | Testing | review branches and conservative three-way target integration, actual Git candidate gates and ref CAS | IB/IM real-Git tests; FG03 live container branch tests | Partial | Automatic rebase/conflict repair and multi-repo commit vector/compatibility remain |
 | OC09 | Long jobs | Root budgets, recovery and optional 8h | Reliability | absolute max-8h grant, counters/reservations, background waits, finite extension | CB/BG/CQ/BU tests; live handoff preserves deadline/counters | Partial | Eight-hour soak, authenticated grants and shared goal lineage across roots remain |
 | OC10 | Routing | Task/risk/capability plus account quota | Performance | typed recommendation, read-only Codex feed, opt-in transactional account estimates and attempt usage dedup | RP/QF/QB/US tests, timestamped feed probe | Partial | Authoritative cumulative settlement, automatic calibrated routing/fallback and Claude/Kiro feed remain |
 | OC11 | Review | Partial review, feedback and reorder | UI | readable cards, concurrent feedback, revision accept/reorder/pause and bounded corrections | WF04/PD02/RV01/RF01–RF03; B feedback while C runs | Partial | Full authenticated multi-entry and multi-repo review/integration evidence remain |

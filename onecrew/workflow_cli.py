@@ -18,7 +18,7 @@ def main(argv=None):
     parser.add_argument('--state-root', type=Path)
     group = parser.add_subparsers(dest='group', required=True).add_parser('work')
     commands = group.add_subparsers(dest='command', required=True)
-    for name in ('enable', 'plan', 'quota', 'triage', 'extend', 'amend', 'request-changes', 'recheck', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
+    for name in ('enable', 'plan', 'quota', 'triage', 'extend', 'amend', 'request-changes', 'recheck', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch', 'merge'):
         command = commands.add_parser(name)
         command.add_argument('id')
         command.add_argument('--json', action='store_true')
@@ -31,7 +31,7 @@ def main(argv=None):
             command.add_argument('--steps', type=int, default=100)
         if name == 'resume':
             command.add_argument('--reuse-output', action='store_true', help='Reprocess a settled receipt after a parser fix; no new worker call.')
-        if name in ('plan', 'quota', 'review', 'reorder', 'export', 'switch', 'branch', 'extend', 'recheck', 'amend', 'request-changes'):
+        if name in ('plan', 'quota', 'review', 'reorder', 'export', 'switch', 'branch', 'merge', 'extend', 'recheck', 'amend', 'request-changes'):
             command.add_argument('--revision', required=True)
         if name == 'request-changes':
             command.add_argument('--output', required=True)
@@ -52,6 +52,9 @@ def main(argv=None):
             command.add_argument('--file', type=Path, required=True)
         if name == 'branch':
             command.add_argument('--name', required=True)
+        if name == 'merge':
+            command.add_argument('--target', required=True)
+            command.add_argument('--expected', required=True)
         if name == 'switch':
             command.add_argument('--provider', choices=('codex', 'claude', 'kiro'), required=True)
             command.add_argument('--model', required=True)
@@ -116,6 +119,9 @@ def main(argv=None):
         elif args.command == 'branch':
             from .integration import Integration
             result = Integration(workflow).branch(args.id, args.revision, args.name)
+        elif args.command == 'merge':
+            from .merge import merge
+            result = merge(workflow, args.id, args.revision, args.target, args.expected)
         else:
             _, state = workflow.state(args.id)
             if not state or args.revision not in {r['revision'] for r in state['outputs']}:

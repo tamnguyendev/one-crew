@@ -24,6 +24,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [Quota Codex](docs/quota-feed.vi.md) | Đọc quota subscription không gọi model; unknown/stale chặn routing |
 | [Giữ quota giữa workers](docs/account-reservations.vi.md) | Admission có reservation trong cùng ledger, usage dedup và phần dữ liệu chưa rõ |
 | [Nhánh Git để review](docs/review-branch.vi.md) | Kiểm candidate tree rồi tạo local branch, giữ nguyên source/index |
+| [Ghép vào target local](docs/target-integration.vi.md) | Three-way mức file, test đúng bản ghép, CAS ref; conflict giữ evidence |
 | [DAG song song](docs/parallel-dag.vi.md) | Hai nhánh độc lập cùng root, output từng phần và budget chung; live Kiro đã đạt |
 | [Inbox theo nhánh](docs/branch-inbox.vi.md) | Nhánh lỗi/dependents chờ quyết định, nhánh độc lập vẫn tiến triển |
 | [Thay đổi yêu cầu](docs/requirement-amendment.vi.md) | Revision mới chỉ làm lại nhánh bị ảnh hưởng và dependency, giữ kết quả độc lập |

@@ -60,8 +60,10 @@ class Integration:
         key = 'branch:' + name
         with task_lock(self.ledger, task_id):
             _, state = self.workflow.state(task_id)
-            if not state or state['snapshot'] != revision or state['verification'] != 'passed':
+            if not state or state['snapshot'] != revision or state['verification'] != 'passed' or state['phase'] != 'completed':
                 raise LedgerError('Only the current verified snapshot can produce a review branch.')
+            if self.workflow.control.status(task_id)['cancel_requested']:
+                raise LedgerError('Cancelled task cannot publish a review branch.')
             if any(a['status'] != 'settled' for a in self.workflow.control.status(task_id)['attempts']):
                 raise LedgerError('Reconcile every writer before integration.')
             with self.ledger.transaction() as conn:
@@ -127,7 +129,18 @@ class Integration:
         else:
             def apply(payload):
                 # No hooks, checkout, filters, source/index changes or remote push.
-                self.git('update-ref', payload['ref'], payload['commit'], '0' * len(payload['commit']))
+                control = self.workflow.control.status(action['task_id'])
+                if control['cancel_requested']:
+                    raise LedgerError('Cancel prevents a new Git ref update.')
+                _, state = self.workflow.state(action['task_id'])
+                if not state or state['snapshot'] != payload['snapshot'] or state['verification'] != 'passed' or state['phase'] != 'completed':
+                    raise LedgerError('Candidate changed before Git ref update.')
+                from .amendment import profile_for
+                self._check_source(self.store.load(payload['source_snapshot']), payload['source_snapshot'], profile_for(state, control))
+                if payload.get('expected_ref'):
+                    from .merge import available_target
+                    available_target(self, payload['ref'], payload['expected_ref'])
+                self.git('update-ref', payload['ref'], payload['commit'], payload.get('expected_ref', '0' * len(payload['commit'])))
                 return observe(payload)
             receipt = self.workflow.control.execute_action(action['id'], apply)
         return {'action': action['id'], 'revision': action['revision'], 'receipt': receipt}

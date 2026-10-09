@@ -66,6 +66,14 @@ def outputs(value, full=False):
             lines.append(f"  {row['revision'][:12]} {row['decision']}: {compact(row['comment'])}")
     if value['backlog']:
         lines += ['', 'Ngoài phạm vi, chưa thực hiện:'] + ['  - '+compact(x) for x in value['backlog']]
+    if value.get('integration_issues'):
+        lines += ['', 'Lịch sử ghép Git có lỗi/conflict (khác gate của snapshot gốc):']
+        for item in value['integration_issues']:
+            lines.append('  '+item['kind']+' | '+item['target']+' | base '+item['expected'][:12])
+    if value.get('deliveries'):
+        lines += ['', 'Git delivery:']
+        for item in value['deliveries']:
+            lines.append('  '+item['id']+' | '+item['status'])
     lines += ['', f"Chi tiết diff/evidence: work outputs {value['task_id']} --full",
               f"Góp ý: work review {value['task_id']} --revision <revision ở trên> --decision feedback --comment <nội dung>",
               'Chỉ accept revision hiện tại đã pass gate. Pass test chưa phải khách hàng nghiệm thu.']
