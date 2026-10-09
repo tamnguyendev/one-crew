@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Grouped terminal monitor — TM01–TM03 / 09/10/2026
+
+User requested a terminal at OneCrew start with verbose work and grouped agents. [Contract and usage](terminal-monitor.vi.md). No new scheduler, model role or budget group is added.
+
+| ID | Requirement | Evidence | Status |
+|---|---|---|---|
+| TM01 | Detached visible console on job submit/start/resume or work start; reuse same viewer scope | monitor.py + CLI hooks; native Windows test confirms console attached, independent process, duplicate reuse; closing viewer leaves paused background runner alive, then explicit cancel stops runner | Complete |
+| TM02 | Group project → task → actual worker units with provider/model/status | Read-only ledger snapshots; two active unit fixture with different providers, project/global filters, selected-model provenance; separate observed runner liveness from persisted task phase | Complete |
+| TM03 | Verbose bounded tool/event/build activity; viewer never invokes model or approves | Timeline and tool receipt metadata, bounded build log tails, console/secret filtering, pending questions; byte-identical ledger read test, zero calls, Ctrl+C/console termination independent of worker | Complete |
+
+Validation: eight monitor tests and five intake tests pass; three detached-runner regressions pass. Native test launches a paused fixture runner and a visible console, terminates only the viewer, verifies worker still alive and zero model usage, then explicitly cancels and verifies runner stopped. Terminal spawn failure is isolated from successful dispatch. CLI flags use argument arrays without shell interpolation. Same scope reuses existing viewer; changed scope can open another. Legacy `work start --terminal` uses the same viewer hook. Default view caps at 12 tasks with header count, active/checkpoint-unfinished tasks first. Logical grouping only, not Windows Terminal tabs. Android build remains foreground; its persisted activity can be observed but detached Android execution and chat callbacks are outside this slice. Existing user changes below SPEC-005 retained.
+
 ## Historical branch tools — GH01–GH03 / 09/10/2026
 
 User assigned OneCrew to inspect flutter_vimes UI history and create a pre-UI branch. Existing job tools lacked history and historical ref creation; adding generic capabilities is recorded separately from worker execution, not claimed as unassisted capability already present.

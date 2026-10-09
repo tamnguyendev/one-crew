@@ -20,16 +20,18 @@ def main(argv=None):
     p.add_argument('--max-calls',type=int,default=20);p.add_argument('--max-seconds',type=int,default=1200)
     p.add_argument('--image');p.add_argument('--branch');p.add_argument('--remote')
     p.add_argument('--start',action='store_true')
+    p.add_argument('--terminal',action='store_true',help='Start in background and open the grouped verbose monitor.')
     for name in ('start','run','status','outputs','cancel','resume'):
         p=commands.add_parser(name);p.add_argument('task')
         if name=='outputs': p.add_argument('--details',action='store_true')
+        if name in ('start','resume'): p.add_argument('--terminal',action='store_true')
     args=parser.parse_args(argv)
     ledger=Ledger(args.project,args.state_root)
     try:
         if args.command=='submit':
             result=submit(ledger,args.goal,args.key,**{k:getattr(args,k) for k in
                 ('mode','provider','model','max_calls','max_seconds','image','branch','remote')})
-            if args.start:
+            if args.start or args.terminal:
                 from .owned import Owned
                 from .runner import start
                 Owned(ledger).enable(result['id'])
@@ -51,6 +53,11 @@ def main(argv=None):
                 runtime.enable(args.task)
                 if args.command=='resume': runtime.resume(args.task)
                 result=start(ledger,args.task)
+        if getattr(args,'terminal',False):
+            from .monitor import open_terminal
+            try: result['terminal']=open_terminal(ledger)
+            except (ValueError,OSError) as error:
+                result['terminal']={'status':'unavailable','error':str(error),'runner_unaffected':True}
         print(json.dumps(result,ensure_ascii=False,indent=2));return 0
     except (ValueError,OSError) as error:
         print(json.dumps({'error':str(error)},ensure_ascii=False));return 2

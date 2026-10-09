@@ -22,6 +22,7 @@ def main(argv=None):
         command = commands.add_parser(name)
         command.add_argument('id')
         command.add_argument('--json', action='store_true')
+        if name == 'start': command.add_argument('--terminal', action='store_true')
         if name == 'outputs':
             command.add_argument('--full', action='store_true', help='Include diffs and gate evidence in the human review card.')
         if name == 'enable':
@@ -100,6 +101,11 @@ def main(argv=None):
         elif args.command in ('start', 'runner'):
             from .runner import start, status
             result = (start if args.command == 'start' else status)(workflow.ledger, args.id)
+            if getattr(args,'terminal',False):
+                from .monitor import open_terminal
+                try: result['terminal']=open_terminal(workflow.ledger)
+                except (ValueError,OSError) as error:
+                    result['terminal']={'status':'unavailable','error':str(error),'runner_unaffected':True}
         elif args.command == 'status':
             from .amendment import plan_revision
             from .usage import summarize
