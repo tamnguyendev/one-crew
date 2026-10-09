@@ -21,6 +21,11 @@ class NotificationWatchTests(unittest.TestCase):
     def tick(self):return watch(self.f.ledger,self.consumer,self.tasks)
 
     def acknowledge(self,batch):
+        if batch['notifications']:
+            from onecrew.notification_receipts import begin,confirm
+            from tests.test_notification_receipts import host_evidence
+            delivery=begin(self.f.ledger,self.consumer,batch['id'],'thread-fixture','automation-fixture','Fixture notification')
+            confirm(self.f.ledger,self.consumer,batch['id'],host_evidence(delivery))
         return ack(self.f.ledger,self.consumer,batch['id'],all_projects=True)
 
     def test_running_to_done_notifies_once_then_host_can_pause(self):

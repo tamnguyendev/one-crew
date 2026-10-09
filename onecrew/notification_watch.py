@@ -94,7 +94,9 @@ def watch(ledger, consumer, tasks):
                     seen[row['task']]=fingerprint
             batch.update(notifications=notices,watch_tasks=tasks,watch_alerts=seen)
             batch.pop('id',None);batch['id']=content_hash(batch)
-            state['batch']=batch;durable_write(path,canonical(state).encode())
+            state['batch']=batch;state['watch_delivery_required']=True
+            durable_write(path,canonical(state).encode())
     return dict(batch,activity=rows,active=any(r['running'] for r in rows),
+        delivery=state.get('delivery'),delivery_state=(state.get('delivery') or {}).get('status','unprepared'),
         pause_check='ACK this exact batch, then use should_pause from the ACK response.',
         transport='host-scheduled-check',chat_callback=False)

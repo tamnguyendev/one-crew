@@ -13,14 +13,17 @@ CREQ dùng bảng conversation_questions để kiểm tra revision/pending trư�
 1. Khởi động runner và nhận Task ID. Giữ nguyên terminal/background flow.
 2. Tìm heartbeat của chat bằng automation_update và cấu hình trong CODEX_HOME/automations; cập nhật automation đã có, không tạo bản trùng. Một chat dùng một consumer riêng. Chỉ dùng công cụ host để thay đổi lịch, không tự ghi automation.toml.
 3. Thêm Task ID mới vào danh sách `--task` trong prompt; giữ những task khác còn hoạt động. Nếu consumer đang giữ batch chưa ACK, xử lý batch đó trước khi đổi danh sách. Không khởi tạo lại consumer để bỏ thông báo.
-4. Bật heartbeat nếu có task vừa dispatch hoặc thông báo chưa giao. Mỗi lượt chạy đúng một `notifications watch`, đọc kết quả cần thiết, chuẩn bị thông báo rồi ACK đúng batch. Không chạy worker, sửa source, tự trả lời/duyệt/resume từ lượt theo dõi.
-5. ACK kèm cùng danh sách task trả `should_pause`. Khi true, host cập nhật chính heartbeat thành PAUSED. Nếu unread hoặc còn runner sống, giữ lịch tới lượt sau. Khi cần người dùng và không còn việc độc lập đang chạy, báo câu hỏi rồi PAUSE; câu hỏi vẫn pending. Entry bật lại sau khi có câu trả lời thật và thực sự resume.
-6. CLI/bridge lỗi: không ACK, báo một lần và PAUSE để tránh vòng lặp lỗi.
+4. Bật heartbeat nếu có task vừa dispatch hoặc thông báo chưa giao. Mỗi lượt chạy đúng một `notifications watch`. Batch rỗng được ACK ngay. Batch có thông báo: lượt scheduler gọi `begin-delivery` với nội dung, thread và automation; đăng nguyên văn `message` trả về ở final rồi kết thúc lượt, **không ACK hoặc pause trước khi đăng**. Không chạy worker, sửa source, tự trả lời/duyệt/resume từ lượt theo dõi.
+5. Lượt scheduler kế tiếp đọc lịch sử chat bằng `read_thread`. Chỉ final của một lượt heartbeat đã completed, đúng automation/thread, đúng toàn bộ nội dung và marker mới được `confirm-delivery` nhận. Tin status thủ công, commentary, tool output, nội dung cắt ngắn và ACK tự khai không đủ. Sau đó ACK kèm cùng danh sách task trả `should_pause`. Khi true, host cập nhật chính heartbeat thành PAUSED. Nếu unread hoặc còn runner sống, giữ lịch tới lượt sau. Khi cần người dùng và không còn việc độc lập đang chạy, báo câu hỏi rồi PAUSE; câu hỏi vẫn pending. Entry bật lại sau khi có câu trả lời thật và thực sự resume.
+6. CLI/bridge lỗi: không ACK, báo một lần và PAUSE để tránh vòng lặp lỗi. Nếu đã bắt đầu gửi nhưng chưa tìm được tin trong lịch sử, gọi `delivery-missing`; tối đa ba lần kiểm tra rồi pause với lỗi, giữ batch chưa giao. Không tự đăng lặp khi chưa biết lần trước có gửi không.
+7. Khi người dùng yêu cầu gửi lại tin bị bỏ sót, dùng `redeliver --task ... --reason ...` để tạo lại thông báo trạng thái hiện tại, giữ nguyên cursor và lịch sử. Không tạo consumer mới hoặc lùi cursor để phát lại cả lịch sử.
 
 Ví dụ các lệnh dữ liệu (tham số project/state-root đặt trước notifications):
 
 ```text
 notifications watch --consumer <chat-consumer> --all-projects --task TASK-A --task TASK-B
+notifications begin-delivery --consumer <chat-consumer> --all-projects --batch <batch-id> --thread <thread-id> --automation <automation-id> --file <body.txt>
+notifications confirm-delivery --consumer <chat-consumer> --all-projects --batch <batch-id> --evidence-file <read-thread-response.json>
 notifications ack --consumer <chat-consumer> --all-projects --task TASK-A --task TASK-B --batch <batch-id>
 ```
 
@@ -39,3 +42,11 @@ Thiết lập thông báo hệ điều hành/app còn do người dùng quản l
 Tests: đường dẫn dài tương đương Python Store; sink lỗi giữ batch; ghi lại cùng batch rồi ACK; lỗi được nhìn thấy; CREQ được giao; running → completed → chỉ báo một lần → pause; hoàn thành giữa pull/ACK; câu hỏi chưa trả lời; task khác vẫn chạy; runner chết/unknown; lọc task không liên quan và checkpoint lỗi cũ. Live: batch handover `723eb2c54b878119d1054d9635620367eef1dd82c56c3b16e987d916bc75f2b3` đã ghi và ACK thành công sau sửa; tool host chấp nhận cấu hình heartbeat mới. Scheduled delivery thực tế và tự pause cần đối chiếu lần tick tiếp theo, không suy ra từ unit tests.
 
 Live host lifecycle: automation_update đã xác nhận ACTIVE rồi PAUSED. Trong lượt sửa, entry đọc và giao event 814 của Cloud Auth, ACK batch b4012a435d254472ceac62d5f8977bc944a977041bb53337c1fa1c866a14de05 trả active=false/unread=false/should_pause=true; host tool xác nhận PAUSED. Đây là kiểm chứng thao tác host trong lượt hiện tại, chưa phải quan sát một lượt scheduler tự thức dậy. 82 test hồi quy đạt, sau bổ sung xử lý pause/build/race conversation thì 23 test tập trung đạt. Không có task model được chạy để test thông báo.
+
+## Sửa nhận định sai về giao thông báo
+
+ACK event 814 trong lượt sửa trước là xác nhận xử lý nội bộ, **không chứng minh có thông báo tự động**. Trạng thái host ACTIVE → PAUSED trước đây chỉ chứng minh đổi cấu hình. Chốt mới ND05–ND07 cấm dùng cách đó để tiêu thụ batch watch có nội dung. Local file feed vẫn dùng ACK cũ vì xác nhận ghi file không có nghĩa là gửi chat.
+
+Receipt có host thread/turn/message ID, hash bằng chứng và thời điểm xác nhận, lưu thành last_delivery sau ACK. Source là phản hồi thật của read_thread do adapter đáng tin cung cấp; CLI không có quyền tự truy vấn host và không chứng thực bằng mật mã dữ liệu do cùng OS user đưa vào. Không coi receipt là chứng minh OS đã hiện toast hoặc người dùng đã đọc.
+
+Kiểm chứng hiện tại: 50 test notification/watch/delivery/discussion đạt, gồm đọc/chuẩn bị không được ACK, final thủ công/commentary/sai thread/sai automation/thiếu nội dung đều bị từ chối, phục hồi giữa gửi và ACK, giới hạn khi không thấy receipt, và redelivery không lùi cursor. Một lượt scheduler thực tế vẫn cần xảy ra sau khi kết thúc lượt sửa; giữ lịch ACTIVE và batch chưa ACK cho đến khi có bằng chứng đó.

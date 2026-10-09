@@ -106,6 +106,13 @@ def ack(ledger,consumer,batch_id,all_projects=False):
         state=read_state(path)
         if not state['batch'] and state['last_ack']==batch_id: return {'acked':batch_id,'cursor':state['cursor']}
         if not state['batch'] or state['batch']['id']!=batch_id: raise LedgerError('Unknown/stale delivery batch; pull first.')
+        if (state.get('watch_delivery_required') or state['batch'].get('watch_tasks')) and state['batch']['notifications']:
+            delivery=state.get('delivery',{})
+            if (delivery.get('batch')!=batch_id or delivery.get('status')!='host_message_observed'
+                    or not delivery.get('receipt')):
+                raise LedgerError('Watch was only read/prepared; a completed scheduled host-message receipt is required before ACK.')
+            state['last_delivery']=state.pop('delivery')
+        state['last_acked_batch']=state['batch']
         if 'watch_alerts' in state['batch']:state['watch_alerts']=state['batch']['watch_alerts']
         state.update(cursor=state['batch']['through'],conversation_cursor=state['batch'].get('conversation_through',state.get('conversation_cursor',0)),batch=None,last_ack=batch_id)
         durable_write(path,canonical(state).encode())
@@ -116,16 +123,28 @@ def main(argv=None):
     p=argparse.ArgumentParser()
     p.add_argument('--project',type=Path,default=Path.cwd());p.add_argument('--state-root',type=Path)
     sub=p.add_subparsers(dest='group',required=True).add_parser('notifications').add_subparsers(dest='command',required=True)
-    for name in ('pull','ack','deliver','feed','watch'):
+    for name in ('pull','ack','deliver','feed','watch','begin-delivery','confirm-delivery','delivery-missing','redeliver'):
         c=sub.add_parser(name);c.add_argument('--consumer',required=True);c.add_argument('--all-projects',action='store_true')
         if name in ('ack','watch'):c.add_argument('--task',action='append',default=[])
         if name=='pull': c.add_argument('--from-now',action='store_true')
         elif name=='ack': c.add_argument('--batch',required=True)
+        if name in ('begin-delivery','confirm-delivery','delivery-missing'):c.add_argument('--batch',required=True)
+        if name=='begin-delivery':
+            c.add_argument('--thread',required=True);c.add_argument('--automation',required=True);c.add_argument('--file',type=Path,required=True)
+        if name=='confirm-delivery':c.add_argument('--evidence-file',type=Path,required=True)
+        if name=='redeliver':c.add_argument('--task',required=True);c.add_argument('--reason',required=True)
     a=p.parse_args(argv);ledger=Ledger(a.project,a.state_root)
     try:
         if a.command=='ack' and a.task and not a.all_projects:
             raise LedgerError('Watch ACK requires --all-projects.')
-        if a.command in ('deliver','feed'):
+        if a.command in ('begin-delivery','confirm-delivery','delivery-missing','redeliver'):
+            if not a.all_projects:raise LedgerError('Host delivery requires --all-projects and a dedicated watch consumer.')
+            from . import notification_receipts as receipts
+            if a.command=='begin-delivery':result=receipts.begin(ledger,a.consumer,a.batch,a.thread,a.automation,a.file.read_text(encoding='utf-8-sig'))
+            elif a.command=='confirm-delivery':result=receipts.confirm(ledger,a.consumer,a.batch,json.loads(a.evidence_file.read_text(encoding='utf-8-sig')))
+            elif a.command=='delivery-missing':result=receipts.missing(ledger,a.consumer,a.batch)
+            else:result=receipts.redeliver(ledger,a.consumer,a.task,a.reason)
+        elif a.command in ('deliver','feed'):
             if a.all_projects: raise LedgerError('Local delivery/feed is scoped to one project.')
             from .delivery import deliver, feed
             result=(deliver if a.command=='deliver' else feed)(ledger,a.consumer)

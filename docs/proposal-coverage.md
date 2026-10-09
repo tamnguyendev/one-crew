@@ -1,5 +1,18 @@
 # Proposal Coverage
 
+## Proactive notification receipt correction — 2026-10-09
+
+Baseline da41047. User explicitly requests fixing the false delivery acknowledgement and seeing an automatic notification. The prior current-turn ACK is NOT evidence of proactive delivery.
+
+| ID | Requirement | Implementation / verification evidence | Status | Boundary |
+|---|---|---|---|---|
+| ND05 | Reading/preparing cannot consume a proactive notice | notification_receipts.py; watch consumer guard in notifications.ack including raw pull bypass; negative ACK tests | Complete | Empty batches and local-file sink retain ordinary ACK |
+| ND06 | Verify an actual completed scheduled final before ACK/pause | Bound automation/thread/message body; read_thread JSON receipt validation; reject manual reply, commentary, tool output, stale/truncated/wrong-thread/duplicate evidence | Complete | Trusted local host adapter evidence, not cryptographic receipt or proof of OS toast/user read |
+| ND07 | Recover/requeue safely without duplicate inference or endless empty checks | Idempotent begin/confirm, three missing checks then explicit error pause; user-authorized redeliver retains cursor/history; recovery tests | Complete | No automatic replay of uncertain sends or task resume |
+| ND08 | Actual scheduler sends notification, next tick validates and pauses | Existing heartbeat will run the two-phase workflow for requeued Cloud Auth state | Partial | Must observe the future completed scheduled final and receipt; maintenance-turn output is not proof |
+
+Validation: 50 focused tests pass. Updated entry contract and notification-watch.vi.md. No customer task restarted, no approvals answered, no model called by OneCrew to test receipts. ND08 remains explicitly unverified until the scheduler produces a real final message after this turn.
+
 ## Notification delivery / bounded host watch — 2026-10-09
 
 User authorized fixing missing completion notifications and stopping idle monitoring. Baseline 326c58b. Implementation cycle ND01–ND04; no customer code edits, task resumes, quota changes or approvals are part of notification delivery.
