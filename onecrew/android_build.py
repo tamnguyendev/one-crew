@@ -160,16 +160,18 @@ class AndroidBuild:
         """Recover missing Git lock identities from local repos in explicit operator scope."""
         packages=yaml_blocks((project/'pubspec.yaml').read_text(encoding='utf-8-sig'))
         lock=project/'pubspec.lock';locked=yaml_blocks(lock.read_text(encoding='utf-8-sig')) if lock.exists() else {}
-        pins={};missing={}
+        pins={};missing={};candidates={}
         for name,block in packages.items():
             if not re.search(r'^    git:\s*$',block,re.M): continue
             url=scalar(block,'url');ref=scalar(block,'ref');version=scalar(block,'version')
             if not url or not re.fullmatch(r'https://[^\s@]+',url): raise LedgerError('Unsupported dependency URL.')
             pin=scalar(locked.get(name,''),'resolved-ref') if scalar(locked.get(name,''),'url')==url else None
-            if ref and re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}',ref): pin=ref
+            explicit=bool(ref and re.fullmatch(r'[a-f0-9]{40}|[a-f0-9]{64}',ref))
+            if explicit: pin=ref
             if pin: pins[name]={'url':url,'ref':pin,'reason':'historical lockfile'}
             else: missing[name]={'url':url,'version':version}
-        if not missing: return
+            if not explicit: candidates[name]={'url':url,'version':version}
+        if not missing and not boundary: return
         if not boundary: raise LedgerError('Unpinned Git dependency needs --dependency-root: '+', '.join(missing))
         boundary=Path(boundary).resolve()
         if not source.resolve().is_relative_to(boundary): raise LedgerError('Dependency root must contain the source repository.')
@@ -184,7 +186,7 @@ class AndroidBuild:
             receipt.setdefault('dependency_repositories_checked',[]).append(str(path))
             try: urls=self.git(path,'remote','-v').decode()
             except LedgerError: continue
-            for name,item in list(missing.items()):
+            for name,item in list(candidates.items()):
                 if repository_identity(item['url']) not in [repository_identity(line.split()[1]) for line in urls.splitlines() if len(line.split())>=2]: continue
                 sha=self.git(path,'log','--first-parent','-1','--format=%H','--before='+timestamp,'HEAD','--').decode().strip()
                 if not sha: continue
@@ -193,11 +195,11 @@ class AndroidBuild:
                 if item['version'] and (not version or version[1]!=item['version']):
                     receipt.setdefault('dependency_mismatches',[]).append({'package':name,'repository':str(path),
                         'commit':sha,'required':item['version'],'found':version[1] if version else None})
-                    continue
+                    raise LedgerError('Historical local version constraint mismatch for '+name)
                 pins[name]={'url':item['url'],'ref':sha,'reason':'local first-parent as-of app commit',
                             'repository':str(path),'version':version[1] if version else None}
-                del missing[name]
-            if not missing: break
+                missing.pop(name,None);del candidates[name]
+            if not candidates: break
         receipt['git_dependency_pins']=pins
         if missing: raise LedgerError('No matching historical local revision for: '+', '.join(missing))
         override=project/'pubspec_overrides.yaml'

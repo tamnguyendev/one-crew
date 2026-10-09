@@ -110,15 +110,19 @@ class AndroidTests(unittest.TestCase):
         git=Integration(SimpleNamespace(ledger=SimpleNamespace(project=dep,state_root=self.f.ledger.state_root),store=None)).git
         git('init');git('remote','add','origin','git@github.com:example/shared.git')
         (dep/'pubspec.yaml').write_text('name: shared\nversion: 1.0.0\n');git('add','pubspec.yaml');git('commit','-m','shared')
+        old=git('rev-parse','HEAD').decode().strip()
+        (dep/'README.md').write_text('new compatible revision');git('add','README.md');git('commit','-m','new revision')
         sha=git('rev-parse','HEAD').decode().strip()
         (self.f.root/'pubspec.yaml').write_text('name: example\ndependencies:\n  shared:\n    git:\n      url: https://github.com/example/shared.git\n      ref: main\n    version: 1.0.0\ndependency_overrides:\n  printing: ^5.14.0\n')
         self.f.git('add','pubspec.yaml');self.f.git('commit','-m','dependency')
         commit=self.f.git('rev-parse','HEAD').decode().strip();receipt={'repositories':[]}
         export=builder.prepare(self.f.root.parent/'gitdeps',self.f.root,commit,'as-of',lambda:None,receipt)
+        (export/'pubspec.lock').write_text('packages:\n  shared:\n    description:\n      url: https://github.com/example/shared.git\n      resolved-ref: '+old+'\n    source: git\n')
         builder.pin_git_dependencies(export,self.f.root,commit,self.f.root.parent,lambda:None,receipt)
         self.assertEqual(receipt['git_dependency_pins']['shared']['ref'],sha)
         self.assertIn('printing: ^5.14.0',(export/'pubspec_overrides.yaml').read_text())
         self.assertFalse((self.f.root/'pubspec_overrides.yaml').exists())
+        (export/'pubspec.lock').unlink()
         with self.assertRaises(LedgerError):
             builder.pin_git_dependencies(export,self.f.root,commit,None,lambda:None,{})
 
