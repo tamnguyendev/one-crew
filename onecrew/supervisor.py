@@ -143,7 +143,7 @@ class Supervisor:
         self.control = control
 
     def run(self, attempt, argv, *, cwd, stdin='', timeout=120):
-        if not isinstance(argv, list) or not argv or not all(isinstance(a, str) and a for a in argv):
+        if not isinstance(argv, list) or not argv or not argv[0] or not all(isinstance(a, str) for a in argv):
             raise LedgerError('Command must be a non-empty argv list.')
         if type(timeout) not in (int, float) or not 0 < timeout <= 28800:
             raise LedgerError('Invalid process timeout.')

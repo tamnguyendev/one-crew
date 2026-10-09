@@ -40,6 +40,11 @@ def task_lock(ledger, task_id):
 
 
 def validate_profile(profile):
+    provider = profile.get('provider', 'codex') if isinstance(profile, dict) else None
+    if provider not in ('codex', 'claude', 'kiro'):
+        raise LedgerError('Provider must be codex, claude or kiro.')
+    profile = dict(profile)
+    profile.pop('provider', None)
     exact_fields(profile, ('version', 'context', 'owned', 'acceptance', 'checks',
                            'max_repairs', 'model', 'step_seconds'), 'Workflow profile')
     if type(profile['version']) is not int or profile['version'] != 1:
@@ -82,7 +87,7 @@ def validate_profile(profile):
             raise LedgerError('This check requires expected=null.')
     if covered != set(ids) or len(check_ids) != len(set(check_ids)):
         raise LedgerError('Every acceptance criterion needs a distinct identified check; check IDs must be unique.')
-    return json.loads(canonical(profile))
+    return json.loads(canonical(profile)) | {'provider': provider}
 
 
 def validate_plan(value, profile):
@@ -248,6 +253,7 @@ class Workflow:
         self.control = Control(ledger)
         self.store = Snapshots(ledger.state_root)
         self.worker = worker or CodexArtifact(self.control)
+        self.custom_worker = worker is not None
 
     def state(self, task_id):
         with self.ledger.transaction() as conn:
@@ -271,6 +277,9 @@ class Workflow:
 
     def enable(self, task_id, revision, profile):
         profile = validate_profile(profile)
+        if not self.custom_worker:
+            from .providers import make_worker
+            self.worker = make_worker(self.control, profile['provider'])
         capability = self.worker.capability()
         migrate(self.ledger)
         with task_lock(self.ledger, task_id):
@@ -282,7 +291,7 @@ class Workflow:
             sequence, state = self.state(task_id)
             if state:
                 configuration = self.control.status(task_id)['configuration']
-                if configuration['profile'] != profile:
+                if dict(configuration['profile'], provider=configuration['profile'].get('provider', 'codex')) != profile:
                     raise LedgerError('Workflow profile is already sealed.')
                 return state
             # A crash between configure and initial checkpoint must retain its original source.
@@ -290,7 +299,8 @@ class Workflow:
                 existing = conn.execute('SELECT configuration FROM executions WHERE task_id=?', (task_id,)).fetchone()
             if existing:
                 configuration = json.loads(existing['configuration'])
-                if configuration.get('profile') != profile or configuration.get('capability') != capability:
+                prior_profile = configuration.get('profile', {})
+                if dict(prior_profile, provider=prior_profile.get('provider', 'codex')) != profile or configuration.get('capability') != capability:
                     raise LedgerError('Existing execution configuration differs from requested workflow.')
                 base = configuration['base']
                 self.store.load(base)
@@ -342,6 +352,12 @@ class Workflow:
                 raise LedgerError('Enable a sealed workflow profile first.')
             configuration = self.control.status(task_id)['configuration']
             profile = configuration['profile']
+            selected = state.get('worker', {'provider': profile.get('provider', 'codex'),
+                                            'model': profile['model'], 'capability': configuration['capability']})
+            profile = dict(profile, provider=selected['provider'], model=selected['model'])
+            if not self.custom_worker:
+                from .providers import make_worker
+                self.worker = make_worker(self.control, selected['provider'])
             task = self.ledger.task(task_id, full=True)
             for _ in range(steps):
                 control = self.control.status(task_id)
@@ -349,7 +365,7 @@ class Workflow:
                     return state
                 if state['phase'] in ('completed', 'blocked', 'failed'):
                     return state
-                if self.worker.capability() != configuration['capability']:
+                if self.worker.capability() != selected['capability']:
                     raise LedgerError('Worker capability changed since enable.')
                 context = self.store.context(state['snapshot'])
                 common = '\nSPEC\n' + task['handoff']['spec_text'] + '\nSEALED PROFILE\n' + canonical(profile) + '\nSOURCE\n' + canonical(context)
@@ -449,7 +465,7 @@ class Workflow:
                 'checks': state.get('checks'), 'backlog': state['backlog'], 'reviews': state.get('reviews', []) + feedback,
                 'outputs': [dict(row, diff=self.store.diff(row['base'], row['revision'])) for row in state['outputs']]}
 
-    def resume(self, task_id):
+    def resume(self, task_id, *, reuse_output=False):
         """Explicit operator retry of a settled failure; never resets root counters."""
         with task_lock(self.ledger, task_id):
             seq, state = self.state(task_id)
@@ -458,7 +474,7 @@ class Workflow:
                 raise LedgerError('Task cannot resume.')
             if any(a['status'] != 'settled' for a in control['attempts']):
                 raise LedgerError('Reconcile the previous attempt before resuming.')
-            if state['pending']:
+            if state['pending'] and not reuse_output:
                 profile = control['configuration']['profile']
                 if state['failed_calls'] >= profile['max_repairs']:
                     raise LedgerError('Failed-call retry cap reached; no automatic budget extension.')
@@ -487,6 +503,31 @@ class Workflow:
             state['plan']['tasks'] = [r for r in rows if r['id'] in state['done']] + [queued[k] for k in order]
             self.persist(task_id, seq, state)
             return {'plan_revision': content_hash(state['plan']), 'plan': state['plan']}
+
+    def switch(self, task_id, revision, provider, model):
+        """Explicit local operator handoff at a reconciled artifact checkpoint."""
+        from .providers import make_worker
+        text_field(model, 'model', 100)
+        with task_lock(self.ledger, task_id):
+            seq, state = self.state(task_id)
+            if not state or content_hash(state) != revision:
+                raise LedgerError('Stale workflow revision; inspect work status before switching.')
+            control = self.control.status(task_id)
+            if control['cancel_requested'] or state['phase'] in ('completed', 'failed'):
+                raise LedgerError('Terminal/cancelled workflow cannot switch worker.')
+            if state['pending'] or any(a['status'] != 'settled' for a in control['attempts']):
+                raise LedgerError('Stop/reconcile and consume or discard the pending result before switching.')
+            capability = make_worker(self.control, provider).capability()
+            self.store.load(state['snapshot'])
+            previous = state.get('worker', {'provider': control['configuration']['profile'].get('provider', 'codex'),
+                                          'model': control['configuration']['profile']['model']})
+            state['worker'] = {'provider': provider, 'model': model, 'capability': capability}
+            state.setdefault('handoffs', []).append({'from': previous, 'to': state['worker'],
+                                                    'snapshot': state['snapshot'], 'authority': 'local_operator',
+                                                    'used_calls': control['used_calls'], 'deadline': control['deadline']})
+            self.persist(task_id, seq, state)
+            return {'workflow_revision': content_hash(state), 'worker': state['worker'],
+                    'used_calls': control['used_calls'], 'deadline': control['deadline']}
 
     def review(self, task_id, revision, decision, comment):
         if decision not in ('accept', 'feedback'):

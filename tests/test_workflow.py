@@ -211,6 +211,30 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.workflow.store.context(state['base'])['README.txt'], 'original')
         self.assertEqual((self.project/'README.txt').read_text(), 'changed by user')
 
+    def test_switch_requires_current_checkpoint_and_keeps_root_counters(self):
+        self.enable()
+        state = self.workflow.run(self.task['id'], steps=2)
+        before = self.workflow.control.status(self.task['id'])
+        with patch('onecrew.providers.make_worker', return_value=self.worker):
+            receipt = self.workflow.switch(self.task['id'], content_hash(state), 'kiro', 'fixture-next')
+            with self.assertRaises(LedgerError):
+                self.workflow.switch(self.task['id'], content_hash(state), 'codex', 'fixture')
+        self.assertEqual(receipt['used_calls'], before['used_calls'])
+        self.assertEqual(receipt['deadline'], before['deadline'])
+        after = self.workflow.run(self.task['id'])
+        self.assertEqual(after['phase'], 'completed')
+        self.assertEqual(after['handoffs'][0]['snapshot'], state['snapshot'])
+        self.assertEqual(self.workflow.control.status(self.task['id'])['used_calls'], 3)
+
+    def test_switch_rejects_unreconciled_attempt(self):
+        self.enable()
+        with patch.object(self.worker, 'run', side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.workflow.run(self.task['id'])
+        _, state = self.workflow.state(self.task['id'])
+        with self.assertRaises(LedgerError):
+            self.workflow.switch(self.task['id'], content_hash(state), 'kiro', 'anything')
+
 
 if __name__ == '__main__':
     unittest.main()

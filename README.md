@@ -15,6 +15,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [P1a — task và inbox lưu bền](docs/durable-ledger.vi.md) | Submit/queue/connect, câu hỏi/revision/reply qua CLI; chưa dispatch worker |
 | [P1b — admission và supervisor](docs/control-runtime.vi.md) | Schema migration, reservation/counters, action receipts, native Windows process containment |
 | [Workflow tổng quát](docs/general-workflow.vi.md) | CLI chạy Codex từ spec/profile, review từng phần, resume, reorder và bằng chứng live |
+| [Workers và handoff](docs/providers.vi.md) | Codex/Kiro live, Claude chờ login; doctor và switch tại checkpoint |
 | [Snapshot](docs/snapshots.vi.md) | Bảo toàn working/index bytes trong scope và output bất biến |
 | [CLI spec](docs/spec-review-cli.vi.md) | Review/approve theo revision, diff/history |
 | [Runtime và bằng chứng SPEC-005](docs/incremental-autonomy.vi.md) | Chạy CV từ thư mục trống, test/review/repair và preview |

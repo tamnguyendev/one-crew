@@ -1,0 +1,112 @@
+{
+  "kiro": {
+    "cli_version": "2.28.0",
+    "model": "claude-haiku-4.5",
+    "phase": "completed",
+    "verification": "passed",
+    "acceptance": "pending",
+    "calls": 2,
+    "usage": [
+      {
+        "attempt": "ATT-7bd02e49f7d2434e86234a9675980d70",
+        "reported": [
+          {
+            "metering": [
+              {
+                "value": 0.010822505870646766,
+                "unit": "credit",
+                "unitPlural": "credits"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "attempt": "ATT-5248315622c34561a0932b8c75e8e79e",
+        "reported": [
+          {
+            "metering": [
+              {
+                "value": 0.010665903018242124,
+                "unit": "credit",
+                "unitPlural": "credits"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "initial_failure": "ACP data.update envelope parser mismatch. Reprocessed the same settled planner receipt after parser fix, no duplicate call."
+  },
+  "cross_provider": {
+    "task": "TASK-d0d4666ad9dc45d6891993460378be85",
+    "phase": "completed",
+    "verification": "passed",
+    "acceptance": "pending",
+    "calls": 2,
+    "deadline_preserved": true,
+    "source_dirty_preserved": true,
+    "handoffs": [
+      {
+        "authority": "local_operator",
+        "deadline": "2026-10-09T00:16:44.076185+00:00",
+        "from": {
+          "model": "gpt-6-luna",
+          "provider": "codex"
+        },
+        "snapshot": "112950c6473b923daea77299cfa70368e974b6759edd49e5c9528b7ecb9da13e",
+        "to": {
+          "capability": {
+            "internal_model_call_cap": false,
+            "mode": "artifact-tools-disabled",
+            "os": "nt",
+            "provider": "kiro",
+            "version": "kiro-cli-chat 2.28.0"
+          },
+          "model": "claude-haiku-4.5",
+          "provider": "kiro"
+        },
+        "used_calls": 1
+      }
+    ],
+    "usage": [
+      {
+        "attempt": "ATT-68b0684dd2a0424aa6a72c810ef6f474",
+        "reported": [
+          {
+            "cache_write_input_tokens": 0,
+            "cached_input_tokens": 0,
+            "input_tokens": 6343,
+            "output_tokens": 87,
+            "reasoning_output_tokens": 20
+          }
+        ]
+      },
+      {
+        "attempt": "ATT-8a2463b1081549d88c6ed25f5faff7ee",
+        "reported": [
+          {
+            "metering": [
+              {
+                "value": 0.010146940232172472,
+                "unit": "credit",
+                "unitPlural": "credits"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "message": null
+  },
+  "claude": {
+    "cli_version": "2.1.286",
+    "live_status": "Blocked",
+    "reason": "auth status loggedIn=false; subscription login needed."
+  },
+  "limits": [
+    "Native Windows artifact workers only.",
+    "No mid-write handoff or native provider-session transfer.",
+    "No claimed 8-hour soak or full multi-entry authentication."
+  ]
+}

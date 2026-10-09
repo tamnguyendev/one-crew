@@ -1,5 +1,18 @@
 # Proposal Coverage
 
+## P2 adapter slice — Kiro artifacts and checkpoint handoff
+
+Baseline `8b61305`. [Provider guide](providers.vi.md), [evidence](provider-evidence.json).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| PA01 | Separate native CLI artifact transports and bounded capability/auth inspection | providers.py, provider doctor, profile provider field | four parser/auth/capability tests; no identity or credentials printed | Complete |
+| PA02 | Kiro typed artifact output with empty tools/MCP and terminal receipt | pinned Kiro V2 adapter, agent validate, stream checks | live two-call JSON task; parser fix reuses settled response; credit evidence | Complete |
+| PA03 | Explicit revision-bound worker switch at settled checkpoint preserving scope/budget/source | Workflow.switch and CLI, handoff history, snapshot verification | stale/unreconciled rejection tests; Codex→Kiro live handoff, two calls, dirty bytes and deadline preserved | Complete |
+| PA04 | Claude subscription worker live execution/authority/cancellation | restricted command and strict parser implemented | contract tests pass; CLI installed but loggedIn=false; requires subscription login | Blocked |
+
+Focused provider tests (4) and workflow tests (13) pass. Full suite: 127 tests passed in 40.681 seconds on Windows. PA completion does not imply all P2 gates: authenticated entry connectors, provider-specific live cancel/host death and every handoff transition still need evidence. General workflow JSON-only limits remain. No automatic paid API fallback or native session transfer.
+
 ## P1c/P1d workflow — bounded Codex artifacts and incremental review
 
 Baseline `08bdfb5`. Requirements below cover the small generic workflow, not every P1/P3 acceptance scenario.

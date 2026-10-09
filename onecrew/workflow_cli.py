@@ -18,7 +18,7 @@ def main(argv=None):
     parser.add_argument('--state-root', type=Path)
     group = parser.add_subparsers(dest='group', required=True).add_parser('work')
     commands = group.add_subparsers(dest='command', required=True)
-    for name in ('enable', 'run', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export'):
+    for name in ('enable', 'run', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch'):
         command = commands.add_parser(name)
         command.add_argument('id')
         command.add_argument('--json', action='store_true')
@@ -27,8 +27,13 @@ def main(argv=None):
             command.add_argument('--revision', required=True)
         if name == 'run':
             command.add_argument('--steps', type=int, default=100)
-        if name in ('review', 'reorder', 'export'):
+        if name == 'resume':
+            command.add_argument('--reuse-output', action='store_true', help='Reprocess a settled receipt after a parser fix; no new worker call.')
+        if name in ('review', 'reorder', 'export', 'switch'):
             command.add_argument('--revision', required=True)
+        if name == 'switch':
+            command.add_argument('--provider', choices=('codex', 'claude', 'kiro'), required=True)
+            command.add_argument('--model', required=True)
         if name == 'reorder':
             command.add_argument('--order', nargs='+', required=True)
         if name == 'review':
@@ -46,6 +51,7 @@ def main(argv=None):
         elif args.command == 'status':
             seq, state = workflow.state(args.id)
             result = {'sequence': seq, 'state': state, 'control': workflow.control.status(args.id),
+                      'workflow_revision': content_hash(state) if state else None,
                       'plan_revision': content_hash(state['plan']) if state and state['plan'] else None}
         elif args.command == 'outputs':
             result = workflow.outputs(args.id)
@@ -53,11 +59,13 @@ def main(argv=None):
             workflow.control.pause(args.id)
             result = workflow.control.status(args.id)
         elif args.command == 'resume':
-            result = workflow.resume(args.id)
+            result = workflow.resume(args.id, reuse_output=args.reuse_output)
         elif args.command == 'reorder':
             result = workflow.reorder(args.id, args.revision, args.order)
         elif args.command == 'review':
             result = workflow.review(args.id, args.revision, args.decision, args.comment)
+        elif args.command == 'switch':
+            result = workflow.switch(args.id, args.revision, args.provider, args.model)
         else:
             _, state = workflow.state(args.id)
             if not state or args.revision not in {r['revision'] for r in state['outputs']}:
