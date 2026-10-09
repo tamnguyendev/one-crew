@@ -88,8 +88,10 @@ def verify_apk(path):
         names=set(archive.namelist())
         if not {'AndroidManifest.xml','classes.dex'} <= names or archive.testzip():
             raise LedgerError('APK failed package integrity verification.')
-    with path.open('rb') as source: digest=hashlib.file_digest(source,'sha256').hexdigest()
-    return {'path':str(path),'bytes':path.stat().st_size,'sha256':digest}
+    digest=hashlib.sha256()
+    with path.open('rb') as source:
+        for chunk in iter(lambda:source.read(1024*1024),b''): digest.update(chunk)
+    return {'path':str(path),'bytes':path.stat().st_size,'sha256':digest.hexdigest()}
 
 
 class AndroidBuild:
