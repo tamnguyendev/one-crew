@@ -1,5 +1,16 @@
 # Proposal Coverage
 
+## Read-only Codex quota feed
+
+Baseline `2a7a0cf`; [guide and timestamped live observation](quota-feed.vi.md).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| QF01 | Read subscription quota without starting a model turn, reset consumption, credentials export or paid API fallback | quota.ReadOnlyRPC allowlist and codex account handshake, provider quota CLI | live Codex 0.160.0 read; fixture verifies method sequence and API-key rejection | Complete |
+| QF02 | Prefer bucket map, preserve unknown windows and reject stale/missing/blocked quota | normalize/routing_quota, existing choose policy | five focused tests including weekly exhaustion, strict types, stale observation and invalid timestamp | Complete |
+
+Full regression: 188 tests pass in 62.402 seconds. This closes the read-only feed slice only; OC10 remains Partial pending atomic account reservations, usage dedup and bounded automatic routing. No model calls in this cycle. Previous branch-wait milestone committed as `2a7a0cf`.
+
 ## Branch-local waiting and reply consumption
 
 Baseline `a24ea54`; [guide](branch-inbox.vi.md).
