@@ -45,6 +45,9 @@ def validate_profile(profile):
         raise LedgerError('Provider must be codex, claude or kiro.')
     profile = dict(profile)
     profile.pop('provider', None)
+    parallel = profile.pop('parallel', False)
+    if type(parallel) is not bool:
+        raise LedgerError('parallel must be a JSON boolean.')
     exact_fields(profile, ('version', 'context', 'owned', 'acceptance', 'checks',
                            'max_repairs', 'model', 'step_seconds'), 'Workflow profile')
     if type(profile['version']) is not int or profile['version'] != 1:
@@ -87,7 +90,7 @@ def validate_profile(profile):
             raise LedgerError('This check requires expected=null.')
     if covered != set(ids) or len(check_ids) != len(set(check_ids)):
         raise LedgerError('Every acceptance criterion needs a distinct identified check; check IDs must be unique.')
-    return json.loads(canonical(profile)) | {'provider': provider}
+    return json.loads(canonical(profile)) | {'provider': provider} | ({'parallel': True} if parallel else {})
 
 
 def validate_plan(value, profile):
@@ -100,6 +103,8 @@ def validate_plan(value, profile):
     for row in tasks:
         exact_fields(row, ('id', 'title', 'depends_on', 'owned', 'acceptance'), 'Plan task')
         ids.append(key_field(row['id']))
+        if len(row['id']) > 64:
+            raise LedgerError('Plan task IDs must be at most 64 characters.')
         text_field(row['title'], 'task title', 300)
         owned = set(scope_list(row['owned']))
         if not owned <= set(profile['owned']):
@@ -143,6 +148,13 @@ def plan_schema(profile):
     properties = schema['properties']['tasks']['items']['properties']
     properties['acceptance']['items']['enum'] = [a['id'] for a in profile['acceptance']]
     properties['owned']['items']['enum'] = profile['owned']
+    return schema
+
+
+def artifact_schema(owned):
+    schema = deepcopy(ARTIFACT_SCHEMA)
+    files = schema['properties']['files']
+    files['items']['properties']['path']['enum'] = list(owned)
     return schema
 
 
@@ -270,7 +282,8 @@ class Workflow:
             if latest != sequence:
                 raise LedgerError('Workflow changed concurrently; reload before continuing.')
             self.ledger._event(conn, task_id, 'workflow.checkpoint', state)
-            status = ('cancelled' if execution['cancel_requested'] else
+            active = conn.execute("SELECT 1 FROM attempts WHERE task_id=? AND status IN ('reserved','running','unknown')", (task_id,)).fetchone()
+            status = (('cancelling' if active else 'cancelled') if execution['cancel_requested'] else
                       'paused' if execution['status'] == 'paused' else state['phase'])
             conn.execute('UPDATE executions SET status=? WHERE task_id=?', (status, task_id))
             return conn.execute('SELECT last_insert_rowid()').fetchone()[0]
@@ -308,7 +321,7 @@ class Workflow:
                 base = self.store.capture(self.ledger.project, profile['context'])
                 self.control.configure(task_id, revision, {'profile': profile, 'base': base,
                                                            'capability': capability, 'authority': 'local_operator'})
-            state = {'phase': 'planning', 'base': base, 'snapshot': base, 'plan': None,
+            state = {'task_revision': task['revision'], 'phase': 'planning', 'base': base, 'snapshot': base, 'plan': None,
                      'done': [], 'outputs': [], 'repairs': 0, 'pending': None, 'usage': [],
                      'failures': [], 'last_failure': None, 'backlog': [], 'message': None,
                      'verification': 'pending', 'acceptance': 'not_requested', 'failed_calls': 0}
@@ -323,8 +336,13 @@ class Workflow:
                      'schema_hash': content_hash(schema)}
         if state['pending']:
             attempt = self.control.attempt(state['pending'])
-            if json.loads(attempt['operation']) != operation:
-                raise LedgerError('Pending operation does not match current checkpoint.')
+            previous = json.loads(attempt['operation'])
+            if previous != operation:
+                compatible_revalidation = (state.get('revalidate_pending') is True
+                                           and previous.get('stage') == stage
+                                           and previous.get('snapshot') == state['snapshot'])
+                if not compatible_revalidation:
+                    raise LedgerError('Pending operation does not match current checkpoint.')
             if attempt['status'] != 'settled':
                 outcome = Supervisor(self.control).reconcile(attempt['id'])
                 if outcome['status'] != 'settled':
@@ -341,6 +359,7 @@ class Workflow:
         value, usage = self.worker.result(attempt)
         state['usage'].append({'attempt': attempt['id'], 'reported': usage})
         state['pending'] = None
+        state.pop('revalidate_pending', None)
         return seq, value
 
     def run(self, task_id, *, steps=100):
@@ -367,7 +386,7 @@ class Workflow:
                     return state
                 wants_worker = state['phase'] in ('planning', 'repairing') or (
                     state['phase'] == 'working' and any(r['id'] not in state['done'] for r in state['plan']['tasks']))
-                if wants_worker and not state['pending']:
+                if wants_worker and not state['pending'] and not state.get('parallel_pending'):
                     with self.ledger.transaction() as conn:
                         occupied = conn.execute("SELECT COUNT(*) FROM attempts WHERE status IN ('reserved','running','unknown')").fetchone()[0]
                     if occupied >= 2:
@@ -377,7 +396,7 @@ class Workflow:
                         return state
                     state.pop('waiting_reason', None)
                 try:
-                    if wants_worker and not state['pending'] and self.worker.capability() != selected['capability']:
+                    if wants_worker and not state['pending'] and not state.get('parallel_pending') and self.worker.capability() != selected['capability']:
                         raise LedgerError('Worker capability changed since enable.')
                     context = self.store.context(state['snapshot'])
                     common = '\nSPEC\n' + task['handoff']['spec_text'] + '\nSEALED PROFILE\n' + canonical(profile) + '\nSOURCE\n' + canonical(context)
@@ -390,6 +409,13 @@ class Workflow:
                         state['phase'] = 'working'
                     elif state['phase'] in ('working', 'repairing'):
                         repair = state['phase'] == 'repairing'
+                        if not repair and profile.get('parallel'):
+                            from .parallel import ready_batch, round as parallel_round
+                            batch = ready_batch(state)
+                            if state.get('parallel_pending') or len(batch) == 2:
+                                sequence = parallel_round(self, task_id, sequence, state, batch, common, profile)
+                                task = self.ledger.task(task_id, full=True)
+                                continue
                         item = None if repair else next((r for r in state['plan']['tasks'] if r['id'] not in state['done'] and set(r['depends_on']) <= set(state['done'])), None)
                         if not repair and item is None:
                             state['phase'] = 'verifying'
@@ -399,8 +425,8 @@ class Workflow:
                         stage = 'repair' if repair else item['id']
                         instruction = {'task': item, 'owned': owned, 'failures': state['failures'] if repair else []}
                         sequence, value = self._invoke(task_id, sequence, state, stage,
-                            'Implement only the assigned task. No tools. Return complete UTF-8 file contents; null deletes a file. Out-of-scope ideas go to backlog, never implementation.\nASSIGNMENT\n' + canonical(instruction) + common,
-                            ARTIFACT_SCHEMA, profile)
+                            'Implement only the assigned task. No tools. Return complete UTF-8 file contents; null deletes a file. Out-of-scope ideas go to backlog, never implementation.' + common + '\nYOUR ONLY ASSIGNMENT (other project files are read-only)\n' + canonical(instruction),
+                            artifact_schema(owned), profile)
                         changes = artifacts(value, owned)
                         before = state['snapshot']
                         after = self.store.overlay(before, changes, owned)
@@ -490,12 +516,15 @@ class Workflow:
                 raise LedgerError('Task cannot resume.')
             if any(a['status'] != 'settled' for a in control['attempts']):
                 raise LedgerError('Reconcile the previous attempt before resuming.')
-            if state['pending'] and not reuse_output:
+            if (state['pending'] or state.get('parallel_pending')) and not reuse_output:
                 profile = control['configuration']['profile']
                 if state['failed_calls'] >= profile['max_repairs']:
                     raise LedgerError('Failed-call retry cap reached; no automatic budget extension.')
                 state['failed_calls'] += 1
                 state['pending'] = None
+                state['parallel_pending'] = []
+            if reuse_output:
+                state['revalidate_pending'] = True
             state['phase'] = state.pop('resume_phase', state['phase'])
             if state['phase'] == 'blocked':
                 raise LedgerError('Repair/no-progress boundary requires a revised task, not a blind retry.')
@@ -510,7 +539,7 @@ class Workflow:
             seq, state = self.state(task_id)
             if not state or not state['plan'] or content_hash(state['plan']) != revision:
                 raise LedgerError('Stale or missing plan revision.')
-            if state['pending'] or state['phase'] != 'working':
+            if state['pending'] or state.get('parallel_pending') or state['phase'] != 'working':
                 raise LedgerError('Reorder is allowed only between work checkpoints.')
             rows = state['plan']['tasks']
             queued = {r['id']: r for r in rows if r['id'] not in state['done']}
@@ -519,6 +548,21 @@ class Workflow:
             state['plan']['tasks'] = [r for r in rows if r['id'] in state['done']] + [queued[k] for k in order]
             self.persist(task_id, seq, state)
             return {'plan_revision': content_hash(state['plan']), 'plan': state['plan']}
+
+    def set_plan(self, task_id, revision, plan):
+        """Accept an operator-supplied plan instead of paying for another planning call."""
+        with task_lock(self.ledger, task_id):
+            seq, state = self.state(task_id)
+            if not state or content_hash(state) != revision or state['phase'] != 'planning' or state['pending']:
+                raise LedgerError('Plan can only be supplied at the current untouched planning checkpoint.')
+            control = self.control.status(task_id)
+            if control['cancel_requested'] or any(a['status'] != 'settled' for a in control['attempts']):
+                raise LedgerError('Cannot replace a plan while cancelled or an attempt is active.')
+            state['plan'] = validate_plan(plan, control['configuration']['profile'])
+            state['plan_source'] = 'local_operator'
+            state['phase'] = 'working'
+            self.persist(task_id, seq, state)
+            return {'plan_revision': content_hash(plan), 'plan': plan}
 
     def switch(self, task_id, revision, provider, model):
         """Explicit local operator handoff at a reconciled artifact checkpoint."""
@@ -531,7 +575,7 @@ class Workflow:
             control = self.control.status(task_id)
             if control['cancel_requested'] or state['phase'] in ('completed', 'failed'):
                 raise LedgerError('Terminal/cancelled workflow cannot switch worker.')
-            if state['pending'] or any(a['status'] != 'settled' for a in control['attempts']):
+            if state['pending'] or state.get('parallel_pending') or any(a['status'] != 'settled' for a in control['attempts']):
                 raise LedgerError('Stop/reconcile and consume or discard the pending result before switching.')
             capability = make_worker(self.control, provider).capability()
             self.store.load(state['snapshot'])

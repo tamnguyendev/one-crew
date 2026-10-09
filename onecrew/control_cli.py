@@ -19,7 +19,7 @@ def main(argv=None):
     parser.add_argument('--state-root', type=Path)
     core = parser.add_subparsers(dest='group', required=True).add_parser('core')
     commands = core.add_subparsers(dest='command', required=True)
-    migration = commands.add_parser('migrate', help='Backup ledger and migrate v1 to v2 without enabling tasks.')
+    migration = commands.add_parser('migrate', help='Backup ledger and migrate v1/v2 to v3 without enabling tasks.')
     migration.add_argument('--json', action='store_true')
     for name in ('status', 'cancel', 'reconcile'):
         command = commands.add_parser(name)

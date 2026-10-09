@@ -143,6 +143,24 @@ class ControlTests(unittest.TestCase):
         with self.assertRaisesRegex(LedgerError, 'different'):
             self.control.reserve(self.task['id'], self.execution['revision'], 'one', {'stage': 'other'})
 
+    def test_parallel_cancel_is_confirmed_only_after_both_units_settle(self):
+        first = self.control.reserve(self.task['id'], self.execution['revision'], 'A', {'unit': 'task:A'})
+        second = self.control.reserve(self.task['id'], self.execution['revision'], 'B', {'unit': 'task:B'})
+        self.control.cancel(self.task['id'])
+        self.control.finish(first['id'], first['generation'], {'stopped': True}, not_started=True)
+        self.assertEqual(self.control.status(self.task['id'])['status'], 'cancelling')
+        self.control.finish(second['id'], second['generation'], {'stopped': True}, not_started=True)
+        self.assertEqual(self.control.status(self.task['id'])['status'], 'cancelled')
+
+    def test_admission_checkpoint_failure_rolls_back_reservation(self):
+        def fail(conn, attempt):
+            raise sqlite3.OperationalError('checkpoint disk full')
+        with self.assertRaises(sqlite3.OperationalError):
+            self.control.reserve(self.task['id'], self.execution['revision'], 'atomic', {'unit': 'task:A'}, on_reserved=fail)
+        state = self.control.status(self.task['id'])
+        self.assertEqual(state['reserved_calls'], 0)
+        self.assertEqual(state['attempts'], [])
+
     def test_stale_generation_and_transaction_failure_do_not_charge(self):
         row = self.reserve()
         with self.assertRaisesRegex(LedgerError, 'generation'):

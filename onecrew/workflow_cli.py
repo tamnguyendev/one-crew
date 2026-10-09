@@ -18,7 +18,7 @@ def main(argv=None):
     parser.add_argument('--state-root', type=Path)
     group = parser.add_subparsers(dest='group', required=True).add_parser('work')
     commands = group.add_subparsers(dest='command', required=True)
-    for name in ('enable', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
+    for name in ('enable', 'plan', 'run', 'start', 'runner', 'status', 'outputs', 'pause', 'resume', 'reorder', 'review', 'export', 'switch', 'branch'):
         command = commands.add_parser(name)
         command.add_argument('id')
         command.add_argument('--json', action='store_true')
@@ -29,8 +29,10 @@ def main(argv=None):
             command.add_argument('--steps', type=int, default=100)
         if name == 'resume':
             command.add_argument('--reuse-output', action='store_true', help='Reprocess a settled receipt after a parser fix; no new worker call.')
-        if name in ('review', 'reorder', 'export', 'switch', 'branch'):
+        if name in ('plan', 'review', 'reorder', 'export', 'switch', 'branch'):
             command.add_argument('--revision', required=True)
+        if name == 'plan':
+            command.add_argument('--file', type=Path, required=True)
         if name == 'branch':
             command.add_argument('--name', required=True)
         if name == 'switch':
@@ -50,6 +52,8 @@ def main(argv=None):
             result = workflow.enable(args.id, args.revision, read_json(args.profile))
         elif args.command == 'run':
             result = workflow.run(args.id, steps=args.steps)
+        elif args.command == 'plan':
+            result = workflow.set_plan(args.id, args.revision, read_json(args.file))
         elif args.command in ('start', 'runner'):
             from .runner import start, status
             result = (start if args.command == 'start' else status)(workflow.ledger, args.id)

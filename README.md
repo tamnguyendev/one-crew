@@ -19,6 +19,7 @@ OneCrew hướng tới một core local để nhận công việc đã làm rõ 
 | [Controller chạy nền](docs/background-runner.vi.md) | Start/reconnect, chờ reply không gọi model, giữ deadline qua pause |
 | [Routing policy](docs/routing-policy.vi.md) | Đề xuất model theo tier/risk/quota, chưa tự dispatch |
 | [Nhánh Git để review](docs/review-branch.vi.md) | Kiểm candidate tree rồi tạo local branch, giữ nguyên source/index |
+| [DAG song song](docs/parallel-dag.vi.md) | Hai nhánh độc lập cùng root, output từng phần và budget chung; live Kiro đã đạt |
 | [Snapshot](docs/snapshots.vi.md) | Bảo toàn working/index bytes trong scope và output bất biến |
 | [CLI spec](docs/spec-review-cli.vi.md) | Review/approve theo revision, diff/history |
 | [Runtime và bằng chứng SPEC-005](docs/incremental-autonomy.vi.md) | Chạy CV từ thư mục trống, test/review/repair và preview |

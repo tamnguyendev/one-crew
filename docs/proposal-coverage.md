@@ -1,5 +1,18 @@
 # Proposal Coverage
 
+## P3 DAG slice — disjoint parallel units
+
+Baseline `fb98e3a`; [guide](parallel-dag.vi.md), [live trials](parallel-evidence.json).
+
+| ID | Requirement | Evidence | Verification | Status |
+|---|---|---|---|---|
+| PD01 | Two disjoint ready DAG units share root budget; overlap/dependencies remain ordered | parallel.ready_batch/round; schema-v3 work-unit admission, global capacity | A→(B,C)→D fixture; live Kiro peak_running_attempts=2; overlap test | Complete |
+| PD02 | Publish per-unit checkpoints while sibling runs and preserve valid sibling on failure | coordinator-only snapshot merge/persist; independent feedback events | B reviewed before C finishes, invalid B retains C output, cancel waits for both units | Complete |
+| PD03 | Atomic dispatch intent and backward-compatible migration preserve budgets/unknown ownership | Control reserve callback, v1/v2 backup to v3, root-owner exclusion | checkpoint failure rolls reservation back; v2 backup and unknown/counter preservation | Complete |
+| PD04 | Reuse a supplied approved plan without paying for a new planning call | work plan, revision/phase/scope validators | stale replacement rejected, supplied-plan fixture completes in four calls instead of five; live plan_source recorded | Complete |
+
+DAG tests: five passed in 1.390 seconds. Full suite after parallel prompt/schema repair: 147 tests passed in 42.050 seconds. The subsequent explicit receipt-revalidation fix passes all 15 workflow tests, including its new regression; it avoids another model call after a compatible parser/schema repair. Initial parallel live trial was correctly blocked at two-call cap because both workers exceeded assigned ownership. The repaired regression is a separate recorded trial: two calls, two simultaneous native Kiro attempts, two outputs, verification passed, acceptance pending and original source unchanged. No counter reset on failed task. Remaining P3 work: branch-specific triage/contract invalidation, all parallel crash transitions, integration across repo vectors and functional gates beyond configured JSON/text/syntax checks.
+
 ## Routing and review-branch slices
 
 Baseline `94136f9`; [routing guide](routing-policy.vi.md), [review-branch guide](review-branch.vi.md).
@@ -140,7 +153,7 @@ These counts measure the new SPEC-006 implementation requirements, not documenta
 | OC04 | Workers | Replaceable verified adapters | API | Codex/Kiro artifact adapters, Claude transport blocked on login | PA01–PA03 live Kiro and Codex→Kiro checkpoint handoff | Partial | Claude live auth/authority/cancel and mid-write handoff remain |
 | OC05 | Inbox | Durable requests and trusted revision replies | Security | ledger.py request create/revise/reply, revision history, transactional local receipts | P1a T05/T22 persistence/conflict subsets pass; trusted caller/worker isolation not proven | Partial | Local attribution only; replies never authorize or apply execution actions |
 | OC06 | Memory | Shared decisions/checkpoints/provenance | Data | ledger events, immutable spec/profile, content-addressed working/index snapshots | CP01–CP03 dirty/binary/deletion recovery; live handoff preserves source | Partial | Authenticated entry connectors and full transcript-free continuation proof remain |
-| OC07 | DAG | Parallel dependency/ownership scheduling | Architecture | Generic validated DAG sequential per root; two workers across independent roots | WF plan cycle/dependency tests, CQ01 queue/capacity test | Partial | Parallel branches within root and descendant invalidation remain |
+| OC07 | DAG | Parallel dependency/ownership scheduling | Architecture | Generic validated DAG, optional two disjoint units per root, two workers globally | WF/CQ01 tests, PD01–PD04 A→(B,C)→D and native parallel Kiro evidence | Partial | Branch-specific triage, descendant invalidation and full parallel crash matrix remain |
 | OC08 | Integration | Verified merged result across branches/repos | Testing | Actual Git candidate checks and immutable local review branches | IB01–IB02 Git/dirty index/gate/lost-ref-ack tests | Partial | Target merge/rebase, application gates and multi-repo commit vector remain |
 | OC09 | Long jobs | Root budgets, recovery and optional 8h | Reliability | Absolute max-8h grant, durable counters/reservations, background waits | CB02/BG02/CQ01; live handoff preserves deadline/counters | Partial | Live eight-hour soak and authenticated budget extension remain |
 | OC10 | Routing | Task/risk/capability plus account quota | Performance | Typed risk/tier/quota recommendation and bounded AI proposal validator | RP01–RP02 multi-window/stale/unknown/type tests | Partial | Automatic quota feeds/reservation, calibrated routing and fallback remain |

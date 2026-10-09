@@ -180,7 +180,7 @@ class Ledger:
                     conn.execute(statement)
                 conn.execute(f'PRAGMA application_id={APP_ID}')
                 conn.execute(f'PRAGMA user_version={VERSION}')
-            elif version not in (VERSION, 2) or app_id != APP_ID:
+            elif version not in (VERSION, 2, 3) or app_id != APP_ID:
                 raise LedgerError('Unsupported ledger schema; use a compatible version or explicit migration.')
             yield conn
             conn.commit()

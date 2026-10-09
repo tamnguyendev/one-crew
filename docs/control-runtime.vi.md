@@ -1,5 +1,6 @@
 # P1b — admission, ngân sách và supervisor
 
+Cập nhật P3: `core migrate` hiện nâng v1/v2 lên schema v3 với backup; active ownership theo work unit và root budget vẫn chung. Xem [DAG song song](parallel-dag.vi.md). Evidence v2 dưới đây mô tả lát P1b ban đầu.
 Core đã có các primitive lưu bền: reserve trước invocation, charge khi launch, giữ reservation khi chưa rõ kết quả, chặn worker mới khi attempt cũ chưa reconcile, counters không reset qua configure/restart, deadline tuyệt đối và tối đa hai active attempts toàn DB. Mỗi root hiện chỉ một attempt active. Inbox pending chặn cả reserve lẫn launch; cancel requested khác cancelled đã xác nhận.
 
 Đây là API controller và hạ tầng kiểm chứng bằng subprocess thật/fake workload. Chưa tự lập plan hoặc gọi model từ task ledger. Quyền local của P1a vẫn chưa tự nâng thành execution grant. Core không gọi lại external action chỉ vì handler timeout: ghi unknown, đối chiếu bằng observer trước khi xác nhận.

@@ -1,0 +1,89 @@
+{
+  "provider": "kiro",
+  "cli_version": "2.28.0",
+  "model": "claude-haiku-4.5",
+  "plan_source": "local_operator",
+  "failed_trial": {
+    "task": "TASK-a8907ddacd8046b5bc498e036ec11095",
+    "phase": "blocked",
+    "verification": "pending",
+    "acceptance": "not_requested",
+    "peak_running_attempts": 2,
+    "calls": 2,
+    "message": "Invalid artifact file list.",
+    "outputs": 0,
+    "usage": [],
+    "plan_source": "local_operator",
+    "source_unchanged": true,
+    "recovered_usage_from_attempt_logs": [
+      {
+        "attempt": "ATT-62338b0571bc42bc9fab5e509c8f4b93",
+        "metering": [
+          {
+            "value": 0.011587398606965177,
+            "unit": "credit",
+            "unitPlural": "credits"
+          }
+        ]
+      },
+      {
+        "attempt": "ATT-d205ced760684285b2d97697fb2a79d2",
+        "metering": [
+          {
+            "value": 0.012514173864013267,
+            "unit": "credit",
+            "unitPlural": "credits"
+          }
+        ]
+      }
+    ]
+  },
+  "fixed_regression": {
+    "task": "TASK-517919c0a8604840b062021a3ee22973",
+    "phase": "completed",
+    "verification": "passed",
+    "acceptance": "pending",
+    "peak_running_attempts": 2,
+    "calls": 2,
+    "message": null,
+    "outputs": 2,
+    "usage": [
+      {
+        "attempt": "ATT-81d4149fdcb340828b6b4c71b088a225",
+        "reported": [
+          {
+            "metering": [
+              {
+                "value": 0.009960247429519072,
+                "unit": "credit",
+                "unitPlural": "credits"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "attempt": "ATT-dddd2f944b334c6aa6afa467e167b243",
+        "reported": [
+          {
+            "metering": [
+              {
+                "value": 0.010533485306799338,
+                "unit": "credit",
+                "unitPlural": "credits"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "plan_source": "local_operator",
+    "source_unchanged": true
+  },
+  "total_managed_calls_across_trials": 4,
+  "limits": [
+    "Configured JSON gates only.",
+    "No counter/deadline reset on failed trial; regression has separate task and explicit two-call grant.",
+    "No eight-hour soak or complete parallel crash-transition proof."
+  ]
+}

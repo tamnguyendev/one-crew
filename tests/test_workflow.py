@@ -111,6 +111,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.workflow.run(self.task['id'])['phase'], 'completed')
         self.assertEqual(len(self.worker.calls), 3)
 
+    def test_explicit_revalidation_survives_schema_repair_without_repeating_call(self):
+        from onecrew.workflow import PLAN_SCHEMA
+        self.enable()
+        with patch.object(self.worker, 'result', side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.workflow.run(self.task['id'])
+        self.workflow.resume(self.task['id'], reuse_output=True)
+        with patch('onecrew.workflow.plan_schema', return_value=PLAN_SCHEMA):
+            self.assertEqual(self.workflow.run(self.task['id'])['phase'], 'completed')
+        self.assertEqual(self.worker.calls, ['plan', 'config', 'doc'])
+
     def test_parse_scope_failure_keeps_source_and_snapshot_then_bounded_retry(self):
         initial = self.enable()
         self.worker.responses[1] = artifact('../outside', 'unsafe')
@@ -173,6 +184,10 @@ class WorkflowTests(unittest.TestCase):
                 self.workflow.run(self.task['id'])
 
     def test_strict_profile_plan_schema_and_no_scope_expansion(self):
+        bad = plan()
+        bad['tasks'][0]['id'] = 'x' * 65
+        with self.assertRaises(LedgerError):
+            validate_plan(bad, profile())
         bad = profile()
         bad['max_repairs'] = True
         with self.assertRaises(LedgerError):

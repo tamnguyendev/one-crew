@@ -1,4 +1,4 @@
-"""Transactional admission and bounded execution bookkeeping, schema v2."""
+"""Transactional admission and bounded execution bookkeeping, schemas v2/v3."""
 from __future__ import annotations
 
 import datetime as dt
@@ -43,11 +43,12 @@ def migrate(ledger):
     with ledger.transaction(write=True):
         pass
     with ledger.transaction(write=True) as conn:
-        if conn.execute('PRAGMA user_version').fetchone()[0] == 2:
-            return {'schema_version': 2, 'changed': False}
+        version = conn.execute('PRAGMA user_version').fetchone()[0]
+        if version == 3:
+            return {'schema_version': 3, 'changed': False}
         directory = ledger.state_root / 'backups'
         directory.mkdir(exist_ok=True)
-        target = directory / ('ledger-v1-' + uuid.uuid4().hex + '.sqlite3')
+        target = directory / (f'ledger-v{version}-' + uuid.uuid4().hex + '.sqlite3')
         # Separate read connection sees the committed v1 snapshot while the writer
         # reservation prevents another mutation between backup and migration.
         source = sqlite3.connect(ledger.path.as_uri() + '?mode=ro', uri=True)
@@ -57,10 +58,13 @@ def migrate(ledger):
         finally:
             source.close()
             backup.close()
-        for statement in SCHEMA:
-            conn.execute(statement)
-        conn.execute('PRAGMA user_version=2')
-        return {'schema_version': 2, 'changed': True, 'backup': str(target)}
+        if version == 1:
+            for statement in SCHEMA:
+                conn.execute(statement)
+        conn.execute('DROP INDEX one_active_attempt_per_task')
+        conn.execute("CREATE UNIQUE INDEX one_active_attempt_per_unit ON attempts(task_id,COALESCE(json_extract(operation,'$.unit'),'root')) WHERE status IN ('reserved','running','unknown')")
+        conn.execute('PRAGMA user_version=3')
+        return {'schema_version': 3, 'changed': True, 'backup': str(target)}
 
 
 class Control:
@@ -70,7 +74,7 @@ class Control:
 
     def _execution(self, conn, task_id):
         task = self.ledger._task(conn, task_id)
-        if conn.execute('PRAGMA user_version').fetchone()[0] != 2:
+        if conn.execute('PRAGMA user_version').fetchone()[0] not in (2, 3):
             raise LedgerError('Run core migrate before enabling execution.')
         execution = conn.execute('SELECT * FROM executions WHERE task_id=?', (task_id,)).fetchone()
         if execution is None:
@@ -81,7 +85,7 @@ class Control:
         """Trusted controller API. Does not convert inbox answers into authority."""
         with self.ledger.transaction(write=True) as conn:
             task = self.ledger._task(conn, task_id)
-            if conn.execute('PRAGMA user_version').fetchone()[0] != 2:
+            if conn.execute('PRAGMA user_version').fetchone()[0] not in (2, 3):
                 raise LedgerError('Run core migrate first.')
             if revision != task['revision']:
                 raise LedgerError('Stale task revision.')
@@ -97,8 +101,9 @@ class Control:
             self.ledger._event(conn, task_id, 'execution.configured', {'revision': bound})
             return dict(conn.execute('SELECT * FROM executions WHERE task_id=?', (task_id,)).fetchone())
 
-    def reserve(self, task_id, execution_revision, request_key, operation):
+    def reserve(self, task_id, execution_revision, request_key, operation, *, on_reserved=None):
         key_field(request_key)
+        unit = key_field(operation.get('unit', 'root'))
         encoded = canonical(operation)
         operation_hash = content_hash(operation)
         with self.ledger.transaction(write=True) as conn:
@@ -120,8 +125,10 @@ class Control:
             limits = json.loads(task['payload'])['grant']['limits']
             if execution['used_calls'] + execution['reserved_calls'] >= limits['max_calls']:
                 raise LedgerError('Root call budget exhausted.')
-            if conn.execute("SELECT 1 FROM attempts WHERE task_id=? AND status IN ('reserved','running','unknown')",
-                            (task_id,)).fetchone():
+            if unit != 'root' and conn.execute('PRAGMA user_version').fetchone()[0] < 3:
+                raise LedgerError('Parallel work units require core migrate to schema v3.')
+            active = conn.execute("SELECT operation FROM attempts WHERE task_id=? AND status IN ('reserved','running','unknown')", (task_id,)).fetchall()
+            if any(unit == 'root' or json.loads(r['operation']).get('unit', 'root') in ('root', unit) for r in active):
                 raise LedgerError('Previous attempt must stop and reconcile first.')
             if conn.execute("SELECT COUNT(*) FROM attempts WHERE status IN ('reserved','running','unknown')").fetchone()[0] >= 2:
                 raise CapacityWait('Global worker capacity exhausted.')
@@ -134,7 +141,10 @@ class Control:
                           'reserved', 0, None, None, stamp, stamp))
             conn.execute("UPDATE executions SET reserved_calls=reserved_calls+1,status='running' WHERE task_id=?", (task_id,))
             self.ledger._event(conn, task_id, 'attempt.reserved', {'id': attempt_id, 'generation': generation})
-            return dict(conn.execute('SELECT * FROM attempts WHERE id=?', (attempt_id,)).fetchone())
+            row = dict(conn.execute('SELECT * FROM attempts WHERE id=?', (attempt_id,)).fetchone())
+            if on_reserved:
+                on_reserved(conn, row)
+            return row
 
     def _attempt(self, conn, attempt_id):
         row = conn.execute('SELECT a.* FROM attempts a JOIN tasks t ON t.id=a.task_id '
@@ -200,8 +210,9 @@ class Control:
                              (0 if not_started else 1, row['task_id']))
             conn.execute("UPDATE attempts SET status='settled',charged=?,result=?,updated_at=? WHERE id=?",
                          (0 if not_started else 1, encoded, utcnow(), attempt_id))
-            conn.execute("UPDATE executions SET status=CASE WHEN cancel_requested=1 THEN 'cancelled' WHEN status='paused' THEN 'paused' ELSE 'queued' END WHERE task_id=?",
-                         (row['task_id'],))
+            active = conn.execute("SELECT 1 FROM attempts WHERE task_id=? AND status IN ('reserved','running','unknown')", (row['task_id'],)).fetchone()
+            conn.execute("UPDATE executions SET status=CASE WHEN cancel_requested=1 THEN ? WHEN status='paused' THEN 'paused' ELSE ? END WHERE task_id=?",
+                         ('cancelling' if active else 'cancelled', 'running' if active else 'queued', row['task_id']))
             self.ledger._event(conn, row['task_id'], 'attempt.settled', {'id': attempt_id, 'result': result})
 
     def cancel(self, task_id):
