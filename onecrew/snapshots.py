@@ -68,7 +68,15 @@ def durable_write(target, data):
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, target)
+        # A Windows reader may briefly hold the destination without delete sharing.
+        # Retry only this atomic replacement; never truncate the existing receipt.
+        for attempt in range(5):
+            try:
+                os.replace(temporary, target)
+                break
+            except PermissionError:
+                if os.name!='nt' or attempt==4:raise
+                __import__('time').sleep(.02*(attempt+1))
     finally:
         temporary.unlink(missing_ok=True)
 

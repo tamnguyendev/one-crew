@@ -2,30 +2,31 @@
 
 ## Revision 9 implementation — current tracking
 
-Proposal sources: architecture.vi.md, shared-conversation.vi.md, solution-approval.vi.md, discussion-routing.vi.md. Baseline: 15d1cbe. Current cycle: 1. User authorized implementation of revision 9; this is the approved runtime architecture, not permission to approve future product solutions.
+Sources: architecture.vi.md, shared-conversation.vi.md, solution-approval.vi.md, discussion-routing.vi.md. Baseline 15d1cbe; conversation foundation 48e579b. User authorized implementation of this architecture, not blanket approval of future product solutions. Current cycles 2–4 completed: runtime gate, consultation/adapters, slice/outbox integration. Historical tables below retain their original baseline dates/statuses.
 
-| ID | Requirement | Implementation / verification | Status | Remaining |
+| ID | Requirement | Implementation / evidence | Status | Boundary / remaining |
 |---|---|---|---|---|
-| CS01 | Conversation before task, project isolation | conversations.py; test_conversations no-task/isolation/read-only tests | Complete | Local single-user boundary |
-| CS02 | Durable contributions, provenance, cursor/idempotency | SQLite transactions; concurrent append/restart/page/conflict tests | Complete | No remote transport |
-| CS03 | Referenced summary/delta preserving decisions | read/summarize; stale-summary and source-ref tests | Complete | Summary semantics explicitly unverified |
-| CS04 | CLI/MCP and live host adapters | conversation CLI added | Partial | MCP and two-host live evidence |
-| CS05 | Approval and task binding | solution propose/select/decide, stale approval tests | Partial | Runtime execution gate |
-| CS06 | Events, recovery and compatibility | Conversation events durable | Partial | Runtime outbox/legacy integration |
-| SG01 | Solution before write execution | Data model ready | Partial | Enforce at intake/start |
-| SG02 | Revision-bound approval on all entry paths | CAS proposal selection and decisions | Partial | Execution binding/legacy spec gate |
-| SG03 | Technical/change request holds | Existing task inbox only | Missing | Conversation questions/affected task hold |
-| SG04 | Contract-first related work/early review | Legacy DAG/amend retained | Partial | Bind solution to work and review checkpoint |
-| SG05 | Solution-aware output review | Existing reviewers retained | Partial | Supply/verify binding and acceptance |
-| DR01 | Current-entry and explicit user route | Design only | Missing | Routing implementation/tests |
-| DR02 | Separate discussion/execution policy | Design only | Missing | Consultation model configuration |
-| DR03 | JEV guarded/shadow decision | Existing JEV shadow | Partial | Discussion integration/evaluation |
-| DR04 | Bounded recoverable consultation | Existing supervisor foundation | Missing | Consultation execution unit |
-| DR05 | Results return to conversation | Conversation storage ready | Partial | Consultation output/event lifecycle |
-| DR06 | Routing outcome assessment | Existing task learning | Partial | Consultation evidence and feedback |
+| CS01 | Conversation before task, project isolation | conversations.py; no-task/read-only/isolation tests | Complete | Local same-OS-user boundary |
+| CS02 | Durable provenance, cursor, ACK/idempotency | Concurrent append, replay/collision/restart tests | Complete | No private transcript import |
+| CS03 | Referenced summary/delta preserving decisions | Stale summary, references, bounded delta and current questions | Complete | Semantic summary explicitly unverified |
+| CS04 | CLI/MCP with actual host read/write | conversation_cli/mcp; Claude and Codex CLI durable ACKs in revision9-live-evidence.json | Complete | Kiro MCP/Desktop automatic sync unverified; host must call tools |
+| CS05 | Solution approval/task binding | Owned submit transaction; legacy spec gate; solution bind for sealed DAG | Complete | Existing pre-upgrade authority retained |
+| CS06 | Events/recovery/compatibility | Same notification batch/ACK plus conversation cursor, no AI polling; receipt replay tests | Complete | No unsolicited Desktop callback |
+| SG01 | Solution before new write job | Intake rejects missing approval; read-only audit works | Complete | Native execution still needs explicit recipe grant |
+| SG02 | Exact approval at entry/admission/mutation | Control, owned, native, sandbox/action gates; stale/reaffirmation/stop tests | Complete | Local attribution, not multi-user authentication |
+| SG03 | Required change holds across entries | CREQ persistence, affected same-contract closure; stop/continue/revise; bound answers enter prompts | Complete | Applying a revision waits for settled attempts; published changes need reconciliation |
+| SG04 | Shared contract and first-slice gate | One live owned writer/SOL; bound sealed DAG tests A → user review → B/C → D; existing amendment closure | Complete | No automatic native multi-repo graph synthesis; legacy DAG must be sealed |
+| SG05 | Solution-aware review and outputs | Full brief/detail/hash in worker/reviewer; output events carry SOL/revision/snapshot | Complete | Tests/review do not prove every semantic expectation |
+| DR01 | Current entry vs actual pin/auto | discussion.py; default no invocation; structured explicit intent, mentions remain data | Complete | Entry interprets actual user intent; no keyword auto-dispatch |
+| DR02 | Separate discussion/execution preference | No model_preferences dependency; provider/model pin and verified default aliases | Complete | Kiro model must be explicit |
+| DR03 | JEV after hard gates, bounded shadow | Rule filtering/revalidation, persisted evaluator intent, uncertain call not retried; pin wins | Complete | Initial shadow rollout only; benchmark and operator policy required before auto-apply |
+| DR04 | Bounded recoverable consultation | Separate CONSULT storage, same runner/supervisor/global capacity; crash/cancel/stale/oversize tests + real Claude review | Complete | One native invocation is not a cap on provider internal model turns |
+| DR05 | Return to CONV and supported entry | Result event, conversation delta, CLI/MCP show and existing outbox ACK | Complete | Pull is supported; Desktop push unavailable |
+| DR06 | Routing outcome assessment | Feedback/evidence/first-acceptance/missed issues/rework, usage/latency/provider metadata retained per consultation | Complete | Collection/evaluation plumbing only; no calibrated policy promotion claimed |
 
-Cycle 1 validation: 6 tests passed (concurrent writes, restart/idempotency, cross-project isolation, proposal conflict, stale approval/open questions, summary references, secret rejection). No worker was invoked. Existing rows below are historical design/baseline evidence, not claims that the new flow is already complete.
+Validation: full regression **443 tests passed** (289.772 s), then **81 focused tests passed** (28.069 s) after final gate/recovery changes. An additional 19 solution-gate tests passed; the final frozen-context recovery pass ran **83 tests successfully** (35.710 s), proving replies cannot change a reserved prompt or trigger duplicate inference. Compileall and diff checks pass. Wheel packaging succeeded: onecrew-0.1.0-py3-none-any.whl (isolated build; runtime dependencies unchanged). Existing process-containment tests emit ResourceWarning for subprocess objects, but cleanup and stop assertions pass. Synthetic live evidence: one Claude solution review; Claude and Codex CLI read/append the same CONV with independent durable MSG ACKs. Earlier MCP setup failures are retained in evidence; provider completion alone is not treated as tool success. No customer source modified, no old worker automatically resumed, no heartbeat re-enabled.
 
+An earlier full run found one Windows receipt sharing race; android_jobs read and durable atomic replace now retry only PermissionError on Windows, at most five attempts/200 ms total wait. Focused build tests and the subsequent full regression pass. The new shared discussion and decision gates are ready for a bounded real-task trial, not evidence of eight-hour soak or universal model-routing quality. Instructions: [revision9-implementation.vi.md](revision9-implementation.vi.md).
 
 ## Discussion routing — revision 9
 

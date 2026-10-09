@@ -10,6 +10,7 @@ from .ledger import LedgerError, canonical, content_hash, key_field, text_field,
 from .discovery import scan_text
 
 DDL=(
+    '''CREATE TABLE IF NOT EXISTS conversation_projects(project_id TEXT PRIMARY KEY, project_path TEXT NOT NULL)''',
     '''CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
        request_key TEXT NOT NULL, initial_hash TEXT NOT NULL, title TEXT NOT NULL,
        status TEXT NOT NULL, current_solution TEXT, summary TEXT, created_at TEXT NOT NULL,
@@ -72,6 +73,7 @@ def create(ledger,title,request_key,source='cli'):
     initial=content_hash({'title':title,'source':source})
     with ledger.transaction(write=True) as conn:
         ensure(conn)
+        conn.execute('INSERT OR REPLACE INTO conversation_projects VALUES(?,?)',(ledger.project_id,ledger.project_path))
         old=conn.execute('SELECT * FROM conversations WHERE project_id=? AND request_key=?',(ledger.project_id,request_key)).fetchone()
         if old:
             if old['initial_hash']!=initial: raise LedgerError('Conversation key has different initial data.')
@@ -152,7 +154,8 @@ def show_solution(ledger,sid):
         decision=conn.execute('SELECT * FROM solution_decisions WHERE solution=? ORDER BY rowid DESC LIMIT 1',(sid,)).fetchone()
         sol['decision']=dict(decision) if decision else None
         parent=_solution(ledger,conn,sol['parent']) if sol['parent'] else None
-        sol['diff']=''.join(difflib.unified_diff(canonical(parent['payload']).splitlines(True) if parent else [],canonical(sol['payload']).splitlines(True),fromfile=sol['parent'] or 'empty',tofile=sid))
+        render=lambda p:json.dumps(p,ensure_ascii=False,indent=2).splitlines(True)
+        sol['diff']=''.join(difflib.unified_diff(render(parent['payload']) if parent else [],render(sol['payload']),fromfile=sol['parent'] or 'empty',tofile=sid))
         return sol
 
 
@@ -211,7 +214,19 @@ def read(ledger,cid,after=0,limit=20):
         decision=conn.execute('SELECT * FROM solution_decisions WHERE solution=? ORDER BY rowid DESC LIMIT 1',(sol['id'],)).fetchone() if sol else None
         pending=[dict(q,payload=json.loads(q['payload'])) for q in conn.execute("SELECT * FROM conversation_questions WHERE conversation=? AND state='pending' ORDER BY created_at",(cid,))]
         bindings=[dict(b) for b in conn.execute('SELECT * FROM solution_bindings WHERE conversation=?',(cid,))]
+        task_questions=[]
+        for b in bindings:
+            task_questions.extend(ledger._request_view(q) for q in conn.execute("SELECT * FROM requests WHERE task_id=? AND state='pending'",(b['task_id'],)))
         cursor=events[-1]['seq'] if events else after
+        from .consultations import installed as consultations_installed,view as consultation_view
+        reviews=[]
+        if consultations_installed(conn):
+            for q in conn.execute('SELECT id FROM consultations WHERE conversation=? ORDER BY rowid DESC LIMIT 20',(cid,)):
+                review=consultation_view(ledger,q['id'],conn)
+                reviews.append({k:review[k] for k in ('id','status','stale','actual_model')} | {
+                    'solution':review['request']['solution'],'revision':review['request']['revision'],
+                    'provider':review['request']['route']['provider'],'verdict':str((review['output'] or {}).get('verdict',''))[:500],
+                    'details':'consultation show '+review['id']})
         return dict(id=cid,title=row['title'],status=row['status'],solution=sol,decision=dict(decision) if decision else None,
             summary=summary,events=events,cursor=cursor,latest_cursor=latest,has_more=cursor<latest,
-            pending_questions=pending,tasks=bindings,trust='local_attribution_only',private_chat_imported=False)
+            pending_questions=pending,pending_task_questions=task_questions,tasks=bindings,consultations=reviews,trust='local_attribution_only',private_chat_imported=False)

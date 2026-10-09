@@ -27,6 +27,9 @@ class OwnedTests(unittest.TestCase):
         (self.root/'test_calc.py').write_text('import unittest\nfrom calc import add\nclass Tests(unittest.TestCase):\n def test_add(self): self.assertEqual(add(2,3),5)\n')
 
     def runtime(self,responses,**kwargs):
+        if kwargs.get('mode','audit')!='audit' and not kwargs.get('solution_id'):
+            from tests.test_solution_gate import approve_fixture
+            kwargs.update(approve_fixture(self.ledger))
         task=submit(self.ledger,'Inspect/fix scoped fixture','job',**kwargs)
         expanded=[]
         for response in responses:

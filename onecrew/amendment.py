@@ -67,6 +67,10 @@ def apply(workflow, task_id, revision, spec_revision, profile, selected, reason)
         spec = Project(workflow.ledger.project).find(task['spec_id'])
         if spec.revision != spec_revision:
             raise LedgerError('Stale spec revision; review the edited spec first.')
+        if task['handoff'].get('solution_required')=='spec':
+            decisions=Project(workflow.ledger.project).decisions(spec.id)
+            if not decisions or decisions[0]['kind']!='approved' or decisions[0]['revision']!=spec_revision:
+                raise LedgerError('Approve the amended spec revision before applying it.')
         previous_spec = (state.get('amendment') or {}).get('spec_revision', task['spec_revision'])
         if spec_revision == previous_spec and profile == old_profile:
             raise LedgerError('No requirement change to apply.')

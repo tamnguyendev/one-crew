@@ -35,6 +35,9 @@ def round(workflow, task_id, sequence, state, ready, common, profile):
                       + '\nYOUR ONLY ASSIGNMENT\n' + canonical(item)
                       + '\nOUTPUT FILES MUST BE A SUBSET OF: ' + canonical(item['owned']))
             schema = artifact_schema(item['owned'])
+            from .solution_gate import context as solution_context
+            binding=solution_context(ledger,task_id)
+            if binding.get('content'):prompt+='\nAPPROVED SOLUTION CONTRACT\n'+canonical(binding)
             if len(prompt) > 80_000:
                 raise LedgerError('Parallel worker context exceeds 80000 characters.')
             operation = {'unit': 'task:' + item['id'], 'stage': item['id'], 'snapshot': base,

@@ -1,6 +1,8 @@
 # Điều hướng thảo luận — DR01–DR06, revision 9
 
-Thiết kế theo yêu cầu ngày 09/10/2026, bổ sung [conversation CS01–CS06](shared-conversation.vi.md) và [solution SG01–SG05](solution-approval.vi.md). Chưa triển khai discussion router hoặc consultation dispatch. Cập nhật tài liệu không bật JEV tự động, gọi Claude, đổi preference hay kết nối các chat.
+**Cập nhật triển khai 09/10/2026:** CLI/MCP conversation, solution gates, consultation runner và notification đã có. Đọc [hướng dẫn revision 9](revision9-implementation.vi.md) và [coverage hiện hành](proposal-coverage.md) trước các bảng thiết kế/baseline phía dưới. Hai CLI Claude/Codex đã có durable ACK thật; Desktop callback và Kiro MCP live chưa được xác nhận. JEV vẫn shadow.
+
+Thiết kế theo yêu cầu ngày 09/10/2026, bổ sung [conversation CS01–CS06](shared-conversation.vi.md) và [solution SG01–SG05](solution-approval.vi.md). Các bảng baseline dưới đây mô tả thiết kế trước triển khai; trạng thái code và kiểm chứng hiện hành ở liên kết cập nhật đầu trang. JEV không tự áp dụng quyết định.
 
 ## 1. Quy tắc người dùng nhìn thấy
 

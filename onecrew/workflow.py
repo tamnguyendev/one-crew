@@ -301,6 +301,8 @@ class Workflow:
                 raise LedgerError('Workflow changed concurrently; reload before continuing.')
             self.ledger._event(conn, task_id, 'workflow.checkpoint', state)
             checkpoint_sequence = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+            from .solution_gate import publish
+            publish(self.ledger,conn,task_id,state)
             receipt = state.get('triage_receipt')
             if receipt and not conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='request.consumed' AND json_extract(payload,'$.reply_id')=?", (task_id, receipt['reply_id'])).fetchone():
                 self.ledger._event(conn, task_id, 'request.consumed', receipt)
@@ -358,6 +360,12 @@ class Workflow:
             return state
 
     def _invoke(self, task_id, seq, state, stage, prompt, schema, profile, *, unit=None):
+        from .solution_gate import context
+        binding=state.get('pending_solution_context') if state.get('pending') else None
+        if binding is None:binding=context(self.ledger,task_id)
+        if not state.get('pending'):state['pending_solution_context']=binding
+        if binding.get('content'):
+            prompt+='\nAPPROVED SOLUTION CONTRACT (report deviations as questions, never silently change):\n'+canonical(binding)
         if len(prompt) > 80_000:
             raise LedgerError('Worker context exceeds 80000 characters; narrow explicit context.')
         config = self.control.status(task_id)
@@ -394,6 +402,7 @@ class Workflow:
         from .usage import record
         record(state, attempt['id'], usage, profile['provider'], profile['model'])
         state['pending'] = None
+        state.pop('pending_solution_context',None)
         state.pop('revalidate_pending', None)
         return seq, value
 
@@ -461,6 +470,12 @@ class Workflow:
                         if not repair and profile.get('parallel'):
                             from .parallel import ready_batch, round as parallel_round
                             batch = ready_batch(state)
+                            from .solution_slices import permit_parallel
+                            permitted=permit_parallel(self,task_id,state,profile) if len(batch)==2 and not state.get('parallel_pending') else True
+                            if permitted is None:
+                                self.persist(task_id,sequence,state)
+                                return state
+                            if not permitted:batch=batch[:1]
                             if state.get('parallel_pending') or len(batch) == 2:
                                 sequence = parallel_round(self, task_id, sequence, state, batch, common, profile)
                                 task = self.ledger.task(task_id, full=True)

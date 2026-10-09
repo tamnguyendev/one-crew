@@ -32,6 +32,8 @@ class VectorTests(unittest.TestCase):
         (other/'specs').mkdir(parents=True)
         (other/'specs/SPEC-001-duyet-spec.md').write_text(fixtures.SAMPLE,encoding='utf-8')
         ledger = Ledger(other,self.f.ledger.state_root)
+        spec=Project(other).find('SPEC-001')
+        Project(other).decide(spec,spec.revision,'approved','fixture','Test operator approval')
         task = ledger.submit('SPEC-001',Project(other).find('SPEC-001').revision,'other',
             {'schema_version':1,'permissions':['artifact.generate'],'limits':{'max_calls':6,'max_seconds':300},'source':'fixture'})
         worker = fixtures.FixtureWorker(ledger,[fixtures.plan(),fixtures.artifact('settings.json','{"enabled":true,"workers":2}'),

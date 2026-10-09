@@ -21,11 +21,13 @@ class Revision5Tests(unittest.TestCase):
     def test_recipe_grant_validation_and_submission_identity(self):
         from onecrew.owned_intake import submit
         config=self.config()
-        task=submit(self.f.ledger,'Build old UI','build',mode='branch',branch='onecrew/old',android_build=config)
+        from tests.test_solution_gate import approve_fixture
+        binding=approve_fixture(self.f.ledger)
+        task=submit(self.f.ledger,'Build old UI','build',mode='branch',branch='onecrew/old',android_build=config,**binding)
         self.assertIn('android.build',self.f.ledger.task(task['id'],full=True)['handoff']['grant']['permissions'])
         config['max_seconds']=90
         with self.assertRaises(LedgerError):
-            submit(self.f.ledger,'Build old UI','build',mode='branch',branch='onecrew/old',android_build=config)
+            submit(self.f.ledger,'Build old UI','build',mode='branch',branch='onecrew/old',android_build=config,**binding)
         config['native_authorized']='true'
         with self.assertRaises(LedgerError): validate(config)
 
@@ -129,7 +131,8 @@ class Revision5Tests(unittest.TestCase):
         fixture=AndroidTests();fixture.setUp();self.addCleanup(fixture.doCleanups)
         config=dict(flutter_root=str(fixture.flutter),android_sdk=str(fixture.sdk),dependency_root=None,
             dependency_policy='as-of',max_seconds=60,queue_seconds=30,native_authorized=True)
-        task=submit(fixture.f.ledger,'Build old UI','active-build',mode='branch',branch='onecrew/active',android_build=config)['id']
+        from tests.test_solution_gate import approve_fixture
+        task=submit(fixture.f.ledger,'Build old UI','active-build',mode='branch',branch='onecrew/active',android_build=config,**approve_fixture(fixture.f.ledger))['id']
         run=Owned(fixture.f.ledger,FixtureWorker(fixture.f.ledger,[]));run.enable(task)
         profile=run.control.status(task)['configuration']['profile']
         head=fixture.f.git('rev-parse','HEAD').decode().strip()

@@ -276,7 +276,7 @@ class Ledger:
             raise LedgerError('Spec revision is stale; review the current spec before submitting.')
         payload = {'schema_version': 1, 'project_id': self.project_id, 'project_path': self.project_path,
                    'spec_id': spec.id, 'spec_revision': spec.revision, 'spec_text': spec.text,
-                   'title': spec.title, 'grant': grant}
+                   'title': spec.title, 'grant': grant, 'solution_required':'spec'}
         created = utcnow()
         deadline = (dt.datetime.fromisoformat(created) + dt.timedelta(seconds=grant['limits']['max_seconds'])).isoformat()
         with self.transaction(write=True) as conn:

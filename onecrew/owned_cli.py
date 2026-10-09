@@ -19,6 +19,7 @@ def main(argv=None):
     p.add_argument('--model')
     p.add_argument('--max-calls',type=int,default=20);p.add_argument('--max-seconds',type=int,default=1200)
     p.add_argument('--image');p.add_argument('--branch');p.add_argument('--remote')
+    p.add_argument('--solution-id');p.add_argument('--solution-revision')
     p.add_argument('--android-build-config',type=Path,help='Operator-authorized fixed Android recipe JSON, not worker shell commands.')
     p.add_argument('--native-change-config',type=Path,help='Scoped Claude patch and fixed trusted Flutter verification recipe.')
     p.add_argument('--start',action='store_true')
@@ -37,7 +38,7 @@ def main(argv=None):
             build=json.loads(args.android_build_config.read_text(encoding='utf-8-sig')) if args.android_build_config else None
             change=json.loads(args.native_change_config.read_text(encoding='utf-8-sig')) if args.native_change_config else None
             result=submit(ledger,args.goal,args.key,**{k:getattr(args,k) for k in
-                ('mode','provider','model','max_calls','max_seconds','image','branch','remote')},android_build=build,native_change=change)
+                ('mode','provider','model','max_calls','max_seconds','image','branch','remote','solution_id','solution_revision')},android_build=build,native_change=change)
             if args.start or args.terminal:
                 from .owned import Owned
                 from .runner import start

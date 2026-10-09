@@ -1,5 +1,7 @@
 # Kế hoạch triển khai OneCrew — 09/10/2026, revision 9
 
+**Cập nhật triển khai 09/10/2026:** CLI/MCP conversation, solution gates, consultation runner và notification đã có. Đọc [hướng dẫn revision 9](revision9-implementation.vi.md) và [coverage hiện hành](proposal-coverage.md) trước các bảng thiết kế/baseline phía dưới. Hai CLI Claude/Codex đã có durable ACK thật; Desktop callback và Kiro MCP live chưa được xác nhận. JEV vẫn shadow.
+
 ## Ưu tiên hiện hành: conversation → solution → execution
 
 [Kiến trúc revision 9](architecture.vi.md), [CS01–CS06](shared-conversation.vi.md), [SG01–SG05](solution-approval.vi.md) và [DR01–DR06](discussion-routing.vi.md) là thứ tự nâng cấp tiếp theo. Các gate runtime/recovery/learning cũ chưa hoàn tất vẫn giữ; không đổi trạng thái task đang chạy bởi việc cập nhật tài liệu.

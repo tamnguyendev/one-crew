@@ -199,6 +199,8 @@ class ContainerGate:
 
 def task_guard(control, task_id):
     def check():
+        from .solution_gate import check as check_solution
+        check_solution(control.ledger,task_id)
         state = control.status(task_id)
         if (state['cancel_requested'] or state['status'] == 'paused'
                 or control.clock() >= dt.datetime.fromisoformat(state['deadline'])):

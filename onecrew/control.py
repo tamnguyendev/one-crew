@@ -86,6 +86,8 @@ class Control:
         """Trusted controller API. Does not convert inbox answers into authority."""
         with self.ledger.transaction(write=True) as conn:
             task = self.ledger._task(conn, task_id)
+            from .solution_gate import check as check_solution
+            check_solution(self.ledger,task_id,conn)
             if conn.execute('PRAGMA user_version').fetchone()[0] not in (2, 3):
                 raise LedgerError('Run core migrate first.')
             if revision != task['revision']:
@@ -109,6 +111,8 @@ class Control:
         operation_hash = content_hash(operation)
         with self.ledger.transaction(write=True) as conn:
             task, execution = self._execution(conn, task_id)
+            from .solution_gate import check as check_solution
+            check_solution(self.ledger,task_id,conn)
             if execution['revision'] != execution_revision:
                 raise LedgerError('Stale execution revision.')
             old = conn.execute('SELECT * FROM attempts WHERE task_id=? AND request_key=?',
@@ -135,7 +139,8 @@ class Control:
             active = conn.execute("SELECT operation FROM attempts WHERE task_id=? AND status IN ('reserved','running','unknown')", (task_id,)).fetchall()
             if any(unit == 'root' or json.loads(r['operation']).get('unit', 'root') in ('root', unit) for r in active):
                 raise LedgerError('Previous attempt must stop and reconcile first.')
-            if conn.execute("SELECT COUNT(*) FROM attempts WHERE status IN ('reserved','running','unknown')").fetchone()[0] >= 2:
+            from .consultations import active_count
+            if conn.execute("SELECT COUNT(*) FROM attempts WHERE status IN ('reserved','running','unknown')").fetchone()[0]+active_count(conn) >= 2:
                 raise CapacityWait('Global worker capacity exhausted.')
             generation = conn.execute('SELECT COALESCE(MAX(generation),0)+1 FROM attempts WHERE task_id=?',
                                       (task_id,)).fetchone()[0]
@@ -177,6 +182,8 @@ class Control:
             if row['status'] != 'reserved':
                 raise LedgerError('Attempt cannot launch from current state.')
             task, execution = self._execution(conn, row['task_id'])
+            from .solution_gate import check as check_solution
+            check_solution(self.ledger,row['task_id'],conn)
             if execution['cancel_requested'] or execution['status'] == 'paused' or self.clock() >= dt.datetime.fromisoformat(current_budget(conn, task)['deadline']):
                 raise LedgerError('Cancel or deadline prevents launch.')
             from .branch_inbox import blocks
@@ -291,6 +298,8 @@ class Control:
         # Internal trusted controller API; intentionally not exposed as an inbox reply.
         with self.ledger.transaction(write=True) as conn:
             row = self._action(conn, action_id)
+            from .solution_gate import check as check_solution
+            check_solution(self.ledger,row['task_id'],conn)
             if row['revision'] != revision:
                 raise LedgerError('Stale action revision.')
             if row['status'] == 'authorized':
@@ -305,6 +314,8 @@ class Control:
             row = self._action(conn, action_id)
             if row['receipt']:
                 return json.loads(row['receipt'])
+            from .solution_gate import check as check_solution
+            check_solution(self.ledger,row['task_id'],conn)
             if row['status'] != 'authorized':
                 raise LedgerError('Action is not authorized; unknown/executing actions must be reconciled.')
             conn.execute("UPDATE actions SET status='executing' WHERE id=?", (action_id,))

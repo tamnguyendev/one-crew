@@ -22,6 +22,8 @@ class GoalBudgetTests(unittest.TestCase):
         (project/'specs').mkdir(parents=True)
         (project/'specs/SPEC-001-duyet-spec.md').write_text(fixtures.SAMPLE,encoding='utf-8')
         self.other = Ledger(project,self.f.ledger.state_root)
+        spec=Project(project).find('SPEC-001')
+        Project(project).decide(spec,spec.revision,'approved','fixture','Test operator approval')
         grant = {'schema_version':1,'permissions':['artifact.generate'],'limits':{'max_calls':6,'max_seconds':300},'source':'fixture'}
         self.task = self.other.submit('SPEC-001',Project(project).find('SPEC-001').revision,'other',grant)
         self.worker = fixtures.FixtureWorker(self.other,[])

@@ -58,8 +58,8 @@ class HistoryTests(unittest.TestCase):
         with patch.object(self.worker,'run',wraps=self.worker.run) as invoke:
             state=self.run.run(self.task)
         review_calls=[c for c in invoke.call_args_list if 'review_phase' in c.args[1]]
-        before=json.loads(review_calls[0].args[1].split('\n',1)[1])
-        after=json.loads(review_calls[1].args[1].split('\n',1)[1])
+        before=json.loads(review_calls[0].args[1].split('\n',1)[1].split('\nAPPROVED SOLUTION CONTRACT')[0])
+        after=json.loads(review_calls[1].args[1].split('\n',1)[1].split('\nAPPROVED SOLUTION CONTRACT')[0])
         self.assertEqual(before['review_phase'],'pre_execution');self.assertEqual(before['branch_receipts'],[])
         self.assertEqual(after['review_phase'],'completion');self.assertEqual(len(after['branch_receipts']),1)
         self.assertEqual(state['phase'],'completed',state['message'])

@@ -47,6 +47,8 @@ class AmendmentTests(unittest.TestCase):
 
     def amend(self, profile=None, selected=None, revision=None):
         _, state = self.workflow.state(self.f.task['id'])
+        spec=Project(self.f.project).find('SPEC-001')
+        Project(self.f.project).decide(spec,spec.revision,'approved','fixture','Actual fixture operator approves new requirements')
         return apply(self.workflow, self.f.task['id'], revision or content_hash(state),
                      Project(self.f.project).find('SPEC-001').revision, profile or self.profile,
                      selected or ['B'], 'Explicit local operator requirement update')

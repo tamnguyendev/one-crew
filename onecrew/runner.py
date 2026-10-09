@@ -21,6 +21,10 @@ def workflow_for(ledger, task_id):
 
 
 def status(ledger, task_id):
+    if task_id.startswith('CONSULT-'):
+        from .consultations import view
+        record=view(ledger,task_id)['runner']
+        return dict(record,status=probe(record['identity'])) if record else {'status':'stopped'}
     with ledger.transaction() as conn:
         ledger._task(conn, task_id)
         rows = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='runner.started' ORDER BY seq DESC LIMIT 10", (task_id,)).fetchall()
@@ -34,6 +38,13 @@ def status(ledger, task_id):
 
 def loop(ledger, task_id, interval=.5):
     with task_lock(ledger, task_id + '.runner'):
+        if task_id.startswith('CONSULT-'):
+            from .consultations import run
+            # Same detached controller; one bounded review. Capacity waits are code, not model calls.
+            while True:
+                result=run(ledger,task_id)
+                if result.get('waiting_reason')!='capacity':return result['status']
+                time.sleep(interval)
         workflow = workflow_for(ledger, task_id)
         record = {'identity': identity(os.getpid()), 'started_at': dt.datetime.now(dt.timezone.utc).isoformat()}
         with ledger.transaction(write=True) as conn:
@@ -101,10 +112,14 @@ def start(ledger, task_id):
     if os.name != 'nt':
         raise LedgerError('Detached controller is verified only on native Windows.')
     current = status(ledger, task_id)
-    if current['status'] != 'stopped':
+    if current['status'] not in ('stopped','dead'):
         return current
-    workflow = workflow_for(ledger, task_id)
-    _, state = workflow.state(task_id)
+    if task_id.startswith('CONSULT-'):
+        from .consultations import view
+        state={'phase':view(ledger,task_id)['status']}
+    else:
+        workflow = workflow_for(ledger, task_id)
+        _, state = workflow.state(task_id)
     if state is None or state['phase'] in ('completed', 'failed', 'cancelled'):
         raise LedgerError('Enable/resume a non-terminal workflow before start.')
     directory = ledger.state_root/'runners'/uuid.uuid4().hex

@@ -235,12 +235,15 @@ def advance(runtime,task_id,seq,state,profile):
             if not isinstance(value.get('report'),str) or not isinstance(value.get('question'),str): raise LedgerError('Invalid patch result.')
             scan_text(value['report'].encode());scan_text(value['question'].encode())
             if value['question']:
-                runtime._tool(task_id,state,'ask',{'question':value['question'][:1500],'reason':'Required fix clarification.',
+                from .solution_gate import context
+                action='solution_change' if context(runtime.ledger,task_id).get('conversation') else 'ask'
+                runtime._tool(task_id,state,action,{'question':value['question'][:1500],'reason':'Required fix clarification; review impact on approved solution.',
                     'options':[{'id':'details','label':'Cung cấp thông tin qua entry note'},{'id':'stop','label':'Dừng để xem lại phạm vi'}],
                     'recommendation':'details'},profile)
                 native['feedback']='Read the actual user clarification before continuing.'
             else:
                 if not 20<=len(value['report'])<=20000: raise LedgerError('Invalid report length.')
+                task_guard(runtime.control,task_id)()
                 install_candidate(runtime,state,value,recipe);native['stage']='verify';state['message']='Native patch captured; fixed Flutter regression tests pending.'
         else:
             if type(value.get('accepted')) is not bool or not isinstance(value.get('feedback'),str): raise LedgerError('Invalid native review.')

@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-09",
+  "scope": "synthetic local fixture; no customer source",
+  "review": {
+    "id": "CONSULT-c7eace407df440a19e74e0594dbeed8a",
+    "status": "completed",
+    "conversation": "CONV-f0265838bdd24b82830622b199c15dda",
+    "stale": false,
+    "usage": [
+      {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 1223,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 1223,
+        "cache_read_input_tokens": 0,
+        "fallback_credit": null,
+        "inference_geo": "global",
+        "input_tokens": 2,
+        "iterations": [
+          {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 1223,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 1223,
+            "cache_read_input_tokens": 0,
+            "input_tokens": 2,
+            "output_tokens": 1281,
+            "type": "message"
+          }
+        ],
+        "output_tokens": 1281,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "server_tool_use": {
+          "web_fetch_requests": 0,
+          "web_search_requests": 0
+        },
+        "service_tier": "standard",
+        "speed": "standard"
+      }
+    ]
+  },
+  "hosts": [
+    {
+      "provider": "claude",
+      "status": "completed",
+      "consultation": "CONSULT-c7819e5386a046a1a0d4172ffa6f627c",
+      "ack": "MSG-91d1537a126e41fe9b78d35cc971e66d"
+    },
+    {
+      "provider": "codex",
+      "status": "completed",
+      "consultation": "CONSULT-ea2aa4cc9c6e4909a75e4a6bcc2b0b09",
+      "ack": "MSG-6fb1475a25a241d89b601e5850e6945b"
+    }
+  ],
+  "attempts": [
+    {
+      "id": "CONSULT-c7eace407df440a19e74e0594dbeed8a",
+      "provider": "claude",
+      "status": "completed",
+      "error": null,
+      "invocations": 1
+    },
+    {
+      "id": "CONSULT-c29a05f0153d4c5f974a0fb6e7573a80",
+      "provider": "claude",
+      "status": "completed",
+      "error": null,
+      "invocations": 1
+    },
+    {
+      "id": "CONSULT-a112e3c4385742c9a064d10fe203e647",
+      "provider": "codex",
+      "status": "failed",
+      "error": "alternatives: expected non-empty text, at most 5000 characters.",
+      "invocations": 1
+    },
+    {
+      "id": "CONSULT-6b65f4d2e13b4c9686623e0dfd9d597b",
+      "provider": "claude",
+      "status": "completed",
+      "error": null,
+      "invocations": 1
+    },
+    {
+      "id": "CONSULT-7d585e52e8e0427e85b392be55f02c63",
+      "provider": "codex",
+      "status": "completed",
+      "error": null,
+      "invocations": 1
+    },
+    {
+      "id": "CONSULT-c7819e5386a046a1a0d4172ffa6f627c",
+      "provider": "claude",
+      "status": "completed",
+      "error": null,
+      "invocations": 1
+    },
+    {
+      "id": "CONSULT-368a99ab612540b3baf14c481aab1030",
+      "provider": "codex",
+      "status": "failed",
+      "error": "Worker attempted a tool outside artifact authority.",
+      "invocations": 1
+    },
+    {
+      "id": "CONSULT-ea2aa4cc9c6e4909a75e4a6bcc2b0b09",
+      "provider": "codex",
+      "status": "completed",
+      "error": null,
+      "invocations": 1
+    }
+  ],
+  "observed_limits": [
+    "Initial MCP child launch failed with Store Python.",
+    "Claude safe-mode disables MCP.",
+    "Codex required per-tool approval for the two synthetic read/append operations.",
+    "No global host config modified. No Desktop push callback claimed.",
+    "Provider output completion alone did not prove MCP success; ACK checked in ledger."
+  ]
+}

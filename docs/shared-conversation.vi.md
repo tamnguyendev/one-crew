@@ -1,5 +1,7 @@
 # Conversation chung — contract CS01–CS06, revision 8
 
+**Cập nhật triển khai 09/10/2026:** CLI/MCP conversation, solution gates, consultation runner và notification đã có. Đọc [hướng dẫn revision 9](revision9-implementation.vi.md) và [coverage hiện hành](proposal-coverage.md) trước các bảng thiết kế/baseline phía dưới. Hai CLI Claude/Codex đã có durable ACK thật; Desktop callback và Kiro MCP live chưa được xác nhận. JEV vẫn shadow.
+
 Trạng thái: thiết kế được cập nhật theo yêu cầu người dùng; các API/schema dưới đây là đề xuất, chưa phải lệnh đã triển khai. Bổ sung OC01/OC05/OC06 và SG01–SG05, dùng cùng core/ledger hiện có.
 
 ## 1. Trải nghiệm và ranh giới
@@ -54,7 +56,7 @@ Lưu trong cùng SQLite thuộc OneCrew; artifact/source lớn ở immutable sna
 
 ## 4. Đọc và ghi qua MCP/CLI
 
-Nhóm thao tác dự kiến (tên contract, CHƯA là lệnh CLI):
+Nhóm contract thiết kế (CLI hiện hành và cách gọi chính xác xem revision9-implementation.vi.md):
 
 | Thao tác | Hành vi |
 |---|---|
@@ -88,7 +90,7 @@ Task/solution events đi qua outbox hiện có; entry đọc delta khi attach ho
 
 Không gọi AI định kỳ chỉ để kiểm tra có tin mới. Native viewer chờ event không đồng nghĩa model đang chạy. Khi không có task hoạt động/câu hỏi cần xử lý thì không tạo vòng inference; kết quả cuối vẫn được lưu để người dùng đọc sau. Không tự gửi message tới các chat khác nếu chưa được người dùng giao quyền.
 
-## 7. Hiện trạng và nghiệm thu
+## 7. Baseline trước triển khai và tiêu chí nghiệm thu
 
 Kiểm tra source hiện tại: `entry.py` yêu cầu task_id, packet có 5 notes gần nhất và cursor; `entry note` ghi proposal/decision nhưng không approve. `mcp_entry.py` có status/outputs/inbox và control submit/reply/resume/cancel; chưa expose note/append/conversation. Vì vậy chưa có conversation trước task hoặc đồng bộ thảo luận trọn vẹn.
 

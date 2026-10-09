@@ -1,5 +1,7 @@
 # Duyệt solution trước implement — SG01–SG05
 
+**Cập nhật triển khai 09/10/2026:** CLI/MCP conversation, solution gates, consultation runner và notification đã có. Đọc [hướng dẫn revision 9](revision9-implementation.vi.md) và [coverage hiện hành](proposal-coverage.md) trước các bảng thiết kế/baseline phía dưới. Hai CLI Claude/Codex đã có durable ACK thật; Desktop callback và Kiro MCP live chưa được xác nhận. JEV vẫn shadow.
+
 Revision 8: [conversation chung CS01–CS06](shared-conversation.vi.md) giữ thảo luận trước task, proposals/decisions và pending requests xuyên entry. Solution approval của tài liệu này gắn vào CONV/SOL revision; task implement chỉ sinh sau gate. Đây là một phần của [kiến trúc tổng thể](architecture.vi.md), không là một workflow riêng cạnh runtime.
 
 Nguồn: người dùng yêu cầu giảm hiểu sai/rework, trao đổi qua công cụ người dùng chọn trước khi chốt solution, kiểm soát thay đổi khi triển khai và chất lượng task song song. Đây là thiết kế bổ sung ngày 09/10/2026. Hướng dẫn entry áp dụng cho việc giao task mới; runtime gates dưới đây CHƯA triển khai đầy đủ. Không thu hồi quyền của task đã được giao trước thay đổi này.

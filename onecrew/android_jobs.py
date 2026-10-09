@@ -17,6 +17,14 @@ from .workflow import task_lock
 TERMINAL = {'succeeded', 'blocked', 'cancelled', 'interrupted'}
 
 
+def read_record(path):
+    for attempt in range(5):
+        try:return json.loads(path.read_text(encoding='utf-8'))
+        except PermissionError:
+            if os.name!='nt' or attempt==4:raise
+            time.sleep(.02*(attempt+1))
+
+
 def paths(ledger, task, key):
     root = AndroidBuild(ledger).location(task, key)
     return root, root/'job.json'
@@ -32,7 +40,7 @@ def save(ledger, task, path, value):
 def status(ledger, task, key):
     root, path = paths(ledger, task, key)
     if not path.exists(): return AndroidBuild(ledger).status(task, key)
-    value = json.loads(path.read_text(encoding='utf-8'))
+    value = read_record(path)
     process = probe(value.get('identity')) if value.get('identity') else 'unknown'
     value['runner'] = process
     if value['status'] not in TERMINAL:
@@ -59,7 +67,7 @@ def dispatch(ledger, task, key, flutter_root, android_sdk, *, max_seconds=1200,
                    dependency_root=str(Path(dependency_root).resolve()) if dependency_root else None)
     with task_lock(ledger, 'android.launch.'+root.name):
         if path.exists():
-            prior = json.loads(path.read_text(encoding='utf-8'))
+            prior = read_record(path)
             if prior['request'] != request or prior['queue_seconds'] != queue_seconds:
                 raise LedgerError('Build request key conflicts with prior configuration.')
             result=status(ledger,task,key)
@@ -114,7 +122,7 @@ def reconcile(ledger, task, key):
     """Persist observed process death once; never restart a build."""
     root,path=paths(ledger,task,key)
     with task_lock(ledger,'android.launch.'+root.name):
-        value=json.loads(path.read_text(encoding='utf-8'))
+        value=read_record(path)
         if value['status'] not in TERMINAL and value.get('identity') and probe(value['identity'])=='dead':
             value.update(status='interrupted',error='Build controller stopped; no automatic replay.',finished_at=utcnow())
             save(ledger,task,path,value)
@@ -127,7 +135,7 @@ def run(ledger, task, key, interval=.5, builder=None):
     while True:
         try:
             with task_lock(ledger,'android.launch.'+root.name):
-                record=json.loads(path.read_text(encoding='utf-8'))
+                record=read_record(path)
             break
         except LedgerError:
             if time.monotonic()>=until: raise

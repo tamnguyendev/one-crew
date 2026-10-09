@@ -89,8 +89,11 @@ def pull(ledger, consumer, all_projects=False, from_now=False):
             else: rows=conn.execute(query+' ORDER BY e.seq LIMIT 500',args).fetchall() if conn else []
             notices=[m for r in rows if (m:=message(conn,r))]
             end=rows[-1]['seq'] if rows else state['cursor']
+            from .conversation_delivery import batch as conversation_batch
+            extra,conv_end,conv_more=conversation_batch(ledger,conn,state.get('conversation_cursor',0),all_projects,from_now)
+            notices.extend(extra)
         batch={'consumer':consumer,'after':state['cursor'],'through':end,'notifications':notices,
-               'has_more':len(rows)==500,'all_projects':all_projects,'read_does_not_ack':True}
+               'conversation_through':conv_end,'has_more':len(rows)==500 or conv_more,'all_projects':all_projects,'read_does_not_ack':True}
         batch['id']=content_hash(batch)
         state['batch']=batch
         durable_write(path,canonical(state).encode())
@@ -103,7 +106,7 @@ def ack(ledger,consumer,batch_id,all_projects=False):
         state=read_state(path)
         if not state['batch'] and state['last_ack']==batch_id: return {'acked':batch_id,'cursor':state['cursor']}
         if not state['batch'] or state['batch']['id']!=batch_id: raise LedgerError('Unknown/stale delivery batch; pull first.')
-        state.update(cursor=state['batch']['through'],batch=None,last_ack=batch_id)
+        state.update(cursor=state['batch']['through'],conversation_cursor=state['batch'].get('conversation_through',state.get('conversation_cursor',0)),batch=None,last_ack=batch_id)
         durable_write(path,canonical(state).encode())
         return {'acked':batch_id,'cursor':state['cursor'],'answers_recorded':False}
 

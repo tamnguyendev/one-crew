@@ -1,5 +1,7 @@
 # Entry MCP local — revision 5
 
+**Cập nhật triển khai 09/10/2026:** CLI/MCP conversation, solution gates, consultation runner và notification đã có. Đọc [hướng dẫn revision 9](revision9-implementation.vi.md) và [coverage hiện hành](proposal-coverage.md) trước các bảng thiết kế/baseline phía dưới. Hai CLI Claude/Codex đã có durable ACK thật; Desktop callback và Kiro MCP live chưa được xác nhận. JEV vẫn shadow.
+
 Kiến trúc hiện hành revision 9 bổ sung [conversation chung](shared-conversation.vi.md). Server mô tả bên dưới hiện chỉ có task status/outputs/inbox và các control đã liệt kê; chưa có conversation create/attach/read/append hoặc MCP entry note. Host phải thực sự gọi tool/hook và nhận durable ACK mới được báo đã sync; MCP server không tự thu thập mọi tin nhắn từ giao diện chat. Conversation APIs/adapter live còn pending. [Consultation routing DR01–DR06](discussion-routing.vi.md) cũng chưa expose qua MCP; không coi tool submit job hiện có là lệnh review solution xuyên provider.
 
 Revision 6: `submit` có thể bỏ provider/model để dùng preference của OneCrew trong state-root chung. Explicit provider/model vẫn ưu tiên; replay giữ lựa chọn gốc. Skill approval qua operator CLI, không cấp cho worker MCP. Xem [contract skill/routing](skills-routing.vi.md).

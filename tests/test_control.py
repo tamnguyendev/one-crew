@@ -33,6 +33,7 @@ class ControlTests(unittest.TestCase):
         self.ledger = Ledger(self.project, self.base/'state')
         self.grant = {'schema_version': 1, 'permissions': [], 'limits': {'max_calls': 3, 'max_seconds': 60}, 'source': 'fixture'}
         self.rev = Project(self.project).find('SPEC-001').revision
+        Project(self.project).decide(Project(self.project).find('SPEC-001'),self.rev,'approved','fixture','Test operator approval')
         self.task = self.ledger.submit('SPEC-001', self.rev, 'fixture', self.grant)
         self.migration = migrate(self.ledger)
         self.control = Control(self.ledger)

@@ -64,6 +64,8 @@ class WorkflowTests(unittest.TestCase):
         (self.project/'specs').mkdir(parents=True)
         (self.project/'specs/SPEC-001-duyet-spec.md').write_text(SAMPLE, encoding='utf-8')
         self.ledger = Ledger(self.project, self.base/'state')
+        spec=Project(self.project).find('SPEC-001')
+        Project(self.project).decide(spec,spec.revision,'approved','fixture','Test operator approval')
         grant = {'schema_version': 1, 'permissions': ['artifact.generate'],
                  'limits': {'max_calls': 6, 'max_seconds': 300}, 'source': 'fixture'}
         self.task = self.ledger.submit('SPEC-001', Project(self.project).find('SPEC-001').revision, 'fixture', grant)

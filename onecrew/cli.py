@@ -20,6 +20,9 @@ def main(argv=None):
               '  request    create / list / show / revise / reply / defer\n'
               '  notifications pull / ack / deliver / feed (local event delivery; never approves)\n'
               '  entry      connect / note (portable local context, no dispatch)\n'
+              '  conversation create / list / read / attach / append / summary / question / reply\n'
+              '  solution   propose / review / diff / select / approve / request-changes / bind\n'
+              '  consultation route / submit / start / show / cancel / reconcile / feedback\n'
               '  learning   outcomes / lessons / propose (evidence only; no automatic routing promotion)\n'
               '  skills     list / scan / review / approve / reject (recurring-task evidence)\n'
               '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
@@ -47,7 +50,7 @@ def main(argv=None):
     if len(args)>index and args[index]=='android':
         from .android_build import main as android_main
         return android_main(args)
-    if len(args)>index and args[index] in ('conversation','solution'):
+    if len(args)>index and args[index] in ('conversation','solution','consultation'):
         from .conversation_cli import main as conversation_main
         return conversation_main(args)
     if len(args)>index and args[index]=='job':
