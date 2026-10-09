@@ -1,5 +1,32 @@
 # Proposal Coverage
 
+## Revision 9 implementation — current tracking
+
+Proposal sources: architecture.vi.md, shared-conversation.vi.md, solution-approval.vi.md, discussion-routing.vi.md. Baseline: 15d1cbe. Current cycle: 1. User authorized implementation of revision 9; this is the approved runtime architecture, not permission to approve future product solutions.
+
+| ID | Requirement | Implementation / verification | Status | Remaining |
+|---|---|---|---|---|
+| CS01 | Conversation before task, project isolation | conversations.py; test_conversations no-task/isolation/read-only tests | Complete | Local single-user boundary |
+| CS02 | Durable contributions, provenance, cursor/idempotency | SQLite transactions; concurrent append/restart/page/conflict tests | Complete | No remote transport |
+| CS03 | Referenced summary/delta preserving decisions | read/summarize; stale-summary and source-ref tests | Complete | Summary semantics explicitly unverified |
+| CS04 | CLI/MCP and live host adapters | conversation CLI added | Partial | MCP and two-host live evidence |
+| CS05 | Approval and task binding | solution propose/select/decide, stale approval tests | Partial | Runtime execution gate |
+| CS06 | Events, recovery and compatibility | Conversation events durable | Partial | Runtime outbox/legacy integration |
+| SG01 | Solution before write execution | Data model ready | Partial | Enforce at intake/start |
+| SG02 | Revision-bound approval on all entry paths | CAS proposal selection and decisions | Partial | Execution binding/legacy spec gate |
+| SG03 | Technical/change request holds | Existing task inbox only | Missing | Conversation questions/affected task hold |
+| SG04 | Contract-first related work/early review | Legacy DAG/amend retained | Partial | Bind solution to work and review checkpoint |
+| SG05 | Solution-aware output review | Existing reviewers retained | Partial | Supply/verify binding and acceptance |
+| DR01 | Current-entry and explicit user route | Design only | Missing | Routing implementation/tests |
+| DR02 | Separate discussion/execution policy | Design only | Missing | Consultation model configuration |
+| DR03 | JEV guarded/shadow decision | Existing JEV shadow | Partial | Discussion integration/evaluation |
+| DR04 | Bounded recoverable consultation | Existing supervisor foundation | Missing | Consultation execution unit |
+| DR05 | Results return to conversation | Conversation storage ready | Partial | Consultation output/event lifecycle |
+| DR06 | Routing outcome assessment | Existing task learning | Partial | Consultation evidence and feedback |
+
+Cycle 1 validation: 6 tests passed (concurrent writes, restart/idempotency, cross-project isolation, proposal conflict, stale approval/open questions, summary references, secret rejection). No worker was invoked. Existing rows below are historical design/baseline evidence, not claims that the new flow is already complete.
+
+
 ## Discussion routing — revision 9
 
 Contract: `docs/discussion-routing.vi.md`; documentation only, no model dispatch or preference changes.
