@@ -54,7 +54,9 @@ class DeliveryTests(unittest.TestCase):
         base=Path(self.f.temp.name)
         root=base/('s'*(111-len(str(base))-1))
         ledger=Ledger(self.f.root,root);task=submit(ledger,'Read fixture','long-state')
-        runtime=Owned(ledger);runtime.enable(task['id'])
+        # This is a file-path regression, not a live subscription probe.
+        from tests.test_workflow import FixtureWorker
+        runtime=Owned(ledger,FixtureWorker(ledger,[]));runtime.enable(task['id'])
         seq,state=runtime.state(task['id']);state.update(phase='completed',message='fixture')
         with patch('onecrew.delivery.durable_write',side_effect=OSError('old long-path failure')):
             runtime.persist(task['id'],seq,state)

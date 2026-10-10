@@ -19,6 +19,7 @@ def main(argv=None):
               '  task       run / list / status / cancel / outputs / preview (CV RUN- IDs)\n'
               '  request    create / list / show / revise / reply / defer\n'
               '  notifications pull / ack / deliver / feed / watch (bounded host watch; never approves)\n'
+              '  desktop    enable / disable / status / show / retry (event-driven Windows results)\n'
               '  entry      connect / note (portable local context, no dispatch)\n'
               '  conversation create / list / read / attach / append / summary / question / reply\n'
               '  solution   propose / review / diff / select / approve / request-changes / bind\n'
@@ -35,6 +36,9 @@ def main(argv=None):
               '  monitor    grouped workers / --verbose / --terminal / --all-projects\n'
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')
         return 0
+    if len(args)>index and args[index]=='desktop':
+        from .desktop_notifications import main as desktop_main
+        return desktop_main(args)
     if len(args)>index and args[index]=='skills':
         from .skills import main as skills_main
         return skills_main(args)

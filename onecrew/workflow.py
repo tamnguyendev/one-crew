@@ -310,7 +310,9 @@ class Workflow:
             status = (('cancelling' if active else 'cancelled') if execution['cancel_requested'] else
                       'paused' if execution['status'] == 'paused' and not unpause else state['phase'])
             conn.execute('UPDATE executions SET status=? WHERE task_id=?', (status, task_id))
-            return checkpoint_sequence
+        from .delivery import best_effort
+        best_effort(self.ledger)
+        return checkpoint_sequence
 
     def enable(self, task_id, revision, profile):
         profile = validate_profile(profile)

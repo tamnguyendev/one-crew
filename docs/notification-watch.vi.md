@@ -1,5 +1,7 @@
 # Thông báo OneCrew theo vòng đời task
 
+**Kênh thay thế đã chọn và triển khai 10/10/2026:** [cửa sổ kết quả Windows](desktop-notifications.vi.md) do workflow phát theo sự kiện, chống gửi trùng và lưu report/receipt trên D:. Scheduler vẫn PAUSED. Không áp dụng các bước bật lại heartbeat trong tài liệu lịch sử bên dưới; đóng cửa sổ không trả lời hay resume task.
+
 **Thay đổi theo yêu cầu người dùng, 10/10/2026 15:52:** tắt lịch kiểm tra lặp `onecrew-k-t-qu-v-c-u-h-i`; không tự bật lại khi resume theo quy trình cũ bên dưới. Người dùng chỉ muốn một bản kết quả khi hoàn tất, hoặc một lỗi/câu hỏi có thể xử lý khi bị chặn. Cơ chế callback trực tiếp từ runner tới chat chưa có; không tuyên bố đã thay scheduler bằng callback. Final heartbeat 15:51 về task b9a0c151d7274e97b5515f8318ad44e2 đã quan sát được qua host history (marker 563ca3556686184c), nhưng người dùng báo không thấy thông báo hữu ích. Receipt này chỉ chứng minh nội dung trong lịch sử; không chứng minh khả năng thu hút chú ý hay OS toast. Batch đã confirm/ACK; task và CREQ vẫn blocked/pending, không bị trả lời hay resume bởi việc tắt lịch.
 
 Ngày 09/10/2026. Thay thế lịch kiểm tra toàn bộ lịch sử liên tục. Phần đọc trạng thái/batch là code, không gọi worker; host Codex chỉ chạy lượt theo dõi khi entry đã bật lịch cho task được gắn.

@@ -1,5 +1,19 @@
 # Proposal Coverage
 
+## Windows completion/blocker window — 2026-10-10
+
+Proposal source: user requests one result on completion/blocker without recurring scheduler; user selected the Windows OneCrew window. Baseline: 392ca42. Cycle DN01–DN05. Contract: docs/desktop-notifications.vi.md.
+
+| ID | Requirement | Type | Implementation evidence | Test/verification evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| DN01 | Runtime emits one window per actionable outcome, no AI/scheduler | Functional | desktop_notifications; delivery hook; Owned and legacy workflow checkpoints | complete/dedup/restart/concurrent claim, block/resume/complete, running/disabled silence | Complete | Checkpoint workflows; same pending question is one outcome |
+| DN02 | Durable outbox independent of full state disk, honest recovery | Reliability | D outbox, atomic records, per-outcome claim/UI locks, pending/uncertain/retry | sink disk failure, outbox failure, launch/UI failure, explicit retry, stale outcome suppression | Complete | Ambiguous crashes never auto-replay; next event or explicit retry recovers known failure |
+| DN03 | Report current evidence and questions without answering or executing content | Security | read-only latest checkpoint/questions, filtered plain text, report button | REQ/CREQ revisions stay pending, secrets filtered, close does not mutate execution | Complete | Worker claims are separate from independent verification; no widget/device/server inference |
+| DN04 | Actual window receipt and no duplicate on this machine | UI | desktop_window Tk Map receipt, Windows visible window handle | Live notice 84c92ce5ec4abfc5238bf3da5e08ef20 shown 09:05:22Z; PID 42052; HWND 34873020; second show launched=[] | Complete | Mapping is not proof of attention; no chat callback |
+| DN05 | Replace active notification channel and leave old schedule off | Deployment | configured real state-root since event 970; AGENTS/docs override | automation.toml status PAUSED; real blocked task shown once from checkpoint 967 | Complete | No task resume, disk cleanup, approval or budget change |
+
+Summary: 5 Complete, 0 Partial/Missing/Blocked for the selected notification implementation. The separate Cloud Auth task remains blocked on disk space and a pending CREQ; this feature does not claim its completion.
+
 ## Native timeout continuation — 2026-10-10
 
 Proposal: user requests recovery of 600-second timeout within the existing root grant, then runtime-owned execution through handoff/notification. Baseline b3bf5c8; cycle TC01–TC04. Contract: docs/native-timeout-continuation.vi.md.

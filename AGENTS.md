@@ -1,5 +1,9 @@
 # OneCrew entry contract
 
+## Windows result channel — user selected 10/10/2026
+
+The user chose a OneCrew Windows window as the replacement for recurring chat reminders. See `docs/desktop-notifications.vi.md`. `desktop enable` is configured for the real state-root; workflow checkpoint hooks show completion or actionable blockers once, with durable reports/receipts on D:. Keep the Codex heartbeat PAUSED on dispatch/resume. `desktop status` inspects delivery; `desktop show --task` uses the same deduplication for an existing result. Do not retry an ambiguous delivery without an explicit need; a mapped window is not proof of user attention. Closing a window never answers, approves or resumes a task. No direct runner-to-chat callback exists. This section supersedes the scheduler activation instructions below.
+
 ## Notification preference override — 10/10/2026 15:52 Asia/Saigon
 
 The user rejected repeated scheduled chat checks because the prompts were visible but results were easy to miss. The existing `onecrew-k-t-qu-v-c-u-h-i` heartbeat is PAUSED at the user's request. Do not automatically reactivate it on dispatch/resume under the older rules below. Desired delivery is one clear result at completion, or one actionable blocker/question when intervention is necessary; no repeated idle/status reminders. The existing receipt verifies chat history only, not visible app/OS notification or user attention. A direct runner-to-chat completion callback is not implemented; do not promise automatic delivery without a supported and verified transport. Preserve pending questions and evidence; disabling the schedule does not answer, cancel or resume a task. This preference supersedes the automatic heartbeat activation steps below until the user chooses a replacement.

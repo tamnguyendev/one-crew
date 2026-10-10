@@ -31,6 +31,9 @@ def deliver(ledger, consumer='local-feed'):
 
 def best_effort(ledger):
     """Outbox survives sink failure; never change execution success to delivery success."""
+    # Separate disk/outbox: a full task-state disk must not suppress the result UI.
+    from .desktop_notifications import best_effort as desktop_delivery
+    desktop_delivery(ledger)
     try: return deliver(ledger)
     except (ValueError,OSError) as error:
         failure={'status':'delivery_pending','error':str(error)[:500],'chat_callback':False}
