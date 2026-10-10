@@ -230,11 +230,20 @@ def apply(runtime,state):
     native['applied']=sorted(changes);state['workspace_applied']=True
 
 
-def repair(state,feedback):
+def repair(state,feedback,kind='product'):
     native=state['native_change']
-    if native['repairs']>=2:
+    if kind not in ('content','product'):raise LedgerError('Unknown native repair category.')
+    if 'repair_counts' not in native:
+        # Existing history is never reset: classify the already charged repair
+        # rounds using durable rejection receipts, with all others as product.
+        content=min(native['repairs'],len(native.get('rejected_candidates',[])))
+        native['repair_counts']={'content':content,'product':native['repairs']-content}
+    if native['repair_counts'][kind]>=2:
+        native['pending_repair']={'kind':kind,'feedback':feedback[:16000]}
         state.update(phase='blocked',message='Native change repair limit reached; evidence preserved.')
         return
+    native['repair_counts'][kind]+=1
+    native.pop('pending_repair',None)
     native.update(stage='work',repairs=native['repairs']+1,feedback=feedback[:16000])
     state['message']='Native worker repairing the complete patch in the same session.'
 
@@ -259,6 +268,12 @@ def advance(runtime,task_id,seq,state,profile):
     if not state.get('native_change'):
         prepare(runtime,state,recipe);runtime.persist(task_id,seq,state);return state
     native=state['native_change'];stage=native['stage']
+    # An explicit resume may recover a review rejected under the old combined
+    # repair cap. Reuse its durable feedback rather than pay for another review.
+    if (stage=='review' and state.get('message')=='Native change repair limit reached; evidence preserved.'
+            and state.get('reviews') and state['reviews'][-1].get('accepted') is False):
+        repair(state,state['reviews'][-1]['feedback'])
+        runtime.persist(task_id,seq,state);return state
     if stage=='verify':
         result=verify(runtime,task_id,state,recipe)
         state['tests'].append(result);native['checks'].append(result)
@@ -327,7 +342,7 @@ def advance(runtime,task_id,seq,state,profile):
                     repair(state,str(error)+'. No files installed or tests run. Return a complete corrected patch. '
                         'Never include real credentials or evade scanning through encoding/obfuscation. '
                         'Use clearly synthetic short test values (for example test or fake) in fixtures. '
-                        'Keep production behavior and all assertions; ask if a real credential is necessary.')
+                        'Keep production behavior and all assertions; ask if a real credential is necessary.',kind='content')
                 else:
                     native['stage']='verify';state['message']='Native patch captured; fixed Flutter regression tests pending.'
         else:

@@ -260,6 +260,33 @@ class NativeChangeTests(unittest.TestCase):
         self.assertEqual(state['phase'],'blocked');self.assertEqual(len(set(sessions)),1)
         self.assertIn('a-b',(self.f.root/'app/lib/main.dart').read_text())
 
+    def test_explicit_resume_reuses_review_feedback_after_legacy_content_repairs(self):
+        seq,state=self.run.state(self.task)
+        native=state['native_change'];native.update(stage='review',repairs=2,
+            rejected_candidates=[{'digest':'first'},{'digest':'second'}])
+        state.update(phase='blocked',message='Native change repair limit reached; evidence preserved.',
+                     reviews=[{'accepted':False,'feedback':'Preserve original credential precedence.'}])
+        self.run.persist(self.task,seq,state)
+        before=self.run.control.status(self.task)
+        self.run.resume(self.task);state=self.run.run(self.task,steps=1)
+        self.assertEqual(state['native_change']['stage'],'work')
+        self.assertEqual(state['native_change']['feedback'],'Preserve original credential precedence.')
+        self.assertEqual(state['native_change']['repairs'],3)
+        self.assertEqual(state['native_change']['repair_counts'],{'content':2,'product':1})
+        self.assertEqual(self.run.control.status(self.task)['used_calls'],before['used_calls'])
+        self.assertFalse(self.worker.calls)
+
+    def test_separate_repair_caps_preserve_cumulative_history_and_still_stop(self):
+        from onecrew.native_change import repair
+        state=self.run.state(self.task)[1]
+        for kind in ('content','content','product','product'):repair(state,'failure',kind)
+        self.assertEqual(state['native_change']['repairs'],4)
+        for kind in ('content','product'):
+            repair(state,'still fails',kind)
+            self.assertEqual(state['phase'],'blocked')
+            self.assertEqual(state['native_change']['repairs'],4)
+            self.assertEqual(state['native_change']['pending_repair']['kind'],kind)
+
     def test_operator_recipe_requires_explicit_authority_and_private_hash(self):
         with self.assertRaises(LedgerError): validate(dict(self.recipe,trusted_native=False))
         with self.assertRaises(LedgerError): validate(dict(self.recipe,owned=['app/lib/app_secrets.dart',*self.recipe['owned']]))

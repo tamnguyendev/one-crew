@@ -379,6 +379,8 @@ Native Flutter gate tách **context cho AI** và **đầu vào biên dịch cụ
 
 Trước biên dịch, gate kiểm package_config, package_graph, pubspec/lock và các package root có sẵn. Thiếu metadata/cache là lỗi môi trường, giữ candidate ở bước verify và không tiêu lượt AI sửa code. Khôi phục cache đúng phiên bản là thao tác hạ tầng có bằng chứng riêng; không tự `pub upgrade`. Receipt ghi cấu hình thực đã chạy, không suy ra cấu hình đó trùng lockfile nếu chưa kiểm đủ. Những lần entry sửa runtime/cache phải được ghi là có hỗ trợ, không quảng cáo là OneCrew tự hoàn tất không can thiệp.
 
+Native change có hai bộ đếm sửa riêng: tối đa hai vòng cho nội dung bị policy từ chối, tối đa hai vòng cho lỗi test/review của sản phẩm. Tổng lượt gọi vẫn chịu grant chung; `repairs` cộng dồn không reset. Task cũ được phân loại từ receipt đã lưu, không xóa lịch sử. Sau explicit resume, một review đã từ chối vì chạm trần gộp cũ được dùng làm feedback sửa ngay; không gọi reviewer lặp chỉ để lấy lại cùng kết luận.
+
 Integration lock theo repo/target; tạo candidate từ base đích đã ghi + branch/snapshot được chọn, kiểm source hash rồi chạy test đúng cwd. Missing worktree, restore không khớp hoặc source đổi lúc chạy làm gate fail/stale, không fallback. Test candidate đạt mới CAS cập nhật target local với expected base. Base đổi thì rebuild/retest; push/deploy là action có quyền riêng. Đa repo giữ vector và compatibility evidence, không coi cập nhật từng repo là một transaction Git xuyên repo.
 
 `execution.completed`, `verification.passed` và `acceptance.accepted` vẫn độc lập. Output card 5 mục ở mục 10 hiển thị phần đã/chưa verify; người dùng review từng phần, không phải đọc log hoặc chờ mọi task xong. Feedback đổi AC/scope tạo revision và chỉ invalidate phần liên quan.
