@@ -45,16 +45,112 @@ def invocation_context(runtime,task_id,state,recipe):
     if ('result_pending' in native or state.get('pending')) and native.get('tool_context'):
         path=Path(native['tool_context'])
     else:
+        if native.get('continuation_ready'):
+            collect_candidate(runtime,state,{},recipe,require_test=False)
+            observed=inventory(Path(native['workspace']))
+            if {p:observed.get(p) for p in recipe['owned']}!=native['timeout_checkpoints'][-1]['owned']:
+                raise LedgerError('Owned files changed after timeout checkpoint; reconcile before continuation.')
+            native.pop('continuation_ready')
         path=runtime.ledger.state_root/'workspace-tools'/(uuid.uuid4().hex+'.json')
         if 'tool_baseline' not in native:
             native['tool_baseline']=inventory(Path(native['workspace']))
         native['tool_context']=str(path)
         context={'project':str(runtime.ledger.project),'state_root':str(runtime.ledger.state_root),
-                 'task_id':task_id,'state':state,'recipe':recipe,'max_tests':8}
+                 'task_id':task_id,'state':state,'recipe':recipe,'max_tests':8,
+                 'prior_test_results':native.get('continuation_tests',[])}
         durable_write(path,canonical(context).encode())
     command=' '.join(shlex.quote(p.replace('\\','/')) for p in (
         sys.executable,str(Path(__file__).with_name('workspace_tools.py')),str(path)))
     return {'test_command':command,'native_owned':recipe['owned']}
+
+
+def checkpoint_timeout(runtime,task_id):
+    """Consume a settled timeout once; preserve scope/session, never replay a launch.
+
+    Called under the task lock. Returning True means a durable continuation was
+    recorded, not that a new model call or a successful candidate exists.
+    """
+    from .native_audit import check_native_tools
+    from .sandbox_gate import task_guard
+    from .ledger import content_hash
+    seq,state=runtime.state(task_id)
+    control=runtime.control.status(task_id)
+    recipe=control['configuration']['profile'].get('native_change',{})
+    native=state.get('native_change',{})
+    if (recipe.get('execution')!='workspace' or native.get('stage')!='work'
+            or not state.get('pending')):return False
+    attempt=runtime.control.attempt(state['pending'])
+    if attempt['status']!='settled':return False
+    receipt=json.loads(attempt['result'])
+    if receipt.get('reason')!='timeout':return False
+    if receipt.get('tree_stopped') is not True:
+        raise LedgerError('Timeout process tree is not confirmed stopped; no continuation.')
+    if any(a['status']!='settled' for a in control['attempts']):
+        raise LedgerError('Another attempt is unsettled; no timeout continuation.')
+    task_guard(runtime.control,task_id)()
+    if runtime.ledger.requests(task_id,pending=True):raise LedgerError('Pending user decision blocks continuation.')
+    if control['used_calls']+control['reserved_calls']>=control['budget']['limits']['max_calls']:
+        raise LedgerError('Root call budget exhausted; timeout evidence preserved.')
+    path=Path(receipt['stdout'])
+    if path.stat().st_size>16_000_000:raise LedgerError('Timeout stream exceeds evidence limit.')
+    raw=path.read_bytes();lines=raw.splitlines(keepends=True);events=[]
+    for index,line in enumerate(lines):
+        if not line.strip():continue
+        try:event=json.loads(line)
+        except (ValueError,UnicodeError):
+            # A killed writer can leave one incomplete final JSON line.
+            if index==len(lines)-1 and not line.endswith(b'\n'):break
+            raise LedgerError('Malformed timeout stream; cannot continue safely.') from None
+        if not isinstance(event,dict):raise LedgerError('Malformed timeout envelope.')
+        events.append(event)
+    init=[e for e in events if e.get('type')=='system' and e.get('subtype')=='init']
+    session=native['worker_session']
+    if (len(init)!=1 or init[0].get('session_id')!=session
+            or any(e.get('session_id') not in (None,session) for e in events)):
+        raise LedgerError('Timeout session identity is missing or mismatched.')
+    if any(e.get('type')=='result' for e in events):
+        raise LedgerError('Timeout contains terminal result; preserve for reconciliation, not replay.')
+    calls,denied=check_native_tools(events,WorkspaceClaude.allowed_native_tools)
+    if any(c.get('name')=='StructuredOutput' and c.get('input',{}).get('question') for c in calls):
+        raise LedgerError('Timeout includes an unresolved solution question; no automatic continuation.')
+    # Verify all non-owned bytes and retain the unfinished owned files as-is.
+    collect_candidate(runtime,state,{},recipe,require_test=False)
+    observed=inventory(Path(native['workspace']))
+    owned={name:observed.get(name) for name in recipe['owned']}
+    history_path=Path(native['tool_context']).with_suffix('.receipt.json')
+    history=json.loads(history_path.read_text(encoding='utf-8')) if history_path.exists() else {'results':[]}
+    tests=history.get('results',[])
+    for row in tests:
+        if 'compiler_only_sources' in row:native['local_test_sources']=row['compiler_only_sources']
+    from .native_test_workspace import check_inputs
+    check_inputs(runtime,state)
+    prior=native.get('timeout_checkpoints',[])
+    # Test counts/log paths are not progress. Only changed source or a changed
+    # test outcome can justify spending another invocation after a timeout.
+    finished=[r for r in tests if r.get('status')=='finished']
+    result={k:finished[-1].get(k) for k in ('passed','failure_kind')} if finished else None
+    fingerprint=content_hash({'owned':owned,'test_outcome':result})
+    baseline=content_hash({'owned':{p:native['tool_baseline'].get(p) for p in recipe['owned']},'test_outcome':None})
+    if fingerprint in {p['fingerprint'] for p in prior} or fingerprint==baseline:
+        raise LedgerError('Timeout has no new source/test progress; continuation stopped.')
+    checkpoint={'attempt':attempt['id'],'session':session,'workspace':native['workspace'],
+                'owned':owned,'fingerprint':fingerprint,'stdout_hash':bytes_hash(raw),
+                'test_receipt':str(history_path),'test_outcome':result,'tree_stopped':True}
+    native.setdefault('timeout_checkpoints',[]).append(checkpoint)
+    native['continuation_tests']=tests[-3:]
+    native['continuation_ready']=True
+    native['worker_started']=True
+    native['feedback']='The previous invocation reached its time slice and its entire process tree was stopped. '+\
+        'Continue from the existing files and this same session; do not restart discovery or undo completed work. '+\
+        'Inspect the last test receipt and complete the remaining fix/tests and report. Do not skip or weaken tests to pass. '+\
+        'The newly supplied test command replaces the previous invocation command. Scope and total budget are unchanged.'
+    native['attempts'].append({'stage':'work','session_id':session,'log':str(path),
+        'tool_calls':len(calls),'denied_tool_calls':denied,'outcome':'timeout_checkpoint','usage':'unknown'})
+    state.update(pending=None,phase='running',message='Native time slice ended; progress checkpoint saved for automatic continuation.',
+                 recovery={'kind':'native_timeout','automatic_retry':True,'attempt':attempt['id']},step=state['step']+1)
+    state.pop('pending_solution_context',None);state.pop('revalidate_pending',None)
+    runtime.persist(task_id,seq,state)
+    return True
 
 
 def collect_candidate(runtime,state,value,recipe,*,require_test=True):

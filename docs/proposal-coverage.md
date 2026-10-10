@@ -1,5 +1,18 @@
 # Proposal Coverage
 
+## Native timeout continuation — 2026-10-10
+
+Proposal: user requests recovery of 600-second timeout within the existing root grant, then runtime-owned execution through handoff/notification. Baseline b3bf5c8; cycle TC01–TC04. Contract: docs/native-timeout-continuation.vi.md.
+
+| ID | Requirement | Evidence | Status | Boundary |
+|---|---|---|---|---|
+| TC01 | Persist settled timeout and resume same session/workspace exactly once | checkpoint_timeout; immediate exception and restart regression; preserved used_calls/grant and fresh scoped test command | Complete | Workspace Claude only; no replay of terminal results or unknown live processes |
+| TC02 | Keep grant, scope, approval and progress constraints | 14 timeout regressions including budget exhaustion, pending decision/guard, session mismatch, unowned/drift changes, duplicate source/test progress | Complete | No automatic budget/deadline increase; same/cyclic checkpoint blocks |
+| TC03 | Independent verification/review/apply and readable handoff remain required | Timeout-to-apply fixture; 89 existing handoff/workflow/owned/native/workspace/watch/receipt/MCP tests pass; 14 timeout tests pass after correcting test setup ordering | Complete | Model/gate/host receipts simulated; no product tests run by entry |
+| TC04 | Real resumed task completes and scheduled receipt confirms delivery | Task b9a0c151d7274e97b5515f8318ad44e2 retains one paid timeout and deadline 2026-10-10T09:36:32Z; runtime repair before resume | Partial | Real outcome pending; explicitly assisted trial, not unseen-task or device/server evidence |
+
+The earlier HO04 fresh trial stopped at a 600-second invocation timeout. Its failure notification was delivered, receipt confirmed, cursor ACKed through 949 and the idle schedule paused. This repair resumes that task without erasing the failure or resetting its grant.
+
 ## Owned handoff compatibility — 2026-10-10
 
 Proposal: user requests fixing backlog KeyError, reporting the result and validating the complete execution-to-notification flow. Baseline ef54ea7; cycle HO01–HO04. Preserve existing task evidence and pending delivery; never count a manual status message as scheduled delivery.

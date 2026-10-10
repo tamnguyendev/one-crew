@@ -27,13 +27,13 @@ def execute(path):
         history=json.loads(receipt.read_text(encoding='utf-8')) if receipt.exists() else {'results':[]}
         if len(history['results'])>=context['max_tests']:
             raise LedgerError('Test recipe limit reached; preserve evidence and report the blocker.')
-        previous=history['results'][-3:]
+        previous=(context.get('prior_test_results',[])+history['results'])[-3:]
         if len(previous)==3 and len({r.get('fingerprint') for r in previous})==1:
             raise LedgerError('Three identical test checkpoints; stop repeating and report evidence.')
         history['results'].append({'status':'started'})
         durable_write(receipt,canonical(history).encode())
         state=context['state'];recipe=context['recipe']
-        for prior in history['results'][:-1]:
+        for prior in context.get('prior_test_results',[])+history['results'][:-1]:
             if 'compiler_only_sources' in prior:
                 state['native_change']['local_test_sources']=prior['compiler_only_sources'];break
         try:

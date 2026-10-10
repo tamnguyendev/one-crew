@@ -265,6 +265,9 @@ def patch_diff(runtime,state):
 
 def advance(runtime,task_id,seq,state,profile):
     recipe=profile['native_change']
+    if recipe.get('execution')=='workspace' and state.get('pending'):
+        from .workspace_worker import checkpoint_timeout
+        if checkpoint_timeout(runtime,task_id):return runtime.state(task_id)[1]
     answered=runtime.ledger.requests(task_id)
     if any(r['state']=='answered' and r['answer']['choice']=='stop' for r in answered):
         state.update(phase='cancelled',message='Stopped on explicit user clarification.')
@@ -316,7 +319,7 @@ def advance(runtime,task_id,seq,state,profile):
             'Do not claim tests ran; the runtime runs the fixed Flutter recipe after your response. '
             'If genuinely blocked by a required user decision, set question; do not expand scope. '
             if work else 'Independently review the complete fix and regression tests using native source tools. Verify the goal, compatibility and test assertions. '
-            'Test receipt covers only the named tests, not device/server behavior. Reject vacuous tests, unrelated changes, credential leaks and unsupported success claims. ')
+            'Test receipt covers only the named tests, not device/server behavior. Reject vacuous or skipped tests for required acceptance, unrelated changes, credential leaks and unsupported success claims. ')
         with runtime.ledger.transaction() as conn:
             notes=[json.loads(r['payload']) for r in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='entry.note' ORDER BY seq DESC LIMIT 5",(task_id,))]
         packet=canonical({'goal':runtime.ledger.task(task_id,full=True)['handoff']['goal'],
@@ -334,8 +337,14 @@ def advance(runtime,task_id,seq,state,profile):
                 'Ask only for actual scope/solution/permission decisions. Authorized command (run verbatim): '+invocation['test_command']+'\n'+packet
         if 'result_pending' in native: value=native['result_pending']
         else:
-            seq,value=runtime._invoke(task_id,seq,state,'native_change_'+stage,prompt,
-                                     REPORT_SCHEMA if workspace_mode else PATCH_SCHEMA if work else REVIEW_SCHEMA,invocation)
+            try:
+                seq,value=runtime._invoke(task_id,seq,state,'native_change_'+stage,prompt,
+                                         REPORT_SCHEMA if workspace_mode else PATCH_SCHEMA if work else REVIEW_SCHEMA,invocation)
+            except LedgerError:
+                if workspace_mode:
+                    from .workspace_worker import checkpoint_timeout
+                    if checkpoint_timeout(runtime,task_id):return runtime.state(task_id)[1]
+                raise
             telemetry=value.pop('_native',{})
             if telemetry.get('session_id') not in (None,invocation['native_session']): raise LedgerError('Native session identity changed.')
             native['attempts'].append(dict(telemetry,stage=stage));native[prefix+'_started']=True
