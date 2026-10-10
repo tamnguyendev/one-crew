@@ -1,5 +1,15 @@
 # OneCrew entry contract
 
+## Delegated completion — user authorization 10/10/2026
+
+For the current Cloud Auth old-UI task, the user authorizes the entry to coordinate
+OneCrew through completion, repair runtime/environment blockers and approve routine
+technical recovery without asking again. Preserve candidate, tests, review, prior
+failure evidence and the existing budget. OneCrew owns product execution and APK
+handoff. Escalate business decisions or architecture changes; this is not authority
+to weaken acceptance, reset budgets, publish externally or discard user changes.
+Keep the recurring chat scheduler paused and use the existing Windows result channel.
+
 ## Windows result channel — user selected 10/10/2026
 
 The user chose a OneCrew Windows window as the replacement for recurring chat reminders. See `docs/desktop-notifications.vi.md`. `desktop enable` is configured for the real state-root; workflow checkpoint hooks show completion or actionable blockers once, with durable reports/receipts on D:. Keep the Codex heartbeat PAUSED on dispatch/resume. `desktop status` inspects delivery; `desktop show --task` uses the same deduplication for an existing result. Do not retry an ambiguous delivery without an explicit need; a mapped window is not proof of user attention. Closing a window never answers, approves or resumes a task. No direct runner-to-chat callback exists. This section supersedes the scheduler activation instructions below.

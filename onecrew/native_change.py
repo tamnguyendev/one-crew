@@ -323,8 +323,8 @@ def advance(runtime,task_id,seq,state,profile):
         seq=build(runtime,task_id,seq,state,recipe)
         if native.get('apk_build',{}).get('status')=='passed':
             artifact=native['apk_build']['artifact']
-            report=native['candidate_report']+'\n\nOneCrew: regression tests and independent review passed; changes applied to main project. Debug APK verified and archived: '+artifact['path']+'\nSHA256: '+artifact['sha256']+'\nDevice/server behavior and release signing remain unverified.'
-            state.update(phase='completed',verification='passed',report=report,message='Reviewed main-project changes and verified debug APK handed off locally.')
+            report=native['candidate_report']+'\n\nOneCrew: regression tests and independent review passed; changes applied to task project: '+str(runtime.ledger.project)+'. Debug APK verified and archived: '+artifact['path']+'\nSHA256: '+artifact['sha256']+'\nDevice/server behavior and release signing remain unverified.'
+            state.update(phase='completed',verification='passed',report=report,message='Reviewed task-project changes and verified debug APK handed off locally.')
             state['outputs'].append({'snapshot':state['snapshot'],'summary':report,'verification':'passed','acceptance':'not_requested','stage':'native_change_apk','artifact':artifact})
             native['stage']='completed'
     elif stage in ('work','review'):

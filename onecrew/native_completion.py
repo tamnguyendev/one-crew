@@ -125,7 +125,9 @@ def build_inputs(runtime, state, recipe):
             path = safe_file(project, root+'/'+name)
             if path.is_file(): inputs[root+'/'+name] = bytes_hash(path.read_bytes())
     for directory, dirs, names in os.walk(app/'android'):
-        dirs[:] = [d for d in dirs if d.lower() not in ('build', '.gradle', '.cxx')]
+        # Kotlin daemon diagnostics are build outputs, like Gradle/CMake caches.
+        # Gradle wrapper scripts/jars remain inputs and must still match.
+        dirs[:] = [d for d in dirs if d.lower() not in ('build', '.gradle', '.cxx', '.kotlin')]
         for name in names:
             path = Path(directory)/name
             # Generated SDK-local metadata is not product source.
@@ -175,7 +177,12 @@ def build(runtime, task_id, seq, state, recipe):
         except LedgerError: log = 'Build output withheld by credential policy; inspect native local command logs.'
         receipt.update(exit_code=code, log=runtime.store.evidence(log.encode()), detail=log[-6000:])
         guard()
-        if build_inputs(runtime, state, recipe) != before:
+        after = build_inputs(runtime, state, recipe)
+        if after != before:
+            receipt['input_drift'] = dict(added=sorted(set(after)-set(before)),
+                removed=sorted(set(before)-set(after)),
+                changed=sorted(k for k in before.keys() & after.keys() if before[k] != after[k]))
+            receipt['after_input_manifest'] = runtime.store.evidence(canonical(after).encode())
             raise LedgerError('Main source/dependency inputs changed during APK build; artifact not accepted.')
         if code: raise LedgerError('Debug APK build failed; see preserved build evidence.')
         apk = verify_apk(output)

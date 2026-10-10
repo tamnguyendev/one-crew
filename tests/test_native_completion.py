@@ -90,6 +90,25 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual(self.state['native_change']['apk_build']['status'],'blocked')
         self.assertEqual(self.state['native_change']['apk_build']['exit_code'],1)
 
+    def test_kotlin_diagnostics_do_not_invalidate_fresh_apk(self):
+        def command(*args):
+            path=self.root/'app/android/.kotlin/errors/session.log'
+            path.parent.mkdir(parents=True);path.write_text('daemon diagnostic')
+            self.apk();return 0,'built',''
+        self.run_build(command)
+        self.assertEqual(self.state['native_change']['apk_build']['status'],'passed')
+
+    def test_new_gradle_wrapper_still_blocks_with_exact_drift(self):
+        def command(*args):
+            path=self.root/'app/android/gradlew'
+            path.parent.mkdir(parents=True,exist_ok=True);path.write_text('generated wrapper')
+            self.apk();return 0,'built',''
+        self.run_build(command)
+        receipt=self.state['native_change']['apk_build']
+        self.assertEqual(receipt['status'],'blocked')
+        self.assertEqual(receipt['input_drift'],{'added':['app/android/gradlew'],'removed':[],'changed':[]})
+        self.assertIn('app/android/gradlew',json.loads(self.runtime.store.read_evidence(receipt['after_input_manifest'])))
+
     def test_wrong_base_mapping_rejected_before_command(self):
         config=self.root/'app/.dart_tool/package_config.json'
         config.write_text(json.dumps({'packages':[{'name':'app','rootUri':'../../wrong/'}]}))
