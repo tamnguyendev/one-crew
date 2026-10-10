@@ -131,14 +131,24 @@ class Owned(Workflow):
                 watch.update(round=watch['round']+1,started_at=self.control.clock().isoformat(),
                     calls=control['used_calls'],request=None,
                     source='explicit operator resume after settled block; prior checkpoints and hard budget retained')
+                if watch['policy'].get('version')==2:
+                    import datetime as dt
+                    from .budget_policy import watch_policy
+                    watch['policy']=watch_policy({'version':2,'warning_fraction':watch['policy']['fraction']},
+                        max(0,control['budget']['limits']['max_calls']-control['used_calls']-control['reserved_calls']),
+                        max(0,(dt.datetime.fromisoformat(control['deadline'])-self.control.clock()).total_seconds()))
             state['phase']='waiting_operation' if state.get('operation') and not state.get('build_evidence') else 'running'
             state.pop('waiting_reason',None)
             if not state.get('pending'):
                 state['context_prompt']=None;state['review_prompt']=None
             if 'effort_watch' not in state and not self.ledger.requests(task_id,pending=True):
-                from .effort_watch import POLICY
+                import datetime as dt
+                from .budget_policy import watch_policy
+                policy=self.ledger.task(task_id,full=True)['handoff'].get('owned_execution',{}).get('budget_policy')
                 state['effort_watch']={'round':0,'started_at':self.control.clock().isoformat(),
-                    'calls':self.control.status(task_id)['used_calls'],'policy':dict(POLICY),'request':None,
+                    'calls':control['used_calls'],'policy':watch_policy(policy,
+                        max(0,control['budget']['limits']['max_calls']-control['used_calls']-control['reserved_calls']),
+                        max(0,(dt.datetime.fromisoformat(control['deadline'])-self.control.clock()).total_seconds())), 'request':None,
                     'source':'explicit resume adopting new warning policy; historical calls retained'}
             self.persist(task_id,seq,state,unpause=True)
         return state

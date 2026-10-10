@@ -8,7 +8,7 @@ from .ledger import LedgerError, canonical, content_hash, key_field, text_field,
 
 
 def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None,
-           max_calls=20, max_seconds=1200, image=None, branch=None, remote=None, android_build=None, native_change=None,
+           max_calls=None, max_seconds=None, image=None, branch=None, remote=None, android_build=None, native_change=None,
            solution_id=None, solution_revision=None):
     goal = text_field(goal, 'goal', 12000)
     key_field(request_key)
@@ -18,6 +18,10 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
                           (ledger.project_id,request_key)).fetchone() if conn else None
     from .model_preferences import resolve, read
     previous=json.loads(prior['payload']).get('owned_execution') if prior else None
+    from .budget_policy import DEFAULT_CALLS, DEFAULT_SECONDS, POLICY
+    prior_limits=json.loads(prior['payload'])['grant']['limits'] if prior else {}
+    if max_calls is None: max_calls=prior_limits.get('max_calls',DEFAULT_CALLS)
+    if max_seconds is None: max_seconds=prior_limits.get('max_seconds',DEFAULT_SECONDS)
     # An explicit provider/model pins this job; only default intake inherits the chain.
     inherit_fallbacks = provider is None and model is None
     preference = previous or read(ledger)
@@ -53,6 +57,13 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     grant = validate_grant({'schema_version':1,'permissions':permissions,
                            'limits':{'max_calls':max_calls,'max_seconds':max_seconds},'source':'local operator: job submit'})
     options = dict(mode=mode,provider=provider,model=model,image=image,branch=branch,remote=remote)
+    if previous and 'budget_policy' in previous:
+        options['budget_policy']=previous['budget_policy']
+        options['budget_advice']=previous['budget_advice']
+    elif not prior:
+        from .budget_policy import recommend
+        options['budget_policy']=dict(POLICY)
+        options['budget_advice']=recommend(ledger,goal,mode,provider,model)
     if previous and 'fallbacks' in previous:
         options['fallbacks'] = previous['fallbacks']
     elif not previous and inherit_fallbacks and preference.get('fallbacks'):

@@ -28,9 +28,29 @@ def record(conn, ledger, task_id, state):
     data['procedure']=list(dict.fromkeys(r['action'] for r in state.get('receipts',[])
                                        if r['action'] in STEPS and r.get('successful') is True))
     data['skills']=[{k:s[k] for k in ('id','revision','reason')} for s in state.get('skills',[])]
+    from .budget_policy import timing
+    from .budget import current
+    data['timing']=timing(conn,task,state,attempts)
+    data['budget']=current(conn,task)
+    data['budget_policy']=profile.get('budget_policy')
+    data['repair_rounds']=state.get('native_change',{}).get('repairs',state.get('native_audit',{}).get('repairs'))
+    data['test_results']={'passed':sum(t.get('passed') is True for t in state.get('tests',[])),
+                          'failed':sum(t.get('passed') is False for t in state.get('tests',[]))}
     data['id']=content_hash({k:v for k,v in data.items() if k!='id'})
     if not conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='learning.outcome' AND json_extract(payload,'$.id')=?",(task_id,data['id'])).fetchone():
         ledger._event(conn,task_id,'learning.outcome',data)
+        event=conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+        # Facts become a proposed retrospective, never a verified procedure or
+        # an automatically injected instruction/model-selection rule.
+        lesson={'task':task_id,'evidence_event':event,'snapshot':data['snapshot'],
+                'text':f"Outcome {phase}; verification {data['verification']}; acceptance {data['acceptance']}. "
+                       f"Used {data['managed_calls']} managed calls; repair rounds {data['repair_rounds']}; "
+                       f"tests passed/failed {data['test_results']['passed']}/{data['test_results']['failed']}. "
+                       'Review the linked outcome before reusing its budget or procedure; cause and best model are not established.',
+                'status':'proposed','automatic_injection':False,'automatic_promotion':False,
+                'origin':'deterministic-outcome-retrospective'}
+        lesson['id']=content_hash(lesson)
+        ledger._event(conn,task_id,'learning.lesson',lesson)
         return True
     return False
 
@@ -79,9 +99,15 @@ def main(argv=None):
     sub=p.add_subparsers(dest='group',required=True).add_parser('learning').add_subparsers(dest='command',required=True)
     sub.add_parser('outcomes');sub.add_parser('lessons')
     add=sub.add_parser('propose');add.add_argument('task');add.add_argument('--evidence',type=int,required=True);add.add_argument('--text',required=True)
+    budget=sub.add_parser('budget');budget.add_argument('--goal',required=True)
+    budget.add_argument('--mode',choices=('audit','change','delivery','branch'),default='audit')
+    budget.add_argument('--provider',required=True);budget.add_argument('--model',required=True)
     a=p.parse_args(argv);ledger=Ledger(a.project,a.state_root)
     try:
-        result=outcomes(ledger) if a.command=='outcomes' else lessons(ledger) if a.command=='lessons' else propose(ledger,a.task,a.evidence,a.text)
+        if a.command=='budget':
+            from .budget_policy import recommend
+            result=recommend(ledger,a.goal,a.mode,a.provider,a.model)
+        else: result=outcomes(ledger) if a.command=='outcomes' else lessons(ledger) if a.command=='lessons' else propose(ledger,a.task,a.evidence,a.text)
         print(json.dumps(result,ensure_ascii=False,indent=2));return 0
     except (ValueError,OSError) as error:
         print(json.dumps({'error':str(error)}));return 2

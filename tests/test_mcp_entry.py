@@ -47,6 +47,13 @@ class EntryMCPTests(unittest.TestCase):
         self.assertEqual(first['runner']['status'],'unconfirmed')
         self.assertEqual(self.f.ledger.task(first['id'])['id'],first['id'])
 
+    def test_submit_omitted_budget_uses_same_policy_as_cli(self):
+        from onecrew.owned import Owned
+        server=Server(self.f.ledger,True)
+        with patch.object(Owned,'enable'),patch('onecrew.runner.start',return_value={'status':'fixture'}):
+            result=server.call('submit',dict(goal='Inspect source',request_key='default-budget'))
+        self.assertEqual(result['budget']['limits'],{'max_calls':100,'max_seconds':7200})
+
     def test_stdio_protocol_exits_on_eof_and_never_launches_worker(self):
         messages=[{'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2024-11-05'}},
             {'jsonrpc':'2.0','method':'notifications/initialized'},

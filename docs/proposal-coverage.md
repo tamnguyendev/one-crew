@@ -1,5 +1,18 @@
 # Proposal Coverage
 
+## New-task budget and learning policy — 2026-10-10
+
+Proposal: docs/budget-learning-policy.vi.md; approved by the user's “ok” after the 100-call/two-hour/70% discussion. Baseline 306bc3c. Existing Cloud Auth grant remains unchanged. Cycle BP01–BP04.
+
+| ID | Requirement | Implementation / verification evidence | Status | Boundary |
+|---|---|---|---|---|
+| BP01 | New defaults shared by CLI/Python/MCP; replay and explicit values preserved | owned_intake / owned_cli / mcp_entry; defaults/legacy/replay tests | Complete | 100 calls / 7200 seconds; only new jobs |
+| BP02 | 70% evidence-based assessment; early no-progress gates retained | effort_watch v2 snapshot policy; exact call/time thresholds, continue remaining budget, legacy and hard-budget tests | Complete | Human decision; no auto-extension or arbitrary progress percentage |
+| BP03 | Durable outcome metrics and proposed retrospective | learning record; honest wall/attempt time, unknown active/wait time, dedup/stale lesson tests | Complete | Proposed facts; no automatic skill or model promotion |
+| BP04 | Bounded historical advice with task evidence | budget_policy.recommend; unique tasks, latest outcomes, failures and exact match tests | Complete | Advisory only; no JEV invocation; exact goal, same project/mode/provider/model |
+
+Validation: 85 focused regression tests pass (existing subprocess ResourceWarning); compileall and CLI help checks pass. Historical advice remains explicitly advisory, with no live benchmark or automatic model promotion. No worker dispatch or changes to the active product task in this cycle.
+
 ## Cloud Auth retry / rejected candidate recovery — 2026-10-10
 
 Baseline ce6806a. User requests retrying the existing Cloud Auth task. Scope: repair the runtime blocker, retain task identity/scope/call budget, then resume in the background. No application code is edited by the entry.

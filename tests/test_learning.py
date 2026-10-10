@@ -26,9 +26,9 @@ class LearningTests(unittest.TestCase):
         result=propose(self.f.ledger,self.task,row['event'],'Test evidence first')
         self.assertEqual(result['status'],'proposed');self.assertFalse(result['automatic_injection'])
         propose(self.f.ledger,self.task,row['event'],'Test evidence first')
-        self.assertEqual(len(lessons(self.f.ledger)),1)
+        self.assertEqual(len([r for r in lessons(self.f.ledger) if r['id']==result['id']]),1)
         seq,state=self.run.state(self.task);self.run._read(state,{'path':'calc.py'});self.run.persist(self.task,seq,state)
-        self.assertEqual(lessons(self.f.ledger)[0]['status'],'stale')
+        self.assertEqual(next(r for r in lessons(self.f.ledger) if r['id']==result['id'])['status'],'stale')
 
     def test_project_isolation(self):
         self.finish()

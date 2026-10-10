@@ -61,6 +61,8 @@ class EffortWatchTests(unittest.TestCase):
         self.assertFalse(self.worker.calls)
 
     def test_call_threshold_not_only_elapsed_time_and_budget_increase_does_not_disable(self):
+        # Existing tasks retain their original absolute warning policy.
+        self.due()
         seq,state=self.run.state(self.task);control=self.run.control.status(self.task)
         control['used_calls']=20;control['budget']['limits']['max_calls']=10000
         with patch.object(self.run.control,'status',return_value=control): seq,waiting=check(self.run,self.task,seq,state)
