@@ -128,6 +128,26 @@ class NativeChangeTests(unittest.TestCase):
         self.assertEqual(state['native_change']['stage'],'verify')
         self.assertEqual(len(self.worker.calls),1)
 
+    def test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate(self):
+        from onecrew.native_change import prepare_test_environment
+        from onecrew.sandbox_gate import GateUnavailable
+        state=self.run.state(self.task)[1];workspace=Path(state['native_change']['workspace'])
+        dependency=Path(self.f.temp.name)/'cache/test_api-1.0.0'
+        for path in (self.f.root/'app/.dart_tool/package_config.json',workspace/'app/.dart_tool/package_config.json'):
+            config=json.loads(path.read_text())
+            config['packages'].append({'name':'test_api','rootUri':dependency.as_uri()+'/'})
+            path.write_text(json.dumps(config))
+        graph=self.f.root/'app/.dart_tool/package_graph.json'
+        value=json.loads(graph.read_text());value['packages'].append({'name':'test_api','version':'1.0.0','dependencies':[]})
+        graph.write_text(json.dumps(value))
+        with self.assertRaisesRegex(GateUnavailable,'cache incomplete.*test_api'):
+            prepare_test_environment(self.run,state,self.recipe)
+        self.assertFalse(self.worker.calls);self.assertEqual(state['native_change']['repairs'],0)
+        dependency.mkdir(parents=True)
+        with self.assertRaises(GateUnavailable):prepare_test_environment(self.run,state,self.recipe)
+        (dependency/'pubspec.yaml').write_text('name: test_api\n')
+        self.assertEqual(prepare_test_environment(self.run,state,self.recipe)['package_count'],2)
+
     def test_environment_preflight_exception_preserves_candidate_and_repair_count(self):
         from onecrew.sandbox_gate import GateUnavailable
         self.worker.responses=[self.candidate()]

@@ -6,7 +6,8 @@ writes and commands. Tests execute as trusted project code, not an OS sandbox.
 import json
 import difflib
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
+from urllib.request import url2pathname
 import uuid
 
 from .discovery import scan_text, permitted
@@ -154,6 +155,19 @@ def prepare_test_environment(runtime,state,recipe):
             raise GateUnavailable('Flutter package graph does not match captured package configuration.')
         if graph_target.exists() and graph_target.read_bytes()!=data:
             raise GateUnavailable('Flutter workspace package graph changed; preserve it for reconciliation.')
+        missing=[]
+        for package in captured['packages']:
+            uri=urlparse(urljoin(target.as_uri(),package['rootUri']))
+            if uri.scheme!='file' or uri.netloc not in ('','localhost'):
+                raise GateUnavailable('Flutter offline dependency must resolve to a local file URI.')
+            root=Path(url2pathname(uri.path))
+            if not root.is_dir() or not (root/'pubspec.yaml').is_file():
+                missing.append(package['name'])
+        if missing:
+            # Check the whole graph once; avoid cascading compiler output and AI
+            # repairs for a missing cache. Never resolve or upgrade dependencies.
+            raise GateUnavailable('Flutter dependency cache incomplete ('+str(len(missing))+'): '+
+                                  ', '.join(missing[:40])+'. Restore locked versions before retrying.')
         if not graph_target.exists(): durable_write(graph_target,data)
     except (OSError,KeyError,TypeError,ValueError) as error:
         if isinstance(error,GateUnavailable): raise

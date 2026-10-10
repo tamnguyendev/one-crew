@@ -9,8 +9,11 @@ User requests entry/runtime cooperation through a verified result. Cycle ER01–
 | ER01 | Prepare complete offline Flutter package metadata | Validate original remapped package_config against captured config, pubspec/lock bytes and graph package names; copy only missing package_graph, preserve conflicts | Complete | No pub get, dependency upgrade, SDK or product code edits |
 | ER02 | Environment errors do not trigger AI code repair | Explicit test result failure_kind; keep verify stage/candidate and repair count | Complete | Environment recovery uses existing trusted-native recipe; no tool expansion |
 | ER03 | Existing Cloud Auth task reaches test/review/application evidence | Runner restarted at 2026-10-10T01:58:47Z (PID 3544); verification in progress | Partial | No APK/device/server success claim; business/solution changes still need user |
+| ER04 | Detect missing dependency cache before launching compiler | Validate local file roots and pubspec for every captured package; missing-cache recovery regression | Complete | No automatic downloads or dependency resolution in the gate; operator can restore lockfile versions |
 
 Validation: 42 native/scanner/tool-receipt/owned tests pass (existing subprocess ResourceWarning). Original graph and captured config both contain 242 identical package names. Prior test failed before test execution because only package_config was staged.
+
+ER04 cycle: 33 native-change/owned tests pass. The next live attempt exposed 33 absent cache packages and stopped on the existing 2 MB output bound. Preflight now reports the missing package names before compiler execution; no repair round or model call is consumed. Entry is restoring the exact hosted versions/hash receipts and pinned printing Git revision. Live product verification remains pending.
 
 ## New-task budget and learning policy — 2026-10-10
 
