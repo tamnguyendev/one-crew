@@ -1,5 +1,16 @@
 # OneCrew entry contract
 
+## Overnight authority — night of 10–11/10/2026
+
+For completing the Cloud Auth work assigned in this conversation, the user has
+delegated approvals to the entry for tonight and requested a written record for
+morning review. This supersedes the requirement below to ask again about decisions
+within that assigned work during this night. Record each actual approval with its
+reason, scope, evidence, consequences and user-authorization provenance. Do not
+represent delegated approval as the user having personally reviewed that decision.
+Keep changes recoverable, retain failure evidence and report verification gaps.
+This does not require restarting completed jobs or reviving superseded UI baselines.
+
 ## Delegated completion — user authorization 10/10/2026
 
 For the current Cloud Auth old-UI task, the user authorizes the entry to coordinate
