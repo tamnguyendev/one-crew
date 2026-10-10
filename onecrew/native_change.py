@@ -29,6 +29,8 @@ class CandidateContentRejected(LedgerError):
 
 
 def validate(value):
+    from .node_change import is_node, validate as validate_node
+    if is_node(value): return validate_node(value)
     base=('source_roots','owned','extra_sources','package','flutter_root','tests','reference','trusted_native')
     exact_fields({k:v for k,v in value.items() if k not in ('execution','restore_cache','caller_symbol','apk_build')},base,'Native change')
     from .native_completion import validate as validate_completion
@@ -272,6 +274,8 @@ def patch_diff(runtime,state):
 
 def advance(runtime,task_id,seq,state,profile):
     recipe=profile['native_change']
+    from . import node_change
+    node=node_change.is_node(recipe);kind='Node' if node else 'Flutter'
     if recipe.get('execution')=='workspace' and state.get('pending'):
         from .workspace_worker import checkpoint_timeout
         if checkpoint_timeout(runtime,task_id):return runtime.state(task_id)[1]
@@ -284,11 +288,11 @@ def advance(runtime,task_id,seq,state,profile):
             nonlocal seq
             task_guard(runtime.control,task_id)()
             state['preparation']=value
-            state['message']='Preparing Flutter snapshot: '+str(value['files'])+' files, '+str(value['bytes'])+' bytes.'
+            state['message']='Preparing '+kind+' snapshot: '+str(value['files'])+' files, '+str(value['bytes'])+' bytes.'
             seq=runtime.persist(task_id,seq,state)
-        prepare(runtime,state,recipe,progress)
-        state['preparation']['status']='ready'
-        state['message']='Flutter snapshot ready; worker pending.'
+        (node_change.prepare if node else prepare)(runtime,state,recipe,progress)
+        state.setdefault('preparation',{})['status']='ready'
+        state['message']=kind+' snapshot ready; worker pending.'
         runtime.persist(task_id,seq,state);return state
     native=state['native_change'];stage=native['stage']
     # An explicit resume may recover a review rejected under the old combined
@@ -298,9 +302,10 @@ def advance(runtime,task_id,seq,state,profile):
         repair(state,state['reviews'][-1]['feedback'])
         runtime.persist(task_id,seq,state);return state
     if stage=='verify':
-        result=verify(runtime,task_id,state,recipe)
+        result=(node_change.verify if node else verify)(runtime,task_id,state,recipe)
         state['tests'].append(result);native['checks'].append(result)
-        if result['passed']: native['stage']='review';state['message']='Flutter regression tests passed; independent review pending.'
+        if result['passed']: native['stage']='review';state['message']=kind+' regression tests passed; independent review pending.'
+        elif node: repair(state,'Fixed Node verification (tsc, vitest, build) failed. Diagnose evidence before editing; do not remove or skip assertions.\n'+result['detail'])
         elif result.get('failure_kind')=='environment' or any(s in result['detail'].lower() for s in ('could not resolve the package','unable to find git','could not find a file named','unable to locate android sdk')):
             state.update(phase='blocked',message='Flutter dependency/environment unavailable; test receipt preserved.',recovery={'kind':'environment','automatic_retry':False})
         else: repair(state,'Fixed Flutter test command failed. Diagnose evidence before editing; do not remove assertions.\n'+result['detail'])
@@ -314,7 +319,8 @@ def advance(runtime,task_id,seq,state,profile):
         if recipe.get('apk_build'):
             native['stage']='build';state['message']='Reviewed changes applied; debug APK build pending.'
             runtime.persist(task_id,seq,state);return state
-        report=native['candidate_report']+'\n\nOneCrew: Flutter regression tests passed; independent source review accepted; scoped changes applied locally. No APK/device/server verification or Git publication.'
+        report=native['candidate_report']+('\n\nOneCrew: Node typecheck, Vitest and build passed; independent source review accepted; scoped changes applied locally. No browser/live-system verification or Git publication.'
+            if node else '\n\nOneCrew: Flutter regression tests passed; independent source review accepted; scoped changes applied locally. No APK/device/server verification or Git publication.')
         state.update(phase='completed',verification='passed',report=report,message='Reviewed native fix applied locally; user acceptance pending.')
         state['outputs'].append({'snapshot':state['snapshot'],'summary':report,'verification':'passed','acceptance':'not_requested','stage':'native_change'})
         native['stage']='completed'
@@ -347,7 +353,7 @@ def advance(runtime,task_id,seq,state,profile):
         elif not runtime.custom_worker: runtime.worker=NativeClaude(runtime.control)
         prompt=('Implement the scoped fix and meaningful regression tests. Return the COMPLETE cumulative set of changed files as full UTF-8 contents, '
             'including required test files, even on repair. Preserve unrelated working code. Use fake HTTP, no live services in tests. '
-            'Do not claim tests ran; the runtime runs the fixed Flutter recipe after your response. '
+            'Do not claim tests ran; the runtime runs the fixed '+kind+' recipe after your response. '
             'If genuinely blocked by a required user decision, set question; do not expand scope. '
             if work else 'Independently review the complete fix and regression tests using native source tools. Verify the goal, compatibility and test assertions. '
             'Test receipt covers only the named tests, not device/server behavior. Reject vacuous or skipped tests for required acceptance, unrelated changes, credential leaks and unsupported success claims. ')
