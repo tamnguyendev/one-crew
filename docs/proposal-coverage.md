@@ -9,9 +9,11 @@ User requests fixing the failed replay. Baseline 56ce2fb; cycle PF01–PF04. Pre
 | PF01 | Parse heterogeneous CLI events without masking unknown tools | Real permission_denied string shape regression; malformed top-level/message/content cases raise LedgerError | Complete | Malformed assistant/tool payloads fail closed |
 | PF02 | Exact write scope survives Windows paths and cwd changes | Absolute Windows POSIX Edit rules, escaped literals; nested live probe after cd: Edit/Write/Python work, unowned Edit/touch denied | Complete | No broad Edit, arbitrary Bash or bypass permissions |
 | PF03 | Controller exceptions persist a truthful blocked checkpoint | Runner AttributeError injection records blocked, one invocation, no extra model calls | Complete | Retain pending attempt; no implicit redispatch |
-| PF04 | Recover paid permission failure and retry within existing authority | Recovery tests preserve task/calls/response/usage; reject unowned denial, modified candidate and pending question; live retry pending | Partial | Existing scoped permissions only; product completion requires test/review |
+| PF04 | Recover paid permission failure and retry within existing authority | Paid ATT-204cc8e32c9b445999ea1f800a1727d8 recovered without inference; same task/cap with 1 used call; runner PID 28776 alive at 2026-10-10T06:00:32Z, grouped terminal reused, bounded watch ACTIVE | Complete | Existing scoped permissions only; product completion still requires test/review |
 
 Validation: 66 related tests passed; final focused rerun including the added pending-request regression passed all 24 tests. Live nested probe `nested-4305b09849`: 11 native turns, synthetic fixtures only; product task remains stopped until dispatch. Runtime assistance is persisted in outcomes instead of being described as autonomous.
+
+Live recovery on 30db4b4 retains the original question/response, usage, session and task TASK-2e7fc730eee44122a5eb3543ab3f7e2c. No files changed in the failed attempt; no product edits or tests executed by entry. `assistance=entry-runtime-repair` is explicit. Scope/budget unchanged; product outcome pending in background. The following NW04 unassisted acceptance gate was not met by the first trial; restarting after this repair does not erase that failure.
 
 
 ## Scoped native workspace worker — 2026-10-10
