@@ -61,9 +61,9 @@ def validate(value):
     return value
 
 
-def prepare(runtime,state,recipe):
+def prepare(runtime,state,recipe,progress=None):
     workspace=workspace_path(runtime.ledger.state_root,'native-change')
-    captured=capture(runtime,workspace,recipe['source_roots'])
+    captured=capture(runtime,workspace,recipe['source_roots'],flutter_context=True,progress=progress)
     for name,digest in recipe['extra_sources'].items():
         data=safe_file(runtime.ledger.project,name).read_bytes()
         if bytes_hash(data)!=digest: raise LedgerError('Reviewed extra source changed: '+name)
@@ -280,7 +280,16 @@ def advance(runtime,task_id,seq,state,profile):
         state.update(phase='cancelled',message='Stopped on explicit user clarification.')
         runtime.persist(task_id,seq,state);return state
     if not state.get('native_change'):
-        prepare(runtime,state,recipe);runtime.persist(task_id,seq,state);return state
+        def progress(value):
+            nonlocal seq
+            task_guard(runtime.control,task_id)()
+            state['preparation']=value
+            state['message']='Preparing Flutter snapshot: '+str(value['files'])+' files, '+str(value['bytes'])+' bytes.'
+            seq=runtime.persist(task_id,seq,state)
+        prepare(runtime,state,recipe,progress)
+        state['preparation']['status']='ready'
+        state['message']='Flutter snapshot ready; worker pending.'
+        runtime.persist(task_id,seq,state);return state
     native=state['native_change'];stage=native['stage']
     # An explicit resume may recover a review rejected under the old combined
     # repair cap. Reuse its durable feedback rather than pay for another review.

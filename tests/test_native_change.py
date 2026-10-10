@@ -22,6 +22,32 @@ class NativeChangeTests(unittest.TestCase):
         self.run,self.task,self.worker=self.f.runtime([],mode='change',provider='claude',model='sonnet',native_change=self.recipe)
         self.run.run(self.task,steps=1)
 
+    def test_preparation_progress_is_durable_before_worker_call(self):
+        state=self.run.state(self.task)[1]
+        self.assertEqual(state['preparation']['status'],'ready')
+        self.assertGreater(state['preparation']['files'],0)
+        self.assertEqual(state['preparation']['workspace'],state['native_change']['workspace'])
+        self.assertFalse(self.worker.calls)
+
+    def test_capture_failure_preserves_progress_and_retry_does_not_spend_calls(self):
+        seq,state=self.run.state(self.task)
+        state.pop('native_change');self.run.persist(self.task,seq,state)
+        def fail(runtime,destination,roots,**kwargs):
+            kwargs['progress']({'status':'capturing','workspace':str(destination),
+                                'files':1000,'bytes':12345,'visited':1200,'omitted_files':5})
+            raise LedgerError('capture fixture limit')
+        with patch('onecrew.native_change.capture',side_effect=fail):
+            failed=self.run.run(self.task,steps=1)
+        self.assertEqual(failed['phase'],'blocked')
+        self.assertEqual(failed['preparation']['files'],1000)
+        self.assertIn('capture fixture limit',failed['message'])
+        self.assertEqual(self.run.control.status(self.task)['used_calls'],0)
+        self.run.resume(self.task)
+        recovered=self.run.run(self.task,steps=1)
+        self.assertEqual(recovered['preparation']['status'],'ready')
+        self.assertEqual(recovered['native_change']['stage'],'work')
+        self.assertEqual(self.run.control.status(self.task)['used_calls'],0)
+
     def candidate(self):
         return {'report':'Fixed arithmetic and added regression coverage. Device unverified.','question':'','files':[
             {'path':'app/lib/main.dart','text':'int add(int a,int b)=>a+b;\n'},

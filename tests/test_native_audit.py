@@ -11,6 +11,28 @@ class NativeAuditTests(unittest.TestCase):
     def setUp(self):
         self.f=fixtures.OwnedTests();self.f.setUp();self.addCleanup(self.f.doCleanups)
 
+    def test_flutter_context_keeps_dart_and_fixtures_without_database_and_html_exports(self):
+        files={'resx/generated.dart':'void cloudAuthFailureMessage() {}',
+               'resx/query.sql':'select 1;', 'resx/query.xsql':'select 2;',
+               'docs/classes/Foo.html':'generated docs', 'docs/guide.md':'manual guide',
+               'test/fixtures/input.sql':'select 3;', 'lib/data/query.sql':'select 4;',
+               'web/index.html':'app entry', 'pubspec.yaml':'name: fixture'}
+        for name,text in files.items():
+            p=self.f.root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
+        run,_,_=self.f.runtime([])
+        progress=[]
+        result=capture(run,Path(self.f.temp.name)/'flutter',flutter_context=True,progress=progress.append)
+        excluded={'resx/query.sql','resx/query.xsql','docs/classes/Foo.html'}
+        self.assertTrue((set(files)-excluded)<=set(result['files']))
+        self.assertFalse(excluded&set(result['files']))
+        self.assertEqual(result['metadata']['context_omissions'],{'database_resource':2,'html_documentation':1})
+        audit=capture(run,Path(self.f.temp.name)/'audit')
+        self.assertTrue(set(files)<=set(audit['files']))
+        self.assertTrue(all((self.f.root/p).exists() for p in excluded))
+        self.assertEqual(progress[0]['files'],0)
+        self.assertEqual(progress[-1]['status'],'captured')
+        self.assertEqual(progress[-1]['files'],len(result['files']))
+
     def setup_native(self):
         run,task,worker=self.f.runtime([],provider='claude',model='sonnet')
         # The fixture worker uses the same explicit provider while preserving grants.

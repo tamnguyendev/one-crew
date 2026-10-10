@@ -91,11 +91,17 @@ def source_roots(runtime,state):
     return [p for p in roots if not any(p.startswith(parent+'/') for parent in roots if parent!=p)]
 
 
-def capture(runtime, destination, roots=None):
+def capture(runtime, destination, roots=None, *, flutter_context=False, progress=None):
     """Copy permitted UTF-8 working bytes; never traverse links or copy Git/settings."""
     destination=Path(destination);destination.mkdir(parents=True,exist_ok=False)
     discovery=Discovery(runtime.ledger.project);manifest={};repos=[];omitted=0;long_paths=0;visited=0;total=0
     roots=[''] if roots is None else roots
+    context_omissions={}
+    def report(status):
+        if progress:
+            progress({'status':status,'workspace':str(destination),'files':len(manifest),
+                      'bytes':total,'visited':visited,'omitted_files':omitted})
+    report('capturing')
     trees=[discovery.root if not p else discovery.path(p) for p in roots]
     for directory,dirs,files in itertools.chain.from_iterable(os.walk(tree,followlinks=False) for tree in trees):
         root=Path(directory);relative=root.relative_to(discovery.root).as_posix()
@@ -109,6 +115,16 @@ def capture(runtime, destination, roots=None):
         if visited>100000: raise LedgerError('Native audit capture exceeds entry limit; narrow scope.')
         for name in sorted(files):
             path=root/name;relative=path.relative_to(discovery.root).as_posix()
+            # Keep all Dart, lib/test fixtures and manifests. Database resource
+            # exports and generated HTML docs are not Flutter worker inputs.
+            # The original build tree and independent caller census are intact.
+            parts=tuple(p.lower() for p in Path(relative).parts[:-1])
+            if flutter_context and not {'lib','test','integration_test'}.intersection(parts):
+                reason=('database_resource' if path.suffix.lower() in ('.sql','.xsql') else
+                        'html_documentation' if path.suffix.lower()=='.html' and 'docs' in parts else None)
+                if reason:
+                    context_omissions[reason]=context_omissions.get(reason,0)+1
+                    omitted+=1;continue
             target=destination/relative
             if os.name=='nt' and len(str(target))>245:
                 omitted+=1;long_paths+=1;continue
@@ -116,14 +132,18 @@ def capture(runtime, destination, roots=None):
             except (ValueError,OSError): omitted+=1;continue
             total+=len(data)
             if len(manifest)>=20000 or total>128_000_000:
-                raise LedgerError('Native audit capture exceeds text limit; narrow scope.')
+                raise LedgerError('Native audit capture exceeds text limit ('+str(len(manifest))+
+                                  ' files, '+str(total)+' bytes); narrow scope.')
             target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data)
             manifest[relative]=bytes_hash(data)
+            if len(manifest)%1000==0:report('capturing')
     if not manifest: raise LedgerError('No permitted source for native audit.')
     metadata={'original_project':str(discovery.root),'source_roots':roots,'repositories':repos,'omitted_files':omitted,'omitted_windows_long_paths':long_paths,
+              'context_policy':'flutter-source' if flutter_context else 'audit-text','context_omissions':context_omissions,
               'meaning':'Permitted working-tree text snapshot, not necessarily the code in the installed APK. '
                         'Excluded credentials, links, binary/large files and tool settings. Missing files are not proven absent from the original project.'}
     durable_write(destination/'ONECREW_AUDIT_CONTEXT.json',canonical(metadata).encode())
+    report('captured')
     return {'files':manifest,'metadata':metadata}
 
 
