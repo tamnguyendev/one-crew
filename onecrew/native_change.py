@@ -28,6 +28,11 @@ class CandidateContentRejected(LedgerError):
     """Patch content cannot be installed; feedback contains no matched bytes."""
 
 
+class PatchIncomplete(LedgerError):
+    """The worker returned a partial patch set (missing required tests or the production change), a format defect the
+    same session can repair; nothing was installed."""
+
+
 def validate(value):
     from .node_change import is_node, validate as validate_node
     if is_node(value): return validate_node(value)
@@ -116,9 +121,9 @@ def install_candidate(runtime,state,value,recipe):
             raise CandidateContentRejected('Candidate content rejected by credential/UTF-8 policy: '+name) from None
         if len(data)>200000: raise LedgerError('Patch file too large.')
         replacements[name]=runtime.store.blob(data)
-    if not set(recipe['tests'])<=set(replacements): raise LedgerError('Required regression tests missing from patch.')
+    if not set(recipe['tests'])<=set(replacements): raise PatchIncomplete('Required regression tests missing from patch.')
     if not recipe.get('caller_symbol') and not any(h!=native['originals'][p] and p not in recipe['tests'] for p,h in replacements.items()):
-        raise LedgerError('No production fix in patch.')
+        raise PatchIncomplete('No production fix in patch.')
     # Each revision supplies the entire cumulative change, never stale prior edits.
     for name,original in native['originals'].items():
         target=safe_file(workspace,name);h=replacements.get(name,original)
@@ -410,6 +415,13 @@ def advance(runtime,task_id,seq,state,profile):
                 else:check_snapshot(runtime,state)
                 try:
                     install_candidate(runtime,state,value,recipe)
+                except PatchIncomplete as error:
+                    # A partial patch on a repair round (e.g. only the test file) is repairable; keep the previous
+                    # feedback so the worker still sees why the last verification failed.
+                    previous=native.get('feedback') or ''
+                    repair(state,str(error)+' Nothing was installed. Return the COMPLETE cumulative set of changed files as full contents: '
+                        'every owned production file that differs from the original plus all required test files, even when only one file '
+                        'needs further edits on this round.'+('\n\nPrevious feedback (still applies):\n'+previous if previous else ''),kind='content')
                 except CandidateContentRejected as error:
                     native.setdefault('rejected_candidates',[]).append({'reason':str(error),
                         'digest':bytes_hash(canonical(value).encode())})

@@ -29,7 +29,8 @@ for (const f of files) {
   if (text.includes('MUTATE')) fs.appendFileSync('node_modules/.package-lock.json',' ');
   if (text.includes('EMPTY')) continue;
   const ok=!text.includes('FAIL'); total++; ok?passed++:failed++;
-  results.push({name:path.resolve(f),status:ok?'passed':'failed',assertionResults:[{status:ok?'passed':'failed',title:'t'}]});
+  results.push({name:path.resolve(f),status:ok?'passed':'failed',assertionResults:[{status:ok?'passed':'failed',title:'t',fullName:'suite adds',
+    failureMessages:ok?[]:['AssertionError: expected 1 to be 2\n    at test/app.test.ts:3:1\n    at runner.js:9:9']}]});
 }
 fs.writeFileSync(out, JSON.stringify({numTotalTests:total,numPassedTests:passed,numFailedTests:failed,numPendingTests:0,numTodoTests:0,success:total>0&&failed===0,testResults:results}));
 process.exit(total>0&&failed===0?0:1);
@@ -110,7 +111,23 @@ class NodeChangeTests(unittest.TestCase):
         self.assertIn('a-b',(self.ext/'src/app.ts').read_text())
 
     def test_failing_owned_test_requests_repair_without_apply(self):
-        self.assert_repair(self.work_and_verify(self.candidate(test='FAIL\n')),'vitest')
+        state=self.work_and_verify(self.candidate(test='FAIL\n'))
+        self.assert_repair(state,'vitest')
+        feedback=state['native_change']['feedback']
+        self.assertIn('test/app.test.ts > suite adds: AssertionError: expected 1 to be 2',feedback)
+
+    def test_partial_repair_patch_is_repaired_not_blocked_and_keeps_previous_feedback(self):
+        self.worker.responses=[self.candidate(test='FAIL\n'),
+            {'report':'Only touched the test this round.','question':'','files':[{'path':'ext/test/app.test.ts','text':'it adds\n'}]},
+            self.candidate(),{'accepted':True,'feedback':'Checked'}]
+        for _ in range(3): state=self.run.run(self.task,steps=1)  # work -> verify(fail) -> work(partial)
+        native=state['native_change']
+        self.assertNotEqual(state['phase'],'blocked',state.get('message'))
+        self.assertEqual(native['stage'],'work');self.assertEqual(native['repair_counts'],{'content':1,'product':1})
+        self.assertIn('COMPLETE cumulative set',native['feedback']);self.assertIn('expected 1 to be 2',native['feedback'])
+        self.assertNotIn('result_pending',native)
+        for _ in range(4): state=self.run.run(self.task,steps=1)  # work -> verify -> review -> apply
+        self.assertEqual(state['phase'],'completed');self.assertIn('a+b',(self.ext/'src/app.ts').read_text())
 
     def test_skipped_or_empty_owned_test_never_passes(self):
         self.assert_repair(self.work_and_verify(self.candidate(test='EMPTY\n')),'vitest')

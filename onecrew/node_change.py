@@ -193,7 +193,7 @@ def summarize_vitest(path, package_dir, owned_tests):
     except ValueError:
         return {'passed': False, 'reason': 'Vitest JSON report unreadable.'}
     totals = {k: report.get(k) for k in ('numTotalTests', 'numPassedTests', 'numFailedTests', 'numPendingTests', 'numTodoTests')}
-    files = {}
+    files = {}; failures = []
     for result in report.get('testResults') or []:
         try:
             rel = Path(result.get('name', '')).resolve().relative_to(Path(package_dir).resolve()).as_posix()
@@ -201,12 +201,27 @@ def summarize_vitest(path, package_dir, owned_tests):
             continue
         passed = sum(1 for a in result.get('assertionResults') or [] if a.get('status') == 'passed')
         files[rel] = {'status': result.get('status'), 'passed_assertions': passed}
+        if result.get('status') != 'passed' and result.get('message'):
+            failures.append(rel + ': ' + _first_lines(result['message']))  # e.g. the suite failed to load
+        for assertion in result.get('assertionResults') or []:
+            if assertion.get('status') == 'failed':
+                message = _first_lines((assertion.get('failureMessages') or [''])[0])
+                failures.append(rel + ' > ' + str(assertion.get('fullName') or assertion.get('title')) + (': ' + message if message else ''))
     missing = [t for t in owned_tests if files.get(t, {}).get('status') != 'passed' or files[t]['passed_assertions'] < 1]
     ok = (report.get('success') is True and isinstance(totals['numTotalTests'], int) and totals['numTotalTests'] > 0
           and totals['numFailedTests'] == 0 and (totals['numPassedTests'] or 0) > 0 and not missing)
-    reason = None if ok else ('Owned tests without a passing result: ' + ', '.join(missing) if missing
-                              else 'Vitest reported no passing tests or failures.')
-    return {'passed': ok, 'reason': reason, 'totals': totals, 'files': files}
+    reason = None
+    if not ok:
+        reason = ('Owned tests without a passing result: ' + ', '.join(missing) if missing
+                  else 'Vitest reported no passing tests or failures.')
+        if failures:
+            # The worker cannot read the verification workspace: give it the failing assertions themselves.
+            reason += '\nFailing assertions (' + str(len(failures)) + '):\n- ' + '\n- '.join(failures)[:6000]
+    return {'passed': ok, 'reason': reason, 'totals': totals, 'files': files, 'failures': failures[:50]}
+
+
+def _first_lines(text, lines=4, limit=700):
+    return ' | '.join(line.strip() for line in str(text).splitlines()[:lines] if line.strip())[:limit]
 
 
 def verify(runtime, task_id, state, recipe):
@@ -273,5 +288,10 @@ def verify(runtime, task_id, state, recipe):
         detail = scan_text((out + err).encode())[-12000:]
     except LedgerError:
         detail = 'Command output withheld by credential policy; inspect local receipt.'
+    if reason:
+        try:
+            reason = scan_text(reason.encode())
+        except LedgerError:
+            reason = 'Failure summary withheld by credential policy; inspect local receipt.'
     detail = 'Fixed Node step failed: ' + name + ('. ' + reason if reason else '') + '\n' + detail
     return {'passed': False, 'detail': detail, 'evidence': evidence, 'failure_kind': 'test'}
