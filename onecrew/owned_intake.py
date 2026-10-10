@@ -51,6 +51,7 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     permissions = ['discover','report'] + (['candidate.write','sandbox.test'] if mode == 'change' else [])
     if android_build: permissions += ['android.build']
     if native_change: permissions += ['native.test','workspace.apply']
+    if native_change and native_change.get('apk_build'): permissions += ['android.build']
     if branch and remote:
         permissions += ['git.branch','git.commit','git.push']
     elif mode=='branch': permissions += ['git.branch']

@@ -30,7 +30,9 @@ class CandidateContentRejected(LedgerError):
 
 def validate(value):
     base=('source_roots','owned','extra_sources','package','flutter_root','tests','reference','trusted_native')
-    exact_fields({k:v for k,v in value.items() if k not in ('execution','restore_cache')},base,'Native change')
+    exact_fields({k:v for k,v in value.items() if k not in ('execution','restore_cache','caller_symbol','apk_build')},base,'Native change')
+    from .native_completion import validate as validate_completion
+    validate_completion(value)
     if value.get('execution','artifact') not in ('artifact','workspace'):raise LedgerError('Unknown native execution mode.')
     if type(value.get('restore_cache',False)) is not bool:raise LedgerError('restore_cache must be boolean.')
     if value.get('restore_cache') and value.get('execution')!='workspace':
@@ -92,6 +94,9 @@ def prepare(runtime,state,recipe):
         'attempts':[],'repairs':0,'feedback':'','checks':[],'applied':[]}
     state['original'].update({p:h for p,h in originals.items() if h})
     state['files'].update(state['original'])
+    if recipe.get('caller_symbol'):
+        from .native_completion import collect
+        state['native_change']['caller_summary']=collect(runtime,state,recipe)
 
 
 def install_candidate(runtime,state,value,recipe):
@@ -110,7 +115,7 @@ def install_candidate(runtime,state,value,recipe):
         if len(data)>200000: raise LedgerError('Patch file too large.')
         replacements[name]=runtime.store.blob(data)
     if not set(recipe['tests'])<=set(replacements): raise LedgerError('Required regression tests missing from patch.')
-    if not any(h!=native['originals'][p] and p not in recipe['tests'] for p,h in replacements.items()):
+    if not recipe.get('caller_symbol') and not any(h!=native['originals'][p] and p not in recipe['tests'] for p,h in replacements.items()):
         raise LedgerError('No production fix in patch.')
     # Each revision supplies the entire cumulative change, never stale prior edits.
     for name,original in native['originals'].items():
@@ -293,11 +298,26 @@ def advance(runtime,task_id,seq,state,profile):
     elif stage=='apply':
         if not native.get('review_accepted') or not native['checks'] or not native['checks'][-1]['passed'] or native['checks'][-1]['evidence']['snapshot']!=state['snapshot']:
             raise LedgerError('Cannot apply without current tests and independent review.')
-        task_guard(runtime.control,task_id)();check_snapshot(runtime,state);apply(runtime,state)
+        from .native_completion import check_census
+        task_guard(runtime.control,task_id)();check_snapshot(runtime,state)
+        if not state.get('workspace_applied'):check_census(runtime,state,recipe)
+        apply(runtime,state)
+        if recipe.get('apk_build'):
+            native['stage']='build';state['message']='Reviewed changes applied; debug APK build pending.'
+            runtime.persist(task_id,seq,state);return state
         report=native['candidate_report']+'\n\nOneCrew: Flutter regression tests passed; independent source review accepted; scoped changes applied locally. No APK/device/server verification or Git publication.'
         state.update(phase='completed',verification='passed',report=report,message='Reviewed native fix applied locally; user acceptance pending.')
         state['outputs'].append({'snapshot':state['snapshot'],'summary':report,'verification':'passed','acceptance':'not_requested','stage':'native_change'})
         native['stage']='completed'
+    elif stage=='build':
+        from .native_completion import build
+        seq=build(runtime,task_id,seq,state,recipe)
+        if native.get('apk_build',{}).get('status')=='passed':
+            artifact=native['apk_build']['artifact']
+            report=native['candidate_report']+'\n\nOneCrew: regression tests and independent review passed; changes applied to main project. Debug APK verified and archived: '+artifact['path']+'\nSHA256: '+artifact['sha256']+'\nDevice/server behavior and release signing remain unverified.'
+            state.update(phase='completed',verification='passed',report=report,message='Reviewed main-project changes and verified debug APK handed off locally.')
+            state['outputs'].append({'snapshot':state['snapshot'],'summary':report,'verification':'passed','acceptance':'not_requested','stage':'native_change_apk','artifact':artifact})
+            native['stage']='completed'
     elif stage in ('work','review'):
         work=stage=='work';prefix='worker' if work else 'review'
         workspace_mode=recipe.get('execution')=='workspace' and work
@@ -326,6 +346,7 @@ def advance(runtime,task_id,seq,state,profile):
             notes=[json.loads(r['payload']) for r in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='entry.note' ORDER BY seq DESC LIMIT 5",(task_id,))]
         packet=canonical({'goal':runtime.ledger.task(task_id,full=True)['handoff']['goal'],
             'owned':recipe['owned'],'tests':recipe['tests'],'feedback':native['feedback'],
+            'caller_census':native.get('caller_summary'),
             'report':native.get('candidate_report'),'test_result':native['checks'][-1] if native['checks'] else None,
             'diff_against_original_working_bytes':patch_diff(runtime,state) if not work else None,
             'entry_notes_untrusted':notes,

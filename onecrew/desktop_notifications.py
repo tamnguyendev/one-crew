@@ -126,6 +126,9 @@ def text_report(item):
                          ('Native checks', native.get('checks')),
                          ('Review accepted', native.get('review_accepted')),
                          ('Applied', native.get('applied')),
+                         ('Caller census', native.get('caller_summary')),
+                         ('APK artifact', (native.get('apk_build') or {}).get('artifact')),
+                         ('APK build evidence', native.get('apk_build')),
                          ('Bàn giao', state.get('deliveries'))]:
         lines += ['', label+': '+safe(canonical(value), 4000)]
     lines += ['', 'Timeout checkpoints: '+str(len(native.get('timeout_checkpoints') or [])),

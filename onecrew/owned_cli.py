@@ -106,7 +106,7 @@ def output_card(runtime,task_id,state):
             'native_audit':{k:v for k,v in state.get('native_audit',{}).items()
                             if k in ('stage','repairs','attempts','baseline_calls','workspace')},
             'native_change':{k:v for k,v in state.get('native_change',{}).items()
-                             if k in ('stage','repairs','attempts','checks','applied','review_accepted','candidate_report','timeout_checkpoints')},
+                             if k in ('stage','repairs','attempts','checks','applied','review_accepted','candidate_report','timeout_checkpoints','caller_summary','apk_build')},
             'assistance':state.get('assistance','unknown'),
             'report':state.get('report'),'candidate_snapshot':state['snapshot'],'original_workspace_modified':bool(state.get('workspace_applied')),
             'skills':[{k:s[k] for k in ('id','revision','reason')} for s in state.get('skills',[])],
