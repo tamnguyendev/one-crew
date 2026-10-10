@@ -137,6 +137,27 @@ def build_inputs(runtime, state, recipe):
     return inputs
 
 
+def prepare_wrappers(project, recipe):
+    """Materialize missing Flutter SDK wrappers before fingerprinting build inputs.
+
+    Existing project wrappers remain authoritative and are never overwritten.
+    Flutter's first build otherwise creates these same files after the fingerprint.
+    """
+    app = safe_file(project, recipe['apk_build']['package'])
+    if not (app/'android').is_dir(): return {}
+    source = Path(recipe['flutter_root'])/'bin/cache/artifacts/gradle_wrapper'
+    added = {}
+    for relative in ('gradlew', 'gradlew.bat', 'gradle/wrapper/gradle-wrapper.jar'):
+        target = safe_file(project, recipe['apk_build']['package']+'/android/'+relative)
+        if target.exists(): continue
+        data = (source/relative).read_bytes()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # Exclusive creation preserves a wrapper created concurrently by another tool.
+        with target.open('xb') as output: output.write(data)
+        added[target.relative_to(project).as_posix()] = bytes_hash(data)
+    return added
+
+
 def build(runtime, task_id, seq, state, recipe):
     """One bounded build; durable intent prevents replay after an ambiguous crash."""
     native = state['native_change']
@@ -161,8 +182,12 @@ def build(runtime, task_id, seq, state, recipe):
         raise LedgerError('Another or interrupted APK build owns this package; inspect lock.') from None
     os.close(fd)
     try:
+        wrappers = prepare_wrappers(runtime.ledger.project, recipe)
+        if wrappers:
+            before = build_inputs(runtime, state, recipe)
         receipt = dict(status='running', argv=argv, package=str(app), input_manifest=runtime.store.evidence(canonical(before).encode()),
-                       snapshot=state['snapshot'], variant='debug', pub_get_ran=False)
+                       snapshot=state['snapshot'], variant='debug', pub_get_ran=False,
+                       prepared_sdk_wrappers=wrappers)
         native['apk_build'] = receipt
         seq = runtime.persist(task_id, seq, state)
         if output.exists():

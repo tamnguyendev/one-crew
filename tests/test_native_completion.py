@@ -109,6 +109,25 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual(receipt['input_drift'],{'added':['app/android/gradlew'],'removed':[],'changed':[]})
         self.assertIn('app/android/gradlew',json.loads(self.runtime.store.read_evidence(receipt['after_input_manifest'])))
 
+    def test_sdk_wrappers_prepared_once_and_captured_before_build(self):
+        sdk=Path(self.recipe['flutter_root'])/'bin/cache/artifacts/gradle_wrapper'
+        android=self.root/'app/android'
+        android.mkdir(parents=True,exist_ok=True)
+        for relative in ('gradlew','gradlew.bat','gradle/wrapper/gradle-wrapper.jar'):
+            source=sdk/relative;source.parent.mkdir(parents=True,exist_ok=True)
+            source.write_bytes(('sdk '+relative).encode())
+        (android/'gradlew').write_text('project customized wrapper')
+        def command(*args):
+            receipt=self.runtime.state(self.task)[1]['native_change']['apk_build']
+            inputs=json.loads(self.runtime.store.read_evidence(receipt['input_manifest']))
+            self.assertIn('app/android/gradle/wrapper/gradle-wrapper.jar',inputs)
+            self.assertEqual((android/'gradlew').read_text(),'project customized wrapper')
+            self.assertEqual(len(receipt['prepared_sdk_wrappers']),2)
+            self.assertEqual(completion.prepare_wrappers(self.root,self.recipe),{})
+            self.apk();return 0,'built',''
+        self.run_build(command)
+        self.assertEqual(self.state['native_change']['apk_build']['status'],'passed')
+
     def test_wrong_base_mapping_rejected_before_command(self):
         config=self.root/'app/.dart_tool/package_config.json'
         config.write_text(json.dumps({'packages':[{'name':'app','rootUri':'../../wrong/'}]}))
