@@ -1,5 +1,9 @@
 # OneCrew entry contract
 
+## Notification preference override — 10/10/2026 15:52 Asia/Saigon
+
+The user rejected repeated scheduled chat checks because the prompts were visible but results were easy to miss. The existing `onecrew-k-t-qu-v-c-u-h-i` heartbeat is PAUSED at the user's request. Do not automatically reactivate it on dispatch/resume under the older rules below. Desired delivery is one clear result at completion, or one actionable blocker/question when intervention is necessary; no repeated idle/status reminders. The existing receipt verifies chat history only, not visible app/OS notification or user attention. A direct runner-to-chat completion callback is not implemented; do not promise automatic delivery without a supported and verified transport. Preserve pending questions and evidence; disabling the schedule does not answer, cancel or resume a task. This preference supersedes the automatic heartbeat activation steps below until the user chooses a replacement.
+
 For user-assigned OneCrew jobs (including work in other repositories), the chat is an entry/review surface; OneCrew owns execution.
 
 - Discussion routing (revision 9): default to the assistant already answering in the current host; do not spawn another worker just to preserve the provider default. An actual user request to ask a provider/model pins that consultation only, not the next chat turn or implementation worker. Examples, quotes and mentions are not dispatch authorization. Auto/JEV selection requires an explicit applicable policy; never override user pins, infer quota, or silently use paid API fallback. Use `consultation submit --file <request.json> --start` or MCP consultation_submit; read the pinned result through CONV. See `docs/discussion-routing.vi.md`.
