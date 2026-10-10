@@ -29,11 +29,18 @@ def check_native_tools(events, allowed=None):
     Keep attempted calls in telemetry, but never expand the session capability.
     """
     allowed=set(allowed or {'Read','Grep','Glob','StructuredOutput'})
+    if not isinstance(events,list) or not all(isinstance(e,dict) for e in events):
+        raise LedgerError('Malformed native event stream.')
     init=[e for e in events if e.get('type')=='system' and e.get('subtype')=='init']
     calls=[];results={};seen=set()
     for position,event in enumerate(events):
-        blocks=event.get('message',{}).get('content',[])
-        if not isinstance(blocks,list): continue
+        if event.get('type') not in ('assistant','user'):continue
+        message=event.get('message')
+        if not isinstance(message,dict):raise LedgerError('Malformed native message envelope.')
+        blocks=message.get('content',[])
+        if isinstance(blocks,str) and event.get('type')=='user':continue
+        if not isinstance(blocks,list) or not all(isinstance(b,dict) for b in blocks):
+            raise LedgerError('Malformed native content blocks.')
         for block in blocks:
             if event.get('type')=='assistant' and block.get('type')=='tool_use':
                 calls.append((position,block))
@@ -54,7 +61,7 @@ def check_native_tools(events, allowed=None):
                 or len(receipt)!=1 or receipt[0][0]<=position):
             raise LedgerError('Unexpected native tool without an unambiguous denial: '+str(name))
         block=receipt[0][1];content=block.get('content')
-        if isinstance(content,list) and len(content)==1 and content[0].get('type')=='text':
+        if isinstance(content,list) and len(content)==1 and isinstance(content[0],dict) and content[0].get('type')=='text':
             content=content[0].get('text')
         expected=f'<tool_use_error>Error: No such tool available: {name}. {name} is disabled for this session, in subagents as well as here.</tool_use_error>'
         if block.get('is_error') is not True or content!=expected:
@@ -140,6 +147,7 @@ class NativeClaude(ClaudeArtifact):
 
     def result(self,attempt):
         events=[json.loads(line) for line in self.stdout(attempt).splitlines() if line.strip()]
+        if not all(isinstance(e,dict) for e in events):raise LedgerError('Malformed native event stream.')
         results=[e for e in events if e.get('type')=='result']
         if len(results)!=1: raise LedgerError('Native audit lacks a unique terminal result; preserve session for inspection.')
         result=results[0]

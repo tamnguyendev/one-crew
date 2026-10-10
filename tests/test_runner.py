@@ -52,6 +52,19 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(f.worker.calls, [])
         self.assertEqual(f.workflow.control.status(f.task['id'])['deadline'], deadline)
 
+    def test_unexpected_exception_persists_blocked_without_spending_or_retrying(self):
+        f=self.fixture
+        before=f.workflow.control.status(f.task['id'])
+        with patch('onecrew.runner.workflow_for',return_value=f.workflow),\
+             patch.object(f.workflow,'run',side_effect=AttributeError('bad event')) as run,\
+             patch('traceback.print_exc'):
+            self.assertEqual(loop(f.ledger,f.task['id']),'blocked')
+        state=f.workflow.state(f.task['id'])[1]
+        self.assertEqual(state['phase'],'blocked');self.assertEqual(run.call_count,1)
+        self.assertEqual(state['recovery']['error_type'],'AttributeError')
+        self.assertFalse(state['recovery']['automatic_retry'])
+        self.assertEqual(f.workflow.control.status(f.task['id'])['used_calls'],before['used_calls'])
+
     def test_explicit_extension_after_wait_deadline_retains_resume_phase(self):
         from onecrew.budget import extend
         f = self.fixture

@@ -21,7 +21,7 @@ def record(conn, ledger, task_id, state):
         'progress':{k:v for k,v in state.get('progress',{}).items() if k!='results'},
         'recovery':state.get('recovery'),'managed_calls':config['used_calls'],
         'usage':summarize(state.get('usage',[]),attempts),
-        'assistance':'unknown','quality_score':None,'routing_policy':'explicit-profile',
+        'assistance':state.get('assistance','unknown'),'quality_score':None,'routing_policy':'explicit-profile',
         'device_tested':False,'candidate_files':len(state.get('files',{}))}
     from .skills import signature, STEPS
     data['signature']=signature(payload.get('goal',payload['spec_text']),profile.get('mode'),state.get('files',{}))

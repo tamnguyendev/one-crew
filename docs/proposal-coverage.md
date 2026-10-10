@@ -1,5 +1,19 @@
 # Proposal Coverage
 
+## Native permission and receipt recovery — 2026-10-10
+
+User requests fixing the failed replay. Baseline 56ce2fb; cycle PF01–PF04. Preserve task, original grant, paid result and original product files; classify this replay as assisted after runtime repair.
+
+| ID | Requirement | Evidence | Status | Boundary |
+|---|---|---|---|---|
+| PF01 | Parse heterogeneous CLI events without masking unknown tools | Real permission_denied string shape regression; malformed top-level/message/content cases raise LedgerError | Complete | Malformed assistant/tool payloads fail closed |
+| PF02 | Exact write scope survives Windows paths and cwd changes | Absolute Windows POSIX Edit rules, escaped literals; nested live probe after cd: Edit/Write/Python work, unowned Edit/touch denied | Complete | No broad Edit, arbitrary Bash or bypass permissions |
+| PF03 | Controller exceptions persist a truthful blocked checkpoint | Runner AttributeError injection records blocked, one invocation, no extra model calls | Complete | Retain pending attempt; no implicit redispatch |
+| PF04 | Recover paid permission failure and retry within existing authority | Recovery tests preserve task/calls/response/usage; reject unowned denial, modified candidate and pending question; live retry pending | Partial | Existing scoped permissions only; product completion requires test/review |
+
+Validation: 66 related tests passed; final focused rerun including the added pending-request regression passed all 24 tests. Live nested probe `nested-4305b09849`: 11 native turns, synthetic fixtures only; product task remains stopped until dispatch. Runtime assistance is persisted in outcomes instead of being described as autonomous.
+
+
 ## Scoped native workspace worker — 2026-10-10
 
 Proposal: approved entry explanation and architecture-kiro-cao.vi.md P0.1. Baseline dc749d9. Cycle NW01–NW05. Preserve the completed product fix; replay pre-fix inputs in a separate project. No runtime repair during the acceptance run may be called unassisted.

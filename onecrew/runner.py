@@ -101,6 +101,21 @@ def loop(ledger, task_id, interval=.5):
                     if 'already owns' not in str(error):
                         raise
                     time.sleep(interval)
+        except Exception as error:
+            # Preserve paid/pending attempts; a parser/controller defect must not
+            # leave the durable task claiming to run after its runner has died.
+            import traceback
+            traceback.print_exc()
+            with task_lock(ledger,task_id):
+                seq,state=workflow.state(task_id)
+                if state is not None and state['phase'] not in ('completed','cancelled','failed'):
+                    state.setdefault('resume_phase',state['phase'])
+                    state.update(phase='blocked',message='Controller error: '+type(error).__name__+
+                                 '; inspect runner log. Checkpoint and pending attempt preserved.',
+                                 recovery={'kind':'controller','automatic_retry':False,'error_type':type(error).__name__})
+                    workflow.persist(task_id,seq,state)
+            outcome='blocked'
+            return outcome
         finally:
             with ledger.transaction(write=True) as conn:
                 ledger._event(conn, task_id, 'runner.stopped', {'identity': record['identity'], 'outcome': outcome})

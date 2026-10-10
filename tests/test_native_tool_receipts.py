@@ -17,6 +17,22 @@ def denied_events():
 
 
 class NativeToolReceiptTests(unittest.TestCase):
+    def test_system_permission_denial_string_does_not_crash_or_excuse_unknown_tools(self):
+        events=denied_events()
+        events.insert(2,{'type':'system','subtype':'permission_denied','message':'denied','tool_use_id':'edit-1'})
+        self.assertEqual(len(check_native_tools(events)[1]),1)
+        events.pop()
+        with self.assertRaises(LedgerError):check_native_tools(events)
+
+    def test_malformed_messages_are_errors_not_python_attribute_crashes(self):
+        for message in (None,'text',{'content':[None]},{'content':42}):
+            with self.subTest(message=message),self.assertRaises(LedgerError):
+                check_native_tools([{'type':'assistant','message':message}])
+        with self.assertRaises(LedgerError):check_native_tools([None])
+        class Recorded:
+            def stdout(self,attempt):return 'null\n'
+        with self.assertRaises(LedgerError):NativeClaude.result(Recorded(),{})
+
     def test_exact_cli_denial_retained_in_result_telemetry(self):
         events=denied_events()+[{'type':'result','is_error':False,'subtype':'success',
             'structured_output':{'report':'Patch awaiting tests','files':[],'question':''}}]

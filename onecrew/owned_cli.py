@@ -28,6 +28,8 @@ def main(argv=None):
     p=commands.add_parser('native-audit')
     p.add_argument('task');p.add_argument('--reference',required=True)
     p.add_argument('--terminal',action='store_true')
+    p=commands.add_parser('recover-permissions')
+    p.add_argument('task');p.add_argument('--reference',required=True)
     for name in ('start','run','status','outputs','cancel','resume'):
         p=commands.add_parser(name);p.add_argument('task')
         if name=='outputs': p.add_argument('--details',action='store_true')
@@ -55,6 +57,9 @@ def main(argv=None):
                 if state is None: raise LedgerError('Job is queued with no outputs; use job start to enable execution.')
                 result=state if args.details else output_card(runtime,args.task,state)
             elif args.command=='cancel': result=runtime.control.cancel(args.task)
+            elif args.command=='recover-permissions':
+                from .workspace_worker import recover_permissions
+                result=recover_permissions(runtime,args.task,args.reference)
             elif args.command=='native-audit':
                 from .native_audit import enable
                 from .runner import start

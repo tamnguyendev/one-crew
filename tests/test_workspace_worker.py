@@ -7,7 +7,7 @@ from unittest.mock import patch
 from tests import test_native_change as fixtures
 from onecrew.ledger import LedgerError,canonical
 from onecrew.snapshots import durable_write
-from onecrew.workspace_worker import invocation_context,collect_candidate,WorkspaceClaude
+from onecrew.workspace_worker import invocation_context,collect_candidate,WorkspaceClaude,edit_permissions
 from onecrew.workspace_tools import execute
 
 
@@ -76,10 +76,69 @@ class WorkspaceWorkerTests(unittest.TestCase):
         with patch.object(worker,'prepare',return_value=directory),patch('onecrew.workspace_worker.Supervisor') as supervisor:
             worker.run({},'prompt',{},profile)
         argv=supervisor.return_value.run.call_args.args[1]
-        self.assertIn('Edit(./app/lib/main.dart)',argv)
+        self.assertIn(edit_permissions(self.workspace,['app/lib/main.dart'])[0],argv)
         self.assertIn('Bash('+self.profile['test_command']+')',argv)
         self.assertNotIn('Edit',argv);self.assertNotIn('Bash',argv)
         self.assertIn('--restricted',argv);self.assertIn('dontAsk',argv)
+
+    def test_absolute_rules_escape_patterns_and_are_independent_of_cwd(self):
+        rules=edit_permissions(self.workspace,['app/lib/main.dart','app/test/[case].dart'])
+        self.assertIn('edit(//c/',rules[0].lower())
+        self.assertIn('/app/lib/main.dart)',rules[0])
+        self.assertIn(r'\[case\]',rules[1])
+        with self.assertRaises(LedgerError):edit_permissions(self.workspace,['../outside.dart'])
+
+    def permission_failure(self,denied_path=None):
+        control=self.runtime.control.status(self.task)
+        attempt=self.runtime.control.reserve(self.task,control['revision'],'permission-fixture',{'stage':'native_change_work'})
+        events=[{'type':'assistant','message':{'content':[{'type':'tool_use','id':'edit-1','name':'Edit',
+            'input':{'file_path':str(denied_path or self.workspace/'app/lib/main.dart')}}]}},
+            {'type':'system','subtype':'permission_denied','message':'denied','tool_use_id':'edit-1'},
+            {'type':'result','subtype':'success','is_error':False,'session_id':self.state['native_change']['worker_session'],
+             'structured_output':{'report':'Permission was denied; no changes.','question':'Need existing Edit permission.'},'usage':{}}]
+        log=self.path.with_suffix('.log');log.write_text('\n'.join(json.dumps(e) for e in events))
+        self.runtime.control.finish(attempt['id'],attempt['generation'],{'exit_code':0,'stdout':str(log)})
+        seq,_=self.runtime.state(self.task);self.state['pending']=attempt['id']
+        self.runtime.persist(self.task,seq,self.state)
+        control=self.runtime.control.status(self.task)
+        control['configuration']['profile']['native_change']['execution']='workspace'
+        return control
+
+    def test_explicit_permission_recovery_preserves_paid_response_budget_and_usage(self):
+        from onecrew.workspace_worker import recover_permissions
+        control=self.permission_failure()
+        with patch.object(self.runtime.control,'status',return_value=control):
+            result=recover_permissions(self.runtime,self.task,'User explicitly requested fixing existing permissions and retrying.')
+        state=self.runtime.state(self.task)[1]
+        self.assertIsNone(state['pending']);self.assertTrue(state['native_change']['worker_started'])
+        self.assertEqual(result['new_model_calls'],0);self.assertEqual(self.runtime.control.status(self.task)['used_calls'],1)
+        self.assertEqual(len(state['usage']),1);self.assertEqual(state['assistance'],'entry-runtime-repair')
+        self.assertEqual(state['native_change']['permission_recoveries'][0]['response']['question'],'Need existing Edit permission.')
+        self.assertEqual(self.f.worker.calls,[])
+        with self.assertRaises(LedgerError):recover_permissions(self.runtime,self.task,'Duplicate explicit retry')
+
+    def test_permission_recovery_refuses_out_of_scope_denial_and_changed_candidate(self):
+        from onecrew.workspace_worker import recover_permissions
+        control=self.permission_failure(self.workspace/'unowned.dart')
+        with patch.object(self.runtime.control,'status',return_value=control),self.assertRaisesRegex(LedgerError,'No proven denial'):
+            recover_permissions(self.runtime,self.task,'User authorized only existing scoped writes')
+        self.assertIsNotNone(self.runtime.state(self.task)[1]['pending'])
+
+    def test_permission_recovery_refuses_modified_owned_file(self):
+        from onecrew.workspace_worker import recover_permissions
+        control=self.permission_failure();self.edit()
+        with patch.object(self.runtime.control,'status',return_value=control),self.assertRaises(LedgerError):
+            recover_permissions(self.runtime,self.task,'User requested permission recovery')
+        self.assertIsNotNone(self.runtime.state(self.task)[1]['pending'])
+
+    def test_permission_recovery_cannot_answer_pending_user_request(self):
+        from onecrew.workspace_worker import recover_permissions
+        control=self.permission_failure()
+        with patch.object(self.runtime.control,'status',return_value=control),\
+             patch.object(self.runtime.ledger,'requests',return_value=[{'id':'REQ-pending'}]),\
+             self.assertRaisesRegex(LedgerError,'Pending requests'):
+            recover_permissions(self.runtime,self.task,'Repair existing permissions only')
+        self.assertIsNotNone(self.runtime.state(self.task)[1]['pending'])
 
     def test_independent_verification_still_runs_after_workspace_result(self):
         # Store the opt-in profile as the fixture's original configuration.

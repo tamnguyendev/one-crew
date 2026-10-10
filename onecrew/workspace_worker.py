@@ -15,6 +15,20 @@ REPORT_SCHEMA={'type':'object','properties':{'report':{'type':'string'},'questio
                'required':['report','question'],'additionalProperties':False}
 
 
+def edit_permissions(workspace,owned):
+    """CLI Edit rules also govern Write; anchor exact files independently of cwd."""
+    rules=[]
+    for name in owned:
+        target=safe_file(Path(workspace),name).resolve().as_posix()
+        if len(target)>2 and target[1]==':':target='/'+target[0].lower()+target[2:]
+        if not target.startswith('/'):raise LedgerError('Native scope must be absolute.')
+        # Claude uses gitignore pattern syntax. Literal bracket/negation names
+        # must never broaden a grant or stop matching their own path.
+        target=''.join('\\'+c if c in '[]*!?#' else c for c in target)
+        rules.append('Edit(/'+target+')')
+    return rules
+
+
 def inventory(workspace):
     result={}
     for path in workspace.rglob('*'):
@@ -85,18 +99,88 @@ class WorkspaceClaude(NativeClaude):
                     max_native_turns_per_invocation=60,max_tests_per_invocation=8,
                     shell='fixed test recipe plus CLI built-in read-only permissions',os_sandbox=False)
 
-    def run(self,attempt,prompt,schema,profile):
-        directory=self.prepare(attempt)
-        durable_write(directory/'mcp.json',b'{"mcpServers":{}}')
+    def arguments(self,directory,schema,profile):
         permissions=['Read','Glob','Grep','Bash('+profile['test_command']+')']
-        for name in profile['native_owned']:
-            permissions.extend((f'Edit(./{name})',f'Write(./{name})'))
-        argv=[self.executable,'--print',*CLAUDE_AUTH_ARGS,'--tools','Read,Glob,Grep,Edit,Write,Bash',
+        permissions.extend(edit_permissions(profile['native_workspace'],profile['native_owned']))
+        return [self.executable,'--print',*CLAUDE_AUTH_ARGS,'--tools','Read,Glob,Grep,Edit,Write,Bash',
               '--allowedTools',*permissions,'--permission-mode','dontAsk','--permission-prompts','none',
               '--disable-slash-commands','--strict-mcp-config','--mcp-config',str(directory/'mcp.json'),
               '--output-format','stream-json','--verbose','--max-turns','60','--model',profile['model'],
               '--json-schema',canonical(schema),
               '--resume' if profile['native_resume'] else '--session-id',profile['native_session'],
               '--append-system-prompt',profile['native_instructions']]
+
+    def run(self,attempt,prompt,schema,profile):
+        directory=self.prepare(attempt)
+        durable_write(directory/'mcp.json',b'{"mcpServers":{}}')
+        argv=self.arguments(directory,schema,profile)
         return Supervisor(self.control).run(attempt,argv,cwd=Path(profile['native_workspace']),
             stdin=prompt,timeout=profile['step_seconds'],env=environment())
+
+
+def recover_permissions(runtime,task_id,reference):
+    """Explicit operator recovery of a settled pre-fix denial, without replaying it.
+
+This does not answer any inbox/solution request or expand file/tool authority.
+The paid response is retained and other unresolved decisions remain for worker review.
+"""
+    from .ledger import text_field
+    from .discovery import scan_text
+    from .workflow import task_lock
+    from .runner import status
+    from .sandbox_gate import task_guard
+    from .native_change import check_snapshot
+    from .usage import record
+    text_field(reference,'operator reference',1000);scan_text(reference.encode())
+    if status(runtime.ledger,task_id)['status']!='stopped':raise LedgerError('Stop the runner before recovery.')
+    with task_lock(runtime.ledger,task_id):
+        seq,state=runtime.state(task_id);control=runtime.control.status(task_id)
+        recipe=control['configuration']['profile'].get('native_change',{})
+        native=state.get('native_change',{})
+        if (recipe.get('execution')!='workspace' or native.get('stage')!='work'
+                or state['phase'] in ('completed','failed','cancelled') or not state.get('pending')):
+            raise LedgerError('Recovery requires a pending native workspace result.')
+        if runtime.ledger.requests(task_id,pending=True):raise LedgerError('Pending requests must be answered by the user.')
+        task_guard(runtime.control,task_id)()
+        attempt=runtime.control.attempt(state['pending'])
+        if attempt['status']!='settled':raise LedgerError('Reconcile the prior worker before recovery.')
+        worker=WorkspaceClaude(runtime.control)
+        value,usage=worker.result(attempt)
+        telemetry=value.pop('_native')
+        if not isinstance(value.get('report'),str) or not isinstance(value.get('question'),str):
+            raise LedgerError('Invalid recovered workspace response.')
+        scan_text(value['report'].encode());scan_text(value['question'].encode())
+        if telemetry.get('session_id')!=native['worker_session']:raise LedgerError('Recovery session mismatch.')
+        events=[json.loads(line) for line in worker.stdout(attempt).splitlines() if line.strip()]
+        calls={b['id']:b for e in events if e.get('type')=='assistant'
+               for b in e.get('message',{}).get('content',[]) if b.get('type')=='tool_use'}
+        owned={str(safe_file(Path(native['workspace']),p).resolve()).casefold() for p in recipe['owned']}
+        scoped_denials=[]
+        for event in events:
+            if event.get('type')!='system' or event.get('subtype')!='permission_denied':continue
+            call=calls.get(event.get('tool_use_id'),{})
+            path=call.get('input',{}).get('file_path')
+            if call.get('name') in ('Edit','Write') and isinstance(path,str):
+                target=Path(path)
+                if not target.is_absolute():target=Path(native['workspace'])/target
+                if str(target.resolve()).casefold() in owned:scoped_denials.append(event['tool_use_id'])
+        if not scoped_denials:raise LedgerError('No proven denial of an already owned file; generic recovery refused.')
+        check_snapshot(runtime,state)
+        collect_candidate(runtime,state,value,recipe,require_test=False)
+        # Recovery is deliberately limited to an unchanged failed workspace.
+        observed=inventory(Path(native['workspace']))
+        if observed!=native['tool_baseline']:raise LedgerError('Worker changed files; reconcile candidate before recovery.')
+        native.setdefault('permission_recoveries',[]).append({'attempt':attempt['id'],'reference':reference,
+            'response':value,'scoped_denials':scoped_denials,'policy':'absolute-file-rules-v2'})
+        native['attempts'].append(dict(telemetry,stage='work',recovered_permission_failure=True))
+        record(state,attempt['id'],usage,'claude',state['worker']['model'])
+        native.update(worker_started=True,feedback='Operator repaired the mapping of existing exact file permissions. '
+            'Use Edit/Write for the owned files; never use Bash to write source. Run only the provided test command. '
+            'No scope or permission expansion was granted. Reassess the prior question: continue if it only asks '
+            'for these already granted operations; ask again for any separate product/solution decision. Prior question: '+str(value.get('question',''))[:1500])
+        state.update(pending=None,phase='running',message='Scoped permission mapping repaired; paid response preserved.',
+                     step=state['step']+1,assistance='entry-runtime-repair')
+        state.pop('pending_solution_context',None);state.pop('revalidate_pending',None)
+        runtime.persist(task_id,seq,state,unpause=True)
+        return {'task':task_id,'recovered_attempt':attempt['id'],'used_calls':control['used_calls'],
+                'new_model_calls':0,'permissions_expanded':False,'assistance':'entry-runtime-repair'}
