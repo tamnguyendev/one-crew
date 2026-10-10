@@ -77,6 +77,33 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(f.control.status(f.task['id'])['reserved_calls'], 1)
         self.assertEqual(f.ledger.task(f.task['id'])['budget']['revision'], self.old['revision'])
 
+    def test_explicit_next_day_restart_preserves_usage_and_original_grant(self):
+        attempt=self.f.reserve()
+        self.f.control.finish(attempt['id'],attempt['generation'],{'fixture':True})
+        now=dt.datetime.fromisoformat(self.f.task['created_at'])+dt.timedelta(days=1)
+        self.f.control.clock=lambda:now
+        end=(now+dt.timedelta(minutes=30)).isoformat()
+        with self.assertRaises(LedgerError): self.extend(deadline=end)
+        receipt=self.extend(deadline=end,restart_expired=True)
+        self.assertEqual(receipt['used_calls'],1)
+        self.assertEqual(receipt['restart_window']['seconds'],1800)
+        self.assertFalse(receipt['automatic_resume'])
+        self.assertEqual(self.extend(deadline=end,restart_expired=True),receipt)
+        self.assertEqual(self.f.ledger.task(self.f.task['id'],full=True)['handoff']['grant'],self.f.grant)
+        self.assertEqual(self.f.control.status(self.f.task['id'])['used_calls'],1)
+        self.f.reserve('next-day')
+
+    def test_restart_window_requires_expiry_and_bounded_future_deadline(self):
+        with self.assertRaisesRegex(LedgerError,'expired local'): self.extend(restart_expired=True)
+        now=dt.datetime.fromisoformat(self.f.task['created_at'])+dt.timedelta(days=1)
+        self.f.control.clock=lambda:now
+        for seconds in (0,28801):
+            with self.assertRaises(LedgerError):
+                self.extend(restart_expired=True,deadline=(now+dt.timedelta(seconds=seconds)).isoformat())
+        with patch('onecrew.budget.current',return_value=dict(self.old,goal={'remaining_calls':1})):
+            with self.assertRaisesRegex(LedgerError,'shared goal'):
+                self.extend(restart_expired=True,deadline=(now+dt.timedelta(minutes=30)).isoformat())
+
     def test_failed_commit_keeps_original_limits(self):
         with patch.object(self.f.ledger, '_event', side_effect=OSError('disk full')):
             with self.assertRaises(OSError):

@@ -8,7 +8,8 @@ Baseline ce6806a. User requests retrying the existing Cloud Auth task. Scope: re
 |---|---|---|---|---|
 | CR01 | Distinguish Dart symbol assignment from credential literal | dart_scan.py only exempts complete bare reference assignments outside strings/comments; byte-preserving; literal/token/binary and nested-comment tests | Complete | Generic discovery policy unchanged; ambiguous syntax remains blocked |
 | CR02 | Recover rejected candidate through bounded worker repair | native_change CandidateContentRejected; digest/reason evidence, no raw credential feedback; entire patch preflight before installation; two existing repair rounds | Complete | No exemption for test credentials; no tests/application until candidate accepted; same session and budget |
-| CR03 | Retry existing task with actual background runner and notification watch | Pending dispatch after regression verification | Partial | Keep 20-call cumulative cap, explicit new deadline, no task recreation or approval changes |
+| CR04 | Explicit retry of expired task after original eight-hour wall-clock horizon | Optional restart-expired flag; default bound unchanged; preserve cumulative calls, immutable original grant, CAS/idempotency and no auto-resume; reject shared goal or pending/unknown attempts; 43 budget/goal/control/triage tests pass | Complete | New window capped at eight hours from operator action; Cloud Auth requests only 30 minutes |
+| CR03 | Retry existing task with actual background runner and notification watch | TASK-44d35ce00853409aa0631179ecd79b2d resumed 2026-10-10T01:38:37Z; runner PID 28376 alive, monitor reused; host automation ACTIVE confirmed | Complete | Keep 20-call cumulative cap, explicit new deadline, no task recreation or approval changes |
 
 Validation: 77 scanner/native/tool receipt/owned/solution/effort regression tests passed (existing subprocess ResourceWarning). Stored Cloud Auth output remains evidence, not an approved or tested fix.
 
@@ -21,9 +22,9 @@ Baseline da41047. User explicitly requests fixing the false delivery acknowledge
 | ND05 | Reading/preparing cannot consume a proactive notice | notification_receipts.py; watch consumer guard in notifications.ack including raw pull bypass; negative ACK tests | Complete | Empty batches and local-file sink retain ordinary ACK |
 | ND06 | Verify an actual completed scheduled final before ACK/pause | Bound automation/thread/message body; read_thread JSON receipt validation; reject manual reply, commentary, tool output, stale/truncated/wrong-thread/duplicate evidence | Complete | Trusted local host adapter evidence, not cryptographic receipt or proof of OS toast/user read |
 | ND07 | Recover/requeue safely without duplicate inference or endless empty checks | Idempotent begin/confirm, three missing checks then explicit error pause; user-authorized redeliver retains cursor/history; recovery tests | Complete | No automatic replay of uncertain sends or task resume |
-| ND08 | Actual scheduler sends notification, next tick validates and pauses | Existing heartbeat will run the two-phase workflow for requeued Cloud Auth state | Partial | Must observe the future completed scheduled final and receipt; maintenance-turn output is not proof |
+| ND08 | Actual scheduler sends notification, next tick validates and pauses | Scheduled final msg_0afbd902fd520c21016ac919728af48191bc4befdf1545160b observed by read_thread; confirm-delivery accepted 2026-10-09T16:44:47Z, ACK then host PAUSED | Complete | Proves chat final and bounded lifecycle, not OS toast or user read |
 
-Validation: 50 focused tests pass. Updated entry contract and notification-watch.vi.md. No customer task restarted, no approvals answered, no model called by OneCrew to test receipts. ND08 remains explicitly unverified until the scheduler produces a real final message after this turn.
+Validation: 50 focused tests pass. Updated entry contract and notification-watch.vi.md. No customer task restarted, no approvals answered, no model called by OneCrew to test receipts. ND08 subsequently verified by actual scheduled final, host receipt and ACK/pause (see row above).
 
 ## Notification delivery / bounded host watch — 2026-10-09
 

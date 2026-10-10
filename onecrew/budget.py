@@ -32,7 +32,7 @@ def remaining(budget, used, reserved):
     return min(left,budget['goal']['remaining_calls']) if budget.get('goal') else left
 
 
-def extend(control, task_id, revision, request_key, max_calls, deadline, reason):
+def extend(control, task_id, revision, request_key, max_calls, deadline, reason, *, restart_expired=False):
     key_field(request_key)
     text_field(reason, 'Extension reason', 1000)
     if type(max_calls) is not int or not 1 <= max_calls <= 10000:
@@ -45,6 +45,10 @@ def extend(control, task_id, revision, request_key, max_calls, deadline, reason)
     except (TypeError, ValueError):
         raise LedgerError('Deadline must be an ISO timestamp with timezone.') from None
     proposal = {'previous_revision': revision, 'max_calls': max_calls, 'deadline': end.isoformat(), 'reason': reason}
+    if type(restart_expired) is not bool:
+        raise LedgerError('Restart-expired must be an explicit boolean.')
+    if restart_expired:
+        proposal['restart_expired'] = True
     proposal_revision = content_hash(proposal)
     from .workflow import task_lock
     with task_lock(control.ledger, task_id), control.ledger.transaction(write=True) as conn:
@@ -67,9 +71,13 @@ def extend(control, task_id, revision, request_key, max_calls, deadline, reason)
         created = dt.datetime.fromisoformat(task['created_at'])
         seconds = (end-created).total_seconds()
         old_end = dt.datetime.fromisoformat(local_current(conn,task)['deadline'])
-        if (not 0 < seconds <= 28800 or end <= control.clock() or end < old_end
+        now = control.clock()
+        if restart_expired and (now < old_end or old.get('goal')):
+            raise LedgerError('Restart window requires an expired local deadline without a shared goal budget.')
+        window_seconds = (end-now).total_seconds() if restart_expired else seconds
+        if (not 0 < window_seconds <= 28800 or end <= now or end < old_end
                 or max_calls < old['limits']['max_calls'] or max_calls < execution['used_calls'] + execution['reserved_calls']):
-            raise LedgerError('Extension must preserve used/old limits and have a future deadline within eight hours of original submission.')
+            raise LedgerError('Extension must preserve used/old limits and stay within eight hours of original submission, or of explicit expired-task restart.')
         if end == old_end and max_calls == old['limits']['max_calls']:
             raise LedgerError('Extension must increase calls or deadline.')
         budget = {'limits': {'max_calls': max_calls, 'max_seconds': seconds}, 'deadline': end.isoformat(),
@@ -78,5 +86,8 @@ def extend(control, task_id, revision, request_key, max_calls, deadline, reason)
                    'budget': budget, 'reason': reason, 'used_calls': execution['used_calls'],
                    'reserved_calls': execution['reserved_calls'], 'scope_expanded': False,
                    'authority': {'actor': getpass.getuser(), 'trust': 'local_operator'}, 'automatic_resume': False}
+        if restart_expired:
+            receipt['restart_window'] = {'authorized_at': now.isoformat(), 'seconds': window_seconds,
+                                         'previous_deadline': old_end.isoformat(), 'explicit_operator_request': True}
         control.ledger._event(conn, task_id, 'grant.extended', receipt)
         return receipt

@@ -49,6 +49,8 @@ def main(argv=None):
             command.add_argument('--max-calls', type=int, required=True)
             command.add_argument('--deadline', required=True)
             command.add_argument('--reason', required=True)
+            command.add_argument('--restart-expired', action='store_true',
+                                 help='Explicit operator retry of an expired task; retain cumulative calls, allow a new window of at most eight hours.')
         if name in ('plan', 'quota', 'group', 'vector'):
             command.add_argument('--file', type=Path, required=True)
         if name == 'branch':
@@ -89,7 +91,8 @@ def main(argv=None):
             result = handle(workflow, args.id)
         elif args.command == 'extend':
             from .budget import extend
-            result = extend(workflow.control, args.id, args.revision, args.request_id, args.max_calls, args.deadline, args.reason)
+            result = extend(workflow.control, args.id, args.revision, args.request_id, args.max_calls, args.deadline, args.reason,
+                            restart_expired=args.restart_expired)
         elif args.command == 'recheck':
             result = workflow.recheck(args.id, args.revision)
         elif args.command == 'amend':

@@ -90,7 +90,7 @@ Entry CLI hiện có `entry connect/note`: packet đọc nhất quán từ ledge
 
 [SPEC-005 đã bàn giao](incremental-autonomy.vi.md) app CV từ thư mục trống: run RUN-20261008-232057-1d06d8, 585,21 giây, 14 calls, một repair thật, 19 gate checks đạt; runtime commit bf2e673, product commit ad3c748. Bộ kiểm thử được ghi nhận ở lượt đó là 69 tests. Đây là bằng chứng profile local/Codex, không chứng minh orchestration tổng quát hoặc khả năng chặn mọi AI bot ngoài production; khách hàng chưa nghiệm thu.
 
-Các trần 3.600 giây/run, 32 calls, 4 repair và 600 giây/call thuộc runtime CV cũ. Workflow `TASK-` mới dùng grant hữu hạn tối đa tám giờ từ submit và 10.000 managed calls, profile tối đa ba repairs/600 giây mỗi bước. Extension giữ used/deadline gốc tối đa; đã có fixture recovery và Codex→Kiro checkpoint handoff. Chưa kiểm chứng soak tám giờ. Phân biệt giới hạn cấu hình với bằng chứng vận hành.
+Các trần 3.600 giây/run, 32 calls, 4 repair và 600 giây/call thuộc runtime CV cũ. Workflow `TASK-` mới dùng grant hữu hạn tối đa tám giờ từ submit và 10.000 managed calls, profile tối đa ba repairs/600 giây mỗi bước. Extension mặc định giữ trần deadline gốc; ngoại lệ `--restart-expired` khi người dùng trực tiếp yêu cầu retry task đã hết hạn cho phép một cửa sổ mới tối đa tám giờ, giữ calls cộng dồn và grant gốc, không áp dụng cho shared goal (xem `budget-extension.vi.md`); đã có fixture recovery và Codex→Kiro checkpoint handoff. Chưa kiểm chứng soak tám giờ. Phân biệt giới hạn cấu hình với bằng chứng vận hành.
 
 ## 3. Một core, hai nhóm kết nối
 
