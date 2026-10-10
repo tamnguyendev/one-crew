@@ -380,8 +380,9 @@ class Owned(Workflow):
                         state['waiting_reason']='capacity';self.persist(task_id,seq,state);return state
                     except (ValueError,OSError) as error:
                         seq,state=self.state(task_id)
+                        from .sandbox_gate import GateUnavailable
                         state.update(phase='blocked',message='Native change: '+str(error)[:1000],
-                                     recovery={'kind':'native_change','automatic_retry':False})
+                                     recovery={'kind':'environment' if isinstance(error,GateUnavailable) else 'native_change','automatic_retry':False})
                         self.persist(task_id,seq,state);return state
                 if state.get('native_audit'):
                     from .native_audit import advance

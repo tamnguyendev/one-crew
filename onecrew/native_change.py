@@ -126,6 +126,42 @@ def check_snapshot(runtime,state):
             raise LedgerError('Captured source changed outside runtime patch: '+name)
 
 
+def prepare_test_environment(runtime,state,recipe):
+    """Recover generated offline metadata without running pub or changing deps."""
+    workspace=Path(state['native_change']['workspace'])
+    source=safe_file(runtime.ledger.project,recipe['package']+'/.dart_tool/package_config.json')
+    target=safe_file(workspace,recipe['package']+'/.dart_tool/package_config.json')
+    graph_source=safe_file(runtime.ledger.project,recipe['package']+'/.dart_tool/package_graph.json')
+    graph_target=safe_file(workspace,recipe['package']+'/.dart_tool/package_graph.json')
+    try:
+        config=json.loads(scan_text(source.read_bytes()))
+        for package in config['packages']:
+            absolute=urljoin(source.as_uri(),package['rootUri']);package['rootUri']=absolute
+            for root in recipe['source_roots']:
+                if absolute.rstrip('/')==(runtime.ledger.project/root).resolve().as_uri().rstrip('/'):
+                    package['rootUri']=(workspace/root).resolve().as_uri()+'/'
+        captured=json.loads(scan_text(target.read_bytes()))
+        if config!=captured: raise GateUnavailable('Flutter package configuration changed since capture; keep candidate and reconcile environment.')
+        for name in ('pubspec.yaml','pubspec.lock'):
+            original=safe_file(runtime.ledger.project,recipe['package']+'/'+name)
+            copy=safe_file(workspace,recipe['package']+'/'+name)
+            if original.exists()!=copy.exists() or (original.exists() and original.read_bytes()!=copy.read_bytes()):
+                raise GateUnavailable('Flutter dependency manifest changed since capture: '+name)
+        data=graph_source.read_bytes();graph=json.loads(scan_text(data))
+        names=[p['name'] for p in graph['packages']]
+        if (len(names)!=len(set(names)) or set(names)!={p['name'] for p in captured['packages']}
+                or not graph.get('roots') or not set(graph['roots'])<=set(names)):
+            raise GateUnavailable('Flutter package graph does not match captured package configuration.')
+        if graph_target.exists() and graph_target.read_bytes()!=data:
+            raise GateUnavailable('Flutter workspace package graph changed; preserve it for reconciliation.')
+        if not graph_target.exists(): durable_write(graph_target,data)
+    except (OSError,KeyError,TypeError,ValueError) as error:
+        if isinstance(error,GateUnavailable): raise
+        raise GateUnavailable('Flutter offline package metadata unavailable or invalid; no code repair attempted.') from None
+    return {'package_config_sha256':bytes_hash(target.read_bytes()),'package_graph_sha256':bytes_hash(data),
+            'package_graph_source':str(graph_source),'package_count':len(names),'pub_get_ran':False}
+
+
 def verify(runtime,task_id,state,recipe):
     native=state['native_change'];workspace=Path(native['workspace']);package=workspace/recipe['package']
     sdk=Path(recipe['flutter_root']);dart=sdk/'bin/cache/dart-sdk/bin/dart.exe'
@@ -133,6 +169,7 @@ def verify(runtime,task_id,state,recipe):
     if not all(p.is_file() for p in (dart,tool,packages)): raise GateUnavailable('Flutter SDK unavailable; no AI code repair attempted.')
     check_snapshot(runtime,state)
     guard=task_guard(runtime.control,task_id);guard()
+    environment=prepare_test_environment(runtime,state,recipe)
     test_paths=[str(Path(p).relative_to(recipe['package'])).replace('\\','/') for p in recipe['tests']]
     argv=[str(dart),'--packages='+str(packages),str(tool),'--no-version-check','test',
           '--no-pub','--no-test-assets','--reporter','expanded',*test_paths]
@@ -140,11 +177,16 @@ def verify(runtime,task_id,state,recipe):
     # Preserve full bounded raw evidence locally. Only scanned, bounded text enters
     # model feedback; tests cannot manufacture a successful exit code receipt.
     evidence={'snapshot':state['snapshot'],'exit_code':code,'stdout':runtime.store.blob(out.encode()),
-        'stderr':runtime.store.blob(err.encode()),'argv':argv,'trusted_native':True,'device_tested':False}
+        'stderr':runtime.store.blob(err.encode()),'argv':argv,'trusted_native':True,'device_tested':False,
+        'environment':environment}
     check_snapshot(runtime,state)
     try: detail=scan_text((out+err).encode())[-12000:]
     except LedgerError: detail='Test output withheld by credential policy; inspect local receipt.'
-    return {'passed':code==0 and 'All tests passed!' in out,'detail':detail,'evidence':evidence}
+    environment_failure=code!=0 and any(s in (out+err).lower() for s in (
+        'could not resolve the package','unable to find git','could not find a file named',
+        'unable to locate android sdk','pathnotfoundexception','package_graph.json'))
+    return {'passed':code==0 and 'All tests passed!' in out,'detail':detail,'evidence':evidence,
+            'failure_kind':'environment' if environment_failure else ('test' if code else None)}
 
 
 def apply(runtime,state):
@@ -199,7 +241,7 @@ def advance(runtime,task_id,seq,state,profile):
         result=verify(runtime,task_id,state,recipe)
         state['tests'].append(result);native['checks'].append(result)
         if result['passed']: native['stage']='review';state['message']='Flutter regression tests passed; independent review pending.'
-        elif any(s in result['detail'].lower() for s in ('could not resolve the package','unable to find git','could not find a file named','unable to locate android sdk')):
+        elif result.get('failure_kind')=='environment' or any(s in result['detail'].lower() for s in ('could not resolve the package','unable to find git','could not find a file named','unable to locate android sdk')):
             state.update(phase='blocked',message='Flutter dependency/environment unavailable; test receipt preserved.',recovery={'kind':'environment','automatic_retry':False})
         else: repair(state,'Fixed Flutter test command failed. Diagnose evidence before editing; do not remove assertions.\n'+result['detail'])
     elif stage=='apply':

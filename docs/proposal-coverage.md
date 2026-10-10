@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Cloud Auth environment recovery — 2026-10-10
+
+User requests entry/runtime cooperation through a verified result. Cycle ER01–ER03; baseline 1da68b4. Preserve existing task/scope/candidate and prior receipts. The entry fixes orchestration; OneCrew owns Flutter verification and independent review/application.
+
+| ID | Requirement | Implementation / verification evidence | Status | Boundary |
+|---|---|---|---|---|
+| ER01 | Prepare complete offline Flutter package metadata | Validate original remapped package_config against captured config, pubspec/lock bytes and graph package names; copy only missing package_graph, preserve conflicts | Complete | No pub get, dependency upgrade, SDK or product code edits |
+| ER02 | Environment errors do not trigger AI code repair | Explicit test result failure_kind; keep verify stage/candidate and repair count | Complete | Environment recovery uses existing trusted-native recipe; no tool expansion |
+| ER03 | Existing Cloud Auth task reaches test/review/application evidence | Runner restarted at 2026-10-10T01:58:47Z (PID 3544); verification in progress | Partial | No APK/device/server success claim; business/solution changes still need user |
+
+Validation: 42 native/scanner/tool-receipt/owned tests pass (existing subprocess ResourceWarning). Original graph and captured config both contain 242 identical package names. Prior test failed before test execution because only package_config was staged.
+
 ## New-task budget and learning policy — 2026-10-10
 
 Proposal: docs/budget-learning-policy.vi.md; approved by the user's “ok” after the 100-call/two-hour/70% discussion. Baseline 306bc3c. Existing Cloud Auth grant remains unchanged. Cycle BP01–BP04.

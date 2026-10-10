@@ -16,6 +16,7 @@ class NativeChangeTests(unittest.TestCase):
         (root/'lib/main.dart').write_text('int add(int a,int b)=>a-b;\n')
         (root/'pubspec.yaml').write_text('name: app\n')
         (root/'.dart_tool/package_config.json').write_text(json.dumps({'configVersion':2,'packages':[{'name':'app','rootUri':'../','packageUri':'lib/'}]}))
+        (root/'.dart_tool/package_graph.json').write_text(json.dumps({'configVersion':1,'roots':['app'],'packages':[{'name':'app','version':'1.0.0','dependencies':[]}]}))
         self.recipe=dict(source_roots=['app'],owned=['app/lib/main.dart','app/test/main_test.dart'],extra_sources={},
             package='app',flutter_root=str(Path(self.f.temp.name)/'flutter'),tests=['app/test/main_test.dart'],reference='User requested local fix',trusted_native=True)
         self.run,self.task,self.worker=self.f.runtime([],mode='change',provider='claude',model='sonnet',native_change=self.recipe)
@@ -100,6 +101,43 @@ class NativeChangeTests(unittest.TestCase):
             result=verify(self.run,self.task,state,self.recipe)
         self.assertFalse(result['passed']);self.assertIn('--no-pub',call.call_args.args[0])
         self.assertEqual(result['evidence']['snapshot'],state['snapshot'])
+
+    def test_offline_graph_recovery_validates_source_and_never_calls_worker(self):
+        from onecrew.native_change import prepare_test_environment
+        from onecrew.sandbox_gate import GateUnavailable
+        state=self.run.state(self.task)[1];workspace=Path(state['native_change']['workspace'])
+        target=workspace/'app/.dart_tool/package_graph.json'
+        self.assertFalse(target.exists())
+        evidence=prepare_test_environment(self.run,state,self.recipe)
+        self.assertTrue(target.exists());self.assertEqual(evidence['package_count'],1)
+        self.assertFalse(evidence['pub_get_ran']);self.assertFalse(self.worker.calls)
+        self.assertEqual(prepare_test_environment(self.run,state,self.recipe),evidence)
+        source=self.f.root/'app/.dart_tool/package_config.json'
+        data=json.loads(source.read_text());data['packages'][0]['languageVersion']='99.0'
+        source.write_text(json.dumps(data))
+        with self.assertRaises(GateUnavailable): prepare_test_environment(self.run,state,self.recipe)
+
+    def test_missing_metadata_is_environment_failure_without_code_repairs(self):
+        self.worker.responses=[self.candidate()]
+        state=self.run.run(self.task,steps=1)
+        result={'passed':False,'detail':'missing graph','failure_kind':'environment',
+                'evidence':{'snapshot':state['snapshot'],'exit_code':1}}
+        with patch('onecrew.native_change.verify',return_value=result):state=self.run.run(self.task,steps=1)
+        self.assertEqual(state['phase'],'blocked');self.assertEqual(state['recovery']['kind'],'environment')
+        self.assertEqual(state['native_change']['repairs'],0)
+        self.assertEqual(state['native_change']['stage'],'verify')
+        self.assertEqual(len(self.worker.calls),1)
+
+    def test_environment_preflight_exception_preserves_candidate_and_repair_count(self):
+        from onecrew.sandbox_gate import GateUnavailable
+        self.worker.responses=[self.candidate()]
+        state=self.run.run(self.task,steps=1);snapshot=state['snapshot']
+        with patch('onecrew.native_change.verify',side_effect=GateUnavailable('Offline metadata missing')):
+            state=self.run.run(self.task,steps=1)
+        self.assertEqual(state['recovery']['kind'],'environment')
+        self.assertEqual(state['snapshot'],snapshot)
+        self.assertEqual(state['native_change']['repairs'],0)
+        self.assertEqual(state['native_change']['stage'],'verify')
 
     def test_rejected_tool_receipt_can_recover_without_second_model_call(self):
         from onecrew.native_audit import NativeClaude
