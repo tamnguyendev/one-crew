@@ -14,6 +14,8 @@ from .ledger import LedgerError, canonical, content_hash
 
 MAX_FILE = 2_000_000
 MAX_TOTAL = 16_000_000
+MAX_EVIDENCE = 64_000_000
+EVIDENCE_CHUNK = 1_000_000
 
 
 def scoped_path(value):
@@ -108,6 +110,39 @@ class Snapshots:
         data = path.read_bytes()
         if bytes_hash(data) != key:
             raise LedgerError('Snapshot blob hash mismatch.')
+        return data
+
+    def evidence(self, data):
+        """Bounded runtime metadata/logs; never raises the source-file limit.
+
+        Small evidence retains its legacy blob reference. Large evidence uses
+        immutable chunks and a whole-document hash, published only after writes.
+        """
+        if len(data) > MAX_EVIDENCE:
+            raise LedgerError('Runtime evidence exceeds 64 MB.')
+        if len(data) <= MAX_FILE:
+            return self.blob(data)
+        return {'format':'chunked-evidence-v1', 'bytes':len(data), 'sha256':bytes_hash(data),
+                'chunks':[self.blob(data[i:i+EVIDENCE_CHUNK]) for i in range(0,len(data),EVIDENCE_CHUNK)]}
+
+    def read_evidence(self, reference):
+        if isinstance(reference,str): return self.read_blob(reference)
+        if (not isinstance(reference,dict) or set(reference)!={'format','bytes','sha256','chunks'}
+                or reference['format']!='chunked-evidence-v1'
+                or type(reference['bytes']) is not int or not MAX_FILE < reference['bytes'] <= MAX_EVIDENCE
+                or not isinstance(reference['sha256'],str) or not re.fullmatch('[0-9a-f]{64}',reference['sha256'])
+                or not isinstance(reference['chunks'],list)
+                or len(reference['chunks'])!=(reference['bytes']+EVIDENCE_CHUNK-1)//EVIDENCE_CHUNK):
+            raise LedgerError('Invalid runtime evidence reference.')
+        parts=[]
+        for index,key in enumerate(reference['chunks']):
+            data=self.read_blob(key)
+            expected=min(EVIDENCE_CHUNK,reference['bytes']-index*EVIDENCE_CHUNK)
+            if len(data)!=expected: raise LedgerError('Runtime evidence chunk length mismatch.')
+            parts.append(data)
+        data=b''.join(parts)
+        if bytes_hash(data)!=reference['sha256']:
+            raise LedgerError('Runtime evidence document hash mismatch.')
         return data
 
     def save(self, manifest):

@@ -89,7 +89,7 @@ def prepare(runtime,state,recipe):
                 package['rootUri']=(workspace/root).resolve().as_uri()+'/'
     durable_write(workspace/recipe['package']/'.dart_tool/package_config.json',canonical(config).encode())
     state['native_change']={'stage':'work','workspace':str(workspace),'originals':originals,
-        'manifest':runtime.store.blob(canonical(captured).encode()),'worker_session':str(uuid.uuid4()),
+        'manifest':runtime.store.evidence(canonical(captured).encode()),'worker_session':str(uuid.uuid4()),
         'review_session':str(uuid.uuid4()),'worker_started':False,'review_started':False,
         'attempts':[],'repairs':0,'feedback':'','checks':[],'applied':[]}
     state['original'].update({p:h for p,h in originals.items() if h})
@@ -129,7 +129,7 @@ def install_candidate(runtime,state,value,recipe):
 
 
 def check_snapshot(runtime,state):
-    native=state['native_change'];manifest=json.loads(runtime.store.read_blob(native['manifest']))['files']
+    native=state['native_change'];manifest=json.loads(runtime.store.read_evidence(native['manifest']))['files']
     expected=dict(manifest,**state['files'])
     for name,digest in expected.items():
         if bytes_hash(safe_file(Path(native['workspace']),name).read_bytes())!=digest:

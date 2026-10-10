@@ -86,18 +86,18 @@ def census(project, symbol):
 
 def collect(runtime, state, recipe):
     result = census(runtime.ledger.project, recipe['caller_symbol'])
-    manifest = json.loads(runtime.store.read_blob(state['native_change']['manifest']))['files']
+    manifest = json.loads(runtime.store.read_evidence(state['native_change']['manifest']))['files']
     missing = set(result['hits']) - set(manifest)
     if missing:
         raise LedgerError('Caller files need read capture before review: '+', '.join(sorted(missing)))
-    digest = runtime.store.blob(canonical(result).encode())
+    digest = runtime.store.evidence(canonical(result).encode())
     state['native_change']['caller_census'] = digest
     return {k:v for k,v in result.items() if k != 'files'}
 
 
 def check_census(runtime, state, recipe):
     if not recipe.get('caller_symbol'): return
-    old = json.loads(runtime.store.read_blob(state['native_change']['caller_census']))
+    old = json.loads(runtime.store.read_evidence(state['native_change']['caller_census']))
     new = census(runtime.ledger.project, recipe['caller_symbol'])
     if old != new:
         raise LedgerError('Project Dart source changed since caller census; preserve candidate for reconciliation.')
@@ -159,7 +159,7 @@ def build(runtime, task_id, seq, state, recipe):
         raise LedgerError('Another or interrupted APK build owns this package; inspect lock.') from None
     os.close(fd)
     try:
-        receipt = dict(status='running', argv=argv, package=str(app), input_manifest=runtime.store.blob(canonical(before).encode()),
+        receipt = dict(status='running', argv=argv, package=str(app), input_manifest=runtime.store.evidence(canonical(before).encode()),
                        snapshot=state['snapshot'], variant='debug', pub_get_ran=False)
         native['apk_build'] = receipt
         seq = runtime.persist(task_id, seq, state)
@@ -173,7 +173,7 @@ def build(runtime, task_id, seq, state, recipe):
         log = out+'\n'+err
         try: scan_text(log.encode())
         except LedgerError: log = 'Build output withheld by credential policy; inspect native local command logs.'
-        receipt.update(exit_code=code, log=runtime.store.blob(log.encode()), detail=log[-6000:])
+        receipt.update(exit_code=code, log=runtime.store.evidence(log.encode()), detail=log[-6000:])
         guard()
         if build_inputs(runtime, state, recipe) != before:
             raise LedgerError('Main source/dependency inputs changed during APK build; artifact not accepted.')

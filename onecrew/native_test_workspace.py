@@ -27,7 +27,7 @@ def prepare(runtime,state,recipe):
     if recipe.get('trusted_native') is not True:
         raise GateUnavailable('Full compiler inputs require authorized trusted native execution.')
     native=state['native_change'];worker=Path(native['workspace'])
-    manifest=json.loads(runtime.store.read_blob(native['manifest']))['files']
+    manifest=json.loads(runtime.store.read_evidence(native['manifest']))['files']
     expected=dict(manifest,**state['files'])
     omitted={};total=0;visited=0
     for root in recipe['source_roots']:

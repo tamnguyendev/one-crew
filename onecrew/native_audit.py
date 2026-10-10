@@ -178,7 +178,7 @@ def enable(runtime,task_id,reference):
         if state.get('native_audit'): return state
         workspace=workspace_path(runtime.ledger.state_root,task_id)
         captured=capture(runtime,workspace,source_roots(runtime,state))
-        state['native_audit']={'version':1,'workspace':str(workspace),'manifest':runtime.store.blob(canonical(captured).encode()),
+        state['native_audit']={'version':1,'workspace':str(workspace),'manifest':runtime.store.evidence(canonical(captured).encode()),
             'stage':'work','worker_session':str(uuid.uuid4()),'review_session':str(uuid.uuid4()),
             'worker_started':False,'review_started':False,'repairs':0,'attempts':[],
             'capability':{'mode':'native-readonly-audit','tools':['Read','Glob','Grep'],
@@ -190,7 +190,7 @@ def enable(runtime,task_id,reference):
 
 
 def citations(runtime,state,result):
-    native=state['native_audit'];captured=json.loads(runtime.store.read_blob(native['manifest']))
+    native=state['native_audit'];captured=json.loads(runtime.store.read_evidence(native['manifest']))
     refs=result.get('citations')
     if not isinstance(refs,list) or not 1<=len(refs)<=30: raise LedgerError('Audit needs 1-30 source citations.')
     evidence={}

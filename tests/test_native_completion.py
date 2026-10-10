@@ -105,6 +105,31 @@ class CompletionTests(unittest.TestCase):
             recipe=dict(self.recipe,apk_build=dict(self.recipe['apk_build'],**changed))
             with self.assertRaises(LedgerError):validate(recipe)
 
+    def test_large_census_roundtrip_and_drift_guard(self):
+        import copy
+        value=completion.census(self.root,'add')
+        value['files'].update({'another/package/file_'+str(i)+'.dart':'a'*64 for i in range(30000)})
+        value['dart_files']=len(value['files'])
+        with patch.object(completion,'census',return_value=value):
+            summary=completion.collect(self.runtime,self.state,self.recipe)
+            completion.check_census(self.runtime,self.state,self.recipe)
+        self.assertNotIn('files',summary)
+        reference=self.state['native_change']['caller_census']
+        self.assertIsInstance(reference,dict)
+        self.assertEqual(json.loads(self.runtime.store.read_evidence(reference)),value)
+        changed=copy.deepcopy(value);changed['files']['another/package/file_29999.dart']='b'*64
+        with patch.object(completion,'census',return_value=changed),self.assertRaises(LedgerError):
+            completion.check_census(self.runtime,self.state,self.recipe)
+
+    def test_large_build_inputs_and_log_do_not_block_valid_artifact(self):
+        inputs={'package/file_'+str(i)+'.dart':'a'*64 for i in range(30000)}
+        def command(*args):self.apk();return 0,'output\n'*300000,''
+        with patch.object(completion,'build_inputs',return_value=inputs):self.run_build(command)
+        receipt=self.state['native_change']['apk_build']
+        self.assertEqual(receipt['status'],'passed')
+        self.assertEqual(json.loads(self.runtime.store.read_evidence(receipt['input_manifest'])),inputs)
+        self.assertEqual(self.runtime.store.read_evidence(receipt['log']).decode(),'output\n'*300000+'\n')
+
     def test_pipeline_does_not_complete_before_apk_and_reports_artifact(self):
         from onecrew.native_change import advance, install_candidate
         install_candidate(self.runtime,self.state,self.fixture.candidate(),self.recipe)
