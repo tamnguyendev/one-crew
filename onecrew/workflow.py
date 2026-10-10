@@ -604,6 +604,11 @@ class Workflow:
         _, state = self.state(task_id)
         if not state:
             raise LedgerError('Workflow has no outputs.')
+        if state.get('mode') == 'owned_execution':
+            # Owned checkpoints have snapshots/reports, not legacy plan backlogs
+            # and base/revision output rows. Use the same card as job and MCP.
+            from .owned_cli import output_card
+            return output_card(self, task_id, state)
         with self.ledger.transaction() as conn:
             feedback = [json.loads(row['payload']) for row in conn.execute(
                 "SELECT payload FROM events WHERE task_id=? AND kind='output.feedback' ORDER BY seq", (task_id,))]

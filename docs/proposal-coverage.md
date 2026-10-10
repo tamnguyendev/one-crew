@@ -1,5 +1,20 @@
 # Proposal Coverage
 
+## Owned handoff compatibility — 2026-10-10
+
+Proposal: user requests fixing backlog KeyError, reporting the result and validating the complete execution-to-notification flow. Baseline ef54ea7; cycle HO01–HO04. Preserve existing task evidence and pending delivery; never count a manual status message as scheduled delivery.
+
+| ID | Requirement | Evidence | Status | Boundary |
+|---|---|---|---|---|
+| HO01 | Read owned outputs through work/job/MCP without legacy schema assumptions | Workflow.outputs delegates owned checkpoints to the shared output_card; bounded native metadata retains report, checks, attempts, applied paths and review | Complete | No rewriting checkpoints or model calls |
+| HO02 | Human output/status cards handle owned snapshots and honest acceptance | Owned renderer supports running/audit/native completion, diff truncation, tests/review; legacy renderer unchanged | Complete | No unsupported legacy review command suggested |
+| HO03 | Completion → outputs → receipt → ACK → idle gate regression | tests/test_owned_handoff.py exercises a native candidate through apply and all CLI views plus notification receipt; no new worker calls or checkpoint mutation during reads; 89 related tests pass | Complete | Fixture gate/host evidence are simulated in tests, not live host receipts |
+| HO04 | Live handoff and fresh trial after repair | Old task TASK-8c1aa25368cc4b119b9275803cc3c986 now readable through work outputs: 6 changes, 25 tests, accepted review. Proposed lesson f0960f9e11981ff00141be83c61ed455afc38168c6b3cf413dcfb885b387c02c references outcome 932 | Partial | Pending scheduled delivery/receipt and new frozen-runtime trial; no claim of full host lifecycle yet |
+
+The earlier trial completed computation without entry edits/tests after dispatch: 569 seconds, 2 managed invocations (50+5 native turns), 25 offline tests. Handoff failed afterward on the legacy output adapter. This is known-case evidence with prepared SDK/cache, not unseen-task, device/server, full Save-widget or long-duration reliability evidence. Worker-reported ASCII workaround is not a recommended product requirement: preserve UI language and investigate UTF-8 transport separately. No automatic skill/routing promotion.
+
+Validation: 89 tests across owned handoff, workflow, owned/native/workspace execution, notification watch/receipts and MCP; existing subprocess ResourceWarning remains. The real completed task was read without restarting execution.
+
 ## Native permission and receipt recovery — 2026-10-10
 
 User requests fixing the failed replay. Baseline 56ce2fb; cycle PF01–PF04. Preserve task, original grant, paid result and original product files; classify this replay as assisted after runtime repair.

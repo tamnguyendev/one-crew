@@ -11,6 +11,12 @@ def status(value):
     state, control = value['state'], value['control']
     if not state:
         return 'Chưa enable workflow.'
+    if state.get('mode') == 'owned_execution':
+        limits = control['budget']['limits']
+        return '\n'.join([f"{control['task_id']} | {control['status']}",
+            f"Kiểm chứng: {state['verification']} | Nghiệm thu: {state['acceptance']}",
+            f"Calls: {control['used_calls']}/{limits['max_calls']} | Deadline: {control['deadline']}",
+            compact(state.get('message')), f"Xem kết quả: work outputs {control['task_id']} --full"])
     plan = (state.get('plan') or {}).get('tasks', [])
     done = set(state['done'])
     ready = [r['id'] for r in plan if r['id'] not in done and r['id'] not in state.get('branch_errors', {}) and set(r['depends_on']) <= done]
@@ -47,6 +53,8 @@ def status(value):
 
 
 def outputs(value, full=False):
+    if value.get('mode') == 'owned_execution':
+        return owned_outputs(value, full)
     lines = [f"{value['task_id']} | {value.get('execution', value['phase'])}",
              f"Kiểm chứng: {value['verification']} | Nghiệm thu: {value['acceptance']}"]
     if value.get('commit_vectors'):
@@ -92,4 +100,32 @@ def outputs(value, full=False):
     lines += ['', f"Chi tiết diff/evidence: work outputs {value['task_id']} --full",
               f"Góp ý: work review {value['task_id']} --revision <revision ở trên> --decision feedback --comment <nội dung>",
               'Chỉ accept revision hiện tại đã pass gate. Pass test chưa phải khách hàng nghiệm thu.']
+    return '\n'.join(lines)
+
+
+def owned_outputs(value, full=False):
+    lines = [f"{value['task']} | {value['execution']}",
+             f"Kiểm chứng: {value['verification']} | Nghiệm thu: {value['acceptance']}",
+             compact(value.get('message')),
+             f"Snapshot: {value.get('candidate_snapshot') or 'chưa có'}"]
+    report = value.get('report') or value.get('native_change', {}).get('candidate_report')
+    if report:
+        lines += ['', report if full else compact(report, 800)]
+    lines.append(f"Thay đổi: {len(value['changes'])} file | Đã áp dụng vào project của task: {value['original_workspace_modified']}")
+    for change in value['changes']:
+        lines.append('  '+change['path'])
+        if full:
+            lines.append(change['diff'])
+            if change['truncated']: lines.append('(Diff đã cắt; xem source/snapshot để đọc đầy đủ.)')
+    for test in value['tests']:
+        lines.append(f"Test receipt: passed={test['passed']} | exit={test['exit_code']} | snapshot={test['snapshot']}")
+    for review in value['review']:
+        lines.append(f"Review: accepted={review.get('accepted')} | {compact(review.get('feedback'), 800)}")
+    for request in value['pending_questions']:
+        lines.append('Câu hỏi pending: '+request['id'])
+    if full:
+        lines.append(json.dumps({'native_change':value['native_change'], 'build':value['build'],
+                                'deliveries':value['deliveries'], 'usage':value['usage']},ensure_ascii=False,indent=2))
+    lines += ['', f"Bàn giao đầy đủ: work outputs {value['task']} --full",
+              'Test/review đạt chưa phải nghiệm thu trên thiết bị hoặc server thật.']
     return '\n'.join(lines)

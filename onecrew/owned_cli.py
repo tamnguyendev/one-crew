@@ -95,10 +95,12 @@ def output_card(runtime,task_id,state):
         diff=''.join(difflib.unified_diff(before.splitlines(True),after.splitlines(True),fromfile=path,tofile=path))
         changes.append({'path':path,'original':original,'candidate':blob,'diff':diff[:16000],'truncated':len(diff)>16000})
     control=runtime.control.status(task_id)
-    return {'task':task_id,'phase':state['phase'],'message':state['message'],'plan':state['plan'],
+    return {'mode':'owned_execution','task':task_id,'phase':state['phase'],'message':state['message'],'plan':state['plan'],
+            'verification':state['verification'],'execution':control['status'],
             'native_audit':{k:v for k,v in state.get('native_audit',{}).items()
                             if k in ('stage','repairs','attempts','baseline_calls','workspace')},
-            'native_change':state.get('native_change'),
+            'native_change':{k:v for k,v in state.get('native_change',{}).items()
+                             if k in ('stage','repairs','attempts','checks','applied','review_accepted','candidate_report')},
             'report':state.get('report'),'candidate_snapshot':state['snapshot'],'original_workspace_modified':bool(state.get('workspace_applied')),
             'skills':[{k:s[k] for k in ('id','revision','reason')} for s in state.get('skills',[])],
             'skill_candidates':[v for v in skill_review(runtime.ledger)
