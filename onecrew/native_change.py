@@ -418,7 +418,7 @@ def advance(runtime,task_id,seq,state,profile):
                         'Use clearly synthetic short test values (for example test or fake) in fixtures. '
                         'Keep production behavior and all assertions; ask if a real credential is necessary.',kind='content')
                 else:
-                    native['stage']='verify';state['message']='Native patch captured; fixed Flutter regression tests pending.'
+                    native['stage']='verify';state['message']='Native patch captured; fixed '+kind+' regression tests pending.'
         else:
             if type(value.get('accepted')) is not bool or not isinstance(value.get('feedback'),str): raise LedgerError('Invalid native review.')
             state.setdefault('reviews',[]).append(value)
