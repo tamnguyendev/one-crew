@@ -58,7 +58,8 @@ def check(runtime, task_id, seq, state):
             or now >= dt.datetime.fromisoformat(control['deadline'])): return seq, False
     elapsed = max(0, (now-dt.datetime.fromisoformat(watch['started_at'])).total_seconds())
     calls = control['used_calls']-watch['calls']
-    if calls < watch['policy']['calls'] and elapsed < watch['policy']['seconds']: return seq, False
+    time_due = not control['budget'].get('time_unlimited') and elapsed >= watch['policy']['seconds']
+    if calls < watch['policy']['calls'] and not time_due: return seq, False
     usage = summarize(state.get('usage',[]),control['attempts'])
     tokens = usage['totals_observed_only']['total_tokens']
     remaining = max(0,control['budget']['limits']['max_calls']-control['used_calls']-control['reserved_calls'])

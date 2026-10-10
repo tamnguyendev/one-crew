@@ -32,6 +32,19 @@ class EffortWatchTests(unittest.TestCase):
         self.assertEqual(self.worker.calls,[])
         self.assertEqual(self.f.ledger.request(request['id'])['state'],'pending')
 
+    def test_calls_only_disables_elapsed_warning_but_keeps_call_warning(self):
+        from onecrew.budget import remove_deadline
+        self.due()
+        c=self.run.control.status(self.task)
+        remove_deadline(self.run.control,self.task,c['budget']['revision'],'no-time','Actual user request')
+        seq,state=self.run.state(self.task)
+        seq,waiting=check(self.run,self.task,seq,state)
+        self.assertFalse(waiting);self.assertFalse(self.f.ledger.requests(self.task))
+        c=self.run.control.status(self.task);c['used_calls']=20
+        with patch.object(self.run.control,'status',return_value=c):
+            _,waiting=check(self.run,self.task,seq,state)
+        self.assertTrue(waiting)
+
     def test_continue_retains_budget_and_sets_next_warning_window(self):
         self.due();self.run.run(self.task)
         before=self.run.control.status(self.task)['budget'];answer=self.answer('continue')

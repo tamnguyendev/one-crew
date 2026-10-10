@@ -65,13 +65,13 @@ def prepare(runtime,state,recipe):
     for name,digest in recipe['extra_sources'].items():
         data=safe_file(runtime.ledger.project,name).read_bytes()
         if bytes_hash(data)!=digest: raise LedgerError('Reviewed extra source changed: '+name)
-        scan_text(data);durable_write(safe_file(workspace,name),data)
+        scan_dart(data);durable_write(safe_file(workspace,name),data)
         captured['files'][name]=digest
     originals={}
     for name in recipe['owned']:
         original=safe_file(runtime.ledger.project,name)
         if original.exists():
-            data=original.read_bytes();scan_text(data)
+            data=original.read_bytes();scan_dart(data)
             if captured['files'].get(name)!=bytes_hash(data): raise LedgerError('Writable file not captured: '+name)
             originals[name]=runtime.store.blob(data)
         else: originals[name]=None
@@ -257,10 +257,12 @@ def patch_diff(runtime,state):
     for name,h in native.get('changes',{}).items():
         before=runtime.store.read_blob(native['originals'][name]).decode('utf-8-sig') if native['originals'][name] else ''
         after=runtime.store.read_blob(h).decode('utf-8-sig')
+        # Validate complete Dart sources; diff prefixes lose language context.
+        scan_dart(before.encode());scan_dart(after.encode())
         result.extend(difflib.unified_diff(before.splitlines(True),after.splitlines(True),fromfile=name,tofile=name))
     diff=''.join(result)
     if len(diff)>100000: raise LedgerError('Patch exceeds independent review evidence bound; narrow change.')
-    scan_text(diff.encode());return diff
+    return diff
 
 
 def advance(runtime,task_id,seq,state,profile):

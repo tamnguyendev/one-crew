@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import test_control as fixtures
-from onecrew.budget import extend
+from onecrew.budget import extend, remove_deadline, UNBOUNDED_DEADLINE
 from onecrew.control import Control
 from onecrew.ledger import Ledger, LedgerError
 
@@ -122,6 +122,40 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(sum(r is not None for r in results), 1)
         events = [r for r in self.f.ledger.events(self.f.task['id']) if r['kind'] == 'grant.extended']
         self.assertEqual(len(events), 1)
+
+    def test_explicit_calls_only_survives_restart_and_still_exhausts_calls(self):
+        f=self.f
+        attempt=f.reserve('before');f.control.finish(attempt['id'],attempt['generation'],{'fixture':True})
+        values=dict(revision=self.old['revision'],request_key='no-time',reason='User explicitly removes total time limit.')
+        receipt=remove_deadline(f.control,f.task['id'],**values)
+        self.assertEqual(remove_deadline(f.control,f.task['id'],**values),receipt)
+        self.assertEqual(receipt['used_calls'],1)
+        self.assertFalse(receipt['automatic_resume'])
+        restarted=Control(Ledger(f.project,f.base/'state'))
+        restarted.clock=lambda:dt.datetime.fromisoformat(f.task['created_at'])+dt.timedelta(days=90)
+        current=restarted.status(f.task['id'])
+        self.assertTrue(current['budget']['time_unlimited'])
+        self.assertEqual(current['deadline'],UNBOUNDED_DEADLINE)
+        self.assertIsNone(current['budget']['limits']['max_seconds'])
+        self.assertEqual(f.ledger.task(f.task['id'],full=True)['handoff']['grant'],f.grant)
+        for key in ('two','three'):
+            a=restarted.reserve(f.task['id'],f.execution['revision'],key,{'stage':'fixture'})
+            restarted.finish(a['id'],a['generation'],{'fixture':True})
+        with self.assertRaisesRegex(LedgerError,'call budget'):
+            restarted.reserve(f.task['id'],f.execution['revision'],'four',{'stage':'fixture'})
+
+    def test_remove_deadline_rejects_unknown_stale_shared_and_cancelled(self):
+        f=self.f
+        def call(revision=None):
+            return remove_deadline(f.control,f.task['id'],revision or self.old['revision'],'no-time','Actual user request')
+        with self.assertRaisesRegex(LedgerError,'Stale'):call('stale')
+        with patch('onecrew.budget.current',return_value=dict(self.old,goal={'remaining_calls':1})):
+            with self.assertRaisesRegex(LedgerError,'shared goal'):call()
+        a=f.reserve();f.control.unknown(a['id'],'unknown process outcome')
+        with self.assertRaisesRegex(LedgerError,'reconcile'):call()
+        f.control.finish(a['id'],a['generation'],{'fixture':True})
+        f.control.cancel(f.task['id'])
+        with self.assertRaisesRegex(LedgerError,'cancelled'):call()
 
 
 if __name__ == '__main__':

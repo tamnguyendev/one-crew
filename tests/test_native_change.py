@@ -27,6 +27,27 @@ class NativeChangeTests(unittest.TestCase):
             {'path':'app/lib/main.dart','text':'int add(int a,int b)=>a+b;\n'},
             {'path':'app/test/main_test.dart','text':'// meaningful fixture test is simulated\n'}]}
 
+    def test_pinned_dart_reference_source_prepares_and_diff_reviews_without_bypass(self):
+        from onecrew.native_change import prepare, patch_diff
+        recipe=dict(self.recipe)
+        name='app/lib/app_secrets.dart';source=self.f.root/name
+        original=b'void setValue() {\n  _authPassword = authPassword;\n}\n'
+        source.write_bytes(original)
+        recipe['owned']=[name,'app/test/main_test.dart']
+        recipe['extra_sources']={name:bytes_hash(original)}
+        state={'original':{},'files':{}}
+        prepare(self.run,state,recipe)
+        changed=original.replace(b'setValue',b'setAuthValue')
+        state['native_change']['changes']={name:self.run.store.blob(changed)}
+        diff=patch_diff(self.run,state)
+        self.assertIn('setAuthValue',diff)
+        self.assertEqual(source.read_bytes(),original)
+        bad=b"password = 'long-fixture-value';\n"
+        state['native_change']['changes']={name:self.run.store.blob(bad)}
+        with self.assertRaises(LedgerError):patch_diff(self.run,state)
+        source.write_bytes(bad);recipe['extra_sources']={name:bytes_hash(bad)}
+        with self.assertRaises(LedgerError):prepare(self.run,{'original':{},'files':{}},recipe)
+
     def test_complete_reviewed_apply_preserves_unrelated_dirty_source(self):
         untouched=self.f.root/'unrelated.txt';untouched.write_text('user dirty changes')
         self.worker.responses=[self.candidate(),{'accepted':True,'feedback':'Evidence checked'}]

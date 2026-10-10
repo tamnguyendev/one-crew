@@ -23,3 +23,8 @@ onecrew learning budget --goal "Yêu cầu đã làm rõ" --mode audit --provide
 ```
 
 Ví dụ submit audit chỉ minh họa ngân sách; job ghi source vẫn cần solution approval và quyền runtime theo entry contract. Hạn mức managed calls không phải giới hạn token cứng của các CLI bên dưới.
+# Bỏ deadline cho một task theo yêu cầu người dùng
+
+`job remove-deadline TASK-ID --revision <budget-revision> --key <unique-key> --reference <câu yêu cầu thật>` bỏ thời hạn tổng của đúng task đã được enable. Lệnh không tự resume, không tăng/reset calls, không đổi scope hoặc tự trả lời request. Từ chối task terminal, shared goal, request pending hoặc attempt chưa settled. Sau khi kiểm tra receipt, dùng `job resume TASK-ID` nếu người dùng đã yêu cầu tiếp tục.
+
+Budget hiệu lực ghi `time_unlimited=true`, `max_seconds=null`; deadline năm 9999 là sentinel nội bộ để các gate cũ so sánh thống nhất, không phải một thời hạn người dùng cần chờ. Grant và deadline gốc giữ nguyên trong lịch sử. Cảnh báo do thời gian trôi qua bị tắt; cảnh báo số calls, hard call cap, cancel/pause, scope, credential scan, test/review và giới hạn từng subprocess vẫn giữ. Timeout worker có tiến triển tiếp tục qua checkpoint theo cơ chế hiện có; không chạy lại vô hạn khi không tiến triển. Chỉ thao tác operator tường minh này mới chọn chế độ đó; deadline hữu hạn vẫn là mặc định.

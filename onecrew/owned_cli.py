@@ -30,6 +30,9 @@ def main(argv=None):
     p.add_argument('--terminal',action='store_true')
     p=commands.add_parser('recover-permissions')
     p.add_argument('task');p.add_argument('--reference',required=True)
+    p=commands.add_parser('remove-deadline',help='Explicit operator request: retain call limits, disable total wall-clock deadline; does not resume.')
+    p.add_argument('task');p.add_argument('--revision',required=True)
+    p.add_argument('--key',required=True);p.add_argument('--reference',required=True)
     for name in ('start','run','status','outputs','cancel','resume'):
         p=commands.add_parser(name);p.add_argument('task')
         if name=='outputs': p.add_argument('--details',action='store_true')
@@ -60,6 +63,9 @@ def main(argv=None):
             elif args.command=='recover-permissions':
                 from .workspace_worker import recover_permissions
                 result=recover_permissions(runtime,args.task,args.reference)
+            elif args.command=='remove-deadline':
+                from .budget import remove_deadline
+                result=remove_deadline(runtime.control,args.task,args.revision,args.key,args.reference)
             elif args.command=='native-audit':
                 from .native_audit import enable
                 from .runner import start
