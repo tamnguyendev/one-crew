@@ -44,6 +44,33 @@ class NativeChangeTests(unittest.TestCase):
             with self.assertRaises(LedgerError): install_candidate(self.run,state,dict(self.candidate(),files=files),self.recipe)
         self.assertIn('a-b',(self.f.root/'app/lib/main.dart').read_text())
 
+    def test_content_rejection_repairs_without_installing_or_leaking_value(self):
+        candidate=self.candidate()
+        candidate['files'][1]['text']="password = 'long-fixture-value';"
+        self.worker.responses=[candidate,self.candidate()]
+        state=self.run.run(self.task,steps=1)
+        native=state['native_change']
+        self.assertEqual(native['stage'],'work');self.assertEqual(native['repairs'],1)
+        self.assertNotIn('result_pending',native)
+        self.assertNotIn('long-fixture-value',native['feedback'])
+        self.assertIn('app/test/main_test.dart',native['feedback'])
+        self.assertEqual(native['checks'],[])
+        self.assertIn('a-b',(Path(native['workspace'])/'app/lib/main.dart').read_text())
+        state=self.run.run(self.task,steps=1)
+        self.assertEqual(state['native_change']['stage'],'verify')
+        self.assertIn('a-b',(self.f.root/'app/lib/main.dart').read_text())
+
+    def test_repeated_content_rejection_is_bounded_and_never_applied(self):
+        candidate=self.candidate();candidate['files'][0]['text']="password = 'long-fixture-value';"
+        self.worker.responses=[candidate]*3
+        for _ in range(3): state=self.run.run(self.task,steps=1)
+        self.assertEqual(state['phase'],'blocked')
+        self.assertEqual(state['native_change']['repairs'],2)
+        self.assertEqual(len(state['native_change']['rejected_candidates']),3)
+        self.assertEqual(state['native_change']['checks'],[])
+        self.assertEqual(len(self.worker.calls),3)
+        self.assertIn('a-b',(self.f.root/'app/lib/main.dart').read_text())
+
     def test_conflict_preflight_writes_nothing_and_apply_recovery_is_idempotent(self):
         state=self.run.state(self.task)[1];install_candidate(self.run,state,self.candidate(),self.recipe)
         main=self.f.root/'app/lib/main.dart';main.write_text('user concurrent change')

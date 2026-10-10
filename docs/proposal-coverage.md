@@ -1,5 +1,17 @@
 # Proposal Coverage
 
+## Cloud Auth retry / rejected candidate recovery — 2026-10-10
+
+Baseline ce6806a. User requests retrying the existing Cloud Auth task. Scope: repair the runtime blocker, retain task identity/scope/call budget, then resume in the background. No application code is edited by the entry.
+
+| ID | Requirement | Implementation / verification evidence | Status | Boundary |
+|---|---|---|---|---|
+| CR01 | Distinguish Dart symbol assignment from credential literal | dart_scan.py only exempts complete bare reference assignments outside strings/comments; byte-preserving; literal/token/binary and nested-comment tests | Complete | Generic discovery policy unchanged; ambiguous syntax remains blocked |
+| CR02 | Recover rejected candidate through bounded worker repair | native_change CandidateContentRejected; digest/reason evidence, no raw credential feedback; entire patch preflight before installation; two existing repair rounds | Complete | No exemption for test credentials; no tests/application until candidate accepted; same session and budget |
+| CR03 | Retry existing task with actual background runner and notification watch | Pending dispatch after regression verification | Partial | Keep 20-call cumulative cap, explicit new deadline, no task recreation or approval changes |
+
+Validation: 77 scanner/native/tool receipt/owned/solution/effort regression tests passed (existing subprocess ResourceWarning). Stored Cloud Auth output remains evidence, not an approved or tested fix.
+
 ## Proactive notification receipt correction — 2026-10-09
 
 Baseline da41047. User explicitly requests fixing the false delivery acknowledgement and seeing an automatic notification. The prior current-turn ACK is NOT evidence of proactive delivery.

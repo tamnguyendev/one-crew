@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 import uuid
 
 from .discovery import scan_text, permitted
+from .dart_scan import scan_dart
 from .ledger import LedgerError, canonical, exact_fields
 from .native_audit import NativeClaude, REVIEW_SCHEMA, capture, workspace_path
 from .snapshots import safe_file, scope_list, scoped_path, bytes_hash, durable_write
@@ -21,6 +22,10 @@ PATCH_SCHEMA={'type':'object','properties':{
         'path':{'type':'string'},'text':{'type':'string'}},
         'required':['path','text'],'additionalProperties':False}}},
     'required':['report','question','files'],'additionalProperties':False}
+
+
+class CandidateContentRejected(LedgerError):
+    """Patch content cannot be installed; feedback contains no matched bytes."""
 
 
 def validate(value):
@@ -93,7 +98,10 @@ def install_candidate(runtime,state,value,recipe):
         exact_fields(item,('path','text'),'Native patch')
         name=item['path']
         if name not in recipe['owned'] or name in replacements: raise LedgerError('Patch outside scope or duplicate path.')
-        data=item['text'].encode();scan_text(data)
+        data=item['text'].encode()
+        try: scan_dart(data)
+        except LedgerError:
+            raise CandidateContentRejected('Candidate content rejected by credential/UTF-8 policy: '+name) from None
         if len(data)>200000: raise LedgerError('Patch file too large.')
         replacements[name]=runtime.store.blob(data)
     if not set(recipe['tests'])<=set(replacements): raise LedgerError('Required regression tests missing from patch.')
@@ -247,7 +255,17 @@ def advance(runtime,task_id,seq,state,profile):
                 if not 20<=len(value['report'])<=20000: raise LedgerError('Invalid report length.')
                 task_guard(runtime.control,task_id)()
                 check_snapshot(runtime,state)
-                install_candidate(runtime,state,value,recipe);native['stage']='verify';state['message']='Native patch captured; fixed Flutter regression tests pending.'
+                try:
+                    install_candidate(runtime,state,value,recipe)
+                except CandidateContentRejected as error:
+                    native.setdefault('rejected_candidates',[]).append({'reason':str(error),
+                        'digest':bytes_hash(canonical(value).encode())})
+                    repair(state,str(error)+'. No files installed or tests run. Return a complete corrected patch. '
+                        'Never include real credentials or evade scanning through encoding/obfuscation. '
+                        'Use clearly synthetic short test values (for example test or fake) in fixtures. '
+                        'Keep production behavior and all assertions; ask if a real credential is necessary.')
+                else:
+                    native['stage']='verify';state['message']='Native patch captured; fixed Flutter regression tests pending.'
         else:
             if type(value.get('accepted')) is not bool or not isinstance(value.get('feedback'),str): raise LedgerError('Invalid native review.')
             state.setdefault('reviews',[]).append(value)
