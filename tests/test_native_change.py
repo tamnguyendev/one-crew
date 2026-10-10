@@ -86,6 +86,22 @@ class NativeChangeTests(unittest.TestCase):
         self.assertIn('a+b',(self.f.root/'app/lib/main.dart').read_text())
         self.assertEqual(untouched.read_text(),'user dirty changes');self.assertEqual(len(self.worker.calls),2)
 
+    def test_review_large_diff_preserves_verified_candidate_and_dispatches(self):
+        self.worker.responses=[self.candidate(),{'accepted':True,'feedback':'Reviewed full paged diff.'}]
+        state=self.run.run(self.task,steps=1)
+        snapshot=state['snapshot']
+        result={'passed':True,'detail':'53 tests passed','evidence':{'snapshot':snapshot,'exit_code':0}}
+        with patch('onecrew.native_change.verify',return_value=result):
+            self.run.run(self.task,steps=1)
+        with patch('onecrew.native_change.patch_diff',return_value='+ changed line\n'*6000):
+            state=self.run.run(self.task,steps=1)
+        self.assertEqual(state['native_change']['stage'],'apply')
+        self.assertEqual(state['snapshot'],snapshot)
+        self.assertEqual(state['native_change']['checks'],[result])
+        self.assertTrue(state['native_change']['review_accepted'])
+        self.assertIn('diff_against_original_working_bytes',state['native_change']['review_evidence'])
+        self.assertEqual(len(self.worker.calls),2)
+
     def test_out_of_scope_and_duplicate_and_missing_test_rejected(self):
         state=self.run.state(self.task)[1]
         for files in ([{'path':'../outside.dart','text':'bad'}],self.candidate()['files']*2,[self.candidate()['files'][0]]):

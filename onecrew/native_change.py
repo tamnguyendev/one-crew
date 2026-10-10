@@ -353,13 +353,17 @@ def advance(runtime,task_id,seq,state,profile):
             'Test receipt covers only the named tests, not device/server behavior. Reject vacuous or skipped tests for required acceptance, unrelated changes, credential leaks and unsupported success claims. ')
         with runtime.ledger.transaction() as conn:
             notes=[json.loads(r['payload']) for r in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='entry.note' ORDER BY seq DESC LIMIT 5",(task_id,))]
-        packet=canonical({'goal':runtime.ledger.task(task_id,full=True)['handoff']['goal'],
+        context={'goal':runtime.ledger.task(task_id,full=True)['handoff']['goal'],
             'owned':recipe['owned'],'tests':recipe['tests'],'feedback':native['feedback'],
             'caller_census':native.get('caller_summary'),
             'report':native.get('candidate_report'),'test_result':native['checks'][-1] if native['checks'] else None,
             'diff_against_original_working_bytes':patch_diff(runtime,state) if not work else None,
             'entry_notes_untrusted':notes,
-            'answers':[{'question':r['question']['question'],'answer':r['answer']['choice']} for r in runtime.ledger.requests(task_id) if r['state']=='answered']})
+            'answers':[{'question':r['question']['question'],'answer':r['answer']['choice']} for r in runtime.ledger.requests(task_id) if r['state']=='answered']}
+        if not work:
+            from .native_review_context import packet as review_packet
+            context=review_packet(runtime,state,context)
+        packet=canonical(context)
         prompt+=packet
         if workspace_mode:
             prompt='Use native Edit/Write to implement the scoped task directly. Do not return file bodies. '+\
