@@ -106,6 +106,17 @@ def prepare(runtime,state,recipe,progress=None):
         state['native_change']['caller_summary']=collect(runtime,state,recipe)
 
 
+def _keep_line_endings(runtime,original,data):
+    """Workers return LF text. When the original working file is consistently CRLF (Windows checkouts with autocrlf),
+    keep CRLF so a small fix does not rewrite every line of the user's file. Mixed or LF originals are left as returned."""
+    if not original or b'\r' in data:
+        return data
+    before=runtime.store.read_blob(original)
+    if b'\r\n' in before and before.count(b'\n')==before.count(b'\r\n'):
+        return data.replace(b'\n',b'\r\n')
+    return data
+
+
 def install_candidate(runtime,state,value,recipe):
     native=state['native_change'];workspace=Path(native['workspace'])
     items=value.get('files')
@@ -115,7 +126,7 @@ def install_candidate(runtime,state,value,recipe):
         exact_fields(item,('path','text'),'Native patch')
         name=item['path']
         if name not in recipe['owned'] or name in replacements: raise LedgerError('Patch outside scope or duplicate path.')
-        data=item['text'].encode()
+        data=_keep_line_endings(runtime,native['originals'].get(name),item['text'].encode())
         try: scan_dart(data)
         except LedgerError:
             raise CandidateContentRejected('Candidate content rejected by credential/UTF-8 policy: '+name) from None
@@ -271,6 +282,8 @@ def patch_diff(runtime,state):
         after=runtime.store.read_blob(h).decode('utf-8-sig')
         # Validate complete Dart sources; diff prefixes lose language context.
         scan_dart(before.encode());scan_dart(after.encode())
+        # Review the content change; a CRLF/LF-only difference would otherwise turn every line into a change.
+        before,after=before.replace('\r\n','\n'),after.replace('\r\n','\n')
         result.extend(difflib.unified_diff(before.splitlines(True),after.splitlines(True),fromfile=name,tofile=name))
     diff=''.join(result)
     if len(diff)>100000: raise LedgerError('Patch exceeds independent review evidence bound; narrow change.')

@@ -116,6 +116,22 @@ class NodeChangeTests(unittest.TestCase):
         feedback=state['native_change']['feedback']
         self.assertIn('test/app.test.ts > suite adds: AssertionError: expected 1 to be 2',feedback)
 
+    def test_crlf_original_keeps_crlf_and_review_diff_is_content_only(self):
+        from onecrew.native_change import patch_diff
+        (self.ext/'src/app.ts').write_bytes(b''.join(b'export const line%d = %d;\r\n' % (i,i) for i in range(3000)))
+        (self.ext/'test/app.test.ts').write_bytes(b'old test\n')  # write_text would emit CRLF on Windows
+        from onecrew.native_change import install_candidate
+        from onecrew.node_change import prepare
+        text=''.join('export const line%d = %d;\n' % (i,i) for i in range(3000)).replace('line7 = 7','line7 = 70')
+        state=dict(self.run.state(self.task)[1],original={},files={})
+        prepare(self.run,state,validate(self.recipe))
+        install_candidate(self.run,state,self.candidate(source=text),validate(self.recipe))
+        native=state['native_change'];installed=self.run.store.read_blob(native['changes']['ext/src/app.ts'])
+        self.assertEqual(installed.count(b'\r\n'),3000);self.assertIn(b'line7 = 70;\r\n',installed)
+        self.assertNotIn(b'\r',self.run.store.read_blob(native['changes']['ext/test/app.test.ts']))  # LF original stays LF
+        diff=patch_diff(self.run,state)
+        self.assertLess(len(diff),2000);self.assertIn('+export const line7 = 70;',diff)
+
     def test_partial_repair_patch_is_repaired_not_blocked_and_keeps_previous_feedback(self):
         self.worker.responses=[self.candidate(test='FAIL\n'),
             {'report':'Only touched the test this round.','question':'','files':[{'path':'ext/test/app.test.ts','text':'it adds\n'}]},
