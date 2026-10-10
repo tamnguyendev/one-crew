@@ -97,13 +97,51 @@ class NativeAuditTests(unittest.TestCase):
         self.assertIn('--session-id',argv);self.assertNotIn('--no-session-persistence',argv)
         self.assertEqual(launch.call_args.kwargs['cwd'],self.f.root)
 
-    def test_invalid_report_is_blocked_after_accounting_without_replaying_pending_attempt(self):
-        run,task,worker=self.setup_native();report=self.report();report['citations'][0]['quote']='wrong'
-        worker.responses=[report]
+    def bad_report(self):
+        report=self.report();report['citations'][0]['quote']='wrong';return report
+
+    def test_citation_error_becomes_repair_in_same_worker_session_without_replaying_result(self):
+        run,task,worker=self.setup_native();profiles=[];old=worker.run
+        def record(attempt,prompt,schema,profile):
+            profiles.append((profile,prompt));return old(attempt,prompt,schema,profile)
+        worker.run=record
+        worker.responses=[self.bad_report(),self.report(),{'accepted':True,'feedback':'Verified.'}]
         state=run.run(task,steps=1)
-        self.assertEqual(state['phase'],'blocked');self.assertIsNone(state['pending'])
-        self.assertTrue(state['native_audit']['worker_started'])
-        self.assertEqual(run.control.status(task)['used_calls'],1)
+        self.assertNotEqual(state['phase'],'blocked');self.assertIsNone(state['pending'])
+        native=state['native_audit']
+        self.assertEqual(native['stage'],'work');self.assertEqual(native['repairs'],1)
+        self.assertNotIn('result_pending',native);self.assertIn('Citation #1 (calc.py:1-1)',native['feedback'])
+        for _ in range(2): state=run.run(task,steps=1)
+        self.assertEqual(state['phase'],'completed');self.assertEqual(run.control.status(task)['used_calls'],3)
+        self.assertEqual(profiles[0][0]['native_session'],profiles[1][0]['native_session'])
+        self.assertTrue(profiles[1][0]['native_resume']);self.assertIn('failed the citation check',profiles[1][1])
+
+    def test_citation_repairs_share_cap_then_block_with_accounting(self):
+        run,task,worker=self.setup_native()
+        worker.responses=[self.bad_report(),self.bad_report(),self.bad_report()]
+        for _ in range(3): state=run.run(task,steps=1)
+        self.assertEqual(state['phase'],'blocked');self.assertIn('citation repair limit',state['message'])
+        self.assertIsNone(state['pending']);self.assertNotIn('result_pending',state['native_audit'])
+        self.assertEqual(run.control.status(task)['used_calls'],3);self.assertEqual(len(worker.calls),3)
+
+    def test_report_length_defect_is_repairable(self):
+        run,task,worker=self.setup_native();short=dict(self.report(),report='too short')
+        worker.responses=[short]
+        state=run.run(task,steps=1)
+        self.assertEqual(state['native_audit']['repairs'],1);self.assertIn('report length invalid',state['native_audit']['feedback'])
+
+    def test_citation_feedback_names_actual_line_only_for_unique_quote(self):
+        from onecrew.native_audit import CitationError
+        run,task,_=self.setup_native();state=run.state(task)[1]
+        off=self.report();off['citations'][0].update(start=2,end=2)
+        with self.assertRaises(CitationError) as caught: citations(run,state,off)
+        self.assertIn('lines 1-1',str(caught.exception))
+        missing=self.report();missing['citations'][0]['quote']='absent text'
+        with self.assertRaises(CitationError) as caught: citations(run,state,missing)
+        self.assertNotIn('occurs exactly once',str(caught.exception))
+        (Path(state['native_audit']['workspace'])/'calc.py').write_text('changed')
+        with self.assertRaises(LedgerError) as caught: citations(run,state,self.report())
+        self.assertNotIsInstance(caught.exception,CitationError)
 
     def test_settled_result_recovery_reuses_attempt_instead_of_launching_again(self):
         run,task,worker=self.setup_native();worker.responses=[self.report()]

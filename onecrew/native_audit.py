@@ -209,21 +209,37 @@ def enable(runtime,task_id,reference):
         return state
 
 
+class CitationError(LedgerError):
+    """A worker report formatting defect the same worker session can repair (SOL-de95e530).
+    Snapshot integrity, credential/binary content and session identity stay hard LedgerErrors."""
+
+
+def _quote_hint(lines,quote):
+    # Exact-once location only: an ambiguous or absent quote gets no hint, so feedback never guesses.
+    if not isinstance(quote,str) or not quote.strip(): return ''
+    text='\n'.join(lines)
+    if text.count(quote)!=1: return ''
+    start=text[:text.index(quote)].count('\n')+1
+    return f' The quoted text occurs exactly once, at lines {start}-{start+quote.count(chr(10))}.'
+
+
 def citations(runtime,state,result):
     native=state['native_audit'];captured=json.loads(runtime.store.read_evidence(native['manifest']))
     refs=result.get('citations')
-    if not isinstance(refs,list) or not 1<=len(refs)<=30: raise LedgerError('Audit needs 1-30 source citations.')
+    if not isinstance(refs,list) or not 1<=len(refs)<=30: raise CitationError('Audit needs 1-30 source citations.')
     evidence={}
-    for ref in refs:
-        path=ref['path']
-        if path not in captured['files']: raise LedgerError('Citation outside captured source.')
+    for number,ref in enumerate(refs,1):
+        if not isinstance(ref,dict) or not isinstance(ref.get('path'),str):
+            raise CitationError(f'Citation #{number} needs path, start, end and quote.')
+        path=ref['path'];label=f'Citation #{number} ({path}:{ref.get("start")}-{ref.get("end")})'
+        if path not in captured['files']: raise CitationError(f'{label} is outside captured source.')
         data=safe_file(Path(native['workspace']),path).read_bytes()
         if bytes_hash(data)!=captured['files'][path]: raise LedgerError('Native audit snapshot changed.')
-        lines=scan_text(data).splitlines();start=ref['start'];end=ref['end'];quote=ref['quote']
+        lines=scan_text(data).splitlines();start=ref.get('start');end=ref.get('end');quote=ref.get('quote')
         if type(start) is not int or type(end) is not int or not 1<=start<=end<=len(lines) or end-start>100:
-            raise LedgerError('Citation line range invalid.')
+            raise CitationError(f'{label}: line range invalid (file has {len(lines)} lines, max span 101).'+_quote_hint(lines,quote))
         if not isinstance(quote,str) or not quote.strip() or quote not in '\n'.join(lines[start-1:end]):
-            raise LedgerError('Citation quote does not match source.')
+            raise CitationError(f'{label}: quote does not match source.'+_quote_hint(lines,quote))
         evidence[path]=runtime.store.blob(data)
     return evidence
 
@@ -238,6 +254,7 @@ def advance(runtime,task_id,seq,state,profile):
     if not runtime.custom_worker: runtime.worker=NativeClaude(runtime.control)
     prompt=('Complete this source audit in Vietnamese. Read the snapshot using native tools. '
         'Return concise report (20-20000 chars), citations with relative path, exact 1-based start/end lines and exact source quote, '
+        'and re-read each cited range before returning so every quote is inside its lines, '
         'and question="" unless required user information prevents a useful source audit. '
         'Distinguish proven source facts, hypotheses and unverified device/server behavior. '
         'A policy-withheld source file is a disclosed limitation; do not invent it or repeatedly search for it. '
@@ -269,9 +286,23 @@ def advance(runtime,task_id,seq,state,profile):
                 'recommendation':'source_only'},profile)
             native['feedback']='Use the user clarification; do not repeat the same question.'
         else:
-            if not 20<=len(report)<=20000: raise LedgerError('Native audit report length invalid.')
-            native['evidence']=citations(runtime,state,value);native['candidate']=value;native['stage']='review'
-            state['message']='Native audit produced report; independent review pending.'
+            try:
+                if not 20<=len(report)<=20000:
+                    raise CitationError(f'Native audit report length invalid ({len(report)} chars; 20-20000 required).')
+                evidence=citations(runtime,state,value)
+            except CitationError as error:
+                # SOL-de95e530: a fixable report defect becomes a repair round in the SAME worker session, sharing the
+                # review repair cap. The consumed result is dropped (popped below) so the next step asks the worker again
+                # instead of replaying the same defective report.
+                if native['repairs']>=2:
+                    state.update(phase='blocked',message='Native audit citation repair limit reached: '+str(error)[:900])
+                else:
+                    native.update(repairs=native['repairs']+1,feedback=('Your previous report failed the citation check: '
+                        +str(error)+' Fix every citation (exact 1-based lines containing the exact quote) and return the full report again.')[:5000])
+                    state['message']='Native audit citation check failed; repair requested in the same worker session.'
+            else:
+                native['evidence']=evidence;native['candidate']=value;native['stage']='review'
+                state['message']='Native audit produced report; independent review pending.'
     else:
         if type(value.get('accepted')) is not bool or not isinstance(value.get('feedback'),str): raise LedgerError('Invalid native review.')
         native.setdefault('reviews',[]).append(value)
