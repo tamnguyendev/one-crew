@@ -184,6 +184,9 @@ def verify(runtime,task_id,state,recipe):
     check_snapshot(runtime,state)
     guard=task_guard(runtime.control,task_id);guard()
     environment=prepare_test_environment(runtime,state,recipe)
+    from . import native_test_workspace
+    verification_workspace,inputs=native_test_workspace.prepare(runtime,state,recipe)
+    environment.update(inputs);package=verification_workspace/recipe['package']
     test_paths=[str(Path(p).relative_to(recipe['package'])).replace('\\','/') for p in recipe['tests']]
     argv=[str(dart),'--packages='+str(packages),str(tool),'--no-version-check','test',
           '--no-pub','--no-test-assets','--reporter','expanded',*test_paths]
@@ -194,17 +197,22 @@ def verify(runtime,task_id,state,recipe):
         'stderr':runtime.store.blob(err.encode()),'argv':argv,'trusted_native':True,'device_tested':False,
         'environment':environment}
     check_snapshot(runtime,state)
+    native_test_workspace.check_inputs(runtime,state)
+    native_test_workspace.check_workspace(state)
     try: detail=scan_text((out+err).encode())[-12000:]
     except LedgerError: detail='Test output withheld by credential policy; inspect local receipt.'
     environment_failure=code!=0 and any(s in (out+err).lower() for s in (
         'could not resolve the package','unable to find git','could not find a file named',
-        'unable to locate android sdk','pathnotfoundexception','package_graph.json'))
+        'unable to locate android sdk','pathnotfoundexception','package_graph.json',
+        'the system cannot find the file specified','the system cannot find the path specified'))
     return {'passed':code==0 and 'All tests passed!' in out,'detail':detail,'evidence':evidence,
             'failure_kind':'environment' if environment_failure else ('test' if code else None)}
 
 
 def apply(runtime,state):
     native=state['native_change'];changes=native['changes']
+    from .native_test_workspace import check_inputs
+    check_inputs(runtime,state)
     # Preflight EVERY target before writing any. A recovered apply can observe either
     # baseline or candidate bytes. Never overwrite a concurrent user modification.
     for name,h in changes.items():

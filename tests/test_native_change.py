@@ -148,6 +148,40 @@ class NativeChangeTests(unittest.TestCase):
         (dependency/'pubspec.yaml').write_text('name: test_api\n')
         self.assertEqual(prepare_test_environment(self.run,state,self.recipe)['package_count'],2)
 
+    def test_compiler_only_inputs_are_separate_hash_pinned_and_block_changed_source(self):
+        from onecrew.native_change import prepare_test_environment
+        from onecrew.native_test_workspace import prepare,check_workspace
+        from onecrew.sandbox_gate import GateUnavailable
+        state=self.run.state(self.task)[1];install_candidate(self.run,state,self.candidate(),self.recipe)
+        original=self.f.root/'app/lib/token_manager.dart'
+        original.write_text("const password = 'synthetic-local-fixture';\n")
+        worker=Path(state['native_change']['workspace'])
+        prepare_test_environment(self.run,state,self.recipe)
+        gate,receipt=prepare(self.run,state,self.recipe)
+        self.assertEqual(receipt['local_only_source_count'],1)
+        self.assertFalse((worker/'app/lib/token_manager.dart').exists())
+        self.assertEqual((gate/'app/lib/token_manager.dart').read_bytes(),original.read_bytes())
+        self.assertIn('a+b',(gate/'app/lib/main.dart').read_text())
+        self.assertIn('a-b',(self.f.root/'app/lib/main.dart').read_text())
+        check_workspace(state)
+        (gate/'app/lib/main.dart').write_text('tampered')
+        with self.assertRaises(GateUnavailable):check_workspace(state)
+        original.write_text('changed by user')
+        with self.assertRaises(GateUnavailable):prepare(self.run,state,self.recipe)
+        with self.assertRaises(GateUnavailable):apply(self.run,state)
+        self.assertIn('a-b',(self.f.root/'app/lib/main.dart').read_text())
+
+    def test_compiler_only_input_links_cannot_escape_source_root(self):
+        from onecrew.native_change import prepare_test_environment
+        from onecrew.native_test_workspace import prepare
+        state=self.run.state(self.task)[1]
+        outside=Path(self.f.temp.name)/'outside.dart';outside.write_text('outside')
+        link=self.f.root/'app/lib/token_link.dart'
+        try:link.symlink_to(outside)
+        except OSError:self.skipTest('Symlink creation unavailable')
+        prepare_test_environment(self.run,state,self.recipe)
+        with self.assertRaises(LedgerError):prepare(self.run,state,self.recipe)
+
     def test_environment_preflight_exception_preserves_candidate_and_repair_count(self):
         from onecrew.sandbox_gate import GateUnavailable
         self.worker.responses=[self.candidate()]
