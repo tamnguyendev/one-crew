@@ -1,5 +1,20 @@
 # Proposal Coverage
 
+## Scoped native workspace worker — 2026-10-10
+
+Proposal: approved entry explanation and architecture-kiro-cao.vi.md P0.1. Baseline dc749d9. Cycle NW01–NW05. Preserve the completed product fix; replay pre-fix inputs in a separate project. No runtime repair during the acceptance run may be called unassisted.
+
+| ID | Requirement | Implementation / verification | Status | Boundary |
+|---|---|---|---|---|
+| NW01 | Claude edits and tests within one native session | workspace_worker; live Claude 2.1.286 probe: Edit, Write and Python bridge succeed; unowned Edit and touch denied; ten new unit tests | Complete | Claude/Flutter opt-in recipe; CLI also permits built-in read-only shell operations; not OS sandbox |
+| NW02 | Runtime recovers authorized environment metadata/cache | Existing graph/compiler staging; exact public lock version/hash cache recovery; mismatched hash remains blocked on retry | Complete | Mocked cache download tests, no private/Git/SDK installation or dependency upgrades |
+| NW03 | Scope, caps and independent acceptance remain enforced | Disk collection, unowned hash checks, eight test runs, duplicate checkpoint stop; pending/consumed context reuse; independent test/review/CAS | Complete | 60 related tests pass; native turns are distinct from managed model call budget |
+| NW04 | Unassisted Cloud Auth replay | Pending dispatch after tests and capability probe | Missing | Known-case replay, not unseen-task or eight-hour soak evidence |
+| NW05 | Record evidence and lessons without auto-promotion | Pending live outcome | Missing | No automatic skill/routing approval |
+
+Validation: 60 tests pass with the existing subprocess ResourceWarning. Two live capability probes were setup checks, separate from the product acceptance trial. The first exposed that new-file Write also needs the path's Edit permission and that built-in read-only echo is permitted by the CLI; the second verified the corrected permissions and external Python bridge. No product fix or product test was performed by entry during these probes. Runtime acceptance still requires the separate NW04 trial.
+
+
 ## Cloud Auth environment recovery — 2026-10-10
 
 User requests entry/runtime cooperation through a verified result. Cycle ER01–ER03; baseline 1da68b4. Preserve existing task/scope/candidate and prior receipts. The entry fixes orchestration; OneCrew owns Flutter verification and independent review/application.

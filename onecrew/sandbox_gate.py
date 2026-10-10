@@ -51,7 +51,8 @@ def command(argv, directory, timeout, guard=None, environment_extra=None):
                         'USERPROFILE', 'LOCALAPPDATA', 'APPDATA', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMDATA')}
         if environment_extra:
             if set(environment_extra) - {'JAVA_HOME', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'FLUTTER_ROOT',
-                                         'GRADLE_USER_HOME', 'CI', 'FLUTTER_SUPPRESS_ANALYTICS', 'DART_SUPPRESS_ANALYTICS'}:
+                                         'GRADLE_USER_HOME', 'CI', 'FLUTTER_SUPPRESS_ANALYTICS', 'DART_SUPPRESS_ANALYTICS',
+                                         'PUB_CACHE','PUB_HOSTED_URL'}:
                 raise GateUnavailable('Unsupported native client environment override.')
             environment.update(environment_extra)
         with outpath.open('wb') as out, errpath.open('wb') as err:

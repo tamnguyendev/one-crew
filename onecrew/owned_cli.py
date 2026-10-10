@@ -22,7 +22,7 @@ def main(argv=None):
     p.add_argument('--image');p.add_argument('--branch');p.add_argument('--remote')
     p.add_argument('--solution-id');p.add_argument('--solution-revision')
     p.add_argument('--android-build-config',type=Path,help='Operator-authorized fixed Android recipe JSON, not worker shell commands.')
-    p.add_argument('--native-change-config',type=Path,help='Scoped Claude patch and fixed trusted Flutter verification recipe.')
+    p.add_argument('--native-change-config',type=Path,help='Scoped Claude Flutter recipe; execution=workspace enables native edit/test sessions.')
     p.add_argument('--start',action='store_true')
     p.add_argument('--terminal',action='store_true',help='Start in background and open the grouped verbose monitor.')
     p=commands.add_parser('native-audit')

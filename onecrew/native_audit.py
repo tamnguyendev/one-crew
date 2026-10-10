@@ -22,13 +22,13 @@ REVIEW_SCHEMA={'type':'object','properties':{'accepted':{'type':'boolean'},'feed
     'required':['accepted','feedback'],'additionalProperties':False}
 
 
-def check_native_tools(events):
+def check_native_tools(events, allowed=None):
     """Accept unavailable tools only with a unique, ordered CLI denial receipt.
 
     An error from an available tool can follow a side effect and is NOT a denial.
     Keep attempted calls in telemetry, but never expand the session capability.
     """
-    allowed={'Read','Grep','Glob','StructuredOutput'}
+    allowed=set(allowed or {'Read','Grep','Glob','StructuredOutput'})
     init=[e for e in events if e.get('type')=='system' and e.get('subtype')=='init']
     calls=[];results={};seen=set()
     for position,event in enumerate(events):
@@ -149,7 +149,7 @@ class NativeClaude(ClaudeArtifact):
             raise LedgerError('Native audit did not complete successfully; no automatic replay.')
         value=result.get('structured_output')
         if not isinstance(value,dict): raise LedgerError('Native audit lacks structured output.')
-        calls,denied=check_native_tools(events)
+        calls,denied=check_native_tools(events,getattr(self,'allowed_native_tools',None))
         value['_native']={'session_id':result.get('session_id'),'num_turns':result.get('num_turns'),
             'tool_calls':len(calls),'tools':sorted(set(b['name'] for b in calls)),
             'denied_tool_calls':denied,'log':json.loads(attempt['result'])['stdout']}

@@ -103,6 +103,9 @@ class Owned(Workflow):
             if not self.custom_worker:
                 from .providers import make_worker
                 self.worker=make_worker(self.control,options['provider'])
+                if options.get('native_change',{}).get('execution')=='workspace':
+                    from .workspace_worker import WorkspaceClaude
+                    self.worker=WorkspaceClaude(self.control)
             capability=self.worker.capability()
             from .owned_git import bindings
             config={'mode':'owned_execution','profile':dict(options,step_seconds=180),'capability':capability,
