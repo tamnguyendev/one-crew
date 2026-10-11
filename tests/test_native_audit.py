@@ -166,6 +166,22 @@ class NativeAuditTests(unittest.TestCase):
         state=run.run(task,steps=1)
         self.assertEqual(state['native_audit']['stage'],'review');self.assertEqual(len(worker.calls),1)
 
+    def test_native_audit_starts_on_never_started_task_without_model_calls(self):
+        from onecrew.owned import Owned
+        from onecrew.owned_intake import submit
+        task=submit(self.f.ledger,'Native audit from the start','native-fresh',provider='claude',model='sonnet')['id']
+        run=Owned(self.f.ledger,fixtures.FixtureWorker(self.f.ledger,[]))
+        self.assertIsNone(run.state(task)[1])
+        state=enable(run,task,'operator chose native from the start')
+        self.assertEqual(state['native_audit']['stage'],'work');self.assertEqual(run.control.status(task)['used_calls'],0)
+
+    def test_capture_reads_module_javascript_and_typescript_variants(self):
+        for name in ('tool.mjs','lib.cjs','types.mts','legacy.cts'):
+            (self.f.root/name).write_text('export const x = 1;\n')
+        run,_,_=self.f.runtime([])
+        result=capture(run,Path(self.f.temp.name)/'modules')
+        self.assertTrue({'tool.mjs','lib.cjs','types.mts','legacy.cts'}<=set(result['files']))
+
     def test_long_windows_state_root_uses_short_bound_workspace(self):
         with patch('onecrew.native_audit.os.name','nt'),patch('onecrew.native_audit.Path.home',return_value=self.f.root):
             target=workspace_path(self.f.root/('long'*40),'TASK-'+('a'*32))

@@ -188,6 +188,9 @@ def enable(runtime,task_id,reference):
     from .runner import status
     if not reference or len(reference)>500: raise LedgerError('Native audit requires an operator reference.')
     if status(runtime.ledger,task_id)['status']!='stopped': raise LedgerError('Stop the settled runner before changing execution mode.')
+    # A never-started (queued) owned job has no checkpoint yet: create its initial owned state first (no model call),
+    # so a read-only audit can go native from the start instead of spending calls in the generic loop.
+    if runtime.state(task_id)[1] is None: runtime.enable(task_id)
     with task_lock(runtime.ledger,task_id):
         seq,state=runtime.state(task_id);control=runtime.control.status(task_id);profile=control['configuration']['profile']
         if profile['mode']!='audit' or state['worker']['provider']!='claude':

@@ -13,7 +13,7 @@ SECRET = re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|'
                     r'\b(?:ghp_|github_pat_|sk-proj-|sk-ant-|apikey_)[A-Za-z0-9_-]{15,}|'
                     r'(?im:^\s*(?:[A-Z_]*(?:PASSWORD|SECRET|API_KEY|ACCESS_TOKEN))\s*[=:]\s*["\x27]?[^\s"\x27]{8,})|'
                     r'(?i:["\x27](?:[a-z_]*(?:password|secret|api_key|access_token|refresh_token|auth_token))["\x27]\s*:\s*["\x27][^"\x27]{8,})')
-TEXT = {'.py','.js','.ts','.tsx','.jsx','.json','.md','.txt','.toml','.yaml','.yml',
+TEXT = {'.py','.js','.mjs','.cjs','.ts','.mts','.cts','.tsx','.jsx','.json','.md','.txt','.toml','.yaml','.yml',
         '.dart','.xml','.sql','.xsql','.html','.css','.scss','.go','.rs','.java',
         '.kt','.cs','.cpp','.c','.h','.sh','.ps1','.bat','.ini','.cfg','.lock','.arb'}
 
