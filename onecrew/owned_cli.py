@@ -115,8 +115,8 @@ def output_card(runtime,task_id,state):
             'build':state.get('build_evidence'),'operation':state.get('operation'),
             'progress':state.get('progress'),'recovery':state.get('recovery'),
             'effort_watch':state.get('effort_watch'),
-            'changes':changes,'tests':[{'passed':t['passed'],'snapshot':t['evidence']['snapshot'],
-                'exit_code':t['evidence']['exit_code']} for t in state['tests']],
+            'changes':changes,'tests':[{'passed':t['passed'],'snapshot':t['evidence'].get('snapshot'),
+                'exit_code':t['evidence'].get('exit_code')} for t in state['tests']],
             'deliveries':state['deliveries'],'branches':state.get('branches',[]),'pending_questions':runtime.ledger.requests(task_id,pending=True),
             'usage':summarize(state['usage'],control['attempts']),'review':state.get('reviews',[]),
             'tool_receipts':state['receipts'],'acceptance':state['acceptance']}
