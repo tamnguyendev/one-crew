@@ -1,5 +1,21 @@
 # OneCrew entry contract
 
+## Solution delivery V1 — opt-in 11/10/2026
+
+For a new approved solution whose goal includes child implementation, aggregate tests,
+review, APK build and device E2E, use the parent `delivery submit --file ... --start`
+workflow described in `docs/solution-delivery.vi.md` and `examples/solution-delivery.json`.
+Pin the actual solution revision, source baseline, write envelope, immutable regression
+tests, private references, signer, package, serial and typed scenario before dispatch.
+One parent owns child creation and the shared budget; the entry must not manually
+chain independent jobs or build/install on its behalf and then call it autonomous.
+Read/resume the same parent ID through `delivery status/resume` or MCP status/outputs/
+inbox/resume. Never reset its budget, reparent old jobs or consume unanswered questions.
+Keep the chat heartbeat paused. Use the existing event-driven Windows channel; root
+notices replace child notices. A changed entry/session does not change execution ownership.
+Standalone jobs retain their existing CLI and behavior. The new end-to-end path has
+fixture coverage; do not claim a live A54/server pilot until that parent has real receipts.
+
 ## Overnight authority — night of 10–11/10/2026
 
 For completing the Cloud Auth work assigned in this conversation, the user has

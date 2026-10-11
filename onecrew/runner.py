@@ -14,6 +14,9 @@ from .workflow import Workflow, task_lock
 
 
 def workflow_for(ledger, task_id):
+    if ledger.task(task_id, full=True)['handoff'].get('solution_delivery'):
+        from .solution_delivery import Delivery
+        return Delivery(ledger)
     if ledger.task(task_id, full=True)['handoff'].get('owned_execution'):
         from .owned import Owned
         return Owned(ledger)

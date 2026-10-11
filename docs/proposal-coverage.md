@@ -882,3 +882,39 @@ Verified requirement coverage for the current CLI slice: 8/8 Complete, 0 Partial
 | Multiple repositories and Claude/Kiro/Codex / R01, R12 | Missing | Product requirement retained; backend contracts not yet demonstrated |
 
 Next sequence after cycle 2: prove one controlled task on one host/backend/repository → connect Conductor from discussion to user acceptance → extend repositories/backends one at a time. DeepSeek, multi-machine registry and dashboard are later work. The old overall 2–4 week estimate is not an active planning baseline. See `docs/mvp-backlog.vi.md`.
+
+## Solution delivery V1 — approved 2026-10-11
+
+Proposal source: `docs/solution-delivery-approved.json`, SOL-1009292296e1485ebd645a874042eb13,
+revision `5864e6c9497efb7a8dea18dac0bc2ee5dbb98ec9f2a916fdb70b9fe4c1a7fe32`,
+actual user decision DEC-cdf0a630869d4165b2ccc4ca4055492e. Base: `3c3de4a`.
+Implementation by Codex entry in an isolated worktree; not a claim that OneCrew built itself.
+
+| ID | Requirement | Implementation evidence | Verification evidence | Status | Limits |
+|---|---|---|---|---|---|
+| SD01 | Durable parent/children/sealed DAG | solution_delivery.py, delivery_plan.py, delivery_store.py | Idempotent submit, restart, child lifecycle integration fixture | Complete | Serial Flutter changes; no session-memory scheduler |
+| SD02 | One root budget/deadline | goal_budget.py, owned_intake.py, control.py, effort_watch.py | Concurrent reservations for last slot; aggregate charges; pause/cancel and pre-enable crash tests | Complete | No automatic extension; effort-warning remains a real decision |
+| SD03 | Required AC and provenance gates | solution_delivery.py, structured review in delivery_steps.py | Missing/stale receipt and conditional acceptance rejected; source/tool drift tests | Complete | AI semantics remain fallible; objective receipts also mandatory |
+| SD04 | Read-only regression and red/green evidence | capture/preflight/regression in delivery_steps.py | JSON counts/skip rejection, baseline package rebasing, full typed pipeline fixture | Complete | Behavioral red only when declared and reproduced; unsupported baseline seam blocks |
+| SD05 | Private debug/release build and APK audit | delivery_steps.py build, delivery_android.py audit | Fixture release build, secret/log removal, signer/hash/size/ELF/ZIP checks | Blocked | Real build from a newly dispatched parent not yet exercised; optional version_code policy must be set when required |
+| SD06 | Pinned device/scenario/cleanup | delivery_android.py | Fixture install/hash/assert/cleanup, wrong app/APK/scenario and unknown install rejection | Blocked | No physical A54/server dispatch grant for this runtime implementation; no live-device claim |
+| SD07 | Bounded repair, invalidation and safe restart | solution_delivery.py, existing child timeout/cache policy | Repair history/cap/invalidation, unknown native operation cannot replay, clean workspace per build | Complete | Unknown effects, unconfigured cache/runtime repairs hold for explicit reconciliation; never arbitrary self-patching |
+| SD08 | Parent report and Windows outbox | delivery_steps.py handover, desktop_notifications.py, delivery status | Parent handover fixture; child suppression and existing standalone/dedup tests | Complete | Technical AC verification, user product acceptance and Windows receipt are distinct; no exactly-once crash guarantee |
+| SD09 | Opt-in compatibility and entry transfer | additive backed-up lineage tables; delivery_cli.py; mcp_entry.py | Migration backup, legacy suites, read-only MCP does not launch; example schema validates | Complete | Existing task evidence is not imported as a passing gate; old jobs stay independent |
+| SD10 | End-to-end validation, including live known case | tests/test_solution_delivery.py, tests/test_delivery_android.py | Full parent → native child apply → regression → review → release → APK audit → device → report fixture; crash/concurrency/security tests | Blocked | Provider/Flutter/ADB are explicit test doubles; A54 pilot requires a separate pinned dispatch and an idle device |
+
+Current validation: 40 delivery tests passed; 70 adjacent legacy tests passed
+(goal budget, solution gate, intake, desktop notifications, MCP, effort warning, runner).
+Full repository suite: 649 tests, OK with 1 environment skip (no venv redirector),
+352.609 seconds. Subsequent focused hardening is verified by the current 40 delivery tests.
+An existing monitor test failed on both baseline and branch when the installed Codex
+capability was unavailable; its provider is now a fixture while dispatch assertions remain.
+Verified acceptance rows: 7 Complete / 10 = 70%; 3 Blocked on live verification.
+This is not an unqualified full-proposal or production-readiness claim.
+
+Implementation cycle 1 covers the connected SD01–SD09 runtime contracts plus fixture SD10.
+The stages share imports/admission state and are committed together as one tested change.
+Cycle 2 validates compatibility, integrates without overwriting concurrent entry work, and
+records handover/remaining live pilot. No current product task, APK, phone or server is restarted.
+Cycle 1 commit: `54c6653`. Cycle 2 also seals foreground/viewport input, bounded manifest
+storage, unchanged-wait checkpoint deduplication, stage grants and outcome-specific Windows receipts.

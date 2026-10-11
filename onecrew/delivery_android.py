@@ -1,0 +1,231 @@
+"""Pinned APK audits and typed ADB scenarios. No worker-controlled host shell."""
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import struct
+import time
+import xml.etree.ElementTree as ET
+import zipfile
+
+from .ledger import LedgerError,canonical,content_hash,exact_fields
+from .workflow import task_lock
+from .delivery_steps import bounded,file_hash,home
+from .snapshots import durable_write
+
+
+def elf_alignment(data):
+    if data[:4]!=b'\x7fELF' or len(data)<64: raise LedgerError('Invalid native ELF.')
+    wide=data[4]==2
+    if data[4] not in (1,2) or data[5] not in (1,2):raise LedgerError('Unsupported ELF header.')
+    endian='<' if data[5]==1 else '>'
+    read=lambda fmt,off:struct.unpack_from(endian+fmt,data,off)[0]
+    start=read('Q' if wide else 'I',32 if wide else 28)
+    size=read('H',54 if wide else 42);count=read('H',56 if wide else 44)
+    if count>2048 or size<(56 if wide else 32):raise LedgerError('Invalid ELF program headers.')
+    loads=[]
+    for i in range(count):
+        off=start+i*size
+        if off+size>len(data):raise LedgerError('Truncated ELF headers.')
+        if read('I',off)!=1:continue
+        pos=read('Q' if wide else 'I',off+(8 if wide else 4))
+        addr=read('Q' if wide else 'I',off+(16 if wide else 8))
+        align=read('Q' if wide else 'I',off+(48 if wide else 28))
+        loads.append(align>=16384 and (pos-addr)%16384==0)
+    if not loads:raise LedgerError('ELF has no loadable segments.')
+    return {'bits':64 if wide else 32,'load_segments':len(loads),'aligned_16kb':all(loads)}
+
+
+def apk_input(s,node):
+    r=s['delivery']['nodes'][node['config']['build_node']]['receipt']
+    if not r or not r.get('passed') or file_hash(r['apk'])!=r['sha256']:raise LedgerError('APK changed or build receipt unavailable.')
+    if r['source']!=s['delivery']['source']['hash']:raise LedgerError('APK belongs to stale source.')
+    return r
+
+
+def audit(runtime,task,s,node):
+    c=node['config'];build=apk_input(s,node);apk=Path(build['apk']);tools=Path(c['build_tools'])
+    suffix='.exe' if os.name=='nt' else ''
+    java=shutil.which('java')
+    if not java:raise LedgerError('Java unavailable for APK signer audit.')
+    rc,signature,_=bounded(runtime,task,[java,'-jar',str(tools/'lib/apksigner.jar'),'verify','--verbose','--print-certs',str(apk)],home(runtime,task),60)
+    signers=re.findall(r'Signer #\d+ certificate SHA-256 digest:\s*([0-9a-fA-F]{64})',signature)
+    signature_ok=rc==0 and bool(signers) and {x.lower() for x in signers}=={c['signer_sha256'].lower()}
+    zargs=[str(tools/('zipalign'+suffix)),'-c']+(['-P','16'] if c['require_16kb'] else [])+['4',str(apk)]
+    zrc,_,_=bounded(runtime,task,zargs,home(runtime,task),60)
+    arc,badging,_=bounded(runtime,task,[str(tools/('aapt2'+suffix)),'dump','badging',str(apk)],home(runtime,task),60)
+    package=re.search(r"package: name='([^']+)'",badging)
+    version=re.search(r"versionCode='([^']+)'",badging)
+    version_ok='version_code' not in c or version is not None and version[1]==c['version_code']
+    variant_ok=build.get('variant')!='release' or 'application-debuggable' not in badging
+    libraries=[]
+    with zipfile.ZipFile(apk) as z:
+        names=z.namelist();unique=len(names)==len(set(names));crc=z.testzip()
+        compressed=sum(i.compress_size for i in z.infolist())
+        for n in names:
+            if n.startswith('lib/') and n.endswith('.so'):
+                info=z.getinfo(n)
+                if info.file_size>256_000_000:raise LedgerError('Native library exceeds audit limit.')
+                libraries.append(dict(path=n,**elf_alignment(z.read(n))))
+    # Large unreferenced ZIP payload is a packaging defect even if the signature verifies.
+    overhead=apk.stat().st_size-compressed
+    packaging_ok=unique and crc is None and overhead<=max(2_000_000,len(names)*2048)
+    alignment_ok=not c['require_16kb'] or all(v['aligned_16kb'] for v in libraries if v['bits']==64)
+    passed=signature_ok and zrc==0 and arc==0 and package is not None and package[1]==c['package_id'] and version_ok and variant_ok and packaging_ok and alignment_ok and apk.stat().st_size<=c['max_bytes']
+    return {'passed':passed,'failure_kind':'artifact','detail':'APK policy passed.' if passed else 'APK signer/package/alignment/size/ZIP policy failed.',
+        'packaging_anomaly':not packaging_ok,
+        'sha256':build['sha256'],'source':build['source'],'signers':signers,'package':package[1] if package else None,
+        'version_code':version[1] if version else None,'version_policy_checked':'version_code' in c,'variant_policy_passed':variant_ok,
+        'zipalign_exit':zrc,'zip_unique':unique,'zip_crc':crc,'zip_overhead_bytes':overhead,'bytes':apk.stat().st_size,'native_libraries':libraries}
+
+
+def scenario(path,digest):
+    p=Path(path)
+    if file_hash(p)!=digest:raise LedgerError('Device scenario changed since approval.')
+    v=json.loads(p.read_text(encoding='utf-8-sig'))
+    exact_fields(v,('version','activity','steps','cleanup'),'Android scenario')
+    if v['version']!=1 or not isinstance(v['activity'],str) or not re.fullmatch(r'[A-Za-z0-9_.$]+',v['activity']):raise LedgerError('Pin launcher activity.')
+    for key in ('steps','cleanup'):
+        if not isinstance(v[key],list) or len(v[key])>100:raise LedgerError('Bounded scenario steps required.')
+        for step in v[key]:
+            exact_fields(step,('id','operation','arguments'),'Device step')
+            if not isinstance(step['id'],str) or not re.fullmatch('[a-zA-Z0-9_-]{1,60}',step['id']):raise LedgerError('Step ID invalid.')
+            args=step['arguments'];op=step['operation']
+            fields={'assert_ui':{'selector'},'tap':{'selector'},'type':{'selector','private_key'},
+                    'scroll_to':{'selector','direction','max_swipes'},'key':{'key'},'restart':set(),
+                    'assert_no_flutter_error':set()}
+            if op not in fields or not isinstance(args,dict) or set(args)!=fields[op]:raise LedgerError('Unsupported device operation or arguments.')
+            if 'selector' in args:
+                selector=args['selector']
+                if not isinstance(selector,dict) or not selector or set(selector)-{'text','resource-id','content-desc','class','checked','focused'} or any(not isinstance(x,str) or len(x)>200 for x in selector.values()):
+                    raise LedgerError('Typed exact UI selector required.')
+            if op=='key' and args['key'] not in ('BACK','ENTER','TAB'):raise LedgerError('Key not allowed.')
+            if op=='type' and not re.fullmatch('[A-Za-z0-9_]{1,80}',args['private_key']):raise LedgerError('Private input key invalid.')
+            if op=='scroll_to' and (args['direction'] not in ('up','down') or type(args['max_swipes']) is not int or not 1<=args['max_swipes']<=6):raise LedgerError('Scroll must be bounded.')
+    ids=[s['id'] for s in v['steps']+v['cleanup']]
+    if not v['steps'] or len(ids)!=len(set(ids)):raise LedgerError('Nonempty steps with unique IDs required.')
+    return v
+
+
+def find_ui(xml,selector,package=None,viewport=None):
+    root=ET.fromstring(xml)
+    matches=[n for n in root.iter('node') if all(n.attrib.get(k)==v for k,v in selector.items())]
+    if len(matches)!=1:raise LedgerError('UI precondition failed: selector must match exactly one visible node.')
+    node=matches[0];bounds=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',node.get('bounds',''))
+    if package is not None and node.get('package')!=package:raise LedgerError('UI target belongs to another package.')
+    if not bounds or node.get('enabled')=='false':raise LedgerError('UI target disabled or bounds unavailable.')
+    x1,y1,x2,y2=map(int,bounds.groups())
+    if x2<=x1 or y2<=y1:raise LedgerError('UI target not hit-testable.')
+    if viewport and (x2>viewport[0] or y2>viewport[1]):raise LedgerError('UI target is outside the visible viewport.')
+    return node,((x1+x2)//2,(y1+y2)//2)
+
+
+def device(runtime,task,s,node,row):
+    c=node['config'];build=apk_input(s,node);v=scenario(c['scenario'],c['scenario_sha256'])
+    reference=Path(c['private_reference']) if c['private_reference'] else None
+    private=json.loads(reference.read_text(encoding='utf-8-sig')) if reference else {}
+    if not isinstance(private,dict):raise LedgerError('Private scenario inputs must be a mapping.')
+    private_digest=file_hash(reference) if reference else None
+    directory=home(runtime,task)/('device-'+node['id']+'-'+str(row['generation']));directory.mkdir(exist_ok=True)
+    receipt={'passed':False,'source':build['source'],'apk_sha256':build['sha256'],'serial':c['serial'],'package':c['package_id'],
+        'scenario_sha256':c['scenario_sha256'],'private_version':c['private_version'],'steps':[],'cleanup':[],
+        'live_device':True,'failure_kind':'device'}
+    start=time.monotonic()
+    viewport=None
+    effect_pending=False
+    def adb(*args):
+        nonlocal effect_pending
+        left=c['timeout_seconds']-(time.monotonic()-start)
+        if left<=0:raise LedgerError('Device scenario timeout.')
+        effect_pending=(args[0]=='install' or args[:2] in (('shell','input'),('shell','am')))
+        rc,out,err=bounded(runtime,task,[c['adb'],'-s',c['serial'],*args],directory,min(45,left))
+        if rc:raise LedgerError('ADB operation failed; raw output withheld to protect private inputs.')
+        effect_pending=False
+        return out
+    def xml():
+        # exec-out is bounded; never save the entire UI tree, which may contain account data.
+        out=adb('exec-out','uiautomator','dump','/dev/tty')
+        start=out.find('<?xml');end=out.rfind('</hierarchy>')
+        if start<0 or end<0:raise LedgerError('Android UI hierarchy unavailable.')
+        return out[start:end+len('</hierarchy>')]
+    def perform(step):
+        op=step['operation'];a=step['arguments']
+        if op in ('tap','type','key','scroll_to'):
+            windows=adb('shell','dumpsys','window','windows')
+            current=re.search(r'mCurrentFocus=([^\r\n]+)',windows)
+            if not current or not re.search(r'\b'+re.escape(c['package_id'])+'/',current[1]):
+                raise LedgerError('Another window has foreground focus; input refused.')
+        if op in ('tap','type','assert_ui'):
+            element,(x,y)=find_ui(xml(),a['selector'],c['package_id'],viewport)
+            if op=='tap':adb('shell','input','tap',str(x),str(y))
+            elif op=='type':
+                value=private.get(a['private_key'])
+                # Android input text goes through a remote shell; whitelist rather than quote arbitrary shell syntax.
+                if not isinstance(value,str) or not re.fullmatch(r'[A-Za-z0-9@._:+/-]{1,150}',value):raise LedgerError('Private input unsupported by typed ADB text adapter.')
+                if element.get('class')!='android.widget.EditText':raise LedgerError('Typing requires an editable target.')
+                adb('shell','input','tap',str(x),str(y))
+                focused,_=find_ui(xml(),dict(a['selector'],focused='true'),c['package_id'],viewport)
+                adb('shell','input','keyevent','KEYCODE_MOVE_END')
+                for _ in range(min(len(focused.get('text','')),150)):adb('shell','input','keyevent','KEYCODE_DEL')
+                adb('shell','input','text',value)
+        elif op=='key':adb('shell','input','keyevent','KEYCODE_'+a['key'])
+        elif op=='restart':
+            adb('shell','am','force-stop',c['package_id']);adb('shell','am','start','-W','-n',c['package_id']+'/'+v['activity'])
+        elif op=='scroll_to':
+            for i in range(a['max_swipes']+1):
+                try:find_ui(xml(),a['selector'],c['package_id'],viewport);break
+                except LedgerError:
+                    if i==a['max_swipes']:raise
+                    size=adb('shell','wm','size');match=re.search(r'(\d+)x(\d+)',size)
+                    if not match:raise LedgerError('Device size unavailable.')
+                    width,height=map(int,match.groups());x=width//2;y1=height*3//5;y2=height*2//5
+                    if a['direction']=='down':y1,y2=y2,y1
+                    adb('shell','input','swipe',str(x),str(y1),str(x),str(y2),'350')
+        elif op=='assert_no_flutter_error':
+            # Restrict logs to this app process. Store only the result, not server/account data.
+            pid=adb('shell','pidof',c['package_id']).strip()
+            if not re.fullmatch(r'\d+',pid):raise LedgerError('App process unavailable.')
+            logs=adb('logcat','-d','--pid='+pid,'-t','500','flutter:E','*:S')
+            if re.search('RenderFlex overflowed|Unhandled Exception|EXCEPTION CAUGHT',logs,re.I):
+                receipt['failure_kind']='product';raise LedgerError('Flutter runtime error observed.')
+    # A single lock per serial (including other root tasks) lasts through install, tests and cleanup.
+    with task_lock(runtime.ledger,'device-'+content_hash(c['serial'])[:24]):
+        if adb('get-state').strip()!='device':raise LedgerError('Authorized device not ready.')
+        sizes=re.findall(r'(\d+)x(\d+)',adb('shell','wm','size'))
+        if not sizes:raise LedgerError('Device viewport unavailable.')
+        viewport=tuple(map(int,sizes[-1]));receipt['viewport']=list(viewport)
+        # The caller already audited the signer; install -r must not silently uninstall to solve a mismatch.
+        intent=directory/'intent.json'
+        durable_write(intent,canonical({'task':task,'operation':'install','apk':build['sha256']}).encode())
+        try:
+            result=adb('install','-r',build['apk'])
+            if 'Success' not in result:raise LedgerError('APK installation not confirmed.')
+            paths=adb('shell','pm','path',c['package_id']).strip().splitlines()
+            if len(paths)!=1 or not paths[0].startswith('package:'):raise LedgerError('Installed APK identity is ambiguous.')
+            remote=paths[0][8:]
+            if not re.fullmatch(r'/[A-Za-z0-9_./=+~-]+\.apk',remote):raise LedgerError('Invalid installed package path.')
+            digest=adb('shell','sha256sum',remote).split()[0]
+            if digest!=build['sha256']:raise LedgerError('Installed APK differs from audited artifact.')
+            receipt['installed_sha256']=digest
+            adb('shell','am','start','-W','-n',c['package_id']+'/'+v['activity'])
+            for step in v['steps']:
+                durable_write(intent,canonical({'task':task,'step':step['id'],'state':'intent'}).encode())
+                perform(step);receipt['steps'].append({'id':step['id'],'passed':True})
+                durable_write(directory/'receipt.json',canonical(receipt).encode())
+            receipt['passed']=True
+        except (ValueError,OSError) as e:
+            receipt['detail']=str(e)[:500];receipt['passed']=False;receipt['uncertain']=effect_pending
+        finally:
+            for step in v['cleanup']:
+                try:
+                    perform(step);receipt['cleanup'].append({'id':step['id'],'passed':True})
+                except (ValueError,OSError):
+                    receipt['cleanup'].append({'id':step['id'],'passed':False});receipt['passed']=False
+                    receipt['uncertain']=receipt.get('uncertain',False) or effect_pending
+            if reference and file_hash(reference)!=private_digest:
+                receipt.update(passed=False,detail='Private scenario inputs changed.')
+            durable_write(directory/'receipt.json',canonical(receipt).encode())
+    receipt['detail']=receipt.get('detail','Device scenarios and cleanup passed.' if receipt['passed'] else 'Device acceptance or cleanup failed.')
+    receipt['receipt_file']=str(directory/'receipt.json')
+    return receipt

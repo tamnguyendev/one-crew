@@ -243,6 +243,10 @@ class Control:
             for member in members:
                 execution = conn.execute('SELECT * FROM executions WHERE task_id=?',(member,)).fetchone()
                 if not execution:
+                    from .delivery_store import root_id
+                    if root_id(conn,member)==task_id:
+                        self.ledger._event(conn,member,'execution.cancel_requested',{'requested_by_task':task_id,'not_enabled':True})
+                        continue  # Root cancellation fences a child submitted before its enable checkpoint.
                     raise LedgerError('Goal member execution missing; cancellation rolled back.')
                 active = conn.execute("SELECT 1 FROM attempts WHERE task_id=? AND status IN ('reserved','running','unknown')",
                                       (member,)).fetchone()

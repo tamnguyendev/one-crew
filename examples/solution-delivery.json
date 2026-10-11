@@ -1,0 +1,164 @@
+{
+  "goal": "REPLACE_solution_delivery_goal",
+  "key": "REPLACE_unique_dispatch_key",
+  "solution_id": "REPLACE_APPROVED_SOL",
+  "solution_revision": "REPLACE_APPROVED_REVISION",
+  "provider": "claude",
+  "model": "sonnet",
+  "max_calls": 100,
+  "max_seconds": 7200,
+  "plan": {
+    "version": 1,
+    "source_roots": [
+      "app"
+    ],
+    "max_repairs": 2,
+    "acceptance": [
+      {
+        "id": "AC-code",
+        "text": "REPLACE_code_behavior_and_regression_acceptance",
+        "nodes": [
+          "tests",
+          "review"
+        ]
+      },
+      {
+        "id": "AC-apk",
+        "text": "Approved signed release artifact passes APK policy",
+        "nodes": [
+          "release",
+          "audit"
+        ]
+      },
+      {
+        "id": "AC-e2e",
+        "text": "REPLACE_observable_device_and_server_success_and_cleanup",
+        "nodes": [
+          "device"
+        ]
+      }
+    ],
+    "nodes": [
+      {
+        "id": "fix",
+        "kind": "change",
+        "depends": [],
+        "config": {
+          "goal": "REPLACE_scoped_product_goal",
+          "recipe": {
+            "source_roots": [
+              "app"
+            ],
+            "owned": [
+              "app/lib/REPLACE_target.dart",
+              "app/test/REPLACE_new_test.dart"
+            ],
+            "extra_sources": {},
+            "package": "app",
+            "flutter_root": "D:/REPLACE_flutter",
+            "tests": [
+              "app/test/REPLACE_new_test.dart"
+            ],
+            "reference": "REPLACE_actual_approved_scope",
+            "trusted_native": true
+          }
+        }
+      },
+      {
+        "id": "tests",
+        "kind": "regression",
+        "depends": [
+          "fix"
+        ],
+        "config": {
+          "package": "app",
+          "flutter_root": "D:/REPLACE_flutter",
+          "tests": [
+            "test/REPLACE_existing_test.dart",
+            "test/REPLACE_new_test.dart"
+          ],
+          "red": [
+            {
+              "test": "test/REPLACE_new_test.dart",
+              "error_pattern": "REPLACE_target_assertion"
+            }
+          ],
+          "repair_node": "fix"
+        }
+      },
+      {
+        "id": "review",
+        "kind": "review",
+        "depends": [
+          "tests"
+        ],
+        "config": {
+          "repair_node": "fix"
+        }
+      },
+      {
+        "id": "release",
+        "kind": "build",
+        "depends": [
+          "review"
+        ],
+        "config": {
+          "package": "app",
+          "flutter_root": "D:/REPLACE_flutter",
+          "android_sdk": "D:/REPLACE_android_sdk",
+          "variant": "release",
+          "config_reference": "D:/private/REPLACE_build.json",
+          "config_version": "REPLACE_private_version",
+          "signer_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "timeout_seconds": 1800
+        }
+      },
+      {
+        "id": "audit",
+        "kind": "apk_audit",
+        "depends": [
+          "release"
+        ],
+        "config": {
+          "build_node": "release",
+          "build_tools": "D:/REPLACE_android_sdk/build-tools/REPLACE_version",
+          "package_id": "com.REPLACE.app",
+          "signer_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "require_16kb": true,
+          "max_bytes": 350000000
+        }
+      },
+      {
+        "id": "device",
+        "kind": "device",
+        "depends": [
+          "audit"
+        ],
+        "config": {
+          "build_node": "release",
+          "adb": "D:/REPLACE_android_sdk/platform-tools/adb.exe",
+          "serial": "REPLACE_SERIAL",
+          "package_id": "com.REPLACE.app",
+          "scenario": "D:/private/REPLACE_scenario.json",
+          "scenario_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "private_reference": "D:/private/REPLACE_device.json",
+          "private_version": "REPLACE_private_version",
+          "timeout_seconds": 600
+        }
+      },
+      {
+        "id": "handover",
+        "kind": "handover",
+        "depends": [
+          "fix",
+          "tests",
+          "review",
+          "release",
+          "audit",
+          "device"
+        ],
+        "config": {}
+      }
+    ]
+  }
+}

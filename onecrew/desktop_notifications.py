@@ -85,9 +85,15 @@ def snapshots(ledger, after=0, task=None):
             args.append(task)
         result = []
         for row in conn.execute(query, args):
+            from .delivery_store import root_id
+            parent=root_id(conn,row['task_id'])
+            if parent and parent!=row['task_id']: continue
             state = json.loads(row['payload'])
             phase = state.get('phase')
             pending = questions(conn, row['task_id'])
+            if parent==row['task_id']:
+                for child in conn.execute('SELECT task_id FROM delivery_children WHERE root=?',(parent,)):
+                    pending.extend(questions(conn,child[0]))
             if phase not in ACTIONABLE and not pending:
                 continue
             # Consecutive checkpoints in the same phase belong to one outcome.
@@ -118,6 +124,10 @@ def text_report(item):
                   'Lựa chọn: '+safe(canonical(q.get('options', [])), 2500)]
     if state.get('report'):
         lines += ['', 'Báo cáo runtime:', safe(str(state['report']), 12000)]
+    if state.get('report_file'):
+        lines += ['', 'Báo cáo đầy đủ: '+str(state['report_file'])]
+    if state.get('delivery'):
+        lines += ['', 'Các bước: '+safe(canonical({k:v['phase'] for k,v in state['delivery']['nodes'].items()}),4000)]
     if native.get('candidate_report'):
         lines += ['', 'Báo cáo ứng viên của worker (chưa thay thế kiểm chứng độc lập):',
                   safe(str(native['candidate_report']), 6000)]

@@ -8,6 +8,9 @@ from .routing import instant
 
 
 def group(conn, task_id):
+    from .delivery_store import shared
+    delivery = shared(conn, task_id)
+    if delivery: return delivery
     row = conn.execute("SELECT e.payload FROM events e, json_each(e.payload,'$.members') m WHERE e.kind='budget.group' AND json_extract(m.value,'$.task_id')=?", (task_id,)).fetchone()
     if not row:
         return None

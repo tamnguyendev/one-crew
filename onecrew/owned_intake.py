@@ -9,7 +9,8 @@ from .ledger import LedgerError, canonical, content_hash, key_field, text_field,
 
 def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None,
            max_calls=None, max_seconds=None, image=None, branch=None, remote=None, android_build=None, native_change=None,
-           solution_id=None, solution_revision=None):
+           solution_id=None, solution_revision=None,
+           _delivery_parent=None, _delivery_node=None, _delivery_generation=0):
     goal = text_field(goal, 'goal', 12000)
     key_field(request_key)
     # Idempotent replay retains the original choice after operator preferences change.
@@ -79,6 +80,12 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
         payload['solution_id']=solution_id;payload['solution_revision']=solution_revision
     revision = content_hash(payload)
     with ledger.transaction(write=True) as conn:
+        if _delivery_parent:
+            from .delivery_store import child_authority
+            root_budget=child_authority(ledger,conn,_delivery_parent,_delivery_node,_delivery_generation,
+                                       goal,native_change,solution_id,solution_revision)
+            if max_calls>root_budget['limits']['max_calls']:
+                raise LedgerError('Child call cap exceeds root grant.')
         old = conn.execute('SELECT * FROM tasks WHERE project_id=? AND request_key=?',
                            (ledger.project_id,request_key)).fetchone()
         if old:
@@ -96,6 +103,7 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
             if mode!='audit':
                 peers=conn.execute('SELECT b.task_id FROM solution_bindings b JOIN tasks t ON t.id=b.task_id WHERE b.solution=? AND json_extract(t.payload,\'$.owned_execution.mode\')!=\'audit\'',(solution_id,)).fetchall()
                 for peer in peers:
+                    if peer['task_id']==_delivery_parent: continue
                     if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='solution.stopped'",(peer['task_id'],)).fetchone():continue
                     checkpoint=conn.execute("SELECT json_extract(payload,'$.phase') FROM events WHERE task_id=? AND kind='workflow.checkpoint' ORDER BY seq DESC LIMIT 1",(peer['task_id'],)).fetchone()
                     if not checkpoint or checkpoint[0] not in ('completed','failed','cancelled'):
@@ -104,10 +112,14 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
         task_id = 'TASK-'+uuid.uuid4().hex
         created = utcnow()
         deadline = (dt.datetime.fromisoformat(created)+dt.timedelta(seconds=max_seconds)).isoformat()
+        if _delivery_parent: deadline=min(deadline,root_budget['deadline'])
         conn.execute('INSERT INTO tasks VALUES(?,?,?,?,?,?,?,?)',
                      (task_id,ledger.project_id,ledger.project_path,request_key,revision,canonical(payload),created,deadline))
         if binding:
             sol,decision=binding
             conn.execute('INSERT INTO solution_bindings VALUES(?,?,?,?,?)',(task_id,sol['conversation'],solution_id,solution_revision,decision['id']))
+        if _delivery_parent:
+            conn.execute('INSERT INTO delivery_children VALUES(?,?,?,?)',
+                         (task_id,_delivery_parent,_delivery_node,_delivery_generation))
         ledger._event(conn,task_id,'task.submitted',{'revision':revision,'request_key':request_key,'mode':'owned_execution'})
         return ledger._task_view(conn,ledger._task(conn,task_id))

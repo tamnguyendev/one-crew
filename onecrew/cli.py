@@ -27,6 +27,7 @@ def main(argv=None):
               '  learning   outcomes / lessons / propose (evidence only; no automatic routing promotion)\n'
               '  skills     list / scan / review / approve / reject (recurring-task evidence)\n'
               '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
+              '  delivery   submit / start / resume / status / cancel (solution-level execution)\n'
               '  core       migrate / status / cancel / reconcile\n'
               '  work       enable / plan / run / start / runner / status / outputs / cancel / pause / resume / switch\n'
               '  work       group / vector / quota / extend / amend / triage / request-changes / recheck / reorder / review / export / branch / merge\n'
@@ -39,6 +40,9 @@ def main(argv=None):
     if len(args)>index and args[index]=='desktop':
         from .desktop_notifications import main as desktop_main
         return desktop_main(args)
+    if len(args)>index and args[index]=='delivery':
+        from .delivery_cli import main as delivery_main
+        return delivery_main(args)
     if len(args)>index and args[index]=='skills':
         from .skills import main as skills_main
         return skills_main(args)

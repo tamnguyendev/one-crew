@@ -70,7 +70,9 @@ class MonitorTests(unittest.TestCase):
 
     def test_job_terminal_starts_in_background_and_monitor_failure_does_not_restart(self):
         from onecrew.owned_cli import main as job
-        with patch('onecrew.runner.start',return_value={'status':'alive'}) as start, patch(
+        # This tests background dispatch/monitor failure, not the host's installed Codex binary.
+        from tests.test_workflow import FixtureWorker
+        with patch('onecrew.providers.make_worker',return_value=FixtureWorker(self.f.ledger,[])), patch('onecrew.runner.start',return_value={'status':'alive'}) as start, patch(
                 'onecrew.monitor.open_terminal',side_effect=OSError('console unavailable')), redirect_stdout(io.StringIO()) as out:
             code=job(['--project',str(self.f.root),'--state-root',str(self.f.ledger.state_root),
                       'job','submit','--goal','Another goal','--key','terminal','--terminal'])

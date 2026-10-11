@@ -14,6 +14,8 @@ def schema(properties, required=()):
 STRING={'type':'string'}
 TASK=schema({'task':STRING},('task',))
 TOOLS={
+    'delivery_submit':('Submit a sealed solution-level delivery from a local JSON file; start its durable parent runner. Never creates a new approval.',
+        schema({'file':STRING},('file',))),
     'status':('Read task context and durable questions; no worker launch.',TASK),
     'outputs':('Read evidence, changes and limitations.',TASK),
     'inbox':('Read pending questions; never answer or resume.',TASK),
@@ -63,9 +65,29 @@ class Server:
             from .conversation_mcp import call
             return call(self,name,args)
         if name=='status':
+            if self.ledger.task(args['task'],full=True)['handoff'].get('solution_delivery'):
+                from .solution_delivery import Delivery
+                return Delivery(self.ledger).card(args['task'])
             from .entry import connect
             return connect(self.ledger,args['task'])
-        if name=='inbox': return self.ledger.requests(args['task'],pending=True)
+        if name=='inbox':
+            tasks=[args['task']]
+            from .delivery_store import root_id
+            with self.ledger.transaction() as conn:
+                if root_id(conn,args['task'])==args['task']:
+                    tasks.extend(r[0] for r in conn.execute('SELECT task_id FROM delivery_children WHERE root=?',(args['task'],)))
+            return [r for task in tasks for r in self.ledger.requests(task,pending=True)]
+        if name=='delivery_submit':
+            from .solution_delivery import submit,Delivery
+            from .ledger import read_json
+            from .runner import start
+            result=submit(self.ledger,**read_json(Path(args['file'])))
+            runtime=Delivery(self.ledger)
+            try:
+                state=runtime.enable(result['id'])
+                result['runner']=({'status':'not_started','reason':state['phase']} if state['phase'] in ('completed','failed','cancelled','blocked') else start(self.ledger,result['id']))
+            except (ValueError,OSError) as error:result['runner']={'status':'unconfirmed','error':str(error)[:1000]}
+            return result
         if name=='submit':
             from .owned_intake import submit
             from .owned import Owned
@@ -87,10 +109,11 @@ class Server:
         if name=='reply':
             result=self.ledger.reply(args['request'],args['revision'],args['choice'],self.source,args['reference'])
             return result
-        from .owned import Owned
-        runtime=Owned(self.ledger)
+        from .runner import workflow_for
+        runtime=workflow_for(self.ledger,args['task'])
         if name=='cancel': return runtime.control.cancel(args['task'])
         if name=='outputs':
+            if self.ledger.task(args['task'],full=True)['handoff'].get('solution_delivery'):return runtime.card(args['task'])
             from .owned_cli import output_card
             state=runtime.state(args['task'])[1]
             if not state: return {'status':'queued','outputs':[]}

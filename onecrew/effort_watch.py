@@ -8,6 +8,13 @@ POLICY = {'calls': 20, 'seconds': 600}
 
 def check(runtime, task_id, seq, state):
     control = runtime.control.status(task_id)
+    from .delivery_store import root_id
+    with runtime.ledger.transaction() as conn: root=root_id(conn,task_id)
+    if root and root!=task_id:return seq,False  # The parent owns shared-budget warnings.
+    if root:
+        goal=control['budget']['goal']
+        if goal['active_attempts']:return seq,False
+        control=dict(control,used_calls=goal['used_calls'],reserved_calls=goal['reserved_calls'])
     if (control['cancel_requested'] or control['status'] == 'paused'
             or state['phase'] in ('completed','cancelled','failed','blocked','waiting_operation')
             or state.get('pending') or any(a['status'] != 'settled' for a in control['attempts'])):

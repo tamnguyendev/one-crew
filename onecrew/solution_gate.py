@@ -16,6 +16,8 @@ def check(ledger,task_id,conn=None):
     if conn is None:
         with ledger.transaction() as db:return check(ledger,task_id,db)
     task=ledger._task(conn,task_id);payload=json.loads(task['payload'])
+    from .delivery_store import guard
+    guard(ledger,conn,task_id)
     if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='solution.stopped'",(task_id,)).fetchone():
         raise LedgerError('Task stopped by a solution decision; it cannot resume.')
     b=bound(ledger,conn,task_id)
