@@ -166,6 +166,52 @@ class NativeAuditTests(unittest.TestCase):
         state=run.run(task,steps=1)
         self.assertEqual(state['native_audit']['stage'],'review');self.assertEqual(len(worker.calls),1)
 
+    def turn_limit_worker(self,worker):
+        from onecrew.native_audit import NativeTurnLimit
+        class TurnLimitWorker(type(worker)):
+            def result(self,attempt):
+                value=json.loads(attempt['result'])['fixture']
+                if value=='TURN_LIMIT': raise NativeTurnLimit(attempt['id'],{'input_tokens':1,'output_tokens':1},30)
+                return value,[]
+        worker.__class__=TurnLimitWorker
+        return worker
+
+    def test_turn_limit_continues_same_session_then_completes(self):
+        run,task,worker=self.setup_native();self.turn_limit_worker(worker);profiles=[];old=worker.run
+        def record(attempt,prompt,schema,profile):
+            profiles.append((profile,prompt));return old(attempt,prompt,schema,profile)
+        worker.run=record
+        worker.responses=['TURN_LIMIT',self.report(),{'accepted':True,'feedback':'Verified.'}]
+        state=run.run(task,steps=1)
+        native=state['native_audit']
+        self.assertNotEqual(state['phase'],'blocked');self.assertIsNone(state['pending'])
+        self.assertEqual(native['turn_continuations'],1);self.assertTrue(native['worker_started'])
+        self.assertEqual(run.control.status(task)['used_calls'],1)
+        for _ in range(2): state=run.run(task,steps=1)
+        self.assertEqual(state['phase'],'completed');self.assertEqual(run.control.status(task)['used_calls'],3)
+        self.assertEqual(profiles[0][0]['native_session'],profiles[1][0]['native_session'])
+        self.assertTrue(profiles[1][0]['native_resume']);self.assertIn('per-invocation turn limit',profiles[1][1])
+
+    def test_turn_limit_is_bounded_then_blocks(self):
+        run,task,worker=self.setup_native();self.turn_limit_worker(worker)
+        worker.responses=['TURN_LIMIT']*3
+        for _ in range(3): state=run.run(task,steps=1)
+        self.assertEqual(state['phase'],'blocked');self.assertIn('turn limit',state['message'])
+        self.assertEqual(run.control.status(task)['used_calls'],3);self.assertEqual(len(worker.calls),3)
+
+    def test_native_claude_recognizes_only_the_cli_turn_limit_result(self):
+        from onecrew.native_audit import NativeTurnLimit
+        run,task,_=self.setup_native();adapter=NativeClaude(run.control)
+        def attempt_with(subtype):
+            log=Path(self.f.temp.name)/(subtype+'.jsonl')
+            log.write_text(json.dumps({'type':'system'})+'\n'+json.dumps({'type':'result','subtype':subtype,'num_turns':31,
+                'is_error':True,'usage':{'input_tokens':5}})+'\n')
+            return {'id':'ATT-x','result':json.dumps({'exit_code':1,'reason':None,'stdout':str(log)})}
+        with patch('onecrew.provider_limits.check_attempt'):
+            with self.assertRaises(NativeTurnLimit) as caught: adapter._turn_limit(attempt_with('error_max_turns'))
+            self.assertEqual(caught.exception.turns,31)
+            adapter._turn_limit(attempt_with('error_during_execution'))  # other failures keep the generic path
+
     def test_native_audit_starts_on_never_started_task_without_model_calls(self):
         from onecrew.owned import Owned
         from onecrew.owned_intake import submit

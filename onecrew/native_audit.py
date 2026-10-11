@@ -147,6 +147,18 @@ def capture(runtime, destination, roots=None, *, flutter_context=False, progress
     return {'files':manifest,'metadata':metadata}
 
 
+class NativeTurnLimit(LedgerError):
+    """The native CLI stopped at its per-invocation turn cap (result subtype error_max_turns). The session survives, so
+    the same worker session may continue in a new, separately charged invocation (bounded by advance())."""
+
+    def __init__(self, attempt_id, usage, turns):
+        super().__init__('Native worker reached the per-invocation turn limit (' + str(turns) + ' turns).')
+        self.attempt_id, self.usage, self.turns = attempt_id, usage, turns
+
+
+MAX_TURN_CONTINUATIONS = 2
+
+
 class NativeClaude(ClaudeArtifact):
     def run(self,attempt,prompt,schema,profile):
         directory=self.prepare(attempt)
@@ -166,6 +178,7 @@ class NativeClaude(ClaudeArtifact):
             timeout=profile['step_seconds'],env=environment())
 
     def result(self,attempt):
+        self._turn_limit(attempt)
         events=[json.loads(line) for line in self.stdout(attempt).splitlines() if line.strip()]
         if not all(isinstance(e,dict) for e in events):raise LedgerError('Malformed native event stream.')
         results=[e for e in events if e.get('type')=='result']
@@ -182,6 +195,22 @@ class NativeClaude(ClaudeArtifact):
             'tool_calls':len(calls),'tools':sorted(set(b['name'] for b in calls)),
             'denied_tool_calls':denied,'log':json.loads(attempt['result'])['stdout']}
         return value,[result.get('usage')]
+
+    def _turn_limit(self,attempt):
+        """A nonzero exit whose unique terminal result is error_max_turns is a resumable turn limit, not a failure."""
+        receipt=json.loads(attempt['result'])
+        if receipt.get('exit_code')==0 or receipt.get('reason'): return
+        from .provider_limits import check_attempt
+        check_attempt(self.provider,attempt)  # quota/limit detection keeps its own handling
+        path=Path(receipt.get('stdout',''))
+        if not path.is_file() or path.stat().st_size>4_000_000: return
+        results=[]
+        for line in path.read_text(encoding='utf-8',errors='replace').splitlines():
+            try: event=json.loads(line)
+            except ValueError: continue
+            if isinstance(event,dict) and event.get('type')=='result': results.append(event)
+        if len(results)==1 and results[0].get('subtype')=='error_max_turns':
+            raise NativeTurnLimit(attempt['id'],results[0].get('usage'),results[0].get('num_turns'))
 
 
 def enable(runtime,task_id,reference):
@@ -256,6 +285,7 @@ def advance(runtime,task_id,seq,state,profile):
         native_workspace=native['workspace'],native_session=native[prefix+'_session'],native_resume=native[prefix+'_started'])
     if not runtime.custom_worker: runtime.worker=NativeClaude(runtime.control)
     prompt=('Complete this source audit in Vietnamese. Read the snapshot using native tools. '
+        'Budget about 25 tool calls per invocation, then return the structured result even if some items remain (list them). '
         'Return concise report (20-20000 chars), citations with relative path, exact 1-based start/end lines and exact source quote, '
         'and re-read each cited range before returning so every quote is inside its lines, '
         'and question="" unless required user information prevents a useful source audit. '
@@ -269,7 +299,29 @@ def advance(runtime,task_id,seq,state,profile):
     if 'result_pending' in native:
         value=native['result_pending']
     else:
-        seq,value=runtime._invoke(task_id,seq,state,'native_audit_'+stage,prompt,REPORT_SCHEMA if work else REVIEW_SCHEMA,profile)
+        try:
+            seq,value=runtime._invoke(task_id,seq,state,'native_audit_'+stage,prompt,REPORT_SCHEMA if work else REVIEW_SCHEMA,profile)
+        except NativeTurnLimit as limit:
+            # The charged attempt is settled; release it and continue the SAME session in a new invocation (bounded), so
+            # the work already done is kept instead of blocking the task (the session exists after the first run).
+            # _invoke persisted the reservation before the provider ran, so continue from that checkpoint's sequence.
+            seq=runtime.state(task_id)[0]
+            from .usage import record
+            record(state,limit.attempt_id,[limit.usage],profile['provider'],profile['model'])
+            state['pending']=None;state.pop('pending_solution_context',None);state.pop('revalidate_pending',None)
+            native[prefix+'_started']=True;state['step']+=1
+            used=native.get('turn_continuations',0)
+            if used>=MAX_TURN_CONTINUATIONS:
+                state.update(phase='blocked',message='Native audit reached the per-invocation turn limit '+str(used+1)+' times; narrow the goal.')
+            else:
+                native['turn_continuations']=used+1
+                native['feedback']=('You reached the per-invocation turn limit before returning the structured result. Continue in this '
+                    'same session: do not re-read what you already read; use at most a few more tool calls, then RETURN the '
+                    'structured result now, stating any items you could not finish as limitations.'
+                    +('\n\nPrevious feedback (still applies):\n'+native['feedback'] if native.get('feedback') else ''))[:5000]
+                state['message']='Native '+stage+' hit the turn limit; continuing the same session ('+str(used+1)+'/'+str(MAX_TURN_CONTINUATIONS)+').'
+            runtime.persist(task_id,seq,state)
+            return state
         telemetry=value.pop('_native',{})
         if telemetry.get('session_id') not in (None,profile['native_session']): raise LedgerError('Native session identity changed.')
         native['attempts'].append(dict(telemetry,stage=stage));native[prefix+'_started']=True
