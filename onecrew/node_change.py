@@ -55,8 +55,10 @@ def validate(value):
     if value['trusted_native'] is not True:
         raise LedgerError('Node verification requires explicit trusted project execution.')
     value = dict(value)
-    for key in ('source_roots', 'owned', 'tests'):
+    for key in ('source_roots', 'owned'):
         value[key] = scope_list(value[key])
+    # The e2e step can be the whole verification (e.g. the deliverable IS the e2e harness): only then may tests be empty.
+    value['tests'] = [] if value['tests'] == [] and 'e2e' in value else scope_list(value['tests'])
     value['regression_tests'] = scope_list(value['regression_tests']) if value['regression_tests'] != [] else []
     if len(value['regression_tests']) > 30:
         raise LedgerError('At most 30 read-only regression test files.')
@@ -286,10 +288,12 @@ def verify(runtime, task_id, state, recipe):
     link = package_dir / 'node_modules'
     rel = lambda p: p[len(recipe['package']) + 1:]
     report_path = package_dir / ('.onecrew-vitest-' + uuid.uuid4().hex + '.json')
-    steps = [('typecheck', [str(node), str(tools['tsc']), '--noEmit', '-p', '.']),
-             ('vitest', [str(node), str(tools['vitest']), 'run', '--reporter=json', '--outputFile=' + str(report_path),
-                         '--no-cache', *[rel(p) for p in recipe['tests'] + recipe['regression_tests']]]),
-             ('build', [str(node), recipe['build_script']])]
+    vitest_files = [rel(p) for p in recipe['tests'] + recipe['regression_tests']]
+    steps = [('typecheck', [str(node), str(tools['tsc']), '--noEmit', '-p', '.'])]
+    if vitest_files:  # never run Vitest without files: that would run the whole suite instead of the pinned set
+        steps.append(('vitest', [str(node), str(tools['vitest']), 'run', '--reporter=json', '--outputFile=' + str(report_path),
+                                 '--no-cache', *vitest_files]))
+    steps.append(('build', [str(node), recipe['build_script']]))
     e2e = recipe.get('e2e')
     if e2e:
         if not (package_dir / e2e['script']).is_file():
@@ -333,7 +337,8 @@ def verify(runtime, task_id, state, recipe):
                 'browser_tested': False, 'mock_e2e_ran': any(s['step'] == 'e2e' for s in results),
                 'environment': dict(environment, dependency_lock_sha256=lock, node=str(node), npm_install_ran=False)}
     if failure is None:
-        totals = results[1]['summary'].get('totals', {})
+        vitest = next((s for s in results if s['step'] == 'vitest'), None)
+        totals = vitest['summary'].get('totals', {}) if vitest else {'numPassedTests': 'no'}
         e2e_note = ''
         if e2e:
             e2e_summary = results[-1]['summary']

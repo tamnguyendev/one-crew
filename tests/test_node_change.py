@@ -71,6 +71,8 @@ class NodeChangeTests(unittest.TestCase):
             build_script='scripts/build-demo.mjs',reference='User approved SOL fixture',trusted_native=True)
         if 'e2e' in self._testMethodName:
             self.recipe['e2e']={'script':'e2e/run-panel.mjs','env':{'NA_MOCK_PORT':'18766'},'timeout_seconds':60,'min_checks':3}
+        if 'e2e_only' in self._testMethodName:  # the deliverable is verified by the e2e step alone
+            self.recipe.update(owned=['ext/src/app.ts'],tests=[],regression_tests=[])
         self.run,self.task,self.worker=self.f.runtime([],mode='change',provider='claude',model='sonnet',native_change=self.recipe)
         self.run.run(self.task,steps=1)
 
@@ -149,6 +151,16 @@ class NodeChangeTests(unittest.TestCase):
 
     def test_e2e_silent_success_without_summary_never_passes(self):
         self.assert_repair(self.work_and_verify(self.candidate(source='export const x=1; // E2ESILENT\n')),'no "N/N checks passed"')
+
+    def test_e2e_only_recipe_skips_vitest_and_still_verifies(self):
+        self.worker.responses=[{'report':'Harness change verified by the e2e step only.','question':'',
+            'files':[{'path':'ext/src/app.ts','text':'export const add=(a:number,b:number)=>a+b;\n'}]},{'accepted':True,'feedback':'ok'}]
+        self.run.run(self.task,steps=1);state=self.run.run(self.task,steps=1)
+        check=state['native_change']['checks'][-1]
+        self.assertTrue(check['passed'],check['detail'])
+        self.assertEqual([s['step'] for s in check['evidence']['steps']],['typecheck','build','e2e'])
+        with self.assertRaises(LedgerError):
+            validate({k:v for k,v in self.recipe.items() if k!='e2e'})  # without e2e, tests may not be empty
 
     def test_e2e_recipe_validation(self):
         good=dict(self.recipe)
