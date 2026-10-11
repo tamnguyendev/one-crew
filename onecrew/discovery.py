@@ -45,12 +45,13 @@ class Discovery:
             raise LedgerError('Path excluded by discovery policy.')
         return safe_file(self.root, name)
 
-    def data(self, name):
+    def data(self, name, limit=200_000):
+        # limit: the worker read API keeps 200 KB; a native snapshot copies larger source files (CAPTURE_MAX).
         path = self.path(name)
         if path.suffix.lower() not in TEXT and path.name not in ('Dockerfile','Makefile','LICENSE','.gitignore'):
             raise LedgerError('File type unavailable to workers.')
-        if not path.is_file() or path.stat().st_size > 200_000:
-            raise LedgerError('Read requires a regular file of at most 200000 bytes.')
+        if not path.is_file() or path.stat().st_size > limit:
+            raise LedgerError('Read requires a regular file of at most ' + str(limit) + ' bytes.')
         data = path.read_bytes()
         scan_text(data)
         return data

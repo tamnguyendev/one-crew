@@ -91,6 +91,9 @@ def source_roots(runtime,state):
     return [p for p in roots if not any(p.startswith(parent+'/') for parent in roots if parent!=p)]
 
 
+CAPTURE_MAX=2_000_000  # per file, as snapshots.MAX_FILE; the 128 MB total limit is unchanged
+
+
 def capture(runtime, destination, roots=None, *, flutter_context=False, progress=None):
     """Copy permitted UTF-8 working bytes; never traverse links or copy Git/settings."""
     destination=Path(destination);destination.mkdir(parents=True,exist_ok=False)
@@ -128,7 +131,9 @@ def capture(runtime, destination, roots=None, *, flutter_context=False, progress
             target=destination/relative
             if os.name=='nt' and len(str(target))>245:
                 omitted+=1;long_paths+=1;continue
-            try: data=discovery.data(relative)
+            # Native workers read the copy on disk, so a large source file (a 250 KB controller) is still captured;
+            # it stays scanned for credentials/binary like every other file.
+            try: data=discovery.data(relative,limit=CAPTURE_MAX)
             except (ValueError,OSError): omitted+=1;continue
             total+=len(data)
             if len(manifest)>=20000 or total>128_000_000:

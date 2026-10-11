@@ -5,6 +5,7 @@ from unittest.mock import patch
 from tests import test_owned as fixtures
 from onecrew.native_audit import capture,enable,citations,NativeClaude,workspace_path,source_roots
 from onecrew.ledger import LedgerError
+from onecrew.discovery import Discovery
 
 
 class NativeAuditTests(unittest.TestCase):
@@ -227,6 +228,14 @@ class NativeAuditTests(unittest.TestCase):
         run,_,_=self.f.runtime([])
         result=capture(run,Path(self.f.temp.name)/'modules')
         self.assertTrue({'tool.mjs','lib.cjs','types.mts','legacy.cts'}<=set(result['files']))
+
+    def test_capture_keeps_large_source_file_but_read_api_stays_200k(self):
+        (self.f.root/'big.ts').write_text('export const x = 1;\n'+'// filler line for a large controller file\n'*6000)
+        self.assertGreater((self.f.root/'big.ts').stat().st_size,200_000)
+        run,_,_=self.f.runtime([])
+        result=capture(run,Path(self.f.temp.name)/'big')
+        self.assertIn('big.ts',result['files'])
+        with self.assertRaises(LedgerError): Discovery(self.f.root).data('big.ts')
 
     def test_long_windows_state_root_uses_short_bound_workspace(self):
         with patch('onecrew.native_audit.os.name','nt'),patch('onecrew.native_audit.Path.home',return_value=self.f.root):
