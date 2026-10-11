@@ -178,7 +178,7 @@ class NativeClaude(ClaudeArtifact):
             timeout=profile['step_seconds'],env=environment())
 
     def result(self,attempt):
-        self._turn_limit(attempt)
+        turn_limit(getattr(self,'provider','claude'),attempt)
         events=[json.loads(line) for line in self.stdout(attempt).splitlines() if line.strip()]
         if not all(isinstance(e,dict) for e in events):raise LedgerError('Malformed native event stream.')
         results=[e for e in events if e.get('type')=='result']
@@ -196,21 +196,22 @@ class NativeClaude(ClaudeArtifact):
             'denied_tool_calls':denied,'log':json.loads(attempt['result'])['stdout']}
         return value,[result.get('usage')]
 
-    def _turn_limit(self,attempt):
-        """A nonzero exit whose unique terminal result is error_max_turns is a resumable turn limit, not a failure."""
-        receipt=json.loads(attempt['result'])
-        if receipt.get('exit_code')==0 or receipt.get('reason'): return
-        from .provider_limits import check_attempt
-        check_attempt(self.provider,attempt)  # quota/limit detection keeps its own handling
-        path=Path(receipt.get('stdout',''))
-        if not path.is_file() or path.stat().st_size>4_000_000: return
-        results=[]
-        for line in path.read_text(encoding='utf-8',errors='replace').splitlines():
-            try: event=json.loads(line)
-            except ValueError: continue
-            if isinstance(event,dict) and event.get('type')=='result': results.append(event)
-        if len(results)==1 and results[0].get('subtype')=='error_max_turns':
-            raise NativeTurnLimit(attempt['id'],results[0].get('usage'),results[0].get('num_turns'))
+
+def turn_limit(provider,attempt):
+    """A nonzero exit whose unique terminal result is error_max_turns is a resumable turn limit, not a failure."""
+    receipt=json.loads(attempt['result'])
+    if receipt.get('exit_code') in (0,None) or receipt.get('reason'): return
+    from .provider_limits import check_attempt
+    check_attempt(provider,attempt)  # quota/limit detection keeps its own handling
+    path=Path(receipt.get('stdout',''))
+    if not path.is_file() or path.stat().st_size>4_000_000: return
+    results=[]
+    for line in path.read_text(encoding='utf-8',errors='replace').splitlines():
+        try: event=json.loads(line)
+        except ValueError: continue
+        if isinstance(event,dict) and event.get('type')=='result': results.append(event)
+    if len(results)==1 and results[0].get('subtype')=='error_max_turns':
+        raise NativeTurnLimit(attempt['id'],results[0].get('usage'),results[0].get('num_turns'))
 
 
 def enable(runtime,task_id,reference):

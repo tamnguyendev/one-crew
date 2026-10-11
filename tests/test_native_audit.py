@@ -200,17 +200,17 @@ class NativeAuditTests(unittest.TestCase):
         self.assertEqual(run.control.status(task)['used_calls'],3);self.assertEqual(len(worker.calls),3)
 
     def test_native_claude_recognizes_only_the_cli_turn_limit_result(self):
-        from onecrew.native_audit import NativeTurnLimit
-        run,task,_=self.setup_native();adapter=NativeClaude(run.control)
+        from onecrew.native_audit import NativeTurnLimit,turn_limit
+        run,task,_=self.setup_native()
         def attempt_with(subtype):
             log=Path(self.f.temp.name)/(subtype+'.jsonl')
             log.write_text(json.dumps({'type':'system'})+'\n'+json.dumps({'type':'result','subtype':subtype,'num_turns':31,
                 'is_error':True,'usage':{'input_tokens':5}})+'\n')
             return {'id':'ATT-x','result':json.dumps({'exit_code':1,'reason':None,'stdout':str(log)})}
         with patch('onecrew.provider_limits.check_attempt'):
-            with self.assertRaises(NativeTurnLimit) as caught: adapter._turn_limit(attempt_with('error_max_turns'))
+            with self.assertRaises(NativeTurnLimit) as caught: turn_limit('claude',attempt_with('error_max_turns'))
             self.assertEqual(caught.exception.turns,31)
-            adapter._turn_limit(attempt_with('error_during_execution'))  # other failures keep the generic path
+            turn_limit('claude',attempt_with('error_during_execution'))  # other failures keep the generic path
 
     def test_native_audit_starts_on_never_started_task_without_model_calls(self):
         from onecrew.owned import Owned
