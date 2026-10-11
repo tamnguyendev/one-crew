@@ -185,6 +185,55 @@ class NodeChangeTests(unittest.TestCase):
         diff=patch_diff(self.run,state)
         self.assertLess(len(diff),2000);self.assertIn('+export const line7 = 70;',diff)
 
+    def test_anchored_edits_on_a_large_crlf_original_install_and_keep_crlf(self):
+        from onecrew.native_change import install_candidate, patch_diff
+        from onecrew.node_change import prepare
+        big=b''.join(b'export const line%d = %d;\r\n' % (i,i) for i in range(12000))  # > 200 KB, CRLF
+        self.assertGreater(len(big),200_000)
+        (self.ext/'src/app.ts').write_bytes(big)
+        (self.ext/'test/app.test.ts').write_bytes(b'old test\n')
+        state=dict(self.run.state(self.task)[1],original={},files={})
+        prepare(self.run,state,validate(self.recipe))
+        value={'report':'edits','question':'','files':[
+            {'path':'ext/src/app.ts','edits':[{'find':'export const line7 = 7;\n','replace':'export const line7 = 70;\n'},
+                                              {'find':'line11999 = 11999;','replace':'line11999 = 1;'}]},
+            {'path':'ext/test/app.test.ts','text':'it adds\n'}]}
+        install_candidate(self.run,state,value,validate(self.recipe))
+        installed=self.run.store.read_blob(state['native_change']['changes']['ext/src/app.ts'])
+        self.assertEqual(installed.count(b'\r\n'),12000)
+        self.assertIn(b'line7 = 70;\r\n',installed);self.assertIn(b'line11999 = 1;\r\n',installed)
+        self.assertEqual(installed.replace(b'line7 = 70;',b'line7 = 7;').replace(b'line11999 = 1;',b'line11999 = 11999;'),big)
+        diff=patch_diff(self.run,state)
+        self.assertIn('+export const line7 = 70;',diff);self.assertLess(len(diff),2000)
+
+    def test_bad_anchored_edits_are_repairable_and_install_nothing(self):
+        from onecrew.native_change import install_candidate, PatchIncomplete
+        from onecrew.node_change import prepare
+        (self.ext/'src/app.ts').write_text('a = 1;\na = 1;\nb = 2;\n')
+        state=dict(self.run.state(self.task)[1],original={},files={})
+        prepare(self.run,state,validate(self.recipe))
+        test={'path':'ext/test/app.test.ts','text':'it adds\n'}
+        bad=[
+            [{'path':'ext/src/app.ts','edits':[{'find':'a = 1;','replace':'a = 2;'}]},test],            # occurs twice
+            [{'path':'ext/src/app.ts','edits':[{'find':'zzz','replace':'y'}]},test],                     # absent
+            [{'path':'ext/src/app.ts','edits':[{'find':'','replace':'y'}]},test],                        # empty find
+            [{'path':'ext/src/app.ts','text':'x','edits':[{'find':'b = 2;','replace':'b = 3;'}]},test],  # both forms
+            [{'path':'ext/src/app.ts'},test],                                                             # neither form
+            [{'path':'ext/src/app.ts','edits':[{'find':'b = 2;','replace':'b = 3;'}]},
+             {'path':'ext/test/app.test.ts','edits':[{'find':'nope','replace':'x'}]}],                    # bad edit on 2nd file
+        ]
+        for files in bad:
+            with self.assertRaises(PatchIncomplete,msg=str(files)):
+                install_candidate(self.run,state,{'report':'r','question':'','files':files},validate(self.recipe))
+            self.assertNotIn('changes',state['native_change'],str(files))
+        # A file the worker creates has no original: edits are refused, text is required.
+        self.recipe['owned'].append('ext/src/new.ts')
+        state=dict(self.run.state(self.task)[1],original={},files={})
+        prepare(self.run,state,validate(self.recipe))
+        with self.assertRaises(PatchIncomplete):
+            install_candidate(self.run,state,{'report':'r','question':'','files':[
+                {'path':'ext/src/new.ts','edits':[{'find':'a','replace':'b'}]},test]},validate(self.recipe))
+
     def test_partial_repair_patch_is_repaired_not_blocked_and_keeps_previous_feedback(self):
         self.worker.responses=[self.candidate(test='FAIL\n'),
             {'report':'Only touched the test this round.','question':'','files':[{'path':'ext/test/app.test.ts','text':'it adds\n'}]},
