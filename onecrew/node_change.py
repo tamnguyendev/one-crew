@@ -29,6 +29,12 @@ LOCKED = re.compile(r'(?i)^(package\.json|package-lock\.json|npm-shrinkwrap\.jso
                     r'tsconfig(\..*)?\.json|(vitest|vite|vitest\.workspace)\.config\..*)$')
 GENERATED_DIR = re.compile(r'(?i)^(node_modules|dist|build|out|coverage)$|(^|[-_.])dist($|[-_.])')
 STEP_SECONDS = {'typecheck': 300, 'vitest': 600, 'build': 300}
+# Optional fixed e2e step (SOL e2e-panel, 11/10/2026): `node <script>` after the build, with operator-pinned environment
+# values from this allowlist only. It must print "N/N checks passed" (N >= min_checks) and exit 0.
+E2E_FIELDS = ('script', 'env', 'timeout_seconds', 'min_checks')
+E2E_ENV = frozenset({'CHROME_PATH', 'CHROME_ARGS', 'NA_PYTHON', 'NA_BACKEND_DIR', 'NA_E2E_BACKEND_PORT',
+                     'NA_MOCK_PORT', 'NA_PROXY_PORT'})
+CHECKS = re.compile(r'(\d+)/(\d+) checks passed')
 MAX_REPORT = 5_000_000
 
 
@@ -43,7 +49,7 @@ def _under(path, package):
 def validate(value):
     if not isinstance(value, dict):
         raise LedgerError('Node change recipe must be an object.')
-    exact_fields(value, FIELDS, 'Node change')
+    exact_fields({k: v for k, v in value.items() if k != 'e2e'}, FIELDS, 'Node change')
     if value['toolchain'] != 'node':
         raise LedgerError('Unknown native toolchain.')
     if value['trusted_native'] is not True:
@@ -80,7 +86,43 @@ def validate(value):
         raise LedgerError('build_script must be a read-only script path relative to the package.')
     if not isinstance(value['reference'], str) or not 1 <= len(value['reference']) <= 500:
         raise LedgerError('Operator reference required.')
+    if 'e2e' in value:
+        value['e2e'] = validate_e2e(value['e2e'])
     return value
+
+
+def validate_e2e(e2e):
+    if not isinstance(e2e, dict):
+        raise LedgerError('e2e must be an object.')
+    exact_fields(e2e, E2E_FIELDS, 'Node e2e step')
+    script = scoped_path(e2e['script'])
+    if not script.lower().endswith(('.mjs', '.js', '.cjs')):
+        raise LedgerError('e2e script must be a JavaScript file relative to the package.')
+    env = e2e['env']
+    if not isinstance(env, dict) or not set(env) <= E2E_ENV:
+        raise LedgerError('e2e environment keys must come from the allowlist: ' + ', '.join(sorted(E2E_ENV)))
+    for key, text in env.items():
+        if not isinstance(text, str) or not 1 <= len(text) <= 500:
+            raise LedgerError('e2e environment values must be short strings: ' + key)
+        scan_text(text.encode())  # operator values are recorded; never accept credential-like content here
+    if type(e2e['timeout_seconds']) is not int or not 60 <= e2e['timeout_seconds'] <= 1200:
+        raise LedgerError('e2e timeout must be 60-1200 seconds.')
+    if type(e2e['min_checks']) is not int or not 1 <= e2e['min_checks'] <= 10000:
+        raise LedgerError('e2e min_checks must be 1-10000.')
+    return dict(e2e, script=script)
+
+
+def summarize_e2e(out, minimum):
+    """Pass only on an explicit 'N/N checks passed' summary with N >= minimum; collect FAIL lines for feedback."""
+    found = CHECKS.findall(out)
+    failed = [line.strip()[:400] for line in out.splitlines() if line.lstrip().startswith(('FAIL', 'XPASS'))][:40]
+    if not found:
+        return {'passed': False, 'reason': 'e2e printed no "N/N checks passed" summary.', 'failed_lines': failed}
+    passed, total = (int(n) for n in found[-1])
+    ok = passed == total and total >= minimum
+    reason = None if ok else ('e2e checks: ' + str(passed) + '/' + str(total) + ' passed (minimum ' + str(minimum) + ').'
+                              + ('\n' + '\n'.join(failed) if failed else ''))
+    return {'passed': ok, 'reason': reason, 'checks_passed': passed, 'checks_total': total, 'failed_lines': failed}
 
 
 def prepare(runtime, state, recipe, progress=None):
@@ -248,11 +290,18 @@ def verify(runtime, task_id, state, recipe):
              ('vitest', [str(node), str(tools['vitest']), 'run', '--reporter=json', '--outputFile=' + str(report_path),
                          '--no-cache', *[rel(p) for p in recipe['tests'] + recipe['regression_tests']]]),
              ('build', [str(node), recipe['build_script']])]
+    e2e = recipe.get('e2e')
+    if e2e:
+        if not (package_dir / e2e['script']).is_file():
+            raise GateUnavailable('Pinned e2e script missing from staged inputs: ' + e2e['script'])
+        steps.append(('e2e', [str(node), e2e['script']]))
     results = []; failure = None
     attach_modules(modules, link)
     try:
         for name, argv in steps:
-            code, out, err = command(argv, package_dir, STEP_SECONDS[name], guard, {'CI': 'true'})
+            extra = dict({'CI': 'true'}, **(e2e['env'] if name == 'e2e' else {}))
+            seconds = e2e['timeout_seconds'] if name == 'e2e' else STEP_SECONDS[name]
+            code, out, err = command(argv, package_dir, seconds, guard, extra)
             step = {'step': name, 'argv': argv, 'exit_code': code, 'stdout': runtime.store.blob(out.encode()),
                     'stderr': runtime.store.blob(err.encode())}
             ok = code == 0
@@ -266,6 +315,10 @@ def verify(runtime, task_id, state, recipe):
                 built = package_dir / 'dist/manifest.json'
                 step['dist_manifest_sha256'] = bytes_hash(built.read_bytes()) if built.is_file() else None
                 ok = ok and built.is_file()
+            if name == 'e2e':
+                summary = summarize_e2e(out, e2e['min_checks'])
+                step['summary'] = {k: v for k, v in summary.items() if k != 'passed'}
+                ok = ok and summary['passed']
             step['passed'] = ok; results.append(step)
             if not ok:
                 failure = (name, out, err, step.get('summary', {}).get('reason')); break
@@ -277,12 +330,16 @@ def verify(runtime, task_id, state, recipe):
     if dependency_lock(modules) != lock:
         raise GateUnavailable('Project node_modules changed during verification; candidate and evidence preserved.')
     evidence = {'snapshot': state['snapshot'], 'steps': results, 'trusted_native': True, 'device_tested': False,
-                'browser_tested': False, 'environment': dict(environment, dependency_lock_sha256=lock,
-                                                             node=str(node), npm_install_ran=False)}
+                'browser_tested': False, 'mock_e2e_ran': any(s['step'] == 'e2e' for s in results),
+                'environment': dict(environment, dependency_lock_sha256=lock, node=str(node), npm_install_ran=False)}
     if failure is None:
         totals = results[1]['summary'].get('totals', {})
-        return {'passed': True, 'detail': 'typecheck, vitest (' + str(totals.get('numPassedTests')) + ' passed) and build passed.',
-                'evidence': evidence, 'failure_kind': None}
+        e2e_note = ''
+        if e2e:
+            e2e_summary = results[-1]['summary']
+            e2e_note = ', mock e2e ' + str(e2e_summary['checks_passed']) + '/' + str(e2e_summary['checks_total']) + ' checks'
+        return {'passed': True, 'detail': 'typecheck, vitest (' + str(totals.get('numPassedTests')) + ' passed), build'
+                + e2e_note + ' passed.', 'evidence': evidence, 'failure_kind': None}
     name, out, err, reason = failure
     try:
         detail = scan_text((out + err).encode())[-12000:]

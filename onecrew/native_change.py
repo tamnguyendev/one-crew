@@ -337,7 +337,7 @@ def advance(runtime,task_id,seq,state,profile):
         if recipe.get('apk_build'):
             native['stage']='build';state['message']='Reviewed changes applied; debug APK build pending.'
             runtime.persist(task_id,seq,state);return state
-        report=native['candidate_report']+('\n\nOneCrew: Node typecheck, Vitest and build passed; independent source review accepted; scoped changes applied locally. No browser/live-system verification or Git publication.'
+        report=native['candidate_report']+('\n\nOneCrew: Node typecheck, Vitest and build'+(' and the mock e2e step' if recipe.get('e2e') else '')+' passed; independent source review accepted; scoped changes applied locally. No live-system verification or Git publication.'
             if node else '\n\nOneCrew: Flutter regression tests passed; independent source review accepted; scoped changes applied locally. No APK/device/server verification or Git publication.')
         state.update(phase='completed',verification='passed',report=report,message='Reviewed native fix applied locally; user acceptance pending.')
         state['outputs'].append({'snapshot':state['snapshot'],'summary':report,'verification':'passed','acceptance':'not_requested','stage':'native_change'})

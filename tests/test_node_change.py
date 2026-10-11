@@ -35,6 +35,16 @@ for (const f of files) {
 fs.writeFileSync(out, JSON.stringify({numTotalTests:total,numPassedTests:passed,numFailedTests:failed,numPendingTests:0,numTodoTests:0,success:total>0&&failed===0,testResults:results}));
 process.exit(total>0&&failed===0?0:1);
 """
+FAKE_E2E = r"""
+import fs from 'node:fs';
+const src=fs.readFileSync('src/app.ts','utf8');
+if (!fs.existsSync('dist/manifest.json')) { console.log('FAIL build output missing'); console.log('0/1 checks passed'); process.exit(1); }
+console.log('PASS panel draws shell (mock port ' + (process.env.NA_MOCK_PORT||'none') + ')');
+if (src.includes('E2EFAIL')) { console.log('FAIL fill: mach expected 102 got empty'); console.log('2/3 checks passed'); process.exit(1); }
+if (src.includes('E2EFEW')) { console.log('1/1 checks passed'); process.exit(0); }
+if (src.includes('E2ESILENT')) process.exit(0);
+console.log('PASS fill'); console.log('PASS no self save'); console.log('3/3 checks passed');
+"""
 FAKE_BUILD = r"""
 import fs from 'node:fs';
 if (fs.readFileSync('src/app.ts','utf8').includes('NOBUILD')) process.exit(0);
@@ -50,7 +60,7 @@ class NodeChangeTests(unittest.TestCase):
         files={'src/app.ts':'export const add=(a:number,b:number)=>a-b;\n','src/panel.css':'.chat-panel{}\n',
                'test/app.test.ts':'old test\n','test/shell.test.ts':'existing regression\n','manifest.json':'{"version":"0.6.3"}\n',
                'package.json':'{"name":"ext"}\n','tsconfig.json':'{}\n','scripts/build-demo.mjs':FAKE_BUILD,
-               'assets/icon.png':'binary-ish local only\n',
+               'assets/icon.png':'binary-ish local only\n','e2e/run-panel.mjs':FAKE_E2E,
                'node_modules/typescript/bin/tsc':FAKE_TSC,'node_modules/vitest/vitest.mjs':FAKE_VITEST,
                'node_modules/.package-lock.json':'{"lockfileVersion":3}'}
         for name,text in files.items():
@@ -59,6 +69,8 @@ class NodeChangeTests(unittest.TestCase):
         self.recipe=dict(toolchain='node',source_roots=['ext'],owned=['ext/src/app.ts','ext/test/app.test.ts'],extra_sources={},
             package='ext',tests=['ext/test/app.test.ts'],regression_tests=['ext/test/shell.test.ts'],node_exe=NODE,
             build_script='scripts/build-demo.mjs',reference='User approved SOL fixture',trusted_native=True)
+        if 'e2e' in self._testMethodName:
+            self.recipe['e2e']={'script':'e2e/run-panel.mjs','env':{'NA_MOCK_PORT':'18766'},'timeout_seconds':60,'min_checks':3}
         self.run,self.task,self.worker=self.f.runtime([],mode='change',provider='claude',model='sonnet',native_change=self.recipe)
         self.run.run(self.task,steps=1)
 
@@ -115,6 +127,35 @@ class NodeChangeTests(unittest.TestCase):
         self.assert_repair(state,'vitest')
         feedback=state['native_change']['feedback']
         self.assertIn('test/app.test.ts > suite adds: AssertionError: expected 1 to be 2',feedback)
+
+    def test_e2e_step_runs_after_build_with_pinned_env_and_counts_checks(self):
+        state=self.work_and_verify(self.candidate())
+        check=state['native_change']['checks'][-1]
+        self.assertTrue(check['passed'],check['detail'])
+        steps=check['evidence']['steps'];self.assertEqual([s['step'] for s in steps],['typecheck','vitest','build','e2e'])
+        self.assertEqual((steps[-1]['summary']['checks_passed'],steps[-1]['summary']['checks_total']),(3,3))
+        self.assertIn('mock e2e 3/3 checks',check['detail'])
+        self.assertIn(b'mock port 18766',self.run.store.read_blob(steps[-1]['stdout']))
+        self.assertTrue(check['evidence']['mock_e2e_ran'])
+
+    def test_e2e_failure_feeds_fail_lines_to_repair(self):
+        state=self.work_and_verify(self.candidate(source='export const add=(a:number,b:number)=>a+b; // E2EFAIL\n'))
+        self.assert_repair(state,'e2e')
+        self.assertIn('FAIL fill: mach expected 102 got empty',state['native_change']['feedback'])
+        self.assertIn('2/3 passed',state['native_change']['feedback'])
+
+    def test_e2e_needs_minimum_checks_and_an_explicit_summary(self):
+        self.assert_repair(self.work_and_verify(self.candidate(source='export const x=1; // E2EFEW\n')),'minimum 3')
+
+    def test_e2e_silent_success_without_summary_never_passes(self):
+        self.assert_repair(self.work_and_verify(self.candidate(source='export const x=1; // E2ESILENT\n')),'no "N/N checks passed"')
+
+    def test_e2e_recipe_validation(self):
+        good=dict(self.recipe)
+        self.assertEqual(validate(good)['e2e']['script'],'e2e/run-panel.mjs')
+        for change in ({'env':{'NA_API_TOKEN':'x'*20}},{'env':{'CHROME_PATH':'API_KEY=abcdefghijkl'}},
+                       {'timeout_seconds':5},{'min_checks':0},{'script':'../x.mjs'},{'script':'e2e/run.py'},{'extra':1}):
+            with self.assertRaises(LedgerError,msg=str(change)): validate(dict(good,e2e=dict(good['e2e'],**change)))
 
     def test_crlf_original_keeps_crlf_and_review_diff_is_content_only(self):
         from onecrew.native_change import patch_diff
