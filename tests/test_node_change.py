@@ -211,6 +211,13 @@ class NodeChangeTests(unittest.TestCase):
         self.assertEqual(profiles[0][0]['native_session'],profiles[1][0]['native_session'])
         self.assertTrue(profiles[1][0]['native_resume']);self.assertIn('per-invocation turn limit',profiles[1][1])
 
+    def test_placeholder_question_none_does_not_stop_for_a_decision(self):
+        candidate=dict(self.candidate(),question='None.')
+        state=self.work_and_verify(candidate)
+        self.assertNotIn(state['phase'],('blocked','waiting'),state.get('message'))
+        self.assertNotIn('solution decision',str(state.get('message')))
+        self.assertIn('changes',state['native_change'])  # the patch was installed and verified
+
     def test_change_turn_limit_is_bounded_then_blocks(self):
         self.turn_limit_worker()
         self.worker.responses=['TURN_LIMIT']*5

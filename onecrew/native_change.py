@@ -29,6 +29,7 @@ PATCH_SCHEMA={'type':'object','properties':{
 MAX_PATCH_FILE=2_000_000  # per file after edits are applied; as snapshots.MAX_FILE
 # A change worker reads more than an auditor (large sources, tests, edits): more same-session continuations.
 MAX_CHANGE_TURN_CONTINUATIONS=4
+NO_QUESTION={'none','n/a','na','no','null','nil','-','no question','không','không có'}
 MAX_EDITS=200
 
 
@@ -470,6 +471,8 @@ def advance(runtime,task_id,seq,state,profile):
         if work:
             if not isinstance(value.get('report'),str) or not isinstance(value.get('question'),str): raise LedgerError('Invalid patch result.')
             scan_text(value['report'].encode());scan_text(value['question'].encode())
+            # A worker that writes 'none' (or similar) for no question must not stop the task for a decision.
+            if value['question'].strip().strip('.!').strip().lower() in NO_QUESTION: value['question']=''
             if value['question']:
                 from .solution_gate import context
                 action='solution_change' if context(runtime.ledger,task_id).get('conversation') else 'ask'
