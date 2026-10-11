@@ -12,7 +12,7 @@ import uuid
 from .discovery import scan_text, permitted
 from .dart_scan import scan_dart
 from .ledger import LedgerError, canonical, exact_fields
-from .native_audit import NativeClaude, REVIEW_SCHEMA, capture, workspace_path
+from .native_audit import NativeClaude, NativeTurnLimit, REVIEW_SCHEMA, capture, workspace_path
 from .snapshots import safe_file, scope_list, scoped_path, bytes_hash, durable_write
 from .sandbox_gate import command, task_guard, GateUnavailable
 
@@ -27,6 +27,8 @@ PATCH_SCHEMA={'type':'object','properties':{
         'required':['path'],'additionalProperties':False}}},
     'required':['report','question','files'],'additionalProperties':False}
 MAX_PATCH_FILE=2_000_000  # per file after edits are applied; as snapshots.MAX_FILE
+# A change worker reads more than an auditor (large sources, tests, edits): more same-session continuations.
+MAX_CHANGE_TURN_CONTINUATIONS=4
 MAX_EDITS=200
 
 
@@ -435,6 +437,27 @@ def advance(runtime,task_id,seq,state,profile):
             try:
                 seq,value=runtime._invoke(task_id,seq,state,'native_change_'+stage,prompt,
                                          REPORT_SCHEMA if workspace_mode else PATCH_SCHEMA if work else REVIEW_SCHEMA,invocation)
+            except NativeTurnLimit as limit:
+                if workspace_mode: raise  # the scoped workspace keeps its own timeout checkpoint path
+                # As native_audit: the charged attempt is settled; continue the SAME session in a new invocation (bounded)
+                # so the reading already done is kept instead of blocking the task. Nothing was installed.
+                seq=runtime.state(task_id)[0]
+                from .usage import record
+                record(state,limit.attempt_id,[limit.usage],profile['provider'],profile['model'])
+                state['pending']=None;state.pop('pending_solution_context',None);state.pop('revalidate_pending',None)
+                native[prefix+'_started']=True;state['step']+=1
+                used=native.get('turn_continuations',0)
+                if used>=MAX_CHANGE_TURN_CONTINUATIONS:
+                    state.update(phase='blocked',message='Native change reached the per-invocation turn limit '+str(used+1)+' times; narrow the goal.')
+                else:
+                    native['turn_continuations']=used+1
+                    native['feedback']=('You reached the per-invocation turn limit before returning the structured result. Continue in this '
+                        'same session: do not re-read what you already read; use only the few tool calls you still need, then RETURN '
+                        'the structured result now (full text, or anchored edits against the original for a large file).'
+                        +('\n\nPrevious feedback (still applies):\n'+native['feedback'] if native.get('feedback') else ''))[:5000]
+                    state['message']='Native '+stage+' hit the turn limit; continuing the same session ('+str(used+1)+'/'+str(MAX_CHANGE_TURN_CONTINUATIONS)+').'
+                runtime.persist(task_id,seq,state)
+                return state
             except LedgerError:
                 if workspace_mode:
                     from .workspace_worker import checkpoint_timeout

@@ -185,6 +185,39 @@ class NodeChangeTests(unittest.TestCase):
         diff=patch_diff(self.run,state)
         self.assertLess(len(diff),2000);self.assertIn('+export const line7 = 70;',diff)
 
+    def turn_limit_worker(self):
+        import json as _json
+        from onecrew.native_audit import NativeTurnLimit
+        class TurnLimitWorker(type(self.worker)):
+            def result(self,attempt):
+                value=_json.loads(attempt['result'])['fixture']
+                if value=='TURN_LIMIT': raise NativeTurnLimit(attempt['id'],{'input_tokens':1,'output_tokens':1},31)
+                return value,[]
+        self.worker.__class__=TurnLimitWorker
+
+    def test_change_turn_limit_continues_same_session_then_completes(self):
+        self.turn_limit_worker();profiles=[];old=self.worker.run
+        def record(attempt,prompt,schema,profile):
+            profiles.append((profile,prompt));return old(attempt,prompt,schema,profile)
+        self.worker.run=record
+        self.worker.responses=['TURN_LIMIT',self.candidate(),{'accepted':True,'feedback':'Checked'}]
+        state=self.run.run(self.task,steps=1)
+        native=state['native_change']
+        self.assertNotEqual(state['phase'],'blocked',state.get('message'));self.assertIsNone(state['pending'])
+        self.assertEqual(native['turn_continuations'],1);self.assertTrue(native['worker_started'])
+        self.assertNotIn('changes',native)  # nothing installed by the cut-off invocation
+        for _ in range(4): state=self.run.run(self.task,steps=1)  # work -> verify -> review -> apply
+        self.assertEqual(state['phase'],'completed',state.get('message'));self.assertIn('a+b',(self.ext/'src/app.ts').read_text())
+        self.assertEqual(profiles[0][0]['native_session'],profiles[1][0]['native_session'])
+        self.assertTrue(profiles[1][0]['native_resume']);self.assertIn('per-invocation turn limit',profiles[1][1])
+
+    def test_change_turn_limit_is_bounded_then_blocks(self):
+        self.turn_limit_worker()
+        self.worker.responses=['TURN_LIMIT']*5
+        for _ in range(5): state=self.run.run(self.task,steps=1)
+        self.assertEqual(state['phase'],'blocked');self.assertIn('turn limit',state['message'])
+        self.assertEqual(len(self.worker.calls),5)
+
     def test_anchored_edits_on_a_large_crlf_original_install_and_keep_crlf(self):
         from onecrew.native_change import install_candidate, patch_diff
         from onecrew.node_change import prepare

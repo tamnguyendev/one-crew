@@ -204,8 +204,10 @@ class NativeClaude(ClaudeArtifact):
 
 def turn_limit(provider,attempt):
     """A nonzero exit whose unique terminal result is error_max_turns is a resumable turn limit, not a failure."""
-    receipt=json.loads(attempt['result'])
-    if receipt.get('exit_code') in (0,None) or receipt.get('reason'): return
+    # A malformed attempt is not a turn limit: leave it to result(), which raises LedgerError for it.
+    try: receipt=json.loads(attempt['result']) if isinstance(attempt,dict) else None
+    except (KeyError,TypeError,ValueError): return
+    if not isinstance(receipt,dict) or receipt.get('exit_code') in (0,None) or receipt.get('reason'): return
     from .provider_limits import check_attempt
     check_attempt(provider,attempt)  # quota/limit detection keeps its own handling
     path=Path(receipt.get('stdout',''))
