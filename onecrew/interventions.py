@@ -159,6 +159,12 @@ def project_records(ledger, scope=None, scope_id=None):
         return [dict(json.loads(r['payload']), seq=r['seq'], at=r['created_at']) for r in conn.execute(query + ' ORDER BY seq', params)]
 
 
+def keyed(command, identity):
+    """Replay key for one command identity (a build key, a note request id), within the 128-character key limit."""
+    key = f'{command}:{identity}'
+    return key if len(key) <= 128 else f'{command}:sha256:{hashlib.sha256(str(identity).encode()).hexdigest()}'
+
+
 def cli_note(ledger, command, tasks=(), *, scope=('project', None), **kwargs):
     """Record one successful mutating CLI command on each affected task, else once at its project scope.
     Attribution is ONECREW_ACTOR ('unknown' when unset). Never turns the command's success into a failure."""

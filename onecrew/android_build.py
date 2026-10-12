@@ -302,7 +302,11 @@ class AndroidBuild:
             return receipt
 
 
-def main(argv=None):
+READ_ONLY={('android','status')}
+RECORDED={('android','build'):'android.build',('android','cancel'):'android.cancel'}
+
+
+def parser():
     parser=argparse.ArgumentParser()
     parser.add_argument('--project',type=Path,default=Path.cwd());parser.add_argument('--state-root',type=Path)
     sub=parser.add_subparsers(dest='group',required=True).add_parser('android').add_subparsers(dest='command',required=True)
@@ -316,26 +320,43 @@ def main(argv=None):
             command.add_argument('--foreground',action='store_true',help='Wait here instead of dispatching.')
             command.add_argument('--terminal',action='store_true')
             command.add_argument('--queue-seconds',type=int,default=1800)
-    args=parser.parse_args(argv)
+    return parser
+
+
+def execute(args,ledger):
+    builder=AndroidBuild(ledger)
+    from .android_jobs import dispatch, status, cancel
+    if args.command=='status': return status(builder.ledger,args.from_task,args.key)
+    if args.command=='cancel': return cancel(builder.ledger,args.from_task,args.key)
+    options=dict(max_seconds=args.max_seconds,dependency_policy=args.dependency_policy,
+                 native_authorized=args.allow_trusted_native_build,dependency_root=args.dependency_root)
+    if args.foreground: return builder.build(args.from_task,args.key,args.flutter_root,args.android_sdk,**options)
+    result=dispatch(builder.ledger,args.from_task,args.key,args.flutter_root,args.android_sdk,
+                    queue_seconds=args.queue_seconds,**options)
+    if args.terminal:
+        from .monitor import open_terminal
+        try: result['terminal']=open_terminal(builder.ledger)
+        except (ValueError,OSError) as error:
+            result['terminal']={'status':'unavailable','error':str(error),'runner_unaffected':True}
+    return result
+
+
+def record(args,ledger):
+    """An entry starting or cancelling a build helps that task, even when the build itself then blocks.
+    A replayed build key is one intervention."""
+    command=RECORDED.get((args.group,args.command))
+    if command:
+        from .interventions import cli_note, keyed
+        cli_note(ledger,command,[args.from_task],key=keyed(command,args.key) if args.command=='build' else None)
+
+
+def main(argv=None):
+    p=parser();args=p.parse_args(argv)
+    if args.command=='build' and args.foreground and args.terminal: p.error('--terminal requires background dispatch.')
     try:
-        builder=AndroidBuild(Ledger(args.project,args.state_root))
-        from .android_jobs import dispatch, status, cancel
-        if args.command=='status': result=status(builder.ledger,args.from_task,args.key)
-        elif args.command=='cancel': result=cancel(builder.ledger,args.from_task,args.key)
-        else:
-            options=dict(max_seconds=args.max_seconds,dependency_policy=args.dependency_policy,
-                         native_authorized=args.allow_trusted_native_build,dependency_root=args.dependency_root)
-            if args.foreground:
-                if args.terminal: parser.error('--terminal requires background dispatch.')
-                result=builder.build(args.from_task,args.key,args.flutter_root,args.android_sdk,**options)
-            else:
-                result=dispatch(builder.ledger,args.from_task,args.key,args.flutter_root,args.android_sdk,
-                                queue_seconds=args.queue_seconds,**options)
-                if args.terminal:
-                    from .monitor import open_terminal
-                    try: result['terminal']=open_terminal(builder.ledger)
-                    except (ValueError,OSError) as error:
-                        result['terminal']={'status':'unavailable','error':str(error),'runner_unaffected':True}
+        ledger=Ledger(args.project,args.state_root)
+        result=execute(args,ledger)
+        record(args,ledger)
         print(json.dumps(result,ensure_ascii=False,indent=2))
         return 2 if result['status'] in ('blocked','interrupted','unknown') else 0
     except (ValueError,OSError) as error:

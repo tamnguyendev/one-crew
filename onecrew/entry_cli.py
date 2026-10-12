@@ -9,7 +9,12 @@ from .ledger import Ledger
 from .specs import SpecError
 
 
-def main(argv=None):
+READ_ONLY = {('entry', 'connect')}
+# A note is entry context the runtime reads back into its workers (entry_notes_untrusted): assistance to that task.
+RECORDED = {('entry', 'note'): 'entry.note'}
+
+
+def parser():
     parser = argparse.ArgumentParser(prog='onecrew', description='Portable context; no model calls or approval side effects.')
     parser.add_argument('--project', type=Path, default=Path.cwd())
     parser.add_argument('--state-root', type=Path)
@@ -26,18 +31,34 @@ def main(argv=None):
             command.add_argument('--file', type=Path, required=True, help='UTF-8 summary, at most 2000 characters.')
             command.add_argument('--source', required=True, help='Attribution only, not authentication.')
             command.add_argument('--reference', required=True)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def execute(args, ledger):
+    if args.command == 'connect':
+        return entry.connect(ledger, args.id)
+    with args.file.open('rb') as stream:
+        data = stream.read(8004)
+    if len(data) > 8003:
+        raise ValueError('Note file exceeds 8003 bytes.')
+    return entry.note(ledger, args.id, args.revision, args.request_id, args.kind,
+                      data.decode('utf-8-sig'), args.source, args.reference)
+
+
+def record(args, ledger):
+    """A replayed note (same request id) is one intervention, on the noted task."""
+    command = RECORDED.get((args.group, args.command))
+    if command:
+        from .interventions import cli_note, keyed
+        cli_note(ledger, command, [args.id], key=keyed(command, args.request_id))
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
     try:
         ledger = Ledger(args.project, args.state_root)
-        if args.command == 'connect':
-            result = entry.connect(ledger, args.id)
-        else:
-            with args.file.open('rb') as stream:
-                data = stream.read(8004)
-            if len(data) > 8003:
-                raise ValueError('Note file exceeds 8003 bytes.')
-            result = entry.note(ledger, args.id, args.revision, args.request_id, args.kind,
-                                data.decode('utf-8-sig'), args.source, args.reference)
+        result = execute(args, ledger)
+        record(args, ledger)
         if args.json or args.command == 'note':
             print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
