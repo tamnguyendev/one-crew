@@ -147,7 +147,9 @@ def _apply_edits(runtime,original,name,edits):
     return text.encode()
 
 
-def install_candidate(runtime,state,value,recipe):
+def install_candidate(runtime,state,value,recipe,scope=None):
+    """scope='tests': a delivery repair of test evidence only (all tests already pass on the reviewed production
+    code); the patch may change test files only and production must stay byte-identical."""
     native=state['native_change'];workspace=Path(native['workspace'])
     items=value.get('files')
     # An empty or oversized file list is a format defect the same session can repair (bounded by the content repairs),
@@ -170,7 +172,12 @@ def install_candidate(runtime,state,value,recipe):
         if len(data)>MAX_PATCH_FILE: raise LedgerError('Patch file too large.')
         replacements[name]=runtime.store.blob(data)
     if not set(recipe['tests'])<=set(replacements): raise PatchIncomplete('Required regression tests missing from patch.')
-    if not recipe.get('caller_symbol') and not any(h!=native['originals'][p] and p not in recipe['tests'] for p,h in replacements.items()):
+    production=[p for p,h in replacements.items() if h!=native['originals'][p] and p not in recipe['tests']]
+    if scope=='tests':
+        if production:
+            raise PatchIncomplete('This repair may change only test files; production files are already reviewed and must stay '
+                                  'exactly as they are: '+', '.join(production)+'.')
+    elif not recipe.get('caller_symbol') and not production:
         raise PatchIncomplete('No production fix in patch.')
     # Each revision supplies the entire cumulative change, never stale prior edits.
     for name,original in native['originals'].items():
@@ -494,7 +501,8 @@ def advance(runtime,task_id,seq,state,profile):
                     value=collect_candidate(runtime,state,value,recipe)
                 else:check_snapshot(runtime,state)
                 try:
-                    install_candidate(runtime,state,value,recipe)
+                    scope=(runtime.ledger.task(task_id,full=True)['handoff'].get('owned_execution') or {}).get('delivery_scope')
+                    install_candidate(runtime,state,value,recipe,scope)
                 except PatchIncomplete as error:
                     # A partial patch on a repair round (e.g. only the test file) is repairable; keep the previous
                     # feedback so the worker still sees why the last verification failed.

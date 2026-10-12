@@ -392,6 +392,69 @@ class AppCrashTests(DeviceRun):
         self.assertEqual(health(lambda *a: calls[a], PKG)['system_dialog'], True)
 
 
+class RedEvidenceRepairTests(unittest.TestCase):
+    """Trial 6 (TASK-71ae1655): production was right and all tests passed, but the red test called a helper added by the
+    change, so it could not load on the unchanged code. Two repair generations then hit 'No production fix in patch'
+    because the only correct repair touches tests, and OneCrew asked."""
+    RED = [{'test': 'test/host_validation_test.dart', 'error_pattern': 'Found 0 widgets with text "Địa chỉ không hợp lệ"'}]
+    RECEIPT = {'passed': False, 'failure_kind': 'test', 'errors': [], 'counts': {'failed': 0, 'passed': 6, 'skipped': 0},
+               'red': [{'test': 'test/host_validation_test.dart', 'behavioral_failure': False, 'counts': {'failed': 1, 'passed': 0}}]}
+
+    def state(self):
+        nodes = [{'id': 'change-1', 'kind': 'change', 'depends': [], 'config': {}},
+                 {'id': 'tests', 'kind': 'regression', 'depends': ['change-1'], 'config': {'red': self.RED, 'repair_node': 'change-1'}}]
+        return {'plan': {'nodes': nodes, 'max_repairs': 2, 'acceptance': [{'id': 'AC1', 'nodes': ['tests']}]},
+                'delivery': {'repairs': 0, 'generation': 0, 'history': [], 'source': {'hash': 'src'}, 'criteria': {'AC1': 'pending'},
+                             'nodes': {'change-1': {'phase': 'passed', 'generation': 0, 'receipt': {'passed': True}, 'child': 'TASK-x'},
+                                       'tests': {'phase': 'blocked', 'generation': 0, 'receipt': None, 'child': None}}}}
+
+    def test_red_only_failure_is_a_tests_only_repair_with_actionable_feedback(self):
+        from onecrew.solution_delivery import Delivery
+        s = self.state(); node = s['plan']['nodes'][1]
+        self.assertTrue(Delivery._repair(Delivery.__new__(Delivery), s, node, dict(self.RECEIPT)))
+        row = s['delivery']['nodes']['change-1']
+        self.assertEqual(row.get('scope'), 'tests', 'RED-RED-ONLY-REPAIR: a red-evidence repair still demanded a production change')
+        self.assertIn('do NOT change them', row['feedback']); self.assertIn('did not load', row['feedback'])
+        self.assertIn('Found 0 widgets', row['feedback'])
+
+    def test_a_real_failing_test_still_needs_a_production_fix(self):
+        from onecrew.solution_delivery import Delivery, red_only
+        failing = dict(self.RECEIPT, counts={'failed': 2, 'passed': 4, 'skipped': 0}, errors=[{'name': 'rejects http'}])
+        s = self.state(); node = s['plan']['nodes'][1]
+        self.assertIsNone(red_only(node, failing))
+        Delivery._repair(Delivery.__new__(Delivery), s, node, failing)
+        self.assertNotIn('scope', s['delivery']['nodes']['change-1'])
+
+    def test_tests_only_scope_cannot_be_claimed_outside_a_delivery(self):
+        from onecrew.owned_intake import submit
+        from tests.test_interventions import LedgerFixture
+        f = LedgerFixture(self)
+        with self.assertRaisesRegex(LedgerError, 'delivery coordinator'):
+            submit(f.ledger, 'goal text for a child', 'k', mode='change', _delivery_scope='tests')
+
+
+class TestsOnlyPatchTests(unittest.TestCase):
+    def setUp(self):
+        from tests.test_native_change import NativeChangeTests
+        self.case = NativeChangeTests('test_preparation_progress_is_durable_before_worker_call'); self.case.setUp()
+        self.addCleanup(self.case.doCleanups)
+
+    def patch(self, files, scope):
+        from onecrew.native_change import install_candidate
+        state = self.case.run.state(self.case.task)[1]
+        return install_candidate(self.case.run, state, {'report': 'x' * 30, 'question': '', 'files': files}, self.case.recipe, scope)
+
+    def test_scope_tests_accepts_a_test_only_patch_and_refuses_production_edits(self):
+        from onecrew.native_change import PatchIncomplete
+        test_only = [{'path': 'app/test/main_test.dart', 'text': '// red test rewritten through the existing API\n'}]
+        with self.assertRaisesRegex(PatchIncomplete, 'No production fix'): self.patch(test_only, None)
+        self.patch(test_only, 'tests')
+        same = test_only + [{'path': 'app/lib/main.dart', 'text': 'int add(int a,int b)=>a-b;\n'}]  # production unchanged
+        self.patch(same, 'tests')
+        changed = test_only + [{'path': 'app/lib/main.dart', 'text': 'int add(int a,int b)=>a+b;\n'}]
+        with self.assertRaisesRegex(PatchIncomplete, 'only test files'): self.patch(changed, 'tests')
+
+
 class EnvelopeEmulatorTests(unittest.TestCase):
     def test_only_an_emulator_serial_may_be_booted(self):
         from onecrew.delivery_device_env import validate_emulator
