@@ -135,22 +135,64 @@ def rebase_packages(project,destination,roots):
                     old=Path(plugin['path'])
                     plugin['path']=str(mapped(old if old.is_absolute() else safe_file(project,root)/old))+os.sep
             durable_write(plugins,canonical(value).encode())
-        # Only scalar path dependency entries; unsupported YAML fails closed.
         for leaf in ('pubspec.yaml','pubspec_overrides.yaml'):
             out=safe_file(destination,root+'/'+leaf)
             if not out.exists():continue
-            def path_line(match):
-                token=match[2].strip();quote=token[:1] if token[:1] in ('"',"'") else ''
-                if quote:
-                    if not token.endswith(quote):raise LedgerError('Unsupported YAML path dependency; explicit reconciliation required.')
-                    token=token[1:-1]
-                    if quote=='"' and '\\' in token:token=json.loads(match[2].strip())
-                elif any(x in token for x in (' #','{','}','[',']','&','*')):
-                    raise LedgerError('Unsupported YAML path dependency; explicit reconciliation required.')
-                old=Path(token);new=mapped(old if old.is_absolute() else safe_file(project,root)/old)
-                return match[1]+json.dumps(new.as_posix())
-            value=re.sub(r'(?m)^([ \t]*path:[ \t]*)([^\r\n]+)',path_line,out.read_text(encoding='utf-8'))
-            durable_write(out,value.encode())
+            package_root=safe_file(project,root)
+            def local(token):
+                old=Path(token);return mapped(old if old.is_absolute() else package_root/old).as_posix()
+            durable_write(out,rebase_pubspec(out.read_text(encoding='utf-8'),local).encode())
+
+
+DEPENDENCY_SECTIONS=('dependencies','dev_dependencies','dependency_overrides')
+_UNSUPPORTED='Unsupported YAML path dependency; explicit reconciliation required.'
+
+
+def _scalar(raw):
+    token=raw.strip();quote=token[:1] if token[:1] in ('"',"'") else ''
+    if quote:
+        if len(token)<2 or not token.endswith(quote):raise LedgerError(_UNSUPPORTED)
+        return json.loads(token) if quote=='"' else token[1:-1].replace("''","'")
+    if any(x in token for x in (' #','{','}','[',']','&','*','|','>')):raise LedgerError(_UNSUPPORTED)
+    return token
+
+
+def rebase_pubspec(text,local):
+    """Rewrite only `path:` sources of local dependencies, judged by YAML block structure.
+
+    A package named `path`, git `path:` subdirectories, hosted/sdk entries and keys outside the
+    dependency sections keep their text. Flow mappings or odd indentation inside a dependency
+    section fail closed rather than being guessed."""
+    out=[];section=False;name_indent=None;source_indent=None;in_dependency=False
+    for line in text.splitlines(keepends=True):
+        body=line.rstrip('\r\n');stripped=body.strip()
+        if not stripped or stripped.startswith('#'):out.append(line);continue
+        indent=len(body)-len(body.lstrip(' \t'))
+        if '\t' in body[:indent]:
+            if section:raise LedgerError(_UNSUPPORTED)
+            out.append(line);continue
+        key=re.match(r'([A-Za-z0-9_.\-]+)[ \t]*:(?:[ \t]+(.*))?$',stripped)
+        if indent==0:
+            section=bool(key) and key[1] in DEPENDENCY_SECTIONS and not (key[2] or '').split('#')[0].strip()
+            name_indent=source_indent=None;in_dependency=False;out.append(line);continue
+        if not section:out.append(line);continue
+        if not key:raise LedgerError(_UNSUPPORTED)
+        value=(key[2] or '').strip()
+        if name_indent is None:name_indent=indent
+        if indent<name_indent:raise LedgerError(_UNSUPPORTED)
+        if indent==name_indent:
+            # Dependency name: `name: ^1.0` (hosted constraint, even when name is `path`) or a block.
+            if value.startswith('{') and re.search(r'\bpath\b',value):raise LedgerError(_UNSUPPORTED)
+            in_dependency=not value or value.startswith('#');source_indent=None
+            out.append(line);continue
+        if not in_dependency:raise LedgerError(_UNSUPPORTED)
+        if source_indent is None:source_indent=indent
+        if indent==source_indent and key[1]=='path':
+            # Direct source key of a dependency: the local path. Deeper keys (git.path) are untouched.
+            ending=line[len(body):]
+            out.append(body[:indent]+'path: '+json.dumps(local(_scalar(value)))+ending);continue
+        out.append(line)
+    return ''.join(out)
 
 
 def validate_config(kind,c,roots):

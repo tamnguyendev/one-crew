@@ -118,7 +118,7 @@ def find_ui(xml,selector,package=None,viewport=None):
     if not bounds or node.get('enabled')=='false':raise LedgerError('UI target disabled or bounds unavailable.')
     x1,y1,x2,y2=map(int,bounds.groups())
     if x2<=x1 or y2<=y1:raise LedgerError('UI target not hit-testable.')
-    if viewport and (x2>viewport[0] or y2>viewport[1]):raise LedgerError('UI target is outside the visible viewport.')
+    if viewport and (x2>viewport[0] or y2>viewport[1]):raise LedgerError('UI target is outside the visible input area (off-screen or under the keyboard/overlay).')
     return node,((x1+x2)//2,(y1+y2)//2)
 
 
@@ -173,20 +173,29 @@ def keyboard_top(dump, input_method, height):
     return min(tops)
 
 
-def scroll_gesture(xml, package, viewport, windows, input_method, direction):
-    """Use a unique app scroll surface, clipped above a visible keyboard."""
+def _bounds(value):
+    m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',value)
+    return tuple(map(int,m.groups())) if m else None
+
+
+def input_area(xml, package, viewport, windows, input_method):
+    """(width, bottom) of the screen region input may reach: above a visible keyboard and foreign
+    lower-half surfaces. Unknown keyboard bounds raise SwipeRefused; callers never guess coordinates."""
     root=ET.fromstring(xml);width,height=viewport;edges=[]
-    def bounds(value):
-        m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',value)
-        return tuple(map(int,m.groups())) if m else None
     for n in root.iter('node'):
-        b=bounds(n.get('bounds',''))
+        b=_bounds(n.get('bounds',''))
         # Foreign surfaces in the lower half (keyboard, navigation) bound the gesture; status bars do not.
         if b and n.get('package') not in (None,'',package) and b[2]>b[0] and b[3]>b[1] and b[1]>=height//2:
             edges.append(b[1])
     ime=keyboard_top(windows,input_method,height)
     if ime is not None:edges.append(ime)
-    bottom=min([height]+edges)
+    return width,min([height]+edges)
+
+
+def scroll_gesture(xml, package, viewport, windows, input_method, direction):
+    """Use a unique app scroll surface, clipped above a visible keyboard."""
+    root=ET.fromstring(xml);width,bottom=input_area(xml,package,viewport,windows,input_method)
+    bounds=_bounds
     surfaces=set()
     for n in root.iter('node'):
         b=bounds(n.get('bounds',''))
@@ -232,13 +241,20 @@ def device(runtime,task,s,node,row):
     def perform(step):
         nonlocal operation_deadline,step_evidence
         step_evidence={}
-        op=step['operation'];a=step['arguments']
+        op=step['operation'];a=step['arguments'];windows=None
         if op in ('tap','type','key','scroll_to'):
             # Full dump: Android 16 reports focus per display, not under `dumpsys window windows`.
-            if not app_has_focus(adb('shell','dumpsys','window'),c['package_id']):
+            windows=adb('shell','dumpsys','window')
+            if not app_has_focus(windows,c['package_id']):
                 raise LedgerError('Another window has foreground focus; input refused.')
-        if op in ('tap','type','assert_ui'):
-            element,(x,y)=find_ui(xml(),a['selector'],c['package_id'],viewport)
+        if op=='assert_ui':find_ui(xml(),a['selector'],c['package_id'],viewport)
+        if op in ('tap','type'):
+            tree=xml()
+            try:area=input_area(tree,c['package_id'],viewport,windows,adb('shell','dumpsys','input_method'))
+            except SwipeRefused as unknown:raise LedgerError('Keyboard bounds unknown; input refused.') from unknown
+            # The whole target must lie in the reachable area, so a tap never lands on the keyboard.
+            element,(x,y)=find_ui(tree,a['selector'],c['package_id'],area)
+            step_evidence={'input_area':list(area),'point':[x,y]}
             if op=='tap':adb('shell','input','tap',str(x),str(y))
             elif op=='type':
                 value=private.get(a['private_key'])
@@ -273,19 +289,27 @@ def device(runtime,task,s,node,row):
             gestures=[];step_evidence={'gestures':gestures}
             for i in range(a['max_swipes']+1):
                 tree=xml()
-                try:find_ui(tree,a['selector'],c['package_id'],viewport);break
-                except LedgerError:
-                    if i==a['max_swipes']:raise
+                if i:
                     windows=adb('shell','dumpsys','window')
                     if not app_has_focus(windows,c['package_id']):
                         raise LedgerError('Another window has foreground focus; swipe refused.')
-                    ime=adb('shell','dumpsys','input_method')
-                    try:coords=scroll_gesture(tree,c['package_id'],viewport,windows,ime,a['direction'])
-                    except SwipeRefused as refused:
-                        # No safe surface (transition, non-scrollable dialog): re-read only, never a blind gesture.
-                        gestures.append({'refused':str(refused)});time.sleep(.5);continue
-                    gestures.append({'coordinates':coords,'duration_ms':350})
-                    adb('shell','input','swipe',*map(str,coords),'350')
+                ime=adb('shell','dumpsys','input_method')
+                try:
+                    # Reached means the next tap is safe: the target lies above the keyboard, not merely on screen.
+                    area=input_area(tree,c['package_id'],viewport,windows,ime)
+                    try:
+                        find_ui(tree,a['selector'],c['package_id'],area)
+                        step_evidence['input_area']=list(area);break
+                    except SwipeRefused:raise
+                    except LedgerError:
+                        if i==a['max_swipes']:raise
+                    coords=scroll_gesture(tree,c['package_id'],viewport,windows,ime,a['direction'])
+                except SwipeRefused as refused:
+                    # Unknown keyboard edge or no safe surface: re-read only, never a blind gesture.
+                    if i==a['max_swipes']:raise LedgerError('UI target not confirmed reachable: '+str(refused)) from refused
+                    gestures.append({'refused':str(refused)});time.sleep(.5);continue
+                gestures.append({'coordinates':coords,'duration_ms':350})
+                adb('shell','input','swipe',*map(str,coords),'350')
         elif op=='assert_no_flutter_error':
             # Restrict logs to this app process. Store only the result, not server/account data.
             pid=adb('shell','pidof',c['package_id']).strip()
