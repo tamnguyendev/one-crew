@@ -87,6 +87,96 @@ CASES = [
         'tests.test_delivery_review_regressions.PubspecRebaseTests.test_only_local_path_sources_move_through_capture_and_red',
         'tests.test_delivery_review_regressions.PubspecRebaseTests.test_text_outside_dependency_sections_is_untouched'],
         'Line-structured YAML subset; flow mappings in dependency sections fail closed.'),
+    # Delivery autopilot (docs/delivery-autopilot.vi.md). Old-API probes fail on 356fb82 by behaviour; probes in
+    # modules importing new autopilot modules report capability_unavailable there (capability, not a reproduced bug).
+    case('autopilot-transient-retry', 'Transient node failure retries within the grant, silently, instead of blocking', '8207d61', [
+        'tests.test_autopilot_behaviour.CoordinatorBehaviourTests.test_transient_node_failure_is_retried_not_blocked',
+        'tests.test_autopilot_behaviour.CoordinatorBehaviourTests.test_automatic_recovery_opens_no_window'],
+        'Backoff is fast-forwarded in the fixture; wall-clock waits and real ADB transports are not exercised.'),
+    case('autopilot-ask-once', 'Unrecoverable failure asks one typed question; the answer continues without an entry resume', '8207d61', [
+        'tests.test_autopilot_behaviour.CoordinatorBehaviourTests.test_unrecoverable_failure_asks_one_typed_question',
+        'tests.test_autopilot_behaviour.CoordinatorBehaviourTests.test_answer_continues_without_entry_resume',
+        'tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish',
+        'tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete',
+        'tests.test_solution_delivery.DeliveryTests.test_source_drift_is_not_silently_accepted',
+        'tests.test_solution_delivery.DeliveryTests.test_missing_dependency_blocks_preflight_without_worker'],
+        'Answers go through the ledger API; the Windows window launch is mocked and user attention is unverified.'),
+    case('crash-replay-once', 'A killed coordinator resumes from its checkpoint; interrupted capture work replays once', '8207d61', [
+        'tests.test_solution_delivery.DeliveryTests.test_crash_in_build_replays_once_then_asks',
+        'tests.test_delivery_restart.CoordinatorRestartTests.test_kill_mid_node_then_restart_continues_from_checkpoint'],
+        'Real TerminateProcess of a coordinator process with fixture native nodes; device effects are covered by reconcile cases.',
+        'workflow_fixture'),
+    case('escalation-episodes', 'Each decision episode is one single-use request; cancel, pause and capacity waits are not failures', '8207d61', [
+        'tests.test_delivery_review_findings.EscalationEpisodeTests.test_answered_request_is_never_reused_for_the_next_episode',
+        'tests.test_delivery_review_findings.EscalationEpisodeTests.test_changed_question_text_after_retry_never_crashes_run',
+        'tests.test_delivery_review_findings.EscalationEpisodeTests.test_user_cancel_during_a_node_asks_nothing',
+        'tests.test_delivery_review_findings.EscalationEpisodeTests.test_pause_during_a_node_is_not_a_failure',
+        'tests.test_delivery_review_findings.EscalationEpisodeTests.test_capacity_wait_is_not_an_interruption',
+        'tests.test_delivery_review_findings.EscalationEpisodeTests.test_resume_accepts_an_uncertain_row_for_reconcile',
+        'tests.test_delivery_review_findings.EscalationEpisodeTests.test_unsettled_attempt_keeps_the_row_running_until_it_settles'],
+        'Adversarial review findings of the autopilot core (2026-10-12) before its first commit; no earlier runtime had them.'),
+    case('child-question-continuation', 'A child stopped only by an answered question or by the root fence continues', '8207d61', [
+        'tests.test_delivery_review_findings.ChildQuestionTests.test_child_waiting_on_an_answered_solution_question_is_continued',
+        'tests.test_delivery_review_findings.ChildQuestionTests.test_child_fenced_by_the_root_is_resumed_not_regenerated',
+        'tests.test_delivery_review_findings.ChildQuestionTests.test_regeneration_retires_the_superseded_child_so_intake_accepts_the_new_one'],
+        'Child worker is the fixture worker; CREQ answers are represented by the child checkpoint state.'),
+    case('device-effect-safety', 'Device scenarios replay only when proven safe; an optional stage that ran and failed is a finding', '8207d61', [
+        'tests.test_delivery_review_findings.DeviceEffectTests.test_failure_after_scenario_steps_is_never_a_free_retry',
+        'tests.test_delivery_review_findings.OptionalFailureTests.test_optional_device_that_ran_and_failed_is_a_finding_not_not_run',
+        'tests.test_delivery_autopilot.RecoveryTests.test_device_interruption_reconciles_read_only',
+        'tests.test_delivery_autopilot.OptionalDeviceTests.test_unavailable_optional_device_is_reported_not_run'],
+        'ADB is a fixture; the read-only reconcile probe was not run against a physical device.'),
+    case('goal-level-planning', 'Goal + approved envelope -> OneCrew plan sealed only inside the envelope', '8207d61', [
+        'tests.test_delivery_autopilot.EnvelopeTests.test_envelope_validated_and_bound_to_approved_text',
+        'tests.test_delivery_autopilot.EnvelopeTests.test_entry_plan_and_budget_must_fit_the_approved_envelope',
+        'tests.test_delivery_autopilot.EnvelopeTests.test_covers_reports_widening',
+        'tests.test_delivery_autopilot.EnvelopeTests.test_planner_output_is_checked_by_code',
+        'tests.test_delivery_autopilot.PlanningTests.test_goal_level_submit_plans_inside_envelope_and_seals',
+        'tests.test_delivery_autopilot.PlanningTests.test_invalid_plan_gets_bounded_same_session_corrections_then_one_question',
+        'tests.test_delivery_autopilot.PlanningTests.test_out_of_envelope_need_asks_once_and_retry_replans_inside',
+        'tests.test_delivery_review_findings.PlannerFindingTests.test_private_reference_inside_source_roots_stops_before_capture',
+        'tests.test_delivery_review_findings.PlannerFindingTests.test_nested_package_is_an_environment_question_before_any_model_call',
+        'tests.test_delivery_review_findings.PlannerFindingTests.test_malformed_scenario_from_the_model_is_feedback_not_a_crash',
+        'tests.test_delivery_review_findings.PlannerFindingTests.test_out_of_envelope_question_names_the_need_and_a_new_need_asks_again',
+        'tests.test_delivery_review_findings.PlannerFindingTests.test_failed_planning_call_is_dropped_on_retry_and_called_again',
+        'tests.test_delivery_review_findings.CoversTests.test_execution_features_and_required_device_are_envelope_bound',
+        'tests.test_delivery_review_findings.CoversTests.test_effective_application_id_and_launcher_class'],
+        'The model proposal is a fixture; plan quality on unseen goals is measured only by live trials, not here.'),
+    case('recovery-policy', 'Classified failures, bounded retries, no repeat without progress, one window per decision', '8207d61', [
+        'tests.test_delivery_autopilot.RecoveryTests.test_transient_failure_retries_with_backoff_then_asks_once',
+        'tests.test_delivery_autopilot.RecoveryTests.test_failure_history_survives_coordinator_restart',
+        'tests.test_delivery_autopilot.RecoveryTests.test_answer_retry_continues_without_entry_resume_and_stop_cancels',
+        'tests.test_delivery_autopilot.RecoveryTests.test_repeated_product_failure_without_progress_stops_repairing',
+        'tests.test_delivery_autopilot.RecoveryTests.test_review_killed_during_model_call_drops_only_a_settled_attempt',
+        'tests.test_delivery_autopilot.RecoveryTests.test_classification_prefers_structured_fields',
+        'tests.test_delivery_autopilot.NotificationTests.test_automatic_recovery_is_silent_and_escalation_shows_once'],
+        'Classification tables are code; misclassification of unseen messages falls back to one question.'),
+    case('coordinator-keeper', 'A dead delivery coordinator is restarted with bounded backoff and attributed', '8207d61', [
+        'tests.test_keeper.ScanTests.test_scan_restarts_only_eligible_dead_roots',
+        'tests.test_keeper.ScanTests.test_unknown_probe_is_never_restarted',
+        'tests.test_keeper.ScanTests.test_backoff_and_hourly_bound_persist_and_exhaust_once',
+        'tests.test_keeper.RunnerRecordTests.test_runner_started_includes_runtime_and_initiator'],
+        'Process spawning is mocked here; the live trial records the real keeper restart separately.'),
+    case('intervention-recording', 'Entry mutations and runtime changes are recorded automatically', '8207d61', [
+        'tests.test_interventions.RecordTests.test_record_payload_is_evidence_without_task_mutation',
+        'tests.test_interventions.RecordTests.test_summary_orders_interventions_assistance_and_runtime_changes',
+        'tests.test_interventions.EntryRecordingTests.test_cli_reply_records_once_and_standalone_task_has_no_continuation',
+        'tests.test_interventions.EntryRecordingTests.test_mcp_mutations_record_source_actor'],
+        'Actor identity is local attribution (ONECREW_ACTOR/MCP source), not authentication.'),
+    # Found by the first live autonomy trial (2026-10-12, TASK-fd13e281): runtime defects, not product failures.
+    case('flutter-reporter-red', 'Widget-test assertion text reaches red matching and repair feedback', '8207d61', [
+        'tests.test_delivery_review_regressions.FlutterJsonReporterTests.test_widget_assertion_text_is_part_of_the_error_for_red_matching'],
+        'Synthetic flutter_test JSON events modelled on the trial log; other reporters are not covered.'),
+    case('regression-attribution', 'An existing suite failing on the baseline too is environment, not a product repair', '8207d61', [
+        'tests.test_delivery_review_findings.RegressionAttributionTests.test_suite_failing_on_baseline_too_is_environment_not_product',
+        'tests.test_delivery_review_findings.RegressionAttributionTests.test_suite_passing_on_baseline_is_a_product_regression'],
+        'Flutter is a fixture here; the live trial showed the ink_sparkle shader failure without test assets.'),
+    case('environment-discovery', 'Toolchain, package, application id and tests discovered without the entry', '8207d61', [
+        'tests.test_delivery_env.EnvironmentDiscoveryTests.test_flutter_root_precedence_and_rejections',
+        'tests.test_delivery_env.EnvironmentDiscoveryTests.test_build_tools_selection',
+        'tests.test_delivery_env.EnvironmentDiscoveryTests.test_effective_application_ids_and_launch_class',
+        'tests.test_delivery_env.EnvironmentDiscoveryTests.test_missing_tools_are_reported_not_raised'],
+        'Gradle files are parsed as text; flavors and computed ids are reported unresolved, not guessed.'),
 ]
 
 LIMITS = [
