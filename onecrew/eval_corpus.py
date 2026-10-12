@@ -175,6 +175,26 @@ CASES = [
         'tests.test_delivery_review_findings.ReviewProtocolTests.test_accepted_review_with_a_wrong_ref_goes_back_to_the_reviewer_not_to_code_repair',
         'tests.test_delivery_review_findings.ReviewProtocolTests.test_persistent_protocol_defect_asks_instead_of_repairing'],
         'Found by autonomy trial 2 (TASK-03a6a3a9); the reviewer is a fixture here.'),
+    # Codex review P1 (2026-10-12): red by behaviour on d7410c1 (the fix's parent), green after.
+    case('deadline-answer', 'An answer recorded after the root deadline is applied: stop cancels, retry asks the next budget episode', '153c553', [
+        'tests.test_codex_review_p1.DeadlineAnswerTests.test_stop_answered_after_the_deadline_cancels_the_root',
+        'tests.test_codex_review_p1.DeadlineAnswerTests.test_retry_answered_without_an_extension_asks_a_new_budget_question',
+        'tests.test_codex_review_p1.DeadlineAnswerTests.test_retry_after_a_user_extension_continues_to_completion'],
+        'In-process runner.loop with a one-second fixture deadline; the extension probe is a guard that also passed before.'),
+    case('scorecard-levels', 'Completion and assistance are separate levels; partial work is never autonomous_complete', '153c553', [
+        'tests.test_codex_review_p1.ScorecardLevelTests.test_partial_delivery_is_never_autonomous_complete',
+        'tests.test_codex_review_p1.ScorecardLevelTests.test_full_verified_delivery_without_help_is_autonomous_complete',
+        'tests.test_codex_review_p1.ScorecardLevelTests.test_partial_and_assisted_are_reported_on_both_levels'],
+        'Synthetic observed-task records; the classifier reads ledger projections only.'),
+    case('device-permission-window', 'No device command after valid_until; unknown device state asks and never replays', '153c553', [
+        'tests.test_codex_review_p1.DevicePermissionWindowTests.test_no_device_command_after_the_window_expires_during_install',
+        'tests.test_codex_review_p1.DevicePermissionWindowTests.test_expiry_after_a_scenario_step_stops_without_cleanup_and_reports_uncertain',
+        'tests.test_codex_review_p1.PermissionWindowPathTests.test_reconcile_after_expiry_sends_nothing_and_never_replays',
+        'tests.test_codex_review_p1.PermissionWindowPathTests.test_preflight_skips_an_expired_optional_device_and_stops_a_required_one',
+        'tests.test_codex_review_p1.PermissionWindowDeliveryTests.test_optional_device_expired_before_the_scenario_is_not_run',
+        'tests.test_codex_review_p1.PermissionWindowDeliveryTests.test_required_device_expired_asks_for_a_new_window',
+        'tests.test_codex_review_p1.PermissionWindowDeliveryTests.test_expiry_after_scenario_steps_asks_and_never_replays'],
+        'ADB and clock are fixtures; the window is enforced per command, not by a device-side lock.'),
     case('environment-discovery', 'Toolchain, package, application id and tests discovered without the entry', '8207d61', [
         'tests.test_delivery_env.EnvironmentDiscoveryTests.test_flutter_root_precedence_and_rejections',
         'tests.test_delivery_env.EnvironmentDiscoveryTests.test_build_tools_selection',
