@@ -203,7 +203,7 @@ def validate_config(kind,c,roots):
         'build':({'package','flutter_root','android_sdk','variant','config_reference','config_version','signer_sha256','timeout_seconds'},set()),
         'apk_audit':({'build_node','build_tools','package_id','signer_sha256','require_16kb','max_bytes'},{'version_code'}),
         'device':({'build_node','adb','serial','package_id','scenario','scenario_sha256','private_reference','private_version','timeout_seconds'},
-                  {'repair_node','replay_safe','valid_until','optional','emulator','calibration'})}
+                  {'repair_node','replay_safe','valid_until','optional','emulator','calibration','selectors','recovery'})}
     required,optional=fields[kind]
     if set(c)-required-optional or required-set(c): raise LedgerError('Invalid '+kind+' recipe fields.')
     if 'repair_node' in c and not isinstance(c['repair_node'],str): raise LedgerError('Explicit repair node required.')
@@ -244,6 +244,10 @@ def validate_config(kind,c,roots):
         if 'emulator' in c:
             from .delivery_device_env import validate_emulator
             validate_emulator(c['emulator'],c['serial'])
+        if 'recovery' in c:
+            from .delivery_device_env import validate_recovery
+            validate_recovery(c['recovery'],c['serial'])
+        if c.get('selectors') not in (None,'exact','tiered'): raise LedgerError('Device selectors must be exact or tiered.')
     if 'package_id' in c and not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+',c['package_id']): raise LedgerError('Pin Android package ID.')
     if 'timeout_seconds' in c and (type(c['timeout_seconds']) is not int or not 1<=c['timeout_seconds']<=3600): raise LedgerError('Command deadline must be bounded to 3600 seconds.')
 

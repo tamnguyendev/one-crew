@@ -67,11 +67,14 @@ def validate_envelope(env, solution=None):
             raise LedgerError('Explicit APK audit policy required.')
     if device is not None:
         # Optional 'emulator' {avd, avd_home}: OneCrew may boot/restart exactly this emulator for the stage.
-        exact_fields({k: v for k, v in device.items() if k != 'emulator'} if isinstance(device, dict) else device,
+        exact_fields({k: v for k, v in device.items() if k not in ('emulator', 'selectors', 'recovery')} if isinstance(device, dict) else device,
                      ('serial', 'scenario', 'scenario_ref', 'scenario_sha256', 'private_reference', 'private_version',
                       'valid_until', 'replay_safe', 'required'), 'Device stage')
         from .delivery_device_env import validate_emulator
         validate_emulator(device.get('emulator'), device['serial'])
+        from .delivery_device_env import validate_recovery
+        validate_recovery(device.get('recovery'), device['serial'])
+        if device.get('selectors') not in (None, 'exact', 'tiered'): raise LedgerError('Device selectors must be exact or tiered.')
         if b is None or audit is None: raise LedgerError('Device stage requires build and APK audit stages.')
         if not isinstance(device['serial'], str) or not re.fullmatch('[A-Za-z0-9_.:-]{1,120}', device['serial']): raise LedgerError('Device serial required.')
         if device['scenario'] == 'pinned':
@@ -156,6 +159,8 @@ def covers(env, plan):
             if c.get('replay_safe', False) and not v['replay_safe']: f.append('device replay declared safe beyond envelope')
             if c.get('optional', False) != (not v['required']): f.append('device required/optional differs')
             if c.get('emulator') != v.get('emulator'): f.append('device emulator differs from envelope')
+            if c.get('selectors') != v.get('selectors'): f.append('device selector mode differs from envelope')
+            if c.get('recovery') != v.get('recovery'): f.append('device recovery grant differs from envelope')
             if c.get('calibration') is not None and (c['calibration'] != 'onecrew' or v['scenario'] != 'planned'):
                 f.append('scenario calibration is only for a scenario OneCrew planned')
     if stages['device'] and stages['device']['required'] and not any(n['kind'] == 'device' for n in plan['nodes']):
@@ -330,7 +335,9 @@ def compile_plan(goal, env, discovery, proposal, reference, signer=None):
             'private_reference': v['private_reference'], 'private_version': v['private_version'], 'timeout_seconds': 900,
             'replay_safe': v['replay_safe'], 'valid_until': v['valid_until'], 'optional': not v['required'],
             **({'calibration': 'onecrew'} if v['scenario'] == 'planned' else {}),
-            **({'emulator': v['emulator']} if v.get('emulator') else {})}})
+            **({'emulator': v['emulator']} if v.get('emulator') else {}),
+            **({'selectors': v['selectors']} if v.get('selectors') else {}),
+            **({'recovery': v['recovery']} if v.get('recovery') is not None else {})}})
     nodes.append({'id': 'handover', 'kind': 'handover', 'depends': [n['id'] for n in nodes], 'config': {}})
     acceptance = [{'id': a['id'], 'text': a['text'], 'nodes': sorted({NODE_FOR[e] for e in a['evidence']})} for a in env['acceptance']]
     plan = {'version': 1, 'source_roots': env['source_roots'], 'acceptance': acceptance, 'nodes': nodes, 'max_repairs': env['budget']['max_repairs']}

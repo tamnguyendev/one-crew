@@ -29,6 +29,11 @@ FLUTTER = ('Flutter on Android: a Text is a node with empty text and the label i
            'label in content-desc; a Flutter Key is NOT exposed as resource-id.')
 
 
+def rc_key(failure):
+    from .delivery_recovery import normalize
+    return normalize(failure)
+
+
 def literals(selector):
     return [v for k, v in selector.items() if k in ('text', 'content-desc', 'hint')]
 
@@ -129,6 +134,12 @@ def step(runtime, task_id, s, node, row):
     from .snapshots import durable_write
     from . import delivery_recovery as rc
     d = s['delivery']; job = row['calibrate']; failure = job.get('failure') or {}
+    from .delivery_android import selector_mode
+    if selector_mode(node['config']) == 'exact':
+        # Defence in depth: a real-device (exact) stage never sends screen data to a model.
+        row.pop('calibrate', None); row['phase'] = 'blocked'
+        runtime._recover(task_id, s, node, 'selector_mismatch', rc_key(failure), 'Exact selector mode: calibration refused.')
+        return
     path, digest, revision = active_scenario(node, row)
     old = scenario(path, digest)
     view = _view(job)

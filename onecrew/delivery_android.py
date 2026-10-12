@@ -99,7 +99,7 @@ def scenario(path,digest):
             if op not in fields or not isinstance(args,dict) or set(args)!=fields[op]:raise LedgerError('Unsupported device operation or arguments.')
             if 'selector' in args:
                 selector=args['selector']
-                if not isinstance(selector,dict) or not selector or set(selector)-SELECTOR_KEYS or any(not isinstance(x,str) or not x or len(x)>200 for x in selector.values()):
+                if not isinstance(selector,dict) or not selector or set(selector)-SELECTOR_KEYS or any(not isinstance(x,str) or len(x)>200 for x in selector.values()):
                     raise LedgerError('Typed exact UI selector required.')
             if op=='wait_for' and (type(args['timeout_seconds']) is not int or not 1<=args['timeout_seconds']<=60):raise LedgerError('UI wait must be bounded to 60 seconds.')
             if op=='key' and args['key'] not in ('BACK','ENTER','TAB'):raise LedgerError('Key not allowed.')
@@ -144,10 +144,23 @@ def _matches(n,selector,tier):
     return all(_label(n,k,v,tier) if k in LABELS else n.attrib.get(k)==v for k,v in selector.items())
 
 
-def resolve(xml,selector):
+def selector_mode(c):
+    """'exact' for a physical device unless the approved stage says otherwise; 'tiered' for an emulator.
+    Exact: attribute equality only, no relaxed tier, no calibration, no UI data to any model."""
+    from .delivery_device_env import EMULATOR_SERIAL
+    return c.get('selectors') or ('tiered' if EMULATOR_SERIAL.fullmatch(c.get('serial') or '') else 'exact')
+
+
+def resolve(xml,selector,exact=False):
     """(node, tier) from the live UI. Label tiers relax only how a visible label is written (exact attribute,
-    any label attribute, one merged part, case); the first tier with any match must have exactly one."""
+    any label attribute, one merged part, case); the first tier with any match must have exactly one.
+    exact=True: every key must equal the attribute as written (no label fallback, no relaxed tier)."""
     nodes=list(ET.fromstring(xml).iter('node'))
+    if exact:
+        found=[n for n in nodes if all(n.attrib.get(k)==v for k,v in selector.items())]
+        if len(found)==1:return found[0],0
+        raise SelectorUnresolved('UI precondition failed: selector must match exactly one visible node.',
+                                 'ambiguous' if found else 'not_found',len(found))
     for tier in range(len(TIERS) if any(k in LABELS for k in selector) else 1):
         found=[n for n in nodes if _matches(n,selector,tier)]
         if len(found)==1:return found[0],tier
@@ -180,8 +193,27 @@ def snapshot(xml,package,private=()):
     return nodes
 
 
-def find_ui(xml,selector,package=None,viewport=None,evidence=None):
-    node,tier=resolve(xml,selector)
+def masked_view(xml,package,selector):
+    """Evidence for an exact-mode mismatch that reveals no screen text: per app node its structure and, for each
+    label key of the selector, how its label relates to the expected value (equal / casefold / contains / none)."""
+    nodes=[]
+    for n in ET.fromstring(xml).iter('node'):
+        if n.get('package')!=package:continue
+        a={k:n.get(k) for k in ('class','resource-id','clickable','focused','checked','enabled','scrollable','bounds') if n.get(k) not in (None,'','false')}
+        for k in LABELS:
+            value=n.get(k) or ''
+            if value:a[k]={'length':len(value)}
+            if k in selector and value:
+                want=selector[k]
+                a[k]['vs_expected']=('equal' if value==want else 'casefold' if value.casefold()==want.casefold() else
+                                    'contains' if want and want.casefold() in value.casefold() else 'none')
+        if set(a)-{'class','bounds','enabled'}:nodes.append(a)
+        if len(nodes)>=150:break
+    return nodes
+
+
+def find_ui(xml,selector,package=None,viewport=None,evidence=None,exact=False):
+    node,tier=resolve(xml,selector,exact)
     if evidence is not None:evidence['selector_tier']=TIERS[tier]
     bounds=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',node.get('bounds',''))
     if package is not None and node.get('package')!=package:raise LedgerError('UI target belongs to another package.')
@@ -352,9 +384,12 @@ def device(runtime,task,s,node,row):
     # Reaching here means any earlier intent was reconciled; a stale marker must not describe this run.
     (directory/'intent.json').unlink(missing_ok=True)
     environment={'actions':[],'emulator_started':False}
+    exact=selector_mode(c)=='exact'
+    from .delivery_device_env import recovery_grant
+    allowed=recovery_grant(c)
     receipt={'passed':False,'source':build['source'],'apk_sha256':build['sha256'],'serial':c['serial'],'package':c['package_id'],
         'scenario_sha256':digest,'scenario_revision':revision,'private_version':c['private_version'],'steps':[],'cleanup':[],
-        'live_device':True,'failure_kind':'device','environment':environment}
+        'live_device':True,'failure_kind':'device','environment':environment,'selector_mode':'exact' if exact else 'tiered'}
     start=time.monotonic()
     viewport=None
     effect_pending=False
@@ -422,10 +457,14 @@ def device(runtime,task,s,node,row):
             restart('previous run: app crashed natively on the emulator')
         # A fresh boot settles under load for minutes; an already running device gets a short bound.
         booted_now=lambda:environment['emulator_started']
-        health=settle(system,xml,record,seconds=240 if booted_now() else 60,stable=3 if booted_now() else 1,package=c['package_id'])
-        if blocked(health) and c.get('emulator'):
-            restart(','.join(blocked(health)));health=settle(system,xml,record,seconds=240,stable=3,package=c['package_id'])
+        health=settle(system,xml,record,seconds=240 if booted_now() else 60,stable=3 if booted_now() else 1,package=c['package_id'],allowed=allowed)
+        if blocked(health) and c.get('emulator') and 'restart_emulator' in allowed:
+            restart(','.join(blocked(health)));health=settle(system,xml,record,seconds=240,stable=3,package=c['package_id'],allowed=allowed)
         environment['health']=health
+        needs=sorted({a['action'][len('needs_permission:'):] for a in environment['actions'] if a['action'].startswith('needs_permission:')})
+        if blocked(health) and needs:
+            raise EnvironmentUnusable('Device recovery requires permission not granted for this device: '+','.join(needs)+
+                                      '; blocked by '+','.join(blocked(health))+'. No recovery action was sent.')
         if blocked(health):
             done=sorted({a['action'] for a in environment['actions']})
             raise EnvironmentUnusable('Android device not usable after granted recovery: '+','.join(blocked(health))+'; focus '+
@@ -436,7 +475,7 @@ def device(runtime,task,s,node,row):
         refocus_left[0]-=1
         gone()  # a crashed app is evidence, never a dialog to dismiss and continue past
         from .delivery_device_env import settle
-        settle(system,xml,record,seconds=90)
+        settle(system,xml,record,seconds=90,allowed=allowed)
         return adb('shell','dumpsys','window')
     def alive():
         return bool((probe('shell','pidof',c['package_id']) or '').strip())
@@ -477,7 +516,7 @@ def device(runtime,task,s,node,row):
             if not app_has_focus(windows,c['package_id']):windows=refocus()
             if not app_has_focus(windows,c['package_id']):
                 raise LedgerError('Another window has foreground focus; input refused.')
-        if op=='assert_ui':find_ui(xml(),a['selector'],c['package_id'],viewport,step_evidence)
+        if op=='assert_ui':find_ui(xml(),a['selector'],c['package_id'],viewport,step_evidence,exact)
         if op=='assert_absent':
             if present(xml(),a['selector'],c['package_id']):
                 receipt['failure_kind']='product'
@@ -487,7 +526,7 @@ def device(runtime,task,s,node,row):
             try:area=input_area(tree,c['package_id'],viewport,windows,adb('shell','dumpsys','input_method'))
             except SwipeRefused as unknown:raise LedgerError('Keyboard bounds unknown; input refused.') from unknown
             # The whole target must lie in the reachable area, so a tap never lands on the keyboard.
-            element,(x,y)=find_ui(tree,a['selector'],c['package_id'],area,step_evidence)
+            element,(x,y)=find_ui(tree,a['selector'],c['package_id'],area,step_evidence,exact)
             step_evidence.update(input_area=list(area),point=[x,y])
             if op=='tap':adb('shell','input','tap',str(x),str(y))
             elif op=='type':
@@ -496,7 +535,7 @@ def device(runtime,task,s,node,row):
                 if not isinstance(value,str) or not re.fullmatch(r'[A-Za-z0-9@._:+/-]{1,150}',value):raise LedgerError('Private input unsupported by typed ADB text adapter.')
                 if element.get('class')!='android.widget.EditText':raise LedgerError('Typing requires an editable target.')
                 adb('shell','input','tap',str(x),str(y))
-                focused,_=find_ui(xml(),dict(a['selector'],focused='true'),c['package_id'],viewport)
+                focused,_=find_ui(xml(),dict(a['selector'],focused='true'),c['package_id'],viewport,None,exact)
                 adb('shell','input','keyevent','KEYCODE_MOVE_END')
                 for _ in range(min(len(focused.get('text','')),150)):adb('shell','input','keyevent','KEYCODE_DEL')
                 adb('shell','input','text',value)
@@ -509,7 +548,7 @@ def device(runtime,task,s,node,row):
                     attempts+=1
                     try:
                         # uiautomator can miss a frame during transitions; ADB failures stay fatal.
-                        tree=xml();find_ui(tree,a['selector'],c['package_id'],viewport,step_evidence);break
+                        tree=xml();find_ui(tree,a['selector'],c['package_id'],viewport,step_evidence,exact);break
                     except StepDeadline:
                         break_reason='deadline'
                     except LedgerError as e:
@@ -547,7 +586,7 @@ def device(runtime,task,s,node,row):
                     # Reached means the next tap is safe: the target lies above the keyboard, not merely on screen.
                     area=input_area(tree,c['package_id'],viewport,windows,ime)
                     try:
-                        find_ui(tree,a['selector'],c['package_id'],area,step_evidence)
+                        find_ui(tree,a['selector'],c['package_id'],area,step_evidence,exact)
                         step_evidence['input_area']=list(area);break
                     except SwipeRefused:raise
                     except LedgerError:
@@ -616,10 +655,13 @@ def device(runtime,task,s,node,row):
                 receipt['failure_kind']='selector'
                 receipt['selector_failure']={'step':current['step'],'operation':current['operation'],'reason':e.reason,'matches':e.matches}
                 if current['tree']:
-                    nodes=snapshot(current['tree'],c['package_id'],private.values())
+                    selector=next((s['arguments'].get('selector') for s in v['steps']+v['cleanup'] if s['id']==current['step']),None) or {}
+                    # Exact mode (real device, e.g. HIS): structure and relation to the expected value only, never screen text.
+                    nodes=masked_view(current['tree'],c['package_id'],selector) if exact else snapshot(current['tree'],c['package_id'],private.values())
                     view=directory/('ui-'+str(current['step'])+'.json')
-                    durable_write(view,canonical({'step':current['step'],'package':c['package_id'],'nodes':nodes}).encode())
-                    receipt['ui_snapshot']={'file':str(view),'sha256':file_hash(view),'nodes':len(nodes)}
+                    durable_write(view,canonical({'step':current['step'],'package':c['package_id'],'masked':exact,
+                                                  'selector':selector if exact else None,'nodes':nodes}).encode())
+                    receipt['ui_snapshot']={'file':str(view),'sha256':file_hash(view),'nodes':len(nodes),'masked':exact}
         finally:
             for step in v['cleanup']:
                 try:

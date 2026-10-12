@@ -15,6 +15,15 @@ import xml.etree.ElementTree as ET
 from .ledger import LedgerError
 
 EMULATOR_SERIAL = re.compile(r'emulator-(\d{4})\Z')
+# Recovery actions a device stage may perform. A physical device gets none unless the approved stage lists them;
+# an emulator keeps all (its restart additionally needs `device.emulator`).
+RECOVERY = {
+    'wake_screen': 'adb shell input keyevent KEYCODE_WAKEUP (turns the screen on; no app input)',
+    'dismiss_keyguard': 'adb shell wm dismiss-keyguard (non-secure lock only; a PIN/pattern lock stays)',
+    'system_dialog_wait': 'tap Wait (android:id/aerr_wait) on a system "not responding" dialog of another app',
+    'close_own_crash_dialog': 'tap Close app on the crash dialog of the app under test (its process is already dead)',
+    'restart_emulator': 'adb emu kill + boot of the approved AVD (emulator serial and device.emulator only)',
+}
 AVD_NAME = re.compile(r'[A-Za-z0-9_.-]{1,100}\Z')
 # Focus title of the system "not responding" / crash dialogs (AOSP AppNotRespondingDialog / AppErrorDialog).
 SYSTEM_DIALOG = re.compile(r'Application Not Responding|Application Error|isn.t responding|not responding', re.I)
@@ -25,6 +34,21 @@ BOOT_SECONDS = 300
 
 class EnvironmentUnusable(LedgerError):
     """The device stayed unusable after the bounded, granted recovery actions."""
+
+
+def recovery_grant(c):
+    """Granted recovery actions: the stage's explicit list, else all for an emulator and none for a real device."""
+    if c.get('recovery') is not None: return set(c['recovery'])
+    return set(RECOVERY) if EMULATOR_SERIAL.fullmatch(c.get('serial') or '') else set()
+
+
+def validate_recovery(value, serial):
+    if value is None: return None
+    if not isinstance(value, list) or len(set(value)) != len(value) or set(value) - set(RECOVERY):
+        raise LedgerError('Device recovery must be a list of: ' + ', '.join(sorted(RECOVERY)) + '.')
+    if 'restart_emulator' in value and not EMULATOR_SERIAL.fullmatch(serial or ''):
+        raise LedgerError('restart_emulator applies to an emulator serial only.')
+    return value
 
 
 def validate_emulator(value, serial):
@@ -119,16 +143,27 @@ def answer_system_dialog(call, dump, ids=WAIT_IDS, labels=WAIT_LABELS):
     return True
 
 
-def settle(call, dump, record, seconds=60, pause=5.0, stable=1, package=None):
+def settle(call, dump, record, seconds=60, pause=5.0, stable=1, package=None, allowed=None):
     """Bring the device to a usable foreground with granted, data-preserving actions. Returns the last health.
 
     Usable means `stable` consecutive clean reads; once a system dialog was seen, three. A just-booted
     emulator's System UI hangs repeatedly for a minute or two under boot load (trial 3, smoke 12/10): Wait is
     answered each time inside the bound instead of restarting at the first dialog. Bounded by reads, not time.
-    A leftover crash dialog of the app under test (its process is already dead) is closed and recorded."""
+    A leftover crash dialog of the app under test (its process is already dead) is closed and recorded.
+    allowed: granted recovery actions (None = all). A blocker whose action is not granted is recorded as
+    needs_permission:<action> and nothing is sent."""
+    granted = set(RECOVERY) if allowed is None else set(allowed)
+    def denied(action, state):
+        record('needs_permission:' + action, state['focus']); return state
     clean, seen = 0, False
     for _ in range(max(1, int(seconds / pause))):
         state = health(call, package)
+        if state['app_crash_dialog'] and 'close_own_crash_dialog' not in granted: return denied('close_own_crash_dialog', state)
+        if state['asleep'] and not state['app_crash_dialog'] and 'wake_screen' not in granted: return denied('wake_screen', state)
+        if state['keyguard'] and not (state['app_crash_dialog'] or state['asleep']) and 'dismiss_keyguard' not in granted:
+            return denied('dismiss_keyguard', state)
+        if (state['system_dialog'] and not (state['app_crash_dialog'] or state['asleep'] or state['keyguard'])
+                and 'system_dialog_wait' not in granted): return denied('system_dialog_wait', state)
         if state['app_crash_dialog']:
             closed = answer_system_dialog(call, dump, ('android:id/aerr_close',), ('close app', 'đóng ứng dụng', 'ok'))
             record('app_crash_dialog_closed' if closed else 'app_crash_dialog_open', state['focus'])

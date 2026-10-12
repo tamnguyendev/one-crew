@@ -569,7 +569,8 @@ class CalibrationDeliveryTests(unittest.TestCase):
         scenario = Path(self.tmp.name)/'scenario.json'
         scenario.write_text(json.dumps({'version': 1, 'activity': PKG + '.MainActivity', 'steps': AC3, 'cleanup': []}))
         s['plan']['nodes'].insert(2, {'id': 'device', 'kind': 'device', 'depends': ['review'], 'config': {
-            'optional': False, 'replay_safe': True, 'calibration': 'onecrew', 'scenario': str(scenario), 'scenario_sha256': file_hash(scenario)}})
+            'optional': False, 'replay_safe': True, 'calibration': 'onecrew', 'scenario': str(scenario), 'scenario_sha256': file_hash(scenario),
+            'serial': 'emulator-5554'}})  # calibration exists only in the emulator (tiered) mode
         s['plan']['nodes'][-1]['depends'].append('device')
         s['plan']['acceptance'].append({'id': 'AC3', 'text': 'Device', 'nodes': ['device']})
         s['delivery']['nodes']['device'] = {'phase': 'pending', 'generation': 0, 'receipt': None, 'child': None}

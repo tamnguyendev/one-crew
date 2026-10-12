@@ -17,6 +17,8 @@ POLICY = {
     'review': ('repair', 2),
     # A selector of a OneCrew-planned scenario that did not resolve on the live UI: recalibrate from its snapshot.
     'scenario_selector': ('calibrate', 2),
+    # A pinned exact selector that does not match on a real device: stop at once with masked evidence.
+    'selector_mismatch': ('ask', 0),
     'side_effect_unknown': ('reconcile', 1),
     'decision_pending': ('wait', 0),
     'permission': ('ask', 0),
@@ -35,7 +37,8 @@ MESSAGES = [
     (r'deadline exhausted|budget exhausted|call cap|calls? exhausted|quota|continuation bound exhausted', 'budget'),
     (r'solution decision pending|pending question|pending root question|resolve the child question', 'decision_pending'),
     (r'stopped by a solution decision|approval is missing|requires a bound approved solution|exceeds the dispatch grant|'
-     r'private references must be outside|outside the approved envelope|device permission expired', 'permission'),
+     r'private references must be outside|outside the approved envelope|device permission expired|'
+     r'requires permission not granted', 'permission'),
     (r'source drift|source changed|source differs|external edits|toolchain/scenario changed|changed since approval|'
      r'private (configuration|scenario inputs) changed|apk changed', 'drift'),
     (r'provider did not complete|supervisor_interrupted|interrupted native operation|prior launch must be reconciled|'
@@ -130,6 +133,8 @@ def classify_receipt(node, receipt):
         # Only a scenario OneCrew planned is recalibrated, and only when rerunning it is safe.
         failure=receipt.get('selector_failure') or {}
         rerun=node['config'].get('replay_safe') or not receipt.get('steps')
+        if receipt.get('selector_mode')=='exact':
+            return 'selector_mismatch',{'step':failure.get('step'),'reason':failure.get('reason')}
         if node['config'].get('calibration')=='onecrew' and rerun and not receipt.get('uncertain'):
             return 'scenario_selector',{'step':failure.get('step'),'reason':failure.get('reason')}
         return 'device_assertion',normalize(receipt.get('detail'))
@@ -221,6 +226,8 @@ GUIDANCE = {
     'decision_needed':'Reviewer cần thông tin hoặc quyết định nghiệp vụ.',
     'device_assertion':'Kịch bản thiết bị không đạt ở bước kiểm tra. Có thể do sản phẩm, kịch bản hoặc thiết bị; cần người dùng xem.',
     'scenario_selector':'Selector của kịch bản vẫn không khớp UI thật sau số lần OneCrew tự hiệu chỉnh cho phép. Xem ảnh chụp UI trong bằng chứng.',
+    'selector_mismatch':('Selector ghim (khớp chính xác) không khớp UI trên thiết bị thật. OneCrew không tự hiệu chỉnh và không gửi dữ '
+                         'liệu màn hình cho model. Bằng chứng đã che (ui-<bước>.json): cấu trúc node và mức khớp so với giá trị mong đợi.'),
     'runtime_bug':'Lỗi runtime OneCrew. Cần sửa runtime; mọi can thiệp sẽ được ghi lại.',
     'unknown':'Lỗi chưa phân loại được.',
 }

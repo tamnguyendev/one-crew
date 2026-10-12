@@ -83,6 +83,29 @@ OneCrew được tự boot (headless, đúng port của `serial`), khởi độn
 và tắt emulator do chính nó boot sau khi stage thiết bị đạt. Chỉ hợp lệ với serial
 `emulator-<port chẵn 5554–5682>`; thiết bị thật không bao giờ bị reboot/cấu hình lại.
 
+## Thiết bị thật (A54/HIS): selector ghim, khớp chính xác; phục hồi chỉ khi được cấp quyền
+
+Mặc định cho mọi serial **không phải** `emulator-<port>` (áp dụng cả cho task đã niêm phong trước đây, không cần sửa plan):
+
+- `selectors: exact` — mỗi khoá selector phải bằng đúng thuộc tính như viết (không tầng nới lỏng, không suy `text` ra
+  `content-desc`, giá trị rỗng hợp lệ cho nút icon). Không hiệu chỉnh kịch bản, không gửi bất kỳ dữ liệu màn hình nào cho model
+  (bước hiệu chỉnh tự từ chối ở chế độ này). Selector không khớp → lớp `selector_mismatch` → **dừng ngay, một câu hỏi**, không
+  thử lại, không nhập thêm. Bằng chứng `ui-<bước>.json` đã che: chỉ cấu trúc node (class, resource-id, cờ, bounds), độ dài nhãn
+  và quan hệ với giá trị mong đợi (`equal`/`casefold`/`contains`/`none`) — không có chữ trên màn hình.
+- `recovery` — danh sách thao tác phục hồi được phép; thiết bị thật mặc định **không có**. Thiếu quyền → không gửi lệnh nào,
+  lỗi `permission` (một câu hỏi) nêu đúng quyền cần cấp.
+
+| Quyền (`device.recovery`) | Lệnh | Tác động |
+|---|---|---|
+| `wake_screen` | `adb shell input keyevent KEYCODE_WAKEUP` | bật màn hình; không nhập vào app |
+| `dismiss_keyguard` | `adb shell wm dismiss-keyguard` | gỡ khoá không mật khẩu; khoá PIN/mẫu vẫn giữ |
+| `system_dialog_wait` | tap `android:id/aerr_wait` | bấm Wait trên hộp thoại "not responding" của app khác; không bao giờ Close |
+| `close_own_crash_dialog` | tap `android:id/aerr_close` | đóng hộp thoại crash của chính app đang kiểm (tiến trình đã chết) |
+| `restart_emulator` | `adb emu kill` + boot AVD | chỉ serial emulator và khi có `device.emulator`; thiết bị thật không bao giờ reboot |
+
+Emulator giữ mặc định cũ (`tiered` + mọi quyền) để trial sandbox chạy được; có thể khai rõ trong envelope để thu hẹp.
+Khai báo trong envelope: `"selectors": "exact"`, `"recovery": ["wake_screen"]` (ví dụ); `covers()` so khớp đúng hai trường này.
+
 ## Thiết bị: môi trường và selector trên UI thật (đợt 2, `delivery_device_env.py`, `delivery_calibrate.py`)
 
 - **Môi trường.** Trước khi cài APK và khi app mất focus giữa kịch bản, OneCrew đọc `dumpsys window/power`
