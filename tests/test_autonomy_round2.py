@@ -73,23 +73,25 @@ class DecisionProvenanceTests(unittest.TestCase):
     """Codex review 2026-10-12: Claude deciding retry under delegation was still autonomous_complete."""
     reply = [{'actor': 'claude', 'channel': 'cli', 'command': 'request.reply'}]
 
+    # Provenance v2 (A2, 12/10): a fixture plan without loop stages is plan_complete, so assistance is read on its own
+    # level; a legacy 'entry' count is an undelegated entry decision.
     def test_entry_decision_under_delegation_is_assisted(self):
         task = done(decisions_answered=1, interventions=self.reply, decisions_by_source={'user': 0, 'relayed': 0, 'entry': 1, 'unknown': 0})
-        self.assertEqual(sc.outcome(task), ('assisted_complete', ['entry_decision']), 'RED-ENTRY-DECISION: entry decision scored autonomous')
+        self.assertEqual(sc.assistance_level(task), ('assisted', ['entry_undelegated_decision']), 'RED-ENTRY-DECISION: entry decision scored autonomous')
 
     def test_relayed_user_decision_is_assisted_not_autonomous(self):
         task = done(decisions_answered=1, interventions=self.reply, decisions_by_source={'user': 0, 'relayed': 1, 'entry': 0, 'unknown': 0})
-        self.assertEqual(sc.outcome(task), ('assisted_complete', ['entry_relayed_decision']))
+        self.assertEqual(sc.assistance_level(task), ('assisted', ['entry_relayed_decision']))
 
     def test_unattributed_answer_is_unknown(self):
         # Legacy shape (no per-answer provenance): an answered decision whose decider cannot be shown.
         task = done(decisions_answered=1, interventions=self.reply)
-        self.assertEqual(sc.outcome(task), ('unknown', ['decision_provenance_unknown']), 'RED-UNATTRIBUTED-DECISION')
+        self.assertEqual(sc.assistance_level(task), ('unknown', ['decision_provenance_unknown']), 'RED-UNATTRIBUTED-DECISION')
 
     def test_users_own_answer_keeps_autonomy(self):
         task = done(decisions_answered=1, interventions=[{'actor': 'user', 'channel': 'cli', 'command': 'request.reply'}],
                     decisions_by_source={'user': 1, 'relayed': 0, 'entry': 0, 'unknown': 0})
-        self.assertEqual(sc.outcome(task), ('autonomous_complete', []))
+        self.assertEqual(sc.assistance_level(task), ('autonomous', []))
 
     def test_ledger_cli_and_observation_record_who_decided(self):
         from onecrew.cli import main
@@ -112,7 +114,8 @@ class DecisionProvenanceTests(unittest.TestCase):
             self.assertEqual((receipt['by'], receipt['decided_by']), ('claude', 'entry'))
             with self.assertRaises(LedgerError): ledger.reply(ids[0], 'x', 'retry', decided_by='boss')
             seen = observe(state, [task['id']])['tasks'][0]['metrics']
-            self.assertEqual(seen['decisions_by_source'], {'user': 0, 'relayed': 1, 'entry': 1, 'unknown': 1})
+            # A relay without the user's quote is unknown; an entry decision without a delegation is undelegated.
+            self.assertEqual(seen['decisions_by_source'], {'user': 0, 'relayed': 0, 'delegated': 0, 'undelegated': 1, 'observed': 0, 'unknown': 2})
 
 
 class LiveSelectorTests(unittest.TestCase):

@@ -25,7 +25,8 @@ def main(argv=None):
               '  solution   propose / review / diff / select / approve / request-changes / bind\n'
               '  consultation route / submit / start / show / cancel / reconcile / feedback\n'
               '  learning   outcomes / lessons / propose (evidence only; no automatic routing promotion)\n'
-              '  eval       cases / replay / compare / observe / assistance (evidence, no auto-promotion)\n'
+              '  eval       cases / replay / compare / observe / scorecard / assistance / trial (evidence, no auto-promotion)\n'
+              '  delegation grant / list / revoke (user delegation evidence; never widens a grant)\n'
               '  skills     list / scan / review / approve / reject (recurring-task evidence)\n'
               '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
               '  delivery   submit / start / resume / status / cancel (solution-level execution)\n'
@@ -41,6 +42,9 @@ def main(argv=None):
     if len(args)>index and args[index]=='eval':
         from .evaluation import main as eval_main
         return eval_main(args)
+    if len(args)>index and args[index]=='delegation':
+        from .delegations import main as delegation_main
+        return delegation_main(args)
     if len(args)>index and args[index]=='desktop':
         from .desktop_notifications import main as desktop_main
         return desktop_main(args)

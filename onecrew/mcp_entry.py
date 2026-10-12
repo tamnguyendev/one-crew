@@ -28,8 +28,10 @@ TOOLS={
             'max_seconds':{'type':'integer','minimum':1,'maximum':28800},
             'image':STRING,'branch':STRING,'remote':STRING,'solution_id':STRING,'solution_revision':STRING},('goal','request_key'))),
     'reply':('Record an answer to the current request revision. Silence/skip is not an answer. Does not extend budget or grant new permissions. '
-        'decided_by: "user" when the user made this decision (cite their message in reference), "entry" when the entry decided under delegation.',
-        schema({'request':STRING,'revision':STRING,'choice':STRING,'reference':STRING,'decided_by':{'type':'string','enum':['user','entry']}},
+        'decided_by: "user" when the user made this decision (cite their message in reference), "entry" when the entry decided under delegation. '
+        'user_quote: the user\'s own words (a relay needs it; only a hash is stored). delegation: DLG- id covering an entry decision.',
+        schema({'request':STRING,'revision':STRING,'choice':STRING,'reference':STRING,'decided_by':{'type':'string','enum':['user','entry']},
+                'user_quote':STRING,'quote_kind':{'type':'string','enum':['chat','window','cli']},'delegation':STRING},
                ('request','revision','choice','reference'))),
     'resume':('Resume an authorized task without resetting counters/deadline; pending questions still block.',TASK),
     'cancel':('Request task cancellation. Read status to distinguish requested from confirmed.',TASK),
@@ -123,8 +125,11 @@ class Server:
             self.note(result['id'],name,{'runner':runner.get('status')},key='submit')
             return dict(result,runner=runner)
         if name=='reply':
+            from .delegations import decision,decision_class
+            provenance=decision(self.ledger,self.actor(),args.get('decided_by'),args.get('user_quote'),args.get('quote_kind'),
+                                args.get('delegation'),decision_class(self.ledger.request(args['request'])['question']))
             result=self.ledger.reply(args['request'],args['revision'],args['choice'],self.source,args['reference'],
-                                     decided_by=args.get('decided_by'),by=self.actor())
+                                     decided_by=provenance['decided_by'],by=self.actor(),decision=provenance)
             from .keeper import after_reply
             try: task=self.ledger.request(args['request'])['task_id']
             except (ValueError,OSError): return result  # the answer is recorded; evidence is best-effort

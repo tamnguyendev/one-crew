@@ -2,6 +2,8 @@
 import collections
 import re
 
+from .decision_provenance import SOURCES, normalized
+from .eval_completion import COMPLETION_LEVELS, completed_level
 from .eval_observe import label, observe
 from .ledger import LedgerError, content_hash, utcnow
 
@@ -11,30 +13,42 @@ CHANGES = {'regressed', 'capability_added', 'recovered', 'inconclusive', 'unchan
 # OneCrew's own processes are not the entry. Every other mutating command is entry assistance.
 DECISIONS = {'reply', 'answer', 'defer'}
 HANDOFF = {'submit', 'start'}
+# Recording evidence of help (eval assistance) is not itself help; the recorded assistance already counts.
+EVIDENCE = {'assistance'}
 RUNTIME = {'onecrew', 'keeper'}
 # Runner starts by these initiators are OneCrew's own continuation: keeper/reply restart the root and the
 # root coordinator starts its children as 'onecrew'. Any other launcher, 'unknown' included, is the entry.
 CONTINUATION = {'keeper', 'reply', 'onecrew'}
 UNRECORDED = 'unrecorded'
 ROLES = ('entry', 'decision', 'handoff', 'runtime')
-OUTCOMES = ('autonomous_complete', 'assisted_complete', 'partial_complete', 'correct_block', 'incomplete', 'unknown')
-COMPLETION_LEVELS = ('complete', 'partial', 'blocked', 'incomplete', 'unknown')
+OUTCOMES = ('autonomous_full_loop', 'assisted_full_loop', 'plan_complete', 'partial_complete', 'tests_only',
+            'correct_block', 'incomplete', 'unknown')
 ASSISTANCE_LEVELS = ('autonomous', 'assisted', 'unknown')
 LIMITS = ['Axes are separate: no combined score, rate or ranking is derived from them.',
           'Axis 1 replays known historical fixtures; it never counts toward task completion.',
           'Axes 2-3 read recorded ledger state only; no unit test or replay count enters them.',
           'Unknown provenance, runtime trace or intervention trace is never treated as autonomous.',
-          'Completion level and assistance level are judged separately; only complete+autonomous is autonomous_complete.',
-          'A completed phase with partial verification, criteria not passed or skipped nodes is partial, never complete.',
-          'Answered user decisions and the initial submit/start handoff are reported separately from entry interventions.',
-          'An answer is a user decision only with positive provenance; entry-decided or entry-relayed answers are assistance, unattributed ones unknown.',
+          'Completion level and assistance level are judged separately; only full_loop+autonomous is autonomous_full_loop.',
+          'Full loop: every loop stage of the project kind in the plan, passed, not skipped and run on the final source; '
+          'a verified unpushed commit where the kind requires one; the handover report; the final notice shown.',
+          'A completed phase with partial verification, criteria not passed or skipped nodes is partial; no build/E2E is tests_only.',
+          'Answered user decisions and the first SOL approval and submit/start handoff are reported separately from entry interventions; a repeated handoff is assistance.',
+          'An answer is a user decision only with positive provenance; relayed (with a hash of the user words), delegated '
+          '(covered by a recorded delegation) and undelegated entry decisions are assistance, unattributed ones unknown.',
           'No reasons, prompts, reports or private values are exported.']
 
 
 def role(intervention):
     words = set(re.split(r'[^a-z]+', intervention['command'].lower()))
     return ('runtime' if intervention['actor'] in RUNTIME else 'decision' if words & DECISIONS
-            else 'handoff' if words & HANDOFF else 'entry')
+            else 'handoff' if words & HANDOFF else 'evidence' if words & EVIDENCE else 'entry')
+
+
+def repeated_handoff(interventions):
+    """Only the first submit and the first start are the handoff; any repeat is the entry acting again."""
+    seen = collections.Counter(word for i in interventions if role(i) == 'handoff'
+                               for word in set(re.split(r'[^a-z]+', i['command'].lower())) & HANDOFF)
+    return any(n > 1 for n in seen.values())
 
 
 def classified(counts):
@@ -57,10 +71,10 @@ def runtime_axis(comparison):
 
 
 def decisions(m):
-    """Answered decisions by source. A count without per-answer provenance is all 'unknown'."""
-    by = m.get('decisions_by_source')
-    if isinstance(by, dict) and sum(by.values()) == (m.get('decisions_answered') or 0): return by
-    return {'user': 0, 'relayed': 0, 'entry': 0, 'unknown': m.get('decisions_answered') or 0}
+    """Answered decisions by source (legacy 'entry' reads as undelegated). A count without per-answer provenance is all 'unknown'."""
+    by = normalized(m.get('decisions_by_source'))
+    if by is not None and sum(by.values()) == (m.get('decisions_answered') or 0): return by
+    return dict(dict.fromkeys(SOURCES, 0), unknown=m.get('decisions_answered') or 0)
 
 
 def assistance_level(t):
@@ -71,17 +85,24 @@ def assistance_level(t):
     m = t['metrics']
     entry = [i for i in m['interventions'] or [] if role(i) == 'entry']
     restarts, children = (set(m[k] or ()) for k in ('coordinator_restarts_by_initiator', 'child_starts_by_initiator'))
-    decided = decisions(m)
+    decided, approval, trial = decisions(m), m.get('handoff_approval'), t.get('trial') or {}
+    repeats = sum(n for source, n in (m.get('repeat_approvals') or {}).items() if source != 'user')
     assisted = [code for code, hit in (('entry_intervention', bool(entry)), ('entry_restart', bool(restarts-CONTINUATION-{UNRECORDED})),
                 ('entry_child_start', bool(children-CONTINUATION-{UNRECORDED})), ('entry_plan', m['plan_provenance'] == 'entry'),
-                ('entry_decision', decided['entry'] > 0), ('entry_relayed_decision', decided['relayed'] > 0),
+                ('entry_relayed_decision', decided['relayed'] > 0), ('entry_delegated_decision', decided['delegated'] > 0),
+                # An approval the entry made itself is never the user's handoff (approvals are not delegable).
+                ('entry_undelegated_decision', decided['undelegated'] > 0 or approval in ('delegated', 'undelegated')),
+                ('repeat_handoff', repeated_handoff(m['interventions'] or []) or repeats > 0),
                 ('runtime_changed', (m['runtime_revisions'] or 0) > 1), ('assistance_recorded', t['assistance'] == 'recorded')) if hit]
+    assisted += [code for code in trial.get('assisted', ()) if code not in assisted]
     if assisted: return 'assisted', assisted
     missing = [code for code, hit in (('plan_provenance_unknown', m['plan_provenance'] != 'onecrew'),
                ('runtime_trace_missing', m['runtime_revisions'] is None),
                ('intervention_trace_missing', m['interventions'] is None),
                ('start_initiator_missing', UNRECORDED in restarts | children),
-               ('decision_provenance_unknown', decided['unknown'] > 0)) if hit]
+               ('decision_provenance_unknown', decided['unknown'] > 0 or approval == 'unknown'),
+               ('trial_unpinned', not t.get('trial') and bool(t.get('trial_claimed')))) if hit]
+    missing += [code for code in trial.get('unknown', ()) if code not in missing]
     return ('unknown', missing) if missing else ('autonomous', [])
 
 
@@ -97,7 +118,7 @@ def completion_level(t):
                      ('criteria_not_passed', any(v not in ('passed', 'not_run') for v in criteria.values())),
                      ('nodes_skipped', any(v.get('skipped') for v in nodes.values())),
                      ('nodes_not_passed', any(v.get('phase') != 'passed' for v in nodes.values()))) if hit]
-        return ('partial', gaps) if gaps else ('complete', [])
+        return completed_level(t, gaps)
     if phase in ('blocked', 'waiting'):
         if not m['pending_escalations']: return 'incomplete', ['no_pending_escalation']
         if not (classified(m['pending_escalations']) and classified(m['failure_classes'])): return 'incomplete', ['no_classified_failure']
@@ -109,12 +130,12 @@ def outcome(t):
     """Class plus reason codes; both levels stay visible in completion()."""
     level, gaps = completion_level(t)
     helped, reasons = assistance_level(t)
-    if level == 'complete':
-        if helped == 'autonomous': return 'autonomous_complete', []
-        return ('assisted_complete', reasons) if helped == 'assisted' else ('unknown', reasons)
+    if level == 'full_loop':
+        if helped == 'autonomous': return 'autonomous_full_loop', []
+        return ('assisted_full_loop', reasons) if helped == 'assisted' else ('unknown', reasons)
     if level == 'partial': return 'partial_complete', gaps
     if level == 'blocked': return 'correct_block', []
-    return level, gaps
+    return level, gaps  # plan_complete, tests_only, incomplete and unknown keep their own name
 
 
 def completion(t):
@@ -155,9 +176,11 @@ def dependencies(t):
             'decisions_by_source':decisions(m)}
 
 
-def scorecard(state_root, task_ids, comparison=None):
+def scorecard(state_root, task_ids, comparison=None, claim_trials=False):
+    """claim_trials: the tasks are presented as pinned trials, so a task without a trial record is unknown."""
     runtime = runtime_axis(comparison)
     observed = observe(state_root, task_ids)
+    for t in observed['tasks']: t['trial_claimed'] = bool(claim_trials)
     completed = [completion(t) for t in observed['tasks']]
     return {'version':1, 'type':'task_scorecard', 'created_at':utcnow(), 'ledger_identity':observed['ledger_identity'],
             'ledger_max_seq':observed['ledger_max_seq'], 'tasks':list(task_ids), 'combined_score':None, 'product_autonomy_rate':None,

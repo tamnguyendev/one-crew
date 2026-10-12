@@ -383,15 +383,19 @@ class Ledger:
                 revision=revision,source=source,reference=reference,answer_recorded=False))
             return self._request_view(row)
 
-    def reply(self, request_id, revision, choice, source='terminal', reference='local user input', *, decided_by=None, by=None):
+    def reply(self, request_id, revision, choice, source='terminal', reference='local user input', *, decided_by=None, by=None, decision=None):
         """decided_by: who made the decision ('user' or 'entry'); by: the attributed actor that sent it.
-        Both are evidence only; an unstated decider stays unknown and is never read as the user's."""
+        Both are evidence only; an unstated decider stays unknown and is never read as the user's.
+        decision: provenance v2 (channel, user_reference hash, delegation, decision_class) from delegations.decision."""
         text_field(source, 'source', 200)
         text_field(reference, 'reference')
         if decided_by not in (None, 'user', 'entry'):
             raise LedgerError('decided_by must be user or entry.')
         if by is not None and (not isinstance(by, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,39}', by)):
             raise LedgerError('Invalid reply actor.')
+        if decision is not None:
+            from .delegations import validate_decision
+            decision = {k: v for k, v in validate_decision(decision).items() if k in ('channel', 'user_reference', 'delegation', 'decision_class')}
         with self.transaction(write=True) as conn:
             row = self._request(conn, request_id)
             if revision != row['revision']:
@@ -407,7 +411,8 @@ class Ledger:
             receipt = {'id': 'REPLY-' + uuid.uuid4().hex, 'request_id': request_id,
                        'revision': revision, 'choice': choice, 'recorded_at': utcnow(),
                        'provenance': {'actor': getpass.getuser(), 'source': source, 'reference': reference,
-                                      'trust': 'local_attribution_only', 'by': by, 'decided_by': decided_by}, 'action_applied': False}
+                                      'trust': 'local_attribution_only', 'by': by, 'decided_by': decided_by, **(decision or {})},
+                       'action_applied': False}
             conn.execute("UPDATE requests SET state='answered',answer=?,updated_at=? WHERE id=? AND state='pending' AND revision=?",
                          (canonical(receipt), receipt['recorded_at'], request_id, revision))
             self._event(conn, row['task_id'], 'request.answered', receipt)

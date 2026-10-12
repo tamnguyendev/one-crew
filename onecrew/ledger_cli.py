@@ -47,6 +47,10 @@ def parser():
             command.add_argument('--choice', required=True)
             # Evidence for the scorecard: the user's own decision (typed by them or relayed) vs the entry deciding.
             command.add_argument('--decided-by', choices=('user', 'entry'), default=None)
+            # A relay needs the user's words (stored as a hash); an entry decision may cite a recorded delegation.
+            command.add_argument('--user-quote', help="The user's own words for this decision (relay); only a hash is stored.")
+            command.add_argument('--quote-kind', choices=('chat', 'window', 'cli'), default=None)
+            command.add_argument('--delegation', help='DLG- id of a recorded delegation covering this entry decision.')
         if name in ('reply','defer'):
             command.add_argument('--source', default='terminal')
             command.add_argument('--reference', default='local user input')
@@ -75,14 +79,20 @@ def execute(args):
         return {'requests': ledger.requests(args.task, args.pending)}
     if args.command == 'reply':
         from .interventions import actor, note
+        from .delegations import decision, decision_class
+        by = actor()
+        provenance = decision(ledger, by, args.decided_by, args.user_quote, args.quote_kind, args.delegation,
+                              decision_class(ledger.request(args.id)['question']))
+        if provenance['channel'] == 'entry_relay' and not provenance['user_reference']:
+            print("Relay without --user-quote: scored as unknown provenance.", file=sys.stderr)
         receipt = ledger.reply(args.id, args.revision, args.choice, args.source, args.reference,
-                               decided_by=args.decided_by, by=actor())
+                               decided_by=provenance['decided_by'], by=by, decision=provenance)
         from .keeper import after_reply
         try:
             task = ledger.request(args.id)['task_id']
         except (ValueError, OSError, sqlite3.Error):
             return receipt  # the answer is recorded; evidence and continuation are best-effort
-        evidence = note(ledger, task, 'request.reply', key=receipt['id'],
+        evidence = note(ledger, task, RECORDED[('request', 'reply')], key=receipt['id'],
                         details={'request': args.id, 'choice': args.choice, 'decided_by': args.decided_by})
         if evidence.get('recorded') is False:
             print('Intervention not recorded: ' + evidence['error'], file=sys.stderr)
@@ -91,6 +101,24 @@ def execute(args):
     if args.command == 'defer':
         return ledger.defer(args.id, args.revision, args.source, args.reference)
     return ledger.request(args.id)
+
+
+READ_ONLY = {('task', 'queue'), ('task', 'status'), ('task', 'connect'), ('task', 'events'), ('request', 'list'), ('request', 'show')}
+RECORDED = {('task', 'submit'): 'task.submit', ('request', 'create'): 'request.create', ('request', 'revise'): 'request.revise',
+            ('request', 'defer'): 'request.defer', ('request', 'reply'): 'request.reply'}
+SELF_RECORDED = {('request', 'reply')}  # keyed by its receipt before the continuation starts
+
+
+def record(args, result):
+    """Mutating commands are interventions (ONECREW_ACTOR); replays of an idempotent command record once."""
+    leaf = (args.group, args.command)
+    if leaf not in RECORDED or leaf in SELF_RECORDED:
+        return
+    from .interventions import cli_note
+    task = result.get('task_id') or result.get('id')
+    key = ('submit' if args.command == 'submit' else 'create:' + str(result.get('id')) if args.command == 'create'
+           else 'revise:' + str(result.get('id')) + ':' + str(result.get('revision')) if args.command == 'revise' else None)
+    cli_note(Ledger(args.project, args.state_root), RECORDED[leaf], [task], key=key)
 
 
 def human(result):
@@ -139,6 +167,7 @@ def main(argv=None):
     args = parser().parse_args(argv)
     try:
         result = execute(args)
+        record(args, result)
         print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else human(result))
         return 0
     except (ValueError, SpecError, OSError, sqlite3.Error, RecursionError) as error:

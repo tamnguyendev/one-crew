@@ -188,7 +188,9 @@ class LedgerTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=4) as pool:
             tasks = list(pool.map(submit, range(4)))
         self.assertEqual(len({t['id'] for t in tasks}), 1)
-        self.assertEqual(len(self.ledger.events(tasks[0]['id'])), 1)
+        # Every mutating CLI command is recorded (A2, 12/10); a replayed submit is the same single intervention.
+        kinds = [e['kind'] for e in self.ledger.events(tasks[0]['id'])]
+        self.assertEqual(sorted(kinds), ['control.intervention', 'task.submitted'])
 
     def test_conflicting_process_replies_have_one_winner(self):
         task, request = self.question()

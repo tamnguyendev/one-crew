@@ -164,18 +164,23 @@ def show_solution(ledger,sid):
         return sol
 
 
-def decide(ledger,sid,revision,choice,source,reference):
+def decide(ledger,sid,revision,choice,source,reference,decision=None):
+    """decision: provenance v2 (who decided, relay reference hash); kept on the decision event, scored by the eval."""
     if choice not in ('approve','request_changes'):raise LedgerError('Invalid solution decision.')
     clean(source,'source',100);clean(reference,'actual user reference',1000)
+    from .delegations import validate_decision
+    decision=validate_decision(decision)
     with ledger.transaction(write=True) as conn:
         sol=_solution(ledger,conn,sid,revision);row=_row(ledger,conn,sol['conversation'])
         if row['current_solution']!=sid:raise LedgerError('Cannot decide an outdated solution.')
         if choice=='approve' and sol['payload']['questions']:raise LedgerError('Resolve solution questions before approval.')
         old=conn.execute('SELECT * FROM solution_decisions WHERE solution=? ORDER BY rowid DESC LIMIT 1',(sid,)).fetchone()
-        if old and all(old[k]==v for k,v in dict(revision=revision,choice=choice,source=source,reference=reference).items()):return dict(old)
+        if old and all(old[k]==v for k,v in dict(revision=revision,choice=choice,source=source,reference=reference).items()):
+            event=conn.execute("SELECT payload FROM conversation_events WHERE request_key=? AND kind='solution.decision'",(old['id'],)).fetchone()
+            return dict(old,decision=json.loads(event['payload']).get('decision') if event else None)
         did='DEC-'+uuid.uuid4().hex
         conn.execute('INSERT INTO solution_decisions VALUES(?,?,?,?,?,?,?)',(did,sid,revision,choice,source,reference,utcnow()))
-        result=dict(conn.execute('SELECT * FROM solution_decisions WHERE id=?',(did,)).fetchone())
+        result=dict(conn.execute('SELECT * FROM solution_decisions WHERE id=?',(did,)).fetchone(),decision=decision)
         _event(conn,sol['conversation'],did,'solution.decision',result);return result
 
 

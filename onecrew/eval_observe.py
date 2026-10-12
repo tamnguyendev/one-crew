@@ -16,7 +16,7 @@ NODE_GATES = {'regression':'tests','review':'review','build':'build','apk_audit'
 FAILURE_CLASSES = (set(POLICY) | set(GUIDANCE)) - {'unknown'}
 IDENT = re.compile(r'[A-Za-z][A-Za-z0-9_-]{0,49}\Z')
 LABEL = re.compile(r'[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,63}\Z')
-SIGNALS = ('runner.started','coordinator.restarted','control.intervention','request.answered')
+SIGNALS = ('runner.started','coordinator.restarted','control.intervention','request.answered','request.resolved')
 
 
 def reference(row):
@@ -100,23 +100,19 @@ def pending_questions(conn, task):
 
 
 ENTRY_ACTORS = ('claude', 'codex', 'other-entry')
-DECISION_SOURCES = ('user', 'relayed', 'entry', 'unknown')
+from .decision_provenance import SOURCES as DECISION_SOURCES  # noqa: E402  user/relayed/delegated/undelegated/observed/unknown
 
 
-def decision_source(receipt, sender=None):
-    """Who decided one recorded answer: the user directly, the user relayed by an entry, or the entry itself.
+def decision_source(receipt, sender=None, delegations=None):
+    """Who decided one recorded answer (provenance v2, decision_provenance.source).
 
     'by' is the attributed sender (legacy receipts fall back to the reply's intervention record) and
     'decided_by' the declared decider. Anything not positively attributable stays 'unknown'."""
-    provenance = receipt.get('provenance') if isinstance(receipt, dict) and isinstance(receipt.get('provenance'), dict) else {}
-    by, decided = provenance.get('by') or sender, provenance.get('decided_by')
-    if decided == 'entry': return 'entry'
-    if by == 'user': return 'user'
-    if decided == 'user' and by in ENTRY_ACTORS: return 'relayed'
-    return 'unknown'
+    from .decision_provenance import receipt_source
+    return receipt_source(receipt, sender, delegations)
 
 
-def signals(rows, root):
+def signals(rows, root, delegations=None):
     """Runtime-recorded restarts, revisions, interventions and decisions; never reason text."""
     trees, starts, children, restarted, interventions, answered = set(), [], collections.Counter(), 0, [], 0
     replies, senders = [], {}
@@ -144,7 +140,7 @@ def signals(rows, root):
             'child_starts_by_initiator':dict(children) if traced or children else None,
             'interventions':interventions if traced or interventions else None,
             'decisions_answered':answered,
-            'decisions_by_source':{k:sum(decision_source(r, senders.get(r.get('id'))) == k for r in replies) for k in DECISION_SOURCES}}
+            'decisions_by_source':{k:sum(decision_source(r, senders.get(r.get('id')), delegations) == k for r in replies) for k in DECISION_SOURCES}}
 
 
 def project_state(state):
@@ -261,7 +257,10 @@ def observe(state_root, task_ids):
                 metrics['managed_calls']=total
                 metrics['calls_scope']='parent-and-children'
             metrics['entry_repairs'] = len(repairs)
-            metrics.update(signals(conn.execute(f"SELECT task_id,kind,payload FROM events WHERE task_id IN ({marks}) AND kind IN ({','.join('?' for _ in SIGNALS)}) ORDER BY seq",members+list(SIGNALS)),task))
+            from . import decision_provenance, delegations as dlg, eval_completion, eval_trials
+            granted = dlg.load(conn)
+            metrics.update(signals(conn.execute(f"SELECT task_id,kind,payload FROM events WHERE task_id IN ({marks}) AND kind IN ({','.join('?' for _ in SIGNALS)}) ORDER BY seq",members+list(SIGNALS)),task,granted))
+            decision_provenance.merge(metrics, decision_provenance.contract_decisions(conn, members, granted))
             # Same identity desktop_notifications.snapshots uses: pending questions (root, then
             # children in its query order) define a decision episode, else the current phase run.
             notice = None
@@ -294,6 +293,7 @@ def observe(state_root, task_ids):
                                     'entry_events':dict(collections.Counter(e['kind'] for e in entries)),
                                     'pending_requests':pending, 'phase_episodes':phases, 'delivery':delivery_summary(state),
                                     'evidence':list({r['seq']:r for r in evidence}.values()),'windows':notice,'gaps':gaps,
+                                    'loop':eval_completion.evidence(state,notice),'trial':eval_trials.evidence(conn,task,members),
                                     'required_next_evidence':gaps+([] if metrics['skip_coverage']=='recorded' else ['test_case_counts_and_skips'])+['prospective_intervention_trace']})
     finally:
         conn.close()

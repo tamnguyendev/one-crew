@@ -94,17 +94,22 @@ def question(ledger,cid,key,text,reason,affected_tasks,source,kind='solution_cha
         c._event(conn,cid,key,'question.created',result);return result
 
 
-def reply(ledger,qid,revision,choice,source,reference,solution=None,solution_revision=None):
+def reply(ledger,qid,revision,choice,source,reference,solution=None,solution_revision=None,decision=None):
+    """decision: provenance v2 of who answered; stored with the answer, never part of its identity on replay."""
     c.clean(source,'source',100);c.clean(reference,'actual user reference',1000)
     if choice not in ('continue_unchanged','stop','revise_solution'):raise LedgerError('Invalid discussion answer.')
+    from .delegations import validate_decision
     answer=dict(choice=choice,source=source,reference=reference,solution=solution,solution_revision=solution_revision)
+    decision=validate_decision(decision)
     with ledger.transaction(write=True) as conn:
         row=conn.execute('SELECT q.* FROM conversation_questions q JOIN conversations c ON c.id=q.conversation WHERE q.id=? AND c.project_id=?',(qid,ledger.project_id)).fetchone() if c.installed(conn) else None
         if not row or row['revision']!=revision:raise LedgerError('Unknown or stale discussion request.')
-        if row['state']!='pending':
-            if json.loads(row['answer'])!=answer:raise LedgerError('Request already answered differently.')
-            return dict(id=qid,answer=answer,state='answered')
         payload=json.loads(row['payload'])
+        if row['state']!='pending':
+            stored=json.loads(row['answer'])
+            if {k:v for k,v in stored.items() if k!='decision'}!=answer:raise LedgerError('Request already answered differently.')
+            return dict(id=qid,answer=stored,state='answered',affected_tasks=payload['affected_tasks'])
+        answer['decision']=decision
         if choice=='revise_solution':
             sol,decision=c.approved(ledger,conn,solution,solution_revision)
             if sol['conversation']!=row['conversation']:raise LedgerError('Replacement solution belongs to another conversation.')
@@ -145,4 +150,5 @@ def reply(ledger,qid,revision,choice,source,reference,solution=None,solution_rev
                 ledger._event(conn,tid,'solution.amended',dict(request=qid,solution=solution,revision=solution_revision,source=source,reference=reference))
         conn.execute("UPDATE conversation_questions SET state='answered',answer=? WHERE id=?",(canonical(answer),qid))
         result=dict(id=qid,answer=answer,state='answered')
-        c._event(conn,row['conversation'],'reply:'+qid,'question.answered',result);return result
+        c._event(conn,row['conversation'],'reply:'+qid,'question.answered',result)
+        return dict(result,affected_tasks=payload['affected_tasks'])

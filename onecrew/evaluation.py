@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -63,6 +64,33 @@ def tree_hash(root, paths):
     return content_hash(entries)
 
 
+# Standard Windows install; used when neither ONECREW_EVAL_NODE nor PATH names node.
+NODE_CANDIDATES = (Path(os.environ.get('PROGRAMFILES', r'C:\Program Files'))/'nodejs'/'node.exe',)
+
+
+def node_binary():
+    """The node.exe Node probes run with: ONECREW_EVAL_NODE, else PATH, else the standard install."""
+    for value in (os.environ.get('ONECREW_EVAL_NODE'), shutil.which('node'), *NODE_CANDIDATES):
+        if value and Path(value).is_file():
+            return Path(value).resolve()
+    return None
+
+
+def node_identity():
+    """Pinned like the interpreter: a different node is a different environment, a missing one is recorded as None."""
+    path = node_binary()
+    if path is None:
+        return None
+    try:
+        version = subprocess.run([str(path), '--version'], capture_output=True, timeout=30,
+                                 creationflags=0x08000000 if os.name == 'nt' else 0).stdout.decode().strip() or None
+    except (OSError, subprocess.SubprocessError):
+        version = None
+    with open(path, 'rb') as stream:
+        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+    return {'path': str(path), 'version': version, 'sha256': digest}
+
+
 def environment():
     # Microsoft Store's executable is an app-execution alias, not a readable PE.
     # Fingerprint the installed interpreter, retaining the invoked alias separately.
@@ -76,7 +104,7 @@ def environment():
             'invoked_executable':sys.executable, 'fingerprinted_executable':str(executable),
             'platform': platform.platform(), 'machine': platform.machine(),
             'git': subprocess.check_output(['git', '--version']).decode().strip(),
-            'transport': 'fixture-only', 'model': None, 'device': None}
+            'node': node_identity(), 'transport': 'fixture-only', 'model': None, 'device': None}
 
 
 def clean_environment(home):
@@ -89,6 +117,12 @@ def clean_environment(home):
     # Local attribution (getpass) needs a user name; a fixed one keeps probes identical across machines.
     env.update(USERNAME='onecrew-eval', PYTHONUTF8='1', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
                GIT_TERMINAL_PROMPT='0', FLUTTER_SUPPRESS_ANALYTICS='true', DART_SUPPRESS_ANALYTICS='true')
+    # The pinned node comes first on PATH, so Node probes find it instead of silently skipping.
+    node = node_binary()
+    if node is not None:
+        name = next((k for k in env if k.upper() == 'PATH'), 'PATH')
+        env[name] = os.pathsep.join([str(node.parent)] + [part for part in env.get(name, '').split(os.pathsep) if part])
+        env['ONECREW_EVAL_NODE'] = str(node)
     return env
 
 
@@ -249,7 +283,13 @@ def markdown(value):
     return observed_markdown(value)
 
 
-def main(argv=None):
+READ_ONLY = {('eval', 'cases'), ('eval', 'replay'), ('eval', 'compare'), ('eval', 'observe'), ('eval', 'scorecard'),
+             ('eval', 'trial', 'show')}  # replay/compare/observe/scorecard write new report files, never the ledger
+RECORDED = {('eval', 'assistance'): 'eval.assistance', ('eval', 'trial', 'open'): 'eval.trial.open',
+            ('eval', 'trial', 'close'): 'eval.trial.close'}
+
+
+def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--project', type=Path, default=Path.cwd()); p.add_argument('--state-root', type=Path)
     sub = p.add_subparsers(dest='group', required=True).add_parser('eval').add_subparsers(dest='command', required=True)
@@ -266,15 +306,44 @@ def main(argv=None):
     note.add_argument('--actor',choices=['codex','claude','human','other-entry'],required=True)
     note.add_argument('--category',choices=['runtime','environment','product-code','tests','build','device','decision'],required=True)
     note.add_argument('--reason',required=True)
-    a = p.parse_args(argv)
+    card.add_argument('--trial', action='store_true', help='The tasks are claimed as pinned trials: no trial record is unknown.')
+    trial = sub.add_parser('trial').add_subparsers(dest='trial_command', required=True)
+    q = trial.add_parser('open'); q.add_argument('--key', required=True, help='Request key the root task will be submitted with.')
+    q.add_argument('--target', type=Path, help='Target repository (default: --project).'); q.add_argument('--predecessor')
+    for name in ('close', 'show'):
+        trial.add_parser(name).add_argument('id')
+    return p
+
+
+def run_trial(a):
+    from . import eval_trials
+    from .interventions import cli_note
+    from .ledger import Ledger
+    if not a.state_root: raise ValueError('trial requires explicit --state-root.')
+    ledger = Ledger(a.project, a.state_root)
+    if a.trial_command == 'show': return eval_trials.show(ledger, a.id)
+    value = (eval_trials.open_trial(ledger, a.key, target=a.target, predecessor=a.predecessor) if a.trial_command == 'open'
+             else eval_trials.close_trial(ledger, a.id))
+    command = RECORDED[('eval', 'trial', a.trial_command)]
+    cli_note(ledger, command, scope=('trial', value['id']), key=command + ':' + value['id'])
+    return value
+
+
+def main(argv=None):
+    a = parser().parse_args(argv)
     try:
+        if a.command == 'trial':
+            print(json.dumps(run_trial(a), ensure_ascii=False, indent=2)); return 0
         if a.command == 'cases':
             print(json.dumps(catalog(), ensure_ascii=False,indent=2)); return 0
         if a.command == 'assistance':
             from .eval_observe import assistance_note
             from .ledger import Ledger
             if not a.state_root:raise ValueError('assistance requires explicit --state-root and task project.')
-            value=assistance_note(Ledger(a.project,a.state_root),a.task,a.key,a.actor,a.category,a.reason)
+            ledger=Ledger(a.project,a.state_root)
+            value=assistance_note(ledger,a.task,a.key,a.actor,a.category,a.reason)
+            from .interventions import cli_note
+            cli_note(ledger,RECORDED[('eval','assistance')],[a.task],key='assistance:'+a.key[:117])
             print(json.dumps(value,ensure_ascii=False));return 0
         if a.command == 'replay':
             path,value = replay(a.project,a.output,a.ref,a.harness_ref,a.case,a.repeat,a.timeout)
@@ -282,7 +351,7 @@ def main(argv=None):
         if a.command == 'scorecard':
             from .eval_scorecard import scorecard, markdown as card
             if not a.state_root: raise ValueError('scorecard requires explicit --state-root.')
-            value = scorecard(a.state_root,a.task,read_result(a.replay_compare) if a.replay_compare else None)
+            value = scorecard(a.state_root,a.task,read_result(a.replay_compare) if a.replay_compare else None,claim_trials=a.trial)
             a.output.mkdir(parents=True,exist_ok=True); result,report = a.output/'scorecard.json',a.output/'scorecard.md'
             with result.open('x',encoding='utf-8') as f: f.write(json.dumps(seal(value),ensure_ascii=False,indent=2))
             with report.open('x',encoding='utf-8') as f: f.write(card(value))
