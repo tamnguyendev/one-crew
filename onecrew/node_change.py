@@ -198,7 +198,10 @@ def prepare_verification(runtime, state, recipe):
         durable_write(safe_file(destination, name), data)
     expected = dict(expected, **omitted)
     native['verification_workspace'] = str(destination)
-    native['verification_inputs'] = expected
+    # Files under a generated output directory (dist, harness-dist, e2e-*-dist ...) are build OUTPUTS that the fixed build
+    # step rewrites; they are staged but are not compiler inputs that must stay unchanged during verification.
+    native['verification_inputs'] = {name: digest for name, digest in expected.items()
+                                     if not any(GENERATED_DIR.search(part) for part in name.split('/')[:-1])}
     return destination, {'compiler_input_manifest_sha256': bytes_hash(canonical(expected).encode()),
                          'compiler_input_count': len(expected), 'local_only_source_count': len(omitted),
                          'skipped_large_local_files': skipped[:50]}

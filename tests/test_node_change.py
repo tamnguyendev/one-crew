@@ -211,6 +211,25 @@ class NodeChangeTests(unittest.TestCase):
         self.assertEqual(profiles[0][0]['native_session'],profiles[1][0]['native_session'])
         self.assertTrue(profiles[1][0]['native_resume']);self.assertIn('per-invocation turn limit',profiles[1][1])
 
+    def test_build_output_dir_rewritten_by_the_build_is_not_a_changed_input(self):
+        out=self.ext/'harness-dist'/'harness.js';out.parent.mkdir(parents=True,exist_ok=True);out.write_text('old bundle\n')
+        (self.ext/'scripts/build-demo.mjs').write_text(FAKE_BUILD+"\nfs.mkdirSync('harness-dist',{recursive:true}); fs.writeFileSync('harness-dist/harness.js', 'rebuilt '+Date.now());\n")
+        from onecrew.native_change import install_candidate
+        from onecrew.node_change import prepare, prepare_verification
+        from onecrew import native_test_workspace
+        self.run,self.task,self.worker=self.f.runtime([],mode='change',provider='claude',model='sonnet',native_change=self.recipe)
+        state=dict(self.run.state(self.task)[1],original={},files={})
+        prepare(self.run,state,validate(self.recipe))
+        install_candidate(self.run,state,self.candidate(),validate(self.recipe))
+        destination,_=prepare_verification(self.run,state,validate(self.recipe))
+        # A verification re-entered after the fixed build already ran: the build output was rewritten in place.
+        (destination/'ext'/'harness-dist'/'harness.js').write_text('rebuilt by the previous build step\n')
+        native_test_workspace.check_workspace(state)  # must not raise 'Compiler input changed'
+        # A real input changed in place is still caught.
+        (destination/'ext'/'src'/'panel.css').write_text('.changed{}\n')
+        from onecrew.sandbox_gate import GateUnavailable
+        with self.assertRaises(GateUnavailable): native_test_workspace.check_workspace(state)
+
     def test_empty_patch_set_is_repaired_not_blocked(self):
         self.worker.responses=[{'report':'placeholder','question':'','files':[]},self.candidate(),{'accepted':True,'feedback':'Checked'}]
         state=self.run.run(self.task,steps=1)
