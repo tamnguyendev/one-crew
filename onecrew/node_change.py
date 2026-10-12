@@ -17,8 +17,9 @@ import uuid
 from .discovery import EXCLUDED, permitted, scan_text
 from .ledger import LedgerError, canonical, exact_fields
 from .native_audit import capture, workspace_path
-from .node_toolchain import (CHECKS, MAX_REPORT, STEP_SECONDS, attach_modules, classify_output, dependency_lock,  # noqa: F401
-                             detach_modules, run_fixed, summarize_e2e, summarize_vitest)
+# Re-exported: callers and tests use these names on node_change (CHECKS is kept for compatibility).
+from .node_toolchain import (CHECKS, MAX_REPORT, STEP_SECONDS, attach_modules, dependency_lock, detach_modules,  # noqa: F401
+                             run_fixed, summarize_e2e, summarize_vitest)
 from .sandbox_gate import task_guard, GateUnavailable
 from .snapshots import safe_file, scope_list, scoped_path, bytes_hash, durable_write
 
