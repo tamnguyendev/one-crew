@@ -64,17 +64,19 @@ class CalibrationEquivalenceTests(unittest.TestCase):
         self.assertTrue(any(f.startswith('off:') for f in cal.check(old, cleaned, {'step': 'save'}, view)),
                         'RED-P1-1D: a cleanup step lost its checked condition')
 
-    def test_relocating_the_same_label_is_still_accepted(self):
+    def test_relocating_the_failing_locator_with_its_identity_kept_is_accepted(self):
+        # Follow-up review of b19b35e: only the failing step, with resource-id/class unchanged and labels verbatim.
         view = self.view({'content-desc': 'LƯU', 'class': 'android.widget.Button', 'bounds': '[0,0][100,100]'},
                          {'hint': 'Port, Port must be 1-65535', 'class': 'android.widget.EditText', 'focused': 'true', 'bounds': '[0,200][100,300]'})
         old = scenario(step('save', 'tap', {'text': 'LƯU', 'class': 'android.widget.TextView'}),
                        step('field', 'tap', {'hint': 'Port', 'focused': 'false'}),
                        step('error', 'assert_ui', {'text': 'Port must be 1-65535'}))
         new = copy.deepcopy(old)
-        new['steps'][0]['arguments']['selector'] = {'content-desc': 'LƯU', 'class': 'android.widget.Button'}  # label moved, class fixed
-        new['steps'][1]['arguments']['selector'] = {'hint': 'Port, Port must be 1-65535'}  # merged part; incidental focus dropped (trial 5)
-        new['steps'][2]['arguments']['selector'] = {'hint': 'Port, Port must be 1-65535'}  # the error as one whole merged part
-        self.assertEqual(cal.check(old, new, {'step': 'save'}, view), [])
+        new['steps'][1]['arguments']['selector'] = {'hint': 'Port'}  # merged part kept verbatim; incidental focus dropped (trial 5)
+        self.assertEqual(cal.check(old, new, {'step': 'field'}, view), [])
+        # A class the node contradicts is not relocated (round 3 accepted TextView -> Button; no longer).
+        moved = copy.deepcopy(old); moved['steps'][0]['arguments']['selector'] = {'content-desc': 'LƯU', 'class': 'android.widget.Button'}
+        self.assertTrue(cal.check(old, moved, {'step': 'save'}, view))
 
     def test_a_label_less_locator_cannot_be_repointed(self):
         view = self.view({'hint': 'Port', 'class': 'android.widget.EditText', 'bounds': '[0,0][100,100]'})

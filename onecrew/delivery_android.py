@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from .ledger import LedgerError,canonical,content_hash,exact_fields
+from .delivery_device_env import EMULATOR_SERIAL
 from .workflow import task_lock
 from .delivery_steps import bounded,file_hash,home
 from .snapshots import durable_write
@@ -352,12 +353,34 @@ def reconcile(runtime,task,s,node,row):
             if len(lines)==1 and re.fullmatch(r'package:/[A-Za-z0-9_./=+~-]+\.apk',lines[0]):
                 rc,digest,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'shell','sha256sum',lines[0][8:]],directory,min(30,permission_left(c)))
                 out['installed_matches_audited']=rc==0 and digest.split()[:1]==[build['sha256']]
+            if EMULATOR_SERIAL.fullmatch(c['serial']) and (effects or {}).get('boot_id'):
+                from .delivery_device_env import parse_boot_id
+                rc,now,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'shell','cat','/proc/sys/kernel/random/boot_id'],directory,min(15,permission_left(c)))
+                now=parse_boot_id(now) if rc==0 else None
+                out['instance']='unreadable' if now is None else 'same' if now==effects['boot_id'] else 'replaced'
     except (ValueError,OSError) as error:out['probe_error']=str(error)[:300]
-    if not effects:out.update(replay=True,detail='No device effect had started.')
+    if effects and effects.get('boot_id') and out.get('instance')!='same':
+        # The interrupted attempt's effects are bound to its pinned instance: a replay (a recovery) is never sent to a
+        # replacement or to an instance that cannot be shown to be the same one.
+        out['detail']=('The interrupted attempt ran on emulator instance '+effects['boot_id'][:8]+'; the instance now on '+
+                       c['serial']+' is '+str(out.get('instance','not readable'))+'. Nothing is replayed on it.')
+    elif not effects:out.update(replay=True,detail='No device effect had started.')
     elif effects.get('operation')=='install':out.update(replay=True,detail='Only install -r of the audited APK may have run; reinstall is idempotent.')
     elif c.get('replay_safe'):out.update(replay=True,detail='Scenario declared replay-safe; rerun from install with its cleanup.')
     else:out['detail']='Scenario steps may have changed app or server state and the scenario is not declared replay-safe.'
     return out
+
+
+# Commands that only read (a prefix of the argv); everything else counts as a change and passes the instance gate.
+READ_ONLY=(('get-state',),('exec-out','uiautomator','dump','/dev/tty'),('shell','dumpsys','window'),('shell','dumpsys','power'),
+           ('shell','dumpsys','input_method'),('shell','getprop'),('shell','pidof'),('logcat','-d'),('shell','sha256sum'),
+           ('shell','pm','path'),('shell','date','+%s'),('shell','cat','/proc/sys/kernel/random/boot_id'),('emu','avd','name'),
+           ('shell','wm','size'))
+
+
+def mutating(args):
+    """Every adb command not on the read-only allowlist is treated as a change to the device."""
+    return not any(tuple(args[:len(p)])==p for p in READ_ONLY)
 
 
 class StepDeadline(LedgerError):
@@ -398,12 +421,17 @@ def device(runtime,task,s,node,row):
     current={'step':None,'operation':None,'tree':None}
     refocus_left=[3]
     launched={'epoch':0}
+    pinned={}  # the emulator instance verified for this attempt: {'avd':…, 'boot_id':…}
+    emulator_serial=bool(EMULATOR_SERIAL.fullmatch(c['serial']))
     def adb(*args,effect=True):
         nonlocal effect_pending
         left=c['timeout_seconds']-(time.monotonic()-start)
         # The approved window bounds every command, so none starts or runs past valid_until.
         left=min(left,permission_left(c))
         if left<=0:raise LedgerError('Device scenario/operation timeout.')
+        if emulator_serial and mutating(args):
+            # Codex follow-up P1-2: the one place every install, input, am, wm, recovery, cleanup and kill passes.
+            same_instance('before '+' '.join(args[:3]))
         if operation_deadline is not None:
             step=operation_deadline-time.monotonic()
             if step<=0:raise StepDeadline('Device step deadline reached.')
@@ -431,6 +459,23 @@ def device(runtime,task,s,node,row):
         return out.strip() if rc==0 else None
     def booted():
         return (probe('get-state') or 'absent'),(probe('shell','getprop','sys.boot_completed') or '')
+    def same_instance(purpose):
+        """Refuse unless the instance on the serial is still the one verified for this attempt (same boot_id; a
+        replacement, even of the same AVD, boots with another id). Nothing is sent to an unverified instance."""
+        from .delivery_device_env import EmulatorIdentityError,parse_boot_id
+        if not pinned:
+            raise EmulatorIdentityError('No verified emulator instance on '+c['serial']+' ('+purpose+'); no command sent.')
+        for attempt in range(3):
+            # An unreadable answer is read again (a transport hiccup is not a replacement); a different id never is.
+            now=parse_boot_id(probe('shell','cat','/proc/sys/kernel/random/boot_id'))
+            if now is not None:break
+            time.sleep(1)
+        if now!=pinned['boot_id']:
+            environment['identity_lost']={'purpose':purpose[:80],'pinned':pinned['boot_id'][:8],'now':now[:8] if now else None}
+            raise EmulatorIdentityError('Emulator instance on '+c['serial']+' changed or is unreadable since it was verified ('+
+                                        purpose+'); no command sent to it.')
+    def pin(avd,boot_id):
+        pinned.clear();pinned.update(avd=avd,boot_id=boot_id)
     # Ownership of an emulator OneCrew booted survives attempts and coordinator restarts (Codex P2, 12/10).
     owner_file=home(runtime,task)/('emulator-'+re.sub(r'[^A-Za-z0-9_.-]','_',c['serial'])+'.json')
     def identity():
@@ -451,6 +496,10 @@ def device(runtime,task,s,node,row):
                                         ' ('+purpose+'); no install, input or kill sent.')
         if avd is None or boot_id is None:
             raise EmulatorIdentityError('Emulator identity unverifiable on '+c['serial']+' ('+purpose+'); no install, input or kill sent.')
+        if pinned and boot_id!=pinned['boot_id']:
+            environment['identity_lost']={'purpose':purpose,'pinned':pinned['boot_id'][:8],'now':boot_id[:8]}
+            raise EmulatorIdentityError('Emulator instance on '+c['serial']+' changed since it was verified ('+purpose+'); no command sent to it.')
+        pin(avd,boot_id)
         mine=owner()
         environment['ownership']='owned' if mine and mine.get('boot_id')==boot_id and mine.get('avd')==avd else 'borrowed'
         return environment['ownership']
@@ -463,13 +512,16 @@ def device(runtime,task,s,node,row):
             raise EmulatorIdentityError('The emulator that came up on '+c['serial']+' is not provably the approved AVD; no install or input sent.')
         durable_write(owner_file,canonical({'serial':c['serial'],'avd':avd,'boot_id':boot_id,'task':task,
                                             'pid':(environment['boot'] or {}).get('pid'),'at':time.time()}).encode())
+        pin(avd,boot_id)
         environment['ownership']='owned';environment['identity']={'avd':avd,'boot_id':boot_id[:8],'checked_for':'boot'}
     def restart(reason):
         """Only the verified instance OneCrew itself booted is killed and rebooted; anything else is left alone."""
         from .delivery_device_env import kill_emulator
         if verify('restart')!='owned':
             record('emulator_restart_refused','not booted by OneCrew: '+reason);return False
-        record('emulator_stop',reason);kill_emulator(system);owner_file.unlink(missing_ok=True)
+        record('emulator_stop',reason)
+        if not kill_emulator(system):raise LedgerError('Pinned emulator could not be stopped for a restart; nothing else sent.')
+        owner_file.unlink(missing_ok=True);pinned.clear()
         for _ in range(20):
             if (probe('get-state') or 'absent')=='absent':break
             time.sleep(3)
@@ -490,6 +542,13 @@ def device(runtime,task,s,node,row):
                     # Trial 5 (12/10): after a native Flutter raster crash every launch crashed until the emulator restarted.
                     restart('previous run: app crashed natively on the emulator')
         elif state!='device':raise LedgerError('Authorized device not ready.')
+        elif emulator_serial:
+            # No approved AVD: the approval names only the serial, so the instance found now is pinned for this attempt.
+            from .delivery_device_env import EmulatorIdentityError,parse_boot_id
+            boot_id=parse_boot_id(probe('shell','cat','/proc/sys/kernel/random/boot_id'))
+            if boot_id is None:raise EmulatorIdentityError('Emulator identity unverifiable on '+c['serial']+'; no command sent.')
+            pin(None,boot_id)
+            environment['identity']={'avd':None,'boot_id':boot_id[:8],'checked_for':'prepare'}
         # A fresh boot settles under load for minutes; an already running device gets a short bound.
         booted_now=lambda:environment['emulator_started']
         health=settle(system,xml,record,seconds=240 if booted_now() else 60,stable=3 if booted_now() else 1,package=c['package_id'],allowed=allowed)
@@ -650,7 +709,7 @@ def device(runtime,task,s,node,row):
         viewport=tuple(map(int,sizes[-1]));receipt['viewport']=list(viewport)
         # The caller already audited the signer; install -r must not silently uninstall to solve a mismatch.
         intent=directory/'intent.json'
-        durable_write(intent,canonical({'task':task,'operation':'install','apk':build['sha256']}).encode())
+        durable_write(intent,canonical({'task':task,'operation':'install','apk':build['sha256'],'boot_id':pinned.get('boot_id')}).encode())
         try:
             result=adb('install','-r',build['apk'])
             if 'Success' not in result:raise LedgerError('APK installation not confirmed.')
@@ -678,14 +737,18 @@ def device(runtime,task,s,node,row):
                 launch()
             for step in v['steps']:
                 receipt['scenario_started']=True
-                durable_write(intent,canonical({'task':task,'step':step['id'],'state':'intent'}).encode())
-                perform(step);receipt['steps'].append({'id':step['id'],'passed':True,**step_evidence})
+                durable_write(intent,canonical({'task':task,'step':step['id'],'state':'intent','boot_id':pinned.get('boot_id')}).encode())
+                perform(step)
+                if emulator_serial:same_instance('after step '+step['id'])  # its reads came from the pinned instance
+                receipt['steps'].append({'id':step['id'],'passed':True,**step_evidence})
                 durable_write(directory/'receipt.json',canonical(receipt).encode())
             receipt['passed']=True
         except (ValueError,OSError) as e:
             receipt['detail']=str(e)[:500];receipt['passed']=False;receipt['uncertain']=effect_pending
             receipt['failed_step_evidence']=step_evidence
             if isinstance(e,PermissionExpired):receipt['permission_expired']=True
+            from .delivery_device_env import EmulatorIdentityError
+            if isinstance(e,EmulatorIdentityError):receipt['identity_lost']=True
             if isinstance(e,SelectorUnresolved):
                 # Evidence from the live UI at the failing step: what a calibration or a reviewer can see.
                 receipt['failure_kind']='selector'
@@ -699,11 +762,24 @@ def device(runtime,task,s,node,row):
                                                   'selector':selector if exact else None,'nodes':nodes}).encode())
                     receipt['ui_snapshot']={'file':str(view),'sha256':file_hash(view),'nodes':len(nodes),'masked':exact}
         finally:
+            from .delivery_device_env import EmulatorIdentityError
             for step in v['cleanup']:
+                if receipt.get('identity_lost'):
+                    # Cleanup is never sent to a replacement: nothing is read from or sent to it, and the verified
+                    # instance's state stays unknown.
+                    receipt['cleanup'].append({'id':step['id'],'passed':False,'skipped':'emulator instance lost'});receipt['passed']=False
+                    receipt['uncertain']=receipt.get('uncertain',False) or bool(receipt.get('scenario_started'))
+                    continue
                 try:
-                    perform(step);receipt['cleanup'].append({'id':step['id'],'passed':True})
+                    perform(step)
+                    if emulator_serial:same_instance('after cleanup '+step['id'])
+                    receipt['cleanup'].append({'id':step['id'],'passed':True})
                 except (ValueError,OSError) as e:
                     receipt['cleanup'].append({'id':step['id'],'passed':False});receipt['passed']=False
+                    if isinstance(e,EmulatorIdentityError):
+                        receipt['identity_lost']=True
+                        receipt['uncertain']=receipt.get('uncertain',False) or bool(receipt.get('scenario_started'))
+                        receipt.setdefault('detail','Emulator instance changed before cleanup; no cleanup sent to it.')
                     receipt['uncertain']=receipt.get('uncertain',False) or effect_pending
                     if isinstance(e,PermissionExpired):
                         # Cleanup cannot run after the window: steps that already ran leave an unknown device state.
@@ -717,10 +793,11 @@ def device(runtime,task,s,node,row):
                 from .delivery_device_env import kill_emulator
                 try:
                     if environment.get('ownership')!='owned':cleanup='borrowed_left_running'
-                    elif verify('stop')!='owned':cleanup='replaced_not_stopped'
-                    elif kill_emulator(system):owner_file.unlink(missing_ok=True);cleanup='stopped'
+                    elif not pinned or verify('stop')!='owned':cleanup='replaced_not_stopped'
+                    elif kill_emulator(system):owner_file.unlink(missing_ok=True);pinned.clear();cleanup='stopped'
                     else:cleanup='stop_failed'
-                except (ValueError,OSError):cleanup='identity_lost_not_stopped'
+                except EmulatorIdentityError:cleanup='identity_lost_not_stopped'
+                except (ValueError,OSError):cleanup='stop_failed'
                 environment['emulator_cleanup']=cleanup;environment['emulator_stopped']=cleanup=='stopped'
             durable_write(directory/'receipt.json',canonical(receipt).encode())
     receipt['detail']=receipt.get('detail','Device scenarios and cleanup passed.' if receipt['passed'] else 'Device acceptance or cleanup failed.')

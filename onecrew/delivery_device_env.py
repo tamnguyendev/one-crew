@@ -235,5 +235,6 @@ def boot_emulator(adb, serial, emulator, log, call_state, wait=BOOT_SECONDS, win
 def kill_emulator(call):
     """Graceful console kill of the pinned emulator (serial already pinned by the caller)."""
     try: call('emu', 'kill')
+    except EmulatorIdentityError: raise  # the pinned instance is gone: never reported as a mere failed stop
     except (ValueError, OSError): return False
     return True

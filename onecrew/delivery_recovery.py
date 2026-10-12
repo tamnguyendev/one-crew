@@ -38,7 +38,8 @@ MESSAGES = [
     (r'solution decision pending|pending question|pending root question|resolve the child question', 'decision_pending'),
     (r'stopped by a solution decision|approval is missing|requires a bound approved solution|exceeds the dispatch grant|'
      r'private references must be outside|outside the approved envelope|device permission expired|'
-     r'requires permission not granted|not the approved avd|emulator identity unverifiable|not provably the approved avd', 'permission'),
+     r'requires permission not granted|not the approved avd|emulator identity unverifiable|not provably the approved avd|'
+     r'emulator instance on \S+ changed|no verified emulator instance', 'permission'),
     (r'source drift|source changed|source differs|external edits|toolchain/scenario changed|changed since approval|'
      r'private (configuration|scenario inputs) changed|apk changed', 'drift'),
     (r'provider did not complete|supervisor_interrupted|interrupted native operation|prior launch must be reconciled|'
@@ -68,7 +69,9 @@ def normalize(text):
 
 def classify_error(error):
     from .provider_limits import QuotaExhausted
+    from .delivery_device_env import EmulatorIdentityError
     if isinstance(error,QuotaExhausted):return 'budget'
+    if isinstance(error,EmulatorIdentityError):return 'permission'  # never recovered on another instance
     text=str(error).lower()
     if text.startswith('child task-'):return 'unknown'  # Callers lift the child's own state first.
     for pattern,name in MESSAGES:
@@ -108,6 +111,8 @@ def build_class(log_text):
 def classify_receipt(node, receipt):
     """(class, signature key) of a failed node receipt; structured fields only, prose last."""
     kind=receipt.get('failure_kind')
+    # The verified emulator instance was lost mid-attempt: no recovery, replay or cleanup goes to its replacement.
+    if receipt.get('identity_lost'):return 'permission',normalize(receipt.get('detail'))
     if receipt.get('uncertain'):return 'side_effect_unknown',normalize(receipt.get('detail'))
     if kind=='test':
         names=sorted({normalize(e.get('name')) for e in receipt.get('errors',[])})

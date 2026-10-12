@@ -251,7 +251,6 @@ CASES = [
         'tests.test_codex_review_round2.CalibrationEquivalenceTests.test_dropping_an_expected_state_is_refused',
         'tests.test_codex_review_round2.CalibrationEquivalenceTests.test_changing_an_absence_check_is_refused',
         'tests.test_codex_review_round2.CalibrationEquivalenceTests.test_future_assertions_and_cleanup_keep_their_conditions',
-        'tests.test_codex_review_round2.CalibrationEquivalenceTests.test_relocating_the_same_label_is_still_accepted',
         'tests.test_codex_review_round2.CalibrationEquivalenceTests.test_a_label_less_locator_cannot_be_repointed'],
         'Codex P1-1; the model is not involved here, only the validator that gates its proposals.'),
     case('emulator-identity', 'Install, input or kill only on the approved AVD; unknown identity or another AVD blocks', 'b19b35e', [

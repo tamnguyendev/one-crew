@@ -554,48 +554,50 @@ class CalibrationTests(DeviceRun):
         self.assertEqual(rc.POLICY['scenario_selector'], ('calibrate', 2))
 
     def test_validator_keeps_operations_passed_steps_and_assertions(self):
-        # The label sits in another attribute and the class is wrong: a locator problem, the expected text is known.
-        steps = AC3[:3] + [{'id': 'error', 'operation': 'wait_for', 'arguments': {
-            'selector': {'text': 'Cổng phải từ 1 đến 65535', 'class': 'android.widget.TextView'}, 'timeout_seconds': 5}}]
-        self.port = '70000'; self.error = True
+        # After the error the port field holds focus, so a locator that named focused=false no longer resolves:
+        # a locator problem the recorded screen proves (one EditText shows the label; the identity is unchanged).
+        steps = AC3[:4] + [{'id': 'fix', 'operation': 'type', 'arguments': {'selector': {'text': 'Cổng', 'focused': 'false'},
+                                                                             'private_key': 'good_port'}}]
         n, result, view = self.failing(steps)
         old = da.scenario(n['config']['scenario'], n['config']['scenario_sha256'])
         failure = result['selector_failure']
+        self.assertEqual(failure['step'], 'fix')
         def revise(**changes):
             new = json.loads(json.dumps(old))
             for step in new['steps']:
                 if step['id'] in changes: step['arguments']['selector'] = changes[step['id']]
             return new
         from onecrew import delivery_calibrate as cal
-        self.assertEqual(cal.check(old, revise(error={'content-desc': 'Cổng phải từ 1 đến 65535'}), failure, view), [])
-        self.assertIn('already passed', ' '.join(cal.check(old, revise(save={'content-desc': 'LƯU'}, error={'content-desc': 'Cổng phải từ 1 đến 65535'}), failure, view)))
-        self.assertIn('expected label', ' '.join(cal.check(old, revise(error={'class': 'android.view.View'}), failure, view)))
-        self.assertIn('exactly one node', ' '.join(cal.check(old, revise(error={'content-desc': 'Cổng phải từ 1 đến 65535',
-                                                                                'class': 'android.widget.Button'}), failure, view)))
+        proven = {'hint': 'Cổng'}  # label kept verbatim (moved to the attribute that shows it), focus no longer required
+        self.assertEqual(cal.relocate(old['steps'][4]['arguments']['selector'], 'type', view)[:2], (proven, 'relocated'))
+        self.assertEqual(cal.check(old, revise(fix=proven), failure, view), [])
+        # A step that already passed has no live-UI proof of its own, so it stays exactly as it was.
+        self.assertIn('no live-UI proof', ' '.join(cal.check(old, revise(save={'content-desc': 'LƯU'}, fix=proven), failure, view)))
+        # Anything but the proven relocation is refused: another label, an added class, a shortened label.
+        for other in ({'hint': 'Địa chỉ máy chủ'}, {'hint': 'Cổng', 'class': 'android.view.View'}, {'hint': 'Cổn'}):
+            self.assertIn('only the proven relocation', ' '.join(cal.check(old, revise(fix=other), failure, view)), other)
         weaker = json.loads(json.dumps(old)); weaker['steps'][3]['operation'] = 'assert_ui'
         self.assertIn('id and operation', ' '.join(cal.check(old, weaker, failure, view)))
-        # An assertion that named a label must keep it (here: shortened to a weaker prefix is refused).
-        labelled = json.loads(json.dumps(old)); labelled['steps'][3]['arguments']['selector'] = {'text': 'Cổng phải từ 1 đến 65535'}
-        stronger = json.loads(json.dumps(labelled)); stronger['steps'][3]['arguments']['selector'] = {'text': 'Cổng phải từ 1'}
-        self.assertIn('expected label', ' '.join(cal.check(labelled, stronger, failure, view)))
+        # An assertion's focus is its condition: on the same screen it is not relocated but reported as not holding.
+        self.assertEqual(cal.relocate(old['steps'][4]['arguments']['selector'], 'assert_ui', view)[1], 'condition')
 
 
 class CalibrationDeliveryTests(unittest.TestCase):
     setUp = base.DeliveryTests.setUp
     create = base.DeliveryTests.create
 
-    def delivery(self, receipts, proposals):
-        """Root with a planned device stage; device receipts and calibration proposals are scripted."""
+    def delivery(self, receipts, steps=AC3, calibrations=0, immediate=False):
+        """Root with a planned device stage; device receipts are scripted. Relocation is code: any model call fails."""
         r, t = self.create(); r.run(t)
         seq, s = r.state(t)
         scenario = Path(self.tmp.name)/'scenario.json'
-        scenario.write_text(json.dumps({'version': 1, 'activity': PKG + '.MainActivity', 'steps': AC3, 'cleanup': []}))
+        scenario.write_text(json.dumps({'version': 1, 'activity': PKG + '.MainActivity', 'steps': steps, 'cleanup': []}))
         s['plan']['nodes'].insert(2, {'id': 'device', 'kind': 'device', 'depends': ['review'], 'config': {
             'optional': False, 'replay_safe': True, 'calibration': 'onecrew', 'scenario': str(scenario), 'scenario_sha256': file_hash(scenario),
             'serial': 'emulator-5554'}})  # calibration exists only in the emulator (tiered) mode
         s['plan']['nodes'][-1]['depends'].append('device')
         s['plan']['acceptance'].append({'id': 'AC3', 'text': 'Device', 'nodes': ['device']})
-        s['delivery']['nodes']['device'] = {'phase': 'pending', 'generation': 0, 'receipt': None, 'child': None}
+        s['delivery']['nodes']['device'] = {'phase': 'pending', 'generation': 0, 'receipt': None, 'child': None, 'calibrations': calibrations}
         s['delivery']['criteria']['AC3'] = 'pending'; r.persist(t, seq, s)
         source = s['delivery']['source']['hash']
         real = __import__('onecrew.delivery_steps', fromlist=['execute']).execute
@@ -606,12 +608,11 @@ class CalibrationDeliveryTests(unittest.TestCase):
                 return dict(next(runs), source=source)
             if n['kind'] == 'handover': return real(runtime, task, state, n, row)
             return {'passed': True, 'source': source, 'counts': {'passed': 1, 'skipped': 0}, 'red': [{'test': 'x'}]}
-        answers = iter(proposals)
         def invoke(task, seq, state, stage, prompt, schema, profile):
-            state['pending'] = None; self.prompts.append(prompt)
-            return seq, dict(next(answers), _native={})
+            self.prompts.append(prompt); raise AssertionError('relocation must not call a model')
         self.prompts = []
-        with patch('onecrew.delivery_steps.execute', side_effect=execute), patch.object(r, '_invoke', side_effect=invoke):
+        due = patch('onecrew.delivery_recovery.due', return_value=True) if immediate else patch('onecrew.delivery_recovery.POLICY_VERSION', 1)
+        with patch('onecrew.delivery_steps.execute', side_effect=execute), patch.object(r, '_invoke', side_effect=invoke), due:
             for _ in range(12):
                 s = r.run(t)
                 if s['phase'] in ('completed', 'waiting'): break
@@ -625,23 +626,29 @@ class CalibrationDeliveryTests(unittest.TestCase):
                 'selector_failure': {'step': step, 'operation': 'wait_for', 'reason': reason, 'matches': 0},
                 'ui_snapshot': {'file': str(view), 'sha256': file_hash(view), 'nodes': 5}}
 
+    FIX = AC3[:4] + [{'id': 'fix', 'operation': 'type', 'arguments': {'selector': {'text': 'Cổng', 'focused': 'false'},
+                                                                      'private_key': 'good_port'}}]
+
     def test_live_ui_calibration_reruns_the_stage_and_completes(self):
         from onecrew import delivery_calibrate as cal  # noqa: F401  (capability probe: module must exist)
-        broken = json.loads(json.dumps(AC3)); broken[3]['arguments']['selector'] = {'resource-id': 'portError'}
-        fixed = json.loads(json.dumps(broken)); fixed[3]['arguments']['selector'] = {'content-desc': 'Cổng phải từ 1 đến 65535'}
-        receipts = [self.selector_failure('error'), {'passed': True, 'steps': [], 'cleanup': []}]
-        r, t, s, used = self.delivery(receipts, [{'verdict': 'revise', 'steps': fixed, 'cleanup': [], 'reason': 'portError is a Flutter Key'}])
-        # The first run used the sealed scenario; the rerun used OneCrew's calibrated revision.
+        receipts = [self.selector_failure('fix'), {'passed': True, 'steps': [], 'cleanup': []}]
+        r, t, s, used = self.delivery(receipts, self.FIX)
+        # The first run used the sealed scenario; the rerun used OneCrew's relocated revision.
         self.assertEqual(s['phase'], 'completed', s['message'])
         self.assertEqual([u[2] for u in used], [0, 1])
         row = s['delivery']['nodes']['device']
-        self.assertEqual((row['calibrations'], row['scenario']['changed_steps']), (1, ['error']))
+        self.assertEqual((row['calibrations'], row['scenario']['changed_steps']), (1, ['fix']))
+        revised = da.scenario(row['scenario']['path'], row['scenario']['sha256'])
+        self.assertEqual(revised['steps'][4]['arguments']['selector'], {'hint': 'Cổng'})
+        self.assertEqual(revised['steps'][:4], AC3[:4])  # every other step, including all assertions, unchanged
         self.assertIn('calibrate', [x['action'] for x in s['delivery']['recoveries']])
-        self.assertIn('Flutter', self.prompts[0])
+        self.assertEqual(self.prompts, [])
+        history = [h for h in s['delivery']['history'] if h.get('method') == 'relocate-by-observation']
+        self.assertEqual((history[0]['selector_before'], history[0]['selector_after']), ({'text': 'Cổng', 'focused': 'false'}, {'hint': 'Cổng'}))
 
     def test_expected_text_missing_on_screen_is_a_product_repair_without_a_model_call(self):
         nodes = da.snapshot(screen(port='70000'), PKG)  # no error shown after save: the product did not validate
-        r, t, s, used = self.delivery([self.selector_failure('error', 'timeout', nodes)], [])
+        r, t, s, used = self.delivery([self.selector_failure('error', 'timeout', nodes)])
         self.assertEqual(self.prompts, [])  # decided by code: no model call, no weaker scenario
         row = s['delivery']['nodes']['device']
         self.assertEqual((row['receipt']['failure_kind'], row.get('calibrations', 0)), ('product', 0))
@@ -649,17 +656,25 @@ class CalibrationDeliveryTests(unittest.TestCase):
         self.assertEqual((s['phase'], s['delivery']['escalation']['class']), ('waiting', 'product'))
 
     def test_calibration_is_bounded_then_one_question(self):
-        from onecrew import delivery_calibrate as cal
-        tries = []
-        for selector in ({'content-desc': 'Cổng phải từ 1 đến 65535'}, {'text': 'Cổng phải từ 1 đến 65535'}):
-            v = json.loads(json.dumps(AC3)); v[3]['arguments']['selector'] = selector
-            tries.append({'verdict': 'revise', 'steps': v, 'cleanup': [], 'reason': 'try'})
-        r, t, s, used = self.delivery([self.selector_failure('error') for _ in range(3)], tries)
+        # Deterministic: a relocated step that fails again on the same screen is not relocated again; the bounded
+        # recovery ends in one question with the scenario unchanged since the proven relocation.
+        r, t, s, used = self.delivery([self.selector_failure('fix') for _ in range(4)], self.FIX, immediate=True)  # backoff elapsed
         self.assertEqual(s['phase'], 'waiting', s['message'])
-        self.assertEqual(s['delivery']['nodes']['device']['calibrations'], cal.MAX_CALIBRATIONS)
-        self.assertEqual([u[2] for u in used], [0, 1, 2])
+        row = s['delivery']['nodes']['device']
+        self.assertEqual(row['calibrations'], 1)
+        self.assertEqual([u[2] for u in used][:2], [0, 1]); self.assertTrue(all(u[2] == 1 for u in used[1:]))
+        # Relocated once; the same step failing again is not a locator problem; one bounded retry; then one question.
+        self.assertEqual([u[2] for u in used], [0, 1, 1])
         self.assertEqual(s['delivery']['escalation']['class'], 'scenario_selector')
-        self.assertEqual(len(self.prompts), 2)
+        self.assertEqual([x['action'] for x in s['delivery']['recoveries']], ['calibrate', 'calibrate', 'retry'])
+        self.assertEqual(self.prompts, [])
+
+    def test_at_the_calibration_bound_a_selector_failure_is_one_question(self):
+        from onecrew import delivery_calibrate as cal
+        r, t, s, used = self.delivery([self.selector_failure('fix')], self.FIX, calibrations=cal.MAX_CALIBRATIONS)
+        self.assertEqual((s['phase'], s['delivery']['escalation']['class']), ('waiting', 'scenario_selector'))
+        self.assertEqual([u[2] for u in used], [0])
+
 
 if __name__ == '__main__':
     unittest.main()

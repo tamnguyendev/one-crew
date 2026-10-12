@@ -233,8 +233,10 @@ def prompt(goal, env, discovery, feedback=None, stay_inside=None):
                  'them. Flutter: a Text appears as content-desc (empty text); a TextField is android.widget.EditText whose text is its current '
                  'value and whose hint is its label (a shown error text is appended as "<label>, <error>" and also appears as its own '
                  'content-desc); a button label is its content-desc; a Flutter Key is NOT a resource-id. Each step has a unique id. Assert the '
-                 'real outcome (including what must NOT appear), never just that the app opened. OneCrew verifies every selector on the live '
-                 'UI and may relocate a selector (an expected label stays verbatim, checked/focused stay, assert_absent never changes). '
+                 'real outcome (including what must NOT appear), never just that the app opened. Name resource-id/class only as the tree '
+                 'shows them: OneCrew verifies every selector on the live UI and relocates only the failing step\'s locator when the screen '
+                 'proves its node (resource-id/class never change, labels stay verbatim and may only move between text/content-desc/hint, '
+                 'checked/focused of an assertion stay, assert_absent never changes); otherwise the step stays and is a blocker. '
                  'cleanup restores anything the steps changed. private_key names '
                  'available for type steps (values stay private): '
                  + canonical(discovery.get('private_keys', [])) + '.\n')

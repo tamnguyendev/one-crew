@@ -83,9 +83,24 @@ OneCrew được tự boot (headless, đúng port của `serial`), khởi độn
 và tắt emulator do chính nó boot sau khi stage thiết bị đạt. Chỉ hợp lệ với serial
 `emulator-<port chẵn 5554–5682>`; thiết bị thật không bao giờ bị reboot/cấu hình lại.
 
-Danh tính và sở hữu (Codex review đợt 2, P1-2/P2): trước mọi thao tác thay đổi emulator (cài, nhập, tắt,
-khởi động lại) OneCrew đọc `adb emu avd name` và `boot_id` của instance trên serial. Sai AVD hoặc không đọc
-được → không gửi lệnh nào, một câu hỏi `permission`. Khi tự boot, OneCrew ghi bền `emulator-<serial>.json`
+Danh tính và sở hữu (Codex review đợt 2, P1-2/P2; review bổ sung b19b35e): đầu mỗi attempt OneCrew đọc
+`adb emu avd name` và `boot_id` của instance trên serial (serial emulator không có `device.emulator`: chỉ `boot_id`)
+và **ghim** instance đó cho attempt. Sai AVD hoặc không đọc được → không gửi lệnh nào, một câu hỏi `permission`.
+Một điểm chặn duy nhất trong `adb()` (`delivery_android.device`): mọi lệnh không thuộc danh sách chỉ-đọc
+(`READ_ONLY`: get-state, uiautomator dump, dumpsys, getprop, pidof, logcat, sha256sum, pm path, date, đọc
+`boot_id`, `emu avd name`, `wm size`) — tức install, input, am, wm dismiss-keyguard, phục hồi hệ thống, cleanup,
+`emu kill` — đọc lại `boot_id` ngay trước khi gửi và chỉ gửi khi trùng instance đã ghim (đọc lỗi thì đọc lại tối
+đa 3 lần; khác `boot_id` thì không bao giờ). Sau mỗi bước kịch bản/cleanup đọc lại lần nữa, nên mọi quan sát UI
+của bước nằm giữa hai lần kiểm trùng ghim (boot_id là duy nhất mỗi lần boot, instance đã thoát không quay lại).
+Mất/đổi instance → `receipt.identity_lost`, không gửi thêm lệnh nào (kể cả cleanup: bước cleanup ghi `skipped`),
+lớp `permission` — không retry, replay hay phục hồi nào chạy trên instance thay thế. Intent ghi `boot_id`; sau khi
+coordinator khởi động lại, reconcile (chỉ đọc) so `boot_id` hiện tại: khác hoặc không đọc được → không replay, hỏi.
+Attempt mới (sau câu trả lời hoặc generation mới) xác minh lại từ đầu: đúng AVD đã duyệt mới chạy, quyền tắt
+theo bản ghi sở hữu dưới đây. Thiết bị thật không qua cổng này (serial phần cứng là danh tính).
+Giới hạn race: ADB không có lệnh so-sánh-rồi-thực-thi nguyên tử. Lần đọc `boot_id` và lệnh là hai lần gọi
+`adb`; nếu instance bị thay đúng trong khe đó (instance cũ phải thoát và instance mới phải boot xong trên cùng
+port — thực tế mất vài giây trở lên, còn khe chỉ cỡ một round-trip adb) thì tối đa **một** lệnh có thể tới instance
+mới; lần kiểm kế tiếp (trước lệnh thay đổi sau hoặc cuối bước) phát hiện và chặn mọi lệnh còn lại. Khi tự boot, OneCrew ghi bền `emulator-<serial>.json`
 (AVD + `boot_id`) trong thư mục task; bản ghi sống qua các lần thử và khi coordinator khởi động lại. Chỉ instance
 trùng đúng bản ghi (`owned`) mới được khởi động lại/tắt; instance của người dùng (kể cả đúng AVD) hoặc instance
 bị thay thế là `borrowed`: được dùng, không bị tắt. Kết quả dọn ghi riêng ở `environment.emulator_cleanup`
@@ -140,9 +155,18 @@ Khai báo trong envelope: `"selectors": "exact"`, `"recovery": ["wake_screen"]` 
   toàn kịch bản.
 - **Bằng chứng khi trượt.** Bước có selector không trúng lưu ảnh chụp đã làm sạch các node của app
   (`ui-<bước>.json`, giá trị nhập riêng tư bị che) và `receipt.failure_kind = selector`.
-- **Hiệu chỉnh (chỉ kịch bản OneCrew tự lập, rerun an toàn).** Lớp `scenario_selector` → hành động
-  `calibrate` (tối đa 2 lần/node). Code quyết định trước: assertion mà nhãn mong đợi không có ở đâu trên
-  màn hình là **lỗi sản phẩm** → sửa code có giới hạn (không gọi model, không đổi kịch bản). Ngược lại,
+- **Định vị lại bằng chứng minh (review bổ sung b19b35e; thay cho hiệu chỉnh bằng model bên dưới).** Lớp
+  `scenario_selector` → hành động `calibrate`, nay hoàn toàn bằng code, không gọi model, không gửi dữ liệu màn hình đi đâu.
+  Chỉ bước trượt được đổi (bước sau và cleanup không có ảnh chụp màn hình của chúng). Danh tính của bước —
+  `resource-id`, `class`, nhãn mong đợi — không bao giờ đổi; nhãn chỉ được chuyển giữa text/content-desc/hint
+  hoặc là một phần nguyên vẹn của nhãn gộp. Điều kiện (`checked` mọi bước, `focused` ở bước kiểm tra) giữ nguyên;
+  `focused` ở bước định vị (tap/type) là ngẫu nhiên và được bỏ (trial 5). Phải có **đúng một** node trong ảnh chụp
+  mang mọi dữ kiện danh tính; 0 hoặc nhiều node, hay node có `class`/`resource-id` khác → không chứng minh được →
+  kịch bản giữ nguyên, blocker (một câu hỏi sau retry có giới hạn). Danh tính khớp mà điều kiện không đúng → assertion
+  là **lỗi sản phẩm** (không đổi kịch bản). Mỗi lần định vị lại ghi `method: relocate-by-observation`, selector trước/sau.
+  Đổi lại: định vị lại không còn sửa được `resource-id`/`class` đoán sai (ví dụ Flutter Key, `TextView`) — các trường hợp
+  đó thành câu hỏi. Mô tả cũ (đợt 2/3) giữ dưới đây làm lịch sử: Code quyết định trước: assertion mà nhãn mong đợi
+  không có ở đâu trên màn hình là **lỗi sản phẩm** → sửa code có giới hạn (không gọi model, không đổi kịch bản). Ngược lại,
   một phiên model chỉ đọc đề xuất selector mới; validator chỉ chấp nhận khi giữ nguyên id/thao tác/thứ
   tự/đối số khác, không đổi bước đã đạt, và selector mới của bước trượt trúng đúng một node trong ảnh chụp.
   Từ Codex review đợt 2 (P1-1; trước đó tuyên bố "không làm yếu assertion" **chưa được bảo đảm**: bỏ `checked`
@@ -163,7 +187,7 @@ Khai báo trong envelope: `"selectors": "exact"`, `"recovery": ["wake_screen"]` 
 | product / review | sửa trong change đã duyệt; child lỗi → generation mới | 2 và `max_repairs` | hỏi |
 | side_effect_unknown | reconcile chỉ đọc (`pm path`, `sha256sum`, intent) | 1 | hỏi |
 | product chỉ ở bằng chứng red (mọi test đạt, red không đỏ do hành vi — trial 6) | sửa **chỉ test**: task con có phạm vi `tests`, mã sản phẩm phải giữ nguyên byte, phản hồi nêu rõ pattern và lý do | 2 và `max_repairs` | hỏi |
-| scenario_selector (selector kịch bản OneCrew lập không trúng UI thật) | hiệu chỉnh từ ảnh chụp UI; nhãn mong đợi vắng → product | 2 và ≤2 bản/node | hỏi |
+| scenario_selector (selector kịch bản OneCrew lập không trúng UI thật) | định vị lại bước trượt khi ảnh chụp chứng minh đúng node (code, không model); điều kiện sai hoặc nhãn mong đợi vắng → product; không chứng minh được → blocker | 2 và ≤4 bản/node | hỏi |
 | decision_pending (CREQ) | chờ, không tạo request mới | — | — |
 | permission, budget, drift, artifact, runtime_bug, unknown | — | 0 | hỏi |
 
@@ -191,7 +215,7 @@ thử. Trả lời `retry` cho thêm đúng một lượt tự động; `stop` h
 | AP14 | Giao một mục tiêu cấp công việc trên project thử, không kèm kế hoạch; chấm 3 trục, gồm kill/restart coordinator | trial |
 | AP15 | Quyết định được quy nguồn: người dùng tự trả lời / entry chuyển lời người dùng / entry tự quyết; thiếu bằng chứng → unknown; entry tự quyết hoặc chuyển lời → assisted | test + eval |
 | AP16 | OneCrew tự kiểm tra và phục hồi thiết bị trong quyền (ANR → Wait, emulator trong envelope → boot/khởi động lại), không reboot thiết bị thật | test + trial |
-| AP17 | Selector được xác minh trên UI thật (tầng ghi lại), trượt → ảnh chụp + hiệu chỉnh có giới hạn, chỉ đổi cách định vị (nhãn nguyên văn, trạng thái, assert_absent bất biến) | test + eval |
-| AP18 | Emulator chỉ bị thay đổi khi đúng AVD đã duyệt; chỉ instance OneCrew boot (ghi bền qua retry/restart) mới bị khởi động lại/tắt | test + eval |
+| AP17 | Selector được xác minh trên UI thật (tầng ghi lại), trượt → ảnh chụp; chỉ bước trượt được định vị lại và chỉ khi ảnh chụp chứng minh đúng một node cùng danh tính (resource-id/class bất biến, nhãn nguyên văn, điều kiện và assert_absent bất biến) | test + eval |
+| AP18 | Mọi lệnh thay đổi emulator (chính, phục hồi, cleanup, tắt) chỉ tới instance đã xác minh và ghim cho attempt (`boot_id` đọc lại ngay trước lệnh và sau mỗi bước); đúng AVD đã duyệt; chỉ instance OneCrew boot (ghi bền qua retry/restart) mới bị khởi động lại/tắt | test + eval |
 
 Không dùng số test xanh thay cho bằng chứng tự hoàn thành (AP14 chấm riêng).
