@@ -435,8 +435,10 @@ def review(runtime,task,s,node,row):
         'required':['verdict','feedback','checks','unresolved_required'],'additionalProperties':False}
     if not runtime.custom_worker:runtime.worker=NativeClaude(runtime.control)
     profile=dict(s['worker'],native_workspace=ctx['workspace'],native_session=ctx['session'],native_resume=ctx['started'],step_seconds=600)
+    prompt=ctx['prompt']+(('\nYour previous answer did not follow the evidence protocol: '+ctx['protocol_feedback']+
+                           ' Return the complete review again.') if ctx.get('protocol_feedback') else '')
     try:
-        _,value=runtime._invoke(task,runtime.state(task)[0],s,'delivery_review_'+node['id'],ctx['prompt'],schema,profile)
+        _,value=runtime._invoke(task,runtime.state(task)[0],s,'delivery_review_'+node['id']+'_'+str(ctx.get('protocol_rounds',0)),prompt,schema,profile)
     except NativeTurnLimit as limit:
         from .usage import record
         record(s,limit.attempt_id,[limit.usage],profile['provider'],profile['model'])
@@ -445,12 +447,23 @@ def review(runtime,task,s,node,row):
         return None
     ctx['started']=True
     ids=[a['id'] for a in ctx['criteria']];checks=value.get('checks',[])
-    good=bool(ids) and value.get('verdict')=='accept' and value.get('unresolved_required')==[] and sorted(c.get('id','') for c in checks)==sorted(ids)
+    judged=bool(ids) and value.get('verdict')=='accept' and value.get('unresolved_required')==[] and sorted(c.get('id','') for c in checks)==sorted(ids)
+    good=judged;protocol=[]
+    known=set(ctx['refs'].values())
     for check in checks:
         criterion=next((a for a in ctx['criteria'] if a['id']==check.get('id')),None)
         expected={ctx['refs'][n] for n in criterion['nodes']} if criterion else set()
-        good=good and check.get('status')=='passed' and expected<=set(check.get('evidence_refs',[]))<=set(ctx['refs'].values())
-    return {'passed':bool(good),'source':s['delivery']['source']['hash'],'verdict':value,'failure_kind':'review','detail':value.get('feedback','Invalid review result')}
+        cited=set(check.get('evidence_refs',[]))
+        good=good and check.get('status')=='passed' and expected<=cited<=known
+        if check.get('status')=='passed':
+            if not expected<=cited:protocol.append(check.get('id','')+': cite the receipt refs '+','.join(sorted(expected)))
+            if not cited<=known:protocol.append(check.get('id','')+': only these receipt refs exist: '+','.join(sorted(known))+'; do not cite snapshots or other hashes')
+    if judged and not good and protocol and all(c.get('status')=='passed' for c in checks) and ctx.get('protocol_rounds',0)<2:
+        # The reviewer accepted every criterion but cited evidence wrongly: a protocol defect for the reviewer, never a code repair.
+        ctx['protocol_rounds']=ctx.get('protocol_rounds',0)+1;ctx['protocol_feedback']='; '.join(protocol)[:1500]
+        return None
+    return {'passed':bool(good),'source':s['delivery']['source']['hash'],'verdict':value,
+            'failure_kind':'review' if not (judged and protocol) else 'review_protocol','detail':value.get('feedback','Invalid review result')}
 
 
 def build(runtime,task,s,node,row):

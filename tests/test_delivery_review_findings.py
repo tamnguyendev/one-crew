@@ -182,6 +182,41 @@ class RegressionAttributionTests(unittest.TestCase):  # autonomy trial 2026-10-1
         self.assertEqual(rc.classify_receipt({'kind': 'regression'}, receipt)[0], 'product')
 
 
+class ReviewProtocolTests(unittest.TestCase):  # autonomy trial 2 (TASK-03a6a3a9): accepted review cited a snapshot hash
+    setUp = base.DeliveryTests.setUp
+    create = base.DeliveryTests.create
+
+    def reviewed(self, answers):
+        from onecrew import delivery_steps as ds
+        r, t = self.create(); r.run(t)
+        source = r.state(t)[1]['delivery']['source']['hash']
+        with patch(EXECUTE, return_value={'passed': True, 'source': source, 'counts': {'passed': 1, 'skipped': 0}, 'red': [{'test': 'x'}]}): r.run(t)
+        s = r.state(t)[1]; node = next(n for n in s['plan']['nodes'] if n['kind'] == 'review'); row = s['delivery']['nodes']['review']
+        values = iter(answers); results = []
+        def invoke(task, seq, state, stage, prompt, schema, profile):
+            refs = row['review_context']['refs']
+            return seq, next(values)(sorted(refs.values()), prompt)
+        with patch('onecrew.native_audit.capture', return_value={}), patch.object(r, '_invoke', side_effect=invoke):
+            for _ in answers: results.append(ds.review(r, t, s, node, row))
+        return results, row
+
+    @staticmethod
+    def accept(extra):
+        return lambda refs, prompt: {'verdict': 'accept', 'feedback': 'ok', 'unresolved_required': [],
+                                     'checks': [{'id': 'AC1', 'status': 'passed', 'evidence_refs': refs + extra}]}
+
+    def test_accepted_review_with_a_wrong_ref_goes_back_to_the_reviewer_not_to_code_repair(self):
+        results, row = self.reviewed([self.accept(['snapshot-hash']), self.accept([])])
+        self.assertIsNone(results[0]); self.assertIn('only these receipt refs exist', row['review_context']['protocol_feedback'])
+        self.assertTrue(results[1]['passed'])
+
+    def test_persistent_protocol_defect_asks_instead_of_repairing(self):
+        results, _ = self.reviewed([self.accept(['x'])] * 3)
+        self.assertEqual(results[:2], [None, None]); self.assertFalse(results[2]['passed'])
+        self.assertEqual(results[2]['failure_kind'], 'review_protocol')
+        self.assertNotIn(rc.classify_receipt({'kind': 'review'}, results[2])[0], ('product', 'review'))
+
+
 class DeviceEffectTests(unittest.TestCase):
     def test_failure_after_scenario_steps_is_never_a_free_retry(self):  # C3/C13
         node = {'kind': 'device', 'config': {'replay_safe': False}}
