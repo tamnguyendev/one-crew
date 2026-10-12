@@ -246,6 +246,30 @@ CASES = [
         'tests.test_autonomy_round2.CalibrationDeliveryTests.test_calibration_is_bounded_then_one_question',
         'tests.test_autonomy_round2.PlannedDeviceTests.test_compiled_device_node_carries_calibration_and_the_approved_emulator'],
         'The model is a fixture here; semantic quality of a live calibration is only shown by a trial.'),
+    # Codex review of round 2 (REVIEW-CODEX-ONECREW-ROUND2-742a139-2026-10-12.txt) and the real-device mode it reviewed.
+    case('calibration-equivalence', 'Calibration may relocate a selector but never weaken what it checks (state, verbatim labels, absence)', 'b19b35e', [
+        'tests.test_codex_review_round2.CalibrationEquivalenceTests.test_dropping_an_expected_state_is_refused',
+        'tests.test_codex_review_round2.CalibrationEquivalenceTests.test_changing_an_absence_check_is_refused',
+        'tests.test_codex_review_round2.CalibrationEquivalenceTests.test_future_assertions_and_cleanup_keep_their_conditions',
+        'tests.test_codex_review_round2.CalibrationEquivalenceTests.test_relocating_the_same_label_is_still_accepted',
+        'tests.test_codex_review_round2.CalibrationEquivalenceTests.test_a_label_less_locator_cannot_be_repointed'],
+        'Codex P1-1; the model is not involved here, only the validator that gates its proposals.'),
+    case('emulator-identity', 'Install, input or kill only on the approved AVD; unknown identity or another AVD blocks', 'b19b35e', [
+        'tests.test_codex_review_round2.EmulatorIdentityTests.test_another_avd_on_the_serial_gets_no_install_input_or_kill',
+        'tests.test_codex_review_round2.EmulatorIdentityTests.test_an_unverifiable_identity_blocks',
+        'tests.test_codex_review_round2.EmulatorIdentityTests.test_the_approved_avd_opened_by_the_user_is_used_but_never_killed'],
+        'Codex P1-2; emulator console is a fixture, a live check of emu avd name is separate.'),
+    case('emulator-ownership', 'Ownership of a booted emulator survives retries; only that instance is stopped', 'b19b35e', [
+        'tests.test_codex_review_round2.EmulatorOwnershipTests.test_boot_then_failure_then_retry_success_stops_the_owned_instance',
+        'tests.test_codex_review_round2.EmulatorOwnershipTests.test_a_replaced_instance_is_not_stopped'],
+        'Codex P2 (trial 7 left its emulator running); coordinator restart is modelled by a fresh device run.'),
+    case('device-exact-mode', 'Real device: exact selectors, masked mismatch evidence, no calibration, recovery only when granted', '742a139', [
+        'tests.test_device_exact_mode.ExactSelectorTests.test_a_relaxed_match_is_a_mismatch_with_masked_evidence_and_no_calibration',
+        'tests.test_device_exact_mode.ExactSelectorTests.test_empty_content_description_is_a_valid_pinned_value',
+        'tests.test_device_exact_mode.ExactSelectorTests.test_calibration_step_refuses_exact_mode',
+        'tests.test_device_exact_mode.RecoveryPermissionTests.test_without_a_grant_nothing_is_sent_and_it_is_a_permission_question',
+        'tests.test_device_exact_mode.RecoveryPermissionTests.test_locked_screen_needs_its_own_grant'],
+        'A54/HIS mode added at the user request; mocks only, no live A54 run.'),
     case('environment-discovery', 'Toolchain, package, application id and tests discovered without the entry', '8207d61', [
         'tests.test_delivery_env.EnvironmentDiscoveryTests.test_flutter_root_precedence_and_rejections',
         'tests.test_delivery_env.EnvironmentDiscoveryTests.test_build_tools_selection',
