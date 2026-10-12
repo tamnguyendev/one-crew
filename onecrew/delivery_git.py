@@ -38,7 +38,7 @@ ATTRIBUTES = ('text', 'eol', 'filter', 'working-tree-encoding')
 ALWAYS_DENIED = ('.gitattributes', '**/.gitattributes', '.gitmodules')
 OPERATIONS = ('MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply', 'BISECT_LOG')
 PROBLEMS = ('dirty_at_baseline', 'staged_at_baseline', 'ignored', 'denied', 'outside_repo', 'external_filter',
-            'not_a_file', 'not_found', 'changed_since_applied', 'not_in_baseline')
+            'not_a_file', 'not_found', 'changed_since_applied', 'not_in_baseline', 'case_mismatch')
 BOM = b'\xef\xbb\xbf'
 
 
@@ -122,9 +122,45 @@ def _branch(root):
     return ref[len('refs/heads/'):] if result.returncode == 0 and ref.startswith('refs/heads/') else None
 
 
-def _config(root, key):
-    result = _run(root, ['config', '--get', key])
-    return _text(result.stdout).strip() if result.returncode == 0 else None
+def _core(root):
+    """The effective core.autocrlf and core.ignorecase, booleans written as true/false (one git call)."""
+    result = _run(root, ['config', '-z', '--type=bool-or-str', '--get-regexp', r'^core\.(autocrlf|ignorecase)$'])
+    if result.returncode not in (0, 1):
+        raise GitRefusal('git_failed', 'git config failed: ' + _text(result.stderr)[:400])
+    found = {}
+    for item in _text(result.stdout).split('\0'):
+        key, _, value = item.partition('\n')
+        if key:
+            found[key] = value
+    return found
+
+
+def _baseline_ignorecase(baseline, root):
+    value = baseline.get('ignorecase')
+    return _core(root).get('core.ignorecase') == 'true' if value is None else bool(value)
+
+
+def _fold(ignorecase):
+    return str.lower if ignorecase else str
+
+
+def _names(data):
+    return {n for n in data.decode('utf-8').split('\0') if n}
+
+
+def _spellings(root, ignorecase, tree=None):
+    """Lower-cased path or directory in the index or ``tree`` -> its spellings; None when git matches case-sensitively."""
+    if not ignorecase:
+        return None
+    # The tree adds files deleted from the index since the baseline commit (one git call).
+    names = _names(git(root, 'ls-files', '-z', *(['--with-tree=' + _sha(tree, 'Baseline head')] if tree else [])))
+    known = {}
+    for name in names:
+        parts = name.split('/')
+        for end in range(1, len(parts) + 1):
+            prefix = '/'.join(parts[:end])
+            known.setdefault(prefix.lower(), set()).add(prefix)
+    return known
 
 
 def _sha(value, what):
@@ -261,7 +297,17 @@ def _eol(root, paths):
     return found
 
 
-def _path_problem(root, path):
+def _listing(directory, cache):
+    if directory not in cache:
+        try:
+            cache[directory] = {entry.name for entry in os.scandir(directory)}
+        except OSError:
+            cache[directory] = set()
+    return cache[directory]
+
+
+def _path_problem(root, path, known=None, cache=None):
+    """``known`` is ``_spellings``; a path must use the exact spelling on disk and in the index, never an alias."""
     if (not isinstance(path, str) or not path or len(path) > 240 or '\\' in path or '\n' in path or
             path.startswith('/') or re.match(r'[A-Za-z]:', path) or any(p in ('', '.', '..') for p in path.split('/'))):
         return 'outside_repo'
@@ -269,8 +315,15 @@ def _path_problem(root, path):
         scoped_path(path)
     except LedgerError:
         return 'denied'
+    cache = {} if cache is None else cache
     target = root
+    prefix = ''
     for part in path.split('/'):
+        prefix = prefix + '/' + part if prefix else part
+        if known is not None and prefix not in known.get(prefix.lower(), (prefix,)):
+            return 'case_mismatch'
+        if os.path.lexists(target/part) and part not in _listing(target, cache):
+            return 'case_mismatch'
         target = target/part
         if target.is_symlink() or (hasattr(target, 'is_junction') and target.is_junction()) or (target/'.git').exists():
             return 'outside_repo'
@@ -297,10 +350,14 @@ def baseline(project, paths=()):
     """Repository state before OneCrew edits; ``paths`` (the planned owned files) also keep eol facts and exact bytes."""
     root, operation = _repo(project)
     paths = _path_list(paths, empty=True)
-    problems = [_problem(p, found) for p in paths if (found := _path_problem(root, p))]
+    core = _core(root)
+    ignorecase = core.get('core.ignorecase') == 'true'
+    status = _status(root)
+    known = _spellings(root, ignorecase, _head_of(status)) if paths else None
+    cache = {}
+    problems = [_problem(p, found) for p in paths if (found := _path_problem(root, p, known, cache))]
     if problems:
         raise GitRefusal('path_problems', 'Baseline paths refused: ' + _describe(problems), problems)
-    status = _status(root)
     dirty = sorted({p for e in status['entries'] if e['kind'] in ('changed', 'renamed', 'unmerged')
                     for p in (e['path'], e.get('orig')) if p})
     untracked = sorted(e['path'] for e in status['entries'] if e['kind'] == 'untracked')
@@ -310,14 +367,15 @@ def baseline(project, paths=()):
             'dirty': {p: _hash_file(root/p) for p in dirty[:MAX_HASHED]},
             'untracked': {p: _hash_file(root/p) for p in untracked[:MAX_HASHED]},
             'truncated': len(dirty) > MAX_HASHED or len(untracked) > MAX_HASHED,
-            'autocrlf': _config(root, 'core.autocrlf'), 'eol': _eol(root, paths), 'files': _files(root, paths)}
+            'autocrlf': core.get('core.autocrlf'), 'ignorecase': ignorecase, 'eol': _eol(root, paths),
+            'files': _files(root, paths)}
 
 
-def _baseline_states(baseline):
+def _baseline_states(baseline, fold=str):
     states = {}
 
     def add(path, state):
-        states.setdefault(path, set()).add(state)
+        states.setdefault(fold(path), set()).add(state)
     for entry in baseline['status']['entries']:
         if entry['kind'] == 'untracked':
             add(entry['path'], 'dirty_at_baseline')
@@ -340,21 +398,26 @@ def check_paths(baseline, paths, deny_globs=()):
     if not isinstance(deny_globs, (list, tuple)) or any(not isinstance(g, str) or not g for g in deny_globs):
         raise LedgerError('Deny globs must be a list of non-empty POSIX glob strings.')
     root = Path(baseline['project'])
-    deny = (*deny_globs, *ALWAYS_DENIED)
-    states = _baseline_states(baseline)
+    ignorecase = _baseline_ignorecase(baseline, root)
+    fold = _fold(ignorecase)
+    known = _spellings(root, ignorecase, baseline['head']) if paths else None
+    # Deny globs ignore case on every repository: a wider match can only refuse more.
+    deny = [glob.lower() for glob in (*deny_globs, *ALWAYS_DENIED)]
+    states = _baseline_states(baseline, fold)
+    cache = {}
     problems = []
     usable = []
     for path in paths:
-        found = _path_problem(root, path)
-        if not found and any(PurePosixPath(path).full_match(glob) for glob in deny):
+        found = _path_problem(root, path, known, cache)
+        if not found and any(PurePosixPath(path.lower()).full_match(glob) for glob in deny):
             found = 'denied'
         if found:
             problems.append(_problem(path, found))
             continue
-        problems += [_problem(path, state) for state in sorted(states.get(path, ()))]
+        problems += [_problem(path, state) for state in sorted(states.get(fold(path), ()))]
         usable.append(path)
     if usable:
-        problems += [_problem(p, 'ignored') for p in _ignored(root, usable) if 'ignored' not in states.get(p, ())]
+        problems += [_problem(p, 'ignored') for p in _ignored(root, usable) if 'ignored' not in states.get(fold(p), ())]
         problems += [_problem(p, 'external_filter', a['filter']) for p, a in _attributes(root, usable, 'filter').items()
                      if a.get('filter') not in ('unspecified', 'unset', None)]
     return sorted(problems, key=lambda p: (p['path'], p['problem']))
@@ -429,19 +492,24 @@ def _facts(root, commit):
     return {'parents': fields[0].split(), 'author': fields[1], 'intents': fields[2].strip().split('\x1f')}
 
 
-def _receipt(root, commit, parent, intent, reconciled, facts=None, changed=None, branch=None):
+def _receipt(root, commit, parent, intent, reconciled, verified, facts=None, changed=None, branch=None):
+    """``verified``: every other path was compared with its state just before this commit was made."""
     return {'commit': commit, 'parent': parent, 'branch': branch or _branch(root),
             'paths': changed if changed is not None else _changed(root, parent, commit), 'intent': intent,
-            'author': (facts or _facts(root, commit))['author'], 'pushed': False, 'reconciled': reconciled}
+            'author': (facts or _facts(root, commit))['author'], 'pushed': False, 'reconciled': reconciled,
+            'verified': verified}
 
 
 def reconcile(project, intent_id, expected_head):
     """The commit carrying ``intent_id`` made directly on ``expected_head`` and reachable from HEAD, or None."""
     root = _root(project)
-    return _reconcile(root, _intent(intent_id), _sha(expected_head, 'Expected head'), _head(root))
+    intent, expected = _intent(intent_id), _sha(expected_head, 'Expected head')
+    found = _reconcile(root, intent, expected, _head(root))
+    return found and _receipt(root, found, expected, intent, True, False)
 
 
 def _reconcile(root, intent, expected, head):
+    """Id of the commit carrying ``intent`` directly on ``expected``, reachable from ``head``, or None."""
     if not head or head == expected:
         return None
     result = _run(root, ['log', '--max-count=200', '--format=%H%x00%P%x00%(trailers:key=' + TRAILER +
@@ -451,7 +519,7 @@ def _reconcile(root, intent, expected, head):
     for row in _text(result.stdout).split('\x1e'):
         fields = row.strip('\n').split('\0')
         if len(fields) == 3 and fields[1].split() == [expected] and intent in fields[2].split('\x1f'):
-            return _receipt(root, fields[0], expected, intent, True)
+            return fields[0]
     return None
 
 
@@ -514,7 +582,32 @@ def _verify(root, branch, expected, intent, paths, before, reconciled):
     if failed:
         raise GitRefusal('verification_failed', f'Commit {head} failed verification: ' + ', '.join(failed),
                          commit=head, failed=failed)
-    return _receipt(root, head, expected, intent, reconciled, facts, changed, branch)
+    return _receipt(root, head, expected, intent, reconciled, True, facts, changed, branch)
+
+
+def _recheck(root, baseline, found, branch, expected, intent, paths, deny_globs, applied, status):
+    """A commit that already carries the intent: repeat every check that needs no state from before it was made."""
+    changed = _changed(root, expected, found)
+    if not set(changed) <= set(paths):
+        raise GitRefusal('intent_conflict', f'Commit {found} already carries this intent for other paths.')
+    facts = _facts(root, found)
+    failed = []
+    if _branch_of(status) != branch:
+        failed.append('branch')
+    if facts['parents'] != [expected]:
+        failed.append('parent')
+    if intent not in facts['intents']:
+        failed.append('trailer')
+    if not changed or check_paths(baseline, changed, deny_globs):
+        failed.append('paths')
+    if _applied_problems(root, changed, applied):
+        failed.append('changed_since_applied')
+    if len(_others(status, changed)) != len(status['entries']):
+        failed.append('committed_differs_from_worktree')
+    if failed:
+        raise GitRefusal('verification_failed', f'Commit {found} failed verification: ' + ', '.join(failed),
+                         commit=found, failed=failed)
+    return _receipt(root, found, expected, intent, True, False, facts, changed, branch)
 
 
 def commit(project, baseline, paths, message, intent_id, expected_head=None, deny_globs=(), applied=None):
@@ -530,9 +623,7 @@ def commit(project, baseline, paths, message, intent_id, expected_head=None, den
     status = _status(root)
     found = _reconcile(root, intent, expected, _head_of(status))
     if found:
-        if not set(found['paths']) <= set(paths):
-            raise GitRefusal('intent_conflict', f'Commit {found["commit"]} already carries this intent for other paths.')
-        return found
+        return _recheck(root, baseline, found, branch, expected, intent, paths, deny_globs, applied, status)
     _expect(status, branch, expected)
     if operation:
         raise GitRefusal('operation_in_progress', f'{operation} is in progress; nothing was committed.')
@@ -549,6 +640,8 @@ def commit(project, baseline, paths, message, intent_id, expected_head=None, den
     added = [p for p in paths if p not in tracked]
     if added:
         git(root, 'add', '--intent-to-add', '--', *added)
+        # Undo by the names git recorded: on a case-insensitive repository they may differ from the requested ones.
+        added = sorted({k.rsplit(':', 1)[0] for k in set(_index(root)) - set(index)})
     try:
         result = _run(root, ['commit', '--only', '--no-edit', '--cleanup=whitespace', '--quiet', '-F', '-', '--',
                              *[':(literal)' + p for p in paths]], text.encode('utf-8'), COMMIT_SECONDS, plain=True)
@@ -680,15 +773,16 @@ def version_bump(project, relpath, field='version', bump='patch', expected_sha=N
     return {'path': relpath, 'field': field, 'old': old, 'new': new, 'sha_before': before, 'sha_after': bytes_hash(output)}
 
 
-def _original(root, baseline, path):
+def _original(root, baseline, path, fold=str):
     """Baseline bytes of ``path``: bytes, None when it did not exist, False when the baseline cannot tell exactly."""
-    item = baseline.get('files', {}).get(path)
+    files = baseline.get('files', {})
+    item = files.get(path)
     if item is not None:
         if item['sha256'] is None:
             return None
         data = base64.b64decode(item['data'])
         return data if bytes_hash(data) == item['sha256'] else False
-    if path in _baseline_states(baseline) or path in baseline['dirty'] or path in baseline['untracked']:
+    if fold(path) in {fold(p) for p in (*files, *_baseline_states(baseline), *baseline['dirty'], *baseline['untracked'])}:
         return False
     if baseline['head'] and git(root, 'ls-tree', '-z', _sha(baseline['head'], 'Baseline head'), '--', path).strip():
         return False
@@ -700,14 +794,18 @@ def restore_baseline(project, baseline, applied):
     root = _project(project, baseline)[0]
     if not isinstance(applied, dict) or not 1 <= len(applied) <= MAX_PATHS or any(not isinstance(p, str) for p in applied):
         raise LedgerError(f'Restore needs 1-{MAX_PATHS} applied paths.')
+    ignorecase = _baseline_ignorecase(baseline, root)
+    fold = _fold(ignorecase)
+    known = _spellings(root, ignorecase, baseline['head'])
+    cache = {}
     problems = []
     plan = []
     for path in sorted(applied):
         expected = applied[path]
         if expected is not None and (not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected)):
             raise LedgerError('Applied bytes must be a sha256 hex digest or null.')
-        found = _path_problem(root, path)
-        original = False if found else _original(root, baseline, path)
+        found = _path_problem(root, path, known, cache)
+        original = False if found else _original(root, baseline, path, fold)
         if found or original is False:
             problems.append(_problem(path, found or 'not_in_baseline'))
         elif _hash_file(root/path) != expected:

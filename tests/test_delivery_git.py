@@ -35,9 +35,9 @@ def remove(base):
     shutil.rmtree(base, onexc=writable)
 
 
-def run_git(root, *args):
+def run_git(root, *args, check=True):
     environment = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
-    return subprocess.run(['git', '-C', str(root), *args], env=environment, capture_output=True, check=True).stdout
+    return subprocess.run(['git', '-C', str(root), *args], env=environment, capture_output=True, check=check).stdout
 
 
 @unittest.skipUnless(GIT, 'needs git on PATH')
@@ -50,7 +50,9 @@ class DeliveryGitTests(unittest.TestCase):
         template = cls('test_baseline_head_branch_status')
         template.root = cls.template
         template.root.mkdir()
-        run_git(cls.template, 'init', '-q', '-b', 'main')
+        # No template: sample hooks would be copied into every test repository.
+        run_git(cls.template, 'init', '-q', '-b', 'main', '--template=')
+        (cls.template/'.git/hooks').mkdir()
         with (cls.template/'.git/config').open('a', encoding='utf-8') as config:
             config.write('[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n[core]\n\tautocrlf = true\n'
                          '\thooksPath = .git/hooks\n[commit]\n\tgpgSign = false\n')
@@ -63,6 +65,7 @@ class DeliveryGitTests(unittest.TestCase):
         run_git(cls.template, 'add', '.')
         run_git(cls.template, 'commit', '-q', '-m', 'base')
         cls.base = run_git(cls.template, 'rev-parse', 'HEAD').decode().strip()
+        cls.ignorecase = run_git(cls.template, 'config', '--get', 'core.ignorecase', check=False).strip() == b'true'
         # Another writer's pre-existing work: one unstaged edit, one staged edit, one untracked file.
         template.write('backend/app/main.py', b'print("user edit")\r\n')
         template.write('docs/harness/traceability.md', b'# trace\r\nstaged by user\r\n')
@@ -93,6 +96,10 @@ class DeliveryGitTests(unittest.TestCase):
 
     def count(self):
         return int(self.git('rev-list', '--count', 'HEAD'))
+
+    def case_insensitive(self):
+        if not self.ignorecase:
+            self.skipTest('needs a repository with core.ignorecase=true')
 
     def unrelated(self):
         names = ('backend/app/main.py', 'docs/harness/traceability.md', 'notes.txt')
@@ -190,15 +197,27 @@ class DeliveryGitTests(unittest.TestCase):
             return result
         with patch.object(delivery_git.subprocess, 'run', lost):
             first = commit(self.root, b, [APP, NEW], 'feat: once', 'I-lost')
-        self.assertTrue(first['reconciled'])
+        self.assertEqual((first['reconciled'], first['verified']), (True, True))
         self.assertEqual((self.count(), first['parent']), (2, self.base))
         again = commit(self.root, b, [APP, NEW], 'feat: once', 'I-lost')
-        self.assertEqual((again['commit'], again['reconciled'], self.count()), (first['commit'], True, 2))
+        # Found before committing: the other paths can no longer be compared with their pre-commit state.
+        self.assertEqual((again['commit'], again['reconciled'], again['verified'], self.count()), (first['commit'], True, False, 2))
         self.assertEqual(reconcile(self.root, 'I-lost', self.base)['commit'], first['commit'])
         self.assertIsNone(reconcile(self.root, 'I-other', self.base))
         with self.assertRaises(GitRefusal) as refused:
             commit(self.root, b, [APP], 'feat: once', 'I-lost')
         self.assertEqual(refused.exception.kind, 'intent_conflict')
+        self.write(APP, b'edited after the commit\r\n')
+        with self.assertRaises(GitRefusal) as refused:
+            commit(self.root, b, [APP, NEW], 'feat: once', 'I-lost')
+        self.assertEqual((refused.exception.kind, refused.exception.facts['failed']), ('verification_failed', ['committed_differs_from_worktree']))
+        # A commit that carries an intent but holds a path that was dirty at baseline is never accepted on retry.
+        dirty = baseline(self.root)
+        self.git('commit', '-q', '-m', 'x\n\nOneCrew-Intent: I-forged', '--', 'backend/app/main.py')
+        with self.assertRaises(GitRefusal) as refused:
+            commit(self.root, dirty, ['backend/app/main.py'], 'x', 'I-forged')
+        self.assertEqual((refused.exception.kind, refused.exception.facts['failed']), ('verification_failed', ['paths']))
+        self.assertEqual(self.count(), 3)
 
     def test_deny_list_and_typed_path_problems(self):
         self.write('.gitattributes', b'*.dat filter=fake\r\n')
@@ -235,6 +254,72 @@ class DeliveryGitTests(unittest.TestCase):
             commit(self.root, b, ['extension/src/missing.ts'], 'feat: x', 'I-missing', expected_head=head.decode().strip())
         self.assertEqual(refused.exception.problems[0]['problem'], 'not_found')
 
+    def test_case_alias_refused_by_check_and_restore(self):
+        self.case_insensitive()
+        b = baseline(self.root, [APP, OLD])
+        self.assertTrue(b['ignorecase'])
+        applied = self.apply()
+        alias = 'Extension/src/app.ts'
+        self.assertEqual(check_paths(b, [alias]), [{'path': alias, 'problem': 'case_mismatch', 'detail': None}])
+        with self.assertRaises(GitRefusal) as refused:
+            restore_baseline(self.root, b, {alias: applied[APP]})
+        self.assertEqual([(p['path'], p['problem']) for p in refused.exception.problems], [(alias, 'case_mismatch')])
+        self.assertEqual(sha(self.read(APP)), applied[APP])
+        # Untracked names are checked against the directory listing, deleted ones against the index and HEAD.
+        (self.root/OLD).unlink()
+        self.assertEqual([(p['path'], p['problem']) for p in check_paths(b, ['NOTES.txt', 'extension/src/NEW.ts', 'extension/src/OLD.ts'])],
+                         [('NOTES.txt', 'case_mismatch'), ('extension/src/NEW.ts', 'case_mismatch'), ('extension/src/OLD.ts', 'case_mismatch')])
+        with self.assertRaises(GitRefusal) as refused:
+            restore_baseline(self.root, b, {'extension/src/OLD.ts': None})
+        self.assertEqual(refused.exception.problems[0]['problem'], 'case_mismatch')
+        for call in (lambda: baseline(self.root, [alias]), lambda: version_bump(self.root, 'Extension/manifest.json')):
+            with self.assertRaises(GitRefusal) as refused:
+                call()
+            self.assertEqual(refused.exception.problems[0]['problem'], 'case_mismatch')
+        self.assertEqual(self.read(MANIFEST), MANIFEST_BYTES)
+        self.assertEqual(self.git('status', '--porcelain', '--', 'extension'),
+                         b' M extension/src/app.ts\n D extension/src/old.ts\n?? extension/src/new.ts\n')
+
+    def test_case_variants_cannot_pass_the_deny_list(self):
+        self.case_insensitive()
+        b = baseline(self.root)
+        deny = ['extension/secret/**']
+        self.write('extension/secret/key.ts', b'k\r\n')
+        self.write('.GITATTRIBUTES', b'*.dat filter=evil\r\n')
+        self.apply()
+        problems = check_paths(b, ['extension/Secret/key.ts', '.GITATTRIBUTES', '.gitattributes'], deny)
+        self.assertEqual([(p['path'], p['problem']) for p in problems],
+                         [('.GITATTRIBUTES', 'denied'), ('.gitattributes', 'case_mismatch'), ('extension/Secret/key.ts', 'case_mismatch')])
+        shutil.rmtree(self.root/'extension/secret')
+        self.write('extension/Secret/key.ts', b'k\r\n')
+        self.assertEqual(check_paths(b, ['extension/Secret/key.ts'], deny), [{'path': 'extension/Secret/key.ts', 'problem': 'denied', 'detail': None}])
+        head, index = self.git('rev-parse', 'HEAD'), self.read('.git/index')
+        for path in ('extension/Secret/key.ts', '.GITATTRIBUTES'):
+            with self.assertRaises(GitRefusal) as refused:
+                commit(self.root, b, [APP, path], 'feat: x', 'I-case', deny_globs=deny)
+            self.assertEqual(refused.exception.problems, [{'path': path, 'problem': 'denied', 'detail': None}])
+        self.assertEqual((self.git('rev-parse', 'HEAD'), self.read('.git/index')), (head, index))
+
+    def test_case_variant_new_file_leaves_index(self):
+        self.case_insensitive()
+        hook = self.root/'.git/hooks/pre-commit'
+        hook.write_bytes(b'#!/bin/sh\ntouch .git/hook-ran\nexit 1\n')
+        os.chmod(hook, 0o755)
+        b = baseline(self.root)
+        self.apply()
+        index = self.git('ls-files', '-s')
+        alias = 'Extension/src/new.ts'
+        with self.assertRaises(GitRefusal) as refused:
+            commit(self.root, b, [APP, alias], 'feat: x', 'I-alias')
+        self.assertEqual(refused.exception.problems, [{'path': alias, 'problem': 'case_mismatch', 'detail': None}])
+        self.assertFalse((self.root/'.git/hook-ran').exists())
+        # Past the path checks, the intent-to-add entry is still undone under the name git gave it.
+        with patch.object(delivery_git, 'check_paths', return_value=[]), self.assertRaises(GitRefusal) as refused:
+            commit(self.root, b, [APP, alias], 'feat: x', 'I-alias')
+        self.assertEqual(refused.exception.kind, 'commit_failed')
+        self.assertEqual(self.git('ls-files', '-s'), index)
+        self.assertEqual(self.git('status', '--porcelain', '--', 'extension/src'), b' M extension/src/app.ts\n?? extension/src/new.ts\n')
+
     def test_pre_commit_hook_runs_on_exactly_the_commit(self):
         hook = self.root/'.git/hooks/pre-commit'
         hook.write_bytes(b'#!/bin/sh\ngit diff --cached --name-only > .git/hook-staged\n')
@@ -259,6 +344,9 @@ class DeliveryGitTests(unittest.TestCase):
         with self.assertRaises(GitRefusal) as refused:
             commit(self.root, rejecting, [APP], 'feat: touches others', 'I-touch')
         self.assertEqual((refused.exception.kind, refused.exception.facts['failed']), ('verification_failed', ['other_worktree_changed']))
+        count = self.count()
+        retry = commit(self.root, rejecting, [APP], 'feat: touches others', 'I-touch')
+        self.assertEqual((retry['commit'], retry['verified'], self.count()), (refused.exception.facts['commit'], False, count))
 
     def test_version_bump_preserves_format_and_eol(self):
         b = baseline(self.root, [MANIFEST])
