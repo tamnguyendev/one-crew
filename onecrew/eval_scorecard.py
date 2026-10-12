@@ -134,7 +134,10 @@ def dependencies(t):
             'runtime_revisions':revisions, 'runtime_changes':None if revisions is None else max(0, revisions-1),
             'coordinator_restarts':m['coordinator_restarts_by_initiator'], 'keeper_restart_events':m['coordinator_restarts'],
             'child_starts':m['child_starts_by_initiator'],
-            'user_decisions_answered':m['decisions_answered']}
+            'user_decisions_answered':m['decisions_answered'],
+            # Who relayed each recorded reply: an entry answering under delegation is not the user deciding.
+            'decision_replies_by_actor':None if m['interventions'] is None else
+                dict(collections.Counter(i['actor'] for i in m['interventions'] if role(i) == 'decision'))}
 
 
 def scorecard(state_root, task_ids, comparison=None):
@@ -178,11 +181,11 @@ def markdown(value):
         lines.append(f"| {t['task']} | {t['phase']} | {cell(t['technical_verified'])} | {cell(t['criteria_counts'])} | "
                      f"{cell(t['not_run'])} | {cell(t['missing_evidence'])} | {level} | {helped} | {t['outcome']} |")
     lines += ['', '## Trục 3 — Phụ thuộc entry', '',
-              '| Task | Can thiệp (actor/lệnh) | Can thiệp entry | Ghi chú hỗ trợ | Plan | Runtime (bản) | Restart coordinator | Khởi động task con | Quyết định người dùng |',
-              '|---|---|---:|---|---|---:|---|---|---:|']
+              '| Task | Can thiệp (actor/lệnh) | Can thiệp entry | Ghi chú hỗ trợ | Plan | Runtime (bản) | Restart coordinator | Khởi động task con | Quyết định đã trả lời | Người gửi trả lời |',
+              '|---|---|---:|---|---|---:|---|---|---:|---|']
     for t in axes['entry_dependencies']['tasks']:
         lines.append(f"| {t['task']} | {cell(t['interventions'])} | {cell(t['entry_interventions'])} | {cell(t['assistance_notes'])} | "
                      f"{cell(t['plan_provenance'])} | {cell(t['runtime_revisions'])} | {cell(t['coordinator_restarts'])} | {cell(t['child_starts'])} | "
-                     f"{t['user_decisions_answered']} |")
+                     f"{t['user_decisions_answered']} | {cell(t['decision_replies_by_actor'])} |")
     lines += ['', *['- '+s for s in value['limits']]]
     return '\n'.join(lines)+'\n'

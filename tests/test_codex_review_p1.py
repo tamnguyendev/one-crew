@@ -108,6 +108,15 @@ class ScorecardLevelTests(unittest.TestCase):
         self.assertIn('runtime_changed', row['assistance_reasons'])
 
 
+class DecisionActorTests(unittest.TestCase):
+    def test_delegated_replies_are_attributed_to_the_entry_actor(self):
+        task = observed(metrics=dict(observed()['metrics'], decisions_answered=2, interventions=[
+            {'actor': 'claude', 'channel': 'cli', 'command': 'request.reply'}, {'actor': 'user', 'channel': 'cli', 'command': 'request.reply'}]))
+        row = sc.dependencies(task)
+        self.assertEqual(row['decision_replies_by_actor'], {'claude': 1, 'user': 1})
+        self.assertEqual(row['entry_interventions'], 0)
+
+
 class Clock(dt.datetime):
     current = None
 
