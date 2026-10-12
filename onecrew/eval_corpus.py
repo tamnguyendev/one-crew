@@ -245,7 +245,7 @@ CASES = [
         'tests.test_autonomy_round2.CalibrationDeliveryTests.test_expected_text_missing_on_screen_is_a_product_repair_without_a_model_call',
         'tests.test_autonomy_round2.CalibrationDeliveryTests.test_calibration_is_bounded_then_one_question',
         'tests.test_autonomy_round2.PlannedDeviceTests.test_compiled_device_node_carries_calibration_and_the_approved_emulator'],
-        'The model is a fixture here; semantic quality of a live calibration is only shown by a trial.'),
+        'Relocation is code since e7ac37a (before: the model was a fixture); a live relocation is only shown by a trial.'),
     # Codex review of round 2 (REVIEW-CODEX-ONECREW-ROUND2-742a139-2026-10-12.txt) and the real-device mode it reviewed.
     case('calibration-equivalence', 'Calibration may relocate a selector but never weaken what it checks (state, verbatim labels, absence)', 'b19b35e', [
         'tests.test_codex_review_round2.CalibrationEquivalenceTests.test_dropping_an_expected_state_is_refused',
@@ -262,6 +262,44 @@ CASES = [
         'tests.test_codex_review_round2.EmulatorOwnershipTests.test_boot_then_failure_then_retry_success_stops_the_owned_instance',
         'tests.test_codex_review_round2.EmulatorOwnershipTests.test_a_replaced_instance_is_not_stopped'],
         'Codex P2 (trial 7 left its emulator running); coordinator restart is modelled by a fresh device run.'),
+    # Codex follow-up of b19b35e (REVIEW-CODEX-ONECREW-b19b35e-FOLLOWUP-2026-10-12.txt): the two P1s as principles.
+    case('relocation-proof', 'A locator is relocated only when the live UI proves the same object; identity and condition never change', 'e7ac37a', [
+        'tests.test_codex_followup_b19b35e.RelocationPrincipleTests.test_codex_probe_dropping_an_observable_id_moves_the_check_to_another_account',
+        'tests.test_codex_followup_b19b35e.RelocationPrincipleTests.test_several_nodes_with_the_same_label_never_prove_one',
+        'tests.test_codex_followup_b19b35e.RelocationPrincipleTests.test_one_same_label_node_is_no_proof_for_an_unexposed_id',
+        'tests.test_codex_followup_b19b35e.RelocationPrincipleTests.test_changing_resource_id_or_class_is_refused',
+        'tests.test_codex_followup_b19b35e.RelocationPrincipleTests.test_a_class_the_screen_does_not_show_is_not_dropped',
+        'tests.test_codex_followup_b19b35e.RelocationPrincipleTests.test_moving_a_label_attribute_onto_a_merged_label_shared_by_siblings_is_refused',
+        'tests.test_codex_followup_b19b35e.RelocationPrincipleTests.test_a_later_assertion_and_cleanup_are_never_relocated',
+        'tests.test_codex_followup_b19b35e.RelocationPrincipleTests.test_an_absence_check_is_never_relocated',
+        'tests.test_codex_followup_b19b35e.CalibrationRoutingTests.test_codex_probe_keeps_the_assertion_and_reports_the_product'],
+        'Codex P1-1 follow-up; adversarial variants beyond the probe (same label on several nodes, id/class/label attribute, later steps, cleanup).'),
+    case('relocation-capability', 'A locator that failed only on incidental state or label placement is still relocated, without a model', 'e7ac37a', [
+        'tests.test_codex_followup_b19b35e.RelocationCapabilityTests.test_trial5_locator_that_named_focus_is_relocated_with_identity_kept',
+        'tests.test_codex_followup_b19b35e.RelocationCapabilityTests.test_a_label_written_in_another_attribute_or_as_a_merged_part_is_relocated',
+        'tests.test_codex_followup_b19b35e.RelocationCapabilityTests.test_codex_probe_is_a_condition_finding_not_a_relocation',
+        'tests.test_codex_followup_b19b35e.RelocationCapabilityTests.test_relocation_never_calls_a_model',
+        'tests.test_codex_review_round2.CalibrationEquivalenceTests.test_relocating_the_failing_locator_with_its_identity_kept_is_accepted',
+        'tests.test_autonomy_round2.CalibrationDeliveryTests.test_at_the_calibration_bound_a_selector_failure_is_one_question'],
+        'Capability control for relocation-proof (trial 5 snapshot); blocking more is not counted as autonomy.'),
+    case('emulator-instance-binding', 'Every emulator change, recovery and cleanup goes only to the verified instance; loss blocks all of them', 'e7ac37a', [
+        'tests.test_codex_followup_b19b35e.InstanceBindingTests.test_codex_probe_replacement_between_prepare_and_install',
+        'tests.test_codex_followup_b19b35e.InstanceBindingTests.test_same_avd_new_boot_between_steps_stops_main_steps_and_cleanup',
+        'tests.test_codex_followup_b19b35e.InstanceBindingTests.test_replacement_before_cleanup_gets_no_cleanup',
+        'tests.test_codex_followup_b19b35e.InstanceBindingTests.test_replacement_before_system_recovery_gets_no_recovery_input',
+        'tests.test_codex_followup_b19b35e.InstanceBindingTests.test_replacement_before_an_emulator_restart_gets_no_kill',
+        'tests.test_codex_followup_b19b35e.InstanceBindingTests.test_replacement_before_the_stop_after_a_pass_is_not_stopped',
+        'tests.test_codex_followup_b19b35e.InstanceBindingTests.test_an_emulator_serial_without_an_approved_avd_is_bound_to_its_first_instance',
+        'tests.test_codex_followup_b19b35e.InstanceBindingTests.test_an_unreadable_identity_is_read_again_but_never_assumed',
+        'tests.test_codex_followup_b19b35e.CoordinatorRestartTests.test_an_interrupted_attempt_is_not_replayed_on_a_replacement',
+        'tests.test_codex_followup_b19b35e.CoordinatorRestartTests.test_an_interrupted_attempt_replays_on_the_same_instance',
+        'tests.test_codex_followup_b19b35e.CoordinatorRestartTests.test_a_new_attempt_after_restart_verifies_again_and_only_stops_its_own_boot'],
+        'Codex P1-2 follow-up; ADB is scripted. One command may still race a replacement inside one adb round trip (no atomic compare-and-execute).'),
+    case('emulator-instance-capability', 'An unchanged instance runs, stops after a pass and pays one identity read per change', 'e7ac37a', [
+        'tests.test_codex_followup_b19b35e.ValidInstanceTests.test_an_unchanged_instance_passes_and_every_change_is_checked_right_before_it',
+        'tests.test_codex_followup_b19b35e.ValidInstanceTests.test_only_exact_read_shapes_skip_the_gate',
+        'tests.test_codex_followup_b19b35e.ValidInstanceTests.test_a_physical_device_is_not_gated_by_boot_id'],
+        'Capability control for emulator-instance-binding; physical devices keep their path.'),
     case('device-exact-mode', 'Real device: exact selectors, masked mismatch evidence, no calibration, recovery only when granted', '742a139', [
         'tests.test_device_exact_mode.ExactSelectorTests.test_a_relaxed_match_is_a_mismatch_with_masked_evidence_and_no_calibration',
         'tests.test_device_exact_mode.ExactSelectorTests.test_empty_content_description_is_a_valid_pinned_value',
