@@ -185,6 +185,7 @@ class DeviceRun(unittest.TestCase):
         if args[:3] == ['shell', 'pm', 'path']: return 0, 'package:/data/app/base.apk', ''
         if args[:2] == ['shell', 'sha256sum']: return 0, self.digest + ' /data/app/base.apk', ''
         if args == ['shell', 'dumpsys', 'window']: return 0, ANR_FOCUS if self.dialog else self.focus, ''
+        if args[:2] == ['shell', 'pidof']: return (1, '', '') if getattr(self, 'dead', False) else (0, '4242', '')
         if args[0] == 'exec-out': return 0, ANR if self.dialog else screen(self.port, self.error, self.saved, self.typing), ''
         if args[:3] == ['shell', 'input', 'tap']:
             x, y = int(args[3]), int(args[4])
@@ -300,6 +301,95 @@ class LiveDeviceTests(DeviceRun):
         with patch('onecrew.delivery_device_env.boot_emulator') as boot:
             with self.assertRaisesRegex(LedgerError, 'not ready'): self.run_device(self.node(AC3))
         boot.assert_not_called()
+
+
+# Real crash buffer lines from trial 5 (TASK-dc9d90b9, emulator Android 16, 12/10/2026), shortened.
+NATIVE_CRASH = """10-12 16:51:57.381  5711  5711 F DEBUG   : Build fingerprint: 'google/sdk_gphone64_x86_64/emu64xa:16/BE4B.251210.005/14574095:user/release-keys'
+10-12 16:51:57.381  5711  5711 F DEBUG   : pid: 5668, tid: 5690, name: 1.raster  >>> vn.onetech.trial.settings_trial <<<
+10-12 16:51:57.381  5711  5711 F DEBUG   : signal 11 (SIGSEGV), code 2 (SEGV_ACCERR), fault addr 0x000079bc9108d000 (read)
+10-12 16:51:57.381  5711  5711 F DEBUG   : backtrace:
+10-12 16:51:57.381  5711  5711 F DEBUG   :       #00 pc 0000000000096b99  /apex/com.android.runtime/lib64/bionic/libc.so (memmove_avx2+1721)
+10-12 16:51:57.382  5711  5711 F DEBUG   :       #01 pc 0000000001ae9e76  /data/app/~~yLx==/vn.onetech.trial.settings_trial-3_X==/base.apk!libflutter.so (offset 0x538c000)
+"""
+JAVA_CRASH = """10-12 17:00:00.000  6000  6000 E AndroidRuntime: FATAL EXCEPTION: main
+10-12 17:00:00.000  6000  6000 E AndroidRuntime: Process: vn.onetech.trial.settings_trial, PID: 6000
+10-12 17:00:00.000  6000  6000 E AndroidRuntime: java.lang.IllegalStateException: secret account 0912345678 not found
+"""
+
+
+class AppCrashTests(DeviceRun):
+    """Trial 5: after a native Flutter raster crash every launch crashed; OneCrew read it as 'another window has focus'."""
+
+    def crash(self, text, launches_dead=99, restart_fixes=False):
+        self.crash_text, self.launches = text, 0
+        original = self.adb
+        def adb(runtime, task, argv, cwd, seconds):
+            args = argv[3:]
+            if args[:4] == ['shell', 'am', 'start', '-W']:
+                self.launches += 1; self.dead = self.launches <= launches_dead
+                if self.dead: self.focus = 'mCurrentFocus=Window{9 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity}\n'
+                else: self.focus = APP_FOCUS
+            if args[:2] == ['emu', 'kill'] and restart_fixes: launches_dead_box[0] = 0
+            if args[:3] == ['logcat', '-d', '-b']: return 0, self.crash_text if self.dead else '', ''
+            return original(runtime, task, argv, cwd, seconds)
+        launches_dead_box = [launches_dead]
+        self.adb = adb
+        return launches_dead_box
+
+    def test_crash_summary_keeps_structure_only(self):
+        from onecrew.delivery_device_env import crash_summary
+        self.assertEqual(crash_summary(NATIVE_CRASH, PKG), {'kind': 'native', 'signal': 'SIGSEGV', 'thread': '1.raster',
+                                                          'libraries': ['libc.so', 'libflutter.so']})
+        java = crash_summary(JAVA_CRASH, PKG)
+        self.assertEqual(java, {'kind': 'java', 'thread': 'main', 'exception': 'java.lang.IllegalStateException'})
+        self.assertNotIn('0912345678', json.dumps(java))
+        self.assertIsNone(crash_summary(NATIVE_CRASH, 'other.app'))
+
+    def test_a_dead_app_is_a_crash_finding_not_another_window(self):
+        self.crash(NATIVE_CRASH)
+        result = self.run_device(self.node(AC3))
+        self.assertFalse(result['passed'])
+        self.assertNotIn('Another window', result['detail'], 'RED-APP-CRASH: a crashed app read as a focus problem')
+        self.assertIn('native SIGSEGV in libc.so,libflutter.so', result['detail'])
+        self.assertEqual(result['app_crash']['kind'], 'native')
+        # On the approved emulator the same receipt is an environment finding (restart then retry), elsewhere a device finding.
+        self.assertEqual(rc.classify_receipt(self.node(AC3), result)[0], 'device_assertion')
+
+    def test_native_crash_at_launch_restarts_the_approved_emulator_once(self):
+        box = self.crash(NATIVE_CRASH, launches_dead=1)
+        with patch('onecrew.delivery_device_env.boot_emulator', return_value={'booted': True}) as boot:
+            result = self.run_device(self.node(AC3, emulator={'avd': 'Trial', 'avd_home': str(self.root)}))
+        self.assertTrue(result['passed'], result.get('detail')); boot.assert_called_once()
+        self.assertTrue(result['environment']['crash_restart'])
+        self.assertEqual([a['action'] for a in result['environment']['actions']][:2], ['emulator_stop', 'emulator_boot'])
+        self.assertEqual(sum(a[0] == 'install' for a in self.sent), 1)  # the verified install is reused, not repeated
+
+    def test_java_crash_is_a_product_finding_and_never_restarts(self):
+        self.crash(JAVA_CRASH)
+        with patch('onecrew.delivery_device_env.boot_emulator') as boot:
+            result = self.run_device(self.node(AC3, emulator={'avd': 'Trial', 'avd_home': str(self.root)}))
+        boot.assert_not_called()
+        self.assertEqual((result['passed'], result['failure_kind']), (False, 'product'))
+        self.assertEqual(result['app_crash']['exception'], 'java.lang.IllegalStateException')
+        self.assertEqual(rc.classify_receipt(self.node(AC3), result)[0], 'product')
+
+    def test_a_previous_native_crash_restarts_the_emulator_before_install(self):
+        n = self.node(AC3, emulator={'avd': 'Trial', 'avd_home': str(self.root)})
+        directory = da.device_directory(self.runtime, 'task', n, {'generation': 0}); directory.mkdir(parents=True, exist_ok=True)
+        (directory/'receipt.json').write_text(json.dumps({'passed': False, 'app_crash': {'kind': 'native'}}))
+        with patch('onecrew.delivery_device_env.boot_emulator', return_value={'booted': True}) as boot:
+            result = self.run_device(n)
+        self.assertTrue(result['passed'], result.get('detail')); boot.assert_called_once()
+        self.assertIn('previous run', result['environment']['actions'][0]['detail'])
+
+    def test_own_crash_dialog_is_not_a_system_hang(self):
+        from onecrew.delivery_device_env import health
+        calls = {('shell', 'dumpsys', 'window'): 'mCurrentFocus=Window{52 u0 Application Error: ' + PKG + '}\n',
+                 ('shell', 'dumpsys', 'power'): 'mWakefulness=Awake'}
+        state = health(lambda *a: calls[a], PKG)
+        self.assertEqual((state['system_dialog'], state['app_crash_dialog']), (False, True))
+        calls[('shell', 'dumpsys', 'window')] = 'mCurrentFocus=Window{53 u0 Application Not Responding: com.android.systemui}\n'
+        self.assertEqual(health(lambda *a: calls[a], PKG)['system_dialog'], True)
 
 
 class EnvelopeEmulatorTests(unittest.TestCase):

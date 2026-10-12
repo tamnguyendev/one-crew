@@ -93,6 +93,13 @@ và tắt emulator do chính nó boot sau khi stage thiết bị đạt. Chỉ h
   Còn kẹt thì: emulator có trong envelope → khởi động lại một lần; thiết bị khác → lỗi
   `environment` (thử lại có giới hạn rồi hỏi). Mọi hành động ghi vào `receipt.environment.actions`.
   adb server được khởi động ngoài lệnh có thu luồng (server sinh từ client bị thu sẽ giữ khóa file).
+- **App phải còn sống (trial 5).** `am start` trả `Status: ok` cả khi app crash ngay. Mỗi lần mở app (đầu kịch bản,
+  thao tác `restart`) OneCrew chờ app giữ focus và kiểm tiến trình còn chạy; khi app biến mất (cả lúc chờ UI hay khi
+  bị từ chối nhập vì cửa sổ khác giữ focus) nó đọc crash buffer từ lúc mở app và chỉ giữ cấu trúc (loại, tín hiệu
+  hoặc lớp exception, luồng, thư viện native) — không giữ thông điệp hay dòng log thô. Crash Java của app → lỗi
+  sản phẩm (sửa code có giới hạn). Crash native trên emulator đã duyệt → khởi động lại emulator đó một lần rồi mở
+  lại đúng bản đã cài và kiểm hash; nếu crash xảy ra giữa kịch bản thì lần thử lại kế tiếp khởi động lại emulator
+  trước khi cài. Trên thiết bị thật không khởi động lại; hộp thoại crash của chính app không bị coi là System UI treo.
 - **Selector theo tầng, có bằng chứng.** Một selector phải trúng đúng một node; tầng đầu tiên có kết quả
   quyết định: `exact` (thuộc tính đúng như viết; `text` cũng trúng nhãn Flutter ở `content-desc`) →
   `label` (bằng một trong text/content-desc/hint) → `label_part` (bằng một phần của nhãn gộp, tách theo

@@ -265,13 +265,16 @@ class Delivery(Owned):
             d.pop('escalation',None)  # already applied once; the next failure opens a new decision episode
             return True
         if choice not in ('retry','stop'):raise LedgerError('Unknown recovery choice; no action applied.')
+        from .eval_observe import decision_source
+        who={'user':'the user','relayed':'the user (relayed by the entry)','entry':'the entry under delegation'}.get(
+            decision_source(answer),'an unattributed reply')
         record=d['failures'].get(esc['signature'])
         d.pop('escalation',None);s.pop('waiting_reason',None)
         s.setdefault('consumed_replies',[]).append({'request_id':request['id'],'reply_id':answer['id'],
             'effect':'Recovery decision: '+choice+'; scope, budget and failure history unchanged.'})
         if choice=='stop':
             self.control.cancel(task_id)
-            s.update(phase='cancelled',message='Stopped by user at a recovery decision; evidence retained.')
+            s.update(phase='cancelled',message='Stopped by '+who+' at a recovery decision; evidence retained.')
             return True
         if record:record['allowance']+=1;record['status']='user_retry'
         row=d['nodes'].get(esc.get('node') or '')
@@ -290,7 +293,7 @@ class Delivery(Owned):
             if other.get('child') and other['phase'] in ('running','blocked','pending'):self._revive_child(other['child'])
         if esc.get('needs') is not None:d['planning']['stay_inside']=(d['planning'].get('stay_inside') or [])+esc['needs']
         d.pop('retry_after',None)
-        s.update(phase='running',message='User chose retry; resuming within the existing grant.')
+        s.update(phase='running',message='Retry chosen by '+who+'; resuming within the existing grant.')
         return True
 
     def _recover(self, task_id, s, node, cls, key, detail):
