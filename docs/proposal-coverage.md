@@ -922,7 +922,7 @@ storage, unchanged-wait checkpoint deduplication, stage grants and outcome-speci
 
 ## Eval-driven evidence — 12/10/2026
 
-Proposal: [eval-plan.vi.md](eval-plan.vi.md). Iteration 1; baseline `4e8253f`.
+Proposal: [eval-plan.vi.md](eval-plan.vi.md). Iteration 3; baseline runtime `4e8253f`; harness `d24cc52`.
 
 | ID | Requirement | Type | Implementation evidence | Verification evidence | Status | Notes |
 |---|---|---|---|---|---|---|
@@ -931,13 +931,15 @@ Proposal: [eval-plan.vi.md](eval-plan.vi.md). Iteration 1; baseline `4e8253f`.
 | EV03 | Comparable before/after grading | Testing | evaluation.compare | Reject mismatched/partial/tampered/duplicate/skip results | Complete | Missing/skip distinct |
 | EV04 | Read-only real task observations | Observability | eval_observe.py | Read-only DB, unknown assistance, stale receipts, privacy tests | Complete | Unknown is not unassisted |
 | EV05 | Evidence reports and conservative promotion | Functional | CLI eval; docs/evals.vi.md | 113 related tests passed; CLI help checked | Complete | No automatic skill/routing mutation |
-| EV06 | Run paired historical cases and observe real tasks | Testing | Pending | Pending | Missing | Actual outputs required |
-| EV07 | Held-out/live autonomy measurement | Testing | Local protocol pending | No equivalent pinned live dispatch/held-out corpus | Blocked | Fixtures cannot satisfy this requirement |
+| EV06 | Run paired historical cases and observe real tasks | Testing | docs/eval-results/2026-10-12/REPORT.vi.md and 6 digest-verified JSON artifacts | 60 case-trials / 120 probe executions; 4 real tasks observed read-only | Complete | 6/10 to 10/10 release cases; history 2 reproduced bugs + 8 unavailable APIs |
+| EV07 | Held-out/live autonomy measurement | Testing | docs/evals.vi.md live protocol and assistance recording | No equivalent pinned live dispatch/held-out corpus | Blocked | Fixtures cannot satisfy this requirement; product_autonomy_rate=null |
 
-Verified coverage: 5/7 (71.4%); EV06 measurement pending, EV07 live/held-out Blocked.
+Verified coverage: 6/7 (85.7%); EV07 live/held-out Blocked. No claim of complete product autonomy evaluation.
 
 Cycle 1: 113 tests passed in 28.258 seconds. No product tasks/devices were run.
 
 Cycle 1 commit: `fb14591`. First replay exposed a Windows Store executable-alias fingerprint error before any probe; no result scored. Fixed to hash the installed interpreter; 22 eval tests pass, including the alias regression.
 
 Cycle 2: isolated USERPROFILE/temp storage and short scratch paths; expected-failure/import-origin guards; idempotent assistance notes and parent/child call/assistance aggregation. 118 related tests passed (33.727s), then all 28 eval tests passed (6.079s) after the intervention reader additions. Initial valid replay measured 6/10 to 10/10 runtime cases twice; final frozen harness rerun pending.
+
+Cycle 3: code `d24cc52`, harness identical on each side. Final historical run `1db6e59f95374f5ca9bfed8ff4f9f785`, release-before `517c537c2c3f4164a8d4684d4a4a0b5f`, after `a3220f670ef448f79fa9aea5f439fd67`. Runtime after: 20/20 case-trials; release before: 12/20 with 8 unavailable; historical before: 2 errors + 2 assertion failures + 16 unavailable. Not a product autonomy rate. Four completed task records: 2 with known assistance, 2 unknown; physical verification is entry evidence. Final 120 tests pass (39.662s), six JSON digests and both comparison recomputations verified. Failed preliminary harness runs retained separately, excluded from final comparisons. No product dispatch, no model calls, no live ADB/server, no push.

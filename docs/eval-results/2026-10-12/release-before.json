@@ -1,0 +1,662 @@
+{
+  "version": 1,
+  "type": "runtime_replay",
+  "run_id": "517c537c2c3f4164a8d4684d4a4a0b5f",
+  "created_at": "2026-10-12T00:25:49.659577+00:00",
+  "corpus": {
+    "version": 1,
+    "cases": [
+      {
+        "id": "handoff-backlog",
+        "title": "Owned outputs without legacy backlog",
+        "fix": "920d000",
+        "before": "920d000^",
+        "tests": [
+          "tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog"
+        ],
+        "support": "Entry previously repaired runtime handoff; no product worker changes required.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "timeout-checkpoint",
+        "title": "Resume settled timeout without resetting budget or scope",
+        "fix": "019af9e",
+        "before": "019af9e^",
+        "tests": [
+          "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session",
+          "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply",
+          "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call"
+        ],
+        "support": "Entry repaired timeout controller; provider and compiler are fixtures here.",
+        "kind": "workflow_fixture",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "snapshot-2mb",
+        "title": "Large metadata chunking while preserving source cap",
+        "fix": "9bb8993",
+        "before": "9bb8993^",
+        "tests": [
+          "tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap",
+          "tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid"
+        ],
+        "support": "Entry repaired metadata transport; growing source permissions is not recovery.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "review-80k",
+        "title": "Complete paged review without dropping tests or diff",
+        "fix": "bc57da1",
+        "before": "bc57da1^",
+        "tests": [
+          "tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests",
+          "tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten"
+        ],
+        "support": "Entry repaired review input transport; passing transport does not grade reviewer judgement.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "missing-cache",
+        "title": "Missing dependency blocks before compiler and retains candidate",
+        "fix": "aeb7d7a",
+        "before": "aeb7d7a^",
+        "tests": [
+          "tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate"
+        ],
+        "support": "Environment owner must supply the exact approved cache. A correct block is NOT a completed build.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "windows-once",
+        "title": "One result per outcome, no silent read-as-delivery",
+        "fix": "0e33a44",
+        "before": "0e33a44^",
+        "tests": [
+          "tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen",
+          "tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes"
+        ],
+        "support": "Window launcher is mocked; actual visible receipt and user attention remain unverified.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "parent-checkpoint",
+        "title": "Parent restart reuses verified nodes; stale evidence blocks",
+        "fix": "4e8253f",
+        "before": "4e8253f^",
+        "tests": [
+          "tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes",
+          "tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish",
+          "tests.test_solution_delivery.DeliveryTests.test_crash_in_build_never_replays_blindly"
+        ],
+        "support": "Unknown side effects still require operator reconciliation.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "parent-handover",
+        "title": "Parent drives child, tests, review, build, device and handover",
+        "fix": "4e8253f",
+        "before": "4e8253f^",
+        "tests": [
+          "tests.test_solution_delivery.DeliveryTests.test_parent_drives_real_child_lifecycle_through_typed_fixture_handover"
+        ],
+        "support": "Provider/Flutter/ADB are fixtures; live APK/server task still needs pinned environment and acceptance.",
+        "kind": "workflow_fixture",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "review-gate",
+        "title": "Conditional review cannot complete required criteria",
+        "fix": "4e8253f",
+        "before": "4e8253f^",
+        "tests": [
+          "tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected",
+          "tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete"
+        ],
+        "support": "Semantic correctness of reviewer on unseen code remains unmeasured.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "apk-device-gate",
+        "title": "APK identity, signer and foreground checked before E2E",
+        "fix": "4e8253f",
+        "before": "4e8253f^",
+        "tests": [
+          "tests.test_delivery_android.AndroidDeliveryTests.test_different_installed_hash_blocks_e2e",
+          "tests.test_delivery_android.AndroidDeliveryTests.test_overlay_window_prevents_tap_even_with_background_app_node",
+          "tests.test_delivery_android.AndroidDeliveryTests.test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit"
+        ],
+        "support": "Pinned device/scenario/private configuration still authored by entry; no physical device used.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      }
+    ],
+    "limits": [
+      "Known historical cases, not held-out tasks or estimates of generalization.",
+      "Passing a correct blocker means the safety contract passed, not product completion.",
+      "Fixture results never enter product autonomy, model cost or device-success denominators.",
+      "Historical mode uses different pre-fix commits; it is not a release-level before/after rate.",
+      "No model calls, live server, ADB or Windows display in replay. No automatic promotion."
+    ]
+  },
+  "corpus_hash": "b979687c6c695850bf4bbc2e217d529fc16731ebb7351246c98e30f57f13a944",
+  "harness_revision": "d24cc5239564a59aa95ff5a26ccafe6cc4e5b9da",
+  "environment": {
+    "python": "3.13.14 (tags/v3.13.14:fd17997, Jun 10 2026, 13:03:48) [MSC v.1944 64 bit (AMD64)]",
+    "executable_sha256": "ad169f4cb4bfb78c7a5c030a4529c19d6643276778e33994c93e145b6191c3ec",
+    "invoked_executable": "C:\\Users\\NUC\\AppData\\Local\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\python.exe",
+    "fingerprinted_executable": "C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\python.exe",
+    "platform": "Windows-11-10.0.26100-SP0",
+    "machine": "AMD64",
+    "git": "git version 2.51.0.windows.1",
+    "transport": "fixture-only",
+    "model": null,
+    "device": null
+  },
+  "repeat": 2,
+  "timeout_seconds": 120,
+  "target_mode": "single-revision",
+  "targets": {
+    "handoff-backlog": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+    "timeout-checkpoint": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+    "snapshot-2mb": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+    "review-80k": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+    "missing-cache": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+    "windows-once": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+    "parent-checkpoint": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+    "parent-handover": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+    "review-gate": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+    "apk-device-gate": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4"
+  },
+  "results": [
+    {
+      "case": "handoff-backlog",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.067874,
+          "diagnostic": "test_audit_and_running_checkpoints_need_no_legacy_backlog (tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.626s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "handoff-backlog",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.045298,
+          "diagnostic": "test_audit_and_running_checkpoints_need_no_legacy_backlog (tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.592s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "timeout-checkpoint",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.076478,
+          "diagnostic": "test_checkpoint_is_idempotent_preserves_budget_scope_and_session (tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.680s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.139226,
+          "diagnostic": "test_restart_continues_then_independent_verify_review_and_apply (tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.871s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.489943,
+          "diagnostic": "test_no_progress_does_not_spend_another_call (tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.368s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "timeout-checkpoint",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.233561,
+          "diagnostic": "test_checkpoint_is_idempotent_preserves_budget_scope_and_session (tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.834s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.157133,
+          "diagnostic": "test_restart_continues_then_independent_verify_review_and_apply (tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.870s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.559969,
+          "diagnostic": "test_no_progress_does_not_spend_another_call (tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.407s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "snapshot-2mb",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.149128,
+          "diagnostic": "test_large_utf8_roundtrip_and_original_source_cap (tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.067s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.11085,
+          "diagnostic": "test_tampered_missing_or_reordered_chunks_never_read_as_valid (tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.045s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "snapshot-2mb",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.156316,
+          "diagnostic": "test_large_utf8_roundtrip_and_original_source_cap (tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.069s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.105213,
+          "diagnostic": "test_tampered_missing_or_reordered_chunks_never_read_as_valid (tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.041s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "review-80k",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.343096,
+          "diagnostic": "test_large_diff_pages_are_complete_unicode_and_keep_tests (tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.092s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.231558,
+          "diagnostic": "test_tampered_evidence_is_rejected_not_overwritten (tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.054s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "review-80k",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.399321,
+          "diagnostic": "test_large_diff_pages_are_complete_unicode_and_keep_tests (tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.119s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.223358,
+          "diagnostic": "test_tampered_evidence_is_rejected_not_overwritten (tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.041s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "missing-cache",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.9368,
+          "diagnostic": "test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate (tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.491s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "missing-cache",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.914289,
+          "diagnostic": "test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate (tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.472s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "windows-once",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.77476,
+          "diagnostic": "test_terminal_once_even_after_repeated_checkpoint_and_reopen (tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.344s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.674875,
+          "diagnostic": "test_block_resume_complete_has_two_outcomes (tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.352s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "windows-once",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.781688,
+          "diagnostic": "test_terminal_once_even_after_repeated_checkpoint_and_reopen (tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.378s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.656581,
+          "diagnostic": "test_block_resume_complete_has_two_outcomes (tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.366s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "parent-checkpoint",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.17822,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.12659,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_crash_in_build_never_replays_blindly",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.090877,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        }
+      ]
+    },
+    {
+      "case": "parent-checkpoint",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.122059,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.117244,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_crash_in_build_never_replays_blindly",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.097347,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        }
+      ]
+    },
+    {
+      "case": "parent-handover",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_parent_drives_real_child_lifecycle_through_typed_fixture_handover",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.129725,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        }
+      ]
+    },
+    {
+      "case": "parent-handover",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_parent_drives_real_child_lifecycle_through_typed_fixture_handover",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.131303,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        }
+      ]
+    },
+    {
+      "case": "review-gate",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.15263,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.101182,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        }
+      ]
+    },
+    {
+      "case": "review-gate",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.117726,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.100234,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        }
+      ]
+    },
+    {
+      "case": "apk-device-gate",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_different_installed_hash_blocks_e2e",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.086901,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_delivery_android.py\", line 11, in <module>\n    from onecrew.delivery_android import audit,device,elf_alignment,find_ui,scenario\nModuleNotFoundError: No module named 'onecrew.delivery_android'\n"
+        },
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_overlay_window_prevents_tap_even_with_background_app_node",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.089713,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_delivery_android.py\", line 11, in <module>\n    from onecrew.delivery_android import audit,device,elf_alignment,find_ui,scenario\nModuleNotFoundError: No module named 'onecrew.delivery_android'\n"
+        },
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.070146,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_delivery_android.py\", line 11, in <module>\n    from onecrew.delivery_android import audit,device,elf_alignment,find_ui,scenario\nModuleNotFoundError: No module named 'onecrew.delivery_android'\n"
+        }
+      ]
+    },
+    {
+      "case": "apk-device-gate",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_different_installed_hash_blocks_e2e",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.071634,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_delivery_android.py\", line 11, in <module>\n    from onecrew.delivery_android import audit,device,elf_alignment,find_ui,scenario\nModuleNotFoundError: No module named 'onecrew.delivery_android'\n"
+        },
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_overlay_window_prevents_tap_even_with_background_app_node",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.081141,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_delivery_android.py\", line 11, in <module>\n    from onecrew.delivery_android import audit,device,elf_alignment,find_ui,scenario\nModuleNotFoundError: No module named 'onecrew.delivery_android'\n"
+        },
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.067635,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-so88gxk1\\harness\\tests\\test_delivery_android.py\", line 11, in <module>\n    from onecrew.delivery_android import audit,device,elf_alignment,find_ui,scenario\nModuleNotFoundError: No module named 'onecrew.delivery_android'\n"
+        }
+      ]
+    }
+  ],
+  "product_autonomy_rate": null,
+  "live_model_calls": 0,
+  "promotion": "not_evaluated; never automatic",
+  "harness_hash": "4d0ab6217d0c325e233dafeeb73a5cc06dee25cd207753db1cbc877a6df5d371",
+  "grader_hash": "9c398da03625cd5e55b11de4592a14710f03989b5b59ffddbe844df760d9f6eb",
+  "counts": {
+    "passed": 12,
+    "capability_unavailable": 8
+  },
+  "completed": true,
+  "digest": "b5f1d8e5fe458f442c869344f0af95d4481ca8916bf45246c4454b0994d82c94"
+}

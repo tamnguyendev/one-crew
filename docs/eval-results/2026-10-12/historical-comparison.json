@@ -1,0 +1,207 @@
+{
+  "version": 1,
+  "type": "runtime_comparison",
+  "before_run": "1db6e59f95374f5ca9bfed8ff4f9f785",
+  "after_run": "a3220f670ef448f79fa9aea5f439fd67",
+  "corpus_hash": "b979687c6c695850bf4bbc2e217d529fc16731ebb7351246c98e30f57f13a944",
+  "rows": [
+    {
+      "case": "apk-device-gate",
+      "trial": 0,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "apk-device-gate",
+      "trial": 1,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "handoff-backlog",
+      "trial": 0,
+      "before": "runtime_error",
+      "after": "passed",
+      "change": "recovered",
+      "before_revision": "ef54ea733e48859a4d99362aa2290ba3c2438310",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "handoff-backlog",
+      "trial": 1,
+      "before": "runtime_error",
+      "after": "passed",
+      "change": "recovered",
+      "before_revision": "ef54ea733e48859a4d99362aa2290ba3c2438310",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "missing-cache",
+      "trial": 0,
+      "before": "assertion_failed",
+      "after": "passed",
+      "change": "recovered",
+      "before_revision": "8e0bf70ba96146c4f87a5fdc19c76171a0f3e497",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "missing-cache",
+      "trial": 1,
+      "before": "assertion_failed",
+      "after": "passed",
+      "change": "recovered",
+      "before_revision": "8e0bf70ba96146c4f87a5fdc19c76171a0f3e497",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "parent-checkpoint",
+      "trial": 0,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "parent-checkpoint",
+      "trial": 1,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "parent-handover",
+      "trial": 0,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "parent-handover",
+      "trial": 1,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "review-80k",
+      "trial": 0,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "ff10cef4b66457a2cc83d9dd3efc099e1d010e55",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "review-80k",
+      "trial": 1,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "ff10cef4b66457a2cc83d9dd3efc099e1d010e55",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "review-gate",
+      "trial": 0,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "review-gate",
+      "trial": 1,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "snapshot-2mb",
+      "trial": 0,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "38a1cdd8ac2615e595093e4b3b0025b5a14aa5de",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "snapshot-2mb",
+      "trial": 1,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "38a1cdd8ac2615e595093e4b3b0025b5a14aa5de",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "timeout-checkpoint",
+      "trial": 0,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "b3bf5c895b501122444338a4c48fd4a37106a0ab",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "timeout-checkpoint",
+      "trial": 1,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "b3bf5c895b501122444338a4c48fd4a37106a0ab",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "windows-once",
+      "trial": 0,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "392ca422c508b15bdacdaa9cc35866b1cd8d0039",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "windows-once",
+      "trial": 1,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "392ca422c508b15bdacdaa9cc35866b1cd8d0039",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    }
+  ],
+  "trials": 20,
+  "before_passed": 0,
+  "after_passed": 20,
+  "changes": {
+    "capability_added": 16,
+    "recovered": 4
+  },
+  "historical": true,
+  "product_autonomy_rate": null,
+  "promotion": "manual_review_required",
+  "limits": [
+    "Known historical cases, not held-out tasks or estimates of generalization.",
+    "Passing a correct blocker means the safety contract passed, not product completion.",
+    "Fixture results never enter product autonomy, model cost or device-success denominators.",
+    "Historical mode uses different pre-fix commits; it is not a release-level before/after rate.",
+    "No model calls, live server, ADB or Windows display in replay. No automatic promotion."
+  ],
+  "digest": "31ee61672e1d3917764eb511bda759e8d000d3c097e382341c3b360ff5d4d16c"
+}

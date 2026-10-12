@@ -1,0 +1,645 @@
+{
+  "version": 1,
+  "type": "runtime_replay",
+  "run_id": "1db6e59f95374f5ca9bfed8ff4f9f785",
+  "created_at": "2026-10-12T00:25:49.603796+00:00",
+  "corpus": {
+    "version": 1,
+    "cases": [
+      {
+        "id": "handoff-backlog",
+        "title": "Owned outputs without legacy backlog",
+        "fix": "920d000",
+        "before": "920d000^",
+        "tests": [
+          "tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog"
+        ],
+        "support": "Entry previously repaired runtime handoff; no product worker changes required.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "timeout-checkpoint",
+        "title": "Resume settled timeout without resetting budget or scope",
+        "fix": "019af9e",
+        "before": "019af9e^",
+        "tests": [
+          "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session",
+          "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply",
+          "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call"
+        ],
+        "support": "Entry repaired timeout controller; provider and compiler are fixtures here.",
+        "kind": "workflow_fixture",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "snapshot-2mb",
+        "title": "Large metadata chunking while preserving source cap",
+        "fix": "9bb8993",
+        "before": "9bb8993^",
+        "tests": [
+          "tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap",
+          "tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid"
+        ],
+        "support": "Entry repaired metadata transport; growing source permissions is not recovery.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "review-80k",
+        "title": "Complete paged review without dropping tests or diff",
+        "fix": "bc57da1",
+        "before": "bc57da1^",
+        "tests": [
+          "tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests",
+          "tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten"
+        ],
+        "support": "Entry repaired review input transport; passing transport does not grade reviewer judgement.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "missing-cache",
+        "title": "Missing dependency blocks before compiler and retains candidate",
+        "fix": "aeb7d7a",
+        "before": "aeb7d7a^",
+        "tests": [
+          "tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate"
+        ],
+        "support": "Environment owner must supply the exact approved cache. A correct block is NOT a completed build.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "windows-once",
+        "title": "One result per outcome, no silent read-as-delivery",
+        "fix": "0e33a44",
+        "before": "0e33a44^",
+        "tests": [
+          "tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen",
+          "tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes"
+        ],
+        "support": "Window launcher is mocked; actual visible receipt and user attention remain unverified.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "parent-checkpoint",
+        "title": "Parent restart reuses verified nodes; stale evidence blocks",
+        "fix": "4e8253f",
+        "before": "4e8253f^",
+        "tests": [
+          "tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes",
+          "tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish",
+          "tests.test_solution_delivery.DeliveryTests.test_crash_in_build_never_replays_blindly"
+        ],
+        "support": "Unknown side effects still require operator reconciliation.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "parent-handover",
+        "title": "Parent drives child, tests, review, build, device and handover",
+        "fix": "4e8253f",
+        "before": "4e8253f^",
+        "tests": [
+          "tests.test_solution_delivery.DeliveryTests.test_parent_drives_real_child_lifecycle_through_typed_fixture_handover"
+        ],
+        "support": "Provider/Flutter/ADB are fixtures; live APK/server task still needs pinned environment and acceptance.",
+        "kind": "workflow_fixture",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "review-gate",
+        "title": "Conditional review cannot complete required criteria",
+        "fix": "4e8253f",
+        "before": "4e8253f^",
+        "tests": [
+          "tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected",
+          "tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete"
+        ],
+        "support": "Semantic correctness of reviewer on unseen code remains unmeasured.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "apk-device-gate",
+        "title": "APK identity, signer and foreground checked before E2E",
+        "fix": "4e8253f",
+        "before": "4e8253f^",
+        "tests": [
+          "tests.test_delivery_android.AndroidDeliveryTests.test_different_installed_hash_blocks_e2e",
+          "tests.test_delivery_android.AndroidDeliveryTests.test_overlay_window_prevents_tap_even_with_background_app_node",
+          "tests.test_delivery_android.AndroidDeliveryTests.test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit"
+        ],
+        "support": "Pinned device/scenario/private configuration still authored by entry; no physical device used.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      }
+    ],
+    "limits": [
+      "Known historical cases, not held-out tasks or estimates of generalization.",
+      "Passing a correct blocker means the safety contract passed, not product completion.",
+      "Fixture results never enter product autonomy, model cost or device-success denominators.",
+      "Historical mode uses different pre-fix commits; it is not a release-level before/after rate.",
+      "No model calls, live server, ADB or Windows display in replay. No automatic promotion."
+    ]
+  },
+  "corpus_hash": "b979687c6c695850bf4bbc2e217d529fc16731ebb7351246c98e30f57f13a944",
+  "harness_revision": "d24cc5239564a59aa95ff5a26ccafe6cc4e5b9da",
+  "environment": {
+    "python": "3.13.14 (tags/v3.13.14:fd17997, Jun 10 2026, 13:03:48) [MSC v.1944 64 bit (AMD64)]",
+    "executable_sha256": "ad169f4cb4bfb78c7a5c030a4529c19d6643276778e33994c93e145b6191c3ec",
+    "invoked_executable": "C:\\Users\\NUC\\AppData\\Local\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\python.exe",
+    "fingerprinted_executable": "C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\python.exe",
+    "platform": "Windows-11-10.0.26100-SP0",
+    "machine": "AMD64",
+    "git": "git version 2.51.0.windows.1",
+    "transport": "fixture-only",
+    "model": null,
+    "device": null
+  },
+  "repeat": 2,
+  "timeout_seconds": 120,
+  "target_mode": "per-case-pre-fix",
+  "targets": {
+    "handoff-backlog": "ef54ea733e48859a4d99362aa2290ba3c2438310",
+    "timeout-checkpoint": "b3bf5c895b501122444338a4c48fd4a37106a0ab",
+    "snapshot-2mb": "38a1cdd8ac2615e595093e4b3b0025b5a14aa5de",
+    "review-80k": "ff10cef4b66457a2cc83d9dd3efc099e1d010e55",
+    "missing-cache": "8e0bf70ba96146c4f87a5fdc19c76171a0f3e497",
+    "windows-once": "392ca422c508b15bdacdaa9cc35866b1cd8d0039",
+    "parent-checkpoint": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+    "parent-handover": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+    "review-gate": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+    "apk-device-gate": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4"
+  },
+  "results": [
+    {
+      "case": "handoff-backlog",
+      "trial": 0,
+      "revision": "ef54ea733e48859a4d99362aa2290ba3c2438310",
+      "status": "runtime_error",
+      "probes": [
+        {
+          "selector": "tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog",
+          "tests": 1,
+          "status": "runtime_error",
+          "skipped": 0,
+          "elapsed_seconds": 0.611212,
+          "diagnostic": "test_audit_and_running_checkpoints_need_no_legacy_backlog (tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog) ... ERROR\n\n======================================================================\nERROR: test_audit_and_running_checkpoints_need_no_legacy_backlog (tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_owned_handoff.py\", line 72, in test_audit_and_running_checkpoints_need_no_legacy_backlog\n    card = Workflow(run.ledger).outputs(task)\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\handoff-backlog-0\\runtime\\onecrew\\workflow.py\", line 625, in outputs\n    'checks': state.get('checks'), 'backlog': state['backlog'], 'reviews': state.get('reviews', []) + feedback,\n                                              ~~~~~^^^^^^^^^^^\nKeyError: 'backlog'\n\n----------------------------------------------------------------------\nRan 1 test in 0.171s\n\nFAILED (errors=1)\n"
+        }
+      ]
+    },
+    {
+      "case": "handoff-backlog",
+      "trial": 1,
+      "revision": "ef54ea733e48859a4d99362aa2290ba3c2438310",
+      "status": "runtime_error",
+      "probes": [
+        {
+          "selector": "tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog",
+          "tests": 1,
+          "status": "runtime_error",
+          "skipped": 0,
+          "elapsed_seconds": 0.647379,
+          "diagnostic": "test_audit_and_running_checkpoints_need_no_legacy_backlog (tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog) ... ERROR\n\n======================================================================\nERROR: test_audit_and_running_checkpoints_need_no_legacy_backlog (tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_owned_handoff.py\", line 72, in test_audit_and_running_checkpoints_need_no_legacy_backlog\n    card = Workflow(run.ledger).outputs(task)\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\handoff-backlog-1\\runtime\\onecrew\\workflow.py\", line 625, in outputs\n    'checks': state.get('checks'), 'backlog': state['backlog'], 'reviews': state.get('reviews', []) + feedback,\n                                              ~~~~~^^^^^^^^^^^\nKeyError: 'backlog'\n\n----------------------------------------------------------------------\nRan 1 test in 0.174s\n\nFAILED (errors=1)\n"
+        }
+      ]
+    },
+    {
+      "case": "timeout-checkpoint",
+      "trial": 0,
+      "revision": "b3bf5c895b501122444338a4c48fd4a37106a0ab",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.341524,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_workspace_timeout.py\", line 8, in <module>\n    from onecrew.workspace_worker import checkpoint_timeout, invocation_context, WorkspaceClaude\nImportError: cannot import name 'checkpoint_timeout' from 'onecrew.workspace_worker' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\timeout-checkpoint-0\\runtime\\onecrew\\workspace_worker.py)\n"
+        },
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.261899,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_workspace_timeout.py\", line 8, in <module>\n    from onecrew.workspace_worker import checkpoint_timeout, invocation_context, WorkspaceClaude\nImportError: cannot import name 'checkpoint_timeout' from 'onecrew.workspace_worker' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\timeout-checkpoint-0\\runtime\\onecrew\\workspace_worker.py)\n"
+        },
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.116753,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_workspace_timeout.py\", line 8, in <module>\n    from onecrew.workspace_worker import checkpoint_timeout, invocation_context, WorkspaceClaude\nImportError: cannot import name 'checkpoint_timeout' from 'onecrew.workspace_worker' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\timeout-checkpoint-0\\runtime\\onecrew\\workspace_worker.py)\n"
+        }
+      ]
+    },
+    {
+      "case": "timeout-checkpoint",
+      "trial": 1,
+      "revision": "b3bf5c895b501122444338a4c48fd4a37106a0ab",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.362342,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_workspace_timeout.py\", line 8, in <module>\n    from onecrew.workspace_worker import checkpoint_timeout, invocation_context, WorkspaceClaude\nImportError: cannot import name 'checkpoint_timeout' from 'onecrew.workspace_worker' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\timeout-checkpoint-1\\runtime\\onecrew\\workspace_worker.py)\n"
+        },
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.248842,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_workspace_timeout.py\", line 8, in <module>\n    from onecrew.workspace_worker import checkpoint_timeout, invocation_context, WorkspaceClaude\nImportError: cannot import name 'checkpoint_timeout' from 'onecrew.workspace_worker' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\timeout-checkpoint-1\\runtime\\onecrew\\workspace_worker.py)\n"
+        },
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.10442,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_workspace_timeout.py\", line 8, in <module>\n    from onecrew.workspace_worker import checkpoint_timeout, invocation_context, WorkspaceClaude\nImportError: cannot import name 'checkpoint_timeout' from 'onecrew.workspace_worker' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\timeout-checkpoint-1\\runtime\\onecrew\\workspace_worker.py)\n"
+        }
+      ]
+    },
+    {
+      "case": "snapshot-2mb",
+      "trial": 0,
+      "revision": "38a1cdd8ac2615e595093e4b3b0025b5a14aa5de",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.083546,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_runtime_evidence.py\", line 7, in <module>\n    from onecrew.snapshots import Snapshots, MAX_FILE, MAX_EVIDENCE\nImportError: cannot import name 'MAX_EVIDENCE' from 'onecrew.snapshots' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\snapshot-2mb-0\\runtime\\onecrew\\snapshots.py)\n"
+        },
+        {
+          "selector": "tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.0684,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_runtime_evidence.py\", line 7, in <module>\n    from onecrew.snapshots import Snapshots, MAX_FILE, MAX_EVIDENCE\nImportError: cannot import name 'MAX_EVIDENCE' from 'onecrew.snapshots' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\snapshot-2mb-0\\runtime\\onecrew\\snapshots.py)\n"
+        }
+      ]
+    },
+    {
+      "case": "snapshot-2mb",
+      "trial": 1,
+      "revision": "38a1cdd8ac2615e595093e4b3b0025b5a14aa5de",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.073845,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_runtime_evidence.py\", line 7, in <module>\n    from onecrew.snapshots import Snapshots, MAX_FILE, MAX_EVIDENCE\nImportError: cannot import name 'MAX_EVIDENCE' from 'onecrew.snapshots' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\snapshot-2mb-1\\runtime\\onecrew\\snapshots.py)\n"
+        },
+        {
+          "selector": "tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.067902,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_runtime_evidence.py\", line 7, in <module>\n    from onecrew.snapshots import Snapshots, MAX_FILE, MAX_EVIDENCE\nImportError: cannot import name 'MAX_EVIDENCE' from 'onecrew.snapshots' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\snapshot-2mb-1\\runtime\\onecrew\\snapshots.py)\n"
+        }
+      ]
+    },
+    {
+      "case": "review-80k",
+      "trial": 0,
+      "revision": "ff10cef4b66457a2cc83d9dd3efc099e1d010e55",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.064772,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_native_review_context.py\", line 7, in <module>\n    from onecrew.native_review_context import packet, PROMPT_LIMIT\nModuleNotFoundError: No module named 'onecrew.native_review_context'\n"
+        },
+        {
+          "selector": "tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.052282,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_native_review_context.py\", line 7, in <module>\n    from onecrew.native_review_context import packet, PROMPT_LIMIT\nModuleNotFoundError: No module named 'onecrew.native_review_context'\n"
+        }
+      ]
+    },
+    {
+      "case": "review-80k",
+      "trial": 1,
+      "revision": "ff10cef4b66457a2cc83d9dd3efc099e1d010e55",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.051778,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_native_review_context.py\", line 7, in <module>\n    from onecrew.native_review_context import packet, PROMPT_LIMIT\nModuleNotFoundError: No module named 'onecrew.native_review_context'\n"
+        },
+        {
+          "selector": "tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.052067,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_native_review_context.py\", line 7, in <module>\n    from onecrew.native_review_context import packet, PROMPT_LIMIT\nModuleNotFoundError: No module named 'onecrew.native_review_context'\n"
+        }
+      ]
+    },
+    {
+      "case": "missing-cache",
+      "trial": 0,
+      "revision": "8e0bf70ba96146c4f87a5fdc19c76171a0f3e497",
+      "status": "assertion_failed",
+      "probes": [
+        {
+          "selector": "tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate",
+          "tests": 1,
+          "status": "assertion_failed",
+          "skipped": 0,
+          "elapsed_seconds": 0.657416,
+          "diagnostic": "test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate (tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate) ... FAIL\n\n======================================================================\nFAIL: test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate (tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_native_change.py\", line 206, in test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate\n    with self.assertRaisesRegex(GateUnavailable,'cache incomplete.*test_api'):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: GateUnavailable not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.325s\n\nFAILED (failures=1)\n"
+        }
+      ]
+    },
+    {
+      "case": "missing-cache",
+      "trial": 1,
+      "revision": "8e0bf70ba96146c4f87a5fdc19c76171a0f3e497",
+      "status": "assertion_failed",
+      "probes": [
+        {
+          "selector": "tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate",
+          "tests": 1,
+          "status": "assertion_failed",
+          "skipped": 0,
+          "elapsed_seconds": 0.670433,
+          "diagnostic": "test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate (tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate) ... FAIL\n\n======================================================================\nFAIL: test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate (tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_native_change.py\", line 206, in test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate\n    with self.assertRaisesRegex(GateUnavailable,'cache incomplete.*test_api'):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: GateUnavailable not raised\n\n----------------------------------------------------------------------\nRan 1 test in 0.321s\n\nFAILED (failures=1)\n"
+        }
+      ]
+    },
+    {
+      "case": "windows-once",
+      "trial": 0,
+      "revision": "392ca422c508b15bdacdaa9cc35866b1cd8d0039",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.309511,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_desktop_notifications.py\", line 7, in <module>\n    from onecrew import desktop_notifications as desktop\nImportError: cannot import name 'desktop_notifications' from 'onecrew' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\windows-once-0\\runtime\\onecrew\\__init__.py)\n"
+        },
+        {
+          "selector": "tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.253751,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_desktop_notifications.py\", line 7, in <module>\n    from onecrew import desktop_notifications as desktop\nImportError: cannot import name 'desktop_notifications' from 'onecrew' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\windows-once-0\\runtime\\onecrew\\__init__.py)\n"
+        }
+      ]
+    },
+    {
+      "case": "windows-once",
+      "trial": 1,
+      "revision": "392ca422c508b15bdacdaa9cc35866b1cd8d0039",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.309556,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_desktop_notifications.py\", line 7, in <module>\n    from onecrew import desktop_notifications as desktop\nImportError: cannot import name 'desktop_notifications' from 'onecrew' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\windows-once-1\\runtime\\onecrew\\__init__.py)\n"
+        },
+        {
+          "selector": "tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.227892,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_desktop_notifications.py\", line 7, in <module>\n    from onecrew import desktop_notifications as desktop\nImportError: cannot import name 'desktop_notifications' from 'onecrew' (D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\windows-once-1\\runtime\\onecrew\\__init__.py)\n"
+        }
+      ]
+    },
+    {
+      "case": "parent-checkpoint",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.159821,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.132512,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_crash_in_build_never_replays_blindly",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.101524,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        }
+      ]
+    },
+    {
+      "case": "parent-checkpoint",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.134043,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.111016,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_crash_in_build_never_replays_blindly",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.093909,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        }
+      ]
+    },
+    {
+      "case": "parent-handover",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_parent_drives_real_child_lifecycle_through_typed_fixture_handover",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.156865,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        }
+      ]
+    },
+    {
+      "case": "parent-handover",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_parent_drives_real_child_lifecycle_through_typed_fixture_handover",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.135087,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        }
+      ]
+    },
+    {
+      "case": "review-gate",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.146895,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.128494,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        }
+      ]
+    },
+    {
+      "case": "review-gate",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.130751,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.121959,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_solution_delivery.py\", line 9, in <module>\n    from onecrew.solution_delivery import Delivery,submit\nModuleNotFoundError: No module named 'onecrew.solution_delivery'\n"
+        }
+      ]
+    },
+    {
+      "case": "apk-device-gate",
+      "trial": 0,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_different_installed_hash_blocks_e2e",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.103081,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_delivery_android.py\", line 11, in <module>\n    from onecrew.delivery_android import audit,device,elf_alignment,find_ui,scenario\nModuleNotFoundError: No module named 'onecrew.delivery_android'\n"
+        },
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_overlay_window_prevents_tap_even_with_background_app_node",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.120684,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_delivery_android.py\", line 11, in <module>\n    from onecrew.delivery_android import audit,device,elf_alignment,find_ui,scenario\nModuleNotFoundError: No module named 'onecrew.delivery_android'\n"
+        },
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.103891,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_delivery_android.py\", line 11, in <module>\n    from onecrew.delivery_android import audit,device,elf_alignment,find_ui,scenario\nModuleNotFoundError: No module named 'onecrew.delivery_android'\n"
+        }
+      ]
+    },
+    {
+      "case": "apk-device-gate",
+      "trial": 1,
+      "revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "status": "capability_unavailable",
+      "probes": [
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_different_installed_hash_blocks_e2e",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.084759,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_delivery_android.py\", line 11, in <module>\n    from onecrew.delivery_android import audit,device,elf_alignment,find_ui,scenario\nModuleNotFoundError: No module named 'onecrew.delivery_android'\n"
+        },
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_overlay_window_prevents_tap_even_with_background_app_node",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.090729,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_delivery_android.py\", line 11, in <module>\n    from onecrew.delivery_android import audit,device,elf_alignment,find_ui,scenario\nModuleNotFoundError: No module named 'onecrew.delivery_android'\n"
+        },
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit",
+          "tests": 0,
+          "status": "capability_unavailable",
+          "elapsed_seconds": 0.082686,
+          "diagnostic": "Traceback (most recent call last):\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\onecrew\\eval_probe.py\", line 29, in main\n    module = importlib.import_module(mod)\n  File \"C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\Lib\\importlib\\__init__.py\", line 88, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1395, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 1023, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"D:\\OneCrewEvals\\2026-10-12-final\\e-6vqkxlo4\\harness\\tests\\test_delivery_android.py\", line 11, in <module>\n    from onecrew.delivery_android import audit,device,elf_alignment,find_ui,scenario\nModuleNotFoundError: No module named 'onecrew.delivery_android'\n"
+        }
+      ]
+    }
+  ],
+  "product_autonomy_rate": null,
+  "live_model_calls": 0,
+  "promotion": "not_evaluated; never automatic",
+  "harness_hash": "4d0ab6217d0c325e233dafeeb73a5cc06dee25cd207753db1cbc877a6df5d371",
+  "grader_hash": "9c398da03625cd5e55b11de4592a14710f03989b5b59ffddbe844df760d9f6eb",
+  "counts": {
+    "runtime_error": 2,
+    "capability_unavailable": 16,
+    "assertion_failed": 2
+  },
+  "completed": true,
+  "digest": "ceab026ec3387b0e7f2ea38c93cab9253133b3a429af1d00e2040ac8ee74d537"
+}

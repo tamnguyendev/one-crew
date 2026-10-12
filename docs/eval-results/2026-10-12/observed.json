@@ -1,0 +1,907 @@
+{
+  "version": 1,
+  "type": "task_observation",
+  "created_at": "2026-10-12T00:25:49.208739+00:00",
+  "ledger_identity": "70bafbf120401e2a4dad80db647994a75140b024d731c0604d911c378e0d85f3",
+  "tasks": [
+    {
+      "task": "TASK-8c1aa25368cc4b119b9275803cc3c986",
+      "project_id": "8d3191b71b39b8f699541b20b03073b20fe6200fa8196ad68587d4a6c1494701",
+      "phase": "completed",
+      "snapshot": "607cd20bbc8387f8e0e3921aea2d1ca653326e22633f3691f980871e4219af6d",
+      "verification": "passed",
+      "acceptance": "not_requested",
+      "gates": {
+        "tests": "recorded_pass",
+        "review": "recorded_pass",
+        "apply": "recorded_pass",
+        "build": "unverified",
+        "device": "unverified",
+        "handover": "recorded_report",
+        "notification": "unverified"
+      },
+      "metrics": {
+        "test_receipts": 1,
+        "test_cases_passed": null,
+        "test_cases_skipped": null,
+        "skip_coverage": "unknown",
+        "timeout_checkpoints": 0,
+        "worker_repair_rounds": 0,
+        "parent_repairs": 0,
+        "build_variant": null,
+        "apk_sha256": null,
+        "managed_calls": 2,
+        "wall_seconds": 568.89862,
+        "outcome_current": true,
+        "entry_repairs": 0
+      },
+      "assistance": "unknown",
+      "assistance_kinds": [],
+      "members": [
+        "TASK-8c1aa25368cc4b119b9275803cc3c986"
+      ],
+      "recorded_interventions": [],
+      "entry_events": {},
+      "pending_requests": [],
+      "phase_episodes": [
+        {
+          "seq": 915,
+          "phase": "running"
+        },
+        {
+          "seq": 931,
+          "phase": "completed"
+        }
+      ],
+      "evidence": [
+        {
+          "seq": 931,
+          "task": "TASK-8c1aa25368cc4b119b9275803cc3c986",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T06:21:37.834601+00:00",
+          "payload_sha256": "e44b5c5f0ab3be0fd399ea266770717b5775e13c4b14ac9259191b374d1cab5b"
+        },
+        {
+          "seq": 932,
+          "task": "TASK-8c1aa25368cc4b119b9275803cc3c986",
+          "kind": "learning.outcome",
+          "at": "2026-10-10T06:21:37.865327+00:00",
+          "payload_sha256": "320b6638ffd9f08b16885290a0d5e4ea17c8329a55701f42bd958d07b498d84c"
+        }
+      ],
+      "windows": null,
+      "gaps": [
+        "build",
+        "device",
+        "notification"
+      ],
+      "required_next_evidence": [
+        "build",
+        "device",
+        "notification",
+        "test_case_counts_and_skips",
+        "prospective_intervention_trace"
+      ]
+    },
+    {
+      "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+      "project_id": "f530e24d0252777b3f22dbc2ed5c48b5d6222fc40b1816eec4db823ae0849e79",
+      "phase": "completed",
+      "snapshot": "4e06f51cb207d19d7280dfe8172f3a62fe2e5667d35deaf27440d055bd7a6b44",
+      "verification": "passed",
+      "acceptance": "not_requested",
+      "gates": {
+        "tests": "recorded_pass",
+        "review": "recorded_pass",
+        "apply": "recorded_pass",
+        "build": "unverified",
+        "device": "unverified",
+        "handover": "recorded_report",
+        "notification": "recorded_shown"
+      },
+      "metrics": {
+        "test_receipts": 1,
+        "test_cases_passed": null,
+        "test_cases_skipped": null,
+        "skip_coverage": "unknown",
+        "timeout_checkpoints": 2,
+        "worker_repair_rounds": 0,
+        "parent_repairs": 0,
+        "build_variant": null,
+        "apk_sha256": null,
+        "managed_calls": 5,
+        "wall_seconds": 11073.569801,
+        "outcome_current": true,
+        "entry_repairs": 1
+      },
+      "assistance": "recorded",
+      "assistance_kinds": [
+        "entry-runtime-repair"
+      ],
+      "members": [
+        "TASK-b9a0c151d7274e97b5515f8318ad44e2"
+      ],
+      "recorded_interventions": [],
+      "entry_events": {
+        "entry.note": 1
+      },
+      "pending_requests": [],
+      "phase_episodes": [
+        {
+          "seq": 938,
+          "phase": "running"
+        },
+        {
+          "seq": 945,
+          "phase": "blocked"
+        },
+        {
+          "seq": 954,
+          "phase": "running"
+        },
+        {
+          "seq": 967,
+          "phase": "blocked"
+        },
+        {
+          "seq": 1009,
+          "phase": "running"
+        },
+        {
+          "seq": 1024,
+          "phase": "completed"
+        }
+      ],
+      "evidence": [
+        {
+          "seq": 1024,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T10:41:06.207594+00:00",
+          "payload_sha256": "9a00099a6cc98851b3057651fdf0150e3b697bdcdb61f01708621f9c9bd3a385"
+        },
+        {
+          "seq": 950,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T08:35:41.359731+00:00",
+          "payload_sha256": "181e6d43bfb7ebf0c24639c819a7fad7bc10564de0920e8bd901bb34c2033176"
+        },
+        {
+          "seq": 951,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "learning.outcome",
+          "at": "2026-10-10T08:35:41.369226+00:00",
+          "payload_sha256": "5ad12275704306e4bea7c614498ec2629f592c0d45711dcc70406195ef93cfdc"
+        },
+        {
+          "seq": 954,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T08:35:41.751602+00:00",
+          "payload_sha256": "0deabffc8c934750f11f7d1dde89589ce0f14f4f540b6ef4ffde00368f4af5dc"
+        },
+        {
+          "seq": 956,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T08:35:45.497704+00:00",
+          "payload_sha256": "827e2695d2a8b4e0da6e11db9e90b280f0e2998e608e7f306d5d69a4906b2d09"
+        },
+        {
+          "seq": 958,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T08:35:49.296138+00:00",
+          "payload_sha256": "78a703ce36612096fd1d8de4ff4267917b76164b633be50d1ebd8c173ecc8642"
+        },
+        {
+          "seq": 961,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T08:45:54.950916+00:00",
+          "payload_sha256": "9aff00b0b7c7a20a8c6b5a21868dd3b648f69003713ac5e02f6196493362201a"
+        },
+        {
+          "seq": 963,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T08:45:59.660010+00:00",
+          "payload_sha256": "5427b0a9aef64acdc062e010c870602d1b81475423e9bfe15b9f082705783cc8"
+        },
+        {
+          "seq": 966,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T08:50:53.738342+00:00",
+          "payload_sha256": "18f4606704b81c2d2f306d8736b74509f5a45ffd4bcdb43946cc28c8ff91f6ee"
+        },
+        {
+          "seq": 967,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T08:50:53.947656+00:00",
+          "payload_sha256": "1ed0632e13134968eaa38227d6f8af2e3e8e80438e2e70dfc6bae97714f8efa9"
+        },
+        {
+          "seq": 968,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "learning.outcome",
+          "at": "2026-10-10T08:50:53.962248+00:00",
+          "payload_sha256": "cc64d42eca80374e48131edf12cade085b19622040b54f05fc07cb79a69fc4b8"
+        },
+        {
+          "seq": 1009,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T10:38:25.320297+00:00",
+          "payload_sha256": "7f0b437cb8e29188141ee2cd3d8ac9ff4bfebb2655ad8aadc995df400b5fe863"
+        },
+        {
+          "seq": 1012,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T10:38:25.572965+00:00",
+          "payload_sha256": "8c3727f85ce013b8d0e7c8af7b8c5c1695529a1b5e20bd2bef9431d5ac491719"
+        },
+        {
+          "seq": 1015,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T10:39:48.620531+00:00",
+          "payload_sha256": "920be3e62fbd896dbea26fac9367ff34573948c6da817852f8f7a05eedd6d8b5"
+        },
+        {
+          "seq": 1016,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T10:39:50.307461+00:00",
+          "payload_sha256": "e0973fc378b988fffea197c154fcf22ee4d014e79b937754d0a86bb17f79ca33"
+        },
+        {
+          "seq": 1017,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T10:40:40.358907+00:00",
+          "payload_sha256": "01c8d1c4c9dbc4356b0f47dca4c6fd6fd3b27946c9a9169d179908d362408776"
+        },
+        {
+          "seq": 1019,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T10:40:40.538631+00:00",
+          "payload_sha256": "40c583756cd1012ee355bc92672698a0a724b53b3a551224d29b691494d3a3ef"
+        },
+        {
+          "seq": 1022,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T10:41:04.809273+00:00",
+          "payload_sha256": "ff9451b9a2bc6ec51b8b7dce9e10b4f4fc4da7b9d1bd892a9842636232ffd4a2"
+        },
+        {
+          "seq": 1023,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T10:41:04.856377+00:00",
+          "payload_sha256": "e558d92be7a8b02c6ada9b460f18811eb2dc54c30f13662b6f4b5138b5c1b22e"
+        },
+        {
+          "seq": 1025,
+          "task": "TASK-b9a0c151d7274e97b5515f8318ad44e2",
+          "kind": "learning.outcome",
+          "at": "2026-10-10T10:41:06.224086+00:00",
+          "payload_sha256": "1dc3982a8e85265c7b1b29977e6743f122c678a33071e5051084b446c17812b6"
+        }
+      ],
+      "windows": {
+        "id": "84f6898e89b50f5bbb5ef2425129f3ba",
+        "status": "closed",
+        "record_sha256": "97ca68e53337debffe571a71df2fd2db7bc9f52d49f4fb82db840b9af0740f38"
+      },
+      "gaps": [
+        "build",
+        "device"
+      ],
+      "required_next_evidence": [
+        "build",
+        "device",
+        "test_case_counts_and_skips",
+        "prospective_intervention_trace"
+      ]
+    },
+    {
+      "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+      "project_id": "17623900eb88c9394b70f6015b8d4075e657d34e0400724ef2268faf4f1d5453",
+      "phase": "completed",
+      "snapshot": "1e636fd56388c57c8e6ccbd37176c112f1382707319bbb77d8e61abdfad122a6",
+      "verification": "passed",
+      "acceptance": "not_requested",
+      "gates": {
+        "tests": "recorded_pass",
+        "review": "recorded_pass",
+        "apply": "recorded_pass",
+        "build": "recorded_pass",
+        "device": "entry_evidence_only",
+        "handover": "recorded_report",
+        "notification": "recorded_shown"
+      },
+      "metrics": {
+        "test_receipts": 1,
+        "test_cases_passed": null,
+        "test_cases_skipped": null,
+        "skip_coverage": "unknown",
+        "timeout_checkpoints": 1,
+        "worker_repair_rounds": 0,
+        "parent_repairs": 0,
+        "build_variant": "debug",
+        "apk_sha256": "b61949d2fbfeda657eaa7911f590393e18faf7c9ac7a112d93d4b61bb25c5084",
+        "managed_calls": 3,
+        "wall_seconds": 5980.42165,
+        "outcome_current": true,
+        "entry_repairs": 3
+      },
+      "assistance": "recorded",
+      "assistance_kinds": [
+        "entry-device-or-server-verification",
+        "entry-runtime-repair"
+      ],
+      "members": [
+        "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5"
+      ],
+      "recorded_interventions": [],
+      "entry_events": {
+        "entry.note": 11,
+        "entry.live_verification": 4,
+        "entry.live_server_verification": 1,
+        "entry.avd_verification_extension": 2,
+        "entry.apk_e2e_handoff": 1,
+        "entry.his_login_verification": 1,
+        "entry.his_login_notice": 1,
+        "entry.physical_a54_verification": 1,
+        "entry.physical_his_login": 1
+      },
+      "pending_requests": [],
+      "phase_episodes": [
+        {
+          "seq": 1782,
+          "phase": "running"
+        },
+        {
+          "seq": 1786,
+          "phase": "blocked"
+        },
+        {
+          "seq": 1791,
+          "phase": "running"
+        },
+        {
+          "seq": 1826,
+          "phase": "blocked"
+        },
+        {
+          "seq": 1831,
+          "phase": "running"
+        },
+        {
+          "seq": 1842,
+          "phase": "blocked"
+        },
+        {
+          "seq": 1850,
+          "phase": "running"
+        },
+        {
+          "seq": 1872,
+          "phase": "completed"
+        }
+      ],
+      "evidence": [
+        {
+          "seq": 1872,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T15:38:18.202496+00:00",
+          "payload_sha256": "5964ca4c0b1f266038609557d9d20dae97b565d7f9f3aca804d04d9ab21be799"
+        },
+        {
+          "seq": 1792,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:22:53.853671+00:00",
+          "payload_sha256": "48d96000d4e3f3e1154a39dd1535c0b1f2dd0669021378e6f8f65168fdc8550e"
+        },
+        {
+          "seq": 1794,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:22:54.444111+00:00",
+          "payload_sha256": "b60de6f46966d9cc99c84e3b7c76fd68cde7dd3a204e5162fcd354107030fffd"
+        },
+        {
+          "seq": 1795,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:22:56.904207+00:00",
+          "payload_sha256": "b93650d679a113b69d08cc62aeba0e53d14f829424d92e723f60ca27dc0327b9"
+        },
+        {
+          "seq": 1796,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:22:59.324617+00:00",
+          "payload_sha256": "6181a5da431135c4435da71399163430ffb3e2b9abb5481c484692ae544480d7"
+        },
+        {
+          "seq": 1797,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:01.251000+00:00",
+          "payload_sha256": "bc5172d5528adc2d0f324cf4b2c44f550e8a8fca011b0dda5e7abac02de534cd"
+        },
+        {
+          "seq": 1798,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:03.163774+00:00",
+          "payload_sha256": "1415dbd9b3d0d4f149452ef865255d9eac9a1cff3285fe172396a6196d013735"
+        },
+        {
+          "seq": 1799,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:05.126003+00:00",
+          "payload_sha256": "212bde8a49c8324276f4465e161b0c7c69991d2b1e7af10c1bbe3cc6cbfd408b"
+        },
+        {
+          "seq": 1800,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:07.154866+00:00",
+          "payload_sha256": "177d7f941d68279b0a4b8d7c3e0fcde24b72a09c3cd7c2a1961460f8cb592957"
+        },
+        {
+          "seq": 1801,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:09.168110+00:00",
+          "payload_sha256": "b97a3a0a0fb61a27a4f4aed5fabbcb16c2746b1d6b22aef8b16d05525be7c4c9"
+        },
+        {
+          "seq": 1802,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:10.978090+00:00",
+          "payload_sha256": "20434367db5ebb1e3e65a97279599c33017b26bda32738538597e85270b1df19"
+        },
+        {
+          "seq": 1803,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:12.959513+00:00",
+          "payload_sha256": "22c96e4fd2567a19a43de461521a47622866c0ecf3acc4743ddb680a4106e0ac"
+        },
+        {
+          "seq": 1804,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:15.216637+00:00",
+          "payload_sha256": "3ca9bf04c650082148e2c1a1a5eccdc606787ffac0b46893686c9aab10ee971d"
+        },
+        {
+          "seq": 1805,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:17.265698+00:00",
+          "payload_sha256": "4a2f74fe9e9a6ad157c3667b55a16f6bd4156f9065fc152dbbf8c4b8b2946f52"
+        },
+        {
+          "seq": 1806,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:19.309181+00:00",
+          "payload_sha256": "44c541ede53807f0def02069b982ccf971ac177ac57adc03cb8cf95828ed867a"
+        },
+        {
+          "seq": 1807,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:21.368181+00:00",
+          "payload_sha256": "e6067bc735a8b2856ca9c2703bc312f035edae8b9ad5869e6b77b121e7564299"
+        },
+        {
+          "seq": 1808,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:23.367869+00:00",
+          "payload_sha256": "90305d323d93a34f83e6e08f4a8d1456cad75cf0ba3f413d9070fcdd91ab39f9"
+        },
+        {
+          "seq": 1809,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:25.730145+00:00",
+          "payload_sha256": "e7841139de3c2661dcd7057a2554d208915608b1b36fc549d6a02df29a0b6d32"
+        },
+        {
+          "seq": 1810,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:27.914324+00:00",
+          "payload_sha256": "e852ec2023763ad0abc9ff4032499375ac5934cea40846e51542a64266a767d7"
+        },
+        {
+          "seq": 1811,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:30.144759+00:00",
+          "payload_sha256": "5bed93220deadbdf0d995ec7307c225124541b1df773627c763519dd2fcbf0dc"
+        },
+        {
+          "seq": 1812,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:30.858174+00:00",
+          "payload_sha256": "b118f2034e807b5c5d0065d936cbb634bc15c75777faef519aec553295e17938"
+        },
+        {
+          "seq": 1813,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:23:35.931121+00:00",
+          "payload_sha256": "9840b76dd99e1f33847dea39c21864bf62cba88a37a7e4cbef6ecb49d60bf697"
+        },
+        {
+          "seq": 1815,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:27:39.825890+00:00",
+          "payload_sha256": "16eb8be84e5244cd9eb21f096972ad540dfcc4c048709922258a4f243c1765aa"
+        },
+        {
+          "seq": 1818,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:38:06.318022+00:00",
+          "payload_sha256": "8643f9e5538e59e0865280eae474c80392e78d61159bb5f2c5888cbd44607634"
+        },
+        {
+          "seq": 1820,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:38:32.830730+00:00",
+          "payload_sha256": "a7fe569bb3d1e2d3f3d5c508e8aa8c99a8f9fc984eb85b126cf3b88b62fe1105"
+        },
+        {
+          "seq": 1823,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:45:40.492939+00:00",
+          "payload_sha256": "ded37871df43cc83d73e90a6d927a29ec60d2c7dee69557e730eefc8b841a384"
+        },
+        {
+          "seq": 1824,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:45:54.240018+00:00",
+          "payload_sha256": "8aa40ed0f97e19fb2fc693f011c2887d4ee4080a00e92988c6bacb24e0b568df"
+        },
+        {
+          "seq": 1825,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:52:08.827420+00:00",
+          "payload_sha256": "b627da6c8082054e0d8268dfea811b51c04caaaeed6e51b8adc02b42a238a973"
+        },
+        {
+          "seq": 1826,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T14:52:09.600002+00:00",
+          "payload_sha256": "e4f82cda4bdbc2c7e77abd155e7de17561ef2a8917d8c5ca21bf91b30c818504"
+        },
+        {
+          "seq": 1827,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "learning.outcome",
+          "at": "2026-10-10T14:52:09.761885+00:00",
+          "payload_sha256": "a1ceb9c68db9178d93f20da082ce68359cbc7ef46cb685178f0e26eb7b96aa43"
+        },
+        {
+          "seq": 1831,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T15:08:34.225530+00:00",
+          "payload_sha256": "b4e56e2c705f33c887fde6e9a563f2391fc2df1b5be554f3f2402e5280558ec7"
+        },
+        {
+          "seq": 1832,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T15:08:34.399844+00:00",
+          "payload_sha256": "4c17338e55629c0bd444ef816a33f74259050bc9fa621dfb0bbcc504e438f01e"
+        },
+        {
+          "seq": 1835,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T15:08:35.389585+00:00",
+          "payload_sha256": "39e234864dd77ef3a02354d746ceb43126f2fdcea922cac63861972fc286cfdf"
+        },
+        {
+          "seq": 1838,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T15:09:23.179797+00:00",
+          "payload_sha256": "dc96698cb3103218018d62586da9005464e1a43c87964d88b4f6814df393a47d"
+        },
+        {
+          "seq": 1839,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T15:09:23.436688+00:00",
+          "payload_sha256": "f70f2192abafd4d3d5c2bec9bd55ee3093f00cdc69d78856c9c91b76af1ee8ce"
+        },
+        {
+          "seq": 1840,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T15:09:52.693925+00:00",
+          "payload_sha256": "7096fc1c30baff687ac73fb819629fe95d47b4ef6b5f52f547c6de0796d20727"
+        },
+        {
+          "seq": 1841,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T15:10:01.282970+00:00",
+          "payload_sha256": "db99bb989d017f21b8059b8f83bbd166c8e62b49616f4d5bfac1f4e74c79a279"
+        },
+        {
+          "seq": 1842,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T15:21:35.818346+00:00",
+          "payload_sha256": "bea647496657de06c1e1b85bec95875fe35a2c00d38b5015a9c31cd364a12fdf"
+        },
+        {
+          "seq": 1843,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "learning.outcome",
+          "at": "2026-10-10T15:21:36.082753+00:00",
+          "payload_sha256": "bbf15f56e5cfb667c78100b07a64a51d0c1e90b5d85022e478782a38ba072c65"
+        },
+        {
+          "seq": 1847,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T15:32:51.912904+00:00",
+          "payload_sha256": "1bf334fa69edb8641ad97c633193c35eeae64641d9bb0fab4eabc0f7829748d7"
+        },
+        {
+          "seq": 1848,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "learning.outcome",
+          "at": "2026-10-10T15:32:52.308864+00:00",
+          "payload_sha256": "9e3f7d7d0470d226bc3baafb86b4854b87c104143a8dc8ab5d0581b1d90dde90"
+        },
+        {
+          "seq": 1850,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T15:32:53.317035+00:00",
+          "payload_sha256": "5193e845d3b5d7573c55f10c1585f311ec5eecf78f94f223858917d83b756e4a"
+        },
+        {
+          "seq": 1852,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-10T15:33:12.697578+00:00",
+          "payload_sha256": "3ff256fb260907c23b39c1b081818ddf1de5ff108c60c08ad6ae0045fd313079"
+        },
+        {
+          "seq": 1873,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "learning.outcome",
+          "at": "2026-10-10T15:38:18.536719+00:00",
+          "payload_sha256": "879fe47a726bf22dba725c8d331a68f5d0fabce45435617a5ee0e585fc114d36"
+        },
+        {
+          "seq": 1908,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "entry.live_verification",
+          "at": "2026-10-10T16:01:03.748943+00:00",
+          "payload_sha256": "392e4ed77585e3480f947fbb99bd85cb6e209c1e484032207bf6d4a82b20319b"
+        },
+        {
+          "seq": 1917,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "entry.live_server_verification",
+          "at": "2026-10-10T16:05:10.868887+00:00",
+          "payload_sha256": "b4aa9a2a5a2e43711689f79e43f801b887d2242d94b62881f99dd66a60452409"
+        },
+        {
+          "seq": 1918,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "entry.live_verification",
+          "at": "2026-10-10T16:06:25.650455+00:00",
+          "payload_sha256": "b22c3d58df81cc7c695cadd46b010909285a1e8913ab94761b2a9747edfeaa58"
+        },
+        {
+          "seq": 1931,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "entry.live_verification",
+          "at": "2026-10-10T16:14:59.044756+00:00",
+          "payload_sha256": "46cd2b124d6226320a6f084a1a5f380824e7be9195947ff3e2600bd7b3aecee3"
+        },
+        {
+          "seq": 1932,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "entry.live_verification",
+          "at": "2026-10-10T16:24:01.115105+00:00",
+          "payload_sha256": "6aed29f2b58b47a9e69f108be41aaae95972ff38eafa5fd6ff9a67dc34acf810"
+        },
+        {
+          "seq": 1935,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "entry.avd_verification_extension",
+          "at": "2026-10-10T16:55:56.440041+00:00",
+          "payload_sha256": "5a9a6126fe30aef1ffb4f2d08e3351a26c0b75e313e9a1cd9dbed7643a0b95ec"
+        },
+        {
+          "seq": 1936,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "entry.avd_verification_extension",
+          "at": "2026-10-10T17:02:17.800120+00:00",
+          "payload_sha256": "6d7d98b8a7ee4be4f3672e7e59556926ad05e442b72a58ccee212f81e09b1bbc"
+        },
+        {
+          "seq": 1938,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "entry.apk_e2e_handoff",
+          "at": "2026-10-10T17:04:37.611519+00:00",
+          "payload_sha256": "26019c5ae84fed746ed5f77b70e4accae08f2ec7b34b091ae26a36bd97f1c543"
+        },
+        {
+          "seq": 1940,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "entry.his_login_verification",
+          "at": "2026-10-11T01:45:47.314310+00:00",
+          "payload_sha256": "b3d8c1294ff10cace703c1a1075d007a2b8a8b28eb0c75ae31c0e550719a11d4"
+        },
+        {
+          "seq": 1941,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "entry.his_login_notice",
+          "at": "2026-10-11T01:46:04.274382+00:00",
+          "payload_sha256": "2440fa28351ecad7f845d480c3ce17ebbca822f801e98c7c52fc44f2b90d4e47"
+        },
+        {
+          "seq": 1974,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "entry.physical_a54_verification",
+          "at": "2026-10-11T02:16:28.989098+00:00",
+          "payload_sha256": "08ca73a42a3baad692160558757776845be326a9dc9517e03d5acd50ea502938"
+        },
+        {
+          "seq": 2003,
+          "task": "TASK-726bd48fdcdf4f4e85d0b17c5d74d0e5",
+          "kind": "entry.physical_his_login",
+          "at": "2026-10-11T02:25:08.974341+00:00",
+          "payload_sha256": "613ecfbc58f35a57a70a9168ba8d704263b771c51723d89579e631bcedb89cfe"
+        }
+      ],
+      "windows": {
+        "id": "e99e0c6df656261b84fcb87563488f23",
+        "status": "closed",
+        "record_sha256": "0f18b057ef0ac190c6467fd2b6cd975e51dd1c1508b236c3b11b05abb8109782"
+      },
+      "gaps": [
+        "device"
+      ],
+      "required_next_evidence": [
+        "device",
+        "test_case_counts_and_skips",
+        "prospective_intervention_trace"
+      ]
+    },
+    {
+      "task": "TASK-1e6d37de0e9a475b9758191c74b98833",
+      "project_id": "f0bf8e1d2e7eb1b6e9fe74de4ad3275e6163264f52ed330e78270d61728a6776",
+      "phase": "completed",
+      "snapshot": "b60511fd449da6b0dd2f31384cc7a2dbbb81c60ef2ec057e8a8ecfc12a64a686",
+      "verification": "passed",
+      "acceptance": "not_requested",
+      "gates": {
+        "tests": "recorded_pass",
+        "review": "recorded_pass",
+        "apply": "recorded_pass",
+        "build": "unverified",
+        "device": "unverified",
+        "handover": "recorded_report",
+        "notification": "recorded_shown"
+      },
+      "metrics": {
+        "test_receipts": 1,
+        "test_cases_passed": null,
+        "test_cases_skipped": null,
+        "skip_coverage": "unknown",
+        "timeout_checkpoints": 1,
+        "worker_repair_rounds": 0,
+        "parent_repairs": 0,
+        "build_variant": null,
+        "apk_sha256": null,
+        "managed_calls": 3,
+        "wall_seconds": 1194.394623,
+        "outcome_current": true,
+        "entry_repairs": 0
+      },
+      "assistance": "unknown",
+      "assistance_kinds": [],
+      "members": [
+        "TASK-1e6d37de0e9a475b9758191c74b98833"
+      ],
+      "recorded_interventions": [],
+      "entry_events": {},
+      "pending_requests": [],
+      "phase_episodes": [
+        {
+          "seq": 2406,
+          "phase": "running"
+        },
+        {
+          "seq": 2465,
+          "phase": "completed"
+        }
+      ],
+      "evidence": [
+        {
+          "seq": 2465,
+          "task": "TASK-1e6d37de0e9a475b9758191c74b98833",
+          "kind": "workflow.checkpoint",
+          "at": "2026-10-11T15:25:10.228176+00:00",
+          "payload_sha256": "84d46846b783d6dd1b6157f26a7b0a0ab07b550ee1a654d88ed0be317f6d08b5"
+        },
+        {
+          "seq": 2466,
+          "task": "TASK-1e6d37de0e9a475b9758191c74b98833",
+          "kind": "learning.outcome",
+          "at": "2026-10-11T15:25:10.263696+00:00",
+          "payload_sha256": "6611839e24f8a8c536ddc2992bb1931b5594555f5b1b21635b995091e26f72d7"
+        }
+      ],
+      "windows": {
+        "id": "52cf7f0f02754acb62816ec54ff1fb29",
+        "status": "closed",
+        "record_sha256": "258068260357d7db855b23a0eadf44a5a3eff813f2cd79003951e888bd8771ea"
+      },
+      "gaps": [
+        "build",
+        "device"
+      ],
+      "required_next_evidence": [
+        "build",
+        "device",
+        "test_case_counts_and_skips",
+        "prospective_intervention_trace"
+      ]
+    }
+  ],
+  "product_autonomy_rate": null,
+  "unassisted_completion_verified": 0,
+  "limits": [
+    "Recorded evidence only; no tests/build/device rerun and no artifact revalidation.",
+    "Explicit task sample, not a random population; no causal before/after inference.",
+    "Unknown assistance is not zero. Missing/skipped test counts cannot imply full coverage.",
+    "Entry device/server evidence is assistance, not autonomous worker E2E.",
+    "No report text/credentials exported. Windows shown is not user attention.",
+    "No prospective held-out eval enrollment: unassisted rate remains null."
+  ],
+  "ledger_max_seq": 2708,
+  "counts": {
+    "tasks": 4,
+    "recorded_completed": 4,
+    "with_recorded_assistance": 2,
+    "assistance_unknown": 2
+  },
+  "digest": "249979d45b4053e0272b7a7836e1e88a8e93a35f2ac224270ec81de0a70a6306"
+}

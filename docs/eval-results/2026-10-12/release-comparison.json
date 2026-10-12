@@ -1,0 +1,207 @@
+{
+  "version": 1,
+  "type": "runtime_comparison",
+  "before_run": "517c537c2c3f4164a8d4684d4a4a0b5f",
+  "after_run": "a3220f670ef448f79fa9aea5f439fd67",
+  "corpus_hash": "b979687c6c695850bf4bbc2e217d529fc16731ebb7351246c98e30f57f13a944",
+  "rows": [
+    {
+      "case": "apk-device-gate",
+      "trial": 0,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "apk-device-gate",
+      "trial": 1,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "handoff-backlog",
+      "trial": 0,
+      "before": "passed",
+      "after": "passed",
+      "change": "unchanged",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "handoff-backlog",
+      "trial": 1,
+      "before": "passed",
+      "after": "passed",
+      "change": "unchanged",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "missing-cache",
+      "trial": 0,
+      "before": "passed",
+      "after": "passed",
+      "change": "unchanged",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "missing-cache",
+      "trial": 1,
+      "before": "passed",
+      "after": "passed",
+      "change": "unchanged",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "parent-checkpoint",
+      "trial": 0,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "parent-checkpoint",
+      "trial": 1,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "parent-handover",
+      "trial": 0,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "parent-handover",
+      "trial": 1,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "review-80k",
+      "trial": 0,
+      "before": "passed",
+      "after": "passed",
+      "change": "unchanged",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "review-80k",
+      "trial": 1,
+      "before": "passed",
+      "after": "passed",
+      "change": "unchanged",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "review-gate",
+      "trial": 0,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "review-gate",
+      "trial": 1,
+      "before": "capability_unavailable",
+      "after": "passed",
+      "change": "capability_added",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "snapshot-2mb",
+      "trial": 0,
+      "before": "passed",
+      "after": "passed",
+      "change": "unchanged",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "snapshot-2mb",
+      "trial": 1,
+      "before": "passed",
+      "after": "passed",
+      "change": "unchanged",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "timeout-checkpoint",
+      "trial": 0,
+      "before": "passed",
+      "after": "passed",
+      "change": "unchanged",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "timeout-checkpoint",
+      "trial": 1,
+      "before": "passed",
+      "after": "passed",
+      "change": "unchanged",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "windows-once",
+      "trial": 0,
+      "before": "passed",
+      "after": "passed",
+      "change": "unchanged",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    },
+    {
+      "case": "windows-once",
+      "trial": 1,
+      "before": "passed",
+      "after": "passed",
+      "change": "unchanged",
+      "before_revision": "3c3de4ac41e8106b1a3925e9de3bd18686620cb4",
+      "after_revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+    }
+  ],
+  "trials": 20,
+  "before_passed": 12,
+  "after_passed": 20,
+  "changes": {
+    "capability_added": 8,
+    "unchanged": 12
+  },
+  "historical": false,
+  "product_autonomy_rate": null,
+  "promotion": "manual_review_required",
+  "limits": [
+    "Known historical cases, not held-out tasks or estimates of generalization.",
+    "Passing a correct blocker means the safety contract passed, not product completion.",
+    "Fixture results never enter product autonomy, model cost or device-success denominators.",
+    "Historical mode uses different pre-fix commits; it is not a release-level before/after rate.",
+    "No model calls, live server, ADB or Windows display in replay. No automatic promotion."
+  ],
+  "digest": "8b007033a4f0388bb4938aba59305123db67899748546b1c5db336b30bceed78"
+}

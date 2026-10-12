@@ -1,0 +1,679 @@
+{
+  "version": 1,
+  "type": "runtime_replay",
+  "run_id": "a3220f670ef448f79fa9aea5f439fd67",
+  "created_at": "2026-10-12T00:25:49.626322+00:00",
+  "corpus": {
+    "version": 1,
+    "cases": [
+      {
+        "id": "handoff-backlog",
+        "title": "Owned outputs without legacy backlog",
+        "fix": "920d000",
+        "before": "920d000^",
+        "tests": [
+          "tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog"
+        ],
+        "support": "Entry previously repaired runtime handoff; no product worker changes required.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "timeout-checkpoint",
+        "title": "Resume settled timeout without resetting budget or scope",
+        "fix": "019af9e",
+        "before": "019af9e^",
+        "tests": [
+          "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session",
+          "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply",
+          "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call"
+        ],
+        "support": "Entry repaired timeout controller; provider and compiler are fixtures here.",
+        "kind": "workflow_fixture",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "snapshot-2mb",
+        "title": "Large metadata chunking while preserving source cap",
+        "fix": "9bb8993",
+        "before": "9bb8993^",
+        "tests": [
+          "tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap",
+          "tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid"
+        ],
+        "support": "Entry repaired metadata transport; growing source permissions is not recovery.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "review-80k",
+        "title": "Complete paged review without dropping tests or diff",
+        "fix": "bc57da1",
+        "before": "bc57da1^",
+        "tests": [
+          "tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests",
+          "tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten"
+        ],
+        "support": "Entry repaired review input transport; passing transport does not grade reviewer judgement.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "missing-cache",
+        "title": "Missing dependency blocks before compiler and retains candidate",
+        "fix": "aeb7d7a",
+        "before": "aeb7d7a^",
+        "tests": [
+          "tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate"
+        ],
+        "support": "Environment owner must supply the exact approved cache. A correct block is NOT a completed build.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "windows-once",
+        "title": "One result per outcome, no silent read-as-delivery",
+        "fix": "0e33a44",
+        "before": "0e33a44^",
+        "tests": [
+          "tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen",
+          "tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes"
+        ],
+        "support": "Window launcher is mocked; actual visible receipt and user attention remain unverified.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "parent-checkpoint",
+        "title": "Parent restart reuses verified nodes; stale evidence blocks",
+        "fix": "4e8253f",
+        "before": "4e8253f^",
+        "tests": [
+          "tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes",
+          "tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish",
+          "tests.test_solution_delivery.DeliveryTests.test_crash_in_build_never_replays_blindly"
+        ],
+        "support": "Unknown side effects still require operator reconciliation.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "parent-handover",
+        "title": "Parent drives child, tests, review, build, device and handover",
+        "fix": "4e8253f",
+        "before": "4e8253f^",
+        "tests": [
+          "tests.test_solution_delivery.DeliveryTests.test_parent_drives_real_child_lifecycle_through_typed_fixture_handover"
+        ],
+        "support": "Provider/Flutter/ADB are fixtures; live APK/server task still needs pinned environment and acceptance.",
+        "kind": "workflow_fixture",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "review-gate",
+        "title": "Conditional review cannot complete required criteria",
+        "fix": "4e8253f",
+        "before": "4e8253f^",
+        "tests": [
+          "tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected",
+          "tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete"
+        ],
+        "support": "Semantic correctness of reviewer on unseen code remains unmeasured.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      },
+      {
+        "id": "apk-device-gate",
+        "title": "APK identity, signer and foreground checked before E2E",
+        "fix": "4e8253f",
+        "before": "4e8253f^",
+        "tests": [
+          "tests.test_delivery_android.AndroidDeliveryTests.test_different_installed_hash_blocks_e2e",
+          "tests.test_delivery_android.AndroidDeliveryTests.test_overlay_window_prevents_tap_even_with_background_app_node",
+          "tests.test_delivery_android.AndroidDeliveryTests.test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit"
+        ],
+        "support": "Pinned device/scenario/private configuration still authored by entry; no physical device used.",
+        "kind": "runtime_contract",
+        "split": "known_case",
+        "oracle": "All pinned assertions pass, no errors or skips; simulated dependencies only."
+      }
+    ],
+    "limits": [
+      "Known historical cases, not held-out tasks or estimates of generalization.",
+      "Passing a correct blocker means the safety contract passed, not product completion.",
+      "Fixture results never enter product autonomy, model cost or device-success denominators.",
+      "Historical mode uses different pre-fix commits; it is not a release-level before/after rate.",
+      "No model calls, live server, ADB or Windows display in replay. No automatic promotion."
+    ]
+  },
+  "corpus_hash": "b979687c6c695850bf4bbc2e217d529fc16731ebb7351246c98e30f57f13a944",
+  "harness_revision": "d24cc5239564a59aa95ff5a26ccafe6cc4e5b9da",
+  "environment": {
+    "python": "3.13.14 (tags/v3.13.14:fd17997, Jun 10 2026, 13:03:48) [MSC v.1944 64 bit (AMD64)]",
+    "executable_sha256": "ad169f4cb4bfb78c7a5c030a4529c19d6643276778e33994c93e145b6191c3ec",
+    "invoked_executable": "C:\\Users\\NUC\\AppData\\Local\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\python.exe",
+    "fingerprinted_executable": "C:\\Program Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\python.exe",
+    "platform": "Windows-11-10.0.26100-SP0",
+    "machine": "AMD64",
+    "git": "git version 2.51.0.windows.1",
+    "transport": "fixture-only",
+    "model": null,
+    "device": null
+  },
+  "repeat": 2,
+  "timeout_seconds": 120,
+  "target_mode": "single-revision",
+  "targets": {
+    "handoff-backlog": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+    "timeout-checkpoint": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+    "snapshot-2mb": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+    "review-80k": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+    "missing-cache": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+    "windows-once": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+    "parent-checkpoint": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+    "parent-handover": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+    "review-gate": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+    "apk-device-gate": "4e8253f5c534074f1fb43f0dbccfecf48e617c83"
+  },
+  "results": [
+    {
+      "case": "handoff-backlog",
+      "trial": 0,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.0431,
+          "diagnostic": "test_audit_and_running_checkpoints_need_no_legacy_backlog (tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.604s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "handoff-backlog",
+      "trial": 1,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.045313,
+          "diagnostic": "test_audit_and_running_checkpoints_need_no_legacy_backlog (tests.test_owned_handoff.OwnedHandoffTests.test_audit_and_running_checkpoints_need_no_legacy_backlog) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.599s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "timeout-checkpoint",
+      "trial": 0,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.07614,
+          "diagnostic": "test_checkpoint_is_idempotent_preserves_budget_scope_and_session (tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.648s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.12175,
+          "diagnostic": "test_restart_continues_then_independent_verify_review_and_apply (tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.860s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.493677,
+          "diagnostic": "test_no_progress_does_not_spend_another_call (tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.379s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "timeout-checkpoint",
+      "trial": 1,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.252011,
+          "diagnostic": "test_checkpoint_is_idempotent_preserves_budget_scope_and_session (tests.test_workspace_timeout.WorkspaceTimeoutTests.test_checkpoint_is_idempotent_preserves_budget_scope_and_session) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.845s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.170098,
+          "diagnostic": "test_restart_continues_then_independent_verify_review_and_apply (tests.test_workspace_timeout.WorkspaceTimeoutTests.test_restart_continues_then_independent_verify_review_and_apply) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.887s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.567095,
+          "diagnostic": "test_no_progress_does_not_spend_another_call (tests.test_workspace_timeout.WorkspaceTimeoutTests.test_no_progress_does_not_spend_another_call) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.414s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "snapshot-2mb",
+      "trial": 0,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.151695,
+          "diagnostic": "test_large_utf8_roundtrip_and_original_source_cap (tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.064s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.10546,
+          "diagnostic": "test_tampered_missing_or_reordered_chunks_never_read_as_valid (tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.041s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "snapshot-2mb",
+      "trial": 1,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.141841,
+          "diagnostic": "test_large_utf8_roundtrip_and_original_source_cap (tests.test_runtime_evidence.EvidenceTests.test_large_utf8_roundtrip_and_original_source_cap) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.063s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.109196,
+          "diagnostic": "test_tampered_missing_or_reordered_chunks_never_read_as_valid (tests.test_runtime_evidence.EvidenceTests.test_tampered_missing_or_reordered_chunks_never_read_as_valid) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.043s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "review-80k",
+      "trial": 0,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.339018,
+          "diagnostic": "test_large_diff_pages_are_complete_unicode_and_keep_tests (tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.095s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.207304,
+          "diagnostic": "test_tampered_evidence_is_rejected_not_overwritten (tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.037s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "review-80k",
+      "trial": 1,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.384575,
+          "diagnostic": "test_large_diff_pages_are_complete_unicode_and_keep_tests (tests.test_native_review_context.NativeReviewContextTests.test_large_diff_pages_are_complete_unicode_and_keep_tests) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.105s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.208519,
+          "diagnostic": "test_tampered_evidence_is_rejected_not_overwritten (tests.test_native_review_context.NativeReviewContextTests.test_tampered_evidence_is_rejected_not_overwritten) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.031s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "missing-cache",
+      "trial": 0,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.975445,
+          "diagnostic": "test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate (tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.517s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "missing-cache",
+      "trial": 1,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.925422,
+          "diagnostic": "test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate (tests.test_native_change.NativeChangeTests.test_missing_dependency_cache_blocks_before_compiler_and_preserves_candidate) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.469s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "windows-once",
+      "trial": 0,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.768831,
+          "diagnostic": "test_terminal_once_even_after_repeated_checkpoint_and_reopen (tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.338s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.686084,
+          "diagnostic": "test_block_resume_complete_has_two_outcomes (tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.361s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "windows-once",
+      "trial": 1,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.819669,
+          "diagnostic": "test_terminal_once_even_after_repeated_checkpoint_and_reopen (tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.397s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.659201,
+          "diagnostic": "test_block_resume_complete_has_two_outcomes (tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.369s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "parent-checkpoint",
+      "trial": 0,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.629767,
+          "diagnostic": "test_restart_does_not_repeat_verified_nodes (tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 1.183s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.733231,
+          "diagnostic": "test_stale_passed_receipt_cannot_finish (tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.425s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_crash_in_build_never_replays_blindly",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.378718,
+          "diagnostic": "test_crash_in_build_never_replays_blindly (tests.test_solution_delivery.DeliveryTests.test_crash_in_build_never_replays_blindly) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.274s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "parent-checkpoint",
+      "trial": 1,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 1.118322,
+          "diagnostic": "test_restart_does_not_repeat_verified_nodes (tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.625s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.696928,
+          "diagnostic": "test_stale_passed_receipt_cannot_finish (tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.414s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_crash_in_build_never_replays_blindly",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.441526,
+          "diagnostic": "test_crash_in_build_never_replays_blindly (tests.test_solution_delivery.DeliveryTests.test_crash_in_build_never_replays_blindly) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.336s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "parent-handover",
+      "trial": 0,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_parent_drives_real_child_lifecycle_through_typed_fixture_handover",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 2.409459,
+          "diagnostic": "test_parent_drives_real_child_lifecycle_through_typed_fixture_handover (tests.test_solution_delivery.DeliveryTests.test_parent_drives_real_child_lifecycle_through_typed_fixture_handover) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 2.013s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "parent-handover",
+      "trial": 1,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_parent_drives_real_child_lifecycle_through_typed_fixture_handover",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 2.613124,
+          "diagnostic": "test_parent_drives_real_child_lifecycle_through_typed_fixture_handover (tests.test_solution_delivery.DeliveryTests.test_parent_drives_real_child_lifecycle_through_typed_fixture_handover) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 2.273s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "review-gate",
+      "trial": 0,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.750721,
+          "diagnostic": "test_review_conditional_acceptance_is_rejected (tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.409s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.62698,
+          "diagnostic": "test_missing_evidence_blocks_instead_of_complete (tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.388s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "review-gate",
+      "trial": 1,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.704215,
+          "diagnostic": "test_review_conditional_acceptance_is_rejected (tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.368s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.605657,
+          "diagnostic": "test_missing_evidence_blocks_instead_of_complete (tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.379s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "apk-device-gate",
+      "trial": 0,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_different_installed_hash_blocks_e2e",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.322527,
+          "diagnostic": "test_different_installed_hash_blocks_e2e (tests.test_delivery_android.AndroidDeliveryTests.test_different_installed_hash_blocks_e2e) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.052s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_overlay_window_prevents_tap_even_with_background_app_node",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.194213,
+          "diagnostic": "test_overlay_window_prevents_tap_even_with_background_app_node (tests.test_delivery_android.AndroidDeliveryTests.test_overlay_window_prevents_tap_even_with_background_app_node) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.028s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.099326,
+          "diagnostic": "test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit (tests.test_delivery_android.AndroidDeliveryTests.test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.011s\n\nOK\n"
+        }
+      ]
+    },
+    {
+      "case": "apk-device-gate",
+      "trial": 1,
+      "revision": "4e8253f5c534074f1fb43f0dbccfecf48e617c83",
+      "status": "passed",
+      "probes": [
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_different_installed_hash_blocks_e2e",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.295872,
+          "diagnostic": "test_different_installed_hash_blocks_e2e (tests.test_delivery_android.AndroidDeliveryTests.test_different_installed_hash_blocks_e2e) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.013s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_overlay_window_prevents_tap_even_with_background_app_node",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.223943,
+          "diagnostic": "test_overlay_window_prevents_tap_even_with_background_app_node (tests.test_delivery_android.AndroidDeliveryTests.test_overlay_window_prevents_tap_even_with_background_app_node) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.061s\n\nOK\n"
+        },
+        {
+          "selector": "tests.test_delivery_android.AndroidDeliveryTests.test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit",
+          "tests": 1,
+          "status": "passed",
+          "skipped": 0,
+          "elapsed_seconds": 0.096041,
+          "diagnostic": "test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit (tests.test_delivery_android.AndroidDeliveryTests.test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.011s\n\nOK\n"
+        }
+      ]
+    }
+  ],
+  "product_autonomy_rate": null,
+  "live_model_calls": 0,
+  "promotion": "not_evaluated; never automatic",
+  "harness_hash": "4d0ab6217d0c325e233dafeeb73a5cc06dee25cd207753db1cbc877a6df5d371",
+  "grader_hash": "9c398da03625cd5e55b11de4592a14710f03989b5b59ffddbe844df760d9f6eb",
+  "counts": {
+    "passed": 20
+  },
+  "completed": true,
+  "digest": "b7818228be2eee87cad5cc9d6e4bc73fd827f18f774d1a83ec73335a8f8bb733"
+}
