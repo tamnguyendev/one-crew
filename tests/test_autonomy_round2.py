@@ -19,7 +19,6 @@ from unittest.mock import patch
 
 import onecrew.native_change  # noqa: F401  bind the real capture before tests patch native_audit.capture
 from onecrew import delivery_android as da
-from onecrew import delivery_calibrate as cal
 from onecrew import delivery_recovery as rc
 from onecrew import eval_scorecard as sc
 from onecrew.delivery_steps import file_hash
@@ -253,11 +252,11 @@ class LiveDeviceTests(DeviceRun):
 
     def test_a_just_booted_system_ui_that_hangs_repeatedly_is_waited_out_not_restarted(self):
         # Smoke 12/10 on the real emulator: after a cold boot the dialog came back for 1-2 minutes under boot load;
-        # the first version answered Wait for 15 s, then restarted the emulator into the same state.
+        # the first version answered Wait for about 15 s (4 reads), then restarted the emulator into the same state.
         states = iter(['absent']); original = self.adb
         def adb(runtime, task, argv, cwd, seconds):
             if argv[3:] == ['get-state'] and next(states, 'device') == 'absent': return 1, '', 'not found'
-            if argv[3:] == ['shell', 'dumpsys', 'window'] and not self.dialog and getattr(self, 'relapses', 0) < 3:
+            if argv[3:] == ['shell', 'dumpsys', 'window'] and not self.dialog and getattr(self, 'relapses', 0) < 6:
                 self.relapses = getattr(self, 'relapses', 0) + 1; self.dialog = 1  # System UI hangs again after each Wait
             return original(runtime, task, argv, cwd, seconds)
         self.adb = adb; self.dialog = 1
@@ -265,7 +264,8 @@ class LiveDeviceTests(DeviceRun):
             result = self.run_device(self.node(AC3, emulator={'avd': 'Trial', 'avd_home': str(self.root)}))
         self.assertTrue(result['passed'], result.get('detail')); boot.assert_called_once()
         actions = [a['action'] for a in result['environment']['actions']]
-        self.assertEqual(actions.count('system_dialog_wait'), 4); self.assertNotIn('emulator_stop', actions)
+        self.assertNotIn('emulator_stop', actions, 'RED-BOOT-SETTLE: restarted the emulator while System UI was still settling')
+        self.assertEqual(actions.count('system_dialog_wait'), 7)
 
     def test_dialog_that_takes_focus_mid_scenario_is_answered_once_then_input_continues(self):
         original = self.adb
@@ -546,6 +546,7 @@ class CalibrationTests(DeviceRun):
             for step in new['steps']:
                 if step['id'] in changes: step['arguments']['selector'] = changes[step['id']]
             return new
+        from onecrew import delivery_calibrate as cal
         self.assertEqual(cal.check(old, revise(error={'text': 'Cổng phải từ 1 đến 65535'}), failure, view), [])
         self.assertIn('already passed', ' '.join(cal.check(old, revise(save={'content-desc': 'LƯU'}, error={'text': 'Cổng phải từ 1 đến 65535'}), failure, view)))
         self.assertIn('exactly one node', ' '.join(cal.check(old, revise(error={'class': 'android.view.View'}), failure, view)))
@@ -602,6 +603,7 @@ class CalibrationDeliveryTests(unittest.TestCase):
                 'ui_snapshot': {'file': str(view), 'sha256': file_hash(view), 'nodes': 5}}
 
     def test_live_ui_calibration_reruns_the_stage_and_completes(self):
+        from onecrew import delivery_calibrate as cal  # noqa: F401  (capability probe: module must exist)
         broken = json.loads(json.dumps(AC3)); broken[3]['arguments']['selector'] = {'resource-id': 'portError'}
         fixed = json.loads(json.dumps(broken)); fixed[3]['arguments']['selector'] = {'content-desc': 'Cổng phải từ 1 đến 65535'}
         receipts = [self.selector_failure('error'), {'passed': True, 'steps': [], 'cleanup': []}]
@@ -624,6 +626,7 @@ class CalibrationDeliveryTests(unittest.TestCase):
         self.assertEqual((s['phase'], s['delivery']['escalation']['class']), ('waiting', 'product'))
 
     def test_calibration_is_bounded_then_one_question(self):
+        from onecrew import delivery_calibrate as cal
         tries = []
         for selector in ({'content-desc': 'Cổng phải từ 1 đến 65535'}, {'text': 'Cổng phải từ 1 đến 65535'}):
             v = json.loads(json.dumps(AC3)); v[3]['arguments']['selector'] = selector
