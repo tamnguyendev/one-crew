@@ -1,5 +1,16 @@
 # OneCrew entry contract
 
+## Evidence-driven changes — 12/10/2026
+
+For runtime/recipe/skill improvements, use `eval cases/replay/compare` as documented
+in `docs/evals.vi.md`. Pin the same harness and environment for before/after; retain
+failures, skips and unavailable APIs. Do not count fixture gates as product autonomy
+or claim held-out performance on the known historical corpus. Use `eval observe`
+for selected real task evidence; unknown assistance stays unknown. No eval result
+automatically approves skills, routing, budget changes or device/server dispatch.
+Add a recurring real failure to the corpus with its oracle and provenance; rerun
+both sides if the oracle changes. Keep product execution with its existing parent.
+
 ## Solution delivery V1 — opt-in 11/10/2026
 
 For a new approved solution whose goal includes child implementation, aggregate tests,

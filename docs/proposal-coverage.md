@@ -918,3 +918,23 @@ Cycle 2 validates compatibility, integrates without overwriting concurrent entry
 records handover/remaining live pilot. No current product task, APK, phone or server is restarted.
 Cycle 1 commit: `54c6653`. Cycle 2 also seals foreground/viewport input, bounded manifest
 storage, unchanged-wait checkpoint deduplication, stage grants and outcome-specific Windows receipts.
+
+
+## Eval-driven evidence — 12/10/2026
+
+Proposal: [eval-plan.vi.md](eval-plan.vi.md). Iteration 1; baseline `4e8253f`.
+
+| ID | Requirement | Type | Implementation evidence | Verification evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| EV01 | Versioned historical corpus | Data | onecrew/eval_corpus.py | Catalog selectors verified; 20 pinned probes | Complete | Known-case, never held-out |
+| EV02 | Pinned isolated replay | Reliability | evaluation.py / eval_probe.py | Isolated real subprocess/git before-after tests | Complete | No product dispatch |
+| EV03 | Comparable before/after grading | Testing | evaluation.compare | Reject mismatched/partial/tampered/duplicate/skip results | Complete | Missing/skip distinct |
+| EV04 | Read-only real task observations | Observability | eval_observe.py | Read-only DB, unknown assistance, stale receipts, privacy tests | Complete | Unknown is not unassisted |
+| EV05 | Evidence reports and conservative promotion | Functional | CLI eval; docs/evals.vi.md | 113 related tests passed; CLI help checked | Complete | No automatic skill/routing mutation |
+| EV06 | Run paired historical cases and observe real tasks | Testing | Pending | Pending | Missing | Actual outputs required |
+| EV07 | Held-out/live autonomy measurement | Testing | Local protocol pending | No equivalent pinned live dispatch/held-out corpus | Blocked | Fixtures cannot satisfy this requirement |
+
+Verified coverage: 5/7 (71.4%); EV06 measurement pending, EV07 live/held-out Blocked.
+
+Cycle 1: 113 tests passed in 28.258 seconds. No product tasks/devices were run.
+
