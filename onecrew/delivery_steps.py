@@ -202,7 +202,8 @@ def validate_config(kind,c,roots):
         'review':(set(),{'repair_node'}),
         'build':({'package','flutter_root','android_sdk','variant','config_reference','config_version','signer_sha256','timeout_seconds'},set()),
         'apk_audit':({'build_node','build_tools','package_id','signer_sha256','require_16kb','max_bytes'},{'version_code'}),
-        'device':({'build_node','adb','serial','package_id','scenario','scenario_sha256','private_reference','private_version','timeout_seconds'}, {'repair_node','replay_safe','valid_until','optional'})}
+        'device':({'build_node','adb','serial','package_id','scenario','scenario_sha256','private_reference','private_version','timeout_seconds'},
+                  {'repair_node','replay_safe','valid_until','optional','emulator','calibration'})}
     required,optional=fields[kind]
     if set(c)-required-optional or required-set(c): raise LedgerError('Invalid '+kind+' recipe fields.')
     if 'repair_node' in c and not isinstance(c['repair_node'],str): raise LedgerError('Explicit repair node required.')
@@ -239,6 +240,10 @@ def validate_config(kind,c,roots):
         if not re.fullmatch('[A-Za-z0-9_.:-]{1,120}',c['serial']): raise LedgerError('Pin device serial.')
         if not re.fullmatch('[0-9a-f]{64}',c['scenario_sha256']): raise LedgerError('Pin scenario hash.')
         if c['private_reference'] is not None and not Path(c['private_reference']).is_absolute(): raise LedgerError('Private device config must be a local reference.')
+        if 'calibration' in c and c['calibration']!='onecrew': raise LedgerError('Only OneCrew calibration of its own scenario is supported.')
+        if 'emulator' in c:
+            from .delivery_device_env import validate_emulator
+            validate_emulator(c['emulator'],c['serial'])
     if 'package_id' in c and not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+',c['package_id']): raise LedgerError('Pin Android package ID.')
     if 'timeout_seconds' in c and (type(c['timeout_seconds']) is not int or not 1<=c['timeout_seconds']<=3600): raise LedgerError('Command deadline must be bounded to 3600 seconds.')
 
@@ -269,7 +274,7 @@ def dart_argv(sdk):
 
 def preflight(runtime,task,s,source):
     check_capture_paths(home(runtime,task)/('baseline-'+'0'*10),source)
-    tools={};references=[];devices_missing=False
+    tools={};references=[];devices_missing=False;boot_at_stage=False
     owned={p for n in s['plan']['nodes'] if n['kind']=='change' for p in n['config']['recipe']['owned']}
     for n in s['plan']['nodes']:
         c=n['config'];kind=n['kind'];paths=[]
@@ -300,6 +305,12 @@ def preflight(runtime,task,s,source):
             from .delivery_android import scenario
             scenario(c['scenario'],c['scenario_sha256']);paths=[Path(c['adb']),Path(c['scenario'])]
             if c['private_reference']:references.append(c['private_reference'])
+            if c.get('emulator'):
+                # The approved emulator is booted at its stage; its executable and AVD must exist now.
+                from .delivery_device_env import emulator_executable
+                paths.append(emulator_executable(c['adb']))
+                avd=Path(c['emulator']['avd_home'] or Path.home()/'.android'/'avd')/(c['emulator']['avd']+'.ini')
+                if not avd.is_file():raise LedgerError('Approved emulator AVD unavailable: '+c['emulator']['avd'])
         for path in paths:
             if not path.is_file():raise LedgerError('Pinned tool unavailable: '+str(path))
             tools[str(path.resolve())]=file_hash(path)
@@ -310,8 +321,12 @@ def preflight(runtime,task,s,source):
                 # No device command outside the approved window; optional E2E is reported not run at its node.
                 if not c.get('optional'):raise
                 devices_missing=True;continue
+            from .delivery_device_env import ensure_server
+            ensure_server(c['adb'])
             rc,out,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'get-state'],home(runtime,task),min(15,window))
-            if rc or out.strip()!='device':
+            if (rc or out.strip()!='device') and c.get('emulator'):
+                boot_at_stage=True  # OneCrew boots the approved emulator when the stage runs
+            elif rc or out.strip()!='device':
                 # Optional E2E is re-checked at its node and reported as not run; required E2E stops before any call.
                 if not c.get('optional'):raise LedgerError('Pinned Android device unavailable at preflight.')
                 devices_missing=True
@@ -326,7 +341,7 @@ def preflight(runtime,task,s,source):
     needed=sum(safe_file(runtime.ledger.project,p).stat().st_size for p in source['files'])*3+1_000_000_000
     if shutil.disk_usage(home(runtime,task)).free<needed:raise LedgerError('Insufficient free space for isolated test/build captures.')
     return {'tools':tools,'source':source['hash'],'disk_required_bytes':needed,'private_references_available':len(references),
-            'optional_device_missing':devices_missing}
+            'optional_device_missing':devices_missing,'emulator_boot_at_stage':boot_at_stage}
 
 
 def interrupted(runtime,task,s,node,row):

@@ -78,6 +78,36 @@ SHA-256. `scenario: planned` cho phép OneCrew soạn kịch bản trong DSL có
 `scenario_authored_by: onecrew`. `required: false` nghĩa là thiết bị không sẵn sàng thì AC ghi
 `not_run` và kết quả là `verification: partial`, không bao giờ là `passed`.
 
+Tuỳ chọn `device.emulator: {"avd": "<tên AVD>", "avd_home": "<thư mục tuyệt đối hoặc null>"}` (đợt 2):
+OneCrew được tự boot (headless, đúng port của `serial`), khởi động lại một lần khi emulator kẹt,
+và tắt emulator do chính nó boot sau khi stage thiết bị đạt. Chỉ hợp lệ với serial
+`emulator-<port chẵn 5554–5682>`; thiết bị thật không bao giờ bị reboot/cấu hình lại.
+
+## Thiết bị: môi trường và selector trên UI thật (đợt 2, `delivery_device_env.py`, `delivery_calibrate.py`)
+
+- **Môi trường.** Trước khi cài APK và khi app mất focus giữa kịch bản, OneCrew đọc `dumpsys window/power`
+  và chỉ dùng các hành động không đổi dữ liệu: đánh thức màn hình, `wm dismiss-keyguard` (khóa không mật
+  khẩu), bấm **Wait** (`android:id/aerr_wait`) trên hộp thoại "not responding" của hệ thống — không bao giờ
+  "Close app". Còn kẹt thì: emulator có trong envelope → khởi động lại một lần; thiết bị khác → lỗi
+  `environment` (thử lại có giới hạn rồi hỏi). Mọi hành động ghi vào `receipt.environment.actions`.
+  adb server được khởi động ngoài lệnh có thu luồng (server sinh từ client bị thu sẽ giữ khóa file).
+- **Selector theo tầng, có bằng chứng.** Một selector phải trúng đúng một node; tầng đầu tiên có kết quả
+  quyết định: `exact` (thuộc tính đúng như viết; `text` cũng trúng nhãn Flutter ở `content-desc`) →
+  `label` (bằng một trong text/content-desc/hint) → `label_part` (bằng một phần của nhãn gộp, tách theo
+  xuống dòng hoặc `, `) → `label_casefold`. Tầng dùng được ghi vào từng bước (`selector_tier`). Thêm khoá
+  `hint` và thao tác `assert_absent` (không node nào của app nhắc tới nhãn, kể cả chuỗi con không phân biệt
+  hoa thường). `wait_for` hết giờ là lỗi selector (`reason: timeout`), không còn bị đọc nhầm thành hết giờ
+  toàn kịch bản.
+- **Bằng chứng khi trượt.** Bước có selector không trúng lưu ảnh chụp đã làm sạch các node của app
+  (`ui-<bước>.json`, giá trị nhập riêng tư bị che) và `receipt.failure_kind = selector`.
+- **Hiệu chỉnh (chỉ kịch bản OneCrew tự lập, rerun an toàn).** Lớp `scenario_selector` → hành động
+  `calibrate` (tối đa 2 lần/node). Code quyết định trước: assertion mà nhãn mong đợi không có ở đâu trên
+  màn hình là **lỗi sản phẩm** → sửa code có giới hạn (không gọi model, không đổi kịch bản). Ngược lại,
+  một phiên model chỉ đọc đề xuất selector mới; validator chỉ chấp nhận khi giữ nguyên id/thao tác/thứ
+  tự/đối số khác, không đổi bước đã đạt, assertion giữ nguyên nhãn mong đợi, và selector mới của bước
+  trượt trúng đúng một node trong ảnh chụp. Bản kịch bản mới có hash, `revision`, bước đã đổi và nguồn
+  gốc trong lịch sử; stage thiết bị chạy lại từ đầu. Kịch bản người dùng ghim không bao giờ bị hiệu chỉnh.
+
 ## Bảng phục hồi (policy v1, `onecrew/delivery_recovery.py`)
 
 | Lớp | Hành động tự động | Giới hạn/chữ ký | Sau giới hạn |
@@ -87,6 +117,7 @@ SHA-256. `scenario: planned` cho phép OneCrew soạn kịch bản trong DSL có
 | environment (SDK, cache, thiết bị, đường dẫn) | thử lại đọc-lại môi trường | 2 | hỏi (thiết bị optional → not_run) |
 | product / review | sửa trong change đã duyệt; child lỗi → generation mới | 2 và `max_repairs` | hỏi |
 | side_effect_unknown | reconcile chỉ đọc (`pm path`, `sha256sum`, intent) | 1 | hỏi |
+| scenario_selector (selector kịch bản OneCrew lập không trúng UI thật) | hiệu chỉnh từ ảnh chụp UI; nhãn mong đợi vắng → product | 2 và ≤2 bản/node | hỏi |
 | decision_pending (CREQ) | chờ, không tạo request mới | — | — |
 | permission, budget, drift, artifact, runtime_bug, unknown | — | 0 | hỏi |
 
@@ -112,5 +143,8 @@ thử. Trả lời `retry` cho thêm đúng một lượt tự động; `stop` h
 | AP12 | Hai lỗi review (IME, pubspec `path:`) đỏ bằng hành vi trên 356fb82, xanh sau sửa | eval |
 | AP13 | Replay trước (356fb82) – sau (bản cuối) cùng harness, repeat 2, giữ thất bại | eval |
 | AP14 | Giao một mục tiêu cấp công việc trên project thử, không kèm kế hoạch; chấm 3 trục, gồm kill/restart coordinator | trial |
+| AP15 | Quyết định được quy nguồn: người dùng tự trả lời / entry chuyển lời người dùng / entry tự quyết; thiếu bằng chứng → unknown; entry tự quyết hoặc chuyển lời → assisted | test + eval |
+| AP16 | OneCrew tự kiểm tra và phục hồi thiết bị trong quyền (ANR → Wait, emulator trong envelope → boot/khởi động lại), không reboot thiết bị thật | test + trial |
+| AP17 | Selector được xác minh trên UI thật (tầng ghi lại), trượt → ảnh chụp + hiệu chỉnh có giới hạn không làm yếu assertion | test + trial |
 
 Không dùng số test xanh thay cho bằng chứng tự hoàn thành (AP14 chấm riêng).

@@ -15,6 +15,8 @@ POLICY = {
     'environment': ('retry', 2),
     'product': ('repair', 2),
     'review': ('repair', 2),
+    # A selector of a OneCrew-planned scenario that did not resolve on the live UI: recalibrate from its snapshot.
+    'scenario_selector': ('calibrate', 2),
     'side_effect_unknown': ('reconcile', 1),
     'decision_pending': ('wait', 0),
     'permission': ('ask', 0),
@@ -43,7 +45,8 @@ MESSAGES = [
     (r'device not ready|android device unavailable|device viewport unavailable|java unavailable|android sdk unavailable|'
      r'tool unavailable|dependency cache unavailable|dependency graph missing|insufficient free space|path too long|'
      r'workspace unavailable|source root unavailable|reference unavailable|explicit materialization|'
-     r'another window has foreground focus|keyboard bounds unknown|flutter sdk|not responding', 'environment'),
+     r'another window has foreground focus|keyboard bounds unknown|flutter sdk|not responding|'
+     r'not usable after granted recovery|emulator', 'environment'),
     (r'operation outcome unknown|unknown device effect|an operation may have run', 'side_effect_unknown'),
     (r'exceeds the sealed plan|durable coordinator intent|missing current source provenance|stale verification evidence|'
      r'no ready delivery node|required criteria unresolved|controller error|lacks reviewed application evidence', 'runtime_bug'),
@@ -123,6 +126,13 @@ def classify_receipt(node, receipt):
             except OSError:pass
         return build_class(text),normalize(receipt.get('detail'))
     if kind=='artifact':return 'artifact',normalize(receipt.get('detail'))
+    if kind=='selector':
+        # Only a scenario OneCrew planned is recalibrated, and only when rerunning it is safe.
+        failure=receipt.get('selector_failure') or {}
+        rerun=node['config'].get('replay_safe') or not receipt.get('steps')
+        if node['config'].get('calibration')=='onecrew' and rerun and not receipt.get('uncertain'):
+            return 'scenario_selector',{'step':failure.get('step'),'reason':failure.get('reason')}
+        return 'device_assertion',normalize(receipt.get('detail'))
     if kind=='product':return 'product',normalize(receipt.get('detail'))
     detail=receipt.get('detail') or ''
     found=classify_error(detail)
@@ -210,6 +220,7 @@ GUIDANCE = {
     'review':'Review chưa chấp nhận sau số vòng sửa cho phép.',
     'decision_needed':'Reviewer cần thông tin hoặc quyết định nghiệp vụ.',
     'device_assertion':'Kịch bản thiết bị không đạt ở bước kiểm tra. Có thể do sản phẩm, kịch bản hoặc thiết bị; cần người dùng xem.',
+    'scenario_selector':'Selector của kịch bản vẫn không khớp UI thật sau số lần OneCrew tự hiệu chỉnh cho phép. Xem ảnh chụp UI trong bằng chứng.',
     'runtime_bug':'Lỗi runtime OneCrew. Cần sửa runtime; mọi can thiệp sẽ được ghi lại.',
     'unknown':'Lỗi chưa phân loại được.',
 }

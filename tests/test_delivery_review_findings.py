@@ -225,8 +225,16 @@ class Trial3DeviceTests(unittest.TestCase):  # autonomy trial 3 (TASK-e991ebeb):
         from onecrew.delivery_android import find_ui
         xml = ('<hierarchy><node class="android.view.View" text="" content-desc="Cấu hình máy chủ" package="a.b" enabled="true" bounds="[0,0][100,50]"/>'
                '<node class="android.widget.Button" text="" content-desc="LƯU" package="a.b" enabled="true" bounds="[0,60][100,110]"/></hierarchy>')
-        self.assertEqual(find_ui(xml, {'text': 'LƯU'}, 'a.b')[0].get('content-desc'), 'LƯU')
-        with self.assertRaises(LedgerError): find_ui(xml.replace('text="" content-desc="LƯU"', 'text="X" content-desc="LƯU"'), {'text': 'LƯU'}, 'a.b')
+        evidence = {}
+        self.assertEqual(find_ui(xml, {'text': 'LƯU'}, 'a.b', evidence=evidence)[0].get('content-desc'), 'LƯU')
+        self.assertEqual(evidence['selector_tier'], 'exact')
+        # Round 2 (live-UI calibration): a label in another attribute still names the node, but only at a
+        # recorded relaxed tier and only when it is the single match; an exact match is never outranked.
+        other = xml.replace('text="" content-desc="LƯU"', 'text="X" content-desc="LƯU"')
+        find_ui(other, {'text': 'LƯU'}, 'a.b', evidence=evidence)
+        self.assertEqual(evidence['selector_tier'], 'label')
+        twice = other.replace('text="" content-desc="Cấu hình máy chủ"', 'text="Y" content-desc="LƯU"')
+        with self.assertRaisesRegex(LedgerError, 'exactly one'): find_ui(twice, {'text': 'LƯU'}, 'a.b')
 
     def test_system_dialog_and_locked_stream_are_environment_or_transient(self):
         self.assertEqual(rc.classify_error(LedgerError('Another window has foreground focus during a UI wait: Window{1 u0 Application Not Responding: com.android.systemui}')), 'environment')

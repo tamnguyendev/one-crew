@@ -66,8 +66,12 @@ def validate_envelope(env, solution=None):
         if type(audit['require_16kb']) is not bool or type(audit['max_bytes']) is not int or audit['max_bytes'] < 1:
             raise LedgerError('Explicit APK audit policy required.')
     if device is not None:
-        exact_fields(device, ('serial', 'scenario', 'scenario_ref', 'scenario_sha256', 'private_reference', 'private_version',
-                              'valid_until', 'replay_safe', 'required'), 'Device stage')
+        # Optional 'emulator' {avd, avd_home}: OneCrew may boot/restart exactly this emulator for the stage.
+        exact_fields({k: v for k, v in device.items() if k != 'emulator'} if isinstance(device, dict) else device,
+                     ('serial', 'scenario', 'scenario_ref', 'scenario_sha256', 'private_reference', 'private_version',
+                      'valid_until', 'replay_safe', 'required'), 'Device stage')
+        from .delivery_device_env import validate_emulator
+        validate_emulator(device.get('emulator'), device['serial'])
         if b is None or audit is None: raise LedgerError('Device stage requires build and APK audit stages.')
         if not isinstance(device['serial'], str) or not re.fullmatch('[A-Za-z0-9_.:-]{1,120}', device['serial']): raise LedgerError('Device serial required.')
         if device['scenario'] == 'pinned':
@@ -151,6 +155,9 @@ def covers(env, plan):
             if c.get('valid_until') != v['valid_until']: f.append('device permission window differs')
             if c.get('replay_safe', False) and not v['replay_safe']: f.append('device replay declared safe beyond envelope')
             if c.get('optional', False) != (not v['required']): f.append('device required/optional differs')
+            if c.get('emulator') != v.get('emulator'): f.append('device emulator differs from envelope')
+            if c.get('calibration') is not None and (c['calibration'] != 'onecrew' or v['scenario'] != 'planned'):
+                f.append('scenario calibration is only for a scenario OneCrew planned')
     if stages['device'] and stages['device']['required'] and not any(n['kind'] == 'device' for n in plan['nodes']):
         f.append('required device stage missing from plan')
     plan_ac = {a['id']: a for a in plan['acceptance']}
@@ -215,10 +222,15 @@ def prompt(goal, env, discovery, feedback=None, stay_inside=None):
             'regex that the assertion failure message of that test will match on the UNCHANGED code; not a compile/import error)}.\n')
     if device and device['scenario'] == 'planned':
         text += ('- scenario: typed Android steps proving the device criteria. Operations: assert_ui/tap {selector}, type {selector,private_key}, '
-                 'scroll_to {selector,direction up|down,max_swipes 1-6}, wait_for {selector,timeout_seconds 1-60}, key {key BACK|ENTER|TAB}, '
-                 'restart {}, assert_no_flutter_error {}. selector = exact match on text/resource-id/content-desc/class/checked/focused '
-                 'taken from the source (labels, keys). Each step has a unique id. Assert the real outcome, never just that the app opened. '
-                 'cleanup restores anything the steps changed. private_key names available for type steps (values stay private): '
+                 'assert_absent {selector} (nothing on screen mentions it), scroll_to {selector,direction up|down,max_swipes 1-6}, '
+                 'wait_for {selector,timeout_seconds 1-60}, key {key BACK|ENTER|TAB}, restart {}, assert_no_flutter_error {}. '
+                 'selector = exact values of text/content-desc/hint/resource-id/class/checked/focused as the Android accessibility tree shows '
+                 'them. Flutter: a Text appears as content-desc (empty text); a TextField is android.widget.EditText whose text is its current '
+                 'value and whose hint is its label (a shown error text is appended as "<label>, <error>" and also appears as its own '
+                 'content-desc); a button label is its content-desc; a Flutter Key is NOT a resource-id. Each step has a unique id. Assert the '
+                 'real outcome (including what must NOT appear), never just that the app opened. OneCrew verifies every selector on the live '
+                 'UI and may recalibrate selectors (never assertions). cleanup restores anything the steps changed. private_key names '
+                 'available for type steps (values stay private): '
                  + canonical(discovery.get('private_keys', [])) + '.\n')
     else:
         text += '- scenario: {"steps": [], "cleanup": []} (no device scenario is planned by you).\n'
@@ -316,7 +328,9 @@ def compile_plan(goal, env, discovery, proposal, reference, signer=None):
             'build_node': 'build', 'adb': discovery.get('adb') or '', 'serial': v['serial'], 'package_id': package_id or 'x.x',
             'scenario': v['scenario_ref'] or 'PLANNED', 'scenario_sha256': v['scenario_sha256'] or '0' * 64,
             'private_reference': v['private_reference'], 'private_version': v['private_version'], 'timeout_seconds': 900,
-            'replay_safe': v['replay_safe'], 'valid_until': v['valid_until'], 'optional': not v['required']}})
+            'replay_safe': v['replay_safe'], 'valid_until': v['valid_until'], 'optional': not v['required'],
+            **({'calibration': 'onecrew'} if v['scenario'] == 'planned' else {}),
+            **({'emulator': v['emulator']} if v.get('emulator') else {})}})
     nodes.append({'id': 'handover', 'kind': 'handover', 'depends': [n['id'] for n in nodes], 'config': {}})
     acceptance = [{'id': a['id'], 'text': a['text'], 'nodes': sorted({NODE_FOR[e] for e in a['evidence']})} for a in env['acceptance']]
     plan = {'version': 1, 'source_roots': env['source_roots'], 'acceptance': acceptance, 'nodes': nodes, 'max_repairs': env['budget']['max_repairs']}

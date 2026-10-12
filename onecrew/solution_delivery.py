@@ -324,6 +324,17 @@ class Delivery(Owned):
                 if row and row['phase'] in ('running','blocked','uncertain','continuing'):row['phase']='pending'
             automatic(action);rc.schedule_retry(s,record,self.control.clock())
             return
+        if action=='calibrate' and node and node['kind']=='device' and row:
+            from .delivery_calibrate import MAX_CALIBRATIONS
+            receipt=row.get('receipt') or {}
+            if row.get('calibrations',0)<MAX_CALIBRATIONS:
+                # The next pass re-authors only the unresolved selectors from the live-UI snapshot, then reruns the stage.
+                d['history'].append({'device_failed':node_id,'generation':row['generation'],'receipt':receipt})
+                row['calibrate']={'failure':receipt.get('selector_failure'),'snapshot':receipt.get('ui_snapshot'),'at':utcnow()}
+                row['phase']='pending';automatic('calibrate')
+                s['message']='Device selector did not resolve on the live UI; OneCrew recalibrates its scenario.'
+                return
+            action='ask'
         if action=='reconcile':
             from .delivery_android import reconcile
             outcome=reconcile(self,task_id,s,node,row)
@@ -503,6 +514,11 @@ class Delivery(Owned):
                     self._recover(task_id,s,ready,cls,{'generation':row['generation'],'interrupted':True},
                                   'Coordinator stopped during '+ready['id']+'.')
                     self.persist(task_id,self.state(task_id)[0],s);return s
+                if ready['kind']=='device' and row.get('calibrate'):
+                    from .delivery_calibrate import step as calibrate
+                    calibrate(self,task_id,s,ready,row)
+                    if content_hash(s)!=previous:self.persist(task_id,self.state(task_id)[0],s)
+                    return s
                 if row['phase']=='continuing':row['phase']='running'
                 if ready['kind']!='change' and fingerprint(self.ledger.project,s['plan']['source_roots'])['hash']!=d['source']['hash']:
                     raise LedgerError('Source drift after review/change; preserve evidence and reconcile before continuing.')

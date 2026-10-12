@@ -231,7 +231,7 @@ class EntryRecordingTests(unittest.TestCase):
             start.assert_not_called()
         rows = [e['payload'] for e in self.f.events(self.task, 'control.intervention')]
         self.assertEqual(len(rows), 1)
-        self.assertEqual((rows[0]['command'], rows[0]['key'], rows[0]['details']), ('request.reply', receipt['id'], {'request': req['id'], 'choice': 'a'}))
+        self.assertEqual((rows[0]['command'], rows[0]['key'], rows[0]['details']), ('request.reply', receipt['id'], {'request': req['id'], 'choice': 'a', 'decided_by': None}))
 
     def test_reply_to_delivery_child_restarts_stopped_root(self):
         from onecrew import ledger_cli

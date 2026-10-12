@@ -45,6 +45,8 @@ def parser():
             command.add_argument('--file', type=Path, required=True)
         if name == 'reply':
             command.add_argument('--choice', required=True)
+            # Evidence for the scorecard: the user's own decision (typed by them or relayed) vs the entry deciding.
+            command.add_argument('--decided-by', choices=('user', 'entry'), default=None)
         if name in ('reply','defer'):
             command.add_argument('--source', default='terminal')
             command.add_argument('--reference', default='local user input')
@@ -72,14 +74,16 @@ def execute(args):
     if args.command == 'list':
         return {'requests': ledger.requests(args.task, args.pending)}
     if args.command == 'reply':
-        receipt = ledger.reply(args.id, args.revision, args.choice, args.source, args.reference)
-        from .interventions import note
+        from .interventions import actor, note
+        receipt = ledger.reply(args.id, args.revision, args.choice, args.source, args.reference,
+                               decided_by=args.decided_by, by=actor())
         from .keeper import after_reply
         try:
             task = ledger.request(args.id)['task_id']
         except (ValueError, OSError, sqlite3.Error):
             return receipt  # the answer is recorded; evidence and continuation are best-effort
-        evidence = note(ledger, task, 'request.reply', details={'request': args.id, 'choice': args.choice}, key=receipt['id'])
+        evidence = note(ledger, task, 'request.reply', key=receipt['id'],
+                        details={'request': args.id, 'choice': args.choice, 'decided_by': args.decided_by})
         if evidence.get('recorded') is False:
             print('Intervention not recorded: ' + evidence['error'], file=sys.stderr)
         continuation = after_reply(ledger, task)

@@ -27,6 +27,7 @@ LIMITS = ['Axes are separate: no combined score, rate or ranking is derived from
           'Completion level and assistance level are judged separately; only complete+autonomous is autonomous_complete.',
           'A completed phase with partial verification, criteria not passed or skipped nodes is partial, never complete.',
           'Answered user decisions and the initial submit/start handoff are reported separately from entry interventions.',
+          'An answer is a user decision only with positive provenance; entry-decided or entry-relayed answers are assistance, unattributed ones unknown.',
           'No reasons, prompts, reports or private values are exported.']
 
 
@@ -55,19 +56,32 @@ def runtime_axis(comparison):
             'by_after_status':dict(collections.Counter(r['after'] for r in rows))}
 
 
+def decisions(m):
+    """Answered decisions by source. A count without per-answer provenance is all 'unknown'."""
+    by = m.get('decisions_by_source')
+    if isinstance(by, dict) and sum(by.values()) == (m.get('decisions_answered') or 0): return by
+    return {'user': 0, 'relayed': 0, 'entry': 0, 'unknown': m.get('decisions_answered') or 0}
+
+
 def assistance_level(t):
-    """Who carried the work, from positive evidence only; independent of how far the work got."""
+    """Who carried the work, from positive evidence only; independent of how far the work got.
+
+    The user's own decision is not assistance. An entry deciding under delegation, or carrying the user's
+    answer for them, is; an answer whose decider or sender cannot be shown keeps the level unknown."""
     m = t['metrics']
     entry = [i for i in m['interventions'] or [] if role(i) == 'entry']
     restarts, children = (set(m[k] or ()) for k in ('coordinator_restarts_by_initiator', 'child_starts_by_initiator'))
+    decided = decisions(m)
     assisted = [code for code, hit in (('entry_intervention', bool(entry)), ('entry_restart', bool(restarts-CONTINUATION-{UNRECORDED})),
                 ('entry_child_start', bool(children-CONTINUATION-{UNRECORDED})), ('entry_plan', m['plan_provenance'] == 'entry'),
+                ('entry_decision', decided['entry'] > 0), ('entry_relayed_decision', decided['relayed'] > 0),
                 ('runtime_changed', (m['runtime_revisions'] or 0) > 1), ('assistance_recorded', t['assistance'] == 'recorded')) if hit]
     if assisted: return 'assisted', assisted
     missing = [code for code, hit in (('plan_provenance_unknown', m['plan_provenance'] != 'onecrew'),
                ('runtime_trace_missing', m['runtime_revisions'] is None),
                ('intervention_trace_missing', m['interventions'] is None),
-               ('start_initiator_missing', UNRECORDED in restarts | children)) if hit]
+               ('start_initiator_missing', UNRECORDED in restarts | children),
+               ('decision_provenance_unknown', decided['unknown'] > 0)) if hit]
     return ('unknown', missing) if missing else ('autonomous', [])
 
 
@@ -137,7 +151,8 @@ def dependencies(t):
             'user_decisions_answered':m['decisions_answered'],
             # Who relayed each recorded reply: an entry answering under delegation is not the user deciding.
             'decision_replies_by_actor':None if m['interventions'] is None else
-                dict(collections.Counter(i['actor'] for i in m['interventions'] if role(i) == 'decision'))}
+                dict(collections.Counter(i['actor'] for i in m['interventions'] if role(i) == 'decision')),
+            'decisions_by_source':decisions(m)}
 
 
 def scorecard(state_root, task_ids, comparison=None):
@@ -181,11 +196,11 @@ def markdown(value):
         lines.append(f"| {t['task']} | {t['phase']} | {cell(t['technical_verified'])} | {cell(t['criteria_counts'])} | "
                      f"{cell(t['not_run'])} | {cell(t['missing_evidence'])} | {level} | {helped} | {t['outcome']} |")
     lines += ['', '## Trục 3 — Phụ thuộc entry', '',
-              '| Task | Can thiệp (actor/lệnh) | Can thiệp entry | Ghi chú hỗ trợ | Plan | Runtime (bản) | Restart coordinator | Khởi động task con | Quyết định đã trả lời | Người gửi trả lời |',
-              '|---|---|---:|---|---|---:|---|---|---:|---|']
+              '| Task | Can thiệp (actor/lệnh) | Can thiệp entry | Ghi chú hỗ trợ | Plan | Runtime (bản) | Restart coordinator | Khởi động task con | Quyết định đã trả lời | Người gửi trả lời | Nguồn quyết định |',
+              '|---|---|---:|---|---|---:|---|---|---:|---|---|']
     for t in axes['entry_dependencies']['tasks']:
         lines.append(f"| {t['task']} | {cell(t['interventions'])} | {cell(t['entry_interventions'])} | {cell(t['assistance_notes'])} | "
                      f"{cell(t['plan_provenance'])} | {cell(t['runtime_revisions'])} | {cell(t['coordinator_restarts'])} | {cell(t['child_starts'])} | "
-                     f"{t['user_decisions_answered']} | {cell(t['decision_replies_by_actor'])} |")
+                     f"{t['user_decisions_answered']} | {cell(t['decision_replies_by_actor'])} | {cell(t['decisions_by_source'])} |")
     lines += ['', *['- '+s for s in value['limits']]]
     return '\n'.join(lines)+'\n'

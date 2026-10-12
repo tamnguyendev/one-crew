@@ -96,8 +96,16 @@ Ba trục tách riêng, không gộp thành một số:
    (hoàn thành, plan do OneCrew lập, không can thiệp entry, runtime không đổi), `assisted_complete`,
    `correct_block`, `incomplete`, `unknown`.
 3. `entry_dependencies`: can thiệp `control.intervention` theo actor/lệnh, `eval assistance`,
-   nguồn gốc plan, đổi runtime, khởi động lại coordinator theo người khởi động, quyết định của
-   người dùng (đếm riêng, là quyết định hợp lệ).
+   nguồn gốc plan, đổi runtime, khởi động lại coordinator theo người khởi động, quyết định đã trả
+   lời theo nguồn (`decisions_by_source`).
+
+Mức hoàn thành và mức hỗ trợ chấm riêng; chỉ `complete` + `autonomous` là `autonomous_complete`.
+Nguồn của mỗi câu trả lời (đợt 2, Codex review 12/10): `user` — người dùng tự trả lời (actor `user`);
+`relayed` — entry gửi quyết định của người dùng (`--decided-by user`, nên trích tin nhắn gốc ở
+`--reference`); `entry` — entry tự quyết theo ủy quyền (`--decided-by entry`); `unknown` — không
+chứng minh được ai quyết (bản ghi cũ, hoặc người gửi không quy được actor). `entry`/`relayed` làm task
+thành `assisted`; `unknown` làm mức hỗ trợ `unknown` nếu không có bằng chứng hỗ trợ khác. Câu trả lời
+của chính người dùng không phải hỗ trợ.
 
 Can thiệp được ghi tự động từ CLI/MCP (`ONECREW_ACTOR`), runtime ghi hash mã ở `runner.started`.
 Corpus v3 thêm hai lỗi review Codex (đỏ bằng assertion trên 356fb82) và các case autopilot; probe

@@ -99,9 +99,27 @@ def pending_questions(conn, task):
     return sorted(rows, key=lambda q:q['id'])
 
 
+ENTRY_ACTORS = ('claude', 'codex', 'other-entry')
+DECISION_SOURCES = ('user', 'relayed', 'entry', 'unknown')
+
+
+def decision_source(receipt, sender=None):
+    """Who decided one recorded answer: the user directly, the user relayed by an entry, or the entry itself.
+
+    'by' is the attributed sender (legacy receipts fall back to the reply's intervention record) and
+    'decided_by' the declared decider. Anything not positively attributable stays 'unknown'."""
+    provenance = receipt.get('provenance') if isinstance(receipt, dict) and isinstance(receipt.get('provenance'), dict) else {}
+    by, decided = provenance.get('by') or sender, provenance.get('decided_by')
+    if decided == 'entry': return 'entry'
+    if by == 'user': return 'user'
+    if decided == 'user' and by in ENTRY_ACTORS: return 'relayed'
+    return 'unknown'
+
+
 def signals(rows, root):
     """Runtime-recorded restarts, revisions, interventions and decisions; never reason text."""
     trees, starts, children, restarted, interventions, answered = set(), [], collections.Counter(), 0, [], 0
+    replies, senders = [], {}
     for row in rows:
         v = json.loads(row['payload'])
         if not isinstance(v,dict): continue
@@ -115,7 +133,8 @@ def signals(rows, root):
         elif row['kind'] == 'coordinator.restarted': restarted += 1  # written only by the keeper
         elif row['kind'] == 'control.intervention':
             interventions.append({k:label(v.get(k)) for k in ('actor','channel','command')})
-        else: answered += 1
+            if isinstance(v.get('key'), str): senders[v['key']] = label(v.get('actor'))  # a reply's note is keyed by its receipt
+        else: answered += 1; replies.append(v)
     # A runtime that records its tree also records restarts/interventions: only then is absence zero.
     # The first root start is the launch; later ones are restarts, attributed by recorded initiator.
     traced, restarts = bool(trees), collections.Counter(starts[1:])
@@ -124,7 +143,8 @@ def signals(rows, root):
             'coordinator_restarts_by_initiator':dict(restarts) if traced or restarts else None,
             'child_starts_by_initiator':dict(children) if traced or children else None,
             'interventions':interventions if traced or interventions else None,
-            'decisions_answered':answered}
+            'decisions_answered':answered,
+            'decisions_by_source':{k:sum(decision_source(r, senders.get(r.get('id'))) == k for r in replies) for k in DECISION_SOURCES}}
 
 
 def project_state(state):

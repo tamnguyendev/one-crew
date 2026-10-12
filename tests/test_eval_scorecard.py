@@ -37,14 +37,22 @@ def state(phase='completed', blocked=None, **delivery):
             'delivery':d,'outputs':[{'summary':SECRET}] if done else []}
 
 
+def answered(sender, decided_by=None, legacy=False):
+    """A reply as ledger.reply + ledger_cli/mcp_entry record it; legacy receipts carry no by/decided_by."""
+    provenance = {'actor':SECRET,'reference':SECRET} if legacy else {'actor':SECRET,'reference':SECRET,'by':sender,'decided_by':decided_by}
+    return [('request.answered',{'id':'REPLY-'+sender,'request_id':'REQ-x','choice':'yes','provenance':provenance}),
+            ('control.intervention',{'actor':sender,'channel':'cli','command':'request.reply','key':'REPLY-'+sender,
+                                     'details':{'choice':'yes','decided_by':decided_by},'reason':SECRET})]
+
+
 # Event shapes as written by delivery_cli/ledger_cli (interventions), runner.loop and the keeper.
-TRACED = [('control.intervention',{'actor':'codex','channel':'cli','command':'delivery submit','reason':SECRET,'details':None}),
-          ('runner.started',{'identity':{'pid':1},'runtime':{'tree':'t1','git':None,'dirty':None},'initiator':'codex'}),
-          ('runner.started',{'identity':{'pid':2},'runtime':{'tree':'t1','git':None,'dirty':None},'initiator':'keeper'}),
-          ('coordinator.restarted',{'cause':'runner_dead','restart_count':1,'runner':{'status':'starting','error':SECRET}}),
-          ('request.answered',{'request_id':'REQ-x','choice':'yes','provenance':{'actor':SECRET,'reference':SECRET}}),
-          ('control.intervention',{'actor':'codex','channel':'cli','command':'request.reply','details':{'choice':'yes'},'reason':SECRET}),
-          ('runner.started',{'identity':{'pid':3},'runtime':{'tree':'t1','git':None,'dirty':None},'initiator':'reply'})]
+START = [('control.intervention',{'actor':'codex','channel':'cli','command':'delivery submit','reason':SECRET,'details':None}),
+         ('runner.started',{'identity':{'pid':1},'runtime':{'tree':'t1','git':None,'dirty':None},'initiator':'codex'}),
+         ('runner.started',{'identity':{'pid':2},'runtime':{'tree':'t1','git':None,'dirty':None},'initiator':'keeper'}),
+         ('coordinator.restarted',{'cause':'runner_dead','restart_count':1,'runner':{'status':'starting','error':SECRET}})]
+RESTART = [('runner.started',{'identity':{'pid':3},'runtime':{'tree':'t1','git':None,'dirty':None},'initiator':'reply'})]
+# The user answered OneCrew's question themselves: a decision, not assistance.
+TRACED = START+answered('user','user')+RESTART
 
 
 class ScorecardTests(unittest.TestCase):
@@ -98,6 +106,10 @@ class ScorecardTests(unittest.TestCase):
         self.request('REQ-g', 'garbage_class')
         # A restart by a runtime that predates launcher attribution: unknown, neither entry nor OneCrew.
         self.add('legacy_start', state(planning={'mode':'onecrew'}), TRACED+[('runner.started',{'identity':{'pid':9}})])
+        # Codex review 2026-10-12: an entry deciding 'retry' under delegation was scored autonomous_complete.
+        self.add('entry_decided', state(planning={'mode':'onecrew'}), START+answered('claude','entry')+RESTART)
+        self.add('relayed', state(planning={'mode':'onecrew'}), START+answered('claude','user')+RESTART)
+        self.add('unattributed', state(planning={'mode':'onecrew'}), START+answered('codex',legacy=True)+RESTART)
         self.c.commit()
 
     def add(self, name, value, events, children=()):
@@ -132,7 +144,8 @@ class ScorecardTests(unittest.TestCase):
                     'runtime_changed':'assisted_complete','noted':'assisted_complete','entry_restart':'assisted_complete',
                     'escalated':'correct_block','silent_block':'incomplete','unclassified':'incomplete','answered':'incomplete',
                     'running':'incomplete','no_checkpoint':'unknown','untraced':'unknown','child_entry_start':'assisted_complete',
-                    'skipped_device':'partial_complete','device_block':'correct_block','garbage_class':'incomplete','legacy_start':'unknown'}
+                    'skipped_device':'partial_complete','device_block':'correct_block','garbage_class':'incomplete','legacy_start':'unknown',
+                    'entry_decided':'assisted_complete','relayed':'assisted_complete','unattributed':'unknown'}
         self.assertEqual({k:v['outcome'] for k, v in rows.items()}, expected)
         self.assertEqual(rows['intervened']['outcome_reasons'], ['entry_intervention'])
         self.assertEqual(rows['entry_plan']['outcome_reasons'], ['entry_plan'])
@@ -147,8 +160,11 @@ class ScorecardTests(unittest.TestCase):
         self.assertEqual(rows['garbage_class']['outcome_reasons'], ['no_classified_failure'])
         self.assertEqual(rows['legacy_start']['outcome_reasons'], ['start_initiator_missing'])
         self.assertEqual(rows['device_block']['pending_escalations'], {'device_assertion':1})
+        self.assertEqual(rows['entry_decided']['outcome_reasons'], ['entry_decision'])
+        self.assertEqual(rows['relayed']['outcome_reasons'], ['entry_relayed_decision'])
+        self.assertEqual(rows['unattributed']['outcome_reasons'], ['decision_provenance_unknown'])
         self.assertEqual(value['axes']['task_completion']['outcomes'],
-                         {'autonomous_complete':1,'assisted_complete':6,'partial_complete':1,'correct_block':2,'incomplete':5,'unknown':3})
+                         {'autonomous_complete':1,'assisted_complete':8,'partial_complete':1,'correct_block':2,'incomplete':5,'unknown':4})
         # A skipped optional stage is not run: never a device pass, whatever the node phase says, and the task is
         # partial (Codex review 2026-10-12) even though nobody helped: completion and assistance are separate levels.
         skip = rows['skipped_device']
@@ -167,13 +183,18 @@ class ScorecardTests(unittest.TestCase):
     def test_entry_dependencies_separate_decisions_from_interventions(self):
         rows = self.by_task(self.card(), 'entry_dependencies')
         a = rows['autonomous']
-        self.assertEqual(a['interventions'], {'codex':{'delivery submit':1,'request.reply':1}}); self.assertEqual(a['entry_interventions'], 0)
+        self.assertEqual(a['interventions'], {'codex':{'delivery submit':1},'user':{'request.reply':1}}); self.assertEqual(a['entry_interventions'], 0)
+        self.assertEqual(a['decisions_by_source'], {'user':1,'relayed':0,'entry':0,'unknown':0})
+        self.assertEqual(rows['entry_decided']['decisions_by_source'], {'user':0,'relayed':0,'entry':1,'unknown':0})
+        self.assertEqual(rows['relayed']['decisions_by_source'], {'user':0,'relayed':1,'entry':0,'unknown':0})
+        # Legacy receipt: the sender comes from the reply's intervention record, the decider is unknown.
+        self.assertEqual(rows['unattributed']['decisions_by_source'], {'user':0,'relayed':0,'entry':0,'unknown':1})
         self.assertEqual(a['intervention_roles'], {'entry':0,'decision':1,'handoff':1,'runtime':0})
         self.assertEqual((a['user_decisions_answered'], a['coordinator_restarts'], a['keeper_restart_events'], a['plan_provenance']),
                          (1, {'keeper':1,'reply':1}, 1, 'onecrew'))
         self.assertEqual((a['runtime_revisions'], a['runtime_changes'], a['assistance_notes']), (1, 0, {}))
         # A child-task intervention belongs to its parent's dependencies.
-        self.assertEqual(rows['intervened']['interventions'], {'claude':{'task.resume':1},'codex':{'delivery submit':1,'request.reply':1}})
+        self.assertEqual(rows['intervened']['interventions'], {'claude':{'task.resume':1},'codex':{'delivery submit':1},'user':{'request.reply':1}})
         self.assertEqual(rows['intervened']['entry_interventions'], 1)
         self.assertEqual(rows['entry_restart']['coordinator_restarts'], {'keeper':1,'reply':1,'claude':1})
         self.assertEqual((rows['entry_plan']['plan_provenance'], rows['runtime_changed']['runtime_changes']), ('entry', 1))
