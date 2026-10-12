@@ -211,6 +211,14 @@ class NodeChangeTests(unittest.TestCase):
         self.assertEqual(profiles[0][0]['native_session'],profiles[1][0]['native_session'])
         self.assertTrue(profiles[1][0]['native_resume']);self.assertIn('per-invocation turn limit',profiles[1][1])
 
+    def test_report_out_of_bounds_is_cut_or_filled_not_blocking(self):
+        for report in ('x'*25000, 'ok'):
+            with self.subTest(length=len(report)):
+                self.setUp()
+                state=self.work_and_verify(dict(self.candidate(),report=report))
+                self.assertNotEqual(state['phase'],'blocked',state.get('message'))
+                self.assertIn('changes',state['native_change'])
+
     def test_placeholder_question_none_does_not_stop_for_a_decision(self):
         candidate=dict(self.candidate(),question='None.')
         state=self.work_and_verify(candidate)

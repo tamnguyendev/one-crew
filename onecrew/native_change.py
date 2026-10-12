@@ -481,7 +481,10 @@ def advance(runtime,task_id,seq,state,profile):
                     'recommendation':'details'},profile)
                 native['feedback']='Read the actual user clarification before continuing.'
             else:
-                if not 20<=len(value['report'])<=20000: raise LedgerError('Invalid report length.')
+                # A report outside the bounds is a format defect, not a reason to block a verified-able patch: a long one
+                # is cut (the full patch is still verified and reviewed), a near-empty one gets a placeholder.
+                if len(value['report'])>20000: value['report']=value['report'][:19900]+' [report cut by the runtime at 20000 characters]'
+                if len(value['report'].strip())<20: value['report']=(value['report'].strip()+' (worker gave no report; see the patch diff)').strip()
                 task_guard(runtime.control,task_id)()
                 if workspace_mode:
                     from .workspace_worker import collect_candidate
