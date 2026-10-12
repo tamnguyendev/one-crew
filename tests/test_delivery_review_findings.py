@@ -131,7 +131,10 @@ class ChildQuestionTests(unittest.TestCase):
 
     def test_regeneration_retires_the_superseded_child_so_intake_accepts_the_new_one(self):  # autonomy trial 2026-10-12
         r, t, cr, child = self.stopped_child(phase='blocked', message='Native change repair limit reached; evidence preserved.')
-        with patch('onecrew.runner.status', return_value={'status': 'alive'}), patch('onecrew.runner.start'):
+        real_enable = Owned.enable
+        def enable(runtime, task):  # the new generation's worker needs no provider CLI in this fixture
+            return {'phase': 'running'} if task != child else real_enable(runtime, task)
+        with patch('onecrew.runner.status', return_value={'status': 'alive'}), patch('onecrew.runner.start'),              patch.object(Owned, 'enable', enable):
             s = r.run(t)
             self.assertEqual(s['delivery']['recoveries'][-1]['action'], 'regenerate')
             self.forward = lambda *a: None
