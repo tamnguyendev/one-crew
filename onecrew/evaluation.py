@@ -84,7 +84,7 @@ def clean_environment(home):
     keep = {'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATH', 'PATHEXT', 'SYSTEMDRIVE',
             'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROCESSOR_ARCHITECTURE'}
     env = {k:v for k,v in os.environ.items() if k.upper() in keep}
-    for name in ('TEMP', 'TMP', 'LOCALAPPDATA', 'APPDATA', 'ONECREW_DESKTOP_HOME'):
+    for name in ('TEMP', 'TMP', 'LOCALAPPDATA', 'APPDATA', 'USERPROFILE', 'ONECREW_DESKTOP_HOME'):
         p = home/name.lower(); p.mkdir(parents=True, exist_ok=True); env[name] = str(p)
     env.update(PYTHONUTF8='1', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
                GIT_TERMINAL_PROMPT='0', FLUTTER_SUPPRESS_ANALYTICS='true', DART_SUPPRESS_ANALYTICS='true')
@@ -95,7 +95,7 @@ def execute_probe(runtime, harness, selector, destination, timeout):
     start = time.monotonic()
     argv = [sys.executable, '-I', '-X', 'utf8', str(harness/'onecrew/eval_probe.py'),
             str(runtime), str(harness), selector, str(destination)]
-    process = subprocess.Popen(argv, cwd=runtime, env=clean_environment(runtime/'.eval-env'),
+    process = subprocess.Popen(argv, cwd=runtime, env=clean_environment(harness.parent/'env'),
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                start_new_session=os.name != 'nt')
     try:
@@ -156,7 +156,8 @@ def replay(repo, output, ref='HEAD', harness_ref='HEAD', ids=None, repeat=1, tim
               'targets':targets, 'results':[], 'product_autonomy_rate':None, 'live_model_calls':0,
               'promotion':'not_evaluated; never automatic'}
     # Scratch lives on the chosen output disk, not necessarily the scarce system disk.
-    with tempfile.TemporaryDirectory(prefix='scratch-', dir=run_dir) as temp:
+    # Avoid consuming Windows' path budget with the 32-character report ID.
+    with tempfile.TemporaryDirectory(prefix='e-', dir=output) as temp:
         base = Path(temp); harness = base/'harness'
         archive(repo, harness_sha, harness)
         if not (harness/'onecrew/eval_probe.py').is_file():
@@ -252,10 +253,20 @@ def main(argv=None):
     diff = sub.add_parser('compare'); diff.add_argument('--before',type=Path,required=True); diff.add_argument('--after',type=Path,required=True)
     diff.add_argument('--output',type=Path,required=True)
     obs = sub.add_parser('observe'); obs.add_argument('--task',action='append',required=True); obs.add_argument('--output',type=Path,required=True)
+    note = sub.add_parser('assistance');note.add_argument('--task',required=True);note.add_argument('--key',required=True)
+    note.add_argument('--actor',choices=['codex','claude','human','other-entry'],required=True)
+    note.add_argument('--category',choices=['runtime','environment','product-code','tests','build','device','decision'],required=True)
+    note.add_argument('--reason',required=True)
     a = p.parse_args(argv)
     try:
         if a.command == 'cases':
             print(json.dumps(catalog(), ensure_ascii=False,indent=2)); return 0
+        if a.command == 'assistance':
+            from .eval_observe import assistance_note
+            from .ledger import Ledger
+            if not a.state_root:raise ValueError('assistance requires explicit --state-root and task project.')
+            value=assistance_note(Ledger(a.project,a.state_root),a.task,a.key,a.actor,a.category,a.reason)
+            print(json.dumps(value,ensure_ascii=False));return 0
         if a.command == 'replay':
             path,value = replay(a.project,a.output,a.ref,a.harness_ref,a.case,a.repeat,a.timeout)
             print(json.dumps({'result':str(path),'counts':value['counts'],'product_autonomy_rate':None})); return 0

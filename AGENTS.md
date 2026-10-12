@@ -10,6 +10,9 @@ for selected real task evidence; unknown assistance stays unknown. No eval resul
 automatically approves skills, routing, budget changes or device/server dispatch.
 Add a recurring real failure to the corpus with its oracle and provenance; rerun
 both sides if the oracle changes. Keep product execution with its existing parent.
+Record actual entry interventions with `eval assistance` (actor/category/reason and
+an idempotent key on the affected task); this only records evidence, never grants
+execution authority. Parent observations aggregate child calls and assistance.
 
 ## Solution delivery V1 — opt-in 11/10/2026
 

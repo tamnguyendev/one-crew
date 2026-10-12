@@ -8,9 +8,9 @@ import unittest
 from unittest.mock import patch
 
 from onecrew.eval_corpus import catalog
-from onecrew.evaluation import (archive, case_status, compare, content_hash, execute_probe,
+from onecrew.evaluation import (archive, case_status, clean_environment, compare, content_hash, execute_probe,
                                  environment, read_result, revision, seal, tree_hash)
-from onecrew.eval_observe import observe, project_state
+from onecrew.eval_observe import assistance_note, observe, project_state
 
 
 def run_value(status='passed'):
@@ -135,9 +135,38 @@ class ProbeTests(unittest.TestCase):
         r=execute_probe(runtime,self.harness,'tests.probe.C.test_behavior',self.root/'r.json',1)
         self.assertEqual(r['status'],'timed_out')
 
+    def test_expected_failure_unexpected_success_and_skip_never_pass(self):
+        for i,(decorator,body) in enumerate([('expectedFailure','self.fail()'),('expectedFailure','pass'),("skip('not run')",'pass')]):
+            (self.harness/'tests/probe.py').write_text('import unittest\nclass C(unittest.TestCase):\n @unittest.'+decorator+'\n def test_behavior(self): '+body+'\n')
+            runtime=self.root/('runtime'+str(i));archive(self.repo,self.before,runtime)
+            r=execute_probe(runtime,self.harness,'tests.probe.C.test_behavior',self.root/('r'+str(i)+'.json'),10)
+            self.assertNotEqual(r['status'],'passed',r)
+
+    def test_missing_external_fixture_dependency_is_harness_error(self):
+        (self.harness/'tests/probe.py').write_text('import missing_eval_fixture_dependency\n')
+        runtime=self.root/'runtime';archive(self.repo,self.before,runtime)
+        r=execute_probe(runtime,self.harness,'tests.probe.C.test_behavior',self.root/'r.json',10)
+        self.assertEqual(r['status'],'harness_error')
+
+    def test_runtime_cannot_fall_back_to_harness_package(self):
+        (self.harness/'onecrew/__init__.py').write_text('VALUE=1')
+        runtime=self.root/'empty';runtime.mkdir()
+        r=execute_probe(runtime,self.harness,'tests.probe.C.test_behavior',self.root/'r.json',10)
+        self.assertEqual(r['status'],'capability_unavailable')
+
     def test_hash_changes_when_oracle_changes(self):
         a=tree_hash(self.harness,['tests']);(self.harness/'tests/probe.py').write_text('changed')
         self.assertNotEqual(a,tree_hash(self.harness,['tests']))
+
+    def test_child_profile_and_temp_stay_inside_disposable_fixture(self):
+        env=clean_environment(self.root/'env')
+        for key in ('USERPROFILE','TEMP','TMP','LOCALAPPDATA','APPDATA','ONECREW_DESKTOP_HOME'):
+            self.assertTrue(Path(env[key]).is_relative_to(self.root))
+        self.assertNotIn('ANTHROPIC_API_KEY',env)
+        (self.harness/'tests/probe.py').write_text('import unittest\nfrom pathlib import Path\nclass C(unittest.TestCase):\n def test_behavior(self): self.assertIn("env",Path.home().parts)\n')
+        runtime=self.root/'runtime';archive(self.repo,self.before,runtime)
+        r=execute_probe(runtime,self.harness,'tests.probe.C.test_behavior',self.root/'r.json',10)
+        if __import__('os').name=='nt':self.assertEqual(r['status'],'passed',r)
 
 
 class ObservationTests(unittest.TestCase):
@@ -177,6 +206,20 @@ class ObservationTests(unittest.TestCase):
         self.assertEqual(t['gates']['device'],'entry_evidence_only')
         self.assertEqual(len(t['phase_episodes']),2);self.assertEqual(t['assistance'],'recorded')
         self.assertNotIn('PRIVATE_SENTINEL',json.dumps(r))
+
+    def test_parent_counts_child_calls_and_intervention_not_only_root(self):
+        child='TASK-'+'2'*32
+        self.c.executescript('CREATE TABLE delivery_children(task_id TEXT,root TEXT); CREATE TABLE executions(task_id TEXT,used_calls INTEGER);')
+        self.c.execute('INSERT INTO delivery_children VALUES (?,?)',(child,self.task))
+        self.c.executemany('INSERT INTO executions VALUES (?,?)',[(child,4),(self.task,1)]);self.c.commit()
+        self.event('workflow.checkpoint',self.s)
+        self.c.execute('INSERT INTO events(task_id,kind,payload,created_at) VALUES (?,?,?,?)',
+                       (child,'eval.assistance',json.dumps({'actor':'codex','category':'build','checkpoint':1,'reason':'PRIVATE_SENTINEL'}),'2026-10-12T00:00:00Z'));self.c.commit()
+        t=observe(self.root,[self.task])['tasks'][0]
+        self.assertEqual(t['metrics']['managed_calls'],5)
+        self.assertEqual(t['assistance'],'recorded')
+        self.assertEqual(t['recorded_interventions'][0]['actor'],'codex')
+        self.assertNotIn('PRIVATE_SENTINEL',json.dumps(t))
 
     def test_stale_outcome_and_test_receipt_not_counted(self):
         self.s['tests'][0]['evidence']['snapshot']='old'
@@ -220,6 +263,21 @@ class ObservationTests(unittest.TestCase):
         t=observe(self.root,[self.task])['tasks'][0]
         self.assertEqual(t['gates']['notification'],'recorded_shown');self.assertIn('device',t['gaps'])
         self.assertEqual(t['acceptance'],'not_requested')
+
+
+class AssistanceTests(unittest.TestCase):
+    def test_note_is_idempotent_scoped_and_does_not_execute_or_change_checkpoint(self):
+        from tests.test_owned import OwnedTests
+        f=OwnedTests();f.setUp();self.addCleanup(f.doCleanups)
+        runtime,task,worker=f.runtime([])
+        before=runtime.state(task);budget=runtime.control.status(task)['budget']
+        a=assistance_note(f.ledger,task,'repair-1','codex','environment','Restored approved dependency cache.')
+        self.assertEqual(assistance_note(f.ledger,task,'repair-1','codex','environment','Restored approved dependency cache.'),a)
+        with self.assertRaises(ValueError):assistance_note(f.ledger,task,'repair-1','codex','build','Different action.')
+        self.assertEqual(before,runtime.state(task));self.assertEqual(budget,runtime.control.status(task)['budget'])
+        self.assertEqual(worker.calls,[])
+        r=observe(f.ledger.state_root,[task])
+        self.assertEqual(len(r['tasks'][0]['recorded_interventions']),1)
 
 
 if __name__=='__main__': unittest.main()

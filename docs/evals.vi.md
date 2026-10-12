@@ -73,6 +73,17 @@ Các entry evidence sau checkpoint vẫn được giữ; outcome terminal cũ kh
 lấy làm calls hiện tại nếu snapshot/phase đã đổi. Windows chỉ nhận receipt đúng
 episode hiện tại; `shown` không chứng minh người dùng đọc. File output không ghi đè.
 
+Khi entry phải làm hộ hoặc sửa môi trường/runtime, ghi can thiệp ngay vào đúng task
+(nếu là child, parent sẽ tổng hợp cả child và shared calls):
+
+```powershell
+python -m onecrew --project D:\path\to\task-project --state-root C:\path\to\OneCrew eval assistance --task TASK-<FULL_ID> --key repair-cache-1 --actor codex --category environment --reason "Restored the approved cache; no product source changed."
+```
+
+Đây là event ghi nhận của operator, gắn checkpoint, không phải kiểm chứng độc lập,
+không cấp quyền hoặc resume. Key idempotent; dùng lại key với nội dung khác bị từ chối.
+`observe` không xuất reason tự do. Không có note vẫn **không** được suy là không can thiệp.
+
 ## Mở rộng năng lực bằng eval
 
 Với mỗi thay đổi runtime/recipe/skill: pin before/after, chạy corpus này, review

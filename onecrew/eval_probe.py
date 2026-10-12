@@ -22,17 +22,20 @@ def main():
     value = {'selector': selector, 'tests': 0, 'status': 'harness_error'}
     with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
         try:
+            target = importlib.import_module('onecrew')
+            if not Path(target.__file__).resolve().is_relative_to(Path(runtime).resolve()):
+                raise ImportError('Target runtime absent; refusing harness fallback.', name='onecrew')
             mod, cls, method = selector.rsplit('.', 2)
             module = importlib.import_module(mod)
             suite = unittest.TestSuite([getattr(module, cls)(method)])
             result = unittest.TextTestRunner(stream=captured, verbosity=2).run(suite)
-            status = ('runtime_error' if result.errors else 'assertion_failed' if result.failures
-                      else 'skipped' if result.skipped else 'passed' if result.testsRun == 1
+            status = ('runtime_error' if result.errors else 'assertion_failed' if result.failures or result.unexpectedSuccesses
+                      else 'skipped' if result.skipped or result.expectedFailures else 'passed' if result.testsRun == 1 and result.wasSuccessful()
                       else 'harness_error')
             value.update(status=status, tests=result.testsRun, skipped=len(result.skipped))
-        except ImportError:
+        except ImportError as error:
             # API compatibility gap, not proof of a reproduced behavioral failure.
-            value['status'] = 'capability_unavailable'
+            value['status'] = ('capability_unavailable' if (error.name or '').split('.')[0]=='onecrew' else 'harness_error')
             traceback.print_exc()
         except Exception:
             traceback.print_exc()

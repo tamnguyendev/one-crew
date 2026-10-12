@@ -13,8 +13,31 @@ GATES = ('tests', 'review', 'apply', 'build', 'device', 'handover', 'notificatio
 
 
 def reference(row):
-    return {'seq':row['seq'], 'kind':row['kind'], 'at':row['created_at'],
+    return {'seq':row['seq'], 'task':row['task_id'], 'kind':row['kind'], 'at':row['created_at'],
             'payload_sha256':content_hash(json.loads(row['payload']))}
+
+
+def assistance_note(ledger, task, key, actor, category, reason):
+    """Append an attributed intervention, not an execution grant or task mutation."""
+    from .ledger import key_field, text_field
+    from .discovery import scan_text
+    key_field(key); text_field(reason,'reason',800); scan_text(reason.encode())
+    if actor not in ('codex','claude','human','other-entry') or category not in (
+            'runtime','environment','product-code','tests','build','device','decision'):
+        raise ValueError('Unsupported assistance actor/category.')
+    with ledger.transaction(write=True) as conn:
+        ledger._task(conn,task)
+        value={'key':key,'actor':actor,'category':category,'reason':reason}
+        old=conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='eval.assistance' AND json_extract(payload,'$.key')=?",(task,key)).fetchone()
+        if old:
+            previous=json.loads(old['payload'])
+            if any(previous.get(k)!=v for k,v in value.items()):raise ValueError('Assistance key already bound to different evidence.')
+            return previous
+        row=conn.execute("SELECT seq FROM events WHERE task_id=? AND kind='workflow.checkpoint' ORDER BY seq DESC LIMIT 1",(task,)).fetchone()
+        value['checkpoint']=row['seq'] if row else None
+        value['source']='operator-recorded; not independently verified'
+        ledger._event(conn,task,'eval.assistance',value)
+        return value
 
 
 def project_state(state):
@@ -83,12 +106,16 @@ def observe(state_root, task_ids):
         for task in task_ids:
             owner = conn.execute('SELECT project_id FROM tasks WHERE id=?',(task,)).fetchone()
             if not owner: raise ValueError('Task not found: '+task)
+            members=[task]
+            lineage=conn.execute("SELECT 1 FROM sqlite_master WHERE name='delivery_children'").fetchone()
+            if lineage:members += [r[0] for r in conn.execute('SELECT task_id FROM delivery_children WHERE root=? ORDER BY task_id',(task,))]
+            marks=','.join('?' for _ in members)
             checkpoint = conn.execute("SELECT * FROM events WHERE task_id=? AND kind='workflow.checkpoint' ORDER BY seq DESC LIMIT 1",(task,)).fetchone()
             state = json.loads(checkpoint['payload']) if checkpoint else {}
             gates,metrics = project_state(state)
             evidence = [reference(checkpoint)] if checkpoint else []
             # Any past explicit assistance is retained even if the latest state omits it.
-            history = conn.execute("SELECT * FROM events WHERE task_id=? AND kind IN ('workflow.checkpoint','learning.outcome') ORDER BY seq",(task,)).fetchall()
+            history = conn.execute(f"SELECT * FROM events WHERE task_id IN ({marks}) AND kind IN ('workflow.checkpoint','learning.outcome') ORDER BY seq",members).fetchall()
             assistance = set(); repairs = set(); phases = []
             for event in history:
                 payload = json.loads(event['payload'])
@@ -98,9 +125,15 @@ def observe(state_root, task_ids):
                     evidence.append(reference(event))
                 for key in ('entry_repairs','runtime_repairs'):
                     for repair in payload.get(key) or []: repairs.add(content_hash(repair))
-                if event['kind']=='workflow.checkpoint' and (not phases or phases[-1]['phase'] != payload.get('phase')):
+                if event['task_id']==task and event['kind']=='workflow.checkpoint' and (not phases or phases[-1]['phase'] != payload.get('phase')):
                     phases.append({'seq':event['seq'],'phase':payload.get('phase')})
-            entries = conn.execute("SELECT * FROM events WHERE task_id=? AND kind LIKE 'entry.%' ORDER BY seq",(task,)).fetchall()
+            entries = conn.execute(f"SELECT * FROM events WHERE task_id IN ({marks}) AND kind LIKE 'entry.%' ORDER BY seq",members).fetchall()
+            notes = conn.execute(f"SELECT * FROM events WHERE task_id IN ({marks}) AND kind='eval.assistance' ORDER BY seq",members).fetchall()
+            recorded=[]
+            for note in notes:
+                v=json.loads(note['payload'])
+                recorded.append({'task':note['task_id'],'seq':note['seq'],'actor':v.get('actor'),'category':v.get('category'),'checkpoint':v.get('checkpoint')})
+                assistance.add('operator-recorded-intervention');evidence.append(reference(note))
             execution_entries = [e for e in entries if any(x in e['kind'] for x in ('verification','e2e','physical','login'))]
             if execution_entries: assistance.add('entry-device-or-server-verification')
             if repairs: assistance.add('entry-runtime-repair')
@@ -114,6 +147,10 @@ def observe(state_root, task_ids):
                                wall_seconds=(payload.get('timing') or {}).get('wall_seconds') if current else None,
                                outcome_current=current)
             else: metrics.update(managed_calls=None, wall_seconds=None, outcome_current=False)
+            if len(members)>1:
+                total=conn.execute(f'SELECT SUM(used_calls) FROM executions WHERE task_id IN ({marks})',members).fetchone()[0]
+                metrics['managed_calls']=total
+                metrics['calls_scope']='parent-and-children'
             metrics['entry_repairs'] = len(repairs)
             # Match the current outcome identity, not an earlier shown blocker notice.
             notice = None
@@ -133,6 +170,7 @@ def observe(state_root, task_ids):
                                     'snapshot':state.get('snapshot'),'verification':state.get('verification') if isinstance(state.get('verification'),str) else 'unknown',
                                     'acceptance':state.get('acceptance') if isinstance(state.get('acceptance'),str) else 'unknown', 'gates':gates,'metrics':metrics,
                                     'assistance':'recorded' if assistance else 'unknown', 'assistance_kinds':sorted(assistance),
+                                    'members':members,'recorded_interventions':recorded,
                                     'entry_events':dict(collections.Counter(e['kind'] for e in entries)),
                                     'pending_requests':[dict(r) for r in pending], 'phase_episodes':phases,
                                     'evidence':list({r['seq']:r for r in evidence}.values()),'windows':notice,'gaps':gaps,
