@@ -24,6 +24,8 @@ POLICY = {
     'drift': ('ask', 0),
     'artifact': ('ask', 0),
     'runtime_bug': ('ask', 0),
+    # The coordinator died with a reboot or kill: never revived silently, asked once.
+    'coordinator_lost': ('ask', 0),
     'unknown': ('ask', 0),
 }
 BACKOFF = (15, 60, 180)
@@ -49,7 +51,8 @@ MESSAGES = [
      r'not usable after granted recovery|emulator', 'environment'),
     (r'operation outcome unknown|unknown device effect|an operation may have run', 'side_effect_unknown'),
     (r'exceeds the sealed plan|durable coordinator intent|missing current source provenance|stale verification evidence|'
-     r'no ready delivery node|required criteria unresolved|controller error|lacks reviewed application evidence', 'runtime_bug'),
+     r'no ready delivery node|required criteria unresolved|controller error|lacks reviewed application evidence|'
+     r'unsupported delivery operation', 'runtime_bug'),
 ]
 CHILD_PRODUCT = (r'invalid (report|patch|native review)|did not invoke the authorized|changed an unowned path|repair limit|'
                  r'narrow the goal|no new source/test progress|no_progress|turn limit')
@@ -222,6 +225,7 @@ GUIDANCE = {
     'device_assertion':'Kịch bản thiết bị không đạt ở bước kiểm tra. Có thể do sản phẩm, kịch bản hoặc thiết bị; cần người dùng xem.',
     'scenario_selector':'Selector của kịch bản vẫn không khớp UI thật sau số lần OneCrew tự hiệu chỉnh cho phép. Xem ảnh chụp UI trong bằng chứng.',
     'runtime_bug':'Lỗi runtime OneCrew. Cần sửa runtime; mọi can thiệp sẽ được ghi lại.',
+    'coordinator_lost':'Coordinator đã dừng cùng lần khởi động lại hoặc tắt máy; OneCrew không tự chạy lại sau reboot. Checkpoint, bằng chứng và ngân sách được giữ; chọn thử lại để tiếp tục từ checkpoint, hoặc dừng.',
     'unknown':'Lỗi chưa phân loại được.',
 }
 

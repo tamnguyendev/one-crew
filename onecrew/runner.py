@@ -155,6 +155,14 @@ def loop(ledger, task_id, interval=.5):
             # leave the durable task claiming to run after its runner has died.
             import traceback
             traceback.print_exc()
+            if hasattr(workflow, 'controller_error'):
+                # A delivery root asks one typed question; the reply restarts it through keeper.after_reply.
+                try:
+                    state = workflow.controller_error(task_id, error)
+                    outcome = 'blocked' if state is None else 'interrupted' if state['phase'] == 'running' else state['phase']
+                    return outcome
+                except Exception:
+                    traceback.print_exc()  # the untyped block below still stops the task claiming to run
             with task_lock(ledger,task_id):
                 seq,state=workflow.state(task_id)
                 if state is not None and state['phase'] not in ('completed','cancelled','failed'):

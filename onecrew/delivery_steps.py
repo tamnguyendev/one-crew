@@ -525,7 +525,8 @@ def build(runtime,task,s,node,row):
 
 def execute(runtime,task,s,node,row):
     permission={'build':'android.build','apk_audit':'android.build','device':'android.device',
-                'regression':'native.test','review':'discover','handover':'report'}[node['kind']]
+                'regression':'native.test','review':'discover','handover':'report'}.get(node.get('kind'))
+    if permission is None:raise LedgerError('Unsupported delivery operation: '+str(node.get('kind'))[:80]+'.')
     if permission not in runtime.ledger.task(task,full=True)['handoff']['grant']['permissions']:
         raise LedgerError('Delivery operation exceeds the dispatch grant.')
     if node['kind']=='regression':return regression(runtime,task,s,node,row)
