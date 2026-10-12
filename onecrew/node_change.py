@@ -17,7 +17,9 @@ import uuid
 from .discovery import EXCLUDED, permitted, scan_text
 from .ledger import LedgerError, canonical, exact_fields
 from .native_audit import capture, workspace_path
-from .sandbox_gate import command, task_guard, GateUnavailable
+from .node_toolchain import (CHECKS, MAX_REPORT, STEP_SECONDS, attach_modules, classify_output, dependency_lock,  # noqa: F401
+                             detach_modules, run_fixed, summarize_e2e, summarize_vitest)
+from .sandbox_gate import task_guard, GateUnavailable
 from .snapshots import safe_file, scope_list, scoped_path, bytes_hash, durable_write
 
 FIELDS = ('toolchain', 'source_roots', 'owned', 'extra_sources', 'package', 'tests', 'regression_tests',
@@ -28,14 +30,11 @@ TEST_SUFFIXES = ('.test.ts', '.test.tsx', '.test.js', '.test.mjs')
 LOCKED = re.compile(r'(?i)^(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|\.npmrc|'
                     r'tsconfig(\..*)?\.json|(vitest|vite|vitest\.workspace)\.config\..*)$')
 GENERATED_DIR = re.compile(r'(?i)^(node_modules|dist|build|out|coverage)$|(^|[-_.])dist($|[-_.])')
-STEP_SECONDS = {'typecheck': 300, 'vitest': 600, 'build': 300}
 # Optional fixed e2e step (SOL e2e-panel, 11/10/2026): `node <script>` after the build, with operator-pinned environment
 # values from this allowlist only. It must print "N/N checks passed" (N >= min_checks) and exit 0.
 E2E_FIELDS = ('script', 'env', 'timeout_seconds', 'min_checks')
 E2E_ENV = frozenset({'CHROME_PATH', 'CHROME_ARGS', 'NA_PYTHON', 'NA_BACKEND_DIR', 'NA_E2E_BACKEND_PORT',
                      'NA_MOCK_PORT', 'NA_PROXY_PORT'})
-CHECKS = re.compile(r'(\d+)/(\d+) checks passed')
-MAX_REPORT = 5_000_000
 
 
 def is_node(recipe):
@@ -112,19 +111,6 @@ def validate_e2e(e2e):
     if type(e2e['min_checks']) is not int or not 1 <= e2e['min_checks'] <= 10000:
         raise LedgerError('e2e min_checks must be 1-10000.')
     return dict(e2e, script=script)
-
-
-def summarize_e2e(out, minimum):
-    """Pass only on an explicit 'N/N checks passed' summary with N >= minimum; collect FAIL lines for feedback."""
-    found = CHECKS.findall(out)
-    failed = [line.strip()[:400] for line in out.splitlines() if line.lstrip().startswith(('FAIL', 'XPASS'))][:40]
-    if not found:
-        return {'passed': False, 'reason': 'e2e printed no "N/N checks passed" summary.', 'failed_lines': failed}
-    passed, total = (int(n) for n in found[-1])
-    ok = passed == total and total >= minimum
-    reason = None if ok else ('e2e checks: ' + str(passed) + '/' + str(total) + ' passed (minimum ' + str(minimum) + ').'
-                              + ('\n' + '\n'.join(failed) if failed else ''))
-    return {'passed': ok, 'reason': reason, 'checks_passed': passed, 'checks_total': total, 'failed_lines': failed}
 
 
 def prepare(runtime, state, recipe, progress=None):
@@ -207,70 +193,6 @@ def prepare_verification(runtime, state, recipe):
                          'skipped_large_local_files': skipped[:50]}
 
 
-def dependency_lock(modules):
-    """Fingerprint of the installed dependency tree npm itself maintains; must not change while we verify."""
-    lock = modules / '.package-lock.json'
-    if not lock.is_file():
-        raise GateUnavailable('Project node_modules has no .package-lock.json; install dependencies there (npm ci).')
-    return bytes_hash(lock.read_bytes())
-
-
-def attach_modules(target, link):
-    if os.name != 'nt':
-        os.symlink(target, link, target_is_directory=True); return
-    import _winapi
-    _winapi.CreateJunction(str(target), str(link))
-
-
-def detach_modules(link, target):
-    if os.path.lexists(link):
-        if not (os.path.islink(link) or (hasattr(os.path, 'isjunction') and os.path.isjunction(link))):
-            raise GateUnavailable('Verification node_modules is not the runtime junction; refusing to remove it.')
-        os.rmdir(link) if os.name == 'nt' else os.unlink(link)
-    if os.path.lexists(link) or not Path(target).is_dir():
-        raise GateUnavailable('Could not detach verification node_modules cleanly.')
-
-
-def summarize_vitest(path, package_dir, owned_tests):
-    """Pass only with real executed tests: >0 total, 0 failed, every owned test file passed with >=1 passing assertion."""
-    if not path.is_file() or path.stat().st_size > MAX_REPORT:
-        return {'passed': False, 'reason': 'Vitest JSON report missing or too large.'}
-    try:
-        report = json.loads(path.read_text(encoding='utf-8'))
-    except ValueError:
-        return {'passed': False, 'reason': 'Vitest JSON report unreadable.'}
-    totals = {k: report.get(k) for k in ('numTotalTests', 'numPassedTests', 'numFailedTests', 'numPendingTests', 'numTodoTests')}
-    files = {}; failures = []
-    for result in report.get('testResults') or []:
-        try:
-            rel = Path(result.get('name', '')).resolve().relative_to(Path(package_dir).resolve()).as_posix()
-        except ValueError:
-            continue
-        passed = sum(1 for a in result.get('assertionResults') or [] if a.get('status') == 'passed')
-        files[rel] = {'status': result.get('status'), 'passed_assertions': passed}
-        if result.get('status') != 'passed' and result.get('message'):
-            failures.append(rel + ': ' + _first_lines(result['message']))  # e.g. the suite failed to load
-        for assertion in result.get('assertionResults') or []:
-            if assertion.get('status') == 'failed':
-                message = _first_lines((assertion.get('failureMessages') or [''])[0])
-                failures.append(rel + ' > ' + str(assertion.get('fullName') or assertion.get('title')) + (': ' + message if message else ''))
-    missing = [t for t in owned_tests if files.get(t, {}).get('status') != 'passed' or files[t]['passed_assertions'] < 1]
-    ok = (report.get('success') is True and isinstance(totals['numTotalTests'], int) and totals['numTotalTests'] > 0
-          and totals['numFailedTests'] == 0 and (totals['numPassedTests'] or 0) > 0 and not missing)
-    reason = None
-    if not ok:
-        reason = ('Owned tests without a passing result: ' + ', '.join(missing) if missing
-                  else 'Vitest reported no passing tests or failures.')
-        if failures:
-            # The worker cannot read the verification workspace: give it the failing assertions themselves.
-            reason += '\nFailing assertions (' + str(len(failures)) + '):\n- ' + '\n- '.join(failures)[:6000]
-    return {'passed': ok, 'reason': reason, 'totals': totals, 'files': files, 'failures': failures[:50]}
-
-
-def _first_lines(text, lines=4, limit=700):
-    return ' | '.join(line.strip() for line in str(text).splitlines()[:lines] if line.strip())[:limit]
-
-
 def verify(runtime, task_id, state, recipe):
     from . import native_change, native_test_workspace
     native = state['native_change']
@@ -301,36 +223,32 @@ def verify(runtime, task_id, state, recipe):
     if e2e:
         if not (package_dir / e2e['script']).is_file():
             raise GateUnavailable('Pinned e2e script missing from staged inputs: ' + e2e['script'])
-        steps.append(('e2e', [str(node), e2e['script']]))
-    results = []; failure = None
+        steps.append(('e2e', [str(node), e2e['script']], e2e['env']))
+
+    def check(name, code, out, err):
+        if name == 'vitest':
+            summary = summarize_vitest(report_path, package_dir, [rel(t) for t in recipe['tests']])
+            fields = {}
+            if report_path.is_file() and report_path.stat().st_size <= MAX_REPORT:
+                fields['report'] = runtime.store.blob(report_path.read_bytes())
+            fields['summary'] = {k: v for k, v in summary.items() if k != 'passed'}
+            return summary['passed'], fields
+        if name == 'build':
+            built = package_dir / 'dist/manifest.json'
+            return built.is_file(), {'dist_manifest_sha256': bytes_hash(built.read_bytes()) if built.is_file() else None}
+        if name == 'e2e':
+            summary = summarize_e2e(out, e2e['min_checks'])
+            return summary['passed'], {'summary': {k: v for k, v in summary.items() if k != 'passed'}}
+        return True, {}
+
+    timeouts = dict(STEP_SECONDS, **({'e2e': e2e['timeout_seconds']} if e2e else {}))
     attach_modules(modules, link)
     try:
-        for name, argv in steps:
-            extra = dict({'CI': 'true'}, **(e2e['env'] if name == 'e2e' else {}))
-            seconds = e2e['timeout_seconds'] if name == 'e2e' else STEP_SECONDS[name]
-            code, out, err = command(argv, package_dir, seconds, guard, extra)
-            step = {'step': name, 'argv': argv, 'exit_code': code, 'stdout': runtime.store.blob(out.encode()),
-                    'stderr': runtime.store.blob(err.encode())}
-            ok = code == 0
-            if name == 'vitest':
-                summary = summarize_vitest(report_path, package_dir, [rel(t) for t in recipe['tests']])
-                if report_path.is_file() and report_path.stat().st_size <= MAX_REPORT:
-                    step['report'] = runtime.store.blob(report_path.read_bytes())
-                step['summary'] = {k: v for k, v in summary.items() if k != 'passed'}
-                ok = ok and summary['passed']
-            if name == 'build':
-                built = package_dir / 'dist/manifest.json'
-                step['dist_manifest_sha256'] = bytes_hash(built.read_bytes()) if built.is_file() else None
-                ok = ok and built.is_file()
-            if name == 'e2e':
-                summary = summarize_e2e(out, e2e['min_checks'])
-                step['summary'] = {k: v for k, v in summary.items() if k != 'passed'}
-                ok = ok and summary['passed']
-            step['passed'] = ok; results.append(step)
-            if not ok:
-                failure = (name, out, err, step.get('summary', {}).get('reason')); break
+        ran, failure = run_fixed(steps, package_dir, {'CI': 'true'}, timeouts, guard, check)
     finally:
         detach_modules(link, modules)
+    results = [{k: runtime.store.blob(v.encode()) if k in ('stdout', 'stderr') else v for k, v in step.items()
+                if k not in ('seconds', 'failure_class')} for step in ran]
     native_change.check_snapshot(runtime, state)
     native_test_workspace.check_inputs(runtime, state)
     native_test_workspace.check_workspace(state)
@@ -348,7 +266,7 @@ def verify(runtime, task_id, state, recipe):
             e2e_note = ', mock e2e ' + str(e2e_summary['checks_passed']) + '/' + str(e2e_summary['checks_total']) + ' checks'
         return {'passed': True, 'detail': 'typecheck, vitest (' + str(totals.get('numPassedTests')) + ' passed), build'
                 + e2e_note + ' passed.', 'evidence': evidence, 'failure_kind': None}
-    name, out, err, reason = failure
+    name, out, err, reason = failure['step'], failure['stdout'], failure['stderr'], failure.get('summary', {}).get('reason')
     try:
         detail = scan_text((out + err).encode())[-12000:]
     except LedgerError:
@@ -359,4 +277,8 @@ def verify(runtime, task_id, state, recipe):
         except LedgerError:
             reason = 'Failure summary withheld by credential policy; inspect local receipt.'
     detail = 'Fixed Node step failed: ' + name + ('. ' + reason if reason else '') + '\n' + detail
-    return {'passed': False, 'detail': detail, 'evidence': evidence, 'failure_kind': 'test'}
+    # An unusable machine (port in use, browser/backend not started, dependencies) is not a product defect and must not
+    # spend a repair round. A harness that printed no summary stays repairable here: the worker may own the e2e script.
+    failure_class = failure['failure_class'] or 'product'
+    return {'passed': False, 'detail': detail, 'evidence': evidence, 'failure_class': failure_class,
+            'failure_kind': 'environment' if failure_class == 'environment' else 'test'}
