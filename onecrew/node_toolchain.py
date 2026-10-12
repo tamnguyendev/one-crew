@@ -160,7 +160,8 @@ def run_fixed(steps, package_dir, env=None, timeouts=None, guard=None, check=Non
     its own allowlist); ``timeouts``: {name: seconds}, default STEP_SECONDS / DEFAULT_SECONDS. ``check(name, code, out,
     err) -> (ok, fields)`` refines a step's verdict and adds fields (e.g. a report summary). Returns (results, failure):
     every result holds step, argv, exit_code, stdout, stderr, seconds, the check fields, passed and failure_class;
-    failure is the failed result or None. Deadlines and output limits raise GateUnavailable as sandbox_gate.command does.
+    failure is the failed result or None. Deadlines and output limits raise GateUnavailable as sandbox_gate.command does; so
+    does a step whose process cannot start (OSError), since that is the machine, not the product.
     """
     package_dir = Path(package_dir)
     results = []
@@ -169,7 +170,10 @@ def run_fixed(steps, package_dir, env=None, timeouts=None, guard=None, check=Non
         if type(seconds) is not int or not 1 <= seconds <= 7200:
             raise LedgerError('Fixed Node step timeout must be 1-7200 seconds: ' + name)
         started = time.monotonic()
-        code, out, err = command(argv, package_dir, seconds, guard, dict(env or {}, **extra) or None)
+        try:
+            code, out, err = command(argv, package_dir, seconds, guard, dict(env or {}, **extra) or None)
+        except OSError as error:  # the process could not start (missing/locked node.exe): environment, not product
+            raise GateUnavailable('Could not run fixed Node step ' + name + ': ' + str(error)) from error
         result = {'step': name, 'argv': argv, 'exit_code': code, 'stdout': out, 'stderr': err,
                   'seconds': round(time.monotonic() - started, 3)}
         ok = code == 0

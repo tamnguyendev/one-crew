@@ -243,7 +243,10 @@ def verify(runtime, task_id, state, recipe):
         return True, {}
 
     timeouts = dict(STEP_SECONDS, **({'e2e': e2e['timeout_seconds']} if e2e else {}))
-    attach_modules(modules, link)
+    try:
+        attach_modules(modules, link)
+    except OSError as error:  # e.g. junction EPERM: the machine, not the candidate, so never a product repair
+        raise GateUnavailable('Could not attach node_modules to the verification workspace: ' + str(error)) from error
     try:
         ran, failure = run_fixed(steps, package_dir, {'CI': 'true'}, timeouts, guard, check)
     finally:

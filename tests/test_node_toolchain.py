@@ -142,6 +142,13 @@ class RunFixedTests(unittest.TestCase):
             run_fixed([('hang', [NODE, 'hang.mjs'])], self.dir, timeouts={'hang': 1})
         self.assertIn('deadline', str(raised.exception).lower())
 
+    def test_a_step_that_cannot_start_is_unavailable_not_a_product_failure(self):
+        with patch.object(node_toolchain, 'command', side_effect=PermissionError(13, 'Access is denied')):
+            with self.assertRaises(GateUnavailable) as raised:
+                run_fixed([('typecheck', [NODE, 'env.mjs'])], self.dir)
+        self.assertIn('Could not run fixed Node step typecheck', str(raised.exception))
+        self.assertIsInstance(raised.exception.__cause__, PermissionError)
+
     def test_bounded_inputs(self):
         for steps in ([], [('Bad Name', [NODE])], [('a', NODE)], [('a', [])], [('a', [NODE], {'X': 1})], [('a',)],
                       [('a', [NODE])] * 21):
@@ -169,6 +176,17 @@ class NodeChangeFailureClassTests(unittest.TestCase):
         self.assertIn('Node dependency/environment unavailable', state['message'])
         self.assertEqual(state['native_change']['repairs'], 0); self.assertEqual(len(self.worker.calls), 1)
         self.assertEqual(classify_child(state, False), 'environment')  # the delivery root retries, it does not repair
+        self.assertIn('a-b', (self.ext / 'src/app.ts').read_text())
+
+    def test_junction_eperm_blocks_as_environment_without_repair(self):
+        # The junction is made by Python before run_fixed, so its OSError never reaches classify_output.
+        denied = PermissionError(1, 'EPERM: operation not permitted, junction')
+        with patch.object(node_change, 'attach_modules', side_effect=denied):
+            state = self.work_and_verify(self.candidate())
+        self.assertEqual(state['phase'], 'blocked'); self.assertEqual(state['recovery']['kind'], 'environment')
+        self.assertIn('Could not attach node_modules', state['message'])
+        self.assertEqual(classify_child(state, False), 'environment')
+        self.assertEqual(state['native_change']['repairs'], 0); self.assertEqual(len(self.worker.calls), 1)
         self.assertIn('a-b', (self.ext / 'src/app.ts').read_text())
 
     def test_e2e_backend_not_ready_is_environment(self):
