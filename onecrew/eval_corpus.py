@@ -232,6 +232,12 @@ CASES = [
         'tests.test_autonomy_round2.AppCrashTests.test_a_previous_native_crash_restarts_the_emulator_before_install',
         'tests.test_autonomy_round2.AppCrashTests.test_own_crash_dialog_is_not_a_system_hang'],
         'Found by live trial 5; crash buffer lines are real but shortened, the emulator restart is a fixture here.'),
+    case('red-only-repair', 'Correct code with a non-behavioural red check gets a tests-only repair, not a demand for a production fix', 'fe94a63', [
+        'tests.test_autonomy_round2.RedEvidenceRepairTests.test_red_only_failure_is_a_tests_only_repair_with_actionable_feedback',
+        'tests.test_autonomy_round2.RedEvidenceRepairTests.test_a_real_failing_test_still_needs_a_production_fix',
+        'tests.test_autonomy_round2.RedEvidenceRepairTests.test_tests_only_scope_cannot_be_claimed_outside_a_delivery',
+        'tests.test_autonomy_round2.TestsOnlyPatchTests.test_scope_tests_accepts_a_test_only_patch_and_refuses_production_edits'],
+        'Found by live trial 6; worker quality on the narrowed repair is shown only by a trial.'),
     case('scenario-calibration', 'A planned scenario is recalibrated from the live-UI snapshot without weakening assertions, bounded', '9e97460', [
         'tests.test_autonomy_round2.CalibrationTests.test_selector_failure_of_a_planned_replay_safe_scenario_is_calibrated',
         'tests.test_autonomy_round2.CalibrationTests.test_validator_keeps_operations_passed_steps_and_assertions',
