@@ -938,3 +938,4 @@ Verified coverage: 5/7 (71.4%); EV06 measurement pending, EV07 live/held-out Blo
 
 Cycle 1: 113 tests passed in 28.258 seconds. No product tasks/devices were run.
 
+Cycle 1 commit: `fb14591`. First replay exposed a Windows Store executable-alias fingerprint error before any probe; no result scored. Fixed to hash the installed interpreter; 22 eval tests pass, including the alias regression.

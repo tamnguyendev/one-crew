@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from onecrew.eval_corpus import catalog
 from onecrew.evaluation import (archive, case_status, compare, content_hash, execute_probe,
-                                 read_result, revision, seal, tree_hash)
+                                 environment, read_result, revision, seal, tree_hash)
 from onecrew.eval_observe import observe, project_state
 
 
@@ -86,6 +86,12 @@ class GradingTests(unittest.TestCase):
             self.assertEqual(read_result(p),run_value())
             value=json.loads(p.read_text());value['completed']=False;p.write_text(json.dumps(value))
             with self.assertRaises(ValueError):read_result(p)
+
+    def test_store_alias_fingerprints_real_interpreter(self):
+        with patch.object(Path,'read_bytes',side_effect=[OSError('app alias'),b'actual interpreter']):
+            e=environment()
+        self.assertEqual(len(e['executable_sha256']),64)
+        self.assertIn('fingerprinted_executable',e)
 
 
 class ProbeTests(unittest.TestCase):

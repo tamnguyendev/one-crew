@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import platform
-import shutil
 import signal
 import sqlite3
 import subprocess
@@ -65,7 +64,16 @@ def tree_hash(root, paths):
 
 
 def environment():
-    return {'python': sys.version, 'executable_sha256': hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest(),
+    # Microsoft Store's executable is an app-execution alias, not a readable PE.
+    # Fingerprint the installed interpreter, retaining the invoked alias separately.
+    executable = Path(sys.executable)
+    try:
+        binary = executable.read_bytes()
+    except OSError:
+        executable = Path(sys.base_prefix)/('python.exe' if os.name=='nt' else 'bin/python3')
+        binary = executable.read_bytes()
+    return {'python': sys.version, 'executable_sha256': hashlib.sha256(binary).hexdigest(),
+            'invoked_executable':sys.executable, 'fingerprinted_executable':str(executable),
             'platform': platform.platform(), 'machine': platform.machine(),
             'git': subprocess.check_output(['git', '--version']).decode().strip(),
             'transport': 'fixture-only', 'model': None, 'device': None}
