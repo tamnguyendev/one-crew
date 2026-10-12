@@ -93,13 +93,14 @@ def scenario(path,digest):
             if not isinstance(step['id'],str) or not re.fullmatch('[a-zA-Z0-9_-]{1,60}',step['id']):raise LedgerError('Step ID invalid.')
             args=step['arguments'];op=step['operation']
             fields={'assert_ui':{'selector'},'tap':{'selector'},'type':{'selector','private_key'},
-                    'scroll_to':{'selector','direction','max_swipes'},'key':{'key'},'restart':set(),
+                    'scroll_to':{'selector','direction','max_swipes'},'wait_for':{'selector','timeout_seconds'},'key':{'key'},'restart':set(),
                     'assert_no_flutter_error':set()}
             if op not in fields or not isinstance(args,dict) or set(args)!=fields[op]:raise LedgerError('Unsupported device operation or arguments.')
             if 'selector' in args:
                 selector=args['selector']
                 if not isinstance(selector,dict) or not selector or set(selector)-{'text','resource-id','content-desc','class','checked','focused'} or any(not isinstance(x,str) or len(x)>200 for x in selector.values()):
                     raise LedgerError('Typed exact UI selector required.')
+            if op=='wait_for' and (type(args['timeout_seconds']) is not int or not 1<=args['timeout_seconds']<=60):raise LedgerError('UI wait must be bounded to 60 seconds.')
             if op=='key' and args['key'] not in ('BACK','ENTER','TAB'):raise LedgerError('Key not allowed.')
             if op=='type' and not re.fullmatch('[A-Za-z0-9_]{1,80}',args['private_key']):raise LedgerError('Private input key invalid.')
             if op=='scroll_to' and (args['direction'] not in ('up','down') or type(args['max_swipes']) is not int or not 1<=args['max_swipes']<=6):raise LedgerError('Scroll must be bounded.')
@@ -121,6 +122,82 @@ def find_ui(xml,selector,package=None,viewport=None):
     return node,((x1+x2)//2,(y1+y2)//2)
 
 
+class SwipeRefused(LedgerError):
+    """No safe gesture surface this round; the caller may re-read the UI without injecting input."""
+
+
+def foreground_focus(dump):
+    """Focused window of the top focused display from `dumpsys window`.
+
+    Android 16 prints mCurrentFocus per display under `displays` (a secondary display may say null),
+    not under `windows`. Ambiguity fails closed (None)."""
+    top=re.search(r'mTopFocusedDisplayId=(-?\d+)',dump)
+    sections=re.split(r'(?=Display: mDisplayId=)',dump)
+    if top and len(sections)>1:
+        for section in sections[1:]:
+            if re.match(r'Display: mDisplayId='+re.escape(top[1])+r'\b',section):
+                m=re.search(r'mCurrentFocus=([^\r\n]+)',section)
+                value=m[1].strip() if m else ''
+                return None if value in ('','null') else value
+        return None
+    values=[v.strip() for v in re.findall(r'mCurrentFocus=([^\r\n]+)',dump) if v.strip() not in ('','null')]
+    return values[0] if len(set(values))==1 else None
+
+
+def app_has_focus(dump, package):
+    focus=foreground_focus(dump)
+    return bool(focus and re.search(r'\b'+re.escape(package)+'/',focus))
+
+
+def keyboard_top(dump, input_method, height):
+    """Top edge of a visible keyboard, None when hidden.
+
+    Insets state is authoritative; mIsInputViewShown can stay true while the keyboard is hidden and
+    the IME window frame can cover the whole screen, so neither alone marks the keyboard edge."""
+    tops=[];visible=False
+    for line in re.findall(r'[^\r\n]*InsetsSource\b[^\r\n]*\btype=ime\b[^\r\n]*',dump):
+        if not re.search(r'\bvisible=true\b',line):continue
+        visible=True
+        for key in ('frame','visibleFrame'):
+            m=re.search(r'\b'+key+r'=\[(\d+),(\d+)\]\[(\d+),(\d+)\]',line)
+            if m and int(m[4])>int(m[2]) and int(m[2])>=height//4:tops.append(int(m[2]))
+    shown=visible or bool(re.search(r'\bmInputShown=true\b',input_method))
+    if not shown:return None
+    if not tops:
+        for block in re.split(r'(?=Window #\d+)',dump):
+            if not re.search(r'(?:InputMethod|type=2011|ty=INPUT_METHOD)',block):continue
+            for m in re.finditer(r'(?:mFrame|frame)=\[(\d+),(\d+)\]\[(\d+),(\d+)\]',block):
+                # A full-height IME window is not the keyboard edge.
+                if int(m[4])>int(m[2])>=height//4:tops.append(int(m[2]))
+    if not tops:raise SwipeRefused('Visible keyboard bounds unavailable; swipe refused.')
+    return min(tops)
+
+
+def scroll_gesture(xml, package, viewport, windows, input_method, direction):
+    """Use a unique app scroll surface, clipped above a visible keyboard."""
+    root=ET.fromstring(xml);width,height=viewport;edges=[]
+    def bounds(value):
+        m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',value)
+        return tuple(map(int,m.groups())) if m else None
+    for n in root.iter('node'):
+        b=bounds(n.get('bounds',''))
+        # Foreign surfaces in the lower half (keyboard, navigation) bound the gesture; status bars do not.
+        if b and n.get('package') not in (None,'',package) and b[2]>b[0] and b[3]>b[1] and b[1]>=height//2:
+            edges.append(b[1])
+    ime=keyboard_top(windows,input_method,height)
+    if ime is not None:edges.append(ime)
+    bottom=min([height]+edges)
+    surfaces=set()
+    for n in root.iter('node'):
+        b=bounds(n.get('bounds',''))
+        if n.get('package')==package and n.get('scrollable')=='true' and n.get('enabled')!='false' and b:
+            x1,y1,x2,y2=b;b=(max(0,x1),max(0,y1),min(width,x2),min(bottom,y2))
+            if b[2]-b[0]>=40 and b[3]-b[1]>=80:surfaces.add(b)
+    if len(surfaces)!=1:raise SwipeRefused('A unique visible app scroll surface is required; swipe refused.')
+    x1,y1,x2,y2=surfaces.pop();x=(x1+x2)//2;lo=y1+(y2-y1)//4;hi=y2-(y2-y1)//4
+    return [x,hi,x,lo] if direction=='up' else [x,lo,x,hi]
+
+
 def device(runtime,task,s,node,row):
     c=node['config'];build=apk_input(s,node);v=scenario(c['scenario'],c['scenario_sha256'])
     reference=Path(c['private_reference']) if c['private_reference'] else None
@@ -134,10 +211,13 @@ def device(runtime,task,s,node,row):
     start=time.monotonic()
     viewport=None
     effect_pending=False
+    operation_deadline=None
+    step_evidence={}
     def adb(*args):
         nonlocal effect_pending
         left=c['timeout_seconds']-(time.monotonic()-start)
-        if left<=0:raise LedgerError('Device scenario timeout.')
+        if operation_deadline is not None:left=min(left,operation_deadline-time.monotonic())
+        if left<=0:raise LedgerError('Device scenario/operation timeout.')
         effect_pending=(args[0]=='install' or args[:2] in (('shell','input'),('shell','am')))
         rc,out,err=bounded(runtime,task,[c['adb'],'-s',c['serial'],*args],directory,min(45,left))
         if rc:raise LedgerError('ADB operation failed; raw output withheld to protect private inputs.')
@@ -150,11 +230,12 @@ def device(runtime,task,s,node,row):
         if start<0 or end<0:raise LedgerError('Android UI hierarchy unavailable.')
         return out[start:end+len('</hierarchy>')]
     def perform(step):
+        nonlocal operation_deadline,step_evidence
+        step_evidence={}
         op=step['operation'];a=step['arguments']
         if op in ('tap','type','key','scroll_to'):
-            windows=adb('shell','dumpsys','window','windows')
-            current=re.search(r'mCurrentFocus=([^\r\n]+)',windows)
-            if not current or not re.search(r'\b'+re.escape(c['package_id'])+'/',current[1]):
+            # Full dump: Android 16 reports focus per display, not under `dumpsys window windows`.
+            if not app_has_focus(adb('shell','dumpsys','window'),c['package_id']):
                 raise LedgerError('Another window has foreground focus; input refused.')
         if op in ('tap','type','assert_ui'):
             element,(x,y)=find_ui(xml(),a['selector'],c['package_id'],viewport)
@@ -172,16 +253,39 @@ def device(runtime,task,s,node,row):
         elif op=='key':adb('shell','input','keyevent','KEYCODE_'+a['key'])
         elif op=='restart':
             adb('shell','am','force-stop',c['package_id']);adb('shell','am','start','-W','-n',c['package_id']+'/'+v['activity'])
+        elif op=='wait_for':
+            operation_deadline=time.monotonic()+a['timeout_seconds'];attempts=0;unavailable=0
+            try:
+                while True:
+                    attempts+=1
+                    try:
+                        # uiautomator can miss a frame during transitions; ADB failures and deadlines stay fatal.
+                        tree=xml();find_ui(tree,a['selector'],c['package_id'],viewport);break
+                    except LedgerError as e:
+                        if str(e).startswith('ADB operation failed') or 'timeout' in str(e):raise
+                        unavailable+=str(e)=='Android UI hierarchy unavailable.'
+                        left=operation_deadline-time.monotonic()
+                        if left<=0:raise LedgerError('UI wait timed out.')
+                        time.sleep(min(.25,left))
+                step_evidence={'polls':attempts,'hierarchy_unavailable':unavailable}
+            finally:operation_deadline=None
         elif op=='scroll_to':
+            gestures=[];step_evidence={'gestures':gestures}
             for i in range(a['max_swipes']+1):
-                try:find_ui(xml(),a['selector'],c['package_id'],viewport);break
+                tree=xml()
+                try:find_ui(tree,a['selector'],c['package_id'],viewport);break
                 except LedgerError:
                     if i==a['max_swipes']:raise
-                    size=adb('shell','wm','size');match=re.search(r'(\d+)x(\d+)',size)
-                    if not match:raise LedgerError('Device size unavailable.')
-                    width,height=map(int,match.groups());x=width//2;y1=height*3//5;y2=height*2//5
-                    if a['direction']=='down':y1,y2=y2,y1
-                    adb('shell','input','swipe',str(x),str(y1),str(x),str(y2),'350')
+                    windows=adb('shell','dumpsys','window')
+                    if not app_has_focus(windows,c['package_id']):
+                        raise LedgerError('Another window has foreground focus; swipe refused.')
+                    ime=adb('shell','dumpsys','input_method')
+                    try:coords=scroll_gesture(tree,c['package_id'],viewport,windows,ime,a['direction'])
+                    except SwipeRefused as refused:
+                        # No safe surface (transition, non-scrollable dialog): re-read only, never a blind gesture.
+                        gestures.append({'refused':str(refused)});time.sleep(.5);continue
+                    gestures.append({'coordinates':coords,'duration_ms':350})
+                    adb('shell','input','swipe',*map(str,coords),'350')
         elif op=='assert_no_flutter_error':
             # Restrict logs to this app process. Store only the result, not server/account data.
             pid=adb('shell','pidof',c['package_id']).strip()
@@ -211,11 +315,12 @@ def device(runtime,task,s,node,row):
             adb('shell','am','start','-W','-n',c['package_id']+'/'+v['activity'])
             for step in v['steps']:
                 durable_write(intent,canonical({'task':task,'step':step['id'],'state':'intent'}).encode())
-                perform(step);receipt['steps'].append({'id':step['id'],'passed':True})
+                perform(step);receipt['steps'].append({'id':step['id'],'passed':True,**step_evidence})
                 durable_write(directory/'receipt.json',canonical(receipt).encode())
             receipt['passed']=True
         except (ValueError,OSError) as e:
             receipt['detail']=str(e)[:500];receipt['passed']=False;receipt['uncertain']=effect_pending
+            receipt['failed_step_evidence']=step_evidence
         finally:
             for step in v['cleanup']:
                 try:

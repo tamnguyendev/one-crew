@@ -46,7 +46,7 @@ def project_state(state):
     tests = state.get('tests') or []
     gates = dict.fromkeys(GATES, 'unverified')
     if tests:
-        bound = all(t.get('evidence',{}).get('snapshot') == state.get('snapshot') and state.get('snapshot') for t in tests)
+        bound = all((t.get('evidence') or {}).get('snapshot') == state.get('snapshot') and state.get('snapshot') for t in tests)
         gates['tests'] = ('recorded_pass' if bound and all(t.get('passed') is True for t in tests)
                           else 'recorded_failure' if any(t.get('passed') is False for t in tests) else 'unverified')
     if native.get('review_accepted') is True:
@@ -54,7 +54,7 @@ def project_state(state):
     if state.get('workspace_applied') is True:
         gates['apply'] = 'recorded_pass'
     build = native.get('apk_build') or {}
-    if build.get('status') == 'passed' and build.get('artifact',{}).get('sha256'):
+    if build.get('status') == 'passed' and (build.get('artifact') or {}).get('sha256'):
         gates['build'] = 'recorded_pass'
     if state.get('phase') == 'completed' and state.get('outputs'):
         gates['handover'] = 'recorded_report'
@@ -62,16 +62,16 @@ def project_state(state):
     grouped = collections.defaultdict(list)
     test_counts = []
     for node in (state.get('plan') or {}).get('nodes', []) if isinstance(state.get('plan'),dict) else []:
-        row = delivery.get('nodes',{}).get(node['id'],{})
+        row = (delivery.get('nodes') or {}).get(node['id']) or {}
         receipt = row.get('receipt') or {}
         kind = {'regression':'tests','review':'review','build':'build','device':'device','handover':'handover','change':'apply'}.get(node.get('kind'))
         if kind:
-            source = delivery.get('source',{}).get('hash')
+            source = (delivery.get('source') or {}).get('hash')
             good = bool(row.get('phase') == 'passed' and receipt.get('passed') is True and
                         source and receipt.get('source') == source)
             grouped[kind].append(good)
             if kind == 'tests':
-                counts = receipt.get('counts',{})
+                counts = receipt.get('counts') or {}
                 if good and all(type(counts.get(k)) is int and counts[k]>=0 for k in ('passed','failed','skipped')):
                     test_counts.append(counts)
     for kind, values in grouped.items():
@@ -82,7 +82,7 @@ def project_state(state):
                    'test_cases_skipped':sum(c['skipped'] for c in test_counts) if counted else None,
                    'skip_coverage':'recorded' if counted else 'unknown', 'timeout_checkpoints':len(native.get('timeout_checkpoints') or []),
                    'worker_repair_rounds':native.get('repairs'), 'parent_repairs':len(delivery.get('repairs') or []),
-                   'build_variant':build.get('variant'), 'apk_sha256':build.get('artifact',{}).get('sha256')}
+                   'build_variant':build.get('variant'), 'apk_sha256':(build.get('artifact') or {}).get('sha256')}
 
 
 def observe(state_root, task_ids):

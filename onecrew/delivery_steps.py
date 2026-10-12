@@ -51,9 +51,25 @@ def fingerprint(project, roots):
 
 
 def home(runtime,task):
-    root=Path(__file__).resolve().parents[1]/'.onecrew'/'delivery'/content_hash(str(runtime.ledger.state_root))[:12]/task
-    root.mkdir(parents=True,exist_ok=True)
+    # Native tools also need short paths; extended Python paths alone are insufficient.
+    configured=os.environ.get('ONECREW_DELIVERY_ROOT')
+    base=Path(configured) if configured else (
+        Path(Path(__file__).resolve().anchor)/'ocd' if os.name=='nt'
+        else Path(__file__).resolve().parents[1]/'.onecrew'/'delivery')
+    if not base.is_absolute():raise LedgerError('ONECREW_DELIVERY_ROOT must be absolute.')
+    root=base/content_hash({'state':str(Path(runtime.ledger.state_root).resolve()),'task':task})[:20]
+    try:root.mkdir(parents=True,exist_ok=True)
+    except OSError as e:raise LedgerError('Delivery workspace unavailable; configure writable short ONECREW_DELIVERY_ROOT.') from e
     return root
+
+
+def check_capture_paths(destination, manifest):
+    if os.name!='nt':return
+    for name in manifest['files']:
+        target=Path(destination)/name
+        if len(str(target))>259 or len(str(target.parent))>247:
+            raise LedgerError('Windows delivery path too long ('+str(len(str(target)))+
+                              ' chars): '+name+'; configure a shorter ONECREW_DELIVERY_ROOT. No capture started.')
 
 
 def store_manifest(runtime,task,value):
@@ -76,6 +92,7 @@ def load_manifest(ref):
 def capture(project, manifest, destination, roots):
     manifest=load_manifest(manifest)
     destination=Path(destination)
+    check_capture_paths(destination,manifest)
     destination.mkdir(parents=True,exist_ok=False)
     for name,digest in manifest['files'].items():
         src=safe_file(project,name)
@@ -88,18 +105,52 @@ def capture(project, manifest, destination, roots):
 
 
 def rebase_packages(project,destination,roots):
+    from urllib.parse import urlparse
+    from urllib.request import url2pathname
+    project=Path(project).resolve();destination=Path(destination).resolve()
+    captured=sorted((safe_file(project,r).resolve() for r in roots),key=lambda p:len(p.parts),reverse=True)
+    def mapped(path):
+        path=Path(path).resolve()
+        for base in captured:
+            if path.is_relative_to(base):
+                return safe_file(destination,path.relative_to(project).as_posix())
+        return path
     for root in roots:
         src=safe_file(project,root+'/.dart_tool/package_config.json')
         out=safe_file(destination,root+'/.dart_tool/package_config.json')
-        if not out.exists(): continue
-        config=json.loads(out.read_text(encoding='utf-8'))
-        for package in config['packages']:
-            absolute=urljoin(src.as_uri(),package['rootUri'])
-            package['rootUri']=absolute
-            for r in roots:
-                if absolute.rstrip('/')==safe_file(project,r).as_uri().rstrip('/'):
-                    package['rootUri']=safe_file(destination,r).as_uri()+'/'
-        durable_write(out,canonical(config).encode())
+        if out.exists():
+            config=json.loads(out.read_text(encoding='utf-8'))
+            for package in config['packages']:
+                absolute=urljoin(src.as_uri(),package['rootUri']);parsed=urlparse(absolute)
+                if parsed.scheme!='file' or parsed.netloc not in ('','localhost'):
+                    raise LedgerError('Only local package dependencies can be captured.')
+                package['rootUri']=mapped(Path(url2pathname(parsed.path))).as_uri()+'/'
+            durable_write(out,canonical(config).encode())
+        # Gradle/CMake uses Flutter's native plugin graph, independently of Dart.
+        plugins=safe_file(destination,root+'/.flutter-plugins-dependencies')
+        if plugins.exists():
+            value=json.loads(plugins.read_text(encoding='utf-8'))
+            for entries in value.get('plugins',{}).values():
+                for plugin in entries:
+                    old=Path(plugin['path'])
+                    plugin['path']=str(mapped(old if old.is_absolute() else safe_file(project,root)/old))+os.sep
+            durable_write(plugins,canonical(value).encode())
+        # Only scalar path dependency entries; unsupported YAML fails closed.
+        for leaf in ('pubspec.yaml','pubspec_overrides.yaml'):
+            out=safe_file(destination,root+'/'+leaf)
+            if not out.exists():continue
+            def path_line(match):
+                token=match[2].strip();quote=token[:1] if token[:1] in ('"',"'") else ''
+                if quote:
+                    if not token.endswith(quote):raise LedgerError('Unsupported YAML path dependency; explicit reconciliation required.')
+                    token=token[1:-1]
+                    if quote=='"' and '\\' in token:token=json.loads(match[2].strip())
+                elif any(x in token for x in (' #','{','}','[',']','&','*')):
+                    raise LedgerError('Unsupported YAML path dependency; explicit reconciliation required.')
+                old=Path(token);new=mapped(old if old.is_absolute() else safe_file(project,root)/old)
+                return match[1]+json.dumps(new.as_posix())
+            value=re.sub(r'(?m)^([ \t]*path:[ \t]*)([^\r\n]+)',path_line,out.read_text(encoding='utf-8'))
+            durable_write(out,value.encode())
 
 
 def validate_config(kind,c,roots):
@@ -166,6 +217,7 @@ def dart_argv(sdk):
 
 
 def preflight(runtime,task,s,source):
+    check_capture_paths(home(runtime,task)/('baseline-'+'0'*10),source)
     tools={};references=[]
     owned={p for n in s['plan']['nodes'] if n['kind']=='change' for p in n['config']['recipe']['owned']}
     for n in s['plan']['nodes']:

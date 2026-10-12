@@ -82,7 +82,9 @@ class AndroidDeliveryTests(unittest.TestCase):
         v=json.loads(self.scenario.read_text());v['steps'][0]['operation']='tap'
         self.scenario.write_text(json.dumps(v));self.node['config']['scenario_sha256']=file_hash(self.scenario)
         def response(*args):
-            if args[2][3:]==['shell','dumpsys','window','windows']:return 0,'mCurrentFocus=Window{123 u0 other.app/.Main}',''
+            if args[2][3:]==['shell','dumpsys','window']:
+                return 0,('Display: mDisplayId=6\n  mCurrentFocus=null\nDisplay: mDisplayId=0 (organized)\n'
+                          '  mCurrentFocus=Window{123 u0 other.app/.Main}\nWINDOW MANAGER WINDOWS\n  mTopFocusedDisplayId=0\n'),''
             return self.response(*args)
         with patch('onecrew.delivery_android.bounded',side_effect=response) as adb:
             result=device(self.runtime,'task',self.state,self.node,{'generation':0})
