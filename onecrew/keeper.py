@@ -1,7 +1,8 @@
 """Per-state-root coordinator supervisor: restarts dead delivery-root runners within a bound.
 
 Not a reminder scheduler: never calls a model, sends chat, answers a question or extends a budget. It adopts only roots
-last started by a keeper-aware runtime and never revives a runner that died with a reboot; both need an explicit resume.
+last started by a keeper-aware runtime (others need an explicit resume) and never revives a runner that died with a
+reboot: it raises one typed question for it instead, and the answer continues the root.
 """
 import argparse
 import datetime as dt
@@ -64,7 +65,7 @@ def _roots(state_root):
             pending = conn.execute(f"SELECT COUNT(*) FROM requests WHERE state='pending' AND task_id IN ({','.join('?' for _ in members)})", members).fetchone()[0]
             events = conn.execute("SELECT seq,kind,payload,created_at FROM events WHERE task_id=? AND kind IN ('runner.started','runner.stopped',"
                                   "'coordinator.restarted','coordinator.restart_exhausted','coordinator.lost_report') ORDER BY seq", (task,)).fetchall()
-            restarts, reports, lifecycle, latest, exhausted, manual, detail = [], [], None, {}, 0, 0, None
+            restarts, reports, lifecycle, latest, exhausted, manual, detail, reboots = [], [], None, {}, 0, 0, None, []
             for event in events:
                 value, kind = json.loads(event['payload']), event['kind']
                 at = _when(value.get('at') or event['created_at']) if kind.startswith('coordinator.') else None
@@ -74,12 +75,14 @@ def _roots(state_root):
                     # An exhaustion recorded without an outcome predates report retries and was final.
                     exhausted, detail = event['seq'], value.get('detail')
                     reports = [{'at': at, 'status': (value.get('coordinator_lost') or {'status': 'unavailable'}).get('status')}]
+                elif kind == 'coordinator.lost_report' and value.get('cause') == 'reboot':
+                    reboots.append({'at': at, 'status': value.get('status')})
                 elif kind == 'coordinator.lost_report':
                     reports.append({'at': at, 'status': value.get('status')})
                 else:
                     lifecycle = _when(event['created_at'])
                     if kind == 'runner.started':
-                        latest = value
+                        latest, reboots = value, []  # reboot reports belong to the runner that died with the reboot
                         # A person's or entry's start (resume, the answer to a lost-coordinator question) opens a new episode.
                         if value.get('initiator') != 'keeper': manual, restarts = event['seq'], []
             exhausted = exhausted > manual
@@ -88,7 +91,7 @@ def _roots(state_root):
                            # Only roots last started by a keeper-aware runtime are adopted; older ones need an explicit resume.
                            'adopted': isinstance(latest.get('runtime'), dict), 'created': (latest.get('identity') or {}).get('created'),
                            'restarts': restarts, 'lifecycle': lifecycle, 'exhausted': exhausted, 'detail': detail,
-                           'reports': reports if exhausted else [],
+                           'reports': reports if exhausted else [], 'reboots': reboots,
                            'closed': exhausted and (len(reports) >= REPORTS or any(r['status'] in ('reported', 'unavailable') for r in reports))})
         return result
     finally:
@@ -105,14 +108,36 @@ def _launching(state_root):
     return time.time()-newest < BACKOFF[0]
 
 
-def _lost(ledger, task, detail):
+def _lost(ledger, task, detail, cls=None):
     from .solution_delivery import Delivery
     if not hasattr(Delivery, 'coordinator_lost'): return {'status': 'unavailable'}
     try:
-        Delivery(ledger).coordinator_lost(task, detail)
+        if cls: Delivery(ledger).coordinator_lost(task, detail, cls=cls)
+        else: Delivery(ledger).coordinator_lost(task, detail)
         return {'status': 'reported'}
     except Exception as error:  # another module's code: a defect there must not end supervision of every root
         return {'status': 'failed', 'error': (type(error).__name__+': '+str(error))[:500]}
+
+
+REBOOT = 'Coordinator runner died with a Windows reboot or shutdown; OneCrew never restarts it silently.'
+
+
+def _reboot(ledger, task, root, now, act):
+    """A runner that died with a reboot is never revived silently: one typed question, hence one notice, per runner.
+
+    Idempotent: a landed report (or the question it raised, which makes the root wait on a person) ends the episode;
+    a failed report is retried on later scans, spaced and bounded like a lost-coordinator report."""
+    action = {'task': task, 'action': 'reboot', 'reason': 'Runner died with a reboot; the user is asked once instead of a silent restart.'}
+    reports = root['reboots']
+    if not act or len(reports) >= REPORTS or any(r['status'] in ('reported', 'unavailable') for r in reports): return action
+    if reports:
+        last, wait = reports[-1]['at'], BACKOFF[min(len(reports), LIMIT)-1]
+        if (now-last).total_seconds() < wait: return dict(action, retry_after=(last+dt.timedelta(seconds=wait)).isoformat())
+    payload = dict(_lost(ledger, task, REBOOT, 'coordinator_lost'), cause='reboot', runner_created=root['created'],
+                   last_checkpoint_seq=root['checkpoint_seq'], attempt=len(reports)+1, at=now.isoformat())
+    with ledger.transaction(write=True) as conn:
+        ledger._event(conn, task, 'coordinator.lost_report', payload)
+    return dict(action, **payload)
 
 
 def _scan(state_root, now=None, start=None, act=True):
@@ -134,7 +159,7 @@ def _scan(state_root, now=None, start=None, act=True):
             actions.append({'task': task, 'action': 'unknown', 'reason': 'Runner liveness cannot be proven; not restarted.'}); continue
         if not root['eligible']: continue  # waiting on a person, paused or blocked: the answer/resume restarts it
         if boot and isinstance(root['created'], int) and root['created'] < boot:
-            actions.append({'task': task, 'action': 'reboot', 'reason': 'Runner died with a reboot; continuing needs an explicit resume.'}); continue
+            actions.append(_reboot(ledger, task, root, now, act)); continue
         live += 1
         if not act: continue
         if root['exhausted']:  # the blocker did not reach the user yet: retry it, spaced and bounded

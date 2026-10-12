@@ -449,7 +449,7 @@ class Delivery(Owned):
             rc.escalate(self,task_id,s,record,node)
             self.persist(task_id,seq,s);return s
 
-    def coordinator_lost(self, task_id, detail):
+    def coordinator_lost(self, task_id, detail, cls='runtime_bug'):
         """Keeper could not keep the coordinator alive: one user-visible runtime blocker."""
         from . import delivery_recovery as rc
         with task_lock(self.ledger,task_id):
@@ -457,9 +457,13 @@ class Delivery(Owned):
             if not s or s['phase'] in ('completed','cancelled','failed'):return s
             d=rc.migrate(s['delivery'])
             if d.get('escalation'):return s
-            action,record=rc.decide(d,'coordinator','runtime_bug',rc.normalize(detail),detail)
+            action,record=rc.decide(d,'coordinator',cls,rc.normalize(detail),detail)
             rc.escalate(self,task_id,s,record,None)
             self.persist(task_id,seq,s);return s
+
+    def controller_error(self, task_id, error):
+        """An exception escaped run() in the runner: one typed runtime_bug question instead of an untyped block."""
+        return self.coordinator_lost(task_id,'Controller error: '+type(error).__name__+': '+str(error)[:1200])
 
     def run(self, task_id, steps=1):
         from .delivery_steps import fingerprint, execute
@@ -580,16 +584,21 @@ class Delivery(Owned):
                     action,record=rc.decide(rc.migrate(s['delivery']),'coordinator','runtime_bug',rc.normalize(inner),
                                             'Recovery bookkeeping failed: '+str(inner)[:600]+' (after: '+str(error)[:600]+')')
                     rc.escalate(self,task_id,s,record,ready['id'] if ready else None)
+            except Exception as error:
+                # Any other exception is a controller defect (e.g. KeyError): the same typed path, as runtime_bug.
+                import traceback
+                traceback.print_exc()
+                self._failed(task_id,s,ready,LedgerError('Controller error: '+type(error).__name__+': '+str(error)[:1200]),'runtime_bug')
             # Compare with the latest checkpoint, not the starting one: a mid-step checkpoint (row 'running') must be superseded.
             latest_seq,latest=self.state(task_id)
             if content_hash(latest)!=content_hash(s):self.persist(task_id,latest_seq,s)
             return s
 
-    def _failed(self, task_id, s, node, error):
+    def _failed(self, task_id, s, node, error, cls=None):
         """Every coordinator exception becomes a classified, bounded recovery or one question."""
         from . import delivery_recovery as rc
         d=rc.migrate(s['delivery']);row=d['nodes'].get(node['id']) if node else None
-        cls=rc.classify_error(error);key=rc.normalize(error);detail=str(error)[:1500]
+        cls=cls or rc.classify_error(error);key=rc.normalize(error);detail=str(error)[:1500]
         if node and node['kind']=='change' and row and row.get('child') and str(error).startswith('Child '):
             cs=Owned(self.ledger).state(row['child'])[1]
             cls=rc.classify_child(cs,self._child_questions(row['child']))

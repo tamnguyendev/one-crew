@@ -48,7 +48,10 @@ plan/ngân sách/thiết bị được chạy.
 6. **Coordinator bền vững**: `runner.started` ghi hash runtime và người khởi động; keeper
    (`onecrew.keeper`, một tiến trình/state-root, không phải scheduler nhắc) khởi động lại runner
    root đã chết tối đa 3 lần/giờ có backoff, ghi `coordinator.restarted`; quá giới hạn thì
-   blocker `runtime_bug` báo một lần. Không tự chạy lại sau reboot (cần người dùng bật riêng).
+   blocker `runtime_bug` báo một lần. Không tự chạy lại sau reboot: keeper ghi
+   `coordinator.lost_report` (`cause: reboot`) và hỏi một request `coordinator_lost` (một cửa sổ);
+   exception khác trong `Delivery.run`/runner thành một request `runtime_bug` thay vì `blocked`
+   không phân loại. Trả lời `retry` thì runtime tự chạy tiếp, không cần `resume`.
 7. **Can thiệp và báo cáo**: mọi lệnh CLI/MCP thay đổi task ghi `control.intervention`
    (actor từ `ONECREW_ACTOR`/nguồn MCP, mặc định `unknown`); đổi hash runtime giữa các
    checkpoint là can thiệp runtime. Báo cáo handover liệt kê từng AC `passed/failed/blocked/
