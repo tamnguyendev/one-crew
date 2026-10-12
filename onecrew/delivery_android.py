@@ -112,7 +112,10 @@ def scenario(path,digest):
 
 def find_ui(xml,selector,package=None,viewport=None):
     root=ET.fromstring(xml)
-    matches=[n for n in root.iter('node') if all(n.attrib.get(k)==v for k,v in selector.items())]
+    def match(n,k,v):
+        # Flutter exposes visible labels as content-desc with empty text; a text selector names that label too.
+        return n.attrib.get(k)==v or (k=='text' and not n.attrib.get('text') and n.attrib.get('content-desc')==v)
+    matches=[n for n in root.iter('node') if all(match(n,k,v) for k,v in selector.items())]
     if len(matches)!=1:raise LedgerError('UI precondition failed: selector must match exactly one visible node.')
     node=matches[0];bounds=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',node.get('bounds',''))
     if package is not None and node.get('package')!=package:raise LedgerError('UI target belongs to another package.')
@@ -318,7 +321,13 @@ def device(runtime,task,s,node,row):
                         if str(e).startswith('ADB operation failed') or 'timeout' in str(e):raise
                         unavailable+=str(e)=='Android UI hierarchy unavailable.'
                         left=operation_deadline-time.monotonic()
-                        if left<=0:raise LedgerError('UI wait timed out.')
+                        if left<=0:
+                            operation_deadline=None
+                            focus=foreground_focus(adb('shell','dumpsys','window'))
+                            if focus and not re.search(r''+re.escape(c['package_id'])+'/',focus):
+                                # A system dialog (e.g. System UI not responding) is an environment problem, not an app failure.
+                                raise LedgerError('Another window has foreground focus during a UI wait: '+focus[:120])
+                            raise LedgerError('UI wait timed out.')
                         time.sleep(min(.25,left))
                 step_evidence={'polls':attempts,'hierarchy_unavailable':unavailable}
             finally:operation_deadline=None

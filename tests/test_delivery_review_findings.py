@@ -217,6 +217,40 @@ class ReviewProtocolTests(unittest.TestCase):  # autonomy trial 2 (TASK-03a6a3a9
         self.assertNotIn(rc.classify_receipt({'kind': 'review'}, results[2])[0], ('product', 'review'))
 
 
+class Trial3DeviceTests(unittest.TestCase):  # autonomy trial 3 (TASK-e991ebeb): emulator ANR, locked stream, Flutter labels
+    def test_text_selector_matches_a_flutter_content_description_label(self):
+        from onecrew.delivery_android import find_ui
+        xml = ('<hierarchy><node class="android.view.View" text="" content-desc="Cấu hình máy chủ" package="a.b" enabled="true" bounds="[0,0][100,50]"/>'
+               '<node class="android.widget.Button" text="" content-desc="LƯU" package="a.b" enabled="true" bounds="[0,60][100,110]"/></hierarchy>')
+        self.assertEqual(find_ui(xml, {'text': 'LƯU'}, 'a.b')[0].get('content-desc'), 'LƯU')
+        with self.assertRaises(LedgerError): find_ui(xml.replace('text="" content-desc="LƯU"', 'text="X" content-desc="LƯU"'), {'text': 'LƯU'}, 'a.b')
+
+    def test_system_dialog_and_locked_stream_are_environment_or_transient(self):
+        self.assertEqual(rc.classify_error(LedgerError('Another window has foreground focus during a UI wait: Window{1 u0 Application Not Responding: com.android.systemui}')), 'environment')
+        self.assertEqual(rc.classify_error(OSError("[WinError 32] The process cannot access the file because it is being used by another process: 'x.err'")), 'transient')
+
+    def test_locked_raw_stream_does_not_fail_the_command(self):
+        import tempfile
+        from pathlib import Path
+        from onecrew import delivery_steps as ds
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            def command(argv, cwd, seconds, guard, env):
+                (directory / 'x.out').write_text('raw'); return 0, 'ok', ''
+            runtime = type('R', (), {})(); runtime.control = type('C', (), {})()
+            runtime.control.status = lambda task: {'deadline': '2999-01-01T00:00:00+00:00'}
+            import datetime as dt
+            runtime.control.clock = lambda: dt.datetime.now(dt.timezone.utc)
+            real = Path.unlink; calls = []
+            def flaky(self, missing_ok=False):
+                calls.append(self)
+                if len(calls) == 1: raise PermissionError(32, 'being used by another process')
+                return real(self, missing_ok=missing_ok)
+            with patch('onecrew.delivery_steps.command', side_effect=command), patch('onecrew.delivery_steps.task_guard', return_value=lambda: None),                  patch.object(Path, 'unlink', flaky), patch('onecrew.delivery_steps.time.sleep'):
+                self.assertEqual(ds.bounded(runtime, 'task', ['x'], directory, 5), (0, 'ok', ''))
+            self.assertEqual(len(calls), 2)
+
+
 class DeviceEffectTests(unittest.TestCase):
     def test_failure_after_scenario_steps_is_never_a_free_retry(self):  # C3/C13
         node = {'kind': 'device', 'config': {'replay_safe': False}}

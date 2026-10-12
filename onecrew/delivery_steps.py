@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import time
 import uuid
 from urllib.parse import urljoin
 
@@ -253,7 +254,10 @@ def bounded(runtime,task,argv,cwd,seconds,env=None):
     finally:
         # Raw native streams can contain private values. Only sanitized stage logs are retained.
         for path in (set(directory.glob('*.out'))|set(directory.glob('*.err')))-before:
-            path.unlink(missing_ok=True)
+            # A killed tool may still hold its stream for a moment; cleanup must never turn a result into a failure.
+            for _ in range(5):
+                try:path.unlink(missing_ok=True);break
+                except OSError:time.sleep(.2)
 
 
 def dart_argv(sdk):

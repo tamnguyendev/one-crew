@@ -39,11 +39,11 @@ MESSAGES = [
     (r'provider did not complete|supervisor_interrupted|interrupted native operation|prior launch must be reconciled|'
      r'container gate stopped by root', 'interrupted'),
     (r'native command deadline exceeded|adb operation failed|device offline|workflow changed concurrently|'
-     r'hierarchy unavailable|already owns', 'transient'),
+     r'hierarchy unavailable|already owns|winerror 32|being used by another process', 'transient'),
     (r'device not ready|android device unavailable|device viewport unavailable|java unavailable|android sdk unavailable|'
      r'tool unavailable|dependency cache unavailable|dependency graph missing|insufficient free space|path too long|'
      r'workspace unavailable|source root unavailable|reference unavailable|explicit materialization|'
-     r'another window has foreground focus|keyboard bounds unknown|flutter sdk', 'environment'),
+     r'another window has foreground focus|keyboard bounds unknown|flutter sdk|not responding', 'environment'),
     (r'operation outcome unknown|unknown device effect|an operation may have run', 'side_effect_unknown'),
     (r'exceeds the sealed plan|durable coordinator intent|missing current source provenance|stale verification evidence|'
      r'no ready delivery node|required criteria unresolved|controller error|lacks reviewed application evidence', 'runtime_bug'),
