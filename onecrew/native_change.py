@@ -360,9 +360,9 @@ def advance(runtime,task_id,seq,state,profile):
         result=(node_change.verify if node else verify)(runtime,task_id,state,recipe)
         state['tests'].append(result);native['checks'].append(result)
         if result['passed']: native['stage']='review';state['message']=kind+' regression tests passed; independent review pending.'
+        elif result.get('failure_kind')=='environment' or not node and any(s in result['detail'].lower() for s in ('could not resolve the package','unable to find git','could not find a file named','unable to locate android sdk')):
+            state.update(phase='blocked',message=kind+' dependency/environment unavailable; test receipt preserved.',recovery={'kind':'environment','automatic_retry':False})
         elif node: repair(state,'Fixed Node verification (tsc, vitest, build) failed. Diagnose evidence before editing; do not remove or skip assertions.\n'+result['detail'])
-        elif result.get('failure_kind')=='environment' or any(s in result['detail'].lower() for s in ('could not resolve the package','unable to find git','could not find a file named','unable to locate android sdk')):
-            state.update(phase='blocked',message='Flutter dependency/environment unavailable; test receipt preserved.',recovery={'kind':'environment','automatic_retry':False})
         else: repair(state,'Fixed Flutter test command failed. Diagnose evidence before editing; do not remove assertions.\n'+result['detail'])
     elif stage=='apply':
         if not native.get('review_accepted') or not native['checks'] or not native['checks'][-1]['passed'] or native['checks'][-1]['evidence']['snapshot']!=state['snapshot']:
