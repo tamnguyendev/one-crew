@@ -98,6 +98,33 @@ class StateRootOutboxTests(unittest.TestCase):
         desktop.write(old/'config.json', dict(desktop.read(old/'config.json'), enabled=False))
         self.assertTrue(desktop.status(self.ledger)['config']['enabled'])  # one time only
 
+    def test_corrupt_legacy_outbox_never_breaks_persist(self):
+        from onecrew.ledger import LedgerError, content_hash
+        old = self.old_home/content_hash(str(self.ledger.state_root.resolve()).casefold())[:16]
+        old.mkdir(parents=True)
+        (old/'config.json').write_text('{"enabled": tru', encoding='utf-8')
+        folder = self.ledger.state_root.resolve()/'desktop'
+        self.change('blocked')  # persist returns after its committed checkpoint
+        self.assertEqual(self.run.state(self.task)[1]['phase'], 'blocked')
+        self.assertEqual(desktop.read(folder/'error.json')['status'], 'migration_pending')
+        self.assertFalse((folder/'config.json').exists())
+        status = desktop.status(self.ledger)  # read-only callers survive too
+        self.assertEqual((status['config'], status['last_error']['status']), ({'enabled': False}, 'migration_pending'))
+        # A corrupt legacy receipt or a migration lock held elsewhere is retried the same way.
+        desktop.write(old/'config.json', {'enabled': True, 'since': 0, 'state_root': str(self.ledger.state_root)})
+        (old/('a'*32+'.json')).write_text('{', encoding='utf-8')
+        self.change('paused')
+        with patch.object(desktop, 'lock', side_effect=LedgerError('A controller already owns this task.')):
+            self.change('blocked')
+        self.assertEqual(desktop.read(folder/'error.json')['status'], 'migration_pending')
+        self.launch.assert_not_called()
+        (old/('a'*32+'.json')).unlink()
+        status = desktop.status(self.ledger)  # repaired: migrated on the next call, the note is cleared
+        self.assertEqual((status['config']['enabled'], status['last_error']), (True, None))
+        with patch.object(desktop, 'publish', side_effect=ValueError('bad record')), \
+             patch.object(desktop, 'write', side_effect=ValueError('bad value')):
+            self.assertEqual(desktop.best_effort(self.ledger)['status'], 'delivery_pending')
+
     def test_partial_title_not_done(self):
         cases = [
             (root(FULL), 'Hoàn thành trọn luồng'),

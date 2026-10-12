@@ -32,7 +32,15 @@ def directory(ledger):
     """<state_root>/desktop: runners started by the keeper, a reply or another runtime share one flag and dedup set."""
     root = Path(ledger.state_root).resolve() / 'desktop'
     if not (root / 'config.json').exists():
-        migrate(ledger, root)
+        try:
+            migrate(ledger, root)
+        except (OSError, ValueError) as error:
+            # Never fatal to a committed checkpoint or a read: the config is written last, so the next call retries.
+            if not (root / 'config.json').exists():
+                try:
+                    write(root / 'error.json', {'status': 'migration_pending', 'error': safe(str(error), 1000)})
+                except OSError:
+                    pass
     return root
 
 
@@ -55,6 +63,8 @@ def migrate(ledger, root):
                 data = canonical(record).encode('utf-8')
             durable_write(root / path.name, data)
         write(root / 'config.json', dict(read(old / 'config.json'), migrated_from=str(old)))
+        if (read(root / 'error.json') or {}).get('status') == 'migration_pending':
+            (root / 'error.json').unlink(missing_ok=True)
 
 
 def read(path, default=None):
@@ -331,7 +341,7 @@ def best_effort(ledger):
         result = {'status':'delivery_pending', 'error':safe(str(error), 1000)}
         try:
             write(directory(ledger)/'error.json', result)
-        except OSError:
+        except (OSError, ValueError):
             pass
         return result
 
