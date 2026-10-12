@@ -414,18 +414,22 @@ def device(runtime,task,s,node,row):
         if state!='device':
             if not c.get('emulator'):raise LedgerError('Authorized device not ready.')
             restart('device '+state) if state!='absent' else boot('device absent')
-        health=settle(system,xml,record)
+        # A fresh boot settles under load for minutes; an already running device gets a short bound.
+        booted_now=lambda:environment['emulator_started']
+        health=settle(system,xml,record,seconds=240 if booted_now() else 60,stable=3 if booted_now() else 1)
         if blocked(health) and c.get('emulator'):
-            restart(','.join(blocked(health)));health=settle(system,xml,record)
+            restart(','.join(blocked(health)));health=settle(system,xml,record,seconds=240,stable=3)
         environment['health']=health
         if blocked(health):
-            raise EnvironmentUnusable('Android device not usable after granted recovery: '+','.join(blocked(health))+'; focus '+health['focus'][:120])
+            done=sorted({a['action'] for a in environment['actions']})
+            raise EnvironmentUnusable('Android device not usable after granted recovery: '+','.join(blocked(health))+'; focus '+
+                                      health['focus'][:120]+'; actions '+','.join(done)+' ('+str(len(environment['actions']))+')')
     def refocus():
         """The app lost focus: one bounded system recovery (dialog Wait, wake, keyguard), never a blind input."""
         if refocus_left[0]<=0:return adb('shell','dumpsys','window')
         refocus_left[0]-=1
         from .delivery_device_env import settle
-        settle(system,xml,record)
+        settle(system,xml,record,seconds=90)
         return adb('shell','dumpsys','window')
     def perform(step):
         nonlocal operation_deadline,step_evidence

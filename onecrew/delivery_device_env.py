@@ -86,21 +86,25 @@ def answer_system_dialog(call, dump):
     return True
 
 
-def settle(call, dump, record, rounds=4, pause=2.0):
-    """Bring the device to a usable foreground with granted, data-preserving actions. Returns the last health."""
-    for _ in range(rounds):
+def settle(call, dump, record, seconds=60, pause=5.0, stable=1):
+    """Bring the device to a usable foreground with granted, data-preserving actions. Returns the last health.
+
+    Usable means `stable` consecutive clean reads; once a system dialog was seen, three. A just-booted
+    emulator's System UI hangs repeatedly for a minute or two under boot load (trial 3, smoke 12/10): Wait is
+    answered each time inside the bound instead of restarting at the first dialog. Bounded by reads, not time."""
+    clean, seen = 0, False
+    for _ in range(max(1, int(seconds / pause))):
         state = health(call)
         if state['asleep']:
-            call('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'); record('wake', None)
+            call('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'); record('wake', None); clean = 0
         elif state['keyguard']:
-            call('shell', 'wm', 'dismiss-keyguard'); record('dismiss_keyguard', None)
+            call('shell', 'wm', 'dismiss-keyguard'); record('dismiss_keyguard', None); clean = 0
         elif state['system_dialog']:
-            if not answer_system_dialog(call, dump):
-                record('system_dialog_unanswered', state['focus'])
-                return state
-            record('system_dialog_wait', state['focus'])
+            seen, clean = True, 0
+            record('system_dialog_wait' if answer_system_dialog(call, dump) else 'system_dialog_unanswered', state['focus'])
         else:
-            return state
+            clean += 1
+            if clean >= (max(stable, 3) if seen else stable): return state
         time.sleep(pause)
     return health(call)
 
@@ -130,7 +134,7 @@ def boot_emulator(adb, serial, emulator, log, call_state, wait=BOOT_SECONDS, win
     deadline = time.monotonic() + min(wait, window if window is not None else wait)
     while time.monotonic() < deadline:
         if process.poll() is not None: raise EnvironmentUnusable('Emulator exited during boot (see emulator log).')
-        if call_state() == ('device', '1'): return {'booted': True, 'pid': process.pid, 'argv': argv[:4] + ['-port', port]}
+        if call_state() == ('device', '1'): return {'booted': True, 'pid': process.pid, 'argv': argv[:5]}
         time.sleep(3)
     raise EnvironmentUnusable('Emulator did not finish booting within the bound.')
 

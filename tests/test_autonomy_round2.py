@@ -250,6 +250,22 @@ class LiveDeviceTests(DeviceRun):
         self.assertFalse(any(a[:2] == ['emu', 'kill'] or a[:1] == ['reboot'] for a in self.sent))
         self.assertNotIn(['shell', 'input', 'tap', '360', '630'], self.sent)  # never "Close app"
 
+    def test_a_just_booted_system_ui_that_hangs_repeatedly_is_waited_out_not_restarted(self):
+        # Smoke 12/10 on the real emulator: after a cold boot the dialog came back for 1-2 minutes under boot load;
+        # the first version answered Wait for 15 s, then restarted the emulator into the same state.
+        states = iter(['absent']); original = self.adb
+        def adb(runtime, task, argv, cwd, seconds):
+            if argv[3:] == ['get-state'] and next(states, 'device') == 'absent': return 1, '', 'not found'
+            if argv[3:] == ['shell', 'dumpsys', 'window'] and not self.dialog and getattr(self, 'relapses', 0) < 3:
+                self.relapses = getattr(self, 'relapses', 0) + 1; self.dialog = 1  # System UI hangs again after each Wait
+            return original(runtime, task, argv, cwd, seconds)
+        self.adb = adb; self.dialog = 1
+        with patch('onecrew.delivery_device_env.boot_emulator', return_value={'booted': True}) as boot:
+            result = self.run_device(self.node(AC3, emulator={'avd': 'Trial', 'avd_home': str(self.root)}))
+        self.assertTrue(result['passed'], result.get('detail')); boot.assert_called_once()
+        actions = [a['action'] for a in result['environment']['actions']]
+        self.assertEqual(actions.count('system_dialog_wait'), 4); self.assertNotIn('emulator_stop', actions)
+
     def test_dialog_that_takes_focus_mid_scenario_is_answered_once_then_input_continues(self):
         original = self.adb
         def adb(runtime, task, argv, cwd, seconds):

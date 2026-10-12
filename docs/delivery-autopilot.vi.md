@@ -88,7 +88,9 @@ và tắt emulator do chính nó boot sau khi stage thiết bị đạt. Chỉ h
 - **Môi trường.** Trước khi cài APK và khi app mất focus giữa kịch bản, OneCrew đọc `dumpsys window/power`
   và chỉ dùng các hành động không đổi dữ liệu: đánh thức màn hình, `wm dismiss-keyguard` (khóa không mật
   khẩu), bấm **Wait** (`android:id/aerr_wait`) trên hộp thoại "not responding" của hệ thống — không bao giờ
-  "Close app". Còn kẹt thì: emulator có trong envelope → khởi động lại một lần; thiết bị khác → lỗi
+  "Close app". Sau khi boot, System UI có thể treo lặp lại 1–2 phút vì tải boot (smoke 12/10): OneCrew trả lời
+  Wait mỗi lần và chỉ coi là dùng được sau 3 lần đọc sạch liên tiếp (tối đa 240 s sau boot, 60–90 s nếu không boot).
+  Còn kẹt thì: emulator có trong envelope → khởi động lại một lần; thiết bị khác → lỗi
   `environment` (thử lại có giới hạn rồi hỏi). Mọi hành động ghi vào `receipt.environment.actions`.
   adb server được khởi động ngoài lệnh có thu luồng (server sinh từ client bị thu sẽ giữ khóa file).
 - **Selector theo tầng, có bằng chứng.** Một selector phải trúng đúng một node; tầng đầu tiên có kết quả
