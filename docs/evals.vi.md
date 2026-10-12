@@ -108,6 +108,10 @@ thành `assisted`; `unknown` làm mức hỗ trợ `unknown` nếu không có b�
 của chính người dùng không phải hỗ trợ.
 
 Can thiệp được ghi tự động từ CLI/MCP (`ONECREW_ACTOR`), runtime ghi hash mã ở `runner.started`.
+
+**Thay thế từ A2 (12/10):** nguồn quyết định v2 (`user/relayed/delegated/undelegated/observed/unknown`),
+ủy quyền `delegation`, mức `full_loop` và lớp `autonomous_full_loop`/`assisted_full_loop`/`plan_complete`/
+`tests_only`, bàn giao chỉ tính lần đầu và `eval trial`: xem `docs/autonomy-measurement.vi.md`.
 Corpus v3 thêm hai lỗi review Codex (đỏ bằng assertion trên 356fb82) và các case autopilot; probe
 có module mới ở mức module được chấm `capability_unavailable`, không phải tái hiện hành vi.
 
