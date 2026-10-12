@@ -86,7 +86,8 @@ def clean_environment(home):
     env = {k:v for k,v in os.environ.items() if k.upper() in keep}
     for name in ('TEMP', 'TMP', 'LOCALAPPDATA', 'APPDATA', 'USERPROFILE', 'ONECREW_DESKTOP_HOME'):
         p = home/name.lower(); p.mkdir(parents=True, exist_ok=True); env[name] = str(p)
-    env.update(PYTHONUTF8='1', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
+    # Local attribution (getpass) needs a user name; a fixed one keeps probes identical across machines.
+    env.update(USERNAME='onecrew-eval', PYTHONUTF8='1', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
                GIT_TERMINAL_PROMPT='0', FLUTTER_SUPPRESS_ANALYTICS='true', DART_SUPPRESS_ANALYTICS='true')
     return env
 
