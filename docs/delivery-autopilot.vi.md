@@ -51,7 +51,9 @@ plan/ngân sách/thiết bị được chạy.
    blocker `runtime_bug` báo một lần. Không tự chạy lại sau reboot: keeper ghi
    `coordinator.lost_report` (`cause: reboot`) và hỏi một request `coordinator_lost` (một cửa sổ);
    exception khác trong `Delivery.run`/runner thành một request `runtime_bug` thay vì `blocked`
-   không phân loại. Trả lời `retry` thì runtime tự chạy tiếp, không cần `resume`.
+   không phân loại. Trả lời `retry` thì runtime tự chạy tiếp, không cần `resume`. Câu trả lời
+   đã ghi mà coordinator chết trước khi áp dụng được áp dụng trước (`stop` thì hủy, báo
+   `not_raised`), rồi mới hỏi lỗi mới; không còn câu hỏi pending thì runner chặn `blocked` như cũ.
 7. **Can thiệp và báo cáo**: mọi lệnh CLI/MCP thay đổi task ghi `control.intervention`
    (actor từ `ONECREW_ACTOR`/nguồn MCP, mặc định `unknown`); đổi hash runtime giữa các
    checkpoint là can thiệp runtime. Báo cáo handover liệt kê từng AC `passed/failed/blocked/

@@ -34,6 +34,18 @@ class Base(unittest.TestCase):
     def events(self, kind):
         return [e for e in self.ledger.events(self.t) if e['kind'] == kind]
 
+    def answered(self, choice):
+        """A runtime_bug question the user answered that no coordinator has applied yet."""
+        self.r.run(self.t)
+        with patch('onecrew.delivery_steps.execute', side_effect=TypeError('bad receipt')):
+            self.r.run(self.t)
+        [request] = self.pending()
+        self.ledger.reply(request['id'], request['revision'], choice, 'terminal', 'anh chọn '+choice, decided_by='user', by='user')
+        return request
+
+    def consumed(self):
+        return [x['request_id'] for x in Delivery(self.ledger).state(self.t)[1].get('consumed_replies', [])]
+
 
 class ControllerErrorTests(Base):
     def test_keyerror_in_run_runtime_bug_request(self):
@@ -69,6 +81,35 @@ class ControllerErrorTests(Base):
         [request] = self.pending()
         self.assertIn('Controller error: KeyError', request['question']['reason'])
         self.assertEqual(self.events('runner.stopped')[-1]['payload']['outcome'], 'waiting')
+
+    def test_answered_question_then_controller_error_asks_again(self):
+        old = self.answered('retry')
+        with patch.object(Delivery, 'run', side_effect=KeyError('checkpoint')):
+            self.assertEqual(runner.loop(self.ledger, self.t, interval=0), 'waiting')
+        [request] = self.pending()  # a question exists again, so the root is not stuck on an applied-never answer
+        self.assertNotEqual(request['id'], old['id'])
+        self.assertIn('Controller error: KeyError', request['question']['reason'])
+        s = Delivery(self.ledger).state(self.t)[1]
+        self.assertEqual((s['phase'], s['waiting_reason']), ('waiting', 'decision'))
+        self.assertEqual((s['delivery']['escalation']['class'], s['delivery']['escalation']['request']), ('runtime_bug', request['id']))
+        self.assertEqual(self.consumed(), [old['id']])  # the user's retry was applied, not dropped
+        self.assertNotIn('recovery', s)
+
+    def test_answered_stop_then_controller_error_cancels(self):
+        self.answered('stop')
+        with patch.object(Delivery, 'run', side_effect=KeyError('checkpoint')):
+            self.assertEqual(runner.loop(self.ledger, self.t, interval=0), 'cancelled')
+        self.assertEqual((Delivery(self.ledger).state(self.t)[1]['phase'], self.pending()), ('cancelled', []))
+
+    def test_controller_error_without_question_blocks_untyped(self):
+        # Backstop: a non-terminal root without a pending question would sit with nothing to answer and no notice.
+        with patch.object(Delivery, 'run', side_effect=KeyError('checkpoint')), \
+             patch.object(Delivery, 'coordinator_lost', lambda self, task, detail, cls='runtime_bug': self.state(task)[1]):
+            with self.assertRaisesRegex(LedgerError, 'no typed question'):
+                Delivery(self.ledger).controller_error(self.t, KeyError('checkpoint'))
+            self.assertEqual(runner.loop(self.ledger, self.t, interval=0), 'blocked')
+        s = Delivery(self.ledger).state(self.t)[1]
+        self.assertEqual((s['phase'], s['recovery']['kind'], s['recovery']['error_type']), ('blocked', 'controller', 'KeyError'))
 
     def test_runner_keeps_untyped_block_when_typed_path_fails(self):
         with patch.object(Delivery, 'run', side_effect=KeyError('checkpoint')), \
@@ -125,6 +166,34 @@ class RebootTests(Base):
         self.assertEqual(record['title'], 'Cần anh trả lời')
         text = Path(record['report']).read_text(encoding='utf-8')
         self.assertIn('request reply '+request['id']+' --revision '+request['revision']+' --choice retry --decided-by user', text)
+
+    def test_keeper_reboot_after_answer_asks_once(self):
+        desktop.configure(self.ledger, True)
+        now = dt.datetime.now(dt.timezone.utc)
+        with patch.object(desktop, 'launch') as launch:
+            old = self.answered('retry')  # the machine rebooted before any runner applied the answer
+            self.died_with_reboot()
+            [action] = keeper.scan(self.ledger.state_root, now, never_start)
+            for later in (60, 600, 6000):
+                self.assertEqual(keeper.scan(self.ledger.state_root, now+dt.timedelta(seconds=later), never_start), [])
+        self.assertEqual((action['action'], action['status'], action['cause']), ('reboot', 'reported', 'reboot'))
+        [request] = self.pending()
+        self.assertNotEqual(request['id'], old['id'])
+        s = Delivery(self.ledger).state(self.t)[1]
+        self.assertEqual((s['phase'], s['delivery']['escalation']['class'], s['delivery']['escalation']['request']),
+                         ('waiting', 'coordinator_lost', request['id']))
+        self.assertEqual(self.consumed(), [old['id']])
+        self.assertEqual(launch.call_count, 2)  # the first question, then exactly one notice for the reboot
+        self.assertEqual([r['title'] for r in desktop.status(self.ledger)['records']], ['Cần anh trả lời']*2)
+
+    def test_keeper_reboot_after_stop_not_raised(self):
+        self.answered('stop')
+        self.died_with_reboot()
+        now = dt.datetime.now(dt.timezone.utc)
+        [action] = keeper.scan(self.ledger.state_root, now, never_start)
+        self.assertEqual((action['action'], action['status'], action['phase']), ('reboot', 'not_raised', 'cancelled'))
+        self.assertEqual((Delivery(self.ledger).state(self.t)[1]['phase'], self.pending()), ('cancelled', []))
+        self.assertEqual(keeper.scan(self.ledger.state_root, now+dt.timedelta(seconds=600), never_start), [])  # terminal
 
     def test_keeper_reboot_report_retried_then_closed(self):
         self.died_with_reboot()

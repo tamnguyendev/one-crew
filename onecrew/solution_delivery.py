@@ -456,14 +456,28 @@ class Delivery(Owned):
             seq,s=self.state(task_id)
             if not s or s['phase'] in ('completed','cancelled','failed'):return s
             d=rc.migrate(s['delivery'])
-            if d.get('escalation'):return s
+            if d.get('escalation'):
+                # Only a pending question stands. An answer the dead coordinator never applied is applied first,
+                # as at the deadline: a 'stop' cancels, a 'retry' is consumed and this loss is asked anew.
+                changed=self._answer(task_id,s)
+                if not changed or s['phase']=='cancelled' or d.get('escalation'):
+                    if changed:self.persist(task_id,seq,s)
+                    return s
             action,record=rc.decide(d,'coordinator',cls,rc.normalize(detail),detail)
             rc.escalate(self,task_id,s,record,None)
             self.persist(task_id,seq,s);return s
 
+    def asking(self, s):
+        """True when the checkpoint waits on a pending root recovery question, the one its notice shows."""
+        esc=((s or {}).get('delivery') or {}).get('escalation')
+        return bool(esc) and self.ledger.request(esc['request'])['state']=='pending'
+
     def controller_error(self, task_id, error):
         """An exception escaped run() in the runner: one typed runtime_bug question instead of an untyped block."""
-        return self.coordinator_lost(task_id,'Controller error: '+type(error).__name__+': '+str(error)[:1200])
+        s=self.coordinator_lost(task_id,'Controller error: '+type(error).__name__+': '+str(error)[:1200])
+        if s and s['phase'] not in ('completed','cancelled','failed') and not self.asking(s):
+            raise LedgerError('Controller error raised no typed question; the runner blocks the root instead.')
+        return s
 
     def run(self, task_id, steps=1):
         from .delivery_steps import fingerprint, execute

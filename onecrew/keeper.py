@@ -112,8 +112,11 @@ def _lost(ledger, task, detail, cls=None):
     from .solution_delivery import Delivery
     if not hasattr(Delivery, 'coordinator_lost'): return {'status': 'unavailable'}
     try:
-        if cls: Delivery(ledger).coordinator_lost(task, detail, cls=cls)
-        else: Delivery(ledger).coordinator_lost(task, detail)
+        delivery = Delivery(ledger)
+        state = delivery.coordinator_lost(task, detail, cls=cls) if cls else delivery.coordinator_lost(task, detail)
+        if isinstance(state, dict) and not delivery.asking(state):
+            # e.g. an answered 'stop' cancelled the root instead: no question, no notice, so not a landed report
+            return {'status': 'not_raised', 'phase': state.get('phase')}
         return {'status': 'reported'}
     except Exception as error:  # another module's code: a defect there must not end supervision of every root
         return {'status': 'failed', 'error': (type(error).__name__+': '+str(error))[:500]}
@@ -126,7 +129,7 @@ def _reboot(ledger, task, root, now, act):
     """A runner that died with a reboot is never revived silently: one typed question, hence one notice, per runner.
 
     Idempotent: a landed report (or the question it raised, which makes the root wait on a person) ends the episode;
-    a failed report is retried on later scans, spaced and bounded like a lost-coordinator report."""
+    a failed or not-raised report is retried on later scans, spaced and bounded like a lost-coordinator report."""
     action = {'task': task, 'action': 'reboot', 'reason': 'Runner died with a reboot; the user is asked once instead of a silent restart.'}
     reports = root['reboots']
     if not act or len(reports) >= REPORTS or any(r['status'] in ('reported', 'unavailable') for r in reports): return action
