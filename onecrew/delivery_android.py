@@ -362,6 +362,7 @@ def device(runtime,task,s,node,row):
     step_evidence={}
     current={'step':None,'operation':None,'tree':None}
     refocus_left=[3]
+    launched={'epoch':0}
     def adb(*args,effect=True):
         nonlocal effect_pending
         left=c['timeout_seconds']-(time.monotonic()-start)
@@ -411,14 +412,19 @@ def device(runtime,task,s,node,row):
         from .delivery_device_env import ensure_server,settle,blocked,EnvironmentUnusable
         environment['adb_server']=ensure_server(c['adb'])
         state=probe('get-state') or 'absent'
+        try:last=json.loads((directory/'receipt.json').read_text(encoding='utf-8')) if (directory/'receipt.json').is_file() else {}
+        except (OSError,ValueError):last={}
         if state!='device':
             if not c.get('emulator'):raise LedgerError('Authorized device not ready.')
             restart('device '+state) if state!='absent' else boot('device absent')
+        elif c.get('emulator') and (last.get('app_crash') or {}).get('kind')=='native':
+            # Trial 5 (12/10): after a native Flutter raster crash every launch crashed until the emulator restarted.
+            restart('previous run: app crashed natively on the emulator')
         # A fresh boot settles under load for minutes; an already running device gets a short bound.
         booted_now=lambda:environment['emulator_started']
-        health=settle(system,xml,record,seconds=240 if booted_now() else 60,stable=3 if booted_now() else 1)
+        health=settle(system,xml,record,seconds=240 if booted_now() else 60,stable=3 if booted_now() else 1,package=c['package_id'])
         if blocked(health) and c.get('emulator'):
-            restart(','.join(blocked(health)));health=settle(system,xml,record,seconds=240,stable=3)
+            restart(','.join(blocked(health)));health=settle(system,xml,record,seconds=240,stable=3,package=c['package_id'])
         environment['health']=health
         if blocked(health):
             done=sorted({a['action'] for a in environment['actions']})
@@ -428,9 +434,38 @@ def device(runtime,task,s,node,row):
         """The app lost focus: one bounded system recovery (dialog Wait, wake, keyguard), never a blind input."""
         if refocus_left[0]<=0:return adb('shell','dumpsys','window')
         refocus_left[0]-=1
+        gone()  # a crashed app is evidence, never a dialog to dismiss and continue past
         from .delivery_device_env import settle
         settle(system,xml,record,seconds=90)
         return adb('shell','dumpsys','window')
+    def alive():
+        return bool((probe('shell','pidof',c['package_id']) or '').strip())
+    def gone():
+        """Raise AppCrashed with a sanitized summary when the app under test is not running."""
+        from .delivery_device_env import AppCrashed,crash_summary,describe
+        if alive():return
+        since=launched['epoch']
+        text=probe('logcat','-d','-b','crash','-T',str(since)+'.000',seconds=30) if since else probe('logcat','-d','-b','crash','-t','400',seconds=30)
+        crash=crash_summary(text,c['package_id']) or {'kind':'none'}
+        receipt['app_crash']=crash
+        if crash['kind']=='java':
+            receipt['failure_kind']='product'
+            raise AppCrashed('App crashed on the device ('+describe(crash)+'); the app must not crash in this flow.')
+        emulator=' on the emulator; emulator graphics/runtime suspected' if c.get('emulator') and crash['kind']=='native' else ''
+        raise AppCrashed('App process died during the device scenario ('+describe(crash)+')'+emulator+'.')
+    def launch(restart_app=False):
+        """Start the pinned activity and confirm the app process runs and holds focus; 'Status: ok' alone is not proof."""
+        if restart_app:adb('shell','am','force-stop',c['package_id'])
+        try:launched['epoch']=int((probe('shell','date','+%s') or '0').strip() or 0)
+        except ValueError:launched['epoch']=0
+        adb('shell','am','start','-W','-n',c['package_id']+'/'+v['activity'])
+        for _ in range(10):
+            windows=adb('shell','dumpsys','window')
+            if app_has_focus(windows,c['package_id']):return
+            if not alive():break
+            if foreground_focus(windows) is None:break  # focus unreadable: the input steps decide, as before
+            time.sleep(.5)
+        gone()  # alive but not focused yet: each input step checks focus and recovers within its own bound
     def perform(step):
         nonlocal operation_deadline,step_evidence
         step_evidence={}
@@ -466,8 +501,7 @@ def device(runtime,task,s,node,row):
                 for _ in range(min(len(focused.get('text','')),150)):adb('shell','input','keyevent','KEYCODE_DEL')
                 adb('shell','input','text',value)
         elif op=='key':adb('shell','input','keyevent','KEYCODE_'+a['key'])
-        elif op=='restart':
-            adb('shell','am','force-stop',c['package_id']);adb('shell','am','start','-W','-n',c['package_id']+'/'+v['activity'])
+        elif op=='restart':launch(restart_app=True)
         elif op=='wait_for':
             operation_deadline=time.monotonic()+a['timeout_seconds'];attempts=0;unavailable=0;checked=time.monotonic()
             try:
@@ -487,6 +521,7 @@ def device(runtime,task,s,node,row):
                         operation_deadline=None
                         focus=foreground_focus(adb('shell','dumpsys','window'))
                         if focus and not re.search(re.escape(c['package_id'])+'/',focus):
+                            gone()  # trial 5: the "other window" was the launcher after the app crashed
                             # A system dialog (e.g. System UI not responding) is an environment problem, not an app failure.
                             raise LedgerError('Another window has foreground focus during a UI wait: '+focus[:120])
                         raise SelectorUnresolved('UI wait timeout: selector never matched exactly one visible node.','timeout')
@@ -526,6 +561,7 @@ def device(runtime,task,s,node,row):
                 adb('shell','input','swipe',*map(str,coords),'350')
         elif op=='assert_no_flutter_error':
             # Restrict logs to this app process. Store only the result, not server/account data.
+            gone()
             pid=adb('shell','pidof',c['package_id']).strip()
             if not re.fullmatch(r'\d+',pid):raise LedgerError('App process unavailable.')
             logs=adb('logcat','-d','--pid='+pid,'-t','500','flutter:E','*:S')
@@ -551,7 +587,20 @@ def device(runtime,task,s,node,row):
             digest_installed=adb('shell','sha256sum',remote).split()[0]
             if digest_installed!=build['sha256']:raise LedgerError('Installed APK differs from audited artifact.')
             receipt['installed_sha256']=digest_installed
-            adb('shell','am','start','-W','-n',c['package_id']+'/'+v['activity'])
+            from .delivery_device_env import AppCrashed
+            try:launch()
+            except AppCrashed:
+                # A native crash at launch on the approved emulator: one restart of that emulator, then one more launch
+                # of the same verified install. A Java crash is a product finding and is never retried here.
+                if (receipt.get('app_crash') or {}).get('kind')!='native' or not c.get('emulator') or environment.get('crash_restart'):raise
+                environment['crash_restart']=True;receipt.pop('app_crash',None)
+                restart('app crashed natively at launch')
+                from .delivery_device_env import settle,blocked,EnvironmentUnusable
+                health=settle(system,xml,record,seconds=240,stable=3,package=c['package_id'])
+                if blocked(health):raise EnvironmentUnusable('Android device not usable after the crash restart: '+','.join(blocked(health)))
+                again=adb('shell','pm','path',c['package_id']).strip().splitlines()
+                if again!=paths or adb('shell','sha256sum',remote).split()[0]!=build['sha256']:raise LedgerError('Installed APK differs after the emulator restart.')
+                launch()
             for step in v['steps']:
                 receipt['scenario_started']=True
                 durable_write(intent,canonical({'task':task,'step':step['id'],'state':'intent'}).encode())

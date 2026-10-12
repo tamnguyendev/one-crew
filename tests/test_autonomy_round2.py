@@ -19,7 +19,6 @@ from unittest.mock import patch
 
 import onecrew.native_change  # noqa: F401  bind the real capture before tests patch native_audit.capture
 from onecrew import delivery_android as da
-from onecrew import delivery_calibrate as cal
 from onecrew import delivery_recovery as rc
 from onecrew import eval_scorecard as sc
 from onecrew.delivery_steps import file_hash
@@ -188,6 +187,7 @@ class DeviceRun(unittest.TestCase):
         if args[:3] == ['shell', 'pm', 'path']: return 0, 'package:/data/app/base.apk', ''
         if args[:2] == ['shell', 'sha256sum']: return 0, self.digest + ' /data/app/base.apk', ''
         if args == ['shell', 'dumpsys', 'window']: return 0, ANR_FOCUS if self.dialog else self.focus, ''
+        if args[:2] == ['shell', 'pidof']: return (1, '', '') if getattr(self, 'dead', False) else (0, '4242', '')
         if args[0] == 'exec-out': return 0, ANR if self.dialog else screen(self.port, self.error, self.saved, self.typing), ''
         if args[:3] == ['shell', 'input', 'tap']:
             x, y = int(args[3]), int(args[4])
@@ -255,11 +255,11 @@ class LiveDeviceTests(DeviceRun):
 
     def test_a_just_booted_system_ui_that_hangs_repeatedly_is_waited_out_not_restarted(self):
         # Smoke 12/10 on the real emulator: after a cold boot the dialog came back for 1-2 minutes under boot load;
-        # the first version answered Wait for 15 s, then restarted the emulator into the same state.
+        # the first version answered Wait for about 15 s (4 reads), then restarted the emulator into the same state.
         states = iter(['absent']); original = self.adb
         def adb(runtime, task, argv, cwd, seconds):
             if argv[3:] == ['get-state'] and next(states, 'device') == 'absent': return 1, '', 'not found'
-            if argv[3:] == ['shell', 'dumpsys', 'window'] and not self.dialog and getattr(self, 'relapses', 0) < 3:
+            if argv[3:] == ['shell', 'dumpsys', 'window'] and not self.dialog and getattr(self, 'relapses', 0) < 6:
                 self.relapses = getattr(self, 'relapses', 0) + 1; self.dialog = 1  # System UI hangs again after each Wait
             return original(runtime, task, argv, cwd, seconds)
         self.adb = adb; self.dialog = 1
@@ -267,7 +267,8 @@ class LiveDeviceTests(DeviceRun):
             result = self.run_device(self.node(AC3, emulator={'avd': 'Trial', 'avd_home': str(self.root)}))
         self.assertTrue(result['passed'], result.get('detail')); boot.assert_called_once()
         actions = [a['action'] for a in result['environment']['actions']]
-        self.assertEqual(actions.count('system_dialog_wait'), 4); self.assertNotIn('emulator_stop', actions)
+        self.assertNotIn('emulator_stop', actions, 'RED-BOOT-SETTLE: restarted the emulator while System UI was still settling')
+        self.assertEqual(actions.count('system_dialog_wait'), 7)
 
     def test_dialog_that_takes_focus_mid_scenario_is_answered_once_then_input_continues(self):
         original = self.adb
@@ -303,6 +304,158 @@ class LiveDeviceTests(DeviceRun):
         with patch('onecrew.delivery_device_env.boot_emulator') as boot:
             with self.assertRaisesRegex(LedgerError, 'not ready'): self.run_device(self.node(AC3))
         boot.assert_not_called()
+
+
+# Real crash buffer lines from trial 5 (TASK-dc9d90b9, emulator Android 16, 12/10/2026), shortened.
+NATIVE_CRASH = """10-12 16:51:57.381  5711  5711 F DEBUG   : Build fingerprint: 'google/sdk_gphone64_x86_64/emu64xa:16/BE4B.251210.005/14574095:user/release-keys'
+10-12 16:51:57.381  5711  5711 F DEBUG   : pid: 5668, tid: 5690, name: 1.raster  >>> vn.onetech.trial.settings_trial <<<
+10-12 16:51:57.381  5711  5711 F DEBUG   : signal 11 (SIGSEGV), code 2 (SEGV_ACCERR), fault addr 0x000079bc9108d000 (read)
+10-12 16:51:57.381  5711  5711 F DEBUG   : backtrace:
+10-12 16:51:57.381  5711  5711 F DEBUG   :       #00 pc 0000000000096b99  /apex/com.android.runtime/lib64/bionic/libc.so (memmove_avx2+1721)
+10-12 16:51:57.382  5711  5711 F DEBUG   :       #01 pc 0000000001ae9e76  /data/app/~~yLx==/vn.onetech.trial.settings_trial-3_X==/base.apk!libflutter.so (offset 0x538c000)
+"""
+JAVA_CRASH = """10-12 17:00:00.000  6000  6000 E AndroidRuntime: FATAL EXCEPTION: main
+10-12 17:00:00.000  6000  6000 E AndroidRuntime: Process: vn.onetech.trial.settings_trial, PID: 6000
+10-12 17:00:00.000  6000  6000 E AndroidRuntime: java.lang.IllegalStateException: secret account 0912345678 not found
+"""
+
+
+class AppCrashTests(DeviceRun):
+    """Trial 5: after a native Flutter raster crash every launch crashed; OneCrew read it as 'another window has focus'."""
+
+    def crash(self, text, launches_dead=99, restart_fixes=False):
+        self.crash_text, self.launches = text, 0
+        original = self.adb
+        def adb(runtime, task, argv, cwd, seconds):
+            args = argv[3:]
+            if args[:4] == ['shell', 'am', 'start', '-W']:
+                self.launches += 1; self.dead = self.launches <= launches_dead
+                if self.dead: self.focus = 'mCurrentFocus=Window{9 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity}\n'
+                else: self.focus = APP_FOCUS
+            if args[:2] == ['emu', 'kill'] and restart_fixes: launches_dead_box[0] = 0
+            if args[:3] == ['logcat', '-d', '-b']: return 0, self.crash_text if self.dead else '', ''
+            return original(runtime, task, argv, cwd, seconds)
+        launches_dead_box = [launches_dead]
+        self.adb = adb
+        return launches_dead_box
+
+    def test_crash_summary_keeps_structure_only(self):
+        from onecrew.delivery_device_env import crash_summary
+        self.assertEqual(crash_summary(NATIVE_CRASH, PKG), {'kind': 'native', 'signal': 'SIGSEGV', 'thread': '1.raster',
+                                                          'libraries': ['libc.so', 'libflutter.so']})
+        java = crash_summary(JAVA_CRASH, PKG)
+        self.assertEqual(java, {'kind': 'java', 'thread': 'main', 'exception': 'java.lang.IllegalStateException'})
+        self.assertNotIn('0912345678', json.dumps(java))
+        self.assertIsNone(crash_summary(NATIVE_CRASH, 'other.app'))
+
+    def test_a_dead_app_is_a_crash_finding_not_another_window(self):
+        self.crash(NATIVE_CRASH)
+        result = self.run_device(self.node(AC3))
+        self.assertFalse(result['passed'])
+        self.assertNotIn('Another window', result['detail'], 'RED-APP-CRASH: a crashed app read as a focus problem')
+        self.assertIn('native SIGSEGV in libc.so,libflutter.so', result['detail'])
+        self.assertEqual(result['app_crash']['kind'], 'native')
+        # On the approved emulator the same receipt is an environment finding (restart then retry), elsewhere a device finding.
+        self.assertEqual(rc.classify_receipt(self.node(AC3), result)[0], 'device_assertion')
+
+    def test_native_crash_at_launch_restarts_the_approved_emulator_once(self):
+        box = self.crash(NATIVE_CRASH, launches_dead=1)
+        with patch('onecrew.delivery_device_env.boot_emulator', return_value={'booted': True}) as boot:
+            result = self.run_device(self.node(AC3, emulator={'avd': 'Trial', 'avd_home': str(self.root)}))
+        self.assertTrue(result['passed'], result.get('detail')); boot.assert_called_once()
+        self.assertTrue(result['environment']['crash_restart'])
+        self.assertEqual([a['action'] for a in result['environment']['actions']][:2], ['emulator_stop', 'emulator_boot'])
+        self.assertEqual(sum(a[0] == 'install' for a in self.sent), 1)  # the verified install is reused, not repeated
+
+    def test_java_crash_is_a_product_finding_and_never_restarts(self):
+        self.crash(JAVA_CRASH)
+        with patch('onecrew.delivery_device_env.boot_emulator') as boot:
+            result = self.run_device(self.node(AC3, emulator={'avd': 'Trial', 'avd_home': str(self.root)}))
+        boot.assert_not_called()
+        self.assertEqual((result['passed'], result['failure_kind']), (False, 'product'))
+        self.assertEqual(result['app_crash']['exception'], 'java.lang.IllegalStateException')
+        self.assertEqual(rc.classify_receipt(self.node(AC3), result)[0], 'product')
+
+    def test_a_previous_native_crash_restarts_the_emulator_before_install(self):
+        n = self.node(AC3, emulator={'avd': 'Trial', 'avd_home': str(self.root)})
+        directory = da.device_directory(self.runtime, 'task', n, {'generation': 0}); directory.mkdir(parents=True, exist_ok=True)
+        (directory/'receipt.json').write_text(json.dumps({'passed': False, 'app_crash': {'kind': 'native'}}))
+        with patch('onecrew.delivery_device_env.boot_emulator', return_value={'booted': True}) as boot:
+            result = self.run_device(n)
+        self.assertTrue(result['passed'], result.get('detail')); boot.assert_called_once()
+        self.assertIn('previous run', result['environment']['actions'][0]['detail'])
+
+    def test_own_crash_dialog_is_not_a_system_hang(self):
+        from onecrew.delivery_device_env import health
+        calls = {('shell', 'dumpsys', 'window'): 'mCurrentFocus=Window{52 u0 Application Error: ' + PKG + '}\n',
+                 ('shell', 'dumpsys', 'power'): 'mWakefulness=Awake'}
+        state = health(lambda *a: calls[a], PKG)
+        self.assertEqual((state['system_dialog'], state['app_crash_dialog']), (False, True))
+        calls[('shell', 'dumpsys', 'window')] = 'mCurrentFocus=Window{53 u0 Application Not Responding: com.android.systemui}\n'
+        self.assertEqual(health(lambda *a: calls[a], PKG)['system_dialog'], True)
+
+
+class RedEvidenceRepairTests(unittest.TestCase):
+    """Trial 6 (TASK-71ae1655): production was right and all tests passed, but the red test called a helper added by the
+    change, so it could not load on the unchanged code. Two repair generations then hit 'No production fix in patch'
+    because the only correct repair touches tests, and OneCrew asked."""
+    RED = [{'test': 'test/host_validation_test.dart', 'error_pattern': 'Found 0 widgets with text "Địa chỉ không hợp lệ"'}]
+    RECEIPT = {'passed': False, 'failure_kind': 'test', 'errors': [], 'counts': {'failed': 0, 'passed': 6, 'skipped': 0},
+               'red': [{'test': 'test/host_validation_test.dart', 'behavioral_failure': False, 'counts': {'failed': 1, 'passed': 0}}]}
+
+    def state(self):
+        nodes = [{'id': 'change-1', 'kind': 'change', 'depends': [], 'config': {}},
+                 {'id': 'tests', 'kind': 'regression', 'depends': ['change-1'], 'config': {'red': self.RED, 'repair_node': 'change-1'}}]
+        return {'plan': {'nodes': nodes, 'max_repairs': 2, 'acceptance': [{'id': 'AC1', 'nodes': ['tests']}]},
+                'delivery': {'repairs': 0, 'generation': 0, 'history': [], 'source': {'hash': 'src'}, 'criteria': {'AC1': 'pending'},
+                             'nodes': {'change-1': {'phase': 'passed', 'generation': 0, 'receipt': {'passed': True}, 'child': 'TASK-x'},
+                                       'tests': {'phase': 'blocked', 'generation': 0, 'receipt': None, 'child': None}}}}
+
+    def test_red_only_failure_is_a_tests_only_repair_with_actionable_feedback(self):
+        from onecrew.solution_delivery import Delivery
+        s = self.state(); node = s['plan']['nodes'][1]
+        self.assertTrue(Delivery._repair(Delivery.__new__(Delivery), s, node, dict(self.RECEIPT)))
+        row = s['delivery']['nodes']['change-1']
+        self.assertEqual(row.get('scope'), 'tests', 'RED-RED-ONLY-REPAIR: a red-evidence repair still demanded a production change')
+        self.assertIn('do NOT change them', row['feedback']); self.assertIn('did not load', row['feedback'])
+        self.assertIn('Found 0 widgets', row['feedback'])
+
+    def test_a_real_failing_test_still_needs_a_production_fix(self):
+        from onecrew.solution_delivery import Delivery, red_only
+        failing = dict(self.RECEIPT, counts={'failed': 2, 'passed': 4, 'skipped': 0}, errors=[{'name': 'rejects http'}])
+        s = self.state(); node = s['plan']['nodes'][1]
+        self.assertIsNone(red_only(node, failing))
+        Delivery._repair(Delivery.__new__(Delivery), s, node, failing)
+        self.assertNotIn('scope', s['delivery']['nodes']['change-1'])
+
+    def test_tests_only_scope_cannot_be_claimed_outside_a_delivery(self):
+        from onecrew.owned_intake import submit
+        from tests.test_interventions import LedgerFixture
+        f = LedgerFixture(self)
+        with self.assertRaisesRegex(LedgerError, 'delivery coordinator'):
+            submit(f.ledger, 'goal text for a child', 'k', mode='change', _delivery_scope='tests')
+
+
+class TestsOnlyPatchTests(unittest.TestCase):
+    def setUp(self):
+        from tests.test_native_change import NativeChangeTests
+        self.case = NativeChangeTests('test_preparation_progress_is_durable_before_worker_call'); self.case.setUp()
+        self.addCleanup(self.case.doCleanups)
+
+    def patch(self, files, scope):
+        from onecrew.native_change import install_candidate
+        state = self.case.run.state(self.case.task)[1]
+        return install_candidate(self.case.run, state, {'report': 'x' * 30, 'question': '', 'files': files}, self.case.recipe, scope)
+
+    def test_scope_tests_accepts_a_test_only_patch_and_refuses_production_edits(self):
+        from onecrew.native_change import PatchIncomplete
+        test_only = [{'path': 'app/test/main_test.dart', 'text': '// red test rewritten through the existing API\n'}]
+        with self.assertRaisesRegex(PatchIncomplete, 'No production fix'): self.patch(test_only, None)
+        self.patch(test_only, 'tests')
+        same = test_only + [{'path': 'app/lib/main.dart', 'text': 'int add(int a,int b)=>a-b;\n'}]  # production unchanged
+        self.patch(same, 'tests')
+        changed = test_only + [{'path': 'app/lib/main.dart', 'text': 'int add(int a,int b)=>a+b;\n'}]
+        with self.assertRaisesRegex(PatchIncomplete, 'only test files'): self.patch(changed, 'tests')
 
 
 class EnvelopeEmulatorTests(unittest.TestCase):
@@ -396,6 +549,7 @@ class CalibrationTests(DeviceRun):
             for step in new['steps']:
                 if step['id'] in changes: step['arguments']['selector'] = changes[step['id']]
             return new
+        from onecrew import delivery_calibrate as cal
         self.assertEqual(cal.check(old, revise(error={'text': 'Cổng phải từ 1 đến 65535'}), failure, view), [])
         self.assertIn('already passed', ' '.join(cal.check(old, revise(save={'content-desc': 'LƯU'}, error={'text': 'Cổng phải từ 1 đến 65535'}), failure, view)))
         self.assertIn('exactly one node', ' '.join(cal.check(old, revise(error={'class': 'android.view.View'}), failure, view)))
@@ -452,6 +606,7 @@ class CalibrationDeliveryTests(unittest.TestCase):
                 'ui_snapshot': {'file': str(view), 'sha256': file_hash(view), 'nodes': 5}}
 
     def test_live_ui_calibration_reruns_the_stage_and_completes(self):
+        from onecrew import delivery_calibrate as cal  # noqa: F401  (capability probe: module must exist)
         broken = json.loads(json.dumps(AC3)); broken[3]['arguments']['selector'] = {'resource-id': 'portError'}
         fixed = json.loads(json.dumps(broken)); fixed[3]['arguments']['selector'] = {'content-desc': 'Cổng phải từ 1 đến 65535'}
         receipts = [self.selector_failure('error'), {'passed': True, 'steps': [], 'cleanup': []}]
@@ -474,6 +629,7 @@ class CalibrationDeliveryTests(unittest.TestCase):
         self.assertEqual((s['phase'], s['delivery']['escalation']['class']), ('waiting', 'product'))
 
     def test_calibration_is_bounded_then_one_question(self):
+        from onecrew import delivery_calibrate as cal
         tries = []
         for selector in ({'content-desc': 'Cổng phải từ 1 đến 65535'}, {'text': 'Cổng phải từ 1 đến 65535'}):
             v = json.loads(json.dumps(AC3)); v[3]['arguments']['selector'] = selector

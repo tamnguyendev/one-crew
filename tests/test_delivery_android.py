@@ -42,6 +42,9 @@ class AndroidDeliveryTests(unittest.TestCase):
         if args[:3]==['shell','pm','path']:return 0,'package:/data/app/base.apk',''
         if args[:2]==['shell','sha256sum']:return 0,self.digest+' /data/app/base.apk',''
         if args[0]=='exec-out':return 0,self.xml,''
+        # A running, focused app (round 2: every launch is checked for a live process and focus).
+        if args[:2]==['shell','pidof']:return 0,'1234',''
+        if args==['shell','dumpsys','window']:return 0,'mCurrentFocus=Window{1 u0 example.app/example.app.MainActivity}',''
         return 0,'',''
 
     def test_pinned_install_assert_and_cleanup_receipt(self):

@@ -224,6 +224,20 @@ CASES = [
     case('boot-settle', 'A just-booted System UI that hangs repeatedly is waited out with Wait, not restarted at once', 'a9a5020', [
         'tests.test_autonomy_round2.LiveDeviceTests.test_a_just_booted_system_ui_that_hangs_repeatedly_is_waited_out_not_restarted'],
         'Found by a live smoke run on the emulator; boot load and timing are simulated here.'),
+    case('app-crash-evidence', 'A crashed app is crash evidence (Java: product; native on the emulator: one restart), not a focus problem', 'c113c10', [
+        'tests.test_autonomy_round2.AppCrashTests.test_crash_summary_keeps_structure_only',
+        'tests.test_autonomy_round2.AppCrashTests.test_a_dead_app_is_a_crash_finding_not_another_window',
+        'tests.test_autonomy_round2.AppCrashTests.test_native_crash_at_launch_restarts_the_approved_emulator_once',
+        'tests.test_autonomy_round2.AppCrashTests.test_java_crash_is_a_product_finding_and_never_restarts',
+        'tests.test_autonomy_round2.AppCrashTests.test_a_previous_native_crash_restarts_the_emulator_before_install',
+        'tests.test_autonomy_round2.AppCrashTests.test_own_crash_dialog_is_not_a_system_hang'],
+        'Found by live trial 5; crash buffer lines are real but shortened, the emulator restart is a fixture here.'),
+    case('red-only-repair', 'Correct code with a non-behavioural red check gets a tests-only repair, not a demand for a production fix', 'fe94a63', [
+        'tests.test_autonomy_round2.RedEvidenceRepairTests.test_red_only_failure_is_a_tests_only_repair_with_actionable_feedback',
+        'tests.test_autonomy_round2.RedEvidenceRepairTests.test_a_real_failing_test_still_needs_a_production_fix',
+        'tests.test_autonomy_round2.RedEvidenceRepairTests.test_tests_only_scope_cannot_be_claimed_outside_a_delivery',
+        'tests.test_autonomy_round2.TestsOnlyPatchTests.test_scope_tests_accepts_a_test_only_patch_and_refuses_production_edits'],
+        'Found by live trial 6; worker quality on the narrowed repair is shown only by a trial.'),
     case('scenario-calibration', 'A planned scenario is recalibrated from the live-UI snapshot without weakening assertions, bounded', '9e97460', [
         'tests.test_autonomy_round2.CalibrationTests.test_selector_failure_of_a_planned_replay_safe_scenario_is_calibrated',
         'tests.test_autonomy_round2.CalibrationTests.test_validator_keeps_operations_passed_steps_and_assertions',

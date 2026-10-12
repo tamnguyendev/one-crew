@@ -98,6 +98,13 @@ và tắt emulator do chính nó boot sau khi stage thiết bị đạt. Chỉ h
   Còn kẹt thì: emulator có trong envelope → khởi động lại một lần; thiết bị khác → lỗi
   `environment` (thử lại có giới hạn rồi hỏi). Mọi hành động ghi vào `receipt.environment.actions`.
   adb server được khởi động ngoài lệnh có thu luồng (server sinh từ client bị thu sẽ giữ khóa file).
+- **App phải còn sống (trial 5).** `am start` trả `Status: ok` cả khi app crash ngay. Mỗi lần mở app (đầu kịch bản,
+  thao tác `restart`) OneCrew chờ app giữ focus và kiểm tiến trình còn chạy; khi app biến mất (cả lúc chờ UI hay khi
+  bị từ chối nhập vì cửa sổ khác giữ focus) nó đọc crash buffer từ lúc mở app và chỉ giữ cấu trúc (loại, tín hiệu
+  hoặc lớp exception, luồng, thư viện native) — không giữ thông điệp hay dòng log thô. Crash Java của app → lỗi
+  sản phẩm (sửa code có giới hạn). Crash native trên emulator đã duyệt → khởi động lại emulator đó một lần rồi mở
+  lại đúng bản đã cài và kiểm hash; nếu crash xảy ra giữa kịch bản thì lần thử lại kế tiếp khởi động lại emulator
+  trước khi cài. Trên thiết bị thật không khởi động lại; hộp thoại crash của chính app không bị coi là System UI treo.
 - **Selector theo tầng, có bằng chứng.** Một selector phải trúng đúng một node; tầng đầu tiên có kết quả
   quyết định: `exact` (thuộc tính đúng như viết; `text` cũng trúng nhãn Flutter ở `content-desc`) →
   `label` (bằng một trong text/content-desc/hint) → `label_part` (bằng một phần của nhãn gộp, tách theo
@@ -124,6 +131,7 @@ và tắt emulator do chính nó boot sau khi stage thiết bị đạt. Chỉ h
 | environment (SDK, cache, thiết bị, đường dẫn) | thử lại đọc-lại môi trường | 2 | hỏi (thiết bị optional → not_run) |
 | product / review | sửa trong change đã duyệt; child lỗi → generation mới | 2 và `max_repairs` | hỏi |
 | side_effect_unknown | reconcile chỉ đọc (`pm path`, `sha256sum`, intent) | 1 | hỏi |
+| product chỉ ở bằng chứng red (mọi test đạt, red không đỏ do hành vi — trial 6) | sửa **chỉ test**: task con có phạm vi `tests`, mã sản phẩm phải giữ nguyên byte, phản hồi nêu rõ pattern và lý do | 2 và `max_repairs` | hỏi |
 | scenario_selector (selector kịch bản OneCrew lập không trúng UI thật) | hiệu chỉnh từ ảnh chụp UI; nhãn mong đợi vắng → product | 2 và ≤2 bản/node | hỏi |
 | decision_pending (CREQ) | chờ, không tạo request mới | — | — |
 | permission, budget, drift, artifact, runtime_bug, unknown | — | 0 | hỏi |

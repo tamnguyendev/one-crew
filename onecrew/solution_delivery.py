@@ -82,6 +82,26 @@ def submit(ledger, goal, key, plan=None, solution_id=None, solution_revision=Non
         return ledger._task_view(conn,ledger._task(conn,tid))
 
 
+def red_only(node, receipt):
+    """Actionable feedback when every test passed but a declared red check did not fail by assertion on the
+    unchanged code; None for any other failure (a real failing test still needs a production fix)."""
+    counts=receipt.get('counts') or {}
+    missing=[r for r in receipt.get('red') or [] if not r.get('behavioral_failure')]
+    if node['kind']!='regression' or receipt.get('failure_kind')!='test' or receipt.get('errors') or counts.get('failed') or not missing:
+        return None
+    patterns={r['test']:r['error_pattern'] for r in node['config'].get('red') or []}
+    lines=['All tests pass on the changed code; only the red evidence is missing. Production files are reviewed and correct: '
+           'do NOT change them. Change test files only.']
+    for r in missing:
+        loaded=(r.get('counts') or {}).get('passed',0)>0 or (r.get('counts') or {}).get('failed',0)>1
+        lines.append('On the UNCHANGED code '+r['test']+' must compile and fail by an assertion whose message matches '
+                     +repr(patterns.get(r['test'],''))+'. It '+('ran but failed with a different message' if loaded else
+                     'did not load (it uses something that exists only after the change, e.g. a new function or class)')+
+                     '. Keep that file using only what already exists on the unchanged code (pump the existing widget, enter text, '
+                     'tap, expect the visible text); rewrite or remove assertions on symbols added by the change.')
+    return ' '.join(lines)[:2000]
+
+
 class Delivery(Owned):
     def enable(self, task_id):
         from .solution_gate import check
@@ -163,7 +183,8 @@ class Delivery(Owned):
             child=child_submit(self.ledger,goal,f"delivery:{task_id}:{node['id']}:{row['generation']}",mode='change',
                 provider=s['worker']['provider'],model=s['worker']['model'],max_calls=limits['max_calls'],max_seconds=limits['max_seconds'],
                 native_change=node['config']['recipe'],solution_id=task['solution_id'],solution_revision=task['solution_revision'],
-                _delivery_parent=task_id,_delivery_node=node['id'],_delivery_generation=row['generation'])
+                _delivery_parent=task_id,_delivery_node=node['id'],_delivery_generation=row['generation'],
+                _delivery_scope=row.get('scope'))
             row['child']=child['id'];row['phase']='running'
             self.persist(task_id,self.state(task_id)[0],s)
         child_runtime=Owned(self.ledger)
@@ -232,6 +253,13 @@ class Delivery(Owned):
             row.update(phase='pending',receipt=None,child=None,generation=row['generation']+1)
             row.pop('review_context',None)
         d['nodes'][target]['feedback']=str(receipt.get('detail') or receipt)[:2000]
+        red=red_only(node,receipt)
+        if red:
+            # Trial 6 (12/10): the reviewed production code was right and every test passed; only the red evidence was
+            # missing (the red test called a helper that exists only after the change, so it could not compile on the
+            # unchanged code). Such a repair touches tests only, and the worker is told exactly what is wrong.
+            d['nodes'][target]['scope']='tests';d['nodes'][target]['feedback']=red
+        else:d['nodes'][target].pop('scope',None)
         d['criteria']={a['id']:'pending' for a in s['plan']['acceptance']}
         return True
 
@@ -265,13 +293,16 @@ class Delivery(Owned):
             d.pop('escalation',None)  # already applied once; the next failure opens a new decision episode
             return True
         if choice not in ('retry','stop'):raise LedgerError('Unknown recovery choice; no action applied.')
+        from .eval_observe import decision_source
+        who={'user':'the user','relayed':'the user (relayed by the entry)','entry':'the entry under delegation'}.get(
+            decision_source(answer),'an unattributed reply')
         record=d['failures'].get(esc['signature'])
         d.pop('escalation',None);s.pop('waiting_reason',None)
         s.setdefault('consumed_replies',[]).append({'request_id':request['id'],'reply_id':answer['id'],
             'effect':'Recovery decision: '+choice+'; scope, budget and failure history unchanged.'})
         if choice=='stop':
             self.control.cancel(task_id)
-            s.update(phase='cancelled',message='Stopped by user at a recovery decision; evidence retained.')
+            s.update(phase='cancelled',message='Stopped by '+who+' at a recovery decision; evidence retained.')
             return True
         if record:record['allowance']+=1;record['status']='user_retry'
         row=d['nodes'].get(esc.get('node') or '')
@@ -290,7 +321,7 @@ class Delivery(Owned):
             if other.get('child') and other['phase'] in ('running','blocked','pending'):self._revive_child(other['child'])
         if esc.get('needs') is not None:d['planning']['stay_inside']=(d['planning'].get('stay_inside') or [])+esc['needs']
         d.pop('retry_after',None)
-        s.update(phase='running',message='User chose retry; resuming within the existing grant.')
+        s.update(phase='running',message='Retry chosen by '+who+'; resuming within the existing grant.')
         return True
 
     def _recover(self, task_id, s, node, cls, key, detail):

@@ -371,6 +371,7 @@ class DeliveryTests(unittest.TestCase):
                 if args[:3]==['shell','pm','path']:return 0,'package:/data/app/base.apk',''
                 if args[:2]==['shell','sha256sum']:return 0,r.state(t)[1]['delivery']['nodes']['build']['receipt']['sha256']+' /data/app/base.apk',''
                 if args[0]=='exec-out':return 0,'<?xml version="1.0"?><hierarchy><node text="READY" package="example.app" bounds="[0,0][100,100]" enabled="true"/></hierarchy>',''
+                if args[:2]==['shell','pidof']:return 0,'1234',''  # the launched app is running (round 2 checks it)
             return 0,'',''
         with ExitStack() as stack:
             stack.enter_context(patch('onecrew.solution_delivery.Owned',side_effect=child_runtime))

@@ -55,15 +55,47 @@ def ensure_server(adb):
         return False
 
 
-def health(call):
-    """What blocks input right now, from `dumpsys window` and `dumpsys power`. Unknown output is not a blocker."""
+def health(call, package=None):
+    """What blocks input right now, from `dumpsys window` and `dumpsys power`. Unknown output is not a blocker.
+    The crash dialog of the app under test is not an environment hang: it is reported apart (app_crash_dialog)."""
     from .delivery_android import foreground_focus
     windows = call('shell', 'dumpsys', 'window')
     focus = foreground_focus(windows) or ''
     power = call('shell', 'dumpsys', 'power')
-    return {'focus': focus[:160], 'system_dialog': bool(SYSTEM_DIALOG.search(focus)),
+    dialog = bool(SYSTEM_DIALOG.search(focus))
+    own = dialog and bool(package) and bool(re.search(r'[:\s]' + re.escape(package) + r'\}?\s*$', focus))
+    return {'focus': focus[:160], 'system_dialog': dialog and not own, 'app_crash_dialog': own,
             'keyguard': bool(re.search(r'isKeyguardShowing=true|mDreamingLockscreen=true|mShowingLockscreen=true', windows)),
             'asleep': bool(re.search(r'mWakefulness=(Asleep|Dozing)', power))}
+
+
+def crash_summary(text, package):
+    """Newest crash of `package` in a logcat crash buffer, reduced to structure: kind, signal or exception
+    class, thread and native libraries. Never messages or raw lines (they may hold account data)."""
+    found, lines = None, (text or '').splitlines()
+    for i, line in enumerate(lines):
+        m = re.search(r'pid: \d+, tid: \d+, name: (\S+)\s+>>> ' + re.escape(package) + r' <<<', line)
+        if m:
+            block = lines[i + 1:i + 60]
+            signal = next((s[1] for s in (re.search(r'signal \d+ \((SIG[A-Z]+)\)', l) for l in block) if s), None)
+            libraries = []
+            for l in block:
+                if ' pc ' not in l: continue
+                lib = re.search(r'([A-Za-z0-9_.+-]+\.so)\b', l.split('!')[-1])
+                if lib and lib[1] not in libraries: libraries.append(lib[1])
+            found = {'kind': 'native', 'signal': signal, 'thread': m[1][:40], 'libraries': libraries[:5]}
+        m = re.search(r'FATAL EXCEPTION: (\S+)', line)
+        if m and any(re.search(r'Process: ' + re.escape(package) + r', PID', l) for l in lines[i + 1:i + 3]):
+            ex = next((e[1] for e in (re.search(r'\b((?:[a-z_$][\w$]*\.)+[A-Z][\w$]*(?:Exception|Error))\b', l) for l in lines[i + 1:i + 5]) if e), None)
+            found = {'kind': 'java', 'thread': m[1][:40], 'exception': ex}
+    return found
+
+
+def describe(crash):
+    if crash.get('kind') == 'java': return 'Java ' + str(crash.get('exception'))
+    if crash.get('kind') == 'native':
+        return 'native ' + str(crash.get('signal')) + ' in ' + ','.join(crash.get('libraries') or ['?']) + ', thread ' + str(crash.get('thread'))
+    return 'no crash record'
 
 
 def _center(bounds):
@@ -73,12 +105,13 @@ def _center(bounds):
     return ((x1 + x2) // 2, (y1 + y2) // 2) if x2 > x1 and y2 > y1 else None
 
 
-def answer_system_dialog(call, dump):
-    """Tap Wait on a system "not responding" dialog. Never Close/OK: those kill a process."""
+def answer_system_dialog(call, dump, ids=WAIT_IDS, labels=WAIT_LABELS):
+    """Tap Wait on a system "not responding" dialog. Never Close/OK on another process: those kill it.
+    (Close is used only for the crash dialog of the app under test, whose process is already gone.)"""
     try: root = ET.fromstring(dump())
     except (ET.ParseError, ValueError, OSError): return False
     candidates = [n for n in root.iter('node') if n.get('package') == 'android' and n.get('clickable') == 'true' and
-                  (n.get('resource-id') in WAIT_IDS or (n.get('text') or '').strip().casefold() in WAIT_LABELS)]
+                  (n.get('resource-id') in ids or (n.get('text') or '').strip().casefold() in labels)]
     if len(candidates) != 1: return False
     point = _center(candidates[0].get('bounds'))
     if not point: return False
@@ -86,16 +119,22 @@ def answer_system_dialog(call, dump):
     return True
 
 
-def settle(call, dump, record, seconds=60, pause=5.0, stable=1):
+def settle(call, dump, record, seconds=60, pause=5.0, stable=1, package=None):
     """Bring the device to a usable foreground with granted, data-preserving actions. Returns the last health.
 
     Usable means `stable` consecutive clean reads; once a system dialog was seen, three. A just-booted
     emulator's System UI hangs repeatedly for a minute or two under boot load (trial 3, smoke 12/10): Wait is
-    answered each time inside the bound instead of restarting at the first dialog. Bounded by reads, not time."""
+    answered each time inside the bound instead of restarting at the first dialog. Bounded by reads, not time.
+    A leftover crash dialog of the app under test (its process is already dead) is closed and recorded."""
     clean, seen = 0, False
     for _ in range(max(1, int(seconds / pause))):
-        state = health(call)
-        if state['asleep']:
+        state = health(call, package)
+        if state['app_crash_dialog']:
+            closed = answer_system_dialog(call, dump, ('android:id/aerr_close',), ('close app', 'đóng ứng dụng', 'ok'))
+            record('app_crash_dialog_closed' if closed else 'app_crash_dialog_open', state['focus'])
+            if not closed: return state
+            clean = 0
+        elif state['asleep']:
             call('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'); record('wake', None); clean = 0
         elif state['keyguard']:
             call('shell', 'wm', 'dismiss-keyguard'); record('dismiss_keyguard', None); clean = 0
@@ -110,7 +149,11 @@ def settle(call, dump, record, seconds=60, pause=5.0, stable=1):
 
 
 def blocked(state):
-    return [k for k in ('asleep', 'keyguard', 'system_dialog') if state.get(k)]
+    return [k for k in ('asleep', 'keyguard', 'system_dialog', 'app_crash_dialog') if state.get(k)]
+
+
+class AppCrashed(LedgerError):
+    """The app under test is not running after a launch or step; evidence is a crash summary, not raw logs."""
 
 
 def emulator_executable(adb):
