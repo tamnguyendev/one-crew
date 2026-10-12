@@ -221,6 +221,9 @@ CASES = [
         'tests.test_autonomy_round2.EnvelopeEmulatorTests.test_only_an_emulator_serial_may_be_booted',
         'tests.test_autonomy_round2.PlannedDeviceTests.test_preflight_defers_an_absent_approved_emulator_and_requires_its_avd'],
         'ADB and the emulator process are fixtures; a live boot is covered only by the trial.'),
+    case('boot-settle', 'A just-booted System UI that hangs repeatedly is waited out with Wait, not restarted at once', 'a9a5020', [
+        'tests.test_autonomy_round2.LiveDeviceTests.test_a_just_booted_system_ui_that_hangs_repeatedly_is_waited_out_not_restarted'],
+        'Found by a live smoke run on the emulator; boot load and timing are simulated here.'),
     case('scenario-calibration', 'A planned scenario is recalibrated from the live-UI snapshot without weakening assertions, bounded', '9e97460', [
         'tests.test_autonomy_round2.CalibrationTests.test_selector_failure_of_a_planned_replay_safe_scenario_is_calibrated',
         'tests.test_autonomy_round2.CalibrationTests.test_validator_keeps_operations_passed_steps_and_assertions',
