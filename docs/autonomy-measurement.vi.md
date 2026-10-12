@@ -58,14 +58,28 @@ Quyết định `delegated` vẫn làm task `assisted` (lý do `entry_delegated_
 ## 3. Ghi can thiệp cho mọi lệnh CLI làm thay đổi
 
 Mọi lệnh mutating của `task`/`request`, `job`, `delivery`, `work`, `core`, `conversation`/`solution`/
-`consultation`, `eval assistance|trial`, `delegation`, `desktop` ghi `control.intervention` qua
-`interventions.record` với actor từ `ONECREW_ACTOR` (`unknown` nếu không đặt). Lệnh gắn task ghi
-trên task (CREQ ghi trên các task bị ảnh hưởng); lệnh không có task (tạo hội thoại, đề xuất/duyệt SOL,
-ủy quyền, trial, `core migrate`, `desktop enable`) ghi vào `project_interventions` theo phạm vi.
-Lệnh lặp lại idempotent (submit cùng key, create cùng request) chỉ ghi một lần.
+`consultation`, `eval assistance|trial`, `delegation`, `desktop`, `android build|cancel`, `entry note` ghi
+`control.intervention` qua `interventions.record` với actor từ `ONECREW_ACTOR` (`unknown` nếu không đặt).
+Lệnh gắn task ghi trên task (CREQ ghi trên các task bị ảnh hưởng; `android build|cancel` ghi trên
+`--from-task`; `entry note` ghi trên task được ghi chú, vì runtime đưa ghi chú vào ngữ cảnh worker);
+lệnh không có task (tạo hội thoại, đề xuất/duyệt SOL, ủy quyền, trial, `core migrate`, `desktop enable`)
+ghi vào `project_interventions` theo phạm vi. Lệnh lặp lại idempotent (submit cùng key, create cùng
+request, `android build` cùng `--key`, `entry note` cùng `--request-id`) chỉ ghi một lần. `android build`
+đã khởi chạy rồi `blocked` vẫn là can thiệp; lệnh bị từ chối (lỗi) không ghi gì.
 
-`tests/test_intervention_coverage.py` duyệt cây argparse: mỗi lệnh lá phải nằm trong
-`READ_ONLY` hoặc `RECORDED` của module; lệnh mới chưa phân loại làm test đỏ.
+`tests/test_intervention_coverage.py` kiểm hai tầng:
+- Cây argparse của từng module `COVERED`: mỗi lệnh lá phải nằm trong `READ_ONLY` hoặc `RECORDED`
+  của module (không cả hai).
+- Mọi nhóm mà `cli.main` dispatch (đọc từ chính mã `cli.main`, kể cả nhóm `spec` của nhánh fallback và
+  các nhánh con của `task`): mỗi cặp (nhóm, module) phải thuộc một module `COVERED`, hoặc nằm trong
+  `EXEMPT_GROUPS` kèm một lý do và danh sách lệnh được ghim. Hiện miễn: `spec` (cấp spec, không gắn task),
+  `task run|list|status|cancel|outputs` và `task preview` (id `RUN-` của CV runtime, không phải task ledger),
+  `skills`/`learning` (bằng chứng cấp dự án, không đưa vào task), `notifications` (vận chuyển thông báo
+  host; thông báo desktop cuối là nhóm `desktop` đã được ghi), `monitor` (chỉ xem), `provider`/`decision`
+  (cấu hình toàn cục, thông tin xác thực).
+
+Một nhóm mới chưa phân loại, hoặc một lệnh mới trong nhóm được miễn, làm test đỏ cho đến khi có người
+phân loại nó (ghi trong module `COVERED`, hoặc ghim vào `EXEMPT_GROUPS` kèm lý do).
 `eval assistance` có vai trò `evidence` (ghi nhận hỗ trợ không phải là hỗ trợ thêm);
 `desktop show/retry` do entry chạy là can thiệp (thông báo cuối không còn là của OneCrew).
 

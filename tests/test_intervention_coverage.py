@@ -5,23 +5,47 @@ would make entry help invisible. This walks each covered CLI's argparse tree: ev
 read-only allowlist or recorded, and running each recorded leaf (business logic stubbed) leaves a record attributed
 to ONECREW_ACTOR, on its task or, for task-less commands, at project scope."""
 import argparse
+import ast
 import contextlib
+import inspect
 import io
 import json
 import os
+import sys
 import unittest
 from unittest.mock import patch
 
-from onecrew import (conversation_cli, control_cli, delegations, delivery_cli, desktop_notifications, evaluation,
-                     interventions as iv, ledger_cli, owned_cli, workflow_cli)
+from onecrew import (android_build, cli, conversation_cli, control_cli, delegations, delivery_cli, desktop_notifications,
+                     entry_cli, evaluation, interventions as iv, ledger_cli, owned_cli, workflow_cli)
 from onecrew import eval_scorecard as sc
 from tests.test_interventions import LedgerFixture
 
-COVERED = (ledger_cli, owned_cli, delivery_cli, workflow_cli, conversation_cli, control_cli, evaluation, delegations, desktop_notifications)
+COVERED = (ledger_cli, owned_cli, delivery_cli, workflow_cli, conversation_cli, control_cli, evaluation, delegations,
+           desktop_notifications, android_build, entry_cli)
+# Every (group, module) cli.main reaches outside a COVERED module, with why it is not a task intervention and its
+# commands pinned: a new group, or a new command in an exempt module, is red until someone classifies it.
+EXEMPT_GROUPS = {
+    ('spec', 'specs'): ('spec-level review and approval, not task-scoped',
+                        {'spec list', 'spec review', 'spec diff', 'spec approve', 'spec request-changes', 'spec history'}),
+    ('task', 'runtime'): ('CV runtime RUN- ids, not ledger tasks',
+                          {'task run', 'task list', 'task status', 'task cancel', 'task outputs'}),
+    ('task', 'preview'): ('local demo of a delivered RUN- output (CV runtime), not a ledger task', {'task preview'}),
+    ('skills', 'skills'): ('project skill catalogue evidence; nothing is promoted to routing or injected into a task',
+                           {'skills list', 'skills scan', 'skills review', 'skills approve', 'skills reject'}),
+    ('learning', 'learning'): ('project lessons and budget advice; evidence only, never injected into a task',
+                               {'learning outcomes', 'learning lessons', 'learning propose', 'learning budget'}),
+    ('notifications', 'notifications'): ('host notification transport and receipts; the final desktop notice is the covered desktop group',
+                                         {'notifications ' + n for n in ('pull', 'ack', 'deliver', 'feed', 'watch', 'begin-delivery',
+                                                                          'confirm-delivery', 'delivery-missing', 'redeliver')}),
+    ('monitor', 'monitor'): ('read-only view (it may open a terminal window; no task state)', {'monitor'}),
+    ('provider', 'provider_cli'): ('global provider configuration and preferences, no task',
+                                   {'provider ' + n for n in ('doctor', 'choose', 'quota', 'prefer', 'preference')}),
+    ('decision', 'jev'): ('external evaluator credentials and connectivity, no task', {'decision configure', 'decision doctor'}),
+}
 # These record inside their own flow (before a continuation or launch can fail); exercised one by one below.
 SELF_RECORDED = {delivery_cli: set(delivery_cli.RECORDED), evaluation: set(evaluation.RECORDED),
                  ledger_cli: set(ledger_cli.SELF_RECORDED)}
-IDS = ('task', 'id', 'conversation', 'solution', 'consultation')
+IDS = ('task', 'id', 'conversation', 'solution', 'consultation', 'from_task')
 
 
 def leaves(parser, path=()):
@@ -31,6 +55,77 @@ def leaves(parser, path=()):
                 yield from leaves(sub, path + (name,))
             return
     yield path, parser
+
+
+def top_groups(parser):
+    return next((set(a.choices) for a in parser._actions if isinstance(a, argparse._SubParsersAction)), None)
+
+
+def commands(parser):
+    """Leaf commands of a parser; one without groups is named by its prog (cli strips the group for it)."""
+    prefix = () if top_groups(parser) else tuple(parser.prog.split()[1:])
+    found = set()
+    for path, leaf in leaves(parser):
+        choices = next((a.choices for a in leaf._actions if a.dest == 'command' and not a.option_strings and a.choices), None)
+        found |= {' '.join(prefix + path + (c,)) for c in choices} if choices else {' '.join(prefix + path)}
+    return found
+
+
+class Reached(BaseException):
+    pass
+
+
+def reached(argv):
+    """The module (and parser) cli.main hands argv to; parse_args is intercepted, so no command ever runs."""
+    def grab(parser, *args, **kwargs):
+        raise Reached(sys._getframe(1).f_globals['__name__'].removeprefix('onecrew.'), parser)
+    with patch.object(argparse.ArgumentParser, 'parse_args', grab), contextlib.redirect_stdout(io.StringIO()):
+        try: cli.main(['--project', '.', *argv])
+        except Reached as hit: return hit.args
+    return None
+
+
+def dispatched():
+    """Group names cli.main compares args[index] against, and every other word it compares (the task commands)."""
+    groups, words = set(), set()
+    for node in ast.walk(ast.parse(inspect.getsource(cli.main))):
+        if isinstance(node, ast.Compare):
+            values = {k.value for c in node.comparators for k in (c.elts if isinstance(c, (ast.Tuple, ast.List, ast.Set)) else [c])
+                      if isinstance(k, ast.Constant) and isinstance(k.value, str) and not k.value.startswith('-')}
+            (groups if ast.unparse(node.left) == 'args[index]' else words).update(values)
+    return groups, words
+
+
+UNMATCHED = 'zz-unclassified-group'
+
+
+def routes(groups, words):
+    """group -> {module: parser} for every dispatched group and an unmatched one, probed with each dispatch word."""
+    table = {}
+    for group in sorted(groups | {UNMATCHED}):
+        for tail in [()] + [t for w in sorted(words | {'zz'}) for t in ((w,), (w, 'TASK-' + '0' * 32))]:
+            hit = reached([group, *tail])
+            if hit is None: continue
+            module, parser = hit
+            names = top_groups(parser)
+            for name in ([group] if names is None or group in names else names):  # the fallback serves its own groups
+                table.setdefault(name, {})[module] = parser
+    return table
+
+
+def unclassified(groups, table):
+    covered = {m.__name__.removeprefix('onecrew.'): m for m in COVERED}
+    problems = [f'{g}: dispatched by cli.main but reaches no argparse parser' for g in sorted(groups - set(table))]
+    for group, modules in sorted(table.items()):
+        for module, parser in sorted(modules.items()):
+            if module in covered:
+                if group not in (top_groups(covered[module].parser()) or ()):
+                    problems.append(f'{group} -> {module}: not a group of the covered parser')
+            elif (group, module) not in EXEMPT_GROUPS:
+                problems.append(f'{group} -> {module}: neither a COVERED module nor in EXEMPT_GROUPS')
+            elif commands(parser) != EXEMPT_GROUPS[group, module][1]:
+                problems.append(f'{group} -> {module}: commands changed {sorted(commands(parser) ^ EXEMPT_GROUPS[group, module][1])}')
+    return problems
 
 
 def argv_for(path, parser, task, file):
@@ -104,6 +199,65 @@ class CoverageTests(Coverage):
         self.assertEqual(self.run_cli(ledger_cli, ('request', 'create', '--task', 'TASK-' + '0' * 32, '--request-id', 'q2',
                                                    '--file', str(question), '--json'))[0], 2)
         self.assertEqual(len(self.recorded('request.create')), 1)
+
+
+class DispatchTests(unittest.TestCase):
+    def test_every_cli_group_is_covered_or_exempt_with_a_reason(self):
+        groups, words = dispatched()
+        self.assertGreaterEqual(groups, {'eval', 'delegation', 'desktop', 'delivery', 'skills', 'learning', 'notifications', 'monitor',
+                                         'android', 'conversation', 'solution', 'consultation', 'job', 'entry', 'provider', 'work',
+                                         'core', 'request', 'decision', 'task'})
+        table = routes(groups, words)
+        self.assertNotIn(UNMATCHED, table)
+        self.assertEqual(set(table['spec']), {'specs'})  # an unmatched group falls back to the spec CLI
+        self.assertEqual(set(table['task']), {'ledger_cli', 'runtime', 'preview'})
+        self.assertEqual(unclassified(groups, table), [])
+        self.assertTrue(all(reason.strip() for reason, _ in EXEMPT_GROUPS.values()))
+        used = {(g, m) for g, modules in table.items() for m in modules}
+        self.assertEqual(set(EXEMPT_GROUPS) - used, set())  # no stale exemption
+
+    def test_a_new_group_or_exempt_command_is_red(self):
+        groups, words = dispatched()
+        table = routes(groups, words)
+        self.assertEqual(unclassified(groups | {'newgroup'}, table), ['newgroup: dispatched by cli.main but reaches no argparse parser'])
+        skills = table['skills']['skills']
+        self.assertEqual(unclassified(groups, dict(table, newgroup={'skills': skills})),
+                         ['newgroup -> skills: neither a COVERED module nor in EXEMPT_GROUPS'])
+        group = next(a for a in skills._actions if isinstance(a, argparse._SubParsersAction)).choices['skills']
+        next(a for a in group._actions if isinstance(a, argparse._SubParsersAction)).add_parser('promote')
+        self.assertEqual(unclassified(groups, table), ["skills -> skills: commands changed ['skills promote']"])
+
+
+class TaskScopedTests(Coverage):
+    def test_android_build_and_cancel_record_on_the_task(self):
+        def run(*args): return self.run_cli(android_build, ('android', *args, '--from-task', self.task, '--key', 'apk'))[0]
+        build = ('build', '--flutter-root', str(self.file), '--android-sdk', str(self.file), '--allow-trusted-native-build')
+        with patch('onecrew.android_jobs.dispatch', return_value={'status': 'queued'}), \
+             patch('onecrew.android_jobs.cancel', return_value={'status': 'cancelling'}), \
+             patch('onecrew.android_jobs.status', return_value={'status': 'queued'}):
+            self.assertEqual([run(*build), run(*build), run('status'), run('cancel')], [0, 0, 0, 0])
+        rows = [(r['command'], r['actor'], r.get('key')) for r in (e['payload'] for e in self.f.events(self.task, 'control.intervention'))]
+        self.assertEqual(rows, [('android.build', 'claude', 'android.build:apk'), ('android.cancel', 'claude', None)])
+        self.assertEqual([sc.role({'actor': a, 'command': c}) for c, a, _ in rows], ['entry', 'entry'])
+        with patch('onecrew.android_jobs.dispatch', return_value={'status': 'blocked'}):
+            self.assertEqual(self.run_cli(android_build, ('android', *build, '--from-task', self.task, '--key', 'apk2'))[0], 2)
+        with patch('onecrew.android_jobs.dispatch', side_effect=ValueError('refused')):
+            self.assertEqual(self.run_cli(android_build, ('android', *build, '--from-task', self.task, '--key', 'apk3'))[0], 2)
+        keys = [e['payload'].get('key') for e in self.f.events(self.task, 'control.intervention')]
+        self.assertEqual(keys[2:], ['android.build:apk2'])  # a started build that then blocks is help; a refused one records nothing
+
+    def test_entry_note_records_once_on_the_task_and_connect_records_nothing(self):
+        code, out = self.run_cli(entry_cli, ('entry', 'connect', self.task, '--json'))
+        self.assertEqual(code, 0)
+        self.assertEqual(self.f.events(self.task, 'control.intervention'), [])
+        note = self.f.base/'note.txt'; note.write_text('Use the staging HIS URL.', encoding='utf-8')
+        args = ('entry', 'note', self.task, '--revision', json.loads(out)['revision'], '--request-id', 'n' * 128,
+                '--kind', 'proposal', '--file', str(note), '--source', 'claude', '--reference', 'chat')
+        self.assertEqual([self.run_cli(entry_cli, args)[0] for _ in range(2)], [0, 0])  # a replayed note is one intervention
+        rows = [e['payload'] for e in self.f.events(self.task, 'control.intervention')]
+        self.assertEqual([(r['command'], r['actor']) for r in rows], [('entry.note', 'claude')])
+        self.assertTrue(rows[0]['key'].startswith('entry.note:sha256:'))  # an over-long request id still fits the key
+        self.assertEqual(sc.role(rows[0]), 'entry')
 
 
 class McpCoverageTests(Coverage):
