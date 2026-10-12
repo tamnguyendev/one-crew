@@ -234,7 +234,8 @@ def prompt(goal, env, discovery, feedback=None, stay_inside=None):
                  'value and whose hint is its label (a shown error text is appended as "<label>, <error>" and also appears as its own '
                  'content-desc); a button label is its content-desc; a Flutter Key is NOT a resource-id. Each step has a unique id. Assert the '
                  'real outcome (including what must NOT appear), never just that the app opened. OneCrew verifies every selector on the live '
-                 'UI and may recalibrate selectors (never assertions). cleanup restores anything the steps changed. private_key names '
+                 'UI and may relocate a selector (an expected label stays verbatim, checked/focused stay, assert_absent never changes). '
+                 'cleanup restores anything the steps changed. private_key names '
                  'available for type steps (values stay private): '
                  + canonical(discovery.get('private_keys', [])) + '.\n')
     else:

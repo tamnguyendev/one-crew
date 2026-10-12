@@ -161,6 +161,8 @@ class DeviceRun(unittest.TestCase):
         self.state = {'delivery': {'source': {'hash': 'src'}, 'nodes': {'build': {'receipt': {
             'passed': True, 'apk': str(self.apk), 'sha256': self.digest, 'source': 'src'}}}}}
         self.port, self.error, self.saved, self.focus, self.dialog, self.typing = '8080', False, False, APP_FOCUS, 0, False
+        # Emulator console identity (round 3): the AVD on the serial and this boot's id; a kill + boot changes the id.
+        self.avd, self.boots = 'Trial', 1
         self.sent = []
         self.home = patch('onecrew.delivery_android.home', return_value=self.root); self.home.start(); self.addCleanup(self.home.stop)
         self.sleep = patch('onecrew.delivery_android.time.sleep'); self.sleep.start(); self.addCleanup(self.sleep.stop)
@@ -178,13 +180,18 @@ class DeviceRun(unittest.TestCase):
     def adb(self, runtime, task, argv, cwd, seconds):
         self.assertEqual(argv[1:3], ['-s', 'emulator-5554'])
         args = argv[3:]; self.sent.append(args)
-        if args == ['get-state']: return 0, 'device', ''
+        if args == ['get-state']:
+            if getattr(self, 'absent', 0): self.absent -= 1; return 1, '', 'not found'
+            return 0, 'device', ''
         if args == ['shell', 'wm', 'size']: return 0, 'Physical size: 720x1280', ''
         if args[0] == 'install': return 0, 'Success', ''
         if args[:3] == ['shell', 'pm', 'path']: return 0, 'package:/data/app/base.apk', ''
         if args[:2] == ['shell', 'sha256sum']: return 0, self.digest + ' /data/app/base.apk', ''
         if args == ['shell', 'dumpsys', 'window']: return 0, ANR_FOCUS if self.dialog else self.focus, ''
         if args[:2] == ['shell', 'pidof']: return (1, '', '') if getattr(self, 'dead', False) else (0, '4242', '')
+        if args == ['emu', 'avd', 'name']: return (0, self.avd + chr(13) + chr(10) + 'OK' + chr(13) + chr(10), '') if self.avd else (1, '', 'KO')
+        if args == ['shell', 'cat', '/proc/sys/kernel/random/boot_id']: return 0, '%08d-0000-4000-8000-000000000000' % self.boots, ''
+        if args == ['emu', 'kill']: self.boots += 1
         if args[0] == 'exec-out': return 0, ANR if self.dialog else screen(self.port, self.error, self.saved, self.typing), ''
         if args[:3] == ['shell', 'input', 'tap']:
             x, y = int(args[3]), int(args[4])
@@ -356,13 +363,21 @@ class AppCrashTests(DeviceRun):
         self.assertEqual(rc.classify_receipt(self.node(AC3), result)[0], 'device_assertion')
 
     def test_native_crash_at_launch_restarts_the_approved_emulator_once(self):
-        box = self.crash(NATIVE_CRASH, launches_dead=1)
+        # Round 3 (Codex P1-2/P2): only an instance OneCrew booted itself may be restarted, so it starts absent here.
+        box = self.crash(NATIVE_CRASH, launches_dead=1); self.absent = 1
         with patch('onecrew.delivery_device_env.boot_emulator', return_value={'booted': True}) as boot:
             result = self.run_device(self.node(AC3, emulator={'avd': 'Trial', 'avd_home': str(self.root)}))
-        self.assertTrue(result['passed'], result.get('detail')); boot.assert_called_once()
+        self.assertTrue(result['passed'], result.get('detail')); self.assertEqual(boot.call_count, 2)
         self.assertTrue(result['environment']['crash_restart'])
-        self.assertEqual([a['action'] for a in result['environment']['actions']][:2], ['emulator_stop', 'emulator_boot'])
+        self.assertEqual([a['action'] for a in result['environment']['actions']][:3], ['emulator_boot', 'emulator_stop', 'emulator_boot'])
         self.assertEqual(sum(a[0] == 'install' for a in self.sent), 1)  # the verified install is reused, not repeated
+
+    def test_native_crash_on_a_borrowed_emulator_is_reported_not_restarted(self):
+        self.crash(NATIVE_CRASH, launches_dead=1)
+        with patch('onecrew.delivery_device_env.boot_emulator') as boot:
+            result = self.run_device(self.node(AC3, emulator={'avd': 'Trial', 'avd_home': str(self.root)}))
+        boot.assert_not_called(); self.assertNotIn(['emu', 'kill'], self.sent)
+        self.assertFalse(result['passed']); self.assertEqual(result['environment']['ownership'], 'borrowed')
 
     def test_java_crash_is_a_product_finding_and_never_restarts(self):
         self.crash(JAVA_CRASH)
@@ -377,6 +392,9 @@ class AppCrashTests(DeviceRun):
         n = self.node(AC3, emulator={'avd': 'Trial', 'avd_home': str(self.root)})
         directory = da.device_directory(self.runtime, 'task', n, {'generation': 0}); directory.mkdir(parents=True, exist_ok=True)
         (directory/'receipt.json').write_text(json.dumps({'passed': False, 'app_crash': {'kind': 'native'}}))
+        # The previous attempt booted this very instance (ownership record of the current boot).
+        (self.root/'emulator-emulator-5554.json').write_text(json.dumps(
+            {'serial': 'emulator-5554', 'avd': 'Trial', 'boot_id': '%08d-0000-4000-8000-000000000000' % self.boots}))
         with patch('onecrew.delivery_device_env.boot_emulator', return_value={'booted': True}) as boot:
             result = self.run_device(n)
         self.assertTrue(result['passed'], result.get('detail')); boot.assert_called_once()
@@ -536,7 +554,9 @@ class CalibrationTests(DeviceRun):
         self.assertEqual(rc.POLICY['scenario_selector'], ('calibrate', 2))
 
     def test_validator_keeps_operations_passed_steps_and_assertions(self):
-        steps = AC3[:3] + [{'id': 'error', 'operation': 'wait_for', 'arguments': {'selector': {'resource-id': 'portError'}, 'timeout_seconds': 5}}]
+        # The label sits in another attribute and the class is wrong: a locator problem, the expected text is known.
+        steps = AC3[:3] + [{'id': 'error', 'operation': 'wait_for', 'arguments': {
+            'selector': {'text': 'Cổng phải từ 1 đến 65535', 'class': 'android.widget.TextView'}, 'timeout_seconds': 5}}]
         self.port = '70000'; self.error = True
         n, result, view = self.failing(steps)
         old = da.scenario(n['config']['scenario'], n['config']['scenario_sha256'])
@@ -547,9 +567,11 @@ class CalibrationTests(DeviceRun):
                 if step['id'] in changes: step['arguments']['selector'] = changes[step['id']]
             return new
         from onecrew import delivery_calibrate as cal
-        self.assertEqual(cal.check(old, revise(error={'text': 'Cổng phải từ 1 đến 65535'}), failure, view), [])
-        self.assertIn('already passed', ' '.join(cal.check(old, revise(save={'content-desc': 'LƯU'}, error={'text': 'Cổng phải từ 1 đến 65535'}), failure, view)))
-        self.assertIn('exactly one node', ' '.join(cal.check(old, revise(error={'class': 'android.view.View'}), failure, view)))
+        self.assertEqual(cal.check(old, revise(error={'content-desc': 'Cổng phải từ 1 đến 65535'}), failure, view), [])
+        self.assertIn('already passed', ' '.join(cal.check(old, revise(save={'content-desc': 'LƯU'}, error={'content-desc': 'Cổng phải từ 1 đến 65535'}), failure, view)))
+        self.assertIn('expected label', ' '.join(cal.check(old, revise(error={'class': 'android.view.View'}), failure, view)))
+        self.assertIn('exactly one node', ' '.join(cal.check(old, revise(error={'content-desc': 'Cổng phải từ 1 đến 65535',
+                                                                                'class': 'android.widget.Button'}), failure, view)))
         weaker = json.loads(json.dumps(old)); weaker['steps'][3]['operation'] = 'assert_ui'
         self.assertIn('id and operation', ' '.join(cal.check(old, weaker, failure, view)))
         # An assertion that named a label must keep it (here: shortened to a weaker prefix is refused).

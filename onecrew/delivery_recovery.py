@@ -38,7 +38,7 @@ MESSAGES = [
     (r'solution decision pending|pending question|pending root question|resolve the child question', 'decision_pending'),
     (r'stopped by a solution decision|approval is missing|requires a bound approved solution|exceeds the dispatch grant|'
      r'private references must be outside|outside the approved envelope|device permission expired|'
-     r'requires permission not granted', 'permission'),
+     r'requires permission not granted|not the approved avd|emulator identity unverifiable|not provably the approved avd', 'permission'),
     (r'source drift|source changed|source differs|external edits|toolchain/scenario changed|changed since approval|'
      r'private (configuration|scenario inputs) changed|apk changed', 'drift'),
     (r'provider did not complete|supervisor_interrupted|interrupted native operation|prior launch must be reconciled|'

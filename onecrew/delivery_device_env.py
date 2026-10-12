@@ -32,6 +32,21 @@ WAIT_LABELS = ('wait', 'đợi', 'chờ')
 BOOT_SECONDS = 300
 
 
+class EmulatorIdentityError(LedgerError):
+    """The instance on the pinned emulator serial is not provably the approved AVD (or not OneCrew's to change)."""
+
+
+def parse_avd_name(raw):
+    """AVD name from `adb emu avd name` ("<name>\nOK"); None when the console did not answer that way."""
+    lines = [line.strip() for line in (raw or '').splitlines() if line.strip()]
+    return lines[0] if len(lines) >= 2 and lines[-1] == 'OK' and AVD_NAME.fullmatch(lines[0]) else None
+
+
+def parse_boot_id(raw):
+    value = (raw or '').strip()
+    return value if re.fullmatch(r'[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', value) else None
+
+
 class EnvironmentUnusable(LedgerError):
     """The device stayed unusable after the bounded, granted recovery actions."""
 

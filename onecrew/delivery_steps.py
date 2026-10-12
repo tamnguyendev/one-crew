@@ -561,6 +561,9 @@ def execute(runtime,task,s,node,row):
                 if not r.get('red'):gaps.append('red: not verified (no behavioural red declared)')
                 if (r.get('counts') or {}).get('skipped'):gaps.append(n['id']+': '+str(r['counts']['skipped'])+' skipped test(s)')
             if r.get('skipped'):gaps.append(n['id']+': not run ('+str(r.get('detail'))[:200]+')')
+            cleanup=(r.get('environment') or {}).get('emulator_cleanup')
+            if cleanup in ('stop_failed','replaced_not_stopped','identity_lost_not_stopped'):
+                gaps.append(n['id']+': the emulator OneCrew booted was not stopped ('+cleanup+')')
         dropped=(d.get('planning') or {}).get('stay_inside')
         if dropped:gaps.append('out-of-envelope needs dropped by user decision: '+'; '.join(str(n.get('need'))[:150] for n in dropped))
         if not any(n['kind']=='device' for n in s['plan']['nodes']):gaps.append('device E2E: not in plan')

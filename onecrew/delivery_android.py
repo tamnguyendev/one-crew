@@ -431,17 +431,49 @@ def device(runtime,task,s,node,row):
         return out.strip() if rc==0 else None
     def booted():
         return (probe('get-state') or 'absent'),(probe('shell','getprop','sys.boot_completed') or '')
+    # Ownership of an emulator OneCrew booted survives attempts and coordinator restarts (Codex P2, 12/10).
+    owner_file=home(runtime,task)/('emulator-'+re.sub(r'[^A-Za-z0-9_.-]','_',c['serial'])+'.json')
+    def identity():
+        """(avd, boot_id) of the instance on the pinned serial; None where it cannot be read."""
+        from .delivery_device_env import parse_avd_name,parse_boot_id
+        return parse_avd_name(probe('emu','avd','name')),parse_boot_id(probe('shell','cat','/proc/sys/kernel/random/boot_id'))
+    def owner():
+        try:return json.loads(owner_file.read_text(encoding='utf-8')) if owner_file.is_file() else None
+        except (OSError,ValueError):return None
+    def verify(purpose):
+        """The pinned serial must carry the approved AVD before anything changes it (Codex P1-2). 'owned' only when this
+        exact boot is the one OneCrew started and recorded; an instance the user opened, or a replacement, is 'borrowed'."""
+        from .delivery_device_env import EmulatorIdentityError
+        avd,boot_id=identity()
+        environment['identity']={'avd':avd,'boot_id':boot_id[:8] if boot_id else None,'checked_for':purpose}
+        if avd is not None and avd!=c['emulator']['avd']:
+            raise EmulatorIdentityError('Emulator on '+c['serial']+' is AVD '+avd+', not the approved AVD '+c['emulator']['avd']+
+                                        ' ('+purpose+'); no install, input or kill sent.')
+        if avd is None or boot_id is None:
+            raise EmulatorIdentityError('Emulator identity unverifiable on '+c['serial']+' ('+purpose+'); no install, input or kill sent.')
+        mine=owner()
+        environment['ownership']='owned' if mine and mine.get('boot_id')==boot_id and mine.get('avd')==avd else 'borrowed'
+        return environment['ownership']
     def boot(reason):
-        from .delivery_device_env import boot_emulator
+        from .delivery_device_env import boot_emulator,EmulatorIdentityError
         record('emulator_boot',reason);environment['emulator_started']=True
         environment['boot']=boot_emulator(c['adb'],c['serial'],c['emulator'],directory/'emulator.log',booted,window=permission_left(c))
+        avd,boot_id=identity()
+        if avd!=c['emulator']['avd'] or boot_id is None:
+            raise EmulatorIdentityError('The emulator that came up on '+c['serial']+' is not provably the approved AVD; no install or input sent.')
+        durable_write(owner_file,canonical({'serial':c['serial'],'avd':avd,'boot_id':boot_id,'task':task,
+                                            'pid':(environment['boot'] or {}).get('pid'),'at':time.time()}).encode())
+        environment['ownership']='owned';environment['identity']={'avd':avd,'boot_id':boot_id[:8],'checked_for':'boot'}
     def restart(reason):
+        """Only the verified instance OneCrew itself booted is killed and rebooted; anything else is left alone."""
         from .delivery_device_env import kill_emulator
-        record('emulator_stop',reason);kill_emulator(system)
+        if verify('restart')!='owned':
+            record('emulator_restart_refused','not booted by OneCrew: '+reason);return False
+        record('emulator_stop',reason);kill_emulator(system);owner_file.unlink(missing_ok=True)
         for _ in range(20):
             if (probe('get-state') or 'absent')=='absent':break
             time.sleep(3)
-        boot(reason)
+        boot(reason);return True
     def prepare():
         """Usable device before install: granted, data-preserving recovery only; one emulator restart at most."""
         from .delivery_device_env import ensure_server,settle,blocked,EnvironmentUnusable
@@ -449,17 +481,20 @@ def device(runtime,task,s,node,row):
         state=probe('get-state') or 'absent'
         try:last=json.loads((directory/'receipt.json').read_text(encoding='utf-8')) if (directory/'receipt.json').is_file() else {}
         except (OSError,ValueError):last={}
-        if state!='device':
-            if not c.get('emulator'):raise LedgerError('Authorized device not ready.')
-            restart('device '+state) if state!='absent' else boot('device absent')
-        elif c.get('emulator') and (last.get('app_crash') or {}).get('kind')=='native':
-            # Trial 5 (12/10): after a native Flutter raster crash every launch crashed until the emulator restarted.
-            restart('previous run: app crashed natively on the emulator')
+        if c.get('emulator'):
+            if state=='absent':boot('device absent')
+            else:
+                verify('prepare')  # before any install, input or kill on this serial
+                if state!='device':restart('device '+state)
+                elif (last.get('app_crash') or {}).get('kind')=='native':
+                    # Trial 5 (12/10): after a native Flutter raster crash every launch crashed until the emulator restarted.
+                    restart('previous run: app crashed natively on the emulator')
+        elif state!='device':raise LedgerError('Authorized device not ready.')
         # A fresh boot settles under load for minutes; an already running device gets a short bound.
         booted_now=lambda:environment['emulator_started']
         health=settle(system,xml,record,seconds=240 if booted_now() else 60,stable=3 if booted_now() else 1,package=c['package_id'],allowed=allowed)
-        if blocked(health) and c.get('emulator') and 'restart_emulator' in allowed:
-            restart(','.join(blocked(health)));health=settle(system,xml,record,seconds=240,stable=3,package=c['package_id'],allowed=allowed)
+        if blocked(health) and c.get('emulator') and 'restart_emulator' in allowed and restart(','.join(blocked(health))):
+            health=settle(system,xml,record,seconds=240,stable=3,package=c['package_id'],allowed=allowed)
         environment['health']=health
         needs=sorted({a['action'][len('needs_permission:'):] for a in environment['actions'] if a['action'].startswith('needs_permission:')})
         if blocked(health) and needs:
@@ -632,8 +667,9 @@ def device(runtime,task,s,node,row):
                 # A native crash at launch on the approved emulator: one restart of that emulator, then one more launch
                 # of the same verified install. A Java crash is a product finding and is never retried here.
                 if (receipt.get('app_crash') or {}).get('kind')!='native' or not c.get('emulator') or environment.get('crash_restart'):raise
-                environment['crash_restart']=True;receipt.pop('app_crash',None)
-                restart('app crashed natively at launch')
+                environment['crash_restart']=True
+                if not restart('app crashed natively at launch'):raise
+                receipt.pop('app_crash',None)
                 from .delivery_device_env import settle,blocked,EnvironmentUnusable
                 health=settle(system,xml,record,seconds=240,stable=3,package=c['package_id'])
                 if blocked(health):raise EnvironmentUnusable('Android device not usable after the crash restart: '+','.join(blocked(health)))
@@ -676,11 +712,16 @@ def device(runtime,task,s,node,row):
                         receipt.setdefault('detail','Device permission expired before cleanup; no further device command sent.')
             if reference and file_hash(reference)!=private_digest:
                 receipt.update(passed=False,detail='Private scenario inputs changed.')
-            if receipt['passed'] and environment['emulator_started']:
-                # An emulator OneCrew booted is shut down once its device work passed; the user's own instances are left alone.
+            if receipt['passed'] and c.get('emulator'):
+                # Only the instance OneCrew booted (any attempt; verified again now) is stopped; its result is its own field.
                 from .delivery_device_env import kill_emulator
-                try:environment['emulator_stopped']=kill_emulator(system)
-                except (ValueError,OSError):environment['emulator_stopped']=False
+                try:
+                    if environment.get('ownership')!='owned':cleanup='borrowed_left_running'
+                    elif verify('stop')!='owned':cleanup='replaced_not_stopped'
+                    elif kill_emulator(system):owner_file.unlink(missing_ok=True);cleanup='stopped'
+                    else:cleanup='stop_failed'
+                except (ValueError,OSError):cleanup='identity_lost_not_stopped'
+                environment['emulator_cleanup']=cleanup;environment['emulator_stopped']=cleanup=='stopped'
             durable_write(directory/'receipt.json',canonical(receipt).encode())
     receipt['detail']=receipt.get('detail','Device scenarios and cleanup passed.' if receipt['passed'] else 'Device acceptance or cleanup failed.')
     receipt['receipt_file']=str(directory/'receipt.json')

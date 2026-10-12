@@ -99,6 +99,14 @@ test/eval. Hiệu chỉnh selector đã chạy thật trong trial 5.
 Không còn: viết plan/recipe/test/scenario, khởi động emulator, đóng hộp thoại ANR, sửa selector, gọi `resume`, khởi động lại
 coordinator, chạy test/build/E2E, viết bàn giao, bật cửa sổ thông báo.
 
+## Đính chính sau Codex review (12/10, review trên 742a139)
+
+- "Hiệu chỉnh không làm yếu assertion" ở báo cáo này **chưa đúng** với runtime đợt 2: validator chỉ đòi nhãn cũ là chuỗi con
+  của nhãn mới, nên bỏ `checked` hoặc đổi nhãn `assert_absent` vẫn được chấp nhận (P1-1).
+- Emulator trên serial không được xác minh đúng AVD trước khi cài/nhập/tắt (P1-2); quyền sở hữu emulator OneCrew boot mất qua
+  retry nên bị để chạy (P2, chính là việc entry phải tắt tay sau trial 7).
+- Đã sửa ở vòng 3; xem `docs/eval-results/2026-10-12-autonomy-round3/REPORT.vi.md`. Các trial 4–7 chạy trên runtime trước sửa.
+
 ## Kết luận
 
 - OneCrew **tự hoàn thành trọn luồng** (lập kế hoạch → sửa → test có red → review → APK → E2E trên emulator tự boot →
