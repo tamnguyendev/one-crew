@@ -423,7 +423,14 @@ class Delivery(Owned):
             seq,s=self.state(task_id)
             if not s or s['phase'] in ('completed','cancelled','failed'):return s
             d=rc.migrate(s['delivery'])
-            if d.get('escalation'):return s
+            if d.get('escalation'):
+                # An answer recorded after the deadline is still the user's decision: 'stop' must cancel here,
+                # because the runner exits on the deadline before any run() could apply it.
+                changed=self._answer(task_id,s)
+                if not changed or s['phase']=='cancelled' or d.get('escalation'):
+                    if changed:self.persist(task_id,seq,s)
+                    return s
+                # A consumed 'retry' while the deadline is still exhausted opens the next budget episode below.
             node=next((k for k,v in d['nodes'].items() if v['phase'] in ('running','continuing','blocked')),None)
             for row in d['nodes'].values():
                 if row['phase']=='continuing':row['phase']='pending'

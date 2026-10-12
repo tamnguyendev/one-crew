@@ -132,7 +132,7 @@ class ScorecardTests(unittest.TestCase):
                     'runtime_changed':'assisted_complete','noted':'assisted_complete','entry_restart':'assisted_complete',
                     'escalated':'correct_block','silent_block':'incomplete','unclassified':'incomplete','answered':'incomplete',
                     'running':'incomplete','no_checkpoint':'unknown','untraced':'unknown','child_entry_start':'assisted_complete',
-                    'skipped_device':'autonomous_complete','device_block':'correct_block','garbage_class':'incomplete','legacy_start':'unknown'}
+                    'skipped_device':'partial_complete','device_block':'correct_block','garbage_class':'incomplete','legacy_start':'unknown'}
         self.assertEqual({k:v['outcome'] for k, v in rows.items()}, expected)
         self.assertEqual(rows['intervened']['outcome_reasons'], ['entry_intervention'])
         self.assertEqual(rows['entry_plan']['outcome_reasons'], ['entry_plan'])
@@ -148,9 +148,11 @@ class ScorecardTests(unittest.TestCase):
         self.assertEqual(rows['legacy_start']['outcome_reasons'], ['start_initiator_missing'])
         self.assertEqual(rows['device_block']['pending_escalations'], {'device_assertion':1})
         self.assertEqual(value['axes']['task_completion']['outcomes'],
-                         {'autonomous_complete':2,'assisted_complete':6,'correct_block':2,'incomplete':5,'unknown':3})
-        # A skipped optional stage is not run: never a device pass, whatever the node phase says.
+                         {'autonomous_complete':1,'assisted_complete':6,'partial_complete':1,'correct_block':2,'incomplete':5,'unknown':3})
+        # A skipped optional stage is not run: never a device pass, whatever the node phase says, and the task is
+        # partial (Codex review 2026-10-12) even though nobody helped: completion and assistance are separate levels.
         skip = rows['skipped_device']
+        self.assertEqual((skip['completion_level'], skip['assistance_level']), ('partial', 'autonomous'))
         self.assertEqual((skip['not_run'], skip['gates']['device'], skip['criteria']['AC2']), (['device'], 'not_run', 'not_run'))
         self.assertIn('device', skip['missing_evidence'])
         done, block = rows['autonomous'], rows['escalated']

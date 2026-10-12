@@ -211,6 +211,20 @@ def scroll_gesture(xml, package, viewport, windows, input_method, direction):
     return [x,hi,x,lo] if direction=='up' else [x,lo,x,hi]
 
 
+class PermissionExpired(LedgerError):
+    """The approved device window ended; no further device command may be sent."""
+
+
+def permission_left(c):
+    """Seconds left in the approved device window (inf without one). Checked before every device command."""
+    if not c.get('valid_until'):return float('inf')
+    end=dt.datetime.fromisoformat(c['valid_until'])
+    if end.tzinfo is None:end=end.astimezone()
+    left=(end-dt.datetime.now(dt.timezone.utc)).total_seconds()
+    if left<=0:raise PermissionExpired('Device permission expired (valid_until); no further device command sent.')
+    return left
+
+
 def device_directory(runtime,task,node,row):
     return home(runtime,task)/('device-'+node['id']+'-'+str(row['generation']))
 
@@ -225,15 +239,20 @@ def effects_started(runtime,task,node,row):
 def reconcile(runtime,task,s,node,row):
     """Read-only evidence after an interrupted device node. Never installs, taps or clears data."""
     c=node['config'];effects=effects_started(runtime,task,node,row);out={'intent':effects,'replay':False}
+    try:permission_left(c)
+    except PermissionExpired:
+        # Even a read-only probe is a device command: after the window it is not sent, and nothing is replayed.
+        out.update(permission_expired=True,detail='Device permission expired; device state not probed and nothing replayed.')
+        return out
     try:
         build=apk_input(s,node);directory=home(runtime,task)
-        rc,state,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'get-state'],directory,15)
+        rc,state,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'get-state'],directory,min(15,permission_left(c)))
         out['device']=state.strip() if rc==0 else 'unavailable'
         if out['device']=='device':
-            rc,paths,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'shell','pm','path',c['package_id']],directory,15)
+            rc,paths,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'shell','pm','path',c['package_id']],directory,min(15,permission_left(c)))
             lines=paths.strip().splitlines() if rc==0 else []
             if len(lines)==1 and re.fullmatch(r'package:/[A-Za-z0-9_./=+~-]+\.apk',lines[0]):
-                rc,digest,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'shell','sha256sum',lines[0][8:]],directory,30)
+                rc,digest,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'shell','sha256sum',lines[0][8:]],directory,min(30,permission_left(c)))
                 out['installed_matches_audited']=rc==0 and digest.split()[:1]==[build['sha256']]
     except (ValueError,OSError) as error:out['probe_error']=str(error)[:300]
     if not effects:out.update(replay=True,detail='No device effect had started.')
@@ -245,8 +264,7 @@ def reconcile(runtime,task,s,node,row):
 
 def device(runtime,task,s,node,row):
     c=node['config'];build=apk_input(s,node);v=scenario(c['scenario'],c['scenario_sha256'])
-    if c.get('valid_until') and dt.datetime.now(dt.timezone.utc)>dt.datetime.fromisoformat(c['valid_until']).astimezone(dt.timezone.utc):
-        raise LedgerError('Device permission expired (valid_until); no device action taken.')
+    permission_left(c)  # before any device action; every later command checks again
     reference=Path(c['private_reference']) if c['private_reference'] else None
     private=json.loads(reference.read_text(encoding='utf-8-sig')) if reference else {}
     if not isinstance(private,dict):raise LedgerError('Private scenario inputs must be a mapping.')
@@ -266,6 +284,8 @@ def device(runtime,task,s,node,row):
         nonlocal effect_pending
         left=c['timeout_seconds']-(time.monotonic()-start)
         if operation_deadline is not None:left=min(left,operation_deadline-time.monotonic())
+        # The approved window bounds every command, so none starts or runs past valid_until.
+        left=min(left,permission_left(c))
         if left<=0:raise LedgerError('Device scenario/operation timeout.')
         effect_pending=(args[0]=='install' or args[:2] in (('shell','input'),('shell','am')))
         rc,out,err=bounded(runtime,task,[c['adb'],'-s',c['serial'],*args],directory,min(45,left))
@@ -392,13 +412,19 @@ def device(runtime,task,s,node,row):
         except (ValueError,OSError) as e:
             receipt['detail']=str(e)[:500];receipt['passed']=False;receipt['uncertain']=effect_pending
             receipt['failed_step_evidence']=step_evidence
+            if isinstance(e,PermissionExpired):receipt['permission_expired']=True
         finally:
             for step in v['cleanup']:
                 try:
                     perform(step);receipt['cleanup'].append({'id':step['id'],'passed':True})
-                except (ValueError,OSError):
+                except (ValueError,OSError) as e:
                     receipt['cleanup'].append({'id':step['id'],'passed':False});receipt['passed']=False
                     receipt['uncertain']=receipt.get('uncertain',False) or effect_pending
+                    if isinstance(e,PermissionExpired):
+                        # Cleanup cannot run after the window: steps that already ran leave an unknown device state.
+                        receipt['permission_expired']=True
+                        receipt['uncertain']=receipt.get('uncertain',False) or bool(receipt.get('scenario_started'))
+                        receipt.setdefault('detail','Device permission expired before cleanup; no further device command sent.')
             if reference and file_hash(reference)!=private_digest:
                 receipt.update(passed=False,detail='Private scenario inputs changed.')
             durable_write(directory/'receipt.json',canonical(receipt).encode())

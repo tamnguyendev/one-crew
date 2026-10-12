@@ -304,7 +304,13 @@ def preflight(runtime,task,s,source):
             if not path.is_file():raise LedgerError('Pinned tool unavailable: '+str(path))
             tools[str(path.resolve())]=file_hash(path)
         if kind=='device':
-            rc,out,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'get-state'],home(runtime,task),15)
+            from .delivery_android import PermissionExpired,permission_left
+            try:window=permission_left(c)
+            except PermissionExpired:
+                # No device command outside the approved window; optional E2E is reported not run at its node.
+                if not c.get('optional'):raise
+                devices_missing=True;continue
+            rc,out,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'get-state'],home(runtime,task),min(15,window))
             if rc or out.strip()!='device':
                 # Optional E2E is re-checked at its node and reported as not run; required E2E stops before any call.
                 if not c.get('optional'):raise LedgerError('Pinned Android device unavailable at preflight.')

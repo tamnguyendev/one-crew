@@ -107,9 +107,10 @@ def loop(ledger, task_id, interval=.5):
                     return outcome
                 if workflow.control.clock() >= dt.datetime.fromisoformat(control['deadline']):
                     if hasattr(workflow, 'deadline_exhausted'):
-                        # Delivery roots ask one typed budget question instead of an untyped block.
-                        workflow.deadline_exhausted(task_id)
-                        outcome = 'deadline'
+                        # Delivery roots ask one typed budget question instead of an untyped block, and apply an
+                        # answer that already arrived (a 'stop' cancels even after the deadline).
+                        state = workflow.deadline_exhausted(task_id)
+                        outcome = 'cancelled' if state and state.get('phase') == 'cancelled' else 'deadline'
                         return outcome
                     with task_lock(ledger, task_id):
                         seq, state = workflow.state(task_id)
