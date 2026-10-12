@@ -118,6 +118,66 @@ def note(ledger, task_id, command, **kwargs):
         return {'recorded': False, 'error': str(error)[:300]}
 
 
+TASK = re.compile(r'TASK-[0-9a-f]{32}\Z')
+SCOPES = ('project', 'conversation', 'solution', 'consultation', 'delegation', 'trial', 'desktop')
+PROJECT_DDL = '''CREATE TABLE IF NOT EXISTS project_interventions(seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL, scope TEXT NOT NULL, scope_id TEXT, key TEXT, payload TEXT NOT NULL, created_at TEXT NOT NULL,
+    UNIQUE(project_id, key))'''
+
+
+def record_project(ledger, command, scope='project', scope_id=None, *, actor=None, channel='cli', reason=None, details=None, key=None):
+    """A mutating command with no task (conversation, solution, delegation, trial): the same attributed record, project-scoped."""
+    command = key_field('.'.join(command.split()) if isinstance(command, str) else command)
+    key_field(channel)
+    if scope not in SCOPES: raise LedgerError('Unknown intervention scope.')
+    if scope_id is not None: key_field(scope_id)
+    if key is not None: key_field(key)
+    who = (_exact(actor) or _mapped(actor) or 'unknown') if actor else _resolve()
+    if details is not None:
+        if not isinstance(details, dict): raise LedgerError('Intervention details must be an object.')
+        if len(canonical(details)) > 4000: details = {'truncated': True, 'sha256': content_hash(details)}
+    payload = {'actor': who, 'channel': channel, 'command': command, 'scope': scope, 'scope_id': scope_id,
+               'reason': None if reason is None else str(reason)[:500], 'details': details, 'runtime': runtime_revision()['tree']}
+    if key is not None: payload['key'] = key
+    from .ledger import utcnow
+    with ledger.transaction(write=True) as conn:
+        conn.execute(PROJECT_DDL)
+        if key is not None:
+            old = conn.execute('SELECT payload FROM project_interventions WHERE project_id=? AND key=?', (ledger.project_id, key)).fetchone()
+            if old: return json.loads(old['payload'])
+        conn.execute('INSERT INTO project_interventions(project_id,scope,scope_id,key,payload,created_at) VALUES(?,?,?,?,?,?)',
+                     (ledger.project_id, scope, scope_id, key, canonical(payload), utcnow()))
+        return payload
+
+
+def project_records(ledger, scope=None, scope_id=None):
+    with ledger.transaction() as conn:
+        if conn is None or not conn.execute("SELECT 1 FROM sqlite_master WHERE name='project_interventions'").fetchone(): return []
+        query, params = 'SELECT * FROM project_interventions WHERE project_id=?', [ledger.project_id]
+        if scope: query += ' AND scope=?'; params.append(scope)
+        if scope_id: query += ' AND scope_id=?'; params.append(scope_id)
+        return [dict(json.loads(r['payload']), seq=r['seq'], at=r['created_at']) for r in conn.execute(query + ' ORDER BY seq', params)]
+
+
+def keyed(command, identity):
+    """Replay key for one command identity (a build key, a note request id), within the 128-character key limit."""
+    key = f'{command}:{identity}'
+    return key if len(key) <= 128 else f'{command}:sha256:{hashlib.sha256(str(identity).encode()).hexdigest()}'
+
+
+def cli_note(ledger, command, tasks=(), *, scope=('project', None), **kwargs):
+    """Record one successful mutating CLI command on each affected task, else once at its project scope.
+    Attribution is ONECREW_ACTOR ('unknown' when unset). Never turns the command's success into a failure."""
+    tasks = [t for t in dict.fromkeys(tasks) if isinstance(t, str) and TASK.fullmatch(t)]
+    try:
+        if tasks: return [record(ledger, task, command, **kwargs) for task in tasks]
+        return [record_project(ledger, command, scope[0], scope[1], **kwargs)]
+    except (ValueError, OSError, sqlite3.Error) as error:
+        import sys
+        print('Intervention not recorded: ' + str(error)[:300], file=sys.stderr)
+        return [{'recorded': False, 'error': str(error)[:300]}]
+
+
 def summary(ledger, task_ids):
     """Interventions in ledger order, including runtime changes between runner starts."""
     tasks = list(dict.fromkeys(task_ids))

@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -7,12 +8,16 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from types import SimpleNamespace
+
+from onecrew.desktop_notifications import directory
 from onecrew.eval_scorecard import scorecard, markdown
 from onecrew.evaluation import compare, main, read_result, seal
-from onecrew.ledger import LedgerError
+from onecrew.ledger import LedgerError, content_hash
 from tests.test_evaluation import run_value
 
-NODES = [{'id':'tests','kind':'regression'},{'id':'review','kind':'review'},{'id':'build','kind':'build'},
+# A full flutter_android loop (A2, 12/10): change through handover; add() also writes the report and the shown notice.
+NODES = [{'id':'change','kind':'change'},{'id':'tests','kind':'regression'},{'id':'review','kind':'review'},{'id':'build','kind':'build'},
          {'id':'audit','kind':'apk_audit'},{'id':'device','kind':'device'},{'id':'done','kind':'handover'}]
 SECRET = 'PRIVATE_SENTINEL'
 
@@ -23,7 +28,7 @@ def task(n):
 
 def state(phase='completed', blocked=None, **delivery):
     done = phase == 'completed'
-    ran = lambda n: done or n in ('tests','review')
+    ran = lambda n: done or n in ('change','tests','review')
     d = {'version':1,'generation':0,'repairs':0,'history':[],'source':{'hash':'src'},
          'criteria':{'AC1':'passed' if done else 'pending','AC2':'passed' if done else 'blocked' if blocked else 'pending'},
          'nodes':{n['id']:{'phase':'passed' if ran(n['id']) else 'pending','child':None,
@@ -119,15 +124,23 @@ class ScorecardTests(unittest.TestCase):
         for n, child in enumerate(children):
             self.c.execute('INSERT INTO tasks VALUES (?,?)', (child,'project'))
             self.c.execute('INSERT INTO delivery_children VALUES (?,?,?,0)', (child,t,'node'+str(n)))
-        if value: self.event(t, 'workflow.checkpoint', value)
+        if value and value['phase'] == 'completed':
+            report = self.root/('handover-'+t+'.txt'); report.write_text('report', encoding='utf-8')
+            value['delivery']['nodes']['done']['receipt'].update(report=str(report), sha256=hashlib.sha256(report.read_bytes()).hexdigest())
+        if value: seq = self.event(t, 'workflow.checkpoint', value)
+        if value and value['phase'] == 'completed':  # the final-outcome notice the runtime showed
+            key = content_hash({'task':t,'outcome':{'phase':'completed','first':seq}})[:32]
+            folder = directory(SimpleNamespace(state_root=self.root)); folder.mkdir(parents=True, exist_ok=True)
+            (folder/(key+'.json')).write_text(json.dumps({'id':key,'task':t,'phase':'completed','status':'shown'}))
         for kind, payload in events: self.event(t, kind, payload)
 
     def request(self, rid, name, status='pending'):
         self.c.execute('INSERT INTO requests VALUES (?,?,?,?)', (rid,'1',self.ids[name],status))
 
     def event(self, t, kind, value):
-        self.c.execute('INSERT INTO events(task_id,kind,payload,created_at) VALUES (?,?,?,?)', (t,kind,json.dumps(value),'2026-10-12T00:00:00Z'))
+        seq = self.c.execute('INSERT INTO events(task_id,kind,payload,created_at) VALUES (?,?,?,?)', (t,kind,json.dumps(value),'2026-10-12T00:00:00Z')).lastrowid
         self.c.commit()
+        return seq
 
     def card(self, comparison=None):
         return scorecard(self.root, list(self.ids.values()), comparison)
@@ -140,12 +153,13 @@ class ScorecardTests(unittest.TestCase):
         before = self.db.read_bytes(); value = self.card()
         self.assertEqual(before, self.db.read_bytes())
         rows = self.by_task(value, 'task_completion')
-        expected = {'autonomous':'autonomous_complete','intervened':'assisted_complete','entry_plan':'assisted_complete',
-                    'runtime_changed':'assisted_complete','noted':'assisted_complete','entry_restart':'assisted_complete',
+        # A2 (12/10): complete is now full_loop; a relay without the user's quote is unknown provenance.
+        expected = {'autonomous':'autonomous_full_loop','intervened':'assisted_full_loop','entry_plan':'assisted_full_loop',
+                    'runtime_changed':'assisted_full_loop','noted':'assisted_full_loop','entry_restart':'assisted_full_loop',
                     'escalated':'correct_block','silent_block':'incomplete','unclassified':'incomplete','answered':'incomplete',
-                    'running':'incomplete','no_checkpoint':'unknown','untraced':'unknown','child_entry_start':'assisted_complete',
+                    'running':'incomplete','no_checkpoint':'unknown','untraced':'unknown','child_entry_start':'assisted_full_loop',
                     'skipped_device':'partial_complete','device_block':'correct_block','garbage_class':'incomplete','legacy_start':'unknown',
-                    'entry_decided':'assisted_complete','relayed':'assisted_complete','unattributed':'unknown'}
+                    'entry_decided':'assisted_full_loop','relayed':'unknown','unattributed':'unknown'}
         self.assertEqual({k:v['outcome'] for k, v in rows.items()}, expected)
         self.assertEqual(rows['intervened']['outcome_reasons'], ['entry_intervention'])
         self.assertEqual(rows['entry_plan']['outcome_reasons'], ['entry_plan'])
@@ -160,11 +174,12 @@ class ScorecardTests(unittest.TestCase):
         self.assertEqual(rows['garbage_class']['outcome_reasons'], ['no_classified_failure'])
         self.assertEqual(rows['legacy_start']['outcome_reasons'], ['start_initiator_missing'])
         self.assertEqual(rows['device_block']['pending_escalations'], {'device_assertion':1})
-        self.assertEqual(rows['entry_decided']['outcome_reasons'], ['entry_decision'])
-        self.assertEqual(rows['relayed']['outcome_reasons'], ['entry_relayed_decision'])
+        self.assertEqual(rows['entry_decided']['outcome_reasons'], ['entry_undelegated_decision'])
+        self.assertEqual(rows['relayed']['outcome_reasons'], ['decision_provenance_unknown'])
         self.assertEqual(rows['unattributed']['outcome_reasons'], ['decision_provenance_unknown'])
         self.assertEqual(value['axes']['task_completion']['outcomes'],
-                         {'autonomous_complete':1,'assisted_complete':8,'partial_complete':1,'correct_block':2,'incomplete':5,'unknown':4})
+                         {'autonomous_full_loop':1,'assisted_full_loop':7,'plan_complete':0,'partial_complete':1,'tests_only':0,
+                          'correct_block':2,'incomplete':5,'unknown':5})
         # A skipped optional stage is not run: never a device pass, whatever the node phase says, and the task is
         # partial (Codex review 2026-10-12) even though nobody helped: completion and assistance are separate levels.
         skip = rows['skipped_device']
@@ -184,11 +199,12 @@ class ScorecardTests(unittest.TestCase):
         rows = self.by_task(self.card(), 'entry_dependencies')
         a = rows['autonomous']
         self.assertEqual(a['interventions'], {'codex':{'delivery submit':1},'user':{'request.reply':1}}); self.assertEqual(a['entry_interventions'], 0)
-        self.assertEqual(a['decisions_by_source'], {'user':1,'relayed':0,'entry':0,'unknown':0})
-        self.assertEqual(rows['entry_decided']['decisions_by_source'], {'user':0,'relayed':0,'entry':1,'unknown':0})
-        self.assertEqual(rows['relayed']['decisions_by_source'], {'user':0,'relayed':1,'entry':0,'unknown':0})
+        zero = {'user':0,'relayed':0,'delegated':0,'undelegated':0,'observed':0,'unknown':0}
+        self.assertEqual(a['decisions_by_source'], dict(zero, user=1))
+        self.assertEqual(rows['entry_decided']['decisions_by_source'], dict(zero, undelegated=1))
+        self.assertEqual(rows['relayed']['decisions_by_source'], dict(zero, unknown=1))  # no user reference
         # Legacy receipt: the sender comes from the reply's intervention record, the decider is unknown.
-        self.assertEqual(rows['unattributed']['decisions_by_source'], {'user':0,'relayed':0,'entry':0,'unknown':1})
+        self.assertEqual(rows['unattributed']['decisions_by_source'], dict(zero, unknown=1))
         self.assertEqual(a['intervention_roles'], {'entry':0,'decision':1,'handoff':1,'runtime':0})
         self.assertEqual((a['user_decisions_answered'], a['coordinator_restarts'], a['keeper_restart_events'], a['plan_provenance']),
                          (1, {'keeper':1,'reply':1}, 1, 'onecrew'))
@@ -224,7 +240,7 @@ class ScorecardTests(unittest.TestCase):
         for text in (json.dumps(value), markdown(value)):
             self.assertNotIn(SECRET, text)
         self.assertEqual(self.by_task(value, 'entry_dependencies')['autonomous']['interventions']['other'], {'delivery resume':1})
-        self.assertEqual(self.by_task(value, 'task_completion')['autonomous']['outcome'], 'assisted_complete')
+        self.assertEqual(self.by_task(value, 'task_completion')['autonomous']['outcome'], 'assisted_full_loop')
 
     def test_missing_or_invalid_compare_and_cli_outputs(self):
         value = self.card()
@@ -241,7 +257,7 @@ class ScorecardTests(unittest.TestCase):
         self.assertEqual(run(args+['--output',str(out)]), 0)
         card = read_result(out/'scorecard.json')
         self.assertEqual(card['axes']['runtime_tests']['status'], 'not_provided')
-        self.assertEqual([t['outcome'] for t in card['axes']['task_completion']['tasks']], ['autonomous_complete','correct_block'])
+        self.assertEqual([t['outcome'] for t in card['axes']['task_completion']['tasks']], ['autonomous_full_loop','correct_block'])
         report = (out/'scorecard.md').read_text(encoding='utf-8')
         for heading in ('## Trục 1', '## Trục 2', '## Trục 3'): self.assertIn(heading, report)
         self.assertEqual(run(args+['--output',str(out)]), 2)  # never overwrites earlier evidence

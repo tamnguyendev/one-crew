@@ -96,10 +96,13 @@ class ScorecardLevelTests(unittest.TestCase):
                         delivery={'technical_verified': True, 'criteria': {'AC1': 'passed', 'AC2': 'passed'},
                                   'nodes': {'tests': {'kind': 'regression', 'phase': 'passed', 'skipped': False},
                                             'device': {'kind': 'device', 'phase': 'passed', 'skipped': False}}})
-        self.assertEqual(sc.outcome(full)[0], 'autonomous_complete')
+        # Full-loop rule (A2, 12/10): a plan with only regression and device lacks loop stages, so it is
+        # plan_complete, never a full loop; assistance is still judged on its own level.
+        self.assertEqual(sc.outcome(full)[0], 'plan_complete')
+        self.assertEqual(sc.assistance_level(full), ('autonomous', []))
         helped = dict(full, metrics=dict(full['metrics'], interventions=[{'actor': 'claude', 'channel': 'cli', 'command': 'work.resume'}]))
-        self.assertEqual(sc.outcome(helped)[0], 'assisted_complete')
-        self.assertEqual(sc.completion(helped)['completion_level'], 'complete')
+        self.assertEqual(sc.assistance_level(helped), ('assisted', ['entry_intervention']))
+        self.assertEqual(sc.completion(helped)['completion_level'], 'plan_complete')
 
     def test_partial_and_assisted_are_reported_on_both_levels(self):
         helped = observed(metrics=dict(observed()['metrics'], runtime_revisions=2))

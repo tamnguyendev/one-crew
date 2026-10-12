@@ -6,7 +6,11 @@ from .ledger import Ledger, LedgerError
 from .owned_intake import submit
 
 
-def main(argv=None):
+READ_ONLY={('job','status'),('job','outputs')}
+RECORDED={('job',name):'job.'+name for name in ('submit','native-audit','recover-permissions','remove-deadline','start','run','cancel','resume')}
+
+
+def parser():
     parser=argparse.ArgumentParser()
     parser.add_argument('--project',type=Path,default=Path.cwd())
     parser.add_argument('--state-root',type=Path)
@@ -37,47 +41,67 @@ def main(argv=None):
         p=commands.add_parser(name);p.add_argument('task')
         if name=='outputs': p.add_argument('--details',action='store_true')
         if name in ('start','resume'): p.add_argument('--terminal',action='store_true')
-    args=parser.parse_args(argv)
+    return parser
+
+
+def record(args,ledger,result):
+    """Every mutating job command is an intervention by ONECREW_ACTOR; a replayed submit records once."""
+    command=RECORDED.get((args.group,args.command))
+    if not command:return
+    from .interventions import cli_note
+    task=getattr(args,'task',None) or result.get('id')
+    key='submit' if args.command=='submit' else 'remove-deadline:'+args.key[:100] if args.command=='remove-deadline' else None
+    cli_note(ledger,command,[task],key=key,details={'start':bool(args.start or args.terminal)} if args.command=='submit' else None)
+
+
+def execute(args,ledger):
+    if args.command=='submit':
+        build=json.loads(args.android_build_config.read_text(encoding='utf-8-sig')) if args.android_build_config else None
+        change=json.loads(args.native_change_config.read_text(encoding='utf-8-sig')) if args.native_change_config else None
+        result=submit(ledger,args.goal,args.key,**{k:getattr(args,k) for k in
+            ('mode','provider','model','max_calls','max_seconds','image','branch','remote','solution_id','solution_revision')},android_build=build,native_change=change)
+        if args.start or args.terminal:
+            from .owned import Owned
+            from .runner import start
+            Owned(ledger).enable(result['id'])
+            result['runner']=start(ledger,result['id'])
+    elif args.command=='status':
+        result=ledger.task(args.task,full=True)
+    else:
+        from .owned import Owned
+        runtime=Owned(ledger)
+        if args.command=='outputs':
+            state=runtime.state(args.task)[1]
+            if state is None: raise LedgerError('Job is queued with no outputs; use job start to enable execution.')
+            result=state if args.details else output_card(runtime,args.task,state)
+        elif args.command=='cancel': result=runtime.control.cancel(args.task)
+        elif args.command=='recover-permissions':
+            from .workspace_worker import recover_permissions
+            result=recover_permissions(runtime,args.task,args.reference)
+        elif args.command=='remove-deadline':
+            from .budget import remove_deadline
+            result=remove_deadline(runtime.control,args.task,args.revision,args.key,args.reference)
+        elif args.command=='native-audit':
+            from .native_audit import enable
+            from .runner import start
+            enable(runtime,args.task,args.reference)
+            result=start(ledger,args.task)
+        elif args.command=='run':
+            runtime.enable(args.task);result=runtime.run(args.task,steps=100)
+        else:
+            from .runner import start
+            runtime.enable(args.task)
+            if args.command=='resume': runtime.resume(args.task)
+            result=start(ledger,args.task)
+    return result
+
+
+def main(argv=None):
+    args=parser().parse_args(argv)
     ledger=Ledger(args.project,args.state_root)
     try:
-        if args.command=='submit':
-            build=json.loads(args.android_build_config.read_text(encoding='utf-8-sig')) if args.android_build_config else None
-            change=json.loads(args.native_change_config.read_text(encoding='utf-8-sig')) if args.native_change_config else None
-            result=submit(ledger,args.goal,args.key,**{k:getattr(args,k) for k in
-                ('mode','provider','model','max_calls','max_seconds','image','branch','remote','solution_id','solution_revision')},android_build=build,native_change=change)
-            if args.start or args.terminal:
-                from .owned import Owned
-                from .runner import start
-                Owned(ledger).enable(result['id'])
-                result['runner']=start(ledger,result['id'])
-        elif args.command=='status':
-            result=ledger.task(args.task,full=True)
-        else:
-            from .owned import Owned
-            runtime=Owned(ledger)
-            if args.command=='outputs':
-                state=runtime.state(args.task)[1]
-                if state is None: raise LedgerError('Job is queued with no outputs; use job start to enable execution.')
-                result=state if args.details else output_card(runtime,args.task,state)
-            elif args.command=='cancel': result=runtime.control.cancel(args.task)
-            elif args.command=='recover-permissions':
-                from .workspace_worker import recover_permissions
-                result=recover_permissions(runtime,args.task,args.reference)
-            elif args.command=='remove-deadline':
-                from .budget import remove_deadline
-                result=remove_deadline(runtime.control,args.task,args.revision,args.key,args.reference)
-            elif args.command=='native-audit':
-                from .native_audit import enable
-                from .runner import start
-                enable(runtime,args.task,args.reference)
-                result=start(ledger,args.task)
-            elif args.command=='run':
-                runtime.enable(args.task);result=runtime.run(args.task,steps=100)
-            else:
-                from .runner import start
-                runtime.enable(args.task)
-                if args.command=='resume': runtime.resume(args.task)
-                result=start(ledger,args.task)
+        result=execute(args,ledger)
+        record(args,ledger,result)
         if getattr(args,'terminal',False):
             from .monitor import open_terminal
             try: result['terminal']=open_terminal(ledger)

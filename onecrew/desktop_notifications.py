@@ -370,7 +370,12 @@ def retry(ledger, key):
     return publish(ledger, record['task'])
 
 
-def main(argv=None):
+READ_ONLY = {('desktop', 'status')}
+# An entry showing or retrying a notice is help: the final-outcome notice then no longer counts as OneCrew's own.
+RECORDED = {('desktop', name): 'desktop.' + name for name in ('enable', 'disable', 'show', 'retry')}
+
+
+def parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project', type=Path, default=Path.cwd())
     parser.add_argument('--state-root', type=Path)
@@ -379,13 +384,30 @@ def main(argv=None):
         command = commands.add_parser(name)
         if name=='show': command.add_argument('--task', required=True)
         if name=='retry': command.add_argument('--id', required=True)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def record(args, ledger):
+    command = RECORDED.get((args.group, args.command))
+    if not command: return
+    from .interventions import cli_note
+    task = args.task if args.command == 'show' else (read(directory(ledger)/(args.id+'.json')) or {}).get('task') if args.command == 'retry' else None
+    cli_note(ledger, command, [task], scope=('desktop', None))
+
+
+def execute(args, ledger):
+    if args.command in ('enable', 'disable'): return configure(ledger, args.command=='enable')
+    if args.command=='show': return publish(ledger, args.task)
+    if args.command=='retry': return retry(ledger, args.id)
+    return status(ledger)
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
     ledger = Ledger(args.project, args.state_root)
     try:
-        if args.command in ('enable', 'disable'): result = configure(ledger, args.command=='enable')
-        elif args.command=='show': result = publish(ledger, args.task)
-        elif args.command=='retry': result = retry(ledger, args.id)
-        else: result = status(ledger)
+        result = execute(args, ledger)
+        record(args, ledger)
         print(canonical(result))
         return 0
     except (OSError, ValueError, sqlite3.Error) as error:

@@ -11,7 +11,10 @@ or scenario: OneCrew discovers the environment, plans inside the envelope, recov
 failures within the grant and asks one typed request when a user decision is needed. Answer
 that request (`request reply`); the runtime continues by itself, so do not call `delivery
 resume` for it. Mutating CLI/MCP commands are recorded as interventions automatically; set
-`ONECREW_ACTOR=claude|codex|user` in the entry shell. Entry-written plans remain supported
+`ONECREW_ACTOR=claude|codex|user` in the entry shell. When relaying the user's answer or SOL
+approval pass `--decided-by user --user-quote "<their words>"` (only a hash is stored); a decision
+the entry makes itself is undelegated unless a recorded `delegation grant` covers its class and time
+(docs/autonomy-measurement.vi.md). Entry-written plans remain supported
 and must fit the envelope when the SOL has one. Never widen the envelope on the user's behalf.
 
 ## Evidence-driven changes — 12/10/2026
