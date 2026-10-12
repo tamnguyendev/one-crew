@@ -150,7 +150,10 @@ def _apply_edits(runtime,original,name,edits):
 def install_candidate(runtime,state,value,recipe):
     native=state['native_change'];workspace=Path(native['workspace'])
     items=value.get('files')
-    if not isinstance(items,list) or not 1<=len(items)<=len(recipe['owned']): raise LedgerError('Return a bounded complete patch set.')
+    # An empty or oversized file list is a format defect the same session can repair (bounded by the content repairs),
+    # never a hard block: nothing is installed.
+    if not isinstance(items,list) or not 1<=len(items)<=len(recipe['owned']):
+        raise PatchIncomplete('Return a bounded complete patch set: between 1 and '+str(len(recipe['owned']))+' owned files, each with text or edits.')
     replacements={}
     for item in items:
         if not isinstance(item,dict) or 'path' not in item or set(item)-{'path','text','edits'} or ('text' in item)==('edits' in item):

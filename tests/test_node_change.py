@@ -211,6 +211,16 @@ class NodeChangeTests(unittest.TestCase):
         self.assertEqual(profiles[0][0]['native_session'],profiles[1][0]['native_session'])
         self.assertTrue(profiles[1][0]['native_resume']);self.assertIn('per-invocation turn limit',profiles[1][1])
 
+    def test_empty_patch_set_is_repaired_not_blocked(self):
+        self.worker.responses=[{'report':'placeholder','question':'','files':[]},self.candidate(),{'accepted':True,'feedback':'Checked'}]
+        state=self.run.run(self.task,steps=1)
+        native=state['native_change']
+        self.assertNotEqual(state['phase'],'blocked',state.get('message'))
+        self.assertEqual(native['stage'],'work');self.assertIn('bounded complete patch set',native['feedback'])
+        self.assertNotIn('changes',native)
+        for _ in range(4): state=self.run.run(self.task,steps=1)  # work -> verify -> review -> apply
+        self.assertEqual(state['phase'],'completed',state.get('message'))
+
     def test_report_out_of_bounds_is_cut_or_filled_not_blocking(self):
         for report in ('x'*25000, 'ok'):
             with self.subTest(length=len(report)):
