@@ -201,10 +201,15 @@ def validate_config(kind,c,roots):
         'review':(set(),{'repair_node'}),
         'build':({'package','flutter_root','android_sdk','variant','config_reference','config_version','signer_sha256','timeout_seconds'},set()),
         'apk_audit':({'build_node','build_tools','package_id','signer_sha256','require_16kb','max_bytes'},{'version_code'}),
-        'device':({'build_node','adb','serial','package_id','scenario','scenario_sha256','private_reference','private_version','timeout_seconds'}, {'repair_node'})}
+        'device':({'build_node','adb','serial','package_id','scenario','scenario_sha256','private_reference','private_version','timeout_seconds'}, {'repair_node','replay_safe','valid_until','optional'})}
     required,optional=fields[kind]
     if set(c)-required-optional or required-set(c): raise LedgerError('Invalid '+kind+' recipe fields.')
     if 'repair_node' in c and not isinstance(c['repair_node'],str): raise LedgerError('Explicit repair node required.')
+    for flag in ('replay_safe','optional'):
+        if flag in c and type(c[flag]) is not bool: raise LedgerError(flag+' must be a boolean.')
+    if 'valid_until' in c:
+        try:dt.datetime.fromisoformat(c['valid_until'])
+        except (TypeError,ValueError) as e:raise LedgerError('Device permission valid_until must be ISO-8601.') from e
     if kind in ('regression','build'):
         if c['package'] not in roots or not Path(c['flutter_root']).is_absolute(): raise LedgerError('Pin package and Flutter SDK.')
     if kind=='regression':
@@ -260,7 +265,7 @@ def dart_argv(sdk):
 
 def preflight(runtime,task,s,source):
     check_capture_paths(home(runtime,task)/('baseline-'+'0'*10),source)
-    tools={};references=[]
+    tools={};references=[];devices_missing=False
     owned={p for n in s['plan']['nodes'] if n['kind']=='change' for p in n['config']['recipe']['owned']}
     for n in s['plan']['nodes']:
         c=n['config'];kind=n['kind'];paths=[]
@@ -296,7 +301,10 @@ def preflight(runtime,task,s,source):
             tools[str(path.resolve())]=file_hash(path)
         if kind=='device':
             rc,out,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'get-state'],home(runtime,task),15)
-            if rc or out.strip()!='device':raise LedgerError('Pinned Android device unavailable at preflight.')
+            if rc or out.strip()!='device':
+                # Optional E2E is re-checked at its node and reported as not run; required E2E stops before any call.
+                if not c.get('optional'):raise LedgerError('Pinned Android device unavailable at preflight.')
+                devices_missing=True
     for reference in references:
         path=Path(reference).resolve()
         if not path.is_file():raise LedgerError('Private reference unavailable.')
@@ -307,7 +315,16 @@ def preflight(runtime,task,s,source):
             raise LedgerError('Private JSON must contain only string keys and values.')
     needed=sum(safe_file(runtime.ledger.project,p).stat().st_size for p in source['files'])*3+1_000_000_000
     if shutil.disk_usage(home(runtime,task)).free<needed:raise LedgerError('Insufficient free space for isolated test/build captures.')
-    return {'tools':tools,'source':source['hash'],'disk_required_bytes':needed,'private_references_available':len(references)}
+    return {'tools':tools,'source':source['hash'],'disk_required_bytes':needed,'private_references_available':len(references),
+            'optional_device_missing':devices_missing}
+
+
+def interrupted(runtime,task,s,node,row):
+    """Class of a node that ended without a receipt: replay-safe capture work, or a possible device effect."""
+    if node['kind']=='device':
+        from .delivery_android import effects_started
+        return 'side_effect_unknown' if effects_started(runtime,task,node,row) else 'interrupted'
+    return 'interrupted'
 
 
 def check_tools(preflight_receipt):
@@ -316,14 +333,21 @@ def check_tools(preflight_receipt):
 
 
 def parse_tests(out,code):
-    tests={};results={};errors=[];done=None
+    tests={};results={};errors=[];done=None;prints={}
     for line in out.splitlines():
         try: v=json.loads(line)
         except ValueError: continue
         if not isinstance(v,dict): continue
         if v.get('type')=='testStart': tests[v['test']['id']]=v['test']['name']
         elif v.get('type')=='testDone' and not v.get('hidden'): results[v['testID']]=v
-        elif v.get('type')=='error' and len(errors)<30: errors.append({'name':tests.get(v.get('testID'),''),'error':str(v.get('error',''))[:1500]})
+        elif v.get('type')=='print':
+            # testWidgets reports the real assertion through print events; the error event only says "see logs above".
+            text=prints.setdefault(v.get('testID'),'')
+            if len(text)<6000:prints[v.get('testID')]=text+str(v.get('message',''))[:3000]+'\n'
+        elif v.get('type')=='error' and len(errors)<30:
+            detail=str(v.get('error',''))
+            logged=prints.get(v.get('testID'),'')
+            errors.append({'name':tests.get(v.get('testID'),''),'error':((logged+detail) if logged else detail)[-3000:]})
         elif v.get('type')=='done': done=v.get('success')
     counts={'passed':sum(v.get('result')=='success' and not v.get('skipped') for v in results.values()),
             'failed':sum(v.get('result')!='success' for v in results.values()),'skipped':sum(bool(v.get('skipped')) for v in results.values())}
@@ -335,9 +359,15 @@ def regression(runtime,task,s,node,row):
     c=node['config'];d=s['delivery'];directory=home(runtime,task)/('test-'+uuid.uuid4().hex[:10])
     work=capture(runtime.ledger.project,d['source'],directory,s['plan']['source_roots'])
     package=work/c['package']; tests_hash={t:file_hash(package/t) for t in c['tests']}
-    argv=dart_argv(c['flutter_root'])+['test','--no-pub','--no-test-assets','--reporter','json']
-    code,out,err=bounded(runtime,task,argv+c['tests'],package,300,{'CI':'true'})
+    # Test assets are built: Material widgets load shaders (e.g. ink_sparkle) when a test taps a button.
+    argv=dart_argv(c['flutter_root'])+['test','--no-pub','--reporter','json']
+    code,out,err=bounded(runtime,task,argv+c['tests'],package,600,{'CI':'true'})
     result=parse_tests(out,code)
+    if result['runner_done'] is None and not sum(result['counts'].values()):
+        # Asset bundling failed before any test ran: fall back to the previous asset-less run, and say so.
+        argv=dart_argv(c['flutter_root'])+['test','--no-pub','--no-test-assets','--reporter','json']
+        code,out,err=bounded(runtime,task,argv+c['tests'],package,600,{'CI':'true'})
+        result=parse_tests(out,code);result['test_assets']=False
     # Scan before durable evidence enters model context. Raw streams may contain secrets.
     from .monitor import safe
     log=home(runtime,task)/(node['id']+'-'+str(row['generation'])+'.test.txt')
@@ -357,7 +387,24 @@ def regression(runtime,task,s,node,row):
         result['red'].append({'test':check['test'],'test_sha256':tests_hash[check['test']],'baseline':d['baseline']['hash'],
                               'behavioral_failure':behavioral,'exit_code':rc,'counts':parsed['counts']})
         result['passed']=result['passed'] and behavioral
-    result['detail']=canonical({'counts':result['counts'],'errors':result['errors'],'red':result['red']})
+    owned={p for n in s['plan']['nodes'] if n['kind']=='change' for p in n['config']['recipe']['owned']}
+    existing=[t for t in c['tests'] if c['package']+'/'+t not in owned]
+    failing={e['name'] for e in result['errors'] if e['name'] and not e['name'].startswith('loading ')}
+    if not result['passed'] and existing and failing and d.get('baseline_path'):
+        # A read-only suite failing on the final source is only a product failure if it passes on the unchanged baseline.
+        basework=home(runtime,task)/('base-'+uuid.uuid4().hex[:10]);baseline=Path(d['baseline_path'])
+        shutil.copytree(baseline,basework);rebase_packages(baseline,basework,s['plan']['source_roots'])
+        bc,bo,_=bounded(runtime,task,argv+existing,basework/c['package'],600,{'CI':'true'})
+        base=parse_tests(bo,bc)
+        before={e['name'] for e in base['errors'] if e['name'] and not e['name'].startswith('loading ')}
+        result['baseline_check']={'tests':existing,'counts':base['counts'],'failing_on_baseline':sorted(before&failing)}
+        if failing<=before:
+            result['failure_kind']='environment'
+            result['environment_detail']=('Existing tests fail on the unchanged baseline too (test environment, not the change): '+
+                                          '; '.join(sorted(failing))[:600])
+    result['detail']=canonical({'counts':result['counts'],'errors':result['errors'],'red':result['red'],
+                                'baseline_check':result.get('baseline_check')})
+    if result.get('environment_detail'):result['detail']=result['environment_detail']+' '+result['detail'][:1500]
     return result
 
 
@@ -458,11 +505,36 @@ def execute(runtime,task,s,node,row):
             if isinstance(value,dict):return {k:public(v) for k,v in value.items()}
             if isinstance(value,list):return [public(v) for v in value]
             return safe(value,10000) if isinstance(value,str) else value
+        d=s['delivery'];nodes=d['nodes']
+        evidence=[]
+        for a in s['plan']['acceptance']:
+            rows=[{'node':n,'phase':nodes[n]['phase'],'receipt':content_hash(nodes[n]['receipt']) if nodes[n].get('receipt') else None,
+                   'skipped':(nodes[n].get('receipt') or {}).get('skipped')} for n in a['nodes']]
+            status='passed' if all(r['phase']=='passed' and not r['skipped'] for r in rows) else 'not_run' if any(r['skipped'] for r in rows) else d['criteria'].get(a['id'],'pending')
+            evidence.append({'id':a['id'],'text':a['text'],'status':status,'nodes':rows})
+        gaps=[]
+        for n in s['plan']['nodes']:
+            r=nodes[n['id']].get('receipt') or {}
+            if n['kind']=='regression':
+                if not r.get('red'):gaps.append('red: not verified (no behavioural red declared)')
+                if (r.get('counts') or {}).get('skipped'):gaps.append(n['id']+': '+str(r['counts']['skipped'])+' skipped test(s)')
+            if r.get('skipped'):gaps.append(n['id']+': not run ('+str(r.get('detail'))[:200]+')')
+        dropped=(d.get('planning') or {}).get('stay_inside')
+        if dropped:gaps.append('out-of-envelope needs dropped by user decision: '+'; '.join(str(n.get('need'))[:150] for n in dropped))
+        if not any(n['kind']=='device' for n in s['plan']['nodes']):gaps.append('device E2E: not in plan')
+        if not any(n['kind']=='build' for n in s['plan']['nodes']):gaps.append('APK build: not in plan')
+        try:
+            from .interventions import summary
+            interventions=summary(runtime.ledger,[task]+[nodes[k]['child'] for k in nodes if nodes[k].get('child')])
+        except (ImportError,ValueError,OSError):interventions='unavailable'
         report={'task':task,'solution':runtime.ledger.task(task,full=True)['handoff']['solution_id'],
-            'plan_hash':content_hash(s['plan']),'source':s['delivery']['source']['hash'],
-            'acceptance':s['delivery']['criteria'],'nodes':{k:{'phase':v['phase'],'child':v['child'],'receipt':v['receipt']} for k,v in s['delivery']['nodes'].items() if k!=node['id']},
-            'repairs':s['delivery']['repairs'],'history':s['delivery']['history'],
-            'technical_verified':True,'product_acceptance':'not_requested',
+            'plan_hash':content_hash(s['plan']),'plan_provenance':d.get('planning',{'mode':'entry'}),'source':d['source']['hash'],
+            'acceptance':d['criteria'],'acceptance_evidence':evidence,'gaps':gaps,
+            'nodes':{k:{'phase':v['phase'],'child':v['child'],'receipt':v['receipt']} for k,v in nodes.items() if k!=node['id']},
+            'repairs':d['repairs'],'history':d['history'],
+            'failures':[dict(signature=k,**{x:v.get(x) for x in ('class','node','count','status','detail')}) for k,v in d.get('failures',{}).items()],
+            'automatic_recoveries':d.get('recoveries',[]),'escalations':d.get('escalations',[]),'interventions':interventions,
+            'technical_verified':all(e['status']=='passed' for e in evidence),'product_acceptance':'not_requested',
             'budget':runtime.control.status(task)['budget'],'assistance':s.get('assistance','unknown'),
             'limits':'Only sealed criteria/scenarios verified. Windows delivery receipt is separate; shown is not user attention.'}
         text=json.dumps(public(report),ensure_ascii=False,indent=2)

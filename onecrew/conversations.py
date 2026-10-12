@@ -105,7 +105,12 @@ def append(ledger,cid,request_key,text,source,kind='proposal',reply_to=None,base
 
 
 def validate_solution(value):
-    exact_fields(value,('brief','detail','acceptance','non_goals','assumptions','questions'),'Solution')
+    # Optional typed delivery envelope: hashed into the revision, so approving the SOL approves it.
+    if not isinstance(value,dict):raise LedgerError('Solution must be an object.')
+    exact_fields({k:v for k,v in value.items() if k!='envelope'},('brief','detail','acceptance','non_goals','assumptions','questions'),'Solution')
+    if 'envelope' in value:
+        from .delivery_planner import validate_envelope
+        validate_envelope(value['envelope'],value)
     clean(value['brief'],'brief',6000);clean(value['detail'],'detail',24000)
     if len(value['brief'].split())>350:raise LedgerError('Solution brief exceeds 350 words.')
     for field in ('acceptance','non_goals','assumptions','questions'):

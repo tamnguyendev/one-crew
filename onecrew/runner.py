@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import time
 import uuid
@@ -39,6 +40,39 @@ def status(ledger, task_id):
     return {'status': 'stopped'}
 
 
+def _supervised(ledger, task_id, result):
+    """A delivery root's live runner is always paired with a keeper; best-effort, never fails the start."""
+    if task_id.startswith('CONSULT-'): return result
+    try:
+        if ledger.task(task_id, full=True)['handoff'].get('solution_delivery'):
+            from .keeper import ensure
+            result['keeper'] = ensure(ledger.state_root)
+    except (OSError, ValueError) as error:
+        result['keeper'] = {'status': 'unavailable', 'error': str(error)[:300]}
+    return result
+
+
+def _watch(ledger, task_id, every=60):
+    """A detached delivery-root runner re-ensures its keeper, so a dead keeper is replaced while work continues.
+
+    Only runners launched by start() (which records the launcher) do this; a foreground or fixture loop never spawns one."""
+    try:
+        detached = bool(os.environ.get('ONECREW_RUNNER_INITIATOR')) and bool(ledger.task(task_id, full=True)['handoff'].get('solution_delivery'))
+    except (OSError, ValueError, sqlite3.Error):
+        detached = False
+    due = [time.monotonic()+every]
+
+    def watch():
+        if not detached or time.monotonic() < due[0]: return
+        due[0] = time.monotonic()+every
+        try:
+            from .keeper import ensure
+            ensure(ledger.state_root)
+        except (OSError, ValueError):
+            pass  # supervision is advisory; it never stops the coordinator
+    return watch
+
+
 def loop(ledger, task_id, interval=.5):
     with task_lock(ledger, task_id + '.runner'):
         if task_id.startswith('CONSULT-'):
@@ -49,13 +83,18 @@ def loop(ledger, task_id, interval=.5):
                 if result.get('waiting_reason')!='capacity':return result['status']
                 time.sleep(interval)
         workflow = workflow_for(ledger, task_id)
-        record = {'identity': identity(os.getpid()), 'started_at': dt.datetime.now(dt.timezone.utc).isoformat()}
+        from .interventions import initiator, runtime_revision
+        # Runtime identity + launcher make a code change or keeper restart visible as evidence.
+        record = {'identity': identity(os.getpid()), 'started_at': dt.datetime.now(dt.timezone.utc).isoformat(),
+                  'runtime': runtime_revision(), 'initiator': initiator()}
         with ledger.transaction(write=True) as conn:
             workflow.control._execution(conn, task_id)
             ledger._event(conn, task_id, 'runner.started', record)
         outcome = 'interrupted'
+        watch = _watch(ledger, task_id)
         try:
             while True:
+                watch()
                 seq, state = workflow.state(task_id)
                 control = workflow.control.status(task_id)
                 if state is None:
@@ -67,6 +106,11 @@ def loop(ledger, task_id, interval=.5):
                     outcome = state['phase']
                     return outcome
                 if workflow.control.clock() >= dt.datetime.fromisoformat(control['deadline']):
+                    if hasattr(workflow, 'deadline_exhausted'):
+                        # Delivery roots ask one typed budget question instead of an untyped block.
+                        workflow.deadline_exhausted(task_id)
+                        outcome = 'deadline'
+                        return outcome
                     with task_lock(ledger, task_id):
                         seq, state = workflow.state(task_id)
                         if state['phase'] != 'blocked':
@@ -97,7 +141,8 @@ def loop(ledger, task_id, interval=.5):
                     continue
                 try:
                     result = workflow.run(task_id, steps=1)
-                    if result.get('waiting_reason') == 'capacity' or result['phase'] in ('waiting_branches','waiting_operation'):
+                    # Passive waits (capacity, recovery backoff, a child question or solution hold) poll, never spin.
+                    if result.get('waiting_reason') in ('capacity','decision','recovery') or result['phase'] in ('waiting','waiting_branches','waiting_operation'):
                         time.sleep(interval)
                 except LedgerError as error:
                     # A foreground command may briefly own a checkpoint. Never launch through it.
@@ -126,12 +171,13 @@ def loop(ledger, task_id, interval=.5):
             best_effort(ledger)
 
 
-def start(ledger, task_id):
+def start(ledger, task_id, initiator=None):
     if os.name != 'nt':
         raise LedgerError('Detached controller is verified only on native Windows.')
     current = status(ledger, task_id)
     if current['status'] not in ('stopped','dead'):
-        return current
+        # Already running: the keeper may have idle-exited (e.g. during a long decision wait); re-pair it.
+        return _supervised(ledger, task_id, dict(current)) if current['status'] == 'alive' else current
     if task_id.startswith('CONSULT-'):
         from .consultations import view
         state={'phase':view(ledger,task_id)['status']}
@@ -144,20 +190,25 @@ def start(ledger, task_id):
     directory.mkdir(parents=True)
     argv = [native_python(), '-X', 'utf8', '-m', 'onecrew.runner', '--project', str(ledger.project),
             '--state-root', str(ledger.state_root), task_id]
+    from .interventions import actor
+    # The runner's own later actions are OneCrew's, not the launching entry's.
+    env = dict(os.environ, ONECREW_RUNNER_INITIATOR=initiator or actor(), ONECREW_ACTOR='onecrew')
     with (directory/'stdout.txt').open('wb') as out, (directory/'stderr.txt').open('wb') as err:
         # Break away from the launcher's Job. If forbidden, fail rather than claiming durability.
         process = subprocess.Popen(argv, cwd=Path(__file__).resolve().parents[1], stdin=subprocess.DEVNULL,
-                                   stdout=out, stderr=err, close_fds=True,
+                                   stdout=out, stderr=err, close_fds=True, env=env,
                                    creationflags=0x8 | 0x200 | 0x01000000)
     deadline = time.monotonic() + 5
+    result = None
     while time.monotonic() < deadline:
         current = status(ledger, task_id)
         if current['status'] != 'stopped':
-            return dict(current, logs=str(directory))
+            result = dict(current, logs=str(directory))
+            break
         if process.poll() is not None:
             return {'status': 'exited', 'exit_code': process.returncode, 'logs': str(directory)}
         time.sleep(.05)
-    return {'status': 'starting', 'identity': identity(process.pid), 'logs': str(directory)}
+    return _supervised(ledger, task_id, result or {'status': 'starting', 'identity': identity(process.pid), 'logs': str(directory)})
 
 
 def main(argv=None):

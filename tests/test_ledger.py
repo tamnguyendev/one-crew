@@ -200,7 +200,10 @@ class LedgerTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(reply, ['seven', 'thirty']))
         self.assertEqual(sorted(r.returncode for r in results), [0, 2])
-        self.assertEqual(len(self.ledger.events(task['id'])), 3)
+        # The winning CLI reply also records who answered (control.intervention); the loser writes nothing.
+        kinds = [e['kind'] for e in self.ledger.events(task['id'])]
+        self.assertEqual([k for k in kinds if k != 'control.intervention'].__len__(), 3)
+        self.assertEqual(kinds.count('control.intervention'), 1)
         self.assertEqual(self.ledger.request(request['id'])['state'], 'answered')
 
     def test_failed_event_write_rolls_back_reply(self):

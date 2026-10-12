@@ -1,5 +1,19 @@
 # OneCrew entry contract
 
+## Delivery autopilot — 12/10/2026
+
+For new aggregate work, agree requirement, scope, acceptance, stages, device permission
+window and budget with the user, then record them as a typed `envelope` inside the solution
+payload (docs/delivery-autopilot.vi.md). Approving that SOL revision approves the envelope.
+Dispatch at goal level: `delivery submit --solution SOL --revision REV --goal "..." --key K
+--start`. Do not write the plan, recipes, owned files, tests, red patterns, SDK paths, signer
+or scenario: OneCrew discovers the environment, plans inside the envelope, recovers technical
+failures within the grant and asks one typed request when a user decision is needed. Answer
+that request (`request reply`); the runtime continues by itself, so do not call `delivery
+resume` for it. Mutating CLI/MCP commands are recorded as interventions automatically; set
+`ONECREW_ACTOR=claude|codex|user` in the entry shell. Entry-written plans remain supported
+and must fit the envelope when the SOL has one. Never widen the envelope on the user's behalf.
+
 ## Evidence-driven changes — 12/10/2026
 
 For runtime/recipe/skill improvements, use `eval cases/replay/compare` as documented

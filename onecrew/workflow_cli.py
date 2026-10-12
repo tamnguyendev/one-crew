@@ -142,6 +142,16 @@ def main(argv=None):
             if not state or args.revision not in {r['revision'] for r in state['outputs']}:
                 raise ValueError('Only this task\'s published output revisions may be exported.')
             result = {'directory': str(workflow.store.materialize(args.revision, args.to)), 'revision': args.revision}
+        if args.command in ('extend', 'cancel', 'pause', 'resume'):
+            from .interventions import note
+            details = ({'max_calls': args.max_calls, 'deadline': args.deadline, 'request_id': args.request_id,
+                        'restart_expired': args.restart_expired} if args.command == 'extend' else
+                       {'reuse_output': args.reuse_output} if args.command == 'resume' else None)
+            # A replayed extend returns the same grant receipt, so it is the same intervention.
+            key = 'extend:'+args.request_id[:121] if args.command == 'extend' else None
+            receipt = note(workflow.ledger, args.id, 'work.'+args.command, reason=getattr(args, 'reason', None), details=details, key=key)
+            if receipt.get('recorded') is False:
+                print('Intervention not recorded: '+receipt['error'], file=sys.stderr)
         if not args.json and args.command in ('status', 'outputs'):
             from . import work_view
             print(work_view.status(result) if args.command == 'status' else work_view.outputs(result, args.full))

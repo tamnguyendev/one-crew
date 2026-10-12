@@ -96,6 +96,9 @@ def snapshots(ledger, after=0, task=None):
                     pending.extend(questions(conn,child[0]))
             if phase not in ACTIONABLE and not pending:
                 continue
+            # An answered recovery question is being applied by the coordinator; it is not a new outcome.
+            if phase == 'waiting' and state.get('waiting_reason') == 'decision' and not pending:
+                continue
             # Consecutive checkpoints in the same phase belong to one outcome.
             previous = conn.execute("""SELECT COALESCE(MAX(seq),0) FROM events WHERE task_id=?
                 AND kind='workflow.checkpoint' AND seq<? AND json_extract(payload,'$.phase')!=?""",

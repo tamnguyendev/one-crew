@@ -1,4 +1,5 @@
 """Pinned APK audits and typed ADB scenarios. No worker-controlled host shell."""
+import datetime as dt
 import json
 import os
 from pathlib import Path
@@ -102,7 +103,7 @@ def scenario(path,digest):
                     raise LedgerError('Typed exact UI selector required.')
             if op=='wait_for' and (type(args['timeout_seconds']) is not int or not 1<=args['timeout_seconds']<=60):raise LedgerError('UI wait must be bounded to 60 seconds.')
             if op=='key' and args['key'] not in ('BACK','ENTER','TAB'):raise LedgerError('Key not allowed.')
-            if op=='type' and not re.fullmatch('[A-Za-z0-9_]{1,80}',args['private_key']):raise LedgerError('Private input key invalid.')
+            if op=='type' and (not isinstance(args['private_key'],str) or not re.fullmatch('[A-Za-z0-9_]{1,80}',args['private_key'])):raise LedgerError('Private input key invalid.')
             if op=='scroll_to' and (args['direction'] not in ('up','down') or type(args['max_swipes']) is not int or not 1<=args['max_swipes']<=6):raise LedgerError('Scroll must be bounded.')
     ids=[s['id'] for s in v['steps']+v['cleanup']]
     if not v['steps'] or len(ids)!=len(set(ids)):raise LedgerError('Nonempty steps with unique IDs required.')
@@ -207,13 +208,49 @@ def scroll_gesture(xml, package, viewport, windows, input_method, direction):
     return [x,hi,x,lo] if direction=='up' else [x,lo,x,hi]
 
 
+def device_directory(runtime,task,node,row):
+    return home(runtime,task)/('device-'+node['id']+'-'+str(row['generation']))
+
+
+def effects_started(runtime,task,node,row):
+    """Last durable intent of this node generation, or None when no device effect began."""
+    path=device_directory(runtime,task,node,row)/'intent.json'
+    try:return json.loads(path.read_text(encoding='utf-8')) if path.exists() else None
+    except (OSError,ValueError):return {'unreadable':True}
+
+
+def reconcile(runtime,task,s,node,row):
+    """Read-only evidence after an interrupted device node. Never installs, taps or clears data."""
+    c=node['config'];effects=effects_started(runtime,task,node,row);out={'intent':effects,'replay':False}
+    try:
+        build=apk_input(s,node);directory=home(runtime,task)
+        rc,state,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'get-state'],directory,15)
+        out['device']=state.strip() if rc==0 else 'unavailable'
+        if out['device']=='device':
+            rc,paths,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'shell','pm','path',c['package_id']],directory,15)
+            lines=paths.strip().splitlines() if rc==0 else []
+            if len(lines)==1 and re.fullmatch(r'package:/[A-Za-z0-9_./=+~-]+\.apk',lines[0]):
+                rc,digest,_=bounded(runtime,task,[c['adb'],'-s',c['serial'],'shell','sha256sum',lines[0][8:]],directory,30)
+                out['installed_matches_audited']=rc==0 and digest.split()[:1]==[build['sha256']]
+    except (ValueError,OSError) as error:out['probe_error']=str(error)[:300]
+    if not effects:out.update(replay=True,detail='No device effect had started.')
+    elif effects.get('operation')=='install':out.update(replay=True,detail='Only install -r of the audited APK may have run; reinstall is idempotent.')
+    elif c.get('replay_safe'):out.update(replay=True,detail='Scenario declared replay-safe; rerun from install with its cleanup.')
+    else:out['detail']='Scenario steps may have changed app or server state and the scenario is not declared replay-safe.'
+    return out
+
+
 def device(runtime,task,s,node,row):
     c=node['config'];build=apk_input(s,node);v=scenario(c['scenario'],c['scenario_sha256'])
+    if c.get('valid_until') and dt.datetime.now(dt.timezone.utc)>dt.datetime.fromisoformat(c['valid_until']).astimezone(dt.timezone.utc):
+        raise LedgerError('Device permission expired (valid_until); no device action taken.')
     reference=Path(c['private_reference']) if c['private_reference'] else None
     private=json.loads(reference.read_text(encoding='utf-8-sig')) if reference else {}
     if not isinstance(private,dict):raise LedgerError('Private scenario inputs must be a mapping.')
     private_digest=file_hash(reference) if reference else None
-    directory=home(runtime,task)/('device-'+node['id']+'-'+str(row['generation']));directory.mkdir(exist_ok=True)
+    directory=device_directory(runtime,task,node,row);directory.mkdir(exist_ok=True)
+    # Reaching here means any earlier intent was reconciled; a stale marker must not describe this run.
+    (directory/'intent.json').unlink(missing_ok=True)
     receipt={'passed':False,'source':build['source'],'apk_sha256':build['sha256'],'serial':c['serial'],'package':c['package_id'],
         'scenario_sha256':c['scenario_sha256'],'private_version':c['private_version'],'steps':[],'cleanup':[],
         'live_device':True,'failure_kind':'device'}
@@ -338,6 +375,7 @@ def device(runtime,task,s,node,row):
             receipt['installed_sha256']=digest
             adb('shell','am','start','-W','-n',c['package_id']+'/'+v['activity'])
             for step in v['steps']:
+                receipt['scenario_started']=True
                 durable_write(intent,canonical({'task':task,'step':step['id'],'state':'intent'}).encode())
                 perform(step);receipt['steps'].append({'id':step['id'],'passed':True,**step_evidence})
                 durable_write(directory/'receipt.json',canonical(receipt).encode())

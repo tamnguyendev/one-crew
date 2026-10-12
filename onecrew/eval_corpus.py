@@ -1,6 +1,6 @@
 """Reviewed local probes. Never a model prompt, dispatch recipe or held-out set."""
 
-VERSION = 2
+VERSION = 3
 
 
 def case(key, title, fix, tests, support, kind='runtime_contract'):
@@ -33,17 +33,16 @@ CASES = [
         'tests.test_desktop_notifications.DesktopTests.test_terminal_once_even_after_repeated_checkpoint_and_reopen',
         'tests.test_desktop_notifications.DesktopTests.test_block_resume_complete_has_two_outcomes'],
         'Window launcher is mocked; actual visible receipt and user attention remain unverified.'),
-    case('parent-checkpoint', 'Parent restart reuses verified nodes; stale evidence blocks', '4e8253f', [
-        'tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes',
-        'tests.test_solution_delivery.DeliveryTests.test_stale_passed_receipt_cannot_finish',
-        'tests.test_solution_delivery.DeliveryTests.test_crash_in_build_never_replays_blindly'],
+    case('parent-checkpoint', 'Parent restart reuses verified nodes', '4e8253f', [
+        # v3: the 'never replay' and 'stale evidence blocks' oracles changed with the autopilot; see the autopilot cases.
+        'tests.test_solution_delivery.DeliveryTests.test_restart_does_not_repeat_verified_nodes'],
         'Unknown side effects still require operator reconciliation.'),
     case('parent-handover', 'Parent drives child, tests, review, build, device and handover', '4e8253f', [
         'tests.test_solution_delivery.DeliveryTests.test_parent_drives_real_child_lifecycle_through_typed_fixture_handover'],
         'Provider/Flutter/ADB are fixtures; live APK/server task still needs pinned environment and acceptance.', 'workflow_fixture'),
     case('review-gate', 'Conditional review cannot complete required criteria', '4e8253f', [
-        'tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected',
-        'tests.test_solution_delivery.DeliveryTests.test_missing_evidence_blocks_instead_of_complete'],
+        # v3: missing evidence now asks one typed question instead of 'blocked'; see the autopilot cases.
+        'tests.test_solution_delivery.DeliveryTests.test_review_conditional_acceptance_is_rejected'],
         'Semantic correctness of reviewer on unseen code remains unmeasured.'),
     case('apk-device-gate', 'APK identity, signer and foreground checked before E2E', '4e8253f', [
         'tests.test_delivery_android.AndroidDeliveryTests.test_different_installed_hash_blocks_e2e',
@@ -76,6 +75,18 @@ CASES = [
         'tests.test_delivery_recovery.DeviceRecoveryTests.test_wait_validation_rejects_unbounded_duration',
         'tests.test_delivery_recovery.DeviceRecoveryTests.test_wait_for_adb_failure_is_not_retried_as_missing_ui'],
         'Scenario authors must still choose correct selectors and timeouts.'),
+    # Codex review findings P1/P2 on 356fb82: red by behaviour there, not by a missing API.
+    case('ime-occluded-target', 'Target under a visible keyboard is scrolled clear or refused, never tapped through', 'cfc77a2', [
+        'tests.test_delivery_review_regressions.KeyboardCoverTests.test_target_under_keyboard_is_scrolled_clear_before_tap',
+        'tests.test_delivery_review_regressions.KeyboardCoverTests.test_target_that_stays_under_keyboard_fails_without_any_tap',
+        'tests.test_delivery_review_regressions.KeyboardCoverTests.test_direct_tap_on_covered_target_is_refused',
+        'tests.test_delivery_review_regressions.KeyboardCoverTests.test_unknown_keyboard_bounds_refuse_tap',
+        'tests.test_delivery_review_regressions.KeyboardCoverTests.test_hidden_keyboard_keeps_full_screen_reachable'],
+        'The visible-keyboard InsetsSource line is inferred from a hidden-state Samsung Android 16 dump; not observed live.'),
+    case('pubspec-path-scope', 'Only local path dependencies are rebased; hosted, git and asset paths untouched', 'cfc77a2', [
+        'tests.test_delivery_review_regressions.PubspecRebaseTests.test_only_local_path_sources_move_through_capture_and_red',
+        'tests.test_delivery_review_regressions.PubspecRebaseTests.test_text_outside_dependency_sections_is_untouched'],
+        'Line-structured YAML subset; flow mappings in dependency sections fail closed.'),
 ]
 
 LIMITS = [

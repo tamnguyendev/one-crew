@@ -72,7 +72,18 @@ def execute(args):
     if args.command == 'list':
         return {'requests': ledger.requests(args.task, args.pending)}
     if args.command == 'reply':
-        return ledger.reply(args.id, args.revision, args.choice, args.source, args.reference)
+        receipt = ledger.reply(args.id, args.revision, args.choice, args.source, args.reference)
+        from .interventions import note
+        from .keeper import after_reply
+        try:
+            task = ledger.request(args.id)['task_id']
+        except (ValueError, OSError, sqlite3.Error):
+            return receipt  # the answer is recorded; evidence and continuation are best-effort
+        evidence = note(ledger, task, 'request.reply', details={'request': args.id, 'choice': args.choice}, key=receipt['id'])
+        if evidence.get('recorded') is False:
+            print('Intervention not recorded: ' + evidence['error'], file=sys.stderr)
+        continuation = after_reply(ledger, task)
+        return dict(receipt, continuation=continuation) if continuation else receipt
     if args.command == 'defer':
         return ledger.defer(args.id, args.revision, args.source, args.reference)
     return ledger.request(args.id)
@@ -108,7 +119,12 @@ def human(result):
             lines += [human(r) for r in result['requests']]
         return '\n\n'.join(lines)
     if 'choice' in result:
-        return f"Đã ghi nhận {result['choice']} cho {result['request_id']}. Receipt: {result['id']}. Chưa áp dụng hành động."
+        text = f"Đã ghi nhận {result['choice']} cho {result['request_id']}. Receipt: {result['id']}. Chưa áp dụng hành động."
+        runner = result.get('continuation')
+        if runner:
+            text += (f"\nĐã khởi động lại runner task tổng {runner['task']}: {runner['status']}." if runner.get('started') else
+                     f"\nRunner task tổng {runner['task']}: {runner['status']}.")
+        return text
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 

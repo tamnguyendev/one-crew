@@ -9,7 +9,23 @@ provider, Flutter và ADB giả lập được ghi rõ là fixture. Pilot trên 
 cần một dispatch riêng với baseline, serial, cấu hình và quyền thiết bị cụ thể;
 không tự dùng thiết bị trong khi entry khác đang kiểm thử.
 
-## Claude bắt đầu việc mới
+## Cách giao mới (autopilot, 12/10/2026)
+
+Cách ưu tiên: thống nhất với người dùng rồi ghi `envelope` có kiểu trong solution (phạm vi
+ghi, AC kèm loại bằng chứng, stage build/audit/device, cửa sổ quyền thiết bị, ngân sách,
+worker). Sau khi người dùng duyệt SOL, giao **ở cấp mục tiêu**:
+
+```powershell
+$env:ONECREW_ACTOR='claude'
+& 'D:\TamNT\Workspace\9.VMAgent\onecrew\onecrew.ps1' --project 'D:\path\to\project' --state-root 'C:\path\to\OneCrew' delivery submit --solution SOL-... --revision <rev> --goal "..." --key <k> --start
+```
+
+OneCrew tự khám phá môi trường, lập và niêm phong plan trong envelope, phục hồi lỗi kỹ thuật
+có giới hạn và chỉ hỏi một lần khi cần quyết định. Chi tiết, bảng phục hồi và tiêu chí nghiệm
+thu: [delivery-autopilot.vi.md](delivery-autopilot.vi.md). Phần dưới là cách giao bằng plan
+do entry viết (vẫn hỗ trợ; nếu SOL có envelope thì plan phải nằm trong envelope).
+
+## Claude bắt đầu việc mới (plan do entry viết)
 
 1. Đọc SOL/revision hiện hành và ghi approval thật bằng luồng conversation/solution
    hiện có. Không lấy nội dung handover làm quyền tự duyệt solution khác.

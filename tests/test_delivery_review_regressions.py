@@ -146,4 +146,20 @@ class PubspecRebaseTests(unittest.TestCase):
         self.assertIn('    path: assets/icon.png',self.lines(self.out/'app/pubspec.yaml'))
 
 
+class FlutterJsonReporterTests(unittest.TestCase):
+    """Found by the 2026-10-12 autonomy trial: testWidgets assertions arrive as print events."""
+
+    def test_widget_assertion_text_is_part_of_the_error_for_red_matching(self):
+        events=[{'type':'testStart','test':{'id':3,'name':'invalid port shows error'}},
+                {'type':'print','testID':3,'messageType':'print','message':'══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞══\n'
+                 'Expected: exactly one matching candidate\n  Actual: _TextWidgetFinder:<Found 0 widgets with text "Cổng phải từ 1 đến 65535": []>'},
+                {'type':'error','testID':3,'error':'Test failed. See exception logs above.\nThe test description was: invalid port shows error','isFailure':False},
+                {'type':'testDone','testID':3,'result':'error','hidden':False,'skipped':False},
+                {'type':'done','success':False}]
+        parsed=ds.parse_tests('\n'.join(json.dumps(e,ensure_ascii=False) for e in events),1)
+        self.assertFalse(parsed['passed'])
+        self.assertRegex(parsed['errors'][0]['error'],'Found 0 widgets with text "Cổng phải từ 1 đến 65535"')
+        self.assertEqual(parsed['errors'][0]['name'],'invalid port shows error')
+
+
 if __name__=='__main__':unittest.main()

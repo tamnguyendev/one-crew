@@ -104,7 +104,9 @@ def extend(control, task_id, revision, request_key, max_calls, deadline, reason,
             raise LedgerError('Terminal/cancelled work cannot receive an extension.')
         if conn.execute("SELECT 1 FROM attempts WHERE task_id=? AND status!='settled'", (task_id,)).fetchone():
             raise LedgerError('Stop and reconcile every attempt before extending; unknown usage is retained.')
-        if conn.execute("SELECT 1 FROM requests WHERE task_id=? AND state='pending'", (task_id,)).fetchone():
+        pending = [json.loads(r['payload'])['action'] for r in conn.execute("SELECT payload FROM requests WHERE task_id=? AND state='pending'", (task_id,))]
+        # A delivery's own budget question asks for exactly this extension; any other pending question must be answered first.
+        if any(not (a['type'] == 'delivery.recovery' and a['parameters'].get('class') == 'budget') for a in pending):
             raise LedgerError('Resolve the pending question before changing its budget revision.')
         created = dt.datetime.fromisoformat(task['created_at'])
         seconds = (end-created).total_seconds()
