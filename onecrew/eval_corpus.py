@@ -1,6 +1,6 @@
 """Reviewed local probes. Never a model prompt, dispatch recipe or held-out set."""
 
-VERSION = 1
+VERSION = 2
 
 
 def case(key, title, fix, tests, support, kind='runtime_contract'):
@@ -50,6 +50,32 @@ CASES = [
         'tests.test_delivery_android.AndroidDeliveryTests.test_overlay_window_prevents_tap_even_with_background_app_node',
         'tests.test_delivery_android.AndroidDeliveryTests.test_wrong_signer_and_oversized_or_duplicate_zip_fail_audit'],
         'Pinned device/scenario/private configuration still authored by entry; no physical device used.'),
+    # TASK-5f472cdf (2026-10-12, Samsung SM-A546E Android 16): real blockers of a live known-case run.
+    case('delivery-longpath', 'Short delivery workspace; deep Windows paths fail before capture', '7a095ae', [
+        'tests.test_delivery_recovery.RecoveryTests.test_short_home_and_capture_deep_source',
+        'tests.test_delivery_recovery.RecoveryTests.test_deep_destination_fails_before_creating_partial_capture'],
+        'Windows-only assertions; the live baseline capture still needs a pinned resume to prove.'),
+    case('nested-plugin-rebase', 'Nested path dependencies build from the capture, never the original', '7a095ae', [
+        'tests.test_delivery_recovery.RecoveryTests.test_nested_dependency_rebased_in_all_build_inputs_and_red'],
+        'Entry had relocated pdfrx outside source roots during the live run; this fixture does not run Gradle/CMake.'),
+    case('observe-null-source', 'Observation of a task blocked before source capture', '7a095ae', [
+        'tests.test_delivery_recovery.RecoveryTests.test_blocked_before_source_capture_remains_unverified'],
+        'Pre-capture blocks stay unverified; nothing is inferred from them.'),
+    case('android16-focus', 'Foreground focus read per top display on Android 16', '7a095ae', [
+        'tests.test_delivery_recovery.RecoveryTests.test_android16_focus_is_read_from_top_display',
+        'tests.test_delivery_recovery.DeviceRecoveryTests.test_tap_allowed_when_android16_focus_is_the_app'],
+        'Fixture copied from one Samsung Android 16 dump; other vendors and versions are unverified.'),
+    case('ime-scroll', 'Scroll above the keyboard; refuse unsafe gestures without input', '7a095ae', [
+        'tests.test_delivery_recovery.RecoveryTests.test_scroll_avoids_ime_and_rejects_unknown_or_ambiguous_surface',
+        'tests.test_delivery_recovery.RecoveryTests.test_keyboard_edge_ignores_stale_flags_and_full_screen_ime_window',
+        'tests.test_delivery_recovery.DeviceRecoveryTests.test_scroll_without_safe_surface_rereads_ui_without_input'],
+        'The visible-keyboard InsetsSource line is inferred from the hidden-state dump; not yet observed live.'),
+    case('bounded-wait', 'Read-only bounded UI wait; ADB failure stays fatal', '7a095ae', [
+        'tests.test_delivery_recovery.DeviceRecoveryTests.test_wait_for_polls_without_input_and_records_receipt',
+        'tests.test_delivery_recovery.DeviceRecoveryTests.test_wait_timeout_does_not_swipe_or_repeat_install',
+        'tests.test_delivery_recovery.DeviceRecoveryTests.test_wait_validation_rejects_unbounded_duration',
+        'tests.test_delivery_recovery.DeviceRecoveryTests.test_wait_for_adb_failure_is_not_retried_as_missing_ui'],
+        'Scenario authors must still choose correct selectors and timeouts.'),
 ]
 
 LIMITS = [
