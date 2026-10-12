@@ -131,6 +131,15 @@ class ReplyTests(Base):
         self.assertEqual(m['decisions_by_source'], dict(ZERO, relayed=1, unknown=1))
         self.assertIn('entry_relayed_decision', sc.assistance_level(observe(self.f.state_root, [task])['tasks'][0])[1])
 
+    def test_quote_without_decider_is_a_relay_and_entry_with_quote_stays_entry(self):
+        task = self.f.task()
+        implied, entry = (self.ledger.create_request(task, 'q' + str(n), recovery('transient')) for n in range(2))
+        p = self.reply('codex', implied, '--user-quote', QUOTE)[1]['provenance']
+        self.assertEqual((p['decided_by'], p['channel']), ('user', 'entry_relay'))
+        p = self.reply('codex', entry, '--decided-by', 'entry', '--user-quote', QUOTE)[1]['provenance']
+        self.assertEqual((p['decided_by'], p['channel']), ('entry', 'entry_undelegated'))  # a quote never upgrades an entry decision
+        self.assertEqual(self.metrics(task)['decisions_by_source'], dict(ZERO, relayed=1, undelegated=1))
+
     def test_user_typed_reply_is_user_direct(self):
         task = self.f.task(); request = self.ledger.create_request(task, 'q', recovery('product'))
         code, receipt = self.reply('user', request, '--user-quote', QUOTE)

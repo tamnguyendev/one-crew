@@ -21,7 +21,9 @@ Mỗi bản ghi quyết định (request reply, SOL approve/request-changes, CRE
 `eval_observe.decision_source` trả về: `user`, `relayed`, `delegated`, `undelegated`,
 `observed`, `unknown`.
 
-- `relayed` cần `user_reference` hợp lệ; chuyển lời **không có** trích dẫn → `unknown`.
+- `relayed` cần `user_reference` hợp lệ; chuyển lời **không có** trích dẫn → `unknown`. Entry gửi
+  `--user-quote` mà không ghi `--decided-by` được hiểu là chuyển lời; trích dẫn không bao giờ biến
+  `--decided-by entry` thành quyết định của người dùng.
 - `delegated` cần ủy quyền đã ghi bao trùm lớp và thời điểm quyết định, chưa thu hồi trước đó;
   không bao giờ cho `business`, `architecture`, `permission`, `budget`. Ngược lại → `undelegated`.
 - Bản ghi cũ `decided_by=entry` không có thông tin ủy quyền → `undelegated`.

@@ -199,6 +199,8 @@ def decision(ledger, by, decided_by=None, quote=None, kind=None, delegation=None
             raise LedgerError('A user reply cannot be an entry decision.')
         decided_by, channel = 'user', 'user_direct'
     elif by in ENTRY_ACTORS:
+        if decided_by is None and ref is not None:
+            decided_by = 'user'  # the user's own words for this decision: the entry relays it
         channel = {'user': 'entry_relay', 'entry': 'entry_undelegated'}.get(decided_by)
     return {'channel': channel, 'by': by, 'decided_by': decided_by, 'user_reference': ref,
             'delegation': delegation, 'decision_class': cls}
