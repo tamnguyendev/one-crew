@@ -171,6 +171,10 @@ CASES = [
         'tests.test_delivery_review_findings.RegressionAttributionTests.test_suite_failing_on_baseline_too_is_environment_not_product',
         'tests.test_delivery_review_findings.RegressionAttributionTests.test_suite_passing_on_baseline_is_a_product_regression'],
         'Flutter is a fixture here; the live trial showed the ink_sparkle shader failure without test assets.'),
+    case('review-protocol', 'An accepted review citing wrong refs is corrected by the reviewer, never turned into code repair', '2d46da3', [
+        'tests.test_delivery_review_findings.ReviewProtocolTests.test_accepted_review_with_a_wrong_ref_goes_back_to_the_reviewer_not_to_code_repair',
+        'tests.test_delivery_review_findings.ReviewProtocolTests.test_persistent_protocol_defect_asks_instead_of_repairing'],
+        'Found by autonomy trial 2 (TASK-03a6a3a9); the reviewer is a fixture here.'),
     case('environment-discovery', 'Toolchain, package, application id and tests discovered without the entry', '8207d61', [
         'tests.test_delivery_env.EnvironmentDiscoveryTests.test_flutter_root_precedence_and_rejections',
         'tests.test_delivery_env.EnvironmentDiscoveryTests.test_build_tools_selection',
