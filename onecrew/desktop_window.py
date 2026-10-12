@@ -32,9 +32,10 @@ def show(root, key):
             report = root/(key+'.txt')
             content = report.read_text(encoding='utf-8')
             window = tk.Tk()
-            window.title('OneCrew — '+record['phase']+' — '+record['task'])
+            headline = record.get('title') or record['phase']
+            window.title('OneCrew — '+headline+' — '+record['task'])
             window.geometry('850x650')
-            tk.Label(window, text='OneCrew: '+record['phase']+'  |  '+record['task'],
+            tk.Label(window, text='OneCrew: '+headline+'  |  '+record['task'],
                      anchor='w', font=('Segoe UI', 11, 'bold')).pack(fill='x', padx=12, pady=10)
             text = ScrolledText(window, wrap='word', font=('Segoe UI', 10))
             text.pack(fill='both', expand=True, padx=12)
