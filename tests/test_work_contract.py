@@ -303,6 +303,16 @@ class DurabilityTests(WorkFixture):
 
 
 class PromptTests(WorkFixture):
+    def test_finish_offers_verification_commands_only_with_the_commands_authority(self):
+        from onecrew.owned import contract
+        from onecrew.work_contract import validate
+        plain = contract({'mode': 'work', 'contract': validate(self.contract(local_branches=['production']), self.root)})[0]
+        full = contract({'mode': 'work', 'contract': validate(self.contract(commands=True), self.root)})[0]
+        finish_plain = next(l for l in plain.splitlines() if l.startswith('finish:'))
+        finish_full = next(l for l in full.splitlines() if l.startswith('finish:'))
+        self.assertNotIn('verification:[', finish_plain, 'RED-GX-A2: finish offered commands the contract does not grant')
+        self.assertIn('verification:[', finish_full)
+
     def test_kiro_prompt_keeps_the_contract_within_the_verified_cap(self):
         runtime, task, worker = self.job(self.contract(edit=True), [])
         state = runtime.state(task)[1]

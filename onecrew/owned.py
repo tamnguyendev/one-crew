@@ -80,6 +80,13 @@ def contract(profile):
         prompt='\n'.join(line for line in WORK_TOOLS.splitlines() if not any(
             line.startswith(name+':') for name in ('write','edit','run','process','create_branch','workspace_commit','export_branch','apply')
             if name not in actions))
+        if 'run' not in actions:
+            # Acceptance run A2-r1 (13/10/2026): offering verification commands without the commands authority cost two
+            # rejected finishes. Without commands the core checks the contract checks and the preserved repository only.
+            prompt='\n'.join(('finish: {report:"Markdown: what was done, each acceptance item with receipt indices, risks, how to roll back"} '
+                              'the core evaluates the contract checks and that the user\'s repository is preserved (no commands are '
+                              'authorized, so declare no verification commands), then a reviewer checks the report.')
+                             if line.startswith('finish:') else line for line in prompt.splitlines())
         return prompt,schema,'work_contract'
     actions={'list','search','read','receipt','git_status','git_diff','git_log','git_show','ask','solution_change','finish'}
     if profile['mode']=='change': actions.update(('write','test'))
