@@ -132,6 +132,15 @@ class SupervisionTests(HostFixture):
         self.assertEqual(self.scan(900), [], 'the exhausted task is no longer supervised')
         self.assertEqual(len(self.events('host.restarted')), 3)
 
+    def test_a_launched_runner_that_has_not_registered_yet_is_not_restarted(self):
+        # N1-r2 (13/10/2026): the runner took 38 s to write runner.started; the host launched a second one after 12 s.
+        self.admitted()
+        with patch('onecrew.supervisor.probe', return_value='alive'):
+            self.assertEqual(self.scan(5), [])
+            self.assertEqual(self.scan(60), [], 'a starting runner was treated as dead')
+        self.assertEqual(self.launched, [self.task])
+        self.assertFalse(self.events('host.restarted'))
+
     def test_a_task_waiting_for_the_user_is_released_not_restarted(self):
         self.admitted()
         with patch('onecrew.host._task_view', return_value={'phase': 'running', 'status': 'paused', 'cancel': False, 'pending': 0}):

@@ -206,6 +206,10 @@ def _supervise(entry, now, launch, boot):
     ledger = Ledger(entry['project'], entry['state_root']); task = entry['task']
     view = _task_view(ledger, task)
     current = runner.status(ledger, task)
+    if current['status'] not in ('alive', 'unknown') and probe(entry.get('runner')) == 'alive':
+        # Launched by this host and still alive but not registered yet (acceptance run N1-r2: 38 s under load). A second
+        # runner would only lose the task lock; it is not a restart.
+        current = {'status': 'alive', 'identity': entry['runner'], 'registered': False}
     if view['phase'] in TERMINAL or view['phase'] is None:
         return False, {'task': task, 'action': 'released', 'phase': view['phase']}
     if view['cancel']:
