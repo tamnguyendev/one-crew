@@ -29,6 +29,7 @@ HEARTBEAT = 30          # seconds after which a host lease without a heartbeat i
 BACKOFF = (10, 60, 300)  # seconds before restart 1, 2, 3 within the rolling hour (same bound as the keeper)
 WINDOW = 3600
 CANCEL_GRACE = 120      # a cancelled task whose runner does not stop by itself is stopped after this many seconds
+LAUNCH_GRACE = 120      # a launch recorded as in progress (host stopped between record and runner identity) blocks relaunch this long
 ACTIVE = ('running', 'waiting_operation')
 TERMINAL = ('completed', 'cancelled', 'failed')
 
@@ -183,18 +184,64 @@ def _block(ledger, task_id, message, kind):
     return True
 
 
-def _admit(request, launch):
+def _launch_record(state_root, task):
+    return Path(state_root) / 'host' / 'launch' / (task + '.json')
+
+
+def _runner_lock_held(ledger, task):
+    """The runner holds its task lock for its whole life: a held lock is an owner even if nothing else says so."""
+    import msvcrt
+    from .ledger import key_field
+    path = Path(ledger.state_root) / 'locks' / (key_field(task + '.runner') + '.lock')
+    if not path.exists(): return False
+    try:
+        with path.open('a+b') as stream:
+            stream.seek(0)
+            try: msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError: return True
+            stream.seek(0); msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            return False
+    except OSError:
+        return False
+
+
+def _owner(ledger, task, entry, now):
+    """Who owns this task's runner right now, or None. Codex review 2 (13/10/2026): two requests and a retry admitted
+    before runner.started was written launched three runners. Checked before every launch, admission or restart."""
     from . import runner
+    from .supervisor import probe
+    current = runner.status(ledger, task)
+    if current['status'] in ('alive', 'unknown'): return {'kind': 'registered runner', 'identity': current.get('identity')}
+    record = _read(_launch_record(ledger.state_root, task)) or {}
+    for identity in ((entry or {}).get('runner'), record.get('identity')):
+        if identity and probe(identity) == 'alive': return {'kind': 'runner launched by the host, not registered yet', 'identity': identity}
+    if record.get('state') == 'launching' and (now - _when(record['at'])).total_seconds() < LAUNCH_GRACE:
+        return {'kind': 'a launch is in progress (recorded, runner identity not yet known)', 'identity': None}
+    if _runner_lock_held(ledger, task): return {'kind': 'the runner task lock is held', 'identity': None}
+    return None
+
+
+def _start(ledger, request, launch, now, cause):
+    """Durable launch: recorded BEFORE the process starts, its identity recorded right after."""
+    path = _launch_record(ledger.state_root, request['task']); path.parent.mkdir(parents=True, exist_ok=True)
+    base = {'task': request['task'], 'request': request['id'], 'cause': cause, 'at': now.isoformat()}
+    _write(path, dict(base, state='launching'))
+    started = launch(request)
+    _write(path, dict(base, state='launched', identity=started['identity'], logs=started.get('logs')))
+    return started
+
+
+def _admit(request, launch, now, entry=None):
     ledger = Ledger(request['project'], request['state_root'])
     view = _task_view(ledger, request['task'])
     if view['phase'] is None or view['phase'] in TERMINAL or view['cancel']:
         payload = {'request': request['id'], 'reason': 'task is terminal, cancelled or not enabled', 'phase': view['phase']}
         _event(ledger, request['task'], 'host.refused', payload); return dict(payload, action='refused')
-    current = runner.status(ledger, request['task'])
-    if current['status'] in ('alive', 'unknown'):
-        payload = {'request': request['id'], 'runner': current.get('identity'), 'note': 'a runner already owns this task'}
+    owner = _owner(ledger, request['task'], entry, now)
+    if owner:
+        payload = {'request': request['id'], 'runner': owner['identity'], 'note': 'not launched: ' + owner['kind'], 'launched': False}
     else:
-        payload = dict({'request': request['id']}, **launch(request))
+        payload = dict({'request': request['id'], 'launched': True}, **_start(ledger, request, launch, now, 'dispatch'))
     _event(ledger, request['task'], 'host.admitted', payload)
     return dict(payload, action='admitted')
 
@@ -205,17 +252,16 @@ def _supervise(entry, now, launch, boot):
     from .supervisor import probe
     ledger = Ledger(entry['project'], entry['state_root']); task = entry['task']
     view = _task_view(ledger, task)
-    current = runner.status(ledger, task)
-    if current['status'] not in ('alive', 'unknown') and probe(entry.get('runner')) == 'alive':
-        # Launched by this host and still alive but not registered yet (acceptance run N1-r2: 38 s under load). A second
-        # runner would only lose the task lock; it is not a restart.
-        current = {'status': 'alive', 'identity': entry['runner'], 'registered': False}
+    # Launched by this host and alive but not registered yet (acceptance run N1-r2: 38 s under load), a launch in progress
+    # or a held runner lock all count as an owner: a second runner would only lose the task lock; it is not a restart.
+    owner = _owner(ledger, task, entry, now)
+    current = {'status': 'alive', 'identity': owner['identity'], 'owner': owner['kind']} if owner else {'status': 'stopped'}
     if view['phase'] in TERMINAL or view['phase'] is None:
         return False, {'task': task, 'action': 'released', 'phase': view['phase']}
     if view['cancel']:
         if current['status'] == 'alive':
             since = entry.setdefault('cancel_seen', now.isoformat())
-            if (now - _when(since)).total_seconds() >= CANCEL_GRACE:
+            if (now - _when(since)).total_seconds() >= CANCEL_GRACE and current.get('identity'):
                 from .work_tools import _terminate
                 stopped = _terminate(current['identity'])
                 _event(ledger, task, 'host.cancel_enforced', {'runner': current['identity'], 'stopped': stopped, 'at': now.isoformat()})
@@ -241,7 +287,7 @@ def _supervise(entry, now, launch, boot):
     since = entry.setdefault('dead_since', now.isoformat())
     if (now - _when(restarts[-1] if restarts else since)).total_seconds() < BACKOFF[len(restarts)]:
         return True, {'task': task, 'action': 'backoff'}
-    started = launch(dict(entry, id='restart-' + uuid.uuid4().hex[:8]))
+    started = _start(ledger, dict(entry, id='restart-' + uuid.uuid4().hex[:8]), launch, now, 'restart')
     restarts.append(now.isoformat())
     entry.update(restarts=restarts, runner=started['identity']); entry.pop('dead_since', None)
     _event(ledger, task, 'host.restarted', {'runner': started['identity'], 'logs': started['logs'], 'restart_count': len(restarts),
@@ -259,11 +305,15 @@ def scan(state_root, now=None, launch=None, boot=None):
         request = _read(path)
         try:
             if not request or Path(request['state_root']).resolve() != root.resolve(): raise LedgerError('Malformed or foreign request.')
-            result = _admit(request, launch)
+            result = _admit(request, launch, now, supervised['tasks'].get(request['task']))
             if result['action'] == 'admitted':
-                supervised['tasks'][request['task']] = {'task': request['task'], 'project': request['project'],
-                    'state_root': request['state_root'], 'runtime': request['runtime'], 'admitted_at': now.isoformat(),
-                    'runner': result.get('identity') or result.get('runner'), 'restarts': []}
+                entry = supervised['tasks'].get(request['task'])
+                if entry is None or result.get('launched'):  # a duplicate keeps the existing supervision and its restart history
+                    supervised['tasks'][request['task']] = dict(entry or {'restarts': []}, task=request['task'], project=request['project'],
+                        state_root=request['state_root'], runtime=request['runtime'], admitted_at=now.isoformat(),
+                        runner=result.get('identity') or result.get('runner') or (entry or {}).get('runner'))
+                # Persist after each request, so a crash later in this scan cannot lose who was launched.
+                _write(supervised_path, supervised)
             actions.append(dict(result, task=request.get('task') if request else None))
         except (ValueError, OSError, KeyError, sqlite3.Error) as error:
             actions.append({'request': path.stem, 'action': 'failed', 'error': str(error)[:300]})

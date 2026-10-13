@@ -102,7 +102,7 @@ class AdmissionTests(HostFixture):
         self.request()
         self.scan(1, status='alive')
         self.assertEqual(self.launched, [self.task], 'a second runner was started for a task that has one')
-        self.assertIn('already owns', self.events('host.admitted')[-1]['note'])
+        self.assertIn('not launched', self.events('host.admitted')[-1]['note'])
         self.assertEqual(list(host.queue_dir(self.ledger.state_root).glob('HD-*.json')), [])
 
     def test_a_cancelled_or_finished_task_is_refused(self):
@@ -164,6 +164,44 @@ class SupervisionTests(HostFixture):
             actions = self.scan(10 + host.CANCEL_GRACE, status='alive')
         self.assertEqual((actions[0]['action'], stopped.call_count), ('cancel_enforced', 1))
         self.assertTrue(self.events('host.cancel_enforced'))
+
+
+class DurableAdmissionTests(HostFixture):
+    """Codex review 2 (13/10/2026): two requests and a retry before runner.started launched three runners."""
+
+    def stopped(self):
+        return patch('onecrew.runner.status', return_value={'status': 'stopped'})
+
+    def test_requests_before_the_runner_registers_launch_once(self):
+        self.request(); self.request()
+        with self.stopped(), patch('onecrew.supervisor.probe', return_value='alive'):
+            host.scan(self.ledger.state_root, now=at(0), launch=self.launch, boot=1)
+            self.request()  # a retry while the first runner is still starting
+            host.scan(self.ledger.state_root, now=at(5), launch=self.launch, boot=1)
+        self.assertEqual(self.launched, [self.task], 'RED-GX2-F3: a second runner was launched before the first registered')
+        notes = [e.get('note') for e in self.events('host.admitted') if not e.get('launched')]
+        self.assertEqual(len(notes), 2); self.assertTrue(all('not launched' in n for n in notes))
+
+    def test_a_host_stopped_between_launch_record_and_identity_does_not_launch_again_within_grace(self):
+        def crashing(request):
+            raise RuntimeError('host stopped after recording the launch')
+        self.request()
+        with self.stopped():
+            with self.assertRaises(RuntimeError): host.scan(self.ledger.state_root, now=at(0), launch=crashing, boot=1)
+            self.request()
+            host.scan(self.ledger.state_root, now=at(30), launch=self.launch, boot=1)
+            self.assertEqual(self.launched, [], 'a launch recorded as in progress was repeated within the grace period')
+            self.request()
+            host.scan(self.ledger.state_root, now=at(30 + host.LAUNCH_GRACE + 1), launch=self.launch, boot=1)
+        self.assertEqual(self.launched, [self.task])  # nothing owns the task after the grace: launched exactly once
+
+    def test_a_held_runner_lock_is_an_owner(self):
+        from onecrew.workflow import task_lock
+        self.request()
+        with self.stopped(), task_lock(self.ledger, self.task + '.runner'):
+            host.scan(self.ledger.state_root, now=at(0), launch=self.launch, boot=1)
+        self.assertEqual(self.launched, [])
+        self.assertIn('lock', self.events('host.admitted')[-1]['note'])
 
 
 class LeaseTests(unittest.TestCase):
