@@ -394,6 +394,11 @@ class ExportAdvanceTests(WorkFixture):
                          'RED-GX-H1: the work could not land on the branch this job created')
         self.assertEqual(wt.export_branch(runtime, task, state, contract, {'name': 'user/kept'})['status'], 'exists')
         self.assertEqual(self.git('rev-parse', 'refs/heads/user/kept').strip(), self.head.strip())
+        # Delivered must equal verified: a workspace change after export is a finding until it is committed and exported again.
+        self.assertFalse([f for f in wt.verify(runtime, task, state, contract, {}, lambda: None)['findings'] if 'feature/x' in f])
+        (Path(state['work']['workspace']['path']) / 'calc.py').write_text('def add(a, b):\n    return b + a\n')
+        findings = wt.verify(runtime, task, state, contract, {}, lambda: None)['findings']
+        self.assertTrue(any('not the verified workspace' in f for f in findings), 'RED-GX-A3R2: delivered branch differs from verified state')
 
 
 class PromptTests(WorkFixture):

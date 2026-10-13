@@ -590,6 +590,17 @@ def verify(runtime, task_id, state, contract, args, guard):
             if not value['passed']: result['findings'].append('contract command check failed: ' + ' '.join(check['argv'])[:120])
     result['integrity'] = test_integrity(state, contract)
     result['findings'] += result['integrity']
+    if work.get('workspace'):
+        # What is delivered must be what was verified: an exported branch must carry exactly the verified workspace tree
+        # (acceptance run A3-r2 edited the workspace after exporting; it restored the file, but nothing enforced that).
+        root = ws_root(state); git(root, 'add', '-A'); tree = git(root, 'write-tree').decode().strip()
+        for branch in work.get('branches', []):
+            receipt = branch['receipt']
+            if receipt.get('status') != 'verified' or receipt.get('result', {}).get('kind') != 'exported_branch': continue
+            delivered = git(root, 'rev-parse', receipt['result']['commit'] + '^{tree}').decode().strip()
+            if delivered != tree:
+                result['findings'].append(f"branch {branch['name']} carries {receipt['result']['commit'][:12]}, not the verified workspace "
+                                          'state (changed after export): commit and export again')
     created = [b['ref'] for b in work.get('branches', []) if b['receipt'].get('status') == 'verified']
     from .work_contract import preserved
     findings, after = preserved(repo, work['pins'], created, applied=work.get('applied', False))
