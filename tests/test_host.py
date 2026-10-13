@@ -261,6 +261,12 @@ class DurableAdmissionTests(HostFixture):
             actions = host.scan(self.ledger.state_root, now=at(0), launch=refused, boot=1)
         self.assertEqual(actions[0]['action'], 'failed', 'RED-GX2-F3b: a refused launch was reported as admitted')
         self.assertEqual(self.events('host.admitted'), [])
+        # Third review: the entry was told the host will admit it and may be closed - the task must not just vanish.
+        from onecrew.runner import workflow_for
+        state = workflow_for(self.ledger, self.task).state(self.task)[1]
+        self.assertEqual(state['phase'], 'blocked', 'RED-GX2-F3d: a launch the host could not make left the task waiting forever')
+        self.assertIn('could not start this task', state['message'])
+        self.assertIn('not a OneCrew checkout', state['message'])
 
     def test_a_restart_that_cannot_launch_counts_and_ends_in_a_block(self):
         self.request()
@@ -275,6 +281,9 @@ class DurableAdmissionTests(HostFixture):
         self.assertTrue(failed, 'a restart that could not launch left no trace')
         self.assertLessEqual(len(failed), len(host.BACKOFF), 'RED-GX2-F3c: failed restarts were retried without bound: ' + str(len(failed)))
         self.assertTrue(self.events('host.restart_exhausted'))
+        from onecrew.runner import workflow_for
+        state = workflow_for(self.ledger, self.task).state(self.task)[1]
+        self.assertIn('python not found', state['message'], 'the blocker hides why the runner could not be restarted')
 
     def test_callers_with_their_own_retry_still_fail_fast(self):
         import time as clock

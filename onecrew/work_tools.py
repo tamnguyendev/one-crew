@@ -342,18 +342,18 @@ def environment(runtime, task_id, contract=None, verification=False):
     return env
 
 
-BOUNDARY_RULES = 4  # task ACL version (2: OWNER RIGHTS, 3: verification identity refused, 4: no WRITE_DAC, tree reset); re-applied on use
-VERIFY_RULES = 2  # version of a stored verification record; a record of another version is not reused for review
+BOUNDARY_RULES = 5  # task ACL version (2: OWNER RIGHTS, 5: full control for the owning task, no verification identity); re-applied on use
+VERIFY_RULES = 3  # version of a stored verification record; a record of another version is not reused for review
 HOME_NAME = re.compile(r'[0-9a-f]{16}')
+ROOT_RELATIVE = re.compile(r'(?:^|[=,;:\s])([\\/](?![\\/])[^\s"\'<>|;,=]+)')
+DRIVE_RELATIVE = re.compile(r'(?:^|[=,;\s])[A-Za-z]:(?![\\/])[^\s"\'<>|;,=:]')
 _LEGACY_SCANNED = set()
 
 
 def _protect_task(root, workspace):
-    """A task's own regions: workspace, temp, package cache and command logs refuse its verification identity entirely."""
-    from .contain import private, protect, verify_key
-    deny = (verify_key(root.name),)
-    for directory in (workspace, root / 'tmp', root / 'cache'): protect(directory, root.name, deny=deny)
-    private(root / 'logs', deny=deny)  # what the worker's commands printed is no input of verification either
+    """A task's own regions (workspace, temp, package cache): full control for the task, refused to every other task."""
+    from .contain import protect
+    for directory in (workspace, root / 'tmp', root / 'cache'): protect(directory, root.name)
     durable_write(root / 'boundary.json', json.dumps({'rules': BOUNDARY_RULES, 'task_key': root.name}).encode())
 
 
@@ -422,6 +422,15 @@ def refuse_arguments(runtime, state, argv, base=None):
                     raise LedgerError('In verification, path arguments may point only into the clean checkout of the candidate '
                                       '(not the workspace, its temp or the OneCrew state); use checkout-relative paths.')
                 raise LedgerError('Argument points into the user project or OneCrew state; use workspace-relative paths.')
+        if base is not None:
+            # Root-relative (\\ocw\\key\\r, /ocw/key/r) and drive-relative (D:git) spellings name places outside the
+            # checkout without a drive letter the absolute-path filter would see (third review, 13/10/2026).
+            for match in ROOT_RELATIVE.findall(argument):
+                target = Path(Path(base).resolve().anchor + match.lstrip('\\/')).resolve()
+                if not target.is_relative_to(allowed) and any(target == p or target.is_relative_to(p) for p in protected):
+                    raise LedgerError('In verification, path arguments may point only into the clean checkout (' + argument[:80] + ').')
+            if DRIVE_RELATIVE.search(argument):
+                raise LedgerError('In verification, drive-relative paths are refused (' + argument[:80] + '); use checkout paths.')
         if base is not None and re.search(r'(^|[^.])\.\.([\\/]|$)', argument):
             # Any '..' path segment, wherever it sits in the argument (--opt=a=../x, file:../x, D:..\x): verification
             # commands work inside the checkout and never need to go above it.
@@ -509,10 +518,7 @@ def run(runtime, task_id, state, contract, args, guard, repeat_guard=True, base=
     executable = which(argv[0], env.get('PATH', ''))
     refuse_arguments(runtime, state, [str(executable), *argv[1:]], base=base)
     mode = ensure_boundary(runtime, task_id, state, contract)
-    identity = home(runtime, task_id).name
-    if base is not None:
-        from .contain import verify_key
-        identity = verify_key(identity)  # refused by the workspace and its temp: verification sees the candidate only
+    identity = home(runtime, task_id).name  # verification commands run as the task too, in the clean checkout (decision 13/10/2026)
     line = command_line(executable, argv)
     logs = home(runtime, task_id) / 'logs'; logs.mkdir(exist_ok=True)
     pending = state['work'].get('intent') or {}
@@ -1011,8 +1017,8 @@ def checkout_candidate(runtime, task_id, state, contract, tree):
     contained = boundary(contract) == 'contained'
     target.mkdir(); (root / 'vtmp').mkdir(); (root / 'vcache').mkdir()
     if contained:
-        from .contain import protect, verify_key
-        for directory in (target, root / 'vtmp', root / 'vcache'): protect(directory, verify_key(root.name))
+        from .contain import protect
+        for directory in (target, root / 'vtmp', root / 'vcache'): protect(directory, root.name)
     git(root, 'init', '-q', '--separate-git-dir=' + str(vgit), str(target))
     (vgit / 'objects' / 'info').mkdir(parents=True, exist_ok=True)
     durable_write(vgit / 'objects' / 'info' / 'alternates', (str(gitdir(state) / 'objects').replace('\\', '/') + '\n').encode())
@@ -1066,6 +1072,19 @@ def _shadows(target, delivered, tree_paths):
             blocking = (kind != 'file' and entry.name == stem) or (kind == 'file' and Path(entry.name).suffix.lower() in BINARY_MODULES)
             found.append({'entry': rel, 'kind': kind, 'shadows': name, 'blocking': blocking})
             if len(found) >= 50: return found
+        if path.suffix.lower() == '.py':
+            # __pycache__/<stem>.<tag>.pyc: Python loads it instead of the source unless it is a checked-hash pyc (validated
+            # against the delivered source); timestamp and unchecked-hash entries can carry other code (third review).
+            cache = directory / '__pycache__'
+            try: cached = [e for e in os.scandir(cache) if e.name.split('.')[0] == stem and e.name.endswith('.pyc')]
+            except OSError: cached = []
+            for entry in cached:
+                rel = (path.parent / '__pycache__' / entry.name).as_posix() if str(path.parent) != '.' else '__pycache__/' + entry.name
+                if rel in tree_paths: continue
+                try:
+                    with open(entry.path, 'rb') as stream: flags = int.from_bytes(stream.read(8)[4:8], 'little')
+                except OSError: flags = 0
+                if flags != 0b11: found.append({'entry': rel, 'kind': 'compiled cache', 'shadows': name, 'blocking': True})
     return found
 
 
@@ -1197,16 +1216,13 @@ def verify(runtime, task_id, state, contract, args, guard):
     result['rules'] = VERIFY_RULES
     if candidate and (declared or setup or any(c['kind'] == 'command' for c in contract['checks'])):
         contained = boundary(contract) == 'contained'
-        if contained:
-            # The worker's processes are stopped; whatever access rules its commands gave their own files when creating them
-            # are reset, so the verification identity is refused everything below the workspace, temp, cache and logs.
-            root = home(runtime, task_id)
-            _protect_task(root, ws_root(state)); work['workspace'].update(protected=BOUNDARY_RULES, labelled=True)
         checkout, vgit, commit = checkout_candidate(runtime, task_id, state, contract, candidate)
         result['verified_in'] = {'kind': 'clean checkout of the candidate tree', 'tree': candidate, 'commit': commit, 'path': str(checkout),
                                  'copied_from_workspace': [], 'git': 'own repository at the candidate commit',
-                                 'identity': ('the task\'s verification identity: the workspace and its temp refuse it even reading'
-                                              if contained else 'unconfined: arguments into the workspace are refused, reads are not contained')}
+                                 'identity': ('the task\'s own contained identity, in this checkout; path arguments that leave the '
+                                              'checkout are refused; reads elsewhere are not contained (decision 13/10/2026)'
+                                              if contained else 'unconfined: path arguments that leave the checkout are refused, '
+                                              'reads are not contained')}
 
     def rerun(item, label):
         try: value = _rerun(runtime, task_id, state, contract, dict(item), guard, base=checkout)
@@ -1404,10 +1420,14 @@ def review_facts(runtime, state, contract, verification):
     receipts that showed the existing tests were untouched and rejected a correct, core-verified result."""
     work = state['work']; candidate = verification.get('candidate'); base = work['pins']['head']
     changes = verification.get('changed_files') or []
-    verified_in = verification.get('verified_in') or (
+    verified_in = dict(verification.get('verified_in') or {}) or (
         {'kind': 'no verification command ran in a checkout (the contract is checked by its own checks only)'}
         if verification.get('rules') == VERIFY_RULES else
         {'kind': 'verified by an earlier runtime: NOT a clean checkout of the candidate'})
+    if isinstance(verified_in.get('not_from_candidate'), dict):
+        verified_in['not_from_candidate'] = _bounded(sorted([k, v] for k, v in verified_in['not_from_candidate'].items()), 1500)
+    if isinstance(verified_in.get('shadowing_candidate_files'), list):
+        verified_in['shadowing_candidate_files'] = _bounded(verified_in['shadowing_candidate_files'], 1500)
     delivered = verification.get('deliveries') or {}
     delivered = {'branches': delivered.get('branches'),
                  'applied': _bounded(sorted([path, blob] for path, blob in (delivered.get('applied') or {}).items()), 1500)}

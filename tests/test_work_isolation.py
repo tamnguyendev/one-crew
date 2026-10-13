@@ -77,9 +77,11 @@ class TaskBoundaryTests(Fixture):
                       'print(json.dumps(out))')
         self.assertEqual(ran['exit_code'], 0, ran['stderr'][-300:])
         codes = json.loads(ran['stdout'].strip().splitlines()[-1])
-        # Second review (13/10/2026): not even its own workspace - with WRITE_DAC there it removed its verification DENY.
-        for name in ('b-workspace', 'b-tmp', 'b-git', 'b-file', 'project', 'own-workspace'):
+        for name in ('b-workspace', 'b-tmp', 'b-git', 'b-file', 'project'):
             self.assertNotEqual(codes[name], 0, 'task A rewrote the access rules of ' + name + ': ' + str(codes))
+        # Positive control: a task keeps full control of its own files (decision 13/10/2026: Python's mkdir(0o700) - tempfile,
+        # pip, venv - sets access rules, so WRITE_DAC on its own region is needed).
+        self.assertEqual(codes['own-workspace'], 0, 'positive control: a task manages the rules of its own files ' + str(codes))
         own = self.py(a, "import os\nopen('own.py', 'w').write('x')\nos.chmod('own.py', 0o444)\nos.chmod('own.py', 0o666)\n"
                          "os.replace('own.py', 'own2.py')\nos.remove('own2.py')\nprint('ok')")
         self.assertEqual((own['exit_code'], own['stdout'].strip()), (0, 'ok'), 'positive control: a task manages its own files ' + own['stderr'][-300:])
@@ -96,6 +98,22 @@ class TaskBoundaryTests(Fixture):
         for argv in argvs:
             result = wt.run(*a, {'argv': argv}, lambda: None)
             self.assertEqual(result['exit_code'], 0, (argv, result['stderr'][-400:]))
+
+    def test_positive_control_python_private_directories_work_in_the_workspace_and_the_checkout(self):
+        """Third review (13/10/2026): without WRITE_DAC on its own region, Python 3.13 mkdir(0o700) failed - and with it
+        tempfile.mkdtemp, pip install, venv/ensurepip and pytest tmp_path - for the worker and for verification."""
+        job = self.open('mkdtemp', edit=True, commands=True)
+        wt.write(job[2], job[3], {'path': 'calc.py', 'expected_sha256': sha(self.ws(job) / 'calc.py'), 'text': FIXED})
+        private = program("import os, tempfile\nd = tempfile.mkdtemp(dir='.')\nos.mkdir('own700', 0o700)\n"
+                          "with tempfile.TemporaryDirectory() as t: open(os.path.join(t, 'x'), 'w').write('x')\n"
+                          "os.rmdir(d); os.rmdir('own700'); print('ok')\n")
+        ran = wt.run(*job, {'argv': [PY, '-c', private]}, lambda: None)
+        self.assertEqual((ran['exit_code'], ran['stdout'].strip()), (0, 'ok'), 'RED-GX2-F1b: workspace ' + ran['stderr'][-300:])
+        runtime, task, state, contract = job
+        checked = wt.verify(runtime, task, state, contract, {'setup': [{'argv': [PY, '-c', private]}],
+                                                             'verification': [{'argv': [PY, '-m', 'unittest', '-v']}]}, lambda: None)
+        self.assertEqual(checked['setup'][0]['exit_code'], 0, 'RED-GX2-F1b: verification checkout ' + str(checked['setup'][0].get('stdout_tail')))
+        self.assertEqual(checked['findings'], [])
 
 
 class AdministratorsOwner:
@@ -218,18 +236,18 @@ class VerificationIdentityTests(Fixture):
         runtime, task, state, contract = job
         return wt.verify(runtime, task, state, contract, args, lambda: None)
 
-    def test_verification_cannot_read_or_point_into_the_workspace(self):
+    def test_verification_runs_in_the_checkout_and_refuses_arguments_into_the_workspace(self):
+        """Decision 13/10/2026: verification is bound to the candidate by the clean checkout, not by a separate identity.
+        Commands run there; a path argument into the workspace is refused. Reads elsewhere are a documented limit."""
         job = self.fixed('noread')
-        peek = program("import os\nfor p in (os.path.join('..', 'r', 'calc.py'), os.path.join('..', 'tmp')):\n"
-                       "    try:\n        os.listdir(p) if p.endswith('tmp') else open(p).read(); print('READ', p)\n"
-                       "    except OSError as e:\n        print('DENIED', p, e.errno)\n")
-        ran = self.verify(job, verification=[{'argv': [PY, '-m', 'unittest', '-v']}, {'argv': [PY, '-c', peek]},
+        where = program("import os\nprint(os.path.basename(os.getcwd()))\n")
+        ran = self.verify(job, verification=[{'argv': [PY, '-m', 'unittest', '-v']}, {'argv': [PY, '-c', where]},
                                              {'argv': [PY, str(self.ws(job) / 'test_calc.py')]}])
-        unit, peeked, pointed = ran['commands']
+        unit, cwd, pointed = ran['commands']
         self.assertTrue(unit['passed'], unit)
-        self.assertNotIn('READ', peeked['stdout_tail'], 'RED-GX2-F2b: a verification command read the workspace: ' + peeked['stdout_tail'])
-        self.assertEqual(peeked['stdout_tail'].count('DENIED'), 2, peeked['stdout_tail'])
+        self.assertEqual(cwd['stdout_tail'].strip(), 'v', 'verification did not run in the clean checkout')
         self.assertIn('refused', pointed['reason'] or '', 'RED-GX2-F2b: an argument into the workspace was accepted')
+        self.assertIn('reads elsewhere are not contained', ran['verified_in']['identity'])
 
     def test_a_touched_but_unchanged_candidate_file_is_not_a_finding(self):
         job = self.fixed('touch')
@@ -275,38 +293,11 @@ class VerificationIdentityTests(Fixture):
 
 @unittest.skipIf(PY is None, 'needs a real Python interpreter on PATH')
 class VerificationIsolationRound2Tests(Fixture):
-    """Second adversarial review (13/10/2026): the worker must not be able to open its regions to verification, and one
-    verification must not seed the next."""
+    """Second and third adversarial reviews (13/10/2026): one verification must not seed the next, tampering and shadows are
+    found, and verification arguments stay inside the checkout."""
 
     fixed = VerificationIdentityTests.fixed
     verify = VerificationIdentityTests.verify
-
-    def test_files_the_worker_made_readable_to_everyone_stay_closed_to_verification(self):
-        job = self.fixed('leak')
-        made = self.py(job, 'import ctypes, os\nfrom ctypes import wintypes as w\n'
-                       "k = ctypes.WinDLL('kernel32', use_last_error=True); a = ctypes.WinDLL('advapi32', use_last_error=True)\n"
-                       'a.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [w.LPCWSTR, w.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]\n'
-                       'class SA(ctypes.Structure): _fields_ = [("n", w.DWORD), ("d", ctypes.c_void_p), ("i", w.BOOL)]\n'
-                       'd = ctypes.c_void_p(); a.ConvertStringSecurityDescriptorToSecurityDescriptorW("D:P(A;;FA;;;WD)", 1, ctypes.byref(d), None)\n'
-                       'sa = SA(ctypes.sizeof(SA), d, False)\n'
-                       'k.CreateFileW.restype = ctypes.c_void_p\n'
-                       'k.CreateFileW.argtypes = [w.LPCWSTR, w.DWORD, w.DWORD, ctypes.c_void_p, w.DWORD, w.DWORD, ctypes.c_void_p]\n'
-                       "h = k.CreateFileW(os.path.join(os.environ['TEMP'], 'leak.txt'), 0x40000000, 0, ctypes.byref(sa), 1, 0x80, None)\n"
-                       "if h and h != 2 ** 64 - 1:\n"
-                       "    k.WriteFile.argtypes = [ctypes.c_void_p, ctypes.c_char_p, w.DWORD, ctypes.POINTER(w.DWORD), ctypes.c_void_p]\n"
-                       "    n = w.DWORD(); k.WriteFile(h, b'LEAKED', 6, ctypes.byref(n), None); k.CloseHandle(ctypes.c_void_p(h)); print('CREATED')\n"
-                       "else:\n    print('REFUSED', ctypes.get_last_error())\n"
-                       "open(os.path.join('..', 'cache', 'planted.txt'), 'w').write('LEAKED')\nprint('PLANTED')")
-        # Either Windows refuses a file with its own access rules (no WRITE_DAC: 4th rules) or verification cannot read it.
-        self.assertIn('PLANTED', made['stdout'], made['stderr'][-300:])
-        peek = program("import os\nfor p in ('tmp/leak.txt', 'cache/planted.txt', 'logs'):\n"
-                       "    q = os.path.join('..', *p.split('/'))\n"
-                       "    try:\n        print('READ', p, os.listdir(q) if p == 'logs' else open(q).read())\n"
-                       "    except OSError as e:\n        print('DENIED', p, e.errno)\n")
-        ran = self.verify(job, verification=[{'argv': [PY, '-m', 'unittest', '-v']}, {'argv': [PY, '-c', peek]}])
-        out = ran['commands'][1]['stdout_tail']
-        self.assertNotIn('READ', out, 'RED-GX2-F2f: verification read what the worker left: ' + out)
-        self.assertEqual(out.count('DENIED'), 3, out)
 
     def test_an_earlier_verification_cannot_seed_the_next(self):
         job = self.fixed('seed')
@@ -359,7 +350,25 @@ class VerificationIsolationRound2Tests(Fixture):
         for argument in ('-f../cache/pip', 'D:..\\cache\\x.whl', '--require=a=../r/x.js', 'file:../r/pkg', '..'):
             with self.assertRaises(LedgerError, msg='RED-GX2-F2k: accepted ' + argument):
                 wt.refuse_arguments(runtime, state, [PY, argument], base=base)
+        # Third review: the same places spelled without a drive letter (root-relative) or relative to a drive's cwd.
+        home = self.ws((runtime, task, state, contract)).parent.resolve()
+        rootless = str(home)[len(home.anchor) - 1:]  # '\\...\\<home>'
+        for argument in (rootless + '\\git', '--git-dir=' + rootless.replace('\\', '/') + '/git', rootless + '\\r\\calc.py', 'D:git'):
+            with self.assertRaises(LedgerError, msg='RED-GX2-F2l: accepted ' + argument):
+                wt.refuse_arguments(runtime, state, [PY, argument], base=base)
         wt.refuse_arguments(runtime, state, [PY, '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_*.py'], base=base)
+        wt.refuse_arguments(runtime, state, [PY, rootless + '\\v\\test_calc.py', '-W', 'error::DeprecationWarning'], base=base)
+
+    def test_a_compiled_cache_entry_that_python_would_not_check_is_a_shadow(self):
+        """Third review: __pycache__/calc.cpython-XY.pyc is loaded instead of calc.py unless it is a checked-hash pyc."""
+        job = self.fixed('pyc')
+        plant = program("import py_compile, sys\nmode = py_compile.PycInvalidationMode[sys.argv[1]]\n"
+                        "py_compile.compile('calc.py', cfile='__pycache__/calc.cpython-%d%d.pyc' % sys.version_info[:2], invalidation_mode=mode)\n")
+        unchecked = self.verify(job, setup=[{'argv': [PY, '-c', plant, 'UNCHECKED_HASH']}], verification=[{'argv': [PY, '-m', 'unittest', '-v']}])
+        self.assertTrue(any('__pycache__/calc.cpython' in f and 'shadows the delivered file calc.py' in f for f in unchecked['findings']),
+                        'RED-GX2-F2m: an unchecked compiled cache entry was not reported: ' + str(unchecked['findings']))
+        checked = self.verify(job, setup=[{'argv': [PY, '-c', plant, 'CHECKED_HASH']}], verification=[{'argv': [PY, '-m', 'unittest', '-v']}])
+        self.assertEqual(checked['findings'], [], 'a checked-hash pyc is validated against the delivered source by Python itself')
 
 
 @unittest.skipIf(PY is None, 'needs a real Python interpreter on PATH')
@@ -432,17 +441,38 @@ class ReviewFactsTests(Fixture):
     def test_many_applied_files_stay_bounded_in_the_facts(self):
         from onecrew.ledger import canonical
         runtime, task, state, contract = self.open('applied', edit=True, commands=True)
-        verification = {'candidate': None, 'changed_files': [], 'rules': getattr(wt, 'VERIFY_RULES', 2), 'findings': [],
+        verification = {'candidate': None, 'changed_files': [], 'rules': getattr(wt, 'VERIFY_RULES', 3), 'findings': [],
                         'deliveries': {'branches': {}, 'applied': {f'pkg/file_{i:04}.py': 'b' * 40 for i in range(600)}}}
         facts = wt.review_facts(runtime, state, contract, verification)
         facts = facts[0] if isinstance(facts, tuple) else facts
         self.assertLess(len(canonical(facts['delivered'])), 2000, 'RED-GX2-N4c: delivered outputs grow the facts without bound')
 
+    def test_many_verification_outputs_stay_bounded_in_the_facts(self):
+        from onecrew.ledger import canonical
+        runtime, task, state, contract = self.open('outputs', edit=True, commands=True)
+        verified_in = {'kind': 'clean checkout of the candidate tree', 'not_from_candidate': {f'dir{i:03}': {'files': 1, 'bytes': 9} for i in range(500)},
+                       'shadowing_candidate_files': [{'entry': f'x{i}.pyc', 'kind': 'file', 'shadows': f'x{i}.py', 'blocking': False} for i in range(50)]}
+        verification = {'candidate': None, 'changed_files': [], 'rules': getattr(wt, 'VERIFY_RULES', 3), 'findings': [], 'verified_in': verified_in}
+        facts = wt.review_facts(runtime, state, contract, verification)
+        facts = facts[0] if isinstance(facts, tuple) else facts
+        self.assertLess(len(canonical(facts['verified_in'])), 3600, 'RED-GX2-N4d: verification outputs grow the facts without bound')
+
+    def test_a_stored_review_prompt_is_not_reused_after_verification_ran_again(self):
+        runtime, task, state, contract = self.open('prompt', edit=True, commands=True)
+        wt.write(state, contract, {'path': 'calc.py', 'expected_sha256': sha(Path(state['work']['workspace']['path']) / 'calc.py'), 'text': FIXED})
+        state['work']['verification'] = {'step': state['step'], 'findings': [], 'commands': [{'argv': [PY, '-m', 'unittest'], 'passed': True}]}
+        state['review_prompt'] = runtime.store.blob(b'review prompt built from an earlier verification')
+        profile = runtime.control.status(task)['configuration']['profile']
+        value = {'action': 'finish', 'arguments': json.dumps({'report': 'done', 'verification': [{'argv': [PY, '-m', 'unittest', '-v']}]})}
+        runtime._work_verify(task, runtime.state(task)[0], state, profile, value)
+        self.assertIn('verified_in', state['work']['verification'])
+        self.assertIsNone(state.get('review_prompt'), 'RED-GX2-N4e: the review would use a prompt built from the replaced verification')
+
     def test_a_current_verification_is_reused_and_an_interrupted_one_is_not_rerun(self):
         runtime, task, state, contract = self.open('reuse', edit=True, commands=True)
         profile = runtime.control.status(task)['configuration']['profile']
         value = {'action': 'finish', 'arguments': json.dumps({'report': 'done'})}
-        current = {'step': state['step'], 'rules': getattr(wt, 'VERIFY_RULES', 2), 'findings': [], 'checks': [{'kind': 'ref', 'passed': True}]}
+        current = {'step': state['step'], 'rules': getattr(wt, 'VERIFY_RULES', 3), 'findings': [], 'checks': [{'kind': 'ref', 'passed': True}]}
         interrupted = {'step': state['step'], 'interrupted': True, 'findings': ['verification was interrupted']}
         for record in (current, interrupted):
             state['work']['verification'] = dict(record)

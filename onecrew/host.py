@@ -275,6 +275,17 @@ def _admit(request, launch, now, entry=None):
                 payload = dict({'request': request['id'], 'launched': True}, **_start(ledger, request, launch, now, 'dispatch'))
     except _Busy as error:  # another process is deciding for this task right now; that decision stands (a failed launch is not this)
         payload = {'request': request['id'], 'runner': None, 'note': 'not launched: ' + str(error), 'launched': False}
+    except Exception as error:
+        # The entry was told the host will admit the task and may already be closed: a launch the host cannot make must not
+        # vanish. The task is blocked with the reason, which reaches the user once (third review, 13/10/2026).
+        reason = str(error)[:300]
+        _event(ledger, request['task'], 'host.launch_failed', {'request': request['id'], 'error': reason, 'at': now.isoformat()})
+        try:
+            _block(ledger, request['task'], 'The OneCrew host could not start this task: ' + reason +
+                   '. Fix the cause, then resume it (job resume).', 'host_launch')
+        except LedgerError:
+            pass  # the task is busy elsewhere; the event above still records why nothing was launched
+        raise
     _event(ledger, request['task'], 'host.admitted', payload)
     return dict(payload, action='admitted')
 
@@ -316,6 +327,7 @@ def _supervise(entry, now, launch, boot):
     restarts = [r for r in entry.get('restarts', []) if (now - _when(r)).total_seconds() < WINDOW]
     if len(restarts) >= len(BACKOFF):
         detail = f'Coordinator runner died {len(restarts)} times within {WINDOW // 60} minutes; automatic restarts exhausted.'
+        if entry.get('last_launch_error'): detail += ' The last restart could not start the runner: ' + entry['last_launch_error'] + '.'
         _event(ledger, task, 'host.restart_exhausted', {'restarts': restarts, 'at': now.isoformat()})
         _block(ledger, task, detail + ' Inspect the runner logs, then resume with job resume.', 'coordinator')
         return False, {'task': task, 'action': 'exhausted'}
@@ -330,11 +342,11 @@ def _supervise(entry, now, launch, boot):
         return True, None
     except Exception as error:
         # A restart that could not launch counts as an attempt: backoff and the exhaustion rule apply to it as well.
-        restarts.append(now.isoformat()); entry['restarts'] = restarts
+        restarts.append(now.isoformat()); entry['restarts'] = restarts; entry['last_launch_error'] = str(error)[:300]
         _event(ledger, task, 'host.restart_failed', {'error': str(error)[:300], 'restart_count': len(restarts), 'at': now.isoformat()})
         return True, {'task': task, 'action': 'restart_failed', 'error': str(error)[:300]}
     restarts.append(now.isoformat())
-    entry.update(restarts=restarts, runner=started['identity']); entry.pop('dead_since', None)
+    entry.update(restarts=restarts, runner=started['identity']); entry.pop('dead_since', None); entry.pop('last_launch_error', None)
     _event(ledger, task, 'host.restarted', {'runner': started['identity'], 'logs': started['logs'], 'restart_count': len(restarts),
                                             'at': now.isoformat(), 'cause': 'runner_dead'})
     return True, {'task': task, 'action': 'restarted'}

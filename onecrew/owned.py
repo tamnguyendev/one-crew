@@ -564,6 +564,7 @@ class Owned(Workflow):
                     result={'findings':['verification could not run: '+str(error)[:400]]}
             state['work'].pop('intent',None)
             result['step']=state['step'];result.setdefault('rules',VERIFY_RULES);state['work']['verification']=result
+            state['review_prompt']=None  # built from the previous verification's facts; never reused for this one
             seq=self.persist(task_id,seq,state)
         findings=state['work']['verification'].get('findings')
         if findings:
