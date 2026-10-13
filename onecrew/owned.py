@@ -264,6 +264,14 @@ class Owned(Workflow):
         contract_value=profile['contract'];guard=task_guard(self.control,task_id)
         if action in ('list','search','read'):
             discovery,where=wt.view(self,state)
+            target=args.get('directory','') if action!='read' else args.get('path','')
+            if target and not discovery.path(target).exists():
+                # Acceptance run A5-r2: a worker listed a missing generated directory three times. Say what exists instead.
+                parent=target.rsplit('/',1)[0] if '/' in target else ''
+                try:siblings=[e['path'] for e in discovery.list(parent,0)['entries']][:40]
+                except LedgerError:siblings=[]
+                raise LedgerError(f'{target} does not exist in the {where}. It may be generated or ignored by Git: check the '
+                                  f'project documentation and scripts for how it is produced. Present in "{parent or "."}": '+', '.join(siblings))
             if action=='list':return dict(discovery.list(args.get('directory',''),args.get('cursor',0)),view=where)
             if action=='search':return dict(discovery.search(args.get('directory',''),args['query'],args.get('cursor',0)),view=where)
             data=discovery.data(args['path'],limit=1_000_000);value=scan_text(data)
@@ -303,6 +311,14 @@ class Owned(Workflow):
         raise LedgerError('Unsupported action.')
 
     def _tool(self,task_id,state,action,args,profile):
+        if profile['mode']=='work' and action in ('list','search','read','git_status','git_log','git_show'):
+            # An identical read-only request that already failed is not executed again; the worker gets the earlier receipt.
+            for ref in reversed(state['receipts'][-12:]):
+                if ref['action']!=action or ref.get('successful') is not False: continue
+                earlier=json.loads(self.store.read_blob(ref['blob']))
+                if earlier.get('arguments')==args or earlier.get('request')==args:
+                    raise LedgerError(f"Identical to receipt {ref['index']}, which already failed: {str(earlier['result'].get('error'))[:300]} "
+                                      'Choose a different action.')
         if profile['mode']=='work' and action not in ('git_status','git_log','git_show','receipt','ask'):
             if action not in work_actions(profile['contract']):raise LedgerError('Action not authorized by the work contract: '+action)
             from .sandbox_gate import task_guard
@@ -702,6 +718,7 @@ class Owned(Workflow):
                     record={'action':value['action'],'result':result}
                     if value['action']=='search': record['arguments']=args
                     if value['action']=='read': record['arguments']={k:args[k] for k in ('path','cursor') if k in args}
+                    if profile['mode']=='work' and value['action'] in ('list','git_status','git_log','git_show'): record['request']=args
                     from .progress import observe
                     observe(state,value['action'],args,result)
                     blob=self.store.blob(canonical(record).encode())

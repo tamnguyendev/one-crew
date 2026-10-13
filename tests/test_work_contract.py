@@ -316,6 +316,18 @@ class DurabilityTests(WorkFixture):
         self.assertFalse(result['available']); self.assertIn('verify_kiro_cli', result['reason'])
 
 
+class RepeatTests(WorkFixture):
+    def test_missing_path_names_what_exists_and_an_identical_failed_request_is_not_repeated(self):
+        runtime, task, worker = self.job(self.contract(commands=True), [
+            action('list', directory='fixtures'), action('list', directory='fixtures'), action('list', directory='fixtures')])
+        state = runtime.run(task, steps=3)
+        from onecrew.snapshots import Snapshots
+        results = [json.loads(runtime.store.read_blob(r['blob']))['result'] for r in state['receipts']]
+        self.assertIn('may be generated or ignored by Git', results[0]['error'])
+        self.assertIn('calc.py', results[0]['error'])  # what the parent directory does contain
+        self.assertIn('Identical to receipt 0', results[1]['error'], 'RED-GX-A5R2: the same failing list ran again')
+
+
 class TestCountTests(unittest.TestCase):
     def test_node_spec_and_tap_reporters_are_counted(self):
         from onecrew.work_tools import test_counts
