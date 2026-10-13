@@ -23,6 +23,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import time
 import uuid
@@ -39,8 +40,9 @@ SECRET_ENV = re.compile(r'(TOKEN|SECRET|PASSW|CREDENTIAL|API_?KEY|PRIVATE|SESSIO
 DROP_ENV = ('GIT_', 'ONECREW_', 'ANTHROPIC', 'OPENAI', 'CLAUDE', 'CODEX', 'KIRO', 'AWS_')
 ABSOLUTE = re.compile(r'(?<![A-Za-z0-9])([A-Za-z]:[\\/][^\s"\'<>|;,]*|\\\\[^\s"\'<>|;,]+)')
 GIT_REFUSED = {'push', 'remote', 'credential', 'send-email', 'daemon', 'filter-branch', 'gc', 'prune', 'update-server-info'}
-TEST_FILE = re.compile(r'(^|/)(tests?|__tests__|spec|specs|test_driver|integration_test)/|(^|/)test_[^/]*\.py$|_test\.(py|dart|go)$|'
-                       r'\.(test|spec)\.[cm]?[jt]sx?$|Tests?\.(java|kt|cs)$|_spec\.rb$', re.I)
+TEST_FILE = re.compile(r'(^|/)(tests?|__tests__|__snapshots__|spec|specs|test_driver|integration_test|cypress)/|'
+                       r'(^|/)(test_[^/]*\.(py|rb)|tests\.py|conftest\.py|setupTests\.[cm]?[jt]sx?)$|_test\.(py|dart|go|rb)$|'
+                       r'\.(test|spec|cy)\.[cm]?[jt]sx?$|Tests?\.(java|kt|cs|swift)$|_spec\.rb$', re.I)
 SKIP_MARK = re.compile(r'@(unittest\.)?skip|pytest\.mark\.(skip|xfail)|\b(xit|xdescribe|xtest)\s*\(|\b(it|test|describe)\.(skip|only|todo)\s*\(|'
                        r'\bskip\s*:\s*(true|[\'"])|\bmarkTestSkipped\b|t\.Skip\(|@Disabled|@Ignore', re.I)
 ASSERTION = re.compile(r'\bassert\w*\b|\bexpect\s*\(|\bshould\b|\bverify\s*\(', re.I)
@@ -85,9 +87,9 @@ def create_workspace(runtime, task_id, contract, base):
     contained = boundary(contract) == 'contained'
     target.mkdir()
     if contained:
-        from .contain import private, protect
+        from .contain import private
         private(root)  # owner-independent: readable by the task's contained commands, writable by the core only
-        for directory in (target, root / 'tmp', root / 'cache'): protect(directory, root.name)
+        _protect_task(root, target)
     # A shared clone reads the user's object store through alternates; when this task's contained commands cannot read it
     # (an owner-only ACL), Git in the workspace would fail with "bad object HEAD", so the objects are copied instead.
     shared = not contained or _contained_reads(runtime, task_id, source, base)
@@ -119,7 +121,8 @@ def _contained_reads(runtime, task_id, source, revision):
     """Can a contained command of this task read `revision` from the user's repository (as Git in a shared clone would)?"""
     root = home(runtime, task_id); logs = root / 'logs'; logs.mkdir(exist_ok=True)
     env = environment(runtime, task_id)
-    try: line = command_line(which('git', env.get('PATH', '')), ['git', '-C', str(source), 'cat-file', '-e', revision + '^{commit}'])
+    safe = 'safe.directory=' + str(Path(source).resolve()).replace('\\', '/')  # readability is asked, not Git's ownership rule
+    try: line = command_line(which('git', env.get('PATH', '')), ['git', '-c', safe, '-C', str(source), 'cat-file', '-e', revision + '^{commit}'])
     except LedgerError: return False
     with open(logs / 'objects-probe.out', 'wb') as out, open(logs / 'objects-probe.err', 'wb') as err:
         child, job = _spawn(line, str(root / 'tmp'), env, out, err, contained=True, task=root.name)
@@ -203,7 +206,7 @@ def classify(contract, changes):
         name = change['path']
         if not a['edit']: reason = 'the contract grants commands but no edit authority, so file changes cannot be delivered'
         elif not in_scope(contract, name): reason = 'outside scope.paths'
-        elif is_test(name) and change['status'] in ('M', 'D') and not a['edit_tests']: reason = 'existing test file changed without edit_tests'
+        elif is_test(name) and change['status'] in ('M', 'D', 'T') and not a['edit_tests']: reason = 'existing test file changed without edit_tests'
         else: continue
         bad.append({'path': name, 'status': change['status'], 'reason': reason})
     return bad
@@ -325,25 +328,57 @@ def which(name, path_env):
     raise LedgerError('Command not found on PATH (Store aliases and venv redirectors are skipped): ' + name[:80])
 
 
-def environment(runtime, task_id, contract=None):
+def environment(runtime, task_id, contract=None, verification=False):
+    """verification: the environment of core-run verification commands - their own temp and package caches, which the
+    worker's commands cannot write, so what verification uses comes from the candidate or from its recorded setup."""
     env = {k: v for k, v in os.environ.items() if not SECRET_ENV.search(k) and not k.upper().startswith(DROP_ENV)}
-    root = home(runtime, task_id); tmp = root / 'tmp'; tmp.mkdir(exist_ok=True)
+    root = home(runtime, task_id); tmp = root / ('vtmp' if verification else 'tmp'); tmp.mkdir(exist_ok=True)
     env['TEMP'] = env['TMP'] = str(tmp)
     env.setdefault('CI', 'true')
     env['PYTHONDONTWRITEBYTECODE'] = '1'  # no stale bytecode, no __pycache__ in the workspace diff
     if contract is not None and boundary(contract) == 'contained':
-        for key, name in CACHES.items(): env[key] = str(root / 'cache' / name)  # package caches the boundary lets them write
+        cache = root / ('vcache' if verification else 'cache')
+        for key, name in CACHES.items(): env[key] = str(cache / name)  # package caches the boundary lets them write
     return env
 
 
-BOUNDARY_RULES = 2  # version of the task ACLs (2: OWNER RIGHTS entry); older protected workspaces are re-protected on use
+BOUNDARY_RULES = 3  # version of the task ACLs (2: OWNER RIGHTS entry, 3: verification identity refused); re-applied on use
+_LEGACY_SCANNED = set()
+
+
+def _protect_task(root, workspace):
+    """A task's own regions: workspace and temp refuse its verification identity entirely; the package cache does not."""
+    from .contain import protect, verify_key
+    deny = (verify_key(root.name),)
+    protect(workspace, root.name, deny=deny); protect(root / 'tmp', root.name, deny=deny); protect(root / 'cache', root.name)
+    durable_write(root / 'boundary.json', json.dumps({'rules': BOUNDARY_RULES, 'task_key': root.name}).encode())
+
+
+def _protect_legacy_homes(base):
+    """Workspaces of OTHER tasks made before the per-task boundary (6028118: Low label, inherited DACL) stay writable by any
+    contained command until their own task runs again. The first contained run in a process gives each of them its own
+    task's rules (the task SID derives from the home name). Review of 4a6bdb9, 13/10/2026."""
+    if str(base) in _LEGACY_SCANNED: return
+    from .contain import own, private
+    for root in sorted(p for p in Path(base).iterdir() if p.is_dir() and (p / 'r').is_dir()):
+        try: marker = json.loads((root / 'boundary.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError): marker = {}
+        if marker.get('rules') == BOUNDARY_RULES: continue
+        try:
+            private(root)
+            for path in (root / 'git', root / 'r' / '.git'):
+                if path.exists(): own(path)
+            _protect_task(root, root / 'r')
+        except (OSError, LedgerError):
+            continue  # its own task re-protects it on first use; a home that cannot be changed is not this task's to fail on
+    _LEGACY_SCANNED.add(str(base))
 
 
 def ensure_boundary(runtime, task_id, state, contract):
     """Contained commands need their task region protected (per-task ACL + Low label); workspaces made before the per-task
     boundary (Codex review 2, 13/10/2026) get it on first use."""
     if boundary(contract) != 'contained': return 'unconfined'
-    from .contain import available, private, protect
+    from .contain import available, private
     root = home(runtime, task_id)
     ok, reason = available(root.name)
     if not ok:
@@ -356,24 +391,34 @@ def ensure_boundary(runtime, task_id, state, contract):
         for path in (root / 'git', ws_root(state) / '.git'):
             if path.exists(): own(path)
     if workspace.get('protected') != BOUNDARY_RULES:
-        for directory in (ws_root(state), root / 'tmp', root / 'cache'): protect(directory, root.name)
+        _protect_task(root, ws_root(state))
         workspace.update(labelled=True, protected=BOUNDARY_RULES, task_key=root.name)
+    _protect_legacy_homes(root.parent)
     return 'contained'
 
 
-def refuse_arguments(runtime, state, argv):
+def refuse_arguments(runtime, state, argv, base=None):
     """Arguments may not point into the user's project or the OneCrew state (the workspace itself is allowed). Defence in
-    depth: the contained boundary refuses such writes anyway; unconfined commands rely on this and on the delivery gate."""
+    depth: the contained boundary refuses such writes anyway; unconfined commands rely on this and on the delivery gate.
+    base (verification): only the clean checkout is allowed - never the workspace, its temp or anything else of the task."""
     project = Path(runtime.ledger.project).resolve(); state_root = Path(runtime.ledger.state_root).resolve()
-    workspace = ws_root(state).resolve()
-    protected = [project, state_root, _home(state).resolve() / 'git', _home(state).resolve() / 'meta']
+    allowed = Path(base).resolve() if base is not None else ws_root(state).resolve()
+    protected = [project, state_root] + ([_home(state).resolve()] if base is not None else
+                                         [_home(state).resolve() / 'git', _home(state).resolve() / 'meta'])
     for argument in argv:
         for match in ABSOLUTE.findall(argument):
             try: target = Path(match.rstrip('.:')).resolve()
             except (OSError, ValueError): raise LedgerError('Unresolvable absolute path argument refused.')
-            if target.is_relative_to(workspace): continue
+            if target.is_relative_to(allowed): continue
             if any(target == p or target.is_relative_to(p) for p in protected):
+                if base is not None:
+                    raise LedgerError('In verification, path arguments may point only into the clean checkout of the candidate '
+                                      '(not the workspace, its temp or the OneCrew state); use checkout-relative paths.')
                 raise LedgerError('Argument points into the user project or OneCrew state; use workspace-relative paths.')
+        if base is not None and re.search(r'(^|[\\/=])\.\.([\\/]|$)', argument):
+            outside = (Path(base) / argument.split('=', 1)[-1]).resolve()
+            if not outside.is_relative_to(allowed):
+                raise LedgerError('In verification, path arguments may not leave the clean checkout (' + argument[:80] + ').')
     name = Path(argv[0]).name.lower()
     if name in ('git', 'git.exe', 'git.cmd'):
         words = [a for a in argv[1:] if not a.startswith('-')]
@@ -452,10 +497,14 @@ def run(runtime, task_id, state, contract, args, guard, repeat_guard=True, base=
     if not cwd.is_dir(): raise LedgerError('cwd is not a directory of the ' + ('verification checkout.' if base is not None else 'workspace.'))
     timeout = args.get('timeout_seconds', 300)
     if type(timeout) is not int or not 1 <= timeout <= RUN_SECONDS: raise LedgerError(f'timeout_seconds: 1-{RUN_SECONDS}.')
-    env = environment(runtime, task_id, contract)
+    env = environment(runtime, task_id, contract, verification=base is not None)
     executable = which(argv[0], env.get('PATH', ''))
-    refuse_arguments(runtime, state, [str(executable), *argv[1:]])
+    refuse_arguments(runtime, state, [str(executable), *argv[1:]], base=base)
     mode = ensure_boundary(runtime, task_id, state, contract)
+    identity = home(runtime, task_id).name
+    if base is not None:
+        from .contain import verify_key
+        identity = verify_key(identity)  # refused by the workspace and its temp: verification sees the candidate only
     line = command_line(executable, argv)
     logs = home(runtime, task_id) / 'logs'; logs.mkdir(exist_ok=True)
     pending = state['work'].get('intent') or {}
@@ -482,7 +531,7 @@ def run(runtime, task_id, state, contract, args, guard, repeat_guard=True, base=
         return start_background(runtime, task_id, state, line, cwd, env, outpath, errpath, argv, executable, mode, token)
     started = time.monotonic(); reason = None
     with outpath.open('wb') as out, errpath.open('wb') as err:
-        child, job = _spawn(line, cwd, env, out, err, contained=mode == 'contained', task=home(runtime, task_id).name)
+        child, job = _spawn(line, cwd, env, out, err, contained=mode == 'contained', task=identity)
         _record_process(logs, token, child)
         try:
             deadline = started + timeout
@@ -504,7 +553,7 @@ def run(runtime, task_id, state, contract, args, guard, repeat_guard=True, base=
               'tests': test_counts(stdout + '\n' + stderr)}
     after = snapshot(state, changes=False) if observe else None
     if observe: result.update(effects(contract, before, after, state))
-    result['hint'] = diagnose(result, state)
+    result['hint'] = diagnose(result, state, cwd)
     state['work'].setdefault('commands', []).append(dict({k: result[k] for k in ('argv', 'cwd', 'exit_code', 'stopped', 'tests', 'log')},
                                                          tree_after=after['tree'] if after else None, where=result['where']))
     return result
@@ -583,7 +632,8 @@ def test_counts(text):
     return result
 
 
-def diagnose(result, state=None):
+def diagnose(result, state=None, cwd=None):
+    """cwd: the directory the command ran in; relative paths in its output are resolved against it."""
     text = (result['stderr'] + '\n' + result['stdout'])[-8000:].lower()
     contained = result.get('boundary') == 'contained'
     boundary_note = (' Contained commands can write only inside the workspace: a toolchain that writes into its own '
@@ -608,7 +658,8 @@ def diagnose(result, state=None):
         return 'environment: the write boundary refused a write outside the workspace.' + boundary_note
     missing = re.search(r"cannot find module '([^']+)'|can't open file '([^']+)'|no such file or directory: '([^']+)'|"
                         r"enoent: no such file or directory, \w+ '([^']+)'", text)
-    if missing and re.search(r'[\\/]|^\.', next(g for g in missing.groups() if g)) and Path(next(g for g in missing.groups() if g)).is_dir():
+    named = next((g for g in missing.groups() if g), '') if missing else ''
+    if missing and re.search(r'[\\/]|^\.', named) and (Path(cwd) / named if cwd and not Path(named).is_absolute() else Path(named)).is_dir():
         # N2-r3 (13/10/2026): `node --test test/` makes Node load the directory itself as a module. Generic rule: the path exists
         # but is a directory; the project's own manifest says how it runs this tool.
         return ('command: a directory was given where the tool expected a file or module (' + next(g for g in missing.groups() if g)[-120:] +
@@ -918,45 +969,101 @@ def apply(runtime, task_id, state, contract, args):
 
 # --- independent verification and handover --------------------------------------------------------------------------
 
+def _remove_tree(path):
+    """Remove a core-made directory tree, read-only files and paths beyond MAX_PATH included; when that is impossible (a
+    file still held open), move it aside so a fresh one can be made. Junctions are removed, never followed."""
+    path = Path(path)
+    if not os.path.lexists(path): return
+    def unlock(function, name, info):
+        try:
+            os.chmod(name, stat.S_IWRITE); function(name)
+        except OSError:
+            pass
+    if path.is_symlink() or (hasattr(os.path, 'isjunction') and os.path.isjunction(path)):
+        try: os.unlink(path)
+        except OSError: os.rmdir(path)  # a directory junction/link: removed itself, its target untouched
+        return
+    long = ('\\\\?\\' + os.path.abspath(path)) if os.name == 'nt' else str(path)  # never resolved: no link is followed
+    shutil.rmtree(long, onexc=unlock)
+    if os.path.lexists(path):
+        try: os.replace(path, path.with_name(path.name + '.stale-' + uuid.uuid4().hex[:8]))
+        except OSError as error: raise LedgerError('environment: cannot clear ' + str(path) + ': ' + str(error)[:200])
+
+
 def checkout_candidate(runtime, task_id, state, contract, tree):
-    """A fresh directory holding exactly `tree` (Git's own checkout, the repository's line-ending rules), nothing copied from
-    the workspace: no ignored dependency, generated file or leftover can make a test pass for the delivered candidate.
-    Codex review 2 (13/10/2026): an ignored package shadowed the delivered module and the dirty workspace verified green."""
-    root = home(runtime, task_id); target = root / 'v'
-    if target.exists():
-        shutil.rmtree(target)  # junctions are removed, not followed (Python 3.12+ on Windows)
+    """A fresh directory holding exactly `tree`, nothing copied from the workspace: no ignored dependency, generated file or
+    leftover can make a test pass for the delivered candidate (Codex review 2, 13/10/2026: an ignored package shadowed the
+    delivered module and the dirty workspace verified green). It is a Git work tree of its own (objects borrowed from the
+    workspace store, HEAD at a commit of the candidate tree, its index matching the files), so Git-dependent setup and tests
+    behave as in the workspace. Returns (directory, its Git directory, the commit)."""
+    root = home(runtime, task_id); target = root / 'v'; vgit = root / 'vgit'
+    for path in (target, vgit): _remove_tree(path)
+    contained = boundary(contract) == 'contained'
     target.mkdir()
-    if boundary(contract) == 'contained':
-        from .contain import protect
-        protect(target, root.name)
-    environment = {'GIT_INDEX_FILE': str(root / 'verify.index')}
-    if (root / 'verify.index').exists(): (root / 'verify.index').unlink()
-    wgit(state, 'read-tree', tree, env=environment)
-    # -u records the stat data of the written files, so afterwards diff-files examines only the candidate's own files
-    # (never hashing what setup or the tests created, such as node_modules).
-    git(target, 'checkout-index', '-a', '-f', '-u', git_dir=gitdir(state), work_tree=target, env=environment, timeout=600)
-    return target
+    if contained:
+        from .contain import protect, verify_key
+        for directory in (target, root / 'vtmp', root / 'vcache'): protect(directory, verify_key(root.name))
+    git(root, 'init', '-q', '--separate-git-dir=' + str(vgit), str(target))
+    (vgit / 'objects' / 'info').mkdir(parents=True, exist_ok=True)
+    durable_write(vgit / 'objects' / 'info' / 'alternates', (str(gitdir(state) / 'objects').replace('\\', '/') + '\n').encode())
+    for key in ('core.autocrlf', 'core.eol', 'core.safecrlf', 'core.longpaths', 'core.hooksPath', 'user.name', 'user.email'):
+        value = wgit(state, 'config', '--get', key, allow_failure=True)
+        if value: git(target, 'config', key, value.decode().strip(), git_dir=vgit)
+    head = wgit(state, 'rev-parse', 'HEAD').decode().strip()
+    same = wgit(state, 'rev-parse', head + '^{tree}').decode().strip() == tree
+    commit = head if same else wgit(state, 'commit-tree', tree, '-p', head, '-m', 'OneCrew verification candidate').decode().strip()
+    git(target, 'update-ref', '--no-deref', 'HEAD', commit, git_dir=vgit)
+    git(target, 'read-tree', commit, git_dir=vgit, work_tree=target)
+    # -u records the stat data of the written files, so later diff-files examines only the candidate's own files.
+    git(target, 'checkout-index', '-a', '-f', '-u', git_dir=vgit, work_tree=target, timeout=600)
+    if contained:
+        from .contain import own
+        for path in (vgit, target / '.git'): own(path)  # Git's ownership check (safe.directory) reads these
+    return target, vgit, commit
+
+
+def _candidate_changes(target, vgit):
+    """Candidate files whose bytes differ from the candidate now (stat-only changes are refreshed away first)."""
+    git(target, 'update-index', '-q', '--refresh', git_dir=vgit, work_tree=target, allow_failure=True, timeout=600)
+    changed = git(target, 'diff-files', '--name-only', '-z', git_dir=vgit, work_tree=target, timeout=600)
+    return [n for n in (changed or b'').decode('utf-8', 'replace').split('\0') if n]
 
 
 def _ignored_outputs(target, tree_paths, limit=20000):
     """Files present in the verification checkout that the candidate does not contain (made by setup or by the tests),
-    summarised by top-level entry: the provenance of every non-candidate input a test could have used."""
-    summary = {}; seen = 0
+    summarised by top-level entry - the provenance of every non-candidate input a test could have used - and the entries
+    that SHADOW a delivered file: same directory, same name stem (calc/ next to calc.py, calc.pyc, calc.js next to calc.ts).
+    Returns (summary, shadows)."""
+    summary = {}; shadows = []; seen = 0
+    stems = {}
+    for name in tree_paths:
+        parent, _, leaf = name.rpartition('/')
+        stems.setdefault((parent, Path(leaf).stem.lower()), name)
+    directories = {name.rsplit('/', 1)[0] for name in tree_paths if '/' in name}
+    directories |= {'/'.join(d.split('/')[:i]) for d in list(directories) for i in range(1, d.count('/') + 1)}
     for directory, names, files in os.walk(target):
-        names.sort(); base = Path(directory)
-        for file in sorted(files):
+        base = Path(directory); here = base.relative_to(target).as_posix(); here = '' if here == '.' else here
+        if here == '' and '.git' in files: files.remove('.git')
+        links = [n for n in names if (base / n).is_symlink() or (hasattr(os.path, 'isjunction') and os.path.isjunction(base / n))]
+        names[:] = sorted(n for n in names if n not in links)  # never walk out of the checkout through a link
+        for entry, kind in [(n, 'directory') for n in names] + [(n, 'link') for n in links] + [(n, 'file') for n in files]:
+            rel = (here + '/' + entry).lstrip('/')
+            if rel in tree_paths or (kind == 'directory' and rel in directories): continue
+            match = stems.get((here, Path(entry).stem.lower()))
+            if match and match != rel and len(shadows) < 50: shadows.append({'entry': rel, 'kind': kind, 'shadows': match})
+        for file in sorted(files) + links:
             path = base / file
             name = path.relative_to(target).as_posix()
-            if name in tree_paths or path.is_symlink(): continue
+            if name in tree_paths: continue
             seen += 1
             if seen > limit:
                 summary['...'] = {'files': 'more than %d files not from the candidate; the rest is not listed' % limit}
-                return summary
+                return summary, shadows
             top = name.split('/', 1)[0]
             entry = summary.setdefault(top, {'files': 0, 'bytes': 0}); entry['files'] += 1
-            try: entry['bytes'] += path.stat().st_size
+            try: entry['bytes'] += path.lstat().st_size
             except OSError: pass
-    return summary
+    return summary, shadows
 
 
 def _rerun(runtime, task_id, state, contract, item, guard, base=None):
@@ -985,6 +1092,7 @@ def test_integrity(state, contract, changes=None, tree=None):
         name, status = change['path'], change['status']
         if not is_test(name): continue
         if status == 'D': findings.append('existing test file deleted: ' + name); continue
+        if status == 'T': findings.append('existing test file replaced by another kind of entry (symlink or submodule): ' + name); continue
         diff = (wgit(state, 'diff', '-U0', base, tree, '--', name) or b'').decode('utf-8', errors='replace')
         added = [l[1:] for l in diff.splitlines() if l.startswith('+') and not l.startswith('+++')]
         removed = [l[1:] for l in diff.splitlines() if l.startswith('-') and not l.startswith('---')]
@@ -1058,20 +1166,38 @@ def verify(runtime, task_id, state, contract, args, guard):
     result['candidate'] = candidate; result['changed_files'] = changes
     if changes and not declared and not any(c['kind'] == 'command' for c in contract['checks']):
         result['findings'].append('files changed but no verification command was declared for the core to re-run')
-    checkout = None
+    checkout = vgit = None; flagged = set()
     if candidate and (declared or setup or any(c['kind'] == 'command' for c in contract['checks'])):
-        checkout = checkout_candidate(runtime, task_id, state, contract, candidate)
-        result['verified_in'] = {'kind': 'clean checkout of the candidate tree', 'tree': candidate, 'path': str(checkout),
-                                 'copied_from_workspace': []}
+        checkout, vgit, commit = checkout_candidate(runtime, task_id, state, contract, candidate)
+        contained = boundary(contract) == 'contained'
+        result['verified_in'] = {'kind': 'clean checkout of the candidate tree', 'tree': candidate, 'commit': commit, 'path': str(checkout),
+                                 'copied_from_workspace': [], 'git': 'own repository at the candidate commit',
+                                 'identity': ('the task\'s verification identity: the workspace and its temp refuse it even reading'
+                                              if contained else 'unconfined: arguments into the workspace are refused, reads are not contained')}
+
+    def rerun(item, label):
+        try: value = _rerun(runtime, task_id, state, contract, dict(item), guard, base=checkout)
+        except LedgerError as error:  # refused before it ran (an argument into the workspace, a missing tool): a failed check
+            value = {'argv': item['argv'], 'cwd': item.get('cwd', ''), 'passed': False, 'reason': 'refused: ' + str(error)[:300],
+                     'exit_code': None, 'tests': {}, 'testlike': False, 'log': None, 'stdout_tail': '', 'boundary': None,
+                     'where': 'verification checkout', 'hint': None}
+        if checkout is not None:
+            # After EVERY command: a candidate file changed by one command and restored by a later one is still caught.
+            for name in _candidate_changes(checkout, vgit):
+                if name not in flagged and len(flagged) < 20:
+                    flagged.add(name)
+                    result['findings'].append(f"{label} changed the candidate file {name} in the checkout: " + ' '.join(item['argv'])[:100])
+        return value
+
     for item in setup:
-        value = _rerun(runtime, task_id, state, contract, dict(item), guard, base=checkout)
+        value = rerun(item, 'a setup command')
         value = dict(value, testlike=False, passed=value['exit_code'] == 0, reason=None if value['exit_code'] == 0 else value['reason'])
         result['setup'].append(value)
         if value['exit_code'] != 0: result['findings'].append('setup command failed in the clean checkout: ' + ' '.join(item['argv'])[:120])
     for item in declared:
-        value = _rerun(runtime, task_id, state, contract, item, guard, base=checkout)
+        value = rerun(item, 'a verification command')
         result['commands'].append(value)
-        if not value['passed']: result['findings'].append('core re-run failed: ' + ' '.join(item['argv'])[:120] + ': ' + value['reason'])
+        if not value['passed']: result['findings'].append('core re-run failed: ' + ' '.join(item['argv'])[:120] + ': ' + str(value['reason']))
     repo = project_repo(runtime, contract)
     for check in contract['checks']:
         if check['kind'] == 'ref':
@@ -1081,18 +1207,21 @@ def verify(runtime, task_id, state, contract, args, guard):
             result['checks'].append({'kind': 'ref', 'name': check['name'], 'expected': expected, 'found': found.decode().strip() if found else None, 'passed': ok})
             if not ok: result['findings'].append(f"contract check failed: refs/heads/{check['name']} != {expected[:12]}")
         else:
-            value = _rerun(runtime, task_id, state, contract, check, guard, base=checkout)
+            value = rerun(check, 'a contract command check')
             result['checks'].append(dict(value, kind='command'))
             if not value['passed']: result['findings'].append('contract command check failed: ' + ' '.join(check['argv'])[:120])
     if checkout is not None:
-        # The commands ran in the checkout, so the candidate files there must still be the candidate's; whatever else exists
-        # there (dependencies, generated files, reports) is listed as provenance, never delivered.
-        environment = {'GIT_INDEX_FILE': str(home(runtime, task_id) / 'verify.index')}
-        changed = git(checkout, 'diff-files', '--name-only', '-z', git_dir=gitdir(state), work_tree=checkout, env=environment, timeout=600)
-        for name in [n for n in (changed or b'').decode('utf-8', 'replace').split('\0') if n][:20]:
-            result['findings'].append('a verification command changed the candidate file ' + name + ' in the checkout')
+        # Whatever exists in the checkout besides the candidate (dependencies, generated files, reports) is provenance, never
+        # delivered. A non-candidate DIRECTORY next to a delivered file with the same stem (a package shadowing a module) can
+        # stand in for it, so it is a finding; other same-stem entries are listed for the reviewer.
         paths = set((wgit(state, 'ls-tree', '-r', '--name-only', '-z', candidate) or b'').decode('utf-8', 'replace').split('\0'))
-        result['verified_in']['not_from_candidate'] = _ignored_outputs(checkout, paths)
+        summary, shadows = _ignored_outputs(checkout, paths)
+        result['verified_in']['not_from_candidate'] = summary
+        result['verified_in']['shadowing_candidate_files'] = shadows
+        for item in shadows:
+            if item['kind'] in ('directory', 'link'):
+                result['findings'].append(f"{item['entry']} ({item['kind']}, not from the candidate) shadows the delivered file "
+                                          f"{item['shadows']} in the verification checkout; the tests may have used it instead")
         # Commands of this task may write the workspace as well; finish compares it with the candidate again.
         if snapshot(state, changes=False)['tree'] != candidate: result['findings'].append('the workspace changed during verification')
     result['integrity'] = test_integrity(state, contract, changes, candidate) if candidate else []
@@ -1166,67 +1295,125 @@ def project_manifests(root, limit=12):
             if root.is_dir() else []:
         candidates += [child / n for n in MANIFEST_NAMES]
     workflows = root / '.github' / 'workflows'
-    if workflows.is_dir(): candidates += sorted(workflows.glob('*.y*ml'))[:4]
+    if workflows.is_dir(): candidates += sorted(workflows.glob('*.y*ml'))[:8]
     for path in candidates:
         if len(found) >= limit: break
         if not path.is_file() or path.stat().st_size > 400_000: continue
         name = path.relative_to(root).as_posix()
-        try: text = path.read_text(encoding='utf-8', errors='replace')
+        try: text = path.read_text(encoding='utf-8-sig', errors='replace')
         except OSError: continue
         entry = {'file': name}
         if path.name == 'package.json':
             try: data = json.loads(text)
             except ValueError: data = {}
+            if not isinstance(data, dict): data = {}
             scripts = data.get('scripts') if isinstance(data.get('scripts'), dict) else {}
-            entry['scripts'] = {k: str(v)[:200] for k, v in scripts.items() if re.search(r'test|build|lint|check|spec', k, re.I)}
-            deps = {**(data.get('devDependencies') or {}), **(data.get('dependencies') or {})} if isinstance(data.get('devDependencies') or {}, dict) else {}
+            entry['scripts'] = {str(k)[:60]: str(v)[:200] for k, v in scripts.items() if re.search(r'test|build|lint|check|spec', str(k), re.I)}
+            deps = {}
+            for key in ('devDependencies', 'dependencies'):
+                if isinstance(data.get(key), dict): deps.update(data[key])
             entry['test_runners'] = sorted(d for d in deps if d in TEST_RUNNERS)
-            entry['module_type'] = data.get('type')
+            entry['module_type'] = data.get('type') if isinstance(data.get('type'), str) else None
             entry['how_to_run'] = 'npm test' if 'test' in scripts else None
         elif path.name in ('pyproject.toml', 'setup.cfg', 'tox.ini', 'pytest.ini'):
             entry['sections'] = sorted(set(re.findall(r'^\[([^\]\n]*(?:pytest|tox|testenv|tool\.\w+|scripts)[^\]\n]*)\]', text, re.M)))[:10]
         elif path.name in ('Makefile', 'justfile'):
             entry['targets'] = sorted(set(re.findall(r'^([A-Za-z][\w.-]*)\s*:', text, re.M)) & {'test', 'tests', 'check', 'build', 'lint', 'ci', 'all'})
         elif path.suffix in ('.yml', '.yaml') and '.github' in name:
-            entry['run_steps'] = [m.group(1).strip()[:160] for m in re.finditer(r'^\s*-?\s*run:\s*(.+)$', text, re.M)
-                                  if re.search(r'test|build|check|lint', m.group(1), re.I)][:6]
+            entry['run_steps'] = [step[:160] for step in _run_steps(text) if re.search(r'test|build|check|lint', step, re.I)][:6]
         else:
             entry['kind'] = path.name
         found.append(entry)
+    while len(canonical(found)) > MANIFEST_BUDGET and len(found) > 1:
+        found.pop()  # bounded: the worker prompt is not shrunk by the provider fit, so this survey must stay small
+        found[-1]['more_manifests_not_listed'] = True
     return found
 
 
-def review_facts(runtime, state, contract, verification, diff_budget=6000):
-    """Facts the core established for the delivered candidate, for the completion review: they survive any prompt cap
-    (only their diff excerpts shrink). N4 (13/10/2026): a reviewer under Kiro's prompt cap lost the receipts that showed
-    the existing tests were untouched and rejected a correct, core-verified result."""
+MANIFEST_BUDGET = 6000
+
+
+def _run_steps(text):
+    """`run:` steps of a CI workflow, including block scalars (`run: |` followed by indented lines)."""
+    steps = []; lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r'^(\s*)-?\s*run:\s*(.*)$', line)
+        if not match: continue
+        value = match.group(2).strip()
+        if value[:1] in ('|', '>'):
+            indent = len(match.group(1)); block = []
+            for following in lines[index + 1:]:
+                if following.strip() and len(following) - len(following.lstrip()) <= indent: break
+                if following.strip(): block.append(following.strip())
+            steps += block
+        elif value:
+            steps.append(value)
+    return steps
+
+
+def _bounded(items, chars):
+    """As many items as fit in `chars` characters (as JSON), then a count of the rest: facts stay bounded for any change size."""
+    kept, used = [], 0
+    for item in items:
+        used += len(canonical(item)) + 1
+        if used > chars: return kept + [f'... and {len(items) - len(kept)} more (not listed)']
+        kept.append(item)
+    return kept
+
+
+def review_facts(runtime, state, contract, verification):
+    """Facts the core established for the delivered candidate, for the completion review, computed once per review prompt
+    and bounded in size; the per-file diffs are returned separately (they are the worker's content, so untrusted) at full
+    length and shrunk to the prompt budget by fit_diffs. N4 (13/10/2026): a reviewer under Kiro's prompt cap lost the
+    receipts that showed the existing tests were untouched and rejected a correct, core-verified result."""
     work = state['work']; candidate = verification.get('candidate'); base = work['pins']['head']
     changes = verification.get('changed_files') or []
-    facts = {'base_commit': base, 'candidate_tree': candidate, 'files_changed_vs_pin': changes,
-             'existing_test_files_modified_or_deleted': [c['path'] for c in changes if is_test(c['path']) and c['status'] in ('M', 'D')],
-             'new_test_files': [c['path'] for c in changes if is_test(c['path']) and c['status'] == 'A'],
-             'test_integrity_findings': verification.get('integrity', []), 'undeliverable_changes': verification.get('undeliverable', []),
-             'verified_in': verification.get('verified_in'),
-             'setup': [{k: c.get(k) for k in ('argv', 'exit_code')} for c in verification.get('setup', [])],
-             'verification_commands': [{k: c.get(k) for k in ('argv', 'cwd', 'passed', 'exit_code', 'tests', 'where')} for c in verification.get('commands', [])],
-             'contract_checks': [{k: c.get(k) for k in ('kind', 'name', 'argv', 'passed', 'expected', 'found')} for c in verification.get('checks', [])],
-             'delivered': verification.get('deliveries'), 'preserve_findings': verification.get('preserve', []),
-             'core_findings': verification.get('findings', []), 'diffs': []}
+    verified_in = verification.get('verified_in') or {
+        'kind': 'the workspace (verified by an earlier runtime): NOT a clean checkout of the candidate'}
+    facts = {'base_commit': base, 'candidate_tree': candidate, 'files_changed_count': len(changes),
+             'files_changed_vs_pin': _bounded(changes, 2500),
+             'test_file_rule': 'a path is a test file when it is under tests/, test/, __tests__/, __snapshots__/, spec(s)/, '
+                               'test_driver/, integration_test/ or cypress/, or is named test_*.py|rb, tests.py, conftest.py, '
+                               'setupTests.*, *_test.py|dart|go|rb, *.test.*|*.spec.*|*.cy.* (js/ts), *Test(s).java|kt|cs|swift '
+                               'or *_spec.rb',
+             'existing_test_files_modified_or_deleted': _bounded([c['path'] for c in changes if is_test(c['path']) and c['status'] != 'A'], 1500),
+             'new_test_files': _bounded([c['path'] for c in changes if is_test(c['path']) and c['status'] == 'A'], 1000),
+             'test_integrity_findings': _bounded(verification.get('integrity', []), 1500),
+             'undeliverable_changes': _bounded(verification.get('undeliverable', []), 1500),
+             'verified_in': verified_in,
+             'setup': [{'argv': c.get('argv'), 'exit_code': c.get('exit_code')} for c in verification.get('setup', [])][:6],
+             'verification_commands': [{k: c.get(k) for k in ('argv', 'cwd', 'passed', 'exit_code', 'tests', 'where')} for c in verification.get('commands', [])][:6],
+             'contract_checks': [{k: c.get(k) for k in ('kind', 'name', 'argv', 'passed', 'expected', 'found')} for c in verification.get('checks', [])][:12],
+             'delivered': verification.get('deliveries'), 'preserve_findings': _bounded(verification.get('preserve', []), 1500),
+             'core_findings': _bounded(verification.get('findings', []), 2000)}
+    diffs = []
     if candidate and work.get('workspace') and changes:
         ordered = sorted(changes, key=lambda c: (is_test(c['path']), c['path']))
-        share = diff_budget // max(1, min(40, len(ordered)))
         for change in ordered[:40]:
             text = (wgit(state, 'diff', '--no-color', '-U2', base, candidate, '--', change['path']) or b'').decode('utf-8', 'replace')
             lines = text.splitlines()
-            item = {'path': change['path'], 'status': change['status'], 'blob': _blob(state, candidate, change['path']),
-                    'added': sum(1 for l in lines if l.startswith('+') and not l.startswith('+++')),
-                    'removed': sum(1 for l in lines if l.startswith('-') and not l.startswith('---'))}
-            if share < 120: item['diff'] = None  # too tight for an excerpt: the file list, counts and blob ids remain
-            else: item['diff'] = text if len(text) <= share else text[:share] + '\n[... diff truncated by the prompt budget; the blob id above names the full file ...]'
-            item['truncated'] = len(text) > share
-            facts['diffs'].append(item)
+            diffs.append({'path': change['path'], 'status': change['status'], 'blob': _blob(state, candidate, change['path']),
+                          'added': sum(1 for l in lines if l.startswith('+') and not l.startswith('+++')),
+                          'removed': sum(1 for l in lines if l.startswith('-') and not l.startswith('---')), 'text': text[:20000]})
         if len(ordered) > 40: facts['diffs_omitted'] = len(ordered) - 40
-    return facts
+    return facts, diffs
+
+
+def fit_diffs(diffs, budget):
+    """Per-file diffs within `budget` characters IN TOTAL (entries included): excerpts first shrink, then entries are left
+    out and counted; files_changed_vs_pin in core_facts still names every file."""
+    share = budget // max(1, len(diffs)); fitted = []; used = 0
+    for index, item in enumerate(diffs):
+        text = item['text']; value = {k: v for k, v in item.items() if k != 'text'}
+        if share < 120: value['diff'] = None  # too tight for an excerpt
+        else: value['diff'] = text if len(text) <= share else text[:share] + '\n[... diff truncated by the prompt budget; the blob id names the full file ...]'
+        value['truncated'] = len(text) > share
+        size = len(canonical(value)) + 1
+        if used + size > budget:
+            fitted.append({'omitted_diffs': len(diffs) - index, 'note': 'beyond the prompt budget; files_changed_vs_pin names them'})
+            break
+        fitted.append(value); used += size
+    return fitted
 
 
 def inventory(runtime, task_id):

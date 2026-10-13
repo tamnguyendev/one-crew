@@ -201,6 +201,116 @@ class CleanVerificationTests(Fixture):
 
 
 @unittest.skipIf(PY is None, 'needs a real Python interpreter on PATH')
+class VerificationIdentityTests(Fixture):
+    """Adversarial review of 4a6bdb9 (13/10/2026): verification must see the candidate only, catch tampering by any of its
+    commands, and not raise false alarms; the checkout is a Git work tree like the workspace was."""
+
+    def fixed(self, key):
+        job = self.open(key, edit=True, commands=True)
+        wt.write(job[2], job[3], {'path': 'calc.py', 'expected_sha256': sha(self.ws(job) / 'calc.py'), 'text': FIXED})
+        return job
+
+    def verify(self, job, **args):
+        runtime, task, state, contract = job
+        return wt.verify(runtime, task, state, contract, args, lambda: None)
+
+    def test_verification_cannot_read_or_point_into_the_workspace(self):
+        job = self.fixed('noread')
+        peek = program("import os\nfor p in (os.path.join('..', 'r', 'calc.py'), os.path.join('..', 'tmp')):\n"
+                       "    try:\n        os.listdir(p) if p.endswith('tmp') else open(p).read(); print('READ', p)\n"
+                       "    except OSError as e:\n        print('DENIED', p, e.errno)\n")
+        ran = self.verify(job, verification=[{'argv': [PY, '-m', 'unittest', '-v']}, {'argv': [PY, '-c', peek]},
+                                             {'argv': [PY, str(self.ws(job) / 'test_calc.py')]}])
+        unit, peeked, pointed = ran['commands']
+        self.assertTrue(unit['passed'], unit)
+        self.assertNotIn('READ', peeked['stdout_tail'], 'RED-GX2-F2b: a verification command read the workspace: ' + peeked['stdout_tail'])
+        self.assertEqual(peeked['stdout_tail'].count('DENIED'), 2, peeked['stdout_tail'])
+        self.assertIn('refused', pointed['reason'] or '', 'RED-GX2-F2b: an argument into the workspace was accepted')
+
+    def test_a_touched_but_unchanged_candidate_file_is_not_a_finding(self):
+        job = self.fixed('touch')
+        touch = program("import os, time\ndata = open('calc.py', 'rb').read()\nopen('calc.py', 'wb').write(data)\n"
+                        "os.utime('calc.py', (time.time() + 5, time.time() + 5))\n")
+        ran = self.verify(job, setup=[{'argv': [PY, '-c', touch]}], verification=[{'argv': [PY, '-m', 'unittest', '-v']}])
+        self.assertEqual(ran['findings'], [], 'RED-GX2-F2c: an unchanged candidate file was reported as changed')
+
+    def test_a_candidate_change_restored_by_a_later_command_is_still_found(self):
+        job = self.fixed('restore')
+        swap = program("open('calc.py', 'w').write('def add(a, b):\\n    return 5\\n')\n")
+        back = program('open("calc.py", "w").write(' + repr(FIXED) + ')\n')
+        ran = self.verify(job, setup=[{'argv': [PY, '-c', swap]}],
+                          verification=[{'argv': [PY, '-m', 'unittest', '-v']}, {'argv': [PY, '-c', back]}])
+        self.assertTrue(any('setup command changed the candidate file calc.py' in f for f in ran['findings']),
+                        'RED-GX2-F2d: a candidate file changed for the tests and restored afterwards went unnoticed: ' + str(ran['findings']))
+
+    def test_read_only_leftovers_do_not_break_the_next_verification(self):
+        job = self.fixed('readonly')
+        leave = program("import os, stat\nos.makedirs('out', exist_ok=True)\nopen('out/r.txt', 'w').write('x')\n"
+                        "os.chmod('out/r.txt', stat.S_IREAD)\n")
+        for _ in range(2):
+            ran = self.verify(job, verification=[{'argv': [PY, '-m', 'unittest', '-v']}, {'argv': [PY, '-c', leave]}])
+            self.assertEqual(ran['findings'], [])
+
+    def test_git_works_in_the_checkout_at_the_candidate_commit(self):
+        job = self.fixed('git')
+        ran = self.verify(job, verification=[{'argv': ['git', 'status', '--porcelain']}, {'argv': ['git', 'rev-parse', 'HEAD']}])
+        status, head = ran['commands']
+        self.assertTrue(status['passed'] and head['passed'], ran['commands'])
+        self.assertEqual(status['stdout_tail'].strip(), '', 'the clean checkout is not clean for Git')
+        self.assertEqual(head['stdout_tail'].strip(), ran['verified_in']['commit'])
+        self.assertEqual(wt.wgit(job[2], 'rev-parse', ran['verified_in']['commit'] + '^{tree}').decode().strip(), ran['candidate'])
+
+    def test_a_package_made_by_setup_that_shadows_a_delivered_module_is_a_finding(self):
+        job = self.fixed('shadowpkg')
+        plant = program("import os\nos.makedirs('calc', exist_ok=True)\n"
+                        "open('calc/__init__.py', 'w').write('def add(a, b):\\n    return a + b\\n')\n")
+        ran = self.verify(job, setup=[{'argv': [PY, '-c', plant]}], verification=[{'argv': [PY, '-m', 'unittest', '-v']}])
+        self.assertTrue(any('shadows the delivered file calc.py' in f for f in ran['findings']),
+                        'RED-GX2-F2e: a setup-made package shadowing the delivered module was not reported: ' + str(ran['findings']))
+
+
+@unittest.skipIf(PY is None, 'needs a real Python interpreter on PATH')
+class LegacyHomeTests(Fixture):
+    """A workspace left by 6028118 (Low label, inherited DACL granting Authenticated Users modify) must not stay writable by
+    other tasks until its own task happens to run again."""
+
+    def test_a_legacy_workspace_of_another_task_is_protected_by_the_first_contained_run(self):
+        import subprocess
+        a = self.open('legacy-a', edit=True, commands=True)
+        base = self.ws(a).parent.parent
+        legacy = base / 'legacy0000000000' / 'r'; legacy.mkdir(parents=True)
+        (legacy / 'mod.py').write_text('X = 1\n')
+        for args in (['/grant', '*S-1-5-11:(OI)(CI)M'], ['/setintegritylevel', '(OI)(CI)L']):
+            subprocess.run(['icacls', str(legacy), *args], check=True, capture_output=True)
+        getattr(wt, '_LEGACY_SCANNED', set()).discard(str(base))
+        ran = self.py(a, f"open({str(legacy / 'mod.py')!r}, 'a').write('X = 2\\n')")
+        self.assertNotEqual(ran['exit_code'], 0, 'RED-GX2-legacy: a legacy workspace of another task was writable')
+        self.assertEqual((legacy / 'mod.py').read_text(), 'X = 1\n')
+
+    def test_an_existing_test_turned_into_another_kind_of_entry_is_a_test_change(self):
+        contract = {'authority': {'edit': True, 'edit_tests': False}, 'scope': {'paths': []}}
+        bad = wt.classify(contract, [{'path': 'test_calc.py', 'status': 'T'}])
+        self.assertEqual([b['reason'] for b in bad], ['existing test file changed without edit_tests'])
+
+    def test_common_test_files_outside_the_old_name_rule_are_tests(self):
+        contract = {'authority': {'edit': True, 'edit_tests': False}, 'scope': {'paths': []}}
+        names = ['polls/tests.py', 'conftest.py', 'src/__snapshots__/a.snap', 'e2e/login.cy.ts', 'src/setupTests.ts', 'AppTests.swift',
+                 'test_x.rb']
+        bad = wt.classify(contract, [{'path': n, 'status': 'M'} for n in names] + [{'path': 'calc.py', 'status': 'M'}])
+        self.assertEqual([b['path'] for b in bad], names)
+
+    def test_a_verification_stored_by_an_older_runtime_is_not_reused_for_review(self):
+        runtime, task, state, contract = self.open('upgrade', edit=True, commands=True)
+        wt.write(state, contract, {'path': 'calc.py', 'expected_sha256': sha(Path(state['work']['workspace']['path']) / 'calc.py'), 'text': FIXED})
+        state['work']['verification'] = {'step': state['step'], 'findings': [], 'candidate': None,  # the shape 6028118 stored
+                                         'commands': [{'argv': [PY, '-m', 'unittest', '-v'], 'passed': True}]}
+        profile = runtime.control.status(task)['configuration']['profile']
+        value = {'action': 'finish', 'arguments': json.dumps({'report': 'done', 'verification': [{'argv': [PY, '-m', 'unittest', '-v']}]})}
+        runtime._work_verify(task, runtime.state(task)[0], state, profile, value)
+        self.assertEqual(state['work']['verification']['verified_in']['kind'], 'clean checkout of the candidate tree')
+
+
+@unittest.skipIf(PY is None, 'needs a real Python interpreter on PATH')
 class ReviewFactsTests(Fixture):
     """N4: the completion review always receives the facts the core established, whatever the provider's prompt cap."""
 
@@ -217,10 +327,27 @@ class ReviewFactsTests(Fixture):
         prompt = runtime._work_review_prompt(task, state, profile, {'action': 'finish', 'arguments': '{"report":"done"}'})
         self.assertLessEqual(len(prompt) + len(json.dumps(__import__('onecrew.owned', fromlist=['REVIEW_SCHEMA']).REVIEW_SCHEMA)), 16000)
         self.assertIn('core_facts', prompt, 'RED-GX2-N4: the review prompt carries no core facts')
-        facts = json.loads(prompt[prompt.index('{'):])['core_facts']
+        payload = json.loads(prompt[prompt.index('{'):]); facts = payload['core_facts']
         self.assertEqual(facts['existing_test_files_modified_or_deleted'], [])
         self.assertEqual(len(facts['files_changed_vs_pin']), 13)
-        self.assertTrue(all(d['blob'] for d in facts['diffs']))
+        # The diffs are the worker's content: outside core_facts, labelled untrusted, with blob ids that survive the cap.
+        entries = [d for d in payload['candidate_diffs_untrusted'] if 'path' in d]
+        omitted = sum(d.get('omitted_diffs', 0) for d in payload['candidate_diffs_untrusted'])
+        self.assertTrue(entries and all(d['blob'] for d in entries))
+        self.assertEqual(len(entries) + omitted, 13)
+
+    def test_a_very_large_change_still_fits_the_kiro_review(self):
+        runtime, task, state, contract = self.open('facts-large', edit=True, commands=True)
+        for index in range(300):  # a refactor across a monorepo: long paths, many files
+            wt.write(state, contract, {'path': f'packages/feature_area_{index % 12:02}/src/components/module_with_a_long_name_{index:03}.py',
+                                       'expected_sha256': None, 'text': ('# filler\n' * 50) + f'VALUE = {index}\n'})
+        state['work']['verification'] = dict(wt.verify(runtime, task, state, contract, {'verification': [{'argv': [PY, '-m', 'unittest', '-v']}]},
+                                                       lambda: None), step=state['step'])
+        profile = dict(runtime.control.status(task)['configuration']['profile'], provider='kiro')
+        prompt = runtime._work_review_prompt(task, state, profile, {'action': 'finish', 'arguments': '{"report":"done"}'})
+        facts = json.loads(prompt[prompt.index('{'):])['core_facts']
+        self.assertEqual(facts.get('files_changed_count'), 300)
+        self.assertEqual(facts['existing_test_files_modified_or_deleted'], [])
 
 
 class ManifestTests(Fixture):
@@ -248,6 +375,28 @@ class ManifestTests(Fixture):
         text = runtime._work_prompt(task, state, profile, runtime.control.status(task), prompt, schema, [])
         self.assertIn('project_manifests_declared_untrusted', text, 'RED-GX2-N2: the worker never sees the declared test command')
         self.assertIn('npm test', text)
+
+    def test_unusual_manifests_neither_crash_nor_overflow(self):
+        from onecrew.ledger import canonical
+        (self.root / 'package.json').write_text('[1, 2]')
+        web = self.root / 'web'; web.mkdir()
+        (web / 'package.json').write_bytes('\ufeff{"scripts": {"test": "vitest"}, "devDependencies": []}'.encode('utf-8'))
+        flows = self.root / '.github' / 'workflows'; flows.mkdir(parents=True)
+        (flows / 'ci.yml').write_text('jobs:\n  t:\n    steps:\n      - run: |\n          npm ci\n          npm run test:unit\n      - name: x\n')
+        for i in range(30):
+            (flows / f'w{i:02}.yml').write_text('jobs:\n  t:\n    steps:\n' + ''.join(f'      - run: make test-{j} ' + 'x' * 150 + '\n' for j in range(6)))
+        found = wt.project_manifests(self.root)
+        by = {m['file']: m for m in found}
+        self.assertEqual(by['package.json']['scripts'], {})
+        self.assertEqual(by['web/package.json']['scripts'], {'test': 'vitest'})
+        self.assertIn('npm run test:unit', by['.github/workflows/ci.yml']['run_steps'])
+        self.assertLessEqual(len(canonical(found)), wt.MANIFEST_BUDGET)
+
+    def test_a_relative_directory_is_resolved_against_the_command_directory(self):
+        (self.root / 'test').mkdir()
+        hint = wt.diagnose({'stderr': "Error: Cannot find module './test'\n", 'stdout': '', 'stopped': None, 'exit_code': 1,
+                            'tests': {}, 'boundary': 'contained'}, None, self.root)
+        self.assertIn('directory was given', hint)
 
     def test_a_directory_given_where_a_module_was_expected_is_named(self):
         directory = self.root / 'test'; directory.mkdir()

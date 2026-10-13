@@ -228,14 +228,21 @@ def own(path):
         k.LocalFree(pointer)
 
 
-def protect(path, task):
+def verify_key(task):
+    """Identity of the core-run verification commands of `task` (setup, verification, contract command checks): its own
+    task SID, which the task's workspace and temp refuse entirely, so verification cannot read what the worker left there."""
+    return task + '.verify'
+
+
+def protect(path, task, deny=()):
     """Make a directory tree belong to one task: protected DACL (ALLOW S_task, DENY every contained process the write
     rights, ALLOW user/SYSTEM/Administrators, OWNER RIGHTS read-control only) and an inherited Low label, applied to
     existing children as well. The ACE order is deliberate and kept by SetNamedSecurityInfo: the owning task's ALLOW is met
     before the DENY. The OWNER RIGHTS entry removes the owner's implicit WRITE_DAC: the owner is the user, whose SID is in
     every contained token, so without it any task could rewrite another task's DACL and then write there."""
     path = Path(path); path.mkdir(parents=True, exist_ok=True)
-    _apply(path, f'D:P(A;OICI;FA;;;{task_sid(task)})(D;OICI;{WRITE_RIGHTS};;;{CONTAINED})(A;OICI;FA;;;{user_sid()})'
+    denied = ''.join(f'(D;OICI;FA;;;{task_sid(key)})' for key in deny)  # deny: identities refused even reading
+    _apply(path, f'D:P{denied}(A;OICI;FA;;;{task_sid(task)})(D;OICI;{WRITE_RIGHTS};;;{CONTAINED})(A;OICI;FA;;;{user_sid()})'
                  '(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;RC;;;OW)S:(ML;OICI;NW;;;LW)', True)
 
 

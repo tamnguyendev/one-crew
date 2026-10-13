@@ -182,7 +182,11 @@ class ContainTokenTests(unittest.TestCase):
         import ctypes
         from ctypes import wintypes as w
         from onecrew import contain
-        k, a = contain._apis(); token = contain._token(k, a, 'owner-probe')
+        import inspect
+        k, a = contain._apis()
+        # The eval harness runs this test against the revision its case is pinned to (bbef812), before tokens were per task.
+        per_task = 'task' in inspect.signature(contain._token).parameters
+        token = contain._token(k, a, 'owner-probe') if per_task else contain._token(k, a)
         try:
             a.GetTokenInformation.argtypes = [w.HANDLE, ctypes.c_int, ctypes.c_void_p, w.DWORD, ctypes.POINTER(w.DWORD)]
             a.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(w.LPWSTR)]
