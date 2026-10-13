@@ -183,17 +183,75 @@ class DurableAdmissionTests(HostFixture):
         self.assertEqual(len(notes), 2); self.assertTrue(all('not launched' in n for n in notes))
 
     def test_a_host_stopped_between_launch_record_and_identity_does_not_launch_again_within_grace(self):
+        class HostKilled(BaseException):
+            """The host process dies inside launch: no handler of the host runs (models TerminateProcess)."""
         def crashing(request):
-            raise RuntimeError('host stopped after recording the launch')
+            raise HostKilled()
         self.request()
         with self.stopped():
-            with self.assertRaises(RuntimeError): host.scan(self.ledger.state_root, now=at(0), launch=crashing, boot=1)
+            with self.assertRaises(HostKilled): host.scan(self.ledger.state_root, now=at(0), launch=crashing, boot=1)
             self.request()
             host.scan(self.ledger.state_root, now=at(30), launch=self.launch, boot=1)
             self.assertEqual(self.launched, [], 'a launch recorded as in progress was repeated within the grace period')
             self.request()
             host.scan(self.ledger.state_root, now=at(30 + host.LAUNCH_GRACE + 1), launch=self.launch, boot=1)
         self.assertEqual(self.launched, [self.task])  # nothing owns the task after the grace: launched exactly once
+
+    def test_a_launch_that_fails_is_recorded_failed_and_does_not_hold_off_the_next_request(self):
+        def failing(request):
+            raise OSError('python not found')
+        self.request()
+        with self.stopped():
+            actions = host.scan(self.ledger.state_root, now=at(0), launch=failing, boot=1)
+            self.assertEqual(actions[0]['action'], 'failed')
+            record = json.loads(host._launch_record(self.ledger.state_root, self.task).read_text())
+            self.assertEqual(record['state'], 'failed')
+            self.request()
+            host.scan(self.ledger.state_root, now=at(10), launch=self.launch, boot=1)
+        self.assertEqual(self.launched, [self.task], 'a failed launch held off the next request as if it were still starting')
+
+    def test_an_admission_in_progress_elsewhere_is_not_doubled(self):
+        import msvcrt
+        self.request()
+        path = host._launch_record(self.ledger.state_root, self.task).with_suffix('.lock'); path.parent.mkdir(parents=True, exist_ok=True)
+        with self.stopped(), path.open('a+b') as other, patch.object(host.time, 'sleep'),                 patch.object(host.time, 'monotonic', side_effect=[0.0] + [100.0] * 50):
+            msvcrt.locking(other.fileno(), msvcrt.LK_NBLCK, 1)  # another host is deciding for this task right now
+            try: host.scan(self.ledger.state_root, now=at(0), launch=self.launch, boot=1)
+            finally: other.seek(0); msvcrt.locking(other.fileno(), msvcrt.LK_UNLCK, 1)
+        self.assertEqual(self.launched, [])
+        self.assertIn('another admission', self.events('host.admitted')[-1]['note'])
+
+    def test_supervision_follows_the_identity_of_the_runner_that_owns_the_task(self):
+        from onecrew.supervisor import identity
+        self.request()
+        with self.stopped(), patch('onecrew.host._runner_lock_held', return_value=True):
+            host.scan(self.ledger.state_root, now=at(0), launch=self.launch, boot=1)  # owner without identity: not launched
+        entry = json.loads((self.ledger.state_root / 'host' / 'supervised.json').read_text())['tasks'][self.task]
+        self.assertIsNone(entry['runner'])
+        mine = identity(os.getpid())
+        with patch('onecrew.runner.status', return_value={'status': 'alive', 'identity': mine}):
+            host.scan(self.ledger.state_root, now=at(5), launch=self.launch, boot=1)
+        entry = json.loads((self.ledger.state_root / 'host' / 'supervised.json').read_text())['tasks'][self.task]
+        self.assertEqual(entry['runner'], mine, 'the reboot rule needs the identity of the runner that owns the task')
+
+    def test_a_probe_of_the_runner_lock_does_not_make_a_starting_runner_give_up(self):
+        import threading
+        from onecrew.workflow import task_lock
+        path = self.ledger.state_root / 'locks'; path.mkdir(parents=True, exist_ok=True)
+        held = threading.Event(); release = threading.Event()
+        def prober():
+            import msvcrt
+            from onecrew.ledger import key_field
+            with (path / (key_field(self.task + '.runner') + '.lock')).open('a+b') as stream:
+                stream.seek(0); msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1); held.set(); release.wait(0.3)
+                stream.seek(0); msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        (path / (__import__('onecrew.ledger', fromlist=['key_field']).key_field(self.task + '.runner') + '.lock')).write_bytes(b'0')
+        thread = threading.Thread(target=prober); thread.start(); held.wait(5)
+        try:
+            with task_lock(self.ledger, self.task + '.runner'):
+                pass  # the probe held it for 0.3 s; the runner waits it out instead of reporting another owner
+        finally:
+            release.set(); thread.join()
 
     def test_a_held_runner_lock_is_an_owner(self):
         from onecrew.workflow import task_lock

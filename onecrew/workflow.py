@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import time
 
 from .control import Control, CapacityWait, migrate
 from .ledger import LedgerError, canonical, content_hash, exact_fields, key_field, text_field
@@ -29,10 +30,15 @@ def task_lock(ledger, task_id):
             stream.write(b'0')
             stream.flush()
         stream.seek(0)
-        try:
-            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError as error:
-            raise LedgerError('A controller already owns this task.') from error
+        # A real owner holds the lock for its whole life; a host probing whether it is held (host._runner_lock_held) holds
+        # it for microseconds, so a short retry tells the two apart instead of losing the task to the probe.
+        for attempt in range(20):
+            try:
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError as error:
+                if attempt == 19: raise LedgerError('A controller already owns this task.') from error
+                time.sleep(0.05)
         try:
             yield
         finally:

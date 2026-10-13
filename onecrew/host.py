@@ -10,6 +10,7 @@ runner's existing checkpoint hook. It never calls a model, answers a question, e
 Installing the Task Scheduler entry changes the user's machine configuration, so it is an explicit user decision
 (`host install`); without a host, `job start` says that the run is bound to the entry instead of pretending."""
 import argparse
+import contextlib
 import datetime as dt
 import json
 import os
@@ -222,13 +223,37 @@ def _owner(ledger, task, entry, now):
 
 
 def _start(ledger, request, launch, now, cause):
-    """Durable launch: recorded BEFORE the process starts, its identity recorded right after."""
+    """Durable launch: recorded BEFORE the process starts, its identity recorded right after. A launch that fails is
+    recorded as failed, so it does not hold off the next request for LAUNCH_GRACE as if it were still starting."""
     path = _launch_record(ledger.state_root, request['task']); path.parent.mkdir(parents=True, exist_ok=True)
     base = {'task': request['task'], 'request': request['id'], 'cause': cause, 'at': now.isoformat()}
     _write(path, dict(base, state='launching'))
-    started = launch(request)
+    try:
+        started = launch(request)
+    except Exception as error:  # a handled failure; a host killed here leaves 'launching', which LAUNCH_GRACE covers
+        _write(path, dict(base, state='failed', error=str(error)[:300]))
+        raise
     _write(path, dict(base, state='launched', identity=started['identity'], logs=started.get('logs')))
     return started
+
+
+@contextlib.contextmanager
+def _admission(state_root, task, wait=15.0):
+    """One admission decision per task at a time, across processes (two hosts serving one state root, or a host and a
+    retry): the owner check and the launch record happen under this lock. LedgerError when it cannot be had in time."""
+    import msvcrt
+    path = _launch_record(state_root, task).with_suffix('.lock'); path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('a+b') as stream:
+        stream.seek(0)
+        deadline = time.monotonic() + wait
+        while True:
+            try: msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1); break
+            except OSError:
+                if time.monotonic() >= deadline: raise LedgerError('another admission of this task is in progress')
+                time.sleep(0.05)
+        try: yield
+        finally:
+            stream.seek(0); msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def _admit(request, launch, now, entry=None):
@@ -237,11 +262,15 @@ def _admit(request, launch, now, entry=None):
     if view['phase'] is None or view['phase'] in TERMINAL or view['cancel']:
         payload = {'request': request['id'], 'reason': 'task is terminal, cancelled or not enabled', 'phase': view['phase']}
         _event(ledger, request['task'], 'host.refused', payload); return dict(payload, action='refused')
-    owner = _owner(ledger, request['task'], entry, now)
-    if owner:
-        payload = {'request': request['id'], 'runner': owner['identity'], 'note': 'not launched: ' + owner['kind'], 'launched': False}
-    else:
-        payload = dict({'request': request['id'], 'launched': True}, **_start(ledger, request, launch, now, 'dispatch'))
+    try:
+        with _admission(ledger.state_root, request['task']):
+            owner = _owner(ledger, request['task'], entry, now)
+            if owner:
+                payload = {'request': request['id'], 'runner': owner['identity'], 'note': 'not launched: ' + owner['kind'], 'launched': False}
+            else:
+                payload = dict({'request': request['id'], 'launched': True}, **_start(ledger, request, launch, now, 'dispatch'))
+    except LedgerError as error:  # another process is deciding for this task right now; that decision stands
+        payload = {'request': request['id'], 'runner': None, 'note': 'not launched: ' + str(error), 'launched': False}
     _event(ledger, request['task'], 'host.admitted', payload)
     return dict(payload, action='admitted')
 
@@ -256,6 +285,8 @@ def _supervise(entry, now, launch, boot):
     # or a held runner lock all count as an owner: a second runner would only lose the task lock; it is not a restart.
     owner = _owner(ledger, task, entry, now)
     current = {'status': 'alive', 'identity': owner['identity'], 'owner': owner['kind']} if owner else {'status': 'stopped'}
+    if owner and owner['identity'] and owner['identity'] != entry.get('runner'):
+        entry['runner'] = owner['identity']  # the reboot rule below needs the identity of the runner that actually owns the task
     if view['phase'] in TERMINAL or view['phase'] is None:
         return False, {'task': task, 'action': 'released', 'phase': view['phase']}
     if view['cancel']:
@@ -287,7 +318,12 @@ def _supervise(entry, now, launch, boot):
     since = entry.setdefault('dead_since', now.isoformat())
     if (now - _when(restarts[-1] if restarts else since)).total_seconds() < BACKOFF[len(restarts)]:
         return True, {'task': task, 'action': 'backoff'}
-    started = _start(ledger, dict(entry, id='restart-' + uuid.uuid4().hex[:8]), launch, now, 'restart')
+    try:
+        with _admission(ledger.state_root, task):
+            if _owner(ledger, task, entry, now): return True, None  # someone else started it meanwhile
+            started = _start(ledger, dict(entry, id='restart-' + uuid.uuid4().hex[:8]), launch, now, 'restart')
+    except LedgerError:
+        return True, None
     restarts.append(now.isoformat())
     entry.update(restarts=restarts, runner=started['identity']); entry.pop('dead_since', None)
     _event(ledger, task, 'host.restarted', {'runner': started['identity'], 'logs': started['logs'], 'restart_count': len(restarts),
@@ -318,7 +354,8 @@ def scan(state_root, now=None, launch=None, boot=None):
         except (ValueError, OSError, KeyError, sqlite3.Error) as error:
             actions.append({'request': path.stem, 'action': 'failed', 'error': str(error)[:300]})
         done = root / 'host' / 'done'; done.mkdir(parents=True, exist_ok=True)
-        os.replace(path, done / path.name)
+        try: os.replace(path, done / path.name)
+        except FileNotFoundError: pass  # another host serving this root took the request; its decision stands
     for task, entry in list(supervised['tasks'].items()):
         try:
             keep, action = _supervise(entry, now, launch, boot if boot is not None else _boot())
