@@ -188,6 +188,23 @@ def snapshot(state, changes=True):
     return {'tree': tree, 'changes': tree_changes(state, base, tree) if changes else None}
 
 
+MUTATING = ('write', 'edit', 'run', 'process', 'restore', 'workspace_commit', 'apply')
+
+
+def progress_state(state):
+    """What the worker's reads and commands can observe of the workspace, as one durable key: the candidate tree (every
+    non-ignored file) and the NAMES of ignored outputs, collapsed to their top-most ignored directory (a build that creates
+    generated/ counts). Sizes and times are left out on purpose: caches and logs a command rewrites on every run
+    (.pytest_cache, timestamped logs) must not turn a real loop into progress. A no-op write or a command that changed
+    nothing leaves the key unchanged. Codex review 07d7ad6 (R1): work mode keyed progress by state['snapshot'], always None."""
+    tree = snapshot(state, changes=False)['tree']
+    environment = {'GIT_INDEX_FILE': str(_home(state) / 'core.index')}
+    raw = wgit(state, 'ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z', env=environment,
+               timeout=600) or b''
+    ignored = sorted(p.decode('utf-8', 'replace') for p in raw.split(bytes(1)) if p)[:5000]
+    return {'tree': tree, 'ignored': len(ignored), 'key': content_hash({'tree': tree, 'ignored': ignored})}
+
+
 def tree_changes(state, old, new):
     raw = wgit(state, 'diff-tree', '-r', '--name-status', '-z', '--no-renames', old, new) or b''
     parts = [p.decode('utf-8', errors='replace') for p in raw.split(b'\0') if p]

@@ -326,13 +326,16 @@ class Owned(Workflow):
 
     def _tool(self,task_id,state,action,args,profile):
         if profile['mode']=='work' and action in ('list','search','read','git_status','git_log','git_show'):
-            # An identical read-only request that already failed is not executed again; the worker gets the earlier receipt.
+            # An identical read-only request that already failed is not executed again, unless something that can change files
+            # succeeded since (R2, Codex review 07d7ad6: a write or build that created the file was ignored).
+            from .work_tools import MUTATING
             for ref in reversed(state['receipts'][-12:]):
+                if ref['action'] in MUTATING and ref.get('successful'): break
                 if ref['action']!=action or ref.get('successful') is not False: continue
                 earlier=json.loads(self.store.read_blob(ref['blob']))
                 if earlier.get('arguments')==args or earlier.get('request')==args:
-                    raise LedgerError(f"Identical to receipt {ref['index']}, which already failed: {str(earlier['result'].get('error'))[:300]} "
-                                      'Choose a different action.')
+                    raise LedgerError(f"Identical to receipt {ref['index']}, which already failed, and nothing that changes files "
+                                      f"succeeded since: {str(earlier['result'].get('error'))[:300]} Act on that result instead of repeating it.")
         if profile['mode']=='work' and action not in ('git_status','git_log','git_show','receipt','ask'):
             if action not in work_actions(profile['contract']):raise LedgerError('Action not authorized by the work contract: '+action)
             from .sandbox_gate import task_guard

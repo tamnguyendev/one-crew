@@ -27,6 +27,14 @@ def classify_text(text):
 
 def observe(state, action, args, result):
     """Counters survive resume/model changes. Cosmetic plans/arguments aren't progress."""
+    work = state.get('work') or {}
+    if work.get('workspace'):
+        # Work mode: refresh the workspace state key after anything that can change files (and when missing, e.g. after a
+        # runtime upgrade). It lives in the checkpoint, so it survives restart and resume (R1, Codex review 07d7ad6).
+        from .work_tools import MUTATING, progress_state
+        if (action in MUTATING and 'error' not in result) or not work.get('progress_state'):
+            try: work['progress_state'] = progress_state(state)
+            except (ValueError, OSError): work.pop('progress_state', None)
     p = state.setdefault('progress', {'policy': dict(POLICY), 'observations': 0,
         'writes': 0, 'failed_tests': 0, 'review_rejections': 0, 'results': {}})
     limits = p['policy']
@@ -53,7 +61,10 @@ def observe(state, action, args, result):
         if not result.get('matches'):
             intent = {'directory':args.get('directory',''), 'query':args.get('query','').casefold(),
                       'cursor':args.get('cursor',0)}
-    key = content_hash({'action': action, 'snapshot': state.get('snapshot'), 'result': evidence,
+    # Work mode: the workspace state key (work_tools.progress_state), refreshed after every action that can change files;
+    # the same result after a real change is new evidence, the same result with nothing changed is a repeat.
+    observed = ((state.get('work') or {}).get('progress_state') or {}).get('key')
+    key = content_hash({'action': action, 'snapshot': observed or state.get('snapshot'), 'result': evidence,
                         'search_intent':intent})
     p['results'][key] = p['results'].get(key, 0) + 1
     reason = None

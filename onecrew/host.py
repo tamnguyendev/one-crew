@@ -30,6 +30,8 @@ HEARTBEAT = 30          # seconds after which a host lease without a heartbeat i
 BACKOFF = (10, 60, 300)  # seconds before restart 1, 2, 3 within the rolling hour (same bound as the keeper)
 WINDOW = 3600
 CANCEL_GRACE = 120      # a cancelled task whose runner does not stop by itself is stopped after this many seconds
+ADMIT_BACKOFF = (2, 5, 10, 20, 40)  # seconds between admission attempts after a transient ledger error (R3)
+NORMAL_PRIORITY = 0x20  # NORMAL_PRIORITY_CLASS: runners do not inherit the Task Scheduler's below-normal class (R4)
 LAUNCH_GRACE = 120      # a launch recorded as in progress (host stopped between record and runner identity) blocks relaunch this long
 ACTIVE = ('running', 'waiting_operation')
 TERMINAL = ('completed', 'cancelled', 'failed')
@@ -119,6 +121,10 @@ def dispatch(ledger, task_id, initiator=None, wait=15, base=None):
         if time.monotonic() >= deadline: break
         time.sleep(.2)
     scanned = ((lease(base) or {}).get('roots_seen') or {}).get(str(Path(ledger.state_root).resolve()))
+    retrying = _read(_retry_path(ledger.state_root, request['id']))
+    if retrying:  # the host saw the request and is retrying its admission after a transient error (R3)
+        return {'status': 'queued', 'request': request['id'], 'via': 'host', 'note': 'The host is retrying the admission '
+                f"(attempt {retrying.get('count')}: {retrying.get('last_error')}); the entry may close."}
     if wait and scanned and scanned > request['at'] and queued.exists():
         # The host scanned this root after the request was written and still did not see it: never leave a request that
         # might be admitted much later, unseen by anyone.
@@ -145,8 +151,11 @@ def _launch(request, initiator='host'):
     env.pop('PYTHONPATH', None)  # the runner imports exactly the dispatched runtime
     with (directory / 'stdout.txt').open('wb') as out, (directory / 'stderr.txt').open('wb') as err:
         process = subprocess.Popen(argv, cwd=runtime, stdin=subprocess.DEVNULL, stdout=out, stderr=err, close_fds=True, env=env,
-                                   creationflags=0x200 | 0x08000000)  # new process group, no console window
-    return {'identity': identity(process.pid), 'logs': str(directory), 'runtime': str(runtime)}
+                                   creationflags=0x200 | 0x08000000 | NORMAL_PRIORITY)  # new group, no window, Normal priority
+    try: started = identity(process.pid)
+    except (OSError, ValueError):  # the process exists: never report this launch as failed
+        started = {'pid': process.pid, 'unverified': True}
+    return {'identity': started, 'logs': str(directory), 'runtime': str(runtime)}
 
 
 def _boot():
@@ -216,7 +225,8 @@ def _owner(ledger, task, entry, now):
     record = _read(_launch_record(ledger.state_root, task)) or {}
     for identity in ((entry or {}).get('runner'), record.get('identity')):
         if identity and probe(identity) == 'alive': return {'kind': 'runner launched by the host, not registered yet', 'identity': identity}
-    if record.get('state') == 'launching' and (now - _when(record['at'])).total_seconds() < LAUNCH_GRACE:
+    if (record.get('state') == 'launching' or (record.get('identity') or {}).get('unverified')) and \
+            (now - _when(record['at'])).total_seconds() < LAUNCH_GRACE:
         return {'kind': 'a launch is in progress (recorded, runner identity not yet known)', 'identity': None}
     if _runner_lock_held(ledger, task): return {'kind': 'the runner task lock is held', 'identity': None}
     return None
@@ -233,12 +243,31 @@ def _start(ledger, request, launch, now, cause):
     except Exception as error:  # a handled failure; a host killed here leaves 'launching', which LAUNCH_GRACE covers
         _write(path, dict(base, state='failed', error=str(error)[:300]))
         raise
-    _write(path, dict(base, state='launched', identity=started['identity'], logs=started.get('logs')))
+    try:
+        _write(path, dict(base, state='launched', identity=started['identity'], logs=started.get('logs')))
+    except OSError as error:  # the runner runs; 'launching' stays recorded, so no second launch within LAUNCH_GRACE
+        raise _Unrecorded('runner started, launch record not updated: ' + str(error)[:200]) from error
     return started
 
 
 class _Busy(LedgerError):
     """Another process is deciding admission for this task right now."""
+
+
+class _LaunchFailed(LedgerError):
+    """The runner could not be started (before any process existed); the task is blocked with the reason."""
+
+
+class _Unrecorded(Exception):
+    """A runner was started but its outcome could not be recorded yet: never relaunch, record it on a later attempt."""
+
+
+def _transient(error):
+    """A ledger or file the host could not use for a moment: the request stays queued and is tried again (R3)."""
+    if isinstance(error, _Unrecorded): return True
+    if isinstance(error, sqlite3.OperationalError):
+        return any(word in str(error).lower() for word in ('locked', 'busy'))
+    return isinstance(error, OSError) and getattr(error, 'winerror', None) in (32, 33)  # sharing / lock violation
 
 
 @contextlib.contextmanager
@@ -272,22 +301,66 @@ def _admit(request, launch, now, entry=None):
             if owner:
                 payload = {'request': request['id'], 'runner': owner['identity'], 'note': 'not launched: ' + owner['kind'], 'launched': False}
             else:
-                payload = dict({'request': request['id'], 'launched': True}, **_start(ledger, request, launch, now, 'dispatch'))
+                try:
+                    started = _start(ledger, request, launch, now, 'dispatch')
+                except _Unrecorded:
+                    raise
+                except Exception as error:
+                    _launch_failed(ledger, request, now, error)
+                    raise _LaunchFailed(str(error)[:300]) from error
+                payload = dict({'request': request['id'], 'launched': True}, **started)
     except _Busy as error:  # another process is deciding for this task right now; that decision stands (a failed launch is not this)
         payload = {'request': request['id'], 'runner': None, 'note': 'not launched: ' + str(error), 'launched': False}
-    except Exception as error:
-        # The entry was told the host will admit the task and may already be closed: a launch the host cannot make must not
-        # vanish. The task is blocked with the reason, which reaches the user once (third review, 13/10/2026).
-        reason = str(error)[:300]
-        _event(ledger, request['task'], 'host.launch_failed', {'request': request['id'], 'error': reason, 'at': now.isoformat()})
-        try:
-            _block(ledger, request['task'], 'The OneCrew host could not start this task: ' + reason +
-                   '. Fix the cause, then resume it (job resume).', 'host_launch')
-        except LedgerError:
-            pass  # the task is busy elsewhere; the event above still records why nothing was launched
-        raise
+    # A transient ledger error here (after a launch) keeps the request queued; the next attempt finds the runner as owner.
     _event(ledger, request['task'], 'host.admitted', payload)
     return dict(payload, action='admitted')
+
+
+def _launch_failed(ledger, request, now, error):
+    """The entry was told the host will admit the task and may already be closed: a launch the host cannot make must not
+    vanish. The task is blocked with the reason, which reaches the user once. If the ledger is busy right now, that error is
+    raised instead, so the request stays queued and the launch is decided again (the record says no process exists)."""
+    reason = str(error)[:300]
+    _event(ledger, request['task'], 'host.launch_failed', {'request': request['id'], 'error': reason, 'at': now.isoformat()})
+    try:
+        _block(ledger, request['task'], 'The OneCrew host could not start this task: ' + reason +
+               '. Fix the cause, then resume it (job resume).', 'host_launch')
+    except LedgerError:
+        pass  # the task is busy elsewhere; the event above still records why nothing was launched
+
+
+def _retry_path(root, request_id):
+    return Path(root) / 'host' / 'retry' / (request_id + '.json')
+
+
+def _defer(root, path, request, error, now):
+    """Keep a request whose admission met a transient error; after the last attempt, end it with a reason. Returns
+    (keep_in_queue, action)."""
+    retry_path = _retry_path(root, path.stem); retry = _read(retry_path) or {}
+    count = retry.get('count', 0) + 1; first = retry.get('first_at', now.isoformat())
+    reason = type(error).__name__ + ': ' + str(error)[:200]
+    if count <= len(ADMIT_BACKOFF):
+        retry_path.parent.mkdir(parents=True, exist_ok=True)
+        _write(retry_path, {'request': request['id'], 'task': request['task'], 'count': count, 'first_at': first, 'last_error': reason,
+                            'next_at': (now + dt.timedelta(seconds=ADMIT_BACKOFF[count - 1])).isoformat()})
+        return True, {'request': request['id'], 'task': request['task'], 'action': 'retrying', 'attempt': count, 'error': reason}
+    record = _read(_launch_record(root, request['task'])) or {}
+    if record.get('state') in ('launching', 'launched') and record.get('at', '') >= first:
+        # A runner was started for this request: never end it as failed. Its outcome is recorded once the ledger is free.
+        _write(retry_path, dict(retry, count=count, last_error=reason, next_at=(now + dt.timedelta(seconds=60)).isoformat()))
+        return True, {'request': request['id'], 'task': request['task'], 'action': 'recording_outcome', 'error': reason}
+    message = (f'The OneCrew host could not admit this task: {reason} through {count} attempts since {first}. Nothing was '
+               'started. Resume it (job resume) once the cause is gone.')
+    try:
+        ledger = Ledger(request['project'], request['state_root'])
+        _event(ledger, request['task'], 'host.admission_failed', {'request': request['id'], 'attempts': count, 'first_at': first,
+                                                                  'error': reason, 'at': now.isoformat()})
+        _block(ledger, request['task'], message, 'host_admission')
+    except Exception as again:
+        if not _transient(again): raise
+        _write(retry_path, dict(retry, count=count, last_error=reason, next_at=(now + dt.timedelta(seconds=60)).isoformat()))
+        return True, {'request': request['id'], 'task': request['task'], 'action': 'retrying', 'attempt': count, 'error': reason}
+    return False, {'request': request['id'], 'task': request['task'], 'action': 'failed', 'blocked': True, 'error': reason}
 
 
 def _supervise(entry, now, launch, boot):
@@ -340,7 +413,13 @@ def _supervise(entry, now, launch, boot):
             started = _start(ledger, dict(entry, id='restart-' + uuid.uuid4().hex[:8]), launch, now, 'restart')
     except _Busy:
         return True, None
+    except _Unrecorded:
+        # The runner started; only its launch record is behind. It registers itself, and the record keeps a second launch out.
+        restarts.append(now.isoformat()); entry['restarts'] = restarts; entry.pop('dead_since', None)
+        return True, {'task': task, 'action': 'restarted', 'note': 'launch record not updated yet'}
     except Exception as error:
+        if _transient(error):  # the ledger was busy while deciding: nothing was launched, decide again on the next scan
+            return True, {'task': task, 'action': 'retrying', 'error': str(error)[:300]}
         # A restart that could not launch counts as an attempt: backoff and the exhaustion rule apply to it as well.
         restarts.append(now.isoformat()); entry['restarts'] = restarts; entry['last_launch_error'] = str(error)[:300]
         _event(ledger, task, 'host.restart_failed', {'error': str(error)[:300], 'restart_count': len(restarts), 'at': now.isoformat()})
@@ -360,6 +439,8 @@ def scan(state_root, now=None, launch=None, boot=None):
     supervised = _read(supervised_path, {'tasks': {}})
     for path in sorted(queue_dir(root).glob('HD-*.json')):
         request = _read(path)
+        retry = _read(_retry_path(root, path.stem)) or {}
+        if retry.get('next_at') and now < _when(retry['next_at']): continue  # backing off after a transient error
         try:
             if not request or Path(request['state_root']).resolve() != root.resolve(): raise LedgerError('Malformed or foreign request.')
             result = _admit(request, launch, now, supervised['tasks'].get(request['task']))
@@ -372,11 +453,19 @@ def scan(state_root, now=None, launch=None, boot=None):
                 # Persist after each request, so a crash later in this scan cannot lose who was launched.
                 _write(supervised_path, supervised)
             actions.append(dict(result, task=request.get('task') if request else None))
-        except (ValueError, OSError, KeyError, sqlite3.Error) as error:
-            actions.append({'request': path.stem, 'action': 'failed', 'error': str(error)[:300]})
+        except Exception as error:
+            if request and not isinstance(error, _LaunchFailed) and _transient(error):
+                keep, action = _defer(root, path, request, error, now)
+                actions.append(action)
+                if keep: continue
+            elif isinstance(error, (ValueError, OSError, KeyError, sqlite3.Error)):
+                actions.append({'request': path.stem, 'action': 'failed', 'error': str(error)[:300]})
+            else:
+                raise
         done = root / 'host' / 'done'; done.mkdir(parents=True, exist_ok=True)
         try: os.replace(path, done / path.name)
         except FileNotFoundError: pass  # another host serving this root took the request; its decision stands
+        _retry_path(root, path.stem).unlink(missing_ok=True)
     for task, entry in list(supervised['tasks'].items()):
         try:
             keep, action = _supervise(entry, now, launch, boot if boot is not None else _boot())
@@ -469,6 +558,7 @@ def task_xml(runtime, user=None):
     <AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure>
+    <Priority>5</Priority>
   </Settings>
   <Actions Context="Author"><Exec><Command>{escape(str(_pythonw()))}</Command><Arguments>-X utf8 -m onecrew.host run</Arguments><WorkingDirectory>{escape(str(runtime))}</WorkingDirectory></Exec></Actions>
 </Task>

@@ -204,7 +204,7 @@ def start(ledger, task_id, initiator=None):
         # Break away from the launcher's Job. If forbidden, fail rather than claiming durability.
         process = subprocess.Popen(argv, cwd=Path(__file__).resolve().parents[1], stdin=subprocess.DEVNULL,
                                    stdout=out, stderr=err, close_fds=True, env=env,
-                                   creationflags=0x8 | 0x200 | 0x01000000)
+                                   creationflags=0x8 | 0x200 | 0x01000000 | 0x20)  # ... and NORMAL_PRIORITY_CLASS (R4)
     deadline = time.monotonic() + 5
     result = None
     while time.monotonic() < deadline:
