@@ -147,6 +147,52 @@ Bàn giao đầy đủ: `D:\TamNT\Workspace\9.VMAgent\HANDOVER-CODEX-REVIEW-ONEC
   `workspace_commit` (tác dụng thực hiện đúng một lần), `apply` (xem bàn giao). Host khởi động lại trong 1–3 giây.
 - Nghiệm thu live và giới hạn còn lại: xem bàn giao (bảng từng lượt, credit Kiro, câu hỏi pending không trả lời thay).
 
+## Đợt 2 theo review Codex trên 6028118 (13/10/2026) — thiết kế, quyết định, tiêu chí
+
+Tái hiện trên 6028118 (`D:\OneCrewEvals\gxp2-20261013\repro`): (1) lệnh contained của task A ghi được vào workspace task B, receipt A
+`changed_paths=[]`; (2) package `calc/` bị .gitignore che `calc.py` sai → findings=[] nhưng nhánh giao chứa `a*b`; (3) hai yêu cầu
++ một retry trước khi runner đăng ký → launch 3 lần; (4) 76 regression với token có owner mặc định = Administrators (dạng token của
+tiến trình Codex Desktop và host Task Scheduler trên máy này) → đúng 9 failures + 6 errors Codex báo.
+
+1. **Ranh giới ghi theo task.** Token contained có restricting SIDs = các nhóm đang bật của chính token + user + `S_task` (SID tài
+   nguyên `S-1-9-1-1-…` suy ra từ state root + task) + `C` (`S-1-9-1-0`, mọi tiến trình contained). Thư mục của task (workspace,
+   tmp, cache, thư mục kiểm chứng) có DACL được bảo vệ, theo thứ tự: ALLOW `S_task` toàn quyền, DENY `C` mọi quyền ghi, ALLOW
+   user/SYSTEM/Administrators, nhãn Low. Task X ghi được thư mục của X (ACE đầu khớp), không ghi được của Y (gặp DENY `C`), core ghi
+   được cả hai (core không mang `C`). Quyền không còn phụ thuộc owner mặc định hay ACL kế thừa của thư mục cha, nên cùng hoạt động khi
+   owner mặc định là user (entry Claude) hay Administrators (Codex, Task Scheduler) — đó là nguyên nhân gốc của (4). Token được
+   kiểm lại sau khi tạo: thiếu `S_task`/`C` (ví dụ token cha đã bị hạn chế) thì từ chối chạy, không chạy với ranh giới yếu hơn.
+   Đọc vẫn không bị giới hạn; thư mục Low dùng chung của Windows (LocalLow) vẫn là kênh chung giữa các task (ghi rõ giới hạn).
+2. **Kiểm chứng từ candidate sạch.** Core dựng thư mục kiểm chứng mới từ đúng cây candidate (checkout-index từ index riêng), không
+   chép gì từ workspace bẩn. Dependency/file sinh ra mà test cần phải được tạo lại bằng lệnh `setup` worker khai báo; core chạy
+   chúng trong thư mục kiểm chứng và ghi nguồn gốc (lệnh, exit, các đường dẫn ignored được tạo). Bàn giao ghi rõ đã kiểm chứng ở
+   đâu và bằng những đầu vào nào.
+3. **Admission bền.** Mỗi task có bản ghi launch trong state root, ghi TRƯỚC khi khởi chạy và cập nhật danh tính runner ngay sau;
+   admission từ chối khi: runner đã đăng ký và sống, runner do host khởi chạy còn sống dù chưa đăng ký, khoá runner của task đang bị
+   giữ, hoặc một launch đang dở trong thời gian chờ. Nhiều yêu cầu cùng task trong một lượt quét chỉ khởi chạy một lần.
+4. **Gói bằng chứng review (N4).** Review nhận `core_facts` bắt buộc do core lập từ candidate đã giao: danh sách file đổi so với
+   ghim, diff từng file (có giới hạn, ghi rõ khi bị cắt kèm băm), test có sẵn không đổi, test mới, kết quả kiểm chứng (ở đâu, lệnh,
+   số test, setup), output đã giao, preserve. Phần receipt thô bị co trước; `core_facts` không bao giờ bị bỏ. Reviewer vẫn quyết.
+5. **Khảo sát manifest (N2).** Core đọc các manifest/CI phổ biến (package.json scripts, pyproject/setup.cfg/tox, Makefile,
+   pubspec, go.mod, Cargo.toml, Maven/Gradle, .github/workflows) và đưa vào prompt như dữ kiện "dự án khai báo" (không phải quyền).
+   Gợi ý lỗi phân biệt "đường dẫn không tồn tại" với "thư mục được truyền ở chỗ cần file/module" và chỉ về lệnh dự án khai báo.
+
+Tiêu chí: các probe trên đỏ trước sửa và xanh sau sửa; positive control (việc hợp lệ, toolchain chạy được) xanh; 76+ regression xanh
+cả với token owner=user và owner=Administrators; eval trước–sau cùng harness; nghiệm thu live trên revision đóng băng với task Node
+mới, task cần gói review lớn, dispatch trùng, đóng entry, crash ở ranh giới tác dụng/receipt; ghi mọi hỗ trợ của entry.
+
+**Sau ba vòng review đối kháng (56 phát hiện được giữ, 10 P1, đều đã sửa kèm test đỏ ở revision trước) — runtime cuối 07d7ad6:**
+- Kiểm chứng: checkout sạch là một Git work tree riêng ở commit của cây candidate; temp/cache kiểm chứng tạo mới mỗi lần; nội dung
+  file candidate được so sau MỖI lệnh (kể cả đổi cùng kích thước rồi trả lại thời gian); entry không thuộc candidate che khuất một
+  module được giao (thư mục/link cùng tên, module biên dịch, pyc không được Python tự kiểm) là finding; đối số đường dẫn ra ngoài
+  checkout (kể cả `..`, dạng không ổ đĩa, dạng tương đối theo ổ) bị từ chối; lệnh bị từ chối là check thất bại, không làm hỏng lượt.
+- **Quyết định người dùng 13/10/2026:** không dùng danh tính kiểm chứng riêng. Lý do đo được: Python 3.13 cần quyền sửa ACL trên
+  thư mục của chính task để tạo thư mục riêng (tempfile, pip, venv), cũng là quyền đủ để gỡ mọi chặn đọc đặt theo file. Kiểm chứng
+  chạy dưới danh tính task trong checkout sạch; giới hạn: mã kiểm chứng tự mở workspace bằng đường dẫn trong mã thì đọc được.
+- Host: admission nguyên tử giữa các tiến trình, launch không thực hiện được thì task bị block kèm lý do (entry có thể đã đóng),
+  restart không launch được vẫn được đếm, chờ khoá runner là tuỳ chọn để lệnh khác không bị chậm.
+- Review: `core_facts` có giới hạn kích thước (300 file vẫn vừa trần Kiro), diff tách riêng và gắn nhãn untrusted, bản kiểm chứng
+  của runtime/quy tắc khác không được dùng lại, prompt review cũ bị bỏ khi kiểm chứng lại; luật nhận diện file test mở rộng.
+
 ## Kết quả nghiệm thu (13/10/2026) và giới hạn
 
 Bàn giao đầy đủ: `D:\TamNT\Workspace\9.VMAgent\HANDOVER-CODEX-REVIEW-ONECREW-GENERIC-EXECUTION-2026-10-13.txt`. Bàn giao này chưa
