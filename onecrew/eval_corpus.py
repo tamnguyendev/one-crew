@@ -300,6 +300,27 @@ CASES = [
         'tests.test_codex_followup_b19b35e.ValidInstanceTests.test_only_exact_read_shapes_skip_the_gate',
         'tests.test_codex_followup_b19b35e.ValidInstanceTests.test_a_physical_device_is_not_gated_by_boot_id'],
         'Capability control for emulator-instance-binding; physical devices keep their path.'),
+    # Generic execution foundation (13/10/2026): work contracts instead of per-task modes/recipes.
+    case('work-contract', 'A work contract runs with isolated edits/commands, exact-name branches at a pinned commit and independent core verification', '4e00059', [
+        'tests.test_work_contract.ContractTests.test_contract_rejects_push_unknown_fields_bad_names_and_missing_authorization',
+        'tests.test_work_contract.ContractTests.test_work_job_is_admitted_without_a_separate_solution_and_keeps_the_pinned_provider',
+        'tests.test_work_contract.BranchTests.test_exact_name_branch_at_pinned_head_preserves_checkout_source_stash_and_index',
+        'tests.test_work_contract.BranchTests.test_existing_ref_is_reported_never_overwritten_and_unauthorized_names_or_commits_refused',
+        'tests.test_work_contract.WorkspaceTests.test_edit_run_verify_handover_in_workspace_without_touching_the_project',
+        'tests.test_work_contract.WorkspaceTests.test_independent_verification_rejects_false_claims_without_a_review_call',
+        'tests.test_work_contract.WorkspaceTests.test_deleted_modified_or_skipped_tests_and_zero_tests_are_findings',
+        'tests.test_work_contract.WorkspaceTests.test_project_changed_during_the_job_is_not_reported_as_preserved',
+        'tests.test_work_contract.WorkspaceTests.test_authority_is_enforced_by_the_core',
+        'tests.test_work_contract.WorkspaceTests.test_background_process_is_contained_and_stopped',
+        'tests.test_work_contract.WorkspaceTests.test_apply_and_export_need_authority_and_never_overwrite_user_edits'],
+        'Scripted worker, real Git and the real Python on PATH; no model call. Live behaviour is shown only by acceptance tasks.'),
+    case('work-durability', 'Work jobs continue after a coordinator restart without repeating effects; hints, Kiro version and prompt size are bounded', '4e00059', [
+        'tests.test_work_contract.BranchTests.test_lost_ack_is_reconciled_without_a_second_update_ref',
+        'tests.test_work_contract.DurabilityTests.test_coordinator_restart_continues_without_repeating_effects_or_calls',
+        'tests.test_work_contract.DurabilityTests.test_verified_commands_of_a_completed_job_are_offered_to_the_next_job_as_hints',
+        'tests.test_work_contract.DurabilityTests.test_unverified_kiro_version_stays_unavailable',
+        'tests.test_work_contract.PromptTests.test_kiro_prompt_keeps_the_contract_within_the_verified_cap'],
+        'Coordinator restart is modelled by a new runtime object over the same ledger; Kiro version via a patched CLI probe.'),
     case('device-exact-mode', 'Real device: exact selectors, masked mismatch evidence, no calibration, recovery only when granted', '742a139', [
         'tests.test_device_exact_mode.ExactSelectorTests.test_a_relaxed_match_is_a_mismatch_with_masked_evidence_and_no_calibration',
         'tests.test_device_exact_mode.ExactSelectorTests.test_empty_content_description_is_a_valid_pinned_value',
