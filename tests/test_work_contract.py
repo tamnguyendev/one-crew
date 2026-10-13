@@ -355,6 +355,24 @@ class TestCountTests(unittest.TestCase):
         self.assertEqual(test_counts('Ran 4 tests in 0.01s\n\nOK (skipped=1)\n')['skipped'], 1)
 
 
+@unittest.skipIf(python() is None, 'needs a real Python interpreter on PATH')
+class ExportAdvanceTests(WorkFixture):
+    def test_a_branch_this_job_created_can_carry_the_work_but_a_user_branch_never_moves(self):
+        runtime, task, _ = self.job(self.contract(edit=True, commands=True, local_branches=['feature/x', 'user/kept']), [])
+        state = runtime.state(task)[1]
+        contract = runtime.control.status(task)['configuration']['profile']['contract']
+        from onecrew import work_tools as wt
+        self.git('branch', 'user/kept', self.head.strip())  # the user's own branch, made outside OneCrew
+        wt.create_branch(runtime, task, state, contract, {'name': 'feature/x'})  # H1-r1: delivery branch created first
+        (Path(state['work']['workspace']['path']) / 'calc.py').write_text('def add(a, b):\n    return a + b\n')
+        sha = wt.workspace_commit(state, contract, {'message': 'Fix add'})['commit']
+        receipt = wt.export_branch(runtime, task, state, contract, {'name': 'feature/x'})
+        self.assertEqual((receipt['status'], self.git('rev-parse', 'refs/heads/feature/x').strip()), ('verified', sha),
+                         'RED-GX-H1: the work could not land on the branch this job created')
+        self.assertEqual(wt.export_branch(runtime, task, state, contract, {'name': 'user/kept'})['status'], 'exists')
+        self.assertEqual(self.git('rev-parse', 'refs/heads/user/kept').strip(), self.head.strip())
+
+
 class PromptTests(WorkFixture):
     def test_finish_offers_verification_commands_only_with_the_commands_authority(self):
         from onecrew.owned import contract

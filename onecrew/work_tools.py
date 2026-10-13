@@ -344,9 +344,11 @@ def diagnose(result):
 
 # --- Git through the core -------------------------------------------------------------------------------------------
 
-def _branch_action(runtime, task_id, repo, ref, commit, key, kind, observe_extra=None, fetch_from=None):
+def _branch_action(runtime, task_id, repo, ref, commit, key, kind, observe_extra=None, fetch_from=None, advance_from=None):
+    """advance_from: only for a ref THIS job created with a verified receipt; compare-and-swap from exactly that commit."""
     control = runtime.control
     payload = {'kind': kind, 'repository': str(repo), 'ref': ref, 'commit': commit, 'executor': 'onecrew-core'}
+    if advance_from: payload['advance_from'] = advance_from
     with runtime.ledger.transaction() as conn:
         old = conn.execute('SELECT * FROM actions WHERE task_id=? AND request_key=?', (task_id, key)).fetchone()
 
@@ -359,7 +361,7 @@ def _branch_action(runtime, task_id, repo, ref, commit, key, kind, observe_extra
         if json.loads(action['payload']) != payload: raise LedgerError('Branch intent differs from its existing action.')
     else:
         existing = git(repo, 'show-ref', '--verify', '--hash', ref, allow_failure=True)
-        if existing:
+        if existing and not (advance_from and existing.decode().strip() == advance_from):
             return {'status': 'exists', 'ref': ref, 'commit': existing.decode().strip(), 'requested_commit': commit,
                     'effect': 'none: an existing ref is never overwritten'}
         action = control.propose_action(task_id, key, payload)
@@ -377,7 +379,8 @@ def _branch_action(runtime, task_id, repo, ref, commit, key, kind, observe_extra
             # Objects only: a workspace-local ref names the commit; the user's refs/checkout are untouched until update-ref.
             git(fetch_from, 'update-ref', 'refs/onecrew/export', value['commit'])
             git(repo, 'fetch', '--no-tags', '--no-write-fetch-head', '--quiet', str(fetch_from), 'refs/onecrew/export', timeout=600)
-        git(repo, 'update-ref', '-m', 'onecrew ' + task_id, value['ref'], value['commit'], '0' * len(value['commit']))
+        git(repo, 'update-ref', '-m', 'onecrew ' + task_id, value['ref'], value['commit'],
+            value.get('advance_from') or '0' * len(value['commit']))
         return observe(value)
     return control.execute_action(action['id'], effect)
 
@@ -423,7 +426,14 @@ def export_branch(runtime, task_id, state, contract, args):
     if not sha or git(root, 'rev-parse', 'HEAD').decode().strip() != sha: raise LedgerError('Commit the workspace first (workspace_commit).')
     if git(root, 'status', '--porcelain'): raise LedgerError('Workspace has uncommitted changes after its commit.')
     repo = project_repo(runtime, contract)
-    receipt = _branch_action(runtime, task_id, repo, 'refs/heads/' + name, sha, 'work:export:' + content_hash(name)[:24], 'exported_branch', fetch_from=root)
+    # A branch this job itself created (verified create_branch receipt, still at that commit) may be advanced to the work;
+    # held-out run H1-r1 (13/10/2026) created its delivery branch first and could not land the work on it.
+    own = [b['receipt']['result']['commit'] for b in state['work'].get('branches', []) if b['name'] == name
+           and b['receipt'].get('status') == 'verified' and b['receipt'].get('result', {}).get('kind') == 'local_branch']
+    current = git(repo, 'show-ref', '--verify', '--hash', 'refs/heads/' + name, allow_failure=True)
+    advance = own[-1] if own and current and current.decode().strip() == own[-1] else None
+    receipt = _branch_action(runtime, task_id, repo, 'refs/heads/' + name, sha, 'work:export:' + content_hash([name, advance])[:24],
+                             'exported_branch', fetch_from=root, advance_from=advance)
     state['work'].setdefault('branches', []).append({'name': name, 'ref': 'refs/heads/' + name, 'receipt': receipt})
     if receipt.get('status') not in ('verified', 'exists'):
         from .owned_git import EffectUnknown

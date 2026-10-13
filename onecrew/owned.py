@@ -47,9 +47,9 @@ edit: {path,expected_sha256,old:"exact text occurring once",new:"replacement"} w
 run: {argv:["tool","arg"],cwd:"",timeout_seconds:300,background:false} host command inside the isolated workspace (Windows). A nonzero exit is a result to diagnose; hint classifies product/environment.
 process: {id,op:"status"|"output"|"stop"} a background process started by run.
 git_status: {directory:""} | git_log: {directory:"",cursor:0,query:""} | git_show: {directory:"",commit:"full SHA",path:null,cursor:0} -- the user's repository, read-only.
-create_branch: {name,commit:null} LOCAL branch in the user's repository at the contract commit (default: the pinned HEAD). Never overwrites: an existing ref is reported with its SHA.
+create_branch: {name,commit:null} LOCAL branch in the user's repository at the contract commit (default: the pinned HEAD), WITHOUT any workspace change. Never overwrites: an existing ref is reported with its SHA.
 workspace_commit: {message} commit workspace changes inside the workspace only.
-export_branch: {name} make an authorized LOCAL branch in the user's repository point to the workspace commit.
+export_branch: {name} deliver the workspace commit on an authorized LOCAL branch of the user's repository (new, or one this job created itself and has not moved). Use this, not create_branch, to deliver changes.
 apply: {} copy workspace changes into the user's checkout (only untouched files; a rollback copy is kept).
 receipt: {index:0} an older tool result.
 ask: {question,reason,options:[{id:"a",label:"..."}],recommendation:"a"} ONLY for a business/architecture decision outside the contract, missing authority, or missing information that decides the result.
