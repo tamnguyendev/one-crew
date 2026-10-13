@@ -237,6 +237,10 @@ def _start(ledger, request, launch, now, cause):
     return started
 
 
+class _Busy(LedgerError):
+    """Another process is deciding admission for this task right now."""
+
+
 @contextlib.contextmanager
 def _admission(state_root, task, wait=15.0):
     """One admission decision per task at a time, across processes (two hosts serving one state root, or a host and a
@@ -249,7 +253,7 @@ def _admission(state_root, task, wait=15.0):
         while True:
             try: msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1); break
             except OSError:
-                if time.monotonic() >= deadline: raise LedgerError('another admission of this task is in progress')
+                if time.monotonic() >= deadline: raise _Busy('another admission of this task is in progress')
                 time.sleep(0.05)
         try: yield
         finally:
@@ -269,7 +273,7 @@ def _admit(request, launch, now, entry=None):
                 payload = {'request': request['id'], 'runner': owner['identity'], 'note': 'not launched: ' + owner['kind'], 'launched': False}
             else:
                 payload = dict({'request': request['id'], 'launched': True}, **_start(ledger, request, launch, now, 'dispatch'))
-    except LedgerError as error:  # another process is deciding for this task right now; that decision stands
+    except _Busy as error:  # another process is deciding for this task right now; that decision stands (a failed launch is not this)
         payload = {'request': request['id'], 'runner': None, 'note': 'not launched: ' + str(error), 'launched': False}
     _event(ledger, request['task'], 'host.admitted', payload)
     return dict(payload, action='admitted')
@@ -322,8 +326,13 @@ def _supervise(entry, now, launch, boot):
         with _admission(ledger.state_root, task):
             if _owner(ledger, task, entry, now): return True, None  # someone else started it meanwhile
             started = _start(ledger, dict(entry, id='restart-' + uuid.uuid4().hex[:8]), launch, now, 'restart')
-    except LedgerError:
+    except _Busy:
         return True, None
+    except Exception as error:
+        # A restart that could not launch counts as an attempt: backoff and the exhaustion rule apply to it as well.
+        restarts.append(now.isoformat()); entry['restarts'] = restarts
+        _event(ledger, task, 'host.restart_failed', {'error': str(error)[:300], 'restart_count': len(restarts), 'at': now.isoformat()})
+        return True, {'task': task, 'action': 'restart_failed', 'error': str(error)[:300]}
     restarts.append(now.isoformat())
     entry.update(restarts=restarts, runner=started['identity']); entry.pop('dead_since', None)
     _event(ledger, task, 'host.restarted', {'runner': started['identity'], 'logs': started['logs'], 'restart_count': len(restarts),

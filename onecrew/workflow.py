@@ -19,7 +19,7 @@ from .amendment import profile_for, spec_for, plan_revision
 
 
 @contextmanager
-def task_lock(ledger, task_id):
+def task_lock(ledger, task_id, wait=0.0):
     # Stable file: never unlink a lock while another process could have it open.
     import msvcrt
     path = ledger.state_root / 'locks' / (key_field(task_id) + '.lock')
@@ -30,14 +30,16 @@ def task_lock(ledger, task_id):
             stream.write(b'0')
             stream.flush()
         stream.seek(0)
-        # A real owner holds the lock for its whole life; a host probing whether it is held (host._runner_lock_held) holds
-        # it for microseconds, so a short retry tells the two apart instead of losing the task to the probe.
-        for attempt in range(20):
+        # wait: a real owner holds the lock for its whole life; a host probing whether it is held (host._runner_lock_held)
+        # holds it for microseconds, so the runner waits briefly instead of losing the task to the probe. Callers with
+        # their own retry loop keep failing fast (wait=0).
+        deadline = time.monotonic() + wait
+        while True:
             try:
                 msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
                 break
             except OSError as error:
-                if attempt == 19: raise LedgerError('A controller already owns this task.') from error
+                if time.monotonic() >= deadline: raise LedgerError('A controller already owns this task.') from error
                 time.sleep(0.05)
         try:
             yield

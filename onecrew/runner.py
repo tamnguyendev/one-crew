@@ -74,7 +74,7 @@ def _watch(ledger, task_id, every=60):
 
 
 def loop(ledger, task_id, interval=.5):
-    with task_lock(ledger, task_id + '.runner'):
+    with task_lock(ledger, task_id + '.runner', wait=1.0):
         if task_id.startswith('CONSULT-'):
             from .consultations import run
             # Same detached controller; one bounded review. Capacity waits are code, not model calls.

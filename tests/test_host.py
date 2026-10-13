@@ -248,10 +248,42 @@ class DurableAdmissionTests(HostFixture):
         (path / (__import__('onecrew.ledger', fromlist=['key_field']).key_field(self.task + '.runner') + '.lock')).write_bytes(b'0')
         thread = threading.Thread(target=prober); thread.start(); held.wait(5)
         try:
-            with task_lock(self.ledger, self.task + '.runner'):
+            with task_lock(self.ledger, self.task + '.runner', wait=1.0):  # as runner.loop takes it
                 pass  # the probe held it for 0.3 s; the runner waits it out instead of reporting another owner
         finally:
             release.set(); thread.join()
+
+    def test_a_launch_refused_by_the_core_is_a_failed_request_not_an_admission(self):
+        def refused(request):
+            raise LedgerError('Dispatch runtime is not a OneCrew checkout')
+        self.request()
+        with self.stopped():
+            actions = host.scan(self.ledger.state_root, now=at(0), launch=refused, boot=1)
+        self.assertEqual(actions[0]['action'], 'failed', 'RED-GX2-F3b: a refused launch was reported as admitted')
+        self.assertEqual(self.events('host.admitted'), [])
+
+    def test_a_restart_that_cannot_launch_counts_and_ends_in_a_block(self):
+        self.request()
+        with self.stopped():
+            host.scan(self.ledger.state_root, now=at(0), launch=self.launch, boot=1)
+        def failing(request):
+            raise OSError('python not found')
+        with self.stopped():
+            for second in range(0, 4000, 30):
+                host.scan(self.ledger.state_root, now=at(second), launch=failing, boot=1)
+        failed = self.events('host.restart_failed')
+        self.assertTrue(failed, 'a restart that could not launch left no trace')
+        self.assertLessEqual(len(failed), len(host.BACKOFF), 'RED-GX2-F3c: failed restarts were retried without bound: ' + str(len(failed)))
+        self.assertTrue(self.events('host.restart_exhausted'))
+
+    def test_callers_with_their_own_retry_still_fail_fast(self):
+        import time as clock
+        from onecrew.workflow import task_lock
+        with task_lock(self.ledger, 'ui.window'):
+            started = clock.monotonic()
+            with self.assertRaises(LedgerError):
+                with task_lock(self.ledger, 'ui.window'): pass
+            self.assertLess(clock.monotonic() - started, 0.5)
 
     def test_a_held_runner_lock_is_an_owner(self):
         from onecrew.workflow import task_lock
