@@ -64,13 +64,17 @@ class TaskBoundaryTests(Fixture):
         a, b = self.open('dac-a', edit=True, commands=True), self.open('dac-b', edit=True, commands=True)
         targets = {'b-workspace': self.ws(b), 'b-tmp': self.ws(b).parent / 'tmp', 'b-git': self.ws(b).parent / 'git',
                    'b-file': self.ws(b) / 'calc.py', 'project': self.root, 'own-workspace': self.ws(a)}
+        # The target list goes through a file (reads are not contained): inlined, a long temp path pushes the program over
+        # the 2000-character argument limit (eval harness run of 13/10/2026).
+        listing = self.root.parent / 'acl-targets.json'
+        listing.write_text(json.dumps({k: str(v) for k, v in targets.items()}))
         ran = self.py(a, 'import ctypes, json\nfrom ctypes import wintypes as w\n'
                       "a = ctypes.WinDLL('advapi32', use_last_error=True)\n"
                       'a.SetNamedSecurityInfoW.argtypes = [w.LPCWSTR, ctypes.c_int, w.DWORD] + [ctypes.c_void_p] * 4\n'
                       'a.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [w.LPCWSTR, w.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]\n'
                       'a.GetSecurityDescriptorDacl.argtypes = [ctypes.c_void_p, ctypes.POINTER(w.BOOL), ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(w.BOOL)]\n'
                       'out = {}\n'
-                      f'for name, path in {dict((k, str(v)) for k, v in targets.items())!r}.items():\n'
+                      f'for name, path in json.load(open({str(listing)!r})).items():\n'
                       '    d = ctypes.c_void_p(); a.ConvertStringSecurityDescriptorToSecurityDescriptorW("D:(A;OICI;FA;;;WD)", 1, ctypes.byref(d), None)\n'
                       '    p, dacl, x = w.BOOL(), ctypes.c_void_p(), w.BOOL(); a.GetSecurityDescriptorDacl(d, ctypes.byref(p), ctypes.byref(dacl), ctypes.byref(x))\n'
                       '    out[name] = a.SetNamedSecurityInfoW(path, 1, 0x4, None, None, dacl, None)\n'
