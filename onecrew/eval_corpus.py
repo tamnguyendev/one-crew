@@ -329,6 +329,49 @@ CASES = [
         'tests.test_work_contract.DurabilityTests.test_kiro_reply_with_prose_around_the_json_is_parsed_and_a_reply_without_json_is_refused',
         'tests.test_work_contract.TestCountTests.test_node_spec_and_tap_reporters_are_counted'],
         'From acceptance runs A2-r1 (finish), A5-r1 (Kiro JSON) and held-out preparation (Node 24); failures retained in the handover.'),
+    # Codex review of the generic execution foundation (13/10/2026, runtime 8603e74): GX-P1-01..03 and GX-GAP-04.
+    # Adversarial probes are red by behaviour on 8603e74; positive controls must stay green on both sides.
+    case('work-scope-gate', 'A command, a verification or a formatter cannot deliver changes that write/edit may not make', 'b01a5b8', [
+        'tests.test_work_boundary.ScopeGateTests.test_a_command_cannot_deliver_what_write_may_not',
+        'tests.test_work_boundary.ScopeGateTests.test_commands_without_edit_authority_deliver_nothing_until_restored',
+        'tests.test_work_boundary.ScopeGateTests.test_a_verification_command_cannot_change_the_candidate',
+        'tests.test_work_boundary.ScopeGateTests.test_restore_brings_back_the_pinned_version'],
+        'Codex probe GX-P1-01 and variants; scripted worker, real Git and Python. restore is a new action (absent on 8603e74).'),
+    case('work-write-boundary', 'Contained commands cannot write the project, the OneCrew state or elsewhere, nor redirect core Git', 'b01a5b8', [
+        'tests.test_work_boundary.ScopeGateTests.test_contained_commands_cannot_write_the_project_the_state_or_elsewhere',
+        'tests.test_work_boundary.ScopeGateTests.test_a_command_cannot_redirect_core_git_into_the_user_repository',
+        'tests.test_work_boundary.ScopeGateTests.test_unconfined_commands_are_a_user_grant'],
+        'Real Windows Low-integrity boundary on this host. A write boundary only: reads and network are not contained.'),
+    case('work-intent-reconcile', 'A restart between a side effect and its receipt reconciles and never re-runs a command or verification', 'b01a5b8', [
+        'tests.test_work_boundary.IntentTests.test_a_command_that_ran_before_the_crash_is_not_run_again',
+        'tests.test_work_boundary.IntentTests.test_a_command_interrupted_before_it_started_is_reported_not_replayed',
+        'tests.test_work_boundary.IntentTests.test_a_write_applied_before_the_crash_is_reconciled_not_failed',
+        'tests.test_work_boundary.IntentTests.test_an_interrupted_verification_is_a_finding_and_is_not_run_again'],
+        'Codex probe GX-P1-02; the crash is a BaseException in-process. Real process kills are shown by the live acceptance run.'),
+    case('work-output-binding', 'Verification evidence is bound to the candidate and the real delivered refs/files until completion', 'b01a5b8', [
+        'tests.test_work_boundary.OutputBindingTests.test_a_branch_moved_after_export_is_a_finding',
+        'tests.test_work_boundary.OutputBindingTests.test_a_stale_apply_is_a_finding_until_the_candidate_is_applied_again',
+        'tests.test_work_boundary.OutputBindingTests.test_a_project_change_outside_the_applied_files_is_still_a_finding',
+        'tests.test_work_boundary.OutputBindingTests.test_an_output_changed_during_the_review_is_not_completed'],
+        'Codex probe GX-P1-03 variants A/B and the long-review window; the reviewer is a fixture.'),
+    case('work-positive-controls', 'Valid work still completes: in-scope changes through commands, ignored build output, a full verified delivery', 'b01a5b8', [
+        'tests.test_work_boundary.ScopeGateTests.test_positive_control_in_scope_work_through_a_command_is_delivered',
+        'tests.test_work_boundary.ScopeGateTests.test_positive_control_output_ignored_by_the_repository_is_not_delivered',
+        'tests.test_work_boundary.OutputBindingTests.test_positive_control_valid_work_completes_with_a_patch_of_the_verified_candidate'],
+        'Expected green on both sides: the fixes must not block valid work.'),
+    case('host-dispatch', 'Dispatched jobs run under a host outside the entry: admitted once, bounded restarts, user waits, reboot and cancel', '808610b', [
+        'tests.test_host.DispatchTests.test_dispatch_needs_a_live_host_that_serves_this_state_root',
+        'tests.test_host.DispatchTests.test_runner_start_uses_the_host_only_for_a_served_state_root',
+        'tests.test_host.AdmissionTests.test_admits_once_and_never_starts_a_second_runner',
+        'tests.test_host.AdmissionTests.test_a_cancelled_or_finished_task_is_refused',
+        'tests.test_host.SupervisionTests.test_a_dead_runner_is_restarted_with_backoff_then_blocked_once',
+        'tests.test_host.SupervisionTests.test_a_task_waiting_for_the_user_is_released_not_restarted',
+        'tests.test_host.SupervisionTests.test_a_runner_lost_with_a_reboot_needs_an_explicit_resume',
+        'tests.test_host.SupervisionTests.test_cancel_is_enforced_when_the_runner_does_not_stop_by_itself',
+        'tests.test_host.LeaseTests.test_lease_is_trusted_only_with_a_fresh_heartbeat_from_a_live_process',
+        'tests.test_host.LeaseTests.test_serve_once_writes_a_lease_and_scans_registered_roots',
+        'tests.test_host.LeaseTests.test_task_xml_is_a_per_user_least_privilege_logon_task_without_time_limit'],
+        'Launch is a fixture (capability absent on 8603e74). The Task Scheduler host and a closed entry are live acceptance evidence.'),
     case('device-exact-mode', 'Real device: exact selectors, masked mismatch evidence, no calibration, recovery only when granted', '742a139', [
         'tests.test_device_exact_mode.ExactSelectorTests.test_a_relaxed_match_is_a_mismatch_with_masked_evidence_and_no_calibration',
         'tests.test_device_exact_mode.ExactSelectorTests.test_empty_content_description_is_a_valid_pinned_value',
