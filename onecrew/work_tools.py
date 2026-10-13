@@ -695,6 +695,15 @@ def diagnose(result, state=None, cwd=None):
         # but is a directory; the project's own manifest says how it runs this tool.
         return ('command: a directory was given where the tool expected a file or module (' + next(g for g in missing.groups() if g)[-120:] +
                 '); check how the project runs this tool (project_manifests: its declared test/build scripts) instead of repeating it')
+    if missing and result.get('where') == 'verification checkout' and state is not None:
+        # Live M1 (14/10/2026): the clean checkout lacked a generated, Git-ignored file the workspace had; the worker only saw
+        # "exit code 1" and re-checked the export instead of declaring the project's build as setup.
+        ignored = _workspace_ignored(state)
+        if ignored:
+            return ('verification runs in a clean checkout of the candidate: what Git ignores in your workspace (' +
+                    ', '.join(ignored[:6]) + ') does not exist there. If the tests need such a file (' + named[-120:] + '), declare '
+                    'setup commands that recreate it in the checkout (project_manifests lists the project\'s build scripts); '
+                    'otherwise correct the path.')
     if missing and re.search(r'[\\/]|^\.', next(g for g in missing.groups() if g)):
         # N2-r2: a test runner given a path it could not open was reported as a missing dependency, and the worker kept
         # repeating the command. A missing PATH argument is the command's own mistake.
@@ -1142,6 +1151,7 @@ def _rerun(runtime, task_id, state, contract, item, guard, base=None):
         reason = 'all tests skipped'; ok = False
     return {'argv': item['argv'], 'cwd': copy['cwd'], 'passed': ok, 'reason': reason, 'exit_code': result['exit_code'],
             'tests': result['tests'], 'testlike': testlike, 'log': result['log'], 'stdout_tail': result['stdout'][-1500:],
+            'stderr_tail': result['stderr'][-1500:],
             'boundary': result.get('boundary'), 'where': result.get('where'), 'hint': result.get('hint')}
 
 
@@ -1199,6 +1209,25 @@ def deliveries(runtime, state, contract, candidate):
                 findings.append(f'project file {name} differs from the verified candidate (it was applied from another state or '
                                 'changed afterwards): apply again')
     return fingerprint, findings
+
+
+def _failed(prefix, item, value):
+    """A failed core re-run as the worker sees it: why (the diagnosis) and the end of its output, not only an exit code."""
+    text = prefix + ' '.join(item['argv'])[:120] + ': ' + str(value.get('reason'))
+    if value.get('hint'): text += ' | hint: ' + str(value['hint'])[:500]
+    tail = ((value.get('stdout_tail') or '').strip() + '\n' + (value.get('stderr_tail') or '').strip()).strip()[-400:]
+    if tail: text += ' | output tail: ' + tail
+    return text
+
+
+def _workspace_ignored(state, limit=40):
+    """Top-most Git-ignored entries of the workspace (generated files, dependencies), as names."""
+    try:
+        raw = wgit(state, 'ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z',
+                   env={'GIT_INDEX_FILE': str(_home(state) / 'core.index')}, timeout=120) or b''
+    except (LedgerError, OSError):
+        return []
+    return sorted(p.decode('utf-8', 'replace') for p in raw.split(bytes(1)) if p)[:limit]
 
 
 def _commands(value, name):
@@ -1263,7 +1292,7 @@ def verify(runtime, task_id, state, contract, args, guard):
     for item in declared:
         value = rerun(item, 'a verification command')
         result['commands'].append(value)
-        if not value['passed']: result['findings'].append('core re-run failed: ' + ' '.join(item['argv'])[:120] + ': ' + str(value['reason']))
+        if not value['passed']: result['findings'].append(_failed('core re-run failed: ', item, value))
     repo = project_repo(runtime, contract)
     for check in contract['checks']:
         if check['kind'] == 'ref':
@@ -1275,7 +1304,7 @@ def verify(runtime, task_id, state, contract, args, guard):
         else:
             value = rerun(check, 'a contract command check')
             result['checks'].append(dict(value, kind='command'))
-            if not value['passed']: result['findings'].append('contract command check failed: ' + ' '.join(check['argv'])[:120])
+            if not value['passed']: result['findings'].append(_failed('contract command check failed: ', check, value))
     if checkout is not None:
         # Whatever exists in the checkout besides the candidate (dependencies, generated files, reports) is provenance, never
         # delivered. A non-candidate DIRECTORY next to a delivered file with the same stem (a package shadowing a module) can

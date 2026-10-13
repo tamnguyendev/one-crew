@@ -530,10 +530,26 @@ class Owned(Workflow):
                 'branches':[{'name':b['name'],'status':b['receipt'].get('status')} for b in work.get('branches',[])],
                 'background_processes':work.get('processes',{}),
                 'evidence':packet(self,state,worker=True,limit=limit,manifest_size=manifest),
+                'latest_result':self._latest_result(state,max(1500,limit//3)),
                 'latest_review_feedback':[{'accepted':x['accepted'],'feedback':x['feedback'][:3000]} for x in state.get('reviews',[])[-1:]],
                 'entry_notes_untrusted':notes,
                 'answers':[{'question':r['question']['question'],'answer':r['answer']} for r in self.ledger.requests(task_id) if r['state']=='answered']})
         return self._fit(profile,schema,build)
+
+    def _latest_result(self,state,budget):
+        """The outcome of the worker's last action, always shown, whatever the evidence packet could fit. Live M2 resume
+        (14/10/2026): the worker asked receipt(26) three times because the bounded packet under Kiro's cap never showed it."""
+        if not state.get('receipts'): return None
+        ref=state['receipts'][-1]
+        record=json.loads(self.store.read_blob(ref['blob']))
+        while record.get('action')=='receipt' and isinstance(record.get('result'),dict) and 'action' in record['result']:
+            record=record['result']  # a receipt lookup: show the receipt it returned
+        text=canonical(record)
+        value={'index':ref['index'],'action':ref['action'],'complete':len(text)<=budget,'record':text[:budget]}
+        if len(text)>budget:
+            value['note']=('truncated to fit the prompt: request a narrower view (a read cursor or smaller page, a narrower list '
+                           'directory or search) instead of repeating this action')
+        return value
 
     def _work_verify(self,task_id,seq,state,profile,value):
         """Deterministic core verification before any model review; failures go back to the worker without a review call."""

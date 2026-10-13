@@ -171,6 +171,49 @@ class FailureReplayTests(ProgressFixture):
         self.assertEqual(self.invoke(runtime, task, state, profile, 'read', {'path': 'notes.md'}).get('text'), 'y\n')
 
 
+@unittest.skipIf(PY is None, 'needs a real Python interpreter on PATH')
+class VerificationFeedbackTests(ProgressFixture):
+    """Live M1 resume (14/10/2026): a clean-checkout failure must tell the worker why, not only 'exit code 1'."""
+
+    def test_a_missing_generated_file_in_the_checkout_points_to_setup(self):
+        (self.root / '.gitignore').write_text('generated/\n')
+        (self.root / 'test_generated.py').write_text(
+            'import unittest\n\n\nclass G(unittest.TestCase):\n    def test_value(self):\n'
+            "        self.assertEqual(open('generated/value.txt').read(), '5')\n")
+        self.git('add', '.gitignore', 'test_generated.py'); self.git('commit', '-q', '-m', 'generated fixture')
+        runtime, task, state, profile = self.driven()
+        contract = profile['contract']
+        build = program("import os\nos.makedirs('generated', exist_ok=True)\nopen('generated/value.txt', 'w').write('5')\n")
+        wt.run(runtime, task, state, contract, {'argv': [PY, '-c', build]}, lambda: None)  # the workspace has it, ignored
+        result = wt.verify(runtime, task, state, contract, {'verification': [{'argv': [PY, '-m', 'unittest', '-v']}]}, lambda: None)
+        finding = next(f for f in result['findings'] if f.startswith('core re-run failed'))
+        self.assertIn('clean checkout', finding, 'RED-M1: the worker is not told why the clean re-run failed: ' + finding)
+        self.assertIn('generated/', finding); self.assertIn('setup', finding); self.assertIn('output tail', finding)
+
+
+@unittest.skipIf(PY is None, 'needs a real Python interpreter on PATH')
+class LatestResultTests(ProgressFixture):
+    """Live M2 resume (14/10/2026): a receipt the worker asked for must reach its next prompt under Kiro's cap."""
+
+    def test_the_last_result_reaches_the_worker_even_when_the_packet_is_at_its_minimum(self):
+        runtime, task, state, profile = self.driven()
+        # Created by one command, so no other receipt names these files: only the listing can show them.
+        make = program("import os\nos.makedirs('reports', exist_ok=True)\n"
+                       "for i in range(18): open('reports/report_%02d.py' % i, 'w').write('VALUE = %d\\n' % i)\n")
+        self.invoke(runtime, task, state, profile, 'run', {'argv': [PY, '-c', make]})
+        listing = self.invoke(runtime, task, state, profile, 'list', {'directory': 'reports'})
+        self.invoke(runtime, task, state, profile, 'receipt', {'index': len(state['receipts']) - 1})
+        from onecrew.ledger import canonical
+        size = len(canonical({'action': 'list', 'result': listing}))
+        self.assertTrue(1200 < size <= 1500, 'fixture: the listing must exceed the minimum packet and fit the latest result: %d' % size)
+        from onecrew.owned import contract as tools
+        prompt, schema, _ = tools(profile)
+        # What Kiro's cap forced in live M2: the smallest evidence packet (limit 1200, manifest 8).
+        with patch.object(type(runtime), '_fit', lambda self, profile, schema, build: build(1200, 8)):
+            text = runtime._work_prompt(task, state, profile, runtime.control.status(task), prompt, schema, [])
+        self.assertIn('reports/report_17.py', text[len(prompt):], 'RED-M2: the worker never sees the receipt it asked for')
+
+
 class AdmissionRetryTests(HostFixture):
     """R3: a transient ledger error never loses a dispatch, never launches twice, and ends with a reason when it persists."""
 
