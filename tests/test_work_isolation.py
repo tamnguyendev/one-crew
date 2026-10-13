@@ -66,7 +66,8 @@ class TaskBoundaryTests(Fixture):
                    'b-file': self.ws(b) / 'calc.py', 'project': self.root, 'own-workspace': self.ws(a)}
         # The target list goes through a file (reads are not contained): inlined, a long temp path pushes the program over
         # the 2000-character argument limit (eval harness run of 13/10/2026).
-        listing = self.root.parent / 'acl-targets.json'
+        # In task A's own temp: a mkdtemp folder of the test is unreadable to contained commands when the owner is Administrators.
+        listing = self.ws(a).parent / 'tmp' / 'acl-targets.json'
         listing.write_text(json.dumps({k: str(v) for k, v in targets.items()}))
         ran = self.py(a, 'import ctypes, json\nfrom ctypes import wintypes as w\n'
                       "a = ctypes.WinDLL('advapi32', use_last_error=True)\n"
