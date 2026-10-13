@@ -321,6 +321,11 @@ CASES = [
         'tests.test_work_contract.DurabilityTests.test_unverified_kiro_version_stays_unavailable',
         'tests.test_work_contract.PromptTests.test_kiro_prompt_keeps_the_contract_within_the_verified_cap'],
         'Coordinator restart is modelled by a new runtime object over the same ledger; Kiro version via a patched CLI probe.'),
+    case('work-acceptance-fixes', 'Defects found by live acceptance runs stay fixed: finish matches the authority, Kiro prose around JSON, Node 24 test counts', '543b619', [
+        'tests.test_work_contract.PromptTests.test_finish_offers_verification_commands_only_with_the_commands_authority',
+        'tests.test_work_contract.DurabilityTests.test_kiro_reply_with_prose_around_the_json_is_parsed_and_a_reply_without_json_is_refused',
+        'tests.test_work_contract.TestCountTests.test_node_spec_and_tap_reporters_are_counted'],
+        'From acceptance runs A2-r1 (finish), A5-r1 (Kiro JSON) and held-out preparation (Node 24); failures retained in the handover.'),
     case('device-exact-mode', 'Real device: exact selectors, masked mismatch evidence, no calibration, recovery only when granted', '742a139', [
         'tests.test_device_exact_mode.ExactSelectorTests.test_a_relaxed_match_is_a_mismatch_with_masked_evidence_and_no_calibration',
         'tests.test_device_exact_mode.ExactSelectorTests.test_empty_content_description_is_a_valid_pinned_value',
