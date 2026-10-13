@@ -17,6 +17,13 @@ workspace, re-runs verification itself and writes the handover.
 A user-pinned provider/model is sealed; never fall back. Do not run the requested Git/build effect yourself and
 report it as OneCrew's. Push/tag/deploy/device actions are not in work contracts.
 
+Since the Codex review of 13/10/2026 (docs/generic-execution.vi.md): commands are contained by the OS (they write only in
+the workspace) unless the USER grants `authority.unconfined_commands` (e.g. Flutter, which writes its SDK cache); never
+add it on the user's behalf. Only changes within `edit` and `scope.paths` can be delivered, whatever made them; restarts
+reconcile intents and never re-run a command of unknown outcome; verification is re-checked against the real refs and
+project files at completion. Runs outlive the chat only through the OneCrew host (`host install` is the user's one-time
+decision, `host register --state-root`); without it `job start` reports `independent_of_entry: not guaranteed`.
+
 ## Delivery autopilot — 12/10/2026
 
 For new aggregate work, agree requirement, scope, acceptance, stages, device permission

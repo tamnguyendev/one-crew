@@ -187,6 +187,12 @@ def start(ledger, task_id, initiator=None):
         _, state = workflow.state(task_id)
     if state is None or state['phase'] in ('completed', 'failed', 'cancelled'):
         raise LedgerError('Enable/resume a non-terminal workflow before start.')
+    if not task_id.startswith('CONSULT-'):
+        # GX-GAP-04: a live OneCrew host serving this state root runs the job outside the entry's lifetime; the entry only
+        # writes a durable dispatch request, so closing the chat cannot stop the run.
+        from .host import dispatch, lease, served
+        if lease() and served(ledger.state_root):
+            return dispatch(ledger, task_id, initiator)
     directory = ledger.state_root/'runners'/uuid.uuid4().hex
     directory.mkdir(parents=True)
     argv = [native_python(), '-X', 'utf8', '-m', 'onecrew.runner', '--project', str(ledger.project),
@@ -209,7 +215,11 @@ def start(ledger, task_id, initiator=None):
         if process.poll() is not None:
             return {'status': 'exited', 'exit_code': process.returncode, 'logs': str(directory)}
         time.sleep(.05)
-    return _supervised(ledger, task_id, result or {'status': 'starting', 'identity': identity(process.pid), 'logs': str(directory)})
+    result = result or {'status': 'starting', 'identity': identity(process.pid), 'logs': str(directory)}
+    # Started by this entry, not by the host: whether it outlives the entry depends on the entry's process job.
+    result.update(launcher='entry', independent_of_entry='not guaranteed: start the OneCrew host (host install/start) for runs '
+                                                          'that must outlive the chat')
+    return _supervised(ledger, task_id, result)
 
 
 def main(argv=None):

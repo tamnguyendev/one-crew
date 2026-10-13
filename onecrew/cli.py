@@ -28,6 +28,7 @@ def main(argv=None):
               '  eval       cases / replay / compare / observe / assistance (evidence, no auto-promotion)\n'
               '  skills     list / scan / review / approve / reject (recurring-task evidence)\n'
               '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
+              '  host       install / register / start / stop / status / uninstall / run (runs jobs outside chat sessions)\n'
               '  delivery   submit / start / resume / status / cancel (solution-level execution)\n'
               '  core       migrate / status / cancel / reconcile\n'
               '  work       enable / plan / run / start / runner / status / outputs / cancel / pause / resume / switch\n'
@@ -38,6 +39,9 @@ def main(argv=None):
               '  monitor    grouped workers / --verbose / --terminal / --all-projects\n'
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')
         return 0
+    if len(args)>index and args[index]=='host':
+        from .host import main as host_main
+        return host_main(args[index:])
     if len(args)>index and args[index]=='eval':
         from .evaluation import main as eval_main
         return eval_main(args)
