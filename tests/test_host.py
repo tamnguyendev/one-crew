@@ -54,11 +54,14 @@ class HostFixture(WorkFixture):
 
 
 class DispatchTests(HostFixture):
+    def seen(self, at='2000-01-01T00:00:00+00:00'):
+        return {'identity': {}, 'roots_seen': {str(Path(self.ledger.state_root).resolve()): at}}
+
     def test_dispatch_needs_a_live_host_that_serves_this_state_root(self):
         with self.assertRaises(LedgerError): host.dispatch(self.ledger, self.task, wait=0)
-        with patch('onecrew.host.lease', return_value={'identity': {}}):
-            with self.assertRaises(LedgerError): host.dispatch(self.ledger, self.task, wait=0)  # not registered by the user
-            host.register(self.ledger.state_root)
+        with patch('onecrew.host.lease', return_value={'identity': {}, 'roots_seen': {}}):
+            with self.assertRaises(LedgerError): host.dispatch(self.ledger, self.task, wait=0)  # the host does not scan this root
+        with patch('onecrew.host.lease', return_value=self.seen()):
             queued = host.dispatch(self.ledger, self.task, wait=0)
         self.assertEqual(queued['status'], 'queued')
         self.assertEqual(len(list(host.queue_dir(self.ledger.state_root).glob('HD-*.json'))), 1)
@@ -66,12 +69,28 @@ class DispatchTests(HostFixture):
 
     def test_runner_start_uses_the_host_only_for_a_served_state_root(self):
         from onecrew import runner
-        with patch('onecrew.host.lease', return_value={'identity': {}}), patch('onecrew.host.dispatch', return_value={'status': 'admitted'}) as sent, \
+        with patch('onecrew.host.lease', return_value={'identity': {}, 'roots_seen': {}}), \
+                patch('onecrew.host.dispatch', return_value={'status': 'admitted'}) as sent, \
                 patch('onecrew.runner.subprocess.Popen', side_effect=OSError('entry launch attempted')):
             with self.assertRaises(OSError): runner.start(self.ledger, self.task)  # not served: the entry path, never the host
-            host.register(self.ledger.state_root)
+        with patch('onecrew.host.lease', return_value=self.seen()), patch('onecrew.host.dispatch', return_value={'status': 'admitted'}) as sent:
             self.assertEqual(runner.start(self.ledger, self.task), {'status': 'admitted'})
         self.assertEqual(sent.call_count, 1)
+
+    def test_a_request_the_host_cannot_see_is_withdrawn_with_a_clear_error(self):
+        # N1-r1 (13/10/2026): a packaged entry's writes were invisible to the host and the entry was told 'queued'.
+        future = '2999-01-01T00:00:00+00:00'  # the host scanned this root after the request was written
+        with patch('onecrew.host.lease', return_value=self.seen(future)):
+            with self.assertRaises(LedgerError) as caught: host.dispatch(self.ledger, self.task, wait=0.3)
+        self.assertIn('cannot see the request', str(caught.exception))
+        self.assertEqual(list(host.queue_dir(self.ledger.state_root).glob('HD-*.json')), [])
+        self.assertTrue(self.events('host.unseen'))
+
+    def test_the_host_home_is_outside_appdata(self):
+        with patch.dict(os.environ, {'ONECREW_HOST_HOME': ''}):
+            os.environ.pop('ONECREW_HOST_HOME')
+            with patch('onecrew.host.Path.mkdir'):
+                self.assertNotIn('appdata', str(host.home()).lower())
 
 
 class AdmissionTests(HostFixture):
@@ -159,6 +178,8 @@ class LeaseTests(unittest.TestCase):
             self.assertEqual(scanned.call_count, 1)
             record = json.loads((base / 'lease.json').read_text())
             self.assertIn('stopped_at', record); self.assertEqual(record['last_actions'], [{'action': 'admitted'}])
+            self.assertIn(str((base / 'state').resolve()), record['roots_seen'])  # what the host itself scanned
+            self.assertIn('host started', (base / 'host.log').read_text())
 
     def test_task_xml_is_a_per_user_least_privilege_logon_task_without_time_limit(self):
         text = host.task_xml(Path(host.__file__).resolve().parents[1], user='DOMAIN\\someone')

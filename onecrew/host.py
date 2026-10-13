@@ -34,8 +34,11 @@ TERMINAL = ('completed', 'cancelled', 'failed')
 
 
 def home():
+    """Outside AppData on purpose: acceptance run N1-r1 (13/10/2026) found that writes of a packaged (MSIX) entry such as
+    Claude Desktop under %LOCALAPPDATA% are redirected into the package's private LocalCache, so the host never saw the
+    registry the entry wrote. The user profile root is not virtualized."""
     configured = os.environ.get('ONECREW_HOST_HOME')
-    base = Path(configured) if configured else Path(os.environ.get('LOCALAPPDATA') or Path.home()) / 'OneCrew' / 'host'
+    base = Path(configured) if configured else Path.home() / '.onecrew' / 'host'
     base.mkdir(parents=True, exist_ok=True)
     return base
 
@@ -69,9 +72,11 @@ def lease(base=None):
 
 # --- entry side: dispatch ----------------------------------------------------------------------------------------------
 
-def served(state_root, base=None):
-    resolved = str(Path(state_root).resolve())
-    return resolved in [r['state_root'] for r in _read((base or home()) / 'roots.json', {'roots': []})['roots']]
+def served(state_root, base=None, record=None):
+    """True only when the live host itself reports scanning this state root: the entry's own copy of the registry
+    proves nothing if the entry's writes are invisible to the host."""
+    record = record or lease(base)
+    return bool(record) and str(Path(state_root).resolve()) in (record.get('roots_seen') or {})
 
 
 def register(state_root, base=None):
@@ -93,21 +98,33 @@ def dispatch(ledger, task_id, initiator=None, wait=15, base=None):
     """Ask the live host to run this task. Returns the admission (or 'queued' if the host has not admitted yet)."""
     from .interventions import actor
     base = base or home()
-    if not lease(base): raise LedgerError('No OneCrew host is running.')
-    if not served(ledger.state_root, base): raise LedgerError('The OneCrew host does not serve this state root (host register).')
+    record = lease(base)
+    if not record: raise LedgerError('No OneCrew host is running.')
+    if not served(ledger.state_root, base, record): raise LedgerError('The OneCrew host does not serve this state root (host register).')
     request = {'id': 'HD-' + uuid.uuid4().hex, 'task': task_id, 'project': str(Path(ledger.project).resolve()),
                'state_root': str(Path(ledger.state_root).resolve()), 'runtime': str(Path(__file__).resolve().parents[1]),
                'initiator': initiator or actor(), 'at': utcnow()}
     with ledger.transaction(write=True) as conn:
         ledger._event(conn, task_id, 'host.dispatch', request)
     _write(queue_dir(ledger.state_root) / (request['id'] + '.json'), request)
+    queued = queue_dir(ledger.state_root) / (request['id'] + '.json')
     deadline = time.monotonic() + wait
-    while time.monotonic() < deadline:
+    while True:
         with ledger.transaction() as conn:
             row = conn.execute("SELECT kind,payload FROM events WHERE task_id=? AND kind IN ('host.admitted','host.refused') "
                                "AND json_extract(payload,'$.request')=? ORDER BY seq DESC LIMIT 1", (task_id, request['id'])).fetchone()
         if row: return dict(json.loads(row['payload']), status='admitted' if row['kind'] == 'host.admitted' else 'refused', via='host')
+        if time.monotonic() >= deadline: break
         time.sleep(.2)
+    scanned = ((lease(base) or {}).get('roots_seen') or {}).get(str(Path(ledger.state_root).resolve()))
+    if wait and scanned and scanned > request['at'] and queued.exists():
+        # The host scanned this root after the request was written and still did not see it: never leave a request that
+        # might be admitted much later, unseen by anyone.
+        queued.unlink(missing_ok=True)
+        with ledger.transaction(write=True) as conn:
+            ledger._event(conn, task_id, 'host.unseen', {'request': request['id'], 'host_scan': scanned})
+        raise LedgerError('The OneCrew host scans this state root but cannot see the request this entry wrote (the entry\'s '
+                          'writes are probably virtualized, e.g. a packaged app writing under AppData). Request withdrawn.')
     return {'status': 'queued', 'request': request['id'], 'via': 'host',
             'note': 'The host has the durable request and will admit it; the entry may close.'}
 
@@ -259,6 +276,21 @@ def scan(state_root, now=None, launch=None, boot=None):
     return actions
 
 
+def log(base, message, **fields):
+    """The host has no console (pythonw under Task Scheduler): its evidence goes to host.log next to the lease."""
+    path = Path(base) / 'host.log'
+    try:
+        if path.is_file() and path.stat().st_size > 2_000_000: os.replace(path, path.with_suffix('.log.1'))
+        with path.open('a', encoding='utf-8') as stream: stream.write(canonical(dict(fields, at=utcnow(), message=message)) + '\n')
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _trace():
+    import traceback
+    return traceback.format_exc()[-1500:]
+
+
 def serve(base=None, interval=2.0, once=False):
     """The host loop: single instance per user (lock), heartbeat lease, every registered state root scanned."""
     from types import SimpleNamespace
@@ -271,15 +303,24 @@ def serve(base=None, interval=2.0, once=False):
                   'last_actions': [], 'last_error': None}
         (base / 'stop').unlink(missing_ok=True)
         _write(base / 'lease.json', record)
+        log(base, 'host started', pid=os.getpid(), runtime=record['runtime'], python=sys.executable, home=str(base))
+        if not (base / 'roots.json').is_file(): log(base, 'no state root registered yet (host register --state-root)')
         try:
             while True:
-                for item in _read(base / 'roots.json', {'roots': []})['roots']:
+                roots = _read(base / 'roots.json', {'roots': []})['roots']
+                errors = {}; seen = {}
+                for item in roots:
                     try:
+                        started = utcnow()
                         actions = scan(item['state_root'])
-                        if actions: record['last_actions'] = (record['last_actions'] + actions)[-20:]
-                        record['last_error'] = None
-                    except (ValueError, OSError, sqlite3.Error) as error:
-                        record['last_error'] = str(error)[:500]
+                        seen[str(Path(item['state_root']).resolve())] = started
+                        if actions:
+                            record['last_actions'] = (record['last_actions'] + actions)[-20:]
+                            log(base, 'actions', state_root=item['state_root'], actions=actions)
+                    except Exception as error:  # one root's defect never stops the host or hides another root's error
+                        errors[item['state_root']] = type(error).__name__ + ': ' + str(error)[:400]
+                        log(base, 'scan failed', state_root=item['state_root'], error=errors[item['state_root']], trace=_trace())
+                record['last_error'] = errors or None; record['roots_seen'] = seen
                 record['heartbeat'] = utcnow()
                 try: _write(base / 'lease.json', record)
                 except OSError: pass
@@ -364,7 +405,8 @@ def status():
     code, text = _schtasks('/Query', '/TN', TASK_NAME, '/FO', 'LIST')
     record = _read(home() / 'lease.json')
     return {'installed': code == 0, 'scheduler': text[:600] if code == 0 else None, 'alive': lease() is not None,
-            'lease': record, 'roots': _read(home() / 'roots.json', {'roots': []})['roots']}
+            'lease': record, 'registered': _read(home() / 'roots.json', {'roots': []})['roots'],
+            'served_by_host': sorted((record or {}).get('roots_seen') or {})}
 
 
 def main(argv=None):
