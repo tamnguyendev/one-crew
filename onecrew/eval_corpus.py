@@ -359,7 +359,7 @@ CASES = [
         'tests.test_work_boundary.ScopeGateTests.test_positive_control_output_ignored_by_the_repository_is_not_delivered',
         'tests.test_work_boundary.OutputBindingTests.test_positive_control_valid_work_completes_with_a_patch_of_the_verified_candidate'],
         'Expected green on both sides: the fixes must not block valid work.'),
-    case('host-dispatch', 'Dispatched jobs run under a host outside the entry: admitted once, bounded restarts, user waits, reboot and cancel', 'd45fb68', [
+    case('host-dispatch', 'Dispatched jobs run under a host outside the entry: admitted once, bounded restarts, user waits, reboot and cancel', '02199f6', [
         'tests.test_host.DispatchTests.test_dispatch_needs_a_live_host_that_serves_this_state_root',
         'tests.test_host.DispatchTests.test_runner_start_uses_the_host_only_for_a_served_state_root',
         'tests.test_host.DispatchTests.test_a_request_the_host_cannot_see_is_withdrawn_with_a_clear_error',
@@ -367,13 +367,14 @@ CASES = [
         'tests.test_host.AdmissionTests.test_admits_once_and_never_starts_a_second_runner',
         'tests.test_host.AdmissionTests.test_a_cancelled_or_finished_task_is_refused',
         'tests.test_host.SupervisionTests.test_a_dead_runner_is_restarted_with_backoff_then_blocked_once',
+        'tests.test_host.SupervisionTests.test_a_launched_runner_that_has_not_registered_yet_is_not_restarted',
         'tests.test_host.SupervisionTests.test_a_task_waiting_for_the_user_is_released_not_restarted',
         'tests.test_host.SupervisionTests.test_a_runner_lost_with_a_reboot_needs_an_explicit_resume',
         'tests.test_host.SupervisionTests.test_cancel_is_enforced_when_the_runner_does_not_stop_by_itself',
         'tests.test_host.LeaseTests.test_lease_is_trusted_only_with_a_fresh_heartbeat_from_a_live_process',
         'tests.test_host.LeaseTests.test_serve_once_writes_a_lease_and_scans_registered_roots',
         'tests.test_host.LeaseTests.test_task_xml_is_a_per_user_least_privilege_logon_task_without_time_limit'],
-        'Launch is a fixture (capability absent on 8603e74). 808610b+d45fb68 (MSIX-virtualized registry found by run N1-r1). '
+        'Launch is a fixture (capability absent on 8603e74). 808610b+d45fb68+02199f6 (found by runs N1-r1, N1-r2). '
         'The Task Scheduler host and a closed entry are live acceptance evidence.'),
     case('device-exact-mode', 'Real device: exact selectors, masked mismatch evidence, no calibration, recovery only when granted', '742a139', [
         'tests.test_device_exact_mode.ExactSelectorTests.test_a_relaxed_match_is_a_mismatch_with_masked_evidence_and_no_calibration',
