@@ -458,6 +458,30 @@ CASES = [
         'tests.test_work_isolation.ManifestTests.test_a_directory_given_where_a_module_was_expected_is_named',
         'tests.test_work_isolation.ManifestTests.test_a_relative_directory_is_resolved_against_the_command_directory'],
         'Codex review 2 N2 blocker. Whether a worker uses the declared command is judged by live run M3, not here.'),
+    case('work-progress-and-replay', 'Progress and failure replay follow real workspace changes; real loops are still stopped', 'f8023ae', [
+        'tests.test_review_07d7ad6.ProgressTests.test_codex_probe_lists_between_real_edits_are_progress',
+        'tests.test_review_07d7ad6.ProgressTests.test_the_runner_reaches_past_the_m2_block_point',
+        'tests.test_review_07d7ad6.ProgressTests.test_a_real_loop_without_changes_is_still_stopped',
+        'tests.test_review_07d7ad6.ProgressTests.test_no_op_and_failed_writes_are_not_progress',
+        'tests.test_review_07d7ad6.ProgressTests.test_timestamps_and_rewritten_caches_are_not_progress',
+        'tests.test_review_07d7ad6.ProgressTests.test_a_generated_ignored_output_is_progress',
+        'tests.test_review_07d7ad6.ProgressTests.test_progress_state_survives_restart',
+        'tests.test_review_07d7ad6.FailureReplayTests.test_codex_probe_a_file_created_after_a_failed_read_is_read',
+        'tests.test_review_07d7ad6.FailureReplayTests.test_a_build_output_created_by_a_command_is_read',
+        'tests.test_review_07d7ad6.FailureReplayTests.test_with_nothing_changed_the_failure_is_replayed',
+        'tests.test_review_07d7ad6.FailureReplayTests.test_restore_counts_as_a_change'],
+        'Codex review of 07d7ad6, R1 and R2 (14/10/2026). Live evidence: M2 resumed past its step-13 block.'),
+    case('host-admission-retry', 'Transient ledger errors never lose a dispatch or launch twice; a lasting one blocks with the cause', 'f8023ae', [
+        'tests.test_review_07d7ad6.AdmissionRetryTests.test_codex_probe_a_busy_ledger_keeps_the_request_and_admits_later',
+        'tests.test_review_07d7ad6.AdmissionRetryTests.test_busy_while_recording_the_outcome_after_a_launch_does_not_launch_again',
+        'tests.test_review_07d7ad6.AdmissionRetryTests.test_a_persistently_busy_ledger_ends_with_a_block_and_the_reason',
+        'tests.test_review_07d7ad6.AdmissionRetryTests.test_a_malformed_request_is_still_ended_at_once',
+        'tests.test_review_07d7ad6.AdmissionRetryTests.test_the_entry_retries_a_busy_ledger_and_reports_a_lasting_one'],
+        'Codex review of 07d7ad6, R3. SQLite errors are injected; WinError 5 of 13/10 is not covered (no stack yet).'),
+    case('runner-priority', 'Host and runners run at Normal priority, never inheriting below-normal or above it', 'f8023ae', [
+        'tests.test_review_07d7ad6.PriorityTests.test_the_host_task_runs_at_normal_priority',
+        'tests.test_review_07d7ad6.PriorityTests.test_runners_are_started_at_normal_priority'],
+        'Codex review of 07d7ad6, R4. The live priority under Task Scheduler is acceptance evidence.'),
 ]
 
 LIMITS = [
