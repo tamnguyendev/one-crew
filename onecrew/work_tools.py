@@ -409,7 +409,7 @@ def effects(contract, before, after, state):
     return result
 
 
-def run(runtime, task_id, state, contract, args, guard):
+def run(runtime, task_id, state, contract, args, guard, repeat_guard=True):
     if not contract['authority']['commands']: raise LedgerError('Commands are not authorized by the work contract.')
     argv = argv_value(args.get('argv'))
     cwd = safe_file(ws_root(state), relative_dir(args.get('cwd'))) if args.get('cwd') not in (None, '', '.') else ws_root(state)
@@ -428,6 +428,18 @@ def run(runtime, task_id, state, contract, args, guard):
     outpath, errpath = logs / (token + '.out'), logs / (token + '.err')
     # The intent already holds the tree right before this command (written by the coordinator); otherwise take it now.
     before = {'tree': pending['tree']} if pending.get('log') == token and pending.get('tree') else snapshot(state, changes=False)
+    where = str(cwd.relative_to(ws_root(state))).replace('\\', '/') if cwd != ws_root(state) else ''
+    if repeat_guard and not args.get('background'):
+        # Acceptance run N2-r2 (13/10/2026) ran the same failing test command five times with no change in between; its
+        # timings differed, so no repeat was noticed. A failed command is not run again until the command or the
+        # workspace changed. The core's own verification re-runs are exempt.
+        for earlier in reversed(state['work'].get('commands', [])):
+            if earlier.get('argv') != argv or earlier.get('cwd', '') != where: continue
+            if earlier.get('tree_after') == before['tree'] and (earlier.get('exit_code') != 0 or earlier.get('stopped')):
+                raise LedgerError(f"Nothing changed since log {earlier.get('log')}: the same command in the same workspace ended with "
+                                  f"exit {earlier.get('exit_code')}{' (' + earlier['stopped'] + ')' if earlier.get('stopped') else ''}. "
+                                  'Change the command or the files first; re-read that receipt for its output.')
+            break
     if args.get('background'):
         return start_background(runtime, task_id, state, line, cwd, env, outpath, errpath, argv, executable, mode, token)
     started = time.monotonic(); reason = None
@@ -452,9 +464,11 @@ def run(runtime, task_id, state, contract, args, guard):
               'seconds': round(time.monotonic() - started, 2), 'stdout': stdout, 'stderr': stderr,
               'stdout_bytes': out_bytes, 'stderr_bytes': err_bytes, 'log': token,
               'tests': test_counts(stdout + '\n' + stderr)}
-    result.update(effects(contract, before, snapshot(state, changes=False), state))
+    after = snapshot(state, changes=False)
+    result.update(effects(contract, before, after, state))
     result['hint'] = diagnose(result)
-    state['work'].setdefault('commands', []).append({k: result[k] for k in ('argv', 'cwd', 'exit_code', 'stopped', 'tests', 'log')})
+    state['work'].setdefault('commands', []).append(dict({k: result[k] for k in ('argv', 'cwd', 'exit_code', 'stopped', 'tests', 'log')},
+                                                         tree_after=after['tree']))
     return result
 
 
@@ -554,6 +568,13 @@ def diagnose(result):
     if contained and re.search(r'access is denied|permission denied|eacces|eperm|operation not permitted|errno 13|'
                                r'unauthorizedaccess|access to the path .* is denied', text):
         return 'environment: the write boundary refused a write outside the workspace.' + boundary_note
+    missing = re.search(r"cannot find module '([^']+)'|can't open file '([^']+)'|no such file or directory: '([^']+)'|"
+                        r"enoent: no such file or directory, \w+ '([^']+)'", text)
+    if missing and re.search(r'[\\/]|^\.', next(g for g in missing.groups() if g)):
+        # N2-r2: a test runner given a path it could not open was reported as a missing dependency, and the worker kept
+        # repeating the command. A missing PATH argument is the command's own mistake.
+        return ('command: a path given to the command does not exist (' + next(g for g in missing.groups() if g)[-120:] + '); '
+                'compare the arguments with what the workspace contains instead of repeating the command')
     if re.search(r'modulenotfounderror|cannot find module|could not resolve|package .* not found|pub get|npm (ci|install)', text):
         return 'environment: dependencies/cache missing (restore them inside the workspace)'
     if re.search(r'lock(ed)? (file|by another)|\.lock\b|resource busy|access is denied|being used by another process', text):
@@ -856,7 +877,8 @@ def apply(runtime, task_id, state, contract, args):
 
 def _rerun(runtime, task_id, state, contract, item, guard):
     copy = {'argv': item['argv'], 'cwd': item.get('cwd', ''), 'timeout_seconds': min(int(item.get('timeout_seconds', 300)), RUN_SECONDS)}
-    result = run(runtime, task_id, state, dict(contract, authority=dict(contract['authority'], commands=True)), copy, guard)
+    result = run(runtime, task_id, state, dict(contract, authority=dict(contract['authority'], commands=True)), copy, guard,
+                 repeat_guard=False)
     testlike = bool(re.search(r'test|pytest|unittest|jest|mocha|vitest|spec', ' '.join(item['argv']), re.I))
     ok = result['exit_code'] == 0 and not result['stopped']
     reason = None

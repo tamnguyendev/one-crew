@@ -174,7 +174,7 @@ class ScopeGateTests(Base):
 
 class ContainTokenTests(unittest.TestCase):
     """N1-r2/N2-r1 (13/10/2026): under the Task Scheduler host (UAC off) every contained process failed with 0xC0000142,
-    because the restricted token's default owner/DACL named BUILTIN\Administrators, which it holds deny-only. This
+    because the restricted token's default owner/DACL named the BUILTIN Administrators group, which it holds deny-only. This
     property test is green in a chat context too (there the owner already is the user); the red/green evidence is the
     Task Scheduler probe kept in the acceptance folder."""
 
@@ -203,6 +203,36 @@ class ContainTokenTests(unittest.TestCase):
     def test_a_windows_status_exit_is_named_not_left_as_a_decimal(self):
         hint = wt.diagnose({'stderr': '', 'stdout': '', 'stopped': None, 'exit_code': 3221225794, 'tests': {}, 'boundary': 'contained'})
         self.assertIn('0xc0000142', hint); self.assertIn('could not start', hint)
+
+
+class RepeatAndHintTests(Base):
+    """N2-r2 (13/10/2026, frozen bbef812): the same failing command five times, a misleading hint, timings hiding repeats."""
+
+    def test_a_failed_command_is_not_run_again_until_the_command_or_the_workspace_changes(self):
+        runtime, task, state, contract = self.open_job(edit=True, commands=True)
+        failing = [PY, '-c', "import calc, sys; sys.exit(0 if calc.add(2, 3) == 5 else 3)"]
+        self.assertEqual(wt.run(runtime, task, state, contract, {'argv': failing}, lambda: None)['exit_code'], 3)
+        with self.assertRaises(LedgerError) as caught:  # nothing changed: it would fail the same way
+            wt.run(runtime, task, state, contract, {'argv': failing}, lambda: None)
+        self.assertIn('Nothing changed', str(caught.exception), 'RED-GX-N2: an unchanged failing command ran again')
+        self.fix(state, contract)  # the workspace changed: the same command may run again, and now passes
+        self.assertEqual(wt.run(runtime, task, state, contract, {'argv': failing}, lambda: None)['exit_code'], 0)
+
+    def test_a_missing_path_argument_is_not_called_a_missing_dependency(self):
+        node = "Error: Cannot find module 'D:\\ocw\\abc\\r\\test'\n  code: 'MODULE_NOT_FOUND'"
+        hint = wt.diagnose({'stderr': node, 'stdout': '', 'stopped': None, 'exit_code': 1, 'tests': {}, 'boundary': 'contained'})
+        self.assertTrue(hint.startswith('command: a path'), 'RED-GX-N2: ' + str(hint))
+        package = wt.diagnose({'stderr': "Error: Cannot find module 'lodash'", 'stdout': '', 'stopped': None, 'exit_code': 1,
+                               'tests': {}, 'boundary': 'contained'})
+        self.assertIn('dependencies', package)
+
+    def test_timing_noise_does_not_hide_a_repeated_result(self):
+        from onecrew.progress import observe
+        state = {'phase': 'running', 'snapshot': None}
+        for duration in ('103.9ms', '152.6ms', '133.5ms'):
+            observe(state, 'run', {}, {'argv': ['node', '--test', 'test'], 'cwd': '', 'exit_code': 1, 'stopped': None,
+                                       'stdout': 'ℹ fail 1\nℹ duration_ms ' + duration + '\n✖ test (' + duration + ')', 'stderr': ''})
+        self.assertEqual(state['phase'], 'blocked', 'RED-GX-N2: identical failures with different timings were not seen as repeats')
 
 
 class IntentTests(Base):

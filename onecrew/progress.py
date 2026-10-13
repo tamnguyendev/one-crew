@@ -34,8 +34,12 @@ def observe(state, action, args, result):
     evidence = result
     intent = None
     if action == 'run' and 'error' not in result:
-        # Timing and log names differ on every run; an identical command with identical output is no progress.
-        evidence = {k: result.get(k) for k in ('argv', 'cwd', 'exit_code', 'stopped', 'stdout', 'stderr')}
+        # Timing and log names differ on every run; an identical command with identical output is no progress. Durations
+        # printed by the tool are masked too (N2-r2: node's per-test milliseconds hid five identical failures).
+        import re
+        mask = lambda text: re.sub(r'\d+(?:\.\d+)?\s?(?:ms|s|sec|seconds)\b|\d{4}-\d\d-\d\dT[\d:.]+Z?', '<t>', text or '')
+        evidence = {k: result.get(k) for k in ('argv', 'cwd', 'exit_code', 'stopped')}
+        evidence.update(stdout=mask(result.get('stdout')), stderr=mask(result.get('stderr')))
     if 'error' in result and classify_text(result.get('error', '')) == 'permission':
         p['permission_refusals'] = p.get('permission_refusals', 0) + 1
         if p['permission_refusals'] >= 2 and state['phase'] == 'running':
