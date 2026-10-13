@@ -212,6 +212,10 @@ class LatestResultTests(ProgressFixture):
         with patch.object(type(runtime), '_fit', lambda self, profile, schema, build: build(1200, 8)):
             text = runtime._work_prompt(task, state, profile, runtime.control.status(task), prompt, schema, [])
         self.assertIn('reports/report_17.py', text[len(prompt):], 'RED-M2: the worker never sees the receipt it asked for')
+        latest = json.loads(text[len(prompt):]).get('latest_result') or {}
+        listed = len(state['receipts']) - 2
+        self.assertEqual(latest.get('shows_receipt'), listed, 'the worker is not told which receipt it is looking at')
+        self.assertIn('do not request it again', latest.get('note', ''))
 
 
 class AdmissionRetryTests(HostFixture):

@@ -542,10 +542,25 @@ class Owned(Workflow):
         if not state.get('receipts'): return None
         ref=state['receipts'][-1]
         record=json.loads(self.store.read_blob(ref['blob']))
+        shown=None
         while record.get('action')=='receipt' and isinstance(record.get('result'),dict) and 'action' in record['result']:
             record=record['result']  # a receipt lookup: show the receipt it returned
+            shown=record.get('index',shown)
+        if shown is None and ref['action']=='receipt':
+            target=canonical(record)  # which earlier receipt this lookup returned: the same immutable record
+            for earlier in reversed(state['receipts'][-60:-1]):
+                if earlier['action']=='receipt': continue
+                try:
+                    if canonical(json.loads(self.store.read_blob(earlier['blob'])))==target: shown=earlier['index']; break
+                except ValueError: continue
         text=canonical(record)
         value={'index':ref['index'],'action':ref['action'],'complete':len(text)<=budget,'record':text[:budget]}
+        if ref['action']=='receipt':
+            # Live M2 (14/10): the worker saw the content but not that it WAS the receipt it kept asking for.
+            value['shows_receipt']=shown
+            if len(text)<=budget:
+                value['note']=('this is the complete content of the receipt you requested'+(f' (index {shown})' if shown is not None else '')+
+                               '; it stays omitted from the bounded evidence packet, so do not request it again: act on it')
         if len(text)>budget:
             value['note']=('truncated to fit the prompt: request a narrower view (a read cursor or smaller page, a narrower list '
                            'directory or search) instead of repeating this action')
@@ -804,6 +819,7 @@ class Owned(Workflow):
                     record={'action':value['action'],'result':result}
                     if value['action']=='search': record['arguments']=args
                     if value['action']=='read': record['arguments']={k:args[k] for k in ('path','cursor') if k in args}
+                    if value['action']=='receipt': record['arguments']={'index':args.get('index')}
                     if profile['mode']=='work' and value['action'] in ('list','git_status','git_log','git_show'): record['request']=args
                     from .progress import observe
                     observe(state,value['action'],args,result)
