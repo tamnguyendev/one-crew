@@ -86,9 +86,41 @@ def _token(k, a):
         label = _SidAndAttributes(low, 0x20)  # SE_GROUP_INTEGRITY
         if not a.SetTokenInformation(restricted, 25, ctypes.byref(label), ctypes.sizeof(label) + a.GetLengthSid(low)):
             k.CloseHandle(restricted); raise ctypes.WinError(ctypes.get_last_error())
+        _own_defaults(k, a, restricted)
         return restricted
     finally:
         k.CloseHandle(own); k.LocalFree(admins); k.LocalFree(low)
+
+
+def _own_defaults(k, a, token):
+    """Objects the contained process creates for itself (its process, threads, sections) are owned by and open to the
+    user, not to BUILTIN\\Administrators. With UAC off (this host) or under the Task Scheduler, the token's default owner
+    and DACL name Administrators, which the restricted token holds deny-only, and every contained process then failed
+    to initialise (0xC0000142) - acceptance runs N1-r2/N2-r1 on 13/10/2026."""
+    a.GetTokenInformation.argtypes = [w.HANDLE, ctypes.c_int, ctypes.c_void_p, w.DWORD, ctypes.POINTER(w.DWORD)]
+    a.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(w.LPWSTR)]
+    a.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [w.LPCWSTR, w.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+    a.GetSecurityDescriptorDacl.argtypes = [ctypes.c_void_p, ctypes.POINTER(w.BOOL), ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(w.BOOL)]
+    size = w.DWORD(); a.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))
+    buffer = ctypes.create_string_buffer(size.value)
+    if not a.GetTokenInformation(token, 1, buffer, size, ctypes.byref(size)): raise ctypes.WinError(ctypes.get_last_error())
+    user = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_void_p))[0]  # TOKEN_USER.User.Sid
+    text = w.LPWSTR()
+    if not a.ConvertSidToStringSidW(ctypes.c_void_p(user), ctypes.byref(text)): raise ctypes.WinError(ctypes.get_last_error())
+    sid = text.value; k.LocalFree(text)
+    owner = ctypes.c_void_p(user)
+    if not a.SetTokenInformation(token, 4, ctypes.byref(owner), ctypes.sizeof(owner)):  # TokenOwner
+        raise ctypes.WinError(ctypes.get_last_error())
+    descriptor = ctypes.c_void_p()
+    if not a.ConvertStringSecurityDescriptorToSecurityDescriptorW(f'D:(A;;GA;;;{sid})(A;;GA;;;SY)', 1, ctypes.byref(descriptor), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        present, dacl, defaulted = w.BOOL(), ctypes.c_void_p(), w.BOOL()
+        a.GetSecurityDescriptorDacl(descriptor, ctypes.byref(present), ctypes.byref(dacl), ctypes.byref(defaulted))
+        if not a.SetTokenInformation(token, 6, ctypes.byref(dacl), ctypes.sizeof(dacl)):  # TokenDefaultDacl
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        k.LocalFree(descriptor)
 
 
 class Contained:

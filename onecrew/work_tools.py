@@ -540,6 +540,15 @@ def diagnose(result):
     if result['stopped'] == 'timeout':
         return ('environment: command timed out (raise timeout_seconds within the budget, or run it in the background)'
                 + (boundary_note if contained else ''))
+    code = result.get('exit_code')
+    if isinstance(code, int) and code >= 0xC0000000 and not (result['stdout'] or result['stderr']).strip():
+        # N1-r2/N2-r1 (13/10/2026): workers read 3221225794 as an access violation; it was 0xC0000142 (the process never
+        # started). Name the Windows status instead of leaving a decimal to guess from.
+        known = {0xC0000142: 'STATUS_DLL_INIT_FAILED: the process could not start', 0xC0000005: 'STATUS_ACCESS_VIOLATION',
+                 0xC0000409: 'STATUS_STACK_BUFFER_OVERRUN (fast fail)', 0xC0000135: 'STATUS_DLL_NOT_FOUND: a DLL is missing',
+                 0xC000013A: 'STATUS_CONTROL_C_EXIT'}
+        return (f'environment: the process ended with Windows status {code:#010x} ({known.get(code, "abnormal termination")}) '
+                'before printing anything; this is the host or toolchain, not the code under test. Do not repeat it unchanged.')
     if re.search(r'is not recognized as an internal|command not found|no such file or directory.*\b(dart|flutter|node|npm|python)\b', text):
         return 'environment: a tool is missing from PATH'
     if contained and re.search(r'access is denied|permission denied|eacces|eperm|operation not permitted|errno 13|'

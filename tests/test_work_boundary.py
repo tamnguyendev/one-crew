@@ -172,6 +172,39 @@ class ScopeGateTests(Base):
         self.assertTrue((self.ws(state) / 'test_calc.py').is_file())
 
 
+class ContainTokenTests(unittest.TestCase):
+    """N1-r2/N2-r1 (13/10/2026): under the Task Scheduler host (UAC off) every contained process failed with 0xC0000142,
+    because the restricted token's default owner/DACL named BUILTIN\Administrators, which it holds deny-only. This
+    property test is green in a chat context too (there the owner already is the user); the red/green evidence is the
+    Task Scheduler probe kept in the acceptance folder."""
+
+    def test_the_contained_token_owns_its_objects_as_the_user(self):
+        import ctypes
+        from ctypes import wintypes as w
+        from onecrew import contain
+        k, a = contain._apis(); token = contain._token(k, a)
+        try:
+            a.GetTokenInformation.argtypes = [w.HANDLE, ctypes.c_int, ctypes.c_void_p, w.DWORD, ctypes.POINTER(w.DWORD)]
+            a.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(w.LPWSTR)]
+            a.EqualSid.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+
+            def info(kind):
+                size = w.DWORD(); a.GetTokenInformation(token, kind, None, 0, ctypes.byref(size))
+                buffer = ctypes.create_string_buffer(size.value)
+                self.assertTrue(a.GetTokenInformation(token, kind, buffer, size, ctypes.byref(size)))
+                return buffer
+            user = ctypes.cast(info(1), ctypes.POINTER(ctypes.c_void_p))[0]
+            owner = ctypes.cast(info(4), ctypes.POINTER(ctypes.c_void_p))[0]
+            self.assertTrue(a.EqualSid(ctypes.c_void_p(user), ctypes.c_void_p(owner)), 'RED-GX-HOSTTOKEN: default owner is not the user')
+            self.assertTrue(len(info(6).raw) > 8)  # a default DACL is set (user + SYSTEM)
+        finally:
+            k.CloseHandle(token)
+
+    def test_a_windows_status_exit_is_named_not_left_as_a_decimal(self):
+        hint = wt.diagnose({'stderr': '', 'stdout': '', 'stopped': None, 'exit_code': 3221225794, 'tests': {}, 'boundary': 'contained'})
+        self.assertIn('0xc0000142', hint); self.assertIn('could not start', hint)
+
+
 class IntentTests(Base):
     """GX-P1-02: a restart between a side effect and its receipt reconciles from evidence and never re-runs a command."""
     COUNTER = "from pathlib import Path; p=Path('counter.txt'); p.write_text(str(int(p.read_text())+1) if p.exists() else '1')"
