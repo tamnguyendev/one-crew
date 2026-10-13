@@ -356,6 +356,29 @@ class TestCountTests(unittest.TestCase):
 
 
 @unittest.skipIf(python() is None, 'needs a real Python interpreter on PATH')
+class StaleCacheTests(WorkFixture):
+    def test_a_same_size_edit_in_the_same_second_is_seen_by_the_next_run(self):
+        import hashlib, py_compile
+        py = python()
+        runtime, task, _ = self.job(self.contract(edit=True, commands=True), [])
+        state = runtime.state(task)[1]
+        contract = runtime.control.status(task)['configuration']['profile']['contract']
+        workspace = Path(state['work']['workspace']['path'])
+        from onecrew import work_tools as wt
+        for attempt in range(5):  # the race needs the edit inside the compile's second; retry until it is
+            (workspace / 'calc.py').write_bytes(b'def add(a, b):\n    return a - b\n')
+            py_compile.compile(str(workspace / 'calc.py'), cfile=str(workspace / '__pycache__' / ('calc.%s.pyc' % __import__('sys').implementation.cache_tag)))
+            stamp = int((workspace / 'calc.py').stat().st_mtime)
+            source = (workspace / 'calc.py').read_bytes()
+            wt.write(state, contract, {'path': 'calc.py', 'expected_sha256': hashlib.sha256(source).hexdigest(),
+                                       'old': 'a - b', 'new': 'a + b'}, edit=True)
+            if int(__import__('time').time()) == stamp: break
+        result = wt.run(runtime, task, state, contract, {'argv': [py, '-c', 'from calc import add; print(add(2, 3))']}, lambda: None)
+        self.assertEqual(result['stdout'].strip(), '5', 'RED-GX-PYC: the run used stale bytecode of the edited file')
+        self.assertEqual(wt.environment(runtime, task)['PYTHONDONTWRITEBYTECODE'], '1')
+
+
+@unittest.skipIf(python() is None, 'needs a real Python interpreter on PATH')
 class ExportAdvanceTests(WorkFixture):
     def test_a_branch_this_job_created_can_carry_the_work_but_a_user_branch_never_moves(self):
         runtime, task, _ = self.job(self.contract(edit=True, commands=True, local_branches=['feature/x', 'user/kept']), [])

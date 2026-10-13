@@ -127,7 +127,12 @@ def write(state, contract, args, *, edit=False):
     if len(data) > 1_000_000: raise LedgerError('File edit exceeds 1 MB.')
     scan_text(data)
     target.parent.mkdir(parents=True, exist_ok=True)
+    before = target.stat().st_mtime if exists else None
     durable_write(target, data)
+    if before is not None and int(target.stat().st_mtime) <= int(before):
+        # Eval gx (13/10/2026): a same-size edit within the same second left Python's bytecode cache "valid", so the old
+        # code ran (a stale pass is possible too). Move mtime past the old second so every mtime-based cache sees the edit.
+        os.utime(target, (int(before) + 1, int(before) + 1))
     state['work'].setdefault('edits', 0); state['work']['edits'] += 1
     return {'path': name, 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data), 'created': current is None,
             'where': 'isolated workspace; the user project is unchanged'}
@@ -162,6 +167,7 @@ def environment(runtime, task_id):
     tmp = home(runtime, task_id) / 'tmp'; tmp.mkdir(exist_ok=True)
     env['TEMP'] = env['TMP'] = str(tmp)
     env.setdefault('CI', 'true')
+    env['PYTHONDONTWRITEBYTECODE'] = '1'  # no stale bytecode, no __pycache__ in the workspace diff
     return env
 
 
