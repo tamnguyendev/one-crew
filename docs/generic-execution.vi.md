@@ -89,12 +89,14 @@ và delivery autopilot giữ nguyên.
 Bàn giao đầy đủ: `D:\TamNT\Workspace\9.VMAgent\HANDOVER-CODEX-REVIEW-ONECREW-GENERIC-EXECUTION-2026-10-13.txt`. Bàn giao này chưa
 được Codex review.
 
-Kết quả 16 lượt chạy trên các revision đã đóng băng (sandbox ở D:\OneCrewRuns\gx-acc):
+Kết quả 17 lượt chạy trên các revision đã đóng băng (4e00059 → 8603e74) (sandbox ở D:\OneCrewRuns\gx-acc):
 - **Hoàn thành:** SRM `production` (Kiro), nhánh tên chỉ định tại commit chỉ định, sửa lỗi kèm test hồi quy, tự tìm cách test/build,
   lỗi môi trường phục hồi được (sau 2 lượt thất bại đã sửa runtime), tiếp tục sau khi coordinator bị ngắt.
 - **Từ chối đúng:** đòi push/deploy khi không có quyền → OneCrew hỏi 1 câu.
 - **Held-out:** H2 và H3 đạt ngay lượt đầu; H1 không đạt lượt đầu (đã sửa runtime, chạy lại đạt nhưng không còn tính là held-out).
-- **Chi phí:** 143 lượt gọi, 7,23 credit Kiro. Mỗi lượt có 1 can thiệp môi trường của entry.
+- **Chi phí:** 163 lượt gọi, 7,23 credit Kiro. Mỗi lượt có 1 can thiệp môi trường của entry.
+- **Eval cuối** (harness 11a30da): c3a35dc 100/106 → 8603e74 106/106, không case nào thụt lùi. Eval cũng bắt được lỗi bytecode Python
+  cũ (xanh giả có thể xảy ra), đã sửa ở 5b4370e.
 
 Giới hạn:
 - Runner tách rời không khởi chạy được từ công cụ của Claude Desktop (Job không cho breakaway, WinError 5). Entry phải khởi chạy
