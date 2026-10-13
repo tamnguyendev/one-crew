@@ -57,6 +57,32 @@ class TaskBoundaryTests(Fixture):
         self.assertEqual([c['path'] for c in wt.snapshot(b[2])['changes']], [])
         self.assertEqual((self.ws(a) / 'own.txt').read_text(), 'mine')
 
+    def test_a_task_cannot_rewrite_the_access_rules_of_another_task_the_core_or_the_project(self):
+        """An owner may always change an object's DACL (implicit WRITE_DAC). The task directories are owned by the user,
+        whose SID is in the contained token, so without an OWNER RIGHTS entry task A could re-grant itself task B."""
+        a, b = self.open('dac-a', edit=True, commands=True), self.open('dac-b', edit=True, commands=True)
+        targets = {'b-workspace': self.ws(b), 'b-tmp': self.ws(b).parent / 'tmp', 'b-git': self.ws(b).parent / 'git',
+                   'b-file': self.ws(b) / 'calc.py', 'project': self.root, 'own-workspace': self.ws(a)}
+        ran = self.py(a, 'import ctypes, json\nfrom ctypes import wintypes as w\n'
+                      "a = ctypes.WinDLL('advapi32', use_last_error=True)\n"
+                      'a.SetNamedSecurityInfoW.argtypes = [w.LPCWSTR, ctypes.c_int, w.DWORD] + [ctypes.c_void_p] * 4\n'
+                      'a.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [w.LPCWSTR, w.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]\n'
+                      'a.GetSecurityDescriptorDacl.argtypes = [ctypes.c_void_p, ctypes.POINTER(w.BOOL), ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(w.BOOL)]\n'
+                      'out = {}\n'
+                      f'for name, path in {dict((k, str(v)) for k, v in targets.items())!r}.items():\n'
+                      '    d = ctypes.c_void_p(); a.ConvertStringSecurityDescriptorToSecurityDescriptorW("D:(A;OICI;FA;;;WD)", 1, ctypes.byref(d), None)\n'
+                      '    p, dacl, x = w.BOOL(), ctypes.c_void_p(), w.BOOL(); a.GetSecurityDescriptorDacl(d, ctypes.byref(p), ctypes.byref(dacl), ctypes.byref(x))\n'
+                      '    out[name] = a.SetNamedSecurityInfoW(path, 1, 0x4, None, None, dacl, None)\n'
+                      'print(json.dumps(out))')
+        self.assertEqual(ran['exit_code'], 0, ran['stderr'][-300:])
+        codes = json.loads(ran['stdout'].strip().splitlines()[-1])
+        for name in ('b-workspace', 'b-tmp', 'b-git', 'b-file', 'project'):
+            self.assertNotEqual(codes[name], 0, 'task A rewrote the access rules of ' + name + ': ' + str(codes))
+        self.assertEqual(codes['own-workspace'], 0, 'positive control: a task may manage its own files ' + str(codes))
+        planted = self.py(a, f"open({str(self.ws(b) / 'planted.py')!r}, 'w').write('x')")
+        self.assertNotEqual(planted['exit_code'], 0)
+        self.assertFalse((self.ws(b) / 'planted.py').exists())
+
     def test_positive_control_the_core_writes_every_task_and_toolchains_start(self):
         a, b = self.open('task-a', edit=True, commands=True), self.open('task-b', edit=True, commands=True)
         for job in (a, b):

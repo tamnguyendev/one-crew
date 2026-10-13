@@ -110,8 +110,9 @@ def create_workspace(runtime, task_id, contract, base):
     meta = root / 'meta'; meta.mkdir(exist_ok=True); durable_write(meta / 'empty-exclude', b'')
     for name in ('config', 'info/exclude', 'info/attributes'):
         if (gitdir / name).is_file(): durable_write(meta / name.replace('/', '-'), (gitdir / name).read_bytes())
-    return dict(record, layout='separate', boundary=boundary(contract), labelled=contained, protected=contained,
-                home_private=contained, task_key=root.name, objects='shared' if shared else 'copied')
+    return dict(record, layout='separate', boundary=boundary(contract), labelled=contained,
+                protected=BOUNDARY_RULES if contained else False, home_private=BOUNDARY_RULES if contained else False,
+                task_key=root.name, objects='shared' if shared else 'copied')
 
 
 def _contained_reads(runtime, task_id, source, revision):
@@ -335,6 +336,9 @@ def environment(runtime, task_id, contract=None):
     return env
 
 
+BOUNDARY_RULES = 2  # version of the task ACLs (2: OWNER RIGHTS entry); older protected workspaces are re-protected on use
+
+
 def ensure_boundary(runtime, task_id, state, contract):
     """Contained commands need their task region protected (per-task ACL + Low label); workspaces made before the per-task
     boundary (Codex review 2, 13/10/2026) get it on first use."""
@@ -346,14 +350,14 @@ def ensure_boundary(runtime, task_id, state, contract):
         raise LedgerError('environment: the command write boundary is unavailable here (' + str(reason) + '); commands cannot run '
                           'contained. Running them with the user\'s full rights needs authority.unconfined_commands from the user.')
     workspace = state['work']['workspace']
-    if not workspace.get('home_private'):
+    if workspace.get('home_private') != BOUNDARY_RULES:
         from .contain import own
-        private(root); workspace['home_private'] = True
+        private(root); workspace['home_private'] = BOUNDARY_RULES
         for path in (root / 'git', ws_root(state) / '.git'):
             if path.exists(): own(path)
-    if not workspace.get('protected'):
+    if workspace.get('protected') != BOUNDARY_RULES:
         for directory in (ws_root(state), root / 'tmp', root / 'cache'): protect(directory, root.name)
-        workspace.update(labelled=True, protected=True, task_key=root.name)
+        workspace.update(labelled=True, protected=BOUNDARY_RULES, task_key=root.name)
     return 'contained'
 
 

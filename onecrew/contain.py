@@ -199,7 +199,7 @@ def _own_defaults(k, a, token, user):
 
 def _apply(path, sddl, label):
     """Owner = the user, the given protected DACL (and Low label). The owner is set explicitly because tools check it:
-    Git refuses a work tree or Git directory owned by BUILTIN\Administrators when Administrators is deny-only in the
+    Git refuses a work tree or Git directory owned by BUILTIN\\Administrators when Administrators is deny-only in the
     caller's token, which it is in the contained token (safe.directory)."""
     k, a = _apis(); descriptor = _descriptor(a, 'O:' + user_sid() + sddl)
     try:
@@ -230,11 +230,13 @@ def own(path):
 
 def protect(path, task):
     """Make a directory tree belong to one task: protected DACL (ALLOW S_task, DENY every contained process the write
-    rights, ALLOW user/SYSTEM/Administrators) and an inherited Low label, applied to existing children as well. The ACE
-    order is deliberate and kept by SetNamedSecurityInfo: the owning task's ALLOW is met before the DENY."""
+    rights, ALLOW user/SYSTEM/Administrators, OWNER RIGHTS read-control only) and an inherited Low label, applied to
+    existing children as well. The ACE order is deliberate and kept by SetNamedSecurityInfo: the owning task's ALLOW is met
+    before the DENY. The OWNER RIGHTS entry removes the owner's implicit WRITE_DAC: the owner is the user, whose SID is in
+    every contained token, so without it any task could rewrite another task's DACL and then write there."""
     path = Path(path); path.mkdir(parents=True, exist_ok=True)
     _apply(path, f'D:P(A;OICI;FA;;;{task_sid(task)})(D;OICI;{WRITE_RIGHTS};;;{CONTAINED})(A;OICI;FA;;;{user_sid()})'
-                 '(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)S:(ML;OICI;NW;;;LW)', True)
+                 '(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;RC;;;OW)S:(ML;OICI;NW;;;LW)', True)
 
 
 def private(path):
@@ -244,7 +246,7 @@ def private(path):
     created under a default owner of Administrators (Codex app, Task Scheduler) carries SYSTEM/Administrators/OWNER RIGHTS
     only, which the contained token (Administrators deny-only) cannot read."""
     path = Path(path); path.mkdir(parents=True, exist_ok=True)
-    _apply(path, f'D:P(A;OICI;FA;;;{user_sid()})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)', False)
+    _apply(path, f'D:P(A;OICI;FA;;;{user_sid()})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;RC;;;OW)', False)
 
 
 class Contained:
