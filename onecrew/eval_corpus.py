@@ -321,7 +321,8 @@ CASES = [
         'tests.test_work_contract.DurabilityTests.test_unverified_kiro_version_stays_unavailable',
         'tests.test_work_contract.PromptTests.test_kiro_prompt_keeps_the_contract_within_the_verified_cap'],
         'Coordinator restart is modelled by a new runtime object over the same ledger; Kiro version via a patched CLI probe.'),
-    case('work-acceptance-fixes', 'Defects found by live acceptance runs stay fixed: finish matches the authority, Kiro prose around JSON, Node 24 test counts', '543b619', [
+    case('work-acceptance-fixes', 'Defects found by live acceptance runs stay fixed: finish matches the authority, Kiro prose around JSON, Node 24 test counts, no repeated failed reads', 'e1ba3d2', [
+        'tests.test_work_contract.RepeatTests.test_missing_path_names_what_exists_and_an_identical_failed_request_is_not_repeated',
         'tests.test_work_contract.PromptTests.test_finish_offers_verification_commands_only_with_the_commands_authority',
         'tests.test_work_contract.DurabilityTests.test_kiro_reply_with_prose_around_the_json_is_parsed_and_a_reply_without_json_is_refused',
         'tests.test_work_contract.TestCountTests.test_node_spec_and_tap_reporters_are_counted'],
