@@ -316,6 +316,17 @@ class DurabilityTests(WorkFixture):
         self.assertFalse(result['available']); self.assertIn('verify_kiro_cli', result['reason'])
 
 
+class TestCountTests(unittest.TestCase):
+    def test_node_spec_and_tap_reporters_are_counted(self):
+        from onecrew.work_tools import test_counts
+        spec = 'ℹ tests 2\nℹ suites 0\nℹ pass 2\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\n'  # Node 24.11 on this host
+        self.assertEqual(test_counts(spec)['passed_or_run'], 2, 'RED-GX-NODE24: node --test spec output not counted')
+        self.assertNotIn('failures_reported', test_counts(spec))
+        self.assertTrue(test_counts(spec.replace('fail 0', 'fail 1')).get('failures_reported'))
+        self.assertEqual(test_counts('# pass 3\n# skip 3\n# fail 0\n'), {'frameworks': ['node'], 'passed_or_run': 3, 'skipped': 3})
+        self.assertEqual(test_counts('Ran 4 tests in 0.01s\n\nOK (skipped=1)\n')['skipped'], 1)
+
+
 class PromptTests(WorkFixture):
     def test_finish_offers_verification_commands_only_with_the_commands_authority(self):
         from onecrew.owned import contract

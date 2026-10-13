@@ -313,15 +313,16 @@ def test_counts(text):
     found = {}
     for name, pattern in (('unittest', r'Ran (\d+) tests? in'), ('pytest', r'=+ .*?(\d+) passed'),
                           ('dart', r'\+(\d+)(?: ~\d+)?(?: -\d+)?: (?:All tests passed|Some tests failed)'),
-                          ('jest', r'Tests:\s+(?:\d+ \w+, )*(\d+) passed'), ('node', r'^# pass (\d+)'),
+                          # node --test: TAP (`# pass N`) or the spec reporter Node 24 prints by default (`ℹ pass N`).
+                          ('jest', r'Tests:\s+(?:\d+ \w+, )*(\d+) passed'), ('node', r'^(?:# |ℹ )pass (\d+)'),
                           ('mocha', r'(\d+) passing'), ('go', r'^ok\s+\S+')):
         matches = re.findall(pattern, text, re.M)
         if matches:
             found[name] = sum(int(m) for m in matches) if name != 'go' else len(matches)
-    skipped = re.findall(r'skipped=(\d+)|(\d+) skipped|~(\d+):', text)
+    skipped = re.findall(r'skipped=(\d+)|(\d+) skipped|~(\d+):|^(?:# skip|ℹ skipped) (\d+)', text, re.M)
     result = {'frameworks': sorted(found), 'passed_or_run': sum(found.values()) if found else None,
               'skipped': sum(int(next(x for x in t if x)) for t in skipped) if skipped else 0}
-    if re.search(r'FAILED \(|(\d+) failed|Some tests failed|# fail [1-9]', text): result['failures_reported'] = True
+    if re.search(r'FAILED \(|(\d+) failed|Some tests failed|^(?:# |ℹ )fail [1-9]', text, re.M): result['failures_reported'] = True
     return result
 
 
