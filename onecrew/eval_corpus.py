@@ -359,6 +359,11 @@ CASES = [
         'tests.test_work_boundary.ScopeGateTests.test_positive_control_output_ignored_by_the_repository_is_not_delivered',
         'tests.test_work_boundary.OutputBindingTests.test_positive_control_valid_work_completes_with_a_patch_of_the_verified_candidate'],
         'Expected green on both sides: the fixes must not block valid work.'),
+    case('work-boundary-under-host', 'Contained commands start under the Task Scheduler host token; a Windows status exit is named, not guessed', 'bbef812', [
+        'tests.test_work_boundary.ContainTokenTests.test_the_contained_token_owns_its_objects_as_the_user',
+        'tests.test_work_boundary.ContainTokenTests.test_a_windows_status_exit_is_named_not_left_as_a_decimal'],
+        'Found by runs N1-r2/N2-r1. The token property is green in a chat context on older revisions too; the red/green '
+        'evidence for the host context is the Task Scheduler probe in D:\OneCrewRuns\gxp1-acc.'),
     case('host-dispatch', 'Dispatched jobs run under a host outside the entry: admitted once, bounded restarts, user waits, reboot and cancel', '02199f6', [
         'tests.test_host.DispatchTests.test_dispatch_needs_a_live_host_that_serves_this_state_root',
         'tests.test_host.DispatchTests.test_runner_start_uses_the_host_only_for_a_served_state_root',
