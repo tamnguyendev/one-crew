@@ -182,7 +182,7 @@ class ContainTokenTests(unittest.TestCase):
         import ctypes
         from ctypes import wintypes as w
         from onecrew import contain
-        k, a = contain._apis(); token = contain._token(k, a)
+        k, a = contain._apis(); token = contain._token(k, a, 'owner-probe')
         try:
             a.GetTokenInformation.argtypes = [w.HANDLE, ctypes.c_int, ctypes.c_void_p, w.DWORD, ctypes.POINTER(w.DWORD)]
             a.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(w.LPWSTR)]
