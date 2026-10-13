@@ -364,6 +364,11 @@ CASES = [
         'tests.test_work_boundary.ContainTokenTests.test_a_windows_status_exit_is_named_not_left_as_a_decimal'],
         'Found by runs N1-r2/N2-r1. The token property is green in a chat context on older revisions too; the red/green '
         'evidence for the host context is the Task Scheduler probe in D:/OneCrewRuns/gxp1-acc.'),
+    case('work-repeat-guard', 'A failed command is not repeated unchanged; a missing path argument is named; timings do not hide repeats', '6028118', [
+        'tests.test_work_boundary.RepeatAndHintTests.test_a_failed_command_is_not_run_again_until_the_command_or_the_workspace_changes',
+        'tests.test_work_boundary.RepeatAndHintTests.test_a_missing_path_argument_is_not_called_a_missing_dependency',
+        'tests.test_work_boundary.RepeatAndHintTests.test_timing_noise_does_not_hide_a_repeated_result'],
+        'Found by acceptance run N2-r2 (Kiro repeated node --test test five times). Worker judgement itself is not graded here.'),
     case('host-dispatch', 'Dispatched jobs run under a host outside the entry: admitted once, bounded restarts, user waits, reboot and cancel', '02199f6', [
         'tests.test_host.DispatchTests.test_dispatch_needs_a_live_host_that_serves_this_state_root',
         'tests.test_host.DispatchTests.test_runner_start_uses_the_host_only_for_a_served_state_root',
