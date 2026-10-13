@@ -83,3 +83,22 @@ và delivery autopilot giữ nguyên.
   - bài giữ lại chưa dùng khi phát triển.
 - Báo số việc hoàn thành, số câu hỏi, số lần entry can thiệp, chi phí và giới hạn. Sửa runtime giữa lượt thì giữ failure và
   chạy lượt mới.
+
+## Kết quả nghiệm thu (13/10/2026) và giới hạn
+
+Bàn giao đầy đủ: `D:\TamNT\Workspace\9.VMAgent\HANDOVER-CODEX-REVIEW-ONECREW-GENERIC-EXECUTION-2026-10-13.txt`. Bàn giao này chưa
+được Codex review.
+
+Kết quả 16 lượt chạy trên các revision đã đóng băng (sandbox ở D:\OneCrewRuns\gx-acc):
+- **Hoàn thành:** SRM `production` (Kiro), nhánh tên chỉ định tại commit chỉ định, sửa lỗi kèm test hồi quy, tự tìm cách test/build,
+  lỗi môi trường phục hồi được (sau 2 lượt thất bại đã sửa runtime), tiếp tục sau khi coordinator bị ngắt.
+- **Từ chối đúng:** đòi push/deploy khi không có quyền → OneCrew hỏi 1 câu.
+- **Held-out:** H2 và H3 đạt ngay lượt đầu; H1 không đạt lượt đầu (đã sửa runtime, chạy lại đạt nhưng không còn tính là held-out).
+- **Chi phí:** 143 lượt gọi, 7,23 credit Kiro. Mỗi lượt có 1 can thiệp môi trường của entry.
+
+Giới hạn:
+- Runner tách rời không khởi chạy được từ công cụ của Claude Desktop (Job không cho breakaway, WinError 5). Entry phải khởi chạy
+  `python -m onecrew.runner`, và đóng chat sẽ dừng runner.
+- Lệnh chạy trên host không phải sandbox OS.
+- Fact của project chưa làm giảm số lượt gọi.
+- Kiro tự cập nhật nên mỗi phiên bản mới phải kiểm chứng lại; prompt Kiro bị giới hạn 16.000 ký tự.
