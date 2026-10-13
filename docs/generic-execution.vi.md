@@ -132,6 +132,21 @@ Tiêu chí nghiệm thu:
 - Đóng băng revision; task mới chưa dùng khi phát triển (sửa code + test + bàn giao) chạy qua host; đóng entry thật
   (Job của entry bị huỷ) và kill runner ở ranh giới tác dụng/receipt; ghi assistance tách entry/setup/task/model.
 
+### Kết quả đợt sửa (13/10/2026, runtime cuối 6028118, chưa được Codex review)
+
+Bàn giao đầy đủ: `D:\TamNT\Workspace\9.VMAgent\HANDOVER-CODEX-REVIEW-ONECREW-GX-P1-FIXES-2026-10-13.txt`.
+- Commit runtime: b01a5b8 (GX-P1-01..03), 808610b (host, GX-GAP-04), rồi bốn bản sửa xuất phát từ lượt nghiệm thu: d45fb68 (host ở
+  ngoài AppData — Claude Desktop là gói MSIX, ghi vào %LOCALAPPDATA% bị chuyển hướng), 02199f6 (runner chưa đăng ký không bị coi là
+  chết), bbef812 (token contained có owner/DACL mặc định là user — dưới Task Scheduler với UAC tắt mọi lệnh contained chết
+  0xC0000142; tên mã thoát Windows), 6028118 (không chạy lại lệnh đã thất bại khi lệnh và workspace không đổi; gọi tên đường dẫn
+  không tồn tại; che thời gian chạy khi so kết quả lặp).
+- Probe Codex: cả 4 tái hiện trên 8603e74 và đều bị bắt trên runtime mới (`D:\OneCrewEvals\gxp1-20261013\probes`).
+- Đóng entry thật: entry chạy trong Job kill-on-close không cho breakaway (đúng ràng buộc của Claude Desktop) rồi bị đóng; runner do
+  host (Task Scheduler) khởi chạy không thuộc Job đó và chạy tiếp. Trước sửa: `job start` trong Job đó → WinError 5, không runner.
+- Kill runner thật ở ranh giới: khi lệnh `run` đang chạy (receipt `outcome: unknown`, không chạy lại), sau intent `export_branch`,
+  `workspace_commit` (tác dụng thực hiện đúng một lần), `apply` (xem bàn giao). Host khởi động lại trong 1–3 giây.
+- Nghiệm thu live và giới hạn còn lại: xem bàn giao (bảng từng lượt, credit Kiro, câu hỏi pending không trả lời thay).
+
 ## Kết quả nghiệm thu (13/10/2026) và giới hạn
 
 Bàn giao đầy đủ: `D:\TamNT\Workspace\9.VMAgent\HANDOVER-CODEX-REVIEW-ONECREW-GENERIC-EXECUTION-2026-10-13.txt`. Bàn giao này chưa
