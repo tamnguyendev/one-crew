@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import shutil
 import unittest
+from unittest.mock import patch
 
 from onecrew.ledger import LedgerError
 from onecrew import work_tools as wt
@@ -76,9 +77,12 @@ class TaskBoundaryTests(Fixture):
                       'print(json.dumps(out))')
         self.assertEqual(ran['exit_code'], 0, ran['stderr'][-300:])
         codes = json.loads(ran['stdout'].strip().splitlines()[-1])
-        for name in ('b-workspace', 'b-tmp', 'b-git', 'b-file', 'project'):
+        # Second review (13/10/2026): not even its own workspace - with WRITE_DAC there it removed its verification DENY.
+        for name in ('b-workspace', 'b-tmp', 'b-git', 'b-file', 'project', 'own-workspace'):
             self.assertNotEqual(codes[name], 0, 'task A rewrote the access rules of ' + name + ': ' + str(codes))
-        self.assertEqual(codes['own-workspace'], 0, 'positive control: a task may manage its own files ' + str(codes))
+        own = self.py(a, "import os\nopen('own.py', 'w').write('x')\nos.chmod('own.py', 0o444)\nos.chmod('own.py', 0o666)\n"
+                         "os.replace('own.py', 'own2.py')\nos.remove('own2.py')\nprint('ok')")
+        self.assertEqual((own['exit_code'], own['stdout'].strip()), (0, 'ok'), 'positive control: a task manages its own files ' + own['stderr'][-300:])
         planted = self.py(a, f"open({str(self.ws(b) / 'planted.py')!r}, 'w').write('x')")
         self.assertNotEqual(planted['exit_code'], 0)
         self.assertFalse((self.ws(b) / 'planted.py').exists())
@@ -270,6 +274,95 @@ class VerificationIdentityTests(Fixture):
 
 
 @unittest.skipIf(PY is None, 'needs a real Python interpreter on PATH')
+class VerificationIsolationRound2Tests(Fixture):
+    """Second adversarial review (13/10/2026): the worker must not be able to open its regions to verification, and one
+    verification must not seed the next."""
+
+    fixed = VerificationIdentityTests.fixed
+    verify = VerificationIdentityTests.verify
+
+    def test_files_the_worker_made_readable_to_everyone_stay_closed_to_verification(self):
+        job = self.fixed('leak')
+        made = self.py(job, 'import ctypes, os\nfrom ctypes import wintypes as w\n'
+                       "k = ctypes.WinDLL('kernel32', use_last_error=True); a = ctypes.WinDLL('advapi32', use_last_error=True)\n"
+                       'a.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [w.LPCWSTR, w.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]\n'
+                       'class SA(ctypes.Structure): _fields_ = [("n", w.DWORD), ("d", ctypes.c_void_p), ("i", w.BOOL)]\n'
+                       'd = ctypes.c_void_p(); a.ConvertStringSecurityDescriptorToSecurityDescriptorW("D:P(A;;FA;;;WD)", 1, ctypes.byref(d), None)\n'
+                       'sa = SA(ctypes.sizeof(SA), d, False)\n'
+                       'k.CreateFileW.restype = ctypes.c_void_p\n'
+                       'k.CreateFileW.argtypes = [w.LPCWSTR, w.DWORD, w.DWORD, ctypes.c_void_p, w.DWORD, w.DWORD, ctypes.c_void_p]\n'
+                       "h = k.CreateFileW(os.path.join(os.environ['TEMP'], 'leak.txt'), 0x40000000, 0, ctypes.byref(sa), 1, 0x80, None)\n"
+                       "if h and h != 2 ** 64 - 1:\n"
+                       "    k.WriteFile.argtypes = [ctypes.c_void_p, ctypes.c_char_p, w.DWORD, ctypes.POINTER(w.DWORD), ctypes.c_void_p]\n"
+                       "    n = w.DWORD(); k.WriteFile(h, b'LEAKED', 6, ctypes.byref(n), None); k.CloseHandle(ctypes.c_void_p(h)); print('CREATED')\n"
+                       "else:\n    print('REFUSED', ctypes.get_last_error())\n"
+                       "open(os.path.join('..', 'cache', 'planted.txt'), 'w').write('LEAKED')\nprint('PLANTED')")
+        # Either Windows refuses a file with its own access rules (no WRITE_DAC: 4th rules) or verification cannot read it.
+        self.assertIn('PLANTED', made['stdout'], made['stderr'][-300:])
+        peek = program("import os\nfor p in ('tmp/leak.txt', 'cache/planted.txt', 'logs'):\n"
+                       "    q = os.path.join('..', *p.split('/'))\n"
+                       "    try:\n        print('READ', p, os.listdir(q) if p == 'logs' else open(q).read())\n"
+                       "    except OSError as e:\n        print('DENIED', p, e.errno)\n")
+        ran = self.verify(job, verification=[{'argv': [PY, '-m', 'unittest', '-v']}, {'argv': [PY, '-c', peek]}])
+        out = ran['commands'][1]['stdout_tail']
+        self.assertNotIn('READ', out, 'RED-GX2-F2f: verification read what the worker left: ' + out)
+        self.assertEqual(out.count('DENIED'), 3, out)
+
+    def test_an_earlier_verification_cannot_seed_the_next(self):
+        job = self.fixed('seed')
+        seed = program("import os\nopen(os.path.join(os.environ['TEMP'], 'seed.txt'), 'w').write('x')\n"
+                       "os.makedirs(os.environ['npm_config_cache'], exist_ok=True)\n"
+                       "open(os.path.join(os.environ['npm_config_cache'], 'seed.txt'), 'w').write('x')\n")
+        look = program("import os\nprint('SEEN' if os.path.exists(os.path.join(os.environ['TEMP'], 'seed.txt')) or "
+                       "os.path.exists(os.path.join(os.environ['npm_config_cache'], 'seed.txt')) else 'FRESH')\n")
+        self.verify(job, verification=[{'argv': [PY, '-c', seed]}])
+        ran = self.verify(job, verification=[{'argv': [PY, '-c', look]}])
+        self.assertEqual(ran['commands'][0]['stdout_tail'].strip(), 'FRESH', 'RED-GX2-F2g: an earlier verification seeded this one')
+
+    def test_a_same_size_change_with_restored_times_is_found(self):
+        job = self.fixed('stat')
+        swap = program("import os\nst = os.stat('calc.py')\ntext = open('calc.py').read()\n"
+                       "open('calc.py', 'w').write(text.replace('a + b', 'a * b'))\n"
+                       "os.utime('calc.py', ns=(st.st_atime_ns, st.st_mtime_ns))\n")
+        settle = program('import time\ntime.sleep(1.2)\n')
+        ran = self.verify(job, setup=[{'argv': [PY, '-c', settle]}], verification=[{'argv': [PY, '-c', swap]}])
+        self.assertTrue(any('changed the candidate file calc.py' in f for f in ran['findings']),
+                        'RED-GX2-F2h: a same-size change with restored timestamps went unnoticed: ' + str(ran['findings']))
+
+    def test_the_shadow_rule_spares_build_outputs_and_metadata_but_not_compiled_modules(self):
+        job = self.fixed('shadow2')
+        wt.write(job[2], job[3], {'path': 'build.gradle', 'expected_sha256': None, 'text': 'apply plugin: "java"\n'})
+        plant = program("import os\nos.makedirs('build/classes', exist_ok=True)\nopen('build/classes/x.class', 'w').write('x')\n"
+                        "os.makedirs('calc.egg-info', exist_ok=True)\nopen('calc.egg-info/PKG-INFO', 'w').write('x')\n"
+                        "open('calc.cp313-win_amd64.pyd', 'wb').write(b'MZ')\n")
+        ran = self.verify(job, setup=[{'argv': [PY, '-c', plant]}], verification=[{'argv': [PY, '-m', 'unittest', '-v']}])
+        shadow = [f for f in ran['findings'] if 'shadows the delivered file' in f]
+        self.assertEqual(len(shadow), 1, 'RED-GX2-F2i: ' + str(shadow))
+        self.assertIn('calc.cp313-win_amd64.pyd', shadow[0])
+
+    def test_a_shadow_behind_a_large_dependency_tree_is_still_found(self):
+        from functools import partial
+        job = self.fixed('deep')
+        wt.write(job[2], job[3], {'path': 'src/util.py', 'expected_sha256': None, 'text': 'VALUE = 1\n'})
+        plant = program("import os\nos.makedirs('node_modules/dep', exist_ok=True)\n"
+                        "for i in range(12): open('node_modules/dep/f%d.js' % i, 'w').write('x')\n"
+                        "os.makedirs('src/util', exist_ok=True)\nopen('src/util/__init__.py', 'w').write('VALUE = 2')\n")
+        # node_modules sorts (and is walked) before src/; the provenance summary is capped, the shadow check is not.
+        with patch.object(wt, '_ignored_outputs', partial(wt._ignored_outputs, limit=5)):
+            ran = self.verify(job, setup=[{'argv': [PY, '-c', plant]}], verification=[{'argv': [PY, '-m', 'unittest', '-v']}])
+        self.assertTrue(any('shadows the delivered file src/util.py' in f for f in ran['findings']),
+                        'RED-GX2-F2j: a shadow past the listing cap was not found: ' + str(ran['findings']))
+
+    def test_arguments_with_dot_dot_segments_are_refused_in_verification(self):
+        runtime, task, state, contract = self.fixed('dots')
+        base = self.ws((runtime, task, state, contract)).parent / 'v'; base.mkdir(exist_ok=True)
+        for argument in ('-f../cache/pip', 'D:..\\cache\\x.whl', '--require=a=../r/x.js', 'file:../r/pkg', '..'):
+            with self.assertRaises(LedgerError, msg='RED-GX2-F2k: accepted ' + argument):
+                wt.refuse_arguments(runtime, state, [PY, argument], base=base)
+        wt.refuse_arguments(runtime, state, [PY, '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_*.py'], base=base)
+
+
+@unittest.skipIf(PY is None, 'needs a real Python interpreter on PATH')
 class LegacyHomeTests(Fixture):
     """A workspace left by 6028118 (Low label, inherited DACL granting Authenticated Users modify) must not stay writable by
     other tasks until its own task happens to run again."""
@@ -278,7 +371,7 @@ class LegacyHomeTests(Fixture):
         import subprocess
         a = self.open('legacy-a', edit=True, commands=True)
         base = self.ws(a).parent.parent
-        legacy = base / 'legacy0000000000' / 'r'; legacy.mkdir(parents=True)
+        legacy = base / 'abcdef0123456789' / 'r'; legacy.mkdir(parents=True)  # a task home name (16 hex digits)
         (legacy / 'mod.py').write_text('X = 1\n')
         for args in (['/grant', '*S-1-5-11:(OI)(CI)M'], ['/setintegritylevel', '(OI)(CI)L']):
             subprocess.run(['icacls', str(legacy), *args], check=True, capture_output=True)
@@ -335,6 +428,27 @@ class ReviewFactsTests(Fixture):
         omitted = sum(d.get('omitted_diffs', 0) for d in payload['candidate_diffs_untrusted'])
         self.assertTrue(entries and all(d['blob'] for d in entries))
         self.assertEqual(len(entries) + omitted, 13)
+
+    def test_many_applied_files_stay_bounded_in_the_facts(self):
+        from onecrew.ledger import canonical
+        runtime, task, state, contract = self.open('applied', edit=True, commands=True)
+        verification = {'candidate': None, 'changed_files': [], 'rules': getattr(wt, 'VERIFY_RULES', 2), 'findings': [],
+                        'deliveries': {'branches': {}, 'applied': {f'pkg/file_{i:04}.py': 'b' * 40 for i in range(600)}}}
+        facts = wt.review_facts(runtime, state, contract, verification)
+        facts = facts[0] if isinstance(facts, tuple) else facts
+        self.assertLess(len(canonical(facts['delivered'])), 2000, 'RED-GX2-N4c: delivered outputs grow the facts without bound')
+
+    def test_a_current_verification_is_reused_and_an_interrupted_one_is_not_rerun(self):
+        runtime, task, state, contract = self.open('reuse', edit=True, commands=True)
+        profile = runtime.control.status(task)['configuration']['profile']
+        value = {'action': 'finish', 'arguments': json.dumps({'report': 'done'})}
+        current = {'step': state['step'], 'rules': getattr(wt, 'VERIFY_RULES', 2), 'findings': [], 'checks': [{'kind': 'ref', 'passed': True}]}
+        interrupted = {'step': state['step'], 'interrupted': True, 'findings': ['verification was interrupted']}
+        for record in (current, interrupted):
+            state['work']['verification'] = dict(record)
+            with patch('onecrew.work_tools.verify') as called:
+                runtime._work_verify(task, runtime.state(task)[0], state, profile, value)
+            self.assertFalse(called.called, 'RED-GX2-N4b: verification re-ran for ' + str(record))
 
     def test_a_very_large_change_still_fits_the_kiro_review(self):
         runtime, task, state, contract = self.open('facts-large', edit=True, commands=True)

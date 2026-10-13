@@ -32,6 +32,7 @@ from .ledger import LedgerError
 CONTAINED = 'S-1-9-1-0'           # resource-manager authority: names no account; carried by every contained process
 TASK_PREFIX = 'S-1-9-1-1-'
 WRITE_RIGHTS = '0xd0156'          # WRITE_DATA|APPEND|WRITE_EA|DELETE_CHILD|WRITE_ATTRIBUTES|DELETE|WRITE_DAC|WRITE_OWNER
+TASK_RIGHTS = '0x1301ff'          # FILE_ALL_ACCESS without WRITE_DAC (0x40000) and WRITE_OWNER (0x80000)
 ADMINISTRATORS = 'S-1-5-32-544'
 
 
@@ -68,6 +69,8 @@ def _apis():
     a.GetSecurityDescriptorSacl.argtypes = [ctypes.c_void_p, ctypes.POINTER(w.BOOL), ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(w.BOOL)]
     a.GetSecurityDescriptorOwner.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(w.BOOL)]
     a.SetNamedSecurityInfoW.argtypes = [w.LPCWSTR, ctypes.c_int, w.DWORD, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+    a.TreeResetNamedSecurityInfoW.argtypes = [w.LPWSTR, ctypes.c_int, w.DWORD, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+                                              ctypes.c_void_p, w.BOOL, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
     a.CreateProcessAsUserW.argtypes = [w.HANDLE, w.LPCWSTR, w.LPWSTR, ctypes.c_void_p, ctypes.c_void_p, w.BOOL, w.DWORD,
                                        ctypes.c_void_p, w.LPCWSTR, ctypes.c_void_p, ctypes.c_void_p]
     return k, a
@@ -128,9 +131,16 @@ def _own():
     return k, a, own
 
 
+def _user(k, a, token):
+    """TOKEN_USER's SID as text. The SID lives inside the TokenInformation buffer, so the buffer is kept alive while it is
+    read: reading through a pointer into a collected temporary gave intermittent ERROR_INVALID_SID (1337) under load."""
+    buffer = _info(a, token, 1)
+    return _text(k, a, ctypes.cast(buffer, ctypes.POINTER(ctypes.c_void_p))[0])
+
+
 def user_sid():
     k, a, own = _own()
-    try: return _text(k, a, ctypes.cast(_info(a, own, 1), ctypes.POINTER(ctypes.c_void_p))[0])
+    try: return _user(k, a, own)
     finally: k.CloseHandle(own)
 
 
@@ -140,7 +150,7 @@ def _token(k, a, task):
     _, _, own = _own()
     pointers = []
     try:
-        user = _text(k, a, ctypes.cast(_info(a, own, 1), ctypes.POINTER(ctypes.c_void_p))[0])
+        user = _user(k, a, own)
         # Enabled, not deny-only, not the integrity label, not Administrators: the restricted pass then grants what the ordinary
         # pass grants (system files, toolchains in the profile, the desktop), except where a task ACL says otherwise.
         keep = [s for s, attributes in _groups(k, a, own) if attributes & 0x4 and not attributes & 0x10 and not attributes & 0x20
@@ -197,7 +207,7 @@ def _own_defaults(k, a, token, user):
         k.LocalFree(descriptor); k.LocalFree(owner)
 
 
-def _apply(path, sddl, label):
+def _apply(path, sddl, label, tree=False):
     """Owner = the user, the given protected DACL (and Low label). The owner is set explicitly because tools check it:
     Git refuses a work tree or Git directory owned by BUILTIN\\Administrators when Administrators is deny-only in the
     caller's token, which it is in the contained token (safe.directory)."""
@@ -212,7 +222,13 @@ def _apply(path, sddl, label):
             present2, defaulted2 = w.BOOL(), w.BOOL()
             a.GetSecurityDescriptorSacl(descriptor, ctypes.byref(present2), ctypes.byref(sacl), ctypes.byref(defaulted2))
         flags = 0x1 | 0x4 | 0x80000000 | (0x10 if label else 0)  # OWNER | DACL | PROTECTED_DACL (| LABEL)
-        error = a.SetNamedSecurityInfoW(str(path), 1, flags, owner, None, dacl, sacl if label else None)
+        if tree:
+            # Every object below gets exactly the inherited rules: explicit entries a command set on its own files when it
+            # created them are removed, whoever owns them (KeepExplicit = FALSE).
+            error = a.TreeResetNamedSecurityInfoW(ctypes.create_unicode_buffer(str(path)), 1, flags, owner, None, dacl,
+                                                  sacl if label else None, False, None, 1, None)
+        else:
+            error = a.SetNamedSecurityInfoW(str(path), 1, flags, owner, None, dacl, sacl if label else None)
         if error: raise LedgerError('Cannot set the access rules of ' + str(path) + ': ' + str(ctypes.WinError(error))[:200])
     finally:
         k.LocalFree(descriptor)
@@ -242,18 +258,21 @@ def protect(path, task, deny=()):
     every contained token, so without it any task could rewrite another task's DACL and then write there."""
     path = Path(path); path.mkdir(parents=True, exist_ok=True)
     denied = ''.join(f'(D;OICI;FA;;;{task_sid(key)})' for key in deny)  # deny: identities refused even reading
-    _apply(path, f'D:P{denied}(A;OICI;FA;;;{task_sid(task)})(D;OICI;{WRITE_RIGHTS};;;{CONTAINED})(A;OICI;FA;;;{user_sid()})'
-                 '(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;RC;;;OW)S:(ML;OICI;NW;;;LW)', True)
+    # The owning task gets everything but WRITE_DAC/WRITE_OWNER (TASK_RIGHTS), so the DENY that follows applies to those two
+    # for it as well: a task cannot re-ACL even its own files (second review: it could remove its verification DENY).
+    _apply(path, f'D:P{denied}(A;OICI;{TASK_RIGHTS};;;{task_sid(task)})(D;OICI;{WRITE_RIGHTS};;;{CONTAINED})(A;OICI;FA;;;{user_sid()})'
+                 '(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;RC;;;OW)S:(ML;OICI;NW;;;LW)', True, tree=True)
 
 
-def private(path):
+def private(path, deny=()):
     """Core-owned task home (its Git directory, metadata, logs): explicit ALLOW user/SYSTEM/Administrators, inherited by
     what the core creates later and independent of the token's default owner. No Low label, so contained processes can
     read it (git status in the workspace needs its Git directory) but never write it (no-write-up). Without this, a home
     created under a default owner of Administrators (Codex app, Task Scheduler) carries SYSTEM/Administrators/OWNER RIGHTS
     only, which the contained token (Administrators deny-only) cannot read."""
     path = Path(path); path.mkdir(parents=True, exist_ok=True)
-    _apply(path, f'D:P(A;OICI;FA;;;{user_sid()})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;RC;;;OW)', False)
+    denied = ''.join(f'(D;OICI;FA;;;{task_sid(key)})' for key in deny)
+    _apply(path, f'D:P{denied}(A;OICI;FA;;;{user_sid()})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;RC;;;OW)', False)
 
 
 class Contained:
