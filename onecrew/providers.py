@@ -163,12 +163,34 @@ def kiro_stream(text, provider='kiro'):
             terminal = event['data']
     if not terminal or terminal.get('status') != 'success' or terminal.get('stopReason') != 'end_turn' or terminal.get('finalTextTruncated') is not False:
         raise LedgerError('Kiro stream has no complete successful terminal receipt.')
-    raw = ''.join(chunks).strip()
-    if raw.startswith('```'):
-        lines = raw.splitlines()
-        if len(lines) >= 3 and lines[-1] == '```':
-            raw = '\n'.join(lines[1:-1])
-    return json.loads(raw), usages
+    return json_object(''.join(chunks).strip()), usages
+
+
+def json_object(raw):
+    """The answer object of a text-only model reply. Kiro has no structured-output mode: models sometimes add a sentence
+    or a fenced block around the JSON (acceptance run A5-r1, 13/10/2026). Take the whole text, else the last fenced JSON
+    block, else the last balanced JSON object; the caller still validates it against its schema."""
+    try:
+        value = json.loads(raw)
+        if isinstance(value, dict): return value
+    except ValueError:
+        pass
+    import re
+    for block in reversed(re.findall(r'```(?:json)?\s*\n(.*?)\n\s*```', raw, re.S)):
+        try:
+            value = json.loads(block)
+            if isinstance(value, dict): return value
+        except ValueError:
+            continue
+    decoder = json.JSONDecoder()
+    for start in [i for i, ch in enumerate(raw) if ch == '{'][::-1][:200]:
+        try:
+            value, end = decoder.raw_decode(raw, start)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and not raw[end:].strip().strip('`').strip():
+            return value
+    raise LedgerError('Provider reply contains no JSON answer object.')
 
 
 class KiroArtifact(ExternalArtifact):

@@ -291,6 +291,20 @@ class DurabilityTests(WorkFixture):
         prompt = runtime3._work_prompt(task3, state3, profile, runtime3.control.status(task3), tool_prompt, schema, [])
         self.assertIn('verified_project_commands_untrusted_hints', prompt); self.assertIn('test_ok', prompt)
 
+    def test_kiro_reply_with_prose_around_the_json_is_parsed_and_a_reply_without_json_is_refused(self):
+        from onecrew.providers import kiro_stream
+        def stream(text):
+            chunk = {'type': 'sessionUpdate', 'data': {'update': {'sessionUpdate': 'agent_message_chunk', 'content': {'type': 'text', 'text': text}}}}
+            done = {'type': 'runFinished', 'data': {'status': 'success', 'stopReason': 'end_turn', 'finalTextTruncated': False}}
+            return json.dumps(chunk) + '\n' + json.dumps(done)
+        answer = {'plan': 'Read report.py', 'action': 'read', 'arguments': '{"path":"report.py"}'}
+        for text in ('I need to see report.py first.\n\n```json\n' + json.dumps(answer) + '\n```',   # A5-r1 attempt 3
+                     'I have not read report.py yet.\n\n' + json.dumps(answer),                        # A5-r1 attempt 4
+                     json.dumps(answer), '```json\n' + json.dumps(answer) + '\n```'):
+            self.assertEqual(kiro_stream(stream(text))[0], answer, 'RED-GX-A5: ' + text[:40])
+        with self.assertRaises(LedgerError): kiro_stream(stream('No JSON here, only prose.'))
+        with self.assertRaises(LedgerError): kiro_stream(stream(json.dumps(answer) + '\nand then more prose'))
+
     def test_unverified_kiro_version_stays_unavailable(self):
         from onecrew import providers
         class Done:
