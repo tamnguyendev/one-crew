@@ -22,11 +22,13 @@ TOOLS={
     'outputs':('Read evidence, changes and limitations.',TASK),
     'inbox':('Read pending questions; never answer or resume.',TASK),
     'submit':('Submit an authorized goal, return task ID and bounded background launch state. End the chat turn after dispatch.',
-        schema({'goal':STRING,'request_key':STRING,'mode':{'type':'string','enum':['audit','change','delivery','branch']},
+        schema({'goal':STRING,'request_key':STRING,'mode':{'type':'string','enum':['audit','change','delivery','branch','work']},
             'provider':{'type':'string','enum':['codex','claude','kiro']},'model':STRING,
             'max_calls':{'type':'integer','minimum':1,'maximum':10000},
             'max_seconds':{'type':'integer','minimum':1,'maximum':28800},
-            'image':STRING,'branch':STRING,'remote':STRING,'solution_id':STRING,'solution_revision':STRING},('goal','request_key'))),
+            'image':STRING,'branch':STRING,'remote':STRING,'solution_id':STRING,'solution_revision':STRING,
+            'contract':{'type':'object','description':'Work contract (mode work): schema_version 1, goal, scope, preserve, acceptance, checks, authority, authorized_by.'}},
+            ('request_key',))),
     'reply':('Record an answer to the current request revision. Silence/skip is not an answer. Does not extend budget or grant new permissions. '
         'decided_by: "user" when the user made this decision (cite their message in reference), "entry" when the entry decided under delegation.',
         schema({'request':STRING,'revision':STRING,'choice':STRING,'reference':STRING,'decided_by':{'type':'string','enum':['user','entry']}},
@@ -107,6 +109,8 @@ class Server:
             from .owned_intake import submit
             from .owned import Owned
             from .runner import start
+            args=dict(args);args.setdefault('goal',None)
+            if args['goal'] is None and 'contract' not in args:raise LedgerError('goal is required (or a contract in mode work).')
             result=submit(self.ledger,**args)
             # Replay submission does not restart a completed job.
             runtime=Owned(self.ledger);state=runtime.state(result['id'])[1]

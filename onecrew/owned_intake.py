@@ -9,8 +9,19 @@ from .ledger import LedgerError, canonical, content_hash, key_field, text_field,
 
 def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None,
            max_calls=None, max_seconds=None, image=None, branch=None, remote=None, android_build=None, native_change=None,
-           solution_id=None, solution_revision=None,
+           solution_id=None, solution_revision=None, contract=None,
            _delivery_parent=None, _delivery_node=None, _delivery_generation=0, _delivery_scope=None):
+    if mode == 'work':
+        # Generic job: the user's work contract (goal, scope, invariants, acceptance, authority) is the sealed agreement.
+        from .work_contract import validate as validate_contract
+        if contract is None: raise LedgerError('Work mode needs a work contract (--contract).')
+        if branch or remote or image or android_build or native_change:
+            raise LedgerError('Work mode takes its authority from the contract only.')
+        contract = validate_contract(contract, ledger.project)
+        if goal not in (None, '', contract['goal']): raise LedgerError('--goal differs from the contract goal; give one goal.')
+        goal = contract['goal']
+    elif contract is not None:
+        raise LedgerError('A work contract needs --mode work.')
     goal = text_field(goal, 'goal', 12000)
     if _delivery_scope is not None and (_delivery_scope != 'tests' or not _delivery_parent):
         raise LedgerError('Only a delivery coordinator may narrow a child to a tests-only repair.')
@@ -29,7 +40,7 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     inherit_fallbacks = provider is None and model is None
     preference = previous or read(ledger)
     provider,model=resolve(ledger,provider,model,preference)
-    if mode not in ('audit','change','delivery','branch') or provider not in ('codex','claude','kiro'):
+    if mode not in ('audit','change','delivery','branch','work') or provider not in ('codex','claude','kiro'):
         raise LedgerError('Unsupported job mode or provider.')
     text_field(model, 'model', 120)
     if image is not None and not re.fullmatch(r'sha256:[a-f0-9]{64}',image):
@@ -58,6 +69,9 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     if branch and remote:
         permissions += ['git.branch','git.commit','git.push']
     elif mode=='branch': permissions += ['git.branch']
+    if mode=='work':
+        from .work_contract import permissions as contract_permissions
+        permissions = contract_permissions(contract)
     grant = validate_grant({'schema_version':1,'permissions':permissions,
                            'limits':{'max_calls':max_calls,'max_seconds':max_seconds},'source':'local operator: job submit'})
     options = dict(mode=mode,provider=provider,model=model,image=image,branch=branch,remote=remote)
@@ -74,12 +88,14 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
         options['fallbacks'] = preference['fallbacks']
     if android_build: options['android_build'] = android_build
     if native_change: options['native_change'] = native_change
+    if contract: options['contract'] = contract
     if _delivery_scope: options['delivery_scope'] = _delivery_scope  # narrows authority; never widens it
     payload = dict(schema_version=1,project_id=ledger.project_id,project_path=ledger.project_path,
                    spec_id='GOAL',spec_revision=content_hash(goal),spec_text=goal,title=goal[:200],
                    goal=goal,owned_execution=options,grant=grant)
     if not prior or 'solution_required' in json.loads(prior['payload']):
-        payload['solution_required']=mode!='audit'
+        # A work contract carries the user's authorization itself; a bound SOL is still honoured when given.
+        payload['solution_required']=mode not in ('audit','work')
         payload['solution_id']=solution_id;payload['solution_revision']=solution_revision
     revision = content_hash(payload)
     with ledger.transaction(write=True) as conn:
@@ -96,7 +112,7 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
                 raise LedgerError('Submission key already has a different goal, authority or budget.')
             return ledger._task_view(conn,old)
         binding=None
-        if mode!='audit' or solution_id:
+        if mode not in ('audit','work') or solution_id:
             from .conversations import ensure, approved
             ensure(conn)
             if not solution_id or not solution_revision:raise LedgerError('Review/approve a solution first; pass solution_id and solution_revision for implementation.')

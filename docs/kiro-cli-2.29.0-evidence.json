@@ -1,0 +1,43 @@
+{
+  "at": "2026-10-13T03:06:19.518338+00:00",
+  "executable": "C:\\Users\\NUC\\AppData\\Local\\Kiro-Cli\\kiro-cli.EXE",
+  "checks": {
+    "version_exit": 0,
+    "authenticated": true,
+    "flags_documented": {
+      "--agent": true,
+      "--agent-engine": true,
+      "--no-interactive": true,
+      "--trust-tools": true,
+      "--model": true,
+      "--output-format": true,
+      "stream-json": true,
+      "--list-models": true,
+      "--format": true
+    },
+    "agent_engine_v2": true,
+    "agent_validate": true,
+    "model_listed": true
+  },
+  "version": "kiro-cli-chat 2.29.0",
+  "static_ok": true,
+  "live": {
+    "exit_code": 0,
+    "stdout_events": 10,
+    "parsed": {
+      "ok": true,
+      "echo": "onecrew-kiro-check"
+    },
+    "value_ok": true,
+    "metering": [
+      [
+        {
+          "value": 0.0063312197014925384,
+          "unit": "credit",
+          "unitPlural": "credits"
+        }
+      ]
+    ]
+  },
+  "verified": true
+}

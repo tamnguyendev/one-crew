@@ -13,8 +13,9 @@ def main(argv=None):
     group=parser.add_subparsers(dest='group',required=True).add_parser('job')
     commands=group.add_subparsers(dest='command',required=True)
     p=commands.add_parser('submit')
-    p.add_argument('--goal',required=True);p.add_argument('--key',required=True)
-    p.add_argument('--mode',choices=['audit','change','delivery','branch'],default='audit')
+    p.add_argument('--goal');p.add_argument('--key',required=True)
+    p.add_argument('--mode',choices=['audit','change','delivery','branch','work'],default='audit')
+    p.add_argument('--contract',type=Path,help='Work contract JSON (mode work): goal, scope, preserve, acceptance, authority.')
     p.add_argument('--provider',choices=['codex','claude','kiro'])
     p.add_argument('--model')
     p.add_argument('--max-calls',type=int,help='New-job default: 100; explicit value overrides; replay retains original.')
@@ -43,8 +44,14 @@ def main(argv=None):
         if args.command=='submit':
             build=json.loads(args.android_build_config.read_text(encoding='utf-8-sig')) if args.android_build_config else None
             change=json.loads(args.native_change_config.read_text(encoding='utf-8-sig')) if args.native_change_config else None
+            if args.contract:
+                from .work_contract import load
+                contract=load(args.contract)
+            else:contract=None
+            if args.goal is None and contract is None:raise LedgerError('--goal is required (or --contract in mode work).')
             result=submit(ledger,args.goal,args.key,**{k:getattr(args,k) for k in
-                ('mode','provider','model','max_calls','max_seconds','image','branch','remote','solution_id','solution_revision')},android_build=build,native_change=change)
+                ('mode','provider','model','max_calls','max_seconds','image','branch','remote','solution_id','solution_revision')},
+                android_build=build,native_change=change,contract=contract)
             if args.start or args.terminal:
                 from .owned import Owned
                 from .runner import start

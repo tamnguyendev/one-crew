@@ -74,3 +74,22 @@ Evidence live được ghi tại [owned-execution-evidence.json](owned-execution
 Worker có `git_log` (first-parent, phân trang, lọc message literal) và `git_show` (metadata, danh sách file, diff theo file/phân trang). HEAD được chốt ở lần đọc lịch sử đầu tiên; chỉ inspect các commit nằm trong ancestry đó. Worker tự xác định đợt thay đổi; nếu ranh giới chưa rõ thì hỏi qua inbox. Message commit không thay cho bằng chứng diff.
 
 `branch_before` phải có diff của commit được chọn và qua model review evidence trước khi core tạo ref. Core lấy đúng first parent của commit đó, kiểm tra HEAD chưa đổi, tạo nhánh mới bằng compare-and-swap và ghi action receipt. Ref đã tồn tại không bị ghi đè. Kết quả không rõ chỉ được reconcile; không chạy lại update-ref. Working files, checkout và index không bị thay đổi. Báo cáo cuối được review và xác minh lại ref.
+
+## Hợp đồng công việc chung (`--mode work`, 13/10/2026)
+
+Từ 13/10/2026, việc mới dùng một chế độ chung thay cho mode/recipe riêng; xem [generic-execution.vi.md](generic-execution.vi.md).
+
+Hợp đồng ghi mục tiêu, phạm vi, điều phải giữ nguyên, tiêu chí đầu ra và quyền. Core:
+- ghim HEAD, checkout, trạng thái chưa commit, stash và ref của repo trước lần gọi worker đầu tiên;
+- làm việc trong bản clone riêng tại commit ghim, đã gỡ remote;
+- cho worker đọc/tìm/sửa file, chạy lệnh trên host (Job object, deadline, giới hạn output), quản lý tiến trình nền;
+- thực hiện Git có receipt: nhánh local tên chính xác tại commit ghim, không ghi đè; xuất nhánh từ workspace; `apply` có CAS và
+  bản để quay lại;
+- khi `finish`, tự chạy lại lệnh kiểm chứng và các check, kiểm test không bị xoá/sửa/skip, kiểm repo gốc giữ nguyên, rồi mới
+  review bằng model;
+- viết bàn giao (`handover/`: patch, `handover.json`, `report.md`, cách quay lại).
+
+Lệnh đã được core kiểm chứng trong job hoàn tất được gợi ý lại cho job sau cùng project.
+
+Chạy lệnh trên host không phải sandbox OS. Core chặn đối số trỏ vào project gốc hoặc state OneCrew, `git push/remote/config
+--global` và biến môi trường bí mật; chương trình vẫn có thể ghi ra ngoài workspace hoặc dùng mạng.

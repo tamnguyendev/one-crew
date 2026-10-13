@@ -1,6 +1,6 @@
 # Worker Codex, Kiro và Claude
 
-`onecrew provider doctor --json` kiểm CLI/version và tình trạng auth có thể đọc được, không gọi model và không in danh tính/token. Native Windows được pin: Codex 0.160.0, Kiro 2.28.0, Claude Code 2.1.286. Thay CLI/OS cần kiểm chứng lại; không tự bật full-access.
+`onecrew provider doctor --json` kiểm CLI/version và tình trạng auth có thể đọc được, không gọi model và không in danh tính/token. Native Windows được pin: Codex 0.160.0, Kiro 2.28.0/2.29.0/2.30.0, Claude Code 2.1.286. Thay CLI/OS cần kiểm chứng lại; không tự bật full-access. Kiro tự cập nhật (13/10/2026: 2.29.0 → 2.30.0 trong vài phút); bản chưa kiểm chứng bị chặn cho tới khi `scripts/verify_kiro_cli.py` ghi bằng chứng (cờ CLI, agent không-tool, model, một lần gọi tối thiểu qua đúng argv/parser của adapter) vào `docs/kiro-cli-<version>-evidence.json`. Task đang chạy mà CLI đổi bản sẽ dừng ở `Provider capability changed`.
 
 Profile workflow có trường tùy chọn `provider`: `codex` (mặc định), `kiro`, `claude`; `model` phải thuộc provider. Cả ba adapter đã chạy artifact workflow thật. Claude Code 2.1.286 dùng subscription đã hoàn tất code, chuyển checkpoint sang Codex để hoàn tất task và vượt qua gate Docker; phép hủy riêng xác nhận tiến trình đã dừng. [Evidence Claude](claude-live-evidence.json) ghi đúng 3 managed calls cho cả hai trial, không retry. Đăng nhập subscription bằng Claude Code, không gửi key vào chat. Adapter Claude không tự chuyển sang paid API.
 

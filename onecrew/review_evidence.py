@@ -11,16 +11,16 @@ class ReviewRejected(LedgerError):
     pass
 
 
-def packet(runtime, state, *, worker=False):
+def packet(runtime, state, *, worker=False, limit=None, manifest_size=100):
     requested = [] if worker else state.get('review_requests', [])
     refs = {r['index']:r for r in state['receipts']}
     if len(requested) > 4 or any(type(i) is not int or i not in refs for i in requested):
         raise LedgerError('Invalid review evidence request.')
     # Keep full unique source reads/git metadata ahead of exploratory search pages.
     priority = requested + ([r['index'] for r in reversed(state['receipts'][-3:]) if r['action']!='finish'] if worker else []) + [r['index'] for r in reversed(state['receipts'])
-                            if r['action'] in ('read','git_status','git_show','test','deliver','branch_before')]
+                            if r['action'] in ('read','git_status','git_show','test','deliver','branch_before','run','create_branch','export_branch','apply','edit','write','workspace_commit')]
     manifest=[]; records={}
-    for ref in state['receipts'][-100:]:
+    for ref in state['receipts'][-manifest_size:]:
         record=json.loads(runtime.store.read_blob(ref['blob']))
         result=record['result']
         manifest.append({'index':ref['index'],'action':ref['action'],'blob':ref['blob'],
@@ -29,7 +29,7 @@ def packet(runtime, state, *, worker=False):
             **{k:result[k] for k in ('sha256','cursor','start_line','head','branch','dirty','error') if k in result}})
         records[ref['index']]=record
     included=[]; seen=set(); seen_records=set(); used=0
-    limit=36000 if worker else MAX_CONTENT
+    limit=limit if limit is not None else (36000 if worker else MAX_CONTENT)
     for index in dict.fromkeys(priority):
         ref=refs[index]
         if ref['blob'] in seen: continue
@@ -46,7 +46,7 @@ def packet(runtime, state, *, worker=False):
         included.append({'index':index,'blob':ref['blob'],'record':record})
         seen.add(ref['blob']);seen_records.add(identity);used+=len(raw)
     # Included receipts are COMPLETE. Oversized/omitted receipts are never claimed absent.
-    return {'protocol':PROTOCOL,'manifest':manifest,'manifest_omitted':max(0,len(refs)-100),
+    return {'protocol':PROTOCOL,'manifest':manifest,'manifest_omitted':max(0,len(refs)-manifest_size),
             'full_receipts':included,'requested':requested,
             'not_included':[i for i in requested if refs[i]['blob'] not in seen],
             'instructions':('Worker: use included source and metadata directly; do not reread them just to recover context. '
