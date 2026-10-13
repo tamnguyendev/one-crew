@@ -316,6 +316,22 @@ class DurabilityTests(WorkFixture):
         self.assertFalse(result['available']); self.assertIn('verify_kiro_cli', result['reason'])
 
 
+class GitEnvironmentTests(unittest.TestCase):
+    def test_user_config_selection_is_honoured_and_user_hooks_never_run(self):
+        # Eval gx-20261013 (harness b1f872b) ran with GIT_CONFIG_GLOBAL=nul: commits had CRLF blobs, the core read the real
+        # global autocrlf and refused apply as "changed since the pin". Reproduce that environment around a full apply.
+        with patch.dict(os.environ, {'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1'}):
+            fixture = WorkspaceTests('test_apply_and_export_need_authority_and_never_overwrite_user_edits')
+            fixture.setUp()
+            try:
+                hook = fixture.root / '.git' / 'hooks' / 'reference-transaction'
+                hook.write_text('#!/bin/sh\necho ran > "$(git rev-parse --git-dir)/HOOK_RAN"\n')
+                fixture.test_apply_and_export_need_authority_and_never_overwrite_user_edits()
+                self.assertFalse((fixture.root / '.git' / 'HOOK_RAN').exists(), 'a user hook ran on a core ref update')
+            finally:
+                fixture.doCleanups()
+
+
 class RepeatTests(WorkFixture):
     def test_missing_path_names_what_exists_and_an_identical_failed_request_is_not_repeated(self):
         runtime, task, worker = self.job(self.contract(commands=True), [

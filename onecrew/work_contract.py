@@ -103,11 +103,19 @@ def permissions(contract):
             + (['git.branch'] if a['local_branches'] else []) + (['project.apply'] if a['apply_to_project'] else []))
 
 
+CONFIG_SELECTION = ('GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_NOSYSTEM')
+
+
 def git(repo, *args, allow_failure=False, timeout=60, stdin=None):
-    """Git against a repository without touching its index stat cache, hooks or user configuration."""
-    environment = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
+    """Git against a repository without touching its index stat cache or running its hooks. The user's configuration
+    files are the ones the user's own git reads (GIT_CONFIG_GLOBAL/SYSTEM/NOSYSTEM kept, so line-ending rules match);
+    every variable that could redirect the repository or inject configuration is dropped. Eval run gx-20261013 found
+    the mismatch: dropping GIT_CONFIG_GLOBAL made blobs differ under autocrlf."""
+    environment = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_') or k.upper() in CONFIG_SELECTION}
+    hooks = Path(os.environ.get('TEMP') or os.environ.get('TMP') or '.') / 'onecrew-empty-hooks'
+    hooks.mkdir(parents=True, exist_ok=True)
     argv = ['git', '--no-optional-locks', '--literal-pathspecs', '-C', str(repo), '-c', 'core.fsmonitor=false',
-            '-c', 'core.longpaths=true', *args]
+            '-c', 'core.longpaths=true', '-c', 'core.hooksPath=' + str(hooks), *args]
     done = subprocess.run(argv, capture_output=True, timeout=timeout, env=environment, input=stdin,
                           creationflags=0x08000000 if os.name == 'nt' else 0)
     if done.returncode and not allow_failure:
