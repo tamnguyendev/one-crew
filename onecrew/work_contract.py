@@ -12,7 +12,7 @@ from .snapshots import scoped_path
 
 SCHEMA_VERSION = 1
 FIELDS = {'schema_version', 'goal', 'scope', 'preserve', 'acceptance', 'checks', 'authority', 'authorized_by'}
-AUTHORITY = {'edit', 'commands', 'local_branches', 'branch_at', 'apply_to_project', 'edit_tests', 'push'}
+AUTHORITY = {'edit', 'commands', 'local_branches', 'branch_at', 'apply_to_project', 'edit_tests', 'push', 'unconfined_commands'}
 SHA = re.compile(r'[0-9a-f]{40}|[0-9a-f]{64}')
 
 
@@ -72,7 +72,7 @@ def validate(value, project):
         raise LedgerError('Command checks run in the isolated workspace: grant edit or commands.')
     authority = value.get('authority') or {}
     if not isinstance(authority, dict) or set(authority) - AUTHORITY: raise LedgerError('authority: unknown keys.')
-    for key in ('edit', 'commands', 'apply_to_project', 'edit_tests', 'push'):
+    for key in ('edit', 'commands', 'apply_to_project', 'edit_tests', 'push', 'unconfined_commands'):
         if key in authority and type(authority[key]) is not bool: raise LedgerError('authority.' + key + ' must be boolean.')
     if authority.get('push'):
         raise LedgerError('authority.push is not available in work contracts; publication needs its own delivery job.')
@@ -81,6 +81,7 @@ def validate(value, project):
     at = authority.get('branch_at', 'pinned_head')
     if at != 'pinned_head' and not SHA.fullmatch(str(at)): raise LedgerError('authority.branch_at: pinned_head or a full SHA.')
     if authority.get('apply_to_project') and not authority.get('edit'): raise LedgerError('apply_to_project requires edit.')
+    if authority.get('unconfined_commands') and not authority.get('commands'): raise LedgerError('unconfined_commands requires commands.')
     signed = value.get('authorized_by')
     if not isinstance(signed, dict) or set(signed) != {'source', 'reference'}:
         raise LedgerError('authorized_by: source and reference (attribution of the user authorization).')
@@ -92,7 +93,9 @@ def validate(value, project):
             'authority': {'edit': bool(authority.get('edit')), 'commands': bool(authority.get('commands')),
                           'local_branches': sorted({branch_name(b) for b in branches}), 'branch_at': at,
                           'apply_to_project': bool(authority.get('apply_to_project')),
-                          'edit_tests': bool(authority.get('edit_tests')), 'push': False},
+                          'edit_tests': bool(authority.get('edit_tests')), 'push': False,
+                          # The user's choice to let commands write outside the workspace (e.g. a Flutter SDK cache).
+                          'unconfined_commands': bool(authority.get('unconfined_commands'))},
             'authorized_by': {'source': text_field(signed['source'], 'authorized_by.source', 120),
                               'reference': text_field(signed['reference'], 'authorized_by.reference', 500)}}
 
@@ -106,7 +109,7 @@ def permissions(contract):
 CONFIG_SELECTION = ('GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_NOSYSTEM')
 
 
-def git(repo, *args, allow_failure=False, timeout=60, stdin=None):
+def git(repo, *args, allow_failure=False, timeout=60, stdin=None, git_dir=None, work_tree=None, env=None):
     """Git against a repository without touching its index stat cache or running its hooks. The user's configuration
     files are the ones the user's own git reads (GIT_CONFIG_GLOBAL/SYSTEM/NOSYSTEM kept, so line-ending rules match);
     every variable that could redirect the repository or inject configuration is dropped. Eval run gx-20261013 found
@@ -114,7 +117,11 @@ def git(repo, *args, allow_failure=False, timeout=60, stdin=None):
     environment = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_') or k.upper() in CONFIG_SELECTION}
     hooks = Path(os.environ.get('TEMP') or os.environ.get('TMP') or '.') / 'onecrew-empty-hooks'
     hooks.mkdir(parents=True, exist_ok=True)
-    argv = ['git', '--no-optional-locks', '--literal-pathspecs', '-C', str(repo), '-c', 'core.fsmonitor=false',
+    if env: environment.update(env)
+    # git_dir/work_tree: the core names the workspace repository itself, so a gitfile or commondir written by a command
+    # can never redirect a core Git operation to another repository (GX-P1-01).
+    explicit = (['--git-dir=' + str(git_dir)] if git_dir else []) + (['--work-tree=' + str(work_tree)] if work_tree else [])
+    argv = ['git', '--no-optional-locks', '--literal-pathspecs', *explicit, '-C', str(repo), '-c', 'core.fsmonitor=false',
             '-c', 'core.longpaths=true', '-c', 'core.hooksPath=' + str(hooks), *args]
     done = subprocess.run(argv, capture_output=True, timeout=timeout, env=environment, input=stdin,
                           creationflags=0x08000000 if os.name == 'nt' else 0)
@@ -134,15 +141,18 @@ def _dirty_digest(repo, porcelain):
         status, name = entry[:2], entry[3:]
         names.append(name)
         if status[:1] in (b'R', b'C'): skip = True  # the next record is the source path of a rename/copy
-    total = 0
+    total = 0; each = {}
     for name in sorted(names)[:5000]:
-        path = Path(repo) / name.decode('utf-8', errors='surrogateescape')
-        digest.update(name + b'\0')
+        text = name.decode('utf-8', errors='surrogateescape'); path = Path(repo) / text
+        digest.update(name + b'\0'); value = 'other'
         if path.is_file() and not path.is_symlink():
             size = path.stat().st_size; total += size
-            if total > 256_000_000: digest.update(b'size:' + str(size).encode()); continue
-            digest.update(hashlib.sha256(path.read_bytes()).digest())
-    return digest.hexdigest(), len(names)
+            if total > 256_000_000:
+                digest.update(b'size:' + str(size).encode()); each[text.rstrip('/')] = 'size:' + str(size); continue
+            value = hashlib.sha256(path.read_bytes()).hexdigest(); digest.update(bytes.fromhex(value))
+        elif not path.exists(): value = 'missing'
+        each[text.rstrip('/')] = value  # per path, so an apply exempts exactly its own files (GX-P1-03)
+    return digest.hexdigest(), len(names), each
 
 
 def pins(repo):
@@ -150,33 +160,43 @@ def pins(repo):
     head = git(repo, 'rev-parse', '--verify', 'HEAD').decode().strip()
     branch = git(repo, 'symbolic-ref', '-q', '--short', 'HEAD', allow_failure=True)
     porcelain = git(repo, 'status', '--porcelain=v1', '-z', '--untracked-files=all', timeout=120)
-    dirty, count = _dirty_digest(repo, porcelain)
+    dirty, count, each = _dirty_digest(repo, porcelain)
     stash = git(repo, 'stash', 'list', '--format=%H', allow_failure=True) or b''
     refs = {}
     for line in (git(repo, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads', 'refs/tags') or b'').decode().splitlines()[:20000]:
         name, _, sha = line.rpartition(' ')
         refs[name] = sha
     return {'head': head, 'branch': branch.decode().strip() if branch else None, 'dirty_digest': dirty, 'dirty_entries': count,
+            'dirty_paths': each,
             'stash_digest': hashlib.sha256(stash).hexdigest(), 'stash_entries': len(stash.split()), 'refs_digest': content_hash(refs),
             'refs': refs}
 
 
-def preserved(repo, before, created_refs=(), applied=False):
+def preserved(repo, before, created_refs=(), applied=()):
     """Findings (empty = preserved): checkout, HEAD, uncommitted source, stash and existing refs versus the pins.
-    created_refs: refs OneCrew created with verified receipts; applied: a verified apply action changed source on purpose."""
+    created_refs: refs OneCrew created with verified receipts. applied: the exact paths a verified apply wrote; only those
+    are exempt here (the caller checks their content against the verified candidate), never the whole checkout."""
     after = pins(repo)
     findings = []
     if after['branch'] != before['branch']: findings.append(f"checked-out branch changed: {before['branch']} -> {after['branch']}")
     if after['head'] != before['head']: findings.append(f"HEAD moved: {before['head'][:12]} -> {after['head'][:12]}")
-    if not applied and after['dirty_digest'] != before['dirty_digest']:
-        findings.append(f"uncommitted source changed ({before['dirty_entries']} -> {after['dirty_entries']} dirty paths)")
+    exempt = set(applied or ())
+    if not exempt:
+        if after['dirty_digest'] != before['dirty_digest']:
+            findings.append(f"uncommitted source changed ({before['dirty_entries']} -> {after['dirty_entries']} dirty paths)")
+    elif 'dirty_paths' not in before:  # pinned by an older runtime: nothing can be exempted per path
+        findings.append('uncommitted source cannot be compared per path (pinned before per-path pins); review the checkout')
+    else:
+        old, new = before['dirty_paths'], after['dirty_paths']
+        changed = sorted(p for p in set(old) | set(new) if p not in exempt and old.get(p) != new.get(p))
+        if changed: findings.append('uncommitted source changed outside the applied files: ' + ', '.join(changed[:10]))
     if after['stash_digest'] != before['stash_digest']: findings.append(f"stash changed ({before['stash_entries']} -> {after['stash_entries']})")
     created = set(created_refs)
     for name, sha in before['refs'].items():
         if after['refs'].get(name) != sha: findings.append('existing ref changed or deleted: ' + name)
     for name in set(after['refs']) - set(before['refs']):
         if name not in created: findings.append('ref created outside OneCrew receipts: ' + name)
-    return findings, {k: v for k, v in after.items() if k != 'refs'}
+    return findings, {k: v for k, v in after.items() if k not in ('refs', 'dirty_paths')}
 
 
 def summary(contract):
@@ -185,7 +205,11 @@ def summary(contract):
     enforced = ['The user checkout, index, uncommitted source, stash and existing refs are never changed'
                 + ('' if a['apply_to_project'] else ' (apply_to_project not granted: changes stay in the isolated workspace)'),
                 'Existing refs are never overwritten; no push, tag, merge, deploy or device/server action is available',
-                'Existing test files are immutable' if not a['edit_tests'] else 'Edited tests are compared for removed assertions/skips']
+                'Existing test files are immutable' if not a['edit_tests'] else 'Edited tests are compared for removed assertions/skips',
+                ("Commands run with the user's normal rights (unconfined_commands granted)" if a.get('unconfined_commands') else
+                 'Commands are contained: the OS lets them write only inside the isolated workspace, its temp and cache'),
+                'Only workspace changes within edit authority and scope.paths can be committed, exported, applied or handed over, '
+                'whichever tool or command made them']
     return {'goal': contract['goal'], 'scope': contract['scope'], 'preserve': contract['preserve'],
             'acceptance': contract['acceptance'], 'checks': contract['checks'], 'authority': a,
             'enforced_by_core': enforced, 'authorized_by': contract['authorized_by']}

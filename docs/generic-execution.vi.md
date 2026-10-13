@@ -84,6 +84,54 @@ và delivery autopilot giữ nguyên.
 - Báo số việc hoàn thành, số câu hỏi, số lần entry can thiệp, chi phí và giới hạn. Sửa runtime giữa lượt thì giữ failure và
   chạy lượt mới.
 
+## Đợt sửa theo review Codex 13/10/2026 (GX-P1-01..03, GX-GAP-04) — thiết kế, quyết định, tiêu chí
+
+Bốn probe của Codex tái hiện đúng trên 8603e74 (`D:\OneCrewEvals\gxp1-20261013\probes\baseline-8603e74.txt`). Nguyên tắc chung:
+**core kiểm hệ quả, không kiểm công cụ** — mọi đường tạo thay đổi đi qua cùng một cổng, mọi bằng chứng gắn với đúng thứ được giao.
+
+1. **Ranh giới thực thi (GX-P1-01).** Lệnh của worker (`run`, tiến trình nền, lệnh kiểm chứng của core) mặc định chạy
+   *contained*: token hạn chế (nhóm Administrators chỉ còn deny-only, bỏ mọi privilege), mức toàn vẹn Low, trong Job object.
+   Chỉ workspace, thư mục tạm và cache của task được gắn nhãn Low, nên hệ điều hành chỉ cho ghi ở đó; project, state/ledger
+   OneCrew, hồ sơ người dùng và mọi repo khác bị từ chối ghi. Đã thử trên máy này: Python, Node, npm, Git, dart.exe chạy được;
+   `flutter.bat` treo vì Flutter ghi vào cache của chính SDK. Công cụ cần ghi ngoài workspace chỉ chạy được khi người dùng cấp
+   `authority.unconfined_commands` trong hợp đồng (quyền của người dùng, không do model tự cấp). Không có fallback ngầm.
+   Giới hạn còn lại, ghi rõ: tiến trình contained vẫn **đọc** được file người dùng và **dùng mạng**; đây là ranh giới ghi, không
+   phải sandbox đọc/mạng (AppContainer hoặc tài khoản riêng là bước sau, cần cấp quyền ACL/tài khoản).
+2. **Cổng thay đổi theo delta (GX-P1-01).** Core tính delta của workspace so với commit ghim bằng index riêng của core, không phụ
+   thuộc lệnh nào tạo ra nó. Một đường dẫn chỉ được giao khi có `edit`, nằm trong `scope.paths` và (với test có sẵn) có
+   `edit_tests`. Receipt của mỗi `run` ghi các đường dẫn lệnh đã đổi và phần vượt quyền; `workspace_commit`, `export_branch`,
+   `apply` từ chối nếu delta có phần vượt quyền; `finish` coi đó là finding. Hành động `restore` đưa đường dẫn về bản ghim
+   (dùng được khi chỉ có quyền chạy lệnh). Output do chính lệnh kiểm chứng sinh ra bị loại bỏ; nếu lệnh kiểm chứng sửa file của
+   candidate thì file được trả về candidate và đó là finding. File bị `.gitignore` của repo bỏ qua là output sinh ra, không được giao.
+   Cấu hình Git của workspace (config, info/, hooks) thuộc core: lệnh thay đổi chúng thì core khôi phục và ghi lại.
+3. **Ý định bền và reconcile (GX-P1-02).** Trước mọi hành động có tác dụng phụ, core ghi `intent` vào checkpoint (bước, hành
+   động, băm đối số, runner, log, cây workspace trước đó). Khởi động lại mà thấy intent chưa có receipt thì *reconcile, không
+   replay*: `run` không bao giờ chạy lại tự động — core xác nhận cây tiến trình cũ đã chết, đọc log và delta, ghi receipt
+   `outcome_unknown` để worker quyết định; lệnh kiểm chứng bị ngắt thành finding, worker phải finish lại; write/edit chỉ chạy lại
+   khi CAS chứng minh chưa có tác dụng; `restore`, Git/apply dùng reconcile sẵn có. Không tốn lượt gọi model, không đổi ngân sách,
+   không hỏi người dùng.
+4. **Kiểm chứng gắn với output thực (GX-P1-03).** `verify` tính fingerprint candidate (cây Git), chạy kiểm chứng trên đúng cây
+   đó, rồi đối chiếu *giá trị thực tại thời điểm đó*: ref của mọi nhánh đã giao (commit và cây phải bằng candidate), mọi file
+   project của mọi đường dẫn trong candidate và mọi file đã apply (nội dung phải bằng candidate), phần còn lại của repo người
+   dùng so theo từng đường dẫn với ghim (apply chỉ miễn đúng các file đã apply, không miễn toàn bộ). `finish` sau review kiểm lại
+   lần nữa: candidate, ref, file đã apply và ghim phải y như lúc kiểm chứng, nếu khác thì bằng chứng mất hiệu lực và phải kiểm lại.
+   `apply` được cập nhật file do chính job này đã apply (CAS từ blob đã ghi receipt), như `export_branch` với nhánh job tự tạo.
+   Bàn giao lấy patch từ cây candidate đã kiểm chứng.
+5. **Host bền ngoài vòng đời chat (GX-GAP-04).** `onecrew host` là bộ điều phối theo user (một instance, lease có heartbeat),
+   do Task Scheduler của Windows khởi chạy lúc đăng nhập (task theo user, mức LeastPrivilege, không cần admin) — không phải
+   tiến trình con của chat. Entry chỉ ghi yêu cầu `host.dispatch` vào ledger; host nhận (admission: task chưa kết thúc, chưa có
+   runner sống, runtime hợp lệ), khởi chạy runner, giám sát, khởi động lại có giới hạn khi runner chết (checkpoint + reconcile),
+   tôn trọng cancel/pause/câu hỏi đang chờ, và cửa sổ Windows báo một lần như cũ. Không có host thì `job start` báo rõ, không giả
+   vờ chạy nền. Cài task Windows là cấu hình bền trên máy người dùng nên phải hỏi một lần; phần còn lại làm độc lập.
+
+Tiêu chí nghiệm thu:
+- Probe Codex và biến thể (lệnh kiểm chứng, tiến trình nền, formatter, file mới, đổi cấu hình exclude, ref đổi sau
+  export/trong review, apply sai rồi sửa, file ngoài receipt, crash trước/sau tác dụng của run và của kiểm chứng) đỏ trên 8603e74,
+  xanh sau sửa; positive control: việc hợp lệ (sửa trong scope, test, export, apply, apply lại sau sửa) vẫn hoàn thành.
+- Eval cùng harness hai phía, giữ mọi failure/capability_unavailable.
+- Đóng băng revision; task mới chưa dùng khi phát triển (sửa code + test + bàn giao) chạy qua host; đóng entry thật
+  (Job của entry bị huỷ) và kill runner ở ranh giới tác dụng/receipt; ghi assistance tách entry/setup/task/model.
+
 ## Kết quả nghiệm thu (13/10/2026) và giới hạn
 
 Bàn giao đầy đủ: `D:\TamNT\Workspace\9.VMAgent\HANDOVER-CODEX-REVIEW-ONECREW-GENERIC-EXECUTION-2026-10-13.txt`. Bàn giao này chưa

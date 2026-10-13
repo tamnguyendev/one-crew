@@ -1,12 +1,22 @@
 """Generic execution tools for work contracts: an isolated Git workspace, bounded host commands and processes, Git
 effects through the core with receipts, independent verification and a handover. The worker chooses; the core enforces.
 
-Containment, stated plainly: commands run on the Windows host in a Job object (whole tree killed on timeout, cancel or
-runner exit), in a cloned workspace whose remote is removed, with arguments pointing into the user's project or the
-OneCrew state refused and secrets stripped from the environment. This is not an OS sandbox: a program can still write
-elsewhere or use the network. The user's repository is checked against its pins at the end."""
+Containment, stated plainly (GX-P1-01, 13/10/2026):
+- Commands are *contained* unless the user granted authority.unconfined_commands: a restricted Low-integrity token
+  (onecrew.contain) lets Windows refuse every write outside the task's workspace, temp and cache directories, so the
+  user's project, the OneCrew state/ledger and the user profile cannot be written by any program a command runs. The
+  workspace's Git directory lives outside that region, so commands cannot rewrite the configuration the core relies on.
+  Contained commands can still READ what the user can read and use the network; this is a write boundary, not a
+  read/network sandbox. Every command tree runs in a Job object (killed on timeout, cancel or runner exit).
+- What a command, a write or a background process changed is judged by its effect, not by the tool: the core computes
+  the workspace delta against the pinned commit with its own index, and only changes within edit authority and
+  scope.paths can be committed, exported, applied or handed over.
+- Verification is bound to the exact candidate tree and re-checked against the real refs and project files at
+  verification and again at completion (GX-P1-03). Side-effecting actions leave a durable intent; a restart reconciles
+  it and never re-runs a command whose outcome is unknown (GX-P1-02)."""
 import ctypes
 from ctypes import wintypes as w
+import datetime as dt
 import hashlib
 import json
 import os
@@ -34,6 +44,8 @@ TEST_FILE = re.compile(r'(^|/)(tests?|__tests__|spec|specs|test_driver|integrati
 SKIP_MARK = re.compile(r'@(unittest\.)?skip|pytest\.mark\.(skip|xfail)|\b(xit|xdescribe|xtest)\s*\(|\b(it|test|describe)\.(skip|only|todo)\s*\(|'
                        r'\bskip\s*:\s*(true|[\'"])|\bmarkTestSkipped\b|t\.Skip\(|@Disabled|@Ignore', re.I)
 ASSERTION = re.compile(r'\bassert\w*\b|\bexpect\s*\(|\bshould\b|\bverify\s*\(', re.I)
+EFFECTS = ('write', 'edit', 'run', 'process', 'restore', 'workspace_commit', 'create_branch', 'export_branch', 'apply')
+CACHES = {'npm_config_cache': 'npm', 'PIP_CACHE_DIR': 'pip', 'YARN_CACHE_FOLDER': 'yarn', 'GOCACHE': 'go-build', 'XDG_CACHE_HOME': 'xdg'}
 _RUNNING = {}  # task -> {id: (Popen, Job, record)}; Job handles die with the runner process, so do their trees
 
 
@@ -51,35 +63,133 @@ def project_repo(runtime, contract):
     return repo / contract['scope']['repository'] if contract['scope']['repository'] else repo
 
 
+def boundary(contract):
+    return 'unconfined' if contract['authority'].get('unconfined_commands') else 'contained'
+
+
 # --- workspace ---------------------------------------------------------------------------------------------------
 
 def create_workspace(runtime, task_id, contract, base):
-    """Idempotent isolated clone at the pinned commit; the user's repository is only read (objects shared read-only)."""
-    root = home(runtime, task_id); target = root / 'r'
-    if (target / '.git').exists():
-        if git(target, 'rev-parse', 'HEAD^{commit}', allow_failure=True) is None: raise LedgerError('Workspace exists but is unreadable.')
-        return {'path': str(target), 'base': base, 'repository': contract['scope']['repository']}
+    """Idempotent isolated clone at the pinned commit; the user's repository is only read (objects shared read-only).
+    Layout: home/r is the work tree (Low label when contained), home/git its Git directory (never Low), home/meta the
+    core's copy of that directory's configuration, home/logs, handover and rollback are core-only."""
+    root = home(runtime, task_id); target = root / 'r'; gitdir = root / 'git'
+    record = {'path': str(target), 'base': base, 'repository': contract['scope']['repository']}
+    if gitdir.is_dir() or (target / '.git').exists():
+        layout = 'separate' if gitdir.is_dir() else 'legacy'
+        if git(target, 'rev-parse', 'HEAD^{commit}', allow_failure=True, git_dir=gitdir if layout == 'separate' else None) is None:
+            raise LedgerError('Workspace exists but is unreadable.')
+        return dict(record, layout=layout)
     if target.exists(): shutil.rmtree(target)
     source = project_repo(runtime, contract)
-    git(root, 'clone', '--shared', '--no-checkout', '--quiet', str(source), 'r', timeout=600)
+    contained = boundary(contract) == 'contained'
+    target.mkdir()
+    if contained:
+        from .contain import label_low
+        for directory in (target, root / 'tmp', root / 'cache'): label_low(directory)
+    git(root, 'clone', '--shared', '--no-checkout', '--quiet', '--separate-git-dir=' + str(gitdir), str(source), 'r', timeout=600)
     hooks = runtime.ledger.state_root / 'empty-hooks'; hooks.mkdir(parents=True, exist_ok=True)
     for key, value in (('core.longpaths', 'true'), ('core.hooksPath', str(hooks)), ('user.name', 'OneCrew'),
                        ('user.email', 'onecrew@localhost'), ('commit.gpgSign', 'false')):
-        git(target, 'config', key, value)
+        git(target, 'config', key, value, git_dir=gitdir)
     for key in ('core.autocrlf', 'core.eol', 'core.safecrlf'):  # the same line-ending rules as the user's checkout
         value = git(source, 'config', '--get', key, allow_failure=True)
-        if value: git(target, 'config', key, value.decode().strip())
-    git(target, 'checkout', '--quiet', '--detach', base, timeout=600)
-    git(target, 'remote', 'remove', 'origin', allow_failure=True)
-    if git(target, 'remote') not in (b'', None): raise LedgerError('Workspace still has a remote; refusing to continue.')
-    (root / 'tmp').mkdir(exist_ok=True); (root / 'logs').mkdir(exist_ok=True)
-    return {'path': str(target), 'base': base, 'repository': contract['scope']['repository']}
+        if value: git(target, 'config', key, value.decode().strip(), git_dir=gitdir)
+    git(target, 'checkout', '--quiet', '--detach', base, timeout=600, git_dir=gitdir, work_tree=target)
+    git(target, 'remote', 'remove', 'origin', allow_failure=True, git_dir=gitdir)
+    if git(target, 'remote', git_dir=gitdir) not in (b'', None): raise LedgerError('Workspace still has a remote; refusing to continue.')
+    (root / 'tmp').mkdir(exist_ok=True); (root / 'logs').mkdir(exist_ok=True); (root / 'cache').mkdir(exist_ok=True)
+    meta = root / 'meta'; meta.mkdir(exist_ok=True); durable_write(meta / 'empty-exclude', b'')
+    for name in ('config', 'info/exclude', 'info/attributes'):
+        if (gitdir / name).is_file(): durable_write(meta / name.replace('/', '-'), (gitdir / name).read_bytes())
+    return dict(record, layout='separate', boundary=boundary(contract), labelled=contained)
 
 
 def ws_root(state):
     value = (state.get('work') or {}).get('workspace')
     if not value: raise LedgerError('No workspace: the contract grants neither edit nor commands; use the read-only project tools.')
     return Path(value['path'])
+
+
+def _home(state):
+    return ws_root(state).parent
+
+
+def gitdir(state):
+    separate = _home(state) / 'git'
+    return separate if (state['work']['workspace'].get('layout') == 'separate' or separate.is_dir()) else ws_root(state) / '.git'
+
+
+def wgit(state, *args, **kw):
+    """Core Git on the workspace, always naming its own Git directory and work tree explicitly."""
+    root = ws_root(state); directory = gitdir(state)
+    if (not directory.is_dir() or directory.is_symlink() or getattr(directory, 'is_junction', lambda: False)()
+            or (directory / 'commondir').exists()):
+        raise LedgerError('The workspace Git directory is not the one the core created; refusing to use it.')
+    return git(root, *args, git_dir=directory, work_tree=root, **kw)
+
+
+def _guard_metadata(state):
+    """The workspace Git configuration belongs to the core (filters, excludes and attributes would change what the core
+    sees or runs). Contained commands cannot reach it; an unconfined command that changed it is undone and recorded."""
+    meta = _home(state) / 'meta'; directory = gitdir(state)
+    if not meta.is_dir(): return []
+    restored = []
+    for name in ('config', 'info/exclude', 'info/attributes'):
+        saved = meta / name.replace('/', '-'); live = directory / name
+        want = saved.read_bytes() if saved.is_file() else None
+        have = live.read_bytes() if live.is_file() else None
+        if have != want:
+            if want is None: live.unlink()
+            else: durable_write(live, want)
+            restored.append(name)
+    if restored: state['work'].setdefault('metadata_restored', []).append({'step': state.get('step'), 'paths': restored})
+    return restored
+
+
+def snapshot(state, changes=True):
+    """The workspace as the core sees it: every non-ignored file (whoever wrote it), as a Git tree, and (changes=True) its
+    changes against the pinned commit. Uses the core's own index; the repository's committed .gitignore decides what is
+    generated output."""
+    base = state['work']['pins']['head']; root = _home(state)
+    _guard_metadata(state)
+    environment = {'GIT_INDEX_FILE': str(root / 'core.index')}
+    if not (root / 'core.index').is_file(): wgit(state, 'read-tree', base, env=environment)
+    exclude = root / 'meta' / 'empty-exclude'
+    if not exclude.is_file(): durable_write(exclude, b'')
+    wgit(state, '-c', 'core.excludesFile=' + str(exclude), 'add', '-A', '--', '.', env=environment, timeout=600)
+    tree = wgit(state, 'write-tree', env=environment).decode().strip()
+    return {'tree': tree, 'changes': tree_changes(state, base, tree) if changes else None}
+
+
+def tree_changes(state, old, new):
+    raw = wgit(state, 'diff-tree', '-r', '--name-status', '-z', '--no-renames', old, new) or b''
+    parts = [p.decode('utf-8', errors='replace') for p in raw.split(b'\0') if p]
+    return [{'status': parts[i], 'path': parts[i + 1]} for i in range(0, len(parts) - 1, 2)]
+
+
+def in_scope(contract, name):
+    paths = contract['scope']['paths']
+    return not paths or any(name == p or name.startswith(p.rstrip('/') + '/') for p in paths)
+
+
+def classify(contract, changes):
+    """Changes that cannot be delivered under this contract, whichever tool or command made them."""
+    a = contract['authority']; bad = []
+    for change in changes:
+        name = change['path']
+        if not a['edit']: reason = 'the contract grants commands but no edit authority, so file changes cannot be delivered'
+        elif not in_scope(contract, name): reason = 'outside scope.paths'
+        elif is_test(name) and change['status'] in ('M', 'D') and not a['edit_tests']: reason = 'existing test file changed without edit_tests'
+        else: continue
+        bad.append({'path': name, 'status': change['status'], 'reason': reason})
+    return bad
+
+
+def _undeliverable(bad, what):
+    listed = '; '.join(f"{b['path']} ({b['reason']})" for b in bad[:12]) + (f' and {len(bad) - 12} more' if len(bad) > 12 else '')
+    return LedgerError(f'{what}: the workspace holds changes this contract cannot deliver: {listed}. '
+                       'Undo them with restore {paths:[...]} (the pinned version comes back), then try again.')
 
 
 def view(runtime, state):
@@ -93,7 +203,7 @@ def file_path(state, contract, name, for_write=False):
     scoped_path(name)
     root = ws_root(state)
     target = safe_file(root, name)
-    if for_write and contract['scope']['paths'] and not any(name == p or name.startswith(p.rstrip('/') + '/') for p in contract['scope']['paths']):
+    if for_write and not in_scope(contract, name):
         raise LedgerError('Path outside the contract scope.paths; not authorized to edit.')
     return target
 
@@ -107,25 +217,14 @@ def write(state, contract, args, *, edit=False):
     name = args['path']; target = file_path(state, contract, name, for_write=True)
     exists = target.is_file()
     if target.exists() and not exists: raise LedgerError('Not a regular file.')
-    base_has = git(ws_root(state), 'cat-file', '-e', state['work']['pins']['head'] + ':' + name, allow_failure=True) is not None
+    base_has = wgit(state, 'cat-file', '-e', state['work']['pins']['head'] + ':' + name, allow_failure=True) is not None
     if is_test(name) and base_has and not contract['authority']['edit_tests']:
         raise LedgerError('Existing test files are immutable under this contract; add a new test file or fix production code.')
     current = target.read_bytes() if exists else None
     expected = args.get('expected_sha256')
     if (hashlib.sha256(current).hexdigest() if current is not None else None) != expected:
         raise LedgerError('Stale or missing expected_sha256: read the file first (null only for a new file).')
-    if edit:
-        old, new = args.get('old'), args.get('new')
-        if not isinstance(old, str) or not old or not isinstance(new, str): raise LedgerError('edit needs non-empty old and a new string.')
-        text = current.decode('utf-8')
-        if text.count(old) != 1: raise LedgerError(f'old string must occur exactly once (found {text.count(old)}).')
-        data = text.replace(old, new).encode('utf-8')
-    else:
-        text = args.get('text')
-        if not isinstance(text, str): raise LedgerError('write needs text.')
-        data = text.encode('utf-8')
-    if len(data) > 1_000_000: raise LedgerError('File edit exceeds 1 MB.')
-    scan_text(data)
+    data = _new_content(current, args, edit)
     target.parent.mkdir(parents=True, exist_ok=True)
     before = target.stat().st_mtime if exists else None
     durable_write(target, data)
@@ -136,6 +235,47 @@ def write(state, contract, args, *, edit=False):
     state['work'].setdefault('edits', 0); state['work']['edits'] += 1
     return {'path': name, 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data), 'created': current is None,
             'where': 'isolated workspace; the user project is unchanged'}
+
+
+def _new_content(current, args, edit):
+    if edit:
+        old, new = args.get('old'), args.get('new')
+        if not isinstance(old, str) or not old or not isinstance(new, str): raise LedgerError('edit needs non-empty old and a new string.')
+        if current is None: raise LedgerError('edit needs an existing file.')
+        text = current.decode('utf-8')
+        if text.count(old) != 1: raise LedgerError(f'old string must occur exactly once (found {text.count(old)}).')
+        data = text.replace(old, new).encode('utf-8')
+    else:
+        text = args.get('text')
+        if not isinstance(text, str): raise LedgerError('write needs text.')
+        data = text.encode('utf-8')
+    if len(data) > 1_000_000: raise LedgerError('File edit exceeds 1 MB.')
+    scan_text(data)
+    return data
+
+
+def restore(runtime, task_id, state, contract, args):
+    """Put workspace paths back to the pinned commit: tracked files come back, files absent there are removed. Allowed
+    with edit or commands authority, because it only undoes changes; the way to clear what cannot be delivered."""
+    if not (contract['authority']['edit'] or contract['authority']['commands']):
+        raise LedgerError('restore needs a workspace (edit or commands authority).')
+    paths = args.get('paths')
+    if not isinstance(paths, list) or not 1 <= len(paths) <= 200: raise LedgerError('restore: paths, a list of 1-200 workspace paths.')
+    base = state['work']['pins']['head']; root = ws_root(state); done = []
+    for name in paths:
+        safe_file(root, scoped_path(name))
+        if wgit(state, 'cat-file', '-e', base + ':' + name, allow_failure=True) is not None:
+            wgit(state, 'checkout', base, '--', name)
+        wgit(state, 'clean', '-f', '-d', '-q', '--', name)  # untracked, not ignored: what the delta shows
+        done.append(name)
+    left = snapshot(state)
+    # Files absent at the pin that a workspace commit made tracked survive `clean`; they go as well.
+    added = [c['path'] for c in left['changes'] if c['status'] == 'A'
+             and any(c['path'] == n or c['path'].startswith(n.rstrip('/') + '/') for n in paths)]
+    for name in added: safe_file(root, name).unlink(missing_ok=True)
+    if added: left = snapshot(state)
+    return {'restored': done, 'remaining_changes': len(left['changes']),
+            'remaining_undeliverable': classify(contract, left['changes'])[:50]}
 
 
 # --- commands and processes ---------------------------------------------------------------------------------------
@@ -162,20 +302,39 @@ def which(name, path_env):
     raise LedgerError('Command not found on PATH (Store aliases and venv redirectors are skipped): ' + name[:80])
 
 
-def environment(runtime, task_id):
+def environment(runtime, task_id, contract=None):
     env = {k: v for k, v in os.environ.items() if not SECRET_ENV.search(k) and not k.upper().startswith(DROP_ENV)}
-    tmp = home(runtime, task_id) / 'tmp'; tmp.mkdir(exist_ok=True)
+    root = home(runtime, task_id); tmp = root / 'tmp'; tmp.mkdir(exist_ok=True)
     env['TEMP'] = env['TMP'] = str(tmp)
     env.setdefault('CI', 'true')
     env['PYTHONDONTWRITEBYTECODE'] = '1'  # no stale bytecode, no __pycache__ in the workspace diff
+    if contract is not None and boundary(contract) == 'contained':
+        for key, name in CACHES.items(): env[key] = str(root / 'cache' / name)  # package caches the boundary lets them write
     return env
 
 
+def ensure_boundary(runtime, task_id, state, contract):
+    """Contained commands need their writable region labelled; workspaces made before the boundary get it on first use."""
+    if boundary(contract) != 'contained': return 'unconfined'
+    from .contain import available, label_low
+    ok, reason = available()
+    if not ok:
+        raise LedgerError('environment: the command write boundary is unavailable here (' + str(reason) + '); commands cannot run '
+                          'contained. Running them with the user\'s full rights needs authority.unconfined_commands from the user.')
+    workspace = state['work']['workspace']
+    if not workspace.get('labelled'):
+        root = home(runtime, task_id)
+        for directory in (ws_root(state), root / 'tmp', root / 'cache'): label_low(directory)
+        workspace['labelled'] = True
+    return 'contained'
+
+
 def refuse_arguments(runtime, state, argv):
-    """Arguments may not point into the user's project or the OneCrew state (the workspace itself is allowed)."""
+    """Arguments may not point into the user's project or the OneCrew state (the workspace itself is allowed). Defence in
+    depth: the contained boundary refuses such writes anyway; unconfined commands rely on this and on the delivery gate."""
     project = Path(runtime.ledger.project).resolve(); state_root = Path(runtime.ledger.state_root).resolve()
     workspace = ws_root(state).resolve()
-    protected = [project, state_root]
+    protected = [project, state_root, _home(state).resolve() / 'git', _home(state).resolve() / 'meta']
     for argument in argv:
         for match in ABSOLUTE.findall(argument):
             try: target = Path(match.rstrip('.:')).resolve()
@@ -200,9 +359,16 @@ def command_line(executable, argv):
     return [str(executable), *argv[1:]]
 
 
-def _spawn(line, cwd, env, out, err):
+def _spawn(line, cwd, env, out, err, contained=False):
     from .supervisor import Job
     job = Job()
+    if contained:
+        from .contain import spawn
+        try: child = spawn(line, cwd, env, out, err)
+        except BaseException: job.close(); raise
+        try: job.assign(child); child.resume()
+        except BaseException: child.kill(); job.close(); raise
+        return child, job
     child = subprocess.Popen(line, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
                              creationflags=0x4 | 0x08000000)
     try:
@@ -221,6 +387,28 @@ def _tail(path, head=1500, tail=6000):
     return text[:head] + f'\n[... {len(text) - head - tail} characters omitted; full log retained ...]\n' + text[-tail:], len(data)
 
 
+def _record_process(logs, token, child):
+    """Who ran this command, on disk outside the writable region, so a later runner can prove its tree is gone."""
+    from .supervisor import identity
+    try: durable_write(logs / (token + '.pid'), canonical(identity(child.pid)).encode())
+    except (OSError, LedgerError): pass
+
+
+def effects(contract, before, after, state):
+    """What one command changed in the workspace, and which of those changes this contract cannot deliver."""
+    if before['tree'] == after['tree']: return {'changed_paths': []}
+    changed = [c['path'] for c in tree_changes(state, before['tree'], after['tree'])]
+    names = set(changed)
+    current = after['changes'] if after.get('changes') is not None else tree_changes(state, state['work']['pins']['head'], after['tree'])
+    bad = [b for b in classify(contract, current) if b['path'] in names]
+    result = {'changed_paths': changed[:200]}
+    if bad:
+        result['undeliverable_changes'] = bad[:50]
+        result['remedy'] = ('These changes cannot be committed, exported, applied or handed over under this contract. Undo them '
+                            'with restore {paths:[...]} or a command that does not modify them.')
+    return result
+
+
 def run(runtime, task_id, state, contract, args, guard):
     if not contract['authority']['commands']: raise LedgerError('Commands are not authorized by the work contract.')
     argv = argv_value(args.get('argv'))
@@ -228,18 +416,24 @@ def run(runtime, task_id, state, contract, args, guard):
     if not cwd.is_dir(): raise LedgerError('cwd is not a workspace directory.')
     timeout = args.get('timeout_seconds', 300)
     if type(timeout) is not int or not 1 <= timeout <= RUN_SECONDS: raise LedgerError(f'timeout_seconds: 1-{RUN_SECONDS}.')
-    env = environment(runtime, task_id)
+    env = environment(runtime, task_id, contract)
     executable = which(argv[0], env.get('PATH', ''))
     refuse_arguments(runtime, state, [str(executable), *argv[1:]])
+    mode = ensure_boundary(runtime, task_id, state, contract)
     line = command_line(executable, argv)
     logs = home(runtime, task_id) / 'logs'; logs.mkdir(exist_ok=True)
-    token = f"{state['step']:04d}-{uuid.uuid4().hex[:8]}"
+    pending = state['work'].get('intent') or {}
+    token = (pending.get('log') if pending.get('action') == 'run' and pending.get('step') == state['step'] else None) \
+        or f"{state['step']:04d}-{uuid.uuid4().hex[:8]}"
     outpath, errpath = logs / (token + '.out'), logs / (token + '.err')
+    # The intent already holds the tree right before this command (written by the coordinator); otherwise take it now.
+    before = {'tree': pending['tree']} if pending.get('log') == token and pending.get('tree') else snapshot(state, changes=False)
     if args.get('background'):
-        return start_background(runtime, task_id, state, line, cwd, env, outpath, errpath, argv, executable)
+        return start_background(runtime, task_id, state, line, cwd, env, outpath, errpath, argv, executable, mode, token)
     started = time.monotonic(); reason = None
     with outpath.open('wb') as out, errpath.open('wb') as err:
-        child, job = _spawn(line, cwd, env, out, err)
+        child, job = _spawn(line, cwd, env, out, err, contained=mode == 'contained')
+        _record_process(logs, token, child)
         try:
             deadline = started + timeout
             while child.poll() is None:
@@ -254,30 +448,32 @@ def run(runtime, task_id, state, contract, args, guard):
                 child.wait(timeout=10); job.close()
     stdout, out_bytes = _tail(outpath); stderr, err_bytes = _tail(errpath)
     result = {'argv': argv, 'cwd': str(cwd.relative_to(ws_root(state))).replace('\\', '/') if cwd != ws_root(state) else '',
-              'executable': str(executable), 'exit_code': None if reason else child.returncode, 'stopped': reason,
+              'executable': str(executable), 'boundary': mode, 'exit_code': None if reason else child.returncode, 'stopped': reason,
               'seconds': round(time.monotonic() - started, 2), 'stdout': stdout, 'stderr': stderr,
               'stdout_bytes': out_bytes, 'stderr_bytes': err_bytes, 'log': token,
               'tests': test_counts(stdout + '\n' + stderr)}
+    result.update(effects(contract, before, snapshot(state, changes=False), state))
     result['hint'] = diagnose(result)
     state['work'].setdefault('commands', []).append({k: result[k] for k in ('argv', 'cwd', 'exit_code', 'stopped', 'tests', 'log')})
     return result
 
 
-def start_background(runtime, task_id, state, line, cwd, env, outpath, errpath, argv, executable):
+def start_background(runtime, task_id, state, line, cwd, env, outpath, errpath, argv, executable, mode='unconfined', token=None):
     running = _RUNNING.setdefault(task_id, {})
     alive = {k: v for k, v in running.items() if v[0].poll() is None}
     if len(alive) >= BACKGROUND_LIMIT: raise LedgerError(f'At most {BACKGROUND_LIMIT} background processes; stop one first.')
     out, err = outpath.open('wb'), errpath.open('wb')
-    child, job = _spawn(line, cwd, env, out, err)
+    child, job = _spawn(line, cwd, env, out, err, contained=mode == 'contained')
+    if token: _record_process(outpath.parent, token, child)
     identifier = 'P' + uuid.uuid4().hex[:8]
     record = {'id': identifier, 'argv': argv, 'executable': str(executable), 'pid': child.pid, 'log': outpath.stem,
-              'started_step': state['step'], 'runner_pid': os.getpid()}
+              'started_step': state['step'], 'runner_pid': os.getpid(), 'boundary': mode}
     running[identifier] = (child, job, record, out, err)
     state['work'].setdefault('processes', {})[identifier] = dict(record, status='running')
     return dict(record, status='running', note='Contained in a Job object owned by this runner; it stops with the task or the runner.')
 
 
-def process(runtime, task_id, state, args):
+def process(runtime, task_id, state, args, contract=None):
     identifier = args.get('id'); record = state['work'].get('processes', {}).get(identifier)
     if not record: raise LedgerError('Unknown background process id.')
     entry = _RUNNING.get(task_id, {}).get(identifier)
@@ -299,6 +495,9 @@ def process(runtime, task_id, state, args):
     if op == 'output' or record['status'] != 'running':
         result['stdout'], _ = _tail(logs / (record['log'] + '.out'), 1000, 4000)
         result['stderr'], _ = _tail(logs / (record['log'] + '.err'), 500, 3000)
+    if contract is not None and record['status'] != 'running':
+        bad = classify(contract, snapshot(state)['changes'])
+        if bad: result['workspace_undeliverable_changes'] = bad[:50]
     return result
 
 
@@ -334,9 +533,18 @@ def test_counts(text):
 
 def diagnose(result):
     text = (result['stderr'] + '\n' + result['stdout'])[-8000:].lower()
-    if result['stopped'] == 'timeout': return 'environment: command timed out (raise timeout_seconds within the budget, or run it in the background)'
+    contained = result.get('boundary') == 'contained'
+    boundary_note = (' Contained commands can write only inside the workspace: a toolchain that writes into its own '
+                     'installation or the user profile (for example the Flutter SDK cache) is refused or waits on a lock. '
+                     'That needs authority.unconfined_commands from the user; ask instead of working around it.')
+    if result['stopped'] == 'timeout':
+        return ('environment: command timed out (raise timeout_seconds within the budget, or run it in the background)'
+                + (boundary_note if contained else ''))
     if re.search(r'is not recognized as an internal|command not found|no such file or directory.*\b(dart|flutter|node|npm|python)\b', text):
         return 'environment: a tool is missing from PATH'
+    if contained and re.search(r'access is denied|permission denied|eacces|eperm|operation not permitted|errno 13|'
+                               r'unauthorizedaccess|access to the path .* is denied', text):
+        return 'environment: the write boundary refused a write outside the workspace.' + boundary_note
     if re.search(r'modulenotfounderror|cannot find module|could not resolve|package .* not found|pub get|npm (ci|install)', text):
         return 'environment: dependencies/cache missing (restore them inside the workspace)'
     if re.search(r'lock(ed)? (file|by another)|\.lock\b|resource busy|access is denied|being used by another process', text):
@@ -348,10 +556,108 @@ def diagnose(result):
     return None
 
 
+# --- durable intent and reconciliation (GX-P1-02) ---------------------------------------------------------------------
+
+def intent(runtime, task_id, state, action, args):
+    """Written to the checkpoint BEFORE a side-effecting action runs; cleared with its receipt."""
+    from .supervisor import identity
+    record = {'step': state['step'], 'action': action, 'arguments': content_hash(args),
+              'at': dt.datetime.now(dt.timezone.utc).isoformat(), 'runner': identity(os.getpid())}
+    if action == 'run': record['log'] = f"{state['step']:04d}-{uuid.uuid4().hex[:8]}"
+    if (state.get('work') or {}).get('workspace') and action in ('run', 'write', 'edit', 'restore', 'workspace_commit', 'verify'):
+        record['tree'] = snapshot(state, changes=False)['tree']
+        if action == 'workspace_commit': record['head'] = wgit(state, 'rev-parse', 'HEAD').decode().strip()
+    return record
+
+
+def _terminate(record):
+    """Stop a process left by a dead runner, only when its identity (pid + creation time) still matches."""
+    from .supervisor import kernel, probe
+    if probe(record) != 'alive': return False
+    api = kernel(); handle = api.OpenProcess(0x0001 | 0x1000, False, record['pid'])
+    if not handle: return False
+    try:
+        api.TerminateProcess.argtypes = [w.HANDLE, w.UINT]
+        return bool(api.TerminateProcess(handle, 1))
+    finally:
+        api.CloseHandle(handle)
+
+
+def reconcile(runtime, task_id, state, contract, pending, args):
+    """A previous runner stopped after recording `pending` but before its receipt. Returns a receipt, or None when the
+    action is provably not applied yet or is idempotent by its own action record (then it is executed normally).
+    A command whose outcome is unknown is never re-run here."""
+    from .supervisor import identity, probe
+    # The caller holds the task lock, so no other coordinator is executing this task. A different process that is still
+    # alive may still own a command tree of this action, though: then nothing is decided here.
+    if pending.get('runner') != identity(os.getpid()) and probe(pending.get('runner')) == 'alive':
+        raise LedgerError('The runner that started this action is still alive; it owns the action, so nothing is reconciled.')
+    action = pending['action']
+    if pending.get('arguments') != content_hash(args): raise LedgerError('Pending intent does not match the response; refusing to guess.')
+    if action in ('create_branch', 'export_branch', 'apply', 'process', 'restore'):
+        return None  # Git/apply reconcile through their action records; process ops and restore are idempotent.
+    if action in ('write', 'edit'):
+        target = file_path(state, contract, args['path'], for_write=True)
+        current = target.read_bytes() if target.is_file() else None
+        digest = hashlib.sha256(current).hexdigest() if current is not None else None
+        if digest == args.get('expected_sha256'): return None  # CAS proves the write did not happen: safe to run it
+        old = wgit(state, 'cat-file', 'blob', pending['tree'] + ':' + args['path'], allow_failure=True) if pending.get('tree') else None
+        try: intended = _new_content(old, args, action == 'edit') if (old is not None or action == 'write') else None
+        except LedgerError: intended = None
+        if intended is not None and current == intended:
+            return {'path': args['path'], 'sha256': digest, 'reconciled': True,
+                    'outcome': 'applied before the previous runner stopped; not written again'}
+        raise LedgerError('The file changed in a way this write did not produce; read it again before writing.')
+    if action == 'workspace_commit':
+        head = wgit(state, 'rev-parse', 'HEAD').decode().strip()
+        if head == pending.get('head'): return None
+        message = (wgit(state, 'log', '-1', '--format=%B', head) or b'').decode().strip()
+        if message == str(args.get('message', '')).strip():
+            state['work']['workspace_commit'] = head
+            return {'commit': head, 'reconciled': True, 'where': 'isolated workspace only'}
+        raise LedgerError('Workspace HEAD moved to an unexpected commit while the runner was down; inspect it before committing.')
+    if action == 'run':
+        logs = home(runtime, task_id) / 'logs'; token = pending.get('log', '')
+        stopped = False
+        try: stopped = _terminate(json.loads((logs / (token + '.pid')).read_text()))
+        except (OSError, ValueError, LedgerError): pass
+        stdout, _ = _tail(logs / (token + '.out')); stderr, _ = _tail(logs / (token + '.err'))
+        result = {'argv': args.get('argv'), 'exit_code': None, 'outcome': 'unknown', 'reconciled': True, 'log': token,
+                  'stdout': stdout, 'stderr': stderr, 'tests': test_counts(stdout + '\n' + stderr),
+                  'left_running_and_stopped': stopped, 'background': bool(args.get('background')),
+                  'note': ('The runner stopped while this command ran or before its receipt was saved. OneCrew does not run it '
+                           'again automatically: read the output and the changed paths, then decide whether running it again '
+                           'is safe.')}
+        if pending.get('tree') and state['work'].get('workspace'):
+            result.update(effects(contract, {'tree': pending['tree']}, snapshot(state, changes=False), state))
+        state['work'].setdefault('commands', []).append({'argv': args.get('argv'), 'cwd': args.get('cwd', ''), 'exit_code': None,
+                                                         'stopped': 'runner_lost', 'tests': result['tests'], 'log': token})
+        return result
+    return None
+
+
+def return_to(state, tree):
+    """Bring the workspace back to `tree`: files a verification command created are removed, files it changed come back.
+    Returns (removed, restored)."""
+    after = snapshot(state, changes=False)
+    if after['tree'] == tree: return [], []
+    removed, restored = [], []
+    for change in tree_changes(state, tree, after['tree']):
+        name = change['path']
+        if change['status'] == 'A':
+            target = safe_file(ws_root(state), name)
+            if target.is_file(): target.unlink()
+            removed.append(name)
+        else:
+            wgit(state, 'checkout', tree, '--', name); restored.append(name)
+    return removed, restored
+
+
 # --- Git through the core -------------------------------------------------------------------------------------------
 
 def _branch_action(runtime, task_id, repo, ref, commit, key, kind, observe_extra=None, fetch_from=None, advance_from=None):
-    """advance_from: only for a ref THIS job created with a verified receipt; compare-and-swap from exactly that commit."""
+    """advance_from: only for a ref THIS job created with a verified receipt; compare-and-swap from exactly that commit.
+    fetch_from: the workspace Git directory, already holding refs/onecrew/export at `commit`."""
     control = runtime.control
     payload = {'kind': kind, 'repository': str(repo), 'ref': ref, 'commit': commit, 'executor': 'onecrew-core'}
     if advance_from: payload['advance_from'] = advance_from
@@ -382,8 +688,7 @@ def _branch_action(runtime, task_id, repo, ref, commit, key, kind, observe_extra
         from .sandbox_gate import task_guard
         task_guard(control, task_id)()
         if fetch_from:
-            # Objects only: a workspace-local ref names the commit; the user's refs/checkout are untouched until update-ref.
-            git(fetch_from, 'update-ref', 'refs/onecrew/export', value['commit'])
+            # Objects only, from the workspace Git directory the core owns; the user's refs/checkout are untouched until update-ref.
             git(repo, 'fetch', '--no-tags', '--no-write-fetch-head', '--quiet', str(fetch_from), 'refs/onecrew/export', timeout=600)
         git(repo, 'update-ref', '-m', 'onecrew ' + task_id, value['ref'], value['commit'],
             value.get('advance_from') or '0' * len(value['commit']))
@@ -412,25 +717,31 @@ def create_branch(runtime, task_id, state, contract, args):
 
 
 def workspace_commit(state, contract, args):
+    """Commits exactly the delta the core sees (its own snapshot), only when all of it can be delivered."""
     if not contract['authority']['edit']: raise LedgerError('Edits are not authorized by the work contract.')
     message = args.get('message')
     if not isinstance(message, str) or not 3 <= len(message) <= 500: raise LedgerError('message: 3-500 characters.')
-    root = ws_root(state)
-    git(root, 'add', '-A')
-    if git(root, 'diff', '--cached', '--quiet', allow_failure=True) is not None: raise LedgerError('Nothing to commit in the workspace.')
-    git(root, 'commit', '--quiet', '--no-verify', '-m', message)
-    sha = git(root, 'rev-parse', 'HEAD').decode().strip()
+    snap = snapshot(state)
+    head = wgit(state, 'rev-parse', 'HEAD').decode().strip()
+    if snap['tree'] == wgit(state, 'rev-parse', head + '^{tree}').decode().strip(): raise LedgerError('Nothing to commit in the workspace.')
+    bad = classify(contract, snap['changes'])
+    if bad: raise _undeliverable(bad, 'Not committed')
+    sha = wgit(state, 'commit-tree', snap['tree'], '-p', head, '-m', message).decode().strip()
+    wgit(state, 'update-ref', 'HEAD', sha, head)
+    wgit(state, 'reset', '-q', sha)  # the workspace index follows; files are untouched
     state['work']['workspace_commit'] = sha
-    return {'commit': sha, 'where': 'isolated workspace only'}
+    return {'commit': sha, 'tree': snap['tree'], 'where': 'isolated workspace only'}
 
 
 def export_branch(runtime, task_id, state, contract, args):
     name = branch_name(args.get('name'))
     if name not in contract['authority']['local_branches']: raise LedgerError('Branch name not authorized by the work contract.')
     sha = state['work'].get('workspace_commit')
-    root = ws_root(state)
-    if not sha or git(root, 'rev-parse', 'HEAD').decode().strip() != sha: raise LedgerError('Commit the workspace first (workspace_commit).')
-    if git(root, 'status', '--porcelain'): raise LedgerError('Workspace has uncommitted changes after its commit.')
+    if not sha or wgit(state, 'rev-parse', 'HEAD').decode().strip() != sha: raise LedgerError('Commit the workspace first (workspace_commit).')
+    if snapshot(state, changes=False)['tree'] != wgit(state, 'rev-parse', sha + '^{tree}').decode().strip():
+        raise LedgerError('Workspace has uncommitted changes after its commit.')
+    bad = classify(contract, tree_changes(state, state['work']['pins']['head'], sha))
+    if bad: raise _undeliverable(bad, 'Not exported')
     repo = project_repo(runtime, contract)
     # A branch this job itself created (verified create_branch receipt, still at that commit) may be advanced to the work;
     # held-out run H1-r1 (13/10/2026) created its delivery branch first and could not land the work on it.
@@ -438,8 +749,9 @@ def export_branch(runtime, task_id, state, contract, args):
            and b['receipt'].get('status') == 'verified' and b['receipt'].get('result', {}).get('kind') == 'local_branch']
     current = git(repo, 'show-ref', '--verify', '--hash', 'refs/heads/' + name, allow_failure=True)
     advance = own[-1] if own and current and current.decode().strip() == own[-1] else None
+    wgit(state, 'update-ref', 'refs/onecrew/export', sha)
     receipt = _branch_action(runtime, task_id, repo, 'refs/heads/' + name, sha, 'work:export:' + content_hash([name, advance])[:24],
-                             'exported_branch', fetch_from=root, advance_from=advance)
+                             'exported_branch', fetch_from=gitdir(state), advance_from=advance)
     state['work'].setdefault('branches', []).append({'name': name, 'ref': 'refs/heads/' + name, 'receipt': receipt})
     if receipt.get('status') not in ('verified', 'exists'):
         from .owned_git import EffectUnknown
@@ -448,11 +760,7 @@ def export_branch(runtime, task_id, state, contract, args):
 
 
 def changed_files(state):
-    root = ws_root(state); base = state['work']['pins']['head']
-    git(root, 'add', '-A')
-    raw = git(root, 'diff', '--cached', '--name-status', '-z', '--no-renames', base) or b''
-    parts = [p.decode('utf-8', errors='replace') for p in raw.split(b'\0') if p]
-    return [{'status': parts[i], 'path': parts[i + 1]} for i in range(0, len(parts) - 1, 2)]
+    return snapshot(state)['changes']
 
 
 def _clean_blob(repo, path, name):
@@ -460,16 +768,26 @@ def _clean_blob(repo, path, name):
     return git(repo, 'hash-object', '--path=' + name, str(path)).decode().strip()
 
 
+def _blob(state, tree, name):
+    found = wgit(state, 'rev-parse', '--verify', '--quiet', tree + ':' + name, allow_failure=True)
+    return found.decode().strip() if found else None
+
+
 def apply(runtime, task_id, state, contract, args):
-    """Copy the workspace changes into the user's checkout: only granted, only onto files untouched since the pin
-    (compared as Git blobs, so CRLF checkouts are not mistaken for edits), with a rollback copy."""
+    """Copy the verified-to-be candidate into the user's checkout: only granted, only deliverable changes, only onto files
+    untouched since the pin or last written by this job's own verified apply (compared as Git blobs, so CRLF checkouts
+    are not mistaken for edits), with a rollback copy of the user's original. Files this job applied earlier that are no
+    longer changed in the workspace go back to the pinned version, so the project always mirrors one candidate."""
     if not contract['authority']['apply_to_project']: raise LedgerError('Applying to the project is not authorized by the work contract.')
     repo = project_repo(runtime, contract); root = ws_root(state); base = state['work']['pins']['head']
-    changes = changed_files(state)
-    if not changes: raise LedgerError('No workspace changes to apply.')
-    payload = {'kind': 'apply', 'repository': str(repo), 'base': base,
-               'files': [{'path': c['path'], 'status': c['status'],
-                          'blob': None if c['status'] == 'D' else _clean_blob(root, root / c['path'], c['path'])} for c in changes]}
+    snap = snapshot(state); changes = snap['changes']
+    bad = classify(contract, changes)
+    if bad: raise _undeliverable(bad, 'Not applied')
+    earlier = dict(state['work'].get('applied_files') or {})
+    names = {c['path'] for c in changes} | set(earlier)
+    if not changes and not earlier: raise LedgerError('No workspace changes to apply.')
+    files = [{'path': name, 'blob': _blob(state, snap['tree'], name)} for name in sorted(names)]
+    payload = {'kind': 'apply', 'repository': str(repo), 'base': base, 'candidate': snap['tree'], 'files': files}
     control = runtime.control
     backup = home(runtime, task_id) / 'rollback'
 
@@ -477,12 +795,15 @@ def apply(runtime, task_id, state, contract, args):
         ok = all(((repo / f['path']).is_file() and _clean_blob(repo, repo / f['path'], f['path']) == f['blob'])
                  if f['blob'] else not (repo / f['path']).exists() for f in value['files'])
         return dict(value, verified=ok, rollback=str(backup))
+
     def untouched(value):
         for f in value['files']:
             target = safe_file(repo, f['path'])
             original = git(repo, 'rev-parse', '--verify', '--quiet', base + ':' + f['path'], allow_failure=True)
             current = _clean_blob(repo, target, f['path']) if target.is_file() else None
-            if current != (original.decode().strip() if original else None):
+            allowed = {original.decode().strip() if original else None}
+            if f['path'] in earlier: allowed.add(earlier[f['path']])  # this job's own verified apply may be updated
+            if current not in allowed:
                 raise LedgerError('Project file changed since the pin; refusing to overwrite: ' + f['path'])
     key = 'work:apply:' + content_hash(payload)[:16]
     with runtime.ledger.transaction() as conn:
@@ -495,30 +816,30 @@ def apply(runtime, task_id, state, contract, args):
         receipt = control.reconcile_action(action['id'], action['revision'], observe)
     elif action['status'] == 'verified': receipt = json.loads(action['receipt'])
     else: receipt = None
-    if receipt is not None:
-        state['work']['applied'] = receipt.get('status') == 'verified'
-        if receipt.get('status') != 'verified':
-            from .owned_git import EffectUnknown
-            raise EffectUnknown('Apply effect unconfirmed; resume reconciles it without writing again.')
-        return receipt
-
-    def effect(value):
-        untouched(value)  # again under the action, in case the user edited in between
-        backup.mkdir(parents=True, exist_ok=True)
-        for f in value['files']:
-            target = safe_file(repo, f['path'])
-            if target.is_file(): durable_write(backup / (content_hash(f['path'])[:16] + '.orig'), target.read_bytes())
-            if f['blob'] is None: target.unlink(missing_ok=True)
-            else:
-                # The workspace checks out with the user's own line-ending rules, so its bytes are what the user would have.
-                target.parent.mkdir(parents=True, exist_ok=True); durable_write(target, (root / f['path']).read_bytes())
-        durable_write(backup / 'manifest.json', canonical({'files': value['files'], 'base': base}).encode())
-        return observe(value)
-    receipt = control.execute_action(action['id'], effect)
-    state['work']['applied'] = receipt.get('status') == 'verified'
+    if receipt is None:
+        def effect(value):
+            untouched(value)  # again under the action, in case the user edited in between
+            backup.mkdir(parents=True, exist_ok=True)
+            manifest_path = backup / 'manifest.json'
+            manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {'base': base, 'files': {}}
+            for f in value['files']:
+                target = safe_file(repo, f['path'])
+                if f['path'] not in manifest['files']:  # the user's original is kept once; later applies never overwrite it
+                    copy = content_hash(f['path'])[:16] + '.orig'
+                    if target.is_file(): durable_write(backup / copy, target.read_bytes())
+                    manifest['files'][f['path']] = {'original': copy if target.is_file() else None}
+                if f['blob'] is None: target.unlink(missing_ok=True)
+                else:
+                    # The workspace checks out with the user's own line-ending rules, so its bytes are what the user would have.
+                    target.parent.mkdir(parents=True, exist_ok=True); durable_write(target, safe_file(root, f['path']).read_bytes())
+            durable_write(manifest_path, canonical(manifest).encode())
+            return observe(value)
+        receipt = control.execute_action(action['id'], effect)
     if receipt.get('status') != 'verified':
         from .owned_git import EffectUnknown
         raise EffectUnknown('Apply effect unconfirmed; resume reconciles it without writing again.')
+    state['work']['applied'] = True
+    state['work']['applied_files'] = dict(earlier, **{f['path']: f['blob'] for f in receipt['result']['files']})
     return receipt
 
 
@@ -535,18 +856,21 @@ def _rerun(runtime, task_id, state, contract, item, guard):
     elif testlike and result['tests']['passed_or_run'] and result['tests']['skipped'] >= result['tests']['passed_or_run']:
         reason = 'all tests skipped'; ok = False
     return {'argv': item['argv'], 'cwd': copy['cwd'], 'passed': ok, 'reason': reason, 'exit_code': result['exit_code'],
-            'tests': result['tests'], 'testlike': testlike, 'log': result['log'], 'stdout_tail': result['stdout'][-1500:]}
+            'tests': result['tests'], 'testlike': testlike, 'log': result['log'], 'stdout_tail': result['stdout'][-1500:],
+            'boundary': result.get('boundary')}
 
 
-def test_integrity(state, contract):
+def test_integrity(state, contract, changes=None, tree=None):
     findings = []
     if not state.get('work', {}).get('workspace'): return findings
-    root = ws_root(state); base = state['work']['pins']['head']
-    for change in changed_files(state):
+    base = state['work']['pins']['head']
+    if changes is None or tree is None:
+        snap = snapshot(state); changes, tree = snap['changes'], snap['tree']
+    for change in changes:
         name, status = change['path'], change['status']
         if not is_test(name): continue
         if status == 'D': findings.append('existing test file deleted: ' + name); continue
-        diff = (git(root, 'diff', '--cached', '-U0', base, '--', name) or b'').decode('utf-8', errors='replace')
+        diff = (wgit(state, 'diff', '-U0', base, tree, '--', name) or b'').decode('utf-8', errors='replace')
         added = [l[1:] for l in diff.splitlines() if l.startswith('+') and not l.startswith('+++')]
         removed = [l[1:] for l in diff.splitlines() if l.startswith('-') and not l.startswith('---')]
         if any(SKIP_MARK.search(l) for l in added): findings.append('skip/only marker added in test file: ' + name)
@@ -557,17 +881,55 @@ def test_integrity(state, contract):
     return findings
 
 
+def deliveries(runtime, state, contract, candidate):
+    """Observed values of everything this job delivered, read from the user's repository now (not from receipts), and
+    the findings when they are not the verified candidate. Returns (fingerprint, findings)."""
+    work = state['work']; repo = project_repo(runtime, contract)
+    fingerprint = {'branches': {}, 'applied': {}}; findings = []
+    latest = {}
+    for branch in work.get('branches', []):
+        if branch['receipt'].get('status') == 'verified': latest[branch['name']] = branch['receipt']
+    for name, receipt in sorted(latest.items()):
+        found = git(repo, 'show-ref', '--verify', '--hash', 'refs/heads/' + name, allow_failure=True)
+        actual = found.decode().strip() if found else None
+        fingerprint['branches'][name] = actual
+        expected = receipt['result']['commit']
+        if actual != expected:
+            findings.append(f"branch {name} is at {actual[:12] if actual else 'nothing (deleted)'}, not {expected[:12]} from its "
+                            'receipt: it changed outside this job')
+        elif receipt['result'].get('kind') == 'exported_branch' and candidate:
+            tree = git(repo, 'rev-parse', actual + '^{tree}').decode().strip()
+            if tree != candidate:
+                findings.append(f"branch {name} carries {actual[:12]}, not the verified workspace candidate (changed after export): "
+                                'commit and export again')
+    if work.get('applied') and work.get('workspace'):
+        names = {c['path'] for c in tree_changes(state, work['pins']['head'], candidate)} | set(work.get('applied_files') or {})
+        for name in sorted(names):
+            want = _blob(state, candidate, name)
+            target = repo / name
+            have = _clean_blob(repo, target, name) if target.is_file() else None
+            fingerprint['applied'][name] = have
+            if have != want:
+                findings.append(f'project file {name} differs from the verified candidate (it was applied from another state or '
+                                'changed afterwards): apply again')
+    return fingerprint, findings
+
+
 def verify(runtime, task_id, state, contract, args, guard):
-    """Core-run evidence at finish; the worker's word or a single exit code is not proof."""
-    from .owned_git import EffectUnknown  # noqa: F401  (actions are checked by the caller as well)
+    """Core-run evidence at finish, bound to one candidate tree and to the real delivered outputs."""
     stop_all(task_id, state)
-    work = state['work']; result = {'commands': [], 'checks': [], 'integrity': [], 'preserve': [], 'findings': []}
+    work = state['work']
+    result = {'commands': [], 'checks': [], 'integrity': [], 'preserve': [], 'findings': [], 'undeliverable': []}
     declared = args.get('verification') or []
     if not isinstance(declared, list) or len(declared) > 6: raise LedgerError('verification: a list of at most 6 commands.')
     if declared and not contract['authority']['commands']:
         raise LedgerError('Verification commands need the commands authority; this contract is checked by its own checks only.')
-    changes = changed_files(state) if work.get('workspace') else []
-    result['changed_files'] = changes
+    candidate = None; changes = []
+    if work.get('workspace'):
+        snap = snapshot(state); candidate, changes = snap['tree'], snap['changes']
+        result['undeliverable'] = classify(contract, changes)
+        result['findings'] += [f"not deliverable under this contract: {b['path']} ({b['reason']})" for b in result['undeliverable'][:20]]
+    result['candidate'] = candidate; result['changed_files'] = changes
     if changes and not declared and not any(c['kind'] == 'command' for c in contract['checks']):
         result['findings'].append('files changed but no verification command was declared for the core to re-run')
     for item in declared:
@@ -588,33 +950,51 @@ def verify(runtime, task_id, state, contract, args, guard):
             value = _rerun(runtime, task_id, state, contract, check, guard)
             result['checks'].append(dict(value, kind='command'))
             if not value['passed']: result['findings'].append('contract command check failed: ' + ' '.join(check['argv'])[:120])
-    result['integrity'] = test_integrity(state, contract)
+    if candidate:
+        # Output generated by the verification itself is not part of the candidate; a candidate file it changed is put back
+        # and is a finding, because the result may then not describe the candidate.
+        removed, restored = return_to(state, candidate)
+        if removed: result['verification_outputs_removed'] = removed[:100]
+        for name in restored[:20]: result['findings'].append('a verification command changed the candidate file ' + name + ' (restored)')
+        if snapshot(state, changes=False)['tree'] != candidate: result['findings'].append('the workspace could not be returned to the verified candidate')
+    result['integrity'] = test_integrity(state, contract, changes, candidate) if candidate else []
     result['findings'] += result['integrity']
-    if work.get('workspace'):
-        # What is delivered must be what was verified: an exported branch must carry exactly the verified workspace tree
-        # (acceptance run A3-r2 edited the workspace after exporting; it restored the file, but nothing enforced that).
-        root = ws_root(state); git(root, 'add', '-A'); tree = git(root, 'write-tree').decode().strip()
-        for branch in work.get('branches', []):
-            receipt = branch['receipt']
-            if receipt.get('status') != 'verified' or receipt.get('result', {}).get('kind') != 'exported_branch': continue
-            delivered = git(root, 'rev-parse', receipt['result']['commit'] + '^{tree}').decode().strip()
-            if delivered != tree:
-                result['findings'].append(f"branch {branch['name']} carries {receipt['result']['commit'][:12]}, not the verified workspace "
-                                          'state (changed after export): commit and export again')
+    fingerprint, delivered = deliveries(runtime, state, contract, candidate)
+    result['deliveries'] = fingerprint; result['findings'] += delivered
     created = [b['ref'] for b in work.get('branches', []) if b['receipt'].get('status') == 'verified']
     from .work_contract import preserved
-    findings, after = preserved(repo, work['pins'], created, applied=work.get('applied', False))
+    findings, after = preserved(repo, work['pins'], created, applied=sorted(work.get('applied_files') or {}) if work.get('applied') else ())
     result['preserve'] = findings; result['project_after'] = after
     result['findings'] += ['project not preserved: ' + f for f in findings]
     return result
+
+
+def recheck(runtime, task_id, state, contract):
+    """At completion, after a review that may have taken long: the candidate, every delivered output and the preserved
+    repository must still be exactly what was verified. Returns findings (empty = still valid)."""
+    verification = state['work'].get('verification') or {}; findings = []
+    candidate = verification.get('candidate')
+    if state['work'].get('workspace'):
+        stop_all(task_id, state)
+        if snapshot(state, changes=False)['tree'] != candidate: findings.append('the workspace changed after verification')
+    fingerprint, delivered = deliveries(runtime, state, contract, candidate)
+    findings += delivered
+    if fingerprint != verification.get('deliveries'): findings.append('a delivered branch or applied file changed after verification')
+    created = [b['ref'] for b in state['work'].get('branches', []) if b['receipt'].get('status') == 'verified']
+    from .work_contract import preserved
+    work = state['work']
+    lost, _ = preserved(project_repo(runtime, contract), work['pins'], created,
+                        applied=sorted(work.get('applied_files') or {}) if work.get('applied') else ())
+    findings += ['project not preserved: ' + f for f in lost]
+    return findings
 
 
 def handover(runtime, task_id, state, contract, verification, report):
     """Deterministic handover written by the core: diff, files, re-run results, receipts and how to roll back."""
     root = home(runtime, task_id) / 'handover'; root.mkdir(exist_ok=True)
     work = state['work']; files = {}
-    if work.get('workspace'):
-        patch = git(ws_root(state), 'diff', '--cached', '--binary', work['pins']['head']) or b''
+    if work.get('workspace') and verification.get('candidate'):
+        patch = wgit(state, 'diff', '--binary', work['pins']['head'], verification['candidate']) or b''  # the verified tree
         durable_write(root / 'changes.patch', patch); files['patch'] = str(root / 'changes.patch')
     rollback = []
     for branch in work.get('branches', []):
@@ -622,9 +1002,10 @@ def handover(runtime, task_id, state, contract, verification, report):
         if receipt.get('status') == 'verified':
             sha = receipt['result']['commit']
             rollback.append(f"git -C \"{project_repo(runtime, contract)}\" branch -D {branch['name']}   # only while it still points to {sha}")
-    if work.get('applied'): rollback.append('restore the files listed in ' + str(home(runtime, task_id) / 'rollback' / 'manifest.json') + ' from the *.orig copies, or git apply -R changes.patch')
-    summary = {'task': task_id, 'contract': contract, 'pins': {k: v for k, v in work['pins'].items() if k != 'refs'},
+    if work.get('applied'): rollback.append('restore the files listed in ' + str(home(runtime, task_id) / 'rollback' / 'manifest.json') + ' from the *.orig copies (original null: delete the file), or git apply -R changes.patch')
+    summary = {'task': task_id, 'contract': contract, 'pins': {k: v for k, v in work['pins'].items() if k not in ('refs', 'dirty_paths')},
                'workspace': work.get('workspace'), 'changed_files': verification.get('changed_files', []),
+               'candidate': verification.get('candidate'), 'delivered': verification.get('deliveries'),
                'verification': {k: v for k, v in verification.items() if k != 'changed_files'},
                'branches': work.get('branches', []), 'applied': work.get('applied', False), 'rollback': rollback,
                'executor': 'onecrew-core (Git/commands), worker ' + state['worker']['provider'] + '/' + state['worker']['model'] + ' (decisions)'}

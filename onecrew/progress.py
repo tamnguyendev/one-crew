@@ -61,7 +61,8 @@ def observe(state, action, args, result):
         else: p['observations'] += 1
         if p['observations'] >= limits['observation_limit']:
             reason = 'Exploration limit reached: act on existing evidence or clarify scope before continuing.'
-    if action in ('write', 'edit', 'run', 'deliver', 'branch_before', 'android_build', 'create_branch', 'export_branch', 'apply') and 'error' not in result:
+    if action in ('write', 'edit', 'run', 'deliver', 'branch_before', 'android_build', 'create_branch', 'export_branch', 'apply',
+                  'restore', 'workspace_commit') and 'error' not in result:
         p['observations'] = 0
     if action in ('write', 'edit') and 'error' not in result:
         p['writes'] += 1
