@@ -578,6 +578,51 @@ def _rebuilt_entry(root, record, now):
             'admitted_at': record.get('at'), 'runner': record.get('identity'), 'restarts': restarts, 'rebuilt': True}
 
 
+def _released_since_launch(root, record):
+    """Why the host may have released this launch's runner, from durable evidence only, or None when it cannot have.
+    The host releases a task only when its runner is gone and the task is terminal, cancelled, blocked, waiting, paused or has
+    a pending question. So: None when a runner of this launch still runs (terminal and cancelled tasks are then released by
+    _supervise), or when the ledger records the launch (a host.admitted of its request, or the host.restarted at its time) and,
+    from the moment its runner may have been gone (its runner.stopped, else the launch), the task was never in such a state —
+    neither the state in force at that moment (latest checkpoint) nor any later one (checkpoint, question created or answered,
+    cancel). A pause is never reconstructed from the ledger (an unpause writes no event), so any pause counts.
+    P4b-R3 (Codex review of P4b): for launches recorded before the supervision file had a reconciliation map."""
+    from .supervisor import probe
+    task, request = record['task'], str(record.get('request') or '')
+    if request.startswith('HD-'):
+        launch = _ledger_rows(root, "SELECT seq, payload FROM events WHERE task_id=? AND kind='host.admitted' "
+                                    "AND json_extract(payload,'$.request')=? ORDER BY seq", (task, request))
+    else:
+        launch = _ledger_rows(root, "SELECT seq, payload FROM events WHERE task_id=? AND kind='host.restarted' "
+                                    "AND json_extract(payload,'$.at')=? ORDER BY seq", (task, record.get('at')))
+    runners = [record.get('identity')] + [json.loads(p).get(k) for _, p in launch for k in ('identity', 'runner')]
+    if any(isinstance(r, dict) and probe(r) == 'alive' for r in runners): return None
+    if not launch: return 'the ledger has no admission or restart of this launch'
+    since = launch[0][0]
+    identity = record.get('identity') or {}
+    if isinstance(identity.get('pid'), int) and isinstance(identity.get('created'), int):
+        stopped = _ledger_rows(root, "SELECT seq FROM events WHERE task_id=? AND kind='runner.stopped' AND seq>? AND "
+                                     "json_extract(payload,'$.identity.pid')=? AND json_extract(payload,'$.identity.created')=? "
+                                     'ORDER BY seq LIMIT 1', (task, since, identity['pid'], identity['created']))
+        if stopped: since = stopped[0][0]  # it ended by itself here; before this the runner ran and nothing was released
+    waits = TERMINAL + ('blocked', 'waiting'); marks = ','.join('?' * len(waits))
+    phase = _ledger_rows(root, "SELECT json_extract(payload,'$.phase') FROM events WHERE task_id=? AND kind='workflow.checkpoint' "
+                               'AND seq<=? ORDER BY seq DESC LIMIT 1', (task, since))
+    if phase and phase[0][0] in waits: return 'checkpoint ' + phase[0][0] + ' when its runner may have been gone'
+    paused = _ledger_rows(root, "SELECT 1 FROM events WHERE task_id=? AND kind='execution.pause_requested' LIMIT 1", (task,))
+    if paused: return 'execution.pause_requested'
+    after = _ledger_rows(root, "SELECT kind, json_extract(payload,'$.phase') FROM events WHERE task_id=? AND seq>? AND (kind IN "
+                         "('execution.cancel_requested','request.created','request.answered','host.cancel_enforced',"
+                         f"'host.restart_exhausted') OR (kind='workflow.checkpoint' AND json_extract(payload,'$.phase') IN ({marks}))) "
+                         'ORDER BY seq LIMIT 1', (task, since, *waits))
+    return ' '.join(str(v) for v in after[0] if v) if after else None
+
+
+def _before(record, moment):
+    try: return _when(record['at']) < _when(moment)
+    except (KeyError, TypeError, ValueError): return True  # no usable time: treated as launched before
+
+
 def _supervision(root, now):
     """(supervised, writable). Unreadable right now -> (None, False): admissions and supervision wait for the next scan, the
     file is never overwritten from a guess (P4-A: an unread file used to become an empty list of supervised tasks).
@@ -586,8 +631,12 @@ def _supervision(root, now):
     that was READ and handled (supervised, or already supervised, or not a running launch). A record that cannot be read now stays
     unreconciled and is looked at again on every scan — P4b-R3 (Codex review of P4): the file time used before let a record that
     was locked during one scan look "older than the supervision file" afterwards, so a launched runner whose supervision write had
-    failed was never supervised again. Records already present when a supervision file without this map is first read (written
-    before P4b) count as handled: a task released then is never revived."""
+    failed was never supervised again.
+    A supervision file without this map was written before P4b: the first scan that reads it notes the moment (`upgraded_at`).
+    A record launched before that moment and not in the file is supervised again only if the ledger shows that the host cannot
+    have released it since its launch (_released_since_launch); otherwise it is never revived and the reason is kept in
+    `not_revived` — P4b-R3 (Codex review of P4b): every such record used to count as released, so a runner admitted and launched
+    by the old host whose supervision write had failed was left unsupervised after the upgrade."""
     path = root / 'host' / 'supervised.json'
     status, value = _load(path)
     if status == 'unreadable': return None, False
@@ -596,8 +645,8 @@ def _supervision(root, now):
     else: supervised = None
     legacy = supervised is not None and not isinstance(supervised.get('reconciled'), dict)
     rebuilt = supervised if supervised is not None else {'tasks': {}, 'rebuilt_at': now.isoformat(), 'reconciled': {}}
-    if legacy: rebuilt['reconciled'] = {}
-    seen = rebuilt['reconciled']
+    if legacy: rebuilt['reconciled'] = {}; rebuilt['upgraded_at'] = now.isoformat()
+    seen = rebuilt['reconciled']; upgraded = rebuilt.get('upgraded_at')
     try:
         for record_path in sorted((root / 'host' / 'launch').glob('TASK-*.json')):
             try: record = _read(record_path)
@@ -605,8 +654,12 @@ def _supervision(root, now):
             if not isinstance(record, dict) or not isinstance(record.get('task'), str): continue
             task = record['task']; identity = f"{record.get('request')}|{record.get('at')}"
             if seen.get(task) == identity: continue
-            if legacy or task in rebuilt['tasks'] or record.get('state') not in ('launching', 'launched'):
+            if task in rebuilt['tasks'] or record.get('state') not in ('launching', 'launched'):
                 seen[task] = identity; continue
+            if upgraded and _before(record, upgraded):
+                released = _released_since_launch(root, record)
+                if released:  # possibly released by the host before the upgrade: never revived (a resume dispatches anew)
+                    seen[task] = identity; rebuilt.setdefault('not_revived', {})[task] = released[:200]; continue
             entry = _rebuilt_entry(root, record, now)
             if entry: rebuilt['tasks'][task] = entry; seen[task] = identity
             # no entry yet (the ledger has no dispatch for it): stays unreconciled, looked at again next scan

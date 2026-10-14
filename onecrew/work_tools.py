@@ -272,6 +272,28 @@ def progress_state(state, tree=None):
             'key': content_hash({'tree': tree, 'ignored': entries})}
 
 
+def changed_since(state, index):
+    """Whether an action that can change the workspace ran after receipt `index` (None: not known, so it may have): a successful
+    write, edit or command (MUTATING), or a background process, which may change files at any time — one started after that
+    receipt, or one started before it that is not known to have ended (running, or lost with a previous runner)."""
+    if index is None: return True
+    if any(p.get('status') in ('running', 'lost_with_previous_runner')
+           for p in ((state.get('work') or {}).get('processes') or {}).values()): return True
+    for ref in (state.get('receipts') or [])[index + 1:]:
+        if ref.get('background') or (ref.get('action') in MUTATING and ref.get('successful')): return True
+    return False
+
+
+def key_unproven(state, observed, since, earlier_partial=False):
+    """The one trust rule of the workspace key, shared by the failed-command check (run), the failed-read replay (owned._tool)
+    and the progress guard (progress.observe). An unchanged key proves that nothing changed when it describes every input by
+    content, at both observations compared, or when nothing that can change files ran since receipt `since`. Otherwise it proves
+    nothing (True here) and none of them concludes 'unchanged': the failed-command check allows INPUT_RERUNS re-runs per command
+    and candidate tree, the failed-read replay runs the read again, the progress guard allows INPUT_RERUNS repeats of a result.
+    P4b-R4 (Codex review of P4b): the progress guard alone used to trust an incomplete key."""
+    return (bool((observed or {}).get('truncated')) or bool(earlier_partial)) and changed_since(state, since)
+
+
 def tree_changes(state, old, new):
     raw = wgit(state, 'diff-tree', '-r', '--name-status', '-z', '--no-renames', old, new) or b''
     parts = [p.decode('utf-8', errors='replace') for p in raw.split(b'\0') if p]
@@ -630,8 +652,9 @@ def run(runtime, task_id, state, contract, args, guard, repeat_guard=True, base=
                 raise LedgerError(f"Nothing changed since log {earlier.get('log')}: the same command in the same workspace ended with "
                                   f"{ended}. Change the command or the files first; re-read that receipt for its output.")
             observed = progress_state(state, tree=before['tree']); current = observed['key']
-            trusted = not observed.get('truncated') and not earlier.get('key_truncated')
-            if trusted and earlier.get('key_after') == current:
+            # P4b-R4: the shared trust rule; an incomplete key with nothing run since that command proves "unchanged" too.
+            if earlier.get('key_after') == current and not key_unproven(state, observed, earlier.get('receipt'),
+                                                                         earlier.get('key_truncated')):
                 raise LedgerError(f"Nothing changed since log {earlier.get('log')}: the same command in the same workspace (files and "
                                   f"Git-ignored inputs) ended with {ended}. Change the command or the files first; re-read that "
                                   'receipt for its output.')
@@ -680,6 +703,8 @@ def run(runtime, task_id, state, contract, args, guard, repeat_guard=True, base=
                                                          tree_after=after['tree'] if after else None, where=result['where'],
                                                          key_after=observed['key'] if observed else None,
                                                          **({'key_truncated': True} if observed and observed.get('truncated') else {}),
+                                                         # the receipt this command is stored as (the shared rule's "since")
+                                                         **({'receipt': len(state.get('receipts') or [])} if observe else {}),
                                                          **({'inputs_rerun': True} if inputs_rerun else {})))
     return result
 

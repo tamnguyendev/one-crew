@@ -91,10 +91,25 @@ def observe(state, action, args, result):
                       'cursor':args.get('cursor',0)}
     # Work mode: the workspace state key (work_tools.progress_state), refreshed after every action that can change files;
     # the same result after a real change is new evidence, the same result with nothing changed is a repeat.
-    observed = ((state.get('work') or {}).get('progress_state') or {}).get('key')
+    workspace = (state.get('work') or {}).get('progress_state') or {}
+    observed = workspace.get('key')
     key = content_hash({'action': action, 'snapshot': observed or state.get('snapshot'), 'result': evidence,
                         'search_intent':intent})
-    p['results'][key] = p['results'].get(key, 0) + 1
+    uncertain = unproven = False
+    if observed:
+        # P4b-R4 (Codex review of P4b): an incomplete key (a Git-ignored dependency tree, an unhashed or unread file) does not
+        # show every change. The rule of the failed-command check and the failed-read replay (work_tools.key_unproven): the same
+        # result after an action that could change files is allowed INPUT_RERUNS times, then counted; with nothing run in
+        # between it is a repeat as before. `observed_at`: the receipt of the latest observation of each result under an
+        # incomplete key; a result last seen before this runtime has none, so every earlier receipt counts (counters are kept).
+        from .work_tools import INPUT_RERUNS, key_unproven
+        at = len(state.get('receipts') or [])  # the receipt this observation is stored as
+        marks = p.setdefault('observed_at', {}); allowed = p.setdefault('unproven', {})
+        uncertain = key in p['results'] and key_unproven(state, workspace, marks.get(key, -1))
+        if uncertain and allowed.get(key, 0) < INPUT_RERUNS:
+            unproven = True; allowed[key] = allowed.get(key, 0) + 1
+        if workspace.get('truncated'): marks[key] = at
+    if not unproven: p['results'][key] = p['results'].get(key, 0) + 1
     reason = None
     count = p['results'][key]
     if count >= 2:
@@ -111,12 +126,15 @@ def observe(state, action, args, result):
     if count >= limits['same_result_limit']:
         import json
         reason = ('Repeated equivalent tool result; stopped without progress: ' + action + ' '
-                  + json.dumps(_brief(args), ensure_ascii=False)[:200] + f' gave the same result {count} times with nothing changed '
-                  'in between.')
+                  + json.dumps(_brief(args), ensure_ascii=False)[:200] + f' gave the same result {count} times'
+                  + (' with nothing changed in between.' if not uncertain else
+                     # P4b-R4: never "nothing changed" when an action in between may have changed files the key cannot see
+                     '; the workspace key cannot show whether the actions in between changed it (Git-ignored dependency '
+                     f'trees, unhashed or unread files), and the {INPUT_RERUNS} repeats allowed after such actions are used up.'))
         p['stopped_by'] = dict((p.get('repeats') or {}).get(key) or {'action': action, 'arguments': _brief(args), 'count': count,
                                                                     'step': state.get('step')}, key=key)
     if action in ('list', 'search', 'read', 'receipt', 'git_status', 'git_diff', 'git_log', 'git_show'):
-        if 'error' not in result and p['results'][key] == 1 and (action == 'read' or (page and (page['offset'] > 0 or page['item_offset'] > 0))):
+        if 'error' not in result and count == 1 and not unproven and (action == 'read' or (page and (page['offset'] > 0 or page['item_offset'] > 0))):
             p['observations'] = 0  # New source, or the next page of a cut result, is evidence, not blind exploration.
         else: p['observations'] += 1
         if p['observations'] >= limits['observation_limit']:

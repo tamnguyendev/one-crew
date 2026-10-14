@@ -362,9 +362,9 @@ class Owned(Workflow):
             # (R2, Codex review 07d7ad6: a write or build that created the file was ignored). P4-C: "what it was" is the shared
             # workspace key (files and Git-ignored inputs), recorded on each receipt; older receipts without it fall back to
             # "nothing that changes files succeeded since".
-            from .work_tools import MUTATING
+            from .work_tools import MUTATING,key_unproven
             observed=((state.get('work') or {}).get('progress_state') or {})
-            current=observed.get('key');incomplete=bool(observed.get('truncated'))
+            current=observed.get('key')
             mutated=False
             for ref in reversed(state['receipts'][-12:]):
                 if ref.get('background') or (ref['action']=='process' and ref.get('successful')): break  # files may change at any time
@@ -372,7 +372,7 @@ class Owned(Workflow):
                 if ref['action']!=action or ref.get('successful') is not False: continue
                 if 'workspace' in ref and ref['workspace']!=current: continue
                 if 'workspace' not in ref and mutated: break  # an earlier runtime's receipt: its rule (a change since) applies
-                if (incomplete or ref.get('workspace_partial')) and mutated: break  # P4b-R4: an incomplete key proves nothing
+                if key_unproven(state,observed,ref['index'],ref.get('workspace_partial')): break  # P4b-R4: the shared trust rule
                 earlier=json.loads(self.store.read_blob(ref['blob']))
                 if earlier.get('arguments')==args or earlier.get('request')==args:
                     raise LedgerError(f"Identical to receipt {ref['index']}, which already failed, and the workspace (files and "
