@@ -482,6 +482,15 @@ CASES = [
         'tests.test_review_07d7ad6.PriorityTests.test_the_host_task_runs_at_normal_priority',
         'tests.test_review_07d7ad6.PriorityTests.test_runners_are_started_at_normal_priority'],
         'Codex review of 07d7ad6, R4. The live priority under Task Scheduler is acceptance evidence.'),
+    case('work-checkout-setup-feedback', 'A test that fails only in the clean checkout is reported with its output and the setup it lacks', '3f86010', [
+        'tests.test_review_07d7ad6.VerificationFeedbackTests.test_a_missing_generated_file_in_the_checkout_points_to_setup'],
+        'Found in the M1 resume of 14/10/2026: the worker then declared the project build as setup and M1 completed.'),
+    case('work-latest-result', 'The last result, and which receipt a lookup showed, reach the worker under the provider prompt cap', '3e632c1', [
+        'tests.test_review_07d7ad6.LatestResultTests.test_the_last_result_reaches_the_worker_even_when_the_packet_is_at_its_minimum'],
+        'Found in the M2 resume of 14/10/2026 (receipt asked three times). M2 itself did not complete: see the GX-P3 handover.'),
+    case('work-changed-files', 'The worker sees which files it has changed against the pinned commit', '63f51cd', [
+        'tests.test_review_07d7ad6.LatestResultTests.test_the_worker_sees_which_files_it_has_changed'],
+        'Found in the M2 resume of 14/10/2026. M2 was still stopped by the progress guard afterwards (worker reasoning loop).'),
 ]
 
 LIMITS = [
