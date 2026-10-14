@@ -575,6 +575,49 @@ CASES = [
              'test_one_rule_after_a_same_size_change_the_check_and_the_read_run_again_bounded',
              'test_a_background_process_started_before_the_failed_command_is_a_possible_change')],
          'Codex review of P4b, R4 (progress.py:94 of 55448b8: wrong -> list -> right -> list -> final -> list); controls included.'),
+    case('p5-page-delivery', 'Under the Kiro cap the worker receives every character of a result, in order, in real pages (live S1)',
+         '1e3d27a', [f'tests.test_review_p5.PromptBudgetTests.{t}' for t in (
+             'test_s1_shape_a_long_contract_still_delivers_the_whole_file',
+             'test_a_growing_history_and_a_long_plan_still_leave_room_for_results',
+             'test_a_large_vietnamese_file_arrives_whole_in_order_under_the_long_contract',
+             'test_escape_heavy_text_is_paged_and_concatenates_to_the_exact_file',
+             'test_the_last_page_and_a_page_at_the_end_are_valid_and_the_job_goes_on',
+             'test_other_shape_long_english_contract_and_a_300_entry_listing',
+             'test_a_command_result_with_many_fields_gives_its_output_real_room')]
+         + ['tests.test_review_p5.GrowthTests.test_a_result_that_fits_whole_is_never_paged_for_the_partial_note',
+            'tests.test_review_p5.NormalJobControlTests.test_a_normal_job_keeps_its_full_contract_and_gets_small_results_whole'],
+         'Live S1 on 1ae7782 (TASK-04129bfc, 14/10/2026): 0 characters of a 2,381-character file in 7 results; control: normal job.'),
+    case('p5-budget-refusal', 'A job or step the cap cannot serve is refused before any model call, naming the parts; never a does_not_fit prompt',
+         '1e3d27a', [f'tests.test_review_p5.PromptBudgetTests.{t}' for t in (
+             'test_a_contract_that_cannot_be_served_is_refused_before_any_model_call',
+             'test_a_fallback_chain_to_kiro_is_checked_before_the_first_call',
+             'test_the_completion_review_must_carry_the_full_contract_or_the_job_is_refused_first',
+             'test_a_result_no_valid_page_can_show_is_refused_before_the_next_call_naming_the_part',
+             'test_context_that_grows_past_the_cap_mid_job_is_refused_before_its_call')]
+         + ['tests.test_review_p5.GrowthTests.test_a_review_that_cannot_fit_for_its_core_facts_blocks_once_before_any_call'],
+         'Codex review of 1ae7782: _fit sent prompts carrying does_not_fit; the S1 refusal came after 8 calls.'),
+    case('p5-receipts-contract', 'Lookups stay exact through layers; cut contract texts, answers and the plan are reachable whole',
+         '1e3d27a', [f'tests.test_review_p5.{t}' for t in (
+             'PromptBudgetTests.test_receipts_of_receipts_point_at_the_original_and_do_not_grow',
+             'PromptBudgetTests.test_an_item_offset_past_the_end_is_refused_when_asked_and_the_job_goes_on',
+             'PromptBudgetTests.test_a_cut_contract_item_is_returned_whole_by_the_contract_action',
+             'GrowthTests.test_fetching_a_cut_contract_item_again_after_other_reads_is_not_a_repeat',
+             'GrowthTests.test_a_long_plan_shown_cut_is_returned_whole_by_the_contract_action')],
+         'Live S1: receipt of receipt of receipt, each wrapping the previous (+~110 characters per layer).'),
+    case('p5-repair-review', 'After a failed verification or a review rejection the job keeps room for its repair; review prompts stay within the cap',
+         '1e3d27a', [f'tests.test_review_p5.{t}' for t in (
+             'PromptBudgetTests.test_s1_contract_after_a_failed_core_verification_the_worker_gets_a_repair_step',
+             'GrowthTests.test_real_s1_size_contract_repairs_after_a_failed_core_verification_and_rereads_the_file',
+             'PromptBudgetTests.test_a_rejected_finish_with_long_feedback_keeps_a_normal_job_running',
+             'PromptBudgetTests.test_a_finish_whose_report_the_review_cannot_carry_is_sent_back_to_shorten',
+             'GrowthTests.test_an_accepted_review_whose_finish_fails_in_the_core_is_shown_as_it_is',
+             'GrowthTests.test_the_reviewer_and_an_uncapped_worker_see_an_earlier_rejection_whole',
+             'GrowthTests.test_core_added_parts_stay_bounded_under_a_tight_cap')],
+         'Review rounds of the P5 fix (S1 contract blocked on its first repair step, review loops); controls included.'),
+    case('p5-full-flow-resume', 'Read, edit, test, review and handover under the cap through the real core; a runner restart keeps the page and counters',
+         '1e3d27a', ['tests.test_review_p5.FullFlowTests.test_read_edit_test_review_and_handover_under_the_s1_shape_contract',
+                     'tests.test_review_p5.FullFlowTests.test_a_runner_restart_mid_paging_continues_at_the_next_page_with_the_same_counters'],
+         'Fixture only (scripted model); proves the mechanism, not autonomy.'),
 ]
 
 LIMITS = [
