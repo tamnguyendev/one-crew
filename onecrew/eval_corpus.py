@@ -552,6 +552,29 @@ CASES = [
              'test_a_failed_read_is_retried_after_a_same_size_change_of_an_unhashed_file',
              'test_no_op_churn_with_an_incomplete_key_is_still_bounded')],
          'Codex review of P4, R4 (dependency "wrong" -> "correct-value"; a 2,000,001-byte file rewritten with the same size).'),
+    case('p4c-legacy-supervision', 'A runner launched before the upgrade whose supervision was never saved is recovered once; a released task never',
+         '1ae7782', [f'tests.test_review_p4b.LegacySupervisionTests.{t}' for t in (
+             'test_a_runner_admitted_before_the_upgrade_whose_supervision_was_never_saved_is_recovered_once',
+             'test_a_runner_still_running_at_the_upgrade_is_recovered_even_after_an_answered_question',
+             'test_a_runner_that_ended_by_itself_after_its_question_was_answered_is_recovered',
+             'test_an_alive_runner_whose_admission_was_recorded_as_not_launched_is_recovered',
+             'test_a_record_unread_during_the_first_scan_after_the_upgrade_is_judged_by_the_same_evidence',
+             'test_a_task_released_before_the_upgrade_is_not_revived', 'test_a_task_waiting_already_at_its_launch_is_not_revived_after_the_upgrade',
+             'test_waiting_cancelled_and_paused_tasks_are_not_restarted_after_the_upgrade')],
+         'Codex review of P4b, R3 (host.py:608 of 55448b8); controls included; real Windows locks.'),
+    case('p4c-progress-trust', 'One trust rule for an incomplete workspace key: real unseen changes are never called unchanged, loops stay bounded',
+         '1ae7782', [f'tests.test_review_p4b.ProgressTrustTests.{t}' for t in (
+             'test_same_size_dependency_changes_between_identical_listings_are_not_called_unchanged',
+             'test_real_changes_beyond_the_bound_are_stopped_without_claiming_nothing_changed',
+             'test_an_older_checkpoint_keeps_its_counters_and_a_later_change_is_not_called_unchanged',
+             'test_an_older_checkpoint_upgraded_right_after_a_change_does_not_call_the_next_listing_unchanged',
+             'test_an_immediate_repeat_is_named_as_such_after_a_real_change_used_one_allowance',
+             'test_one_rule_with_nothing_run_in_between_an_incomplete_key_refuses_like_a_complete_one',
+             'test_identical_listings_with_nothing_run_in_between_are_still_a_repeat',
+             'test_no_op_churn_between_identical_listings_is_still_bounded',
+             'test_one_rule_after_a_same_size_change_the_check_and_the_read_run_again_bounded',
+             'test_a_background_process_started_before_the_failed_command_is_a_possible_change')],
+         'Codex review of P4b, R4 (progress.py:94 of 55448b8: wrong -> list -> right -> list -> final -> list); controls included.'),
 ]
 
 LIMITS = [
