@@ -529,6 +529,29 @@ CASES = [
              'test_resume_rebuilds_the_context_keeps_counters_budget_and_work_and_bounds_the_loop',
              'test_resume_never_repeats_a_finished_effect', 'test_resume_respects_cancel_and_the_deadline')],
          'Codex deep review P3, part 2 (resume as recovery). Live evidence is the new task U1 of 14/10/2026.'),
+    case('p4b-repeat-order', 'The latest repeat warnings survive the checkpoint, a restart and the compact prompt; real loops still stop',
+         '55448b8', [f'tests.test_review_p4.RepeatOrderTests.{t}' for t in (
+             'test_the_most_recent_repeats_are_kept_and_shown_across_checkpoints',
+             'test_the_latest_warning_reaches_the_real_prompt_after_a_restart',
+             'test_an_older_checkpoint_without_sequence_numbers_is_ordered_by_step', 'test_a_real_loop_is_still_stopped')],
+         'Codex review of P4, R1 (U1 step 13 lost the warning for receipt@565).'),
+    case('p4b-page-progress', 'Every page advances under the real Kiro cap: oversized list items come as text pages, never a self-loop',
+         '55448b8', [f'tests.test_review_p4.PageProgressTests.{t}' for t in (
+             'test_list_items_larger_than_the_page_are_delivered_and_the_continuation_advances',
+             'test_a_long_single_line_is_delivered_with_the_same_extra_context', 'test_view_never_returns_a_page_that_does_not_advance')],
+         'Codex review of P4, R2 (git_log with three 500-character subjects and ~5,200 characters of extra context).'),
+    case('p4b-supervision-reconcile', 'A launched runner is never left unsupervised by successive host I/O errors; released tasks stay released',
+         '55448b8', [f'tests.test_review_p4.SupervisionReconcileTests.{t}' for t in (
+             'test_successive_io_errors_never_lose_the_supervision_of_a_launched_runner', 'test_a_released_task_is_not_supervised_again',
+             'test_an_older_supervision_file_does_not_revive_launch_records_it_had_released')],
+         'Codex review of P4, R3; real Windows locks.'),
+    case('p4b-incomplete-key', 'An incomplete workspace key is never trusted: bounded retests/re-reads after changes it cannot see',
+         '55448b8', [f'tests.test_review_p4.IncompleteKeyTests.{t}' for t in (
+             'test_a_dependency_fix_allows_the_retest', 'test_a_same_size_dependency_change_allows_a_bounded_retest',
+             'test_a_same_size_change_of_a_large_generated_file_allows_a_bounded_retest',
+             'test_a_failed_read_is_retried_after_a_same_size_change_of_an_unhashed_file',
+             'test_no_op_churn_with_an_incomplete_key_is_still_bounded')],
+         'Codex review of P4, R4 (dependency "wrong" -> "correct-value"; a 2,000,001-byte file rewritten with the same size).'),
 ]
 
 LIMITS = [
