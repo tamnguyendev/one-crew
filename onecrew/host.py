@@ -581,31 +581,35 @@ def _rebuilt_entry(root, record, now):
 def _supervision(root, now):
     """(supervised, writable). Unreadable right now -> (None, False): admissions and supervision wait for the next scan, the
     file is never overwritten from a guess (P4-A: an unread file used to become an empty list of supervised tasks).
-    Malformed -> rebuilt from the launch records and the ledger (the damaged copy is kept). In every case a launch recorded after
-    the supervision file was last written (a write that failed right after a launch) is added back, so no runner the host
-    launched goes unsupervised."""
+    Malformed -> rebuilt from the launch records and the ledger (the damaged copy is kept).
+    Every launch record is reconciled once, durably: `reconciled[task]` holds the identity (request, at) of the last launch record
+    that was READ and handled (supervised, or already supervised, or not a running launch). A record that cannot be read now stays
+    unreconciled and is looked at again on every scan — P4b-R3 (Codex review of P4): the file time used before let a record that
+    was locked during one scan look "older than the supervision file" afterwards, so a launched runner whose supervision write had
+    failed was never supervised again. Records already present when a supervision file without this map is first read (written
+    before P4b) count as handled: a task released then is never revived."""
     path = root / 'host' / 'supervised.json'
     status, value = _load(path)
     if status == 'unreadable': return None, False
     if status == 'ok' and isinstance(value, dict) and isinstance(value.get('tasks'), dict): supervised = value
-    elif status == 'missing': supervised = {'tasks': {}}
+    elif status == 'missing': supervised = {'tasks': {}, 'reconciled': {}}
     else: supervised = None
+    legacy = supervised is not None and not isinstance(supervised.get('reconciled'), dict)
+    rebuilt = supervised if supervised is not None else {'tasks': {}, 'rebuilt_at': now.isoformat(), 'reconciled': {}}
+    if legacy: rebuilt['reconciled'] = {}
+    seen = rebuilt['reconciled']
     try:
-        written = path.stat().st_mtime if supervised is not None and status == 'ok' else 0
-        records = []
         for record_path in sorted((root / 'host' / 'launch').glob('TASK-*.json')):
-            if record_path.stat().st_mtime + 2 < written: continue
             try: record = _read(record_path)
-            except _Unreadable: continue  # held by another process right now: looked at again on the next scan
-            if isinstance(record, dict) and record.get('state') in ('launching', 'launched'): records.append(record)
-        if supervised is None:
-            rebuilt = {'tasks': {}, 'rebuilt_at': now.isoformat()}
-        else:
-            rebuilt = supervised
-        for record in records:
-            if record.get('task') in rebuilt['tasks']: continue
+            except _Unreadable: continue  # held by another process right now: stays unreconciled, looked at again next scan
+            if not isinstance(record, dict) or not isinstance(record.get('task'), str): continue
+            task = record['task']; identity = f"{record.get('request')}|{record.get('at')}"
+            if seen.get(task) == identity: continue
+            if legacy or task in rebuilt['tasks'] or record.get('state') not in ('launching', 'launched'):
+                seen[task] = identity; continue
             entry = _rebuilt_entry(root, record, now)
-            if entry: rebuilt['tasks'][record['task']] = entry
+            if entry: rebuilt['tasks'][task] = entry; seen[task] = identity
+            # no entry yet (the ledger has no dispatch for it): stays unreconciled, looked at again next scan
     except (OSError, ValueError, sqlite3.Error):
         return None, False  # the ledger or a record cannot be read now: decide nothing this scan, overwrite nothing
     if supervised is None:

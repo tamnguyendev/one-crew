@@ -232,14 +232,15 @@ def ignored_inputs(state):
         if top.is_symlink() or not top.exists(): continue
         relative = top.relative_to(root).as_posix()
         if top.is_dir() and top.name.lower() in DEPENDENCY_DIRS:
-            # Installed dependencies: their file count and total size change when something is installed; hashing them on every
-            # action would cost seconds. Beyond SUMMARY_FILES the summary is marked truncated (the key is then not trusted alone).
+            # Installed dependencies: their file count and total size, not their content (hashing them on every action would cost
+            # seconds). P4b-R4 (Codex review of P4): the key then cannot see a change of content, so it is marked incomplete
+            # (`truncated`) and is never trusted alone; the size was also computed but left out of the key.
             count = size = 0
             for path in walk(top, SUMMARY_FILES + 1):
                 try: size += path.lstat().st_size; count += 1
                 except OSError: pass
-            entries.append([relative + '/', count, 'summary' if count <= SUMMARY_FILES else 'summary-truncated'])
-            truncated |= count > SUMMARY_FILES
+            entries.append([relative + '/', count, size, 'summary' if count <= SUMMARY_FILES else 'summary-truncated'])
+            truncated = True
             continue
         # Each top-level entry has its own budget, so one large ignored tree never hides another (a generated file).
         hashed = 0; described = 0
@@ -251,6 +252,8 @@ def ignored_inputs(state):
             if size <= IGNORED_FILE_HASH and hashed + size <= ENTRY_HASH_BYTES:
                 try: digest = hashlib.sha256(path.read_bytes()).hexdigest(); hashed += size
                 except OSError: digest = 'unreadable'
+            if digest is None or digest == 'unreadable':
+                truncated = True  # P4b-R4: a file described by its size only (or unread) hides a same-size change
             entries.append([path.relative_to(root).as_posix(), size, digest]); described += 1
     return entries, truncated
 
@@ -262,6 +265,9 @@ def progress_state(state, tree=None):
     a no-op write or a command that changed nothing leaves the key unchanged. Codex review 07d7ad6 (R1) introduced the key."""
     tree = tree or snapshot(state, changes=False)['tree']
     entries, truncated = ignored_inputs(state)
+    # truncated: the key does not describe every input by content (summarised dependencies, unhashed or unread files, entries
+    # over budget). An unchanged incomplete key is never proof that nothing changed: the failed-command check and the failed-read
+    # replay then allow a bounded retry instead of refusing (P4b-R4).
     return {'tree': tree, 'ignored': len(entries), 'truncated': truncated,
             'key': content_hash({'tree': tree, 'ignored': entries})}
 

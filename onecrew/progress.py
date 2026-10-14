@@ -25,6 +25,12 @@ def classify_text(text):
     return classify(Exception(text))
 
 
+def recency(entry):
+    """Order of a repeat entry by when it happened: its durable event number, else (checkpoints written before P4b) its step."""
+    step = entry.get('step')
+    return (entry.get('seq') or 0, step if isinstance(step, int) else -1)
+
+
 def _brief(args):
     """Arguments of a repeated action, short enough for the worker's context (file contents are never copied)."""
     import json
@@ -73,7 +79,8 @@ def observe(state, action, args, result):
     page = None
     if action == 'receipt' and 'error' not in result:
         # P4-B: each page of a receipt is its own evidence; asking for the same page again is a repeat.
-        page = {'index': args.get('index'), 'field': args.get('field'), 'offset': args.get('offset') or 0}
+        page = {'index': args.get('index'), 'field': args.get('field'), 'offset': args.get('offset') or 0,
+                'item_offset': args.get('item_offset') or 0}
         evidence = {'page': page, 'record': result}
     if action == 'search' and 'error' not in result:
         # The new receipt includes query/scope/counters. Positive duplicate evidence
@@ -94,10 +101,13 @@ def observe(state, action, args, result):
         # P4-D: which result repeats, and how close it is to stopping the task, is part of the worker's context (the guard
         # warns at limit-1 instead of only stopping at the limit); bounded, durable in the checkpoint.
         repeats = p.setdefault('repeats', {})
-        repeats.pop(key, None)
+        # P4b-R1 (Codex review of P4): the checkpoint is canonical JSON with sorted keys, so the order of this dict is lost on
+        # every persist; recency is a durable event number instead (older checkpoints: their step).
+        p['repeat_seq'] = p.get('repeat_seq', 0) + 1
         repeats[key] = {'action': action, 'arguments': _brief(args), 'count': count, 'limit': limits['same_result_limit'],
-                        'step': state.get('step'), 'error': str(result.get('error'))[:200] if 'error' in result else None}
-        for old in list(repeats)[:-8]: repeats.pop(old)
+                        'step': state.get('step'), 'seq': p['repeat_seq'],
+                        'error': str(result.get('error'))[:200] if 'error' in result else None}
+        for old in sorted(repeats, key=lambda k: recency(repeats[k]))[:-8]: repeats.pop(old)
     if count >= limits['same_result_limit']:
         import json
         reason = ('Repeated equivalent tool result; stopped without progress: ' + action + ' '
@@ -106,7 +116,7 @@ def observe(state, action, args, result):
         p['stopped_by'] = dict((p.get('repeats') or {}).get(key) or {'action': action, 'arguments': _brief(args), 'count': count,
                                                                     'step': state.get('step')}, key=key)
     if action in ('list', 'search', 'read', 'receipt', 'git_status', 'git_diff', 'git_log', 'git_show'):
-        if 'error' not in result and p['results'][key] == 1 and (action == 'read' or (page and page['offset'] > 0)):
+        if 'error' not in result and p['results'][key] == 1 and (action == 'read' or (page and (page['offset'] > 0 or page['item_offset'] > 0))):
             p['observations'] = 0  # New source, or the next page of a cut result, is evidence, not blind exploration.
         else: p['observations'] += 1
         if p['observations'] >= limits['observation_limit']:

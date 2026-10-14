@@ -52,7 +52,7 @@ workspace_commit: {message} commit workspace changes inside the workspace only.
 export_branch: {name} deliver the workspace commit on an authorized LOCAL branch of the user's repository (new, or one this job created itself and has not moved). Use this, not create_branch, to deliver changes.
 apply: {} copy workspace changes into the user's checkout (only files untouched since the pin or applied by this job; a rollback copy of the original is kept). Apply again after later workspace changes.
 restore: {paths:["rel/path"]} put workspace paths back to the pinned commit (undo changes this contract cannot deliver, whoever made them).
-receipt: {index:0,field:null,offset:0} an older tool result, or a page of one (field of its result, offset in that field's characters or list items).
+receipt: {index:0,field:null,offset:0,item_offset:0} an older tool result, or a page of one (field of its result, offset in that field's characters or list items; item_offset: characters into one list item too large for a page).
 ask: {question,reason,options:[{id:"a",label:"..."}],recommendation:"a"} ONLY for a business/architecture decision outside the contract, missing authority, or missing information that decides the result.
 Pages: a result larger than this prompt allows arrives as a page. latest_result.page lists each cut field with offset, delivered, total, eof and next, the exact call that returns what follows (the rest of a stored result comes by receipt; after it, the tool's own cursor; a command's stdout/stderr pages over its full log, the end shown first; from_start goes back to offset 0). Never assume content you did not receive.
 finish: {report:"Markdown: what was done, each acceptance item with receipt indices, risks, how to roll back",setup:[{argv:[...],cwd:""}],verification:[{argv:[...],cwd:""}]} the core checks out the candidate CLEANLY (nothing ignored or generated is copied from your workspace), runs setup (recreate dependencies/generated files the tests need) then verification there, checks contract checks, test integrity and that the user's repository is preserved, then a reviewer checks the report.
@@ -363,7 +363,8 @@ class Owned(Workflow):
             # workspace key (files and Git-ignored inputs), recorded on each receipt; older receipts without it fall back to
             # "nothing that changes files succeeded since".
             from .work_tools import MUTATING
-            current=((state.get('work') or {}).get('progress_state') or {}).get('key')
+            observed=((state.get('work') or {}).get('progress_state') or {})
+            current=observed.get('key');incomplete=bool(observed.get('truncated'))
             mutated=False
             for ref in reversed(state['receipts'][-12:]):
                 if ref.get('background') or (ref['action']=='process' and ref.get('successful')): break  # files may change at any time
@@ -371,6 +372,7 @@ class Owned(Workflow):
                 if ref['action']!=action or ref.get('successful') is not False: continue
                 if 'workspace' in ref and ref['workspace']!=current: continue
                 if 'workspace' not in ref and mutated: break  # an earlier runtime's receipt: its rule (a change since) applies
+                if (incomplete or ref.get('workspace_partial')) and mutated: break  # P4b-R4: an incomplete key proves nothing
                 earlier=json.loads(self.store.read_blob(ref['blob']))
                 if earlier.get('arguments')==args or earlier.get('request')==args:
                     raise LedgerError(f"Identical to receipt {ref['index']}, which already failed, and the workspace (files and "
@@ -412,6 +414,8 @@ class Owned(Workflow):
             if field is not None and not isinstance(fields[field],(str,list)):
                 raise LedgerError(f'Field {field!r} of receipt {i} is a {type(fields[field]).__name__}, always delivered whole; '
                                   'field selects a text or list field to page.')
+            if args.get('item_offset') and not isinstance(fields.get(field),list):
+                raise LedgerError('item_offset selects part of one item of a list field; '+repr(field)+' is not a list.')
             return stored
         if action=='write':
             if profile['mode']!='change': raise LedgerError('Candidate writes are not authorized.')
@@ -555,10 +559,18 @@ class Owned(Workflow):
         cap=self.PROMPT_LIMITS.get(profile['provider'])
         limit,manifest,page=36000,100,12000
         while True:
+            self._page_starved=False
             prompt=build(limit,manifest,page)
-            if cap is None or len(prompt)+len(canonical(schema))+40<=cap: return prompt
+            fits=cap is None or len(prompt)+len(canonical(schema))+40<=cap
+            if fits and not self._page_starved: return prompt
+            # P4b-R2 (Codex review of P4): order of shrinking — evidence to its usual minimum, the page down to 2000, then the
+            # evidence to almost nothing (no full receipts, one manifest entry) before the page goes lower; a page that cannot
+            # advance is never sent while evidence could still make room for it.
             if limit>1200 or manifest>8: limit=max(1200,int(limit*.6));manifest=max(8,int(manifest*.6));continue
-            if page>600: page=max(600,int(page*.75));continue
+            if not fits and page>2000: page=max(2000,int(page*.75));continue
+            if limit>0 or manifest>1: limit,manifest=0,1;continue
+            if not fits and page>600: page=max(600,int(page*.75));continue
+            if fits: return prompt  # the latest result says that no page of it fits; nothing else can be removed
             raise LedgerError('Work context exceeds the '+profile['provider']+' prompt cap even with minimal evidence.')
 
     def _work_prompt(self,task_id,state,profile,control,tool_prompt,schema,notes):
@@ -610,7 +622,8 @@ class Owned(Workflow):
         work=state['work'];p=state.get('progress') or {};policy=p.get('policy') or {}
         limit=policy.get('same_result_limit')
         repeats=[]
-        for item in (p.get('repeats') or {}).values():
+        from .progress import recency  # P4b-R1: by when each repeat happened, never by the (sorted) order of checkpoint keys
+        for item in sorted((p.get('repeats') or {}).values(),key=recency):
             entry={k:item.get(k) for k in ('action','arguments','count','step','error') if item.get(k) is not None}
             entry['limit']=limit
             entry['status']=('exhausted: one more identical result stops the task again' if limit and item['count']>=limit else
@@ -668,7 +681,7 @@ class Owned(Workflow):
         from .paging import unwrap, view
         ref=state['receipts'][-1]
         record=json.loads(self.store.read_blob(ref['blob']))
-        inner,shown,field,offset=unwrap(record) if ref['action']=='receipt' else (record,None,None,0)
+        inner,shown,field,offset,item_offset=unwrap(record) if ref['action']=='receipt' else (record,None,None,0,0)
         if shown is None and ref['action']=='receipt':
             target=canonical(inner)  # older lookups did not record their index: the same immutable record
             for earlier in reversed(state['receipts'][-60:-1]):
@@ -689,13 +702,22 @@ class Owned(Workflow):
                     if len(cache)>=4: cache.pop(next(iter(cache)))
                     cache[key]=path.read_bytes().decode('utf-8',errors='replace')
                 return cache[key]
+        self._page_starved=False
+        partial=('only part of this result fits this prompt. page lists, per cut field, what you received (offset, delivered, '
+                 'total, eof) and next: the exact call that returns the part right after it (page.item: part of one list item too '
+                 'large for a page, as its JSON text). Nothing beyond what you received may be assumed; follow next (or from_start).')
+        if budget<2500:  # P4b-R2: under a tight cap the note itself must not eat the page
+            partial='Part only: page.next returns what follows (page.item.text: part of one list item too large for a page).'
         size=budget
         for _ in range(8):
             try:
-                value,pages=view(inner,max(300,size-450),index=shown if shown is not None else ref['index'],field=field,offset=offset,log_text=logs)
+                value,pages=view(inner,max(200,size-len(partial)-90),index=shown if shown is not None else ref['index'],field=field,
+                                 offset=offset,item_offset=item_offset,log_text=logs)
             except (LedgerError,TypeError,KeyError,ValueError,OSError) as error:  # a record that cannot be paged never wedges the job
-                if size<=300: return {'receipt':ref['index'],'action':ref['action'],'note':str(error)}
-                size=int(size*.8); continue
+                # P4b-R2: a smaller budget cannot help; _fit is told to give the page more room (less evidence) if it can.
+                self._page_starved=True
+                return {'receipt':ref['index'],'action':ref['action'],'does_not_fit':True,
+                        'note':'no page of this result fits this prompt now: '+str(error)[:160]}
             value=dict(value,receipt=ref['index'],complete=not pages)
             if pages: value['page']=pages
             if ref['action']=='receipt': value['shows_receipt']=shown
@@ -703,12 +725,12 @@ class Owned(Workflow):
                 value['note']=('complete result'+(f' of receipt {shown}, which you requested' if ref['action']=='receipt' else '')+
                                ': nothing of it is missing, so do not request it again; act on it')
             else:
-                value['note']=('only part of this result fits this prompt. page lists, per cut field, what you received (offset, '
-                               'delivered, total, eof) and next: the exact call that returns the part right after it. Nothing '
-                               'beyond what you received may be assumed; follow next (or from_start) to read the rest.')
+                value['note']=partial
             if len(canonical(value))<=budget: return value
             size=int(size*.85)
-        return {'receipt':ref['index'],'action':ref['action'],'note':'this result does not fit the prompt; use receipt with field and offset'}
+        self._page_starved=True
+        return {'receipt':ref['index'],'action':ref['action'],'does_not_fit':True,
+                'note':'no page of this result fits this prompt now; use receipt with field and offset'}
 
     def _work_verify(self,task_id,seq,state,profile,value):
         """Deterministic core verification before any model review; failures go back to the worker without a review call."""
@@ -963,7 +985,7 @@ class Owned(Workflow):
                     record={'action':value['action'],'result':result}
                     if value['action']=='search': record['arguments']=args
                     if value['action']=='read': record['arguments']={k:args[k] for k in ('path','cursor') if k in args}
-                    if value['action']=='receipt': record['arguments']={k:args[k] for k in ('index','field','offset') if k in args}
+                    if value['action']=='receipt': record['arguments']={k:args[k] for k in ('index','field','offset','item_offset') if k in args}
                     if profile['mode']=='work' and value['action'] in ('list','git_status','git_log','git_show'): record['request']=args
                     from .progress import observe
                     observe(state,value['action'],args,result)
@@ -971,6 +993,7 @@ class Owned(Workflow):
                     receipt={'index':len(state['receipts']),'action':value['action'],'blob':blob,'successful': 'error' not in result}
                     workspace_key=((state.get('work') or {}).get('progress_state') or {}).get('key')
                     if workspace_key: receipt['workspace']=workspace_key  # the workspace this result was observed in (P4-C)
+                    if ((state.get('work') or {}).get('progress_state') or {}).get('truncated'): receipt['workspace_partial']=True
                     if value['action']=='run' and result.get('status')=='running': receipt['background']=True
                     state['receipts'].append(receipt)
                     if not preserve_intent:

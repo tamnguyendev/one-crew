@@ -12,7 +12,7 @@ import json
 
 from .ledger import LedgerError, canonical
 
-RECEIPT_KEYS = ('index', 'field', 'offset')
+RECEIPT_KEYS = ('index', 'field', 'offset', 'item_offset')
 # Results whose stored part is itself one page of something larger, continued by the tool with its own cursor.
 CURSOR_TOOLS = {'read': ('text', ('path',)), 'list': ('entries', ('directory',)), 'search': ('matches', ('directory', 'query')),
                 'git_log': ('commits', ('directory', 'query'))}
@@ -29,31 +29,34 @@ SMALL = 160  # a field this size or smaller is always delivered whole
 
 
 def receipt_arguments(args, receipts):
-    """Validate receipt {index, field?, offset?}; unknown keys are refused with the contract, never silently ignored."""
-    if not isinstance(args, dict): raise LedgerError('receipt takes {index, field, offset}.')
+    """Validate receipt {index, field?, offset?, item_offset?}; unknown keys are refused with the contract, never ignored."""
+    if not isinstance(args, dict): raise LedgerError('receipt takes {index, field, offset} and optionally item_offset.')
     unknown = sorted(set(args) - set(RECEIPT_KEYS))
     if unknown:
-        raise LedgerError('receipt takes {index, field, offset} (field and offset select a page; the page size follows the prompt '
-                          'budget): unknown ' + ', '.join(unknown) + '.')
+        raise LedgerError('receipt takes {index, field, offset} and optionally item_offset (field and offset select a page; '
+                          'item_offset a part of one list item too large for a page; the page size follows the prompt budget): '
+                          'unknown ' + ', '.join(unknown) + '.')
     index = args.get('index')
     if type(index) is not int or not 0 <= index < len(receipts): raise LedgerError('Unknown receipt index.')
-    field, offset = args.get('field'), args.get('offset', 0)
+    field, offset, item_offset = args.get('field'), args.get('offset', 0), args.get('item_offset', 0)
     if field is not None and not isinstance(field, str): raise LedgerError('receipt field must be a result field name.')
     if type(offset) is not int or offset < 0: raise LedgerError('receipt offset must be an integer >= 0.')
+    if type(item_offset) is not int or item_offset < 0: raise LedgerError('receipt item_offset must be an integer >= 0.')
+    if item_offset and field is None: raise LedgerError('receipt item_offset needs the field of the list.')
     return index, field, offset
 
 
 def unwrap(record, arguments=None):
     """A receipt lookup wraps the record it returned (possibly another lookup): the innermost tool record, the receipt index it
-    came from and the page the lookup asked for."""
-    shown, field, offset = None, None, 0
+    came from and the page the lookup asked for (field, offset and, for one oversized list item, item_offset)."""
+    shown, field, offset, item_offset = None, None, 0, 0
     while record.get('action') == 'receipt' and isinstance(record.get('result'), dict) and 'action' in record['result']:
         args = record.get('arguments') or {}
         if shown is None:  # the outermost lookup decides which page is wanted
-            field, offset = args.get('field'), args.get('offset') or 0
+            field, offset, item_offset = args.get('field'), args.get('offset') or 0, args.get('item_offset') or 0
         if isinstance(args.get('index'), int): shown = args['index']
         record = record['result']
-    return record, shown, field, offset
+    return record, shown, field, offset, item_offset
 
 
 def _size(value):
@@ -89,7 +92,7 @@ def _fit_list(items, start, budget):
     return count
 
 
-def view(record, budget, *, index, field=None, offset=0, log_text=None):
+def view(record, budget, *, index, field=None, offset=0, item_offset=0, log_text=None):
     """The page of one tool record that fits `budget` characters of JSON.
     record: {'action', 'result', 'arguments'?/'request'?}. index: the receipt the record is stored as (continuations name it).
     field/offset: the page asked for (a receipt lookup); otherwise the default page (start of everything; the END of a command
@@ -134,6 +137,7 @@ def view(record, budget, *, index, field=None, offset=0, log_text=None):
         elif name in sources or (name in LOG_FIELDS and isinstance(content, str)):
             start = None  # a log: its tail first (where the outcome is), unless a page of it was asked for
         else: start = 0
+        item = None
         if isinstance(content, str):
             if start is None: start = len(content) - _fit_suffix(content, share)
             start = min(start, len(content)); k = _fit_string(content, start, share)
@@ -141,11 +145,31 @@ def view(record, budget, *, index, field=None, offset=0, log_text=None):
         else:
             start = min(start or 0, len(content)); k = _fit_list(content, start, share)
             shown[name] = content[start:start + k]
+            if k == 0 and start < len(content) and position == 0:
+                # P4b-R2 (Codex review of P4): an item larger than the whole page used to give a page of zero items whose next
+                # pointed at the same offset, forever. Now that item comes as pages of its own JSON text (page.item), so every
+                # page advances and no item is skipped.
+                text = canonical(content[start]); at = min(item_offset if name == field else 0, len(text))
+                n = _fit_string(text, at, max(0, share - 120))
+                if n == 0: raise LedgerError('Tool result page does not fit the prompt budget.')
+                item = {'index': start, 'offset': at, 'delivered': n, 'total': len(text), 'unit': 'chars of the item JSON',
+                        'text': text[at:at + n]}
+                remaining -= _size(item)
+        if k == 0 and item is None and position == 0 and start < len(content):
+            raise LedgerError('Tool result page does not fit the prompt budget.')  # never a page that does not advance
         remaining -= _size(shown[name])
         total = len(content); end = start + k
         page = {'field': name, 'offset': start, 'delivered': k, 'total': total, 'unit': 'chars' if isinstance(content, str) else 'items'}
         if name in sources: page['source'] = 'full command log'
-        if end < total:
+        if item is not None:
+            page['item'] = item
+            if item['offset'] + item['delivered'] < item['total']:
+                page['next'] = {'action': 'receipt', 'arguments': {'index': index, 'field': name, 'offset': start,
+                                                                   'item_offset': item['offset'] + item['delivered']}}
+            else:
+                end = start + 1  # that item is now complete: continue after it
+        if 'next' in page: pass
+        elif end < total:
             # The rest of what was STORED comes from the receipt itself: exactly the content this result had, even if the file
             # changed since (a re-read would page the current file at the old offsets).
             page['next'] = {'action': 'receipt', 'arguments': {'index': index, 'field': name, 'offset': end}}
