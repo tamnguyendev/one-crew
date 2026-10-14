@@ -213,3 +213,20 @@ Giới hạn:
 - Lệnh chạy trên host không phải sandbox OS.
 - Fact của project chưa làm giảm số lượt gọi.
 - Kiro tự cập nhật nên mỗi phiên bản mới phải kiểm chứng lại; prompt Kiro bị giới hạn 16.000 ký tự.
+
+## Đợt P4 (14/10/2026): deep review P3 của Codex
+
+- **Host đọc file hàng đợi:** phân biệt file thiếu, file hỏng và file tạm thời không đọc được (khoá Windows, lỗi I/O). Sự kiện
+  `host.dispatch` trong ledger (ghi trước file) là bản bền của yêu cầu: file không đọc được hoặc hỏng thì host đối soát theo ledger;
+  quyết định đã có (admitted/refused/failed) thì chỉ dọn file, không quyết lại. `supervised.json` không đọc được thì lượt quét chờ,
+  không ghi đè; launch record không đọc/ghi được thì không launch và không block. Hết lượt thử thì block kèm lý do.
+- **Phân trang:** model nhận một trang của kết quả (chỉ cắt giá trị, JSON vẫn hợp lệ) với `page`: offset, delivered, total, eof và
+  `next` là lời gọi chính xác lấy phần tiếp theo (`read` theo cursor file; `receipt {index, field, offset}` cho mọi kết quả khác,
+  stdout/stderr đọc từ log đầy đủ, phần cuối trước). `_fit` thu evidence trước rồi tới trang; prompt luôn trong trần Kiro.
+- **Một khoá workspace chung:** cây candidate + file bị Git ignore (đường dẫn, kích thước, nội dung có giới hạn), bỏ log/cache/bytecode.
+  Dùng cho guard tiến triển, chốt chạy lại lệnh lỗi (chỉ input bị ignore đổi thì cho chạy lại tối đa 2 lần trên cùng cây) và cache lỗi
+  đọc. Lệnh lỗi giống hệt kết quả với argv đổi hình thức vẫn là lặp.
+- **Resume là phục hồi:** prompt luôn có `recovery` dựng từ checkpoint (lần chặn trước, hành động lặp, lỗi gần đây, kiểm chứng/review,
+  deadline, bộ đếm guard so với ngưỡng); guard cảnh báo ở ngưỡng−1; resume không reset bộ đếm, không đổi ngân sách/quyền, từ chối
+  job đã huỷ. Mỗi lần block, core tự viết bàn giao blocker (`handover/blocker-<bước>.{md,json,patch}`) và checkpoint trỏ tới nó, nên
+  cửa sổ Windows sẵn có của job bị block hiện báo cáo đó một lần.

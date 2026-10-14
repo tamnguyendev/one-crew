@@ -25,6 +25,14 @@ def classify_text(text):
     return classify(Exception(text))
 
 
+def _brief(args):
+    """Arguments of a repeated action, short enough for the worker's context (file contents are never copied)."""
+    import json
+    if not isinstance(args, dict): return None
+    return {k: (v if len(json.dumps(v, ensure_ascii=False, default=str)) <= 200 else '[' + str(len(str(v))) + ' chars]')
+            for k, v in args.items() if k not in ('text', 'new', 'old')}
+
+
 def observe(state, action, args, result):
     """Counters survive resume/model changes. Cosmetic plans/arguments aren't progress."""
     work = state.get('work') or {}
@@ -32,7 +40,9 @@ def observe(state, action, args, result):
         # Work mode: refresh the workspace state key after anything that can change files (and when missing, e.g. after a
         # runtime upgrade). It lives in the checkpoint, so it survives restart and resume (R1, Codex review 07d7ad6).
         from .work_tools import MUTATING, progress_state
-        if (action in MUTATING and 'error' not in result) or not work.get('progress_state'):
+        current = work.get('progress_state') or {}
+        if current.pop('fresh', False): pass  # computed by this very action (a command), after it ran
+        elif (action in MUTATING and 'error' not in result) or not current:
             try: work['progress_state'] = progress_state(state)
             except (ValueError, OSError): work.pop('progress_state', None)
     p = state.setdefault('progress', {'policy': dict(POLICY), 'observations': 0,
@@ -54,6 +64,17 @@ def observe(state, action, args, result):
             state.update(phase='blocked', message='Repeated actions outside the granted authority: ' + str(result['error'])[:300],
                          recovery={'kind': 'permission', 'automatic_retry': False})
             return
+    if (action == 'run' and 'error' not in result and (result.get('exit_code') not in (0, None) or result.get('stopped'))
+            and (evidence.get('stdout') or '').strip() + (evidence.get('stderr') or '').strip()):
+        # P4-C: a failing command whose failure output is identical, in the same workspace, is a repeat whatever cosmetic change
+        # was made to its argv (an extra no-op flag used to make it "new"). Silent failures keep their argv: different probes
+        # that all fail without output are not the same result.
+        evidence = {k: v for k, v in evidence.items() if k not in ('argv', 'cwd')}
+    page = None
+    if action == 'receipt' and 'error' not in result:
+        # P4-B: each page of a receipt is its own evidence; asking for the same page again is a repeat.
+        page = {'index': args.get('index'), 'field': args.get('field'), 'offset': args.get('offset') or 0}
+        evidence = {'page': page, 'record': result}
     if action == 'search' and 'error' not in result:
         # The new receipt includes query/scope/counters. Positive duplicate evidence
         # still counts across cosmetic queries; empty results are scoped observations.
@@ -68,11 +89,25 @@ def observe(state, action, args, result):
                         'search_intent':intent})
     p['results'][key] = p['results'].get(key, 0) + 1
     reason = None
-    if p['results'][key] >= limits['same_result_limit']:
-        reason = 'Repeated equivalent tool result; stopped without progress.'
+    count = p['results'][key]
+    if count >= 2:
+        # P4-D: which result repeats, and how close it is to stopping the task, is part of the worker's context (the guard
+        # warns at limit-1 instead of only stopping at the limit); bounded, durable in the checkpoint.
+        repeats = p.setdefault('repeats', {})
+        repeats.pop(key, None)
+        repeats[key] = {'action': action, 'arguments': _brief(args), 'count': count, 'limit': limits['same_result_limit'],
+                        'step': state.get('step'), 'error': str(result.get('error'))[:200] if 'error' in result else None}
+        for old in list(repeats)[:-8]: repeats.pop(old)
+    if count >= limits['same_result_limit']:
+        import json
+        reason = ('Repeated equivalent tool result; stopped without progress: ' + action + ' '
+                  + json.dumps(_brief(args), ensure_ascii=False)[:200] + f' gave the same result {count} times with nothing changed '
+                  'in between.')
+        p['stopped_by'] = dict((p.get('repeats') or {}).get(key) or {'action': action, 'arguments': _brief(args), 'count': count,
+                                                                    'step': state.get('step')}, key=key)
     if action in ('list', 'search', 'read', 'receipt', 'git_status', 'git_diff', 'git_log', 'git_show'):
-        if action == 'read' and 'error' not in result and p['results'][key] == 1:
-            p['observations'] = 0  # New source/page is evidence, not blind exploration.
+        if 'error' not in result and p['results'][key] == 1 and (action == 'read' or (page and page['offset'] > 0)):
+            p['observations'] = 0  # New source, or the next page of a cut result, is evidence, not blind exploration.
         else: p['observations'] += 1
         if p['observations'] >= limits['observation_limit']:
             reason = 'Exploration limit reached: act on existing evidence or clarify scope before continuing.'

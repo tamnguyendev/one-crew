@@ -189,20 +189,81 @@ def snapshot(state, changes=True):
 
 
 MUTATING = ('write', 'edit', 'run', 'process', 'restore', 'workspace_commit', 'apply')
+INPUT_RERUNS = 2  # re-runs of one failed command on the same candidate tree after only Git-ignored inputs changed (P4-C)
 
 
-def progress_state(state):
-    """What the worker's reads and commands can observe of the workspace, as one durable key: the candidate tree (every
-    non-ignored file) and the NAMES of ignored outputs, collapsed to their top-most ignored directory (a build that creates
-    generated/ counts). Sizes and times are left out on purpose: caches and logs a command rewrites on every run
-    (.pytest_cache, timestamped logs) must not turn a real loop into progress. A no-op write or a command that changed
-    nothing leaves the key unchanged. Codex review 07d7ad6 (R1): work mode keyed progress by state['snapshot'], always None."""
-    tree = snapshot(state, changes=False)['tree']
+# What tools rewrite on every run and no command reads as an input: logs, caches, bytecode. Their content never counts as a
+# change of the workspace (a timestamped log or a refreshed cache must not turn a real loop into progress).
+VOLATILE_DIRS = frozenset(('.cache', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.hypothesis', '.nyc_output',
+                           'htmlcov', 'logs', 'log', 'tmp', 'temp'))
+VOLATILE_SUFFIXES = ('.log', '.pyc', '.pyo', '.tmp', '.temp', '.swp', '.pid')
+ENTRY_FILES = 2000            # files described per top-level ignored entry (each entry has its own budget)
+ENTRY_HASH_BYTES = 8_000_000  # content hashed per top-level ignored entry; beyond it, path and size only
+IGNORED_FILE_HASH = 2_000_000  # a single ignored file larger than this is described by its size only
+SUMMARY_FILES = 20000         # a dependency tree is summarised (file count, total size) up to this many files
+DEPENDENCY_DIRS = frozenset(('node_modules', '.venv', 'venv', 'env', 'site-packages', '.tox', '.nox', 'vendor', '.gradle', 'pods'))
+
+
+def _volatile(name):
+    parts = name.replace('\\', '/').strip('/').split('/')
+    return any(p.lower() in VOLATILE_DIRS for p in parts[:-1]) or parts[-1].lower() in VOLATILE_DIRS \
+        or parts[-1].lower().endswith(VOLATILE_SUFFIXES)
+
+
+def ignored_inputs(state):
+    """The files Git ignores in the workspace that a command can read as input (generated sources and data, fetched or installed
+    files): path, size and content hash, without logs, caches and bytecode. Bounded in files and hashed bytes; deterministic.
+    P4-C (Codex deep review P3): a test that failed for a missing generated file was refused after the build created it,
+    because only the Git tree (which never contains ignored files) was compared."""
     environment = {'GIT_INDEX_FILE': str(_home(state) / 'core.index')}
     raw = wgit(state, 'ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z', env=environment,
                timeout=600) or b''
-    ignored = sorted(p.decode('utf-8', 'replace') for p in raw.split(bytes(1)) if p)[:5000]
-    return {'tree': tree, 'ignored': len(ignored), 'key': content_hash({'tree': tree, 'ignored': ignored})}
+    root = ws_root(state); entries = []; truncated = False
+    def walk(top, limit):
+        for directory, subdirs, names in os.walk(top, followlinks=False):
+            subdirs[:] = sorted(d for d in subdirs if d.lower() not in VOLATILE_DIRS and not os.path.islink(os.path.join(directory, d)))
+            for n in sorted(names):
+                if not n.lower().endswith(VOLATILE_SUFFIXES):
+                    yield Path(directory) / n; limit -= 1
+                    if limit <= 0: return
+    for name in sorted(p.decode('utf-8', 'replace') for p in raw.split(bytes(1)) if p):
+        if _volatile(name): continue
+        top = root / name.rstrip('/')
+        if top.is_symlink() or not top.exists(): continue
+        relative = top.relative_to(root).as_posix()
+        if top.is_dir() and top.name.lower() in DEPENDENCY_DIRS:
+            # Installed dependencies: their file count and total size change when something is installed; hashing them on every
+            # action would cost seconds. Beyond SUMMARY_FILES the summary is marked truncated (the key is then not trusted alone).
+            count = size = 0
+            for path in walk(top, SUMMARY_FILES + 1):
+                try: size += path.lstat().st_size; count += 1
+                except OSError: pass
+            entries.append([relative + '/', count, 'summary' if count <= SUMMARY_FILES else 'summary-truncated'])
+            truncated |= count > SUMMARY_FILES
+            continue
+        # Each top-level entry has its own budget, so one large ignored tree never hides another (a generated file).
+        hashed = 0; described = 0
+        for path in ([top] if top.is_file() else walk(top, ENTRY_FILES + 1)):
+            if described >= ENTRY_FILES: truncated = True; entries.append([relative + '/', described, 'truncated']); break
+            try: size = path.lstat().st_size
+            except OSError: continue  # removed while listing
+            digest = None
+            if size <= IGNORED_FILE_HASH and hashed + size <= ENTRY_HASH_BYTES:
+                try: digest = hashlib.sha256(path.read_bytes()).hexdigest(); hashed += size
+                except OSError: digest = 'unreadable'
+            entries.append([path.relative_to(root).as_posix(), size, digest]); described += 1
+    return entries, truncated
+
+
+def progress_state(state, tree=None):
+    """The workspace as the worker's reads and commands can observe it, as one durable key shared by the progress guard, the
+    failed-command check and the failed-read replay (P4-C): the candidate tree (every non-ignored file) plus the ignored
+    input files with their content (ignored_inputs). Logs, caches and timings are left out, so they never count as a change;
+    a no-op write or a command that changed nothing leaves the key unchanged. Codex review 07d7ad6 (R1) introduced the key."""
+    tree = tree or snapshot(state, changes=False)['tree']
+    entries, truncated = ignored_inputs(state)
+    return {'tree': tree, 'ignored': len(entries), 'truncated': truncated,
+            'key': content_hash({'tree': tree, 'ignored': entries})}
 
 
 def tree_changes(state, old, new):
@@ -546,16 +607,35 @@ def run(runtime, task_id, state, contract, args, guard, repeat_guard=True, base=
     observe = base is None
     before = ({'tree': pending['tree']} if pending.get('log') == token and pending.get('tree') else snapshot(state, changes=False)) if observe else None
     where = str(cwd.relative_to(origin)).replace('\\', '/') if cwd != origin else ''
+    inputs_rerun = False
     if repeat_guard and observe and not args.get('background'):
         # Acceptance run N2-r2 (13/10/2026) ran the same failing test command five times with no change in between; its
         # timings differed, so no repeat was noticed. A failed command is not run again until the command or the
         # workspace changed. The core's own verification re-runs are exempt.
-        for earlier in reversed(state['work'].get('commands', [])):
+        # P4-C: "the workspace" is the shared workspace key (candidate tree + ignored inputs by content, without logs and
+        # caches). A change of ignored inputs only (a build that generated the missing file) allows a bounded number of
+        # re-runs of that command on the same candidate tree.
+        commands = state['work'].get('commands', [])
+        for earlier in reversed(commands):
             if earlier.get('argv') != argv or earlier.get('cwd', '') != where: continue
-            if earlier.get('tree_after') == before['tree'] and (earlier.get('exit_code') != 0 or earlier.get('stopped')):
+            if earlier.get('tree_after') != before['tree'] or not (earlier.get('exit_code') != 0 or earlier.get('stopped')): break
+            ended = f"exit {earlier.get('exit_code')}{' (' + earlier['stopped'] + ')' if earlier.get('stopped') else ''}"
+            if 'key_after' not in earlier:  # recorded by an earlier runtime: its rule (the candidate tree alone) still applies
                 raise LedgerError(f"Nothing changed since log {earlier.get('log')}: the same command in the same workspace ended with "
-                                  f"exit {earlier.get('exit_code')}{' (' + earlier['stopped'] + ')' if earlier.get('stopped') else ''}. "
-                                  'Change the command or the files first; re-read that receipt for its output.')
+                                  f"{ended}. Change the command or the files first; re-read that receipt for its output.")
+            observed = progress_state(state, tree=before['tree']); current = observed['key']
+            trusted = not observed.get('truncated') and not earlier.get('key_truncated')
+            if trusted and earlier.get('key_after') == current:
+                raise LedgerError(f"Nothing changed since log {earlier.get('log')}: the same command in the same workspace (files and "
+                                  f"Git-ignored inputs) ended with {ended}. Change the command or the files first; re-read that "
+                                  'receipt for its output.')
+            reruns = sum(1 for c in commands if c.get('argv') == argv and c.get('cwd', '') == where
+                         and c.get('tree_after') == before['tree'] and c.get('inputs_rerun'))
+            if reruns >= INPUT_RERUNS:
+                raise LedgerError(f"This command already ran {reruns} more times on these files after only Git-ignored inputs "
+                                  f"changed, and still ended with {ended} (log {earlier.get('log')}). Change the files or the "
+                                  'command, or diagnose from the receipts instead of running it again.')
+            inputs_rerun = True
             break
     if args.get('background'):
         if not observe: raise LedgerError('Background processes are not available in the verification checkout.')
@@ -585,8 +665,16 @@ def run(runtime, task_id, state, contract, args, guard, repeat_guard=True, base=
     after = snapshot(state, changes=False) if observe else None
     if observe: result.update(effects(contract, before, after, state))
     result['hint'] = diagnose(result, state, cwd)
+    observed = None
+    if observe:
+        # The shared workspace key after this command; the progress guard reuses it for this step instead of computing it again.
+        observed = progress_state(state, tree=after['tree'])
+        state['work']['progress_state'] = dict(observed, fresh=True)
     state['work'].setdefault('commands', []).append(dict({k: result[k] for k in ('argv', 'cwd', 'exit_code', 'stopped', 'tests', 'log')},
-                                                         tree_after=after['tree'] if after else None, where=result['where']))
+                                                         tree_after=after['tree'] if after else None, where=result['where'],
+                                                         key_after=observed['key'] if observed else None,
+                                                         **({'key_truncated': True} if observed and observed.get('truncated') else {}),
+                                                         **({'inputs_rerun': True} if inputs_rerun else {})))
     return result
 
 
@@ -1373,6 +1461,79 @@ def handover(runtime, task_id, state, contract, verification, report):
                'executor': 'onecrew-core (Git/commands), worker ' + state['worker']['provider'] + '/' + state['worker']['model'] + ' (decisions)'}
     durable_write(root / 'handover.json', canonical(summary).encode()); files['summary'] = str(root / 'handover.json')
     durable_write(root / 'report.md', report.encode('utf-8')); files['report'] = str(root / 'report.md')
+    return files
+
+
+CONTINUE = {
+    'no_progress': 'The same result repeated with nothing changed. Resume (job resume) only when there is a reason to expect a '
+                   'different approach; the guard counters are kept, so the repeated result stops the task again at once.',
+    'permission': 'The worker kept asking for actions outside the contract. Widening authority is a user decision (a new '
+                  'contract); otherwise resume so the worker reports what it cannot do.',
+    'review': 'The reviewer rejected the evidence repeatedly; read the review feedback before deciding to resume.',
+    'environment': 'The machine or sandbox failed (see the reason); fix it, then resume.',
+    'auth': 'The provider account needs a login; fix it, then resume.', 'quota': 'The provider quota is exhausted; resume later.',
+    'effect_unknown': 'An external effect may or may not have happened; reconcile it (the reason names it) before resuming.',
+}
+
+
+def blocker_handover(runtime, task_id, state, control=None):
+    """Deterministic blocker handover, written by the core when a work job is blocked (P4-D; no model involved): why it
+    stopped, the evidence (last actions and their errors, the repeated result), what exists (changed files and their patch
+    against the pin, core verification, branches), budget and deadline, the contract terms and how to continue. The
+    checkpoint names its report, so the existing Windows result window of a blocked job shows it once."""
+    root = home(runtime, task_id) / 'handover'; root.mkdir(exist_ok=True)
+    work = state['work']; step = state['step']; files = {}; changes = []
+    stem = f"blocker-{step:04d}-{len(work.get('blocks') or []) + 1}"  # one per block, even two at the same step
+    tree = (work.get('progress_state') or {}).get('tree')
+    if work.get('workspace') and tree:
+        try:
+            durable_write(root / (stem + '.patch'), wgit(state, 'diff', '--binary', work['pins']['head'], tree) or b'')
+            files['patch'] = str(root / (stem + '.patch'))
+            changes = [c['status'] + ' ' + c['path'] for c in tree_changes(state, work['pins']['head'], tree)][:200]
+        except (OSError, LedgerError) as error:
+            files['patch_error'] = str(error)[:300]
+    last = []
+    for ref in state['receipts'][-10:]:
+        try: result = json.loads(runtime.store.read_blob(ref['blob'])).get('result')
+        except (OSError, ValueError): result = None
+        last.append({'receipt': ref['index'], 'action': ref['action'], 'ok': ref.get('successful'),
+                     'error': str(result.get('error'))[:300] if isinstance(result, dict) and 'error' in result else None})
+    progress = state.get('progress') or {}; stopped = progress.get('stopped_by')
+    kind = (state.get('recovery') or {}).get('kind')
+    verified = work.get('verification') or {}
+    budget = terms = None
+    if control is not None:
+        try:
+            status = control.status(task_id)
+            budget = {'used_calls': status['used_calls'], 'max_calls': status['budget']['limits']['max_calls'],
+                      'deadline': status['budget']['deadline']}
+            contract = status['configuration']['profile']['contract']
+            terms = {'goal': contract['goal'], 'acceptance': contract['acceptance']}
+        except (LedgerError, KeyError, TypeError, OSError): pass
+    summary = {'task': task_id, 'phase': 'blocked', 'reason': state.get('message'), 'kind': kind, 'step': step, 'contract': terms,
+               'plan': state.get('plan'),
+               'repeated': ({k: stopped.get(k) for k in ('action', 'arguments', 'count', 'step')}
+                            if stopped and stopped.get('step') is not None and stopped['step'] >= step - 1 else None),
+               'last_actions': last, 'workspace_changes': changes, 'patch': files.get('patch'),
+               'core_verification': ({k: verified.get(k) for k in ('step', 'candidate', 'findings', 'interrupted')} if verified else None),
+               'branches': [{'name': b['name'], 'status': b['receipt'].get('status')} for b in work.get('branches', [])],
+               'budget': budget, 'pins': {k: work['pins'].get(k) for k in ('head', 'branch')},
+               'earlier_blocks': (work.get('blocks') or [])[-5:],
+               'to_continue': CONTINUE.get(kind, 'Read the reason and the last actions; fix what they name, then resume (job resume). '
+                                                 'Budget, deadline and authority change only by a user decision.'),
+               'executor': 'onecrew-core, written when the job was blocked (no model call)'}
+    durable_write(root / (stem + '.json'), canonical(summary).encode()); files['summary'] = str(root / (stem + '.json'))
+    lines = [f'# OneCrew: task {task_id} blocked at step {step}', '', 'Reason: ' + str(summary['reason']), '',
+             'To continue: ' + summary['to_continue'], '']
+    if summary['repeated']: lines += ['Repeated result: ' + canonical(summary['repeated']), '']
+    lines += ['Files changed against the pin (' + str(work['pins'].get('head'))[:12] + '): ' + (', '.join(changes) or 'none'),
+              'Patch: ' + str(files.get('patch')), '', 'Last actions:']
+    lines += [f"- receipt {a['receipt']}: {a['action']} {'ok' if a['ok'] else 'FAILED'}" + (f" - {a['error']}" if a['error'] else '')
+              for a in last]
+    lines += ['', 'Core verification: ' + canonical(summary['core_verification']), 'Budget: ' + canonical(budget),
+              'Plan at the block: ' + str(summary['plan'])[:2000], '',
+              'Written by the OneCrew core when the job was blocked; no model was involved. Full data: ' + files['summary']]
+    durable_write(root / (stem + '.md'), '\n'.join(lines).encode('utf-8')); files['report'] = str(root / (stem + '.md'))
     return files
 
 

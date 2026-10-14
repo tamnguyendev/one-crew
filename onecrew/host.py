@@ -47,9 +47,37 @@ def home():
     return base
 
 
+class _Unreadable(OSError):
+    """A host file that exists but cannot be read right now (another process holds it open, an I/O error). It is neither
+    missing nor malformed, and nothing it describes may be dropped or decided on because of it."""
+
+
+def _load(path):
+    """('ok', value) | ('missing', None) | ('corrupt', error) | ('unreadable', error).
+    P4-A (Codex deep review P3, reproduced with a real Windows lock): the former reader turned every OSError into None, and
+    the scan then moved a valid dispatch request that was only locked for a moment out of the queue for good."""
+    try: data = Path(path).read_bytes()
+    except FileNotFoundError: return 'missing', None
+    except OSError as error: return 'unreadable', error
+    try: return 'ok', json.loads(data.decode('utf-8'))
+    except ValueError as error: return 'corrupt', error  # includes UnicodeDecodeError
+
+
 def _read(path, default=None):
-    try: return json.loads(Path(path).read_text(encoding='utf-8'))
-    except (OSError, ValueError): return default
+    """Missing or malformed -> default. A file that exists but cannot be read now raises _Unreadable: callers decide later,
+    they never treat it as absent."""
+    status, value = _load(path)
+    if status == 'unreadable': raise _Unreadable(f'{Path(path).name} cannot be read right now: {value}')
+    return value if status == 'ok' else default
+
+
+def _read_patiently(path, default=None, attempts=4, pause=.05):
+    """For readers that must answer now (the lease seen by an entry): a few short retries, then _Unreadable."""
+    for attempt in range(attempts):
+        try: return _read(path, default)
+        except _Unreadable:
+            if attempt == attempts - 1: raise
+            time.sleep(pause * (attempt + 1))
 
 
 def _write(path, value):
@@ -66,7 +94,8 @@ def _when(text):
 def lease(base=None):
     """The live host's lease, or None (missing, stale heartbeat or dead process)."""
     from .supervisor import probe
-    record = _read((base or home()) / 'lease.json')
+    try: record = _read_patiently((base or home()) / 'lease.json')
+    except _Unreadable: return None  # cannot prove a live host right now; the entry says so instead of queueing blindly
     if not record or record.get('stopped_at'): return None
     try:
         if (dt.datetime.now(dt.timezone.utc) - _when(record['heartbeat'])).total_seconds() > HEARTBEAT: return None
@@ -86,7 +115,11 @@ def served(state_root, base=None, record=None):
 def register(state_root, base=None):
     """The user's choice of state roots this host serves (host install/register); a test or scratch root is never served."""
     base = base or home(); path = base / 'roots.json'
-    roots = _read(path, {'roots': []})
+    status, roots = _load(path)
+    if status == 'unreadable': raise _Unreadable(f'roots.json cannot be read right now ({roots}); nothing was changed, try again')
+    if status == 'corrupt' or (status == 'ok' and not isinstance((roots or {}).get('roots'), list)):
+        raise LedgerError(f'{path} is malformed; it was left as it is (fix or remove it, then register again)')
+    roots = roots if status == 'ok' else {'roots': []}
     resolved = str(Path(state_root).resolve())
     if resolved not in [r['state_root'] for r in roots['roots']]:
         roots['roots'].append({'state_root': resolved, 'added_at': utcnow()}); _write(path, roots)
@@ -121,7 +154,9 @@ def dispatch(ledger, task_id, initiator=None, wait=15, base=None):
         if time.monotonic() >= deadline: break
         time.sleep(.2)
     scanned = ((lease(base) or {}).get('roots_seen') or {}).get(str(Path(ledger.state_root).resolve()))
-    retrying = _read(_retry_path(ledger.state_root, request['id']))
+    try: retrying = _read(_retry_path(ledger.state_root, request['id']))
+    except _Unreadable as error:  # the host is writing its retry record right now: it has seen the request
+        retrying = {'count': '?', 'last_error': str(error)[:200]}
     if retrying:  # the host saw the request and is retrying its admission after a transient error (R3)
         return {'status': 'queued', 'request': request['id'], 'via': 'host', 'note': 'The host is retrying the admission '
                 f"(attempt {retrying.get('count')}: {retrying.get('last_error')}); the entry may close."}
@@ -198,6 +233,20 @@ def _launch_record(state_root, task):
     return Path(state_root) / 'host' / 'launch' / (task + '.json')
 
 
+def _launch_state(state_root, task):
+    """The durable launch record. Unreadable right now -> _Unreadable (the caller decides again later, never launches on it).
+    Malformed -> treated as a launch in progress since the file was last written (LAUNCH_GRACE), never as 'nothing'."""
+    path = _launch_record(state_root, task)
+    status, record = _load(path)
+    if status == 'unreadable': raise _Unreadable(f'launch record of {task} cannot be read right now: {record}')
+    if status == 'missing': return {}
+    if status == 'corrupt' or not isinstance(record, dict) or not isinstance(record.get('at'), str):
+        try: at = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc).isoformat()
+        except OSError: at = utcnow()
+        return {'task': task, 'state': 'launching', 'at': at, 'malformed': True}
+    return record
+
+
 def _runner_lock_held(ledger, task):
     """The runner holds its task lock for its whole life: a held lock is an owner even if nothing else says so."""
     import msvcrt
@@ -222,7 +271,7 @@ def _owner(ledger, task, entry, now):
     from .supervisor import probe
     current = runner.status(ledger, task)
     if current['status'] in ('alive', 'unknown'): return {'kind': 'registered runner', 'identity': current.get('identity')}
-    record = _read(_launch_record(ledger.state_root, task)) or {}
+    record = _launch_state(ledger.state_root, task)  # _Unreadable propagates: no launch is decided on an unread record
     for identity in ((entry or {}).get('runner'), record.get('identity')):
         if identity and probe(identity) == 'alive': return {'kind': 'runner launched by the host, not registered yet', 'identity': identity}
     if (record.get('state') == 'launching' or (record.get('identity') or {}).get('unverified')) and \
@@ -237,12 +286,15 @@ def _start(ledger, request, launch, now, cause):
     recorded as failed, so it does not hold off the next request for LAUNCH_GRACE as if it were still starting."""
     path = _launch_record(ledger.state_root, request['task']); path.parent.mkdir(parents=True, exist_ok=True)
     base = {'task': request['task'], 'request': request['id'], 'cause': cause, 'at': now.isoformat()}
-    _write(path, dict(base, state='launching'))
+    try: _write(path, dict(base, state='launching'))
+    except OSError as error:  # P4-A: nothing was started; a record that cannot be written now is no launch failure
+        raise _Unreadable(f'launch record of {request["task"]} cannot be written right now: {error}') from error
     try:
         started = launch(request)
     except Exception as error:  # a handled failure; a host killed here leaves 'launching', which LAUNCH_GRACE covers
-        _write(path, dict(base, state='failed', error=str(error)[:300]))
-        raise
+        try: _write(path, dict(base, state='failed', error=str(error)[:300]))
+        except OSError: pass  # 'launching' stays; LAUNCH_GRACE then lets the next attempt decide
+        raise _LaunchError(str(error)[:300]) from error  # never mistaken for a transient file error, whatever its type
     try:
         _write(path, dict(base, state='launched', identity=started['identity'], logs=started.get('logs')))
     except OSError as error:  # the runner runs; 'launching' stays recorded, so no second launch within LAUNCH_GRACE
@@ -262,12 +314,22 @@ class _Unrecorded(Exception):
     """A runner was started but its outcome could not be recorded yet: never relaunch, record it on a later attempt."""
 
 
+class _Malformed(LedgerError):
+    """A queue file that is damaged or foreign and has no copy in the ledger: the only request ended without a decision."""
+
+
+class _LaunchError(Exception):
+    """Starting the runner process itself failed (no process exists). A launch failure, never a transient file error."""
+
+
 def _transient(error):
-    """A ledger or file the host could not use for a moment: the request stays queued and is tried again (R3)."""
-    if isinstance(error, _Unrecorded): return True
+    """A ledger or file the host could not use for a moment: the request stays queued and is tried again (R3). P4-A: a ledger
+    another process holds without sharing reports 'unable to open database file' (SQLITE_CANTOPEN) or an I/O error, and a host
+    file held by a reader cannot be replaced (WinError 5 / errno 13): all of them pass, so none may end a request."""
+    if isinstance(error, (_Unrecorded, _Unreadable)): return True
     if isinstance(error, sqlite3.OperationalError):
-        return any(word in str(error).lower() for word in ('locked', 'busy'))
-    return isinstance(error, OSError) and getattr(error, 'winerror', None) in (32, 33)  # sharing / lock violation
+        return any(word in str(error).lower() for word in ('locked', 'busy', 'unable to open', 'disk i/o'))
+    return isinstance(error, OSError) and (getattr(error, 'winerror', None) in (5, 32, 33) or error.errno == 13)
 
 
 @contextlib.contextmanager
@@ -303,8 +365,8 @@ def _admit(request, launch, now, entry=None):
             else:
                 try:
                     started = _start(ledger, request, launch, now, 'dispatch')
-                except _Unrecorded:
-                    raise
+                except (_Unrecorded, _Unreadable):
+                    raise  # transient: the request stays queued and is decided again (nothing or an already recorded runner)
                 except Exception as error:
                     _launch_failed(ledger, request, now, error)
                     raise _LaunchFailed(str(error)[:300]) from error
@@ -339,12 +401,21 @@ def _defer(root, path, request, error, now):
     retry_path = _retry_path(root, path.stem); retry = _read(retry_path) or {}
     count = retry.get('count', 0) + 1; first = retry.get('first_at', now.isoformat())
     reason = type(error).__name__ + ': ' + str(error)[:200]
+    task = request.get('task') if request else None
     if count <= len(ADMIT_BACKOFF):
         retry_path.parent.mkdir(parents=True, exist_ok=True)
-        _write(retry_path, {'request': request['id'], 'task': request['task'], 'count': count, 'first_at': first, 'last_error': reason,
+        _write(retry_path, {'request': path.stem, 'task': task, 'count': count, 'first_at': first, 'last_error': reason,
                             'next_at': (now + dt.timedelta(seconds=ADMIT_BACKOFF[count - 1])).isoformat()})
+        return True, {'request': path.stem, 'task': task, 'action': 'retrying', 'attempt': count, 'error': reason}
+    if not request:
+        # Neither the queue file nor the ledger could be read, so the task is unknown and cannot be blocked: the request is
+        # kept and looked at again every few minutes (host.log and the lease carry the reason). Nothing unread is dropped.
+        _write(retry_path, dict(retry, count=count, last_error=reason, next_at=(now + dt.timedelta(seconds=300)).isoformat()))
+        return True, {'request': path.stem, 'task': None, 'action': 'unreadable', 'attempt': count, 'error': reason}
+    try: record = _launch_state(root, request['task'])
+    except _Unreadable:  # P4-A: an unread launch record never decides anything; look again in a minute
+        _write(retry_path, dict(retry, count=count, last_error=reason, next_at=(now + dt.timedelta(seconds=60)).isoformat()))
         return True, {'request': request['id'], 'task': request['task'], 'action': 'retrying', 'attempt': count, 'error': reason}
-    record = _read(_launch_record(root, request['task'])) or {}
     if record.get('state') in ('launching', 'launched') and record.get('at', '') >= first:
         # A runner was started for this request: never end it as failed. Its outcome is recorded once the ledger is free.
         _write(retry_path, dict(retry, count=count, last_error=reason, next_at=(now + dt.timedelta(seconds=60)).isoformat()))
@@ -431,18 +502,156 @@ def _supervise(entry, now, launch, boot):
     return True, {'task': task, 'action': 'restarted'}
 
 
+DECISIONS = ('host.admitted', 'host.refused', 'host.admission_failed', 'host.launch_failed')
+
+
+def _valid(request, root, request_id):
+    return (isinstance(request, dict) and request.get('id') == request_id
+            and all(isinstance(request.get(k), str) and request.get(k) for k in ('task', 'project', 'state_root', 'runtime'))
+            and Path(request['state_root']).resolve() == Path(root).resolve())
+
+
+def _dispatched(root, request_id):
+    """The request exactly as the entry recorded it in the ledger (event host.dispatch, written BEFORE the queue file): the
+    durable copy the host falls back to when the queue file is unreadable or damaged (P4-A). None when the ledger has none."""
+    path = Path(root) / 'ledger.sqlite3'
+    if not path.is_file(): return None
+    conn = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=10)
+    try:
+        row = conn.execute("SELECT payload FROM events WHERE kind='host.dispatch' AND json_extract(payload,'$.id')=? "
+                           'ORDER BY seq LIMIT 1', (request_id,)).fetchone()
+    finally: conn.close()
+    return json.loads(row[0]) if row else None
+
+
+def _decision(ledger, task, request_id):
+    """The decision already recorded for this request, if any: a request is decided once, across host restarts and whether
+    its queue file could be moved away or not."""
+    with ledger.transaction() as conn:
+        row = conn.execute(f"SELECT kind FROM events WHERE task_id=? AND kind IN ({','.join('?' * len(DECISIONS))}) "
+                           "AND json_extract(payload,'$.request')=? ORDER BY seq DESC LIMIT 1", (task, *DECISIONS, request_id)).fetchone()
+    return row['kind'] if row else None
+
+
+def _set_aside(root, path, now, to='done', reason=None):
+    """Move a decided (or rejected) request out of the queue. A file another process still holds stays where it is: the ledger
+    has the decision, so the next scans only try to move it (quietly, every 30 s)."""
+    target = root / 'host' / to; target.mkdir(parents=True, exist_ok=True)
+    try: os.replace(path, target / path.name)
+    except FileNotFoundError: pass  # another host serving this root took the request; its decision stands
+    except OSError:
+        try:
+            retry_path = _retry_path(root, path.stem); retry_path.parent.mkdir(parents=True, exist_ok=True)
+            _write(retry_path, {'request': path.stem, 'decided': to == 'done', 'next_at': (now + dt.timedelta(seconds=30)).isoformat()})
+        except OSError: pass
+        return False
+    if reason is not None:
+        try: _write(target / (path.stem + '.reason.json'), dict(reason, at=now.isoformat()))
+        except OSError: pass
+    _retry_path(root, path.stem).unlink(missing_ok=True)
+    return True
+
+
+def _ledger_rows(root, sql, args):
+    path = Path(root) / 'ledger.sqlite3'
+    if not path.is_file(): return []
+    conn = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=10)
+    try: return conn.execute(sql, args).fetchall()
+    finally: conn.close()
+
+
+def _rebuilt_entry(root, record, now):
+    """A supervision entry from a launch record and the ledger: the request it came from (or, for a restart, the task's latest
+    dispatch) and the restarts within the window, so the restart bound is not reset."""
+    task = record.get('task')
+    request = _dispatched(root, record['request']) if str(record.get('request', '')).startswith('HD-') else None
+    if request is None:
+        rows = _ledger_rows(root, "SELECT payload FROM events WHERE task_id=? AND kind='host.dispatch' ORDER BY seq DESC LIMIT 1", (task,))
+        request = json.loads(rows[0][0]) if rows else None
+    if not task or not request: return None
+    restarts = []
+    for (payload,) in _ledger_rows(root, "SELECT payload FROM events WHERE task_id=? AND kind IN ('host.restarted','host.restart_failed')",
+                                   (task,)):
+        at = json.loads(payload).get('at')
+        if at and (now - _when(at)).total_seconds() < WINDOW: restarts.append(at)
+    return {'task': task, 'project': request['project'], 'state_root': request['state_root'], 'runtime': request['runtime'],
+            'admitted_at': record.get('at'), 'runner': record.get('identity'), 'restarts': restarts, 'rebuilt': True}
+
+
+def _supervision(root, now):
+    """(supervised, writable). Unreadable right now -> (None, False): admissions and supervision wait for the next scan, the
+    file is never overwritten from a guess (P4-A: an unread file used to become an empty list of supervised tasks).
+    Malformed -> rebuilt from the launch records and the ledger (the damaged copy is kept). In every case a launch recorded after
+    the supervision file was last written (a write that failed right after a launch) is added back, so no runner the host
+    launched goes unsupervised."""
+    path = root / 'host' / 'supervised.json'
+    status, value = _load(path)
+    if status == 'unreadable': return None, False
+    if status == 'ok' and isinstance(value, dict) and isinstance(value.get('tasks'), dict): supervised = value
+    elif status == 'missing': supervised = {'tasks': {}}
+    else: supervised = None
+    try:
+        written = path.stat().st_mtime if supervised is not None and status == 'ok' else 0
+        records = []
+        for record_path in sorted((root / 'host' / 'launch').glob('TASK-*.json')):
+            if record_path.stat().st_mtime + 2 < written: continue
+            try: record = _read(record_path)
+            except _Unreadable: continue  # held by another process right now: looked at again on the next scan
+            if isinstance(record, dict) and record.get('state') in ('launching', 'launched'): records.append(record)
+        if supervised is None:
+            rebuilt = {'tasks': {}, 'rebuilt_at': now.isoformat()}
+        else:
+            rebuilt = supervised
+        for record in records:
+            if record.get('task') in rebuilt['tasks']: continue
+            entry = _rebuilt_entry(root, record, now)
+            if entry: rebuilt['tasks'][record['task']] = entry
+    except (OSError, ValueError, sqlite3.Error):
+        return None, False  # the ledger or a record cannot be read now: decide nothing this scan, overwrite nothing
+    if supervised is None:
+        try:
+            path.with_name(f'supervised.corrupt-{now.strftime("%Y%m%dT%H%M%S")}.json').write_bytes(path.read_bytes())
+            _write(path, rebuilt)
+        except OSError:
+            return None, False
+    return rebuilt, True
+
+
 def scan(state_root, now=None, launch=None, boot=None):
     """Admit queued requests of one state root and supervise the tasks admitted there. Returns actions taken."""
     now = now or dt.datetime.now(dt.timezone.utc); launch = launch or _launch
     root = Path(state_root); actions = []
     supervised_path = root / 'host' / 'supervised.json'
-    supervised = _read(supervised_path, {'tasks': {}})
+    supervised, writable = _supervision(root, now)
+    if not writable:
+        return [{'action': 'deferred', 'reason': 'host/supervised.json cannot be read right now; queue and supervision wait for '
+                                                 'the next scan (nothing is dropped or overwritten)'}]
     for path in sorted(queue_dir(root).glob('HD-*.json')):
-        request = _read(path)
-        retry = _read(_retry_path(root, path.stem)) or {}
+        rid = path.stem; request = None
+        try:
+            retry = _read(_retry_path(root, rid)) or {}
+        except _Unreadable:
+            continue  # its backoff record is being written right now; the request stays queued
         if retry.get('next_at') and now < _when(retry['next_at']): continue  # backing off after a transient error
         try:
-            if not request or Path(request['state_root']).resolve() != root.resolve(): raise LedgerError('Malformed or foreign request.')
+            status, value = _load(path)
+            if status == 'missing': continue  # taken by another host serving this root meanwhile
+            if status == 'ok' and _valid(value, root, rid): request = value
+            else:
+                recorded = _dispatched(root, rid)  # P4-A: the ledger's copy, when the file is unreadable or damaged
+                if recorded is not None and _valid(recorded, root, rid): request = recorded
+                elif status == 'unreadable':
+                    raise _Unreadable(f'queue file {path.name} cannot be read right now ({value}) and the ledger has no dispatch '
+                                      'with this id yet')
+                else:
+                    raise _Malformed('Malformed or foreign request (not in this ledger either): ' + str(value)[:200])
+            ledger = Ledger(request['project'], request['state_root'])
+            decided = _decision(ledger, request['task'], rid)
+            if decided or retry.get('decided'):
+                # Decided before (a restart, or a file that could not be moved): only tidy the queue, never decide again.
+                if _set_aside(root, path, now): actions.append({'request': rid, 'task': request['task'], 'action': 'reconciled',
+                                                                'decision': decided})
+                continue
             result = _admit(request, launch, now, supervised['tasks'].get(request['task']))
             if result['action'] == 'admitted':
                 entry = supervised['tasks'].get(request['task'])
@@ -450,22 +659,30 @@ def scan(state_root, now=None, launch=None, boot=None):
                     supervised['tasks'][request['task']] = dict(entry or {'restarts': []}, task=request['task'], project=request['project'],
                         state_root=request['state_root'], runtime=request['runtime'], admitted_at=now.isoformat(),
                         runner=result.get('identity') or result.get('runner') or (entry or {}).get('runner'))
-                # Persist after each request, so a crash later in this scan cannot lose who was launched.
-                _write(supervised_path, supervised)
-            actions.append(dict(result, task=request.get('task') if request else None))
+                # Persist after each request, so a crash later in this scan cannot lose who was launched. A file another
+                # process holds right now is written at the end of the scan or, failing that, rebuilt from the launch record.
+                try: _write(supervised_path, supervised)
+                except OSError as error:
+                    actions.append({'task': request['task'], 'action': 'supervision_write_deferred', 'error': str(error)[:200]})
+            actions.append(dict(result, task=request['task'], source='queue' if status == 'ok' and request is value else 'ledger'))
         except Exception as error:
-            if request and not isinstance(error, _LaunchFailed) and _transient(error):
-                keep, action = _defer(root, path, request, error, now)
+            if isinstance(error, _Malformed):
+                # P4-A: only a request that is damaged AND absent from the ledger is ended without a decision; kept with its reason.
+                actions.append({'request': rid, 'action': 'failed', 'rejected': True, 'error': str(error)[:300]})
+                _set_aside(root, path, now, to='rejected', reason={'status': status, 'error': str(error)[:500]})
+                continue
+            if isinstance(error, _LaunchFailed):  # decided: host.launch_failed is in the ledger and the task is blocked
+                actions.append({'request': rid, 'task': request['task'], 'action': 'failed', 'error': str(error)[:300]})
+            elif isinstance(error, (ValueError, OSError, KeyError, sqlite3.Error, _Unrecorded)):
+                # Any other error never ends a request silently: bounded retries, then the task is blocked with the cause.
+                try: keep, action = _defer(root, path, request, error, now)
+                except Exception as again:  # even its retry record cannot be written now: it simply stays queued
+                    keep, action = True, {'request': rid, 'action': 'deferred', 'error': type(again).__name__ + ': ' + str(again)[:200]}
                 actions.append(action)
                 if keep: continue
-            elif isinstance(error, (ValueError, OSError, KeyError, sqlite3.Error)):
-                actions.append({'request': path.stem, 'action': 'failed', 'error': str(error)[:300]})
             else:
                 raise
-        done = root / 'host' / 'done'; done.mkdir(parents=True, exist_ok=True)
-        try: os.replace(path, done / path.name)
-        except FileNotFoundError: pass  # another host serving this root took the request; its decision stands
-        _retry_path(root, path.stem).unlink(missing_ok=True)
+        _set_aside(root, path, now)
     for task, entry in list(supervised['tasks'].items()):
         try:
             keep, action = _supervise(entry, now, launch, boot if boot is not None else _boot())
@@ -473,7 +690,9 @@ def scan(state_root, now=None, launch=None, boot=None):
             keep, action = True, {'task': task, 'action': 'error', 'error': str(error)[:300]}
         if not keep: supervised['tasks'].pop(task)
         if action: actions.append(action)
-    _write(supervised_path, supervised)
+    try: _write(supervised_path, supervised)
+    except OSError as error:  # kept in memory only for this scan; the next one rebuilds missing entries from launch records
+        actions.append({'action': 'supervision_write_deferred', 'error': str(error)[:200]})
     return actions
 
 
@@ -506,9 +725,14 @@ def serve(base=None, interval=2.0, once=False):
         _write(base / 'lease.json', record)
         log(base, 'host started', pid=os.getpid(), runtime=record['runtime'], python=sys.executable, home=str(base))
         if not (base / 'roots.json').is_file(): log(base, 'no state root registered yet (host register --state-root)')
+        roots = []
         try:
             while True:
-                roots = _read(base / 'roots.json', {'roots': []})['roots']
+                status_, value = _load(base / 'roots.json')
+                if status_ == 'ok' and isinstance((value or {}).get('roots'), list): roots = value['roots']
+                elif status_ == 'missing': roots = []
+                else:  # unreadable right now or damaged: keep serving the roots read last time (P4-A)
+                    log(base, 'roots.json ' + status_ + '; serving the previous list', error=str(value)[:300])
                 errors = {}; seen = {}
                 for item in roots:
                     try:
