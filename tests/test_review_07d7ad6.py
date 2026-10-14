@@ -217,6 +217,25 @@ class LatestResultTests(ProgressFixture):
         self.assertEqual(latest.get('shows_receipt'), listed, 'the worker is not told which receipt it is looking at')
         self.assertIn('do not request it again', latest.get('note', ''))
 
+    def test_the_worker_sees_which_files_it_has_changed(self):
+        runtime, task, state, profile = self.driven()
+        from onecrew.owned import contract as tools
+        prompt, schema, _ = tools(profile)
+        def changes():
+            with patch.object(type(runtime), '_fit', lambda self, profile, schema, build: build(1200, 8)):
+                text = runtime._work_prompt(task, state, profile, runtime.control.status(task), prompt, schema, [])
+            return json.loads(text[len(prompt):]).get('workspace_changes') or {}
+        self.invoke(runtime, task, state, profile, 'list', {'directory': ''})
+        self.assertEqual(changes().get('count'), 0, 'control: nothing changed yet')
+        text, digest = on_disk(self.calc(state))
+        self.invoke(runtime, task, state, profile, 'write', {'path': 'calc.py', 'expected_sha256': digest, 'text': text + '# fixed\n'})
+        self.invoke(runtime, task, state, profile, 'write', {'path': 'notes/added.py', 'expected_sha256': None, 'text': 'X = 1\n'})
+        self.assertEqual(sorted(changes().get('paths', [])), ['A notes/added.py', 'M calc.py'],
+                         'RED-M2: the worker cannot tell which files it already changed')
+        self.invoke(runtime, task, state, profile, 'restore', {'paths': ['calc.py']})
+        self.assertEqual(changes().get('paths'), ['A notes/added.py'], 'a restored file is no longer listed')
+        self.assertIn('plan is your only memory', prompt)
+
 
 class AdmissionRetryTests(HostFixture):
     """R3: a transient ledger error never loses a dispatch, never launches twice, and ends with a reason when it persists."""
