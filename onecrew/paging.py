@@ -126,13 +126,57 @@ def view(record, budget, *, index, field=None, offset=0, item_offset=0, log_text
     skeleton = {k: v for k, v in result.items() if k not in large}
     if cursor_field in large: skeleton.pop('next_cursor', None)  # replaced by the page's own next
     order = sorted(large, key=lambda k: (k != field, k not in LOG_FIELDS, -_size(value(k))))
-    meta_cost = 300 * len(order) + 40
-    remaining = budget - _size(dict(out, result=skeleton)) - meta_cost
-    if remaining < 0: raise LedgerError('Tool result page does not fit the prompt budget.')
+
+    def meta(name):  # P5: the size of this field's page entry at its largest FOR THIS FIELD (numbers up to its own total)
+        content = value(name); n = max(len(content), 1); lists = isinstance(content, list)
+        page = {'field': name, 'offset': n, 'delivered': n, 'total': n, 'unit': 'items' if lists else 'chars', 'eof': False,
+                'next': {'action': 'receipt', 'arguments': dict({'index': index, 'field': name, 'offset': n},
+                                                                **({'item_offset': 10 ** 7} if lists else {}))}}
+        if name == field or name in sources or name in LOG_FIELDS:  # only these pages can start after 0
+            page['from_start'] = {'action': 'receipt', 'arguments': {'index': index, 'field': name, 'offset': 0}}
+        if name in sources: page['source'] = 'full command log'
+        return _size(page) + (160 if name == cursor_field else 0) + 2  # a tool continuation names its own arguments
+    # P5 (review of the fix): a flat 300 per field left a 6-field command result 12 characters of its stdout per page; the
+    # worst case of every field (10**7 offsets, both continuations) then left 120 of a 3,000-character stdout.
+    meta_cost = sum(meta(name) for name in order) + 40
+    fixed = _size(dict(out, result=skeleton))
+    room = budget - fixed - meta_cost
+    if room < 0:
+        heavy = sorted(((k, _size(v)) for k, v in skeleton.items()), key=lambda kv: -kv[1])[:3]
+        raise LedgerError('Tool result page does not fit the prompt budget: the part of this result that cannot be paged ('
+                          + ', '.join(f'{k} {n} chars' for k, n in heavy) + f') and the page entries need {fixed + meta_cost} of '
+                          f'{budget} characters.')
+    shown, pages = _allocate(room, order, field, value, sources, skeleton, offset, item_offset, index, action, result,
+                             arguments, cursor_field, continuation_keys)
+    for _ in range(3):  # P5 (review of the fix): what the estimate kept for page entries but they did not use goes to content
+        spare = budget - _size(dict(out, result=shown, page=pages))
+        if spare < 40 or all(p['eof'] for p in pages): break
+        room += spare - 20
+        try: more = _allocate(room, order, field, value, sources, skeleton, offset, item_offset, index, action, result,
+                              arguments, cursor_field, continuation_keys)
+        except LedgerError: break
+        if _size(dict(out, result=more[0], page=more[1])) > budget: break
+        shown, pages = more
+    out['result'] = shown
+    return out, pages
+
+
+def _allocate(remaining, order, field, value, sources, skeleton, offset, item_offset, index, action, result, arguments,
+              cursor_field, continuation_keys):
+    """The page of every large field within `remaining` characters of content."""
+    # P5 (review of the fix): the room is filled like water — the asked field first, then the smaller fields whole, the rest to the
+    # larger ones (a command's log gets what the short fields leave). An equal split left a log 1/6 of the page and wasted what
+    # short fields did not use.
+    alloc, left = {}, remaining
+    if field in order: alloc[field] = min(_size(value(field)), left); left -= alloc[field]
+    pending = sorted((n for n in order if n != field), key=lambda n: _size(value(n)))
+    for i, name in enumerate(pending):
+        alloc[name] = min(_size(value(name)), max(0, left) // (len(pending) - i)); left -= alloc[name]
     shown, pages = dict(skeleton), []
     for position, name in enumerate(order):
         content = value(name)
-        share = remaining if name == field or position == len(order) - 1 else max(0, remaining // (len(order) - position))
+        # what was planned for this field plus whatever the fields before it did not use
+        share = max(0, remaining - sum(alloc[n] for n in order[position + 1:]))
         if name == field: start = offset
         elif name in sources or (name in LOG_FIELDS and isinstance(content, str)):
             start = None  # a log: its tail first (where the outcome is), unless a page of it was asked for
@@ -149,7 +193,9 @@ def view(record, budget, *, index, field=None, offset=0, item_offset=0, log_text
                 # P4b-R2 (Codex review of P4): an item larger than the whole page used to give a page of zero items whose next
                 # pointed at the same offset, forever. Now that item comes as pages of its own JSON text (page.item), so every
                 # page advances and no item is skipped.
-                text = canonical(content[start]); at = min(item_offset if name == field else 0, len(text))
+                text = canonical(content[start]); at = item_offset if name == field else 0
+                if at >= len(text):  # P5 (review): past the end is a wrong request, not a page that does not fit
+                    raise LedgerError(f'item_offset {at} is at or past the end of item {start} of {name} ({len(text)} characters of JSON).')
                 n = _fit_string(text, at, max(0, share - 120))
                 if n == 0: raise LedgerError('Tool result page does not fit the prompt budget.')
                 item = {'index': start, 'offset': at, 'delivered': n, 'total': len(text), 'unit': 'chars of the item JSON',
@@ -183,5 +229,4 @@ def view(record, budget, *, index, field=None, offset=0, item_offset=0, log_text
             page['from_start'] = {'action': 'receipt', 'arguments': {'index': index, 'field': name, 'offset': 0}}
         page['eof'] = 'next' not in page
         pages.append(page)
-    out['result'] = shown
-    return out, pages
+    return shown, pages

@@ -109,9 +109,11 @@ def observe(state, action, args, result):
         if uncertain and allowed.get(key, 0) < INPUT_RERUNS:
             unproven = True; allowed[key] = allowed.get(key, 0) + 1
         if workspace.get('truncated'): marks[key] = at
-    if not unproven: p['results'][key] = p['results'].get(key, 0) + 1
+    # P5 (review of the fix): under a tight cap every prompt shows long contract texts cut, so fetching the same part again is
+    # how the worker reads its own contract, never a loop of the same result; it counts as an observation (bounded) only.
+    if not unproven and action != 'contract': p['results'][key] = p['results'].get(key, 0) + 1
     reason = None
-    count = p['results'][key]
+    count = p['results'].get(key, 1)
     if count >= 2:
         # P4-D: which result repeats, and how close it is to stopping the task, is part of the worker's context (the guard
         # warns at limit-1 instead of only stopping at the limit); bounded, durable in the checkpoint.
@@ -133,7 +135,7 @@ def observe(state, action, args, result):
                      f'trees, unhashed or unread files), and the {INPUT_RERUNS} repeats allowed after such actions are used up.'))
         p['stopped_by'] = dict((p.get('repeats') or {}).get(key) or {'action': action, 'arguments': _brief(args), 'count': count,
                                                                     'step': state.get('step')}, key=key)
-    if action in ('list', 'search', 'read', 'receipt', 'git_status', 'git_diff', 'git_log', 'git_show'):
+    if action in ('list', 'search', 'read', 'receipt', 'contract', 'git_status', 'git_diff', 'git_log', 'git_show'):
         if 'error' not in result and count == 1 and not unproven and (action == 'read' or (page and (page['offset'] > 0 or page['item_offset'] > 0))):
             p['observations'] = 0  # New source, or the next page of a cut result, is evidence, not blind exploration.
         else: p['observations'] += 1

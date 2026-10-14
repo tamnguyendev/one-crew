@@ -199,8 +199,25 @@ def preserved(repo, before, created_refs=(), applied=()):
     return findings, {k: v for k, v in after.items() if k not in ('refs', 'dirty_paths')}
 
 
-def summary(contract):
-    """What the worker and reviewer see: the user's terms verbatim, plus the invariants the core enforces itself."""
+# P5 (live task S1, 14/10/2026): under a provider's prompt cap the worker sees long contract texts shortened, each with a pointer
+# to its full text (the `contract` action); level -> longest text kept per part. Scope, checks and authority are never cut.
+CUT_LEVELS = {1: {'goal': 700, 'acceptance': 260, 'preserve': 160, 'enforced_by_core': None, 'authorized_by': 120},
+              2: {'goal': 360, 'acceptance': 150, 'preserve': 100, 'enforced_by_core': 100, 'authorized_by': 60},
+              3: {'goal': 200, 'acceptance': 90, 'preserve': 60, 'enforced_by_core': 60, 'authorized_by': 40}}
+CUT_NOTE = ('Texts ending in "…[cut: N chars, contract SECTION INDEX]" are shortened to fit this prompt. Nothing is removed or '
+            'weakened: action contract {section, index} returns the full text. Scope, checks and authority are always whole; the '
+            'core verifies and the reviewer judges against the full contract.')
+
+
+def cut(text, limit, section, index=None):
+    """A text longer than `limit` by more than its own pointer, cut with a pointer to its full text; else the text itself."""
+    if limit is None or len(text) <= limit + 80: return text
+    return text[:limit] + f'…[cut: {len(text)} chars, contract {section}' + ('' if index is None else f' {index}') + ']'
+
+
+def summary(contract, level=0):
+    """What the worker and reviewer see: the user's terms verbatim, plus the invariants the core enforces itself. level > 0: the
+    worker's view under a tight prompt cap (CUT_LEVELS); the full text of every cut part stays available to it."""
     a = contract['authority']
     enforced = ['The user checkout, index, uncommitted source, stash and existing refs are never changed'
                 + ('' if a['apply_to_project'] else ' (apply_to_project not granted: changes stay in the isolated workspace)'),
@@ -210,9 +227,19 @@ def summary(contract):
                  'Commands are contained: the OS lets them write only inside the isolated workspace, its temp and cache'),
                 'Only workspace changes within edit authority and scope.paths can be committed, exported, applied or handed over, '
                 'whichever tool or command made them']
-    return {'goal': contract['goal'], 'scope': contract['scope'], 'preserve': contract['preserve'],
-            'acceptance': contract['acceptance'], 'checks': contract['checks'], 'authority': a,
-            'enforced_by_core': enforced, 'authorized_by': contract['authorized_by']}
+    value = {'goal': contract['goal'], 'scope': contract['scope'], 'preserve': contract['preserve'],
+             'acceptance': contract['acceptance'], 'checks': contract['checks'], 'authority': a,
+             'enforced_by_core': enforced, 'authorized_by': contract['authorized_by']}
+    if not level: return value
+    limits = CUT_LEVELS[min(level, max(CUT_LEVELS))]
+    shown = dict(value, goal=cut(value['goal'], limits['goal'], 'goal'),
+                 authorized_by={k: cut(str(v), limits['authorized_by'], 'authorized_by') for k, v in value['authorized_by'].items()},
+                 **{name: [cut(text, limits[name], name, i) for i, text in enumerate(value[name])]
+                    for name in ('acceptance', 'preserve', 'enforced_by_core')})
+    # Only a view that really is shorter, its note included, replaces the whole contract (review of P5: short texts cut at
+    # level 2 made the view longer than the contract itself).
+    if shown != value and len(canonical(shown)) + len(CUT_NOTE) + 10 < len(canonical(value)): return dict(shown, cut=CUT_NOTE)
+    return value
 
 
 def load(path):

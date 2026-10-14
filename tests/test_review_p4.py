@@ -138,6 +138,8 @@ class PageProgressTests(WorkFixture):
         return runtime, task, worker, state
 
     def test_list_items_larger_than_the_page_are_delivered_and_the_continuation_advances(self):
+        # P5 (14/10/2026): with RESULT_RESERVE these items (git_log keeps 500 characters of a subject) can now arrive whole with
+        # their list; the collector below takes both forms. Item paging itself stays covered by test_view_never_returns_a_page...
         subjects = [(f'commit {i} ' + 'long subject words ' * 40)[:500] for i in range(3)]
         for subject in subjects:
             self.git('commit', '-q', '--allow-empty', '-m', subject)
@@ -145,6 +147,8 @@ class PageProgressTests(WorkFixture):
         self.assertEqual(state['phase'], 'running', 'RED-R2: following next was stopped as a repeat: ' + str(state.get('message')))
         items, texts, offsets = {}, {}, []
         for latest in worker.latest:
+            if latest.get('complete') and isinstance(latest.get('result'), dict):  # delivered whole (P5: room permitting)
+                for n, item in enumerate(latest['result'].get('commits') or []): items.setdefault(n, item)
             for page in latest.get('page') or []:
                 if page['field'] != 'commits': continue
                 offsets.append((page['offset'], (page.get('item') or {}).get('offset')))
