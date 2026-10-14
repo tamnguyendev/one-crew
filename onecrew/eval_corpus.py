@@ -491,6 +491,44 @@ CASES = [
     case('work-changed-files', 'The worker sees which files it has changed against the pinned commit', '63f51cd', [
         'tests.test_review_07d7ad6.LatestResultTests.test_the_worker_sees_which_files_it_has_changed'],
         'Found in the M2 resume of 14/10/2026. M2 was still stopped by the progress guard afterwards (worker reasoning loop).'),
+    case('host-queue-reads', 'A request that cannot be read for a moment is never dropped, decided twice or launched twice', '198a640',
+         [f'tests.test_review_p3.HostQueueTests.{t}' for t in (
+             'test_a_locked_queue_file_is_admitted_from_the_ledger_once', 'test_restart_between_retries_keeps_the_request_and_admits_it_once',
+             'test_real_malformed_json_without_a_ledger_record_is_ended_and_with_one_is_admitted',
+             'test_an_unreadable_launch_record_never_allows_a_second_runner_or_a_false_block',
+             'test_a_launch_record_that_cannot_be_written_defers_instead_of_blocking',
+             'test_an_unreadable_supervision_file_is_neither_overwritten_nor_lost')] +
+         [f'tests.test_review_p3.HostReviewTests.{t}' for t in (
+             'test_a_locked_ledger_never_ends_a_request', 'test_a_supervision_file_that_cannot_be_replaced_still_supervises_the_launched_runner',
+             'test_a_corrupt_supervision_file_is_rebuilt_with_restarted_tasks_and_their_restarts',
+             'test_exhausted_retries_with_an_unreadable_launch_record_do_not_stall_the_root',
+             'test_a_damaged_foreign_request_is_kept_aside_with_its_reason')],
+         'Codex deep review P3, finding A; real Windows locks. Second half from the adversarial review of the P4 diff.'),
+    case('paging-contract', 'The model receives every character of a long result through exact continuations within the Kiro cap', '198a640',
+         [f'tests.test_review_p3.PagingTests.{t}' for t in (
+             'test_a_9kb_file_is_delivered_to_its_last_line', 'test_a_file_larger_than_one_read_page_is_delivered_without_a_gap',
+             'test_the_middle_of_a_long_command_log_is_reachable', 'test_a_long_listing_is_paged_by_items_and_then_by_the_tool_cursor',
+             'test_receipt_refuses_arguments_outside_its_contract')] +
+         [f'tests.test_review_p3.PagingUnitTests.{t}' for t in (
+             'test_git_show_continues_with_its_own_cursor', 'test_a_cut_read_continues_by_receipt_and_a_list_without_directory_by_its_cursor',
+             'test_a_scalar_field_is_delivered_whole')],
+         'Codex deep review P3, finding B; the real _fit and Kiro cap, never mocked.'),
+    case('workspace-key', 'One workspace key: a retest runs after generated ignored inputs change; real loops are still stopped', '198a640',
+         [f'tests.test_review_p3.IgnoredInputTests.{t}' for t in (
+             'test_a_retest_runs_after_the_build_generated_the_missing_ignored_input', 'test_a_content_change_of_an_existing_ignored_input_counts',
+             'test_with_nothing_changed_the_failed_command_is_still_refused', 'test_a_rewritten_log_or_cache_is_not_a_change',
+             'test_retests_after_only_ignored_inputs_changed_are_bounded', 'test_a_cosmetic_argv_change_of_a_failing_command_is_a_repeat',
+             'test_different_silent_failing_probes_are_not_one_repeated_result',
+             'test_a_large_ignored_dependency_tree_does_not_hide_the_generated_input',
+             'test_a_file_written_by_a_background_command_is_read_after_it_failed', 'test_the_failed_read_replay_follows_the_same_key')],
+         'Codex deep review P3, finding C (controls included: unchanged workspace, log/cache noise).'),
+    case('resume-recovery', 'Resume rebuilds the context, keeps counters, budget and effects, and every block gets a blocker handover', '198a640',
+         [f'tests.test_review_p3.ResumeTests.{t}' for t in (
+             'test_the_worker_is_warned_before_the_guard_stops_the_task',
+             'test_a_block_writes_a_core_blocker_handover_and_notifies_once_from_the_checkpoint',
+             'test_resume_rebuilds_the_context_keeps_counters_budget_and_work_and_bounds_the_loop',
+             'test_resume_never_repeats_a_finished_effect', 'test_resume_respects_cancel_and_the_deadline')],
+         'Codex deep review P3, part 2 (resume as recovery). Live evidence is the new task U1 of 14/10/2026.'),
 ]
 
 LIMITS = [
