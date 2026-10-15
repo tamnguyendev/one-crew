@@ -662,6 +662,25 @@ def handover_view(state, store=None):
             'text_store': 'blob store of the job state root (snapshots/blobs/<blob>); each blob is the text as the reviewer wrote it'}
 
 
+def _entry_error(result):
+    """The error shown WHOLE to the reviewer and an uncapped worker. The stored receipt keeps a one-line error and carries the
+    open findings' whole text in `findings` (so a compact worker's prompt is not crowded); here the two are put back together,
+    each open finding's whole claim appended to the one-line error, so the rejection reads exactly as the reviewer wrote it."""
+    error = result['error']
+    findings = result.get('findings')
+    if not isinstance(findings, list) or not findings:
+        return error
+    parts = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        claim = f.get('claim')
+        if claim is None:
+            claim = (f.get('head') or '') + ((' ' + f['cut']) if f.get('cut') else '')
+        parts.append(str(f.get('id', '?')) + ': ' + claim)
+    return error + (chr(10) + chr(10).join(parts) if parts else '')
+
+
 def packet(runtime, state, *, worker=False, limit=None, manifest_size=100, compact=False, page=None, task_id=None):
     """compact (P5, worker under a tight prompt cap): the same rules for the worker in one short sentence.
     page (P6, completion review): characters for the requested receipts that do not fit whole, delivered as pages (None: a default
@@ -692,7 +711,7 @@ def packet(runtime, state, *, worker=False, limit=None, manifest_size=100, compa
             # P5 (review of the fix): in the compact worker packet an index entry, not the result: a 2,000-character review
             # rejection repeated here took the room of the latest result. The full error stays in the receipt (receipt(index)).
             # The reviewer and uncapped workers keep it whole.
-            **({} if 'error' not in result else {'error':result['error']} if not (worker and compact) else
+            **({} if 'error' not in result else {'error':_entry_error(result)} if (not compact and limit is None) else
                {'error':str(result['error'])[:300]+('…[cut: receipt has the full error]' if len(str(result['error']))>300 else '')})})
         records[ref['index']]=record
     included=[]; seen=set(); seen_records=set(); used=0

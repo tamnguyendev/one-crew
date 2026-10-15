@@ -1512,12 +1512,14 @@ class Owned(Workflow):
                             result['review_protocol']=2
                             result['error']=str(error)[:3100]
                             if profile['mode']=='work':
-                                # The receipt keeps the rejection WHOLE (error above): the reviewer and an uncapped worker read it
-                                # as written. `findings` carries every open finding's whole text, paged with the receipt action, so
-                                # a compact worker (whose packet cuts the error to a pointer) still recovers them without the error
-                                # and the findings competing for its prompt room.
+                                # The STORED receipt keeps a one-line error here (it must not take the worker prompt's room): the
+                                # open findings' whole text travels in `findings`, paged with the receipt action. The reviewer and
+                                # an uncapped worker still read the rejection WHOLE because packet() rebuilds their error entry from
+                                # those findings; only the compact worker keeps the short line as written.
                                 from .review_evidence import receipt_findings, open_findings as open_now, findings_whole
                                 if open_now(state) and not findings_whole(state):
+                                    result['error']=('Final evidence review: '+str(len(open_now(state)))+' finding(s) not closed with '
+                                                     'evidence; whole text in findings.')
                                     result['findings']=receipt_findings(self.store,state)
                         if failure_kind in ('environment','auth','quota','effect_unknown'):
                             state.update(phase='blocked',message=str(error)[:1000],
