@@ -552,7 +552,10 @@ class GrowthTests(BudgetFixture):
     def test_a_long_plan_shown_cut_is_returned_whole_by_the_contract_action(self):
         self.commit({'docs/a.txt': 'a\n'})
         plan = ('Kế hoạch: ' + 'bước đã xong, bước còn lại, bằng chứng receipt; ' * 120)[:4900] + 'HẾT-KẾ-HOẠCH'
-        first = [dict(action('read', path='docs/a.txt'), plan=plan), dict(action('contract', section='plan'), plan=plan)]
+        # P5b (Codex review of P5): the asking response carries ANOTHER plan (a worker cannot repeat text it was never shown);
+        # this test used to send the old plan back in the request, which hid that the core answered with the request's own plan.
+        asking = 'Retrieve the previous plan before continuing.'
+        first = [dict(action('read', path='docs/a.txt'), plan=plan), dict(action('contract', section='plan'), plan=asking)]
         runtime, task, worker, state = self.run_job(s1_contract(), first, steps=8, plan=plan)
         shown = context(worker.prompts[1][0])['plan']
         self.assertIn('contract plan', shown, 'the cut plan points at its full text')

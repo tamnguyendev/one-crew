@@ -793,14 +793,27 @@ class Owned(Workflow):
         return dict(running,**({'ended':{'count':len(ended),'latest':ended[-3:],'note':'process {id, op:"status"} returns any of them'}}
                                if ended else {}))
 
+    @staticmethod
+    def _accept_plan(state,plan):
+        """P5b (Codex review of P5): a response carries the worker's NEW plan, and it is the plan its prompt showed (cut, with the
+        pointer `contract plan`) that the worker may ask for. The plan of the step is therefore kept as written against: set once
+        per step, so a restart that runs this again (even from a checkpoint saved after the new plan was stored) keeps it."""
+        if (state.get('plan_before') or {}).get('step')!=state['step']:
+            state['plan_before']={'step':state['step'],'plan':state['plan']}
+        state['plan']=plan
+
     def _contract_part(self,task_id,contract,args,state=None):
         """P5: the full text of one part of the work contract, of a user answer, or of the worker's previous plan, that the prompt
-        shows cut; paged like any tool result. Nothing of the contract (or of the plan) is ever withheld from the worker."""
+        shows cut; paged like any tool result. Nothing of the contract (or of the plan) is ever withheld from the worker.
+        The `plan` is the one the prompt of this step showed (P5b), never the plan the asking response itself carries."""
         from .work_contract import summary
         if not isinstance(args,dict) or set(args)-{'section','index'}: raise LedgerError('contract takes {section, index}.')
+        state=state or {}
+        before=state.get('plan_before') or {}
+        shown_plan=before['plan'] if 'plan' in before and before.get('step')==state.get('step') else state.get('plan')
         parts=dict(summary(contract),answers=[{'question':r['question']['question'],'answer':r['answer']}
                                               for r in self.ledger.requests(task_id) if r['state']=='answered'],
-                   plan=(state or {}).get('plan') or '')
+                   plan=shown_plan or '')
         section,index=args.get('section'),args.get('index')
         if section not in parts: raise LedgerError('contract section: one of '+', '.join(sorted(parts))+'.')
         value=parts[section]
@@ -1126,6 +1139,9 @@ class Owned(Workflow):
                     expected=selected.get('capability',control['configuration']['capability'])
                     if self.worker.capability()!=expected: raise LedgerError('Provider capability changed.')
                     if state['response'] is None:
+                        # P5b: a new prompt at this step (also after solution_gate cleared the response without moving the step)
+                        # shows state['plan']; the plan its response is written against is recorded when that response arrives.
+                        state.pop('plan_before',None)
                         from .review_evidence import packet
                         with self.ledger.transaction() as conn:
                             notes=[json.loads(r['payload']) for r in conn.execute(
@@ -1157,7 +1173,7 @@ class Owned(Workflow):
                         if not isinstance(value,dict) or set(value)!=set(SCHEMA['required']): raise LedgerError('Invalid response object.')
                         if not isinstance(value['plan'],str) or len(value['plan'])>5000: raise LedgerError('Plan must be <=5000 characters.')
                         state['response']=value;state['context_prompt']=None;seq=self.persist(task_id,seq,state)
-                    value=state['response'];state['plan']=value['plan']
+                    value=state['response'];self._accept_plan(state,value['plan'])
                     if profile['mode']=='work' and value['action']=='finish' and not state.get('review'):
                         seq=self._work_verify(task_id,seq,state,profile,value)
                     if value['action'] in ('finish','branch_before') and not state.get('review'):

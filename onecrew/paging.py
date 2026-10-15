@@ -187,13 +187,20 @@ def _allocate(remaining, order, field, value, sources, skeleton, offset, item_of
             start = min(start, len(content)); k = _fit_string(content, start, share)
             shown[name] = content[start:start + k]
         else:
-            start = min(start or 0, len(content)); k = _fit_list(content, start, share)
+            start = min(start or 0, len(content))
+            at = item_offset if name == field else 0
+            if at and start >= len(content):  # P5b: a continuation inside an item that is not there
+                raise LedgerError(f'item_offset {at} needs item {start} of {name}, which does not exist ({len(content)} items).')
+            # P5b (Codex review of P5, a defect since P4b-R2): a continuation INSIDE one item (item_offset) goes on from the
+            # character where the previous page ended whatever the budget is now; before, a budget that had grown enough to hold
+            # the whole item returned it again from its start and reported the end of the list.
+            k = 0 if at else _fit_list(content, start, share)
             shown[name] = content[start:start + k]
-            if k == 0 and start < len(content) and position == 0:
+            if start < len(content) and (at or (k == 0 and position == 0)):
                 # P4b-R2 (Codex review of P4): an item larger than the whole page used to give a page of zero items whose next
                 # pointed at the same offset, forever. Now that item comes as pages of its own JSON text (page.item), so every
                 # page advances and no item is skipped.
-                text = canonical(content[start]); at = item_offset if name == field else 0
+                text = canonical(content[start])
                 if at >= len(text):  # P5 (review): past the end is a wrong request, not a page that does not fit
                     raise LedgerError(f'item_offset {at} is at or past the end of item {start} of {name} ({len(text)} characters of JSON).')
                 n = _fit_string(text, at, max(0, share - 120))
@@ -225,7 +232,7 @@ def _allocate(remaining, order, field, value, sources, skeleton, offset, item_of
                             if (v := (arguments or {}).get(k, result.get(k, '' if k == 'directory' else None))) is not None}
             continuation['cursor'] = result['next_cursor']
             page['next'] = {'action': action, 'arguments': continuation}
-        if start > 0:
+        if start > 0 or (item is not None and item['offset'] > 0):  # P5b: a page that begins inside the first item is not the start
             page['from_start'] = {'action': 'receipt', 'arguments': {'index': index, 'field': name, 'offset': 0}}
         page['eof'] = 'next' not in page
         pages.append(page)
