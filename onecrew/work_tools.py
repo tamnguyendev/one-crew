@@ -1501,6 +1501,12 @@ CONTINUE = {
     'permission': 'The worker kept asking for actions outside the contract. Widening authority is a user decision (a new '
                   'contract); otherwise resume so the worker reports what it cannot do.',
     'review': 'The reviewer rejected the evidence repeatedly; read the review feedback before deciding to resume.',
+    'review_evidence': 'The completion reviewer could not be given the evidence it asked for within its bound (see the reason): the work '
+                       'was neither accepted nor judged defective and the worker was not called. Resume reviews it again from the start; '
+                       'reduce what the reviewer must read first (a smaller file, a narrower claim) or the same limit stops it again. '
+                       'Findings the reviewer recorded stay open (review_findings in the checkpoint) and the next review starts with them.',
+    'prompt_budget': 'A prompt could not carry what was needed under the provider cap (the reason names the parts that take the room): '
+                     'shorten those parts or split the task; resuming without a change stops at the same point.',
     'environment': 'The machine or sandbox failed (see the reason); fix it, then resume.',
     'auth': 'The provider account needs a login; fix it, then resume.', 'quota': 'The provider quota is exhausted; resume later.',
     'effect_unknown': 'An external effect may or may not have happened; reconcile it (the reason names it) before resuming.',

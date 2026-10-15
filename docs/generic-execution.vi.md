@@ -230,3 +230,48 @@ Giới hạn:
   deadline, bộ đếm guard so với ngưỡng); guard cảnh báo ở ngưỡng−1; resume không reset bộ đếm, không đổi ngân sách/quyền, từ chối
   job đã huỷ. Mỗi lần block, core tự viết bàn giao blocker (`handover/blocker-<bước>.{md,json,patch}`) và checkpoint trỏ tới nó, nên
   cửa sổ Windows sẵn có của job bị block hiện báo cáo đó một lần.
+
+## Đợt P5–P6 (14–15/10/2026): ngân sách prompt, phân trang và bằng chứng cho reviewer
+
+Nguyên nhân: live S1 bị chặn vì phần cố định của prompt Kiro (contract 6.120 ký tự) không để chỗ cho nội dung kết quả công cụ.
+
+- **P5 (1e3d27a): ngân sách toàn bộ prompt.** `_fit_work` dựng phần cố định trước (contract dài bị cắt có con trỏ; hành động `contract
+  {section,index}` trả nguyên văn; scope, checks, authority không bao giờ bị cắt) rồi dành toàn bộ chỗ còn lại cho kết quả mới nhất. Một
+  *trang hợp lệ* mang ít nhất `paging.MIN_PAGE` (1.000) ký tự nội dung của chính kết quả (hoặc toàn bộ phần còn lại); page entry, ghi
+  chú và số receipt không tính. Không có trang hợp lệ thì chặn TRƯỚC lời gọi (`PromptBudgetError`, `recovery.kind=prompt_budget`, nêu
+  thành phần chiếm chỗ); prompt không bao giờ mang ghi chú `does_not_fit`. Có kiểm tra trước lời gọi đầu cho cả prompt làm việc lẫn
+  prompt review cuối. Receipt của receipt không lồng nhau.
+- **P5b (d83b834):** `contract plan` trả đúng plan mà prompt đã hiển thị (`state['plan_before']`, mỗi bước một lần, bền qua restart);
+  continuation trong một mục danh sách (`item_offset`) luôn đi tiếp từ ký tự đã giao, bất kể ngân sách đổi.
+- **P6, trang không được là mảnh vụn:** trang danh sách mà các mục nguyên vẹn mang < `MIN_PAGE` ký tự thì mang thêm đầu của mục kế tiếp
+  (`page.item.index` gọi tên mục đó); `next` trỏ `{offset: item.index, item_offset: số ký tự đã giao}`. Trang hoàn tất một mục (phần còn
+  lại) có thể ngắn hơn `MIN_PAGE`, tối đa một trang cho mỗi mục bị tách. Trước đây một mục nhỏ đứng trước mục lớn cho trang 27 ký tự và
+  core chặn job. Quy tắc này chỉ được thử SAU khi trang gồm các mục nguyên vẹn đã ngắn, và chỉ giữ khi nó làm trang đó hợp lệ (cuối cùng,
+  hoặc ≥ `MIN_PAGE`): phần đầu mục kế lấy chỗ của các trường cùng kết quả, nên trang mà P5b đã phục vụ hợp lệ không bao giờ bị thay bằng
+  trang xấu hơn (L1 của probe), và lần cấp phát lại vượt ngân sách vài ký tự được thử lại với phần dư trừ đi thay vì bị bỏ, để trang
+  không nhỏ đi khi ngân sách lớn lên (L2). `paging.content` là định nghĩa duy nhất của "nội dung" mà `MIN_PAGE` được so với.
+- **P6, bằng chứng lớn cho reviewer:** `evidence_requests` nhận chỉ số receipt hoặc `{index, field, offset, item_offset}` chép từ `next` của
+  trang đã nhận. Receipt không vừa nguyên vẹn đến theo từng trang qua cùng `paging.view` của worker (`evidence.requested_pages`: trang,
+  `blob` của receipt, `field_sha256` của từng trường nguyên). Mỗi vòng phải xin một trang chưa xin (`review_seen`), tối đa `MAX_ROUNDS`=10.
+  Hết giới hạn hoặc xin lại trang đã nhận → `ReviewEvidenceIncomplete`: công việc KHÔNG được chấp nhận và KHÔNG bị coi là có lỗi, job
+  bị chặn (`recovery.kind=review_evidence`), không tốn lời gọi worker; resume review lại từ đầu. Reviewer đã có bằng chứng mà thấy sản
+  phẩm sai thì trả lời không kèm yêu cầu: đó là rejection thật, về worker như cũ. Chế độ khác `work` giữ luật cũ (3 vòng).
+- **P6, trí nhớ của một lần review (F2/F3 của probe).** Reviewer không có trạng thái; trước đây lời `feedback` ở các vòng trước quay lại
+  là 3 ghi chú gần nhất, mỗi ghi chú tới 700 ký tự: lỗi ghi ở trang đầu rời prompt vài vòng sau và review chấp nhận (F3); ba ghi chú
+  dài làm không còn chỗ cho một trang hợp lệ và review bình thường bị chặn (F2). Nay core GIỮ NGUYÊN VĂN trong checkpoint
+  (`review_findings`, `review_notes`): mã định danh (`RF<n>`, `N<n>`), vòng, bằng chứng reviewer đang nhìn (các trang của vòng đó, receipt
+  nó trích), trạng thái (`open`/`resolved`, kèm `resolution` và lý do bị từ chối nếu có), độ dài gốc. Reviewer báo lỗi trong `findings`
+  (chuỗi, tiền tố `r<receipt>:` tùy chọn) và đóng một lỗi bằng `resolved` `"RF<n>:<receipt>:<lý do>"`; core chỉ đóng khi lỗi đang mở
+  và receipt đó đã được đưa cho reviewer trong CHÍNH review này (`review_shown`). Prompt nhận bản kết xuất có giới hạn
+  (`MEMORY_TIERS`: 900/450/160 ký tự, bậc giàu nhất mà trang reviewer đã xin vẫn hợp lệ): lỗi mở luôn có mặt (id, rồi phần claim vừa
+  chỗ; khi rất chật chỉ còn id), ghi chú mới nhất trước, ghi chú không vừa được nêu tên chứ không bị bỏ im lặng; nội dung đầy đủ ở
+  checkpoint. Quyết định không phụ thuộc prompt: reviewer trả `accepted=true` khi còn lỗi mở → core KHÔNG chấp nhận, hỏi MỘT lần
+  (`review_reconcile`) để đóng từng lỗi bằng bằng chứng hoặc từ chối; nếu vẫn chấp nhận, review là một rejection mang các lỗi (đặt
+  TRƯỚC `feedback`, nguyên văn) về worker. Review không có phán quyết (thiếu bằng chứng, chặn ngân sách, core từ chối trước) giữ các lỗi
+  mở sang lần review kế của cùng ứng viên. Giới hạn trung thực: core không đọc được lỗi mà reviewer chỉ viết vào `feedback` mà không đưa
+  vào `findings`; cái nó bảo đảm là mọi lỗi ĐÃ được khai báo không biến mất và không thể bị chấp nhận qua mặt.
+- **P6, ngân sách review (F1 của probe).** Prompt đầu của một review chỉ được gửi khi receipt lớn nhất mà reviewer có thể xin (trường
+  phân trang lớn nhất, xin như các vòng sau: có `field`) vẫn có một trang hợp lệ, với trí nhớ ở bậc nhỏ nhất. Trước đây finish có report
+  dài vừa prompt vòng 1 nhưng không vừa trang vòng 2 chỉ bị từ chối SAU khi reviewer đã bị gọi, như một rejection. Nay bị từ chối trước
+  lời gọi, và thông điệp nêu số ký tự tối đa của report (đo trong trạng thái mà review kế tiếp sẽ có, cộng một biên an toàn): văn bản
+  từ chối là receipt của worker và nằm trong manifest của reviewer suốt review sau, nên nó được giữ ngắn.

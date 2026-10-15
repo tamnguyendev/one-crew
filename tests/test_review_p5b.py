@@ -75,7 +75,10 @@ class ItemContinuationTests(unittest.TestCase):
             for n, item in enumerate(value['result'][field]): pieces.append((page['offset'] + n, 0, canonical(item)))
             if page.get('item'):
                 part = page['item']
-                self.assertEqual((part['index'], part['offset']), (ask['offset'], ask['item_offset']),
+                # P6: a page of whole items may end with the START of the next item (a page must not be a sliver); a continuation
+                # inside an item (item_offset) is that item alone, from the character where the previous page ended.
+                expected = (ask['offset'], ask['item_offset']) if ask['item_offset'] else (page['offset'] + len(value['result'][field]), 0)
+                self.assertEqual((part['index'], part['offset']), expected,
                                  'a continuation inside an item resumes at the character where the previous page ended')
                 pieces.append((part['index'], part['offset'], part['text']))
             else:

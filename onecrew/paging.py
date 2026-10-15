@@ -26,6 +26,10 @@ def _cursor_field(action, result):
     return CURSOR_TOOLS.get(action, (None, ()))
 LOG_FIELDS = {'stdout': '.out', 'stderr': '.err'}
 SMALL = 160  # a field this size or smaller is always delivered whole
+# P6 (Codex review of P5b, the worker's valid-page rule): the content a page that is NOT final owes the reader when the room allows.
+# A list page whose whole items carry less than this takes the start of the next item too (a small item before a large one used to
+# give a 27-character page that the core then refused). owned.MIN_PAGE_CONTENT is this number: one contract, checked where it is used.
+MIN_PAGE = 1000
 
 
 def receipt_arguments(args, receipts):
@@ -92,11 +96,46 @@ def _fit_list(items, start, budget):
     return count
 
 
-def view(record, budget, *, index, field=None, offset=0, item_offset=0, log_text=None):
+def content(value, pages):
+    """Characters of the result ITSELF a page delivers: the whole result, or the values of its paged fields (list items as their
+    JSON, page.item text). Page entries, notes and receipt numbers are not content. The one definition of the number MIN_PAGE
+    is compared with (owned._content is this function)."""
+    result = value.get('result')
+    if not pages: return len(canonical(result)) if result is not None else 0
+    delivered = 0
+    for page in pages:
+        shown = (result or {}).get(page['field'])
+        delivered += len(shown) if isinstance(shown, str) else sum(len(canonical(x)) for x in shown or [])
+        if page.get('item'): delivered += page['item']['delivered']
+    return delivered
+
+
+def _owed(out, pages):
+    """A page owes the reader nothing more: it is the whole result, the last of what there is, or carries MIN_PAGE of content."""
+    return not pages or all(p['eof'] for p in pages) or content(out, pages) >= MIN_PAGE
+
+
+def view(record, budget, *, index, field=None, offset=0, item_offset=0, log_text=None, fill=True):
     """The page of one tool record that fits `budget` characters of JSON.
     record: {'action', 'result', 'arguments'?/'request'?}. index: the receipt the record is stored as (continuations name it).
     field/offset: the page asked for (a receipt lookup); otherwise the default page (start of everything; the END of a command
-    log, where its outcome is). log_text(token, field) -> the full text of a command's stdout/stderr log, or None."""
+    log, where its outcome is). log_text(token, field) -> the full text of a command's stdout/stderr log, or None.
+    fill (P6): a page that is not final and whose whole items carry less than MIN_PAGE takes the start of the next item too. It
+    is tried only AFTER the page of whole items turned out short, and kept only when it makes the page one that owes the reader
+    nothing more (final, or MIN_PAGE of content): filling uses room that other fields of the same result would have had, so a
+    page the P5b rule served validly is never replaced by a worse one, and a few characters of the next item are never traded for
+    a page entry. fill=False is exactly the page of whole items."""
+    kw = dict(index=index, field=field, offset=offset, item_offset=item_offset, log_text=log_text)
+    first = _view(record, budget, fill=False, **kw)  # raises what a page of whole items raises: a filled page cannot help there
+    if not fill or item_offset or _owed(*first): return first
+    result = record.get('result')
+    if not (isinstance(result, dict) and any(isinstance(v, list) and len(v) > 1 for v in result.values())): return first
+    try: second = _view(record, budget, fill=True, **kw)
+    except LedgerError: return first
+    return second if _owed(*second) and content(*second) > content(*first) else first
+
+
+def _view(record, budget, *, index, field=None, offset=0, item_offset=0, log_text=None, fill=False):
     action = record.get('action'); result = record.get('result')
     arguments = record.get('arguments') or record.get('request')
     out = {'index': index, 'action': action}
@@ -146,23 +185,32 @@ def view(record, budget, *, index, field=None, offset=0, item_offset=0, log_text
         raise LedgerError('Tool result page does not fit the prompt budget: the part of this result that cannot be paged ('
                           + ', '.join(f'{k} {n} chars' for k, n in heavy) + f') and the page entries need {fixed + meta_cost} of '
                           f'{budget} characters.')
-    shown, pages = _allocate(room, order, field, value, sources, skeleton, offset, item_offset, index, action, result,
-                             arguments, cursor_field, continuation_keys)
+    def allocate(remaining):
+        return _allocate(remaining, order, field, value, sources, skeleton, offset, item_offset, index, action, result,
+                         arguments, cursor_field, continuation_keys, fill)
+    shown, pages = allocate(room)
     for _ in range(3):  # P5 (review of the fix): what the estimate kept for page entries but they did not use goes to content
         spare = budget - _size(dict(out, result=shown, page=pages))
         if spare < 40 or all(p['eof'] for p in pages): break
-        room += spare - 20
-        try: more = _allocate(room, order, field, value, sources, skeleton, offset, item_offset, index, action, result,
-                              arguments, cursor_field, continuation_keys)
-        except LedgerError: break
-        if _size(dict(out, result=more[0], page=more[1])) > budget: break
-        shown, pages = more
+        grown, more = room + spare - 20, None
+        # P6: the start of an item (page.item) and the longer `next` that goes with it cost more than the 120 characters kept for
+        # them, so the larger room can land a few characters over the budget. Dropping it left a page SMALLER than the one with
+        # less room (a page that shrank as the budget grew); it is tried again with the overshoot taken off, and kept only when
+        # it is within the budget and delivers no less than the page already held.
+        for _again in range(2):
+            try: attempt = allocate(grown)
+            except LedgerError: break
+            over = _size(dict(out, result=attempt[0], page=attempt[1])) - budget
+            if over <= 0: more = attempt; break
+            grown -= over + 1
+        if more is None or content(dict(out, result=more[0]), more[1]) < content(dict(out, result=shown), pages): break
+        room, (shown, pages) = grown, more
     out['result'] = shown
     return out, pages
 
 
 def _allocate(remaining, order, field, value, sources, skeleton, offset, item_offset, index, action, result, arguments,
-              cursor_field, continuation_keys):
+              cursor_field, continuation_keys, fill=False):
     """The page of every large field within `remaining` characters of content."""
     # P5 (review of the fix): the room is filled like water — the asked field first, then the smaller fields whole, the rest to the
     # larger ones (a command's log gets what the short fields leave). An equal split left a log 1/6 of the page and wasted what
@@ -196,18 +244,25 @@ def _allocate(remaining, order, field, value, sources, skeleton, offset, item_of
             # the whole item returned it again from its start and reported the end of the list.
             k = 0 if at else _fit_list(content, start, share)
             shown[name] = content[start:start + k]
-            if start < len(content) and (at or (k == 0 and position == 0)):
+            after = start + k  # the item after the whole items: the one that did not fit
+            # P6: whole items that carry less than MIN_PAGE leave a sliver; the page then takes the start of that item as well, so
+            # a page that is not final delivers real content and the worker's progress rule never refuses it (page.item.index
+            # names the item; the whole items are still shown from page.offset). Only when view() asks for it (fill): the page of
+            # whole items is tried first.
+            sliver = fill and position == 0 and not at and k > 0 and after < len(content) and sum(len(canonical(x)) for x in shown[name]) < MIN_PAGE
+            if after < len(content) and (at or (position == 0 and (k == 0 or sliver))):
                 # P4b-R2 (Codex review of P4): an item larger than the whole page used to give a page of zero items whose next
                 # pointed at the same offset, forever. Now that item comes as pages of its own JSON text (page.item), so every
                 # page advances and no item is skipped.
-                text = canonical(content[start])
+                text = canonical(content[after])
                 if at >= len(text):  # P5 (review): past the end is a wrong request, not a page that does not fit
-                    raise LedgerError(f'item_offset {at} is at or past the end of item {start} of {name} ({len(text)} characters of JSON).')
-                n = _fit_string(text, at, max(0, share - 120))
-                if n == 0: raise LedgerError('Tool result page does not fit the prompt budget.')
-                item = {'index': start, 'offset': at, 'delivered': n, 'total': len(text), 'unit': 'chars of the item JSON',
-                        'text': text[at:at + n]}
-                remaining -= _size(item)
+                    raise LedgerError(f'item_offset {at} is at or past the end of item {after} of {name} ({len(text)} characters of JSON).')
+                n = _fit_string(text, at, max(0, share - (_size(shown[name]) if k else 0) - 120))
+                if n == 0 and not sliver: raise LedgerError('Tool result page does not fit the prompt budget.')
+                if n:
+                    item = {'index': after, 'offset': at, 'delivered': n, 'total': len(text), 'unit': 'chars of the item JSON',
+                            'text': text[at:at + n]}
+                    remaining -= _size(item)
         if k == 0 and item is None and position == 0 and start < len(content):
             raise LedgerError('Tool result page does not fit the prompt budget.')  # never a page that does not advance
         remaining -= _size(shown[name])
@@ -217,10 +272,10 @@ def _allocate(remaining, order, field, value, sources, skeleton, offset, item_of
         if item is not None:
             page['item'] = item
             if item['offset'] + item['delivered'] < item['total']:
-                page['next'] = {'action': 'receipt', 'arguments': {'index': index, 'field': name, 'offset': start,
+                page['next'] = {'action': 'receipt', 'arguments': {'index': index, 'field': name, 'offset': item['index'],
                                                                    'item_offset': item['offset'] + item['delivered']}}
             else:
-                end = start + 1  # that item is now complete: continue after it
+                end = item['index'] + 1  # that item is now complete: continue after it
         if 'next' in page: pass
         elif end < total:
             # The rest of what was STORED comes from the receipt itself: exactly the content this result had, even if the file
