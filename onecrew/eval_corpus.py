@@ -601,8 +601,7 @@ CASES = [
              'PromptBudgetTests.test_receipts_of_receipts_point_at_the_original_and_do_not_grow',
              'PromptBudgetTests.test_an_item_offset_past_the_end_is_refused_when_asked_and_the_job_goes_on',
              'PromptBudgetTests.test_a_cut_contract_item_is_returned_whole_by_the_contract_action',
-             'GrowthTests.test_fetching_a_cut_contract_item_again_after_other_reads_is_not_a_repeat',
-             'GrowthTests.test_a_long_plan_shown_cut_is_returned_whole_by_the_contract_action')],
+             'GrowthTests.test_fetching_a_cut_contract_item_again_after_other_reads_is_not_a_repeat')],
          'Live S1: receipt of receipt of receipt, each wrapping the previous (+~110 characters per layer).'),
     case('p5-repair-review', 'After a failed verification or a review rejection the job keeps room for its repair; review prompts stay within the cap',
          '1e3d27a', [f'tests.test_review_p5.{t}' for t in (
@@ -618,6 +617,34 @@ CASES = [
          '1e3d27a', ['tests.test_review_p5.FullFlowTests.test_read_edit_test_review_and_handover_under_the_s1_shape_contract',
                      'tests.test_review_p5.FullFlowTests.test_a_runner_restart_mid_paging_continues_at_the_next_page_with_the_same_counters'],
          'Fixture only (scripted model); proves the mechanism, not autonomy.'),
+    case('p5b-plan-pointer', 'contract plan returns the plan the prompt showed (cut), not the plan the asking response carries; also after a restart',
+         'd83b834', ['tests.test_review_p5.GrowthTests.test_a_long_plan_shown_cut_is_returned_whole_by_the_contract_action']
+         + [f'tests.test_review_p5b.PlanPointerTests.{t}' for t in (
+             'test_each_retrieval_returns_the_plan_its_own_prompt_showed',
+             'test_a_short_plan_is_returned_too_and_a_first_step_has_no_previous_plan',
+             'test_the_plan_is_retrieved_exactly_after_the_runner_restarted_before_the_retrieval_ran',
+             'test_the_plan_is_retrieved_exactly_when_a_checkpoint_already_holds_the_new_plan',
+             'test_a_reset_that_clears_the_response_without_moving_the_step_returns_the_plan_the_new_prompt_showed',
+             'test_control_other_contract_parts_are_returned_exactly_whatever_plan_the_request_carries',
+             'test_control_a_worker_that_repeats_its_plan_in_the_request_gets_it_back')],
+         'Codex review of P5 (owned.py: state[plan] stored before the action ran); the former test sent the old plan back in the request. Controls: other contract parts, a repeated plan.'),
+    case('p5b-item-continuation', 'A continuation inside an oversized list item follows item_offset whatever the budget; pages reassemble exactly',
+         'd83b834', [f'tests.test_review_p5b.ItemContinuationTests.{t}' for t in (
+             'test_a_budget_that_grew_enough_for_the_whole_item_continues_the_item_and_does_not_restart_it',
+             'test_the_budget_shrinking_and_growing_between_pages_never_moves_the_continuation',
+             'test_escaped_content_is_cut_and_continued_exactly_under_any_sequence_of_budgets',
+             'test_a_continuation_past_the_end_of_an_item_is_a_request_error_whatever_the_budget',
+             'test_a_continuation_in_an_item_that_does_not_exist_is_a_request_error',
+             'test_the_last_page_of_the_last_item_ends_the_list_or_goes_on_with_the_tools_own_cursor',
+             'test_a_page_that_begins_inside_the_first_item_offers_from_start',
+             'test_control_after_the_last_page_of_an_item_the_next_oversized_item_starts_from_its_first_character',
+             'test_control_constant_budgets_reassemble_exactly',
+             'test_control_a_budget_that_holds_the_list_delivers_it_whole_and_ends',
+             'test_control_a_wrong_item_offset_with_a_small_budget_is_refused')]
+         + [f'tests.test_review_p5b.ItemContinuationCoreTests.{t}' for t in (
+             'test_a_cap_that_rises_after_a_split_item_continues_it_and_the_list_goes_on',
+             'test_caps_that_rise_and_fall_between_steps_deliver_every_item_exactly_once')],
+         'Codex review of P5 (paging.py _allocate: _fit_list branch ignored item_offset; a defect since P4b-R2). Controls: constant budgets, whole list, small-budget past-the-end.'),
 ]
 
 LIMITS = [
