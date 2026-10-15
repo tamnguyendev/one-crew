@@ -263,11 +263,12 @@ Nguyên nhân: live S1 bị chặn vì phần cố định của prompt Kiro (co
   nó trích), trạng thái (`open`/`resolved`, kèm `resolution` và lý do bị từ chối nếu có), độ dài gốc. Reviewer báo lỗi trong `findings`
   (chuỗi, tiền tố `r<receipt>:` tùy chọn) và đóng một lỗi bằng `resolved` `"RF<n>:<receipt>:<lý do>"`; core chỉ đóng khi lỗi đang mở
   và receipt đó đã được đưa cho reviewer trong CHÍNH review này (`review_shown`). Prompt nhận bản kết xuất có giới hạn
-  (`MEMORY_TIERS`: 900/450/160 ký tự, bậc giàu nhất mà trang reviewer đã xin vẫn hợp lệ): lỗi mở luôn có mặt (id, rồi phần claim vừa
+  (`MEMORY_TIERS`: 900/400/120 ký tự, bậc giàu nhất mà trang reviewer đã xin vẫn hợp lệ): lỗi mở luôn có mặt (id, rồi phần claim vừa
   chỗ; khi rất chật chỉ còn id), ghi chú mới nhất trước, ghi chú không vừa được nêu tên chứ không bị bỏ im lặng; nội dung đầy đủ ở
   checkpoint. Quyết định không phụ thuộc prompt: reviewer trả `accepted=true` khi còn lỗi mở → core KHÔNG chấp nhận, hỏi MỘT lần
-  (`review_reconcile`) để đóng từng lỗi bằng bằng chứng hoặc từ chối; nếu vẫn chấp nhận, review là một rejection mang các lỗi (đặt
-  TRƯỚC `feedback`, nguyên văn) về worker. Review không có phán quyết (thiếu bằng chứng, chặn ngân sách, core từ chối trước) giữ các lỗi
+  (`review_reconcile`, chỉ nằm trong prompt của vòng đó) để đóng từng lỗi bằng bằng chứng hoặc từ chối; nếu vẫn chấp nhận, hoặc prompt
+  để hỏi không vừa chỗ (cổng không bao giờ làm job bị chặn), review là một rejection mang các lỗi (đặt TRƯỚC `feedback`, nguyên văn)
+  về worker. Review không có phán quyết (thiếu bằng chứng, chặn ngân sách, core từ chối trước) giữ các lỗi
   mở sang lần review kế của cùng ứng viên. Giới hạn trung thực: core không đọc được lỗi mà reviewer chỉ viết vào `feedback` mà không đưa
   vào `findings`; cái nó bảo đảm là mọi lỗi ĐÃ được khai báo không biến mất và không thể bị chấp nhận qua mặt.
 - **P6, ngân sách review (F1 của probe).** Prompt đầu của một review chỉ được gửi khi receipt lớn nhất mà reviewer có thể xin (trường

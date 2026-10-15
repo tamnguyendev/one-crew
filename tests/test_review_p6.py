@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 from onecrew import paging
 from onecrew.ledger import LedgerError, canonical
-from onecrew.owned import Owned
+from onecrew.owned import Owned, PromptBudgetError
 from tests.test_review_p3 import CAP, context
 from tests.test_review_p5 import BudgetFixture, FlowWorker, ACCEPT, s1_contract, vietnamese_source
 from tests import test_review_p5b as p5b  # by module: importing its TestCase classes by name would make this module run them too
@@ -792,6 +792,19 @@ class ReviewFindingsTests(ReviewRoundsBase):
         self.assertEqual(state['phase'], 'completed', 'RED-P6: ' + str(state.get('message')))
         self.assertEqual([f['status'] for f in state['reviews'][-1]['findings']], ['resolved'])
         self.assertEqual(sum(1 for ctx, _ in worker.review_log if ctx.get('review_reconcile')), 1, 'asked exactly once')
+
+    def test_when_the_prompt_for_asking_again_does_not_fit_the_review_is_decided_and_not_blocked(self):
+        # the gate must never wedge a job: asking the reviewer once more is best effort; without room the review is a rejection
+        real = Owned._work_review_prompt
+        def refuse_reconcile(self_, task_id, state, profile, value):
+            if state.get('review_reconcile'): raise PromptBudgetError('Prompt budget: (test) the prompt for asking again does not fit')
+            return real(self_, task_id, state, profile, value)
+        with patch.object(Owned, '_work_review_prompt', refuse_reconcile):
+            runtime, task, worker, state = self.review_job(source_with(DEFECT, 300, 8000), FindingReader(ending='forgets'))
+        self.assertEqual(state['phase'], 'running', 'RED-P6: a rejection goes back to the worker, the job is not blocked or completed: ' + str(state.get('message')))
+        error = self.rejection_error(runtime, state)
+        self.assertIn('RF1', error); self.assertIn(DEFECT, error)
+        self.assertFalse(any(ctx.get('review_reconcile') for ctx, _ in worker.review_log), 'it was not asked: it could not be')
 
     def test_a_reviewer_that_rejects_with_an_open_finding_sends_the_finding_to_the_worker_whole(self):
         runtime, task, worker, state = self.review_job(source_with(DEFECT, 300, 8000), FindingReader(ending='rejects'))

@@ -20,9 +20,9 @@ REQUEST_KEYS = ('index', 'field', 'offset', 'item_offset')
 # evidence it asked for), and the core, not the model, refuses to accept while a finding is open.
 MAX_FINDINGS = 12     # findings one review can hold; a reviewer that has recorded this many has decided (the rest are counted)
 KEPT = 2000           # characters of one finding or note kept in the checkpoint (the reviewer's own length is recorded beside it)
-MEMORY_TIERS = (900, 450, 160)   # characters of the prompt the memory may take, richest first; the last always fits (ids, heads)
-FINDINGS_RULE = ('findings: defects you see (strings, "r<receipt>:" prefix optional). Close an open_findings id in resolved: '
-                 '"RF<n>:<receipt shown in this review>:<why>". Accepting with one open is refused.')
+MEMORY_TIERS = (900, 400, 120)   # characters of the prompt the memory may take, richest first; the last always fits (ids, heads)
+FINDINGS_RULE = ('findings: defects you see (strings). Close an open_findings id in resolved: "RF<n>:<receipt shown>:<why>". '
+                 'Accepting with one open is refused.')
 _CLOSE = re.compile(r'^\s*(RF\d+)\s*:\s*(\d+)\s*:\s*(.*\S)\s*$', re.S | re.I)
 _CITE = re.compile(r'^\s*r(\d+)\s*:\s*(.*\S)\s*$', re.S | re.I)
 
@@ -208,7 +208,7 @@ def keep_note(state, feedback, round_no):
     text = (feedback or '').strip()
     if not text: return
     notes = state.setdefault('review_notes', [])
-    number = max([int(n['id'][1:]) for n in notes] or [0]) + 1
+    number = max([int(n['id'][1:]) for n in notes if isinstance(n, dict) and str(n.get('id', 'N'))[1:].isdigit()] or [0]) + 1
     notes.append({'id': f'N{number}', 'round': round_no, 'text': text[:KEPT], 'chars': len(text),
                   'pages': list(state.get('review_requests') or [])})
 
@@ -218,7 +218,8 @@ def memory(state, budget):
     id, then its claim as long as the room allows; notes come newest first while they fit and the ones that do not are named, never
     dropped without a word. The full text of both stays in the checkpoint."""
     opened = open_findings(state)
-    notes = state.get('review_notes') or []
+    notes = [n if isinstance(n, dict) else {'id': 'N?', 'round': 0, 'text': str(n), 'chars': len(str(n))}  # a note kept as a bare string
+             for n in state.get('review_notes') or []]
     closed = [f['id'] for f in state.get('review_findings') or [] if f.get('status') == 'resolved']
     def size(a, b, c):
         return len(canonical({'open_findings': a, 'review_notes': b, **({'findings_closed': c} if c else {})}))
@@ -236,7 +237,7 @@ def memory(state, budget):
     while opened and size(shown, [], closed) > share and limit > 16:
         limit = max(16, limit * 7 // 10); shown = entries(limit)
     if opened and size(shown, [], closed) > share: shown = [f['id'] for f in opened]  # ids: the count and names always survive
-    lines, omitted, remaining = [], [], budget - size(shown, [], closed) - 70
+    lines, omitted, remaining = [], [], budget - size(shown, [], closed) - 64
     for note in reversed(notes):
         line = f"{note['id']} r{note['round']}: {note['text']}"
         if len(canonical(line)) <= remaining:
@@ -246,8 +247,11 @@ def memory(state, budget):
             lines.append(head); remaining = 0
         else: omitted.append(note['id'])
     lines.reverse()
-    if omitted: lines.insert(0, f"{len(omitted)} older note(s) kept in the review state, not shown: " + ', '.join(reversed(omitted[:6])))
-    if size(shown, lines, closed) > budget: lines = lines[-1:] if lines and size(shown, lines[-1:], closed) <= budget else []
+    if omitted: lines.insert(0, f"{len(omitted)} older note(s) kept in the review state")  # their ids and text are in the checkpoint
+    if closed and size(shown, lines, closed) > budget: closed = []  # which findings are closed is information; the first to go
+    if size(shown, lines, closed) > budget:  # the smallest room: no note, only how many there are, when even that fits
+        count = [f"{len(notes)} note(s) kept in the review state"] if notes else []
+        lines = count if size(shown, count, closed) <= budget else []
     return shown, lines, closed
 
 

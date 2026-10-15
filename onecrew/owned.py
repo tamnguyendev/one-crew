@@ -1097,7 +1097,8 @@ class Owned(Workflow):
         """The evidence rounds of one completion review are over. Decided (accepted or rejected): the review's memory goes with it (its
         findings are in the review that was recorded). Not decided (evidence incomplete, prompt budget): nothing was judged, so the
         findings the reviewer recorded stay OPEN in the checkpoint, and the next review of the same candidate starts with them."""
-        for key in ('review_requests','review_evidence_rounds','review_seen','review_notes','review_shown','review_reconcile'):
+        for key in ('review_requests','review_evidence_rounds','review_seen','review_notes','review_shown','review_reconcile',
+                    'review_reconciled'):
             state.pop(key,None)
         kept=[] if decided else [f for f in state.get('review_findings') or [] if f.get('status')=='open']
         if kept: state['review_findings']=kept
@@ -1118,6 +1119,15 @@ class Owned(Workflow):
                 finally:
                     state.pop('review_requests',None); state.pop('review_proof',None)
         return self._work_review_prompt(task_id,state,profile,value)
+
+    def _reconcile_fits(self,task_id,state,profile,value):
+        """Can the reviewer be asked once more to close its open findings? Best effort: when the prompt for it does not fit, the review
+        is decided now (a rejection that carries the findings) instead of being blocked after all its rounds."""
+        state['review_reconcile']=True
+        try: self._work_review_prompt(task_id,state,profile,value)
+        except PromptBudgetError: return False
+        finally: state.pop('review_reconcile',None)
+        return True
 
     def _costliest_request(self,state):
         """The page request that costs a review round the most room: the largest paged field of any receipt, asked the way every round
@@ -1373,6 +1383,7 @@ class Owned(Workflow):
                             # below persists the state it changed, so the findings and their closures are never held only in memory.
                             round_no=state.get('review_evidence_rounds',0)
                             record_round(state,review,shown=shown_receipts(review_prompt),round_no=round_no)
+                            if state.pop('review_reconcile',None): state['review_reconciled']=True  # its text was in this round only
                         if wanted and profile['mode']=='work':
                             # P6: evidence arrives page by page (review_evidence.packet); a round must ask for a page not asked before.
                             # When the bound is reached, or the reviewer asks for the same page again, the evidence is INCOMPLETE: the
@@ -1404,12 +1415,12 @@ class Owned(Workflow):
                                 +(f" The reviewer's own findings stay open and go into the next review: {open_text}." if open_text else ''))
                         if profile['mode']=='work':
                             # P6 (F3): a finding the reviewer recorded is closed only by evidence it was given. Accepting while one is
-                            # open is not honoured: the reviewer is asked ONCE to close each (or to reject); if it accepts again the
-                            # review is a rejection that carries the findings to the worker, whole. Old notes leaving the prompt change
-                            # none of this: the findings are in the checkpoint, not in the prompt.
+                            # open is not honoured: the reviewer is asked ONCE to close each (or to reject); if it accepts again, or
+                            # the prompt for asking does not fit, the review is a rejection that carries the findings to the worker,
+                            # whole. Old notes leaving the prompt change none of this: the findings are in the checkpoint.
                             if open_findings(state):
                                 if review['accepted']:
-                                    if not state.get('review_reconcile'):
+                                    if not state.get('review_reconciled') and self._reconcile_fits(task_id,state,profile,value):
                                         state.update(review_reconcile=True,review_prompt=None)
                                         seq=self.persist(task_id,seq,state)
                                         continue
