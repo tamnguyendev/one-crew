@@ -646,7 +646,7 @@ CASES = [
              'test_caps_that_rise_and_fall_between_steps_deliver_every_item_exactly_once')],
          'Codex review of P5 (paging.py _allocate: _fit_list branch ignored item_offset; a defect since P4b-R2). Controls: constant budgets, whole list, small-budget past-the-end.'),
     case('p6-sliver-paging', 'A small first item does not block a useful page; a mixed page continues item by item with no gap, repeat or early end',
-         '0d318aa', [f'tests.test_review_p6.SliverPagingTests.{t}' for t in (
+         '9a28805', [f'tests.test_review_p6.SliverPagingTests.{t}' for t in (
              'test_a_small_first_item_does_not_leave_a_sliver_page',
              'test_every_page_that_is_not_final_carries_real_content_and_the_walk_is_bounded',
              'test_the_item_that_starts_a_page_continues_with_item_offset_and_the_list_goes_on',
@@ -659,7 +659,7 @@ CASES = [
              'test_a_runner_restart_between_a_mixed_page_and_its_continuation_loses_nothing')],
          'Codex review of P5b (R2; paging.py _allocate: the page was cut at the first item, the core then refused a page under MIN_PAGE). Synthetic lists and a synthetic git log; a real tool output of the same shape (test_real_git_log_output...) reproduces on the baseline. The contract between paginator and progress guard is changed, not the cap, the guard or the items. Controls: whole items that fill the page, a complete small list, an oversized first item.'),
     case('p6-fill-rule', 'A page the whole-items rule served validly stays valid; a short page is filled with the next item only when that makes it valid; a larger budget never gives a smaller valid page',
-         '0d318aa', [f'tests.test_review_p6.FillRuleTests.{t}' for t in (
+         '9a28805', [f'tests.test_review_p6.FillRuleTests.{t}' for t in (
              'test_a_page_of_whole_items_that_is_valid_is_not_replaced_by_a_filled_one_that_is_not',
              'test_the_page_of_a_list_next_to_a_long_note_stays_valid_in_every_room_the_whole_items_page_was',
              'test_the_changed_paths_page_of_a_command_next_to_its_stderr_stays_valid_in_every_room_it_was',
@@ -669,7 +669,7 @@ CASES = [
              'test_a_larger_budget_gives_a_page_that_is_not_smaller_than_the_page_of_whole_items')],
          'L1 and L2 of the P6 scoped probe (confirmed by an independent re-implementation): the R2 fill rule took room from the other paged fields of the same result, so a page the P5b rule served validly was refused by the core in rooms of 1,744..1,908 characters (the room that includes RESULT_RESERVE), and its longer next pointer made a re-allocation land over the budget, so the page shrank as the budget grew. Synthetic lists (the sizes the verifier measured) through paging.view and through the core valid-page rule. A baseline red here is behavior, not a missing API.'),
     case('p6-review-evidence-pages', 'The completion reviewer gets evidence larger than the prompt page by page, bound to receipt and hash; incomplete evidence is not a rejection or an acceptance',
-         '0d318aa', [f'tests.test_review_p6.ReviewEvidencePagesTests.{t}' for t in (
+         '9a28805', [f'tests.test_review_p6.ReviewEvidencePagesTests.{t}' for t in (
              'test_a_reviewer_gets_a_large_receipt_page_by_page_and_the_job_completes',
              'test_pages_are_bound_to_the_receipt_and_the_hash_of_the_whole_field',
              'test_a_reviewer_that_has_read_every_page_still_rejects_a_wrong_fix',
@@ -682,7 +682,7 @@ CASES = [
              'test_control_a_reviewer_that_needs_nothing_accepts_in_one_call')],
          'Codex review of P5b (R1; review_evidence.packet skipped a requested receipt that did not fit: requested=[0], not_included=[0], full_receipts=[]). Fixture reviewer (scripted), the real core, a 150-entry synthetic listing; mechanism, not a live reviewer. Control: a reviewer that has read every page still rejects a wrong fix.'),
     case('p6-review-findings', 'What a reviewer reports across the rounds of one review is kept whole, stays in every prompt, and is closed only by evidence it was given; long notes do not starve the page',
-         '0d318aa', [f'tests.test_review_p6.ReviewFindingsTests.{t}' for t in (
+         '9a28805', [f'tests.test_review_p6.ReviewFindingsTests.{t}' for t in (
              'test_a_defect_on_the_first_page_is_not_accepted_over_when_the_reviewer_forgets_it',
              'test_a_defect_on_a_middle_page_is_not_accepted_over_when_the_reviewer_forgets_it',
              'test_a_finding_survives_a_runner_restart_between_rounds_and_is_still_open',
@@ -691,20 +691,21 @@ CASES = [
              'test_a_closure_that_cites_a_receipt_the_reviewer_was_never_given_is_refused_and_the_finding_stays_open',
              'test_a_closure_that_is_not_in_the_form_asked_closes_nothing',
              'test_a_reviewer_that_closes_only_when_asked_again_is_asked_once_and_the_work_is_then_accepted',
+             'test_when_the_prompt_for_asking_again_does_not_fit_the_review_is_decided_and_not_blocked',
              'test_a_reviewer_that_rejects_with_an_open_finding_sends_the_finding_to_the_worker_whole',
              'test_long_notes_every_round_neither_starve_the_page_nor_are_lost',
              'test_notes_that_do_not_fit_the_prompt_are_named_not_dropped_without_a_word',
              'test_control_a_review_with_nothing_to_report_is_as_before')],
          'F2 and F3 of the P6 scoped probe: notes[-3:] dropped a defect seen on one page a few rounds later and the review accepted; three 700-character notes left no valid page and a normal review was blocked. Fixture reviewers (stateless, scripted) that report findings and either forget them, close them with evidence, or reject; the real core, paging and prompt fitting; a synthetic Vietnamese source. The reviewer protocol (findings, resolved) is new: a reviewer that never uses it is not protected, and that limit is the handover to state.'),
     case('p6-review-room-proof', 'A finish whose report leaves no room for the page the reviewer will ask for is refused before the reviewer is called, and the refusal names a length the review then completes with',
-         '0d318aa', [f'tests.test_review_p6.ReviewRoomProofTests.{t}' for t in (
+         '9a28805', [f'tests.test_review_p6.ReviewRoomProofTests.{t}' for t in (
              'test_a_report_that_leaves_no_room_for_a_page_is_refused_before_any_reviewer_call',
              'test_the_length_the_refusal_names_is_one_the_review_then_completes_with',
              'test_the_review_that_was_proven_to_have_room_never_starves_a_page_later',
              'test_control_a_short_report_is_reviewed_without_a_refusal')],
          'F1 of the P6 scoped probe: a report of 1,200..2,800 characters fitted the prompt of the first look but not the page of the second, so the reviewer was called once and the finish was then refused as a rejection counted against the worker. Fixture reviewer, the real core under the S1-shape Kiro cap. The length named in the refusal is measured with a margin; a file the reviewer cannot read in MAX_ROUNDS pages still ends in evidence incomplete (a separate, explicit outcome).'),
     case('p6-review-units', 'Review evidence units: bounded page retrieval, the review memory and its closure rules (new functions and arguments; before the fix this is an API difference as well as a behavior one)',
-         '0d318aa', [f'tests.test_review_p6.ReviewPacketTests.{t}' for t in (
+         '9a28805', [f'tests.test_review_p6.ReviewPacketTests.{t}' for t in (
              'test_a_requested_receipt_larger_than_the_packet_comes_page_by_page_bound_to_its_blob_and_hash',
              'test_a_cursor_less_request_for_a_receipt_that_fits_is_still_whole',
              'test_requests_accept_page_arguments_and_refuse_wrong_ones',
