@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 from onecrew import paging
 from onecrew.ledger import LedgerError, canonical
-from onecrew.owned import Owned, PromptBudgetError
+from onecrew.owned import Owned
 from tests.test_review_p3 import CAP, context
 from tests.test_review_p5 import BudgetFixture, FlowWorker, ACCEPT, s1_contract, vietnamese_source
 from tests import test_review_p5b as p5b  # by module: importing its TestCase classes by name would make this module run them too
@@ -629,8 +629,7 @@ class FindingReader(PageReader):
     of the file (no next page):
       forgets         accepts, ignoring open_findings (a reviewer that lost track of what it saw);
       rejects         answers accepted=false with no request;
-      closes          closes every id of open_findings citing receipt `cite`, then accepts;
-      after_reconcile accepts without closing, and closes them (citing `cite`) only when its prompt carries review_reconcile.
+      closes          closes every id of open_findings citing receipt `cite`, then accepts.
     `note` is the length of the note it writes every round (a chatty reviewer)."""
     def __init__(self, defect=DEFECT, ending='forgets', cite=0, how='the end of the file defines it, receipt 0', note=0, index=0,
                  malformed=False):
@@ -649,9 +648,8 @@ class FindingReader(PageReader):
         nxt = next_request(ev, self.index)
         if nxt:
             return {'accepted': False, 'evidence_requests': [nxt], 'feedback': feedback, 'findings': findings, 'resolved': []}
-        closing = self.ending == 'closes' or (self.ending == 'after_reconcile' and ctx.get('review_reconcile'))
         resolved = []
-        if closing:
+        if self.ending == 'closes':
             for ident in finding_ids(ctx):
                 resolved.append(f'{ident}:{self.cite}:{self.how}' if not self.malformed else f'{ident} is fine')
         if self.ending == 'rejects':
@@ -689,7 +687,7 @@ class ReviewFindingsTests(ReviewRoundsBase):
         first_seen = next(n for n, (ctx, reply) in enumerate(worker.review_log) if reply['findings']) + 1
         self.assertEqual(rounds_with, list(range(first_seen, len(worker.review_log))),
                          'every prompt after the page that showed it carries the finding, however many rounds have passed')
-        self.assertTrue(worker.review_log[-1][0].get('review_reconcile'), 'the reviewer was asked once to close it or reject')
+        self.assertTrue(worker.review_log[-1][1]['accepted'], 'the last answer is the one that accepted: the core decided on it, no second question')
         return runtime, task, worker, state
 
     def test_a_defect_on_the_first_page_is_not_accepted_over_when_the_reviewer_forgets_it(self):
@@ -779,32 +777,24 @@ class ReviewFindingsTests(ReviewRoundsBase):
         found = state['reviews'][-1]['findings']
         self.assertEqual([(f['id'], f['status']) for f in found], [('RF1', 'open')])
         self.assertIn('receipt 1 was not shown', found[0]['closure_refused'])
-        self.assertTrue(any(isinstance(e, dict) and e.get('closure_refused') for e in worker.review_log[-1][0].get('open_findings') or []),
-                        'the next prompt tells the reviewer why it stays open')
+        self.assertIn('closure refused: receipt 1 was not shown', self.rejection_error(runtime, state),
+                      'the worker is told why the finding stayed open, not only that it did')
 
     def test_a_closure_that_is_not_in_the_form_asked_closes_nothing(self):
         runtime, task, worker, state = self.review_job(source_with(DEFECT, 300, 8000), FindingReader(ending='closes', malformed=True))
         self.assertEqual(state['phase'], 'running', f'RED-P6: ({state.get("message")})')
         self.assertEqual([f['status'] for f in state['reviews'][-1]['findings']], ['open'])
 
-    def test_a_reviewer_that_closes_only_when_asked_again_is_asked_once_and_the_work_is_then_accepted(self):
-        runtime, task, worker, state = self.review_job(source_with(DEFECT, 300, 8000), FindingReader(ending='after_reconcile'))
-        self.assertEqual(state['phase'], 'completed', 'RED-P6: ' + str(state.get('message')))
-        self.assertEqual([f['status'] for f in state['reviews'][-1]['findings']], ['resolved'])
-        self.assertEqual(sum(1 for ctx, _ in worker.review_log if ctx.get('review_reconcile')), 1, 'asked exactly once')
-
-    def test_when_the_prompt_for_asking_again_does_not_fit_the_review_is_decided_and_not_blocked(self):
-        # the gate must never wedge a job: asking the reviewer once more is best effort; without room the review is a rejection
-        real = Owned._work_review_prompt
-        def refuse_reconcile(self_, task_id, state, profile, value):
-            if state.get('review_reconcile'): raise PromptBudgetError('Prompt budget: (test) the prompt for asking again does not fit')
-            return real(self_, task_id, state, profile, value)
-        with patch.object(Owned, '_work_review_prompt', refuse_reconcile):
-            runtime, task, worker, state = self.review_job(source_with(DEFECT, 300, 8000), FindingReader(ending='forgets'))
-        self.assertEqual(state['phase'], 'running', 'RED-P6: a rejection goes back to the worker, the job is not blocked or completed: ' + str(state.get('message')))
+    def test_accepting_with_an_open_finding_is_one_counted_rejection_decided_on_that_answer(self):
+        # the decision never waits on a second question (it could not be put without re-cutting the page the reviewer just read),
+        # so it cannot be blocked for room either: the finding goes to the worker whole
+        runtime, task, worker, state = self.review_job(source_with(DEFECT, 300, 8000), FindingReader(ending='forgets'))
+        self.assertEqual(state['phase'], 'running', 'RED-P6: ' + str(state.get('message')))
+        self.assertEqual((state.get('progress') or {}).get('review_rejections_v2'), 1)
+        self.assertEqual(len([r for r in state['receipts'] if r['action'] == 'finish']), 1)
+        self.assertFalse(any('review_reconcile' in ctx for ctx, _ in worker.review_log), 'no round asks a second question')
         error = self.rejection_error(runtime, state)
         self.assertIn('RF1', error); self.assertIn(DEFECT, error)
-        self.assertFalse(any(ctx.get('review_reconcile') for ctx, _ in worker.review_log), 'it was not asked: it could not be')
 
     def test_a_reviewer_that_rejects_with_an_open_finding_sends_the_finding_to_the_worker_whole(self):
         runtime, task, worker, state = self.review_job(source_with(DEFECT, 300, 8000), FindingReader(ending='rejects'))
@@ -905,6 +895,10 @@ class ReviewMemoryTests(unittest.TestCase):
         self.assertEqual(state['review_findings'][0]['resolution'], {'round': 2, 'receipt': 0, 'how': 'the page refutes it', 'chars': 19})
         again = record_round(state, {'resolved': ['RF1:0:again']}, shown={0}, round_no=3)
         self.assertEqual(again['closed'], [], 'a closed finding is not closed twice')
+        from onecrew.review_evidence import memory, findings_text
+        entries = {e['id']: e for e in memory(state, 900)[0]}
+        self.assertEqual(entries['RF2']['closure_refused'], 'receipt 5 was not shown in this review')
+        self.assertIn('[closure refused: receipt 5 was not shown in this review]', findings_text(state))
 
     def test_the_memory_is_within_its_budget_and_never_loses_an_open_finding(self):
         from onecrew.review_evidence import record_round, keep_note, memory, MEMORY_TIERS

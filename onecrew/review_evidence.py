@@ -264,7 +264,8 @@ def findings_text(state, limit=2200):
     for f in opened:
         cite = f['source'].get('receipt')
         claim = f['claim'] if len(f['claim']) <= per else f['claim'][:per] + f"…[{f['chars']} chars, kept in the review state]"
-        parts.append(f"{f['id']} (round {f['round']}{'' if cite is None else f', receipt {cite}'}): {claim}")
+        refused = f" [closure refused: {f['closure_refused']}]" if f.get('closure_refused') else ''
+        parts.append(f"{f['id']} (round {f['round']}{'' if cite is None else f', receipt {cite}'}): {claim}{refused}")
     extra = state.get('review_findings_unrecorded', 0)
     return (f'{len(opened)} finding(s) recorded in this review and not closed with evidence: ' + ' | '.join(parts)
             + (f' | {extra} more finding(s) were reported than the {MAX_FINDINGS} the review can hold' if extra else ''))

@@ -1097,8 +1097,7 @@ class Owned(Workflow):
         """The evidence rounds of one completion review are over. Decided (accepted or rejected): the review's memory goes with it (its
         findings are in the review that was recorded). Not decided (evidence incomplete, prompt budget): nothing was judged, so the
         findings the reviewer recorded stay OPEN in the checkpoint, and the next review of the same candidate starts with them."""
-        for key in ('review_requests','review_evidence_rounds','review_seen','review_notes','review_shown','review_reconcile',
-                    'review_reconciled'):
+        for key in ('review_requests','review_evidence_rounds','review_seen','review_notes','review_shown'):
             state.pop(key,None)
         kept=[] if decided else [f for f in state.get('review_findings') or [] if f.get('status')=='open']
         if kept: state['review_findings']=kept
@@ -1119,15 +1118,6 @@ class Owned(Workflow):
                 finally:
                     state.pop('review_requests',None); state.pop('review_proof',None)
         return self._work_review_prompt(task_id,state,profile,value)
-
-    def _reconcile_fits(self,task_id,state,profile,value):
-        """Can the reviewer be asked once more to close its open findings? Best effort: when the prompt for it does not fit, the review
-        is decided now (a rejection that carries the findings) instead of being blocked after all its rounds."""
-        state['review_reconcile']=True
-        try: self._work_review_prompt(task_id,state,profile,value)
-        except PromptBudgetError: return False
-        finally: state.pop('review_reconcile',None)
-        return True
 
     def _costliest_request(self,state):
         """The page request that costs a review round the most room: the largest paged field of any receipt, asked the way every round
@@ -1212,9 +1202,6 @@ class Owned(Workflow):
             if notes: value_['review_notes']=notes
             if closed: value_['findings_closed']=closed
             if state.get('review_requests') or shown or notes: value_['findings_rule']=FINDINGS_RULE
-            if state.get('review_reconcile'):
-                value_['review_reconcile']=('You answered accepted=true while findings you recorded in this review are still open: close '
-                                            'each in resolved with the receipt that refutes it, or answer accepted=false.')
             if proof:  # the memory a later round can have, at its smallest tier: reserved now
                 have=len(canonical({'open_findings':shown,'review_notes':notes}))
                 if have<MEMORY_TIERS[-1]: value_['memory_reserve']='·'*(MEMORY_TIERS[-1]-have)
@@ -1383,7 +1370,6 @@ class Owned(Workflow):
                             # below persists the state it changed, so the findings and their closures are never held only in memory.
                             round_no=state.get('review_evidence_rounds',0)
                             record_round(state,review,shown=shown_receipts(review_prompt),round_no=round_no)
-                            if state.pop('review_reconcile',None): state['review_reconciled']=True  # its text was in this round only
                         if wanted and profile['mode']=='work':
                             # P6: evidence arrives page by page (review_evidence.packet); a round must ask for a page not asked before.
                             # When the bound is reached, or the reviewer asks for the same page again, the evidence is INCOMPLETE: the
@@ -1414,18 +1400,16 @@ class Owned(Workflow):
                                 f"reviewer has to read (a smaller file, a narrower claim)."
                                 +(f" The reviewer's own findings stay open and go into the next review: {open_text}." if open_text else ''))
                         if profile['mode']=='work':
-                            # P6 (F3): a finding the reviewer recorded is closed only by evidence it was given. Accepting while one is
-                            # open is not honoured: the reviewer is asked ONCE to close each (or to reject); if it accepts again, or
-                            # the prompt for asking does not fit, the review is a rejection that carries the findings to the worker,
-                            # whole. Old notes leaving the prompt change none of this: the findings are in the checkpoint.
+                            # P6 (F3): a finding the reviewer recorded is closed only by evidence it was given, in the answer that
+                            # accepts (resolved: the prompt says so in every round that carries a page or a finding). Accepting while
+                            # one is open is not honoured: the review is a rejection that carries the findings to the worker, whole.
+                            # No second question is put to the reviewer: the page it just read would be re-cut by the room the
+                            # question takes, and a stateless reviewer then reads a different last page. Old notes leaving the prompt
+                            # change none of this: the findings are in the checkpoint, not in the prompt.
                             if open_findings(state):
                                 if review['accepted']:
-                                    if not state.get('review_reconciled') and self._reconcile_fits(task_id,state,profile,value):
-                                        state.update(review_reconcile=True,review_prompt=None)
-                                        seq=self.persist(task_id,seq,state)
-                                        continue
                                     review=dict(review,accepted=False,feedback='The reviewer accepted although the findings it recorded '
-                                                'in this review were not closed with evidence.')
+                                                'in this review were not closed with evidence (resolved: RF<n>:<receipt shown>:<why>).')
                                 review=dict(review,feedback=with_findings(state,review['feedback']))
                             if state.get('review_findings'): review=dict(review,findings=copy.deepcopy(state['review_findings']))
                         if wanted:
