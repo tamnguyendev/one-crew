@@ -562,7 +562,7 @@ class ReviewEvidencePagesTests(ReviewRoundsBase):
                     died = True
                     checkpoint = runtime.state(task)[1]
                     self.assertEqual(checkpoint.get('review_evidence_rounds'), 2, 'RED-P6: the counter is in the checkpoint')
-                    self.assertEqual(len(checkpoint.get('review_seen') or []), 2); self.assertTrue(checkpoint.get('review_notes'))
+                    self.assertEqual(len(checkpoint.get('review_seen') or []), 2); self.assertTrue((checkpoint.get('review_register') or {}).get('notes'))
                     runtime = Owned(self.ledger, worker); worker.runtime = runtime  # a new runner from the durable checkpoint
                     continue
                 if state['phase'] != 'running': break
@@ -681,8 +681,10 @@ class ReviewFindingsTests(ReviewRoundsBase):
         self.assertFalse(record['accepted'])
         found = record['findings']
         self.assertEqual([(f['id'], f['status']) for f in found], [('RF1', 'open')])
-        self.assertIn(DEFECT, found[0]['claim']); self.assertEqual(found[0]['chars'], len(found[0]['claim']))
-        self.assertTrue(found[0]['source']['pages'], 'the evidence it was looking at is recorded with it')
+        self.assertIn(DEFECT, found[0]['head']); self.assertEqual(found[0]['chars'], len(found[0]['head']), 'a short claim is held whole')
+        entry = state['review_register']['findings'][0]
+        self.assertTrue(entry['source']['pages'], 'the evidence it was looking at is recorded with it')
+        self.assertEqual(runtime.store.read_blob(entry['blob']).decode(), f'r0: {DEFECT}', 'the text as the reviewer wrote it is in the store')
         rounds_with = [n for n, (ctx, _) in enumerate(worker.review_log) if 'RF1' in finding_ids(ctx)]
         first_seen = next(n for n, (ctx, reply) in enumerate(worker.review_log) if reply['findings']) + 1
         self.assertEqual(rounds_with, list(range(first_seen, len(worker.review_log))),
@@ -705,8 +707,8 @@ class ReviewFindingsTests(ReviewRoundsBase):
         real = Owned._work_review_prompt
         died = []
         def dying(self_, task_id, state, profile, value, *a, **k):
-            if not died and state.get('review_evidence_rounds', 0) >= 4 and state.get('review_findings'):
-                died.append(canonical(state['review_findings']))
+            if not died and state.get('review_evidence_rounds', 0) >= 4 and (state.get('review_register') or {}).get('findings'):
+                died.append(canonical(state['review_register']['findings']))
                 raise KeyboardInterrupt('runner stopped while a later review prompt was being built')
             return real(self_, task_id, state, profile, value, *a, **k)
         state = None
@@ -714,7 +716,7 @@ class ReviewFindingsTests(ReviewRoundsBase):
             for _ in range(240):
                 try: state = runtime.run(task, steps=1)
                 except KeyboardInterrupt:
-                    held = runtime.state(task)[1].get('review_findings')
+                    held = runtime.state(task)[1]['review_register']['findings']
                     self.assertEqual(canonical(held), died[0], 'RED-P6: the checkpoint holds the findings as they were')
                     self.assertEqual([(f['id'], f['status']) for f in held], [('RF1', 'open')])
                     runtime = Owned(self.ledger, worker); worker.runtime = runtime  # a new runner from the durable checkpoint
@@ -740,9 +742,9 @@ class ReviewFindingsTests(ReviewRoundsBase):
             if state['phase'] != 'running': break
         self.assertEqual((state['phase'], (state.get('recovery') or {}).get('kind')), ('blocked', 'review_evidence'), str(state.get('message')))
         self.assertIn('RF1', state['message']); self.assertIn('stay open', state['message'])
-        self.assertEqual([(f['id'], f['status']) for f in state.get('review_findings') or []], [('RF1', 'open')],
+        self.assertEqual([(f['id'], f['status']) for f in state['review_register']['findings']], [('RF1', 'open')],
                          'RED-P6: a review that was not decided keeps what its reviewer reported')
-        self.assertFalse(state.get('review_notes') or state.get('review_seen') or state.get('review_requests'), 'the rest of its memory is dropped')
+        self.assertFalse(state.get('review_seen') or state.get('review_requests'), 'the page cursors of the review are dropped')
         before = len(worker.review_log)
         worker.policy = FindingReader(ending='closes', cite=0)  # an operator resumes; the next reviewer is able to close what was recorded
         runtime.resume(task)
@@ -753,7 +755,8 @@ class ReviewFindingsTests(ReviewRoundsBase):
         first = worker.review_log[before][0]
         self.assertEqual(finding_ids(first), ['RF1'], 'the first prompt of the next review already carries the open finding')
         self.assertEqual([(f['id'], f['status']) for f in state['reviews'][-1]['findings']], [('RF1', 'resolved')])
-        self.assertNotIn('review_findings', state, 'decided: the memory goes with the review')
+        self.assertEqual([(f['id'], f['status']) for f in state['review_register']['findings']], [('RF1', 'resolved')],
+                         'decided: the register keeps the finding and how it ended')
 
     def test_a_finding_is_closed_by_evidence_the_reviewer_was_given_and_the_work_is_then_accepted(self):
         runtime, task, worker, state = self.review_job(source_with(DEFECT, 300, 8000), FindingReader(ending='closes', cite=0))
@@ -763,8 +766,10 @@ class ReviewFindingsTests(ReviewRoundsBase):
         found = record['findings']
         self.assertEqual([(f['id'], f['status']) for f in found], [('RF1', 'resolved')])
         self.assertEqual(found[0]['resolution']['receipt'], 0)
-        self.assertIn('end of the file', found[0]['resolution']['how'])
-        self.assertIn(DEFECT, found[0]['claim'], 'the finding is kept whole after it is closed')
+        self.assertIn('end of the file', found[0]['resolution']['head'])
+        entry = state['review_register']['findings'][0]
+        self.assertIn(DEFECT, runtime.store.read_blob(entry['blob']).decode(), 'the finding is kept whole after it is closed')
+        self.assertIn('end of the file', runtime.store.read_blob(entry['resolution']['blob']).decode(), 'and so is the reason it was closed')
 
     def test_a_closure_that_cites_a_receipt_the_reviewer_was_never_given_is_refused_and_the_finding_stays_open(self):
         runtime, task, worker, state = self.review_job(source_with(DEFECT, 300, 8000), FindingReader(ending='closes', cite=1))
@@ -807,8 +812,10 @@ class ReviewFindingsTests(ReviewRoundsBase):
         # F2: 700-character notes, 8 rounds. At d83b834+P6 the third prompt had no valid page left and the review was blocked.
         kept = []
         def watch(n):
-            for note in runtime_box[0].state(task_box[0])[1].get('review_notes') or []:
-                if isinstance(note, dict): kept.append((note['id'], note['chars'], len(note['text'])))
+            runtime_, task_ = runtime_box[0], task_box[0]
+            for note in (runtime_.state(task_)[1].get('review_register') or {}).get('notes') or []:
+                whole = runtime_.store.read_blob(note['blob']).decode()
+                kept.append((note['id'], note['chars'], len(whole), len(note['head'])))
         runtime_box, task_box = [None], [None]
         self.commit({PATH: vietnamese_source(11000, 'KẾT-THÚC-TỆP')})
         worker = ReviewerWorker(self.ledger, self.flow(), FindingReader(defect='không có lỗi nào như vậy', note=700), after_review=watch)
@@ -824,8 +831,8 @@ class ReviewFindingsTests(ReviewRoundsBase):
             memory = len(canonical({k: ctx[k] for k in ('open_findings', 'review_notes', 'findings_closed') if k in ctx}))
             self.assertLessEqual(memory, MEMORY_TIERS[0] + 40, 'the review memory in a prompt is bounded')
         self.assertTrue(kept, 'RED-P6: no note was kept in the checkpoint')
-        self.assertTrue(all(chars == length or length == 2000 for _, chars, length in kept), 'notes are kept whole: ' + str(kept[:3]))
-        self.assertGreaterEqual(max(length for _, _, length in kept), 700)
+        self.assertTrue(all(chars == length for _, chars, length, _ in kept), 'notes are kept whole: ' + str(kept[:3]))
+        self.assertGreaterEqual(max(length for _, _, length, _ in kept), 700)
 
     def test_notes_that_do_not_fit_the_prompt_are_named_not_dropped_without_a_word(self):
         runtime, task, worker, state = self.review_job(vietnamese_source(11000, 'KẾT-THÚC-TỆP'),
@@ -841,59 +848,246 @@ class ReviewFindingsTests(ReviewRoundsBase):
         self.assertEqual(len(worker.review_log[-1][0]['evidence'].get('requested_pages') or []) > 0, True)
 
 
+class MemoryStore:
+    """The blob store as the register uses it (blob, read_blob), in memory."""
+    def __init__(self): self.blobs = {}
+    def blob(self, data):
+        key = hashlib.sha256(data).hexdigest(); self.blobs[key] = bytes(data); return key
+    def read_blob(self, key): return self.blobs[key]
+
+
 class ReviewMemoryTests(unittest.TestCase):
     """review_evidence.record_round / memory / findings_text: the functions the review loop uses, on a plain checkpoint dict."""
 
+    def setUp(self):
+        self.store = MemoryStore()
+
     def state(self):
-        return {'review_requests': [{'index': 0, 'field': 'text', 'offset': 1700, 'item_offset': 0}]}
+        return {'review_requests': [{'index': 0, 'field': 'text', 'offset': 1700, 'item_offset': 0}],
+                'receipts': [{'index': n, 'action': 'read', 'successful': True} for n in range(3)]}
+
+    def record(self, state, review, **kw):
+        from onecrew.review_evidence import record_round
+        return record_round(state, review, store=self.store, **kw)
+
+    def findings(self, state):
+        return state['review_register']['findings']
 
     def test_a_finding_keeps_its_whole_claim_its_source_and_a_stable_id(self):
-        from onecrew.review_evidence import record_round, KEPT
+        from onecrew.review_evidence import HEAD
         state, long_claim = self.state(), ' '.join(['lỗi'] * 700)  # 2,799 characters
         claim = 'r0: ' + long_claim
-        result = record_round(state, {'findings': [claim, 'một lỗi khác']}, shown={0}, round_no=2)
+        result = self.record(state, {'findings': [claim, 'một lỗi khác']}, shown={0}, round_no=2)
         self.assertEqual(result['opened'], ['RF1', 'RF2'])
-        first = state['review_findings'][0]
+        first = self.findings(state)[0]
         self.assertEqual((first['id'], first['status'], first['round'], first['source']['receipt']), ('RF1', 'open', 2, 0))
         self.assertEqual(first['source']['pages'], state['review_requests'])
-        self.assertEqual(first['chars'], len(long_claim)); self.assertEqual(len(first['claim']), KEPT)
-        self.assertEqual(first['claim'], long_claim[:KEPT])
-        record_round(state, {'findings': ['một lỗi mới']}, shown={0}, round_no=3)
-        self.assertEqual([f['id'] for f in state['review_findings']], ['RF1', 'RF2', 'RF3'], 'ids only go forward')
+        self.assertEqual(first['chars'], len(claim)); self.assertEqual(first['head'], claim[:HEAD])
+        self.assertEqual(self.store.read_blob(first['blob']).decode(), claim, 'the whole text, as written, byte for byte')
+        self.record(state, {'findings': ['một lỗi mới']}, shown={0}, round_no=3)
+        self.assertEqual([f['id'] for f in self.findings(state)], ['RF1', 'RF2', 'RF3'], 'ids only go forward')
 
     def test_the_same_defect_reported_again_is_one_finding(self):
-        from onecrew.review_evidence import record_round
         state = self.state()
-        record_round(state, {'findings': ['Số tiền  âm bị bỏ qua']}, shown={0}, round_no=1)
-        record_round(state, {'findings': ['số tiền âm bị bỏ qua', 'r0: số tiền âm bị bỏ qua']}, shown={0}, round_no=2)
-        self.assertEqual(len(state['review_findings']), 1)
+        self.record(state, {'findings': ['Số tiền  âm bị bỏ qua']}, shown={0}, round_no=1)
+        self.record(state, {'findings': ['Số tiền âm  bị bỏ qua', 'r0: Số tiền âm bị bỏ qua']}, shown={0}, round_no=2)
+        self.assertEqual(len(self.findings(state)), 1, 'whitespace and the receipt prefix are not differences')
+
+    def test_findings_that_differ_in_case_or_code_are_two_findings(self):
+        state = self.state()
+        self.record(state, {'findings': ['`formatMoney` is not exported', '`FormatMoney` is not exported',
+                                         'indent:\n    return x', 'indent:\n  return x']}, shown=set(), round_no=1)
+        self.assertEqual(len(self.findings(state)), 4 - 1, 'only the indentation (whitespace) is no difference: three findings')
+        self.assertEqual([self.store.read_blob(f['blob']).decode() for f in self.findings(state)][:2],
+                         ['`formatMoney` is not exported', '`FormatMoney` is not exported'])
+
+    def test_two_findings_that_share_a_long_prefix_are_two_findings(self):
+        # R3 of the Codex review of d5a0c43: the identity was the first 2,000 characters
+        state, common = self.state(), 'A' * 2000
+        self.record(state, {'findings': [common + ' tail one', common + ' tail two']}, shown=set(), round_no=1)
+        self.record(state, {'findings': [common + ' tail two']}, shown=set(), round_no=2)
+        found = self.findings(state)
+        self.assertEqual([self.store.read_blob(f['blob']).decode()[-8:] for f in found], ['tail one', 'tail two'])
 
     def test_what_the_reviewer_reports_is_never_dropped_for_its_shape(self):
-        from onecrew.review_evidence import record_round
         state = self.state()
-        record_round(state, {'findings': {'claim': 'x'}}, shown=set(), round_no=1)
-        record_round(state, {'findings': ['', '   ', {'claim': 'y', 'receipt': 0}, 7]}, shown=set(), round_no=2)
-        self.assertEqual(len(state['review_findings']), 3, 'an object or a number is kept as the text of itself; empty strings are nothing')
+        self.record(state, {'findings': {'claim': 'x'}}, shown=set(), round_no=1)
+        self.record(state, {'findings': ['', '   ', {'claim': 'y', 'receipt': 0}, 7]}, shown=set(), round_no=2)
+        self.assertEqual(len(self.findings(state)), 3, 'an object or a number is kept as the text of itself; empty strings are nothing')
 
-    def test_a_review_holds_a_bounded_number_of_findings_and_counts_the_rest(self):
-        from onecrew.review_evidence import record_round, MAX_FINDINGS, findings_text
+    def test_far_more_findings_than_a_prompt_holds_are_all_tracked_and_none_is_dropped(self):
+        from onecrew.review_evidence import open_findings, findings_text
         state = self.state()
-        record_round(state, {'findings': [f'lỗi số {n}' for n in range(MAX_FINDINGS + 5)]}, shown=set(), round_no=1)
-        self.assertEqual(len(state['review_findings']), MAX_FINDINGS)
-        self.assertEqual(state['review_findings_unrecorded'], 5)
-        self.assertIn('5 more finding(s)', findings_text(state))
+        self.record(state, {'findings': [f'lỗi số {n}' for n in range(60)]}, shown=set(), round_no=1)
+        self.assertEqual(len(open_findings(state)), 60)
+        self.assertEqual([f['id'] for f in open_findings(state)][-1], 'RF60')
+        self.assertIn('RF60', findings_text(state), 'the text names every open finding, by id when its text does not fit')
+
+    def test_a_register_that_is_full_makes_the_review_incomplete_and_changes_nothing(self):
+        from onecrew.review_evidence import MAX_TRACKED, ReviewEvidenceIncomplete
+        state = self.state()
+        self.record(state, {'findings': [f'lỗi {n}' for n in range(MAX_TRACKED)]}, shown=set(), round_no=1)
+        before = canonical(state)
+        with self.assertRaises(ReviewEvidenceIncomplete) as caught:
+            self.record(state, {'findings': ['một lỗi nữa', 'và một lỗi nữa'], 'resolved': ['RF1:0:fine']}, shown={0}, round_no=2)
+        self.assertEqual(canonical(state), before, 'no part of that answer was recorded, the closure included')
+        self.assertIn('nothing was accepted', str(caught.exception))
+        # closed findings do not count against the bound: the answer that closes RF1 may report one finding in its place
+        self.record(state, {'findings': ['một lỗi nữa'], 'resolved': ['RF1:0:fine']}, shown={0}, round_no=3)
+        self.assertEqual(sum(1 for f in self.findings(state) if f['status'] == 'open'), MAX_TRACKED)
+
+    def test_closing_and_reporting_the_same_claim_in_one_answer_leaves_it_open(self):
+        state = self.state()
+        self.record(state, {'findings': ['r0: số âm bị bỏ qua (C3)']}, shown={0}, round_no=1)
+        result = self.record(state, {'resolved': ['RF1:0:the page shows it handled'], 'findings': ['r0: số âm bị bỏ qua (C3)']},
+                             shown={0}, round_no=2)
+        self.assertEqual((result['closed'], result['opened']), (['RF1'], ['RF2']))
+        self.assertEqual([(f['id'], f['status']) for f in self.findings(state)], [('RF1', 'resolved'), ('RF2', 'open')],
+                         'a claim reported again alongside its closure is a new open finding: it does not vanish between them')
+
+    def test_a_finish_receipt_is_not_evidence_that_a_finding_is_resolved(self):
+        state = self.state()
+        state['receipts'].append({'index': 3, 'action': 'finish', 'successful': False})
+        self.record(state, {'findings': ['lỗi một']}, shown={0}, round_no=1)
+        result = self.record(state, {'resolved': ['RF1:3:the rejection names it and nothing else is wrong']}, shown={0, 3}, round_no=2)
+        self.assertEqual(result['closed'], [])
+        self.assertIn('is a finish', self.findings(state)[0]['closure_refused'])
+
+    def test_a_finding_the_reviewer_was_never_shown_is_not_closed_blind(self):
+        state = self.state()
+        self.record(state, {'findings': [f'lỗi {n}' for n in range(3)]}, shown={0}, round_no=1, listed={'RF1', 'RF2', 'RF3'})
+        state.pop('review_listed')  # a new review: what it lists is what it has seen
+        result = self.record(state, {'resolved': ['RF1:0:ok', 'RF3:0:ok']}, shown={0}, round_no=1, listed={'RF1', 'RF2'})
+        self.assertEqual(result['closed'], ['RF1'])
+        self.assertIn('was not shown to the reviewer in this review', self.findings(state)[2]['closure_refused'])
+        later = self.record(state, {'resolved': ['RF2:0:ok']}, shown={0}, round_no=2, listed=set())
+        self.assertEqual(later['closed'], ['RF2'], 'what a review has been shown stays shown across its rounds')
+
+    def test_a_lone_surrogate_in_a_finding_is_stored_exactly_and_the_checkpoint_stays_writable(self):
+        state, odd = self.state(), 'lỗi \ud83d giữa chừng'
+        self.record(state, {'findings': [odd]}, shown=set(), round_no=1)
+        canonical(state).encode('utf-8')  # what persisting does; raised UnicodeEncodeError for the raw head
+        self.assertEqual(self.store.read_blob(self.findings(state)[0]['blob']).decode('utf-8', 'surrogatepass'), odd)
+
+    def test_requests_accept_finding_and_note_ids_tolerantly_and_name_unknown_ones_in_an_answer_not_a_failure(self):
+        from onecrew.review_evidence import requests, LedgerError as _L
+        state = self.state()
+        self.record(state, {'findings': ['lỗi một']}, shown=set(), round_no=1)
+        ask = lambda *items: requests({'accepted': False, 'evidence_requests': list(items)}, state)
+        self.assertEqual(ask('rf1', ' RF ')[0]['index'], 'RF1')
+        self.assertEqual(ask({'index': 'rf1', 'field': 'claim', 'offset': 0, 'item_offset': 0}), [
+            {'index': 'RF1', 'field': 'claim', 'offset': 0, 'item_offset': 0}])
+        self.assertEqual(ask(0, {'index': '1', 'field': 'text', 'offset': 0, 'item_offset': 0})[0], 0, 'an int index is that receipt; a numeric string is not an index')
+        self.assertEqual(ask('RF99')[0]['index'], 'RF99', 'a finding that does not exist is a request that gets an error entry')
+        for bad in ('finding 1', 'RFX', '', '0', {'index': 'x', 'field': None, 'offset': 0, 'item_offset': 0}, 7.5, ['RF1']):
+            with self.assertRaises(_L, msg=repr(bad)): ask(bad)
+
+    def test_a_finding_the_register_does_not_have_is_answered_with_an_error_entry(self):
+        from onecrew.review_evidence import virtual, LedgerError as _L
+        with self.assertRaises(_L): virtual(self.state(), self.store, 'RF99')
+
+    def test_a_request_for_the_list_after_a_closure_is_not_the_page_it_was_given_before(self):
+        from onecrew.review_evidence import request_key
+        state = self.state()
+        self.record(state, {'findings': ['lỗi một', 'lỗi hai']}, shown={0}, round_no=1)
+        listing = {'index': 'RF', 'field': 'open', 'offset': 0, 'item_offset': 0}
+        before = request_key(listing, state)
+        self.record(state, {'resolved': ['RF1:0:ok']}, shown={0}, round_no=2)
+        self.assertNotEqual(request_key(listing, state), before)
+        self.assertEqual(request_key({'index': 0, 'field': 'text', 'offset': 0, 'item_offset': 0}, state),
+                         request_key({'index': 0, 'field': 'text', 'offset': 0, 'item_offset': 0}, state), 'a receipt page is the same page')
+
+    def test_notes_of_earlier_reviews_are_named_in_the_memory_so_they_can_be_asked_for(self):
+        from onecrew.review_evidence import keep_note, close_review, memory, virtual
+        state = self.state()
+        keep_note(state, 'ghi chú của review một ' * 5, 0, self.store)
+        keep_note(state, 'ghi chú thứ hai', 1, self.store)
+        close_review(state)  # the first review is over; its notes leave the prompt
+        keep_note(state, 'ghi chú của review hai', 0, self.store)
+        shown, lines, closed, more = memory(state, 900)
+        self.assertTrue(any('ask by id: N1..N2' in line for line in lines), lines)
+        self.assertEqual(virtual(state, self.store, 'N1')[0]['result']['text'], 'ghi chú của review một ' * 5)
+
+    def test_a_rejection_receipt_is_always_a_writable_blob_whatever_the_findings_are(self):
+        from onecrew.review_evidence import receipt_findings, MAX_TEXT, RECEIPT_BYTES
+        state = self.state()
+        # control characters serialize to 6 bytes each: two findings of MAX_TEXT of them are 2.4 MB as JSON
+        self.record(state, {'findings': ['\x01' * (MAX_TEXT - 10), '\x02' * (MAX_TEXT - 10)] + [f'lỗi {n} ' + '\x03' * 450 for n in range(300)]},
+                    shown=set(), round_no=1)
+        rows = receipt_findings(self.store, state)
+        total = len(canonical({'action': 'finish', 'result': {'error': 'x', 'findings': rows}}).encode('utf-8'))
+        self.assertEqual([r['id'] for r in rows], [f'RF{n + 1}' for n in range(302)], 'every finding is in the list')
+        self.assertLessEqual(total, 1900000, 'the receipt stays under the 2,000,000-byte blob cap')
+        self.assertTrue(any('cut' in r for r in rows), 'what did not fit says where the whole text is')
+        self.assertLessEqual(RECEIPT_BYTES, 1400000)
+
+    def test_findings_of_a_review_record_are_light_after_the_review_that_opened_them(self):
+        from onecrew.review_evidence import summary
+        state = self.state()
+        self.record(state, {'findings': ['lỗi một ' + 'x' * 300]}, shown=set(), round_no=1)
+        first = summary(state, 1)
+        self.assertIn('head', first[0])
+        state['review_register']['review'] = 2
+        later = summary(state, 2)
+        self.assertEqual([f['id'] for f in later], ['RF1'])
+        self.assertNotIn('head', later[0], 'a finding carried into a later review is named by id and pointers')
+        self.assertIn('blob', later[0])
+
+    def test_a_checkpoint_of_the_unreleased_d5a0c43_is_adopted_into_the_register_and_can_be_closed(self):
+        from onecrew.review_evidence import adopt_legacy, open_findings
+        state = self.state()
+        state['review_findings'] = [{'id': 'RF4', 'status': 'open', 'round': 2, 'claim': 'lỗi cũ ' * 10, 'chars': 5000,
+                                     'source': {'receipt': 0, 'pages': []}},
+                                    {'id': 'RF2', 'status': 'resolved', 'round': 1, 'claim': 'lỗi đã đóng', 'chars': 11,
+                                     'source': {'receipt': 0}, 'resolution': {'round': 2, 'receipt': 0, 'how': 'đã kiểm', 'chars': 7}}]
+        state['review_notes'] = [{'id': 'N3', 'round': 1, 'text': 'ghi chú cũ', 'chars': 10, 'pages': []}]
+        adopt_legacy(state, self.store)
+        self.assertNotIn('review_findings', state); self.assertNotIn('review_notes', state)
+        register = state['review_register']
+        self.assertEqual([(f['id'], f['status']) for f in register['findings']], [('RF4', 'open'), ('RF2', 'resolved')])
+        self.assertEqual((register['next'], register['notes_next']), (5, 4), 'new ids go on after the old ones')
+        self.assertIn('2,000 characters', register['findings'][0]['legacy'])
+        self.assertEqual(register['findings'][0]['chars'], 5000, 'its own length is kept: the text is known to be cut')
+        result = self.record(state, {'resolved': ['RF4:0:the page refutes it']}, shown={0}, round_no=3)
+        self.assertEqual(result['closed'], ['RF4'])
+        self.assertEqual(open_findings(state), [])
+
+    def test_a_checkpoint_of_the_unreleased_d5a0c43_with_an_open_finding_is_never_invisible_to_the_gate(self):
+        from onecrew.review_evidence import open_findings
+        state = {'review_findings': [{'id': 'RF1', 'status': 'open', 'round': 2, 'claim': 'lỗi cũ', 'chars': 6, 'source': {'receipt': 0}}]}
+        self.assertEqual([f['id'] for f in open_findings(state)], ['RF1'])
+
+    def test_a_text_that_cannot_be_held_whole_makes_the_review_incomplete_and_is_never_cut(self):
+        from onecrew.review_evidence import MAX_TEXT, ReviewEvidenceIncomplete, keep_note
+        state = self.state()
+        with self.assertRaises(ReviewEvidenceIncomplete):
+            self.record(state, {'findings': ['x' * (MAX_TEXT + 1)]}, shown=set(), round_no=1)
+        with self.assertRaises(ReviewEvidenceIncomplete):
+            keep_note(state, 'y' * (MAX_TEXT + 1), 1, self.store)
+        self.assertNotIn('review_register', state)
+
+    def test_a_store_that_cannot_be_written_makes_the_review_incomplete_and_changes_nothing(self):
+        from onecrew.review_evidence import ReviewEvidenceIncomplete, record_round
+        class Broken:
+            def blob(self, data): raise OSError('disk full')
+        state = self.state()
+        with self.assertRaises(ReviewEvidenceIncomplete):
+            record_round(state, {'findings': ['lỗi']}, shown=set(), round_no=1, store=Broken())
+        self.assertNotIn('review_register', state)
 
     def test_closing_needs_an_open_finding_a_receipt_shown_in_this_review_and_a_reason(self):
-        from onecrew.review_evidence import record_round
         state = self.state()
-        record_round(state, {'findings': ['lỗi một', 'lỗi hai', 'lỗi ba']}, shown={0}, round_no=1)
+        self.record(state, {'findings': ['lỗi một', 'lỗi hai', 'lỗi ba']}, shown={0}, round_no=1)
         tries = {'resolved': ['RF1:0:the page refutes it', 'RF2:5:nothing shows it', 'RF9:0:no such finding', 'RF3:0:', 'closes everything']}
-        result = record_round(state, tries, shown={0}, round_no=2)
+        result = self.record(state, tries, shown={0}, round_no=2)
         self.assertEqual(result['closed'], ['RF1'])
-        self.assertEqual({f['id']: f['status'] for f in state['review_findings']}, {'RF1': 'resolved', 'RF2': 'open', 'RF3': 'open'})
+        self.assertEqual({f['id']: f['status'] for f in self.findings(state)}, {'RF1': 'resolved', 'RF2': 'open', 'RF3': 'open'})
         self.assertEqual(len(result['refused']), 4)
-        self.assertEqual(state['review_findings'][0]['resolution'], {'round': 2, 'receipt': 0, 'how': 'the page refutes it', 'chars': 19})
-        again = record_round(state, {'resolved': ['RF1:0:again']}, shown={0}, round_no=3)
+        resolution = self.findings(state)[0]['resolution']
+        self.assertEqual({k: resolution[k] for k in ('review', 'round', 'receipt', 'chars', 'kind')},
+                         {'review': 1, 'round': 2, 'receipt': 0, 'chars': len('RF1:0:the page refutes it'), 'kind': 'earlier_evidence'})
+        self.assertEqual(self.store.read_blob(resolution['blob']).decode(), 'RF1:0:the page refutes it')
+        again = self.record(state, {'resolved': ['RF1:0:again']}, shown={0}, round_no=3)
         self.assertEqual(again['closed'], [], 'a closed finding is not closed twice')
         from onecrew.review_evidence import memory, findings_text
         entries = {e['id']: e for e in memory(state, 900)[0]}
@@ -901,30 +1095,42 @@ class ReviewMemoryTests(unittest.TestCase):
         self.assertIn('[closure refused: receipt 5 was not shown in this review]', findings_text(state))
 
     def test_the_memory_is_within_its_budget_and_never_loses_an_open_finding(self):
-        from onecrew.review_evidence import record_round, keep_note, memory, MEMORY_TIERS
-        for count, size, notes, note_size in ((0, 0, 0, 0), (1, 90, 3, 80), (3, 400, 6, 700), (12, 2000, 10, 700), (12, 20, 0, 0)):
+        from onecrew.review_evidence import keep_note, memory, MEMORY_TIERS
+        for count, size, notes, note_size in ((0, 0, 0, 0), (1, 90, 3, 80), (3, 400, 6, 700), (12, 2000, 10, 700), (12, 20, 0, 0),
+                                              (60, 40, 4, 300), (200, 10, 2, 100)):
             state = self.state()
-            record_round(state, {'findings': [f'lỗi {n} ' + 'x' * size for n in range(count)]}, shown=set(), round_no=1)
-            for n in range(notes): keep_note(state, f'ghi chú {n} ' + 'y' * note_size, n)
+            self.record(state, {'findings': [f'lỗi {n} ' + 'x' * size for n in range(count)]}, shown=set(), round_no=1)
+            for n in range(notes): keep_note(state, f'ghi chú {n} ' + 'y' * note_size, n, self.store)
             for budget in MEMORY_TIERS:
                 with self.subTest(count=count, size=size, notes=notes, budget=budget):
-                    shown, lines, closed = memory(state, budget)
-                    out = len(canonical({'open_findings': shown, 'review_notes': lines}))
+                    shown, lines, closed, more = memory(state, budget)
+                    extra = {'open_more': more} if more else {}
+                    out = len(canonical({'open_findings': shown, 'review_notes': lines, **extra}))
                     self.assertLessEqual(out, budget)
                     ids = [e['id'] if isinstance(e, dict) else e for e in shown]
-                    self.assertEqual(ids, [f'RF{n + 1}' for n in range(count)], 'every open finding, in order')
-                    self.assertEqual((shown, lines, closed), memory(state, budget), 'deterministic')
+                    self.assertEqual(ids, [f'RF{n + 1}' for n in range(len(ids))], 'open findings, in order, from the first')
+                    self.assertEqual(len(ids) + more, count, 'every open finding is in the list or counted in open_more: none is lost')
+                    self.assertEqual((shown, lines, closed, more), memory(state, budget), 'deterministic')
                     if notes and lines:
                         self.assertTrue(any('kept in the review state' in line for line in lines) or len(lines) == notes,
                                         'a note that is not shown whole is said to be kept')
 
+    def test_a_cut_claim_says_how_long_it_is_and_the_whole_is_one_request_away(self):
+        from onecrew.review_evidence import memory, virtual
+        state, claim = self.state(), 'lỗi ' + 'dài ' * 400
+        self.record(state, {'findings': [claim]}, shown=set(), round_no=1)
+        shown = memory(state, 400)[0]
+        self.assertEqual(shown[0]['chars'], len(claim)); self.assertLess(len(shown[0]['claim']), len(claim))
+        record, blob = virtual(state, self.store, 'RF1')
+        self.assertEqual(record['result']['claim'], claim); self.assertEqual(blob, self.findings(state)[0]['blob'])
+
     def test_findings_text_puts_every_open_finding_in_front_of_the_reviewers_feedback(self):
-        from onecrew.review_evidence import record_round, with_findings
+        from onecrew.review_evidence import with_findings
         state = self.state()
-        record_round(state, {'findings': ['r0: lỗi một', 'lỗi hai']}, shown={0}, round_no=1)
+        self.record(state, {'findings': ['r0: lỗi một', 'lỗi hai']}, shown={0}, round_no=1)
         text = with_findings(state, 'feedback of the reviewer')
-        self.assertTrue(text.startswith('2 finding(s) recorded in this review'))
-        self.assertIn('RF1 (round 1, receipt 0): lỗi một', text); self.assertIn('RF2 (round 1): lỗi hai', text)
+        self.assertTrue(text.startswith('2 finding(s) recorded by the reviewer for this job'))
+        self.assertIn('RF1 (review 1, round 1, receipt 0): r0: lỗi một', text); self.assertIn('RF2 (review 1, round 1): lỗi hai', text)
         self.assertTrue(text.endswith('feedback of the reviewer'))
 
     def test_the_review_schema_stays_small(self):

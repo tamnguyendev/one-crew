@@ -1490,6 +1490,10 @@ def handover(runtime, task_id, state, contract, verification, report):
                'verification': {k: v for k, v in verification.items() if k != 'changed_files'},
                'branches': work.get('branches', []), 'applied': work.get('applied', False), 'rollback': rollback,
                'executor': 'onecrew-core (Git/commands), worker ' + state['worker']['provider'] + '/' + state['worker']['model'] + ' (decisions)'}
+    # P6 (finding lifecycle): what the reviewer found over the job and how each finding ended - status, the resolution with the receipt
+    # that closes it and the candidate it was closed on, and where the whole text of each is - next to the candidate it describes.
+    from .review_evidence import handover_view
+    summary['review_findings'] = handover_view(state)
     durable_write(root / 'handover.json', canonical(summary).encode()); files['summary'] = str(root / 'handover.json')
     durable_write(root / 'report.md', report.encode('utf-8')); files['report'] = str(root / 'report.md')
     return files
@@ -1504,7 +1508,8 @@ CONTINUE = {
     'review_evidence': 'The completion reviewer could not be given the evidence it asked for within its bound (see the reason): the work '
                        'was neither accepted nor judged defective and the worker was not called. Resume reviews it again from the start; '
                        'reduce what the reviewer must read first (a smaller file, a narrower claim) or the same limit stops it again. '
-                       'Findings the reviewer recorded stay open (review_findings in the checkpoint) and the next review starts with them.',
+                       'Findings the reviewer recorded stay open (review_register in the checkpoint, their text in the blob store) until a '
+                       'resolution with evidence is recorded, and the next review starts with them.',
     'prompt_budget': 'A prompt could not carry what was needed under the provider cap (the reason names the parts that take the room): '
                      'shorten those parts or split the task; resuming without a change stops at the same point.',
     'environment': 'The machine or sandbox failed (see the reason); fix it, then resume.',
@@ -1559,6 +1564,8 @@ def blocker_handover(runtime, task_id, state, control=None):
                'to_continue': CONTINUE.get(kind, 'Read the reason and the last actions; fix what they name, then resume (job resume). '
                                                  'Budget, deadline and authority change only by a user decision.'),
                'executor': 'onecrew-core, written when the job was blocked (no model call)'}
+    from .review_evidence import handover_view
+    summary['review_findings'] = handover_view(state)  # ids, status, where each whole text is (an operator has no model to ask)
     durable_write(root / (stem + '.json'), canonical(summary).encode()); files['summary'] = str(root / (stem + '.json'))
     lines = [f'# OneCrew: task {task_id} blocked at step {step}', '', 'Reason: ' + str(summary['reason']), '',
              'To continue: ' + summary['to_continue'], '']

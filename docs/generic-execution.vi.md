@@ -256,22 +256,42 @@ Nguyên nhân: live S1 bị chặn vì phần cố định của prompt Kiro (co
   Hết giới hạn hoặc xin lại trang đã nhận → `ReviewEvidenceIncomplete`: công việc KHÔNG được chấp nhận và KHÔNG bị coi là có lỗi, job
   bị chặn (`recovery.kind=review_evidence`), không tốn lời gọi worker; resume review lại từ đầu. Reviewer đã có bằng chứng mà thấy sản
   phẩm sai thì trả lời không kèm yêu cầu: đó là rejection thật, về worker như cũ. Chế độ khác `work` giữ luật cũ (3 vòng).
-- **P6, trí nhớ của một lần review (F2/F3 của probe).** Reviewer không có trạng thái; trước đây lời `feedback` ở các vòng trước quay lại
-  là 3 ghi chú gần nhất, mỗi ghi chú tới 700 ký tự: lỗi ghi ở trang đầu rời prompt vài vòng sau và review chấp nhận (F3); ba ghi chú
-  dài làm không còn chỗ cho một trang hợp lệ và review bình thường bị chặn (F2). Nay core GIỮ NGUYÊN VĂN trong checkpoint
-  (`review_findings`, `review_notes`): mã định danh (`RF<n>`, `N<n>`), vòng, bằng chứng reviewer đang nhìn (các trang của vòng đó, receipt
-  nó trích), trạng thái (`open`/`resolved`, kèm `resolution` và lý do bị từ chối nếu có), độ dài gốc. Reviewer báo lỗi trong `findings`
-  (chuỗi, tiền tố `r<receipt>:` tùy chọn) và đóng một lỗi bằng `resolved` `"RF<n>:<receipt>:<lý do>"`; core chỉ đóng khi lỗi đang mở
-  và receipt đó đã được đưa cho reviewer trong CHÍNH review này (`review_shown`). Prompt nhận bản kết xuất có giới hạn
-  (`MEMORY_TIERS`: 900/400/120 ký tự, bậc giàu nhất mà trang reviewer đã xin vẫn hợp lệ): lỗi mở luôn có mặt (id, rồi phần claim vừa
-  chỗ; khi rất chật chỉ còn id), ghi chú mới nhất trước, ghi chú không vừa được nêu tên chứ không bị bỏ im lặng; nội dung đầy đủ ở
-  checkpoint. Quyết định không phụ thuộc prompt: reviewer trả `accepted=true` khi còn lỗi mở → core KHÔNG chấp nhận; review là một rejection
-  mang các lỗi (đặt TRƯỚC `feedback`, nguyên văn, kèm lý do một lần đóng bị từ chối) về worker, được quyết định ngay trên câu trả lời đó.
-  Không có vòng hỏi lại: câu hỏi thêm làm trang vừa đọc bị cắt lại theo chỗ còn lại, và reviewer không trạng thái sẽ đọc một trang cuối
-  khác (đã quan sát ở eval); prompt đã nói "đóng bằng resolved trong chính câu trả lời chấp nhận" ở mọi vòng có trang hoặc có lỗi.
-  Review không có phán quyết (thiếu bằng chứng, chặn ngân sách, core từ chối trước) giữ các lỗi
-  mở sang lần review kế của cùng ứng viên. Giới hạn trung thực: core không đọc được lỗi mà reviewer chỉ viết vào `feedback` mà không đưa
-  vào `findings`; cái nó bảo đảm là mọi lỗi ĐÃ được khai báo không biến mất và không thể bị chấp nhận qua mặt.
+- **P6, vòng đời của một lỗi (F2/F3 của probe, rồi R1–R3 của review Codex d5a0c43).** Reviewer không có trạng thái; thứ nó tìm được
+  là của JOB, không phải của một review. Trước đây lỗi chỉ sống trong một review: bị từ chối thì biến mất (R1: reject → finish lại
+  không đổi → chấp nhận trống = hoàn thành), chỉ theo dõi 12 lỗi và lỗi thứ 13 không chặn (R2), văn bản cắt còn 2.000 ký tự, nhận diện
+  theo tiền tố 2.000 ký tự và không có cách lấy lại theo id (R3). Nay core giữ một **sổ đăng ký** `review_register` trong checkpoint,
+  không review, lần từ chối, đổi candidate hay khởi động lại nào làm rỗng:
+  - `findings`: `RF<n>` (id chỉ tăng), `status` (`open`/`resolved`), `review`, `round`, `candidate` lúc ghi, `receipts_at`, `chars`,
+    `head` (≤500 ký tự), `blob` (toàn văn, nguyên văn như reviewer viết, trong kho snapshot), `norm` (sha của TOÀN văn bản đã gộp
+    khoảng trắng: hai lỗi chung tiền tố là hai lỗi, hoa/thường khác nhau là hai lỗi), `source` (receipt trích, các trang reviewer đang
+    nhìn), và khi đóng: `resolution` {review, round, receipt, `kind` `new_evidence`|`earlier_evidence`, candidate lúc đóng, lý do (blob)}.
+    `notes`: `N<n>` tương tự (toàn văn trong blob). Không có giới hạn "mỗi review 12 lỗi": cái không giữ nổi nguyên vẹn (văn bản
+    > `MAX_TEXT`=200.000 ký tự, quá `MAX_TRACKED`=500 lỗi MỞ, ghi blob lỗi) là review KHÔNG HOÀN TẤT (`ReviewEvidenceIncomplete`, job bị
+    chặn `review_evidence`, không chấp nhận, không ghi một phần nào của câu trả lời đó; các lỗi của nó nằm trong một blob được nêu tên).
+  - **Cổng.** Còn lỗi mở trong sổ (bất kể review nào đã ghi) → accepted bị đổi thành rejection mang TẤT CẢ lỗi mở về worker; kiểm tra
+    phòng thủ ở đầu nhánh `finish` của `_work_tool` (một chấp nhận đã lưu từ trước khi khởi động lại cũng không hoàn thành được).
+    Lỗi chỉ đóng bằng `resolved` `"RF<n>:<receipt>:<lý do>"` khi: lỗi đang mở và đã được đưa cho reviewer trong review này (có trong
+    `open_findings` của prompt hoặc trong trang `RF<n>`/`RF`), receipt đã được đưa trong CHÍNH review này và không phải receipt `finish`
+    (lần từ chối mang chính lỗi đó không phải bằng chứng), và lý do không rỗng; việc đóng không cần sửa code (candidate không đổi:
+    `candidate_changed=false`). Báo lại một claim cùng câu trả lời đóng nó là một lỗi MỚI. Một lần từ chối chỉ bằng lời (không có
+    `findings`) được đăng ký: `feedback` thành một lỗi `source.kind=feedback` để review sau của candidate không đổi không quên nó.
+    Câu trả lời không dùng được (yêu cầu bằng chứng sai) vẫn ghi các lỗi nó báo (việc đóng thì không).
+  - **Truy xuất.** `evidence_requests[].index` còn nhận `"RF3"` (trường `claim`, kèm `resolution_text`), `"N2"` (trường `text`), `"RF"`
+    (danh sách; trường `open`/`resolved`), phân trang bằng đúng `paging.view` của receipt (`blob`, `field_sha256`, `next`). Id không có
+    thật được trả lời bằng một mục lỗi trong prompt (không phải một lời gọi hỏng); nhiều yêu cầu không vừa chỗ được phục vụ lần lượt,
+    mục chưa phục vụ có `deferred` và hỏi lại riêng được; danh sách `RF` hỏi lại sau một lần đóng là trang mới.
+  - **Prompt** nhận bản kết xuất có giới hạn (`MEMORY_TIERS` 900/400/120): `open_findings` (id, rồi phần claim vừa chỗ + `chars` khi
+    cắt; khi chật chỉ còn id, rồi một cửa sổ id và `open_more`), `review_notes` của review này (+ một dòng nêu tên ghi chú của các
+    review trước), `findings_closed` của review này. Quyết định không phụ thuộc prompt.
+  - **Worker và người vận hành.** Receipt của lần từ chối mang các lỗi mở nguyên văn: trong `error` khi vừa `LISTING`=400 ký tự, nếu không
+    thì `error` là một dòng ngắn và `findings` (toàn văn, ngân sách `RECEIPT_BYTES`; phần vượt chỉ còn head rồi chỉ id + blob) để hai
+    trường không tranh chỗ trong prompt của worker. Bản ghi `reviews[]` chỉ mang id và con trỏ cho lỗi mang từ review trước.
+    `handover.json` (và handover khi bị chặn) có `review_findings`: số lượng, từng lỗi với trạng thái, resolution, candidate, blob.
+  - Giới hạn trung thực: core chỉ theo dõi cái reviewer khai (`findings`) hoặc lý do từ chối; chấp nhận kèm một lỗi chỉ viết trong
+    `feedback` thì không biết. Checkpoint của bản trung gian d5a0c43 (`review_findings`/`review_notes`, văn bản cắt 2.000 ký tự) được
+    nhận vào sổ khi review kế tiếp bắt đầu (và nếu chưa nhận thì lỗi mở của nó vẫn chặn, không đóng được). Một job đã giao nhánh
+    trước khi review rồi sửa candidate bị core từ chối ("branch ... carries ..., not the verified workspace candidate"): giới hạn có
+    sẵn, ngoài phạm vi của thay đổi này.
 - **P6, ngân sách review (F1 của probe).** Prompt đầu của một review chỉ được gửi khi receipt lớn nhất mà reviewer có thể xin (trường
   phân trang lớn nhất, xin như các vòng sau: có `field`) vẫn có một trang hợp lệ, với trí nhớ ở bậc nhỏ nhất. Trước đây finish có report
   dài vừa prompt vòng 1 nhưng không vừa trang vòng 2 chỉ bị từ chối SAU khi reviewer đã bị gọi, như một rejection. Nay bị từ chối trước

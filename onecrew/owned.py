@@ -72,9 +72,10 @@ Rules: act within the contract scope and authority; never widen the request, wea
 WORK_EFFECTS=('write','edit','run','process','restore','workspace_commit','create_branch','export_branch','apply')
 REVIEW_SCHEMA={'type':'object','properties':{'accepted':{'type':'boolean'},'feedback':{'type':'string'}},
                'required':['accepted','feedback'],'additionalProperties':False}
-# P6: a request is a receipt index (its first page) or the arguments of the worker's `receipt` action, copied from the `next` of a page
+# P6: a request is a receipt index (its first page) or the arguments of the worker's `receipt` action, copied from the `next` of a page;
+# the index may also be the id of a finding or note of the review's register (RF3, N2) or the list of findings (RF)
 REVIEW_SCHEMA['properties']['evidence_requests']={'type':'array','items':{'anyOf':[{'type':'integer'},{'type':'object',
-    'properties':{'index':{'type':'integer'},'field':{'type':['string','null']},'offset':{'type':'integer'},'item_offset':{'type':'integer'}},
+    'properties':{'index':{'type':['integer','string']},'field':{'type':['string','null']},'offset':{'type':'integer'},'item_offset':{'type':'integer'}},
     'required':['index','field','offset','item_offset'],'additionalProperties':False}]}}
 REVIEW_SCHEMA['required'].append('evidence_requests')
 # P6 (F2/F3): defects the reviewer sees, one string each, and the closure of an open one ("RF<n>:<receipt>:<why>"). The core keeps
@@ -346,6 +347,13 @@ class Owned(Workflow):
         if action=='export_branch':return wt.export_branch(self,task_id,state,contract_value,args)
         if action=='apply':return wt.apply(self,task_id,state,contract_value,args)
         if action=='finish':
+            # P6 (finding lifecycle), defence in depth: the review loop refuses to accept over an open finding; a job is never
+            # completed over one whatever path led here (a stored acceptance from before a restart, a changed rule).
+            from .review_evidence import open_findings, ReviewRejected
+            unresolved_findings=open_findings(state)
+            if unresolved_findings:
+                raise ReviewRejected('Final evidence review: completion refused, '+str(len(unresolved_findings))+' finding(s) recorded by the '
+                                     'reviewer are not closed with evidence: '+', '.join(f['id'] for f in unresolved_findings)[:600])
             verification=state['work'].get('verification') or {}
             if verification.get('step')!=state['step'] or verification.get('findings'):
                 raise LedgerError('Independent verification has not passed for this finish.')
@@ -1093,17 +1101,30 @@ class Owned(Workflow):
                   'review_notes are your own words from earlier rounds. Evidence you could not obtain is not a defect of the work.\n')
 
     @staticmethod
-    def _end_review_rounds(state,decided=True):
-        """The evidence rounds of one completion review are over. Decided (accepted or rejected): the review's memory goes with it (its
-        findings are in the review that was recorded). Not decided (evidence incomplete, prompt budget): nothing was judged, so the
-        findings the reviewer recorded stay OPEN in the checkpoint, and the next review of the same candidate starts with them."""
-        for key in ('review_requests','review_evidence_rounds','review_seen','review_notes','review_shown'):
-            state.pop(key,None)
-        kept=[] if decided else [f for f in state.get('review_findings') or [] if f.get('status')=='open']
-        if kept: state['review_findings']=kept
-        else:
-            state.pop('review_findings',None); state.pop('review_findings_unrecorded',None)
+    def _end_review_rounds(state):
+        """The evidence rounds of one completion review are over, however it ended (accepted, rejected, evidence incomplete, prompt
+        budget): its page cursors and requests go. What the reviewer FOUND does not: the findings are the job's (review_register),
+        open until a resolution with evidence is recorded, whatever the next review, candidate or runner is."""
+        from .review_evidence import close_review
+        close_review(state)
         state['review_prompt']=None
+
+    def _record_unusable_answer(self,task_id,state,review,review_prompt):
+        """The reviewer's answer cannot be used (its evidence request is invalid, its shape is wrong): the review is asked again by the
+        provider-failure handler, which reloads the persisted state. Findings the answer carries go into that persisted register first
+        (its closures do not count), so the reviewer asked again - or the next one - cannot accept as if nothing had been found."""
+        if not isinstance(review,dict): return
+        from .review_evidence import record_round, shown_receipts, ReviewEvidenceIncomplete
+        seq,latest=self.state(task_id)
+        try:
+            record_round(latest,review,shown=shown_receipts(review_prompt),round_no=latest.get('review_evidence_rounds',0),
+                         store=self.store,close=False)
+        except ReviewEvidenceIncomplete:
+            self._end_review_rounds(latest);latest['pending']=None  # settled and consumed: not a failed call to repeat
+            self.persist(task_id,seq,latest)
+            raise
+        latest['review_prompt']=None  # rebuilt, so the retry's prompt carries what was just recorded
+        self.persist(task_id,seq,latest)
 
     def _review_prompt_with_room(self,task_id,state,profile,value):
         """The completion review's prompt, after proving (P6, F1 of the probe) that the review could go on: a finish whose report fills
@@ -1180,7 +1201,7 @@ class Owned(Workflow):
         return self._review_prompt(task_id,state,profile,value)
 
     def _review_prompt(self,task_id,state,profile,value):
-        from .review_evidence import packet, memory, MEMORY_TIERS, FINDINGS_RULE
+        from .review_evidence import packet, memory, MEMORY_TIERS, FINDINGS_RULE, RETRIEVE_RULE
         proof=bool(state.get('review_proof'))  # P6 (F1): measuring the first prompt for the page a later round will ask for
         from .work_contract import summary
         from .work_tools import fit_diffs, review_facts
@@ -1197,13 +1218,17 @@ class Owned(Workflow):
                 'evidence':packet(self,state,limit=limit,manifest_size=manifest,page=page,task_id=task_id)}
             # P6: the reviewer is stateless. What it recorded in earlier rounds of THIS review comes back: its open findings first
             # (never left out: id, then as much of the claim as the room allows), then its notes. The full text is in the checkpoint.
-            shown,notes,closed=memory(state,room)
+            shown,notes,closed,more=memory(state,room)
             if shown: value_['open_findings']=shown
+            if more: value_['open_more']=more
             if notes: value_['review_notes']=notes
             if closed: value_['findings_closed']=closed
-            if state.get('review_requests') or shown or notes: value_['findings_rule']=FINDINGS_RULE
+            if state.get('review_requests') or shown or notes or more:
+                # what is cut (a claim, a note, the list of open findings) is one evidence request away: the rule says how
+                cut=more or any(isinstance(e,str) or 'chars' in e for e in shown) or any('kept in the review state' in n for n in notes)
+                value_['findings_rule']=FINDINGS_RULE+(RETRIEVE_RULE if cut or proof else '')
             if proof:  # the memory a later round can have, at its smallest tier: reserved now
-                have=len(canonical({'open_findings':shown,'review_notes':notes}))
+                have=len(canonical({'open_findings':shown,'review_notes':notes,**({'open_more':more} if more else {})}))
                 if have<MEMORY_TIERS[-1]: value_['memory_reserve']='·'*(MEMORY_TIERS[-1]-have)
             return guidance+canonical(value_)
         requested=bool(state.get('review_requests'))
@@ -1319,8 +1344,9 @@ class Owned(Workflow):
                         seq=self._work_verify(task_id,seq,state,profile,value)
                     if value['action'] in ('finish','branch_before') and not state.get('review'):
                         from .review_evidence import (packet, requests as evidence_requests, MAX_ROUNDS, LEGACY_ROUNDS, request_key, describe,
-                                                      ReviewEvidenceIncomplete, record_round, keep_note, shown_receipts, open_findings,
-                                                      findings_text, with_findings)
+                                                      ReviewEvidenceIncomplete, record_round, record_rejection, keep_note, shown_receipts,
+                                                      shown_findings, open_findings, findings_text, with_findings,
+                                                      summary as findings_summary)
                         before_action=value['action']=='branch_before'
                         guidance=('This is a PRE-EXECUTION review of a proposed LOCAL branch action, NOT a completion review. '
                             'Accept when actual diffs and the user clarified boundary support the selected first_change and its first parent. '
@@ -1331,7 +1357,14 @@ class Owned(Workflow):
                             'Distinguish tests not run from tests absent. Original tests means unchanged test files; whether they passed must be bound to the tested candidate snapshot. '
                             'Only require the delivery_contract shown below: an isolated_candidate needs no Git publication. User acceptance is separate. ')
                         if profile['mode']=='work':
-                            try: review_prompt=self._review_prompt_with_room(task_id,state,profile,value)
+                            if state.get('review_findings') or state.get('review_notes'):
+                                from .review_evidence import adopt_legacy  # a checkpoint of the unreleased d5a0c43 intermediate
+                                adopt_legacy(state,self.store)
+                            try:
+                                review_prompt=self._review_prompt_with_room(task_id,state,profile,value)
+                                if getattr(self,'_deferred',None):
+                                    # requests that did not all fit the room: the ones served are asked; the others may be asked again
+                                    state['review_seen']=[k for k in state.get('review_seen') or [] if k not in self._deferred]
                             except PromptBudgetError as error:
                                 # P5 (review of the fix): only when a short report would fit is the finish sent back to shorten
                                 # it (no review call, no block); otherwise (core facts, the finish's commands) the job is
@@ -1340,8 +1373,8 @@ class Owned(Workflow):
                                 room=self._report_is_the_excess(task_id,state,profile,value)
                                 if not room:
                                     # a resume starts the review afresh, not on a request no page can serve; no verdict was given, so
-                                    # the findings the reviewer recorded stay open
-                                    self._end_review_rounds(state,decided=False)
+                                    # the findings the reviewer recorded stay open (they are the job's, not the review's)
+                                    self._end_review_rounds(state)
                                     raise
                                 state['review']={'accepted':False,'core':True,'feedback':self._report_refusal(room)}
                                 state['review_prompt']=None;seq=self.persist(task_id,seq,state);review_prompt=None
@@ -1361,15 +1394,27 @@ class Owned(Workflow):
                         else:
                             state['review_prompt']=self.store.blob(review_prompt.encode());seq=self.persist(task_id,seq,state)
                         seq,review=self._invoke(task_id,seq,state,'owned_review',review_prompt,REVIEW_SCHEMA,profile)
-                        if not isinstance(review,dict) or type(review.get('accepted')) is not bool or not isinstance(review.get('feedback'),str):
-                            raise LedgerError('Invalid final review response.')
-                        wanted=evidence_requests(review,state)
+                        try:
+                            if not isinstance(review,dict) or type(review.get('accepted')) is not bool or not isinstance(review.get('feedback'),str):
+                                raise LedgerError('Invalid final review response.')
+                            wanted=evidence_requests(review,state)
+                        except LedgerError:
+                            # an answer that cannot be used is asked again (the handler below), but what it REPORTED binds
+                            if profile['mode']=='work': self._record_unusable_answer(task_id,state,review,review_prompt)
+                            raise
                         if profile['mode']=='work':
                             # P6 (F2/F3 of the probe): what the reviewer reported is put in the checkpoint BEFORE anything is decided
                             # from the answer, whole, with where it was looking (the pages of this round) and its status. Every branch
                             # below persists the state it changed, so the findings and their closures are never held only in memory.
                             round_no=state.get('review_evidence_rounds',0)
-                            record_round(state,review,shown=shown_receipts(review_prompt),round_no=round_no)
+                            try: record_round(state,review,shown=shown_receipts(review_prompt),round_no=round_no,store=self.store,
+                                              listed=shown_findings(review_prompt))
+                            except ReviewEvidenceIncomplete:
+                                # something it reported cannot be held whole: none of this answer was recorded and nothing was
+                                # judged. The attempt is settled; persist that first, or the handler below takes it for a failed
+                                # provider call and asks the reviewer again
+                                self._end_review_rounds(state);seq=self.persist(task_id,seq,state)
+                                raise
                         if wanted and profile['mode']=='work':
                             # P6: evidence arrives page by page (review_evidence.packet); a round must ask for a page not asked before.
                             # When the bound is reached, or the reviewer asks for the same page again, the evidence is INCOMPLETE: the
@@ -1378,10 +1423,13 @@ class Owned(Workflow):
                             # answers with no request: that is the rejection.
                             rounds=round_no
                             asked=state.get('review_seen')
-                            if asked is None: asked=[request_key(r) for r in state.get('review_requests',[])]
-                            fresh=[request_key(r) for r in wanted if request_key(r) not in asked]
+                            if asked is None: asked=[request_key(r,state) for r in state.get('review_requests',[])]
+                            fresh=[request_key(r,state) for r in wanted if request_key(r,state) not in asked]
                             if rounds < MAX_ROUNDS and fresh:
-                                keep_note(state,review['feedback'],rounds)  # its words of this round, whole; the pages it was looking at
+                                try: keep_note(state,review['feedback'],rounds,self.store)  # its words of this round, whole; the pages it was looking at
+                                except ReviewEvidenceIncomplete:
+                                    self._end_review_rounds(state);seq=self.persist(task_id,seq,state)
+                                    raise
                                 state.update(review_requests=wanted,review_evidence_rounds=rounds+1,review_prompt=None,
                                              review_seen=asked+fresh)
                                 seq=self.persist(task_id,seq,state)
@@ -1389,7 +1437,7 @@ class Owned(Workflow):
                             reason=('the reviewer asked again for a page it had been given' if not fresh else
                                     f'the {MAX_ROUNDS} evidence rounds of one review were used')
                             open_text=findings_text(state,limit=380)
-                            self._end_review_rounds(state,decided=False)  # nothing was judged: its open findings stay open
+                            self._end_review_rounds(state)  # nothing was judged: the findings are the job's and stay open
                             # the review attempt is settled and consumed: persist that first, or the handler below would take this
                             # for a failed provider call (state['pending'] is cleared in memory only) and ask the reviewer again
                             seq=self.persist(task_id,seq,state)
@@ -1400,18 +1448,28 @@ class Owned(Workflow):
                                 f"reviewer has to read (a smaller file, a narrower claim)."
                                 +(f" The reviewer's own findings stay open and go into the next review: {open_text}." if open_text else ''))
                         if profile['mode']=='work':
-                            # P6 (F3): a finding the reviewer recorded is closed only by evidence it was given, in the answer that
-                            # accepts (resolved: the prompt says so in every round that carries a page or a finding). Accepting while
-                            # one is open is not honoured: the review is a rejection that carries the findings to the worker, whole.
+                            # P6 (finding lifecycle): a finding the reviewer recorded - in this review or any earlier one of the job - is
+                            # closed only by a resolution naming evidence this review was given (resolved: RF<n>:<receipt>:<why>).
+                            # Accepting while one is open is not honoured: the review is a rejection that carries ALL the open
+                            # findings to the worker. Whatever the reviewer remembers, the round, the candidate or the runner
+                            # (the reviewer is stateless; the register is in the checkpoint) cannot make a finding go away.
                             # No second question is put to the reviewer: the page it just read would be re-cut by the room the
-                            # question takes, and a stateless reviewer then reads a different last page. Old notes leaving the prompt
-                            # change none of this: the findings are in the checkpoint, not in the prompt.
+                            # question takes, and a stateless reviewer then reads a different last page.
+                            skip=()
+                            if not wanted and not review['accepted'] and not review.get('core'):
+                                # a rejection that named no defect is still a verdict on record: its feedback is the finding
+                                try: registered=record_rejection(state,review,round_no=state.get('review_evidence_rounds',0),store=self.store)
+                                except ReviewEvidenceIncomplete:
+                                    self._end_review_rounds(state);seq=self.persist(task_id,seq,state)
+                                    raise
+                                skip=(registered,) if registered else ()
                             if open_findings(state):
                                 if review['accepted']:
-                                    review=dict(review,accepted=False,feedback='The reviewer accepted although the findings it recorded '
-                                                'in this review were not closed with evidence (resolved: RF<n>:<receipt shown>:<why>).')
-                                review=dict(review,feedback=with_findings(state,review['feedback']))
-                            if state.get('review_findings'): review=dict(review,findings=copy.deepcopy(state['review_findings']))
+                                    review=dict(review,accepted=False,feedback='The reviewer accepted although findings recorded for '
+                                                'this job were not closed with evidence (resolved: RF<n>:<receipt shown>:<why>).')
+                                review=dict(review,feedback=with_findings(state,review['feedback'],skip))
+                            if state.get('review_register'):
+                                review=dict(review,findings=findings_summary(state,state['review_register']['review']))
                         if wanted:
                             rounds=state.get('review_evidence_rounds',0)
                             if rounds < LEGACY_ROUNDS and wanted!=state.get('review_requests'):
@@ -1453,6 +1511,14 @@ class Owned(Workflow):
                         if failure_kind=='review':
                             result['review_protocol']=2
                             result['error']=str(error)[:3100]
+                            if profile['mode']=='work':
+                                # The receipt keeps the rejection WHOLE (error above): the reviewer and an uncapped worker read it
+                                # as written. `findings` carries every open finding's whole text, paged with the receipt action, so
+                                # a compact worker (whose packet cuts the error to a pointer) still recovers them without the error
+                                # and the findings competing for its prompt room.
+                                from .review_evidence import receipt_findings, open_findings as open_now, findings_whole
+                                if open_now(state) and not findings_whole(state):
+                                    result['findings']=receipt_findings(self.store,state)
                         if failure_kind in ('environment','auth','quota','effect_unknown'):
                             state.update(phase='blocked',message=str(error)[:1000],
                                          recovery={'kind':failure_kind,'automatic_retry':False})
@@ -1483,9 +1549,9 @@ class Owned(Workflow):
                     if value['action'] in ('finish','branch_before') and not preserve_intent:
                         done=state.pop('review')
                         state.setdefault('reviews',[]).append(done)
-                        # a verdict of the reviewer ends the review's memory with it; a refusal by the core (verification failed, the
-                        # report too long to be reviewed) is no verdict: the findings the reviewer recorded stay open
-                        self._end_review_rounds(state,decided=not done.get('core'))
+                        # the review is over; its findings are the job's and stay in the register (a refusal by the core - verification
+                        # failed, the report too long to be reviewed - is no verdict either way)
+                        self._end_review_rounds(state)
                     seq=self.persist(task_id,seq,state)
                 except CapacityWait:
                     state['waiting_reason']='capacity';self.persist(task_id,seq,state);return state
