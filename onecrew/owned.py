@@ -349,11 +349,18 @@ class Owned(Workflow):
         if action=='finish':
             # P6 (finding lifecycle), defence in depth: the review loop refuses to accept over an open finding; a job is never
             # completed over one whatever path led here (a stored acceptance from before a restart, a changed rule).
-            from .review_evidence import open_findings, ReviewRejected
+            from .review_evidence import open_findings, unprocessed, ReviewRejected
             unresolved_findings=open_findings(state)
             if unresolved_findings:
                 raise ReviewRejected('Final evidence review: completion refused, '+str(len(unresolved_findings))+' finding(s) recorded by the '
                                      'reviewer are not closed with evidence: '+', '.join(f['id'] for f in unresolved_findings)[:600])
+            # R4 (LC04/LC13): a reviewer response that could not be fully recorded is a durable incomplete-processing
+            # obligation. It is NOT a finding and an ordinary resolved cannot clear it, so the gate checks it separately; a job
+            # is never completed while one is open. It survives restart and public resume because it lives in the register.
+            unresolved_obligations=unprocessed(state)
+            if unresolved_obligations:
+                raise ReviewRejected('Final evidence review: completion refused, '+str(len(unresolved_obligations))+' reviewer response(s) '
+                                     'could not be fully recorded and remain unprocessed: '+', '.join(o['id'] for o in unresolved_obligations)[:600])
             verification=state['work'].get('verification') or {}
             if verification.get('step')!=state['step'] or verification.get('findings'):
                 raise LedgerError('Independent verification has not passed for this finish.')
@@ -430,7 +437,28 @@ class Owned(Workflow):
         if action=='read': return self._read(state,args)
         if action=='receipt':
             # P4-B: {index, field?, offset?} selects a page of any stored result; anything else is refused, never ignored.
-            from .paging import receipt_arguments, unwrap
+            from .paging import receipt_arguments, unwrap, view as _page_view
+            # R6 (LC08): a finding/note the review cut to its head in the rejection receipt is still kept WHOLE in the register's
+            # blob store. When the worker's receipt index is a register id (RF<n> / N<n> / 'RF'), read ONLY this task's own
+            # findings/notes through review_evidence.virtual and page the blob byte-for-byte - no filesystem access, no other
+            # task's data. A wrong id or page is reported and changes no state.
+            from .review_evidence import _virtual_id, known_ids, virtual as _virtual, PAGE_DEFAULT as _PAGE
+            ident=_virtual_id(args.get('index'))
+            if ident is not None:
+                unknown=sorted(set(args)-{'index','field','offset','item_offset'})
+                if unknown: raise LedgerError('receipt of a finding/note takes {index, field, offset, item_offset}: unknown '+', '.join(unknown)+'.')
+                if ident not in known_ids(state): raise LedgerError(f'The job has no finding or note {ident!r}.')
+                field=args.get('field'); offset=args.get('offset',0); item_offset=args.get('item_offset',0)
+                if field is not None and not isinstance(field,str): raise LedgerError('receipt field must be a result field name.')
+                if type(offset) is not int or offset<0: raise LedgerError('receipt offset must be an integer >= 0.')
+                if type(item_offset) is not int or item_offset<0: raise LedgerError('receipt item_offset must be an integer >= 0.')
+                record,blob=_virtual(state,self.store,ident)
+                value,pages=_page_view(record,_PAGE,index=ident,field=field,offset=offset,item_offset=item_offset)
+                out=dict(value)
+                if blob: out['blob']=blob  # so the worker can check the reconstructed text against the stored hash
+                if pages: out['page']=pages
+                else: out['complete']=True
+                return out
             i,field,offset=receipt_arguments(args,state['receipts'])
             stored=json.loads(self.store.read_blob(state['receipts'][i]['blob']))
             inner,original=unwrap(stored)[:2]
@@ -1114,11 +1142,16 @@ class Owned(Workflow):
         provider-failure handler, which reloads the persisted state. Findings the answer carries go into that persisted register first
         (its closures do not count), so the reviewer asked again - or the next one - cannot accept as if nothing had been found."""
         if not isinstance(review,dict): return
-        from .review_evidence import record_round, shown_receipts, ReviewEvidenceIncomplete
+        from .review_evidence import record_round, record_rejection, shown_receipts, ReviewEvidenceIncomplete
         seq,latest=self.state(task_id)
         try:
             record_round(latest,review,shown=shown_receipts(review_prompt),round_no=latest.get('review_evidence_rounds',0),
                          store=self.store,close=False)
+            # LC02: a rejection whose feedback names a defect but which ALSO carried a bad evidence-request shape (e.g. receipt
+            # 999) reaches here. record_round above kept what it put in `findings`; the feedback-only rejection conclusion must
+            # ALSO survive the bad request, or a retry that accepts would complete with the defect forgotten. Same guards as the
+            # normal path: not accepted, not core (model core already stripped), named no findings, no dup of an open finding.
+            record_rejection(latest,review,round_no=latest.get('review_evidence_rounds',0),store=self.store)
         except ReviewEvidenceIncomplete:
             self._end_review_rounds(latest);latest['pending']=None  # settled and consumed: not a failed call to repeat
             self.persist(task_id,seq,latest)
@@ -1394,6 +1427,12 @@ class Owned(Workflow):
                         else:
                             state['review_prompt']=self.store.blob(review_prompt.encode());seq=self.persist(task_id,seq,state)
                         seq,review=self._invoke(task_id,seq,state,'owned_review',review_prompt,REVIEW_SCHEMA,profile)
+                        # LC03: `core` is an INTERNAL source flag set only by this core (core verification failure, report
+                        # refusal). The Kiro adapter returns the model's JSON object verbatim and additionalProperties=false is
+                        # not enforced at runtime, so a model that sends "core": true could make record_rejection skip its
+                        # feedback. Strip it (and any other internal-only key) from the model's object before anything reads it.
+                        if isinstance(review,dict):
+                            for internal in ('core',): review.pop(internal, None)
                         try:
                             if not isinstance(review,dict) or type(review.get('accepted')) is not bool or not isinstance(review.get('feedback'),str):
                                 raise LedgerError('Invalid final review response.')

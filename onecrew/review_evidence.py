@@ -336,31 +336,70 @@ def _candidate(state):
     return ((state.get('work') or {}).get('verification') or {}).get('candidate')
 
 
-def _unrecorded(state, store, texts, why, kind):
-    """R4: a reviewer response that could NOT be fully recorded (its findings over MAX_TRACKED, or a text over MAX_TEXT) must not
-    vanish behind a raised exception. One durable OPEN finding is appended to the register, of source `kind`, so acceptance stays
-    blocked (open_findings gates the finish) across restart until a reviewer resolves it with evidence. It keeps a reference to the
-    original evidence: the whole text in the blob store when it can be held whole, else the heads and the character counts. It is
-    deduplicated by the normalized content it refers to, so the same overflow reported again is ONE block, not a growing pile, and
-    it never raises the bound or closes anything. Returns the finding's id (an existing one when deduplicated)."""
-    joined = '\n\n'.join(str(t) for t in texts)
-    norm = _sha(_norm(joined) + '|unrecorded|' + kind)
+def _reg(state):
+    """The register, created if absent. R4 adds `unprocessed` (incomplete-processing obligations) and `ob_next`; a register
+    written before R4 has neither, so they are defaulted on read."""
     register = state.setdefault('review_register', {'next': 1, 'notes_next': 1, 'review': 1, 'findings': [], 'notes': []})
-    for f in register['findings']:
-        if f.get('status') == 'open' and f.get('norm') == norm:
-            return f['id']  # the same unrecorded response, already blocking: one block, not many
+    register.setdefault('unprocessed', [])
+    register.setdefault('ob_next', 1)
+    return register
+
+
+def unprocessed(state):
+    """R4: the OPEN incomplete-processing obligations of the job - a reviewer response that could NOT be fully recorded (its
+    findings over MAX_TRACKED, a text over MAX_TEXT, or a store that could not be written). Each keeps a reference to the FULL
+    original response (its blob when it fit whole, else `missing: True` - never a faked head-as-whole). It is NOT a finding: an
+    ordinary `resolved` cannot clear it. It clears only when the SAME response is fully processed (every constituent claim
+    recorded) or an operator resolves a `missing` one. Both the final acceptance gate and the handover gate on it."""
+    register = state.get('review_register') or {}
+    return [o for o in register.get('unprocessed') or [] if o.get('status') == 'open']
+
+
+def _finding_norms(state):
+    """The per-claim norms the register already holds (open or resolved), for deciding when an obligation is fully processed."""
+    return {f.get('norm') for f in (state.get('review_register') or {}).get('findings') or [] if f.get('norm')}
+
+
+def _clear_processed_obligations(state):
+    """R4: an obligation clears exactly when the response it stands for has been FULLY processed - every constituent claim norm it
+    recorded now exists as a finding in the register. A `missing` obligation (a text that could not be held whole) has no
+    recoverable claim norms and never clears here: it is a permanent incomplete until an operator acts. This is the ONLY automatic
+    clear; no `resolved` closure touches it."""
+    register = state.get('review_register') or {}
+    have = _finding_norms(state)
+    for o in register.get('unprocessed') or []:
+        if o.get('status') != 'open' or o.get('missing'):
+            continue
+        claim_norms = o.get('claim_norms') or []
+        if claim_norms and all(n in have for n in claim_norms):
+            o['status'] = 'processed'
+
+
+def _obligation(state, store, texts, why, kind, claim_norms=()):
+    """R4: record a durable incomplete-processing obligation for a reviewer response that could NOT be fully recorded. It keeps a
+    reference to the FULL original response: the whole joined text in the blob store when it fits (<= MAX_TEXT and the store is
+    writable), else `missing: True` with the length - it NEVER stores a cut head as if it were the whole. It is deduplicated by
+    the normalized content, so the same response reported again is ONE obligation. It is NOT a finding and is not closable by
+    `resolved`; it blocks the final gate and the handover until the response is fully processed (or an operator clears a missing
+    one). Returns the obligation id."""
+    joined = '\n\n'.join(str(t) for t in texts)
+    norm = _sha(_norm(joined) + '|unprocessed|' + kind)
+    register = _reg(state)
+    for o in register['unprocessed']:
+        if o.get('status') == 'open' and o.get('norm') == norm:
+            return o['id']  # the same unrecorded response, already an open obligation: one, not a growing pile
     blob = None
     if store is not None and len(joined) <= MAX_TEXT:
         try: blob = store.blob(joined.encode('utf-8', 'surrogatepass'))
         except (OSError, LedgerError): blob = None
-    number = register['next']; register['next'] = number + 1
-    entry = {'id': f'RF{number}', 'status': 'open', 'review': register['review'], 'round': state.get('review_evidence_rounds', 0),
-             'candidate': _candidate(state), 'receipts_at': len(state.get('receipts') or []), 'chars': len(joined),
-             'head': _safe((why + ' ' + joined)[:HEAD]), 'norm': norm,
-             'source': {'round': state.get('review_evidence_rounds', 0), 'receipt': None, 'kind': kind,
-                        'pages': list(state.get('review_requests') or [])}}
-    entry.update({'blob': blob} if blob is not None else {'text': _safe(joined[:MAX_TEXT])})
-    register['findings'].append(entry)
+    number = register['ob_next']; register['ob_next'] = number + 1
+    entry = {'id': f'OB{number}', 'status': 'open', 'kind': kind, 'review': register['review'],
+             'round': state.get('review_evidence_rounds', 0), 'candidate': _candidate(state), 'chars': len(joined),
+             'head': _safe((why + ' ' + joined)[:HEAD]), 'norm': norm, 'claim_norms': list(claim_norms),
+             'why': _safe(why[:HEAD])}
+    if blob is not None: entry['blob'] = blob
+    else: entry['missing'] = True  # it could not be held whole: report it missing, do NOT fake a whole from a cut head
+    register['unprocessed'].append(entry)
     return entry['id']
 
 
@@ -411,21 +450,20 @@ def record_round(state, review, *, shown, round_no, store=None, listed=None, clo
         norm = _sha(_norm(claim))  # the whole claim: two findings that share a prefix are two findings
         if norm in known: continue  # the same defect reported again: one finding
         known.add(norm); new.append((text, receipt, norm))
-    # R4: the durable 'unrecorded_*' blocks a prior overflow left are meta-blocks, not reviewer findings; they must not count
-    # toward the bound, or a register that is exactly full could never take the legitimate replacement of a closed finding.
-    def _is_sentinel(f): return str((f.get('source') or {}).get('kind') or '').startswith('unrecorded')
-    open_real = sum(1 for f in findings if f['status'] == 'open' and not _is_sentinel(f))
+    open_real = sum(1 for f in findings if f['status'] == 'open')
     tracked = open_real - len(taken) + len(new)
     if tracked > MAX_TRACKED or len(findings) + len(new) > 4 * MAX_TRACKED:
         where = ''
         if store is not None and new:
             try: where = f' Its findings are kept whole in blob {_put(store, canonical([t for t, _, _ in new]), "the findings of this answer")}.'
             except ReviewEvidenceIncomplete: pass
-        # R4: the response cannot be fully recorded, but it must not be forgotten - a durable OPEN finding keeps a reference to it
-        # and blocks acceptance across restart until a reviewer resolves it; none of the reported findings themselves is recorded.
-        _unrecorded(state, store, [t for t, _, _ in new],
+        # R4: the response cannot be fully recorded, but it must NOT be forgotten - a durable incomplete-processing obligation
+        # keeps a reference to the FULL response and blocks the final gate and the handover across restart/public-resume. It is
+        # not a finding and no ordinary `resolved` clears it; it clears only when every one of these claims is later recorded.
+        _obligation(state, store, [t for t, _, _ in new],
                     f'A reviewer response reporting {len(new)} new finding(s) could not be recorded: the job tracks at most {MAX_TRACKED} '
-                    'open findings. It stays blocked until this is resolved with evidence.', 'unrecorded_overflow')
+                    'open findings. The job stays blocked until the whole response is processed.', 'overflow',
+                    claim_norms=[n for _, _, n in new])
         raise ReviewEvidenceIncomplete(f'The reviewer reported {len(new)} new finding(s) and the job already has '
                                        f'{open_real} open; one job tracks at most {MAX_TRACKED} open '
                                        'findings, so none of this answer was recorded and nothing was accepted.' + where)
@@ -438,9 +476,14 @@ def record_round(state, review, *, shown, round_no, store=None, listed=None, clo
             for _, _, how in closing: stored[('how', how)] = _put(store, how, 'a closing reason')
             for text, _, _ in new: stored[('claim', text)] = _put(store, text, 'a finding')
         except ReviewEvidenceIncomplete as overflow:
-            _unrecorded(state, store, [t for t, _, _ in new] + [how for _, _, how in closing],
+            # LC05: the SAME storage/recovery contract covers every _put source. The closing-reason _put runs before the new
+            # claims are recorded; if ANY _put faults, the whole response (new claims AND closing reasons) becomes one durable
+            # obligation, so no claim in it is silently dropped. The joined text that could not be stored whole is reported
+            # missing rather than cut.
+            _obligation(state, store, [t for t, _, _ in new] + [how for _, _, how in closing],
                         'A reviewer response could not be recorded whole: ' + str(overflow)[:200] +
-                        ' It stays blocked until this is resolved with evidence.', 'unrecorded_length')
+                        ' The job stays blocked until the whole response is processed.', 'length',
+                        claim_norms=[n for _, _, n in new])
             raise
     def keep(text, blob):
         return {'blob': blob} if blob is not None else {'text': _safe(text)}
@@ -465,6 +508,9 @@ def record_round(state, review, *, shown, round_no, store=None, listed=None, clo
              'source': {'round': round_no, 'receipt': receipt, 'pages': pages}},
             **keep(text, stored.get(('claim', text)))))
         result['opened'].append(f'RF{number}')
+    # R4: recording these findings may complete a prior obligation (the overflow retried within the limit, or the same response
+    # recorded whole). Clear only those whose every constituent claim is now in the register.
+    _clear_processed_obligations(state)
     return result
 
 
@@ -495,19 +541,30 @@ def record_rejection(state, review, *, round_no, store=None):
 
 
 def adopt_legacy(state, store):
-    """A checkpoint of the unreleased d5a0c43 intermediate kept the findings of a review in state['review_findings'] and its notes in
-    state['review_notes'] (text cut to 2,000 characters). They move into the register - ids, status, round, source, resolution kept,
-    the text they still have stored whole in the blob store and marked as cut - and the old keys go, so such a job is closable."""
+    """A checkpoint of the unreleased d5a0c43 intermediate kept the findings of a review in state['review_findings'] and its notes
+    in state['review_notes'] (text cut to 2,000 characters), and an unrecorded-count in state['review_findings_unrecorded'].
+    They move into the register - ids, status, round, source, resolution kept; and the legacy marker becomes a durable
+    incomplete-processing obligation so it is never silently dropped (LC06). Migration is RETRY-SAFE: it is built in full before
+    the register is touched, so a store fault partway cannot leave a half-migrated register that repeats an id on retry.
+    Legacy text that was cut and whose tail cannot be recovered is reported as a missing obligation, never claimed whole."""
     old_findings, old_notes = state.get('review_findings'), state.get('review_notes')
-    if not old_findings and not old_notes:
+    marker = state.get('review_findings_unrecorded')
+    if not old_findings and not old_notes and not marker:
         for key in ('review_findings', 'review_notes', 'review_findings_unrecorded'): state.pop(key, None)
         return
-    register = state.setdefault('review_register', {'next': 1, 'notes_next': 1, 'review': 1, 'findings': [], 'notes': []})
     cut = 'the earlier runtime kept at most 2,000 characters of this text'
+    # Build every migrated finding/note (and store its blobs) into LOCAL lists first. A store fault here raises before the
+    # register is changed, so the migration is all-or-nothing and a retry starts clean - it never repeats RF1.
+    register = state.get('review_register') or {'next': 1, 'notes_next': 1, 'review': 1, 'findings': [], 'notes': []}
+    next_f, next_n = register.get('next', 1), register.get('notes_next', 1)
+    have_ids = {f['id'] for f in register.get('findings') or []}
+    have_notes = {n['id'] for n in register.get('notes') or []}
+    built_f, built_n = [], []
     for old in old_findings or []:
         if not isinstance(old, dict): continue
         claim = str(old.get('claim', ''))
-        ident = str(old.get('id', f"RF{register['next']}"))
+        ident = str(old.get('id', f'RF{next_f}'))
+        if ident in have_ids: continue  # idempotent: already migrated by an earlier (interrupted) run
         entry = {'id': ident, 'status': 'resolved' if old.get('status') == 'resolved' else 'open', 'review': register['review'],
                  'round': old.get('round', 0), 'candidate': None, 'receipts_at': 0, 'chars': old.get('chars', len(claim)),
                  'head': _safe(claim[:HEAD]), 'norm': _sha(_norm(claim)), 'source': dict(old.get('source') or {}), 'legacy': cut}
@@ -519,16 +576,32 @@ def adopt_legacy(state, store):
                                    'candidate': None, 'chars': resolution.get('chars', len(how)), 'head': _safe(how[:HEAD_CLOSED]),
                                    'kind': 'earlier_evidence', 'blob': _put(store, how, 'a closing reason of the earlier runtime')}
         if old.get('closure_refused') and entry['status'] == 'open': entry['closure_refused'] = str(old['closure_refused'])
-        register['findings'].append(entry)
-        if ident[2:].isdigit(): register['next'] = max(register['next'], int(ident[2:]) + 1)
+        built_f.append(entry)
+        if ident[2:].isdigit(): next_f = max(next_f, int(ident[2:]) + 1)
     for old in old_notes or []:
         text = str(old.get('text', '')) if isinstance(old, dict) else str(old)
-        ident = str(old.get('id', f"N{register['notes_next']}")) if isinstance(old, dict) else f"N{register['notes_next']}"
-        register['notes'].append({'id': ident, 'review': register['review'], 'round': old.get('round', 0) if isinstance(old, dict) else 0,
-                                  'chars': old.get('chars', len(text)) if isinstance(old, dict) else len(text), 'head': _safe(text[:HEAD]),
-                                  'pages': list(old.get('pages') or []) if isinstance(old, dict) else [], 'blob': _put(store, text, 'a note'),
-                                  'legacy': cut})
-        if ident[1:].isdigit(): register['notes_next'] = max(register['notes_next'], int(ident[1:]) + 1)
+        ident = str(old.get('id', f'N{next_n}')) if isinstance(old, dict) else f'N{next_n}'
+        if ident in have_notes: continue
+        built_n.append({'id': ident, 'review': register['review'], 'round': old.get('round', 0) if isinstance(old, dict) else 0,
+                        'chars': old.get('chars', len(text)) if isinstance(old, dict) else len(text), 'head': _safe(text[:HEAD]),
+                        'pages': list(old.get('pages') or []) if isinstance(old, dict) else [], 'blob': _put(store, text, 'a note'),
+                        'legacy': cut})
+        if ident[1:].isdigit(): next_n = max(next_n, int(ident[1:]) + 1)
+    # Every blob stored without fault: now commit the register in one step.
+    register = _reg(state)
+    register['findings'].extend(built_f); register['notes'].extend(built_n)
+    register['next'] = max(register.get('next', 1), next_f); register['notes_next'] = max(register.get('notes_next', 1), next_n)
+    # LC06: a standalone unrecorded-count marker is a known incomplete the earlier runtime could not record - carry it as a
+    # durable missing obligation so a resume cannot complete as if nothing was lost. Deduplicated by its own norm.
+    if marker:
+        try: count = int(marker)
+        except (TypeError, ValueError): count = marker
+        _obligation(state, store, [f'legacy unrecorded findings: {count}'],
+                    f'An earlier runtime recorded {count} finding(s) it could not store; their full text is not recoverable here.',
+                    'legacy_unrecorded')
+        # the legacy obligation can never be auto-cleared: it has no recoverable claim, so mark it missing explicitly.
+        for o in register['unprocessed']:
+            if o.get('kind') == 'legacy_unrecorded' and o.get('status') == 'open': o['missing'] = True; o.pop('blob', None)
     for key in ('review_findings', 'review_notes', 'review_findings_unrecorded'): state.pop(key, None)
 
 
@@ -670,7 +743,7 @@ def receipt_findings(store, state):
         if f.get('closure_refused'): row['closure_refused'] = f['closure_refused']
         try: text = _full(store, f)
         except (OSError, ValueError, KeyError): text = None
-        pointer = f"{f['chars']} characters, kept whole in blob {f.get('blob')}; ask the review for {f['id']}"
+        pointer = f"{f['chars']} characters, kept whole in blob {f.get('blob')}; read the full text with receipt {{index: {f['id']}}} (it pages back with a next cursor, byte-for-byte)"
         for claim, cut in ((text, None), (f['head'], pointer), (None, pointer)):
             if claim is None and cut is None: continue
             candidate = dict(row, **({'claim': claim} if claim is not None else {}), **({'cut': cut} if cut else {}))
@@ -707,10 +780,15 @@ def handover_view(state, store=None):
     """What a handover says of the register: counts, every finding with its status, resolution and where its whole text is."""
     register = state.get('review_register') or {}
     findings = register.get('findings') or []
+    obligations = [o for o in register.get('unprocessed') or [] if o.get('status') == 'open']
     return {'tracked': len(findings), 'open': sum(1 for f in findings if f['status'] == 'open'),
             'resolved': sum(1 for f in findings if f['status'] == 'resolved'),
             'findings': [_compact(f) for f in findings],
             'notes': [{k: n[k] for k in ('id', 'review', 'round', 'chars', 'blob') if k in n} for n in register.get('notes') or []],
+            # R4/LC13: a response that could not be fully recorded is an open obligation the handover must show, so a reader
+            # never takes a job with lost evidence for done. `missing` means the full text could not be held whole.
+            'unprocessed': len(obligations),
+            'obligations': [{k: o[k] for k in ('id', 'kind', 'chars', 'blob', 'missing', 'why') if k in o} for o in obligations],
             'text_store': 'blob store of the job state root (snapshots/blobs/<blob>); each blob is the text as the reviewer wrote it'}
 
 

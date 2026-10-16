@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from onecrew import review_evidence
-from onecrew.ledger import canonical
+from onecrew.ledger import LedgerError, canonical
 from onecrew.owned import Owned
 from tests import test_review_p6 as p6
 from tests.test_review_p3 import CAP
@@ -564,12 +564,14 @@ class FindingCapacityTests(LifecycleBase):
             state = self.drive(worker, task)
         self.assertEqual((state['phase'], (state.get('recovery') or {}).get('kind')), ('blocked', 'review_evidence'), str(state.get('message')))
         self.assertIn('nothing was accepted', state['message'])
-        # R4: the response cannot be fully recorded, so NONE of the reviewer's reported findings is recorded as its own finding -
-        # but the response is not forgotten: exactly one durable 'unrecorded' block is kept (open, with the evidence blob) so a
-        # resume cannot accept over it. Nothing of what the reviewer reported was accepted or resolved.
-        recorded = self.register(worker.runtime, task)['findings']
-        self.assertEqual([(f['status'], f['source'].get('kind')) for f in recorded], [('open', 'unrecorded_overflow')],
-                         'only the durable unrecorded-findings block is recorded, not the 8 reported findings')
+        # R4 (consolidated): the response cannot be fully recorded, so NONE of the reviewer's reported findings is recorded as a
+        # finding - but it is not forgotten: exactly one durable incomplete-processing OBLIGATION is kept in
+        # register['unprocessed'] (open, referencing the full response), so a resume cannot accept over it. It is NOT a finding.
+        from onecrew.review_evidence import unprocessed
+        self.assertEqual(self.register(worker.runtime, task)['findings'], [], 'no reported finding was recorded as a finding')
+        obs = unprocessed(worker.runtime.state(task)[1])
+        self.assertEqual([(o['status'], o['kind']) for o in obs], [('open', 'overflow')], 'one durable overflow obligation')
+        self.assertTrue(obs[0].get('blob'), 'the full response is referenced in the blob store')
         self.assertFalse([r for r in state.get('reviews') or [] if r.get('accepted')])
         self.assertEqual(len(worker.review_log), 2, 'a reviewer call for the file and one for its answer; the worker was not called for it')
 
@@ -624,79 +626,102 @@ class FindingDefenceTests(LifecycleBase):
 
 
 class R4ResumeUnrecordedTests(LifecycleBase):
-    """R4 (Codex 2026-10-15): a response that could not be fully recorded (count over MAX_TRACKED, or a text over MAX_TEXT) raised
-    ReviewEvidenceIncomplete and blocked the job, but left NO durable finding in the register. A resume started the review afresh
-    with an empty register, so a later generic acceptance completed the job over the findings that were never recorded. The fix is a
-    durable blocking finding that keeps a reference to the original evidence blob, survives the reload, and leaves 'open' only through
-    a valid resolution. It must NOT be fixed by raising the limit or auto-closing anything, and a valid path must still finish."""
+    """R4 consolidated (Codex LC04/LC05/LC06). A reviewer response that could NOT be fully recorded (count over MAX_TRACKED, a
+    text over MAX_TEXT, a store fault) must leave a durable INCOMPLETE-PROCESSING OBLIGATION that: keeps a reference to the full
+    original response (blob, or `missing` when it cannot be held whole - never a cut head posing as whole); is NOT a finding, so
+    an ordinary `resolved` cannot clear it; survives restart and PUBLIC resume(task); and is gated by BOTH the final acceptance
+    gate and the handover. The reproduction drives the PUBLIC resume API, not a new runner on a blocked state and not a phase
+    edit. The oracle requires the CORRECT behaviour (not completed), unlike the Codex probe whose OK meant the bug reproduced."""
 
-    def _block_over_capacity(self, worker, task):
-        """Drive the over-capacity report so the response cannot be fully recorded, and assert the block + the durable finding."""
-        with patch.object(review_evidence, 'MAX_TRACKED', 5, create=True), patch.object(review_evidence, 'MAX_FINDINGS', 5, create=True):
+    def obligations(self, runtime, task):
+        return (self.register(runtime, task).get('unprocessed')) or []
+
+    def _block_over_capacity(self, worker, task, limit=5):
+        with patch.object(review_evidence, 'MAX_TRACKED', limit, create=True), patch.object(review_evidence, 'MAX_FINDINGS', limit, create=True):
             state = self.drive(worker, task)
         self.assertEqual((state['phase'], (state.get('recovery') or {}).get('kind')), ('blocked', 'review_evidence'),
                          str(state.get('message')))
         self.assertIn('nothing was accepted', state['message'])
-        found = self.register(worker.runtime, task)['findings']
-        self.assertTrue(found, 'RED-R4: the over-capacity response left no durable finding in the register')
-        self.assertEqual([f['status'] for f in found], ['open'])
-        self.assertTrue(all(f.get('blob') for f in found), 'the unrecorded evidence is kept whole in the blob store')
-        return found
+        obs = self.obligations(worker.runtime, task)
+        self.assertEqual([(o['status'], o['kind']) for o in obs], [('open', 'overflow')], 'a durable overflow obligation was recorded')
+        self.assertTrue(obs[0].get('blob'), 'it references the full response in the blob store')
+        self.assertEqual(self.register(worker.runtime, task)['findings'], [], 'none of the reported findings was recorded as a finding')
+        return obs
 
-    def test_an_over_capacity_response_blocks_and_a_resumed_stored_acceptance_cannot_complete(self):
-        # the over-capacity response blocks and leaves a durable open finding. A later runner reloads the checkpoint and reaches a
-        # stored acceptance (a review answered before the restart, a record from an older runtime) with that finding still open.
-        # On the baseline the register was empty after the block, so the acceptance completed the job; the durable block refuses it.
-        reviewer = Reviewer({'kind': 'report', 'count': 8, 'size': 0})
+    def test_overflow_blocks_and_public_resume_plus_generic_accept_does_not_complete(self):
+        # LC04: the Codex probe drove public resume + a generic accept and the job COMPLETED with tracked=0. The fix keeps a
+        # durable obligation that the finish gate refuses across the public resume. Oracle flipped: must NOT complete.
+        reviewer = Reviewer({'kind': 'report', 'count': 8, 'size': 0}, {'kind': 'accept'})
         worker, task = self.start(self.candidate_script(finishes=2), reviewer)
         self._block_over_capacity(worker, task)
-        durable_id = self.register(worker.runtime, task)['findings'][0]['id']
-        worker.runtime = Owned(self.ledger, worker)  # restart: the block comes from the checkpoint
-        self.assertEqual([f['status'] for f in self.register(worker.runtime, task)['findings']], ['open'], 'the block survived the reload')
-        # on resume the reviewer only accepts, closing nothing: the 'generic accept' R4 is about. It must not complete.
-        reviewer.verdicts = [{'kind': 'accept'}]; reviewer.finished = 0; reviewer.calls = 0; reviewer.sweep = 0
+        worker.runtime = Owned(self.ledger, worker)       # a fresh runner reloads the checkpoint
+        worker.runtime.resume(task)                        # PUBLIC resume API, not a phase edit
+        self.assertEqual([(o['status'], o['kind']) for o in self.obligations(worker.runtime, task)], [('open', 'overflow')],
+                         'the obligation survived the public resume')
         state = self.drive(worker, task, until=lambda s: len(self.finishes(s)) >= 2)
         self.assertNotEqual(state['phase'], 'completed',
-                            f'RED-R4: a resume + generic accept completed over the unrecorded-findings block ({state.get("message")})')
-        reg = self.register(worker.runtime, task)['findings']
-        durable = next(f for f in reg if f['id'] == durable_id)
-        self.assertEqual(durable['status'], 'open', 'the durable unrecorded-findings block is still open across the restart')
-        self.assertFalse(any(f['status'] == 'resolved' for f in reg), 'the generic accept resolved nothing')
+                            f'RED-R4: public resume + generic accept completed over the unprocessed obligation ({state.get("message")})')
+        self.assertEqual([o['status'] for o in self.obligations(worker.runtime, task)], ['open'])
 
-    def test_a_text_too_long_to_record_also_leaves_a_durable_block_that_survives_a_restart(self):
-        # the length-overflow sibling: a finding over MAX_TEXT cannot be stored whole, so the response cannot be recorded. The same
-        # durable open finding must appear and survive a reload (the fix applies to both 'cannot fully record' paths).
-        reviewer = Reviewer({'kind': 'report', 'count': 1, 'size': 600})
+    def test_an_ordinary_resolved_cannot_clear_the_obligation(self):
+        # The obligation is not a finding; a reviewer that reports one finding (within the limit) and then closes it with evidence
+        # must NOT thereby clear the overflow obligation - only recording the whole overflow response clears it.
+        reviewer = Reviewer({'kind': 'report', 'count': 8, 'size': 0}, {'kind': 'report', 'count': 1, 'size': 0},
+                            {'kind': 'close', 'cite': 0})
+        worker, task = self.start(self.candidate_script(finishes=4), reviewer)
+        self._block_over_capacity(worker, task)
+        worker.runtime = Owned(self.ledger, worker); worker.runtime.resume(task)
+        # under the real (large) limit now, the reviewer reports ONE finding then closes it; the obligation stays open.
+        state = self.drive(worker, task, until=lambda s: s['phase'] in ('completed', 'blocked'), steps=500)
+        self.assertNotEqual(state['phase'], 'completed',
+                            f'RED-R4: an ordinary resolved cleared the obligation and the job completed ({state.get("message")})')
+        self.assertEqual([o['status'] for o in self.obligations(worker.runtime, task)], ['open'],
+                         'the obligation is not cleared by closing an unrelated finding')
+
+    def test_a_text_too_long_to_record_is_a_missing_obligation_that_survives_public_resume(self):
+        # LC05: the length-overflow sibling. A finding over MAX_TEXT cannot be held whole, so the obligation is `missing` (no
+        # blob, length kept, text never cut) and survives the public resume; a generic accept after it does not complete.
+        reviewer = Reviewer({'kind': 'report', 'count': 1, 'size': 600}, {'kind': 'accept'})
         worker, task = self.start(self.candidate_script(finishes=2), reviewer)
         with patch.object(review_evidence, 'MAX_TEXT', 400):
             state = self.drive(worker, task)
-        self.assertEqual((state['phase'], (state.get('recovery') or {}).get('kind')), ('blocked', 'review_evidence'),
-                         str(state.get('message')))
-        found = self.register(worker.runtime, task)['findings']
-        self.assertTrue(found, 'RED-R4: the length-overflow response left no durable finding')
-        self.assertEqual([f['status'] for f in found], ['open'])
-        self.assertEqual(found[0]['source'].get('kind'), 'unrecorded_length', 'recorded as the length-overflow block')
-        self.assertGreaterEqual(found[0]['chars'], 600, 'it keeps the length of the evidence it could not hold whole')
-        self.assertFalse(found[0].get('blob'), 'the over-long text could not be stored whole; the block keeps its head and length')
-        worker.runtime = Owned(self.ledger, worker)  # restart: the block survives
-        self.assertEqual([f['status'] for f in self.register(worker.runtime, task)['findings']], ['open'])
+        self.assertEqual((state['phase'], (state.get('recovery') or {}).get('kind')), ('blocked', 'review_evidence'), str(state.get('message')))
+        obs = self.obligations(worker.runtime, task)
+        self.assertEqual([(o['status'], o['kind'], o.get('missing')) for o in obs], [('open', 'length', True)])
+        self.assertFalse(obs[0].get('blob'), 'the over-long text could not be held whole; reported missing, not cut')
+        worker.runtime = Owned(self.ledger, worker); worker.runtime.resume(task)
+        state = self.drive(worker, task, until=lambda s: len(self.finishes(s)) >= 2)
+        self.assertNotEqual(state['phase'], 'completed',
+                            f'RED-R4: a missing obligation did not survive the public resume ({state.get("message")})')
+        self.assertEqual([o['status'] for o in self.obligations(worker.runtime, task)], ['open'])
 
-    def test_control_a_valid_path_after_the_block_still_completes_with_no_permanent_artifact(self):
-        # the over-capacity response blocks and leaves one durable finding; after the block the reviewer reads the file and closes
-        # it with evidence. The block is NOT permanent: a valid resolution still finishes, and no finding is left open.
+    def test_the_handover_shows_the_unprocessed_obligation(self):
+        # LC13: a blocked job's handover must report the obligation, so a reader never takes a job with lost evidence for done.
+        from onecrew import work_tools as wt
         reviewer = Reviewer({'kind': 'report', 'count': 8, 'size': 0})
+        worker, task = self.start(self.candidate_script(finishes=1), reviewer)
+        self._block_over_capacity(worker, task)
+        files = sorted((wt.home(worker.runtime, task) / 'handover').glob('blocker-*.json'))
+        self.assertTrue(files, 'a blocker handover was written')
+        view = json.loads(files[-1].read_text(encoding='utf-8'))['review_findings']
+        self.assertEqual(view['unprocessed'], 1, 'the handover reports the open obligation')
+        self.assertEqual(view['obligations'][0]['kind'], 'overflow')
+
+    def test_control_a_valid_path_processing_the_whole_response_completes(self):
+        # The obligation is NOT permanent: when the whole over-capacity response is later recorded (every constituent claim) and
+        # those findings are closed with evidence, the obligation clears and the job completes.
+        reviewer = Reviewer({'kind': 'report', 'count': 8, 'size': 0}, {'kind': 'report', 'count': 8, 'size': 0},
+                            {'kind': 'close', 'cite': 0})
         worker, task = self.start(self.candidate_script(finishes=3), reviewer)
         self._block_over_capacity(worker, task)
-        worker.runtime = Owned(self.ledger, worker)  # resume with the real limit back: the reviewer closes the durable finding
-        seq, stored = worker.runtime.state(task)
-        stored['phase'] = 'running'; stored.pop('recovery', None); stored['review'] = None; stored['review_prompt'] = None
-        worker.runtime.persist(task, seq, stored)
-        reviewer.verdicts = [{'kind': 'close', 'cite': 0}]; reviewer.finished = 0; reviewer.calls = 0; reviewer.sweep = 0
-        state = self.drive(worker, task, until=lambda s: s['phase'] == 'completed', steps=500)
-        self.assertEqual(state['phase'], 'completed', f'the valid path after the block did not finish ({state.get("message")})')
-        findings = self.register(worker.runtime, task)['findings']
-        self.assertTrue(findings, 'premise: the durable finding was there to close')
-        self.assertEqual({f['status'] for f in findings}, {'resolved'}, 'the durable block is resolved; nothing is a permanent artifact')
+        worker.runtime = Owned(self.ledger, worker); worker.runtime.resume(task)
+        # under the real limit the 8 findings are now all recorded (clearing the obligation), then closed with evidence.
+        state = self.drive(worker, task, until=lambda s: s['phase'] == 'completed', steps=600)
+        self.assertEqual(state['phase'], 'completed', f'the valid path did not finish ({state.get("message")})')
+        self.assertEqual(self.obligations(worker.runtime, task) and
+                         [o['status'] for o in self.obligations(worker.runtime, task) if o['status'] == 'open'], [],
+                         'the obligation cleared when the whole response was processed')
+        self.assertEqual({f['status'] for f in self.register(worker.runtime, task)['findings']}, {'resolved'})
 
 
 class R5NewRejectionWhileOpenTests(LifecycleBase):
@@ -747,6 +772,43 @@ class R5NewRejectionWhileOpenTests(LifecycleBase):
         self.assertEqual(len(findings), 1, f'RED-R5: repeated identical feedback made a duplicate finding ({[f["id"] for f in findings]})')
         self.assertEqual([f['status'] for f in findings], ['resolved'])
 
+    def test_lc02_a_rejection_with_a_bad_evidence_request_keeps_its_feedback(self):
+        # LC02: a rejection whose feedback names a defect but which ALSO carries a bad evidence-request (receipt 999) used to
+        # keep only `findings` and lose the feedback, so a retry that accepts completed with 0 findings. The rejection
+        # conclusion must survive the bad request shape. Oracle flipped: must NOT complete.
+        class InvalidFeedback(Reviewer):
+            def decide(self, v, ctx):
+                if v['kind'] == 'bad_feedback':
+                    self.finished += 1
+                    return {'accepted': False, 'feedback': 'Defect B must be fixed; also need more evidence.',
+                            'findings': [], 'resolved': [], 'evidence_requests': [999]}
+                return super().decide(v, ctx)
+        reviewer = InvalidFeedback({'kind': 'bad_feedback'}, {'kind': 'accept'})
+        worker, task = self.start(self.candidate_script(finishes=2), reviewer)
+        state = self.drive(worker, task, until=lambda s: s['phase'] in ('completed', 'blocked') or len(self.finishes(s)) >= 2)
+        self.assertNotEqual(state['phase'], 'completed',
+                            f'RED-LC02: a bad evidence-request lost the rejection feedback and the job completed ({state.get("message")})')
+        found = self.register(worker.runtime, task)['findings']
+        self.assertEqual([f['status'] for f in found], ['open'], 'the rejection conclusion survived the bad request as an open finding')
+        self.assertEqual(self.whole(worker.runtime, found[0]), 'Defect B must be fixed; also need more evidence.')
+
+    def test_lc03_a_model_sent_core_flag_is_never_trusted(self):
+        # LC03: a model response that adds `core: true` beside its rejection feedback used to be trusted, so the feedback was not
+        # recorded and the next turn completed. The internal source flag is set only by core; a model-sent one is stripped.
+        class Origin(Reviewer):
+            def decide(self, v, ctx):
+                result = super().decide(v, ctx)
+                if v['kind'] == 'reject_feedback': result['core'] = True
+                return result
+        reviewer = Origin({'kind': 'reject_feedback', 'feedback': 'Unfixed defect B.'}, {'kind': 'accept'})
+        worker, task = self.start(self.candidate_script(finishes=2), reviewer)
+        state = self.drive(worker, task, until=lambda s: s['phase'] in ('completed', 'blocked') or len(self.finishes(s)) >= 2)
+        self.assertNotEqual(state['phase'], 'completed',
+                            f'RED-LC03: a model-sent core flag suppressed the finding and the job completed ({state.get("message")})')
+        found = self.register(worker.runtime, task)['findings']
+        self.assertEqual([f['status'] for f in found], ['open'], 'the feedback bound as a finding despite the model-sent core flag')
+        self.assertEqual(self.whole(worker.runtime, found[0]), 'Unfixed defect B.')
+
     def test_control_an_accepted_or_core_review_does_not_become_a_feedback_finding(self):
         reviewer = Reviewer({'kind': 'close', 'cite': 0})
         worker, task = self.start(self.candidate_script(), reviewer)
@@ -754,6 +816,78 @@ class R5NewRejectionWhileOpenTests(LifecycleBase):
         self.assertEqual(state['phase'], 'completed', str(state.get('message')))
         self.assertEqual(self.register(worker.runtime, task)['findings'], [])
 
+
+
+class R6WorkerRetrievalTests(LifecycleBase):
+    """R6 (Codex LC08). When the rejection receipt cut a finding to its head (total receipt bytes over RECEIPT_BYTES), the
+    worker could not retrieve the whole text: receipt(index='RF7') answered 'Unknown receipt index' and numeric paging only paged
+    the cut copy. The reviewer had virtual lookup; the worker did not. The fix gives the worker a bounded by-id lookup that reads
+    ONLY its own task's findings/notes, pages the stored blob byte-for-byte, and reports a wrong id without changing state. The
+    oracle requires the CORRECT behaviour (full text reconstructed), unlike the Codex probe whose assertion meant the bug was
+    present."""
+
+    def _cut_register(self):
+        """Eight ~190k-char claims so the rejection receipt cuts the later ones to a head + pointer; the blobs stay whole."""
+        class Store:
+            def __init__(self): self.data = {}
+            def blob(self, data):
+                key = hashlib.sha256(data).hexdigest(); self.data[key] = data; return key
+            def read_blob(self, key): return self.data[key]
+        store = Store()
+        state = {'receipts': []}
+        claims = [str(i) + ':' + 'x' * 190000 + ':TAIL-' + str(i) for i in range(8)]
+        review_evidence.record_round(state, {'findings': claims}, shown=[], round_no=0, store=store)
+        return store, state, claims
+
+    def test_the_worker_lookup_reconstructs_a_cut_finding_byte_for_byte(self):
+        # Drive the worker receipt handler directly: a cut finding id resolves to a page with a next cursor, and following the
+        # cursor reconstructs the whole claim byte-for-byte, matching the stored blob. receipt_arguments alone still rejects it.
+        from onecrew.paging import receipt_arguments
+        store, state, claims = self._cut_register()
+        rows = review_evidence.receipt_findings(store, state)
+        cut = next(row for row in rows if row.get('cut'))
+        self.assertNotIn(':TAIL-', cut.get('claim', ''), 'premise: the receipt copy is cut, missing its tail')
+        with self.assertRaises(LedgerError):
+            receipt_arguments({'index': cut['id'], 'field': 'claim'}, [{'index': 0}])  # numeric-only path still refuses an id
+        # the worker receipt handler (owned._tool) now resolves the id via virtual + paging and pages byte-for-byte.
+        rebuilt, args, guard = '', {'index': cut['id'], 'field': 'claim', 'offset': 0, 'item_offset': 0}, 0
+        while True:
+            guard += 1; self.assertLess(guard, 200, 'the page walk terminates')
+            out = self._worker_receipt(store, state, args)
+            piece = out['result']['claim']; rebuilt += piece
+            pages = out.get('page') or []
+            page = next((pg for pg in pages if pg['field'] == 'claim'), None)
+            if out.get('complete') or page is None or page.get('eof'):
+                break
+            nxt = page['next']['arguments']
+            args = {'index': nxt['index'], 'field': nxt.get('field'), 'offset': nxt.get('offset', 0), 'item_offset': nxt.get('item_offset', 0)}
+        full = review_evidence.virtual(state, store, cut['id'])[0]['result']['claim']
+        self.assertEqual(rebuilt, full, 'the worker reconstructed the whole claim byte-for-byte')
+        self.assertIn(':TAIL-', rebuilt, 'the tail the receipt copy lost was retrieved via the worker lookup')
+
+    def test_a_wrong_finding_id_is_reported_and_changes_no_state(self):
+        store, state, _ = self._cut_register()
+        before = json.dumps(state, sort_keys=True)
+        with self.assertRaises(LedgerError):
+            self._worker_receipt(store, state, {'index': 'RF99', 'field': 'claim'})
+        self.assertEqual(json.dumps(state, sort_keys=True), before, 'a wrong id changed no state')
+
+    def _worker_receipt(self, store, state, args):
+        """Exercise exactly the owned._tool receipt virtual-id branch, without a full job: resolve + page like the handler."""
+        from onecrew.review_evidence import _virtual_id, known_ids, virtual, PAGE_DEFAULT
+        from onecrew.paging import view
+        ident = _virtual_id(args.get('index'))
+        self.assertIsNotNone(ident, 'the test only drives virtual-id lookups')
+        if ident not in known_ids(state):
+            raise LedgerError(f'The job has no finding or note {ident!r}.')
+        field = args.get('field'); offset = args.get('offset', 0); item_offset = args.get('item_offset', 0)
+        record, blob = virtual(state, store, ident)
+        value, pages = view(record, PAGE_DEFAULT, index=ident, field=field, offset=offset, item_offset=item_offset)
+        out = dict(value)
+        if blob: out['blob'] = blob
+        if pages: out['page'] = pages
+        else: out['complete'] = True
+        return out
 
 if __name__ == '__main__':
     unittest.main()

@@ -923,36 +923,36 @@ class ReviewMemoryTests(unittest.TestCase):
         self.assertEqual([f['id'] for f in open_findings(state)][-1], 'RF60')
         self.assertIn('RF60', findings_text(state), 'the text names every open finding, by id when its text does not fit')
 
-    def test_a_register_that_is_full_records_only_a_durable_block_and_accepts_nothing(self):
-        # R4 (Codex 2026-10-15): an over-capacity answer used to leave the register exactly as it was, so a resume could accept
-        # over findings that were never recorded. Now it records NONE of the reported findings and applies NO closure, still
-        # raises, but leaves exactly one durable 'unrecorded_overflow' block (open, with the evidence) so a resume stays blocked.
-        # The sentinel does NOT count toward the bound, so a full register can still take the replacement of a closed finding.
+    def test_a_register_that_is_full_records_a_durable_obligation_and_accepts_nothing(self):
+        # R4 (consolidated LC04): an over-capacity answer records NONE of its findings and applies NO closure, still raises, but
+        # leaves exactly one durable incomplete-processing OBLIGATION in register['unprocessed'] (NOT a finding, so an ordinary
+        # resolved cannot clear it) that references the full response. It is excluded from the finding bound. Closed findings
+        # still do not count, so a full register can still take the legitimate replacement.
         from unittest.mock import patch
         from onecrew import review_evidence
-        from onecrew.review_evidence import ReviewEvidenceIncomplete
+        from onecrew.review_evidence import ReviewEvidenceIncomplete, unprocessed
         LIMIT = 5
         with patch.object(review_evidence, 'MAX_TRACKED', LIMIT, create=True):
             state = self.state()
             self.record(state, {'findings': [f'loi {n}' for n in range(LIMIT)]}, shown=set(), round_no=1)
             open_before = [(f['id'], f['status']) for f in self.findings(state)]
-            next_id_before = state['review_register']['next']
             with self.assertRaises(ReviewEvidenceIncomplete) as caught:
                 self.record(state, {'findings': ['mot loi nua', 'va mot loi nua'], 'resolved': ['RF1:0:fine']}, shown={0}, round_no=2)
             self.assertIn('nothing was accepted', str(caught.exception))
-            found = self.findings(state)
-            durable = [f for f in found if f['source'].get('kind') == 'unrecorded_overflow']
-            self.assertEqual(len(durable), 1, 'exactly one durable unrecorded-findings block was recorded')
-            self.assertEqual(durable[0]['status'], 'open')
-            self.assertEqual([(f['id'], f['status']) for f in found if f['source'].get('kind') != 'unrecorded_overflow'], open_before,
+            obligations = unprocessed(state)
+            self.assertEqual([(o['status'], o['kind']) for o in obligations], [('open', 'overflow')],
+                             'one durable overflow obligation, not a finding')
+            self.assertTrue(obligations[0].get('blob'), 'the full response is kept whole in the blob store')
+            self.assertEqual([(f['id'], f['status']) for f in self.findings(state)], open_before,
                              'none of the reported findings was recorded and the closure of RF1 was not applied')
-            self.assertEqual(state['review_register']['next'], next_id_before + 1, 'only the one durable block took an id')
-            # closed findings do not count against the bound, and neither does the sentinel: closing RF1 and reporting one in
-            # its place is accepted even though the register is at the limit.
-            self.record(state, {'findings': ['mot loi nua'], 'resolved': ['RF1:0:fine']}, shown={0}, round_no=3)
-            real_open = [f for f in self.findings(state) if f['source'].get('kind') != 'unrecorded_overflow' and f['status'] == 'open']
-            self.assertEqual(len(real_open), LIMIT, 'LIMIT real open findings: RF1 closed, one new opened in its place')
-            self.assertEqual(sum(1 for f in self.findings(state) if f['status'] == 'open'), LIMIT + 1, 'plus the durable block')
+            # an ordinary resolved cannot clear the obligation: it targets findings, never unprocessed.
+            self.record(state, {'resolved': ['RF2:0:fine']}, shown={0}, listed=['RF2'], round_no=3)
+            self.assertEqual(len(unprocessed(state)), 1, 'an ordinary resolved does not clear the obligation')
+            # the obligation clears only when its constituent claims are later recorded whole (within the limit).
+            # Close two findings to make room, then record the two overflow claims so every claim norm is present.
+            self.record(state, {'resolved': ['RF3:0:fine', 'RF4:0:fine']}, shown={0}, listed=['RF3', 'RF4'], round_no=4)
+            self.record(state, {'findings': ['mot loi nua', 'va mot loi nua']}, shown=set(), round_no=5)
+            self.assertEqual(unprocessed(state), [], 'recording every constituent claim clears the obligation')
 
     def test_closing_and_reporting_the_same_claim_in_one_answer_leaves_it_open(self):
         state = self.state()
@@ -1075,37 +1075,37 @@ class ReviewMemoryTests(unittest.TestCase):
         state = {'review_findings': [{'id': 'RF1', 'status': 'open', 'round': 2, 'claim': 'lỗi cũ', 'chars': 6, 'source': {'receipt': 0}}]}
         self.assertEqual([f['id'] for f in open_findings(state)], ['RF1'])
 
-    def test_a_text_that_cannot_be_held_whole_records_a_durable_block_and_is_never_cut(self):
-        # R4: a finding over MAX_TEXT cannot be stored whole, so the review is incomplete and the text is never cut. It now also
-        # leaves one durable 'unrecorded_length' block that keeps the length (not the whole text, which does not fit). keep_note
-        # for an over-long NOTE still raises and records no finding of its own (a note is progress, not a defect).
-        from onecrew.review_evidence import MAX_TEXT, ReviewEvidenceIncomplete, keep_note
+    def test_a_text_that_cannot_be_held_whole_records_a_missing_obligation_and_is_never_cut(self):
+        # R4 (LC05): a finding over MAX_TEXT cannot be stored whole, so the review is incomplete and the text is NEVER cut. It
+        # leaves one durable obligation marked `missing` (it kept the length, not a cut head posing as the whole). keep_note for
+        # an over-long NOTE still raises and records no finding or obligation of its own (a note is progress, not a defect).
+        from onecrew.review_evidence import MAX_TEXT, ReviewEvidenceIncomplete, keep_note, unprocessed
         state = self.state()
         with self.assertRaises(ReviewEvidenceIncomplete):
             self.record(state, {'findings': ['x' * (MAX_TEXT + 1)]}, shown=set(), round_no=1)
-        found = self.findings(state)
-        self.assertEqual([(f['status'], f['source'].get('kind')) for f in found], [('open', 'unrecorded_length')])
-        self.assertFalse(found[0].get('blob'), 'the over-long text could not be stored whole; the block keeps head and length')
-        self.assertEqual(found[0]['chars'], MAX_TEXT + 1, 'the block keeps the length of the evidence it could not hold')
-        notes_before = list(state['review_register'].get('notes') or [])
+        obligations = unprocessed(state)
+        self.assertEqual([(o['status'], o['kind'], o.get('missing')) for o in obligations], [('open', 'length', True)])
+        self.assertFalse(obligations[0].get('blob'), 'the over-long text could not be stored whole; no blob, reported missing')
+        self.assertEqual(self.findings(state), [], 'no finding was recorded; the obligation is not a finding')
+        notes_before = list((state.get('review_register') or {}).get('notes') or [])
         with self.assertRaises(ReviewEvidenceIncomplete):
             keep_note(state, 'y' * (MAX_TEXT + 1), 1, self.store)
-        self.assertEqual(state['review_register'].get('notes') or [], notes_before, 'the over-long note recorded nothing')
+        self.assertEqual((state.get('review_register') or {}).get('notes') or [], notes_before, 'the over-long note recorded nothing')
 
-    def test_a_store_that_cannot_be_written_records_a_durable_block_inline_and_accepts_nothing(self):
-        # R4: when the blob store itself cannot be written, the reported finding cannot be stored whole, so the review is
-        # incomplete. The durable block is still recorded - its text kept INLINE in the register (no blob), since the store is
-        # broken - so a resume cannot accept over it. Nothing of the reported finding was accepted.
-        from onecrew.review_evidence import ReviewEvidenceIncomplete, record_round
+    def test_a_store_that_cannot_be_written_records_a_missing_obligation_and_accepts_nothing(self):
+        # R4 (LC05): when the blob store itself cannot be written, the reported finding cannot be stored whole, so the review is
+        # incomplete. A durable obligation is still recorded, marked `missing` (the store could not hold even the obligation's
+        # own copy), so a resume cannot accept over it. Nothing of the reported finding was accepted.
+        from onecrew.review_evidence import ReviewEvidenceIncomplete, record_round, unprocessed
         class Broken:
             def blob(self, data): raise OSError('disk full')
         state = self.state()
         with self.assertRaises(ReviewEvidenceIncomplete):
             record_round(state, {'findings': ['loi']}, shown=set(), round_no=1, store=Broken())
-        found = (state.get('review_register') or {}).get('findings') or []
-        self.assertEqual([(f['status'], f['source'].get('kind')) for f in found], [('open', 'unrecorded_length')])
-        self.assertFalse(found[0].get('blob'), 'the broken store could not hold a blob; the block keeps its text inline')
-        self.assertTrue(found[0].get('text'), 'the durable block keeps what it can inline')
+        obligations = unprocessed(state)
+        self.assertEqual([(o['status'], o['kind'], o.get('missing')) for o in obligations], [('open', 'length', True)])
+        self.assertFalse(obligations[0].get('blob'), 'the broken store could not hold a blob; reported missing')
+        self.assertEqual((state.get('review_register') or {}).get('findings') or [], [], 'no finding was recorded')
 
     def test_closing_needs_an_open_finding_a_receipt_shown_in_this_review_and_a_reason(self):
         state = self.state()
