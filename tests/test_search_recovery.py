@@ -382,6 +382,61 @@ class AskGateB1RelationTests(unittest.TestCase, WorkModeB1Mixin):
         self.assertIn(res.get('blocked'), ('self_verify_first','self_verify_exhausted'))
         self.assertEqual(run.ledger.requests(task,pending=True),[])
 
+    def test_reask_relabel_business_does_NOT_drop_obligation(self):
+        # Codex v3 branch (a): declare commit_relationship with a WRONG relation (gated, records the obligation), then
+        # re-ask the SAME question/options/recommendation as kind=business. The business path must NOT be used to escape
+        # the unresolved technical obligation - it stays held, no request is created.
+        run,task,profile,state=self._wm()
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1); seq,state=run.state(task)
+        r1=self._ask_tool(run,task,profile,state,kind='technical',verification='x',verified_receipt=0,
+                          claim_kind='commit_relationship',claim_refs=['HEAD','HEAD~1'],claim_relation='ancestor')
+        self.assertEqual(r1,{'action':'ask','blocked':'self_verify_first'})
+        # SAME obligation (same question/options/recommendation) relabeled business, dropping all verification.
+        r2=self._ask_tool(run,task,profile,state,kind='business',verification='x',verified_receipt=0)
+        self.assertIn(r2.get('blocked'), ('self_verify_first','self_verify_exhausted'))
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+        self.assertNotEqual(state['phase'],'waiting')
+
+    def test_reask_relabel_claim_kind_code_flow_does_NOT_drop_obligation(self):
+        # Codex v3 branch (b): declare commit_relationship with a WRONG relation (gated), then re-ask the SAME obligation
+        # keeping kind=technical but relabeling claim_kind=code_flow (whose type-floor a git_show receipt would satisfy).
+        # The original commit_relationship requirement is sticky and re-applied -> still gated, no request.
+        run,task,profile,state=self._wm()
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1); seq,state=run.state(task)
+        r1=self._ask_tool(run,task,profile,state,kind='technical',verification='x',verified_receipt=0,
+                          claim_kind='commit_relationship',claim_refs=['HEAD','HEAD~1'],claim_relation='ancestor')
+        self.assertEqual(r1,{'action':'ask','blocked':'self_verify_first'})
+        # SAME obligation, relabel claim_kind to code_flow (git_show is in code_flow's type-floor) and drop the refs.
+        r2=self._ask_tool(run,task,profile,state,kind='technical',verification='x',verified_receipt=0,
+                          claim_kind='code_flow')
+        self.assertIn(r2.get('blocked'), ('self_verify_first','self_verify_exhausted'))
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+        self.assertNotEqual(state['phase'],'waiting')
+
+    def test_verified_relation_resolves_obligation_then_proceeds(self):
+        # Control: once the SAME obligation is actually satisfied (true relation + cite + verification) it is RESOLVED and
+        # reaches the user; a later ask on that question is not re-gated. Proves resolution is by matching verification only.
+        run,task,profile,state=self._wm()
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1); seq,state=run.state(task)
+        # first: wrong relation -> gated + records obligation
+        self._ask_tool(run,task,profile,state,kind='technical',verification='x',verified_receipt=0,
+                       claim_kind='commit_relationship',claim_refs=['HEAD','HEAD~1'],claim_relation='ancestor')
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+        # then: TRUE relation -> verified -> reaches the user (obligation resolved)
+        res=self._ask_tool(run,task,profile,state,kind='technical',verification='verified',verified_receipt=0,
+                           claim_kind='commit_relationship',claim_refs=['HEAD~1','HEAD'],claim_relation='ancestor')
+        self.assertEqual(state['phase'],'waiting')
+        self.assertEqual(len(run.ledger.requests(task,pending=True)),1)
+
     def test_direct_authority_still_reaches_user_unaffected(self):
         run,task,profile,state=self._wm()
         res=self._ask_tool(run,task,profile,state,kind='authority',question='Which account may I deploy to?')

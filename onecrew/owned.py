@@ -594,26 +594,34 @@ class Owned(Workflow):
             # claim_kind the gate can type-check the cited receipt against (machine-checkable). Others are semantic (not proven).
             CHECKABLE={'commit_relationship':('git_log','git_show'),'symbol_or_file_exists':('search','read','list'),
                        'code_flow':('read','search','git_show')}
+            # B1 (Codex v3): the technical-verification OBLIGATION is resolved BEFORE branching on the new kind, so dropping
+            # or relabeling kind/claim_kind on a RE-ASK of the SAME question cannot weaken or drop it. The obligation is the
+            # stable question+options+recommendation. Once a worker declares a machine-checkable claim_kind for an obligation,
+            # that requirement is RECORDED and stays attached to that obligation until a MATCHING verification actually
+            # resolves it - a later ask that says kind=business, or keeps kind=technical but relabels claim_kind=code_flow,
+            # still faces the ORIGINAL (e.g. commit_relationship) check. A genuinely NEW, independent question (no recorded
+            # obligation) keeps its own declared kind and, if authority/business/ui_choice, reaches the user directly.
+            from .progress import POLICY as _POLICY, content_hash as _ch
+            p=state.setdefault('progress',{'policy':dict(_POLICY),'observations':0,'writes':0,
+                'failed_tests':0,'review_rejections':0,'results':{}})
+            p.setdefault('policy',dict(_POLICY))
+            obligation=_ch({'q':args.get('question'),'opts':args.get('options'),'rec':args.get('recommendation')})
+            sticky=p.setdefault('obligation_claim_kind',{})
+            declared_kind=args.get('claim_kind')
+            if declared_kind in CHECKABLE: sticky.setdefault(obligation,declared_kind)
+            if len(sticky)>200:
+                for k in list(sticky)[:-200]: sticky.pop(k,None)
+            held_kind=sticky.get(obligation)          # a recorded, still-unresolved machine-checkable obligation
+            if held_kind:
+                # Hold the obligation across any relabel/drop: force the technical path and re-apply the ORIGINAL claim_kind.
+                kind='technical'; claim_kind=held_kind
+            else:
+                claim_kind=declared_kind
             if kind=='technical':
-                verification=args.get('verification'); cited=args.get('verified_receipt'); claim_kind=args.get('claim_kind')
+                verification=args.get('verification'); cited=args.get('verified_receipt')
                 receipts=state.get('receipts') or []
                 has_cite=isinstance(cited,int) and 0<=cited<len(receipts)
                 cited_action=receipts[cited].get('action') if has_cite else None
-                from .progress import POLICY as _POLICY, content_hash as _ch
-                p=state.setdefault('progress',{'policy':dict(_POLICY),'observations':0,'writes':0,
-                    'failed_tests':0,'review_rejections':0,'results':{}})
-                p.setdefault('policy',dict(_POLICY))
-                # B1 (Codex v2): the technical-verification obligation is STICKY per obligation. Once a worker declares
-                # claim_kind=commit_relationship for THIS question, re-asking the SAME obligation with claim_kind dropped or
-                # relabeled does NOT drop the commit-relationship check: the first declared machine-checkable kind is kept and
-                # re-applied. (The obligation is the stable question+options+recommendation, so only genuinely re-asking the
-                # same thing re-applies it; a different question is its own obligation.)
-                obligation=_ch({'q':args.get('question'),'opts':args.get('options'),'rec':args.get('recommendation')})
-                sticky=p.setdefault('obligation_claim_kind',{})
-                if claim_kind in CHECKABLE: sticky.setdefault(obligation,claim_kind)
-                if sticky.get(obligation) and claim_kind not in CHECKABLE: claim_kind=sticky[obligation]
-                if len(sticky)>200:
-                    for k in list(sticky)[:-200]: sticky.pop(k,None)
                 # Relevance when the worker declares a machine-checkable claim_kind. B1 (Codex v2): a commit_relationship is
                 # verified AS A CLAIM, not merely by citing a git-type receipt - the core resolves the two refs the worker
                 # names and runs the matching Git relation check in the PINNED repo (read-only). A bare `git_show HEAD`, an
@@ -661,6 +669,13 @@ class Owned(Workflow):
                                 'business, or UI-version choice, set kind accordingly and it reaches the user.')}
                     # NB: the returned result is STABLE (no attempt counter) so observe()'s same-result guard also bounds it.
                     return {'action':'ask','blocked':'self_verify_first'}
+            # Reaching here means EITHER the technical obligation was satisfied (verified_ok) OR this is a new,
+            # independent authority/business/ui_choice ask with no recorded obligation. In both cases the obligation
+            # (if any) is now resolved - clear it so a later legitimate ask on the same question is not re-gated, and so
+            # the self_verify counter does not carry over. Resolution is ONLY ever by this matching-verification path.
+            sticky.pop(obligation,None)
+            sv_done=p.get('self_verify')
+            if isinstance(sv_done,dict): sv_done.pop(obligation,None)
             question={'schema_version':1,'question':args['question'],'reason':args['reason'],
                 'impact':'This job waits; its deadline and permissions do not change.',
                 'options':args['options'],'recommendation':args['recommendation'],
