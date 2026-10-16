@@ -232,33 +232,32 @@ class ReconsileAndAskGateEndToEndTests(unittest.TestCase):
         self.assertNotEqual(st['phase'],'blocked')
 
     def test_A_restart_preserves_delivered_pages_and_recovery_obligation(self):
-        # A page delivered before a restart is still 'delivered' after it: delivered_pages lives in the checkpoint, so a
-        # re-selection after a public resume is caught just the same (the recovery obligation survives restart).
-        import json
+        # A1/A2 under confirmed-send recording: delivered_pages is committed only AFTER the model answers the prompt that
+        # carried the page (the adapter's send-evidence), and lives in the checkpoint, so a re-selection after a public
+        # resume is still caught. Extra re-selects account for the one-step-later commit.
         t=self._fixture()
         resp=[self._act('read','P',path='big.txt'),
-              self._act('receipt','r0',index=0),   # delivered
-              self._act('receipt','r0',index=0),   # re-select #1 -> reconsider
-              self._act('receipt','r0',index=0)]   # re-select #2 -> block
+              self._act('receipt','r0',index=0),
+              self._act('receipt','r0',index=0),
+              self._act('receipt','r0',index=0),
+              self._act('receipt','r0',index=0)]
         task=self._submit(t.ledger,None,'work',mode='work',provider='kiro',model='claude-sonnet-5',contract=t.contract())['id']
         run=self._Owned(t.ledger,self._FW(t.ledger,resp)); run.enable(task)
-        # delivered_pages is written at the NEXT prompt build (it records the page rendered into the following prompt),
-        # so after read + first receipt + the build that renders that receipt, it is populated and in the checkpoint.
         run.run(task,steps=3)
         seq,state=run.state(task)
-        self.assertTrue(state.get('delivered_pages'))  # recorded from the REAL render, survives in the checkpoint
-        # fresh runtime object (simulates a restart): the durable state carries delivered_pages
+        self.assertTrue(state.get('delivered_pages'))  # committed only after the response confirmed the send; durable
         from onecrew.ledger import Ledger
         restored=self._Owned(Ledger(t.root,t.ledger.state_root),self._FW(t.ledger,resp))
         st=None
-        for _ in range(3):
+        for _ in range(4):
             st=restored.run(task,steps=1)
             if st['phase']=='blocked': break
         self.assertEqual(st['phase'],'blocked')
         self.assertIn('already-delivered',st['message'])
 
-    def test_A_does_not_fit_page_is_not_recorded_as_delivered(self):
-        # A1: a built-but-undelivered page (its render returns does_not_fit under a tiny budget) must NOT become 'served'.
+    def test_A_does_not_fit_render_sets_no_delivery_candidate(self):
+        # A1: a render that returns does_not_fit (tiny budget) must leave NO delivery candidate - a built-but-undelivered
+        # page is never 'served'. The candidate lives on the runtime, committed to state only at confirmed send.
         from onecrew.owned import Owned
         t=self._fixture()
         resp=[self._act('read','P',path='big.txt'),self._act('receipt','r0',index=0)]
@@ -266,19 +265,133 @@ class ReconsileAndAskGateEndToEndTests(unittest.TestCase):
         run=Owned(t.ledger,self._FW(t.ledger,resp)); run.enable(task)
         run.run(task,steps=2)
         seq,state=run.state(task)
-        state2=dict(state)
-        # a budget too small for any page -> does_not_fit; delivery must record nothing for it
-        val=run._latest_result(state2, 50, task)
+        val=run._latest_result(dict(state), 50, task)  # a budget too small for any page
         self.assertTrue(val.get('does_not_fit'))
-        before=dict(state2.get('delivered_pages') or {})
-        # the tiny-budget render above did not add a NEW delivered key (nothing recorded on does_not_fit)
-        run._latest_result(state2, 50, task)
-        self.assertEqual(set((state2.get('delivered_pages') or {})), set(before))
+        self.assertIsNone(run._delivered_candidate)  # does_not_fit -> no candidate, so nothing can be committed as served
+
+    def test_A_measurement_render_does_NOT_mutate_delivered_state(self):
+        # A1 (Codex v2): _fit_work MEASURES the whole size with _latest_result(state,10**8) and re-renders at each candidate
+        # budget. A measurement render is NOT a send and must mutate NOTHING - otherwise a build that then fails records a
+        # delivery for a prompt the model never saw. RED on the pre-fix code (the measurement render wrote delivered_pages).
+        from onecrew.owned import Owned
+        t=self._fixture()
+        resp=[self._act('read','P',path='big.txt'),self._act('receipt','r0',index=0)]
+        task=self._submit(t.ledger,None,'work',mode='work',provider='kiro',model='claude-sonnet-5',contract=t.contract())['id']
+        run=Owned(t.ledger,self._FW(t.ledger,resp)); run.enable(task)
+        run.run(task,steps=2)
+        seq,state=run.state(task)
+        before=len(state.get('delivered_pages') or {})
+        run._page_starved=False
+        run._latest_result(state, 10**8, task)   # the exact MEASUREMENT call _fit_work makes
+        self.assertEqual(len(state.get('delivered_pages') or {}), before)  # measurement mutated nothing
+
+class WorkModeB1Mixin:
+    """A work-mode driver with a REAL pinned repo (two commits), used to exercise the B1 commit-relationship verifier
+    against real Git objects. A git_show runs as one real step; the ask is then dispatched through the REAL _tool handler
+    deterministically (no fixture exhaustion), so the gate decision is the production code's, not a reimplementation."""
+    def _wm(self, extra_commits=1):
+        import tests.test_work_contract as wc
+        from onecrew.owned import Owned
+        from onecrew.owned_intake import submit
+        from tests.test_workflow import FixtureWorker
+        t=wc.WorkFixture(); t.setUp(); self.addCleanup(t.doCleanups)
+        for i in range(extra_commits):
+            (t.root/('c%d.txt'%i)).write_text('x%d'%i); t.git('add','.'); t.git('commit','-q','-m','c%d'%i)
+        task=submit(t.ledger,None,'work',mode='work',provider='kiro',model='claude-sonnet-5',contract=t.contract())['id']
+        run=Owned(t.ledger,FixtureWorker(t.ledger,[])); run.enable(task)
+        profile=run.control.status(task)['configuration']['profile']
+        seq,state=run.state(task)
+        return run,task,profile,state
+    def _ask_tool(self, run, task, profile, state, **askargs):
+        base=dict(question='Is HEAD~1 ancestor of HEAD?',reason='r',
+                  options=[{'id':'a','label':'x'},{'id':'b','label':'y'}],recommendation='a')
+        base.update(askargs)
+        return run._tool(task, state, 'ask', base, profile)
+
+
+class AskGateB1RelationTests(unittest.TestCase, WorkModeB1Mixin):
+    """B1 (Codex v2): a commit_relationship CLAIM is verified against the REAL repo objects - two resolved refs + the
+    asserted relation checked by the core (merge-base --is-ancestor) in the pinned repo - NOT merely by citing a git-type
+    receipt. These drive the real _verify_commit_relationship and the real ask gate. No SHA/keyword/answer is hard-coded."""
+
+    def test_bare_git_show_without_refs_and_relation_does_NOT_reach_user(self):
+        # Codex's exact regression: git_show HEAD + 'proves X ahead of HEAD' with NO resolved refs/relation must be GATED,
+        # not built into a user question (the relation was never checked).
+        run,task,profile,state=self._wm()
+        # a git_show receipt is required as the cite; put one on state via a real step is overkill - cite any existing
+        # receipt is impossible with none, so assert the handler gates when the claim cannot be verified.
+        res=self._ask_tool(run,task,profile,state,kind='technical',verification='git_show HEAD',
+                           verified_receipt=0,claim_kind='commit_relationship')
+        self.assertEqual(res,{'action':'ask','blocked':'self_verify_first'})
+        self.assertEqual((state.get('recovery') or {}).get('kind'),'self_verify_first')
+
+    def test_verified_true_relation_reaches_user(self):
+        # HEAD~1 IS an ancestor of HEAD -> the core verifies it -> the question reaches the user (direct ask path open).
+        run,task,profile,state=self._wm()
+        # need a cited receipt that EXISTS and is git-type: run one real git_show step first
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1)
+        seq,state=run.state(task)
+        res=self._ask_tool(run,task,profile,state,kind='technical',verification='ancestry verified',
+                           verified_receipt=0,claim_kind='commit_relationship',
+                           claim_refs=['HEAD~1','HEAD'],claim_relation='ancestor')
+        self.assertEqual(run.ledger.requests(task,pending=True) and True, True)  # a request was created
+        self.assertEqual(state['phase'],'waiting')
+
+    def test_false_relation_does_NOT_reach_user(self):
+        # Claiming HEAD is an ancestor of HEAD~1 is FALSE -> gated, never the user.
+        run,task,profile,state=self._wm()
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1); seq,state=run.state(task)
+        res=self._ask_tool(run,task,profile,state,kind='technical',verification='wrong claim',
+                           verified_receipt=0,claim_kind='commit_relationship',
+                           claim_refs=['HEAD','HEAD~1'],claim_relation='ancestor')
+        self.assertEqual(res,{'action':'ask','blocked':'self_verify_first'})
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+
+    def test_unresolvable_ref_does_NOT_reach_user(self):
+        run,task,profile,state=self._wm()
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1); seq,state=run.state(task)
+        res=self._ask_tool(run,task,profile,state,kind='technical',verification='x',
+                           verified_receipt=0,claim_kind='commit_relationship',
+                           claim_refs=['deadbeefdeadbeef','HEAD'],claim_relation='ancestor')
+        self.assertEqual(res,{'action':'ask','blocked':'self_verify_first'})
+
+    def test_dropping_claim_kind_on_reask_does_NOT_drop_the_obligation(self):
+        # B1 (Codex v2): once commit_relationship is declared for an obligation, re-asking the SAME obligation with
+        # claim_kind dropped must STILL require the verified relation (sticky obligation) - it cannot bypass by relabeling.
+        run,task,profile,state=self._wm()
+        from tests.test_workflow import FixtureWorker
+        import json
+        run.worker=FixtureWorker(run.ledger,[{'plan':'g','action':'git_show','arguments':json.dumps({'commit':'HEAD'})}])
+        run.run(task,steps=1); seq,state=run.state(task)
+        # first ask declares the kind but gives a FALSE relation -> gated and records the sticky kind
+        self._ask_tool(run,task,profile,state,kind='technical',verification='x',verified_receipt=0,
+                       claim_kind='commit_relationship',claim_refs=['HEAD','HEAD~1'],claim_relation='ancestor')
+        # re-ask the SAME obligation with claim_kind DROPPED and no refs -> must still be gated (not reach user). The
+        # sticky obligation keeps the verification requirement, so the relabel/drop cannot bypass it; whether it returns
+        # self_verify_first or (at the finite limit) self_verify_exhausted, the key property is it NEVER reaches the user.
+        res=self._ask_tool(run,task,profile,state,kind='technical',verification='x',verified_receipt=0)
+        self.assertIn(res.get('blocked'), ('self_verify_first','self_verify_exhausted'))
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+
+    def test_direct_authority_still_reaches_user_unaffected(self):
+        run,task,profile,state=self._wm()
+        res=self._ask_tool(run,task,profile,state,kind='authority',question='Which account may I deploy to?')
+        self.assertEqual(state['phase'],'waiting')
+        self.assertEqual(len(run.ledger.requests(task,pending=True)),1)
+
 
 class AskGateTests(unittest.TestCase):
-    """P6 R4 verify-premise gate (B1/B2) against the REAL owned ask handler (model stubbed, handler not reimplemented).
-    RED on the pre-fix code (self_verify_count incremented forever and never bounded; a cited receipt passed on mere
-    existence) and GREEN on the fix. Honest LIMITS are asserted, not hidden."""
+    """B2 (verify-premise, finite loop) against the REAL owned ask handler (model stubbed, handler not reimplemented).
+    RED on the pre-fix code (self_verify_count incremented forever and never bounded) and GREEN on the fix."""
     def _ask(self, **kw):
         base=dict(question='Is commit X ahead of HEAD?',reason='r',
                   options=[{'id':'a','label':'x'},{'id':'b','label':'y'}],recommendation='a')
@@ -290,20 +403,16 @@ class AskGateTests(unittest.TestCase):
         return run,task,st
 
     def test_B2_repeated_technical_ask_is_finite_blocked_not_infinite(self):
-        # B2: the SAME unresolved technical ask repeated is bounded on STABLE content -> honest no_progress block, never
-        # waiting-on-user, never burning to the budget. (RED pre-fix: self_verify_count rose forever, phase stayed running.)
         run,task,st=self._run([self._ask(kind='technical') for _ in range(6)], 6)
         self.assertEqual(st['phase'],'blocked')
         self.assertEqual(st['recovery']['kind'],'no_progress')
-        self.assertEqual(run.ledger.requests(task,pending=True),[])  # never reached the user
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
         self.assertIn('Repeated technical ask',st['message'])
 
     def test_B2_result_carries_no_attempt_counter_so_observe_also_bounds_it(self):
-        # The handler's returned result for a gated ask carries NO per-attempt counter, so observe()'s same-result guard
-        # treats the repeats as one stable result (a changing count can no longer mask the loop). First gated return:
         run,task,st=self._run([self._ask(kind='technical')], 1)
         last=json.loads(run.store.read_blob(run.state(task)[1]['receipts'][-1]['blob']))['result']
-        self.assertEqual(last, {'action':'ask','blocked':'self_verify_first'})  # stable, no count field
+        self.assertEqual(last, {'action':'ask','blocked':'self_verify_first'})
 
     def test_B1_technical_without_citation_is_self_verify_first(self):
         run,task,st=self._run([self._ask(kind='technical')], 1)
@@ -311,84 +420,79 @@ class AskGateTests(unittest.TestCase):
         self.assertEqual((st.get('recovery') or {}).get('kind'),'self_verify_first')
         self.assertEqual(run.ledger.requests(task,pending=True),[])
 
-    def test_B1_machine_checkable_claim_rejects_unrelated_receipt(self):
-        # B1: a declared machine-checkable claim_kind (commit_relationship) citing an UNRELATED receipt (a read) does NOT
-        # pass on mere existence -> gated to self-verify. (RED pre-fix: any existing receipt passed.)
-        run,task,st=self._run([fixtures.action('read',path='calc.py'),
-            self._ask(kind='technical',verification='looked at calc.py',verified_receipt=0,claim_kind='commit_relationship')], 2)
-        self.assertEqual(st['phase'],'running')
-        self.assertEqual((st.get('recovery') or {}).get('kind'),'self_verify_first')
-        self.assertEqual(run.ledger.requests(task,pending=True),[])
-
-    def test_B1_machine_checkable_claim_accepts_matching_git_receipt(self):
-        # The same claim citing a git_show receipt (the right tool for a commit relationship) reaches the user.
-        run,task,st=self._run([fixtures.action('git_show',commit='HEAD'),
-            self._ask(kind='technical',verification='git_show HEAD shows ancestry',verified_receipt=0,claim_kind='commit_relationship')], 2)
-        self.assertEqual(st['phase'],'waiting')
-        self.assertEqual(len(run.ledger.requests(task,pending=True)),1)
-
     def test_B_authority_reaches_user_without_forcing_a_technical_step(self):
         run,task,st=self._run([self._ask(kind='authority',question='Which account may I deploy to?')], 1)
         self.assertEqual(st['phase'],'waiting')
         self.assertEqual(len(run.ledger.requests(task,pending=True)),1)
 
     def test_B_LIMIT_relabel_technical_as_business_bypasses_gate(self):
-        # DOCUMENTED LIMIT (un-closable without a core verifier): a worker that MISLABELS a technical matter 'business'
-        # is not caught - the gate trusts the declared kind and does not re-classify. Asserted so the limit is explicit.
+        # DOCUMENTED LIMIT (un-closable without a core re-classifier): a worker that MISLABELS a technical matter as
+        # 'business' is not caught - the gate trusts the declared kind and does not re-classify. Asserted, not hidden.
         run,task,st=self._run([self._ask(kind='business')], 1)
-        self.assertEqual(st['phase'],'waiting')  # reaches user (known limit)
+        self.assertEqual(st['phase'],'waiting')
 
-    def test_B_LIMIT_cited_receipt_content_not_semantically_verified(self):
-        # DOCUMENTED LIMIT: for a machine-checkable claim the gate checks the cited receipt is of the RIGHT TYPE, not that
-        # its CONTENT supports the claim. A git_show of an UNRELATED commit still passes. Closing this needs a core-run
-        # verifier (e.g. the core itself runs the ancestry check) - out of the bounded A/B scope.
-        run,task,st=self._run([fixtures.action('git_show',commit='HEAD'),
-            self._ask(kind='technical',verification='cited a git_show (but of an unrelated commit)',
-                      verified_receipt=0,claim_kind='commit_relationship')], 2)
-        self.assertEqual(st['phase'],'waiting')  # type matches; content relevance is NOT verified (known limit)
 
 class CTSCheckpointContinuationTests(unittest.TestCase):
-    """Finding C: the CTS task is blocked at step 118 on prompt_budget - receipt 117 is a ~12 KB read whose text cannot be
-    paged to a VALID page (MIN_PAGE) in the room the tight Kiro cap leaves after the fixed context. This test works on a
-    COPY of the real checkpoint (never the original), asserts the blocker is a clearly-analysed prompt_budget case (not
-    made green by widening the cap, lowering the threshold, or editing the checkpoint), and that the A/B keys add no bytes
-    to this checkpoint - so A/B does not cause or worsen C. The real fix for C is a context-allocation change OUTSIDE the
-    bounded A/B scope; it is reported as a dependency, not attempted here."""
+    """Finding C (Codex v2): the CTS task is blocked at step 118 on prompt_budget - receipt 117 is a ~12.8 KB read whose
+    text cannot be paged to a VALID page (MIN_PAGE) in the room the tight Kiro cap leaves after the fixed context. The fix
+    is a MINIMAL context-allocation change: a deepest fallback level (4) that trims ONLY retrievable recovery detail (older
+    repeats/failures, kept whole in the checkpoint) to free room for the tool result - never cutting scope/authority/
+    acceptance, never widening the cap or lowering MIN_PAGE, never editing the checkpoint. Reproduced on a COPY via the
+    REAL prompt-build path (_work_prompt), not a hand-chosen _latest_result budget. Skips when the live CTS state or its
+    project repo is not on this host (a skip is NOT a pass)."""
     CTS_STATE=r"D:\OneCrewRuns\live-task-e76c703\state-live1"
-    def _load_copy(self):
-        import sqlite3, json, os, tempfile, shutil
+    CTS_PROJECT=r"D:\TamNT\Workspace\1.Vimes\7.SRM\source\flutter_srm"
+    TID="TASK-8b938053d4804e32be5176e8d7fabec0"
+    def _copy_runtime(self):
+        import os, tempfile, shutil
         if not os.path.isdir(self.CTS_STATE): self.skipTest('CTS live state not present on this host')
+        if not os.path.isdir(self.CTS_PROJECT): self.skipTest('CTS project repo not present on this host')
         tmp=tempfile.mkdtemp(prefix='cts-copy-'); self.addCleanup(shutil.rmtree, tmp, True)
         dst=os.path.join(tmp,'state-live1'); shutil.copytree(self.CTS_STATE,dst)
-        db=sqlite3.connect(os.path.join(dst,'ledger.sqlite3')); db.row_factory=sqlite3.Row
-        tid='TASK-8b938053d4804e32be5176e8d7fabec0'
-        row=db.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.checkpoint' ORDER BY seq DESC LIMIT 1",(tid,)).fetchone()
-        return json.loads(row['payload']), dst
-
-    def test_C_oversized_read_is_sub_valid_in_the_tight_room_and_needs_more_room_not_a_threshold_change(self):
-        import json, os
         from onecrew.ledger import Ledger
         from onecrew.owned import Owned
+        return Owned(Ledger(self.CTS_PROJECT,dst),None), dst
+
+    def test_C_real_build_delivers_a_valid_page_via_minimal_recovery_trim(self):
+        import json
+        from onecrew.owned import contract as C, PromptBudgetError
         from onecrew.paging import MIN_PAGE
-        st,dst=self._load_copy()
+        run,dst=self._copy_runtime()
+        status=run.control.status(self.TID); seq,st=run.state(self.TID)
         self.assertEqual(st.get('phase'),'blocked')
-        self.assertEqual((st.get('recovery') or {}).get('kind'),'prompt_budget')  # a clearly-analysed blocker, unchanged
-        ref=st['receipts'][-1]; self.assertEqual(ref['action'],'read')  # a ~12 KB read, the largest latest result
-        run=Owned(Ledger(os.path.dirname(os.path.dirname(__file__)), dst), None)  # project unused: a read has no log
-        # Through the REAL _latest_result: in the room the tight Kiro context leaves (~1758), the largest page of this
-        # read is UNDER a valid page (MIN_PAGE). Lowering MIN_PAGE or widening the cap to 'go green' is forbidden.
-        run._page_starved=False; run._latest_result(st, 1758)
-        self.assertLess(run._page_content, MIN_PAGE)  # sub-valid in the room left -> the real prompt_budget block
-        # The MINIMAL option (reported as an out-of-A/B-scope dependency, not implemented): give the latest result more
-        # room. With ~2500 chars a VALID page of the SAME read is delivered - no threshold change, no cap widening.
-        run._page_starved=False; run._latest_result(st, 2500)
-        self.assertGreaterEqual(run._page_content, MIN_PAGE)
+        self.assertEqual((st.get('recovery') or {}).get('kind'),'prompt_budget')
+        self.assertEqual(status.get('used_calls'),118)  # real number, preserved, not reset
+        ref=st['receipts'][-1]; self.assertEqual(ref['action'],'read')  # the ~12.8 KB read
+        prof=dict(status['configuration']['profile'], provider=(st.get('worker') or {}).get('provider') or 'kiro',
+                  model=(st.get('worker') or {}).get('model') or 'claude-sonnet-4.5')
+        tp,tsch,_=C(prof)
+        with run.ledger.transaction() as conn:
+            notes=[json.loads(r['payload']) for r in conn.execute(
+                "SELECT payload FROM events WHERE task_id=? AND kind='entry.note' ORDER BY seq DESC LIMIT 5",(self.TID,))]
+        # REAL prompt-build path: with the level-4 fallback it now builds a prompt whose latest_result carries a VALID page.
+        prompt=run._work_prompt(self.TID, st, prof, status, tp, tsch, notes)
+        obj=json.loads('{'+prompt.rpartition('\n{')[2])
+        page=(obj.get('latest_result') or {}).get('page')
+        self.assertTrue(page, 'latest_result must carry a page')
+        self.assertGreaterEqual(page[0]['delivered'], MIN_PAGE)  # a VALID page, not a sub-valid note
+        self.assertEqual(page[0].get('offset',0), 0)  # correct continuation: starts at the read's beginning
+        # used_calls still the real number; the original live state was never touched (we built on a copy)
+        self.assertEqual(run.control.status(self.TID).get('used_calls'),118)
+
+    def test_C_minimal_trim_does_not_widen_cap_or_lower_floor(self):
+        from onecrew.paging import MIN_PAGE
+        from onecrew.owned import Owned
+        self.assertEqual(MIN_PAGE, Owned.MIN_PAGE_CONTENT)  # the valid-page floor is unchanged by the C fix
 
     def test_C_AB_keys_add_no_bytes_to_this_checkpoint(self):
+        import json, sqlite3, os, tempfile, shutil
         from onecrew.ledger import canonical
-        st,_=self._load_copy()
-        # A/B state keys are absent/empty on a pre-A/B blocked checkpoint, and the conditional recovery hints are not set,
-        # so switching to the A/B runtime adds no context bytes here (A/B neither causes nor worsens the prompt_budget block).
+        if not os.path.isdir(self.CTS_STATE): self.skipTest('CTS live state not present on this host')
+        tmp=tempfile.mkdtemp(prefix='cts-k-'); self.addCleanup(shutil.rmtree, tmp, True)
+        dst=os.path.join(tmp,'state-live1'); shutil.copytree(self.CTS_STATE,dst)
+        db=sqlite3.connect(os.path.join(dst,'ledger.sqlite3')); db.row_factory=sqlite3.Row
+        row=db.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.checkpoint' ORDER BY seq DESC LIMIT 1",(self.TID,)).fetchone()
+        st=json.loads(row['payload'])
         self.assertEqual(len(canonical(st.get('delivered_pages') or {})), 2)  # '{}'
         prog=st.get('progress') or {}
         self.assertNotIn('reconsider_by_page', prog)

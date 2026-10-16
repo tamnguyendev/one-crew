@@ -155,7 +155,8 @@ def observe(state, action, args, result):
             or (action == 'search' and search_advanced))
         # Mechanism A (progress-reconciliation, delivery-based). A1/A2 fix: the signal that a receipt is a RE-READ is that the
         # worker RE-SELECTED a page whose content was ALREADY DELIVERED into a prior prompt (state['delivered_pages'], written
-        # by owned._record_delivered at RENDER time, never from a request or an undelivered/does-not-fit page). We do NOT look
+        # by owned.run ONLY after the model answered the prompt that carried it - the adapter's send-evidence - never from a
+        # request, a trial/measurement build, or an undelivered/does-not-fit page (A1, Codex v2)). We do NOT look
         # at the plan at all: a reworded plan is not progress and cannot re-grant recovery (the A2 reset bug). Re-selecting an
         # already-delivered page raises a bounded 'reconsider' recovery so the worker RE-DECIDES (we never perform the
         # continuation for it); a valid re-read is allowed up to the bound, then the loop is stopped as an honest blocker. The

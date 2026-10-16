@@ -599,18 +599,38 @@ class Owned(Workflow):
                 receipts=state.get('receipts') or []
                 has_cite=isinstance(cited,int) and 0<=cited<len(receipts)
                 cited_action=receipts[cited].get('action') if has_cite else None
-                # type-relevance: only enforced when the worker declares a machine-checkable claim_kind
-                type_ok=True
-                if claim_kind in CHECKABLE:
+                from .progress import POLICY as _POLICY, content_hash as _ch
+                p=state.setdefault('progress',{'policy':dict(_POLICY),'observations':0,'writes':0,
+                    'failed_tests':0,'review_rejections':0,'results':{}})
+                p.setdefault('policy',dict(_POLICY))
+                # B1 (Codex v2): the technical-verification obligation is STICKY per obligation. Once a worker declares
+                # claim_kind=commit_relationship for THIS question, re-asking the SAME obligation with claim_kind dropped or
+                # relabeled does NOT drop the commit-relationship check: the first declared machine-checkable kind is kept and
+                # re-applied. (The obligation is the stable question+options+recommendation, so only genuinely re-asking the
+                # same thing re-applies it; a different question is its own obligation.)
+                obligation=_ch({'q':args.get('question'),'opts':args.get('options'),'rec':args.get('recommendation')})
+                sticky=p.setdefault('obligation_claim_kind',{})
+                if claim_kind in CHECKABLE: sticky.setdefault(obligation,claim_kind)
+                if sticky.get(obligation) and claim_kind not in CHECKABLE: claim_kind=sticky[obligation]
+                if len(sticky)>200:
+                    for k in list(sticky)[:-200]: sticky.pop(k,None)
+                # Relevance when the worker declares a machine-checkable claim_kind. B1 (Codex v2): a commit_relationship is
+                # verified AS A CLAIM, not merely by citing a git-type receipt - the core resolves the two refs the worker
+                # names and runs the matching Git relation check in the PINNED repo (read-only). A bare `git_show HEAD`, an
+                # unrelated receipt, an errored tool, or a relation that does not actually hold all FAIL. The other kinds keep
+                # the type-match floor (the honest limit that type!=semantic content stays, asserted in tests). No SHAs,
+                # keywords or answers are hard-coded; the refs come from the worker and the objects from the real repo.
+                type_ok=True; claim_detail=None
+                if claim_kind=='commit_relationship':
+                    type_ok=cited_action in CHECKABLE['commit_relationship']
+                    ok,claim_detail=self._verify_commit_relationship(profile,args)
+                    type_ok=type_ok and ok
+                elif claim_kind in CHECKABLE:
                     type_ok = cited_action in CHECKABLE[claim_kind]
                 verified_ok = isinstance(verification,str) and bool(verification.strip()) and has_cite and type_ok
                 if not verified_ok:
-                    from .progress import POLICY as _POLICY, content_hash as _ch
-                    p=state.setdefault('progress',{'policy':dict(_POLICY),'observations':0,'writes':0,
-                        'failed_tests':0,'review_rejections':0,'results':{}})
-                    p.setdefault('policy',dict(_POLICY))
-                    # B2 stable obligation key: the question the worker keeps asking, independent of any counter/plan wording.
-                    obligation=_ch({'q':args.get('question'),'opts':args.get('options'),'rec':args.get('recommendation')})
+                    # B2 stable obligation key (computed above): the question the worker keeps asking, independent of any
+                    # counter/plan wording.
                     sv=p.setdefault('self_verify',{})
                     sv[obligation]=sv.get(obligation,0)+1
                     if len(sv)>200:
@@ -618,8 +638,11 @@ class Owned(Workflow):
                     limit=p['policy'].get('self_verify_limit',2)
                     why=('cite a verified_receipt that EXISTS' if not has_cite else
                          ('give non-empty verification text' if not (isinstance(verification,str) and verification.strip()) else
-                          'cite a receipt of the right tool for this claim_kind (e.g. git_log/git_show for a commit relationship), '
-                          'not an unrelated one'))
+                          ('for a commit_relationship, name claim_refs:[A,B] and claim_relation (ancestor|descendant|equal|'
+                           'disjoint) that the repository actually satisfies - '+(claim_detail or 'the stated relation does not hold')
+                           if claim_kind=='commit_relationship' else
+                           'cite a receipt of the right tool for this claim_kind (e.g. git_log/git_show for a commit relationship), '
+                           'not an unrelated one')))
                     if sv[obligation]>=limit:
                         # Exhausted self-verify on the SAME unresolved technical ask -> honest finite block, not another nudge
                         # and never the user. (If it is really an authority/business/UI choice, the worker sets kind and it
@@ -707,7 +730,10 @@ class Owned(Workflow):
                           # field values; page entries, notes and receipt numbers do not count), or all of what is left of it.
                           # P6: the paginator owes the same number (paging.MIN_PAGE), so a page that is not final meets it
     LEVELS=((36000,100,0),(21600,60,0),(12960,36,0),(7776,21,0),(4665,12,0),(2799,8,0),(1679,8,0),(1200,8,0),
-            (1200,8,1),(0,1,1),(0,1,2),(0,1,3))  # (evidence limit, manifest entries, contract level): richest to most compact
+            (1200,8,1),(0,1,1),(0,1,2),(0,1,3),(0,1,4))  # (evidence limit, manifest entries, contract level): richest to most compact
+    # Finding C (Codex v2): level 4 is the LAST fallback used only when even level 3 cannot leave a valid page for the latest
+    # result (a single oversized read under a tight provider cap). It trims ONLY retrievable recovery detail (older repeats/
+    # failures, kept whole in the checkpoint) to free room for the tool result - it never cuts scope/authority/acceptance.
 
     def _cap(self,profile,strictest=False):
         """The provider's prompt cap; strictest: the smallest cap of the job's sealed provider chain (a fallback to Kiro must
@@ -742,6 +768,7 @@ class Owned(Workflow):
         (14/10/2026): the old order cut the page first, to ~600 characters, and 7 results reached the worker with 0 characters
         of the file before the job was blocked."""
         reserve=self.RESULT_RESERVE
+        self._prompt_delivery=None  # A1: the delivery the RETURNED (sent) prompt carries; committed only after _invoke
         strict,provider=self._cap(profile,strictest=True)
         if not state.get('receipts') and strict is not None:
             strict_room=strict-len(canonical(schema))-40
@@ -777,13 +804,15 @@ class Owned(Workflow):
             if left>=target:  # whole when it is at most PAGE_TARGET, else a page of PAGE_TARGET
                 self._page_starved=False
                 prompt=build(limit,manifest,left,level)
-                if len(prompt)<=room and valid(): return prompt
+                if len(prompt)<=room and valid():
+                    self._prompt_delivery=self._delivered_candidate; return prompt
         left,limit,manifest,level=best
         latest=state['receipts'][-1]
         if left>0:
             self._page_starved=False
             prompt=build(limit,manifest,left,level)
-            if len(prompt)<=room and valid(): return prompt
+            if len(prompt)<=room and valid():
+                self._prompt_delivery=self._delivered_candidate; return prompt
         why=('the rest of the prompt alone exceeds the room' if left<=0 else
              f'no valid page fits in the {left} characters left: {self._starved_reason}' if self._page_starved else
              f'its largest page would deliver {self._page_content} characters of it in the {left} left; a valid page delivers {want}')
@@ -892,7 +921,7 @@ class Owned(Workflow):
                 'remaining_calls':control['budget']['limits']['max_calls']-control['used_calls']-control['reserved_calls'],
                 'branches':[{'name':b['name'],'status':b['receipt'].get('status')} for b in work.get('branches',[])],
                 'background_processes':self._processes_view(work.get('processes',{}),level),
-                'recovery':self._recovery(state,control,compact=level>=1 or (page is not None and page<4000)),
+                'recovery':self._recovery(state,control,compact=level>=1 or (page is not None and page<4000),tighter=level>=4),
                 'evidence':packet(self,state,worker=True,limit=limit,manifest_size=manifest,compact=level>=2),
                 'latest_result':self._latest_result(state,page,task_id) if page is not None else None,
                 'latest_review_feedback':[{'accepted':x['accepted'],'feedback':self._feedback_view(state,x['feedback'][:3000],level)}
@@ -963,7 +992,7 @@ class Owned(Workflow):
         text=value if isinstance(value,str) else canonical(value)
         return {'section':section,'index':index,'chars':len(text),'text':text}
 
-    def _recovery(self,state,control,compact=False):
+    def _recovery(self,state,control,compact=False,tighter=False):
         """compact: under a tight provider cap (_fit is down to small pages) the section keeps only the essentials, so it never
         pushes a job onto the prompt-cap block by itself."""
         value=self._recovery_full(state,control)
@@ -976,8 +1005,10 @@ class Owned(Workflow):
         # its plan. Keep it even under the tight cap (it is small and it is exactly what the worker must act on).
         if reconsider: value=dict(value,reconsider=reconsider)
         if not compact and len(canonical(value))<=3000: return value
-        value=dict(value,repeats=value['repeats'][-2:],recent_failures=[dict(f,error=f['error'][:120]) for f in value['recent_failures'][-2:]],
-                   note='From the checkpoint; counters are never reset by a resume. Act differently on blocked_before.')
+        keep=1 if tighter else 2; errlen=60 if tighter else 120
+        value=dict(value,repeats=value['repeats'][-keep:],recent_failures=[dict(f,error=f['error'][:errlen]) for f in value['recent_failures'][-keep:]],
+                   note=('Trimmed to free room for the tool result; full history is in the checkpoint, counters never reset by a resume. Act differently on blocked_before.'
+                         if tighter else 'From the checkpoint; counters are never reset by a resume. Act differently on blocked_before.'))
         if value.get('blocked_before'):
             value['blocked_before']={k:(str(v)[:200] if k=='reason' else v) for k,v in value['blocked_before'].items() if k!='blocker_report'}
         value['core_verification']={k:v for k,v in value['core_verification'].items() if k!='commands'}
@@ -1043,30 +1074,72 @@ class Owned(Workflow):
         return {'count':len(changes),'paths':[c['status']+' '+c['path'] for c in changes[:limit]],
                 'note':'changed against the pinned commit (A added, M modified, D deleted); every other file is as pinned'}
 
-    def _record_delivered(self,state,ref,shown,value,pages):
+    def _verify_commit_relationship(self,profile,args):
+        """B1 (Codex v2): verify a worker's commit_relationship CLAIM against the real objects, not merely the cited tool type.
+        The worker names two refs (claim_refs:[A,B]) and the relation it asserts (claim_relation in ancestor|descendant|equal|
+        disjoint). The core resolves both refs to concrete commits in the PINNED repository (read-only) and runs the matching
+        Git check (merge-base --is-ancestor), then compares to the asserted relation. Returns (ok, detail). It hard-codes no
+        SHA, keyword or answer; the refs are the worker's and the objects are the repository's. Anything it cannot resolve or
+        that does not actually hold -> (False, why), so the ask does not reach the user on an unverified premise. A relation
+        it does not recognise is NOT auto-accepted (the floor stays type-match for unknown relations)."""
+        refs=args.get('claim_refs'); relation=args.get('claim_relation')
+        if not (isinstance(refs,(list,tuple)) and len(refs)==2 and all(isinstance(r,str) and r.strip() for r in refs)):
+            return (False,'name exactly two refs in claim_refs:[A,B]')
+        if relation not in ('ancestor','descendant','equal','disjoint'):
+            return (False,'name claim_relation as ancestor, descendant, equal or disjoint')
+        try:
+            from .work_tools import project_repo
+            from .work_contract import git
+            repo=project_repo(self,profile['contract'])
+        except (LedgerError,OSError,ValueError,KeyError) as e:
+            return (False,'the pinned repository is unavailable to check the claim')
+        def resolve(ref):
+            out=git(repo,'rev-parse','--verify','--end-of-options',ref+'^{commit}',allow_failure=True)
+            return out.decode().strip() if out else None
+        try:
+            a=resolve(refs[0]); b=resolve(refs[1])
+        except (LedgerError,OSError,ValueError) as e:
+            return (False,'could not resolve the named refs in the repository')
+        if not a or not b:
+            return (False,'one of claim_refs does not resolve to a commit in the pinned repository')
+        def is_ancestor(x,y):
+            return git(repo,'merge-base','--is-ancestor',x,y,allow_failure=True) is not None
+        try:
+            if a==b: actual='equal'
+            elif is_ancestor(a,b): actual='ancestor'      # A is an ancestor of B
+            elif is_ancestor(b,a): actual='descendant'    # A is a descendant of B (B is ancestor of A)
+            else: actual='disjoint'
+        except (LedgerError,OSError,ValueError):
+            return (False,'the relation check could not be run on the named refs')
+        if actual!=relation:
+            return (False,'the refs are actually '+actual+', not '+relation)
+        return (True,'verified '+relation+' in the pinned repository')
+
+    def _delivery_descriptor(self,state,ref,shown,value,pages):
         """A1 (delivery-state): record what was ACTUALLY rendered into this prompt's latest_result, keyed by the SOURCE page
         (the receipt a lookup shows, else the receipt itself, with the field/offset asked for). We store the real delivered
         range and the continuation, tied to the step it was delivered at. Called ONLY from a successful render (a page that
         fit); a does_not_fit return records NOTHING, so a built-but-undelivered page never becomes 'served'. Idempotent:
         re-rendering the same page (restart/retry/smaller re-page) overwrites the same key with the final delivered range,
         so the stored value equals what the sent prompt carried. Lives in `state` -> survives checkpoint/resume."""
-        if ref.get('action')!='receipt': return  # only a receipt lookup is a worker-chosen page we gate re-selection of
+        # PURE: build the delivery descriptor for a successfully RENDERED receipt page and RETURN it; mutate NOTHING.
+        # A1 (Codex v2): measurement / trial-build / page-selection re-render the latest result many times (e.g. _fit_work
+        # measures the whole size with a 10**8 budget, and the LEVELS search re-renders at each candidate budget). None of
+        # those sends anything to the model, and a build that then raises PromptBudgetError sends nothing at all. So this
+        # must never write state; the run loop commits the descriptor ONLY after _invoke returns a response for the FINAL
+        # prompt (the adapter's send-evidence), keyed to that attempt. A does_not_fit render returns None (not delivered).
+        if ref.get('action')!='receipt': return None  # only a receipt lookup is a worker-chosen page we gate re-selection of
         # The worker's REQUEST args live in the stored receipt record (ref carries only metadata). Key off exactly those
-        # (index/field/offset/item_offset) so observe(), which keys off the same request args, hashes identically. The whole
-        # record is small and already on disk; reading it here is the authoritative source of what the worker asked for.
+        # (index/field/offset/item_offset) so observe(), which keys off the same request args, hashes identically.
         try: rec=json.loads(self.store.read_blob(ref['blob']))
-        except (ValueError,OSError,KeyError): return
+        except (ValueError,OSError,KeyError): return None
         args=rec.get('arguments') or {}
         pagekey=content_hash({'index':args.get('index'),'field':args.get('field'),'offset':args.get('offset') or 0,
                               'item_offset':args.get('item_offset') or 0})
-        # the real delivered range + continuation from the rendered page entries (empty when the whole result fit)
         rng=[{'field':p.get('field'),'offset':p.get('offset'),'delivered':p.get('delivered'),
               'eof':p.get('eof'),'next':p.get('next')} for p in (pages or [])]
-        delivered=state.setdefault('delivered_pages',{})
-        delivered[pagekey]={'source_receipt':shown,'range':rng,'whole':not pages,'step':state.get('step'),
-                            'content':self._content(value,pages)}
-        if len(delivered)>200:
-            for k in list(delivered)[:-200]: delivered.pop(k,None)
+        return (pagekey,{'source_receipt':shown,'range':rng,'whole':not pages,
+                         'content':self._content(value,pages)})
 
     def _latest_result(self,state,budget,task_id=None):
         """The outcome of the worker's last action, always shown, as one page of it within `budget` characters (P4-B: the
@@ -1074,6 +1147,7 @@ class Owned(Workflow):
         bounded packet under Kiro's cap never showed it; Codex deep review P3: the record's JSON text was cut, and its
         next_cursor claimed the end of a file the model had seen a quarter of."""
         if not state.get('receipts'): return None
+        self._delivered_candidate=None  # A1: a render that does not fit delivers nothing; candidate stays cleared
         from .paging import view
         ref=state['receipts'][-1]
         inner,shown,field,offset,item_offset=self._receipt_source(state,ref)
@@ -1096,7 +1170,7 @@ class Owned(Workflow):
                     value=dict(value,**extra)
                     if len(canonical(value))<=budget:
                         self._latest_chars=len(canonical(value));self._page_content=self._content(value,pages)
-                        self._record_delivered(state,ref,shown,value,pages)
+                        self._delivered_candidate=self._delivery_descriptor(state,ref,shown,value,pages)
                         return value
             except (LedgerError,TypeError,KeyError,ValueError,OSError): pass
         size=budget
@@ -1125,7 +1199,7 @@ class Owned(Workflow):
             if len(canonical(value))<=budget:
                 self._latest_chars=len(canonical(value))  # P5: what the latest result really uses of the prompt
                 self._page_content=self._content(value,pages)
-                self._record_delivered(state,ref,shown,value,pages)
+                self._delivered_candidate=self._delivery_descriptor(state,ref,shown,value,pages)
                 return value
             size=int(size*.85)
         self._page_starved=True;self._starved_reason='its smallest page does not fit '+str(budget)+' characters'
@@ -1476,10 +1550,21 @@ class Owned(Workflow):
                         if state.get('context_prompt'):
                             prompt=self.store.read_blob(state['context_prompt']).decode()
                         else:
+                            # A1: bind the delivery to THIS prompt+step. Persisted with context_prompt so a resume before the
+                            # response arrives keeps the SAME binding; committed to delivered_pages only when the response lands.
+                            d=getattr(self,'_prompt_delivery',None)
+                            state['pending_delivery']=({'key':d[0],'desc':dict(d[1],step=state.get('step'))}
+                                                       if isinstance(d,tuple) and len(d)==2 else None)
                             state['context_prompt']=self.store.blob(prompt.encode());seq=self.persist(task_id,seq,state)
                         seq,value=self._invoke(task_id,seq,state,'owned',prompt,tool_schema,profile)
                         if not isinstance(value,dict) or set(value)!=set(SCHEMA['required']): raise LedgerError('Invalid response object.')
                         if not isinstance(value['plan'],str) or len(value['plan'])>5000: raise LedgerError('Plan must be <=5000 characters.')
+                        pend=state.pop('pending_delivery',None)  # A1: the model answered -> this prompt WAS sent -> delivery confirmed
+                        if pend and pend.get('key'):
+                            delivered=state.setdefault('delivered_pages',{})
+                            delivered[pend['key']]=pend['desc']  # idempotent: re-render/retry of the same page overwrites the same key
+                            if len(delivered)>200:
+                                for k in list(delivered)[:-200]: delivered.pop(k,None)
                         state['response']=value;state['context_prompt']=None;seq=self.persist(task_id,seq,state)
                     value=state['response'];self._accept_plan(state,value['plan'])
                     if profile['mode']=='work' and value['action']=='finish' and not state.get('review'):
