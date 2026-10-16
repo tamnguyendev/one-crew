@@ -336,6 +336,34 @@ def _candidate(state):
     return ((state.get('work') or {}).get('verification') or {}).get('candidate')
 
 
+def _unrecorded(state, store, texts, why, kind):
+    """R4: a reviewer response that could NOT be fully recorded (its findings over MAX_TRACKED, or a text over MAX_TEXT) must not
+    vanish behind a raised exception. One durable OPEN finding is appended to the register, of source `kind`, so acceptance stays
+    blocked (open_findings gates the finish) across restart until a reviewer resolves it with evidence. It keeps a reference to the
+    original evidence: the whole text in the blob store when it can be held whole, else the heads and the character counts. It is
+    deduplicated by the normalized content it refers to, so the same overflow reported again is ONE block, not a growing pile, and
+    it never raises the bound or closes anything. Returns the finding's id (an existing one when deduplicated)."""
+    joined = '\n\n'.join(str(t) for t in texts)
+    norm = _sha(_norm(joined) + '|unrecorded|' + kind)
+    register = state.setdefault('review_register', {'next': 1, 'notes_next': 1, 'review': 1, 'findings': [], 'notes': []})
+    for f in register['findings']:
+        if f.get('status') == 'open' and f.get('norm') == norm:
+            return f['id']  # the same unrecorded response, already blocking: one block, not many
+    blob = None
+    if store is not None and len(joined) <= MAX_TEXT:
+        try: blob = store.blob(joined.encode('utf-8', 'surrogatepass'))
+        except (OSError, LedgerError): blob = None
+    number = register['next']; register['next'] = number + 1
+    entry = {'id': f'RF{number}', 'status': 'open', 'review': register['review'], 'round': state.get('review_evidence_rounds', 0),
+             'candidate': _candidate(state), 'receipts_at': len(state.get('receipts') or []), 'chars': len(joined),
+             'head': _safe((why + ' ' + joined)[:HEAD]), 'norm': norm,
+             'source': {'round': state.get('review_evidence_rounds', 0), 'receipt': None, 'kind': kind,
+                        'pages': list(state.get('review_requests') or [])}}
+    entry.update({'blob': blob} if blob is not None else {'text': _safe(joined[:MAX_TEXT])})
+    register['findings'].append(entry)
+    return entry['id']
+
+
 def record_round(state, review, *, shown, round_no, store=None, listed=None, close=True):
     """Put what the reviewer reported in one round into the job's register in the checkpoint, BEFORE anything is decided from the
     answer. `shown`: the receipts that round's prompt carried (a finding is closed only by evidence the reviewer was given in this
@@ -383,20 +411,37 @@ def record_round(state, review, *, shown, round_no, store=None, listed=None, clo
         norm = _sha(_norm(claim))  # the whole claim: two findings that share a prefix are two findings
         if norm in known: continue  # the same defect reported again: one finding
         known.add(norm); new.append((text, receipt, norm))
-    tracked = sum(1 for f in findings if f['status'] == 'open') - len(taken) + len(new)
+    # R4: the durable 'unrecorded_*' blocks a prior overflow left are meta-blocks, not reviewer findings; they must not count
+    # toward the bound, or a register that is exactly full could never take the legitimate replacement of a closed finding.
+    def _is_sentinel(f): return str((f.get('source') or {}).get('kind') or '').startswith('unrecorded')
+    open_real = sum(1 for f in findings if f['status'] == 'open' and not _is_sentinel(f))
+    tracked = open_real - len(taken) + len(new)
     if tracked > MAX_TRACKED or len(findings) + len(new) > 4 * MAX_TRACKED:
         where = ''
         if store is not None and new:
             try: where = f' Its findings are kept whole in blob {_put(store, canonical([t for t, _, _ in new]), "the findings of this answer")}.'
             except ReviewEvidenceIncomplete: pass
+        # R4: the response cannot be fully recorded, but it must not be forgotten - a durable OPEN finding keeps a reference to it
+        # and blocks acceptance across restart until a reviewer resolves it; none of the reported findings themselves is recorded.
+        _unrecorded(state, store, [t for t, _, _ in new],
+                    f'A reviewer response reporting {len(new)} new finding(s) could not be recorded: the job tracks at most {MAX_TRACKED} '
+                    'open findings. It stays blocked until this is resolved with evidence.', 'unrecorded_overflow')
         raise ReviewEvidenceIncomplete(f'The reviewer reported {len(new)} new finding(s) and the job already has '
-                                       f'{sum(1 for f in findings if f["status"] == "open")} open; one job tracks at most {MAX_TRACKED} open '
+                                       f'{open_real} open; one job tracks at most {MAX_TRACKED} open '
                                        'findings, so none of this answer was recorded and nothing was accepted.' + where)
-    # every text goes to the blob store first: a failure leaves the register exactly as it was
+    # every text goes to the blob store first: a failure leaves the register exactly as it was. R4: a text too long to be held
+    # whole (over MAX_TEXT) is still a response that cannot be recorded - a durable OPEN finding keeps its head and length and
+    # blocks acceptance across restart, then the overflow is raised so the job is blocked, nothing accepted.
     stored = {}
     if store is not None:
-        for _, _, how in closing: stored[('how', how)] = _put(store, how, 'a closing reason')
-        for text, _, _ in new: stored[('claim', text)] = _put(store, text, 'a finding')
+        try:
+            for _, _, how in closing: stored[('how', how)] = _put(store, how, 'a closing reason')
+            for text, _, _ in new: stored[('claim', text)] = _put(store, text, 'a finding')
+        except ReviewEvidenceIncomplete as overflow:
+            _unrecorded(state, store, [t for t, _, _ in new] + [how for _, _, how in closing],
+                        'A reviewer response could not be recorded whole: ' + str(overflow)[:200] +
+                        ' It stays blocked until this is resolved with evidence.', 'unrecorded_length')
+            raise
     def keep(text, blob):
         return {'blob': blob} if blob is not None else {'text': _safe(text)}
     register = state.setdefault('review_register', {'next': 1, 'notes_next': 1, 'review': 1, 'findings': [], 'notes': []})
@@ -429,13 +474,20 @@ def record_rejection(state, review, *, round_no, store=None):
     of an unchanged candidate cannot forget it. Returns the new id, or None."""
     text = review.get('feedback')
     if review.get('accepted') or review.get('core') or not isinstance(text, str) or not text.strip(): return None
-    if open_findings(state): return None
+    # R5: a rejection in WORDS ONLY (the reviewer named no defect in `findings`) that names an INDEPENDENT defect must bind even
+    # when another finding is already open - it is its own open finding, not dropped because something else is open. When the
+    # reviewer DID name findings this round, record_round already registered them and this feedback is their summary, not a new
+    # defect, so it is not recorded again. The same feedback repeated is deduplicated by its whole normalized content, so the
+    # register never grows a duplicate; a core-generated message (review.get('core')) is never a reviewer finding (guarded above).
+    if _texts(review.get('findings')): return None  # the reviewer named defects; record_round owns them, the feedback summarizes
+    norm = _sha(_norm(text))
+    if any(f.get('status') == 'open' and f.get('norm') == norm for f in open_findings(state)): return None
     blob = _put(store, text, 'the rejection') if store is not None else None
     register = state.setdefault('review_register', {'next': 1, 'notes_next': 1, 'review': 1, 'findings': [], 'notes': []})
     number = register['next']; register['next'] = number + 1
     entry = {'id': f'RF{number}', 'status': 'open', 'review': register['review'], 'round': round_no, 'candidate': _candidate(state),
              'receipts_at': len(state.get('receipts') or []), 'chars': len(text), 'head': _safe(text[:HEAD]),
-             'norm': _sha(_norm(text)), 'source': {'round': round_no, 'receipt': None, 'kind': 'feedback',
+             'norm': norm, 'source': {'round': round_no, 'receipt': None, 'kind': 'feedback',
                                                     'pages': list(state.get('review_requests') or [])}}
     entry.update({'blob': blob} if blob is not None else {'text': _safe(text)})
     register['findings'].append(entry)

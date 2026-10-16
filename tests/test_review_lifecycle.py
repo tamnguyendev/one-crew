@@ -564,7 +564,12 @@ class FindingCapacityTests(LifecycleBase):
             state = self.drive(worker, task)
         self.assertEqual((state['phase'], (state.get('recovery') or {}).get('kind')), ('blocked', 'review_evidence'), str(state.get('message')))
         self.assertIn('nothing was accepted', state['message'])
-        self.assertEqual(self.register(worker.runtime, task)['findings'], [], 'no part of that answer was recorded')
+        # R4: the response cannot be fully recorded, so NONE of the reviewer's reported findings is recorded as its own finding -
+        # but the response is not forgotten: exactly one durable 'unrecorded' block is kept (open, with the evidence blob) so a
+        # resume cannot accept over it. Nothing of what the reviewer reported was accepted or resolved.
+        recorded = self.register(worker.runtime, task)['findings']
+        self.assertEqual([(f['status'], f['source'].get('kind')) for f in recorded], [('open', 'unrecorded_overflow')],
+                         'only the durable unrecorded-findings block is recorded, not the 8 reported findings')
         self.assertFalse([r for r in state.get('reviews') or [] if r.get('accepted')])
         self.assertEqual(len(worker.review_log), 2, 'a reviewer call for the file and one for its answer; the worker was not called for it')
 
@@ -616,6 +621,138 @@ class FindingDefenceTests(LifecycleBase):
         self.assertEqual(len(worker.review_log), before, 'no reviewer call: the stored acceptance was the one used')
         error = self.result_of(worker.runtime, self.finishes(state)[1])['error']
         self.assertIn('completion refused', error); self.assertIn('RF1', error)
+
+
+class R4ResumeUnrecordedTests(LifecycleBase):
+    """R4 (Codex 2026-10-15): a response that could not be fully recorded (count over MAX_TRACKED, or a text over MAX_TEXT) raised
+    ReviewEvidenceIncomplete and blocked the job, but left NO durable finding in the register. A resume started the review afresh
+    with an empty register, so a later generic acceptance completed the job over the findings that were never recorded. The fix is a
+    durable blocking finding that keeps a reference to the original evidence blob, survives the reload, and leaves 'open' only through
+    a valid resolution. It must NOT be fixed by raising the limit or auto-closing anything, and a valid path must still finish."""
+
+    def _block_over_capacity(self, worker, task):
+        """Drive the over-capacity report so the response cannot be fully recorded, and assert the block + the durable finding."""
+        with patch.object(review_evidence, 'MAX_TRACKED', 5, create=True), patch.object(review_evidence, 'MAX_FINDINGS', 5, create=True):
+            state = self.drive(worker, task)
+        self.assertEqual((state['phase'], (state.get('recovery') or {}).get('kind')), ('blocked', 'review_evidence'),
+                         str(state.get('message')))
+        self.assertIn('nothing was accepted', state['message'])
+        found = self.register(worker.runtime, task)['findings']
+        self.assertTrue(found, 'RED-R4: the over-capacity response left no durable finding in the register')
+        self.assertEqual([f['status'] for f in found], ['open'])
+        self.assertTrue(all(f.get('blob') for f in found), 'the unrecorded evidence is kept whole in the blob store')
+        return found
+
+    def test_an_over_capacity_response_blocks_and_a_resumed_stored_acceptance_cannot_complete(self):
+        # the over-capacity response blocks and leaves a durable open finding. A later runner reloads the checkpoint and reaches a
+        # stored acceptance (a review answered before the restart, a record from an older runtime) with that finding still open.
+        # On the baseline the register was empty after the block, so the acceptance completed the job; the durable block refuses it.
+        reviewer = Reviewer({'kind': 'report', 'count': 8, 'size': 0})
+        worker, task = self.start(self.candidate_script(finishes=2), reviewer)
+        self._block_over_capacity(worker, task)
+        durable_id = self.register(worker.runtime, task)['findings'][0]['id']
+        worker.runtime = Owned(self.ledger, worker)  # restart: the block comes from the checkpoint
+        self.assertEqual([f['status'] for f in self.register(worker.runtime, task)['findings']], ['open'], 'the block survived the reload')
+        # on resume the reviewer only accepts, closing nothing: the 'generic accept' R4 is about. It must not complete.
+        reviewer.verdicts = [{'kind': 'accept'}]; reviewer.finished = 0; reviewer.calls = 0; reviewer.sweep = 0
+        state = self.drive(worker, task, until=lambda s: len(self.finishes(s)) >= 2)
+        self.assertNotEqual(state['phase'], 'completed',
+                            f'RED-R4: a resume + generic accept completed over the unrecorded-findings block ({state.get("message")})')
+        reg = self.register(worker.runtime, task)['findings']
+        durable = next(f for f in reg if f['id'] == durable_id)
+        self.assertEqual(durable['status'], 'open', 'the durable unrecorded-findings block is still open across the restart')
+        self.assertFalse(any(f['status'] == 'resolved' for f in reg), 'the generic accept resolved nothing')
+
+    def test_a_text_too_long_to_record_also_leaves_a_durable_block_that_survives_a_restart(self):
+        # the length-overflow sibling: a finding over MAX_TEXT cannot be stored whole, so the response cannot be recorded. The same
+        # durable open finding must appear and survive a reload (the fix applies to both 'cannot fully record' paths).
+        reviewer = Reviewer({'kind': 'report', 'count': 1, 'size': 600})
+        worker, task = self.start(self.candidate_script(finishes=2), reviewer)
+        with patch.object(review_evidence, 'MAX_TEXT', 400):
+            state = self.drive(worker, task)
+        self.assertEqual((state['phase'], (state.get('recovery') or {}).get('kind')), ('blocked', 'review_evidence'),
+                         str(state.get('message')))
+        found = self.register(worker.runtime, task)['findings']
+        self.assertTrue(found, 'RED-R4: the length-overflow response left no durable finding')
+        self.assertEqual([f['status'] for f in found], ['open'])
+        self.assertEqual(found[0]['source'].get('kind'), 'unrecorded_length', 'recorded as the length-overflow block')
+        self.assertGreaterEqual(found[0]['chars'], 600, 'it keeps the length of the evidence it could not hold whole')
+        self.assertFalse(found[0].get('blob'), 'the over-long text could not be stored whole; the block keeps its head and length')
+        worker.runtime = Owned(self.ledger, worker)  # restart: the block survives
+        self.assertEqual([f['status'] for f in self.register(worker.runtime, task)['findings']], ['open'])
+
+    def test_control_a_valid_path_after_the_block_still_completes_with_no_permanent_artifact(self):
+        # the over-capacity response blocks and leaves one durable finding; after the block the reviewer reads the file and closes
+        # it with evidence. The block is NOT permanent: a valid resolution still finishes, and no finding is left open.
+        reviewer = Reviewer({'kind': 'report', 'count': 8, 'size': 0})
+        worker, task = self.start(self.candidate_script(finishes=3), reviewer)
+        self._block_over_capacity(worker, task)
+        worker.runtime = Owned(self.ledger, worker)  # resume with the real limit back: the reviewer closes the durable finding
+        seq, stored = worker.runtime.state(task)
+        stored['phase'] = 'running'; stored.pop('recovery', None); stored['review'] = None; stored['review_prompt'] = None
+        worker.runtime.persist(task, seq, stored)
+        reviewer.verdicts = [{'kind': 'close', 'cite': 0}]; reviewer.finished = 0; reviewer.calls = 0; reviewer.sweep = 0
+        state = self.drive(worker, task, until=lambda s: s['phase'] == 'completed', steps=500)
+        self.assertEqual(state['phase'], 'completed', f'the valid path after the block did not finish ({state.get("message")})')
+        findings = self.register(worker.runtime, task)['findings']
+        self.assertTrue(findings, 'premise: the durable finding was there to close')
+        self.assertEqual({f['status'] for f in findings}, {'resolved'}, 'the durable block is resolved; nothing is a permanent artifact')
+
+
+class R5NewRejectionWhileOpenTests(LifecycleBase):
+    """R5 (Codex 2026-10-15): record_rejection returned None whenever any finding was already open, so a new rejection whose
+    findings=[] but whose feedback named an INDEPENDENT defect B was dropped. Closing the first finding A then let an acceptance
+    complete while B lived only in history. The fix registers the new rejection's feedback as its own finding even when another is
+    open, dedup by whole normalized content (no infinite duplicates on repeated identical feedback), never from a core-generated
+    message, and closing A does not touch B."""
+
+    def test_a_new_rejection_feedback_binds_even_when_another_finding_is_open(self):
+        reviewer = Reviewer({'kind': 'reject', 'findings': ['r0: defect A: negative amounts rounded wrong']},
+                            {'kind': 'reject_feedback', 'feedback': 'defect B: the thousands separator is dropped for large amounts'},
+                            {'kind': 'close', 'cite': 0, 'ids': ['RF1']})
+        worker, task = self.start(self.candidate_script(finishes=3), reviewer)
+        # closing ONLY A can never complete the job while B is open: it reaches the end of its finishes without completing. On the
+        # baseline B was dropped and the same sequence completed; the register is the decisive evidence either way.
+        state = self.drive(worker, task, until=lambda s: s['phase'] == 'completed' or len(self.finishes(s)) >= 3)
+        self.assertNotEqual(state['phase'], 'completed',
+                            f'RED-R5: a new independent rejection B was dropped because A was open, and the job completed ({state.get("message")})')
+        statuses = [(f['id'], f['status']) for f in self.register(worker.runtime, task)['findings']]
+        self.assertEqual(statuses, [('RF1', 'resolved'), ('RF2', 'open')], 'B is its own open finding; closing A did not touch it')
+        found_b = self.register(worker.runtime, task)['findings'][1]
+        self.assertEqual(self.whole(worker.runtime, found_b), 'defect B: the thousands separator is dropped for large amounts',
+                         'B is kept whole, with its source')
+        self.assertEqual(found_b['source'].get('kind'), 'feedback')
+
+    def test_control_closing_both_findings_with_evidence_completes(self):
+        reviewer = Reviewer({'kind': 'reject', 'findings': ['r0: defect A: negative amounts rounded wrong']},
+                            {'kind': 'reject_feedback', 'feedback': 'defect B: the thousands separator is dropped for large amounts'},
+                            {'kind': 'close', 'cite': 0})
+        worker, task = self.start(self.candidate_script(finishes=3), reviewer)
+        state = self.drive(worker, task, until=lambda s: s['phase'] == 'completed', steps=500)
+        self.assertEqual(state['phase'], 'completed', f'closing A and B with evidence did not complete ({state.get("message")})')
+        self.assertEqual({f['status'] for f in self.register(worker.runtime, task)['findings']}, {'resolved'})
+        self.assertEqual(len(self.register(worker.runtime, task)['findings']), 2, 'both A and B were tracked')
+
+    def test_repeated_identical_rejection_feedback_does_not_create_duplicate_findings(self):
+        # the SAME defect rejected in words twice (the second differs only in whitespace) is ONE finding, not two - dedup by whole
+        # normalized content. Two feedback-only rejections stay within the rejection limit, then a closure completes the job.
+        same = 'defect B: the thousands separator is dropped for large amounts'
+        reviewer = Reviewer({'kind': 'reject_feedback', 'feedback': same},
+                            {'kind': 'reject_feedback', 'feedback': '   defect B:  the thousands  separator is dropped for large amounts  '},
+                            {'kind': 'close', 'cite': 0})
+        worker, task = self.start(self.candidate_script(finishes=3), reviewer)
+        state = self.drive(worker, task, until=lambda s: s['phase'] == 'completed', steps=500)
+        self.assertEqual(state['phase'], 'completed', str(state.get('message')))
+        findings = self.register(worker.runtime, task)['findings']
+        self.assertEqual(len(findings), 1, f'RED-R5: repeated identical feedback made a duplicate finding ({[f["id"] for f in findings]})')
+        self.assertEqual([f['status'] for f in findings], ['resolved'])
+
+    def test_control_an_accepted_or_core_review_does_not_become_a_feedback_finding(self):
+        reviewer = Reviewer({'kind': 'close', 'cite': 0})
+        worker, task = self.start(self.candidate_script(), reviewer)
+        state = self.drive(worker, task, until=lambda s: s['phase'] == 'completed')
+        self.assertEqual(state['phase'], 'completed', str(state.get('message')))
+        self.assertEqual(self.register(worker.runtime, task)['findings'], [])
 
 
 if __name__ == '__main__':
