@@ -61,7 +61,7 @@ apply: {} copy workspace changes into the user's checkout (only files untouched 
 restore: {paths:["rel/path"]} put workspace paths back to the pinned commit (undo changes this contract cannot deliver, whoever made them).
 receipt: {index:0,field:null,offset:0,item_offset:0} an older tool result, or a page of one (field of its result, offset in that field's characters or list items; item_offset: characters into one list item too large for a page).
 contract: {section:"goal"|"acceptance"|"preserve"|"enforced_by_core"|"authorized_by"|"answers"|"plan",index:null} the full text of a contract part, a user answer or your previous plan, shown cut as "…[cut: N chars, contract SECTION INDEX]".
-ask: {question,reason,options:[{id,label}],recommendation,kind?} ONLY for a decision you cannot make; kind=technical needs `verification`+`verified_receipt` (else self_verify_first), other kinds reach the user.
+ask: {question,reason,options:[{id,label}],recommendation,kind?,claim_kind?} a decision you cannot make; kind=technical needs verification+verified_receipt else self_verify; others reach the user.
 Pages: a result larger than this prompt allows arrives as a page. latest_result.page lists each cut field with offset, delivered, total, eof and next, the exact call that returns what follows (the rest of a stored result comes by receipt; after it, the tool's own cursor; a command's stdout/stderr pages over its full log, the end shown first; from_start goes back to offset 0). Never assume content you did not receive.
 finish: {report:"Markdown: what was done, each acceptance item with receipt indices, risks, how to roll back",setup:[{argv:[...],cwd:""}],verification:[{argv:[...],cwd:""}]} the core checks out the candidate CLEANLY (nothing ignored or generated is copied from your workspace), runs setup (recreate dependencies/generated files the tests need) then verification there, checks contract checks, test integrity and that the user's repository is preserved, then a reviewer checks the report.
 project_manifests in the context lists what the project declares about build/test (manifests, scripts, CI steps): prefer the project's own declared commands.
@@ -575,37 +575,69 @@ class Owned(Workflow):
             state.update(phase='blocked',resume_phase='running',waiting_reason='solution',message='Required solution decision: '+request['id'])
             return request
         if action=='ask':
-            # Mechanism B (verify-premise): the worker classifies its own ask. A 'technical' ask - one resolvable with the
-            # worker's OWN authorized tools (a commit relationship, whether a term/file exists, where a flow goes) - must cite
-            # the verification it already ran (a receipt index of a git_show/search/read that SUPPORTS its claim). Without that
-            # it is sent back a structured self_verify_first recovery (verify or pivot) instead of halting the user. This keys
-            # off the worker's declared kind + a cited receipt, NOT keyword matching on the text. Authority/business/ui_choice
-            # asks - no self-checkable claim - go straight to the user as before. A finished tool run is NOT itself proof the
-            # claim was verified: the cited receipt must exist in this task's evidence; the worker states how it supports the claim.
+            # Mechanism B (verify-premise). The worker classifies its own ask; authority/business/ui_choice and kind-less asks
+            # reach the user directly (backward-compatible; no keyword guessing). An EXPLICITLY technical ask is gated:
+            #   B1 - it must carry verification text AND a cited verified_receipt that EXISTS; and when the worker declares a
+            #        MACHINE-CHECKABLE claim_kind (e.g. commit_relationship), the cited receipt must be of the MATCHING tool
+            #        type (a git_log/git_show for a commit relationship), so an unrelated receipt no longer passes on mere
+            #        existence. HONEST LIMIT (asserted in tests): this is a TYPE/EXISTENCE match, not semantic proof - it does
+            #        not confirm the receipt's CONTENT supports the claim, and it cannot catch a worker that MISLABELS kind or
+            #        claim_kind. Closing those needs a CORE-run verifier (out of A/B scope).
+            #   B2 - the self_verify recovery is FINITE on STABLE content: the attempt is keyed by the obligation (question +
+            #        options + recommendation), not by any changing counter, so repeating the same unresolved technical ask is
+            #        caught and converted to an HONEST no_progress block - it never burns to the full budget. The result this
+            #        handler returns carries NO per-attempt counter, so observe()'s own loop guard also sees the repeats as one
+            #        stable result (a changing count can no longer mask the loop).
             kind=args.get('kind')
             if kind is not None and kind not in ('authority','business','ui_choice','technical'):
                 raise LedgerError("ask kind must be authority, business, ui_choice or technical.")
-            # Only an EXPLICITLY technical ask is gated (verify-premise). A kind-less or authority/business/ui_choice ask
-            # reaches the user directly (backward-compatible; no keyword guessing on the text).
+            # claim_kind the gate can type-check the cited receipt against (machine-checkable). Others are semantic (not proven).
+            CHECKABLE={'commit_relationship':('git_log','git_show'),'symbol_or_file_exists':('search','read','list'),
+                       'code_flow':('read','search','git_show')}
             if kind=='technical':
-                verification=args.get('verification'); cited=args.get('verified_receipt')
-                nreceipts=len(state.get('receipts') or [])
-                has_cite=isinstance(cited,int) and 0<=cited<nreceipts
-                if not (isinstance(verification,str) and verification.strip() and has_cite):
-                    from .progress import POLICY as _POLICY
+                verification=args.get('verification'); cited=args.get('verified_receipt'); claim_kind=args.get('claim_kind')
+                receipts=state.get('receipts') or []
+                has_cite=isinstance(cited,int) and 0<=cited<len(receipts)
+                cited_action=receipts[cited].get('action') if has_cite else None
+                # type-relevance: only enforced when the worker declares a machine-checkable claim_kind
+                type_ok=True
+                if claim_kind in CHECKABLE:
+                    type_ok = cited_action in CHECKABLE[claim_kind]
+                verified_ok = isinstance(verification,str) and bool(verification.strip()) and has_cite and type_ok
+                if not verified_ok:
+                    from .progress import POLICY as _POLICY, content_hash as _ch
                     p=state.setdefault('progress',{'policy':dict(_POLICY),'observations':0,'writes':0,
                         'failed_tests':0,'review_rejections':0,'results':{}})
                     p.setdefault('policy',dict(_POLICY))
-                    p['self_verify_count']=p.get('self_verify_count',0)+1
-                    state['recovery']={'kind':'self_verify_first','automatic_retry':False,
-                        'ask_kind':kind,'count':p['self_verify_count'],
-                        'hint':('This looks like a TECHNICAL question you can resolve with your own authorized tools '
-                                '(git_log/git_show for a commit relationship, search/read for whether a term or file exists, '
-                                'read to trace a flow). Verify it yourself first: run the check, then either act on the result '
-                                'or, if a real question remains, re-ask with kind, a `verification` describing what you checked '
-                                'and a `verified_receipt` index citing the evidence. If instead this is an authority/permission, '
-                                'business, or genuine UI-version choice, set kind accordingly and it will reach the user.')}
-                    return {'action':'ask','blocked':'self_verify_first','recovery':state['recovery']}
+                    # B2 stable obligation key: the question the worker keeps asking, independent of any counter/plan wording.
+                    obligation=_ch({'q':args.get('question'),'opts':args.get('options'),'rec':args.get('recommendation')})
+                    sv=p.setdefault('self_verify',{})
+                    sv[obligation]=sv.get(obligation,0)+1
+                    if len(sv)>200:
+                        for k in list(sv)[:-200]: sv.pop(k,None)
+                    limit=p['policy'].get('self_verify_limit',2)
+                    why=('cite a verified_receipt that EXISTS' if not has_cite else
+                         ('give non-empty verification text' if not (isinstance(verification,str) and verification.strip()) else
+                          'cite a receipt of the right tool for this claim_kind (e.g. git_log/git_show for a commit relationship), '
+                          'not an unrelated one'))
+                    if sv[obligation]>=limit:
+                        # Exhausted self-verify on the SAME unresolved technical ask -> honest finite block, not another nudge
+                        # and never the user. (If it is really an authority/business/UI choice, the worker sets kind and it
+                        # reaches the user; it is not forced through a technical step.)
+                        from .progress import classify  # noqa
+                        state.update(phase='blocked',
+                            message=('Repeated technical ask without verifying its premise ('+str(sv[obligation])+' times): '+why+
+                                     '. Resolve it with your own tools or, if it is genuinely an authority/business/UI choice, set kind accordingly.'),
+                            recovery={'kind':'no_progress','automatic_retry':False,'ask_kind':kind})
+                        return {'action':'ask','blocked':'self_verify_exhausted'}
+                    state['recovery']={'kind':'self_verify_first','automatic_retry':False,'ask_kind':kind,
+                        'hint':('This is a TECHNICAL question you can resolve with your own authorized tools - '+why+'. '
+                                'Verify it yourself: run the check, then act on the result, or re-ask with kind=technical, '
+                                'a `verification` describing what you checked, a `verified_receipt` citing the evidence, and '
+                                '(for a machine-checkable premise) a `claim_kind`. If it is really an authority/permission, '
+                                'business, or UI-version choice, set kind accordingly and it reaches the user.')}
+                    # NB: the returned result is STABLE (no attempt counter) so observe()'s same-result guard also bounds it.
+                    return {'action':'ask','blocked':'self_verify_first'}
             question={'schema_version':1,'question':args['question'],'reason':args['reason'],
                 'impact':'This job waits; its deadline and permissions do not change.',
                 'options':args['options'],'recommendation':args['recommendation'],
@@ -1011,6 +1043,31 @@ class Owned(Workflow):
         return {'count':len(changes),'paths':[c['status']+' '+c['path'] for c in changes[:limit]],
                 'note':'changed against the pinned commit (A added, M modified, D deleted); every other file is as pinned'}
 
+    def _record_delivered(self,state,ref,shown,value,pages):
+        """A1 (delivery-state): record what was ACTUALLY rendered into this prompt's latest_result, keyed by the SOURCE page
+        (the receipt a lookup shows, else the receipt itself, with the field/offset asked for). We store the real delivered
+        range and the continuation, tied to the step it was delivered at. Called ONLY from a successful render (a page that
+        fit); a does_not_fit return records NOTHING, so a built-but-undelivered page never becomes 'served'. Idempotent:
+        re-rendering the same page (restart/retry/smaller re-page) overwrites the same key with the final delivered range,
+        so the stored value equals what the sent prompt carried. Lives in `state` -> survives checkpoint/resume."""
+        if ref.get('action')!='receipt': return  # only a receipt lookup is a worker-chosen page we gate re-selection of
+        # The worker's REQUEST args live in the stored receipt record (ref carries only metadata). Key off exactly those
+        # (index/field/offset/item_offset) so observe(), which keys off the same request args, hashes identically. The whole
+        # record is small and already on disk; reading it here is the authoritative source of what the worker asked for.
+        try: rec=json.loads(self.store.read_blob(ref['blob']))
+        except (ValueError,OSError,KeyError): return
+        args=rec.get('arguments') or {}
+        pagekey=content_hash({'index':args.get('index'),'field':args.get('field'),'offset':args.get('offset') or 0,
+                              'item_offset':args.get('item_offset') or 0})
+        # the real delivered range + continuation from the rendered page entries (empty when the whole result fit)
+        rng=[{'field':p.get('field'),'offset':p.get('offset'),'delivered':p.get('delivered'),
+              'eof':p.get('eof'),'next':p.get('next')} for p in (pages or [])]
+        delivered=state.setdefault('delivered_pages',{})
+        delivered[pagekey]={'source_receipt':shown,'range':rng,'whole':not pages,'step':state.get('step'),
+                            'content':self._content(value,pages)}
+        if len(delivered)>200:
+            for k in list(delivered)[:-200]: delivered.pop(k,None)
+
     def _latest_result(self,state,budget,task_id=None):
         """The outcome of the worker's last action, always shown, as one page of it within `budget` characters (P4-B: the
         paging contract in paging.py). Live M2 resume (14/10/2026): the worker asked receipt(26) three times because the
@@ -1039,6 +1096,7 @@ class Owned(Workflow):
                     value=dict(value,**extra)
                     if len(canonical(value))<=budget:
                         self._latest_chars=len(canonical(value));self._page_content=self._content(value,pages)
+                        self._record_delivered(state,ref,shown,value,pages)
                         return value
             except (LedgerError,TypeError,KeyError,ValueError,OSError): pass
         size=budget
@@ -1067,6 +1125,7 @@ class Owned(Workflow):
             if len(canonical(value))<=budget:
                 self._latest_chars=len(canonical(value))  # P5: what the latest result really uses of the prompt
                 self._page_content=self._content(value,pages)
+                self._record_delivered(state,ref,shown,value,pages)
                 return value
             size=int(size*.85)
         self._page_starved=True;self._starved_reason='its smallest page does not fit '+str(budget)+' characters'

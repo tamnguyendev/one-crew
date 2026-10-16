@@ -2,7 +2,13 @@
 from .ledger import content_hash
 
 POLICY = {'version': 1, 'same_result_limit': 3, 'observation_limit': 16,
-          'write_limit': 8, 'failed_test_limit': 3, 'review_rejection_limit': 3}
+          'write_limit': 8, 'failed_test_limit': 3, 'review_rejection_limit': 3,
+          # A1/A2: re-selecting an already-DELIVERED page this many times without reaching new content is a stopped loop.
+          'reconsider_limit': 2,
+          # B2: repeating the SAME unresolved technical ask this many times without verifying its premise is a stopped loop.
+          'self_verify_limit': 2,
+          # A3: sustained no-result searches before a (non-blocking) strategy-switch hint is surfaced.
+          'empty_search_hint_limit': 6}
 
 
 def classify(error):
@@ -147,44 +153,42 @@ def observe(state, action, args, result):
         new_coverage = count == 1 and not unproven and (action == 'read'
             or (page and (page['offset'] > 0 or page['item_offset'] > 0))
             or (action == 'search' and search_advanced))
-        # Mechanism A (progress-reconciliation): a receipt page RE-SELECTS a region already SERVED to the worker while its
-        # plan's normalized conclusion is unchanged -> this is re-reading, not progress. Credit nothing, and raise a bounded
-        # structured 'reconsider' recovery so the worker RE-DECIDES (we never perform the continuation for it). A genuine plan
-        # update (new conclusion, not reworded) clears it; the real same-result guard still stops an exhausted loop.
+        # Mechanism A (progress-reconciliation, delivery-based). A1/A2 fix: the signal that a receipt is a RE-READ is that the
+        # worker RE-SELECTED a page whose content was ALREADY DELIVERED into a prior prompt (state['delivered_pages'], written
+        # by owned._record_delivered at RENDER time, never from a request or an undelivered/does-not-fit page). We do NOT look
+        # at the plan at all: a reworded plan is not progress and cannot re-grant recovery (the A2 reset bug). Re-selecting an
+        # already-delivered page raises a bounded 'reconsider' recovery so the worker RE-DECIDES (we never perform the
+        # continuation for it); a valid re-read is allowed up to the bound, then the loop is stopped as an honest blocker. The
+        # re-selection counter is keyed to the PAGE (stable content), so paging to NEW content or acting re-arms it, and a
+        # reworded plan or a changing response counter cannot mask or extend the loop.
         reselect_served = False
         if action == 'receipt' and 'error' not in result and page is not None:
-            import re as _re
             pagekey = content_hash({'index': page['index'], 'field': page['field'],
                                     'offset': page['offset'], 'item_offset': page['item_offset']})
-            plan_text = (state.get('plan') or '')
-            plan_norm = content_hash(_re.sub(r'\s+', ' ', plan_text).strip().casefold())
-            served = p.setdefault('served_pages', {})
-            if pagekey in served:
-                # Seen this exact page before. If the plan conclusion has not genuinely changed since, it is a re-read.
-                if served[pagekey] == plan_norm:
-                    reselect_served = True
-                else:
-                    served[pagekey] = plan_norm  # plan advanced on this evidence: allowed, re-arm
-            else:
-                served[pagekey] = plan_norm
-            # bound the stored map so it cannot grow without limit
-            if len(served) > 200:
-                for k in list(served)[:-200]: served.pop(k, None)
+            delivered = state.get('delivered_pages') or {}
+            reselect_served = pagekey in delivered  # this exact page was already rendered into a previous prompt
         if 'error' not in result and new_coverage and not reselect_served:
             p['observations'] = 0
         else: p['observations'] += 1
         if reselect_served:
-            p['reconsider_count'] = p.get('reconsider_count', 0) + 1
+            # Count re-selections PER PAGE on stable content, so a different already-delivered page is its own (fresh) count
+            # and acting on NEW content clears it. Durable in the checkpoint.
+            per = p.setdefault('reconsider_by_page', {})
+            per[pagekey] = per.get(pagekey, 0) + 1
+            if len(per) > 200:
+                for k in list(per)[:-200]: per.pop(k, None)
+            p['reconsider_count'] = per[pagekey]
             p['reconsider'] = {'kind': 'already_read_region',
                 'page': {k: page[k] for k in ('index', 'field', 'offset', 'item_offset')},
-                'count': p['reconsider_count'], 'limit': limits.get('reconsider_limit', 2),
-                'hint': ('You already received this exact receipt page and your plan conclusion has not changed since. '
-                         'Re-reading it is not progress. Use its continuation (latest_result.page.next) to read NEW content, '
-                         'or update your plan with the conclusion this evidence gives and act - do not request this same page again.')}
-            if p['reconsider_count'] >= limits.get('reconsider_limit', 2):
-                reason = 'Re-read the same already-served evidence without advancing the plan (reconsider limit reached); stopped without progress.'
+                'count': per[pagekey], 'limit': limits.get('reconsider_limit', 2),
+                'hint': ('You already received this exact receipt page in an earlier prompt; requesting it again is not '
+                         'progress. Use its continuation (latest_result.page.next) to read NEW content, or act on the '
+                         'conclusion this evidence already gives - do not request this same page again.')}
+            if per[pagekey] >= limits.get('reconsider_limit', 2):
+                reason = 'Re-selected already-delivered evidence without advancing to new content (reconsider limit reached); stopped without progress.'
         elif action == 'receipt' and 'error' not in result:
-            p.pop('reconsider', None); p['reconsider_count'] = 0
+            # reached a NOT-already-delivered page (new content): clear the reconsider state
+            p.pop('reconsider', None); p['reconsider_count'] = 0; p['reconsider_by_page'] = {}
         # Separate signal so cursor-advance alone is not treated as infinite progress: count CONSECUTIVE no-result searches
         # (across new regions too). At the threshold, surface a STRUCTURED strategy-switch hint so the worker changes
         # approach (different query, narrow directory, view structure, git history) instead of paging forever. This never
