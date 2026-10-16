@@ -235,4 +235,44 @@ class ReconsileAndAskGateTests(unittest.TestCase):
         self.assertEqual(state['phase'],'waiting')  # genuine authority question reaches the user
         self.assertEqual(len(run.ledger.requests(task,pending=True)),1)
 
+class AskGateLimitsTests(unittest.TestCase):
+    """P6 R4 verification of the REAL ask gate against the three Codex requirements. Some cases DOCUMENT LIMITS the
+    declaration/receipt-existence gate cannot close - asserted so the limit is explicit, not hidden."""
+    def _ask(self, **kw):
+        base=dict(question='q',reason='r',options=[{'id':'a','label':'x'},{'id':'b','label':'y'}],recommendation='a')
+        base.update(kw); return fixtures.action('ask', **base)
+
+    def test_req3_technical_without_citation_is_gated(self):
+        fx=fixtures.OwnedTests();fx.setUp();self.addCleanup(fx.doCleanups)
+        run,task,w=fx.runtime([self._ask(kind='technical')])
+        st=run.run(task,steps=1)
+        self.assertEqual(st['phase'],'running')
+        self.assertEqual((st.get('recovery') or {}).get('kind'),'self_verify_first')
+        self.assertEqual(run.ledger.requests(task,pending=True),[])
+
+    def test_req3_authority_reaches_user_without_forcing_a_technical_step(self):
+        fx=fixtures.OwnedTests();fx.setUp();self.addCleanup(fx.doCleanups)
+        run,task,w=fx.runtime([self._ask(kind='authority')])
+        st=run.run(task,steps=1)
+        self.assertEqual(st['phase'],'waiting')
+        self.assertEqual(len(run.ledger.requests(task,pending=True)),1)
+
+    def test_req3_LIMIT_relabel_technical_as_business_bypasses_gate(self):
+        # DOCUMENTED LIMIT: a worker that lies about kind (labels a technical matter 'business') is NOT caught -
+        # the gate trusts the declared kind. This asserts the bypass so the limit is explicit in the suite.
+        fx=fixtures.OwnedTests();fx.setUp();self.addCleanup(fx.doCleanups)
+        run,task,w=fx.runtime([self._ask(kind='business')])  # content is really technical, mislabeled
+        st=run.run(task,steps=1)
+        self.assertEqual(st['phase'],'waiting')  # reaches user: gate does NOT re-classify (known limit)
+
+    def test_req3_LIMIT_cited_receipt_not_checked_for_relevance(self):
+        # DOCUMENTED LIMIT: the gate checks the cited verified_receipt EXISTS, not that it SUPPORTS the claim.
+        # A technical ask citing an unrelated existing receipt passes. Asserted so the limit is explicit.
+        fx=fixtures.OwnedTests();fx.setUp();self.addCleanup(fx.doCleanups)
+        run,task,w=fx.runtime([fixtures.action('read',path='calc.py'),
+            self._ask(kind='technical',verification='I checked (unrelated)',verified_receipt=0)])
+        st=run.run(task,steps=2)
+        self.assertEqual(st['phase'],'waiting')  # passes on mere existence of receipt 0 (known limit)
+        self.assertEqual(len(run.ledger.requests(task,pending=True)),1)
+
 if __name__=='__main__': unittest.main()
