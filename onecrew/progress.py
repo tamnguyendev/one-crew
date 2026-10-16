@@ -82,11 +82,16 @@ def observe(state, action, args, result):
         page = {'index': args.get('index'), 'field': args.get('field'), 'offset': args.get('offset') or 0,
                 'item_offset': args.get('item_offset') or 0}
         evidence = {'page': page, 'record': result}
+    search_advanced = False; search_empty = False
     if action == 'search' and 'error' not in result:
         # The new receipt includes query/scope/counters. Positive duplicate evidence
         # still counts across cosmetic queries; empty results are scoped observations.
         evidence = {k: result.get(k) for k in ('matches','directories','next_cursor')}
+        # Did this op cover genuinely NEW files? scanned_through advancing past the cursor over real files is coverage,
+        # not blind exploration; re-scanning the same region (intent key below) is still caught as a repeat.
+        search_advanced = bool(result.get('files_scanned')) and (result.get('scanned_through') or 0) > (args.get('cursor',0) or 0)
         if not result.get('matches'):
+            search_empty = True
             intent = {'directory':args.get('directory',''), 'query':args.get('query','').casefold(),
                       'cursor':args.get('cursor',0)}
     # Work mode: the workspace state key (work_tools.progress_state), refreshed after every action that can change files;
@@ -136,9 +141,28 @@ def observe(state, action, args, result):
         p['stopped_by'] = dict((p.get('repeats') or {}).get(key) or {'action': action, 'arguments': _brief(args), 'count': count,
                                                                     'step': state.get('step')}, key=key)
     if action in ('list', 'search', 'read', 'receipt', 'contract', 'git_status', 'git_diff', 'git_log', 'git_show'):
-        if 'error' not in result and count == 1 and not unproven and (action == 'read' or (page and (page['offset'] > 0 or page['item_offset'] > 0))):
-            p['observations'] = 0  # New source, or the next page of a cut result, is evidence, not blind exploration.
+        # New source, the next page of a cut result, OR a search op that covered genuinely-new files is evidence, not blind
+        # exploration (an advancing-cursor scan over unexamined files is coverage). Re-scanning a region already seen is NOT
+        # credited: it falls through to the repeat/same-result guard below via its intent key.
+        new_coverage = count == 1 and not unproven and (action == 'read'
+            or (page and (page['offset'] > 0 or page['item_offset'] > 0))
+            or (action == 'search' and search_advanced))
+        if 'error' not in result and new_coverage:
+            p['observations'] = 0
         else: p['observations'] += 1
+        # Separate signal so cursor-advance alone is not treated as infinite progress: count CONSECUTIVE no-result searches
+        # (across new regions too). At the threshold, surface a STRUCTURED strategy-switch hint so the worker changes
+        # approach (different query, narrow directory, view structure, git history) instead of paging forever. This never
+        # names a keyword/path/commit and never blocks by itself; the real loop + exploration guards stay in force.
+        if action == 'search' and 'error' not in result and search_empty:
+            p['empty_searches'] = p.get('empty_searches', 0) + 1
+            if p['empty_searches'] >= limits.get('empty_search_hint_limit', 6):
+                p['strategy_switch'] = {'kind': 'search_not_converging', 'empty_searches': p['empty_searches'],
+                    'hint': ('Searches keep returning no matches. Switch strategy before more paging: try a different '
+                             'keyword or synonym, narrow to a likely directory, view the project structure (list), or '
+                             'inspect git history/branches - do not repeat the same query across pages.')}
+        elif action == 'search' and not search_empty:
+            p.pop('empty_searches', None); p.pop('strategy_switch', None)
         if p['observations'] >= limits['observation_limit']:
             reason = 'Exploration limit reached: act on existing evidence or clarify scope before continuing.'
     if action in ('write', 'edit', 'run', 'deliver', 'branch_before', 'android_build', 'create_branch', 'export_branch', 'apply',

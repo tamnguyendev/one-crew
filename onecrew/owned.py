@@ -904,6 +904,10 @@ class Owned(Workflow):
         """compact: under a tight provider cap (_fit is down to small pages) the section keeps only the essentials, so it never
         pushes a job onto the prompt-cap block by itself."""
         value=self._recovery_full(state,control)
+        # Advisory strategy-switch hint: include it only when set, and only when NOT under the tight prompt cap, so an
+        # inactive signal costs nothing and an active one never by itself pushes a job onto the prompt-cap block.
+        switch=(state.get('progress') or {}).get('strategy_switch')
+        if switch and not compact: value=dict(value,strategy_switch=switch)
         if not compact and len(canonical(value))<=3000: return value
         value=dict(value,repeats=value['repeats'][-2:],recent_failures=[dict(f,error=f['error'][:120]) for f in value['recent_failures'][-2:]],
                    note='From the checkpoint; counters are never reset by a resume. Act differently on blocked_before.')
