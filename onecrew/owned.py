@@ -1014,11 +1014,14 @@ class Owned(Workflow):
         # Advisory strategy-switch hint: include it only when set, and only when NOT under the tight prompt cap, so an
         # inactive signal costs nothing and an active one never by itself pushes a job onto the prompt-cap block.
         switch=(state.get('progress') or {}).get('strategy_switch')
-        if switch and not compact: value=dict(value,strategy_switch=switch)
+        if switch and not compact: value=dict(value,strategy_switch=self._hint_signal(switch) if tighter else switch)
         reconsider=(state.get('progress') or {}).get('reconsider')
         # Reconsider is a bounded recovery hint (Mechanism A): the worker re-read an already-served page without advancing
-        # its plan. Keep it even under the tight cap (it is small and it is exactly what the worker must act on).
-        if reconsider: value=dict(value,reconsider=reconsider)
+        # its plan. Keep it even under the tight cap (it is exactly what the worker must act on) - but at the TIGHTER tier its
+        # fixed advisory prose yields to the tool result (see _hint_signal): the actionable part (which page, how close to the
+        # hard stop) stays, the deterministic hint text the core always renders does not, so a growing run of re-reads cannot
+        # starve the latest result. The full prose is not retrievable context - it is the same string every prompt.
+        if reconsider: value=dict(value,reconsider=self._hint_signal(reconsider) if tighter else reconsider)
         if not compact and len(canonical(value))<=3000: return value
         keep=1 if tighter else 2; errlen=60 if tighter else 120
         value=dict(value,repeats=value['repeats'][-keep:],recent_failures=[dict(f,error=f['error'][:errlen]) for f in value['recent_failures'][-keep:]],
@@ -1030,6 +1033,20 @@ class Owned(Workflow):
         if value['core_verification'].get('findings'):  # P5: the failing finish shows them in full (latest_result, receipts)
             value['core_verification']['findings']=[str(f)[:120] for f in value['core_verification']['findings']]
         return value
+
+    @staticmethod
+    def _hint_signal(hint):
+        """An advisory recovery hint (reconsider / strategy_switch) reduced to its ACTIONABLE signal for the tightest prompt
+        tier: its kind, the exact page/counters the worker must act on, and a short fixed pointer in place of the long
+        deterministic 'hint' prose. The core renders that prose identically every prompt, so it is reconstructable context,
+        not history, authority, scope, acceptance or an open obligation - and dropping it here is what keeps a growing run of
+        re-reads or blocks from eating the room a valid tool-result page needs. Nothing the worker must DO is lost."""
+        if not isinstance(hint,dict): return hint
+        terse={'already_read_region':'Already-read page: do not request it again; follow latest_result.page.next for NEW content or act on the evidence.',
+               'search_not_converging':'No matches keep coming back: change query/dir or view structure/git history; do not re-page the same search.'}
+        signal={k:v for k,v in hint.items() if k!='hint'}
+        signal['hint']=terse.get(hint.get('kind'),'Act on the page/counters here; do not repeat this step.')
+        return signal
 
     def _recovery_full(self,state,control):
         """Where the job stands, rebuilt only from durable state, in every work prompt (P4-D). Live M2 (13-14/10/2026): after a
