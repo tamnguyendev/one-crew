@@ -58,7 +58,11 @@ def unwrap(record, arguments=None):
         args = record.get('arguments') or {}
         if shown is None:  # the outermost lookup decides which page is wanted
             field, offset, item_offset = args.get('field'), args.get('offset') or 0, args.get('item_offset') or 0
-        if isinstance(args.get('index'), int): shown = args['index']
+        # R6 (LC08): a receipt of a FINDING/NOTE names it by a string virtual id ('RF3'/'N2'); keep that id as `shown` so the page
+        # the worker's latest result builds carries it in its next cursor and the by-id continuation keeps reaching the full blob
+        # (a numeric receipt index would re-page the stored - and formerly cut - copy instead). A numeric receipt stays an int.
+        index = args.get('index')
+        if isinstance(index, int) or isinstance(index, str): shown = index
         record = record['result']
     return record, shown, field, offset, item_offset
 

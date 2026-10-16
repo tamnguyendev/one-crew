@@ -519,7 +519,10 @@ def record_rejection(state, review, *, round_no, store=None):
     finding and the answer opened none, its feedback is registered whole as one finding (source kind 'feedback'), so a later review
     of an unchanged candidate cannot forget it. Returns the new id, or None."""
     text = review.get('feedback')
-    if review.get('accepted') or review.get('core') or not isinstance(text, str) or not text.strip(): return None
+    # LC02: an invalid-shape response must not carry acceptance meaning by TRUTHINESS - accepted:"false" (a string) is a WRONG
+    # schema, not an acceptance, so the rejection it names must still bind. Only a real bool True is acceptance; any non-bool
+    # accepted falls through to being recorded as a rejection (the common mechanism, not a special-case for the literal "false").
+    if review.get('accepted') is True or review.get('core') or not isinstance(text, str) or not text.strip(): return None
     # R5: a rejection in WORDS ONLY (the reviewer named no defect in `findings`) that names an INDEPENDENT defect must bind even
     # when another finding is already open - it is its own open finding, not dropped because something else is open. When the
     # reviewer DID name findings this round, record_round already registered them and this feedback is their summary, not a new
@@ -528,7 +531,16 @@ def record_rejection(state, review, *, round_no, store=None):
     if _texts(review.get('findings')): return None  # the reviewer named defects; record_round owns them, the feedback summarizes
     norm = _sha(_norm(text))
     if any(f.get('status') == 'open' and f.get('norm') == norm for f in open_findings(state)): return None
-    blob = _put(store, text, 'the rejection') if store is not None else None
+    # LC05: this standalone _put is on the SAME obligation contract as record_round. A fault (text over MAX_TEXT, or a store that
+    # cannot be written) must not just raise and leave nothing behind: it records a durable incomplete-processing obligation that
+    # survives public resume and blocks the final gate, so a later generic accept cannot complete with the rejection forgotten.
+    try:
+        blob = _put(store, text, 'the rejection') if store is not None else None
+    except ReviewEvidenceIncomplete as overflow:
+        _obligation(state, store, [text],
+                    'A reviewer rejection could not be recorded whole: ' + str(overflow)[:200] +
+                    ' The job stays blocked until the whole response is processed.', 'length', claim_norms=[norm])
+        raise
     register = state.setdefault('review_register', {'next': 1, 'notes_next': 1, 'review': 1, 'findings': [], 'notes': []})
     number = register['next']; register['next'] = number + 1
     entry = {'id': f'RF{number}', 'status': 'open', 'review': register['review'], 'round': round_no, 'candidate': _candidate(state),
@@ -559,12 +571,19 @@ def adopt_legacy(state, store):
     next_f, next_n = register.get('next', 1), register.get('notes_next', 1)
     have_ids = {f['id'] for f in register.get('findings') or []}
     have_notes = {n['id'] for n in register.get('notes') or []}
-    built_f, built_n = [], []
+    built_f, built_n, cut_tails = [], [], []
     for old in old_findings or []:
         if not isinstance(old, dict): continue
         claim = str(old.get('claim', ''))
         ident = str(old.get('id', f'RF{next_f}'))
         if ident in have_ids: continue  # idempotent: already migrated by an earlier (interrupted) run
+        # LC06 (branch b): the earlier runtime kept at most 2,000 characters of this finding; when its declared length is LONGER
+        # than the claim that survived, the tail is unrecoverable here. It must NOT be migrated as if it were whole - it leaves a
+        # durable MISSING obligation (the lost tail) so a resume cannot complete as if nothing was lost. Dedup by id keeps it
+        # retry-safe: an id already migrated above is skipped before reaching here.
+        declared = old.get('chars')
+        if isinstance(declared, int) and declared > len(claim):
+            cut_tails.append((ident, declared, len(claim)))
         entry = {'id': ident, 'status': 'resolved' if old.get('status') == 'resolved' else 'open', 'review': register['review'],
                  'round': old.get('round', 0), 'candidate': None, 'receipts_at': 0, 'chars': old.get('chars', len(claim)),
                  'head': _safe(claim[:HEAD]), 'norm': _sha(_norm(claim)), 'source': dict(old.get('source') or {}), 'legacy': cut}
@@ -591,6 +610,14 @@ def adopt_legacy(state, store):
     register = _reg(state)
     register['findings'].extend(built_f); register['notes'].extend(built_n)
     register['next'] = max(register.get('next', 1), next_f); register['notes_next'] = max(register.get('notes_next', 1), next_n)
+    # LC06 (branch b): a legacy finding whose tail was cut and cannot be recovered here is a durable missing obligation, so a
+    # resume cannot complete as if the whole finding were migrated. _obligation dedups by norm, so a retry adds each cut tail once.
+    for ident, declared, kept in cut_tails:
+        _obligation(state, store, [f'legacy cut finding {ident}: {kept} of {declared} characters recovered'],
+                    f'The earlier runtime cut finding {ident} to {kept} of {declared} characters; its tail is not recoverable here.',
+                    'legacy_cut')
+        for o in register['unprocessed']:
+            if o.get('kind') == 'legacy_cut' and o.get('status') == 'open': o['missing'] = True; o.pop('blob', None)
     # LC06: a standalone unrecorded-count marker is a known incomplete the earlier runtime could not record - carry it as a
     # durable missing obligation so a resume cannot complete as if nothing was lost. Deduplicated by its own norm.
     if marker:
@@ -610,7 +637,16 @@ def keep_note(state, feedback, round_no, store=None):
     wrong is a finding. Returns the note's id (None: nothing was written)."""
     text = feedback if isinstance(feedback, str) else ''
     if not text.strip(): return None
-    blob = _put(store, text, 'a review note') if store is not None else None
+    # LC05: a note's _put is on the SAME obligation contract. A note that stores fine stays a note (progress, never a product
+    # finding); only a note whose content CANNOT be recorded (over MAX_TEXT / store fault) becomes a durable obligation that
+    # survives public resume and blocks acceptance - so the lost content is never silently dropped.
+    try:
+        blob = _put(store, text, 'a review note') if store is not None else None
+    except ReviewEvidenceIncomplete as overflow:
+        _obligation(state, store, [text],
+                    'A reviewer note could not be recorded whole: ' + str(overflow)[:200] +
+                    ' The job stays blocked until the whole response is processed.', 'length')
+        raise
     register = state.setdefault('review_register', {'next': 1, 'notes_next': 1, 'review': 1, 'findings': [], 'notes': []})
     number = register['notes_next']; register['notes_next'] = number + 1
     note = {'id': f'N{number}', 'review': register['review'], 'round': round_no, 'chars': len(text), 'head': _safe(text[:HEAD]),

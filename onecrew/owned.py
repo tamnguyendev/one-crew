@@ -349,6 +349,13 @@ class Owned(Workflow):
         if action=='finish':
             # P6 (finding lifecycle), defence in depth: the review loop refuses to accept over an open finding; a job is never
             # completed over one whatever path led here (a stored acceptance from before a restart, a changed rule).
+            # LC06 defence in depth: a d5a0c43 checkpoint whose only legacy trace is the standalone unrecorded-count marker may
+            # reach finish without a work-mode review pass (a stored acceptance from before a restart). Migrate it here too, so the
+            # marker becomes the durable missing obligation the gate below refuses on. adopt_legacy is idempotent and a no-op when
+            # there is no legacy state.
+            if state.get('review_findings') or state.get('review_notes') or state.get('review_findings_unrecorded'):
+                from .review_evidence import adopt_legacy
+                adopt_legacy(state,self.store)
             from .review_evidence import open_findings, unprocessed, ReviewRejected
             unresolved_findings=open_findings(state)
             if unresolved_findings:
@@ -437,12 +444,12 @@ class Owned(Workflow):
         if action=='read': return self._read(state,args)
         if action=='receipt':
             # P4-B: {index, field?, offset?} selects a page of any stored result; anything else is refused, never ignored.
-            from .paging import receipt_arguments, unwrap, view as _page_view
+            from .paging import receipt_arguments, unwrap
             # R6 (LC08): a finding/note the review cut to its head in the rejection receipt is still kept WHOLE in the register's
             # blob store. When the worker's receipt index is a register id (RF<n> / N<n> / 'RF'), read ONLY this task's own
             # findings/notes through review_evidence.virtual and page the blob byte-for-byte - no filesystem access, no other
             # task's data. A wrong id or page is reported and changes no state.
-            from .review_evidence import _virtual_id, known_ids, virtual as _virtual, PAGE_DEFAULT as _PAGE
+            from .review_evidence import _virtual_id, known_ids, virtual as _virtual
             ident=_virtual_id(args.get('index'))
             if ident is not None:
                 unknown=sorted(set(args)-{'index','field','offset','item_offset'})
@@ -452,12 +459,16 @@ class Owned(Workflow):
                 if field is not None and not isinstance(field,str): raise LedgerError('receipt field must be a result field name.')
                 if type(offset) is not int or offset<0: raise LedgerError('receipt offset must be an integer >= 0.')
                 if type(item_offset) is not int or item_offset<0: raise LedgerError('receipt item_offset must be an integer >= 0.')
+                # R6 (LC08): return the finding/note record WHOLE, byte-for-byte, never a PAGE_DEFAULT-cut copy. The old handler
+                # pre-paged to PAGE_DEFAULT and stored that CUT result as the receipt; _latest_result then re-paged the already-cut
+                # copy (its total shrank to the cut length and the next cursor flipped to a numeric receipt), so the tail past the
+                # first page could never be reached. Storing the full record keeps ONE full-text source: _latest_result pages it
+                # once within the real prompt budget, and the stored worker arguments (index 'RF<n>'/'N<n>', field, offset) carry
+                # the string id and offset across receipt -> prompt -> next, so the by-id continuation reaches the whole blob.
                 record,blob=_virtual(state,self.store,ident)
-                value,pages=_page_view(record,_PAGE,index=ident,field=field,offset=offset,item_offset=item_offset)
-                out=dict(value)
+                out=dict(record)  # {'action': 'review_finding'|'review_note'|'review_findings', 'result': <full>}
+                out['index']=ident
                 if blob: out['blob']=blob  # so the worker can check the reconstructed text against the stored hash
-                if pages: out['page']=pages
-                else: out['complete']=True
                 return out
             i,field,offset=receipt_arguments(args,state['receipts'])
             stored=json.loads(self.store.read_blob(state['receipts'][i]['blob']))
@@ -1390,7 +1401,10 @@ class Owned(Workflow):
                             'Distinguish tests not run from tests absent. Original tests means unchanged test files; whether they passed must be bound to the tested candidate snapshot. '
                             'Only require the delivery_contract shown below: an isolated_candidate needs no Git publication. User acceptance is separate. ')
                         if profile['mode']=='work':
-                            if state.get('review_findings') or state.get('review_notes'):
+                            # LC06: a checkpoint of the unreleased d5a0c43 intermediate - migrate the kept findings/notes AND a
+                            # STANDALONE unrecorded-count marker (review_findings_unrecorded with no lists), which the earlier
+                            # wiring skipped so the migration never ran and the marker survived unmigrated with no obligation.
+                            if state.get('review_findings') or state.get('review_notes') or state.get('review_findings_unrecorded'):
                                 from .review_evidence import adopt_legacy  # a checkpoint of the unreleased d5a0c43 intermediate
                                 adopt_legacy(state,self.store)
                             try:
