@@ -147,9 +147,44 @@ def observe(state, action, args, result):
         new_coverage = count == 1 and not unproven and (action == 'read'
             or (page and (page['offset'] > 0 or page['item_offset'] > 0))
             or (action == 'search' and search_advanced))
-        if 'error' not in result and new_coverage:
+        # Mechanism A (progress-reconciliation): a receipt page RE-SELECTS a region already SERVED to the worker while its
+        # plan's normalized conclusion is unchanged -> this is re-reading, not progress. Credit nothing, and raise a bounded
+        # structured 'reconsider' recovery so the worker RE-DECIDES (we never perform the continuation for it). A genuine plan
+        # update (new conclusion, not reworded) clears it; the real same-result guard still stops an exhausted loop.
+        reselect_served = False
+        if action == 'receipt' and 'error' not in result and page is not None:
+            import re as _re
+            pagekey = content_hash({'index': page['index'], 'field': page['field'],
+                                    'offset': page['offset'], 'item_offset': page['item_offset']})
+            plan_text = (state.get('plan') or '')
+            plan_norm = content_hash(_re.sub(r'\s+', ' ', plan_text).strip().casefold())
+            served = p.setdefault('served_pages', {})
+            if pagekey in served:
+                # Seen this exact page before. If the plan conclusion has not genuinely changed since, it is a re-read.
+                if served[pagekey] == plan_norm:
+                    reselect_served = True
+                else:
+                    served[pagekey] = plan_norm  # plan advanced on this evidence: allowed, re-arm
+            else:
+                served[pagekey] = plan_norm
+            # bound the stored map so it cannot grow without limit
+            if len(served) > 200:
+                for k in list(served)[:-200]: served.pop(k, None)
+        if 'error' not in result and new_coverage and not reselect_served:
             p['observations'] = 0
         else: p['observations'] += 1
+        if reselect_served:
+            p['reconsider_count'] = p.get('reconsider_count', 0) + 1
+            p['reconsider'] = {'kind': 'already_read_region',
+                'page': {k: page[k] for k in ('index', 'field', 'offset', 'item_offset')},
+                'count': p['reconsider_count'], 'limit': limits.get('reconsider_limit', 2),
+                'hint': ('You already received this exact receipt page and your plan conclusion has not changed since. '
+                         'Re-reading it is not progress. Use its continuation (latest_result.page.next) to read NEW content, '
+                         'or update your plan with the conclusion this evidence gives and act - do not request this same page again.')}
+            if p['reconsider_count'] >= limits.get('reconsider_limit', 2):
+                reason = 'Re-read the same already-served evidence without advancing the plan (reconsider limit reached); stopped without progress.'
+        elif action == 'receipt' and 'error' not in result:
+            p.pop('reconsider', None); p['reconsider_count'] = 0
         # Separate signal so cursor-advance alone is not treated as infinite progress: count CONSECUTIVE no-result searches
         # (across new regions too). At the threshold, surface a STRUCTURED strategy-switch hint so the worker changes
         # approach (different query, narrow directory, view structure, git history) instead of paging forever. This never

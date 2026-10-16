@@ -61,7 +61,7 @@ apply: {} copy workspace changes into the user's checkout (only files untouched 
 restore: {paths:["rel/path"]} put workspace paths back to the pinned commit (undo changes this contract cannot deliver, whoever made them).
 receipt: {index:0,field:null,offset:0,item_offset:0} an older tool result, or a page of one (field of its result, offset in that field's characters or list items; item_offset: characters into one list item too large for a page).
 contract: {section:"goal"|"acceptance"|"preserve"|"enforced_by_core"|"authorized_by"|"answers"|"plan",index:null} the full text of a contract part, a user answer or your previous plan, shown cut as "…[cut: N chars, contract SECTION INDEX]".
-ask: {question,reason,options:[{id:"a",label:"..."}],recommendation:"a"} ONLY for a business/architecture decision outside the contract, missing authority, or missing information that decides the result.
+ask: {question,reason,options:[{id,label}],recommendation,kind?} ONLY for a decision you cannot make; kind=technical needs `verification`+`verified_receipt` (else self_verify_first), other kinds reach the user.
 Pages: a result larger than this prompt allows arrives as a page. latest_result.page lists each cut field with offset, delivered, total, eof and next, the exact call that returns what follows (the rest of a stored result comes by receipt; after it, the tool's own cursor; a command's stdout/stderr pages over its full log, the end shown first; from_start goes back to offset 0). Never assume content you did not receive.
 finish: {report:"Markdown: what was done, each acceptance item with receipt indices, risks, how to roll back",setup:[{argv:[...],cwd:""}],verification:[{argv:[...],cwd:""}]} the core checks out the candidate CLEANLY (nothing ignored or generated is copied from your workspace), runs setup (recreate dependencies/generated files the tests need) then verification there, checks contract checks, test integrity and that the user's repository is preserved, then a reviewer checks the report.
 project_manifests in the context lists what the project declares about build/test (manifests, scripts, CI steps): prefer the project's own declared commands.
@@ -575,6 +575,37 @@ class Owned(Workflow):
             state.update(phase='blocked',resume_phase='running',waiting_reason='solution',message='Required solution decision: '+request['id'])
             return request
         if action=='ask':
+            # Mechanism B (verify-premise): the worker classifies its own ask. A 'technical' ask - one resolvable with the
+            # worker's OWN authorized tools (a commit relationship, whether a term/file exists, where a flow goes) - must cite
+            # the verification it already ran (a receipt index of a git_show/search/read that SUPPORTS its claim). Without that
+            # it is sent back a structured self_verify_first recovery (verify or pivot) instead of halting the user. This keys
+            # off the worker's declared kind + a cited receipt, NOT keyword matching on the text. Authority/business/ui_choice
+            # asks - no self-checkable claim - go straight to the user as before. A finished tool run is NOT itself proof the
+            # claim was verified: the cited receipt must exist in this task's evidence; the worker states how it supports the claim.
+            kind=args.get('kind')
+            if kind is not None and kind not in ('authority','business','ui_choice','technical'):
+                raise LedgerError("ask kind must be authority, business, ui_choice or technical.")
+            # Only an EXPLICITLY technical ask is gated (verify-premise). A kind-less or authority/business/ui_choice ask
+            # reaches the user directly (backward-compatible; no keyword guessing on the text).
+            if kind=='technical':
+                verification=args.get('verification'); cited=args.get('verified_receipt')
+                nreceipts=len(state.get('receipts') or [])
+                has_cite=isinstance(cited,int) and 0<=cited<nreceipts
+                if not (isinstance(verification,str) and verification.strip() and has_cite):
+                    from .progress import POLICY as _POLICY
+                    p=state.setdefault('progress',{'policy':dict(_POLICY),'observations':0,'writes':0,
+                        'failed_tests':0,'review_rejections':0,'results':{}})
+                    p.setdefault('policy',dict(_POLICY))
+                    p['self_verify_count']=p.get('self_verify_count',0)+1
+                    state['recovery']={'kind':'self_verify_first','automatic_retry':False,
+                        'ask_kind':kind,'count':p['self_verify_count'],
+                        'hint':('This looks like a TECHNICAL question you can resolve with your own authorized tools '
+                                '(git_log/git_show for a commit relationship, search/read for whether a term or file exists, '
+                                'read to trace a flow). Verify it yourself first: run the check, then either act on the result '
+                                'or, if a real question remains, re-ask with kind, a `verification` describing what you checked '
+                                'and a `verified_receipt` index citing the evidence. If instead this is an authority/permission, '
+                                'business, or genuine UI-version choice, set kind accordingly and it will reach the user.')}
+                    return {'action':'ask','blocked':'self_verify_first','recovery':state['recovery']}
             question={'schema_version':1,'question':args['question'],'reason':args['reason'],
                 'impact':'This job waits; its deadline and permissions do not change.',
                 'options':args['options'],'recommendation':args['recommendation'],
@@ -908,6 +939,10 @@ class Owned(Workflow):
         # inactive signal costs nothing and an active one never by itself pushes a job onto the prompt-cap block.
         switch=(state.get('progress') or {}).get('strategy_switch')
         if switch and not compact: value=dict(value,strategy_switch=switch)
+        reconsider=(state.get('progress') or {}).get('reconsider')
+        # Reconsider is a bounded recovery hint (Mechanism A): the worker re-read an already-served page without advancing
+        # its plan. Keep it even under the tight cap (it is small and it is exactly what the worker must act on).
+        if reconsider: value=dict(value,reconsider=reconsider)
         if not compact and len(canonical(value))<=3000: return value
         value=dict(value,repeats=value['repeats'][-2:],recent_failures=[dict(f,error=f['error'][:120]) for f in value['recent_failures'][-2:]],
                    note='From the checkpoint; counters are never reset by a resume. Act differently on blocked_before.')

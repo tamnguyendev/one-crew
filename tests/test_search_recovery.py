@@ -169,4 +169,70 @@ class SearchEfficiencyAndStrategySwitchTests(unittest.TestCase):
                 {'matches':[{'path':'a.dart','lines':[1]}],'directories':[],'next_cursor':None,'files_scanned':1,'scanned_through':1})
         self.assertNotIn('strategy_switch',state['progress'])
 
+class ReconsileAndAskGateTests(unittest.TestCase):
+    """P6 R4 two-mechanism fix: (A) progress-reconciliation recovery when a receipt re-selects an already-served page with
+    an unchanged plan; (B) verify-premise gate before a technical ask. Exercises REAL progress.observe and the REAL owned
+    ask handler (model stubbed via fixtures, handler NOT reimplemented)."""
+    def _page(self, idx, off):
+        return {'matches':None}  # unused; receipt result shape below
+
+    def test_A_reread_same_served_page_unchanged_plan_reconsiders_then_blocks(self):
+        state={'phase':'running','snapshot':None,'plan':'Step 40: read offset 8649'}
+        args={'index':62,'offset':8649}
+        res={'text':'section 2.4','next_cursor':10553}
+        # first receipt page: served, credited as progress (new page)
+        observe(state,'receipt',args,res)
+        self.assertEqual(state['phase'],'running')
+        self.assertNotIn('reconsider',state['progress'])
+        # re-select the SAME page with the SAME (stale) plan -> reconsider signal, still running
+        observe(state,'receipt',args,res)
+        self.assertEqual(state['phase'],'running')
+        self.assertIn('reconsider',state['progress'])
+        self.assertEqual(state['progress']['reconsider']['kind'],'already_read_region')
+        # re-select AGAIN, still stale -> reconsider limit reached -> blocked (honest, finite)
+        observe(state,'receipt',args,res)
+        self.assertEqual(state['phase'],'blocked')
+        self.assertIn('without advancing the plan',state['message'])
+
+    def test_A_valid_reread_after_plan_update_is_allowed(self):
+        state={'phase':'running','snapshot':None,'plan':'Step 40: read offset 8649'}
+        args={'index':62,'offset':8649}; res={'text':'x','next_cursor':10553}
+        observe(state,'receipt',args,res)
+        # genuine plan update (new conclusion) BEFORE re-reading -> not a stale re-read, no block
+        state['plan']='Found: registration flow lives in hms_signature_trans; next read lib/foo.dart'
+        observe(state,'receipt',args,res)
+        self.assertEqual(state['phase'],'running')
+        # a plan-WORDING-only change does not count as progress: revert conclusion, re-read twice -> reconsiders/blocks
+        state['plan']='Step 40: READ offset 8649   '  # same normalized conclusion as start
+        observe(state,'receipt',args,res); observe(state,'receipt',args,res)
+        self.assertEqual(state['phase'],'blocked')
+
+    def test_A_counters_survive_checkpoint_roundtrip(self):
+        import json
+        state={'phase':'running','snapshot':None,'plan':'p'}
+        args={'index':5,'offset':100}; res={'text':'y','next_cursor':200}
+        observe(state,'receipt',args,res)
+        state=json.loads(json.dumps(state))  # simulate checkpoint persist/restore
+        observe(state,'receipt',args,res)
+        self.assertIn('reconsider',state['progress'])  # served_pages survived the roundtrip
+
+    def test_B_technical_ask_without_verification_is_self_verify_first_not_user_halt(self):
+        fixture=fixtures.OwnedTests();fixture.setUp();self.addCleanup(fixture.doCleanups)
+        run,task,worker=fixture.runtime([fixtures.action('ask',question='Is commit X ahead of HEAD?',
+            reason='need to know',options=[{'id':'a','label':'ahead'},{'id':'b','label':'in HEAD'}],
+            recommendation='a',kind='technical')])
+        state=run.run(task,steps=1)
+        self.assertEqual(state['phase'],'running')  # NOT waiting on the user
+        self.assertEqual((state.get('recovery') or {}).get('kind'),'self_verify_first')
+        self.assertEqual(run.ledger.requests(task,pending=True),[])  # no user request created
+
+    def test_B_authority_ask_reaches_the_user(self):
+        fixture=fixtures.OwnedTests();fixture.setUp();self.addCleanup(fixture.doCleanups)
+        run,task,worker=fixture.runtime([fixtures.action('ask',question='Which account may I deploy to?',
+            reason='missing authority',options=[{'id':'a','label':'prod'},{'id':'b','label':'staging'}],
+            recommendation='b',kind='authority')])
+        state=run.run(task,steps=1)
+        self.assertEqual(state['phase'],'waiting')  # genuine authority question reaches the user
+        self.assertEqual(len(run.ledger.requests(task,pending=True)),1)
+
 if __name__=='__main__': unittest.main()
