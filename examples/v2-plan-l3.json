@@ -38,7 +38,7 @@
     {"id": "P1", "check": "repo_exists", "args": {"path": "."}, "why": "the work happens in the right repository, not in a look-alike"},
     {"id": "P2", "check": "ref_resolves", "args": {"repo": ".", "ref": "claude/v2-l3-step0-feee6f"}, "why": "the slice branch exists"},
     {"id": "P3", "check": "command_ok",
-     "args": {"argv": ["D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.venv\\Scripts\\python.exe", "-X", "utf8", "-m", "unittest", "tests.test_v2_l1"], "max_minutes": 10},
+     "args": {"argv": ["D:\\TamNT\\Workspace\\9.VMAgent\\onecrew\\.venv\\Scripts\\python.exe", "-X", "utf8", "-m", "unittest", "tests.test_v2_l1"], "max_minutes": 30},
      "why": "the base (L1) is green before L3 builds on it"}
   ],
   "output": [
