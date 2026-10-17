@@ -1023,8 +1023,12 @@ class Owned(Workflow):
         # starve the latest result. The full prose is not retrievable context - it is the same string every prompt.
         if reconsider: value=dict(value,reconsider=self._hint_signal(reconsider) if tighter else reconsider)
         # Git-Show mode hint (Codex GXP6): exhausted-list recovery; advisory, so treated like strategy_switch -- include only when set and not under the tight cap.
+        # Git-Show mode hint (Codex GXP6 V2 BUG1): exhausted-list recovery. Keep it even under the tight cap -- it is exactly
+        # what the worker must act on -- but reduce to the actionable signal via _hint_signal when the prompt is compact or
+        # tighter, so the short directive lands in the FINAL prompt the adapter receives without the fixed prose starving the
+        # latest-result page. Mirrors reconsider's treatment; dropping only the deterministic text the core re-renders.
         gshow=(state.get('progress') or {}).get('git_show_mode')
-        if gshow and not compact: value=dict(value,git_show_mode=self._hint_signal(gshow) if tighter else gshow)
+        if gshow: value=dict(value,git_show_mode=self._hint_signal(gshow) if (tighter or compact) else gshow)
         if not compact and len(canonical(value))<=3000: return value
         keep=1 if tighter else 2; errlen=60 if tighter else 120
         value=dict(value,repeats=value['repeats'][-keep:],recent_failures=[dict(f,error=f['error'][:errlen]) for f in value['recent_failures'][-keep:]],

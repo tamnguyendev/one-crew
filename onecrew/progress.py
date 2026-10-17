@@ -208,10 +208,21 @@ def observe(state, action, args, result):
         # Surface a STRUCTURED signal naming the mode + valid next action (pick a path yourself); the core never picks the file or rewrites the command.
         # No keyword/path/SHA is named; the hint is fixed text (no counter in it to dodge the guard). Cleared on any non-git_show action.
         if action == 'git_show' and 'error' not in result and result.get('mode') == 'changed_file_list' and result.get('next_cursor') is None and count > 1:
-            p['git_show_mode'] = {'kind': 'file_list_exhausted', 'total_files': result.get('total_paths'),
+            p['git_show_mode'] = {'kind': 'file_list_exhausted', 'commit': result.get('commit'), 'total_files': result.get('total_paths'),
                 'hint': ('You reached the end of the changed-file LIST for this commit (git_show with no path). Re-calling the list returns the same result. '
                         'To read a file diff, call git_show with the same commit and path=one of the filenames already listed (cursor=0) -- pick the file yourself. '
                         'The LIST total and a single file diff are different things; do not re-request the exhausted list.')}
+        # V2 BUG2: the warning is resolved by RESULT + WORK SCOPE, not just by leaving git_show. A SUCCESSFUL file_diff read
+        # (mode=file_diff, no error) satisfies the 'pick a path' instruction, so clear the matching commit's warning. A tool
+        # ERROR is not a successful recovery (handled by the 'error' not in result guard). Do not carry a stale warning to an
+        # UNRELATED commit: a changed_file_list for a DIFFERENT commit drops the prior commit's warning (the new set-branch
+        # above re-raises only on its own exhaustion). The guard/history are never reset to go green.
+        elif action == 'git_show' and 'error' not in result and result.get('mode') == 'file_diff':
+            g = p.get('git_show_mode')
+            if g and g.get('commit') == result.get('commit'): p.pop('git_show_mode', None)
+        elif action == 'git_show' and 'error' not in result and result.get('mode') == 'changed_file_list':
+            g = p.get('git_show_mode')
+            if g and g.get('commit') not in (None, result.get('commit')): p.pop('git_show_mode', None)
         elif action != 'git_show': p.pop('git_show_mode', None)
         if p['observations'] >= limits['observation_limit']:
             reason = 'Exploration limit reached: act on existing evidence or clarify scope before continuing.'
