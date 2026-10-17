@@ -59,6 +59,8 @@ def execute(path):
 
 
 if __name__=='__main__':
+    # canonical() keeps non-ASCII text; a legacy console codepage must not turn a test name into a charmap crash.
+    sys.stdout.reconfigure(encoding='utf-8');sys.stderr.reconfigure(encoding='utf-8')
     try:print(canonical(execute(Path(sys.argv[1]))))
     except (LedgerError,OSError,ValueError) as error:
         print(canonical({'passed':False,'detail':str(error)[:2000]}));sys.exit(1)

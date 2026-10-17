@@ -18,7 +18,8 @@ class SubscriptionTests(unittest.TestCase):
                   'CLAUDE_CODE_USE_BEDROCK':'1', 'CODEX_API_KEY':'paid',
                   'CHATGPT_BASE_URL':'alternate', 'CLAUDE_CODE_CLIENT_DATA_URL':'managed-policy'}
         result = environment(source)
-        self.assertEqual(set(result), {'Path','SYSTEMROOT','CODEX_HOME','CLAUDE_CODE_OAUTH_TOKEN','CLAUDE_CODE_CLIENT_DATA_URL'})
+        self.assertEqual(set(result), {'Path','SYSTEMROOT','CODEX_HOME','CLAUDE_CODE_OAUTH_TOKEN','CLAUDE_CODE_CLIENT_DATA_URL',
+                                      'PYTHONUTF8','PYTHONIOENCODING'})  # S1: the only keys the runtime adds
         self.assertEqual(source['openai_api_key'], 'paid')
 
     def test_codex_rejects_api_unknown_failed_auth_and_uses_clean_environment(self):

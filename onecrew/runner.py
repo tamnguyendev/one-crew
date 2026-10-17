@@ -199,7 +199,8 @@ def start(ledger, task_id, initiator=None):
             '--state-root', str(ledger.state_root), task_id]
     from .interventions import actor
     # The runner's own later actions are OneCrew's, not the launching entry's.
-    env = dict(os.environ, ONECREW_RUNNER_INITIATOR=initiator or actor(), ONECREW_ACTOR='onecrew')
+    env = dict(os.environ, ONECREW_RUNNER_INITIATOR=initiator or actor(), ONECREW_ACTOR='onecrew',
+               PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
     with (directory/'stdout.txt').open('wb') as out, (directory/'stderr.txt').open('wb') as err:
         # Break away from the launcher's Job. If forbidden, fail rather than claiming durability.
         process = subprocess.Popen(argv, cwd=Path(__file__).resolve().parents[1], stdin=subprocess.DEVNULL,

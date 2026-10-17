@@ -441,6 +441,7 @@ def environment(runtime, task_id, contract=None, verification=False):
     root = home(runtime, task_id); tmp = root / ('vtmp' if verification else 'tmp'); tmp.mkdir(exist_ok=True)
     env['TEMP'] = env['TMP'] = str(tmp)
     env.setdefault('CI', 'true')
+    env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8')  # same codepage independence as the gate and the runner
     env['PYTHONDONTWRITEBYTECODE'] = '1'  # no stale bytecode, no __pycache__ in the workspace diff
     if contract is not None and boundary(contract) == 'contained':
         cache = root / ('vcache' if verification else 'cache')
