@@ -50,7 +50,7 @@ class Fixture(unittest.TestCase):
         (self.root / 'a.txt').write_text('one\n'); self.git('add', '.'); self.git('commit', '-q', '-m', 'base')
         self.ledger = Ledger(self.root, base / 'state')
         env = patch.dict(os.environ); env.start(); self.addCleanup(env.stop)
-        for name in ('ONECREW_ACTOR', 'ONECREW_V2_REQUIRE_PLAN'): os.environ.pop(name, None)
+        for name in ('ONECREW_ACTOR', 'ONECREW_V2_REQUIRE_PLAN', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION'): os.environ.pop(name, None)
 
     def git(self, *args):
         return subprocess.check_output(['git', '-C', str(self.root), *args], stderr=subprocess.PIPE).decode().strip()

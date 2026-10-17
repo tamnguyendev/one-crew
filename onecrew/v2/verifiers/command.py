@@ -9,9 +9,9 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
-import zipfile
 from pathlib import Path
 
 from ...ledger import LedgerError, canonical, utcnow
@@ -21,7 +21,9 @@ OUTPUT_CAP = 1_000_000
 
 
 def _git(directory, *args, env=None):
-    done = subprocess.run(['git', '-C', str(directory), *args], capture_output=True, env=env, timeout=120,
+    # F8: the caller's GIT_DIR / GIT_WORK_TREE / ... never reach git; only what this module sets (GIT_INDEX_FILE) does
+    clean = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
+    done = subprocess.run(['git', '-C', str(directory), *args], capture_output=True, env=dict(clean, **{k: v for k, v in (env or {}).items() if k.upper().startswith('GIT_')}), timeout=120,
                           creationflags=0x08000000 if os.name == 'nt' else 0)
     if done.returncode: raise LedgerError('git ' + ' '.join(args[:2]) + ' failed: ' + done.stderr.decode('utf-8', 'replace')[:300])
     return done.stdout.decode('utf-8', 'replace').strip()
@@ -37,7 +39,7 @@ def artifact_sha(directory):
     repository's own index and refs are not touched."""
     top = _git(directory, 'rev-parse', '--show-toplevel')
     with tempfile.TemporaryDirectory() as temp:
-        env = dict(os.environ, GIT_INDEX_FILE=str(Path(temp) / 'index'))
+        env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
         _git(top, 'read-tree', 'HEAD', env=env)
         _git(top, 'add', '-A', env=env)
         _git(top, 'rm', '-r', '--cached', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)  # hook files (.onecrew/) are not part of the artifact
@@ -48,13 +50,35 @@ def _checkout(directory, tree, destination):
     """C8: a clean checkout of exactly the artifact (`git archive <tree>`), so ignored files (__pycache__, build output) of the
     live workspace cannot change the result while the sha stays the same. Returns the directory to run in."""
     top = toplevel(directory)
-    archive = Path(destination) / 'artifact.zip'
-    _git(top, 'archive', '--format=zip', '-o', str(archive), tree)
     root = Path(destination) / 'src'
-    with zipfile.ZipFile(archive) as bundle: bundle.extractall(root)
-    archive.unlink()
+    root.mkdir()
+    # F1: read-tree + checkout-index, not `git archive`: export-ignore / export-subst in .gitattributes would change the tree.
+    env = {'GIT_INDEX_FILE': str(Path(destination) / 'checkout.index')}
+    _git(top, 'read-tree', tree, env=env)
+    _git(top, 'checkout-index', '-a', '-f', '--prefix=' + root.as_posix() + '/', env=env)
     relative = Path(directory).resolve().relative_to(top)
     return root / relative
+
+
+KEEP_ENV = {'PATH', 'PATHEXT', 'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'TEMP', 'TMP', 'TMPDIR', 'HOME', 'USERPROFILE', 'HOMEDRIVE',
+             'HOMEPATH', 'USERNAME', 'USER', 'LOGNAME', 'LOCALAPPDATA', 'APPDATA', 'PROGRAMDATA', 'PROGRAMFILES', 'PROGRAMFILES(X86)', 'COMMONPROGRAMFILES',
+             'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS', 'OS', 'LANG', 'LC_ALL', 'TZ', 'SHELL', 'TERM', 'CI'}
+
+
+def verifier_env(directory):
+    """F1: what the verifier sees is not the caller's environment. PYTHON*, GIT_*, *_PATH and every other variable are dropped (they can change
+    a result without changing the artifact); PATH loses entries that are relative or inside the project or its scratch."""
+    env = {k: v for k, v in os.environ.items() if k.upper() in KEEP_ENV}
+    top = str(Path(directory).resolve())
+    scratch = str(Path(tempfile.gettempdir()).resolve())
+    keep = []
+    for entry in env.get('PATH', '').split(os.pathsep):
+        if not entry or not os.path.isabs(entry): continue
+        resolved = str(Path(entry).resolve())
+        if resolved.startswith(top) or (resolved.startswith(scratch) and not resolved.startswith(str(Path(sys.executable).resolve().parent))): continue
+        keep.append(entry)
+    env['PATH'] = os.pathsep.join(keep)
+    return dict(env, PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
 
 
 def _kill_tree(process):
@@ -86,7 +110,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory):
 def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch):
     workspace = _checkout(directory, before, scratch)
     # S1: children are always UTF-8, so a Vietnamese path or message cannot turn a pass into an encoding failure.
-    env = dict(os.environ, PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
+    env = verifier_env(directory)
     started, error, timed_out, code, out, err = utcnow(), None, False, None, b'', b''
     begin = time.monotonic()
     try:

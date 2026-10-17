@@ -1,7 +1,9 @@
 """OneCrew v2, slice L2: enforcement while the AI works. Part A closes the Opus review conditions C6-C8; the hook tests run the
 real `onecrew hook ...` as a subprocess with stdin JSON in the documented Claude Code format.
 """
+import contextlib
 import datetime as dt
+import io
 import json
 import os
 import subprocess
@@ -136,7 +138,7 @@ class HookFixture(Fixture):
     def run_hook(self, verb, event=None, raw=None, extra=(), project=True, env=None):
         arguments = [PY, '-X', 'utf8', '-m', 'onecrew', *(['--project', str(self.root)] if project else []), '--state-root', str(self.state), 'hook', verb, *extra]
         data = raw if raw is not None else json.dumps(event or {}).encode('utf-8')
-        done = subprocess.run(arguments, input=data, capture_output=True, cwd=REPO, timeout=120, env=dict(os.environ, PYTHONUTF8='1', **(env or {})))
+        done = subprocess.run(arguments, input=data, capture_output=True, cwd=REPO, timeout=120, env=dict(dict({k: v for k, v in os.environ.items() if k not in ('CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE')}, PYTHONUTF8='1'), **(env or {})))
         return done.returncode, done.stdout.decode('utf-8'), done.stderr.decode('utf-8')
 
     def tool(self, name, **tool_input):
@@ -165,7 +167,7 @@ class ExportTests(HookFixture):
         self.assertEqual(document['owned'], OWNED)
         self.assertEqual(document['plan_sha'], plans.show(self.ledger, 'P1')['sha'])
         for key in ('non_goals', 'bash_deny', 'scratch', 'budget', 'expires', 'milestones', 'protected'): self.assertIn(key, document)
-        self.assertIn('git push', document['bash_deny'])
+        self.assertTrue(any('push' in rule for rule in document['bash_deny']))
 
     def test_an_amendment_does_not_widen_what_is_allowed_until_the_owner_approves_it(self):
         self.enforce()
@@ -224,10 +226,13 @@ class CheckTests(HookFixture):
 
     def test_bash_and_powershell_deny_rules(self):
         self.enforce()
-        denied = ['git push origin main', 'git tag v1', 'rm -rf build', 'pip install requests', 'cd x && git push', 'Remove-Item -Recurse -Force out',
+        denied = ['git -c core.x=1 push', 'git --no-pager  push origin', 'git -C . push', 'git config alias.p push', 'git push origin main', 'git tag v1', 'rm -rf build', 'pip install requests', 'cd x && git push', 'Remove-Item -Recurse -Force out',
                   'onecrew plan approve P1 --by owner --reference x', 'python -m onecrew plan accept P1 --by owner', 'onecrew plan enforce off --by owner',
                   'onecrew verdict record --plan P1 --milestone M1 --result pass --by owner', 'ONECREW_ACTOR=user onecrew plan show P1',
-                  'onecrew hook mode log --by owner --reference x']
+                  'onecrew hook mode log --by owner --reference x', 'python -m onecrew plan "approve" P1 --by owner', 'onecrew verdict record --by "owner" --plan P1',
+                  'env -i python -m onecrew plan app\\rove P1 --by owner', 'env -u CLAUDECODE onecrew plan show', 'python -m onecrew.v2.plan_cli plan approve P1 --by owner',
+                  r'D:\venv\Scripts\python.exe -X utf8 -m onecrew --project P plan approve P1 --by owner', 'ri -r -fo .onecrew', 'cmd //c rd /s /q .onecrew',
+                  'python -c "import shutil; shutil.rmtree(\'.onecrew\')"', 'rmdir /s .onecrew']
         for tool in ('Bash', 'PowerShell'):
             for command in denied:
                 code, _, err = self.run_hook('check', self.shell(command, tool))
@@ -279,9 +284,9 @@ class CheckTests(HookFixture):
 
     def test_an_expired_plan_blocks_in_enforce(self):
         self.enforce()
-        path = self.root / '.onecrew' / 'active-plan.json'
-        document = json.loads(path.read_text(encoding='utf-8')); document['expires'] = '2020-01-01T00:00:00+00:00'
-        path.write_text(json.dumps(document), encoding='utf-8')
+        for path in (self.root / '.onecrew' / 'active-plan.json', self.state / 'plans' / 'P1' / 'active-plan.json'):    # the state-root copy governs
+            document = json.loads(path.read_text(encoding='utf-8')); document['expires'] = '2020-01-01T00:00:00+00:00'
+            path.write_text(json.dumps(document), encoding='utf-8')
         code, _, err = self.run_hook('check', self.edit('a.txt'))
         self.assertEqual(code, 2); self.assertIn('expired', err)
 
@@ -550,6 +555,146 @@ class ChangeRequestTests(Fixture):
         task = submit(self.ledger, 'Fix arithmetic', 'job', mode='change', provider='claude', model='sonnet', image='sha256:' + 'a' * 64, **self.binding)
         for n in range(4):
             solution_gate.question(self.ledger, self.cid, f'q{n}', f'Change {n}?', 'r' * 300, [task['id']], 'claude')
+
+
+class ReviewOneTests(HookFixture):
+    """Opus review 1 of L2 (eaf4438): B1 and F1-F6, each with the way around it that the review found."""
+
+    # ---- B1 ---------------------------------------------------------------------------------------------------------
+    def test_b1_deleting_dot_onecrew_does_not_end_enforcement(self):
+        self.enforce()
+        for command in ('ri -r -fo .onecrew', 'cmd //c rd /s /q .onecrew', 'python -c "import shutil; shutil.rmtree(\'.onecrew\')"'):   # H27, H28, H29
+            self.assertEqual(self.run_hook('check', self.shell(command, 'PowerShell'))[0], 2, command)
+        import shutil
+        shutil.rmtree(self.root / '.onecrew')                                                  # the AI got round the shell rule anyway (H29)
+        code, _, err = self.run_hook('check', self.edit('README.md'))                          # H31: used to be exit 0
+        self.assertEqual(code, 2); self.assertIn('not in the owned scope', err)
+        self.assertEqual(self.run_hook('check', self.edit('src/ok.py'))[0], 0)                  # the state-root copy still says what is allowed
+        self.assertTrue((self.root / '.onecrew' / 'active-plan.json').exists())                 # and the project copy is put back
+        self.assertIn('plan_restored', [v['rule'] for v in self.violations()])
+        self.assertEqual(self.run_hook('check', self.shell('git push'))[0], 2)
+        self.assertTrue(self.violations())                                                     # and the record goes in again
+
+    def test_b1_a_project_copy_that_disagrees_with_the_state_root_is_tampered_with(self):
+        self.enforce()
+        path = self.root / '.onecrew' / 'active-plan.json'
+        document = json.loads(path.read_text(encoding='utf-8')); document['mode'] = 'log'; document['owned'] = ['**']
+        path.write_text(json.dumps(document), encoding='utf-8')
+        code, _, err = self.run_hook('check', self.edit('README.md'))
+        self.assertEqual(code, 2); self.assertIn('differs from the state-root copy', err)
+
+    def test_b1_log_mode_still_passes_when_the_project_copy_is_gone_and_other_projects_are_not_touched(self):
+        self.enforce(mode='log')
+        import shutil
+        shutil.rmtree(self.root / '.onecrew')
+        self.assertEqual(self.run_hook('check', self.edit('README.md'))[0], 0)
+        other = Path(self.temp.name) / 'other'; other.mkdir()
+        arguments = [PY, '-X', 'utf8', '-m', 'onecrew', '--project', str(other), '--state-root', str(self.state), 'hook', 'check']
+        done = subprocess.run(arguments, input=json.dumps(self.edit('x.py')).encode(), capture_output=True, cwd=REPO, timeout=120)
+        self.assertEqual(done.returncode, 0)                                                   # a plan of another project in the same state root does not govern it
+
+    def test_b1_what_the_install_prints_names_the_state_root(self):
+        from onecrew.v2 import hook_cli
+        config = hook_cli.settings(self.root, self.state, REPO)
+        for entries in config['hooks'].values():
+            args = entries[0]['hooks'][0]['args']
+            self.assertEqual(args[args.index('--state-root') + 1], str(self.state))
+
+    # ---- F1 ---------------------------------------------------------------------------------------------------------
+    def test_f1_the_callers_environment_does_not_reach_the_verifier(self):                      # C8-v1
+        (Path(self.temp.name) / 'poison').mkdir()
+        (Path(self.temp.name) / 'poison' / 'sitecustomize.py').write_text('import os\nos._exit(0)\n')    # forces exit 0 in any python that sees it
+        self.approved(value=plan_json(milestones=[milestone(argv=BAD)]))
+        with patch.dict(os.environ, {'PYTHONPATH': str(Path(self.temp.name) / 'poison'), 'GIT_DIR': str(self.root / 'nope')}):
+            view = verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.assertEqual((view['milestones'][0]['state'], view['milestones'][0]['last_verdict']['result']), ('failed', 'fail'))
+
+    def test_f1_export_ignore_does_not_change_the_tree_that_is_checked(self):                    # C8-v2
+        (self.root / 'failing.flag').write_text('x\n'); (self.root / '.gitattributes').write_text('failing.flag export-ignore\n')
+        self.git('add', '.'); self.git('commit', '-q', '-m', 'flag')
+        check = 'import os, sys; sys.exit(1 if os.path.exists("failing.flag") else 0)'
+        self.approved(value=plan_json(milestones=[milestone(argv=[PY, '-c', check])]))
+        self.assertEqual(subprocess.run([PY, '-c', check], cwd=self.root).returncode, 1)         # on the real tree it fails
+        view = verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.assertEqual(view['milestones'][0]['state'], 'failed')                              # git archive would have said passed
+
+    def test_f1_a_git_environment_in_the_caller_is_a_clear_refusal_not_a_crash(self):
+        decoy = self.root / 'decoy'; subprocess.check_call(['git', 'clone', '-q', str(self.root), str(decoy)])
+        self.approved()
+        with patch.dict(os.environ, {'GIT_DIR': str(decoy / '.git'), 'GIT_WORK_TREE': str(decoy)}):   # C6-v2
+            view = verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.assertEqual(view['milestones'][0]['last_verdict']['artifact_sha'], self.tree())    # the project's tree, whatever the caller exported
+
+    # ---- F2 ---------------------------------------------------------------------------------------------------------
+    def test_f2_the_owners_verbs_are_refused_in_an_ai_tool_session(self):
+        from onecrew import cli
+        self.propose()
+        base = ['--project', str(self.root), '--state-root', str(self.state)]
+        with patch.dict(os.environ, {'CLAUDE_CODE_CHILD_SESSION': '1'}):
+            for argv in (['plan', 'approve', 'P1', '--by', 'owner', '--reference', 'x'], ['plan', 'accept', 'P1', '--by', 'owner', '--reference', 'x', '--artifact-sha', 'a' * 40],
+                         ['plan', 'enforce', 'off', '--by', 'owner', '--reference', 'x'], ['hook', 'mode', 'log', '--by', 'owner', '--reference', 'x'],
+                         ['verdict', 'record', '--plan', 'P1', '--milestone', 'M1', '--result', 'pass', '--by', 'owner', '--receipt', 'a' * 64, '--artifact-sha', 'a' * 40]):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out): code = cli.main(base + argv)
+                self.assertEqual(code, 2, argv); self.assertIn('AI tool session', out.getvalue())
+            with self.assertRaises(LedgerError): gate.set_enforced(self.ledger, False, 'owner', 'x')
+        self.assertEqual(plans.show(self.ledger, 'P1')['status'], 'proposed')
+        with patch.dict(os.environ, {'CLAUDECODE': '1'}):                                           # the owner's IDE terminal has CLAUDECODE but no CHILD_SESSION
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out): code = cli.main(base + ['plan', 'approve', 'P1', '--by', 'owner', '--reference', 'x'])
+        self.assertEqual(code, 0, out.getvalue())
+
+    def test_f2_the_deny_rules_cover_the_way_the_machine_really_calls_onecrew(self):
+        from onecrew.v2 import hook_cli
+        deny = hook_cli.settings(self.root, self.state, REPO)['permissions']['deny']
+        for verb in ('plan approve', 'plan accept', 'plan enforce', 'verdict record', 'hook mode'):
+            for tool in ('Bash', 'PowerShell'): self.assertIn(f'{tool}(*{verb}*)', deny)       # leading wildcard: venv python, -X utf8, onecrew.cmd
+        for rule in ('Bash(git * push*)', 'PowerShell(git * push*)', 'Bash(git config * alias.*)'): self.assertIn(rule, deny)
+
+    # ---- F4 ---------------------------------------------------------------------------------------------------------
+    def test_f4_only_the_memory_folder_of_this_project_is_writable_under_dot_claude(self):
+        from onecrew.v2 import active_plan
+        self.enforce()
+        home = Path.home() / '.claude'
+        for target in (home / 'CLAUDE.md', home / 'agents' / 'x.md', home / 'commands' / 'y.md', home / 'settings.json', home / 'projects' / 'other' / 'memory' / 'a.md'):
+            self.assertEqual(self.run_hook('check', self.tool('Write', file_path=str(target)))[0], 2, str(target))
+        mine = Path(active_plan.memory_dir(self.root)) / 'note.md'
+        self.assertEqual(self.run_hook('check', self.tool('Write', file_path=str(mine)))[0], 0, str(mine))
+
+    # ---- F5 ---------------------------------------------------------------------------------------------------------
+    def test_f5_every_kind_counts_towards_the_limit_and_needs_a_short_reason(self):
+        import tests.test_solution_gate as sg
+        from onecrew import conversations as c
+        binding = sg.approve_fixture(self.ledger)
+        cid = c.show_solution(self.ledger, binding['solution_id'])['conversation']
+        self.approved('P1', plan_json())
+        gate.set_enforced(self.ledger, True, 'owner', 'test')
+        task = submit(self.ledger, 'Fix arithmetic', 'P1', mode='change', provider='claude', model='sonnet', image='sha256:' + 'a' * 64, **binding)
+        ask = lambda n, kind, **extra: solution_gate.question(self.ledger, cid, f'k{n}', f'Q{n}?', extra.pop('reason', 'short reason'), [task['id']], 'claude', kind, **extra)
+        with self.assertRaises(LedgerError): ask(0, 'technical_review', reason='r' * 300)             # 200 characters for every kind
+        ask(1, 'technical_review'); ask(2, 'clarification')
+        for n, kind in ((3, 'technical_review'), (4, 'clarification'), (5, 'solution_change')):
+            with self.assertRaises(LedgerError) as caught: ask(n, kind, delta={'add': ['x']})
+            self.assertIn('max_changes', str(caught.exception))
+        self.assertEqual(plans.show(self.ledger, 'P1')['status'], 'stopped_with_report')
+
+    # ---- F3 / F6 ----------------------------------------------------------------------------------------------------
+    def test_f6_powershell_aliases_and_dotnet_writes_outside_owned_are_blocked(self):
+        self.enforce()
+        for command in ('sc README.md x', 'ac README.md x', '"x" | Tee-Object -FilePath README.md', 'x | Tee-Object README.md', '[IO.File]::WriteAllText("README.md","x")',
+                        '[System.IO.File]::AppendAllText(\'README.md\', "x")', 'ni README.md', 'ni -Path README.md -ItemType File', 'ri README.md', 'rd other', 'mi a.txt README.md',
+                        'cpi a.txt -Destination README.md', 'Export-Csv -Path README.md', 'rni a.txt b.txt'):
+            self.assertEqual(self.run_hook('check', self.shell(command, 'PowerShell'))[0], 2, command)
+        for command in ('sc a.txt x', 'ac src/new.py "x y"', '[IO.File]::WriteAllText("src/x.py","x")', 'x | Tee-Object src/log.txt', 'ni src/new.txt', 'ri src/old.py',
+                        'Get-Content a.txt', 'ls', 'sc.exe query'.replace('sc.exe query', 'Get-ChildItem src')):
+            self.assertEqual(self.run_hook('check', self.shell(command, 'PowerShell'))[0], 0, command)
+
+    # ---- F11 (documented behaviour) ---------------------------------------------------------------------------------
+    def test_f11_the_stop_counter_restarts_after_it_lets_go(self):
+        self.enforce()
+        stop = {'session_id': 'sx', 'cwd': str(self.root), 'hook_event_name': 'Stop'}
+        answers = [bool(self.run_hook('stop', stop)[1].strip()) for _ in range(4)]
+        self.assertEqual(answers, [True, True, False, True])                                        # "2 blocks per stop attempt", not per session
 
 
 if __name__ == '__main__':

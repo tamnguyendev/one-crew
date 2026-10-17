@@ -51,7 +51,10 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
     if result not in RESULTS: raise LedgerError('Result must be pass, fail or inconclusive.')
     if not isinstance(artifact_sha, str) or not SHA.fullmatch(artifact_sha): raise LedgerError('artifact sha must be a 40/64-hex hash.')
     key_field(milestone_id); text_field(by, 'by', 60)
-    if by == 'owner': plans.require_owner(by, 'An owner verdict')
+    if by == 'owner':
+        plans.require_owner(by, 'An owner verdict')
+        from .ownership import refuse_in_ai_session
+        refuse_in_ai_session('An owner verdict')
     stopped = None
     with ledger.transaction(write=True) as conn:
         state = plans.anchor_events(ledger, conn, name)

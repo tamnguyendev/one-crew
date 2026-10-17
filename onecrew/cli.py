@@ -79,10 +79,13 @@ def main(argv=None):
     if len(args)>index and args[index]=='qc':
         from .qc_cli import main as qc_main
         return qc_main(args)
-    if len(args)>index and args[index]=='hook':  # v2 L2: Claude Code hooks for the active plan
-        from .v2.hook_cli import main as hook_main
-        return hook_main(args)
-    if len(args)>index and args[index] in ('plan','verdict'):  # v2 (docs/v2-vs-v1.vi.md); no v1 verb is named plan or verdict
+    if len(args)>index and args[index] in ('hook','plan','verdict'):  # v2 (docs/v2-vs-v1.vi.md); no v1 verb is named plan, verdict or hook
+        from .v2.ownership import refuse_argv  # C3: the owner's verbs are refused inside an AI tool session
+        refused=refuse_argv(args[index:])
+        if refused:return refused
+        if args[index]=='hook':
+            from .v2.hook_cli import main as hook_main
+            return hook_main(args)
         from .v2.plan_cli import main as v2_main
         return v2_main(args)
     if len(args)>index and args[index]=='entry':

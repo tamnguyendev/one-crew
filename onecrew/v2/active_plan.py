@@ -13,6 +13,7 @@ says that a newer one waits for the owner.
 import datetime as dt
 import json
 import os
+import re
 import sys
 import tempfile
 import uuid
@@ -23,14 +24,23 @@ from ..ledger import LedgerError, utcnow
 FILE = 'active-plan.json'
 EXPIRY_HOURS = 24
 # Commands an AI session may not run while a plan is active. Plain entries are case-insensitive substrings; `re:` entries are regexes.
-DEFAULT_BASH_DENY = ['git push', 're:\\bgit\\s+tag\\s+(?!-l\\b|--list\\b|-n\\b)\\S', 'rm -rf', 'Remove-Item -Recurse', 'pip install',
-                     're:\\bplan\\s+(approve|accept|enforce)\\b',                    # C3: the owner's verbs are not the AI's
-                     're:\\bverdict\\s+record\\b.*--by[ =]+owner', 're:\\bhook\\s+mode\\b',
-                     're:ONECREW_ACTOR', 're:\\b(git\\s+)?(reset\\s+--hard|clean\\s+-[a-z]*f)']
+GIT = r'\bgit\b(?:\s+-\S+(?:\s+\S+)?)*'                                       # git, git -c k=v, git --no-pager, git -C dir
+DEFAULT_BASH_DENY = ['re:' + GIT + r'\s+push\b', 're:' + GIT + r'\s+tag\s+(?!-l\b|--list\b|-n\b)\S', 're:' + GIT + r'\s+config\b.*\balias\.',
+                     'rm -rf', 'Remove-Item -Recurse', 'pip install',
+                     r're:\bplan\s+(approve|accept|enforce)\b',                    # C3: the owner's verbs are not the AI's
+                     r're:\bverdict\s+record\b.*--by[ =]+owner', r're:\bhook\s+mode\b', r're:\bplan_cli\b',
+                     're:ONECREW_ACTOR|CLAUDECODE|CLAUDE_CODE_', r're:\b(git\s+)?(reset\s+--hard|clean\s+-[a-z]*f)',
+                     r're:(?:\bri\b|\brd\b|\brmdir\b|\bdel\b|remove-item|rmtree|os\.(?:remove|unlink|rmdir)|shutil\.move)[^|;&]*\.?onecrew']  # B1: deleting .onecrew
 # Paths an AI may not write (Edit/Write tools) or mention in a shell command except to read them. Relative entries are project-relative.
 DEFAULT_PROTECTED = ['.onecrew/', '.claude/settings.json', '.claude/settings.local.json']
 DEFAULT_SCRATCH = ['.onecrew/scratch/']
+DEFAULT_GUARDED_HOME = ['CLAUDE.md', 'agents', 'commands', 'skills', 'hooks', 'settings.json', 'settings.local.json']   # F4: instructions for every later session
 DEFAULT_KEYWORDS = ['giờ', 'bỏ test', 'skip', 'không cần', 'nhanh lên', 'hours', 'skip test']
+
+
+def memory_dir(project):
+    """The Claude Code memory folder of this project (~/.claude/projects/<path with non-alphanumerics as '-'>/memory): the only part of ~/.claude an AI may write."""
+    return str(Path.home() / '.claude' / 'projects' / re.sub(r'[^A-Za-z0-9]', '-', str(Path(project).resolve())) / 'memory')
 
 
 def project_file(project):
@@ -83,8 +93,8 @@ def build(ledger, name):
             'mode': chosen.get('mode', 'log'), 'title': contract['title'], 'output': contract['output'],
             'owned': contract['scope']['owned'], 'non_goals': contract['non_goals'],
             'bash_deny': list(DEFAULT_BASH_DENY) + list(chosen.get('bash_deny', [])),
-            'protected': list(DEFAULT_PROTECTED) + [str(root / 'plans'), str(root)],
-            'scratch': list(DEFAULT_SCRATCH) + [tempfile.gettempdir(), str(Path.home() / '.claude')],
+            'protected': list(DEFAULT_PROTECTED) + [str(root / 'plans'), str(root)] + [str(Path.home() / '.claude' / n) for n in DEFAULT_GUARDED_HOME],
+            'scratch': list(DEFAULT_SCRATCH) + [tempfile.gettempdir(), memory_dir(ledger.project)],
             'budget': contract['budget'], 'attention': contract['attention'],
             'milestones': [{'id': v['id'], 'title': v['title'], 'state': v['state'], 'verifier': v['verifier']} for v in views],
             'prompt_keywords': chosen.get('prompt_keywords', DEFAULT_KEYWORDS), 'project': str(Path(ledger.project).resolve()),

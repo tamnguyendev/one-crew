@@ -29,6 +29,8 @@ def enforced(ledger):
 
 
 def set_enforced(ledger, on, who, reference):
+    from .ownership import refuse_in_ai_session
+    refuse_in_ai_session('Changing enforcement')
     path = _plans(ledger)
     path.mkdir(parents=True, exist_ok=True)
     temporary = path / ('policy.json.' + uuid.uuid4().hex + '.tmp')

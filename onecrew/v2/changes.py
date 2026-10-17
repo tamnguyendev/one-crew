@@ -13,21 +13,20 @@ DELTA_KEYS = ('add', 'drop', 'budget_delta')
 
 def check_request(ledger, cid, kind, reason, delta):
     from . import gate
-    if kind != 'solution_change' or not gate.enforced(ledger): return
-    if not isinstance(reason, str) or not reason.strip() or len(reason) > 200:
-        raise LedgerError('A change request needs a reason of 1-200 characters (v2 gate on).')
-    if not isinstance(delta, dict) or not delta or set(delta) - set(DELTA_KEYS) or len(json.dumps(delta)) > 1000:
+    if not gate.enforced(ledger): return
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > 200:       # F5: every kind, the asker's own label decides nothing
+        raise LedgerError('A request to the owner needs a reason of 1-200 characters (v2 gate on).')
+    if kind == 'solution_change' and (not isinstance(delta, dict) or not delta or set(delta) - set(DELTA_KEYS) or len(json.dumps(delta)) > 1000):
         raise LedgerError('A change request needs a delta with at least one of add, drop, budget_delta (v2 gate on).')
     from .. import conversations as c
     with ledger.transaction() as conn:
         if not c.installed(conn): return
-        made = [r for r in conn.execute('SELECT payload FROM conversation_questions WHERE conversation=?', (cid,))
-                if json.loads(r['payload']).get('kind') == 'solution_change']
+        made = list(conn.execute('SELECT payload FROM conversation_questions WHERE conversation=?', (cid,)))   # F5: all kinds count
         keys = [r['task_id'] for r in conn.execute('SELECT task_id FROM solution_bindings WHERE conversation=?', (cid,))]
         names = [conn.execute('SELECT request_key FROM tasks WHERE id=?', (t,)).fetchone()['request_key'] for t in keys]
     if len(made) < MAX_CHANGES: return
     stopped = [name for name in dict.fromkeys(names) if _stop(ledger, name)]
-    raise LedgerError(f'Change request {len(made) + 1} refused: {MAX_CHANGES} were already made for this conversation (max_changes). '
+    raise LedgerError(f'Request {len(made) + 1} to the owner refused: {MAX_CHANGES} were already made for this conversation (max_changes). '
                       + ('Plan ' + ', '.join(stopped) + ' is now stopped_with_report: the owner decides.' if stopped else 'The owner decides.'))
 
 

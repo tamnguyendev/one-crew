@@ -68,7 +68,10 @@ def load_plan(path):
 def record(project, plan, event, tool, reason, rule, subject='', session=None, mode=None):
     """Append to <project>/.onecrew/violations.jsonl (no ledger lock). Only when .onecrew/ exists: a repo without a plan stays untouched."""
     folder = Path(project) / '.onecrew'
-    if not folder.is_dir(): return
+    try:
+        folder.mkdir(exist_ok=True)                      # a plan governs this project, so the record goes in even if .onecrew/ was deleted
+    except OSError:
+        return
     line = {'id': uuid.uuid4().hex, 'at': now(), 'event': event, 'tool': tool, 'rule': rule, 'reason': reason[:400], 'subject': subject[:300],
             'plan': (plan or {}).get('plan'), 'revision': (plan or {}).get('revision'), 'mode': mode or (plan or {}).get('mode'), 'session': session}
     try:
@@ -160,35 +163,50 @@ def judge_path(plan, root, target, action):
 # ---- shell commands --------------------------------------------------------------------------------------------------------
 
 REDIRECT = re.compile(r'(?<![<>&-])\d?>>?(?![&>])\s*("[^"]*"|\'[^\']*\'|[^\s;|&<>()]+)')
-WRITERS = re.compile(r'(?:^|[\s;|&(])(?:(?:tee)(?:\s+-a)?|set-content|add-content|out-file|new-item|copy-item|move-item|cp|mv|copy|move|ren|rename|del|rm|remove-item|mkdir|touch)\b'
+EVERY = ('rm', 'del', 'erase', 'rd', 'rmdir', 'ri', 'remove-item', 'mkdir', 'md', 'touch', 'tee')        # every plain word is a target
+FIRST = ('set-content', 'sc', 'add-content', 'ac', 'out-file', 'tee-object', 'new-item', 'ni', 'export-csv', 'export-clixml')   # the first one is
+COPY = ('cp', 'mv', 'copy', 'move', 'copy-item', 'cpi', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni')              # the last one is
+NAMED = ('-path', '-filepath', '-literalpath', '-destination', '-name')
+WRITERS = re.compile(r'(?:^|[\s;|&(])(' + '|'.join(re.escape(n) for n in sorted(EVERY + FIRST + COPY, key=len, reverse=True)) + r')(?=\s)'
                      r'((?:\s+(?:-\w+\s+\S+|-\w+|"[^"]*"|\'[^\']*\'|[^\s;|&<>-][^\s;|&<>]*))+)', re.I)
+DOTNET = re.compile(r'\[(?:System\.)?IO\.(?:File|Directory)\]::(\w+)\(\s*("[^"]*"|\'[^\']*\'|[^,)\s]+)(?:\s*,\s*("[^"]*"|\'[^\']*\'|[^,)\s]+))?', re.I)
 SED_I = re.compile(r'\bsed\s+(?:-\w*i\w*|--in-place)\b[^|;&]*?\s("[^"]+"|\'[^\']+\'|[^\s;|&<>]+)\s*(?:[;|&]|$)', re.I)
 
 
 def shell_targets(command):
-    """Paths a shell command text appears to write. Heuristic: redirects, tee/Set-Content/Out-File/cp/mv/rm..., sed -i."""
+    """Paths a shell command text appears to write. Heuristic: redirects, tee/Set-Content/sc/ac/Out-File/Tee-Object/cp/mv/rm/ri..., [IO.File]::, sed -i."""
     found = [m.group(1).strip('"\'') for m in REDIRECT.finditer(command)]
     for m in WRITERS.finditer(command):
-        words = re.findall(r'"[^"]*"|\'[^\']*\'|\S+', m.group(1))
-        cmd = m.group(0).strip(' ;|&(').split()[0].lower()
-        named = [words[i + 1] for i, w in enumerate(words[:-1]) if w.lower() in ('-path', '-filepath', '-literalpath', '-destination', '-name')]
-        switches = ('-a', '-append', '-force', '-recurse', '-r', '-f', '-noclobber', '-nonewline')
-        values = [w for i, w in enumerate(words) if not w.startswith('-') and not (i and words[i - 1].startswith('-') and words[i - 1].lower() not in switches)]
-        if cmd in ('cp', 'mv', 'copy', 'move', 'copy-item', 'move-item'): values = named[-1:] or values[-1:]
-        elif cmd in ('set-content', 'add-content', 'out-file', 'new-item'): values = named[:1] or values[:1]
+        cmd, words = m.group(1).lower(), re.findall(r'"[^"]*"|\'[^\']*\'|\S+', m.group(2))
+        named = [words[i + 1] for i, w in enumerate(words[:-1]) if w.lower() in NAMED]
+        plain = [w for w in words if not w.startswith('-')]
+        if cmd in EVERY: values = plain + named
+        elif cmd in COPY: values = named[-1:] or plain[-1:]
+        else:                                           # FIRST: -Value / -Encoding take a value, so only the first plain word counts
+            values = named[:1] or [w for i, w in enumerate(words) if not w.startswith('-') and not (i and words[i - 1].startswith('-'))][:1]
         found += [v.strip('"\'') for v in values]
+    for m in DOTNET.finditer(command):                  # the second argument is a path only for Copy / Move / Replace (WriteAllText takes the content)
+        found += [g.strip('"\'') for g in ((m.group(2), m.group(3)) if m.group(1).lower() in ('copy', 'move', 'replace') else (m.group(2),)) if g]
     found += [m.group(1).strip('"\'') for m in SED_I.finditer(command)]
     return [f for f in found if f]
 
 
+def variants(command):
+    """The command as written, without quotes/backticks/carets, and without backslashes too: `plan "approve"` and `plan app\rove` still name approve."""
+    unquoted = re.sub(r'["\'`^]', '', command)
+    return [command, unquoted, unquoted.replace('\\', '')]
+
+
 def judge_shell(plan, root, cwd, command):
-    folded = command.casefold()
+    forms = variants(command)
     for entry in plan.get('bash_deny', []):
-        hit = re.search(entry[3:], command, re.I) if entry.startswith('re:') else (entry.casefold() in folded)
-        if hit: return 'bash_deny', f'The command matches the deny rule "{entry[3:] if entry.startswith("re:") else entry}". Approval, acceptance, enforcement, push, tag and installs are the owner\'s. Ask the owner in chat.'
+        for form in forms:
+            hit = re.search(entry[3:], form, re.I) if entry.startswith('re:') else (entry.casefold() in form.casefold())
+            if hit: return 'bash_deny', f'The command matches the deny rule "{entry[3:] if entry.startswith("re:") else entry}". Approval, acceptance, enforcement, push, tag and installs are the owner\'s. Ask the owner in chat.'
     first = (re.findall(r'[\w.-]+', command) or [''])[0].lower()
-    flat = _fold(command)
-    for item in [_fold(plan.get('state_root', '')) + '/plans', 'policy.json', '.sqlite', 'active-plan.json', 'violations.jsonl', 'hook-state.json', '.claude/settings']:
+    flat = _fold(' '.join(forms)).replace('.onecrew/scratch', '')
+    for item in [_fold(plan.get('state_root', '')) + '/plans', 'policy.json', '.sqlite', 'active-plan.json', 'violations.jsonl', 'hook-state.json', '.claude/settings',
+                 '.onecrew', 'onecrew/plans']:
         if item in flat and first not in READ_ONLY:
             return 'protected', f'The command mentions {item}, which only the owner changes ({first or "?"} is not a read-only command).'
     for raw in shell_targets(command):
@@ -214,22 +232,72 @@ def read_stdin():
 
 
 def locate(args, event):
-    """An explicit --project (what `hook install --print` writes) is the only place looked at: a plan of some other project that happens
-    to contain the working directory must not govern it."""
-    if args.project: return find_plan_file([args.project], walk=False)
-    return find_plan_file([os.environ.get('CLAUDE_PROJECT_DIR'), event.get('cwd'), os.getcwd()])
+    """(plan_file, project root) of the plan that governs this call, or (None, None).
+
+    B1: the project copy `<project>/.onecrew/active-plan.json` is the first source and the state-root copy `<state-root>/plans/<name>/active-plan.json`
+    (written at the same time, outside the project) is the second. Deleting `.onecrew/` therefore does not end enforcement: a state-root copy that
+    names this project brings the plan back, and a project copy that disagrees with it is treated as tampered with (see `tampered`)."""
+    explicit = Path(args.project) if args.project else None
+    project_copy = find_plan_file([explicit], walk=False) if explicit else find_plan_file([os.environ.get('CLAUDE_PROJECT_DIR'), event.get('cwd'), os.getcwd()])
+    root = project_copy.parent.parent if project_copy else explicit
+    if root is None: return None, None, None
+    copy = state_copy(args.state_root, root)
+    return project_copy, root, copy
+
+
+def state_copy(state_root, root):
+    """The newest state-root copy of an active plan that belongs to project `root`, as a path; None when there is none (or no --state-root)."""
+    if not state_root: return None
+    best, stamp = None, ''
+    try:
+        here = os.path.normcase(str(Path(root).resolve()))
+        for candidate in Path(state_root).glob('plans/*/' + FILE):
+            try:
+                value = json.loads(candidate.read_text(encoding='utf-8-sig'))
+                if os.path.normcase(str(Path(value['project']).resolve())) == here and str(value.get('exported_at', '')) >= stamp: best, stamp = candidate, str(value.get('exported_at', ''))
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+    except OSError:
+        return None
+    return best
+
+
+def tampered(project_plan, copy_plan):
+    """True when the project copy says something other than the state-root copy about what is allowed."""
+    return any(project_plan.get(k) != copy_plan.get(k) for k in ('plan', 'revision', 'plan_sha', 'mode', 'owned', 'non_goals', 'bash_deny', 'protected', 'scratch'))
+
+
+def governing(args, event):
+    """(plan, root, error, source). error is a text when the files disagree or cannot be read; source tells where the plan came from."""
+    project_copy, root, copy = locate(args, event)
+    if project_copy is None and copy is None: return None, root, None, None
+    if copy is None:
+        plan, bad = load_plan(project_copy)
+        return plan, root, (('active plan unreadable: ' + bad) if bad else None), project_copy
+    cplan, cbad = load_plan(copy)
+    if project_copy is None:                            # B1: .onecrew/ was deleted; the plan is still the state root's, and the project copy is put back
+        if cbad: return cplan, root, 'active plan unreadable: ' + cbad, copy
+        try:
+            (Path(root) / '.onecrew').mkdir(exist_ok=True)
+            (Path(root) / '.onecrew' / FILE).write_text(copy.read_text(encoding='utf-8-sig'), encoding='utf-8')
+        except OSError:
+            pass
+        return cplan, root, None, 'restored'
+    pplan, pbad = load_plan(project_copy)
+    if pbad: return cplan, root, 'active plan unreadable: ' + pbad, copy
+    if not cbad and tampered(pplan, cplan): return cplan, root, 'the project copy of the active plan differs from the state-root copy', copy
+    return cplan if not cbad else pplan, root, None, project_copy
 
 
 def check(args):
     event, bad_input = read_stdin()
-    plan_file = locate(args, event)
-    if plan_file is None: return 0                      # no plan: nothing to enforce (a repo without .onecrew/ is left untouched)
-    root = plan_file.parent.parent
-    plan, bad_plan = load_plan(plan_file)
+    plan, root, bad_plan, source = governing(args, event)
+    if plan is None: return 0                           # no plan anywhere (project copy and state-root copy): nothing to enforce
     mode = 'enforce' if plan.get('mode') == 'enforce' else 'log'
     session, tool = event.get('session_id'), event.get('tool_name') or '?'
+    if source == 'restored': record(root, plan, 'logged', tool, '.onecrew/active-plan.json was missing and was restored from the state root', 'plan_restored', session=session, mode=mode)
     try:
-        if bad_input or bad_plan: raise ValueError(bad_input or ('active plan unreadable: ' + bad_plan))
+        if bad_input or bad_plan: raise ValueError(bad_input or bad_plan)
         if plan.get('status') not in ('approved', 'stopped_with_report'):
             return 0
         expires = plan.get('expires')
@@ -267,10 +335,8 @@ def check(args):
 
 def prompt(args):
     event, _ = read_stdin()
-    plan_file = locate(args, event)
-    if plan_file is None: return 0
-    plan, bad = load_plan(plan_file)
-    if bad or plan.get('status') not in ('approved', 'stopped_with_report'): return 0
+    plan, root, bad, _ = governing(args, event)
+    if plan is None or plan.get('status') not in ('approved', 'stopped_with_report'): return 0
     text = str(event.get('prompt') or '').casefold()
     hit = next((k for k in plan.get('prompt_keywords', []) if str(k).casefold() in text), None)
     if hit is None: return 0
@@ -278,12 +344,12 @@ def prompt(args):
     pending = next((m['id'] for m in plan.get('milestones', []) if m.get('state') != 'passed'), None)
     note = (f"Contract v{plan.get('revision')} says: {budget.get('max_calls')} calls, {budget.get('time')} minutes, next milestone {pending or 'none'}. "
             f"Spoken words are not in the ledger; change the contract with `onecrew plan amend` or file a CREQ.")
-    record(plan_file.parent.parent, plan, 'reminded', 'UserPromptSubmit', note, 'prompt_keyword:' + str(hit), session=event.get('session_id'))
+    record(root, plan, 'reminded', 'UserPromptSubmit', note, 'prompt_keyword:' + str(hit), session=event.get('session_id'))
     print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': note}}, ensure_ascii=False))
     return 0
 
 
-def refreshed(plan_file, plan):
+def refreshed(root, plan):
     """The plan as the ledger knows it now (so Stop sees verdicts and acceptance); the file when the ledger cannot be read."""
     try:
         from ..ledger import Ledger
@@ -292,7 +358,8 @@ def refreshed(plan_file, plan):
         fresh = active_plan.build(ledger, plan['plan'])
         if fresh:
             fresh['expires'] = plan.get('expires', fresh['expires'])   # a session start must not renew the owner's approval window
-            active_plan._write(plan_file, fresh)
+            active_plan._write(active_plan.project_file(root), fresh)                               # both copies, so they keep agreeing
+            active_plan._write(Path(plan['state_root']) / 'plans' / plan['plan'] / FILE, fresh)
             return fresh
     except Exception:                                    # noqa: BLE001 - a stale file is better than no answer
         pass
@@ -301,12 +368,9 @@ def refreshed(plan_file, plan):
 
 def stop(args):
     event, _ = read_stdin()
-    plan_file = locate(args, event)
-    if plan_file is None: return 0
-    root = plan_file.parent.parent
-    plan, bad = load_plan(plan_file)
-    if bad: return 0
-    plan = refreshed(plan_file, plan)
+    plan, root, bad, _ = governing(args, event)
+    if plan is None: return 0
+    plan = refreshed(root, plan)
     session = event.get('session_id')
     pending = next((m for m in plan.get('milestones', []) if m.get('state') != 'passed'), None)
     if plan.get('status') != 'approved' or pending is None:
@@ -330,11 +394,9 @@ def stop(args):
 
 def session(args):
     event, _ = read_stdin()
-    plan_file = locate(args, event)
-    if plan_file is None: return 0
-    plan, bad = load_plan(plan_file)
-    if bad: return 0
-    plan = refreshed(plan_file, plan)
+    plan, root, bad, _ = governing(args, event)
+    if plan is None: return 0
+    plan = refreshed(root, plan)
     budget = plan.get('budget') or {}
     pending = next((m for m in plan.get('milestones', []) if m.get('state') != 'passed'), None)
     lines = [f"OneCrew contract {plan.get('plan')} v{plan.get('revision')} [{plan.get('status')}, hook mode {plan.get('mode')}]: {plan.get('title')}",
@@ -357,10 +419,8 @@ def sync(args):
     """Import violations.jsonl into the ledger as hook.* events on the plan's anchor task. Idempotent (by line id)."""
     from ..ledger import Ledger
     from . import plan as plans
-    plan_file = find_plan_file([args.project, os.environ.get('CLAUDE_PROJECT_DIR'), os.getcwd()])
-    if plan_file is None: raise ValueError('No .onecrew/active-plan.json found; pass --project.')
-    root = plan_file.parent.parent
-    plan, _ = load_plan(plan_file)
+    plan, root, _, _ = governing(args, {})
+    if plan is None: raise ValueError('No active plan found for this project; pass --project (and --state-root).')
     ledger = Ledger(root, args.state_root or plan.get('state_root'))
     spool = root / '.onecrew' / 'violations.jsonl'
     lines = spool.read_text(encoding='utf-8', errors='replace').splitlines() if spool.exists() else []
@@ -385,16 +445,17 @@ def sync(args):
 def settings(project, state_root, repo):
     code = f"import sys; sys.path.insert(0, {str(repo)!r}); from onecrew.v2.hook_cli import main; sys.exit(main(sys.argv[1:]))"
     def entry(verb, timeout, matcher=None, fail='continue'):     # only the tool gate fails closed: a crashing prompt/stop hook must not lock the session
-        handler = {'type': 'command', 'command': sys.executable, 'args': ['-c', code, '--project', str(project), 'hook', verb], 'timeout': timeout, 'onFailure': fail}
+        handler = {'type': 'command', 'command': sys.executable, 'args': ['-c', code, '--project', str(project), '--state-root', str(state_root), 'hook', verb], 'timeout': timeout, 'onFailure': fail}
         return dict({'matcher': matcher} if matcher else {}, hooks=[handler])
     root = str(state_root).replace('\\', '/')
     deny = ['Edit(//' + root.lstrip('/') + '/**)',                       # Edit rules cover Write, MultiEdit and NotebookEdit too
             'Edit(**/plans/**)', 'Edit(**/*.sqlite*)', 'Edit(.onecrew/active-plan.json)', 'Edit(.onecrew/violations.jsonl)', 'Edit(.onecrew/hook-state.json)',
             'Edit(.claude/settings*.json)',
-            'Bash(onecrew plan approve:*)', 'Bash(onecrew plan accept:*)', 'Bash(onecrew plan enforce:*)', 'Bash(onecrew verdict record:*)',
-            'Bash(python -m onecrew plan approve:*)', 'Bash(python -m onecrew plan accept:*)', 'Bash(python -m onecrew plan enforce:*)',
-            'PowerShell(onecrew plan approve *)', 'PowerShell(onecrew plan accept *)', 'PowerShell(onecrew plan enforce *)',
-            'Bash(git push:*)', 'PowerShell(git push *)']                # git tag is left to the hook: a permission rule cannot tell `git tag -l` from `git tag v1`
+            'Bash(git push:*)', 'Bash(git * push*)', 'PowerShell(git push *)', 'PowerShell(git * push*)',
+            'Bash(git config * alias.*)', 'PowerShell(git config * alias.*)',
+            'Edit(//' + str(Path.home()).replace('\\', '/').lstrip('/') + '/.claude/CLAUDE.md)', 'Edit(//' + str(Path.home()).replace('\\', '/').lstrip('/') + '/.claude/agents/**)']
+    for verb in ('plan approve', 'plan accept', 'plan enforce', 'verdict record', 'hook mode'):   # any way of calling onecrew (venv python, -X utf8, onecrew.cmd)
+        deny += ['Bash(*' + verb + '*)', 'PowerShell(*' + verb + '*)']                # git tag is left to the hook: a permission rule cannot tell `git tag -l` from `git tag v1`
     return {'hooks': {'PreToolUse': [entry('check', 15, 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', fail='block')],
                       'UserPromptSubmit': [entry('prompt', 10)], 'Stop': [entry('stop', 30)],
                       'SessionStart': [entry('session', 30, 'startup|resume|clear|compact')]},
@@ -429,13 +490,15 @@ def main(argv=None):
         if args.verb == 'sync': out = sync(args)
         elif args.verb == 'install':
             repo = Path(__file__).resolve().parents[2]
-            out = settings(project.resolve(), Path(args.state_root or '<state-root>'), repo)
+            out = settings(project.resolve(), Path(Ledger(project, args.state_root).state_root), repo)
         else:
             from . import active_plan
             from .plan import require_owner
             ledger = Ledger(project, args.state_root)
             if args.verb == 'mode':
                 require_owner(args.by, 'Changing the hook mode')
+                from .ownership import refuse_in_ai_session
+                refuse_in_ai_session('Changing the hook mode')
                 out = {'mode': active_plan.set_mode(ledger, args.mode)}
                 found = find_plan_file([project])
                 name = args.plan or (load_plan(found)[0].get('plan') if found else None)
