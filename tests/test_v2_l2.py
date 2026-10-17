@@ -331,9 +331,11 @@ class StopPromptSessionTests(HookFixture):
         self.enforce()
         self.assertEqual(json.loads(self.stop()[1])['decision'], 'block')
         verdict.run(self.ledger, 'P1', 'M1', self.root)
-        self.assertEqual(self.stop()[1].strip(), '')
+        code, out, err = self.stop()
+        self.assertEqual((code, out.strip(), err), (0, '', ''))                                # a crash would also print nothing: check the exit code
         plans.accept(self.ledger, 'P1', 'owner', 'ok', self.tree())
-        self.assertEqual(self.stop()[1].strip(), '')
+        code, out, err = self.stop()
+        self.assertEqual((code, out.strip(), err), (0, '', ''))
 
     def test_stop_in_log_mode_and_without_a_plan_never_blocks(self):
         self.assertEqual(self.stop()[1].strip(), '')
