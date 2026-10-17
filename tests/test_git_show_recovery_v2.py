@@ -9,12 +9,35 @@ from tests.test_workflow import FixtureWorker
 
 
 def _directive_in_prompt(prompt):
-    """The git_show_mode recovery directive as it would reach the adapter: parse the trailing JSON object and look for the
-    file_list_exhausted signal anywhere in the recovery section (full prose at loose tier, terse signal at tighter)."""
-    obj = json.loads('{' + prompt.rpartition(chr(10) + '{')[2])
-    rec = obj.get('recovery') or {}
-    g = rec.get('git_show_mode')
-    return obj, g
+    """The git_show_mode recovery directive as it would reach the adapter: parse the trailing JSON object and find the
+    file_list_exhausted signal wherever the prompt of that job mode carries it - a WORK prompt renders it under
+    recovery.git_show_mode (full prose at the loose tier, terse signal at compact/tighter; owned._work_prompt), a JOB prompt
+    (audit/branch) delivers the progress dict whole under progress_limits (owned.run). The prompt STRING is parsed, never
+    the handler's return value. A prompt may carry several JSON objects (a JOB prompt renders the state and the instruction
+    as separate objects), so every object in the string is parsed; returns (the object holding the directive, or the last
+    one, the directive or None)."""
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get('kind') == 'file_list_exhausted' and 'hint' in node: return node
+            for v in node.values():
+                found = walk(v)
+                if found is not None: return found
+        elif isinstance(node, list):
+            for v in node:
+                found = walk(v)
+                if found is not None: return found
+        return None
+    decoder = json.JSONDecoder(); objects = []; i = prompt.find('{')
+    while i != -1:
+        try:
+            value, end = decoder.raw_decode(prompt, i); objects.append(value); i = prompt.find('{', end)
+        except ValueError:
+            i = prompt.find('{', i + 1)
+    for obj in objects:
+        g = (obj.get('recovery') or {}).get('git_show_mode') if isinstance(obj, dict) else None
+        if g is None: g = walk(obj)
+        if g is not None: return obj, g
+    return (objects[-1] if objects else {}), None
 
 
 class V2Bug1HintReachesAdapterTests(unittest.TestCase):
@@ -81,12 +104,20 @@ class V2Bug1HintReachesAdapterTests(unittest.TestCase):
         with t.ledger.transaction() as conn:
             notes = [json.loads(r['payload']) for r in conn.execute(
                 "SELECT payload FROM events WHERE task_id=? AND kind='entry.note' ORDER BY seq DESC LIMIT 5", (task,))]
+        # V2-tests (F2): under the production 15000 cap this small fixture stays at the LOOSE tier, where even a04c812 kept
+        # the hint - so the test did not exercise BUG1. Emulate a tighter provider cap on THIS runtime object only (the class
+        # attribute is untouched): the level-selector then descends to the compact tier, which is the condition of BUG1.
+        run.PROMPT_LIMITS = {profile['provider']: 10000}
         prompt = run._work_prompt(task, state, profile, control, tp, tsch, notes)
         cap = run.PROMPT_LIMITS[profile['provider']]
         self.assertLessEqual(len(canonical(tsch)) + len(prompt) + 40, cap)   # within the provider cap
         obj, g = _directive_in_prompt(prompt)
+        note = (obj.get('recovery') or {}).get('note') or ''
+        self.assertTrue(note.startswith('From the checkpoint') or note.startswith('Trimmed'),
+                        'the selector must have chosen the compact/tighter tier, or this test proves nothing about BUG1: ' + note[:60])
         self.assertIsNotNone(g, 'BUG1: the git_show_mode directive must be in the prompt the adapter receives')
         self.assertEqual(g['kind'], 'file_list_exhausted')
+        self.assertIn('pick one listed path', g['hint'])   # the bounded signal, not the full prose, at the tight tier
         lr = obj.get('latest_result') or {}
         self.assertTrue(lr.get('complete') or run._page_content >= run.MIN_PAGE_CONTENT,
                         'latest result must get a VALID page, not be starved by the hint')
@@ -154,8 +185,12 @@ class V2Bug2HintTerminatesTests(unittest.TestCase):
         # a minimal state the recovery render tolerates
         full = {'phase': 'running', 'step': 2, 'work': {}, 'receipts': [], 'progress': st.get('progress') or {}}
         control = self.run.control.status(self.task)
+        # V2-tests (F3): check the LOOSE tier first - at the tight tier a04c812 dropped every hint (the BUG1 symptom), so a
+        # tight-only check was green on the baseline for the wrong reason and did not isolate BUG2.
+        loose = self.run._recovery(full, control, compact=False, tighter=False)
+        self.assertIsNone(loose.get('git_show_mode'), 'BUG2: no stale hint may ride in the next prompt after a successful diff')
         rec = self.run._recovery(full, control, compact=True, tighter=True)
-        self.assertIsNone(rec.get('git_show_mode'), 'BUG2: no stale hint may ride in the next prompt after a successful diff')
+        self.assertIsNone(rec.get('git_show_mode'), 'BUG2: no stale hint may ride in the next (tight) prompt after a successful diff')
 
     def test_5_repetition_still_blocks_finitely_guard_not_reset(self):
         # Control: clearing-by-result does NOT weaken the same-result guard; genuine repetition still blocks finitely.
@@ -166,10 +201,22 @@ class V2Bug2HintTerminatesTests(unittest.TestCase):
         self.assertEqual(st['recovery']['kind'], 'no_progress')
 
     def test_6_cross_core_flow_public_resume_pick_path_resolves(self):
-        # Cross-core flow: exhaust the list, re-call raises recovery, then RESTART the runtime and use the SUPPORTED public
-        # resume; a stubbed worker picks a path among the received files, gets the right diff, and the warning resolves -
-        # checkpoint/usage/guard intact. Driven through the real runner, model stubbed.
+        # Cross-core flow through the REAL runner (model stubbed), in the order the live CTS loop happened:
+        #   multi-page list -> the EXHAUSTED list is re-called once more (same result, count 2: the hint is RAISED while the
+        #   same-result guard, limit 3, has not blocked yet) -> RESTART the runtime object and resume via the SUPPORTED public
+        #   Owned.resume (not a JSON substitute) -> the hint survives the restart -> the new stubbed worker RECEIVES the
+        #   directive in the prompt the adapter is given and picks a path among the listed files -> the diff is right -> the
+        #   warning resolves; used_calls counted, never reset; the job is not blocked.
+        # V2-tests (F1): the first version of this test never re-called the exhausted list, so the hint was never raised and
+        # its final assertIsNone passed vacuously (green on a04c812 too). The hint-raised assertions below make it a real flow.
         def act(name, plan, **a): return {'plan': plan, 'action': name, 'arguments': json.dumps(a)}
+
+        class RecordingWorker(FixtureWorker):   # keeps the prompt the adapter actually receives, per call
+            def __init__(self, ledger, responses):
+                super().__init__(ledger, responses); self.prompts = []
+            def run(self, attempt, prompt, schema, profile):
+                self.prompts.append(prompt); return super().run(attempt, prompt, schema, profile)
+
         # a FRESH fixture (its own repo + submission key) so the second task does not collide with setUp's task
         g = fixtures.OwnedTests(); g.setUp(); self.addCleanup(g.doCleanups); g.setup_git()
         for i in range(135):
@@ -183,18 +230,38 @@ class V2Bug2HintTerminatesTests(unittest.TestCase):
         run.worker = FixtureWorker(run.ledger, [
             act('git_show', 'list all changed files', commit=change, cursor=0),
             act('git_show', 'the rest of the list', commit=change, cursor=100),
-            act('git_show', 'now read one file diff', commit=change, path=first_file, cursor=0)])
+            act('git_show', 'the rest of the list', commit=change, cursor=100)])   # the exhausted list AGAIN (count 2)
         run.run(task, steps=3)
         seq, state = run.state(task)
-        used_before = run.control.status(task).get('used_calls')
+        hint = (state.get('progress') or {}).get('git_show_mode')
+        self.assertIsNotNone(hint, 'the re-called exhausted list must RAISE the recovery hint')
+        self.assertEqual(hint['kind'], 'file_list_exhausted')
+        self.assertEqual(state['phase'], 'running', 'count 2 warns; the guard blocks at 3 - the job must still be running')
+        used_before = run.control.status(task).get('used_calls'); self.assertEqual(used_before, 3)
         # restart the runtime object and resume via the SUPPORTED public API (not a JSON substitute)
-        restarted = Owned(run.ledger, FixtureWorker(run.ledger, []))
-        info = restarted.resume(task)
-        self.assertIsNotNone(info)
+        worker2 = RecordingWorker(run.ledger, [act('git_show', 'now read one file diff', commit=change, path=first_file, cursor=0)])
+        restarted = Owned(run.ledger, worker2)
+        self.assertIsNotNone(restarted.resume(task))
         seq2, state2 = restarted.state(task)
-        self.assertIsNone((state2.get('progress') or {}).get('git_show_mode'),
+        self.assertIsNotNone((state2.get('progress') or {}).get('git_show_mode'), 'the hint must survive restart + public resume')
+        restarted.run(task, steps=1)
+        # adapter side: the directive was in the prompt the worker received for the step in which it picked the path. This
+        # fixture is a JOB (branch) runtime with no provider cap, whose prompt carries the progress dict whole; the capped
+        # WORK-prompt rendering (the BUG1 tier condition) is Bug1 test_2's subject, not this flow's.
+        self.assertEqual(len(worker2.prompts), 1)
+        obj, directive = _directive_in_prompt(worker2.prompts[0])
+        self.assertIsNotNone(directive, 'the directive must reach the adapter in the prompt after the resume')
+        self.assertEqual(directive['kind'], 'file_list_exhausted')
+        # core side: the right diff came back, the warning resolved, usage counted (not reset), guard did not block
+        seq3, state3 = restarted.state(task)
+        last = json.loads(restarted.store.read_blob(state3['receipts'][-1]['blob']))['result']
+        self.assertEqual(last.get('mode'), 'file_diff'); self.assertEqual(last.get('path'), first_file)
+        self.assertEqual(last.get('commit'), change); self.assertNotIn('error', last)
+        self.assertIsNone((state3.get('progress') or {}).get('git_show_mode'),
                           'after a successful diff read the warning is resolved across a public resume')
-        self.assertEqual(restarted.control.status(task).get('used_calls'), used_before)  # usage preserved, not reset
+        self.assertEqual(hint.get('commit'), change, 'the raised hint is scoped to the commit it was raised for')
+        self.assertEqual(state3['phase'], 'running')
+        self.assertEqual(restarted.control.status(task).get('used_calls'), used_before + 1)  # usage counted, never reset
 
 
 class V2CTSCopyNoPromptBudgetRegressionTests(unittest.TestCase):
