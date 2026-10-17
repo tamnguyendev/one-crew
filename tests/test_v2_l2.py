@@ -232,7 +232,10 @@ class CheckTests(HookFixture):
             for command in denied:
                 code, _, err = self.run_hook('check', self.shell(command, tool))
                 self.assertEqual(code, 2, (tool, command)); self.assertIn('bash_deny', err)
-        for command in ('python -m unittest discover', 'git status', 'git diff --stat', 'ls src', 'onecrew plan show P1', 'echo hi'):
+        for command in ('git tag -a v1 -m x', 'git tag -d v1', 'git tag v1 HEAD~1'):
+            self.assertEqual(self.run_hook('check', self.shell(command))[0], 2, command)
+        for command in ('python -m unittest discover', 'git status', 'git diff --stat', 'ls src', 'onecrew plan show P1', 'echo hi',
+                        'git tag', 'git tag -l hook-demo-tag', 'git tag --list', 'git status --short; git tag -l x'):       # the real run found `git tag -l` blocked
             self.assertEqual(self.run_hook('check', self.shell(command))[0], 0, command)
 
     def test_writes_through_the_shell_to_a_file_outside_owned_are_blocked(self):
@@ -392,9 +395,10 @@ class SyncAndInstallTests(HookFixture):
         self.assertEqual(sorted(config['hooks']), ['PreToolUse', 'SessionStart', 'Stop', 'UserPromptSubmit'])
         self.assertEqual(config['hooks']['PreToolUse'][0]['matcher'], 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell')
         deny = config['permissions']['deny']
-        for needle in ('**/plans/**', '**/*.sqlite*', 'plan approve', 'plan accept', 'plan enforce', 'verdict record', '.onecrew', 'settings'):
+        for needle in ('**/plans/**', '**/*.sqlite*', 'plan approve', 'plan accept', 'plan enforce', 'verdict record', 'active-plan.json', 'settings'):
             self.assertTrue(any(needle in rule for rule in deny), needle)
         self.assertFalse((self.root / '.claude').exists())
+        self.assertFalse(any('.onecrew/**' in rule for rule in deny))        # .onecrew/scratch/ must stay writable (found by the claude -p run)
         self.assertEqual(sorted(str(p) for p in self.root.rglob('*') if '.git' not in p.parts), before)
 
     def test_only_the_owner_changes_the_hook_mode(self):

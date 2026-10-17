@@ -23,7 +23,7 @@ from ..ledger import LedgerError, utcnow
 FILE = 'active-plan.json'
 EXPIRY_HOURS = 24
 # Commands an AI session may not run while a plan is active. Plain entries are case-insensitive substrings; `re:` entries are regexes.
-DEFAULT_BASH_DENY = ['git push', 'git tag', 'rm -rf', 'Remove-Item -Recurse', 'pip install',
+DEFAULT_BASH_DENY = ['git push', 're:\\bgit\\s+tag\\s+(?!-l\\b|--list\\b|-n\\b)\\S', 'rm -rf', 'Remove-Item -Recurse', 'pip install',
                      're:\\bplan\\s+(approve|accept|enforce)\\b',                    # C3: the owner's verbs are not the AI's
                      're:\\bverdict\\s+record\\b.*--by[ =]+owner', 're:\\bhook\\s+mode\\b',
                      're:ONECREW_ACTOR', 're:\\b(git\\s+)?(reset\\s+--hard|clean\\s+-[a-z]*f)']

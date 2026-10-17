@@ -386,11 +386,12 @@ def settings(project, state_root, repo):
         return dict({'matcher': matcher} if matcher else {}, hooks=[handler])
     root = str(state_root).replace('\\', '/')
     deny = ['Edit(//' + root.lstrip('/') + '/**)',                       # Edit rules cover Write, MultiEdit and NotebookEdit too
-            'Edit(**/plans/**)', 'Edit(**/*.sqlite*)', 'Edit(.onecrew/**)', 'Edit(.claude/settings*.json)',
+            'Edit(**/plans/**)', 'Edit(**/*.sqlite*)', 'Edit(.onecrew/active-plan.json)', 'Edit(.onecrew/violations.jsonl)', 'Edit(.onecrew/hook-state.json)',
+            'Edit(.claude/settings*.json)',
             'Bash(onecrew plan approve:*)', 'Bash(onecrew plan accept:*)', 'Bash(onecrew plan enforce:*)', 'Bash(onecrew verdict record:*)',
             'Bash(python -m onecrew plan approve:*)', 'Bash(python -m onecrew plan accept:*)', 'Bash(python -m onecrew plan enforce:*)',
             'PowerShell(onecrew plan approve *)', 'PowerShell(onecrew plan accept *)', 'PowerShell(onecrew plan enforce *)',
-            'Bash(git push:*)', 'Bash(git tag:*)', 'PowerShell(git push *)', 'PowerShell(git tag *)']
+            'Bash(git push:*)', 'PowerShell(git push *)']                # git tag is left to the hook: a permission rule cannot tell `git tag -l` from `git tag v1`
     return {'hooks': {'PreToolUse': [entry('check', 15, 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell')],
                       'UserPromptSubmit': [entry('prompt', 10)], 'Stop': [entry('stop', 30)],
                       'SessionStart': [entry('session', 30, 'startup|resume|clear|compact')]},
