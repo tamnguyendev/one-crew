@@ -21,3 +21,10 @@ Một dòng mỗi mục; `L#` là lát dự kiến.
 - L3: `understanding` mới là văn bản tự do; chưa có echo cơ học, tiền kiểm, PoC, brainstorm.
 - L4: tác giả/reviewer: `--author` ở propose chỉ ghi, chưa có kiểm "reviewer khác tác giả"; verdict từ reviewer LLM chưa có.
 - v1 (không sửa): `test_sandbox_gate` 4 test đỏ khi đường dẫn worktree dài (`.oc-*.tmp` > MAX_PATH); 4 test đỏ có sẵn ở 6aac8ea: test_incremental, test_search_recovery, test_evaluation, test_git_show_recovery_v2.
+- L2 (F7, review Opus 1): tên plan cho phép `:` nên `d:x` thành đường dẫn tương đối theo ổ D:, ra ngoài state-root; cần regex riêng cho tên plan.
+- L2 (F8): `amend`/`propose` ghi file `v<N>.json` trước khi commit ledger; sập giữa chừng để lại file mồ côi, mọi `amend` sau báo `FileExistsError`.
+- L2 (F9): sự kiện `plan.accepted` chưa ghi `actor_env` (`plan.approved` có), nên accept DEMO không phân biệt được với accept thật; coi `state-v2-dev` là dùng một lần.
+- L2 (F10): `plans/<tên>` thuộc state-root không thuộc project, NTFS không phân biệt hoa/thường; nên đặt `plans/<project_id>/<tên>`.
+- L2 (F11): task neo `plan:<tên>` là job audit v1; khi cổng tắt `job start` trên nó chạy được và nó hiện trong danh sách job; cần đánh dấu không dispatch được.
+- L2 (C2 của review): chưa có `plan enforce status` / trường trong `job status` cho biết cổng v2 có hiệu lực hay không.
+- L2 (C3): `--by owner`, `ONECREW_ACTOR`, sửa `policy.json`/sqlite chưa có hàng rào thật (hook PreToolUse + permission deny).

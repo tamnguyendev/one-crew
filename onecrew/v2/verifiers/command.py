@@ -1,8 +1,9 @@
 """Verifier `command`: run the milestone's argv in a workspace, within a minute cap, and keep the evidence.
 
 The receipt is a blob (sha256-addressed, same store as v1 receipts) that binds plan hash, revision, milestone, argv and the
-artifact (a Git tree hash of the working tree) to the exit code and output. A verdict for this verifier is accepted only
-with such a receipt, so a pass cannot be typed in by hand.
+artifact (a Git tree hash of the working tree) to the exit code and output. verdict.run announces each receipt it makes
+(verdict.receipt_issued) and record() takes no other receipt for a command milestone, so a hand-written receipt, however
+well formed, is refused.
 """
 import json
 import os

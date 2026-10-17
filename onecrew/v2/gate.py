@@ -7,6 +7,7 @@ variable ONECREW_V2_REQUIRE_PLAN=1.
 """
 import json
 import os
+import sys
 import uuid
 from pathlib import Path
 
@@ -19,19 +20,33 @@ def _plans(ledger):
 
 def enforced(ledger):
     if os.environ.get('ONECREW_V2_REQUIRE_PLAN') == '1': return True
+    path = _plans(ledger) / 'policy.json'
+    if not path.exists(): return False
     try:
-        return bool(json.loads((_plans(ledger) / 'policy.json').read_text(encoding='utf-8')).get('require_plan'))
+        return bool(json.loads(path.read_text(encoding='utf-8')).get('require_plan'))
     except (OSError, ValueError, AttributeError):
-        return False
+        return True  # a policy file that exists but cannot be read closes the gate, never opens it
 
 
 def set_enforced(ledger, on, who, reference):
     path = _plans(ledger)
     path.mkdir(parents=True, exist_ok=True)
-    (path / 'policy.json').write_text(json.dumps({'require_plan': bool(on)}), encoding='utf-8')
+    temporary = path / ('policy.json.' + uuid.uuid4().hex + '.tmp')
+    temporary.write_text(json.dumps({'require_plan': bool(on)}), encoding='utf-8')
+    os.replace(temporary, path / 'policy.json')  # atomic: a reader sees the old or the new policy, never half of one
     with (path / 'audit.jsonl').open('a', encoding='utf-8') as stream:
         stream.write(json.dumps({'at': utcnow(), 'require_plan': bool(on), 'by': who, 'reference': reference}, ensure_ascii=False) + '\n')
     return {'require_plan': bool(on), 'state_root': str(ledger.state_root)}
+
+
+def _over_budget(task, budget):
+    """A job may not carry larger limits than the approved plan's budget (invariant 3: the AI does not widen it)."""
+    limits = json.loads(task['payload'])['grant']['limits']
+    if limits['max_calls'] > budget['max_calls']:
+        return f'the job allows {limits["max_calls"]} calls but the approved plan budget is {budget["max_calls"]}'
+    if limits['max_seconds'] > budget['time'] * 60:
+        return f'the job allows {limits["max_seconds"]} seconds but the approved plan budget is {budget["time"] * 60} ({budget["time"]} minutes)'
+    return None
 
 
 def require_plan(ledger, conn, task):
@@ -45,8 +60,9 @@ def require_plan(ledger, conn, task):
         if state is None: reason = 'no plan named ' + name + ' (plan propose, then the owner runs plan approve)'
         elif state['status'] != 'approved': reason = f'plan {name} is {state["status"]}, not approved'
         else:
-            plan.load(ledger, state)  # the file must still hash to what the owner approved
-            return
+            contract, _ = plan.load(ledger, state)  # the file must still hash to what the owner approved
+            reason = _over_budget(task, contract['budget'])
+            if reason is None: return
     except LedgerError as error:
         reason = str(error)
     plans = _plans(ledger)
@@ -61,7 +77,16 @@ def sync_refusals(ledger):
     """Move spooled refusals into the ledger as dispatch.refused_no_plan events on the refused task. Idempotent."""
     spool = _plans(ledger) / 'refusals.jsonl'
     if not spool.exists(): return 0
-    records = [json.loads(line) for line in spool.read_text(encoding='utf-8').splitlines() if line.strip()]
+    records, skipped = [], 0
+    for line in spool.read_text(encoding='utf-8', errors='replace').splitlines():
+        if not line.strip(): continue
+        try:
+            record = json.loads(line)
+            if not all(isinstance(record.get(k), str) for k in ('id', 'task_id', 'project_id', 'request_key', 'reason', 'at')): raise ValueError
+            records.append(record)
+        except (ValueError, AttributeError):
+            skipped += 1
+    if skipped: print(f'warning: {spool.name}: skipped {skipped} unreadable line(s)', file=sys.stderr)
     added = 0
     with ledger.transaction(write=True) as conn:
         for record in records:

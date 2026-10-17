@@ -37,7 +37,7 @@ def _parser():
     p.add_argument('--artifact-sha', required=True)
     receipt = p.add_mutually_exclusive_group(required=True)
     receipt.add_argument('--receipt', help='64-hex blob key in this state root.')
-    receipt.add_argument('--receipt-file', type=Path, help='Store this file as the receipt blob (owner-manual notes).')
+    receipt.add_argument('--receipt-file', type=Path, help='Store this file as the receipt blob. Owner-manual milestones only; command milestones use verdict run.')
     p = verdict.add_parser('run', help='Run the milestone\'s command verifier and record its verdict.')
     p.add_argument('--plan', required=True); p.add_argument('--milestone', required=True)
     p.add_argument('--cwd', type=Path, help='Workspace to verify (default: the verifier\'s cwd, else the project).')
@@ -55,11 +55,8 @@ def _dispatch(ledger, args):
         plans.require_owner(args.by, 'Changing enforcement')
         return gate.set_enforced(ledger, args.state == 'on', args.by, args.reference)
     if args.command == 'run': return verdict.run(ledger, args.plan, args.milestone, args.cwd)
-    receipt = args.receipt
-    if args.receipt_file:
-        from ..snapshots import Snapshots
-        receipt = Snapshots(ledger.state_root).blob(args.receipt_file.read_bytes())
-    return verdict.record(ledger, args.plan, args.milestone, args.result, args.by, receipt, args.artifact_sha)
+    data = args.receipt_file.read_bytes() if args.receipt_file else None
+    return verdict.record(ledger, args.plan, args.milestone, args.result, args.by, args.receipt, args.artifact_sha, data)
 
 
 def main(argv=None):

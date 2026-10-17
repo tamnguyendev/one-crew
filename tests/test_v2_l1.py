@@ -36,7 +36,7 @@ def plan_json(milestones=None, **extra):
              'scope': {'owned': ['a.txt']}, 'non_goals': ['Nothing else'],
              'items': [{'id': 'I1', 'title': 'Do it', 'tier': 'must', 'milestone': 'M1'},
                        {'id': 'S1', 'title': 'Nice to have', 'tier': 'should'}, {'id': 'W1', 'title': 'Never', 'tier': 'wont'}],
-             'milestones': milestones or [milestone()], 'budget': {'max_calls': 10, 'time': 60}, 'attention': {'questions': 1},
+             'milestones': milestones or [milestone()], 'budget': {'max_calls': 100, 'time': 120}, 'attention': {'questions': 1},
              'profile_version': None}
     return dict(value, **extra)
 
@@ -72,6 +72,12 @@ class Fixture(unittest.TestCase):
 
     def tree(self):
         return command.artifact_sha(self.root)
+
+    def issue(self, blob, milestone='M1', revision=1):
+        """What verdict.run does just before it records: announce the receipt it made."""
+        with self.ledger.transaction(write=True) as conn:
+            task = plans.derive(self.ledger, conn, 'P1')['task_id']
+            plans.emit(self.ledger, conn, task, 'verdict.receipt_issued', {'plan': 'P1', 'revision': revision, 'milestone': milestone, 'receipt': blob})
 
     def receipt(self, **fields):
         body = {'kind': 'command-receipt', 'plan': 'P1', 'revision': 1, 'milestone': 'M1', 'argv': OK, 'exit_code': 0, 'timed_out': False,
@@ -224,18 +230,21 @@ class VerdictTests(Fixture):
         self.assertIn('does not match', str(caught.exception))
         with self.assertRaises(LedgerError): verdict.record(self.ledger, 'P1', 'M1', 'pass', 'command', blob, 'not-a-sha')
         self.assertEqual(plans.show(self.ledger, 'P1')['milestones'][0]['state'], 'pending')
-        verdict.record(self.ledger, 'P1', 'M1', 'pass', 'command', blob, body['artifact_sha'])      # the right sha is accepted
+        with self.assertRaises(LedgerError): verdict.record(self.ledger, 'P1', 'M1', 'pass', 'command', blob, body['artifact_sha'])   # not issued
+        self.issue(blob)
+        verdict.record(self.ledger, 'P1', 'M1', 'pass', 'command', blob, body['artifact_sha'])      # the right sha, an issued receipt
 
     def test_a_pass_cannot_be_typed_in(self):
+        # Each bad receipt is announced as issued first, so it is the receipt's CONTENT (not the issued check) that must refuse it.
         self.approved()
-        failing, _ = self.receipt(exit_code=3)
-        with self.assertRaises(LedgerError): verdict.record(self.ledger, 'P1', 'M1', 'pass', 'command', failing, self.tree())
-        moved, _ = self.receipt(artifact_sha_after='0' * 40)                  # the command changed the tree it verified
-        with self.assertRaises(LedgerError): verdict.record(self.ledger, 'P1', 'M1', 'pass', 'command', moved, self.tree())
-        other, _ = self.receipt(milestone='M2')
-        with self.assertRaises(LedgerError): verdict.record(self.ledger, 'P1', 'M1', 'pass', 'command', other, self.tree())
-        wrong_argv, _ = self.receipt(argv=[PY, '-c', 'pass'])
-        with self.assertRaises(LedgerError): verdict.record(self.ledger, 'P1', 'M1', 'pass', 'command', wrong_argv, self.tree())
+        def refused(**fields):
+            blob, _ = self.receipt(**fields); self.issue(blob)
+            with self.assertRaises(LedgerError): verdict.record(self.ledger, 'P1', 'M1', 'pass', 'command', blob, self.tree())
+        refused(exit_code=3)
+        refused(artifact_sha_after='0' * 40)                                  # the command changed the tree it verified
+        refused(milestone='M2')
+        refused(argv=[PY, '-c', 'pass'])
+        refused(timed_out=True)
         with self.assertRaises(LedgerError): verdict.record(self.ledger, 'P1', 'M1', 'pass', 'command', 'a' * 64, self.tree())  # no such blob
         with self.assertRaises(LedgerError): verdict.record(self.ledger, 'P1', 'M1', 'pass', 'claude', self.receipt()[0], self.tree())
         self.assertEqual(plans.show(self.ledger, 'P1')['milestones'][0]['state'], 'pending')
@@ -249,7 +258,7 @@ class VerdictTests(Fixture):
         with self.assertRaises(LedgerError) as caught: verdict.run(self.ledger, 'P1', 'M2', self.root)
         self.assertIn('M1 has not passed', str(caught.exception))
         verdict.run(self.ledger, 'P1', 'M1', self.root)
-        with self.assertRaises(LedgerError): verdict.run(self.ledger, 'P1', 'M1', self.root)       # a pass is final for the revision
+        with self.assertRaises(LedgerError): verdict.run(self.ledger, 'P1', 'M1', self.root)       # already passed for this artifact
         self.assertEqual(verdict.run(self.ledger, 'P1', 'M2', self.root)['milestones'][1]['state'], 'passed')
 
     def test_a_verdict_does_not_survive_an_amendment(self):
@@ -335,6 +344,7 @@ class StopTests(Fixture):
     def test_inconclusive_counts_as_a_failed_run(self):
         self.approved(value=plan_json(milestones=[milestone(max_repairs=0)]))
         blob, body = self.receipt(timed_out=True, exit_code=None)
+        self.issue(blob)
         view = verdict.record(self.ledger, 'P1', 'M1', 'inconclusive', 'command', blob, body['artifact_sha'])
         self.assertEqual(view['status'], 'stopped_with_report')
 
@@ -373,6 +383,146 @@ class AcceptTests(Fixture):
                         lambda: plans.amend(self.ledger, 'P1', plan_json(title='Y'), 'why', 'claude')):
             with contextlib.suppress(LedgerError): attempt()
         self.assertNotIn('plan.approved', self.kinds()); self.assertNotIn('plan.accepted', self.kinds())
+
+
+class ForgeryTests(Fixture):
+    """F1 (Opus review 1): a hand-written receipt with the real plan_sha and argv, exit 0, must not buy a pass."""
+
+    def forged_file(self):
+        with self.ledger.transaction() as conn:
+            sha = plans.derive(self.ledger, conn, 'P1')['revisions'][1]['sha']
+        body = {'kind': 'command-receipt', 'plan': 'P1', 'revision': 1, 'plan_sha': sha, 'milestone': 'M1', 'argv': BAD, 'exit_code': 0,
+                'timed_out': False, 'error': None, 'artifact_sha': self.tree(), 'artifact_sha_after': self.tree()}
+        path = Path(self.temp.name) / 'forged.json'; path.write_text(json.dumps(body), encoding='utf-8')
+        return path
+
+    def cli(self, *argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli.main(['--project', str(self.root), '--state-root', str(self.ledger.state_root), *argv])
+        return code, json.loads(out.getvalue())
+
+    def test_the_exact_forgery_from_the_review_is_refused_and_acceptance_stays_closed(self):
+        self.approved(value=plan_json(milestones=[milestone(argv=BAD)]))
+        forged = self.forged_file(); tree = self.tree()
+        code, out = self.cli('verdict', 'record', '--plan', 'P1', '--milestone', 'M1', '--result', 'pass', '--by', 'command',
+                             '--receipt-file', str(forged), '--artifact-sha', tree)
+        self.assertEqual(code, 2); self.assertIn('only for an owner-manual', out['error'])
+        blob = Snapshots(self.ledger.state_root).blob(forged.read_bytes())          # stored by other means, then named
+        code, out = self.cli('verdict', 'record', '--plan', 'P1', '--milestone', 'M1', '--result', 'pass', '--by', 'command',
+                             '--receipt', blob, '--artifact-sha', tree)
+        self.assertEqual(code, 2); self.assertIn('not issued by verdict run', out['error'])
+        with self.assertRaises(LedgerError): verdict.record(self.ledger, 'P1', 'M1', 'pass', 'command', blob, tree)
+        self.assertEqual(plans.show(self.ledger, 'P1')['milestones'][0]['state'], 'pending')
+        with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', tree)
+        self.assertEqual(verdict.run(self.ledger, 'P1', 'M1', self.root)['milestones'][0]['last_verdict']['result'], 'fail')  # the real command fails
+        self.assertEqual(self.kinds().count('verdict.receipt_issued'), 1)
+
+    def test_a_receipt_issued_for_another_milestone_does_not_carry_over(self):
+        self.approved(value=plan_json(milestones=[milestone('M1'), milestone('M2')]))
+        blob, body = self.receipt(milestone='M2')
+        self.issue(blob, milestone='M1')                                              # issued for M1, content says M2
+        with self.assertRaises(LedgerError): verdict.record(self.ledger, 'P1', 'M2', 'pass', 'command', blob, body['artifact_sha'])
+
+
+class LatestVerdictTests(Fixture):
+    """F2: every milestone must have passed on exactly the artifact being accepted."""
+
+    def test_accept_needs_every_milestone_to_pass_on_the_accepted_artifact(self):
+        self.approved(value=plan_json(milestones=[milestone('M1'), milestone('M2')]))
+        verdict.run(self.ledger, 'P1', 'M1', self.root); first = self.tree()
+        (self.root / 'a.txt').write_text('changed after M1\n')
+        verdict.run(self.ledger, 'P1', 'M2', self.root); second = self.tree()
+        self.assertNotEqual(first, second)
+        with self.assertRaises(LedgerError) as caught: plans.accept(self.ledger, 'P1', 'owner', 'ref', second)
+        message = str(caught.exception)
+        self.assertIn(f'M1 passed on {first}', message); self.assertIn(f'M2 passed on {second}', message)
+        with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', first)
+        verdict.run(self.ledger, 'P1', 'M1', self.root)                               # the milestone that differs is re-run on the new tree
+        self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', second)['status'], 'accepted')
+
+    def test_a_later_failure_reopens_a_passed_milestone(self):
+        check = 'import pathlib,sys; sys.exit(0 if pathlib.Path("a.txt").read_text().startswith("one") else 1)'
+        self.approved(value=plan_json(milestones=[milestone('M1', argv=[PY, '-c', check], max_repairs=2)]))
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        (self.root / 'a.txt').write_text('broken\n')
+        view = verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.assertEqual((view['milestones'][0]['state'], view['milestones'][0]['failures']), ('failed', 1))
+        with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())
+
+
+class WorkspaceTests(Fixture):
+    """F3: verdict run only looks at the plan's project."""
+
+    def test_a_clean_clone_outside_the_project_is_refused(self):
+        self.approved(value=plan_json(milestones=[milestone(argv=BAD)]))
+        clone = Path(self.temp.name) / 'clean-clone'
+        subprocess.check_call(['git', 'clone', '-q', str(self.root), str(clone)])
+        with self.assertRaises(LedgerError) as caught: verdict.run(self.ledger, 'P1', 'M1', clone)
+        self.assertIn('outside the plan', str(caught.exception))
+        self.assertEqual(plans.show(self.ledger, 'P1')['milestones'][0]['runs'], 0)
+
+    def test_a_directory_inside_the_project_is_allowed_and_its_cwd_is_shown(self):
+        self.approved()
+        (self.root / 'sub').mkdir(); (self.root / 'sub' / 'x.txt').write_text('x\n')
+        view = verdict.run(self.ledger, 'P1', 'M1', self.root / 'sub')
+        self.assertEqual(Path(view['milestones'][0]['last_verdict']['cwd']), (self.root / 'sub').resolve())
+        with self.assertRaises(LedgerError): verdict.run(self.ledger, 'P1', 'M1', self.root / '..')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.main(['--project', str(self.root), '--state-root', str(self.ledger.state_root), 'plan', 'show', 'P1'])
+        self.assertEqual(Path(json.loads(out.getvalue())['milestones'][0]['last_verdict']['cwd']), (self.root / 'sub').resolve())
+
+
+class PolicyAndBudgetTests(Fixture):
+    """F4, F5, F6."""
+    WORK = DispatchGateTests.WORK
+    work_job = DispatchGateTests.work_job
+
+    def test_an_unreadable_policy_file_closes_the_gate(self):
+        task = self.work_job()
+        self.assertFalse(gate.enforced(self.ledger))                                  # no file: v1 as before
+        policy = Path(self.ledger.state_root) / 'plans' / 'policy.json'
+        policy.parent.mkdir(parents=True, exist_ok=True)
+        for broken in ('{"require_plan": tr', '', '[]', '\x00\x01'):
+            policy.write_text(broken, encoding='utf-8')
+            self.assertTrue(gate.enforced(self.ledger), broken)
+            with self.assertRaises(LedgerError): solution_gate.check(self.ledger, task)
+
+    def test_the_policy_is_written_through_a_temporary_file(self):
+        gate.set_enforced(self.ledger, True, 'owner', 'r'); gate.set_enforced(self.ledger, False, 'owner', 'r')
+        names = sorted(p.name for p in (Path(self.ledger.state_root) / 'plans').iterdir())
+        self.assertEqual(names, ['audit.jsonl', 'policy.json'])
+        with patch('os.replace', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError): gate.set_enforced(self.ledger, True, 'owner', 'r')
+        self.assertFalse(gate.enforced(self.ledger))                                  # the old policy is intact
+
+    def test_a_job_cannot_carry_larger_limits_than_the_approved_plan_budget(self):
+        gate.set_enforced(self.ledger, True, 'owner', 'test')
+        value = plan_json(budget={'max_calls': 20, 'time': 30})
+        for key in ('big', 'long', 'ok'): self.approved(key, value)
+        make = lambda key, **limits: submit(self.ledger, None, key, mode='work', provider='kiro', model='claude-sonnet-5',
+                                            contract=dict(self.WORK), **limits)['id']
+        calls, seconds, fine = make('big', max_calls=5000), make('long', max_calls=20, max_seconds=3600), make('ok', max_calls=20, max_seconds=1800)
+        with self.assertRaises(LedgerError) as caught: solution_gate.check(self.ledger, calls)
+        self.assertIn('5000 calls', str(caught.exception)); self.assertIn('budget is 20', str(caught.exception))
+        with self.assertRaises(LedgerError) as caught: solution_gate.check(self.ledger, seconds)
+        self.assertIn('3600 seconds', str(caught.exception)); self.assertIn('1800', str(caught.exception))
+        self.assertIsNone(solution_gate.check(self.ledger, fine))
+
+    def test_a_damaged_refusal_spool_line_is_skipped_with_a_warning(self):
+        audit = submit(self.ledger, 'Audit it', 'job2')['id']
+        gate.set_enforced(self.ledger, True, 'owner', 'test')
+        with self.assertRaises(LedgerError): solution_gate.check(self.ledger, audit)
+        spool = Path(self.ledger.state_root) / 'plans' / 'refusals.jsonl'
+        with spool.open('a', encoding='utf-8') as stream: stream.write('{"id": "half a line\n[1,2]\n{"id": 5}\n')
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors): self.assertEqual(gate.sync_refusals(self.ledger), 1)
+        self.assertIn('skipped 3 unreadable line(s)', errors.getvalue())
+        self.propose('P9')
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            code = cli.main(['--project', str(self.root), '--state-root', str(self.ledger.state_root), 'plan', 'approve', 'P9', '--by', 'owner', '--reference', 'r'])
+        self.assertEqual(code, 0)                                                      # the owner can still approve
 
 
 class LedgerEventTests(Fixture):

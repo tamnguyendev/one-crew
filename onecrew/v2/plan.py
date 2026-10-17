@@ -11,7 +11,7 @@ from . import contract as contracts
 
 ANCHOR = 'plan:'
 KINDS = ('plan.proposed', 'plan.amended', 'plan.approved', 'plan.accepted', 'verdict.recorded', 'milestone.passed',
-         'milestone.failed', 'milestone.stopped', 'attention.exceeded', 'dispatch.refused_no_plan')
+         'milestone.failed', 'milestone.stopped', 'attention.exceeded', 'dispatch.refused_no_plan', 'verdict.receipt_issued')
 OWNER_ACTORS = ('user', 'owner')
 
 
@@ -36,7 +36,7 @@ def derive(ledger, conn, name):
     row = conn.execute('SELECT id FROM tasks WHERE project_id=? AND request_key=?', (ledger.project_id, ANCHOR + name)).fetchone()
     if not row: return None
     state = {'name': name, 'task_id': row['id'], 'revisions': {}, 'latest': 0, 'approved': None, 'accepted': None, 'verdicts': [],
-             'stopped': {}, 'passed': [], 'exceeded': 0}
+             'stopped': {}, 'issued': set(), 'exceeded': 0}
     marks = ','.join('?' * len(KINDS))
     for event in conn.execute(f'SELECT seq,kind,payload FROM events WHERE task_id=? AND kind IN ({marks}) ORDER BY seq', (row['id'], *KINDS)):
         kind, p = event['kind'], json.loads(event['payload'])
@@ -45,6 +45,7 @@ def derive(ledger, conn, name):
             state['latest'] = max(state['latest'], p['revision'])
         elif kind == 'plan.approved': state['approved'] = p
         elif kind == 'plan.accepted': state['accepted'] = p
+        elif kind == 'verdict.receipt_issued': state['issued'].add((p['revision'], p['milestone'], p['receipt']))
         elif kind == 'verdict.recorded': state['verdicts'].append(dict(p, seq=event['seq']))
         elif kind == 'milestone.stopped': state['stopped'][p['revision']] = p
         elif kind == 'attention.exceeded': state['exceeded'] += 1
@@ -70,16 +71,17 @@ def load(ledger, state, revision=None):
 
 
 def milestone_views(contract, state, revision):
+    """A milestone is passed only while its LATEST verdict on this revision is a pass; a later failure reopens it."""
     views = []
     for m in contract['milestones']:
         mine = [v for v in state['verdicts'] if v['revision'] == revision and v['milestone'] == m['id']]
-        failed = [v for v in mine if v['result'] != 'pass']
-        passed = any(v['result'] == 'pass' for v in mine)
+        failures = len([v for v in mine if v['result'] != 'pass'])
+        passed = bool(mine) and mine[-1]['result'] == 'pass'
         stopped = revision in state['stopped'] and state['stopped'][revision]['milestone'] == m['id']
         views.append({'id': m['id'], 'title': m['title'], 'mode': m['mode'], 'verifier': m['verifier']['type'],
-                      'max_repairs': m['max_repairs'], 'state': 'passed' if passed else 'stopped' if stopped else 'failed' if failed else 'pending',
-                      'runs': len(mine), 'repairs_left': max(0, m['max_repairs'] - len(failed)) if not passed else None,
-                      'last_verdict': ({k: mine[-1][k] for k in ('result', 'by', 'artifact_sha', 'receipt')} if mine else None)})
+                      'max_repairs': m['max_repairs'], 'state': 'passed' if passed else 'stopped' if stopped else 'failed' if failures else 'pending',
+                      'runs': len(mine), 'failures': failures, 'repairs_left': max(0, m['max_repairs'] - failures) if not passed else None,
+                      'last_verdict': ({k: mine[-1].get(k) for k in ('result', 'by', 'artifact_sha', 'receipt', 'cwd')} if mine else None)})
     return views
 
 
@@ -157,9 +159,10 @@ def accept(ledger, name, by, reference, artifact_sha):
             views = milestone_views(contract, state, revision)
             missing = [v['id'] for v in views if v['state'] != 'passed']
             if missing: raise LedgerError('Cannot accept: no passing verdict for milestone ' + ', '.join(missing) + '.')
-            final = [v for v in state['verdicts'] if v['revision'] == revision and v['milestone'] == views[-1]['id'] and v['result'] == 'pass'][-1]
-            if final['artifact_sha'] != artifact_sha:
-                raise LedgerError(f'Cannot accept: the final milestone was verified on artifact {final["artifact_sha"]}, not {artifact_sha}.')
+            elsewhere = [v for v in views if v['last_verdict']['artifact_sha'] != artifact_sha]
+            if elsewhere:
+                raise LedgerError(f'Cannot accept artifact {artifact_sha}: every milestone must have passed on exactly that artifact; '
+                                  + '; '.join(f'{v["id"]} passed on {v["last_verdict"]["artifact_sha"]}' for v in views) + '. Re-run the milestones that differ.')
             emit(ledger, conn, state['task_id'], 'plan.accepted', {'plan': name, 'revision': revision, 'sha': sha, 'by': by, 'reference': reference,
                                                                     'artifact_sha': artifact_sha, 'receipts': {v['id']: v['last_verdict']['receipt'] for v in views}})
     return show(ledger, name)
