@@ -150,6 +150,21 @@ def scope_check(project, base, ref, recipe):
     return reasons
 
 
+def candidate_files(project, base, head, recipe):
+    """[{'path','text'}] in the shape install_candidate takes: every added/modified file of `base..head` (relative to the
+    project directory) plus every recipe test, read from the commit itself (`git cat-file`), never from a checkout."""
+    project = Path(project)
+    prefix = _text(git(project, 'rev-parse', '--show-prefix', allow_failure=True))
+    names = {path[len(prefix):] for status, _, _, _, path, _ in _diff(project, base, head)
+             if status in ('A', 'M') and path.startswith(prefix)}
+    names |= set(recipe['tests'])
+    files = []
+    for name in sorted(names):
+        data = git(project, 'cat-file', 'blob', head + ':' + prefix + name)
+        files.append({'path': name, 'text': data.decode('utf-8')})
+    return files
+
+
 def evaluate(project, ref, recipe, report=None, author=None):
     """intake + scope_check as one record: `reasons` is the union of both lists."""
     record = intake(project, ref, report, author)

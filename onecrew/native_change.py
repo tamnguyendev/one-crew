@@ -345,6 +345,13 @@ def advance(runtime,task_id,seq,state,profile):
     if any(r['state']=='answered' and r['answer']['choice']=='stop' for r in answered):
         state.update(phase='cancelled',message='Stopped on explicit user clarification.')
         runtime.persist(task_id,seq,state);return state
+    qc=profile.get('qc')  # a candidate built outside OneCrew: judged here, never repaired or applied (qc_gate)
+    if qc and not state.get('native_change'):
+        from . import qc_gate
+        reasons,where=qc_gate.precheck(runtime,qc)
+        if reasons:
+            qc_gate.finish(state,qc,'rejected',where,reasons)
+            runtime.persist(task_id,seq,state);return state
     if not state.get('native_change'):
         def progress(value):
             nonlocal seq
@@ -355,20 +362,34 @@ def advance(runtime,task_id,seq,state,profile):
         (node_change.prepare if node else prepare)(runtime,state,recipe,progress)
         state.setdefault('preparation',{})['status']='ready'
         state['message']=kind+' snapshot ready; worker pending.'
+        if qc:
+            state['native_change']['stage']='qc_install';state['message']=kind+' snapshot ready; candidate install pending (no worker).'
         runtime.persist(task_id,seq,state);return state
     native=state['native_change'];stage=native['stage']
+    if qc and stage in ('work','apply','build'):
+        raise LedgerError('A QC task never calls a worker or applies to the project.')
     # An explicit resume may recover a review rejected under the old combined
     # repair cap. Reuse its durable feedback rather than pay for another review.
     if (stage=='review' and state.get('message')=='Native change repair limit reached; evidence preserved.'
             and state.get('reviews') and state['reviews'][-1].get('accepted') is False):
         repair(state,state['reviews'][-1]['feedback'])
         runtime.persist(task_id,seq,state);return state
-    if stage=='verify':
+    if stage=='qc_install':
+        if not qc:raise LedgerError('Unknown native change stage.')
+        from . import qc_gate
+        reasons=qc_gate.install(runtime,state,recipe,qc)
+        if reasons:qc_gate.finish(state,qc,'rejected','install',reasons)
+        else:native['stage']='verify';state['message']='Candidate installed from '+qc['head'][:12]+'; fixed '+kind+' regression tests pending.'
+    elif stage=='verify':
         result=(node_change.verify if node else verify)(runtime,task_id,state,recipe)
         state['tests'].append(result);native['checks'].append(result)
+        environment_failure=not node and (result.get('failure_kind')=='environment' or any(s in result['detail'].lower() for s in ('could not resolve the package','unable to find git','could not find a file named','unable to locate android sdk')))
         if result['passed']: native['stage']='review';state['message']=kind+' regression tests passed; independent review pending.'
+        elif qc and not environment_failure:
+            from . import qc_gate
+            qc_gate.finish(state,qc,'rejected','gate',[qc_gate.reason('gate_failed',result['detail'][-2000:])])
         elif node: repair(state,'Fixed Node verification (tsc, vitest, build) failed. Diagnose evidence before editing; do not remove or skip assertions.\n'+result['detail'])
-        elif result.get('failure_kind')=='environment' or any(s in result['detail'].lower() for s in ('could not resolve the package','unable to find git','could not find a file named','unable to locate android sdk')):
+        elif environment_failure:
             state.update(phase='blocked',message='Flutter dependency/environment unavailable; test receipt preserved.',recovery={'kind':'environment','automatic_retry':False})
         else: repair(state,'Fixed Flutter test command failed. Diagnose evidence before editing; do not remove assertions.\n'+result['detail'])
     elif stage=='apply':
@@ -435,6 +456,9 @@ def advance(runtime,task_id,seq,state,profile):
         if not work:
             from .native_review_context import packet as review_packet
             context=review_packet(runtime,state,context)
+        if qc and not work:
+            from . import qc_gate
+            prompt+=qc_gate.review_notice(qc)
         packet=canonical(context)
         prompt+=packet
         if workspace_mode:
@@ -522,7 +546,12 @@ def advance(runtime,task_id,seq,state,profile):
         else:
             if type(value.get('accepted')) is not bool or not isinstance(value.get('feedback'),str): raise LedgerError('Invalid native review.')
             state.setdefault('reviews',[]).append(value)
-            if value['accepted']: native['review_accepted']=True;native['stage']='apply'
+            if qc:
+                from . import qc_gate
+                if value['accepted']:
+                    native['review_accepted']=True;qc_gate.finish(state,qc,'verified_technical_only','review',[])
+                else: qc_gate.finish(state,qc,'rejected','review',[qc_gate.reason('review_rejected',value['feedback'][:2000])])
+            elif value['accepted']: native['review_accepted']=True;native['stage']='apply'
             else: repair(state,value['feedback'])
         native.pop('result_pending',None)
     else: raise LedgerError('Unknown native change stage.')

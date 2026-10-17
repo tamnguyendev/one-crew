@@ -9,7 +9,7 @@ from .ledger import LedgerError, canonical, content_hash, key_field, text_field,
 
 def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None,
            max_calls=None, max_seconds=None, image=None, branch=None, remote=None, android_build=None, native_change=None,
-           solution_id=None, solution_revision=None, contract=None,
+           solution_id=None, solution_revision=None, contract=None, qc=None,
            _delivery_parent=None, _delivery_node=None, _delivery_generation=0, _delivery_scope=None):
     if mode == 'work':
         # Generic job: the user's work contract (goal, scope, invariants, acceptance, authority) is the sealed agreement.
@@ -50,6 +50,10 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
         native_change=validate(native_change)
         if mode!='change' or provider!='claude' or branch or remote or image:
             raise LedgerError('Native change requires Claude change mode without publication/container options.')
+    if qc is not None:
+        if not native_change: raise LedgerError('QC judges a candidate through a native change recipe.')
+        from .qc_gate import validate as validate_qc
+        qc=validate_qc(qc,provider,model)
     if mode == 'change' and not image and not native_change:
         raise LedgerError('Change jobs require an authorized sandbox image.')
     if mode in ('delivery','branch') or branch or remote:
@@ -88,6 +92,7 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
         options['fallbacks'] = preference['fallbacks']
     if android_build: options['android_build'] = android_build
     if native_change: options['native_change'] = native_change
+    if qc: options['qc'] = qc
     if contract: options['contract'] = contract
     if _delivery_scope: options['delivery_scope'] = _delivery_scope  # narrows authority; never widens it
     payload = dict(schema_version=1,project_id=ledger.project_id,project_path=ledger.project_path,
