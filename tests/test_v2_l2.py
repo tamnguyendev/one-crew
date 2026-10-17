@@ -297,6 +297,15 @@ class CheckTests(HookFixture):
         self.assertEqual(self.run_hook('check', raw=b'garbage')[0], 0)
         self.assertFalse((self.root / '.onecrew').exists())
 
+    def test_an_explicit_project_is_not_governed_by_the_plan_of_another_directory(self):
+        self.enforce()
+        inner = self.root / 'inner'; inner.mkdir()
+        event = dict(self.edit('other.py'), cwd=str(inner))
+        arguments = [PY, '-X', 'utf8', '-m', 'onecrew', '--project', str(inner), 'hook', 'check']
+        done = subprocess.run(arguments, input=json.dumps(event).encode(), capture_output=True, cwd=REPO, timeout=120)
+        self.assertEqual(done.returncode, 0)                                              # the plan of the directory above does not govern inner/
+        self.assertEqual(self.run_hook('check', self.edit('other.py'))[0], 2)
+
     def test_stopped_plans_block_edits_and_accepted_plans_do_not(self):
         self.enforce(value=owned_plan(milestones=[milestone(argv=BAD, max_repairs=0)]))
         verdict.run(self.ledger, 'P1', 'M1', self.root)                                          # fails past max_repairs: stopped_with_report

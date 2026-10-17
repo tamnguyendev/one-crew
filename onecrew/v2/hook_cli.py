@@ -41,15 +41,15 @@ def now():
 
 # ---- locating and reading the plan -----------------------------------------------------------------------------------------
 
-def find_plan_file(candidates):
-    """First <dir>/.onecrew/active-plan.json found walking up from each candidate directory."""
+def find_plan_file(candidates, walk=True):
+    """First <dir>/.onecrew/active-plan.json found (walking up from each candidate directory unless walk is False)."""
     for start in candidates:
         if not start: continue
         try:
             here = Path(start).resolve()
         except OSError:
             continue
-        for directory in (here, *here.parents):
+        for directory in ((here, *here.parents) if walk else (here,)):
             if (directory / '.onecrew' / FILE).is_file(): return directory / '.onecrew' / FILE
     return None
 
@@ -214,7 +214,10 @@ def read_stdin():
 
 
 def locate(args, event):
-    return find_plan_file([args.project, os.environ.get('CLAUDE_PROJECT_DIR'), event.get('cwd'), os.getcwd()])
+    """An explicit --project (what `hook install --print` writes) is the only place looked at: a plan of some other project that happens
+    to contain the working directory must not govern it."""
+    if args.project: return find_plan_file([args.project], walk=False)
+    return find_plan_file([os.environ.get('CLAUDE_PROJECT_DIR'), event.get('cwd'), os.getcwd()])
 
 
 def check(args):
