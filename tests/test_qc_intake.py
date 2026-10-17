@@ -9,7 +9,7 @@ from onecrew.qc_intake import intake, scope_check, evaluate, MAX_FILE
 
 OWNED = ['app/lib/main.dart', 'app/lib/util.dart', 'app/test/main_test.dart']
 TESTS = ['app/test/main_test.dart']
-RECIPE = {'owned': OWNED, 'tests': TESTS}
+RECIPE = {'package': 'app', 'owned': OWNED, 'tests': TESTS}
 
 
 def run(repo, *args, stdin=None):
@@ -128,7 +128,7 @@ class ScopeCheckTests(IntakeBase):
 
     def test_added_symlink_to_an_owned_path_is_rejected(self):
         # an owned path that does not exist at base, added as a link
-        recipe = {'owned': OWNED + ['app/lib/linked.dart'], 'tests': TESTS}
+        recipe = {'package': 'app', 'owned': OWNED + ['app/lib/linked.dart'], 'tests': TESTS}
         head = self.repo.branch('cand', lambda r: (good(r), r.link('app/lib/linked.dart')))
         reasons = scope_check(self.repo.project, self.repo.base, head, recipe)
         self.assertEqual(self.codes(reasons), ['symlink'])
@@ -176,7 +176,7 @@ class ScopeCheckTests(IntakeBase):
             self.assertEqual(sorted(item), ['code', 'detail', 'path'])
 
     def test_recipe_test_absent_from_the_candidate_is_reported(self):
-        recipe = {'owned': OWNED + ['app/test/extra_test.dart'], 'tests': TESTS + ['app/test/extra_test.dart']}
+        recipe = {'package': 'app', 'owned': OWNED + ['app/test/extra_test.dart'], 'tests': TESTS + ['app/test/extra_test.dart']}
         head = self.repo.branch('cand', good)
         reasons = scope_check(self.repo.project, self.repo.base, head, recipe)
         self.assertEqual([(r['code'], r['path']) for r in reasons], [('test_missing_at_ref', 'app/test/extra_test.dart')])
@@ -206,7 +206,7 @@ class IntakeTests(IntakeBase):
     def test_pins_author_head_base_and_report_hash(self):
         head = self.repo.branch('cand', good)
         report = self.report()
-        record = intake(self.repo.project, 'cand', report, 'claude-code')
+        record = intake(self.repo.project, 'cand', report, 'claude-code', recipe=RECIPE)
         self.assertEqual(record['reasons'], [])
         self.assertEqual((record['head'], record['base'], record['merge_base']), (head, self.repo.base, self.repo.base))
         self.assertEqual((record['author'], record['branch']), ('claude-code', 'cand'))
@@ -215,7 +215,7 @@ class IntakeTests(IntakeBase):
         self.assertIn('regression test', record['report'])
 
     def test_unknown_ref_is_rejected(self):
-        record = intake(self.repo.project, 'no-such-branch', self.report(), 'a')
+        record = intake(self.repo.project, 'no-such-branch', self.report(), 'a', recipe=RECIPE)
         self.assertEqual([r['code'] for r in record['reasons']], ['ref_unresolved'])
 
     def test_ref_from_another_repository_is_rejected(self):
@@ -223,11 +223,11 @@ class IntakeTests(IntakeBase):
         other.base_head = other.branch('cand', good)
         for ref in (other.base_head, str(other.root), str(other.root / '.git')):
             with self.subTest(ref=ref):
-                record = intake(self.repo.project, ref, self.report(), 'a')
+                record = intake(self.repo.project, ref, self.report(), 'a', recipe=RECIPE)
                 self.assertEqual([r['code'] for r in record['reasons']], ['ref_unresolved'])
 
     def test_option_like_ref_is_not_passed_to_git(self):
-        record = intake(self.repo.project, '--output=evil', self.report(), 'a')
+        record = intake(self.repo.project, '--output=evil', self.report(), 'a', recipe=RECIPE)
         self.assertEqual([r['code'] for r in record['reasons']], ['ref_unresolved'])
         self.assertFalse((self.repo.project / 'evil').exists())
 
@@ -235,14 +235,14 @@ class IntakeTests(IntakeBase):
         self.repo.branch('cand', good)
         self.repo.write('app/lib/other.dart', b'int two()=>3;\n')
         self.repo.commit('project moved on')
-        record = intake(self.repo.project, 'cand', self.report(), 'a')
+        record = intake(self.repo.project, 'cand', self.report(), 'a', recipe=RECIPE)
         self.assertEqual([r['code'] for r in record['reasons']], ['base_not_head'])
 
     def test_missing_or_non_utf8_report_is_a_reason_not_an_exception(self):
         self.repo.branch('cand', good)
-        gone = intake(self.repo.project, 'cand', Path(self.tmp.name) / 'nope.md', 'a')
+        gone = intake(self.repo.project, 'cand', Path(self.tmp.name) / 'nope.md', 'a', recipe=RECIPE)
         self.assertEqual([r['code'] for r in gone['reasons']], ['report_unreadable'])
-        bad = intake(self.repo.project, 'cand', self.report(b'\xff\xfe\x00bad'), 'a')
+        bad = intake(self.repo.project, 'cand', self.report(b'\xff\xfe\x00bad'), 'a', recipe=RECIPE)
         self.assertEqual([r['code'] for r in bad['reasons']], ['report_not_utf8'])
         self.assertIsNotNone(bad['report_sha'])
 

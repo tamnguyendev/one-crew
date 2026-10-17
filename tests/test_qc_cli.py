@@ -188,6 +188,60 @@ class StatusTests(QcCliFixture):
         self.assertIn('not a QC task', out['error'])
 
 
+class ParentOfRepositoryTests(QcCliFixture):
+    """cts-port/app layout: the project root is the PARENT of the Git repository, which is the Flutter package itself."""
+    def setUp(self):
+        from tests import test_owned as fixtures
+        from tests.test_qc_machine import git as run_git
+        self.f = fixtures.OwnedTests(); self.f.setUp(); self.addCleanup(self.f.doCleanups)
+        self.root = self.f.root
+        self.repo = self.root / 'flutter_vimes'
+        (self.repo / 'lib').mkdir(parents=True); (self.repo / 'test').mkdir(); (self.repo / '.dart_tool').mkdir()
+        (self.repo / 'lib/main.dart').write_text(BASE_MAIN)
+        (self.repo / 'test/main_test.dart').write_text('// base test\n')
+        (self.repo / 'pubspec.yaml').write_text('name: flutter_vimes\n')
+        (self.repo / '.gitignore').write_text('.dart_tool/\n')
+        (self.repo / '.dart_tool/package_config.json').write_text(json.dumps(
+            {'configVersion': 2, 'packages': [{'name': 'flutter_vimes', 'rootUri': '../', 'packageUri': 'lib/'}]}))
+        (self.repo / '.dart_tool/package_graph.json').write_text(json.dumps(
+            {'configVersion': 1, 'roots': ['flutter_vimes'], 'packages': [{'name': 'flutter_vimes', 'version': '1.0.0', 'dependencies': []}]}))
+        run_git(self.repo, 'init', '-q', '-b', 'master'); run_git(self.repo, 'add', '-A'); run_git(self.repo, 'commit', '-q', '-m', 'base')
+        self.base = run_git(self.repo, 'rev-parse', 'HEAD')
+        run_git(self.repo, 'checkout', '-q', '-b', 'cand')
+        (self.repo / 'lib/main.dart').write_text(GOOD_MAIN); (self.repo / 'test/main_test.dart').write_text('// regression test for add\n')
+        run_git(self.repo, 'commit', '-q', '-am', 'cand'); self.head = run_git(self.repo, 'rev-parse', 'HEAD')
+        run_git(self.repo, 'checkout', '-q', 'master')
+        self.recipe = dict(source_roots=['flutter_vimes'], owned=['flutter_vimes/lib/main.dart', 'flutter_vimes/test/main_test.dart'],
+            extra_sources={}, package='flutter_vimes', flutter_root=str(Path(self.f.temp.name) / 'flutter'),
+            tests=['flutter_vimes/test/main_test.dart'], reference='QC fixture', trusted_native=True)
+        self.report = Path(self.f.temp.name) / 'report.md'; self.report.write_text('Fixed add and added a test.\n', encoding='utf-8')
+        self.recipe_file = Path(self.f.temp.name) / 'native-change.json'
+        self.recipe_file.write_text(json.dumps(self.recipe), encoding='utf-8')
+        self.binding = approve_fixture(self.f.ledger)
+
+    def test_submit_resolves_the_repository_below_the_project_and_passes_the_scope_check(self):
+        code, out = self.submit()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out['qc']['scope_reasons'], [])
+        self.assertEqual((out['qc']['head'], out['qc']['base']), (self.head, self.base))
+
+    def test_the_candidate_runs_to_a_verdict_and_the_project_is_untouched(self):
+        task = self.submit()[1]['id']
+        state, worker = self.run_to_end(task, [{'accepted': True, 'feedback': 'Test exercises add.'}], gate=self.passing_gate)
+        self.assertEqual(state['qc']['verdict'], 'verified_technical_only')
+        self.assertEqual(worker.calls, ['native_change_review'])
+        self.assertEqual((self.repo / 'lib/main.dart').read_text(), BASE_MAIN)
+
+    def test_a_scope_failure_names_the_project_relative_path(self):
+        from tests.test_qc_machine import git as run_git
+        run_git(self.repo, 'checkout', '-q', '-b', 'wide', self.base)
+        (self.repo / 'lib/other.dart').write_text('int two()=>2;\n'); run_git(self.repo, 'add', '-A'); run_git(self.repo, 'commit', '-q', '-m', 'wide')
+        run_git(self.repo, 'checkout', '-q', 'master')
+        out = self.submit('wide', 'cli-wide')[1]
+        paths = [r['path'] for r in out['qc']['scope_reasons'] if r['code'] == 'path_outside_owned']
+        self.assertEqual(paths, ['flutter_vimes/lib/other.dart'])
+
+
 class RouterTests(QcCliFixture):
     def test_the_main_cli_routes_the_qc_group(self):
         from onecrew import cli

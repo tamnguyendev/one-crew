@@ -5,7 +5,7 @@ project and no worker writes anything; the verdict is set only by this code, nev
 import re
 
 from .ledger import LedgerError, canonical
-from .qc_intake import evaluate, candidate_files, reason
+from .qc_intake import evaluate, candidate_files, locate, reason
 from .work_contract import git
 
 SCHEMA = 1
@@ -73,11 +73,13 @@ def validate(qc, provider, model):
     return qc
 
 
-def precheck(runtime, qc):
-    """Reasons known before any capture or call: those found at intake plus a project HEAD that moved since submit."""
+def precheck(runtime, qc, recipe):
+    """Reasons known before any capture or call: those found at intake plus a HEAD of the package's repository that moved since submit."""
     reasons = list(qc['reasons'])
     if reasons: return reasons, 'scope'
-    head = git(runtime.ledger.project, 'rev-parse', '--verify', 'HEAD', allow_failure=True)
+    layout = locate(runtime.ledger.project, recipe)
+    if layout is None: return [reason('package_not_in_repository', 'The recipe package is not inside a Git repository.')], 'scope'
+    head = git(layout.root, 'rev-parse', '--verify', 'HEAD', allow_failure=True)
     current = head.decode().strip() if head else None
     if current != qc['base']:
         return [reason('base_moved', 'The project HEAD is ' + str(current)[:12] + ' now; the candidate was judged against ' +

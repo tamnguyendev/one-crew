@@ -348,7 +348,7 @@ def advance(runtime,task_id,seq,state,profile):
     qc=profile.get('qc')  # a candidate built outside OneCrew: judged here, never repaired or applied (qc_gate)
     if qc and not state.get('native_change'):
         from . import qc_gate
-        reasons,where=qc_gate.precheck(runtime,qc)
+        reasons,where=qc_gate.precheck(runtime,qc,recipe)
         if reasons:
             qc_gate.finish(state,qc,'rejected',where,reasons)
             runtime.persist(task_id,seq,state);return state
