@@ -25,3 +25,11 @@ Giới hạn thật: Bash không phải ranh giới bảo mật (hook đọc ch�
 
 - `Control.reserve` nhận `operation.item`: mục `wont` và `should` không được tick lúc duyệt không chạy; `should` không tiêu phần `repair_reserve` (20%); mỗi mục tối đa phần chia đều; mục `must` chạm trần → dừng mục, hỏi chủ sở hữu **một** câu (`v2.item_budget`, tính chung vào `attention.questions`); mục `should` chạm trần → dừng, chuyển mục kế.
 - `solution_gate.question` loại `solution_change` cần `delta` (`add|drop|budget_delta`), `reason` ≤ 200 ký tự; yêu cầu thứ 3 bị từ chối và đặt plan vào `stopped_with_report`.
+
+## Sau review Opus lần 1 (r2)
+
+- Hook tìm kế hoạch ở hai nơi: `<project>/.onecrew/active-plan.json` và bản sao trong `<state-root>/plans/<tên>/` (cấu hình in ra có `--state-root`). Xóa `.onecrew/` không tắt cưỡng bức: hook khôi phục bản trong project từ state-root; bản trong project lệch bản state-root thì bị coi là bị sửa và chặn.
+- `plan approve|accept|enforce`, `verdict record --by owner`, `hook mode` bị từ chối khi tiến trình có `CLAUDE_CODE_CHILD_SESSION` (Claude Code đặt cho shell của công cụ và hook; terminal IDE của chủ sở hữu chỉ có `CLAUDECODE`). Chủ sở hữu chạy các lệnh này ở terminal riêng.
+- Verifier `command` chạy trên checkout bằng `git read-tree` + `checkout-index` (không `git archive`), với môi trường là danh sách cho phép (bỏ `PYTHON*`, `GIT_*` và mọi biến lạ).
+- Trần Stop: 2 lần chặn mỗi lượt dừng; sau lần cho qua bộ đếm về 0.
+- Giới hạn yêu cầu gửi chủ sở hữu (CREQ): mọi loại câu hỏi đều đếm vào trần 2 và đều cần `reason` ≤ 200 ký tự khi cổng bật.
