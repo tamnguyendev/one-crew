@@ -514,8 +514,12 @@ class CTSCheckpointContinuationTests(unittest.TestCase):
         from onecrew.paging import MIN_PAGE
         run,dst=self._copy_runtime()
         status=run.control.status(self.TID); seq,st=run.state(self.TID)
+        # Precondition = a blocked checkpoint with a latest receipt to page. NOT the block KIND: the live task moved on from
+        # prompt_budget (step 118) to no_progress (step 155), and the kind is only a description of the live state. The
+        # prompt_budget starvation itself is reproduced from synthetic state by Level4TrimSelfContainedTests (no live state).
         self.assertEqual(st.get('phase'),'blocked')
-        self.assertEqual((st.get('recovery') or {}).get('kind'),'prompt_budget')
+        self.assertTrue(st.get('receipts'), 'a blocked checkpoint carries the receipt whose page the prompt must show')
+        kind=(st.get('recovery') or {}).get('kind')
         used_before=status.get('used_calls')  # the REAL number, whatever step the live task currently sits at (no hard-code)
         self.assertIsInstance(used_before,int); self.assertGreater(used_before,0)
         ref=st['receipts'][-1]  # whichever oversized result is the latest at the current blocked step
@@ -529,9 +533,12 @@ class CTSCheckpointContinuationTests(unittest.TestCase):
         prompt=run._work_prompt(self.TID, st, prof, status, tp, tsch, notes)
         obj=json.loads('{'+prompt.rpartition('\n{')[2])
         page=(obj.get('latest_result') or {}).get('page')
-        self.assertTrue(page, 'latest_result must carry a page')
-        self.assertGreaterEqual(page[0]['delivered'], MIN_PAGE)  # a VALID page, not a sub-valid note (the mechanism; the
-        # page offset is wherever the worker's last request left off - not pinned to the read's start, which is step-specific)
+        self.assertTrue(page, 'latest_result must carry a page (block kind at this checkpoint: %s)'%kind)
+        # a VALID page, not a sub-valid note. Measured in CHARACTERS of the result itself (run._page_content, the quantity
+        # _fit_work enforces): page[0]['delivered'] counts items, not characters, when the paged field is a list (unit 'items').
+        self.assertGreaterEqual(run._page_content, MIN_PAGE)
+        if page[0].get('unit','chars')=='chars': self.assertGreaterEqual(page[0]['delivered'], MIN_PAGE)
+        # (the page offset is wherever the worker's last request left off - not pinned to the read's start, which is step-specific)
         # used_calls still the real number, preserved (not reset) by building on a copy; the original live state is untouched
         self.assertEqual(run.control.status(self.TID).get('used_calls'),used_before)
 
@@ -556,6 +563,75 @@ class CTSCheckpointContinuationTests(unittest.TestCase):
         self.assertLessEqual(len(prog.get('reconsider_by_page') or {}), 200)  # bounded, never unbounded growth
         self.assertIsInstance(prog.get('observations',0),int)
 
+
+
+class Level4TrimSelfContainedTests(unittest.TestCase):
+    """Self-contained reproduction of what test_C proves on the live CTS checkpoint (no live state, no copy of it): when the
+    fixed context of a work prompt is so full that levels 0-3 cannot leave a VALID page (MIN_PAGE of content) for a big latest
+    result - the prompt_budget starvation CTS hit at step 118 - the level-4 fallback (recovery trimmed to the newest repeat /
+    failure) frees the room, with the cap NOT widened and MIN_PAGE NOT lowered. The starving margin is found on the real
+    build by scanning the cap on this instance (like git_show V2 Bug1 test_2 forces the cap through run.PROMPT_LIMITS), so
+    no byte count is hard-coded; synthetic repeats stand in for the long run of older repeats the live task accumulated."""
+
+    def _starving(self):
+        import json
+        from onecrew.owned import Owned, contract as make_contract
+        from onecrew.owned_intake import submit
+        from tests.test_workflow import FixtureWorker
+        import tests.test_work_contract as wc
+        t=wc.WorkFixture(); t.setUp(); self.addCleanup(t.doCleanups)
+        big=chr(10).join('row %05d %s'%(i,'q'*70) for i in range(1600))   # one oversized read, like CTS receipt 117 (~12.8 KB)
+        (t.root/'big.txt').write_text(big); t.git('add','big.txt'); t.git('commit','-q','-m','big')
+        def act(name,plan,**a): return {'plan':plan,'action':name,'arguments':json.dumps(a)}
+        task=submit(t.ledger,None,'work',mode='work',provider='kiro',model='claude-sonnet-5',contract=t.contract())['id']
+        run=Owned(t.ledger,FixtureWorker(t.ledger,[act('read','P',path='big.txt'),act('receipt','page it',index=0,offset=0)]))
+        run.enable(task); run.run(task,steps=2)   # a genuine receipt now exists as latest_result
+        seq,state=run.state(task)
+        # Older repeats: the retrievable recovery detail level 4 trims to the newest one (kept whole in the checkpoint).
+        state.setdefault('progress',{})['repeats']={'r%d'%i:{'action':'read','arguments':'path=src/module_%d.dart '%i+'x'*700,
+            'count':1,'step':10+i,'seq':100+i} for i in range(5)}
+        control=run.control.status(task); profile=control['configuration']['profile']
+        tp,tsch,_=make_contract(profile)
+        with t.ledger.transaction() as conn:
+            notes=[json.loads(r['payload']) for r in conn.execute(
+                "SELECT payload FROM events WHERE task_id=? AND kind='entry.note' ORDER BY seq DESC LIMIT 5",(task,))]
+        return run,task,state,profile,control,tp,tsch,notes
+
+    def _build(self,run,task,state,profile,control,tp,tsch,notes,cap,levels):
+        from onecrew.owned import PromptBudgetError
+        run.PROMPT_LIMITS={profile['provider']:cap}   # instance override: the class table is untouched
+        run.LEVELS=levels
+        try: return run._work_prompt(task,state,profile,control,tp,tsch,notes), None
+        except PromptBudgetError as e: return None, e
+
+    def test_level4_trim_rescues_a_prompt_that_levels_0_to_3_cannot_serve(self):
+        import json
+        from onecrew.owned import Owned, canonical
+        from onecrew.paging import MIN_PAGE
+        run,task,state,profile,control,tp,tsch,notes=self._starving()
+        full=Owned.LEVELS; without4=tuple(l for l in full if l[2]<4)
+        self.assertEqual(len(full)-len(without4),1)   # exactly one level-4 entry exists
+        # Scan the cap downwards for the margin where ONLY level 4 yields a valid page.
+        found=None
+        for cap in range(Owned.PROMPT_LIMITS[profile['provider']],6000,-25):
+            pr3,err3=self._build(run,task,state,profile,control,tp,tsch,notes,cap,without4)
+            if err3 is None: continue   # levels 0-3 still serve it: not starving yet
+            pr4,err4=self._build(run,task,state,profile,control,tp,tsch,notes,cap,full)
+            if err4 is None: found=(cap,err3,pr4); break
+        self.assertIsNotNone(found,'no cap exists where levels 0-3 starve and level 4 serves: the level-4 fallback does nothing here')
+        cap,err3,prompt=found
+        self.assertIn('Prompt budget',str(err3))   # levels 0-3 really are refused (the CTS block), not some other error
+        # With level 4 the SAME cap builds a prompt that fits it and carries a VALID page, rebuilt by the real _work_prompt.
+        self.assertLessEqual(len(canonical(tsch))+len(prompt)+40,cap)
+        obj=json.loads('{'+prompt.rpartition(chr(10)+'{')[2])
+        lr=obj.get('latest_result') or {}
+        self.assertTrue(lr.get('page'),'latest_result must carry a page')
+        self.assertGreaterEqual(run._page_content,MIN_PAGE)   # VALID page: the floor is not lowered
+        self.assertEqual(MIN_PAGE,Owned.MIN_PAGE_CONTENT)
+        # Only retrievable recovery detail went: the newest repeat stays, the blocker/guard/note (obligations) are not cut.
+        rec=obj['recovery']; self.assertEqual(len(rec['repeats']),1); self.assertIn('guard',rec); self.assertIn('note',rec)
+        self.assertIn('work_contract',obj)   # scope/authority/acceptance still present
+        self.assertEqual(len(state['progress']['repeats']),5)   # the durable checkpoint keeps the whole history (read-time view)
 
 
 class ContextAllocationHistoryGrowthTests(unittest.TestCase):
