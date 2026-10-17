@@ -10,7 +10,7 @@
       "paths": ["onecrew/v2/contract.py", "onecrew/v2/plan.py", "onecrew/v2/plan_cli.py", "onecrew/conversations.py", "onecrew/qc_intake.py", "tests/test_v2_l1.py"]
     },
     "assumptions": [
-      {"text": "Preconditions can run before the ledger write transaction opens, so a slow command never holds the sqlite lock.", "evidence": "onecrew/v2/plan.py:131"},
+      {"text": "Preconditions can run before the ledger write transaction opens, so a slow command never holds the sqlite lock.", "evidence": "onecrew/v2/plan.py:138"},
       {"text": "The L1 regression suite stays valid once its fixture contract carries a small step 0.", "evidence": "tests/test_v2_l1.py:34"}
     ],
     "confidence": "medium",
@@ -24,10 +24,10 @@
     "reason": "Smallest change to the L1 files; the new rules live in one module that can be tested alone.",
     "items": [
       {"id": "A", "summary": "New module step0.py holds the rules; contract.py gets the schema; plan.approve calls step0.evaluate.",
-       "evidence": ["onecrew/v2/plan.py:131"], "strengths": ["one place for the gate", "plan.py stays small"], "weaknesses": ["approve now does a read, a check and a write"],
+       "evidence": ["onecrew/v2/plan.py:138"], "strengths": ["one place for the gate", "plan.py stays small"], "weaknesses": ["approve now does a read, a check and a write"],
        "unknowns": [], "cost": "about 540 lines of code", "risk": "low"},
       {"id": "B", "summary": "Put every check inside plan.approve.",
-       "evidence": ["onecrew/v2/plan.py:131"], "strengths": ["no new module"], "weaknesses": ["plan.py is shared with the L2 slice: merge conflicts"],
+       "evidence": ["onecrew/v2/plan.py:138"], "strengths": ["no new module"], "weaknesses": ["plan.py is shared with the L2 slice: merge conflicts"],
        "unknowns": [], "cost": "about 480 lines", "risk": "medium"},
       {"id": "C", "summary": "Record options and the choice as v1 conversation proposals and decisions.",
        "evidence": ["onecrew/conversations.py:167"], "strengths": ["reuses v1"], "weaknesses": ["decide has no option id; the plan would depend on a conversation"],
