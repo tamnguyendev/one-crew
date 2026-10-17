@@ -28,6 +28,7 @@ def main(argv=None):
               '  eval       cases / replay / compare / observe / assistance (evidence, no auto-promotion)\n'
               '  skills     list / scan / review / approve / reject (recurring-task evidence)\n'
               '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
+              '  qc         submit / status (judge a candidate branch built outside OneCrew: scope, fixed gate, independent review)\n'
               '  host       install / register / start / stop / status / uninstall / run (runs jobs outside chat sessions)\n'
               '  delivery   submit / start / resume / status / cancel (solution-level execution)\n'
               '  core       migrate / status / cancel / reconcile\n'
@@ -72,6 +73,9 @@ def main(argv=None):
     if len(args)>index and args[index]=='job':
         from .owned_cli import main as job_main
         return job_main(args)
+    if len(args)>index and args[index]=='qc':
+        from .qc_cli import main as qc_main
+        return qc_main(args)
     if len(args)>index and args[index]=='entry':
         from .entry_cli import main as entry_main
         return entry_main(args)
