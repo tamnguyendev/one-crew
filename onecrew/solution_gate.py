@@ -20,6 +20,8 @@ def check(ledger,task_id,conn=None):
     guard(ledger,conn,task_id)
     if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='solution.stopped'",(task_id,)).fetchone():
         raise LedgerError('Task stopped by a solution decision; it cannot resume.')
+    from .v2.gate import require_plan  # v2: with enforcement on, no approved plan means no dispatch, in every mode (incl. work)
+    require_plan(ledger,conn,task)
     b=bound(ledger,conn,task_id)
     if not b:
         if payload.get('solution_required')=='spec':

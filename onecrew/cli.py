@@ -29,6 +29,8 @@ def main(argv=None):
               '  skills     list / scan / review / approve / reject (recurring-task evidence)\n'
               '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
               '  qc         submit / status (judge a candidate branch built outside OneCrew: scope, fixed gate, independent review)\n'
+              '  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
+              '  verdict    record / run (v2 milestone verdicts with receipts)\n'
               '  host       install / register / start / stop / status / uninstall / run (runs jobs outside chat sessions)\n'
               '  delivery   submit / start / resume / status / cancel (solution-level execution)\n'
               '  core       migrate / status / cancel / reconcile\n'
@@ -76,6 +78,9 @@ def main(argv=None):
     if len(args)>index and args[index]=='qc':
         from .qc_cli import main as qc_main
         return qc_main(args)
+    if len(args)>index and args[index] in ('plan','verdict'):  # v2 (docs/v2-vs-v1.vi.md); no v1 verb is named plan or verdict
+        from .v2.plan_cli import main as v2_main
+        return v2_main(args)
     if len(args)>index and args[index]=='entry':
         from .entry_cli import main as entry_main
         return entry_main(args)
