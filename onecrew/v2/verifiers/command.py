@@ -7,9 +7,11 @@ well formed, is refused.
 """
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import time
+import zipfile
 from pathlib import Path
 
 from ...ledger import LedgerError, canonical, utcnow
@@ -25,6 +27,11 @@ def _git(directory, *args, env=None):
     return done.stdout.decode('utf-8', 'replace').strip()
 
 
+def toplevel(directory):
+    """Resolved Git toplevel of a directory (C6: a verdict speaks about the project's repository, not a clone nested in it)."""
+    return Path(_git(directory, 'rev-parse', '--show-toplevel')).resolve()
+
+
 def artifact_sha(directory):
     """Git tree hash of the working tree (tracked and untracked, honouring .gitignore), via a throw-away index: the
     repository's own index and refs are not touched."""
@@ -32,8 +39,21 @@ def artifact_sha(directory):
     with tempfile.TemporaryDirectory() as temp:
         env = dict(os.environ, GIT_INDEX_FILE=str(Path(temp) / 'index'))
         _git(top, 'read-tree', 'HEAD', env=env)
-        _git(top, 'add', '-A', env=env)
+        _git(top, 'add', '-A', '--', '.', ':(exclude).onecrew', env=env)  # hook files (.onecrew/) are not part of the artifact
         return _git(top, 'write-tree', env=env)
+
+
+def _checkout(directory, tree, destination):
+    """C8: a clean checkout of exactly the artifact (`git archive <tree>`), so ignored files (__pycache__, build output) of the
+    live workspace cannot change the result while the sha stays the same. Returns the directory to run in."""
+    top = toplevel(directory)
+    archive = Path(destination) / 'artifact.zip'
+    _git(top, 'archive', '--format=zip', '-o', str(archive), tree)
+    root = Path(destination) / 'src'
+    with zipfile.ZipFile(archive) as bundle: bundle.extractall(root)
+    archive.unlink()
+    relative = Path(directory).resolve().relative_to(top)
+    return root / relative
 
 
 def _kill_tree(process):
@@ -55,12 +75,21 @@ def run(ledger, name, revision, plan_sha, milestone, directory):
     directory = Path(directory).resolve()
     if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
     before = artifact_sha(directory)
+    scratch = tempfile.mkdtemp(prefix='ocv-')
+    try:
+        return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch):
+    workspace = _checkout(directory, before, scratch)
     # S1: children are always UTF-8, so a Vietnamese path or message cannot turn a pass into an encoding failure.
     env = dict(os.environ, PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
     started, error, timed_out, code, out, err = utcnow(), None, False, None, b'', b''
     begin = time.monotonic()
     try:
-        process = subprocess.Popen(argv, cwd=str(directory), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        process = subprocess.Popen(argv, cwd=str(workspace), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, creationflags=0x08000000 if os.name == 'nt' else 0)
         try:
             out, err = process.communicate(timeout=limit * 60)

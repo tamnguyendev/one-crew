@@ -31,6 +31,7 @@ def main(argv=None):
               '  qc         submit / status (judge a candidate branch built outside OneCrew: scope, fixed gate, independent review)\n'
               '  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
               '  verdict    record / run (v2 milestone verdicts with receipts)\n'
+              '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
               '  host       install / register / start / stop / status / uninstall / run (runs jobs outside chat sessions)\n'
               '  delivery   submit / start / resume / status / cancel (solution-level execution)\n'
               '  core       migrate / status / cancel / reconcile\n'
@@ -78,6 +79,9 @@ def main(argv=None):
     if len(args)>index and args[index]=='qc':
         from .qc_cli import main as qc_main
         return qc_main(args)
+    if len(args)>index and args[index]=='hook':  # v2 L2: Claude Code hooks for the active plan
+        from .v2.hook_cli import main as hook_main
+        return hook_main(args)
     if len(args)>index and args[index] in ('plan','verdict'):  # v2 (docs/v2-vs-v1.vi.md); no v1 verb is named plan or verdict
         from .v2.plan_cli import main as v2_main
         return v2_main(args)

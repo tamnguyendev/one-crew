@@ -294,7 +294,7 @@ class VerdictTests(Fixture):
         _, receipt = command.run(self.ledger, 'P1', 1, sha, slow, self.root)
         self.assertTrue(receipt['timed_out'])
         self.assertEqual(command.expected_result(receipt), 'inconclusive')
-        writer = dict(slow); writer['verifier'] = {'type': 'command', 'config': {'argv': [PY, '-c', 'open("new.txt","w").write("x")'], 'max_minutes': 1}}
+        writer = dict(slow); writer['verifier'] = {'type': 'command', 'config': {'argv': [PY, '-c', 'open(%r,"w").write("x")' % str(self.root / 'new.txt')], 'max_minutes': 1}}  # L2: the command runs on a scratch checkout, so it reaches the live tree only by an absolute path
         _, receipt = command.run(self.ledger, 'P1', 1, sha, writer, self.root)
         self.assertEqual((receipt['exit_code'], command.expected_result(receipt)), (0, 'inconclusive'))
         self.assertNotEqual(receipt['artifact_sha'], receipt['artifact_sha_after'])
