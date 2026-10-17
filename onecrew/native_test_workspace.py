@@ -62,8 +62,8 @@ def declared_assets(runtime,recipe,taken):
     of prompts and worker blobs). A directory entry means its direct files. Capped at 500 files / 20 MB."""
     project=runtime.ledger.project;package=recipe['package']
     pubspec=safe_file(project,package+'/pubspec.yaml')
-    if not pubspec.is_file():return {}
-    assets={};total=0
+    if not pubspec.is_file():return {},[]
+    assets={};total=0;warnings=[]
     for declared in pubspec_assets(pubspec.read_text(encoding='utf-8-sig')):
         relative=declared.replace('\\','/')
         if not relative or relative.startswith('/') or ':' in relative or '..' in relative.split('/'):
@@ -74,14 +74,19 @@ def declared_assets(runtime,recipe,taken):
             names=sorted(leaf.name for leaf in target.iterdir() if leaf.is_file() and not leaf.is_symlink())
             names=[package+'/'+relative.rstrip('/')+'/'+leaf for leaf in names]
         elif target.is_file():names=[package+'/'+relative]
-        else:continue
+        else:
+            path=package+'/'+relative.rstrip('/')  # a warning, not a block: only a test that reads it can fail
+            if len(warnings)<50 and path not in {w['path'] for w in warnings}:
+                warnings.append({'code':'asset_missing','path':path,
+                                 'detail':'Declared in pubspec but not found in the project; a test that reads it will fail.'})
+            continue
         for name in names:
             if name in assets or name in taken or not permitted(name):continue
             data=safe_file(project,name).read_bytes();total+=len(data)
             if len(assets)>=MAX_ASSET_FILES:raise GateUnavailable('Test assets exceed the limit of 500 files.')
             if total>MAX_ASSET_BYTES:raise GateUnavailable('Test assets exceed the limit of 20 MB.')
             assets[name]=bytes_hash(data)
-    return assets
+    return assets,warnings
 
 
 def prepare(runtime,state,recipe):
@@ -111,7 +116,8 @@ def prepare(runtime,state,recipe):
     if 'local_test_sources' in native and native['local_test_sources']!=omitted:
         raise GateUnavailable('Local compiler input set changed; preserve prior verification evidence.')
     native['local_test_sources']=omitted
-    assets=declared_assets(runtime,recipe,set(expected)|set(omitted))
+    assets,warnings=declared_assets(runtime,recipe,set(expected)|set(omitted))
+    native['asset_warnings']=warnings
     if 'local_test_assets' in native and native['local_test_assets']!=assets:
         raise GateUnavailable('Local test asset set changed; preserve prior verification evidence.')
     native['local_test_assets']=assets
@@ -148,7 +154,7 @@ def prepare(runtime,state,recipe):
     check_inputs(runtime,state)
     return destination,{'compiler_input_manifest_sha256':bytes_hash(canonical(expected).encode()),
                         'compiler_input_count':len(expected),'local_only_source_count':len(omitted),
-                        'local_only_asset_count':len(assets)}
+                        'local_only_asset_count':len(assets),'asset_warnings':warnings}
 
 
 def check_workspace(state):

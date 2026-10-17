@@ -83,7 +83,7 @@ def main(argv=None):
     p.add_argument('--solution-revision', required=True)
     p.add_argument('--author', required=True, help='Who wrote the candidate, e.g. claude-code.')
     p.add_argument('--author-provider', choices=['claude', 'codex', 'kiro'], help='Author vendor when the name does not show it.')
-    p.add_argument('--author-model', help='Author model, so an identical reviewer can be refused.')
+    p.add_argument('--author-model', help='Author model; required when the author is Claude (the only native reviewer), so a different reviewer model is shown.')
     p.add_argument('--provider', default='claude', help='Reviewer provider (MVP-1: claude, the only native reviewer).')
     p.add_argument('--model', help='Reviewer model; give one that differs from the author\'s.')
     p.add_argument('--supersedes', help='Task id of an earlier submission of this candidate.')

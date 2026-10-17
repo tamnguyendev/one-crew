@@ -133,6 +133,35 @@ class PubspecReaderTests(unittest.TestCase):
         self.assertEqual(pubspec_assets('name: app\ndependencies:\n  x: 1\n'), [])
 
 
+class MissingAssetTests(AssetFixture):
+    pubspec = ('name: app\nflutter:\n  assets:\n    - assets/data.bin\n    - assets/gone.png\n    - assets/nodir/\n'
+               '  fonts:\n    - family: F\n      fonts:\n        - asset: assets/fonts/OpenSans-Regular.ttf\n'
+               '        - asset: assets/fonts/Missing.ttf\n')
+
+    def test_declared_but_absent_assets_are_warned_not_blocked(self):
+        from onecrew.native_test_workspace import prepare
+        gate, receipt = prepare(self.run, self.state, self.recipe)
+        self.assertEqual(sorted((w['code'], w['path']) for w in receipt['asset_warnings']),
+                         [('asset_missing', 'app/assets/fonts/Missing.ttf'), ('asset_missing', 'app/assets/gone.png'),
+                          ('asset_missing', 'app/assets/nodir')])
+        for warning in receipt['asset_warnings']:
+            self.assertIn('pubspec', warning['detail'])
+        self.assertEqual(receipt['local_only_asset_count'], 2)  # the present ones are still staged
+        self.assertTrue((gate / 'app/assets/data.bin').is_file())
+
+    def test_the_warnings_reach_the_gate_receipt_environment(self):
+        from onecrew.native_test_workspace import prepare
+        prepare(self.run, self.state, self.recipe)
+        self.assertEqual(len(self.state['native_change']['asset_warnings']), 3)
+
+
+class NoMissingAssetTests(AssetFixture):
+    def test_nothing_is_warned_when_every_declared_file_exists(self):
+        from onecrew.native_test_workspace import prepare
+        _, receipt = prepare(self.run, self.state, self.recipe)
+        self.assertEqual(receipt['asset_warnings'], [])
+
+
 class NoAssetsTests(AssetFixture):
     pubspec = 'name: app\n'
 

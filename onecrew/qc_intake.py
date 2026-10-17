@@ -110,9 +110,11 @@ def scope_check(project, base, ref, recipe):
         entries = entries[:MAX_DIFF_PATHS]
     changed = set()
     for status, old_mode, new_mode, sha, path, old_path in entries:
-        if status in STATUS_REASONS:
-            reasons.append(reason(STATUS_REASONS[status], 'Status ' + status + ' is not accepted; only added or modified owned files.',
-                                  path if status != 'R' else old_path))
+        if status == 'R':
+            reasons.append(reason('renamed', 'Git detected a rename of ' + old_path + ' to ' + path + ' (a delete plus an add of similar content); '
+                                  'renames are not accepted. Resubmit it as edits to owned files.', old_path))
+        elif status in STATUS_REASONS:
+            reasons.append(reason(STATUS_REASONS[status], 'Status ' + status + ' is not accepted; only added or modified owned files.', path))
         elif status not in ('A', 'M'):
             reasons.append(reason('unsupported_status', 'Unsupported change status ' + status + '.', path))
         if path not in owned:

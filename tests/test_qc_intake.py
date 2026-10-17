@@ -113,9 +113,13 @@ class ScopeCheckTests(IntakeBase):
         def edit(repo):
             good(repo)
             repo.path('app/lib/util.dart').rename(repo.path('app/lib/util_renamed.dart'))
-        codes = self.codes(self.check(edit))
+        reasons = self.check(edit)
+        codes = self.codes(reasons)
         self.assertIn('renamed', codes)
         self.assertIn('path_outside_owned', codes)  # the new name is not owned either
+        detail = [r['detail'] for r in reasons if r['code'] == 'renamed'][0]
+        self.assertIn('Git detected a rename', detail)  # tell the author why an identical delete+add is refused
+        self.assertIn('edits to owned files', detail)
 
     def test_type_change_to_symlink_is_rejected(self):
         def edit(repo):

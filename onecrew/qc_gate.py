@@ -36,9 +36,11 @@ def independence(author, author_provider, author_model, provider, model):
         return dict(base, level='cross_vendor', note='The reviewer is another vendor than the author.')
     if author_model and author_model == model:
         raise LedgerError('The reviewer would be the author (same provider and model); choose another reviewer model.')
-    note = ('No other vendor can review on the native path in MVP-1 (Claude only); ' +
-            ('a different model of the same vendor reviews.' if author_model else 'the author model is unknown, so a different model is not shown.'))
-    return dict(base, level='same_vendor_other_model' if author_model else 'same_vendor_unknown_model', note=note)
+    if not author_model:
+        raise LedgerError('The author is ' + vendor + ' and the native reviewer is ' + provider + ' too: pass --author-model so a reviewer '
+                          'model that differs from the author\'s can be shown. An unknown author model is not accepted as independent.')
+    return dict(base, level='same_vendor_other_model',
+                note='No other vendor can review on the native path in MVP-1 (Claude only); a different model of the same vendor reviews.')
 
 
 def make(project, ref, recipe, *, report, author, reviewer_provider, reviewer_model, author_provider=None, author_model=None,
@@ -117,6 +119,8 @@ def finish(state, qc, verdict, stage, reasons):
         evidence = checks[-1].get('evidence') or {}
         receipt = {k: evidence.get(k) for k in ('exit_code', 'stdout', 'stderr', 'argv', 'snapshot')}
         receipt['passed'] = checks[-1].get('passed')
+        warnings = (evidence.get('environment') or {}).get('asset_warnings')
+        if warnings: receipt['asset_warnings'] = warnings  # declared test assets the project lacks: a warning, never a verdict
     reviews = state.get('reviews') or []
     record = {k: qc.get(k) for k in ('branch', 'head', 'base', 'merge_base', 'author', 'author_provider', 'author_model',
                                      'report_sha', 'supersedes', 'plan', 'independence', 'reviewer')}

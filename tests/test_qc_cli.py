@@ -30,7 +30,7 @@ class QcCliFixture(QcFixture):
     def submit(self, ref='cand', key='cli-1', *extra):
         return self.cli('submit', '--key', key, '--branch', ref, '--report', str(self.report), '--recipe', str(self.recipe_file),
                         '--solution-id', self.binding['solution_id'], '--solution-revision', self.binding['solution_revision'],
-                        '--author', 'claude-code', *extra)
+                        '--author', 'claude-code', '--author-model', 'opus', *extra)
 
     def run_to_end(self, task_id, responses=(), gate=None, steps=10):
         worker = FixtureWorker(self.f.ledger, list(responses))
@@ -54,7 +54,7 @@ class SubmitTests(QcCliFixture):
         self.assertTrue(out['id'].startswith('TASK-'))
         self.assertEqual(out['qc']['head'], head)
         self.assertEqual(out['qc']['scope_reasons'], [])
-        self.assertEqual(out['qc']['independence']['level'], 'same_vendor_unknown_model')
+        self.assertEqual(out['qc']['independence']['level'], 'same_vendor_other_model')
         self.assertEqual(out['qc']['reviewer'], {'provider': 'claude', 'model': 'sonnet'})
         stored = self.f.ledger.task(out['id'], full=True)['handoff']['owned_execution']
         self.assertEqual(stored['qc']['head'], head)
@@ -66,7 +66,7 @@ class SubmitTests(QcCliFixture):
         self.good()
         code, out = self.cli('submit', '--key', 'cli-act', '--branch', 'cand', '--report', str(self.report), '--recipe', str(self.recipe_file),
                              '--solution-id', self.binding['solution_id'], '--solution-revision', self.binding['solution_revision'],
-                             '--author', 'claude-code', env={'ONECREW_ACTOR': 'claude'})
+                             '--author', 'claude-code', '--author-model', 'opus', env={'ONECREW_ACTOR': 'claude'})
         self.assertEqual(code, 0, out)
         with self.f.ledger.transaction() as conn:
             rows = [json.loads(r['payload']) for r in conn.execute(
@@ -98,6 +98,27 @@ class SubmitTests(QcCliFixture):
         self.assertIn('reviewer would be the author', out['error'])
         with self.f.ledger.transaction() as conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM tasks').fetchone()[0], 0)
+
+    def test_claude_author_without_a_model_is_refused_and_no_task_is_created(self):
+        self.good()
+        for extra in ([], ['--author-provider', 'claude']):
+            with self.subTest(extra=extra):
+                code, out = self.cli('submit', '--key', 'cli-nomodel', '--branch', 'cand', '--report', str(self.report),
+                                     '--recipe', str(self.recipe_file), '--solution-id', self.binding['solution_id'],
+                                     '--solution-revision', self.binding['solution_revision'], '--author', 'claude-code', *extra)
+                self.assertEqual(code, 2)
+                self.assertIn('--author-model', out['error'])
+                self.assertIn('independent', out['error'])
+        with self.f.ledger.transaction() as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM tasks').fetchone()[0], 0)
+
+    def test_an_author_of_unknown_vendor_is_still_accepted_and_labelled(self):
+        self.good()
+        code, out = self.cli('submit', '--key', 'cli-unknown', '--branch', 'cand', '--report', str(self.report),
+                             '--recipe', str(self.recipe_file), '--solution-id', self.binding['solution_id'],
+                             '--solution-revision', self.binding['solution_revision'], '--author', 'some-script')
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out['qc']['independence']['level'], 'unknown_author_vendor')
 
     def test_other_reviewer_model_than_the_author_is_recorded(self):
         self.good()
@@ -143,7 +164,7 @@ class StatusTests(QcCliFixture):
         self.assertEqual(out['verdict'], 'verified_technical_only')
         self.assertEqual(out['phase'], 'completed')
         self.assertEqual(out['reasons'], [])
-        self.assertEqual(out['independence']['level'], 'same_vendor_unknown_model')
+        self.assertEqual(out['independence']['level'], 'same_vendor_other_model')
         self.assertEqual(out['gate_receipt']['exit_code'], 0)
         self.assertEqual(out['review']['feedback'], 'Test exercises add.')
         self.assertEqual(out['author'], 'claude-code')

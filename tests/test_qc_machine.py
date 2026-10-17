@@ -67,7 +67,7 @@ class QcFixture(unittest.TestCase):
     def good(self, name='cand'):
         return self.candidate(name, {'app/lib/main.dart': GOOD_MAIN, 'app/test/main_test.dart': GOOD_TEST})
 
-    def task(self, ref='cand', responses=(), provider='claude', model='sonnet', author_model=None, key='qc-1', **extra):
+    def task(self, ref='cand', responses=(), provider='claude', model='sonnet', author_model='opus', key='qc-1', **extra):
         qc = qc_gate.make(self.root, ref, self.recipe, report=self.report, author=self.author, author_model=author_model,
                           reviewer_provider=provider, reviewer_model=model, **extra)
         from tests.test_solution_gate import approve_fixture
@@ -127,13 +127,25 @@ class VerifiedPathTests(QcFixture):
         self.assertIsNone(qc['plan'])
         self.assertEqual(qc['review_index'], 0)
         self.assertEqual(qc['gate_receipt']['exit_code'], 0)
-        self.assertEqual(qc['independence']['level'], 'same_vendor_unknown_model')
+        self.assertEqual(qc['independence']['level'], 'same_vendor_other_model')
         self.assertEqual(len(qc['report_sha']), 64)
         self.assertEqual(self.worker.calls, ['native_change_review'])  # the only model call; no worker call at all
         self.assertEqual(self.run.control.status(self.task_id)['used_calls'], 1)
         self.assertFalse(state.get('workspace_applied'))
         self.assertEqual(state['native_change']['stage'], 'completed')
         self.project_unchanged()
+
+    def test_asset_warnings_of_the_gate_are_kept_in_the_qc_receipt(self):
+        self.good()
+        self.task(responses=[{'accepted': True, 'feedback': 'ok'}])
+        warning = {'code': 'asset_missing', 'path': 'app/assets/gone.png', 'detail': 'Declared in pubspec but not found.'}
+        def gate(runtime, task_id, state, recipe):
+            result = self.passing_gate(runtime, task_id, state, recipe)
+            result['evidence']['environment'] = {'asset_warnings': [warning]}
+            return result
+        state = self.drive(gate)
+        self.assertEqual(state['qc']['verdict'], 'verified_technical_only')
+        self.assertEqual(state['qc']['gate_receipt']['asset_warnings'], [warning])
 
     def test_candidate_bytes_come_from_the_ref_into_the_gate_workspace(self):
         self.good()
@@ -278,8 +290,14 @@ class IndependenceTests(unittest.TestCase):
 
     def test_vendor_comes_from_the_author_name_when_not_given(self):
         self.assertEqual(qc_gate.independence('claude-code', None, 'sonnet', 'claude', 'opus')['level'], 'same_vendor_other_model')
-        self.assertEqual(qc_gate.independence('Claude Code', None, None, 'claude', 'opus')['level'], 'same_vendor_unknown_model')
+        self.assertEqual(qc_gate.independence('Claude Code', None, 'sonnet', 'claude', 'opus')['level'], 'same_vendor_other_model')
         self.assertEqual(qc_gate.independence('some-tool', None, None, 'claude', 'opus')['level'], 'unknown_author_vendor')
+
+    def test_same_vendor_author_without_a_model_is_refused_because_independence_cannot_be_shown(self):
+        for args in (('claude-code', None, None), ('Claude Code', None, None), ('x', 'claude', None), ('x', 'claude', '')):
+            with self.subTest(args=args), self.assertRaises(LedgerError) as caught:
+                qc_gate.independence(*args, 'claude', 'opus')
+            self.assertIn('--author-model', str(caught.exception))
 
     def test_only_a_native_capable_reviewer_provider_is_accepted(self):
         with self.assertRaises(LedgerError):
@@ -289,7 +307,7 @@ class IndependenceTests(unittest.TestCase):
 class SubmitValidationTests(QcFixture):
     def test_qc_needs_a_native_change_recipe_and_a_matching_reviewer(self):
         self.good()
-        qc = qc_gate.make(self.root, 'cand', self.recipe, report=self.report, author='claude-code',
+        qc = qc_gate.make(self.root, 'cand', self.recipe, report=self.report, author='claude-code', author_model='opus',
                           reviewer_provider='claude', reviewer_model='sonnet')
         from tests.test_solution_gate import approve_fixture
         with self.assertRaises(LedgerError):
@@ -307,7 +325,7 @@ class SubmitValidationTests(QcFixture):
 
     def test_make_records_supersedes_and_report_hash_without_raising_on_scope_failure(self):
         self.candidate('cand', {'app/lib/other.dart': 'x\n'})
-        qc = qc_gate.make(self.root, 'cand', self.recipe, report=self.report, author='claude-code',
+        qc = qc_gate.make(self.root, 'cand', self.recipe, report=self.report, author='claude-code', author_model='opus',
                           reviewer_provider='claude', reviewer_model='sonnet', supersedes='TASK-old')
         self.assertEqual(qc['supersedes'], 'TASK-old')
         self.assertTrue(qc['reasons'])
