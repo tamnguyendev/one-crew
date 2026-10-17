@@ -51,7 +51,12 @@ class History(GitDelivery):
                 try: Discovery(self.root).path(name)
                 except LedgerError: continue
                 paths.append(name)
-            result.update(paths=paths[cursor:cursor+100],total_paths=len(paths),next_cursor=cursor+100 if cursor+100<len(paths) else None)
+            window=paths[cursor:cursor+100]
+            nc=cursor+100 if cursor+100<len(paths) else None
+            na=('More filenames: git_show same commit with cursor=%s (still the file LIST, not a diff).' % nc) if nc is not None else ('File list complete (all %d filenames returned). To see a file diff, call git_show with the same commit and path=<one of these filenames>, cursor=0; pick the file yourself. Re-calling this list returns the same result.' % len(paths))
+            result.update(paths=window,total_paths=len(paths),next_cursor=nc,
+                mode='changed_file_list',cursor_unit='file index (100 filenames per page)',
+                returned_files=[cursor,cursor+len(window)],next_action=na)
         else:
             Discovery(self.root).path(path)
             import difflib
@@ -59,7 +64,11 @@ class History(GitDelivery):
             after=self.git('show',commit+':'+path,allow_failure=True)
             if max(len(before or b''),len(after or b''))>200000: raise LedgerError('Historical file exceeds 200 KB.')
             diff=''.join(difflib.unified_diff(scan_text(before or b'').splitlines(True),scan_text(after or b'').splitlines(True),fromfile='parent/'+path,tofile=commit[:12]+'/'+path))
-            result.update(path=path,diff=diff[cursor:cursor+12000],next_cursor=cursor+12000 if cursor+12000<len(diff) else None)
+            nd=cursor+12000 if cursor+12000<len(diff) else None
+            na2=('More of this file diff: git_show same commit+path with cursor=%s.' % nd) if nd is not None else ('This file diff is complete; pick another path or act on the evidence.')
+            result.update(path=path,diff=diff[cursor:cursor+12000],next_cursor=nd,
+                mode='file_diff',cursor_unit='character offset into this file diff',total_diff_chars=len(diff),
+                returned_diff_chars=[cursor,min(cursor+12000,len(diff))],next_action=na2)
         return result
 
     def observe_branch(self,payload):

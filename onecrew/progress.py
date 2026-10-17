@@ -203,6 +203,16 @@ def observe(state, action, args, result):
                              'inspect git history/branches - do not repeat the same query across pages.')}
         elif action == 'search' and not search_empty:
             p.pop('empty_searches', None); p.pop('strategy_switch', None)
+        # git_show MODE hint (Git-Show recovery, Codex GXP6): git_show with NO path returns the changed-file LIST; when that list is
+        # exhausted (next_cursor None) re-calling it is the same result (still caught by the same-result guard, which still blocks finitely).
+        # Surface a STRUCTURED signal naming the mode + valid next action (pick a path yourself); the core never picks the file or rewrites the command.
+        # No keyword/path/SHA is named; the hint is fixed text (no counter in it to dodge the guard). Cleared on any non-git_show action.
+        if action == 'git_show' and 'error' not in result and result.get('mode') == 'changed_file_list' and result.get('next_cursor') is None and count > 1:
+            p['git_show_mode'] = {'kind': 'file_list_exhausted', 'total_files': result.get('total_paths'),
+                'hint': ('You reached the end of the changed-file LIST for this commit (git_show with no path). Re-calling the list returns the same result. '
+                        'To read a file diff, call git_show with the same commit and path=one of the filenames already listed (cursor=0) -- pick the file yourself. '
+                        'The LIST total and a single file diff are different things; do not re-request the exhausted list.')}
+        elif action != 'git_show': p.pop('git_show_mode', None)
         if p['observations'] >= limits['observation_limit']:
             reason = 'Exploration limit reached: act on existing evidence or clarify scope before continuing.'
     if action in ('write', 'edit', 'run', 'deliver', 'branch_before', 'android_build', 'create_branch', 'export_branch', 'apply',

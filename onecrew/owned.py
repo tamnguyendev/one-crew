@@ -26,7 +26,7 @@ test: {path:"test_*.py"} runs an existing captured Python unittest file in the a
 git_status: {directory:""} inspect Git HEAD and bounded dirty paths in root or a discovered child repo.
 git_diff: {directory:"",path:"relative/to/repo/file"} inspect original HEAD versus current source bytes, without diff drivers.
 git_log: {directory:"",cursor:0,query:""} paginated first-parent commit history, optional literal message filter.
-git_show: {directory:"",commit:"full SHA",path:null,cursor:0} metadata/changed files; supply path for paginated diff against first parent.
+git_show: {directory:"",commit:"full SHA",path:null,cursor:0} no path=changed-file list; path=that file diff. Follow result.next_action.
 branch_before: {directory:"",first_change:"full SHA"} create the authorized LOCAL branch at that change's first parent. Inspect actual historical diffs before selecting the earliest commit of the requested change series. Ask if the UI boundary is ambiguous. No checkout or push.
 android_build: {} start the pre-authorized fixed Android recipe after branch_before. SDKs, dependency policy and limits come from the operator grant. Core waits without model calls. Required when permissions include android.build; cannot finish without a verified APK.
 deliver: {directory:"",paths:["relative/to/repo/file"],message:"commit message"} publish selected source bytes to operator-authorized new branch/remote.
@@ -53,7 +53,7 @@ write: {path,expected_sha256:"sha256 from read, null for a new file",text} full 
 edit: {path,expected_sha256,old:"exact text occurring once",new:"replacement"} workspace only.
 run: {argv:["tool","arg"],cwd:"",timeout_seconds:300,background:false} host command inside the isolated workspace (Windows). Unless the contract grants unconfined_commands, Windows lets commands write only inside the workspace, its temp and cache. A nonzero exit is a result to diagnose; hint classifies product/environment. The receipt lists the paths the command changed and any it cannot deliver.
 process: {id,op:"status"|"output"|"stop"} a background process started by run.
-git_status: {directory:""} | git_log: {directory:"",cursor:0,query:""} | git_show: {directory:"",commit:"full SHA",path:null,cursor:0} -- the user's repository, read-only.
+git_status: {directory:""} | git_log: {directory:"",cursor:0,query:""} | git_show: {directory:"",commit:"full SHA",path:null,cursor:0} (no path=list; path=diff) -- read-only.
 create_branch: {name,commit:null} LOCAL branch in the user's repository at the contract commit (default: the pinned HEAD), WITHOUT any workspace change. Never overwrites: an existing ref is reported with its SHA.
 workspace_commit: {message} commit workspace changes inside the workspace only.
 export_branch: {name} deliver the workspace commit on an authorized LOCAL branch of the user's repository (new, or one this job created itself and has not moved). Use this, not create_branch, to deliver changes.
@@ -1022,6 +1022,9 @@ class Owned(Workflow):
         # hard stop) stays, the deterministic hint text the core always renders does not, so a growing run of re-reads cannot
         # starve the latest result. The full prose is not retrievable context - it is the same string every prompt.
         if reconsider: value=dict(value,reconsider=self._hint_signal(reconsider) if tighter else reconsider)
+        # Git-Show mode hint (Codex GXP6): exhausted-list recovery; advisory, so treated like strategy_switch -- include only when set and not under the tight cap.
+        gshow=(state.get('progress') or {}).get('git_show_mode')
+        if gshow and not compact: value=dict(value,git_show_mode=self._hint_signal(gshow) if tighter else gshow)
         if not compact and len(canonical(value))<=3000: return value
         keep=1 if tighter else 2; errlen=60 if tighter else 120
         value=dict(value,repeats=value['repeats'][-keep:],recent_failures=[dict(f,error=f['error'][:errlen]) for f in value['recent_failures'][-keep:]],
@@ -1042,7 +1045,7 @@ class Owned(Workflow):
         not history, authority, scope, acceptance or an open obligation - and dropping it here is what keeps a growing run of
         re-reads or blocks from eating the room a valid tool-result page needs. Nothing the worker must DO is lost."""
         if not isinstance(hint,dict): return hint
-        terse={'already_read_region':'Already-read page: do not request it again; follow latest_result.page.next for NEW content or act on the evidence.',
+        terse={'file_list_exhausted':'File LIST exhausted: to see a diff pick one listed path and call git_show commit+path; do not re-request the list.','already_read_region':'Already-read page: do not request it again; follow latest_result.page.next for NEW content or act on the evidence.',
                'search_not_converging':'No matches keep coming back: change query/dir or view structure/git history; do not re-page the same search.'}
         signal={k:v for k,v in hint.items() if k!='hint'}
         signal['hint']=terse.get(hint.get('kind'),'Act on the page/counters here; do not repeat this step.')
