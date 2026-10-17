@@ -384,8 +384,8 @@ def sync(args):
 
 def settings(project, state_root, repo):
     code = f"import sys; sys.path.insert(0, {str(repo)!r}); from onecrew.v2.hook_cli import main; sys.exit(main(sys.argv[1:]))"
-    def entry(verb, timeout, matcher=None):
-        handler = {'type': 'command', 'command': sys.executable, 'args': ['-c', code, '--project', str(project), 'hook', verb], 'timeout': timeout, 'onFailure': 'block'}
+    def entry(verb, timeout, matcher=None, fail='continue'):     # only the tool gate fails closed: a crashing prompt/stop hook must not lock the session
+        handler = {'type': 'command', 'command': sys.executable, 'args': ['-c', code, '--project', str(project), 'hook', verb], 'timeout': timeout, 'onFailure': fail}
         return dict({'matcher': matcher} if matcher else {}, hooks=[handler])
     root = str(state_root).replace('\\', '/')
     deny = ['Edit(//' + root.lstrip('/') + '/**)',                       # Edit rules cover Write, MultiEdit and NotebookEdit too
@@ -395,7 +395,7 @@ def settings(project, state_root, repo):
             'Bash(python -m onecrew plan approve:*)', 'Bash(python -m onecrew plan accept:*)', 'Bash(python -m onecrew plan enforce:*)',
             'PowerShell(onecrew plan approve *)', 'PowerShell(onecrew plan accept *)', 'PowerShell(onecrew plan enforce *)',
             'Bash(git push:*)', 'PowerShell(git push *)']                # git tag is left to the hook: a permission rule cannot tell `git tag -l` from `git tag v1`
-    return {'hooks': {'PreToolUse': [entry('check', 15, 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell')],
+    return {'hooks': {'PreToolUse': [entry('check', 15, 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', fail='block')],
                       'UserPromptSubmit': [entry('prompt', 10)], 'Stop': [entry('stop', 30)],
                       'SessionStart': [entry('session', 30, 'startup|resume|clear|compact')]},
             'permissions': {'deny': deny}}

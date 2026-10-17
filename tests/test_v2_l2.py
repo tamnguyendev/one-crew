@@ -320,6 +320,8 @@ class CheckTests(HookFixture):
                               cwd=self.temp.name, timeout=120)
         self.assertEqual(done.returncode, 2, done.stderr)
         self.assertEqual(handler['onFailure'], 'block')
+        others = [h['hooks'][0]['onFailure'] for event, h in ((e, hook_cli.settings(self.root, self.state, REPO)['hooks'][e][0]) for e in ('UserPromptSubmit', 'Stop', 'SessionStart'))]
+        self.assertEqual(others, ['continue'] * 3)                                   # a crash in these must not lock the session
 
 
 class StopPromptSessionTests(HookFixture):
