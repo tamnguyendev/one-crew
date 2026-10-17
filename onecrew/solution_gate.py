@@ -70,7 +70,8 @@ def publish(ledger,conn,task_id,state):
         c._event(conn,b['conversation'],'task-output:'+content_hash(record),'task.output',record)
 
 
-def question(ledger,cid,key,text,reason,affected_tasks,source,kind='solution_change'):
+def question(ledger,cid,key,text,reason,affected_tasks,source,kind='solution_change',delta=None):
+    from .v2.changes import check_request;check_request(ledger,cid,kind,reason,delta)  # v2: delta required, 200-char reason, at most 2 per conversation
     if kind not in ('solution_change','technical_review','clarification'):raise LedgerError('Invalid discussion request type.')
     c.clean(text,'question',1500);c.clean(reason,'reason',3000);c.clean(source,'source',100)
     if not isinstance(affected_tasks,list) or len(affected_tasks)>20 or len(set(affected_tasks))!=len(affected_tasks):raise LedgerError('Invalid affected task list.')
@@ -84,6 +85,7 @@ def question(ledger,cid,key,text,reason,affected_tasks,source,kind='solution_cha
         affected=sorted({r['task_id'] for r in conn.execute('SELECT * FROM solution_bindings WHERE conversation=?',(cid,)) if r['solution'] in solutions})
         payload=dict(question=text,reason=reason,affected_tasks=affected,source=source,kind=kind,solution=row['current_solution'],
             options=['continue_unchanged','stop','revise_solution'],hold='requested; runtime checks admission/mutation boundaries, active process may still be settling')
+        if delta is not None:payload['delta']=delta
         old=conn.execute('SELECT payload FROM conversation_events WHERE conversation=? AND request_key=?',(cid,key)).fetchone()
         if old:
             value=json.loads(old['payload'])

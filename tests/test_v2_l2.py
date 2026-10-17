@@ -395,5 +395,137 @@ class SyncAndInstallTests(HookFixture):
         self.assertEqual(code, 0, out)
         self.assertEqual(json.loads((self.root / '.onecrew' / 'active-plan.json').read_text(encoding='utf-8'))['mode'], 'enforce')
 
+class ItemBudgetTests(Fixture):
+    """DESIGN-MVP section 4: per-item budgets, repair reserve, tiers, one question, attention shared with plan_stopped."""
+
+    def items(self, max_calls=20, tick=('S1',), **extra):
+        value = plan_json(items=[{'id': 'I1', 'title': 'First must', 'tier': 'must', 'milestone': 'M1'}, {'id': 'I2', 'title': 'Second must', 'tier': 'must'},
+                                 {'id': 'S1', 'title': 'Ticked should', 'tier': 'should'}, {'id': 'S2', 'title': 'Unticked should', 'tier': 'should'},
+                                 {'id': 'W1', 'title': 'Never', 'tier': 'wont'}], budget={'max_calls': max_calls, 'time': 30}, **extra)
+        gate.set_enforced(self.ledger, True, 'owner', 'test')
+        self.propose('job1', value)
+        plans.approve(self.ledger, 'job1', 'owner', 'ref', tick=list(tick))
+        task = submit(self.ledger, None, 'job1', mode='work', provider='kiro', model='claude-sonnet-5',
+                      contract=dict(l1.DispatchGateTests.WORK), max_calls=max_calls, max_seconds=1800)
+        migrate(self.ledger)
+        self.control = Control(self.ledger)
+        self.task = task['id']
+        self.execution = self.control.configure(task['id'], task['revision'], {'mode': 'test'})
+        self.count = 0
+
+    def call(self, item=None):
+        self.count += 1
+        operation = {'stage': 'work'} if item is None else {'stage': 'work', 'item': item}
+        attempt = self.control.reserve(self.task, self.execution['revision'], f'k{self.count}', operation)
+        self.control.finish(attempt['id'], attempt['generation'], {'fixture': True})
+        return attempt
+
+    def anchor(self):
+        with self.ledger.transaction() as conn:
+            return plans.derive(self.ledger, conn, 'job1')['task_id']
+
+    def requests(self):
+        return [r for r in self.ledger.requests(self.anchor()) if r['question']['action']['type'] == 'v2.item_budget']
+
+    def test_wont_unticked_should_and_unknown_items_never_run(self):
+        self.items()
+        for item, word in (('W1', 'wont'), ('S2', 'did not tick'), ('Z9', 'not in the approved plan')):
+            with self.assertRaises(LedgerError) as caught: self.call(item)
+            self.assertIn(word, str(caught.exception))
+        self.call('S1')                                                             # ticked at approval: it runs
+        self.assertEqual(self.control.status(self.task)['used_calls'], 1)           # the refused calls were never reserved
+
+    def test_a_must_item_at_its_cap_stops_and_asks_one_question_other_items_continue(self):
+        self.items()                                                                # 20 calls, reserve 4, 3 runnable items: 5 each
+        for _ in range(5): self.call('I1')
+        with self.assertRaises(LedgerError) as caught: self.call('I1')
+        self.assertIn('used its 5 calls', str(caught.exception))
+        self.assertEqual(self.requests(), [])                                       # spooled until the next plan/verdict command
+        gate.sync_refusals(self.ledger)
+        asked = self.requests()
+        self.assertEqual(len(asked), 1)
+        self.assertEqual(asked[0]['question']['action']['parameters']['item'], 'I1')
+        with self.assertRaises(LedgerError): self.call('I1')                        # asking again does not ask twice
+        gate.sync_refusals(self.ledger); gate.sync_refusals(self.ledger)
+        self.assertEqual(len(self.requests()), 1)
+        self.call('I2')                                                             # independent items continue
+        refused = [e for e in self.ledger.events(self.task) if e['kind'] == 'dispatch.refused_no_plan']
+        self.assertEqual(len(refused), 2)
+
+    def test_a_should_item_at_its_cap_just_stops_without_a_question(self):
+        self.items()
+        for _ in range(5): self.call('S1')
+        with self.assertRaises(LedgerError) as caught: self.call('S1')
+        self.assertIn('next item starts', str(caught.exception))
+        gate.sync_refusals(self.ledger)
+        self.assertEqual(self.requests(), [])
+
+    def test_the_repair_reserve_is_kept_for_must_items(self):
+        self.items(max_calls=14)                                                    # reserve 3: should items stop at 11 calls spent
+        for _ in range(11): self.call()                                             # unassigned calls count against the total only
+        with self.assertRaises(LedgerError) as caught: self.call('S1')
+        self.assertIn('repair reserve (3)', str(caught.exception))
+        self.call('I1')                                                             # a must item may still use it
+
+    def test_item_questions_share_the_attention_limit_with_plan_stops(self):
+        self.items()
+        for _ in range(5):
+            self.call('I1'); self.call('I2')
+        for item in ('I1', 'I2'):
+            with self.assertRaises(LedgerError): self.call(item)
+        gate.sync_refusals(self.ledger)
+        self.assertEqual(len(self.requests()), 1)                                   # attention.questions = 1
+        self.assertEqual([e['kind'] for e in self.ledger.events(self.anchor())].count('attention.exceeded'), 1)
+
+    def test_calls_without_an_item_and_a_plan_gate_that_is_off_are_unchanged(self):
+        self.items()
+        self.call(); self.call()
+        free = submit(self.ledger, None, 'free', mode='work', provider='kiro', model='claude-sonnet-5', contract=dict(l1.DispatchGateTests.WORK), max_calls=5)
+        gate.set_enforced(self.ledger, False, 'owner', 'off')
+        control = Control(self.ledger); execution = control.configure(free['id'], free['revision'], {'mode': 'test'})
+        attempt = control.reserve(free['id'], execution['revision'], 'k', {'stage': 'work', 'item': 'W1'})      # the gate is off: v1 as before
+        self.assertEqual(attempt['status'], 'reserved')
+
+
+class ChangeRequestTests(Fixture):
+    """CREQ with a limit: a delta, a reason of at most 200 characters, at most 2, the third stops the plan."""
+
+    def setUp(self):
+        super().setUp()
+        import tests.test_solution_gate as sg
+        from onecrew import conversations as c
+        self.binding = sg.approve_fixture(self.ledger)
+        self.cid = c.show_solution(self.ledger, self.binding['solution_id'])['conversation']
+
+    def job(self):
+        self.approved('P1', plan_json())
+        gate.set_enforced(self.ledger, True, 'owner', 'test')
+        return submit(self.ledger, 'Fix arithmetic', 'P1', mode='change', provider='claude', model='sonnet', image='sha256:' + 'a' * 64, **self.binding)
+
+    def ask(self, n, **extra):
+        values = dict(text=f'Change {n}?', reason='The contract cannot be met as written.', affected_tasks=[self.task['id']], source='claude',
+                      delta={'budget_delta': 10})
+        values.update(extra)
+        return solution_gate.question(self.ledger, self.cid, f'q{n}', **values)
+
+    def test_the_limit_the_delta_and_the_reason_length(self):
+        self.task = self.job()
+        with self.assertRaises(LedgerError): self.ask(1, delta=None)                      # a change request carries a delta
+        with self.assertRaises(LedgerError): self.ask(1, delta={'rename': 'x'})
+        with self.assertRaises(LedgerError): self.ask(1, reason='r' * 201)                # at most 200 characters
+        self.assertEqual(self.ask(1)['payload']['delta'], {'budget_delta': 10})
+        self.assertEqual(self.ask(2, delta={'add': ['tests']})['payload']['delta'], {'add': ['tests']})
+        with self.assertRaises(LedgerError) as caught: self.ask(3)                       # the third is refused ...
+        self.assertIn('max_changes', str(caught.exception))
+        self.assertEqual(plans.show(self.ledger, 'P1')['status'], 'stopped_with_report')  # ... and stops the plan
+        self.assertEqual(plans.show(self.ledger, 'P1')['questions'][0]['state'], 'pending')
+        with self.assertRaises(LedgerError): self.ask(4)
+
+    def test_without_the_gate_a_change_request_is_as_in_v1(self):
+        task = submit(self.ledger, 'Fix arithmetic', 'job', mode='change', provider='claude', model='sonnet', image='sha256:' + 'a' * 64, **self.binding)
+        for n in range(4):
+            solution_gate.question(self.ledger, self.cid, f'q{n}', f'Change {n}?', 'r' * 300, [task['id']], 'claude')
+
+
 if __name__ == '__main__':
     unittest.main()

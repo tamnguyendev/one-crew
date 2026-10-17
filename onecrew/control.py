@@ -121,6 +121,8 @@ class Control:
                 if old['operation_hash'] != operation_hash:
                     raise LedgerError('Attempt key already bound to different operation.')
                 return dict(old)
+            from .v2.items import check_operation  # v2: per-item call budget of the approved plan (no-op unless the gate is on)
+            check_operation(self.ledger, conn, task, operation)
             if execution['cancel_requested'] or execution['status'] in ('cancelled', 'completed', 'failed', 'paused'):
                 raise LedgerError('Execution is stopped or terminal.')
             budget = current_budget(conn, task)

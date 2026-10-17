@@ -97,7 +97,7 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
 
 def _escalate(ledger, name, anchor, stopped, limit):
     """One question to the owner (counted in attention.questions); past the limit the stop stays and the question is refused."""
-    used = [r for r in ledger.requests(anchor) if r['question'].get('action', {}).get('type') == 'v2.plan_stopped']
+    used = [r for r in ledger.requests(anchor) if r['question'].get('action', {}).get('type') in ('v2.plan_stopped', 'v2.item_budget')]
     key = f'v2q-{name}-r{stopped["revision"]}-{stopped["milestone"]}'[:128]
     if len(used) >= limit and not any(r['question']['action']['parameters'].get('key') == key for r in used):
         with ledger.transaction(write=True) as conn:

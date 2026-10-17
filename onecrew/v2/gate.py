@@ -82,16 +82,26 @@ def require_plan(ledger, conn, task):
             if reason is None: return
     except LedgerError as error:
         reason = str(error)
+    refuse(ledger, task, reason)
+
+
+def refuse(ledger, task, reason, question=None):
+    """Spool the refusal (and, for a stopped must item, the owner question) to files and raise. The caller's transaction rolls back."""
     plans = _plans(ledger)
     plans.mkdir(parents=True, exist_ok=True)
     with (plans / 'refusals.jsonl').open('a', encoding='utf-8') as stream:
         stream.write(json.dumps({'id': uuid.uuid4().hex, 'at': utcnow(), 'task_id': task['id'], 'project_id': ledger.project_id,
-                                 'request_key': name, 'reason': reason}, ensure_ascii=False) + '\n')
+                                 'request_key': task['request_key'], 'reason': reason}, ensure_ascii=False) + '\n')
+    if question:
+        with (plans / 'questions.jsonl').open('a', encoding='utf-8') as stream:
+            stream.write(json.dumps(dict(question, id=uuid.uuid4().hex, at=utcnow(), project_id=ledger.project_id), ensure_ascii=False) + '\n')
     raise LedgerError('Dispatch refused (v2): ' + reason + '.')
 
 
 def sync_refusals(ledger):
     """Move spooled refusals into the ledger as dispatch.refused_no_plan events on the refused task. Idempotent."""
+    from .items import sync_questions
+    sync_questions(ledger)
     spool = _plans(ledger) / 'refusals.jsonl'
     if not spool.exists(): return 0
     records, skipped = [], 0
