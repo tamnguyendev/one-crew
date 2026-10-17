@@ -39,7 +39,8 @@ def artifact_sha(directory):
     with tempfile.TemporaryDirectory() as temp:
         env = dict(os.environ, GIT_INDEX_FILE=str(Path(temp) / 'index'))
         _git(top, 'read-tree', 'HEAD', env=env)
-        _git(top, 'add', '-A', '--', '.', ':(exclude).onecrew', env=env)  # hook files (.onecrew/) are not part of the artifact
+        _git(top, 'add', '-A', env=env)
+        _git(top, 'rm', '-r', '--cached', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)  # hook files (.onecrew/) are not part of the artifact
         return _git(top, 'write-tree', env=env)
 
 

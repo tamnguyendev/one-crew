@@ -176,6 +176,14 @@ class ExportTests(HookFixture):
         plans.approve(self.ledger, 'P1', 'owner', 'ok')
         self.assertEqual(self.run_hook('check', self.edit('more.txt'))[0], 0)
 
+    def test_hook_files_are_not_part_of_the_artifact_also_when_the_project_ignores_them(self):
+        (self.root / '.gitignore').write_text('.onecrew/\n'); self.git('add', '.'); self.git('commit', '-q', '-m', 'ignore .onecrew')
+        self.enforce()
+        before = self.tree()
+        self.run_hook('check', self.edit('docs/x.md'))
+        self.assertEqual(self.tree(), before)
+        self.assertEqual(verdict.run(self.ledger, 'P1', 'M1', self.root)['milestones'][0]['state'], 'passed')   # found by the real run
+
     def test_hook_files_are_not_part_of_the_artifact(self):
         self.enforce()
         before = self.tree()
