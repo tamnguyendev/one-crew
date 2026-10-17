@@ -20,3 +20,4 @@ Một dòng mỗi mục; `L#` là lát dự kiến.
 - L1.1: cổng dispatch ghi từ chối vào `plans/refusals.jsonl` (không thể ghi sqlite trong giao dịch sắp rollback); sự kiện `dispatch.refused_no_plan` xuất hiện sau lần chạy lệnh `plan`/`verdict` kế tiếp.
 - L3: `understanding` mới là văn bản tự do; chưa có echo cơ học, tiền kiểm, PoC, brainstorm.
 - L4: tác giả/reviewer: `--author` ở propose chỉ ghi, chưa có kiểm "reviewer khác tác giả"; verdict từ reviewer LLM chưa có.
+- v1 (không sửa): `test_sandbox_gate` 4 test đỏ khi đường dẫn worktree dài (`.oc-*.tmp` > MAX_PATH); 4 test đỏ có sẵn ở 6aac8ea: test_incremental, test_search_recovery, test_evaluation, test_git_show_recovery_v2.
