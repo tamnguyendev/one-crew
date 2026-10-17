@@ -28,11 +28,16 @@ BAD = [PY, '-c', 'raise SystemExit(3)']
 
 
 def milestone(mid='M1', argv=OK, **extra):
-    return dict({'id': mid, 'title': 'Milestone ' + mid, 'verifier': {'type': 'command', 'config': {'argv': argv}}}, **extra)
+    return dict({'id': mid, 'title': 'Milestone ' + mid, 'verifier': {'type': 'command', 'config': {'argv': argv}}, 'covers': ['O1']}, **extra)
 
 
 def plan_json(milestones=None, **extra):
-    value = {'schema_version': 2, 'title': 'Sample', 'understanding': 'Do the sample and prove it.', 'output': ['The sample exists'],
+    # L3: the smallest contract that passes step 0 (size S: no options; one precondition; nothing open). tests/test_v2_l3.py covers step 0 itself.
+    value = {'schema_version': 2, 'title': 'Sample', 'size': 'S',
+             'understanding': {'restated_goal': 'Do the sample and prove it.', 'target': {'repo': '.', 'ref': 'HEAD', 'paths': ['a.txt']},
+                               'assumptions': [], 'confidence': 'high', 'unknowns': []},
+             'preconditions': [{'id': 'P1', 'check': 'path_exists', 'args': {'path': 'a.txt'}, 'why': 'the file to work on is there'}],
+             'output': ['The sample exists'],
              'scope': {'owned': ['a.txt']}, 'non_goals': ['Nothing else'],
              'items': [{'id': 'I1', 'title': 'Do it', 'tier': 'must', 'milestone': 'M1'},
                        {'id': 'S1', 'title': 'Nice to have', 'tier': 'should'}, {'id': 'W1', 'title': 'Never', 'tier': 'wont'}],
@@ -269,7 +274,7 @@ class VerdictTests(Fixture):
         with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())
 
     def test_owner_manual_verdicts_are_the_owners(self):
-        manual = {'id': 'M1', 'title': 'Looks right', 'verifier': {'type': 'owner-manual'}}
+        manual = {'id': 'M1', 'title': 'Looks right', 'verifier': {'type': 'owner-manual'}, 'covers': ['O1']}
         self.approved(value=plan_json(milestones=[manual]))
         blob = Snapshots(self.ledger.state_root).blob('Checked on the device by the owner.\n'.encode())
         for by in ('claude', 'command', 'reviewer'):
@@ -561,7 +566,7 @@ class CliTests(Fixture):
         self.assertEqual(self.cli('plan', 'show', 'P1')[1]['status'], 'accepted')
 
     def test_owner_manual_receipt_file(self):
-        manual = {'id': 'M1', 'title': 'Looks right', 'verifier': {'type': 'owner-manual'}}
+        manual = {'id': 'M1', 'title': 'Looks right', 'verifier': {'type': 'owner-manual'}, 'covers': ['O1']}
         self.approved(value=plan_json(milestones=[manual]))
         note = Path(self.temp.name) / 'note.txt'; note.write_text('Đã kiểm tay\n', encoding='utf-8')
         code, out = self.cli('verdict', 'record', '--plan', 'P1', '--milestone', 'M1', '--result', 'pass', '--by', 'owner',

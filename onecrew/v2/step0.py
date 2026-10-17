@@ -1,0 +1,300 @@
+"""Step 0 of the AI work contract, enforced by code: the plan cannot be approved until the AI has stated its understanding,
+every unknown is closed by evidence the ledger recorded, a choice between options was made by the owner, and the starting
+point passed its cheap checks. Nothing here calls a model.
+
+* `evaluate` collects EVERY reason approve would refuse for (never only the first) and runs the preconditions once, outside any
+  ledger lock (a command may take minutes).
+* An unknown is closed only by an `unknown.closed` event (written by `close_unknown` / `poc_record`, each with an amendment in the
+  same transaction). A contract file that merely says `closed` is not believed.
+* `chosen` is never in the contract: it exists only in the owner's `plan.approved` event.
+"""
+import json
+import os
+import re
+import subprocess
+import time
+from pathlib import Path
+
+from ..ledger import LedgerError, canonical, text_field
+from ..qc_intake import _commit, locate
+from ..snapshots import Snapshots
+from . import contract as contracts
+from .verifiers import command
+
+KINDS = ('unknown.closed', 'poc.answered', 'precondition.recorded', 'plan.step0_closed')
+BLOB = re.compile(r'[0-9a-f]{64}')
+URL = re.compile(r'https?://\S{4,}')
+FILE_LINE = re.compile(r'[\w./\\-]+\.\w+:\d+')
+TAIL = 600
+
+
+def _actor(by=None):
+    return os.environ.get('ONECREW_ACTOR') or by
+
+
+# ---- evidence ---------------------------------------------------------------------------------------------------------
+
+def evidence_kind(ledger, text, closer=None):
+    """What an evidence string points at: a blob in this state root, a URL, a file:line reference; the owner may also state it
+    in words. Returns the kind, or raises. (It proves a pointer exists, not that the claim is true: the owner reads it.)"""
+    text = text_field(text, 'evidence', 1000).strip()
+    if BLOB.fullmatch(text):
+        try:
+            Snapshots(ledger.state_root).read_blob(text)
+        except (OSError, LedgerError) as error:
+            raise LedgerError('evidence: no such blob in this state root.') from error
+        return 'blob'
+    if URL.search(text): return 'url'
+    if FILE_LINE.search(text): return 'file_line'
+    if closer == 'owner' and len(text) >= 10: return 'owner_statement'
+    raise LedgerError('evidence: give a blob key, a URL or a file:line reference' + (' (or, as the owner, a statement).' if closer != 'poc' else '.'))
+
+
+# ---- closing unknowns ---------------------------------------------------------------------------------------------------
+
+def closed_events(conn, task_id):
+    """unknown id -> the latest unknown.closed payload recorded on the anchor task."""
+    out = {}
+    for row in conn.execute('SELECT payload FROM events WHERE task_id=? AND kind=? ORDER BY seq', (task_id, 'unknown.closed')):
+        payload = json.loads(row['payload'])
+        out[payload['unknown']] = payload
+    return out
+
+
+def _closing(ledger, name, unknown_id, by, evidence, extra_events=()):
+    from . import plan as plans
+    if by not in contracts.CLOSERS: raise LedgerError('--by: doc, poc or owner.')
+    if by == 'owner': plans.require_owner('owner', 'Closing an unknown as the owner\'s decision')
+    kind = evidence_kind(ledger, evidence, by)
+    with ledger.transaction() as conn:
+        state = plans.anchor_events(ledger, conn, name)
+        contract, _ = plans.load(ledger, state)
+    raw = json.loads(json.dumps(contract))
+    target = next((u for u in raw['understanding']['unknowns'] if u['id'] == unknown_id), None)
+    if target is None: raise LedgerError(f'Plan {name} has no unknown {unknown_id}.')
+    if target['status'] == 'closed': raise LedgerError(f'Unknown {unknown_id} is already closed.')
+    target.update(status='closed', closed_by=by, evidence=evidence.strip())
+
+    def events(revision):
+        closed = {'plan': name, 'revision': revision, 'unknown': unknown_id, 'by': by, 'evidence': evidence.strip(), 'evidence_kind': kind,
+                  'actor_env': os.environ.get('ONECREW_ACTOR')}
+        return list(extra_events) + [('unknown.closed', closed)]
+    return plans.amend(ledger, name, raw, f'unknown {unknown_id} closed', _actor(by) or by, events=events)
+
+
+def close_unknown(ledger, name, unknown_id, by, evidence):
+    """Record the closure and make the amendment (a new revision) in one transaction."""
+    return _closing(ledger, name, unknown_id, by, evidence)
+
+
+def poc_record(ledger, name, unknown_id, answer, evidence_file, confidence, poc_contract=None):
+    """A PoC done by hand (the coordinator or the owner). The evidence file becomes a blob; a PoC that was allowed to change the
+    project is refused. Low confidence records the answer but leaves the unknown open."""
+    from . import plan as plans
+    text_field(answer, 'answer', 1000)
+    if confidence not in contracts.CONFIDENCE: raise LedgerError('--confidence: high, medium or low.')
+    if poc_contract is not None:
+        authority = (poc_contract.get('authority') or {}) if isinstance(poc_contract, dict) else {}
+        if authority.get('apply_to_project') or authority.get('local_branches') or authority.get('push'):
+            raise LedgerError('A PoC never applies: its contract may not carry apply_to_project, local_branches or push.')
+    path = Path(evidence_file)
+    if not path.is_file(): raise LedgerError('--evidence: no such file ' + str(path))
+    blob = Snapshots(ledger.state_root).blob(path.read_bytes())
+    answered = ('poc.answered', {'plan': name, 'unknown': unknown_id, 'answer': answer, 'confidence': confidence, 'evidence': blob,
+                                 'actor_env': os.environ.get('ONECREW_ACTOR')})
+    if confidence == 'low':
+        with ledger.transaction(write=True) as conn:
+            state = plans.anchor_events(ledger, conn, name)
+            contract, _ = plans.load(ledger, state)
+            if not any(u['id'] == unknown_id and u['status'] == 'open' for u in contract['understanding']['unknowns']):
+                raise LedgerError(f'Unknown {unknown_id} is not open in plan {name}.')
+            plans.emit(ledger, conn, state['task_id'], *answered)
+        return {'recorded': 'poc.answered', 'unknown': unknown_id, 'status': 'still open (confidence low)', 'evidence': blob}
+    return _closing(ledger, name, unknown_id, 'poc', blob, extra_events=[answered])   # the PoC's evidence file is the closing evidence
+
+
+# ---- mechanical checks (0 AI calls) -------------------------------------------------------------------------------------
+
+def _repo_root(project, path):
+    """The Git repository holding project/path (qc_intake.locate: the repository may be the project, above it or below it)."""
+    if not (Path(project) / path).exists(): return None, 'does not exist'
+    layout = locate(project, {'package': path})
+    return (layout.root, None) if layout else (None, 'is not inside a Git repository')
+
+
+def check_target(ledger, contract):
+    """Is the work pointed at the right place? repo exists and is a Git repository, the ref resolves, the target paths exist."""
+    target, project, reasons = contract['understanding']['target'], Path(ledger.project), []
+    root, problem = _repo_root(project, target['repo'])
+    if root is None:
+        return [('target_repo', f'target.repo {target["repo"]} {problem} (project {project}).')]
+    if _commit(root, target['ref']) is None:
+        reasons.append(('target_ref', f'target.ref {target["ref"]} does not resolve in {root}.'))
+    directory = project if target['repo'] == '.' else project / target['repo']
+    for path in target['paths']:
+        if not (directory / path).exists(): reasons.append(('target_path', f'target path {path} does not exist under {directory}.'))
+    return reasons
+
+
+def _tail(data):
+    return data.decode('utf-8', 'replace')[-TAIL:]
+
+
+def _run(ledger, argv, cwd, minutes):
+    env = dict(os.environ, PYTHONUTF8='1', PYTHONIOENCODING='utf-8')   # children are UTF-8 (S1)
+    begin, out, err, code, timed_out = time.monotonic(), b'', b'', None, False
+    try:
+        process = subprocess.Popen(argv, cwd=str(cwd), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   creationflags=0x08000000 if os.name == 'nt' else 0)
+        try:
+            out, err = process.communicate(timeout=minutes * 60)
+            code = process.returncode
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            command._kill_tree(process)
+            out, err = process.communicate()
+    except OSError as problem:
+        return {'exit_code': None, 'timed_out': False, 'error': f'{type(problem).__name__}: {problem}'[:300], 'stdout': '', 'stderr': '', 'seconds': 0}
+    return {'exit_code': code, 'timed_out': timed_out, 'error': None, 'stdout': _tail(out), 'stderr': _tail(err),
+            'seconds': round(time.monotonic() - begin, 2)}
+
+
+def run_precondition(ledger, pre):
+    """One check -> {id, check, ok, detail, ...}. Never raises: a broken check is a red one."""
+    project, args, check = Path(ledger.project), pre['args'], pre['check']
+    result = {'id': pre['id'], 'check': check, 'why': pre['why'], 'ok': False, 'detail': ''}
+    try:
+        if check == 'path_exists':
+            result['ok'] = (project / args['path']).exists()
+            result['detail'] = args['path'] + (' exists' if result['ok'] else ' does not exist')
+        elif check == 'repo_exists':
+            root, problem = _repo_root(project, args['path'])
+            result['ok'], result['detail'] = root is not None, f'{args["path"]} ' + (f'is in the repository {root}' if root else problem)
+        elif check == 'ref_resolves':
+            root, problem = _repo_root(project, args['repo'])
+            commit = _commit(root, args['ref']) if root else None
+            result['ok'] = commit is not None
+            result['detail'] = f'{args["ref"]} -> {commit}' if commit else f'{args["ref"]} does not resolve ({problem or "unknown ref"})'
+        else:
+            ran = _run(ledger, args['argv'], project / args['cwd'] if args['cwd'] != '.' else project, args['max_minutes'])
+            result.update(ran)
+            if ran['timed_out']: result['detail'] = f'exceeded {args["max_minutes"]} minutes'
+            elif ran['error']: result['detail'] = ran['error']
+            elif ran['exit_code'] != 0: result['detail'] = f'exit {ran["exit_code"]}: ' + (ran['stderr'] or ran['stdout']).strip()[-200:]
+            elif check == 'command_ok': result.update(ok=True, detail='exit 0')
+            else:
+                found = re.search(args['pattern'], ran['stdout'] + '\n' + ran['stderr'])
+                result.update(ok=bool(found), detail=('matched ' + found.group(0)[:80]) if found else f'output does not match /{args["pattern"]}/')
+    except (OSError, ValueError, LedgerError) as error:
+        result['detail'] = f'{type(error).__name__}: {error}'[:300]
+    return result
+
+
+# ---- the approve gate ---------------------------------------------------------------------------------------------------
+
+def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=True):
+    """Every reason approve would refuse for. `closed` = closed_events(...). With run=False the preconditions are not executed
+    (used by tests of the pure rules); approve and precheck always run them."""
+    u, reasons = contract['understanding'], []
+    if u['confidence'] == 'low':
+        reasons.append(('confidence_low', 'understanding.confidence is low: find the document, run a PoC or brainstorm until it is not.'))
+    for unknown in u['unknowns']:
+        if unknown['status'] == 'open':
+            reasons.append(('unknown_open', f'unknown {unknown["id"]} is open: {unknown["question"][:120]} (plan unknown close / plan poc record).'))
+        elif closed.get(unknown['id'], {}).get('evidence') != unknown['evidence']:
+            reasons.append(('unknown_unrecorded', f'unknown {unknown["id"]} is marked closed in the file but the ledger has no matching '
+                                                  'unknown.closed event; close it with plan unknown close.'))
+    for number, assumption in enumerate(u['assumptions'], 1):
+        if not assumption['evidence']:
+            reasons.append(('assumption_no_evidence', f'assumption {number} has no evidence: {assumption["text"][:100]}'))
+    options = contract['options']
+    if options is None:
+        if choose is not None: reasons.append(('choose_without_options', f'--choose {choose}: this plan has no options.'))
+    elif choose is None:
+        reasons.append(('options_not_chosen', 'the plan has options and the owner has not chosen one: plan approve --choose <id> '
+                                              f'(options: {", ".join(o["id"] for o in options["items"])}; recommended {options["recommended"]}).'))
+    elif choose not in {o['id'] for o in options['items']}:
+        reasons.append(('choose_unknown', f'--choose {choose} is not one of the options.'))
+    elif not next(o for o in options['items'] if o['id'] == choose)['evidence']:
+        reasons.append(('option_no_evidence', f'option {choose} has no evidence, so it counts as an unknown.'))
+    reasons += check_target(ledger, contract)
+    results = [run_precondition(ledger, p) for p in contract['preconditions']] if run else []
+    reasons += [('precondition_red', f'precondition {r["id"]} ({r["check"]}) is red: {r["detail"]}') for r in results if not r['ok']]
+    receipt = None
+    if results:
+        body = {'kind': 'precondition-receipt', 'plan': name, 'revision': revision, 'plan_sha': sha, 'results': results}
+        receipt = Snapshots(ledger.state_root).blob(canonical(body).encode('utf-8'))
+    return {'ok': not reasons, 'reasons': reasons, 'results': results, 'receipt': receipt,
+            'unknowns': [{'id': k['id'], 'closed_by': k['closed_by'], 'evidence': k['evidence']} for k in u['unknowns'] if k['status'] == 'closed']}
+
+
+def refusal_text(verdict):
+    return (f'Approve refused: step 0 is not done ({len(verdict["reasons"])} reason{"s" if len(verdict["reasons"]) != 1 else ""}):\n'
+            + '\n'.join(f' - [{code}] {text}' for code, text in verdict['reasons']))
+
+
+def record_run(ledger, conn, task_id, name, revision, sha, verdict, phase):
+    from . import plan as plans
+    plans.emit(ledger, conn, task_id, 'precondition.recorded',
+               {'plan': name, 'revision': revision, 'sha': sha, 'phase': phase, 'ok': all(r['ok'] for r in verdict['results']),
+                'receipt': verdict['receipt'], 'results': [{k: r[k] for k in ('id', 'check', 'ok', 'detail')} for r in verdict['results']]})
+
+
+def record_closed(ledger, conn, task_id, name, revision, sha, verdict, chosen):
+    from . import plan as plans
+    plans.emit(ledger, conn, task_id, 'plan.step0_closed',
+               {'plan': name, 'revision': revision, 'sha': sha, 'unknowns': verdict['unknowns'], 'chosen': chosen,
+                'precondition_receipt': verdict['receipt']})
+
+
+def precheck(ledger, name):
+    """Run the preconditions and the target check without approving anything; record the run. Plain text for the owner."""
+    from . import plan as plans
+    with ledger.transaction() as conn:
+        state = plans.anchor_events(ledger, conn, name)
+        contract, sha = plans.load(ledger, state)
+        closed = closed_events(conn, state['task_id'])
+    verdict = evaluate(ledger, name, state['latest'], sha, contract, closed, choose=contract['options']['recommended'] if contract['options'] else None)
+    with ledger.transaction(write=True) as conn:
+        record_run(ledger, conn, state['task_id'], name, state['latest'], sha, verdict, 'precheck')
+    lines = [f'PRECHECK {name} revision {state["latest"]} (0 AI calls)']
+    target = [r for r in verdict['reasons'] if r[0].startswith('target_')]
+    lines.append(f'  {"RED  " if target else "GREEN"} target {contract["understanding"]["target"]["repo"]}@{contract["understanding"]["target"]["ref"]}'
+                 + ''.join('\n        ' + text for _, text in target))
+    lines += [f'  {"GREEN" if r["ok"] else "RED  "} {r["id"]} {r["check"]}: {r["detail"]}' for r in verdict['results']]
+    lines.append('  receipt ' + str(verdict['receipt']))
+    return '\n'.join(lines)
+
+
+def step0_status(conn, task_id, revision):
+    """For `plan show`: has step 0 been closed on this revision, and what did the last precondition run say."""
+    last = {}
+    for row in conn.execute('SELECT kind,payload FROM events WHERE task_id=? AND kind IN (?,?) ORDER BY seq', (task_id, 'plan.step0_closed', 'precondition.recorded')):
+        payload = json.loads(row['payload'])
+        if payload.get('revision') == revision: last[row['kind']] = payload
+    run = last.get('precondition.recorded')
+    return {'closed': 'plan.step0_closed' in last, 'chosen': (last.get('plan.step0_closed') or {}).get('chosen'),
+            'preconditions': {'ok': run['ok'], 'phase': run['phase'], 'receipt': run['receipt']} if run else None}
+
+
+# ---- brainstorm table ---------------------------------------------------------------------------------------------------
+
+def _cut(text, width=112):
+    text = ' '.join(str(text).split())
+    return text if len(text) <= width else text[:width - 1] + '…'
+
+
+def brainstorm_table(contract, chosen=None):
+    """The options as a page the owner reads once: at most 30 lines (header 3 + 5 per option, options capped at 5)."""
+    options = contract['options']
+    if options is None: raise LedgerError('This plan has no options (size ' + contract['size'] + ').')
+    lines = [f'OPTIONS for "{_cut(contract["title"], 70)}"  size {contract["size"]}  recommended {options["recommended"]}: {_cut(options["reason"], 70)}',
+             'The owner chooses once: plan approve <plan> --by owner --reference ... --choose <id>', '-' * 100]
+    for o in options['items']:
+        mark = ('CHOSEN ' if o['id'] == chosen else '') + ('(recommended)' if o['id'] == options['recommended'] else '')
+        lines += [f'{o["id"]} {mark} {_cut(o["summary"], 90)}',
+                  f'   evidence {len(o["evidence"])}: {_cut("; ".join(o["evidence"]) or "NONE - counts as an unknown", 90)}',
+                  f'   + {_cut("; ".join(o["strengths"]) or "-", 100)}',
+                  f'   - {_cut("; ".join(o["weaknesses"]) or "-", 100)}   unknowns: {_cut("; ".join(o["unknowns"]) or "-", 60)}',
+                  f'   cost {_cut(o["cost"], 40)} | risk {_cut(o["risk"], 40)}']
+    return '\n'.join(lines)
