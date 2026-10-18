@@ -345,8 +345,12 @@ class CheckTests(HookFixture):
                   'onecrew plan approve P1 --by owner', 'onecrew plan show P1; rm a.txt', 'onecrew plan show P1 && git push', 'onecrew plan accept P1',
                   f'{PY} evil.py onecrew_cli.py plan show P1', 'rg --pre ./x foo', 'grep x a.txt > b.txt', 'git status\ngit commit -am x', 'cat a.txt &  rm a.txt',
                   f'{PY} -m onecrew_evil plan show P1']
-        for command in writes + ['cat (Remove-Item a.txt)', 'cat @(Remove-Item a.txt)', 'Get-Content (Set-Content a.txt hi)']:
+        quoting = ['cat " ; rm a.txt ; "', 'echo "x', "cat 'x", 'cat \\" ; rm a.txt ; \\"', "cat \\' ; rm a.txt ; \\'", 'cat "a.txt\\"', 'grep "a|b" a.txt',
+                   'onecrew approve plan show P1', 'onecrew plan approve P1 plan show', 'onecrew --project . approve plan show P1']      # a string is not where a command can hide
+        for command in writes + quoting + ['cat (Remove-Item a.txt)', 'cat @(Remove-Item a.txt)', 'Get-Content (Set-Content a.txt hi)']:
             self.assertEqual(self.run_hook('check', self.shell(command))[0], 2, command)
+        for command in ('grep "a b" a.txt', "grep 'a b' a.txt", 'cat "a.txt" | head -2', 'onecrew --project . --state-root X plan show P1', 'onecrew --project=. plan show P1'):
+            self.assertEqual(self.run_hook('check', self.shell(command))[0], 0, command)
         self.assertEqual(self.run_hook('check', self.shell('cat (Remove-Item a.txt)', 'PowerShell'))[0], 2)
         self.assertEqual(self.run_hook('check', self.shell('grep "f(x)" a.txt'))[0], 0)               # a quoted parenthesis is only text
         for command in ('Set-Content a.txt hi', 'Out-File a.txt', 'Remove-Item a.txt', 'Get-Content a.txt | Out-File b.txt', 'git push', 'Add-Content a.txt hi', 'echo x > a.txt'):

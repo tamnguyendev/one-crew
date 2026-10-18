@@ -271,22 +271,26 @@ def _read_only_segment(words):
         if i < len(rest) and (_program(rest[i]) == 'onecrew_cli.py' or (rest[i] == '-m' and i + 1 < len(rest) and rest[i + 1] == 'onecrew')):
             tail = rest[i + 2:] if rest[i] == '-m' else rest[i + 1:]
     if tail is None: return False
-    for i, word in enumerate(tail):
-        if word in ONECREW_READ: return i + 1 < len(tail) and tail[i + 1] in ONECREW_READ[word]
-    return False
+    i = 0
+    while i < len(tail) and tail[i].startswith('--'): i += 1 if '=' in tail[i] else 2        # global options (--project X, --state-root X) come before the verb
+    return i + 1 < len(tail) and tail[i] in ONECREW_READ and tail[i + 1] in ONECREW_READ[tail[i]]
 
 
 def read_only_command(command):
     """True only when every part of a shell command is a known read-only command (allowlist, fail closed). Redirects, command substitution and
     anything outside the list are not read-only: a stopped plan lets the AI look at the evidence, never change anything."""
-    if re.search(r'`|\$\(|\$\{|<\(', command) or len(command) > 2000: return False
+    if re.search(r'`|\$\(|\$\{|<\(|\\["\']', command) or len(command) > 2000: return False      # an escaped quote makes the hook and the shell disagree on where a string ends
+    if re.search('["\']', re.sub(r'"[^"]*"|\'[^\']*\'', '', command)): return False            # an unclosed quote: the rest of the line is a string to us and commands to the shell
     segments, current = [], []
     for token in SHELL_TOKEN.findall(command):
         if token in ('&&', '||', ';', '|', '&', '\n'):
             segments.append(current); current = []
+        elif token.startswith(('"', "'")):
+            if re.search(r'[;|&\n]', token): return False                                          # a separator inside a string is refused rather than guessed at
+            current.append(token[1:-1])
         else:
-            if not token.startswith(('"', "'")) and re.search(r'[<>()]', token): return False      # redirects, and PowerShell (cmd) / @(cmd) that runs a command inside an argument
-            current.append(token.strip('"\''))
+            if re.search(r'[<>()]', token): return False                                           # redirects, and PowerShell (cmd) / @(cmd) that runs a command inside an argument
+            current.append(token)
     segments.append(current)
     segments = [s for s in segments if s]
     return bool(segments) and all(_read_only_segment(s) for s in segments)
