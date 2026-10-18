@@ -63,6 +63,29 @@ class C9GitPush(HookCase):
         self.assertEqual(self.exit_code('& "C:\\Program Files\\Git\\cmd\\git.exe" push origin main', 'PowerShell'), 2)
         self.assertEqual(self.exit_code('git status'), 0)                                    # the control still passes
 
+    def test_c14_git_cmd_and_an_alias_given_with_dash_c_exit_2(self):
+        for command in ('git.cmd push origin main', 'git -c alias.p=push p origin main'):
+            self.assertEqual(self.exit_code(command), 2, command)
+        self.assertEqual(self.exit_code('git log --grep push'), 0)                          # the control
+        self.assertEqual(self.exit_code('git.cmd push origin main', 'PowerShell'), 2)
+        self.assertEqual(self.exit_code('& "C:\\Program Files\\Git\\cmd\\git.cmd" -c alias.p=push p origin main', 'PowerShell'), 2)
+
+    def test_c14_variants_are_blocked(self):
+        for command in ('"C:/Program Files/Git/cmd/git.cmd" push', 'GIT.CMD send-pack origin', 'git.cmd -C sub push', 'git.exe -c alias.p=push p', 'git -calias.p=push p origin',
+                        'git -c alias.s=send-pack s origin main', 'git -c user.name=x -c alias.p=push p', 'git -c alias.p="!git push" p', 'git.cmd -c alias.h=http-push h x',
+                        'cd sub && git -c alias.p=push p', 'git --config-env=alias.p=PUSHCMD p', 'git --config-env alias.p=PUSHCMD p',
+                        'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0=push git p', 'git.cmd config alias.p push', 'git.cmd tag v1'):
+            self.assertBlocked(command, 'bash_deny')
+
+    def test_c14_what_only_looks_like_it_is_not_blocked(self):
+        for command in ('git log --grep push', 'git.cmd status', 'git -c core.pager=cat log --grep push', 'git -c alias.l=log l', 'git.cmd -c user.name=x commit -m "push it"',
+                        'git config user.name pusher', 'git.cmd tag -l'):
+            self.assertAllowed(command)
+
+    def test_c14_the_generated_permission_rules_cover_git_cmd_and_dash_c_aliases(self):
+        deny = hook_cli.settings(self.root, self.state, REPO)['permissions']['deny']
+        for rule in ('Bash(*git.cmd*push*)', 'PowerShell(*git.cmd*push*)', 'Bash(*-c*alias.*push*)', 'PowerShell(*-c*alias.*send-pack*)', 'Bash(*--config-env*)'): self.assertIn(rule, deny)
+
     def test_variants_are_blocked(self):
         for command in ("'C:\\Program Files\\Git\\cmd\\git.exe' push", 'GIT.EXE PUSH origin', 'git.exe send-pack x', 'git http-push x', 'git.exe -C sub push',
                         'git -C . push origin main', '"C:/Program Files/Git/cmd/git.exe" -c core.x=1 push', 'git.exe --no-pager push', 'git.exe config alias.p push',
