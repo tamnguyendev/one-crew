@@ -96,7 +96,8 @@ class C10NestedWrites(HookCase):
             self.assertBlocked(command)
 
     def test_writes_inside_the_owned_scope_stay_allowed(self):
-        for command in ("bash -c 'echo hi > src/y.py'", "bash -c 'echo ok'", 'cmd /c "dir"', 'powershell -c "Get-Content README.md"', "iex 'sc a.txt x'"):
+        for command in ("bash -c 'echo hi > src/y.py'", "bash -c 'echo ok'", 'cmd /c "dir"', 'powershell -c "Get-Content README.md"', "iex 'sc a.txt x'",
+                        'git commit -m "Move the notes to docs"', 'git commit -m "Copy files over" && echo done', 'echo "touch up the tee"'):   # a message is not a command
             self.assertAllowed(command)
 
 

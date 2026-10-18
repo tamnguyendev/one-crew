@@ -194,15 +194,21 @@ def shell_targets(command):
 QUOTED = re.compile(r"\"([^\"]{3,})\"|'([^']{3,})'")
 
 
+CUE = re.compile(r'\b(?:iex|invoke-expression|powershell(?:\.exe)?|pwsh|cmd(?:\.exe)?|bash|sh|zsh|dash|eval|invoke-command|start-process|wsl)\b', re.I)
+
+
 def all_targets(command, depth=0):
-    """C10: shell_targets of the command as written, of the form without quotes/backticks/carets, and (recursively) of every quoted part, so a
-    write nested in a string (`iex 'sc README.md x'`, `powershell -c "sc ..."`, `cmd /c "..."`, `bash -c '...'`) is judged like one typed plainly.
-    A quoted path with a space may also show up cut at the space; that errs on the side of blocking."""
+    """C10: shell_targets of the command as written, without backticks/carets, and (recursively, up to 3 levels) of each quoted part that follows an
+    interpreter (`iex 'sc README.md x'`, `powershell -c "sc ..."`, `cmd /c "..."`, `bash -c '...'`), so a write nested in a string is judged like one
+    typed plainly. Only text after such a cue is read as a command: a commit message "Move a to b" is not a move. A quoted path with a space
+    may show up cut at the space, which errs on the side of blocking."""
+    cleaned = re.sub(r'[`^]', '', command)
     found = shell_targets(command)
-    plain = variants(command)[1]
-    if plain != command: found += shell_targets(plain)
+    if cleaned != command: found += shell_targets(cleaned)
     if depth < 3:
-        for m in QUOTED.finditer(command): found += all_targets(m.group(1) or m.group(2), depth + 1)
+        for text in dict.fromkeys((command, cleaned)):
+            for m in QUOTED.finditer(text):
+                if CUE.search(re.split(r'[;&|\n]', text[:m.start()])[-1]): found += all_targets(m.group(1) or m.group(2), depth + 1)
     return list(dict.fromkeys(found))
 
 
