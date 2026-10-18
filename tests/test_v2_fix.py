@@ -239,7 +239,7 @@ class C12Evidence(l3.Step0):
         self.assertEqual(plans.approve(self.ledger, 'ByOwner', 'owner', 'r')['status'], 'approved')
 
     def test_closing_an_unknown_as_the_owner_does_not_turn_the_ais_sentence_into_evidence(self):
-        value = l3.step0_json(size='S', unknowns=['U1'], assumptions=[('the base builds', 'trust me')])
+        value = l3.step0_json(size='S', unknowns=['U1'], assumptions=[('the base builds', 'trust me, it builds')])
         self.propose('P1', value)
         step0.close_unknown(self.ledger, 'P1', 'U1', 'owner', 'the owner decided this in chat')                  # revision 2, author owner, text still the AI's
         with self.assertRaises(LedgerError) as caught: plans.approve(self.ledger, 'P1', 'owner', 'r')
