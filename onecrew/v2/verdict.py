@@ -8,8 +8,9 @@ from pathlib import Path
 from ..ledger import LedgerError, key_field, text_field
 from ..snapshots import Snapshots
 from . import contract as contracts, plan as plans
-from .verifiers import command
+from .verifiers import command, reviewer
 
+KINDS = {'command': 'command-receipt', 'reviewer': 'reviewer-receipt'}
 RESULTS = ('pass', 'fail', 'inconclusive')
 SHA = re.compile(r'[0-9a-f]{40}|[0-9a-f]{64}')
 
@@ -28,21 +29,22 @@ def _check_receipt(ledger, name, revision, plan_sha, milestone, result, by, arti
         if by != 'owner': raise LedgerError('Milestone ' + milestone['id'] + ' is verified by the owner: --by owner.')
         return
     if by != verifier: raise LedgerError(f'Milestone {milestone["id"]} is verified by {verifier}, not {by}.')
+    kind = KINDS[verifier]
     try:
         body = json.loads(data.decode('utf-8'))
     except ValueError as error:
-        raise LedgerError('Receipt is not a command receipt.') from error
-    if body.get('kind') != 'command-receipt': raise LedgerError('Receipt is not a command receipt.')
-    for field, want in (('plan', name), ('revision', revision), ('plan_sha', plan_sha), ('milestone', milestone['id']),
-                        ('argv', milestone['verifier']['config']['argv'])):
+        raise LedgerError(f'Receipt is not a {kind}.') from error
+    if not isinstance(body, dict) or body.get('kind') != kind: raise LedgerError(f'Receipt is not a {kind}.')
+    own = ('argv', milestone['verifier']['config']['argv']) if verifier == 'command' else ('config', milestone['verifier']['config'])
+    for field, want in (('plan', name), ('revision', revision), ('plan_sha', plan_sha), ('milestone', milestone['id']), own):
         if body.get(field) != want: raise LedgerError(f'Receipt does not belong to this plan/milestone ({field} differs).')
     if body.get('artifact_sha') != artifact:
         raise LedgerError(f'Artifact sha {artifact} does not match the one the receipt observed ({body.get("artifact_sha")}).')
-    expected = command.expected_result(body)
+    expected = (command if verifier == 'command' else reviewer).expected_result(body)
     if result != expected: raise LedgerError(f'Receipt supports a {expected} verdict, not {result}.')
     # A well-formed receipt is not enough: it must be one that verdict.run issued. Anything hand-written is refused (F1).
     if (revision, milestone['id'], receipt) not in issued:
-        raise LedgerError('This receipt was not issued by verdict run. A command milestone is verified only by running its command.')
+        raise LedgerError(f'This receipt was not issued by verdict run. A {verifier} milestone is verified only by verdict run.')
     return body
 
 
@@ -73,13 +75,15 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
             raise LedgerError(f'Milestone {milestone_id} already passed on revision {revision} for this artifact.')
         if receipt_bytes is not None:
             if milestone['verifier']['type'] != 'owner-manual':
-                raise LedgerError('A receipt file is accepted only for an owner-manual milestone; a command milestone is verified by verdict run.')
+                raise LedgerError('A receipt file is accepted only for an owner-manual milestone; a command or reviewer milestone is verified by verdict run.')
             receipt = Snapshots(ledger.state_root).blob(receipt_bytes)
         body = _check_receipt(ledger, name, revision, sha, milestone, result, by, artifact_sha, receipt, state['issued'])
         base = {'plan': name, 'revision': revision, 'milestone': milestone_id, 'plan_sha': sha}
+        extra = ({'independence': body['independence']['level'], 'model': body['config']['model'], 'calls': body['calls']}
+                 if body and body.get('kind') == 'reviewer-receipt' else {})
         plans.emit(ledger, conn, state['task_id'], 'verdict.recorded', dict(base, result=result, by=by, receipt=receipt,
                                                                             artifact_sha=artifact_sha, run=view['runs'] + 1,
-                                                                            cwd=body.get('cwd') if body else None))
+                                                                            cwd=body.get('cwd') if body else None, **extra))
         if result == 'pass':
             plans.emit(ledger, conn, state['task_id'], 'milestone.passed', dict(base, artifact_sha=artifact_sha))
         else:
@@ -153,22 +157,28 @@ def inside_project(ledger, directory):
 
 
 def run(ledger, name, milestone_id, directory=None):
-    """Run the milestone's `command` verifier. This is the only way to a verdict for a command milestone: the receipt is
-    announced in the ledger (verdict.receipt_issued) before it is recorded, and record() accepts no other command receipt."""
+    """Run the milestone's `command` or `reviewer` verifier. This is the only way to a verdict for such a milestone: the receipt is
+    announced in the ledger (verdict.receipt_issued) before it is recorded, and record() accepts no other receipt."""
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
         if state['status'] != 'approved': raise LedgerError(f'Plan {name} is {state["status"]}; nothing to verify.')
         contract, sha = plans.load(ledger, state)
         revision = state['latest']
+        written, approved = state['revisions'][revision], state['approved']
     milestone = next((m for m in contract['milestones'] if m['id'] == milestone_id), None)
     if milestone is None: raise LedgerError('Unknown milestone ' + milestone_id + '.')
-    if milestone['verifier']['type'] != 'command': raise LedgerError('Milestone ' + milestone_id + ' is not verified by a command.')
-    configured = milestone['verifier']['config']['cwd']
+    kind, config = milestone['verifier']['type'], milestone['verifier']['config']
+    if kind not in KINDS: raise LedgerError('Milestone ' + milestone_id + ' is not verified by a command or a reviewer.')
+    configured = config.get('cwd')
     directory = inside_project(ledger, directory or (Path(ledger.project) / configured if configured else ledger.project))
-    blob, receipt = command.run(ledger, name, revision, sha, milestone, directory)
+    if kind == 'command':
+        blob, receipt = command.run(ledger, name, revision, sha, milestone, directory)
+    else:
+        level = reviewer.check_independence(written, config)       # before any call: a reviewer that is the author costs nothing
+        blob, receipt = reviewer.run(ledger, name, revision, sha, milestone, directory, level, approved)
     with ledger.transaction(write=True) as conn:
         current = plans.anchor_events(ledger, conn, name)
-        if current['status'] != 'approved' or current['latest'] != revision: raise LedgerError('The plan changed while the command ran; run it again.')
+        if current['status'] != 'approved' or current['latest'] != revision: raise LedgerError(f'The plan changed while the {kind} ran; run it again.')
         plans.emit(ledger, conn, current['task_id'], 'verdict.receipt_issued',
                    {'plan': name, 'revision': revision, 'milestone': milestone_id, 'receipt': blob, 'cwd': str(directory)})
-    return record(ledger, name, milestone_id, command.expected_result(receipt), 'command', blob, receipt['artifact_sha'])
+    return record(ledger, name, milestone_id, (command if kind == 'command' else reviewer).expected_result(receipt), kind, blob, receipt['artifact_sha'])

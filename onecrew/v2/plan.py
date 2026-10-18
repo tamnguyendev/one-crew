@@ -5,6 +5,7 @@ OneCrew has no model here. It compares what the owner agreed (the revision) with
 """
 import json
 import os
+import subprocess
 
 from ..ledger import LedgerError, canonical, content_hash, key_field, text_field, utcnow
 from . import contract as contracts
@@ -144,6 +145,15 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
     return show(ledger, name)
 
 
+def _base_artifact(ledger):
+    """The tree the project is in as the owner approves: what a reviewer verifier later diffs against. None outside a Git repository."""
+    from .verifiers import command
+    try:
+        return command.artifact_sha(ledger.project)
+    except (LedgerError, OSError, subprocess.SubprocessError):
+        return None
+
+
 def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
     """Owner only, and only when step 0 is done (step0.evaluate): every reason it is not is returned in one refusal. The
     owner's `choose` is recorded here and nowhere else."""
@@ -164,6 +174,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
     ticked = sorted(set(tick))
     if set(ticked) - should: raise LedgerError('Only should items can be ticked: ' + ','.join(sorted(set(ticked) - should)))
     verdict = step0.evaluate(ledger, name, revision, sha, contract, closed, choose, author=written_by)
+    base_artifact = _base_artifact(ledger)
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
         if state['latest'] != revision or state['revisions'][revision]['sha'] != sha:
@@ -171,7 +182,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
         if verdict['results']: step0.record_run(ledger, conn, state['task_id'], name, revision, sha, verdict, 'approve')
         if verdict['ok']:
             emit(ledger, conn, state['task_id'], 'plan.approved', {'plan': name, 'revision': revision, 'sha': sha, 'by': by, 'reference': reference,
-                                                                    'ticked': ticked, 'chosen': choose, **session_info()})
+                                                                    'ticked': ticked, 'chosen': choose, 'base_artifact': base_artifact, **session_info()})
             step0.record_closed(ledger, conn, state['task_id'], name, revision, sha, verdict, choose)
     if not verdict['ok']: raise LedgerError(step0.refusal_text(verdict))   # after the commit, so the precondition run stays recorded
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)

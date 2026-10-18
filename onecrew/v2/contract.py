@@ -21,7 +21,11 @@ CHECKS = ('repo_exists', 'ref_resolves', 'path_exists', 'command_ok', 'sdk_versi
 MAX_OPTIONS, PRECONDITION_MAX_MINUTES = 5, 60
 TIERS = ('must', 'should', 'wont')
 MODES = ('once', 'until_pass')
-VERIFIERS = ('command', 'owner-manual')
+VERIFIERS = ('command', 'owner-manual', 'reviewer')
+MAX_CRITERIA, REVIEWER_MAX_MINUTES = 10, 30
+MODEL = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,79}')
+# Rough on purpose: a path separator, a source extension, or a word for a kind of change. It keeps "is the code good?" out of the contract.
+NAMES_SOMETHING = re.compile(r'/|\\|\.(py|dart|js|ts|md|json|kt|java|txt)\b|\b(test|tests|assert|diff|file|files|line|lines|function|method|class|dòng|tệp)\b', re.I)
 MAX_ITEMS, MAX_MILESTONES = 12, 5
 MAX_REPAIRS_CAP = 5
 # stop{}: the plan stops (stopped_with_report, one question) when a milestone fails max_stuck times in a row on the SAME artifact (the AI re-ran
@@ -61,8 +65,34 @@ def _verifier(value, name):
         if cwd is not None: text_field(cwd, name + '.cwd', 500)
         minutes = _int(config.get('max_minutes', 15), name + '.max_minutes', 1, COMMAND_MAX_MINUTES)
         return {'type': 'command', 'config': {'argv': argv, 'cwd': cwd, 'max_minutes': minutes}}
+    if value['type'] == 'reviewer': return {'type': 'reviewer', 'config': _reviewer(config, name)}
     if config: raise LedgerError(name + ': owner-manual takes no config.')
     return {'type': 'owner-manual', 'config': {}}
+
+
+def _reviewer(config, name):
+    """One verifier per milestone (a command and a reviewer are two milestones): the schema stays one {type, config} pair. A criterion is a
+    narrow question the reviewer can answer with file:line, so a question that names no file or kind of change is refused here, at propose."""
+    if not isinstance(config, dict) or set(config) - {'provider', 'model', 'criteria', 'max_minutes'} or {'provider', 'model', 'criteria'} - set(config):
+        raise LedgerError(name + ': reviewer verifier takes provider, model, criteria and max_minutes.')
+    from ..qc_gate import NATIVE_REVIEWERS
+    if config['provider'] not in NATIVE_REVIEWERS:
+        raise LedgerError(f'{name}.provider: one of {", ".join(NATIVE_REVIEWERS)} (other vendors are not adapted yet).')
+    model = config['model']
+    if not isinstance(model, str) or not MODEL.fullmatch(model): raise LedgerError(name + '.model: expected a model id such as claude-haiku-5-5.')
+    criteria = _list(config['criteria'], name + '.criteria', 1, MAX_CRITERIA, lambda c: _criterion(c, name))
+    if len({c['id'] for c in criteria}) != len(criteria): raise LedgerError(name + '.criteria: duplicate id.')
+    return {'provider': config['provider'], 'model': model, 'criteria': criteria,
+            'max_minutes': _int(config.get('max_minutes', 10), name + '.max_minutes', 1, REVIEWER_MAX_MINUTES)}
+
+
+def _criterion(value, name):
+    if not isinstance(value, dict) or set(value) != {'id', 'question'}: raise LedgerError(name + '.criteria: each takes id and question.')
+    cid = _id(value['id'], name + '.criteria id')
+    question = text_field(value['question'], f'{name}.criteria[{cid}].question', 500)
+    if not NAMES_SOMETHING.search(question):
+        raise LedgerError(f'{name}.criteria[{cid}].question: name a file (a path, .py, .dart) or a kind of change (test, assert, diff, line) so the answer can cite file:line.')
+    return {'id': cid, 'question': question}
 
 
 def validate(value):
