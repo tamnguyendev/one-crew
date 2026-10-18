@@ -65,3 +65,4 @@ Một dòng mỗi mục; `L#` là lát dự kiến.
 - S1 (`NAME=value; cmd` bị coi là đường dẫn ngoài phạm vi): các dạng `O=/tmp/x; echo hi`, `O=/tmp/x cat a.txt`, `O=/tmp/x && echo hi` không bị chặn trong code hiện tại; test `test_a_compound_command_starting_with_an_assignment_is_not_a_path` ghi lại. Dạng gốc gây chặn ở việc 3 chưa tái hiện được (có thể đi kèm một lệnh ghi như `mkdir "$O"` bị `unresolvable_target`).
 - Trạng thái dừng không cho `NAME=value cmd` (allowlist không đoán biến môi trường); cần thì thêm sau.
 - Hook chặn cả lệnh shell chỉ chứa văn bản có chữ "git ... push" hay dấu lớn hơn (bash_deny và dò redirect khớp text lệnh, không phân biệt dữ liệu với lệnh): đúng theo thiết kế, nhưng ồn khi ghi tài liệu bằng shell; dùng Write/Edit cho docs.
+- Bản 4 của job 4: allowlist shell khi kế hoạch dừng đã bị gỡ (ba vòng review M2 vẫn tìm ra lối lách: dấu nháy thoát, tên chương trình trùng, `cd` trước script). Khi dừng, đọc bằng Read/Grep/Glob.

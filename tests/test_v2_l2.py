@@ -322,43 +322,18 @@ class CheckTests(HookFixture):
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         self.assertEqual(plans.show(self.ledger, 'P1')['status'], 'stopped_with_report')
 
-    def test_a_stopped_plan_still_lets_the_ai_read_the_evidence(self):
-        self.stopped()
-        reads = ['cat .onecrew/active-plan.json', 'git status', 'git status --short', 'git log --oneline -3', 'git diff --stat', 'git show HEAD', 'ls src',
-                 'head -5 a.txt', 'grep -n x a.txt | head -3', 'find . -name "*.py"', 'git status; git rev-parse HEAD', 'cd src && ls', 'onecrew plan show P1',
-                 'onecrew --project . plan precheck P1', f'{PY} -X utf8 {REPO}/onecrew_cli.py --project . --state-root {self.state} plan show P1',
-                 f'{PY} -X utf8 -m onecrew --state-root {self.state} plan show P1', 'git blame a.txt', 'cat "a.txt"']
-        for command in reads:
-            self.assertEqual(self.run_hook('check', self.shell(command))[0], 0, command)
-        for command in ('Get-Content a.txt', 'Get-ChildItem src', 'git status', 'type a.txt', 'dir', 'Get-Content a.txt | Select-String x'):
-            self.assertEqual(self.run_hook('check', self.shell(command, 'PowerShell'))[0], 0, command)
-        self.assertFalse([v for v in self.violations() if v['event'] == 'blocked'])
-
-    def test_a_stopped_plan_still_blocks_writes_and_side_effects(self):
+    def test_a_stopped_plan_blocks_every_shell_command_and_every_edit(self):
         self.stopped()
         for tool in ('Edit', 'Write', 'MultiEdit', 'NotebookEdit'):
             code, _, err = self.run_hook('check', self.edit('a.txt', tool))
             self.assertEqual(code, 2, tool); self.assertIn('stopped_with_report', err)
-        writes = ['echo x > a.txt', 'echo x >> a.txt', 'cat a.txt > b.txt', 'cat a.txt | tee b.txt', 'cat a | tee b', 'cat a.txt 2>&1 > b.txt', 'git push', 'git push origin main',
-                  'git commit -am x', 'git checkout .', 'git reset --hard', 'git clean -fd', 'git add .', 'git diff --output=a.txt', 'git -c core.pager=x log',
-                  'rm a.txt', 'find . -delete', 'find . -exec rm {} ;', 'echo hi', 'python run.py', 'sed -i s/a/b/ a.txt', 'cat $(rm a.txt)', 'cat `rm a.txt`',
-                  'onecrew plan approve P1 --by owner', 'onecrew plan show P1; rm a.txt', 'onecrew plan show P1 && git push', 'onecrew plan accept P1',
-                  f'{PY} evil.py onecrew_cli.py plan show P1', 'rg --pre ./x foo', 'grep x a.txt > b.txt', 'git status\ngit commit -am x', 'cat a.txt &  rm a.txt',
-                  f'{PY} -m onecrew_evil plan show P1', 'rg --hostname-bin ./x foo',
-                  './cat a.txt', '/usr/bin/git status', 'D:/x/git.exe status', '.\\tools\\cat a.txt',                          # a path to a program of that name is another program
-                  f'{PY} onecrew_cli.py plan show P1', f'{PY} ./other/onecrew_cli.py plan show P1']                       # a script of that name that is not this repository's
-        quoting = ['cat " ; rm a.txt ; "', 'echo "x', "cat 'x", 'cat \\" ; rm a.txt ; \\"', "cat \\' ; rm a.txt ; \\'", 'cat "a.txt\\"', 'grep "a|b" a.txt',
-                   'onecrew approve plan show P1', 'onecrew plan approve P1 plan show', 'onecrew --project . approve plan show P1']      # a string is not where a command can hide
-        for command in writes + quoting + ['cat (Remove-Item a.txt)', 'cat @(Remove-Item a.txt)', 'Get-Content (Set-Content a.txt hi)']:
-            self.assertEqual(self.run_hook('check', self.shell(command))[0], 2, command)
-        for command in ('grep "a b" a.txt', "grep 'a b' a.txt", 'cat "a.txt" | head -2', 'onecrew --project . --state-root X plan show P1', 'onecrew --project=. plan show P1'):
-            self.assertEqual(self.run_hook('check', self.shell(command))[0], 0, command)
-        self.assertEqual(self.run_hook('check', self.shell('cat (Remove-Item a.txt)', 'PowerShell'))[0], 2)
-        self.assertEqual(self.run_hook('check', self.shell('grep "f(x)" a.txt'))[0], 0)               # a quoted parenthesis is only text
-        for command in ('Set-Content a.txt hi', 'Out-File a.txt', 'Remove-Item a.txt', 'Get-Content a.txt | Out-File b.txt', 'git push', 'Add-Content a.txt hi', 'echo x > a.txt'):
-            self.assertEqual(self.run_hook('check', self.shell(command, 'PowerShell'))[0], 2, command)
-        self.assertEqual(self.run_hook('check', self.tool('Bash', command=7))[0], 2)
-        self.assertEqual(self.run_hook('check', self.tool('Bash'))[0], 2)
+        commands = ['cat x', 'cat .onecrew/active-plan.json', 'git status', 'ls src', 'onecrew plan show P1', 'cd a && b', 'cat " ; rm a ; "', 'echo x > a.txt',
+                    'cat a | tee b', 'git push', 'echo hi', 'python run.py', 'cat (Remove-Item a.txt)']
+        for tool in ('Bash', 'PowerShell'):
+            for command in commands:
+                code, _, err = self.run_hook('check', self.shell(command, tool))
+                self.assertEqual(code, 2, (tool, command)); self.assertIn('stopped_with_report', err); self.assertIn('Read, Grep and Glob', err)
+        self.assertEqual(self.run_hook('check', self.tool('Bash'))[0], 2)                   # a shell call with no command
 
     def test_a_compound_command_starting_with_an_assignment_is_not_a_path(self):
         self.enforce()

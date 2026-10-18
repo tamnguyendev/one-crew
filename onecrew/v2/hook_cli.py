@@ -241,69 +241,6 @@ def judge_shell(plan, root, cwd, command):
     return None
 
 
-# ---- a stopped plan: reading stays possible --------------------------------------------------------------------------------
-
-STOPPED_READ = {'cat', 'type', 'get-content', 'gc', 'ls', 'dir', 'get-childitem', 'gci', 'head', 'tail', 'grep', 'rg', 'select-string', 'findstr',
-                'wc', 'pwd', 'cd', 'set-location'}
-GIT_READ = {'status', 'log', 'diff', 'show', 'rev-parse', 'blame'}
-GIT_EXEC = ('--output', '--ext-diff', '--textconv', '--open-files-in-pager', '--exec')
-FIND_WRITE = {'-delete', '-exec', '-execdir', '-ok', '-okdir', '-fprint', '-fprint0', '-fprintf', '-fls'}
-ONECREW_READ = {'plan': {'show', 'precheck'}, 'verdict': {'show'}}
-SHELL_TOKEN = re.compile(r'"[^"]*"|\'[^\']*\'|&&|\|\||[;|&\n]|[^\s;|&"\']+')
-
-
-def _program(token):
-    name = re.split(r'[\\/]', token)[-1].lower()
-    return name[:-4] if name.endswith('.exe') else name
-
-
-CLI = Path(__file__).resolve().parents[2] / 'onecrew_cli.py'          # the one script a stopped plan may run to look at a plan
-
-
-def _is_cli(token, cwd):
-    return os.path.normcase(str(normalize(token, cwd))) == os.path.normcase(str(CLI))
-
-
-def _read_only_segment(words, cwd):
-    program, rest = _program(words[0]), words[1:]
-    if re.search(r'[\\/]', words[0]) and not (program.startswith('python') or program == 'py'): return False      # ./cat or D:\x\git.exe is some other program with that name
-    if program in STOPPED_READ: return not (program == 'rg' and any(w.startswith(('--pre', '--hostname-bin')) for w in rest))
-    if program == 'find': return not any(w.lower() in FIND_WRITE for w in rest)
-    if program == 'git':
-        return bool(rest) and rest[0] in GIT_READ and not any(w.startswith(GIT_EXEC) for w in rest)
-    tail = None
-    if program in ('onecrew', 'onecrew.cmd'): tail = rest
-    elif program.startswith('python') or program == 'py':
-        i = 0
-        while i < len(rest) and rest[i].startswith('-') and rest[i] != '-m': i += 2 if rest[i] == '-X' else 1
-        if i < len(rest) and (_is_cli(rest[i], cwd) or (rest[i] == '-m' and i + 1 < len(rest) and rest[i + 1] == 'onecrew')):
-            tail = rest[i + 2:] if rest[i] == '-m' else rest[i + 1:]
-    if tail is None: return False
-    i = 0
-    while i < len(tail) and tail[i].startswith('--'): i += 1 if '=' in tail[i] else 2        # global options (--project X, --state-root X) come before the verb
-    return i + 1 < len(tail) and tail[i] in ONECREW_READ and tail[i + 1] in ONECREW_READ[tail[i]]
-
-
-def read_only_command(command, cwd='.'):
-    """True only when every part of a shell command is a known read-only command (allowlist, fail closed). Redirects, command substitution and
-    anything outside the list are not read-only: a stopped plan lets the AI look at the evidence, never change anything."""
-    if re.search(r'`|\$\(|\$\{|<\(|\\["\']', command) or len(command) > 2000: return False      # an escaped quote makes the hook and the shell disagree on where a string ends
-    if re.search('["\']', re.sub(r'"[^"]*"|\'[^\']*\'', '', command)): return False            # an unclosed quote: the rest of the line is a string to us and commands to the shell
-    segments, current = [], []
-    for token in SHELL_TOKEN.findall(command):
-        if token in ('&&', '||', ';', '|', '&', '\n'):
-            segments.append(current); current = []
-        elif token.startswith(('"', "'")):
-            if re.search(r'[;|&\n]', token): return False                                          # a separator inside a string is refused rather than guessed at
-            current.append(token[1:-1])
-        else:
-            if re.search(r'[<>()]', token): return False                                           # redirects, and PowerShell (cmd) / @(cmd) that runs a command inside an argument
-            current.append(token)
-    segments.append(current)
-    segments = [s for s in segments if s]
-    return bool(segments) and all(_read_only_segment(s, cwd) for s in segments)
-
-
 # ---- the verbs -------------------------------------------------------------------------------------------------------------
 
 def read_stdin():
@@ -391,12 +328,8 @@ def check(args):
         data = event.get('tool_input') if isinstance(event.get('tool_input'), dict) else {}
         verdict = None
         if plan.get('status') == 'stopped_with_report':
-            # Edits, writes and anything not on the read-only allowlist stay refused; looking at the evidence (cat, git status, plan show) does not.
-            if tool in SHELL_TOOLS and isinstance(data.get('command'), str) and read_only_command(data['command'], base):
-                verdict = judge_shell(plan, root, base, data['command'])
-            else:
-                verdict = ('stopped', f"Plan {plan.get('plan')} is stopped_with_report: the owner decides the next step; nothing further is changed "
-                                      f"(read-only commands such as cat, ls, git status|log|diff|show and `plan show` still work).")
+            verdict = ('stopped', f"Plan {plan.get('plan')} is stopped_with_report: the owner decides the next step; nothing further is changed. "
+                                  f"Every shell command and every edit is refused; read the evidence with Read, Grep and Glob.")
         elif tool in EDIT_TOOLS:
             raw = next((data[k] for k in PATH_KEYS if isinstance(data.get(k), str) and data[k]), None)
             if raw is None: raise ValueError(f'{tool} call without a path field ({"/".join(PATH_KEYS)})')
