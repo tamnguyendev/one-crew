@@ -257,8 +257,16 @@ def _program(token):
     return name[:-4] if name.endswith('.exe') else name
 
 
-def _read_only_segment(words):
+CLI = Path(__file__).resolve().parents[2] / 'onecrew_cli.py'          # the one script a stopped plan may run to look at a plan
+
+
+def _is_cli(token, cwd):
+    return os.path.normcase(str(normalize(token, cwd))) == os.path.normcase(str(CLI))
+
+
+def _read_only_segment(words, cwd):
     program, rest = _program(words[0]), words[1:]
+    if re.search(r'[\\/]', words[0]) and not (program.startswith('python') or program == 'py'): return False      # ./cat or D:\x\git.exe is some other program with that name
     if program in STOPPED_READ: return not (program == 'rg' and any(w.startswith(('--pre', '--hostname-bin')) for w in rest))
     if program == 'find': return not any(w.lower() in FIND_WRITE for w in rest)
     if program == 'git':
@@ -268,7 +276,7 @@ def _read_only_segment(words):
     elif program.startswith('python') or program == 'py':
         i = 0
         while i < len(rest) and rest[i].startswith('-') and rest[i] != '-m': i += 2 if rest[i] == '-X' else 1
-        if i < len(rest) and (_program(rest[i]) == 'onecrew_cli.py' or (rest[i] == '-m' and i + 1 < len(rest) and rest[i + 1] == 'onecrew')):
+        if i < len(rest) and (_is_cli(rest[i], cwd) or (rest[i] == '-m' and i + 1 < len(rest) and rest[i + 1] == 'onecrew')):
             tail = rest[i + 2:] if rest[i] == '-m' else rest[i + 1:]
     if tail is None: return False
     i = 0
@@ -276,7 +284,7 @@ def _read_only_segment(words):
     return i + 1 < len(tail) and tail[i] in ONECREW_READ and tail[i + 1] in ONECREW_READ[tail[i]]
 
 
-def read_only_command(command):
+def read_only_command(command, cwd='.'):
     """True only when every part of a shell command is a known read-only command (allowlist, fail closed). Redirects, command substitution and
     anything outside the list are not read-only: a stopped plan lets the AI look at the evidence, never change anything."""
     if re.search(r'`|\$\(|\$\{|<\(|\\["\']', command) or len(command) > 2000: return False      # an escaped quote makes the hook and the shell disagree on where a string ends
@@ -293,7 +301,7 @@ def read_only_command(command):
             current.append(token)
     segments.append(current)
     segments = [s for s in segments if s]
-    return bool(segments) and all(_read_only_segment(s) for s in segments)
+    return bool(segments) and all(_read_only_segment(s, cwd) for s in segments)
 
 
 # ---- the verbs -------------------------------------------------------------------------------------------------------------
@@ -384,7 +392,7 @@ def check(args):
         verdict = None
         if plan.get('status') == 'stopped_with_report':
             # Edits, writes and anything not on the read-only allowlist stay refused; looking at the evidence (cat, git status, plan show) does not.
-            if tool in SHELL_TOOLS and isinstance(data.get('command'), str) and read_only_command(data['command']):
+            if tool in SHELL_TOOLS and isinstance(data.get('command'), str) and read_only_command(data['command'], base):
                 verdict = judge_shell(plan, root, base, data['command'])
             else:
                 verdict = ('stopped', f"Plan {plan.get('plan')} is stopped_with_report: the owner decides the next step; nothing further is changed "
