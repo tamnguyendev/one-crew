@@ -25,7 +25,7 @@ MAX_DIFF = 120_000          # bytes; a bigger diff is not reviewed (a partial re
 MAX_ANSWER = 200_000
 MAX_NOTE = 500
 NO_CHANGE = 'no change since approval'
-TRUSTED_BASES = ('first_approval', 'accepted')      # base_source values that come from a recorded event; a guessed base (last commit before approval) is not one
+TRUSTED_BASES = ('first_approval',)      # the only base_source an empty diff passes on without a call: the tree the owner approved. An accepted artifact or a guessed commit is diffed or inconclusive
 MODEL_LIKE = re.compile(r'(claude|gpt|gemini|codex)-[a-z0-9.\-]*\d[a-z0-9.\-]*', re.I)
 FALLBACK_CLI = Path.home() / '.local' / 'bin' / 'claude.exe'
 

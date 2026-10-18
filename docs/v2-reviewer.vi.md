@@ -37,3 +37,5 @@ Khi cây đang xét **đúng bằng** cây chủ sở hữu duyệt (`base_sourc
 ### Cây gốc của reviewer (bản 3 của job 4)
 
 Cây gốc là cây ghi ở sự kiện `plan.approved` ĐẦU TIÊN của plan (`base_source: "first_approval"`), hoặc artifact của lần accept gần nhất nếu có (`base_source: "accepted"`). Amend giữa chừng và duyệt lại không bao giờ dời cây gốc, nên việc đã làm trước lần duyệt sau vẫn nằm trong diff được review. `verdict.run` chọn sự kiện (`reviewer.base_event`); không có `base_artifact` thì quay về commit cuối trước lúc duyệt đầu (nguồn đoán, không được pass khi diff rỗng). Nhánh pass không gọi model áp dụng cho `first_approval` và `accepted`; nguồn `approval` của các receipt cũ không còn được tin.
+
+Sửa sau review M2 (bản 3): chỉ `first_approval` được pass khi diff rỗng mà không gọi model. Với base `accepted` hay base đoán, diff rỗng vẫn là `inconclusive` và diff khác rỗng vẫn gọi reviewer; `expected_result` tính lại điều này nên một receipt `calls: 0` có `base_source` khác không thể thành pass.

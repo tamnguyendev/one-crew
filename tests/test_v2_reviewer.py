@@ -227,7 +227,7 @@ class VerdictTests(ReviewerFixture):
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         receipt = self.last_receipt()[1]
         self.assertEqual(reviewer.expected_result(receipt), 'pass')
-        for change in ({'note': None}, {'base_source': 'last commit before approval abc'}, {'base_artifact': '0' * 40}, {'error': 'x'}):
+        for change in ({'note': None}, {'base_source': 'last commit before approval abc'}, {'base_source': 'accepted'},{'base_artifact': '0' * 40}, {'error': 'x'}):
             self.assertEqual(reviewer.expected_result(dict(receipt, **change)), 'inconclusive', change)
 
     def test_a_diff_over_the_cap_is_not_reviewed_in_part(self):

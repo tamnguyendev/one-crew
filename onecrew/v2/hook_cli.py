@@ -259,7 +259,7 @@ def _program(token):
 
 def _read_only_segment(words):
     program, rest = _program(words[0]), words[1:]
-    if program in STOPPED_READ: return not (program == 'rg' and any(w.startswith('--pre') for w in rest))
+    if program in STOPPED_READ: return not (program == 'rg' and any(w.startswith(('--pre', '--hostname-bin')) for w in rest))
     if program == 'find': return not any(w.lower() in FIND_WRITE for w in rest)
     if program == 'git':
         return bool(rest) and rest[0] in GIT_READ and not any(w.startswith(GIT_EXEC) for w in rest)

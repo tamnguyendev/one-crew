@@ -344,7 +344,7 @@ class CheckTests(HookFixture):
                   'rm a.txt', 'find . -delete', 'find . -exec rm {} ;', 'echo hi', 'python run.py', 'sed -i s/a/b/ a.txt', 'cat $(rm a.txt)', 'cat `rm a.txt`',
                   'onecrew plan approve P1 --by owner', 'onecrew plan show P1; rm a.txt', 'onecrew plan show P1 && git push', 'onecrew plan accept P1',
                   f'{PY} evil.py onecrew_cli.py plan show P1', 'rg --pre ./x foo', 'grep x a.txt > b.txt', 'git status\ngit commit -am x', 'cat a.txt &  rm a.txt',
-                  f'{PY} -m onecrew_evil plan show P1']
+                  f'{PY} -m onecrew_evil plan show P1', 'rg --hostname-bin ./x foo']
         quoting = ['cat " ; rm a.txt ; "', 'echo "x', "cat 'x", 'cat \\" ; rm a.txt ; \\"', "cat \\' ; rm a.txt ; \\'", 'cat "a.txt\\"', 'grep "a|b" a.txt',
                    'onecrew approve plan show P1', 'onecrew plan approve P1 plan show', 'onecrew --project . approve plan show P1']      # a string is not where a command can hide
         for command in writes + quoting + ['cat (Remove-Item a.txt)', 'cat @(Remove-Item a.txt)', 'Get-Content (Set-Content a.txt hi)']:
