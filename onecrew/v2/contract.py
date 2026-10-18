@@ -15,7 +15,7 @@ SCHEMA_VERSION = 2
 FIELDS = {'schema_version', 'title', 'size', 'understanding', 'options', 'preconditions', 'output', 'scope', 'non_goals', 'items',
           'milestones', 'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation'}
 MAX_DECISIONS = 10
-DECISION_ID = re.compile(r'D[0-9]{1,2}')
+DECISION_ID = re.compile(r'D[1-9][0-9]?')
 ORIGIN_SOURCE = 'origin'                   # items[].source: "origin" (the owner asked for it) or the id of a decision the author took
 PRESENTATION_TEXTS, PRESENTATION_LISTS = ('request', 'not_doing', 'guard'), ('user_sees', 'acceptance_steps', 'risk')
 SIZES = ('S', 'M', 'L')                    # S may omit options; M and L need the full step 0

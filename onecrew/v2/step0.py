@@ -245,7 +245,8 @@ def check_provenance(ledger, contract, sha, advice):
     An objection in the advice is never a reason: only the absence of usable advice is."""
     decisions = contract.get('decisions') or []
     known, items, reasons = {d['id'] for d in decisions}, contract['items'], []
-    strict = bool(contract.get('origin') or decisions or contract.get('presentation') or any(i.get('source') for i in items)) or rules_path(ledger).exists()
+    strict = (any(contract.get(k) is not None for k in ('origin', 'decisions', 'presentation')) or any('source' in i for i in items)
+              or rules_path(ledger).exists())          # presence, not truthiness: an empty decisions list or presentation still opts in
     if strict and not contract.get('origin'):
         reasons.append(('origin_missing', 'the contract has no origin {by, at, quote}: what the owner actually asked for, in their words.'))
     if strict:

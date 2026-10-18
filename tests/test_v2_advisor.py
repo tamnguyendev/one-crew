@@ -150,6 +150,22 @@ class ApproveGateTests(Fixture):
         self.propose(value=value); self.advice_event()
         self.assertEqual(plans.approve(self.ledger, 'P1', 'owner', 'said yes')['status'], 'approved')
 
+    def test_an_empty_new_field_still_opts_the_contract_in(self):
+        for extra in ({'decisions': []}, {'presentation': {}}):
+            with self.subTest(extra=extra):
+                self.propose('P' + next(iter(extra)), plan_json(**extra))
+                with self.assertRaises(LedgerError) as caught: plans.approve(self.ledger, 'P' + next(iter(extra)), 'owner', 'said yes')
+                self.assertEqual(reasons(caught.exception), ['origin_missing', 'item_without_source'])
+
+    def test_advice_missing_for_size_l_once_the_owner_rules_exist(self):
+        value = sourced(size_m(), size='L')
+        self.propose(value=value); self.rules()
+        self.assertEqual(check_reasons(self, value, choose='A'), ['advice_missing'])
+
+    def test_decision_ids_start_at_d1(self):
+        for bad in ('D0', 'D00', 'D100'):
+            with self.subTest(bad=bad), self.assertRaises(LedgerError): contracts.validate(dict(plan_json(), decisions=[dict(DECISION, id=bad)]))
+
     def test_size_m_with_advice_is_approved(self):
         self.propose(value=sourced(size_m())); self.rules(); self.advice_event()
         self.assertEqual(plans.approve(self.ledger, 'P1', 'owner', 'said yes', choose='A')['status'], 'approved')
