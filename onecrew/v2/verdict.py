@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..ledger import LedgerError, key_field, text_field
 from ..snapshots import Snapshots
-from . import plan as plans
+from . import contract as contracts, plan as plans
 from .verifiers import command
 
 RESULTS = ('pass', 'fail', 'inconclusive')
@@ -86,8 +86,9 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
             failures = view['failures'] + 1
             left = max(0, milestone['max_repairs'] - failures)
             plans.emit(ledger, conn, state['task_id'], 'milestone.failed', dict(base, result=result, failures=failures, repairs_left=left))
-            if failures > milestone['max_repairs']:
-                stopped = dict(base, failures=failures, max_repairs=milestone['max_repairs'], reason='max_repairs exceeded', mode=milestone['mode'])
+            reason = stop_reason(contract, state, views, milestone, failures, artifact_sha)
+            if reason:
+                stopped = dict(base, failures=failures, max_repairs=milestone['max_repairs'], reason=reason, mode=milestone['mode'])
                 plans.emit(ledger, conn, state['task_id'], 'milestone.stopped', stopped)
         limit = contract['attention']['questions']
         anchor = state['task_id']
@@ -96,6 +97,26 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
     out = plans.show(ledger, name)
     if escalation: out['stopped'] = escalation
     return out
+
+
+def stuck_streak(state, revision, milestone_id, artifact_sha):
+    """How many failing verdicts in a row (the one being recorded included) this milestone has had on exactly this artifact."""
+    streak = 1
+    for v in reversed([v for v in state['verdicts'] if v['revision'] == revision and v['milestone'] == milestone_id]):
+        if v['result'] == 'pass' or v['artifact_sha'] != artifact_sha: break
+        streak += 1
+    return streak
+
+
+def stop_reason(contract, state, views, milestone, failures, artifact_sha):
+    """Why the verdict being recorded (a failure, already counted in `failures`) stops the plan, or None. The caps are the approved contract's: the AI cannot widen them."""
+    limits = contracts.stop_limits(contract)
+    if failures > milestone['max_repairs']: return 'max_repairs exceeded'
+    if sum(v['failures'] for v in views) + 1 > limits['max_repairs_total']:
+        return f'max_repairs_total exceeded ({limits["max_repairs_total"]} failed verdicts over all milestones)'
+    if stuck_streak(state, state['latest'], milestone['id'], artifact_sha) >= limits['max_stuck']:
+        return f'max_stuck reached ({limits["max_stuck"]} failures in a row on an unchanged artifact)'
+    return None
 
 
 def _escalate(ledger, name, anchor, stopped, limit):
@@ -107,8 +128,8 @@ def _escalate(ledger, name, anchor, stopped, limit):
             plans.emit(ledger, conn, anchor, 'attention.exceeded', {'plan': name, 'limit': limit, 'milestone': stopped['milestone']})
         return {'question': 'refused', 'reason': f'attention.questions={limit} already used; the plan stays stopped_with_report'}
     question = {'schema_version': 1,
-                'question': f'Milestone {stopped["milestone"]} of plan {name} failed {stopped["failures"]} times (max_repairs={stopped["max_repairs"]}). What now?',
-                'reason': 'The repair limit set in the approved plan was reached; the AI cannot extend it.',
+                'question': f'Milestone {stopped["milestone"]} of plan {name} failed {stopped["failures"]} times ({stopped["reason"]}; max_repairs={stopped["max_repairs"]}). What now?',
+                'reason': 'A stop limit set in the approved plan was reached; the AI cannot extend it.',
                 'impact': 'The plan is stopped_with_report: nothing further is dispatched until the owner amends and re-approves it, or ends it.',
                 'options': [{'id': 'amend_plan', 'label': 'Amend the plan (new revision, new approval) and continue'},
                             {'id': 'stop', 'label': 'End the task; keep the evidence'}],
