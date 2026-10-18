@@ -125,6 +125,7 @@ def amend(ledger, name, raw, reason, author):
         emit(ledger, conn, state['task_id'], 'plan.amended', {'plan': name, 'revision': revision, 'from_revision': latest, 'sha': sha,
                                                                'parent_sha': state['revisions'][latest]['sha'], 'reason': reason,
                                                                'author': author, 'title': contract['title']})
+    from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
     return show(ledger, name)
 
 
@@ -142,6 +143,7 @@ def approve(ledger, name, by, reference, revision=None, tick=()):
             if set(ticked) - should: raise LedgerError('Only should items can be ticked: ' + ','.join(sorted(set(ticked) - should)))
             emit(ledger, conn, state['task_id'], 'plan.approved', {'plan': name, 'revision': revision, 'sha': sha, 'by': by, 'reference': reference,
                                                                     'ticked': ticked, 'actor_env': os.environ.get('ONECREW_ACTOR')})
+    from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
     return show(ledger, name)
 
 

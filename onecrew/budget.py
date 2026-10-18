@@ -34,6 +34,8 @@ def remove_deadline(control, task_id, revision, request_key, reason):
             raise LedgerError('Stop and reconcile every attempt before changing the budget.')
         if conn.execute("SELECT 1 FROM requests WHERE task_id=? AND state='pending'",(task_id,)).fetchone():
             raise LedgerError('Resolve the pending question before changing its budget revision.')
+        from .v2.gate import check_extension  # v2 (C7): "no time limit" is wider than any approved plan
+        check_extension(control.ledger,conn,task,old['limits']['max_calls'],None)
         budget={'limits':dict(old['limits'],max_seconds=None),'deadline':UNBOUNDED_DEADLINE,
                 'time_unlimited':True,'revision':content_hash({'task_revision':task['revision'],'proposal':proposal})}
         receipt={**proposal,'proposal_revision':digest,'previous_deadline':old['deadline'],
@@ -120,6 +122,8 @@ def extend(control, task_id, revision, request_key, max_calls, deadline, reason,
             raise LedgerError('Extension must preserve used/old limits and stay within eight hours of original submission, or of explicit expired-task restart.')
         if end == old_end and max_calls == old['limits']['max_calls']:
             raise LedgerError('Extension must increase calls or deadline.')
+        from .v2.gate import check_extension  # v2 (C7): with the gate on, an extension never exceeds the approved plan's budget
+        check_extension(control.ledger, conn, task, max_calls, seconds)
         budget = {'limits': {'max_calls': max_calls, 'max_seconds': seconds}, 'deadline': end.isoformat(),
                   'revision': content_hash({'task_revision': task['revision'], 'proposal': proposal})}
         receipt = {'request_key': request_key, 'proposal_revision': proposal_revision, 'previous_revision': revision,

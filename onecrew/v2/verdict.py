@@ -1,6 +1,7 @@
 """Verdicts at milestones (invariant 4: a milestone without a passing verdict is not passed). Each verdict is bound to the plan
 revision, the milestone and the sha of the artifact that was observed; a `command` verdict needs a genuine receipt blob."""
 import json
+import os
 import re
 from pathlib import Path
 
@@ -50,7 +51,10 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
     if result not in RESULTS: raise LedgerError('Result must be pass, fail or inconclusive.')
     if not isinstance(artifact_sha, str) or not SHA.fullmatch(artifact_sha): raise LedgerError('artifact sha must be a 40/64-hex hash.')
     key_field(milestone_id); text_field(by, 'by', 60)
-    if by == 'owner': plans.require_owner(by, 'An owner verdict')
+    if by == 'owner':
+        plans.require_owner(by, 'An owner verdict')
+        from .ownership import refuse_in_ai_session
+        refuse_in_ai_session('An owner verdict')
     stopped = None
     with ledger.transaction(write=True) as conn:
         state = plans.anchor_events(ledger, conn, name)
@@ -88,6 +92,7 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
         limit = contract['attention']['questions']
         anchor = state['task_id']
     escalation = _escalate(ledger, name, anchor, stopped, limit) if stopped else None
+    from . import active_plan; active_plan.export(ledger, name)  # L2: the hooks see the new milestone state
     out = plans.show(ledger, name)
     if escalation: out['stopped'] = escalation
     return out
@@ -95,7 +100,7 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
 
 def _escalate(ledger, name, anchor, stopped, limit):
     """One question to the owner (counted in attention.questions); past the limit the stop stays and the question is refused."""
-    used = [r for r in ledger.requests(anchor) if r['question'].get('action', {}).get('type') == 'v2.plan_stopped']
+    used = [r for r in ledger.requests(anchor) if r['question'].get('action', {}).get('type') in ('v2.plan_stopped', 'v2.item_budget')]
     key = f'v2q-{name}-r{stopped["revision"]}-{stopped["milestone"]}'[:128]
     if len(used) >= limit and not any(r['question']['action']['parameters'].get('key') == key for r in used):
         with ledger.transaction(write=True) as conn:
@@ -119,6 +124,10 @@ def inside_project(ledger, directory):
     resolved = Path(directory).resolve()
     if not resolved.is_relative_to(Path(ledger.project).resolve()):
         raise LedgerError(f'Verifier directory {resolved} is outside the plan project {ledger.project}; refused.')
+    # C6: a clean clone nested inside the project is inside the path but is another repository, so its tree is not the project's.
+    mine, theirs = command.toplevel(resolved), command.toplevel(ledger.project)
+    if os.path.normcase(str(mine)) != os.path.normcase(str(theirs)):
+        raise LedgerError(f'Verifier directory {resolved} belongs to the Git repository {mine}, not the project repository {theirs}; refused.')
     return resolved
 
 

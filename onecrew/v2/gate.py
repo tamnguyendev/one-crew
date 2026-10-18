@@ -29,6 +29,8 @@ def enforced(ledger):
 
 
 def set_enforced(ledger, on, who, reference):
+    from .ownership import refuse_in_ai_session
+    refuse_in_ai_session('Changing enforcement')
     path = _plans(ledger)
     path.mkdir(parents=True, exist_ok=True)
     temporary = path / ('policy.json.' + uuid.uuid4().hex + '.tmp')
@@ -39,14 +41,31 @@ def set_enforced(ledger, on, who, reference):
     return {'require_plan': bool(on), 'state_root': str(ledger.state_root)}
 
 
-def _over_budget(task, budget):
-    """A job may not carry larger limits than the approved plan's budget (invariant 3: the AI does not widen it)."""
-    limits = json.loads(task['payload'])['grant']['limits']
+def _over_budget(conn, task, budget):
+    """A job may not carry larger limits than the approved plan's budget (invariant 3: the AI does not widen it). The limits
+    compared are the CURRENT ones (original grant, or the latest extension), so widening after dispatch (C7) is caught too."""
+    from ..budget import local_current
+    limits = local_current(conn, task)['limits']
     if limits['max_calls'] > budget['max_calls']:
         return f'the job allows {limits["max_calls"]} calls but the approved plan budget is {budget["max_calls"]}'
-    if limits['max_seconds'] > budget['time'] * 60:
+    if limits['max_seconds'] is None or limits['max_seconds'] > budget['time'] * 60:
         return f'the job allows {limits["max_seconds"]} seconds but the approved plan budget is {budget["time"] * 60} ({budget["time"]} minutes)'
     return None
+
+
+def check_extension(ledger, conn, task, max_calls, seconds):
+    """C7: with the gate on, budget.extend / remove_deadline may not take the job past the budget of its approved plan.
+    `seconds` None means "no time limit"."""
+    if not enforced(ledger): return
+    from . import plan
+    state = plan.derive(ledger, conn, task['request_key'])
+    if state is None or state['status'] != 'approved':
+        raise LedgerError('Budget not extended (v2): no approved plan named ' + task['request_key'] + '.')
+    budget = plan.load(ledger, state)[0]['budget']
+    if max_calls > budget['max_calls']:
+        raise LedgerError(f'Budget not extended (v2): {max_calls} calls exceeds the approved plan budget of {budget["max_calls"]}; amend the plan and have the owner approve it.')
+    if seconds is None or seconds > budget['time'] * 60:
+        raise LedgerError(f'Budget not extended (v2): {"no time limit" if seconds is None else str(int(seconds)) + " seconds"} exceeds the approved plan budget of {budget["time"]} minutes; amend the plan and have the owner approve it.')
 
 
 def require_plan(ledger, conn, task):
@@ -61,20 +80,30 @@ def require_plan(ledger, conn, task):
         elif state['status'] != 'approved': reason = f'plan {name} is {state["status"]}, not approved'
         else:
             contract, _ = plan.load(ledger, state)  # the file must still hash to what the owner approved
-            reason = _over_budget(task, contract['budget'])
+            reason = _over_budget(conn, task, contract['budget'])
             if reason is None: return
     except LedgerError as error:
         reason = str(error)
+    refuse(ledger, task, reason)
+
+
+def refuse(ledger, task, reason, question=None):
+    """Spool the refusal (and, for a stopped must item, the owner question) to files and raise. The caller's transaction rolls back."""
     plans = _plans(ledger)
     plans.mkdir(parents=True, exist_ok=True)
     with (plans / 'refusals.jsonl').open('a', encoding='utf-8') as stream:
         stream.write(json.dumps({'id': uuid.uuid4().hex, 'at': utcnow(), 'task_id': task['id'], 'project_id': ledger.project_id,
-                                 'request_key': name, 'reason': reason}, ensure_ascii=False) + '\n')
+                                 'request_key': task['request_key'], 'reason': reason}, ensure_ascii=False) + '\n')
+    if question:
+        with (plans / 'questions.jsonl').open('a', encoding='utf-8') as stream:
+            stream.write(json.dumps(dict(question, id=uuid.uuid4().hex, at=utcnow(), project_id=ledger.project_id), ensure_ascii=False) + '\n')
     raise LedgerError('Dispatch refused (v2): ' + reason + '.')
 
 
 def sync_refusals(ledger):
     """Move spooled refusals into the ledger as dispatch.refused_no_plan events on the refused task. Idempotent."""
+    from .items import sync_questions
+    sync_questions(ledger)
     spool = _plans(ledger) / 'refusals.jsonl'
     if not spool.exists(): return 0
     records, skipped = [], 0
