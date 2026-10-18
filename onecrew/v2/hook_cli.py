@@ -10,7 +10,8 @@ The hooks read `<project>/.onecrew/active-plan.json` (see active_plan.py) and ne
 Modes: `log` never blocks, it only records what it would have blocked; `enforce` blocks. In `enforce` an internal error blocks too
 (fail-closed). A missing plan passes. Bash is not a security boundary: this reads the command text, it cannot see what a
 script does. The hard layer is `permissions.deny` (`hook install --print`); the hook is the layer that explains and records.
-Only stdlib at import time: `check` runs before every tool call.
+A plan in `stopped_with_report` blocks everything `check` governs: Edit/Write/MultiEdit/NotebookEdit and every Bash/PowerShell command, with no allowlist
+(the evidence is read with Read, Grep and Glob, which this hook does not see). Only stdlib at import time: `check` runs before every tool call.
 """
 import argparse
 import datetime as dt
@@ -327,7 +328,7 @@ def check(args):
         base = event.get('cwd') or root
         data = event.get('tool_input') if isinstance(event.get('tool_input'), dict) else {}
         verdict = None
-        if plan.get('status') == 'stopped_with_report':
+        if plan.get('status') == 'stopped_with_report':      # first in the chain and not tool-specific: edits and shell commands alike get this verdict
             verdict = ('stopped', f"Plan {plan.get('plan')} is stopped_with_report: the owner decides the next step; nothing further is changed. "
                                   f"Every shell command and every edit is refused; read the evidence with Read, Grep and Glob.")
         elif tool in EDIT_TOOLS:
@@ -346,7 +347,7 @@ def check(args):
             return 2
         return 0
     if verdict is None: return 0
-    rule, reason = verdict
+    rule, reason = verdict                                  # any verdict, the stopped one included, is exit 2 below in enforce mode
     subject = next((str(v) for k, v in (event.get('tool_input') or {}).items() if k in PATH_KEYS + ('command',)), '')
     record(root, plan, 'blocked' if mode == 'enforce' else 'logged', tool, reason, rule, subject, session, mode)
     if mode == 'enforce':
