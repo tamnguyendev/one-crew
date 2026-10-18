@@ -29,7 +29,7 @@ ALIAS_PUSH = r'\s[^|;&]*?-c\s*alias\.[^\s=]+=\S*(?:push|send-pack|http-push)'  #
 GIT = GITNAME + r'(?:\s+-\S+(?:\s+\S+)?)*'                    # C9: git, git.exe (the hook also tests the form without quotes, so a full path counts), git -c k=v, --no-pager, git -C dir
 PUSH = r'(?:push|send-pack|http-push)\b'                                      # C9: send-pack and http-push publish like push
 OWNER = r'--b(?:y)?[ =]+owner\b'                                              # C13: argparse accepts the prefix --b for --by
-DEFAULT_BASH_DENY = ['re:' + GIT + r'\s+' + PUSH, 're:' + GITNAME + ALIAS_PUSH, r're:\s--config-env[ =]+\S*alias\.', r're:GIT_CONFIG_(?:COUNT|KEY_\d|PARAMETERS)','re:' + GIT + r'\s+tag\s+(?!-l\b|--list\b|-n\b)\S', 're:' + GIT + r'\s+config\b.*\balias\.',
+DEFAULT_BASH_DENY = ['re:' + GIT + r'\s+' + PUSH, 're:' + GITNAME + ALIAS_PUSH, r're:\s--config-env[ =]+\S*alias\.', r're:GIT_CONFIG_(?:COUNT|KEY_\d|PARAMETERS)', 're:' + GIT + r'\s+tag\s+(?!-l\b|--list\b|-n\b)\S', 're:' + GIT + r'\s+config\b.*\balias\.',
                      'rm -rf', 'Remove-Item -Recurse', 'pip install',
                      r're:\bplan\s+(approve|accept|enforce)\b',                    # C3: the owner's verbs are not the AI's
                      r're:(?s)\bverdict\s+record\b.*' + OWNER, r're:\bhook\s+mode\b', r're:\bplan_cli\b',
