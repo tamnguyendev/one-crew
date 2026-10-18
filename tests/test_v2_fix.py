@@ -92,7 +92,7 @@ class C10NestedWrites(HookCase):
         for command in ('powershell -Command "Set-Content README.md x"', 'cmd /c "copy src\\a.py README.md"', "bash -c 'echo hi > README.md'",
                         "bash -c 'echo hi | tee README.md'", 'powershell -c "iex \'sc README.md x\'"', 'pwsh -c "Add-Content -Path README.md -Value x"',
                         'Invoke-Expression "ac README.md x"', 'iex "[IO.File]::WriteAllText(\'README.md\',\'x\')"', 'bash -c "rm README.md"',
-                        "iex 's`c README.md x'", "bash -c \"bash -c 'rm README.md'\""):
+                        "iex 's`c README.md x'", "bash -c \"bash -c 'rm README.md'\"", 's`c README.md x', 'co^py src\\a.py README.md', 'powershell -c "s`c README.md x"'):
             self.assertBlocked(command)
 
     def test_writes_inside_the_owned_scope_stay_allowed(self):
