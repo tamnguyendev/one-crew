@@ -268,7 +268,7 @@ def _read_only_segment(words):
     elif program.startswith('python') or program == 'py':
         i = 0
         while i < len(rest) and rest[i].startswith('-') and rest[i] != '-m': i += 2 if rest[i] == '-X' else 1
-        if i < len(rest) and (_program(rest[i]) == 'onecrew_cli.py' or (rest[i] == '-m' and i + 1 < len(rest) and rest[i + 1].startswith('onecrew'))):
+        if i < len(rest) and (_program(rest[i]) == 'onecrew_cli.py' or (rest[i] == '-m' and i + 1 < len(rest) and rest[i + 1] == 'onecrew')):
             tail = rest[i + 2:] if rest[i] == '-m' else rest[i + 1:]
     if tail is None: return False
     for i, word in enumerate(tail):
@@ -285,7 +285,7 @@ def read_only_command(command):
         if token in ('&&', '||', ';', '|', '&', '\n'):
             segments.append(current); current = []
         else:
-            if not token.startswith(('"', "'")) and re.search('[<>]', token): return False
+            if not token.startswith(('"', "'")) and re.search(r'[<>()]', token): return False      # redirects, and PowerShell (cmd) / @(cmd) that runs a command inside an argument
             current.append(token.strip('"\''))
     segments.append(current)
     segments = [s for s in segments if s]

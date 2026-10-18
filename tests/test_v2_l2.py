@@ -343,9 +343,12 @@ class CheckTests(HookFixture):
                   'git commit -am x', 'git checkout .', 'git reset --hard', 'git clean -fd', 'git add .', 'git diff --output=a.txt', 'git -c core.pager=x log',
                   'rm a.txt', 'find . -delete', 'find . -exec rm {} ;', 'echo hi', 'python run.py', 'sed -i s/a/b/ a.txt', 'cat $(rm a.txt)', 'cat `rm a.txt`',
                   'onecrew plan approve P1 --by owner', 'onecrew plan show P1; rm a.txt', 'onecrew plan show P1 && git push', 'onecrew plan accept P1',
-                  f'{PY} evil.py onecrew_cli.py plan show P1', 'rg --pre ./x foo', 'grep x a.txt > b.txt', 'git status\ngit commit -am x', 'cat a.txt &  rm a.txt']
-        for command in writes:
+                  f'{PY} evil.py onecrew_cli.py plan show P1', 'rg --pre ./x foo', 'grep x a.txt > b.txt', 'git status\ngit commit -am x', 'cat a.txt &  rm a.txt',
+                  f'{PY} -m onecrew_evil plan show P1']
+        for command in writes + ['cat (Remove-Item a.txt)', 'cat @(Remove-Item a.txt)', 'Get-Content (Set-Content a.txt hi)']:
             self.assertEqual(self.run_hook('check', self.shell(command))[0], 2, command)
+        self.assertEqual(self.run_hook('check', self.shell('cat (Remove-Item a.txt)', 'PowerShell'))[0], 2)
+        self.assertEqual(self.run_hook('check', self.shell('grep "f(x)" a.txt'))[0], 0)               # a quoted parenthesis is only text
         for command in ('Set-Content a.txt hi', 'Out-File a.txt', 'Remove-Item a.txt', 'Get-Content a.txt | Out-File b.txt', 'git push', 'Add-Content a.txt hi', 'echo x > a.txt'):
             self.assertEqual(self.run_hook('check', self.shell(command, 'PowerShell'))[0], 2, command)
         self.assertEqual(self.run_hook('check', self.tool('Bash', command=7))[0], 2)
