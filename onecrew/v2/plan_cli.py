@@ -39,6 +39,7 @@ def _parser():
     p.add_argument('name'); p.add_argument('unknown'); p.add_argument('--answer', required=True)
     p.add_argument('--evidence', required=True, type=Path, help='A file; stored as a blob.')
     p.add_argument('--confidence', required=True, choices=['high', 'medium', 'low'])
+    p.add_argument('--by', choices=['poc', 'owner'], default='poc', help='poc: an AI may record it (the evidence file is the proof). owner: the owner own PoC; refused in an AI session.')
     p.add_argument('--poc-contract', type=Path, help='The PoC work contract, if it had one; refused when it can apply to the project.')
     brainstorm = plan.add_parser('brainstorm', help='Options of the plan.').add_subparsers(dest='action', required=True)
     p = brainstorm.add_parser('table', help='Print the options as a table of at most 30 lines.'); p.add_argument('name')
@@ -69,7 +70,7 @@ def _dispatch(ledger, args):
         if args.command == 'unknown': return step0.close_unknown(ledger, args.name, args.id, args.by, args.evidence)
         if args.command == 'poc':
             return step0.poc_record(ledger, args.name, args.unknown, args.answer, args.evidence, args.confidence,
-                                    read_json(args.poc_contract) if args.poc_contract else None)
+                                    read_json(args.poc_contract) if args.poc_contract else None, args.by)
         if args.command == 'brainstorm':
             with ledger.transaction() as conn:
                 state = plans.anchor_events(ledger, conn, args.name)

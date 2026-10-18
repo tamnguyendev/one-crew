@@ -24,11 +24,18 @@ from ..ledger import LedgerError, utcnow
 FILE = 'active-plan.json'
 EXPIRY_HOURS = 24
 # Commands an AI session may not run while a plan is active. Plain entries are case-insensitive substrings; `re:` entries are regexes.
-GIT = r'\bgit\b(?:\s+-\S+(?:\s+\S+)?)*'                                       # git, git -c k=v, git --no-pager, git -C dir
-DEFAULT_BASH_DENY = ['re:' + GIT + r'\s+push\b', 're:' + GIT + r'\s+tag\s+(?!-l\b|--list\b|-n\b)\S', 're:' + GIT + r'\s+config\b.*\balias\.',
+GITNAME = r'(?<![\w-])git(?:\.exe|\.cmd)?'                                    # C14: git.cmd is the Git for Windows shim
+ALIAS_PUSH = r'\s[^|;&]*?-c\s*alias\.[^\s=]+=\S*(?:push|send-pack|http-push)'  # C14: an alias given on the command line (git -c alias.p=push p origin main)
+GIT = GITNAME + r'(?:\s+-\S+(?:\s+\S+)?)*'                    # C9: git, git.exe (the hook also tests the form without quotes, so a full path counts), git -c k=v, --no-pager, git -C dir
+PUSH = r'(?:push|send-pack|http-push)\b'                                      # C9: send-pack and http-push publish like push
+OWNER = r'--b(?:y)?[ =]+owner\b'                                              # C13: argparse accepts the prefix --b for --by
+DEFAULT_BASH_DENY = ['re:' + GIT + r'\s+' + PUSH, 're:' + GITNAME + ALIAS_PUSH, r're:\s--config-env[ =]+\S*alias\.', r're:GIT_CONFIG_(?:COUNT|KEY_\d|PARAMETERS)', 're:' + GIT + r'\s+tag\s+(?!-l\b|--list\b|-n\b)\S', 're:' + GIT + r'\s+config\b.*\balias\.',
                      'rm -rf', 'Remove-Item -Recurse', 'pip install',
                      r're:\bplan\s+(approve|accept|enforce)\b',                    # C3: the owner's verbs are not the AI's
-                     r're:\bverdict\s+record\b.*--by[ =]+owner', r're:\bhook\s+mode\b', r're:\bplan_cli\b',
+                     r're:(?s)\bverdict\s+record\b.*' + OWNER, r're:\bhook\s+mode\b', r're:\bplan_cli\b',
+                     r're:(?s)\bplan\s+unknown\s+close\b.*' + OWNER,               # C13: L3's owner verbs (an AI may still close an unknown with --by doc|poc)
+                     r're:(?s)\bplan\s+poc\s+record\b.*' + OWNER,
+                     r're:(?s)\bonecrew\.v2\b.*\b(?:approve|accept|set_enforced|set_mode|require_owner|close_unknown|poc_record)\s*\(',   # C11: the same verbs called as functions
                      're:ONECREW_ACTOR|CLAUDECODE|CLAUDE_CODE_', r're:\b(git\s+)?(reset\s+--hard|clean\s+-[a-z]*f)',
                      r're:(?:\bri\b|\brd\b|\brmdir\b|\bdel\b|remove-item|rmtree|os\.(?:remove|unlink|rmdir)|shutil\.move)[^|;&]*\.?onecrew']  # B1: deleting .onecrew
 # Paths an AI may not write (Edit/Write tools) or mention in a shell command except to read them. Relative entries are project-relative.

@@ -13,7 +13,7 @@ from ..snapshots import scoped_path
 
 SCHEMA_VERSION = 2
 FIELDS = {'schema_version', 'title', 'size', 'understanding', 'options', 'preconditions', 'output', 'scope', 'non_goals', 'items',
-          'milestones', 'budget', 'attention', 'profile_version'}
+          'milestones', 'budget', 'attention', 'stop', 'profile_version'}
 SIZES = ('S', 'M', 'L')                    # S may omit options; M and L need the full step 0
 CONFIDENCE = ('high', 'medium', 'low')
 CLOSERS = ('doc', 'poc', 'owner')
@@ -24,6 +24,10 @@ MODES = ('once', 'until_pass')
 VERIFIERS = ('command', 'owner-manual')
 MAX_ITEMS, MAX_MILESTONES = 12, 5
 MAX_REPAIRS_CAP = 5
+# stop{}: the plan stops (stopped_with_report, one question) when a milestone fails max_stuck times in a row on the SAME artifact (the AI re-ran
+# without changing anything), or when failed verdicts over all milestones of the revision pass max_repairs_total. Bounds, not defaults to widen.
+STOP_DEFAULT = {'max_stuck': 3, 'max_repairs_total': 8}
+STOP_RANGE = {'max_stuck': (2, 10), 'max_repairs_total': (1, 50)}
 COMMAND_MAX_MINUTES = 60
 ID = re.compile(r'[A-Za-z][A-Za-z0-9_-]{0,31}')
 
@@ -90,6 +94,9 @@ def validate(value):
     if not isinstance(budget, dict) or set(budget) != {'max_calls', 'time'}: raise LedgerError('budget: expected max_calls and time.')
     attention = value.get('attention', {'questions': 1})
     if not isinstance(attention, dict) or set(attention) != {'questions'}: raise LedgerError('attention: expected {"questions": N}.')
+    stop = value.get('stop', {})
+    if not isinstance(stop, dict) or set(stop) - set(STOP_DEFAULT): raise LedgerError('stop: expected {"max_stuck": N, "max_repairs_total": N}.')
+    stop = {k: _int(stop.get(k, STOP_DEFAULT[k]), 'stop.' + k, *STOP_RANGE[k]) for k in STOP_DEFAULT}
     if value.get('profile_version') is not None: raise LedgerError('profile_version must stay null in L1.')
     return {'schema_version': SCHEMA_VERSION, 'title': text_field(value.get('title'), 'title', 200),
             'size': size, 'understanding': _understanding(value.get('understanding'), size),
@@ -100,7 +107,12 @@ def validate(value):
             'items': items, 'milestones': milestones,
             'budget': {'max_calls': _int(budget['max_calls'], 'budget.max_calls', 1, 10000),
                        'time': _int(budget['time'], 'budget.time (minutes)', 1, 28800)},
-            'attention': {'questions': _int(attention['questions'], 'attention.questions', 1, 3)}, 'profile_version': None}
+            'attention': {'questions': _int(attention['questions'], 'attention.questions', 1, 3)}, 'stop': stop, 'profile_version': None}
+
+
+def stop_limits(contract):
+    """The stop limits of a stored contract (a revision written before the field existed has none: the defaults)."""
+    return dict(STOP_DEFAULT, **(contract.get('stop') or {}))
 
 
 def _item(v):

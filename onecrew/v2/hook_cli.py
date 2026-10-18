@@ -191,6 +191,27 @@ def shell_targets(command):
     return [f for f in found if f]
 
 
+QUOTED = re.compile(r"\"([^\"]{3,})\"|'([^']{3,})'")
+
+
+CUE = re.compile(r'\b(?:iex|invoke-expression|powershell(?:\.exe)?|pwsh|cmd(?:\.exe)?|bash|sh|zsh|dash|eval|invoke-command|start-process|wsl)\b', re.I)
+
+
+def all_targets(command, depth=0):
+    """C10: shell_targets of the command as written, without backticks/carets, and (recursively, up to 3 levels) of each quoted part that follows an
+    interpreter (`iex 'sc README.md x'`, `powershell -c "sc ..."`, `cmd /c "..."`, `bash -c '...'`), so a write nested in a string is judged like one
+    typed plainly. Only text after such a cue is read as a command: a commit message "Move a to b" is not a move. A quoted path with a space
+    may show up cut at the space, which errs on the side of blocking."""
+    cleaned = re.sub(r'[`^]', '', command)
+    found = shell_targets(command)
+    if cleaned != command: found += shell_targets(cleaned)
+    if depth < 3:
+        for text in dict.fromkeys((command, cleaned)):
+            for m in QUOTED.finditer(text):
+                if CUE.search(re.split(r'[;&|\n]', text[:m.start()])[-1]): found += all_targets(m.group(1) or m.group(2), depth + 1)
+    return list(dict.fromkeys(found))
+
+
 def variants(command):
     """The command as written, without quotes/backticks/carets, and without backslashes too: `plan "approve"` and `plan app\rove` still name approve."""
     unquoted = re.sub(r'["\'`^]', '', command)
@@ -209,7 +230,7 @@ def judge_shell(plan, root, cwd, command):
                  '.onecrew', 'onecrew/plans']:
         if item in flat and first not in READ_ONLY:
             return 'protected', f'The command mentions {item}, which only the owner changes ({first or "?"} is not a read-only command).'
-    for raw in shell_targets(command):
+    for raw in all_targets(command):
         lowered = raw.casefold()
         if lowered in NULLS: continue
         if lowered.startswith(TEMP_VARS): continue
@@ -452,9 +473,12 @@ def settings(project, state_root, repo):
             'Edit(**/plans/**)', 'Edit(**/*.sqlite*)', 'Edit(.onecrew/active-plan.json)', 'Edit(.onecrew/violations.jsonl)', 'Edit(.onecrew/hook-state.json)',
             'Edit(.claude/settings*.json)',
             'Bash(git push:*)', 'Bash(git * push*)', 'PowerShell(git push *)', 'PowerShell(git * push*)',
+            'Bash(*git.exe*push*)', 'PowerShell(*git.exe*push*)', 'Bash(*send-pack*)', 'PowerShell(*send-pack*)', 'Bash(*http-push*)', 'PowerShell(*http-push*)',   # C9
+            'Bash(*git.cmd*push*)', 'PowerShell(*git.cmd*push*)', 'Bash(*-c*alias.*push*)', 'PowerShell(*-c*alias.*push*)',   # C14: git.cmd and an alias given with -c
+            'Bash(*-c*alias.*send-pack*)', 'PowerShell(*-c*alias.*send-pack*)', 'Bash(*--config-env*)', 'PowerShell(*--config-env*)',
             'Bash(git config * alias.*)', 'PowerShell(git config * alias.*)',
             'Edit(//' + str(Path.home()).replace('\\', '/').lstrip('/') + '/.claude/CLAUDE.md)', 'Edit(//' + str(Path.home()).replace('\\', '/').lstrip('/') + '/.claude/agents/**)']
-    for verb in ('plan approve', 'plan accept', 'plan enforce', 'verdict record', 'hook mode'):   # any way of calling onecrew (venv python, -X utf8, onecrew.cmd)
+    for verb in ('plan approve', 'plan accept', 'plan enforce', 'verdict record', 'hook mode', 'plan unknown close*owner', 'plan poc record*owner'):   # any way of calling onecrew (venv python, -X utf8, onecrew.cmd); C13: an AI may still close an unknown with --by doc|poc
         deny += ['Bash(*' + verb + '*)', 'PowerShell(*' + verb + '*)']                # git tag is left to the hook: a permission rule cannot tell `git tag -l` from `git tag v1`
     return {'hooks': {'PreToolUse': [entry('check', 15, 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', fail='block')],
                       'UserPromptSubmit': [entry('prompt', 10)], 'Stop': [entry('stop', 30)],

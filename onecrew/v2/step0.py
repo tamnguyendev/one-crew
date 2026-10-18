@@ -19,6 +19,7 @@ from ..ledger import LedgerError, canonical, text_field
 from ..qc_intake import _commit, locate
 from ..snapshots import Snapshots
 from . import contract as contracts
+from .ownership import OWNER_ACTORS, session_info
 from .verifiers import command
 
 KINDS = ('unknown.closed', 'poc.answered', 'precondition.recorded', 'plan.step0_closed')
@@ -77,9 +78,9 @@ def _closing(ledger, name, unknown_id, by, evidence, extra_events=()):
 
     def events(revision):
         closed = {'plan': name, 'revision': revision, 'unknown': unknown_id, 'by': by, 'evidence': evidence.strip(), 'evidence_kind': kind,
-                  'actor_env': os.environ.get('ONECREW_ACTOR')}
+                  **session_info()}
         return list(extra_events) + [('unknown.closed', closed)]
-    return plans.amend(ledger, name, raw, f'unknown {unknown_id} closed', _actor(by) or by, events=events)
+    return plans.amend(ledger, name, raw, f'unknown {unknown_id} closed', _actor(by) or by, events=events, keep_content_author=True)
 
 
 def close_unknown(ledger, name, unknown_id, by, evidence):
@@ -87,10 +88,13 @@ def close_unknown(ledger, name, unknown_id, by, evidence):
     return _closing(ledger, name, unknown_id, by, evidence)
 
 
-def poc_record(ledger, name, unknown_id, answer, evidence_file, confidence, poc_contract=None):
+def poc_record(ledger, name, unknown_id, answer, evidence_file, confidence, poc_contract=None, by='poc'):
     """A PoC done by hand (the coordinator or the owner). The evidence file becomes a blob; a PoC that was allowed to change the
-    project is refused. Low confidence records the answer but leaves the unknown open."""
+    project is refused. Low confidence records the answer but leaves the unknown open. `by` is `poc` (an AI may do this, the evidence file
+    is the proof) or `owner` (the owner's own PoC; refused in an AI session, C11/C13)."""
     from . import plan as plans
+    if by not in ('poc', 'owner'): raise LedgerError('--by: poc or owner.')
+    if by == 'owner': plans.require_owner('owner', 'Recording a PoC as the owner decision')
     text_field(answer, 'answer', 1000)
     if confidence not in contracts.CONFIDENCE: raise LedgerError('--confidence: high, medium or low.')
     if poc_contract is not None:
@@ -101,7 +105,7 @@ def poc_record(ledger, name, unknown_id, answer, evidence_file, confidence, poc_
     if not path.is_file(): raise LedgerError('--evidence: no such file ' + str(path))
     blob = Snapshots(ledger.state_root).blob(path.read_bytes())
     answered = ('poc.answered', {'plan': name, 'unknown': unknown_id, 'answer': answer, 'confidence': confidence, 'evidence': blob,
-                                 'actor_env': os.environ.get('ONECREW_ACTOR')})
+                                 'by': by, **session_info()})
     if confidence == 'low':
         with ledger.transaction(write=True) as conn:
             state = plans.anchor_events(ledger, conn, name)
@@ -110,7 +114,7 @@ def poc_record(ledger, name, unknown_id, answer, evidence_file, confidence, poc_
                 raise LedgerError(f'Unknown {unknown_id} is not open in plan {name}.')
             plans.emit(ledger, conn, state['task_id'], *answered)
         return {'recorded': 'poc.answered', 'unknown': unknown_id, 'status': 'still open (confidence low)', 'evidence': blob}
-    return _closing(ledger, name, unknown_id, 'poc', blob, extra_events=[answered])   # the PoC's evidence file is the closing evidence
+    return _closing(ledger, name, unknown_id, by, blob, extra_events=[answered])   # the PoC's evidence file is the closing evidence
 
 
 # ---- mechanical checks (0 AI calls) -------------------------------------------------------------------------------------
@@ -192,9 +196,9 @@ def run_precondition(ledger, pre):
 
 # ---- the approve gate ---------------------------------------------------------------------------------------------------
 
-def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=True):
+def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=True, author=None):
     """Every reason approve would refuse for. `closed` = closed_events(...). With run=False the preconditions are not executed
-    (used by tests of the pure rules); approve and precheck always run them."""
+    (used by tests of the pure rules); approve and precheck always run them. `author` = who wrote the revision (recorded, never trusted)."""
     u, reasons = contract['understanding'], []
     if u['confidence'] == 'low':
         reasons.append(('confidence_low', 'understanding.confidence is low: find the document, run a PoC or brainstorm until it is not.'))
@@ -204,9 +208,13 @@ def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=Tru
         elif closed.get(unknown['id'], {}).get('evidence') != unknown['evidence']:
             reasons.append(('unknown_unrecorded', f'unknown {unknown["id"]} is marked closed in the file but the ledger has no matching '
                                                   'unknown.closed event; close it with plan unknown close.'))
+    closer = 'owner' if author in OWNER_ACTORS else None      # C12: a statement instead of a pointer only when the owner wrote the revision
     for number, assumption in enumerate(u['assumptions'], 1):
         if not assumption['evidence']:
             reasons.append(('assumption_no_evidence', f'assumption {number} has no evidence: {assumption["text"][:100]}'))
+        else:
+            bad = _bad_evidence(ledger, assumption['evidence'], f'understanding.assumptions[{number}].evidence', closer)
+            if bad: reasons.append(('assumption_evidence_invalid', bad))
     options = contract['options']
     if options is None:
         if choose is not None: reasons.append(('choose_without_options', f'--choose {choose}: this plan has no options.'))
@@ -217,6 +225,10 @@ def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=Tru
         reasons.append(('choose_unknown', f'--choose {choose} is not one of the options.'))
     elif not next(o for o in options['items'] if o['id'] == choose)['evidence']:
         reasons.append(('option_no_evidence', f'option {choose} has no evidence, so it counts as an unknown.'))
+    for option in (options['items'] if options else ()):         # C12: every option the owner reads, not only the chosen one
+        for number, text in enumerate(option['evidence'], 1):
+            bad = _bad_evidence(ledger, text, f'options.items[{option["id"]}].evidence[{number}]', closer)
+            if bad: reasons.append(('option_evidence_invalid', bad))
     reasons += check_target(ledger, contract)
     results = [run_precondition(ledger, p) for p in contract['preconditions']] if run else []
     reasons += [('precondition_red', f'precondition {r["id"]} ({r["check"]}) is red: {r["detail"]}') for r in results if not r['ok']]
@@ -226,6 +238,15 @@ def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=Tru
         receipt = Snapshots(ledger.state_root).blob(canonical(body).encode('utf-8'))
     return {'ok': not reasons, 'reasons': reasons, 'results': results, 'receipt': receipt,
             'unknowns': [{'id': k['id'], 'closed_by': k['closed_by'], 'evidence': k['evidence']} for k in u['unknowns'] if k['status'] == 'closed']}
+
+
+def _bad_evidence(ledger, text, field, closer):
+    """C12: the reason text when `text` is not evidence by the rule that closes unknowns (blob / URL / file:line), else None."""
+    try:
+        evidence_kind(ledger, text, closer)
+    except LedgerError as error:
+        return f'{field} "{str(text)[:60]}" is not evidence: {error}'
+    return None
 
 
 def refusal_text(verdict):
@@ -254,7 +275,9 @@ def precheck(ledger, name):
         state = plans.anchor_events(ledger, conn, name)
         contract, sha = plans.load(ledger, state)
         closed = closed_events(conn, state['task_id'])
-    verdict = evaluate(ledger, name, state['latest'], sha, contract, closed, choose=contract['options']['recommended'] if contract['options'] else None)
+        latest = state['revisions'][state['latest']]
+    verdict = evaluate(ledger, name, state['latest'], sha, contract, closed, choose=contract['options']['recommended'] if contract['options'] else None,
+                       author=latest.get('content_author') or latest.get('author'))
     with ledger.transaction(write=True) as conn:
         record_run(ledger, conn, state['task_id'], name, state['latest'], sha, verdict, 'precheck')
     lines = [f'PRECHECK {name} revision {state["latest"]} (0 AI calls)']
