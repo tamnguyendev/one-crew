@@ -33,3 +33,10 @@ Giới hạn thật: Bash không phải ranh giới bảo mật (hook đọc ch�
 - Verifier `command` chạy trên checkout bằng `git read-tree` + `checkout-index` (không `git archive`), với môi trường là danh sách cho phép (bỏ `PYTHON*`, `GIT_*` và mọi biến lạ).
 - Trần Stop: 2 lần chặn mỗi lượt dừng; sau lần cho qua bộ đếm về 0.
 - Giới hạn yêu cầu gửi chủ sở hữu (CREQ): mọi loại câu hỏi đều đếm vào trần 2 và đều cần `reason` ≤ 200 ký tự khi cổng bật.
+
+## Sau review Opus lần 2 (gói v2-fix: C9, C10, C13, stop)
+
+- **Git** (C9): quy tắc đẩy nhận `git`, `git.exe`, có hoặc không đường dẫn đầy đủ và dấu ngoặc (hook thử cả dạng đã bỏ ngoặc), cộng `push`, `send-pack`, `http-push`, `git -C d push`, `git config alias.*`. `permissions.deny` có thêm `*git.exe*push*`, `*send-pack*`, `*http-push*`.
+- **Ghi file lồng trong chuỗi** (C10): đích ghi được tìm trên lệnh gốc, trên dạng bỏ ngoặc/backtick/dấu mũ, và (đệ quy ≤3 tầng) trong từng đoạn nằm trong ngoặc: `iex '…'`, `powershell -c "…"`, `cmd /c "…"`, `bash -c '…'`. Đường dẫn có dấu cách trong ngoặc có thể bị cắt ở dấu cách, và lỗi theo hướng chặn. Vẫn là đọc chữ của lệnh, không phải ranh giới an ninh.
+- **Động từ của owner** (C11/C13): `plan.require_owner` tự từ chối khi có biến phiên AI (xem `docs/v2-step0.vi.md`); `ownership.refuse_argv` và `bash_deny` phủ thêm `plan unknown close --by owner`, `plan poc record --by owner` (kể cả viết tắt `--b`).
+- **Trần dừng** (`stop`): hợp đồng có `stop {max_stuck, max_repairs_total}` (mặc định 3 và 8; `max_stuck` 2–10, `max_repairs_total` 1–50; bản revision cũ không có trường thì dùng mặc định). `max_stuck`: số lần thất bại **liên tiếp của một mốc trên cùng một artifact** (AI chạy lại mà không đổi gì); chạm trần thì dừng. `max_repairs_total`: tổng verdict không đạt trên mọi mốc của revision; vượt trần thì dừng. Thứ tự xét lý do: `max_repairs` của mốc, rồi `max_repairs_total`, rồi `max_stuck`. Dừng = sự kiện `milestone.stopped` (có `reason`), plan `stopped_with_report`, đúng một câu hỏi `v2.plan_stopped` (tính vào `attention.questions`). AI không nới được trần: đổi trần là amend + duyệt lại.

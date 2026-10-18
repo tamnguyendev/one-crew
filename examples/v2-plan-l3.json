@@ -66,5 +66,6 @@
   ],
   "budget": {"max_calls": 60, "time": 300},
   "attention": {"questions": 1},
+  "stop": {"max_stuck": 3, "max_repairs_total": 8},
   "profile_version": null
 }
