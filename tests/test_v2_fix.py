@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -203,6 +204,28 @@ class C11OwnerVerbsInAnAiSession(l1.Fixture):
                      ['plan', 'poc', 'record', 'P1', 'U1', '--answer', 'a', '--evidence', 'f', '--confidence', 'high'], ['plan', 'show', 'P1']):
             self.assertIsNone(ownership.refuse_argv(argv), argv)
 
+    def test_c11_new_1_an_empty_marker_is_an_ai_session(self):
+        for number, value in enumerate(('', '0')):                                                                # the reviewer's bypass, and a variant
+            name = f'P{number}'
+            with self.subTest(marker=value):
+                self.propose(name, l3.step0_json(size='S', unknowns=['U1']))
+                self.ai(CLAUDE_CODE_CHILD_SESSION=value)
+                self.assertTrue(ownership.in_ai_session()); self.assertIs(ownership.session_info()['ai_session'], True)
+                with self.assertRaises(LedgerError) as caught: plans.approve(self.ledger, name, 'owner', 'r')
+                self.assertIn('AI tool session', str(caught.exception))
+                self.assertNotIn('plan.approved', self.kinds(name))
+                with contextlib.redirect_stdout(io.StringIO()): self.assertEqual(ownership.refuse_argv(['plan', 'approve', name, '--by', 'owner']), 2)
+                step0.close_unknown(self.ledger, name, 'U1', 'doc', 'a.txt:1')
+                closed = [p for k, p in self.events(name) if k == 'unknown.closed'][0]
+                self.assertIs(closed['ai_session'], True)
+
+    def test_plan_cli_run_directly_is_refused_with_an_empty_marker(self):
+        self.propose()
+        base = ['-m', 'onecrew.v2.plan_cli', '--project', str(self.root), '--state-root', str(self.ledger.state_root), 'plan', 'approve', 'P1', '--by', 'owner', '--reference', 'r']
+        code, out, _ = self.py(*base, env=clean_env(**dict(AI, CLAUDE_CODE_CHILD_SESSION='')))
+        self.assertEqual(code, 2); self.assertIn('AI tool session', out)
+        self.assertNotIn('plan.approved', self.kinds())
+
     def test_events_say_who_ran_it(self):
         self.propose()
         plans.approve(self.ledger, 'P1', 'owner', 'r')
@@ -231,6 +254,50 @@ class C11OwnerVerbsInAnAiSession(l1.Fixture):
 # ---- C12 -----------------------------------------------------------------------------------------------------------------------
 
 class C12Evidence(l3.Step0):
+    def setUp(self):
+        super().setUp()
+        for relative, lines in (('x/y.py', 3), ('src/a.py', 12)):                                               # the files the pointers below name
+            path = self.root / relative; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('x = 1\n' * lines)
+
+    def kind(self, text, closer=None, ledger=None):
+        return step0.evidence_kind(ledger or self.ledger, text, closer)
+
+    def test_c12_new_1_a_sentence_around_a_file_that_does_not_exist_is_refused_naming_the_field(self):
+        error = self.refused(l3.step0_json(size='S', assumptions=[('the base builds', 'trust me see a.py:1')]))   # the reviewer's bypass: shaped like file:line
+        self.assertEqual(l3.reasons(error), ['assumption_evidence_invalid'])
+        self.assertIn('understanding.assumptions[1].evidence', str(error)); self.assertIn('a.py', str(error)); self.assertIn('not a file under the project', str(error))
+
+    def test_c12_new_2_a_placeholder_host_is_refused(self):
+        error = self.refused(l3.step0_json(size='S', assumptions=[('the base builds', 'http://xxxx')]))
+        self.assertEqual(l3.reasons(error), ['assumption_evidence_invalid'])
+        self.assertIn('understanding.assumptions[1].evidence', str(error)); self.assertIn('http://xxxx', str(error))
+
+    def test_a_file_line_must_name_a_file_and_a_line_inside_it(self):
+        self.assertEqual(self.kind('src/a.py:12'), 'file_line')                                                  # the last line
+        self.assertEqual(self.kind('see src/a.py:1 for the loop'), 'file_line')
+        (self.root / 'src' / 'empty.py').write_text(''); (self.root.parent / 'outside.py').write_text('x\n')
+        for bad in ('src/a.py:13', 'src/a.py:0', 'src/empty.py:1', 'src/nope.py:1', '../outside.py:1', 'src/a.py:1 and src/nope.py:2'):
+            with self.subTest(bad), self.assertRaises(LedgerError): self.kind(bad)
+        (self.root / 'x.d').mkdir()
+        with self.subTest('a directory'), self.assertRaises(LedgerError): self.kind('x.d:1')
+
+    def test_a_url_needs_a_scheme_and_a_real_host(self):
+        self.assertEqual(self.kind('https://docs.claude.com/x'), 'url')
+        self.assertEqual(self.kind('read http://docs.claude.com/x, then decide'), 'url')
+        for bad in ('http://xxxx', 'http://x.x/ab', 'https://a.b/page', 'http://localhost/spec', 'https://example.com/spec', 'https://docs.example/spec',
+                    'https://10.0.0.1/spec', 'https://docs..com/x', 'http:///nohost/x', 'https://docs.claude.com/x and http://xxxx'):
+            with self.subTest(bad), self.assertRaises(LedgerError): self.kind(bad)
+
+    def test_a_pointer_in_this_repository_is_accepted(self):
+        repo = types.SimpleNamespace(project=REPO, state_root=self.ledger.state_root)
+        self.assertEqual(self.kind('onecrew/v2/step0.py:38', ledger=repo), 'file_line')
+        self.assertEqual(self.kind('https://docs.claude.com/x', ledger=repo), 'url')
+        with self.assertRaises(LedgerError): self.kind('onecrew/v2/step0.py:99999', ledger=repo)
+
+    def test_an_owner_statement_that_carries_a_dead_pointer_is_refused_too(self):
+        self.assertEqual(self.kind('the owner told me in chat', 'owner'), 'owner_statement')
+        with self.assertRaises(LedgerError): self.kind('the owner said see a.py:1', 'owner')
+
     def test_an_assumption_with_a_sentence_for_evidence_is_refused_naming_the_field(self):
         error = self.refused(l3.step0_json(size='S', assumptions=[('the base builds', 'trust me')]))              # L08
         self.assertEqual(l3.reasons(error), ['assumption_evidence_invalid'])
@@ -247,9 +314,9 @@ class C12Evidence(l3.Step0):
         error = self.refused(value, choose='A')
         self.assertIn('options.items[B].evidence[2]', str(error))
 
-    def test_a_pointer_is_evidence_whatever_it_points_at(self):
+    def test_a_pointer_that_resolves_is_evidence(self):
         blob = Snapshots(self.ledger.state_root).blob(b'a measurement')
-        value = l3.step0_json(assumptions=[('a', 'https://example.org/spec'), ('b', 'src/a.py:12'), ('c', blob)])
+        value = l3.step0_json(assumptions=[('a', 'https://docs.claude.com/spec'), ('b', 'src/a.py:12'), ('c', blob)])
         value['options']['items'][0]['evidence'] = ['x/y.py:1', blob]
         self.assertEqual(self.approve_ok(value, choose='A')['status'], 'approved')
 

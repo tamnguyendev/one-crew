@@ -23,7 +23,7 @@ OWNER_ACTORS = ('user', 'owner')
 
 
 def in_ai_session():
-    return any(os.environ.get(name) for name in AI_MARKERS)
+    return any(name in os.environ for name in AI_MARKERS)   # C11: present with any value, an empty one included, is an AI session
 
 
 def refuse_in_ai_session(what):

@@ -14,6 +14,7 @@ import re
 import subprocess
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from ..ledger import LedgerError, canonical, text_field
 from ..qc_intake import _commit, locate
@@ -26,6 +27,8 @@ KINDS = ('unknown.closed', 'poc.answered', 'precondition.recorded', 'plan.step0_
 BLOB = re.compile(r'[0-9a-f]{64}')
 URL = re.compile(r'https?://\S{4,}')
 FILE_LINE = re.compile(r'[\w./\\-]+\.\w+:\d+')
+PLACEHOLDER_HOSTS = ('example.com', 'example.org', 'example.net')
+PLACEHOLDER_TLDS = ('example', 'invalid', 'test', 'localhost', 'local')
 TAIL = 600
 
 
@@ -35,9 +38,40 @@ def _actor(by=None):
 
 # ---- evidence ---------------------------------------------------------------------------------------------------------
 
+def _bad_url(url):
+    """Why `url` cannot be evidence (not http/https, no dotted host, a placeholder host), or None."""
+    try:
+        parts = urlsplit(url.rstrip('.,;:)]}>\'"'))
+        host = parts.hostname or ''
+    except ValueError:
+        return 'is not a URL'
+    labels = host.split('.')
+    if parts.scheme not in ('http', 'https') or len(labels) < 2 or not all(labels):
+        return 'has no http(s) scheme and a host with a dot'
+    if not re.fullmatch(r'[a-z]{2,}', labels[-1]): return 'has a host that does not end in a name (an IP address or a number is not a source)'
+    if labels[-1] in PLACEHOLDER_TLDS or '.'.join(labels[-2:]) in PLACEHOLDER_HOSTS or len(set(host.replace('.', ''))) == 1:
+        return f'has the placeholder host {host}'
+    return None
+
+
+def _bad_file_line(ledger, reference):
+    """Why `path:line` does not resolve under the project (no such file, outside the project, a line past the end), or None."""
+    path, _, number = reference.rpartition(':')
+    project = Path(ledger.project).resolve()
+    target = (project / path).resolve()
+    if project != target and project not in target.parents: return 'is outside the project'
+    if not target.is_file(): return f'names {path}, which is not a file under the project'
+    data = target.read_bytes()
+    lines = data.count(b'\n') + (1 if data and not data.endswith(b'\n') else 0)
+    if not 1 <= int(number) <= lines: return f'names line {number}, but {path} has {lines} line{"s" if lines != 1 else ""}'
+    return None
+
+
 def evidence_kind(ledger, text, closer=None):
     """What an evidence string points at: a blob in this state root, a URL, a file:line reference; the owner may also state it
-    in words. Returns the kind, or raises. (It proves a pointer exists, not that the claim is true: the owner reads it.)"""
+    in words. Returns the kind, or raises. A pointer must resolve (C12): the blob is in the store, the file and the line exist under
+    `ledger.project`, the URL has a scheme and a real-looking host. (It proves a pointer resolves, not that the claim is true:
+    the owner reads it.) Every pointer in the text is checked, so a good one next to a bad one does not pass."""
     text = text_field(text, 'evidence', 1000).strip()
     if BLOB.fullmatch(text):
         try:
@@ -45,8 +79,12 @@ def evidence_kind(ledger, text, closer=None):
         except (OSError, LedgerError) as error:
             raise LedgerError('evidence: no such blob in this state root.') from error
         return 'blob'
-    if URL.search(text): return 'url'
-    if FILE_LINE.search(text): return 'file_line'
+    urls = [m.group(0) for m in URL.finditer(text)]
+    files = FILE_LINE.findall(URL.sub(' ', text))
+    for pointer, problem in [(u, _bad_url(u)) for u in urls] + [(f, _bad_file_line(ledger, f)) for f in files]:
+        if problem: raise LedgerError(f'evidence: {pointer} {problem}.')
+    if urls: return 'url'
+    if files: return 'file_line'
     if closer == 'owner' and len(text) >= 10: return 'owner_statement'
     raise LedgerError('evidence: give a blob key, a URL or a file:line reference' + (' (or, as the owner, a statement).' if closer != 'poc' else '.'))
 
