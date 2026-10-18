@@ -173,12 +173,42 @@ class VerdictTests(ReviewerFixture):
         self.assertIn('+two', prompt); self.assertIn(CRITERIA[0]['question'], prompt); self.assertIn('outside_criteria', prompt)
         self.assertNotIn('Sample', prompt)                                     # the plan title is not sent either
 
-    def test_no_change_since_approval_is_inconclusive_without_a_call(self):
-        self.start(); (self.root / 'a.txt').write_text('one\n')
+    def test_no_change_since_a_fallback_base_is_inconclusive_without_a_call(self):
+        with patch.object(plans, '_base_artifact', return_value=None): self.start()       # the base is a commit guess, not the approved tree
+        (self.root / 'a.txt').write_text('one\n')
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         recorded, receipt = self.last_receipt()
         self.assertEqual((recorded['result'], recorded['calls'], self.calls()), ('inconclusive', 0, 0))
         self.assertIn('nothing to review', receipt['error'])
+
+    def test_no_change_since_approval_is_a_pass_with_a_note_and_no_call(self):
+        self.start(); (self.root / 'a.txt').write_text('one\n')                          # back to exactly the approved tree
+        view = verdict.run(self.ledger, 'P1', 'M1', self.root)
+        recorded, receipt = self.last_receipt()
+        self.assertEqual((recorded['result'], recorded['calls'], self.calls()), ('pass', 0, 0))
+        self.assertEqual((receipt['note'], receipt['base_source'], receipt['error']), ('no change since approval', 'approval', None))
+        self.assertEqual([(c['verdict'], c['evidence']) for c in receipt['criteria']], [('pass', []), ('pass', [])])
+        self.assertEqual(view['milestones'][0]['state'], 'passed')
+
+    def test_an_empty_diff_pass_is_not_a_failure_and_costs_no_repair(self):
+        self.start(); (self.root / 'a.txt').write_text('one\n')
+        view = verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.assertEqual((view['milestones'][0]['failures'], view['stop']['repairs_used']), (0, 0))
+        self.assertNotIn('milestone.failed', self.kinds())
+
+    def test_a_tree_that_differs_from_the_approved_one_still_calls_the_reviewer(self):
+        self.start(); self.reply(answer(row('R1'), row('R2')))
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        recorded, receipt = self.last_receipt()
+        self.assertEqual((recorded['calls'], self.calls(), receipt['note']), (1, 1, None))
+
+    def test_a_pass_without_a_call_is_only_believed_for_an_unchanged_approved_tree(self):
+        self.start(); (self.root / 'a.txt').write_text('one\n')
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        receipt = self.last_receipt()[1]
+        self.assertEqual(reviewer.expected_result(receipt), 'pass')
+        for change in ({'note': None}, {'base_source': 'last commit before approval abc'}, {'base_artifact': '0' * 40}, {'error': 'x'}):
+            self.assertEqual(reviewer.expected_result(dict(receipt, **change)), 'inconclusive', change)
 
     def test_a_diff_over_the_cap_is_not_reviewed_in_part(self):
         self.start(); (self.root / 'big.txt').write_text('x\n' * reviewer.MAX_DIFF)

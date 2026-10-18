@@ -60,3 +60,8 @@ Một dòng mỗi mục; `L#` là lát dự kiến.
 - Reviewer: mỗi lần gọi `claude -p` (không công cụ) vẫn tốn ~9k token vào cache do prompt hệ thống của Claude Code (đo 2026-10-18: cache_creation ~5.9k + cache_read ~3.4k + output ~110, khoảng 0,05 USD, 4-5 giây). Chưa kiểm `evidence.file` có nằm trong diff không; model có thể trích file không có thật.
 - Reviewer: `--setting-sources user` vẫn nạp hook cấp người dùng nếu có; cwd là thư mục tạm trống nên CLAUDE.md/hook của dự án không nạp. Diff quá 120 KB không được review một phần (inconclusive, không tốn call).
 - Hook (nhầm): luật `\bplan_cli\b` chặn cả lệnh Bash chỉ ĐỌC hoặc GHI TÀI LIỆU có nhắc tên module (grep, heredoc vào file docs trong phạm vi); lỗi theo hướng chặn, tránh bằng cách không gõ tên đó trong lệnh shell.
+
+## Job 4 (ghi chú)
+- S1 (`NAME=value; cmd` bị coi là đường dẫn ngoài phạm vi): các dạng `O=/tmp/x; echo hi`, `O=/tmp/x cat a.txt`, `O=/tmp/x && echo hi` không bị chặn trong code hiện tại; test `test_a_compound_command_starting_with_an_assignment_is_not_a_path` ghi lại. Dạng gốc gây chặn ở việc 3 chưa tái hiện được (có thể đi kèm một lệnh ghi như `mkdir "$O"` bị `unresolvable_target`).
+- Trạng thái dừng không cho `NAME=value cmd` (allowlist không đoán biến môi trường); cần thì thêm sau.
+- Hook chặn cả lệnh shell chỉ chứa văn bản có chữ "git ... push" hay dấu lớn hơn (bash_deny và dò redirect khớp text lệnh, không phân biệt dữ liệu với lệnh): đúng theo thiết kế, nhưng ồn khi ghi tài liệu bằng shell; dùng Write/Edit cho docs.

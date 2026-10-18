@@ -29,3 +29,7 @@ Mẹo: một criterion một khẳng định; nêu cái gì thì `fail` ("fail n
 
 ## Giới hạn đã biết
 Reviewer chỉ có Claude (hợp đồng từ chối provider khác). Receipt lưu diff, prompt, câu trả lời gốc, token và giá (blob trong state-root). Cây gốc là đối tượng Git chưa được tham chiếu; `git gc` sau vài tuần có thể xóa, diff trong receipt vẫn còn.
+
+## Diff rỗng so với cây đã duyệt (job 4)
+
+Khi cây đang xét **đúng bằng** cây chủ sở hữu duyệt (`base_source == "approval"` và `base_artifact == artifact_sha`, diff rỗng) thì không còn gì để review và cũng không còn gì để sửa: verdict là `pass`, receipt ghi `note: "no change since approval"`, `calls: 0`, mỗi tiêu chí `pass` với `evidence` rỗng. Verdict `pass` không phải lỗi nên không tính vào `repairs_used`/`failures`. Đây là nhánh DUY NHẤT pass mà không gọi model: `expected_result` coi một pass `calls: 0` là `inconclusive` nếu thiếu note đó, nếu base không đến từ approval, hoặc nếu cây khác base. Base lấy từ "commit cuối trước lúc duyệt" (plan cũ) mà diff rỗng vẫn là `inconclusive`, không gọi gì (như trước). Diff không rỗng vẫn gọi reviewer.

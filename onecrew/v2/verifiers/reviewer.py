@@ -24,6 +24,7 @@ VERDICTS = ('pass', 'fail', 'inconclusive')
 MAX_DIFF = 120_000          # bytes; a bigger diff is not reviewed (a partial read cannot support a pass)
 MAX_ANSWER = 200_000
 MAX_NOTE = 500
+NO_CHANGE = 'no change since approval'
 MODEL_LIKE = re.compile(r'(claude|gpt|gemini|codex)-[a-z0-9.\-]*\d[a-z0-9.\-]*', re.I)
 FALLBACK_CLI = Path.home() / '.local' / 'bin' / 'claude.exe'
 
@@ -153,7 +154,13 @@ def overall(rows, problems, error, timed_out, same_artifact):
 
 
 def expected_result(receipt):
-    return overall(receipt['criteria'], receipt['problems'], receipt['error'], receipt['timed_out'], receipt['artifact_sha'] == receipt['artifact_sha_after'])
+    result = overall(receipt['criteria'], receipt['problems'], receipt['error'], receipt['timed_out'], receipt['artifact_sha'] == receipt['artifact_sha_after'])
+    if result == 'pass' and not receipt.get('calls'):
+        # A pass without a model call exists on one branch only: the tree is exactly the one recorded at approval. Anything else without a call is not a pass.
+        unchanged = (receipt.get('note') == NO_CHANGE and receipt.get('base_source') == 'approval' and not receipt.get('error')
+                     and receipt.get('base_artifact') == receipt['artifact_sha'])
+        if not unchanged: return 'inconclusive'
+    return result
 
 
 # ---- the call -----------------------------------------------------------------------------------------------------------
@@ -196,8 +203,9 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     diff = tree_diff(directory, base, before)
     store = Snapshots(ledger.state_root)
     started, begin = utcnow(), time.monotonic()
-    answer, usage, error, timed_out, raw, calls, prompt = '', {}, None, False, b'', 0, None
-    if not diff.strip(): error = 'no change since approval; there is nothing to review'
+    answer, usage, error, timed_out, raw, calls, prompt, note = '', {}, None, False, b'', 0, None, None
+    if not diff.strip() and base_source == 'approval' and base == before: note = NO_CHANGE      # the tree is the one the owner approved: nothing to review, nothing to fix
+    elif not diff.strip(): error = 'no change since approval; there is nothing to review'
     elif len(diff.encode('utf-8')) > MAX_DIFF: error = f'diff is {len(diff.encode("utf-8"))} bytes, over the {MAX_DIFF} cap; it is not reviewed in part'
     else:
         prompt = build_prompt(diff, config['criteria'])
@@ -209,7 +217,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
     rows, outside, problems = parse_answer(answer, config['criteria']) if answer else (
-        [{'id': c['id'], 'verdict': 'inconclusive', 'evidence': []} for c in config['criteria']], [], [])
+        [{'id': c['id'], 'verdict': 'pass' if note else 'inconclusive', 'evidence': []} for c in config['criteria']], [], [])
     if calls and not answer and not error and not timed_out: problems = ['the reviewer sent an empty answer']
     after = command.artifact_sha(directory)
     receipt = {'kind': 'reviewer-receipt', 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
@@ -217,7 +225,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
                'artifact_sha': before, 'artifact_sha_after': after, 'base_artifact': base, 'base_source': base_source,
                'diff': store.blob(diff.encode('utf-8')), 'prompt': store.blob(prompt.encode('utf-8')) if prompt else None,
                'answer': store.blob(answer.encode('utf-8')) if answer else None, 'raw': store.blob(raw[-1_000_000:]) if raw else None,
-               'calls': calls, 'usage': usage, 'error': error, 'timed_out': timed_out, 'problems': problems,
+               'calls': calls, 'note': note, 'usage': usage, 'error': error, 'timed_out': timed_out, 'problems': problems,
                'criteria': rows, 'outside_criteria': outside, 'independence': independence_result}
     receipt['result'] = expected_result(receipt)
     return store.blob(canonical(receipt).encode('utf-8')), receipt

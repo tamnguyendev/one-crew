@@ -241,6 +241,57 @@ def judge_shell(plan, root, cwd, command):
     return None
 
 
+# ---- a stopped plan: reading stays possible --------------------------------------------------------------------------------
+
+STOPPED_READ = {'cat', 'type', 'get-content', 'gc', 'ls', 'dir', 'get-childitem', 'gci', 'head', 'tail', 'grep', 'rg', 'select-string', 'findstr',
+                'wc', 'pwd', 'cd', 'set-location'}
+GIT_READ = {'status', 'log', 'diff', 'show', 'rev-parse', 'blame'}
+GIT_EXEC = ('--output', '--ext-diff', '--textconv', '--open-files-in-pager', '--exec')
+FIND_WRITE = {'-delete', '-exec', '-execdir', '-ok', '-okdir', '-fprint', '-fprint0', '-fprintf', '-fls'}
+ONECREW_READ = {'plan': {'show', 'precheck'}, 'verdict': {'show'}}
+SHELL_TOKEN = re.compile(r'"[^"]*"|\'[^\']*\'|&&|\|\||[;|&\n]|[^\s;|&"\']+')
+
+
+def _program(token):
+    name = re.split(r'[\\/]', token)[-1].lower()
+    return name[:-4] if name.endswith('.exe') else name
+
+
+def _read_only_segment(words):
+    program, rest = _program(words[0]), words[1:]
+    if program in STOPPED_READ: return not (program == 'rg' and any(w.startswith('--pre') for w in rest))
+    if program == 'find': return not any(w.lower() in FIND_WRITE for w in rest)
+    if program == 'git':
+        return bool(rest) and rest[0] in GIT_READ and not any(w.startswith(GIT_EXEC) for w in rest)
+    tail = None
+    if program in ('onecrew', 'onecrew.cmd'): tail = rest
+    elif program.startswith('python') or program == 'py':
+        i = 0
+        while i < len(rest) and rest[i].startswith('-') and rest[i] != '-m': i += 2 if rest[i] == '-X' else 1
+        if i < len(rest) and (_program(rest[i]) == 'onecrew_cli.py' or (rest[i] == '-m' and i + 1 < len(rest) and rest[i + 1].startswith('onecrew'))):
+            tail = rest[i + 2:] if rest[i] == '-m' else rest[i + 1:]
+    if tail is None: return False
+    for i, word in enumerate(tail):
+        if word in ONECREW_READ: return i + 1 < len(tail) and tail[i + 1] in ONECREW_READ[word]
+    return False
+
+
+def read_only_command(command):
+    """True only when every part of a shell command is a known read-only command (allowlist, fail closed). Redirects, command substitution and
+    anything outside the list are not read-only: a stopped plan lets the AI look at the evidence, never change anything."""
+    if re.search(r'`|\$\(|\$\{|<\(', command) or len(command) > 2000: return False
+    segments, current = [], []
+    for token in SHELL_TOKEN.findall(command):
+        if token in ('&&', '||', ';', '|', '&', '\n'):
+            segments.append(current); current = []
+        else:
+            if not token.startswith(('"', "'")) and re.search('[<>]', token): return False
+            current.append(token.strip('"\''))
+    segments.append(current)
+    segments = [s for s in segments if s]
+    return bool(segments) and all(_read_only_segment(s) for s in segments)
+
+
 # ---- the verbs -------------------------------------------------------------------------------------------------------------
 
 def read_stdin():
@@ -328,7 +379,12 @@ def check(args):
         data = event.get('tool_input') if isinstance(event.get('tool_input'), dict) else {}
         verdict = None
         if plan.get('status') == 'stopped_with_report':
-            verdict = ('stopped', f"Plan {plan.get('plan')} is stopped_with_report: the owner decides the next step; nothing further is changed.")
+            # Edits, writes and anything not on the read-only allowlist stay refused; looking at the evidence (cat, git status, plan show) does not.
+            if tool in SHELL_TOOLS and isinstance(data.get('command'), str) and read_only_command(data['command']):
+                verdict = judge_shell(plan, root, base, data['command'])
+            else:
+                verdict = ('stopped', f"Plan {plan.get('plan')} is stopped_with_report: the owner decides the next step; nothing further is changed "
+                                      f"(read-only commands such as cat, ls, git status|log|diff|show and `plan show` still work).")
         elif tool in EDIT_TOOLS:
             raw = next((data[k] for k in PATH_KEYS if isinstance(data.get(k), str) and data[k]), None)
             if raw is None: raise ValueError(f'{tool} call without a path field ({"/".join(PATH_KEYS)})')
