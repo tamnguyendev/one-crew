@@ -234,9 +234,39 @@ def run_precondition(ledger, pre):
 
 # ---- the approve gate ---------------------------------------------------------------------------------------------------
 
-def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=True, author=None):
+def rules_path(ledger):
+    return Path(ledger.state_root) / 'plans' / 'owner-rules.md'
+
+
+def check_provenance(ledger, contract, sha, advice):
+    """Where the contract comes from (origin, item sources, decisions) and whether the advisor looked at it. The full check applies to a contract
+    that uses any of those fields and to every contract once the owner-rules file exists in this state root (`plan rules init`); a contract
+    written before the fields existed, in a state root without the rules, is not held to them. An unknown decision id is refused always.
+    An objection in the advice is never a reason: only the absence of usable advice is."""
+    decisions = contract.get('decisions') or []
+    known, items, reasons = {d['id'] for d in decisions}, contract['items'], []
+    strict = bool(contract.get('origin') or decisions or contract.get('presentation') or any(i.get('source') for i in items)) or rules_path(ledger).exists()
+    if strict and not contract.get('origin'):
+        reasons.append(('origin_missing', 'the contract has no origin {by, at, quote}: what the owner actually asked for, in their words.'))
+    if strict:
+        bare = [i['id'] for i in items if not i.get('source')]
+        if bare: reasons.append(('item_without_source', 'item ' + ', '.join(bare) + ' has no source: "origin" or the id of a decision.'))
+    for item in items:
+        if item.get('source') not in (None, 'origin') and item['source'] not in known:
+            reasons.append(('unknown_decision', f'item {item["id"]} has source {item["source"]}, which is not in decisions ({", ".join(sorted(known)) or "none"}).'))
+    if decisions or (strict and contract['size'] in ('M', 'L')):
+        if not advice or advice.get('sha') != sha:
+            reasons.append(('advice_missing', 'no plan.advised event for this revision: run plan advise (decisions or size M/L need the advisor\'s three answers; objections do not block).'))
+        elif not advice.get('usable'):
+            reasons.append(('advice_missing', 'the advice recorded for this revision is inconclusive (' + str(advice.get('problems') or advice.get('note') or 'no usable answers')[:100]
+                            + '); run plan advise again.'))
+    return reasons
+
+
+def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=True, author=None, advice=None):
     """Every reason approve would refuse for. `closed` = closed_events(...). With run=False the preconditions are not executed
-    (used by tests of the pure rules); approve and precheck always run them. `author` = who wrote the revision (recorded, never trusted)."""
+    (used by tests of the pure rules); approve and precheck always run them. `author` = who wrote the revision (recorded, never trusted).
+    `advice` = the plan.advised payload of this revision, if any (check_provenance)."""
     u, reasons = contract['understanding'], []
     if u['confidence'] == 'low':
         reasons.append(('confidence_low', 'understanding.confidence is low: find the document, run a PoC or brainstorm until it is not.'))
@@ -268,6 +298,7 @@ def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=Tru
             bad = _bad_evidence(ledger, text, f'options.items[{option["id"]}].evidence[{number}]', closer)
             if bad: reasons.append(('option_evidence_invalid', bad))
     reasons += check_target(ledger, contract)
+    reasons += check_provenance(ledger, contract, sha, advice)
     results = [run_precondition(ledger, p) for p in contract['preconditions']] if run else []
     reasons += [('precondition_red', f'precondition {r["id"]} ({r["check"]}) is red: {r["detail"]}') for r in results if not r['ok']]
     receipt = None
@@ -314,8 +345,9 @@ def precheck(ledger, name):
         contract, sha = plans.load(ledger, state)
         closed = closed_events(conn, state['task_id'])
         latest = state['revisions'][state['latest']]
+        advice = state['advice'].get(state['latest'])
     verdict = evaluate(ledger, name, state['latest'], sha, contract, closed, choose=contract['options']['recommended'] if contract['options'] else None,
-                       author=latest.get('content_author') or latest.get('author'))
+                       author=latest.get('content_author') or latest.get('author'), advice=advice)
     with ledger.transaction(write=True) as conn:
         record_run(ledger, conn, state['task_id'], name, state['latest'], sha, verdict, 'precheck')
     lines = [f'PRECHECK {name} revision {state["latest"]} (0 AI calls)']

@@ -13,7 +13,11 @@ from ..snapshots import scoped_path
 
 SCHEMA_VERSION = 2
 FIELDS = {'schema_version', 'title', 'size', 'understanding', 'options', 'preconditions', 'output', 'scope', 'non_goals', 'items',
-          'milestones', 'budget', 'attention', 'stop', 'profile_version'}
+          'milestones', 'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation'}
+MAX_DECISIONS = 10
+DECISION_ID = re.compile(r'D[0-9]{1,2}')
+ORIGIN_SOURCE = 'origin'                   # items[].source: "origin" (the owner asked for it) or the id of a decision the author took
+PRESENTATION_TEXTS, PRESENTATION_LISTS = ('request', 'not_doing', 'guard'), ('user_sees', 'acceptance_steps', 'risk')
 SIZES = ('S', 'M', 'L')                    # S may omit options; M and L need the full step 0
 CONFIDENCE = ('high', 'medium', 'low')
 CLOSERS = ('doc', 'poc', 'owner')
@@ -128,7 +132,8 @@ def validate(value):
     if not isinstance(stop, dict) or set(stop) - set(STOP_DEFAULT): raise LedgerError('stop: expected {"max_stuck": N, "max_repairs_total": N}.')
     stop = {k: _int(stop.get(k, STOP_DEFAULT[k]), 'stop.' + k, *STOP_RANGE[k]) for k in STOP_DEFAULT}
     if value.get('profile_version') is not None: raise LedgerError('profile_version must stay null in L1.')
-    return {'schema_version': SCHEMA_VERSION, 'title': text_field(value.get('title'), 'title', 200),
+    optional = _provenance(value)       # origin, decisions, presentation: only the ones given, so a contract without them stays byte-identical
+    return {**optional, 'schema_version': SCHEMA_VERSION, 'title': text_field(value.get('title'), 'title', 200),
             'size': size, 'understanding': _understanding(value.get('understanding'), size),
             'options': _options(value.get('options'), size),
             'preconditions': _list(value.get('preconditions'), 'preconditions', 1, 10, _precondition), 'output': output,
@@ -146,11 +151,44 @@ def stop_limits(contract):
 
 
 def _item(v):
-    if not isinstance(v, dict) or set(v) - {'id', 'title', 'tier', 'milestone'} or v.get('tier') not in TIERS:
-        raise LedgerError('items: each item takes id, title, tier (must|should|wont) and optional milestone.')
+    if not isinstance(v, dict) or set(v) - {'id', 'title', 'tier', 'milestone', 'source'} or v.get('tier') not in TIERS:
+        raise LedgerError('items: each item takes id, title, tier (must|should|wont), optional milestone and optional source.')
     milestone = v.get('milestone')
-    return {'id': _id(v.get('id'), 'item id'), 'title': text_field(v.get('title'), 'item title', 300), 'tier': v['tier'],
+    item = {'id': _id(v.get('id'), 'item id'), 'title': text_field(v.get('title'), 'item title', 300), 'tier': v['tier'],
             'milestone': _id(milestone, 'item milestone') if milestone is not None else None}
+    if 'source' in v: item['source'] = _source(v['source'], 'item ' + item['id'])
+    return item
+
+
+def _source(value, name):
+    """Where an item comes from: the owner's own words ("origin") or a decision the author took (D1..). Whether that decision exists is
+    checked at approve (step0: unknown_decision), not here, so a revision can be written before its decisions."""
+    if value != ORIGIN_SOURCE and not (isinstance(value, str) and DECISION_ID.fullmatch(value)):
+        raise LedgerError(f'{name}.source: "origin" or a decision id such as D1.')
+    return value
+
+
+def _provenance(value):
+    """Optional origin {by, at, quote}, decisions [{id, choice, alternative, cost}] and presentation (the words of the two owner messages)."""
+    out = {}
+    if value.get('origin') is not None:
+        origin = _keys(value['origin'], ('by', 'at', 'quote'), 'origin', ('by', 'at', 'quote'))
+        out['origin'] = {'by': text_field(origin['by'], 'origin.by', 100), 'at': text_field(origin['at'], 'origin.at', 100),
+                         'quote': text_field(origin['quote'], 'origin.quote', 500)}
+    if value.get('decisions') is not None:
+        out['decisions'] = _list(value['decisions'], 'decisions', 0, MAX_DECISIONS, _decision)
+        if len({d['id'] for d in out['decisions']}) != len(out['decisions']): raise LedgerError('decisions: duplicate id.')
+    if value.get('presentation') is not None:
+        shown = _keys(value['presentation'], PRESENTATION_TEXTS + PRESENTATION_LISTS, 'presentation')
+        out['presentation'] = {**{k: text_field(shown[k], 'presentation.' + k, 500) for k in PRESENTATION_TEXTS if k in shown},
+                               **{k: _texts(shown[k], 'presentation.' + k, 10) for k in PRESENTATION_LISTS if k in shown}}
+    return out
+
+
+def _decision(value):
+    value = _keys(value, ('id', 'choice', 'alternative', 'cost'), 'decision', ('id', 'choice', 'alternative', 'cost'))
+    if not isinstance(value['id'], str) or not DECISION_ID.fullmatch(value['id']): raise LedgerError('decision.id: D1, D2, ...')
+    return {'id': value['id'], **{k: text_field(value[k], 'decision.' + k, 300) for k in ('choice', 'alternative', 'cost')}}
 
 
 def _milestone(v):

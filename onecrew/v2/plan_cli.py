@@ -30,6 +30,11 @@ def _parser():
     p.add_argument('name'); p.add_argument('--file', required=True, type=Path)
     p.add_argument('--reason', required=True, help='At most 200 characters.'); p.add_argument('--author', required=True)
     p = plan.add_parser('precheck', help='Run the preconditions and the target check (0 AI calls) without approving.'); p.add_argument('name')
+    p = plan.add_parser('advise', help='One independent model call: three fixed questions about the latest revision, judged against the owner rules. Advice only.')
+    p.add_argument('name'); p.add_argument('--model', default='claude-opus-5-5', help='Must differ from the model that wrote the plan.')
+    rules = plan.add_parser('rules', help='The owner-rules file the advisor reads (<state-root>/plans/owner-rules.md).').add_subparsers(dest='action', required=True)
+    rules.add_parser('init', help='Copy examples/owner-rules.vi.md there if absent (never overwrites).')
+    rules.add_parser('show', help='Print the owner-rules file.')
     unknown = plan.add_parser('unknown', help='Unknowns of the understanding.').add_subparsers(dest='action', required=True)
     p = unknown.add_parser('close', help='Close an unknown with evidence; makes a new revision.')
     p.add_argument('name'); p.add_argument('id'); p.add_argument('--by', required=True, choices=['doc', 'poc', 'owner'])
@@ -67,6 +72,12 @@ def _dispatch(ledger, args):
         if args.command == 'show': return plans.show(ledger, args.name, args.revision)
         if args.command == 'approve': return plans.approve(ledger, args.name, args.by, args.reference, args.revision, args.tick, args.choose)
         if args.command == 'precheck': return step0.precheck(ledger, args.name)
+        if args.command == 'advise':
+            from .verifiers import advisor
+            return advisor.advise(ledger, args.name, args.model)
+        if args.command == 'rules':
+            from .verifiers import advisor
+            return advisor.init_rules(ledger) if args.action == 'init' else advisor.show_rules(ledger)
         if args.command == 'unknown': return step0.close_unknown(ledger, args.name, args.id, args.by, args.evidence)
         if args.command == 'poc':
             return step0.poc_record(ledger, args.name, args.unknown, args.answer, args.evidence, args.confidence,

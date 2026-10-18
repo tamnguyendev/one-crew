@@ -13,7 +13,7 @@ from .ownership import session_info
 
 ANCHOR = 'plan:'
 KINDS = ('plan.proposed', 'plan.amended', 'plan.approved', 'plan.accepted', 'verdict.recorded', 'milestone.passed',
-         'milestone.failed', 'milestone.stopped', 'attention.exceeded', 'dispatch.refused_no_plan', 'verdict.receipt_issued')
+         'milestone.failed', 'milestone.stopped', 'attention.exceeded', 'dispatch.refused_no_plan', 'verdict.receipt_issued', 'plan.advised')
 OWNER_ACTORS = ('user', 'owner')
 
 
@@ -47,7 +47,7 @@ def derive(ledger, conn, name):
     row = conn.execute('SELECT id FROM tasks WHERE project_id=? AND request_key=?', (ledger.project_id, ANCHOR + name)).fetchone()
     if not row: return None
     state = {'name': name, 'task_id': row['id'], 'revisions': {}, 'latest': 0, 'approved': None, 'accepted': None, 'verdicts': [],
-             'stopped': {}, 'issued': set(), 'exceeded': 0}
+             'stopped': {}, 'issued': set(), 'exceeded': 0, 'advice': {}}
     marks = ','.join('?' * len(KINDS))
     for event in conn.execute(f'SELECT seq,kind,payload FROM events WHERE task_id=? AND kind IN ({marks}) ORDER BY seq', (row['id'], *KINDS)):
         kind, p = event['kind'], json.loads(event['payload'])
@@ -60,6 +60,7 @@ def derive(ledger, conn, name):
         elif kind == 'verdict.recorded': state['verdicts'].append(dict(p, seq=event['seq']))
         elif kind == 'milestone.stopped': state['stopped'][p['revision']] = p
         elif kind == 'attention.exceeded': state['exceeded'] += 1
+        elif kind == 'plan.advised': state['advice'][p['revision']] = p       # the latest advice of a revision; it informs, it never decides
     state['status'] = status(state)
     return state
 
@@ -166,6 +167,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
         contract, sha = load(ledger, state, revision)
         approved, closed = state['approved'], step0.closed_events(conn, state['task_id'])
         written_by = state['revisions'][revision].get('content_author') or state['revisions'][revision].get('author')
+        advice = state['advice'].get(revision)
     if approved and approved['revision'] == revision and approved['sha'] == sha:   # a repeat is a no-op, but the choice is made once
         if choose is not None and choose != approved.get('chosen'):
             raise LedgerError(f'The choice was made once ({approved.get("chosen")}); changing it needs plan amend (a change request).')
@@ -173,7 +175,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
     should = {i['id'] for i in contract['items'] if i['tier'] == 'should'}
     ticked = sorted(set(tick))
     if set(ticked) - should: raise LedgerError('Only should items can be ticked: ' + ','.join(sorted(set(ticked) - should)))
-    verdict = step0.evaluate(ledger, name, revision, sha, contract, closed, choose, author=written_by)
+    verdict = step0.evaluate(ledger, name, revision, sha, contract, closed, choose, author=written_by, advice=advice)
     base_artifact = _base_artifact(ledger)
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
@@ -212,6 +214,12 @@ def accept(ledger, name, by, reference, artifact_sha):
     return show(ledger, name)
 
 
+def _advice_view(event, sha):
+    """The advisor's answers for `plan show` (objections included, never filtered), or None before `plan advise`."""
+    if not event: return None
+    return {k: event.get(k) for k in ('model', 'independence', 'usable', 'answers', 'receipt', 'at')} | {'current': event.get('sha') == sha}
+
+
 def show(ledger, name, revision=None):
     from . import step0
     with ledger.transaction() as conn:
@@ -227,6 +235,7 @@ def show(ledger, name, revision=None):
                 'revisions': [{'revision': r, 'sha': p['sha'], 'reason': p.get('reason')} for r, p in sorted(state['revisions'].items())],
                 'contract': dict(contract, items=items), 'milestones': milestone_views(contract, state, revision),
                 'step0': step0.step0_status(conn, state['task_id'], revision), 'size': contract['size'],
+                'origin': contract.get('origin'), 'decisions': contract.get('decisions'), 'advice': _advice_view(state['advice'].get(revision), sha),
                 'stop': dict(contracts.stop_limits(contract), repairs_used=sum(v['failures'] for v in milestone_views(contract, state, revision))),
                 'attention': {'questions_limit': contract['attention']['questions'], 'questions_used': len(requests),
                               'exceeded': state['exceeded']},

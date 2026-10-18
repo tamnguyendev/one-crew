@@ -66,3 +66,6 @@ Một dòng mỗi mục; `L#` là lát dự kiến.
 - Trạng thái dừng không cho `NAME=value cmd` (allowlist không đoán biến môi trường); cần thì thêm sau.
 - Hook chặn cả lệnh shell chỉ chứa văn bản có chữ "git ... push" hay dấu lớn hơn (bash_deny và dò redirect khớp text lệnh, không phân biệt dữ liệu với lệnh): đúng theo thiết kế, nhưng ồn khi ghi tài liệu bằng shell; dùng Write/Edit cho docs.
 - Bản 4 của job 4: allowlist shell khi kế hoạch dừng đã bị gỡ (ba vòng review M2 vẫn tìm ra lối lách: dấu nháy thoát, tên chương trình trùng, `cd` trước script). Khi dừng, đọc bằng Read/Grep/Glob.
+
+## Job 9 (ghi chú)
+- Cố vấn (`docs/v2-advisor.vi.md`): luật nguồn/origin/cố vấn chỉ áp cho hợp đồng dùng trường mới hoặc khi `<state-root>/plans/owner-rules.md` tồn tại (để không phá hợp đồng cũ và test cũ); chưa `plan rules init` thì approve vẫn như cũ. Phản đối không chặn; chưa có chỗ nào buộc chủ sở hữu đọc lời phản đối trước khi duyệt ngoài việc `plan show` in ra.

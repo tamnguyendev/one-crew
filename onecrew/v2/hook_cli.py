@@ -362,13 +362,17 @@ def prompt(args):
     if plan is None or plan.get('status') not in ('approved', 'stopped_with_report'): return 0
     text = str(event.get('prompt') or '').casefold()
     hit = next((k for k in plan.get('prompt_keywords', []) if str(k).casefold() in text), None)
-    if hit is None: return 0
+    rules = Path(plan.get('state_root') or '.') / 'plans' / 'owner-rules.md'
+    line = f"The owner's rules are in {rules}; read them before proposing or presenting anything." if rules.is_file() else None
+    if hit is None:
+        if line: print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': line}}, ensure_ascii=False))
+        return 0
     budget = plan.get('budget') or {}
     pending = next((m['id'] for m in plan.get('milestones', []) if m.get('state') != 'passed'), None)
     note = (f"Contract v{plan.get('revision')} says: {budget.get('max_calls')} calls, {budget.get('time')} minutes, next milestone {pending or 'none'}. "
             f"Spoken words are not in the ledger; change the contract with `onecrew plan amend` or file a CREQ.")
     record(root, plan, 'reminded', 'UserPromptSubmit', note, 'prompt_keyword:' + str(hit), session=event.get('session_id'))
-    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': note}}, ensure_ascii=False))
+    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': note + (' ' + line if line else '')}}, ensure_ascii=False))
     return 0
 
 
