@@ -45,6 +45,11 @@ def reasons(error):
 
 
 class Step0(Fixture):
+    def setUp(self):
+        super().setUp()
+        for relative, lines in (('x/y.py', 3), ('onecrew/conversations.py', 170)):                              # C12: the pointers the fixtures cite must resolve
+            path = self.root / relative; path.parent.mkdir(parents=True, exist_ok=True); path.write_text('x = 1\n' * lines)
+
     def refused(self, value, name='P1', **kw):
         self.propose(name, value)
         with self.assertRaises(LedgerError) as caught: plans.approve(self.ledger, name, 'owner', 'ref', **kw)
