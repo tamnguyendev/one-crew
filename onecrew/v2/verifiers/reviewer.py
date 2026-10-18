@@ -25,6 +25,7 @@ MAX_DIFF = 120_000          # bytes; a bigger diff is not reviewed (a partial re
 MAX_ANSWER = 200_000
 MAX_NOTE = 500
 NO_CHANGE = 'no change since approval'
+TRUSTED_BASES = ('first_approval', 'accepted')      # base_source values that come from a recorded event; a guessed base (last commit before approval) is not one
 MODEL_LIKE = re.compile(r'(claude|gpt|gemini|codex)-[a-z0-9.\-]*\d[a-z0-9.\-]*', re.I)
 FALLBACK_CLI = Path.home() / '.local' / 'bin' / 'claude.exe'
 
@@ -62,11 +63,18 @@ def check_independence(revision_event, config):
 
 # ---- artifact base and diff ----------------------------------------------------------------------------------------------
 
+def base_event(first_approval, accepted):
+    """The event whose tree the reviewer diffs against: the artifact of the latest accept when there is one, else the FIRST plan.approved of the
+    plan. A later approval (after an amendment) never moves the base, or work done before it would drop out of the review."""
+    if accepted and accepted.get('artifact_sha'): return {'base_artifact': accepted['artifact_sha'], 'at': accepted.get('at'), 'source': 'accepted'}
+    return dict(first_approval or {}, source='first_approval')
+
+
 def base_tree(directory, approved):
-    """(tree, source): the artifact recorded when the owner approved (plan.approved.base_artifact), else the tree of the last commit made before
-    the approval. A plan approved before the field existed has only the second."""
+    """(tree, source): the artifact recorded at the base event (plan.approved.base_artifact, see base_event), else the tree of the last commit made
+    before it. A plan approved before the field existed has only the second."""
     recorded = (approved or {}).get('base_artifact')
-    if recorded: return recorded, 'approval'
+    if recorded: return recorded, (approved or {}).get('source') or 'first_approval'
     at = (approved or {}).get('at')
     if not at: raise LedgerError('The plan has no approval time or base artifact; the reviewer has nothing to compare against.')
     top = command.toplevel(directory)
@@ -157,7 +165,7 @@ def expected_result(receipt):
     result = overall(receipt['criteria'], receipt['problems'], receipt['error'], receipt['timed_out'], receipt['artifact_sha'] == receipt['artifact_sha_after'])
     if result == 'pass' and not receipt.get('calls'):
         # A pass without a model call exists on one branch only: the tree is exactly the one recorded at approval. Anything else without a call is not a pass.
-        unchanged = (receipt.get('note') == NO_CHANGE and receipt.get('base_source') == 'approval' and not receipt.get('error')
+        unchanged = (receipt.get('note') == NO_CHANGE and receipt.get('base_source') in TRUSTED_BASES and not receipt.get('error')
                      and receipt.get('base_artifact') == receipt['artifact_sha'])
         if not unchanged: return 'inconclusive'
     return result
@@ -204,7 +212,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     store = Snapshots(ledger.state_root)
     started, begin = utcnow(), time.monotonic()
     answer, usage, error, timed_out, raw, calls, prompt, note = '', {}, None, False, b'', 0, None, None
-    if not diff.strip() and base_source == 'approval' and base == before: note = NO_CHANGE      # the tree is the one the owner approved: nothing to review, nothing to fix
+    if not diff.strip() and base_source in TRUSTED_BASES and base == before: note = NO_CHANGE      # the tree is the one the owner approved (or accepted): nothing to review, nothing to fix
     elif not diff.strip(): error = 'no change since approval; there is nothing to review'
     elif len(diff.encode('utf-8')) > MAX_DIFF: error = f'diff is {len(diff.encode("utf-8"))} bytes, over the {MAX_DIFF} cap; it is not reviewed in part'
     else:

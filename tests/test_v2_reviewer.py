@@ -186,7 +186,7 @@ class VerdictTests(ReviewerFixture):
         view = verdict.run(self.ledger, 'P1', 'M1', self.root)
         recorded, receipt = self.last_receipt()
         self.assertEqual((recorded['result'], recorded['calls'], self.calls()), ('pass', 0, 0))
-        self.assertEqual((receipt['note'], receipt['base_source'], receipt['error']), ('no change since approval', 'approval', None))
+        self.assertEqual((receipt['note'], receipt['base_source'], receipt['error']), ('no change since approval', 'first_approval', None))
         self.assertEqual([(c['verdict'], c['evidence']) for c in receipt['criteria']], [('pass', []), ('pass', [])])
         self.assertEqual(view['milestones'][0]['state'], 'passed')
 
@@ -201,6 +201,26 @@ class VerdictTests(ReviewerFixture):
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         recorded, receipt = self.last_receipt()
         self.assertEqual((recorded['calls'], self.calls(), receipt['note']), (1, 1, None))
+
+    def test_a_later_approval_does_not_move_the_base_of_the_review(self):
+        self.start()                                                                      # approval 1; then the work (a.txt gets "two")
+        first = [p for k, p in self.events() if k == 'plan.approved'][0]['base_artifact']
+        plans.amend(self.ledger, 'P1', plan_json(milestones=[reviewer_milestone()], title='Second look'), 'again', 'codex')
+        plans.approve(self.ledger, 'P1', 'owner', 'said yes again')
+        approvals = [p for k, p in self.events() if k == 'plan.approved']
+        self.assertEqual(len(approvals), 2); self.assertNotEqual(approvals[1]['base_artifact'], first)      # the second approval saw the work already done
+        self.reply(answer(row('R1'), row('R2')))
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        recorded, receipt = self.last_receipt()
+        self.assertEqual((receipt['base_artifact'], receipt['base_source'], recorded['calls'], self.calls()), (first, 'first_approval', 1, 1))
+        self.assertIn('+two', Snapshots(self.ledger.state_root).read_blob(receipt['diff']).decode())         # work before the second approval is still reviewed
+
+    def test_the_latest_accepted_artifact_is_the_base_when_there_is_one(self):
+        approval = {'base_artifact': 'a' * 40, 'at': '2026-10-18T00:00:00+00:00'}
+        self.assertEqual(reviewer.base_event(approval, None), dict(approval, source='first_approval'))
+        accepted = {'artifact_sha': 'b' * 40, 'at': '2026-10-19T00:00:00+00:00'}
+        self.assertEqual(reviewer.base_event(approval, accepted), {'base_artifact': 'b' * 40, 'at': accepted['at'], 'source': 'accepted'})
+        self.assertEqual(reviewer.base_event(approval, {'artifact_sha': None})['source'], 'first_approval')
 
     def test_a_pass_without_a_call_is_only_believed_for_an_unchanged_approved_tree(self):
         self.start(); (self.root / 'a.txt').write_text('one\n')

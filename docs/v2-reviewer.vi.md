@@ -33,3 +33,7 @@ Reviewer chỉ có Claude (hợp đồng từ chối provider khác). Receipt l�
 ## Diff rỗng so với cây đã duyệt (job 4)
 
 Khi cây đang xét **đúng bằng** cây chủ sở hữu duyệt (`base_source == "approval"` và `base_artifact == artifact_sha`, diff rỗng) thì không còn gì để review và cũng không còn gì để sửa: verdict là `pass`, receipt ghi `note: "no change since approval"`, `calls: 0`, mỗi tiêu chí `pass` với `evidence` rỗng. Verdict `pass` không phải lỗi nên không tính vào `repairs_used`/`failures`. Đây là nhánh DUY NHẤT pass mà không gọi model: `expected_result` coi một pass `calls: 0` là `inconclusive` nếu thiếu note đó, nếu base không đến từ approval, hoặc nếu cây khác base. Base lấy từ "commit cuối trước lúc duyệt" (plan cũ) mà diff rỗng vẫn là `inconclusive`, không gọi gì (như trước). Diff không rỗng vẫn gọi reviewer.
+
+### Cây gốc của reviewer (bản 3 của job 4)
+
+Cây gốc là cây ghi ở sự kiện `plan.approved` ĐẦU TIÊN của plan (`base_source: "first_approval"`), hoặc artifact của lần accept gần nhất nếu có (`base_source: "accepted"`). Amend giữa chừng và duyệt lại không bao giờ dời cây gốc, nên việc đã làm trước lần duyệt sau vẫn nằm trong diff được review. `verdict.run` chọn sự kiện (`reviewer.base_event`); không có `base_artifact` thì quay về commit cuối trước lúc duyệt đầu (nguồn đoán, không được pass khi diff rỗng). Nhánh pass không gọi model áp dụng cho `first_approval` và `accepted`; nguồn `approval` của các receipt cũ không còn được tin.

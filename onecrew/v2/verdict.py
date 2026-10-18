@@ -164,7 +164,9 @@ def run(ledger, name, milestone_id, directory=None):
         if state['status'] != 'approved': raise LedgerError(f'Plan {name} is {state["status"]}; nothing to verify.')
         contract, sha = plans.load(ledger, state)
         revision = state['latest']
-        written, approved = state['revisions'][revision], state['approved']
+        written = state['revisions'][revision]
+        first = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='plan.approved' ORDER BY seq LIMIT 1", (state['task_id'],)).fetchone()
+        approved = reviewer.base_event(json.loads(first['payload']) if first else state['approved'], state['accepted'])   # the reviewer's base never moves with a later approval
     milestone = next((m for m in contract['milestones'] if m['id'] == milestone_id), None)
     if milestone is None: raise LedgerError('Unknown milestone ' + milestone_id + '.')
     kind, config = milestone['verifier']['type'], milestone['verifier']['config']
