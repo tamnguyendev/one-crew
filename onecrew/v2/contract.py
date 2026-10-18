@@ -9,10 +9,16 @@ import re
 from pathlib import Path
 
 from ..ledger import LedgerError, canonical, content_hash, key_field, text_field
+from ..snapshots import scoped_path
 
 SCHEMA_VERSION = 2
-FIELDS = {'schema_version', 'title', 'understanding', 'output', 'scope', 'non_goals', 'items', 'milestones', 'budget', 'attention',
-          'profile_version'}
+FIELDS = {'schema_version', 'title', 'size', 'understanding', 'options', 'preconditions', 'output', 'scope', 'non_goals', 'items',
+          'milestones', 'budget', 'attention', 'profile_version'}
+SIZES = ('S', 'M', 'L')                    # S may omit options; M and L need the full step 0
+CONFIDENCE = ('high', 'medium', 'low')
+CLOSERS = ('doc', 'poc', 'owner')
+CHECKS = ('repo_exists', 'ref_resolves', 'path_exists', 'command_ok', 'sdk_version')
+MAX_OPTIONS, PRECONDITION_MAX_MINUTES = 5, 60
 TIERS = ('must', 'should', 'wont')
 MODES = ('once', 'until_pass')
 VERIFIERS = ('command', 'owner-manual')
@@ -68,6 +74,15 @@ def validate(value):
     if not any(i['tier'] == 'must' for i in items): raise LedgerError('items: at least one must item.')
     milestones = _list(value.get('milestones'), 'milestones', 1, MAX_MILESTONES, lambda v: _milestone(v))
     if len({m['id'] for m in milestones}) != len(milestones): raise LedgerError('milestones: duplicate id.')
+    output = _list(value.get('output'), 'output', 1, 12, lambda v: text_field(v, 'output', 500))
+    ids = output_ids(output)
+    uncovered = [oid for oid in ids if not any(oid in m['covers'] for m in milestones)]
+    if uncovered:   # contract echo: every output criterion must be verified by some milestone
+        raise LedgerError('output: no milestone covers ' + ', '.join(uncovered) + ' (milestones[].covers lists output ids ' + ids[0] + '..' + ids[-1] + ').')
+    stray = sorted({c for m in milestones for c in m['covers']} - set(ids))
+    if stray: raise LedgerError('milestones: covers names unknown output ' + ', '.join(stray) + '.')
+    size = value.get('size')
+    if size not in SIZES: raise LedgerError('size: S, M or L (a small contract may omit options; M and L need the full step 0).')
     for i in items:
         if i['milestone'] is not None and i['milestone'] not in {m['id'] for m in milestones}:
             raise LedgerError(f"items: {i['id']} names an unknown milestone.")
@@ -77,8 +92,9 @@ def validate(value):
     if not isinstance(attention, dict) or set(attention) != {'questions'}: raise LedgerError('attention: expected {"questions": N}.')
     if value.get('profile_version') is not None: raise LedgerError('profile_version must stay null in L1.')
     return {'schema_version': SCHEMA_VERSION, 'title': text_field(value.get('title'), 'title', 200),
-            'understanding': text_field(value.get('understanding'), 'understanding', 3000),
-            'output': _list(value.get('output'), 'output', 1, 12, lambda v: text_field(v, 'output', 500)),
+            'size': size, 'understanding': _understanding(value.get('understanding'), size),
+            'options': _options(value.get('options'), size),
+            'preconditions': _list(value.get('preconditions'), 'preconditions', 1, 10, _precondition), 'output': output,
             'scope': {'owned': _list(scope['owned'], 'scope.owned', 1, 40, lambda v: text_field(v, 'scope.owned', 300))},
             'non_goals': _list(value.get('non_goals', []), 'non_goals', 0, 20, lambda v: text_field(v, 'non_goals', 300)),
             'items': items, 'milestones': milestones,
@@ -96,14 +112,133 @@ def _item(v):
 
 
 def _milestone(v):
-    if not isinstance(v, dict) or set(v) - {'id', 'title', 'verifier', 'mode', 'max_repairs'}:
-        raise LedgerError('milestones: each takes id, title, verifier, mode and max_repairs.')
+    if not isinstance(v, dict) or set(v) - {'id', 'title', 'verifier', 'mode', 'max_repairs', 'covers'}:
+        raise LedgerError('milestones: each takes id, title, verifier, mode, max_repairs and covers.')
     mode = v.get('mode', 'once')
     if mode not in MODES: raise LedgerError('milestones: mode must be once or until_pass.')
     name = 'milestone ' + str(v.get('id'))
     return {'id': _id(v.get('id'), 'milestone id'), 'title': text_field(v.get('title'), 'milestone title', 300),
             'verifier': _verifier(v.get('verifier'), name), 'mode': mode,
-            'max_repairs': _int(v.get('max_repairs', 1), name + '.max_repairs', 0, MAX_REPAIRS_CAP)}
+            'max_repairs': _int(v.get('max_repairs', 1), name + '.max_repairs', 0, MAX_REPAIRS_CAP),
+            'covers': _list(v.get('covers', []), name + '.covers', 0, 12, lambda c: _id(c, name + '.covers'))}
+
+
+# ---- step 0: understanding, options, preconditions ----------------------------------------------------------------------
+
+def output_ids(output):
+    """Output criteria are identified by position: O1, O2, ... (so a criterion cannot be renamed away from its milestone)."""
+    return ['O' + str(n) for n in range(1, len(output) + 1)]
+
+
+def _texts(value, name, high):
+    return _list(value, name, 0, high, lambda v: text_field(v, name, 500))
+
+
+def _keys(value, allowed, name, required=None):
+    if not isinstance(value, dict) or set(value) - set(allowed) or (required and set(required) - set(value)):
+        raise LedgerError(f'{name}: expected an object with {", ".join(allowed)}.')
+    return value
+
+
+def _relative(value, name):
+    if value in ('.', ''): return '.'
+    if not isinstance(value, str): raise LedgerError(name + ': expected a relative path.')
+    return scoped_path(value)
+
+
+def _understanding(value, size):
+    """The owner reads this, not the AI's prose: restated goal, the target to be checked mechanically, assumptions with their
+    evidence, the confidence, and the unknowns. Anything the AI writes here is a claim until the ledger says otherwise
+    (an unknown is closed only by an unknown.closed event, an assumption only counts with evidence)."""
+    keys = ('restated_goal', 'target', 'assumptions', 'confidence', 'unknowns')
+    value = _keys(value, keys, 'understanding', keys)
+    if value['confidence'] not in CONFIDENCE: raise LedgerError('understanding.confidence: high, medium or low.')
+    target = _keys(value['target'], ('repo', 'ref', 'paths'), 'understanding.target', ('repo', 'ref', 'paths'))
+    ref = text_field(target['ref'], 'understanding.target.ref', 200)
+    if ref.startswith('-'): raise LedgerError('understanding.target.ref: not a ref.')
+    small = size == 'S'
+    assumptions = _list(value['assumptions'], 'understanding.assumptions', 0 if small else 1, 3 if small else 10, _assumption)
+    unknowns = _list(value['unknowns'], 'understanding.unknowns', 0, 10, _unknown)
+    if len({u['id'] for u in unknowns}) != len(unknowns): raise LedgerError('understanding.unknowns: duplicate id.')
+    return {'restated_goal': text_field(value['restated_goal'], 'understanding.restated_goal', 600 if small else 3000),
+            'target': {'repo': _relative(target['repo'], 'understanding.target.repo'), 'ref': ref,
+                       'paths': _list(target['paths'], 'understanding.target.paths', 0, 20, scoped_path)},
+            'assumptions': assumptions, 'confidence': value['confidence'], 'unknowns': unknowns}
+
+
+def _assumption(value):
+    value = _keys(value, ('text', 'evidence'), 'assumption', ('text',))
+    evidence = value.get('evidence')
+    return {'text': text_field(value['text'], 'assumption.text', 500),
+            'evidence': text_field(evidence, 'assumption.evidence', 1000) if evidence else None}   # a missing one is refused at approve
+
+
+def _unknown(value):
+    value = _keys(value, ('id', 'question', 'status', 'closed_by', 'evidence'), 'unknown', ('id', 'question', 'status'))
+    status, closer, evidence = value['status'], value.get('closed_by'), value.get('evidence')
+    if status not in ('open', 'closed'): raise LedgerError('unknown.status: open or closed.')
+    if status == 'open' and (closer or evidence): raise LedgerError('unknown: an open unknown has no closed_by or evidence.')
+    if status == 'closed' and (closer not in CLOSERS or not evidence):
+        raise LedgerError('unknown: a closed unknown needs closed_by (doc|poc|owner) and evidence.')
+    return {'id': _id(value['id'], 'unknown id'), 'question': text_field(value['question'], 'unknown.question', 500), 'status': status,
+            'closed_by': closer, 'evidence': text_field(evidence, 'unknown.evidence', 1000) if evidence else None}
+
+
+def _options(value, size):
+    """Brainstorm result: >=2 options, exactly one recommended with a reason. There is deliberately no `chosen`: the owner's
+    choice exists only in the plan.approved event (plan approve --choose), so the AI cannot make it."""
+    if value is None:
+        if size != 'S': raise LedgerError('options: size M and L need at least two options (only size S may omit them).')
+        return None
+    value = _keys(value, ('recommended', 'reason', 'items'), 'options', ('recommended', 'reason', 'items'))
+    items = _list(value['items'], 'options.items', 2, MAX_OPTIONS, _option)
+    if len({o['id'] for o in items}) != len(items): raise LedgerError('options: duplicate id.')
+    if value['recommended'] not in {o['id'] for o in items}: raise LedgerError('options.recommended must name exactly one option id.')
+    return {'recommended': value['recommended'], 'reason': text_field(value['reason'], 'options.reason', 500), 'items': items}
+
+
+def _option(value):
+    names = ('id', 'summary', 'evidence', 'strengths', 'weaknesses', 'unknowns', 'cost', 'risk')
+    value = _keys(value, names, 'option', names)
+    return {'id': _id(value['id'], 'option id'), 'summary': text_field(value['summary'], 'option.summary', 300),
+            'evidence': _texts(value['evidence'], 'option.evidence', 5), 'strengths': _texts(value['strengths'], 'option.strengths', 5),
+            'weaknesses': _texts(value['weaknesses'], 'option.weaknesses', 5), 'unknowns': _texts(value['unknowns'], 'option.unknowns', 5),
+            'cost': text_field(value['cost'], 'option.cost', 200), 'risk': text_field(value['risk'], 'option.risk', 200)}
+
+
+def _minutes(value, name):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= PRECONDITION_MAX_MINUTES:
+        raise LedgerError(f'{name}: minutes in (0, {PRECONDITION_MAX_MINUTES}].')
+    return value
+
+
+def _precondition(value):
+    """A cheap check of the starting point, run once at approve with no AI call: right repo, right layout, a base that builds."""
+    value = _keys(value, ('id', 'check', 'args', 'why'), 'precondition', ('id', 'check', 'args', 'why'))
+    check, args = value['check'], value['args']
+    if check not in CHECKS: raise LedgerError('precondition.check: one of ' + ', '.join(CHECKS) + '.')
+    name = 'precondition ' + str(value.get('id'))
+    if check in ('repo_exists', 'path_exists'):
+        args = {'path': _relative(_keys(args, ('path',), name + '.args', ('path',))['path'], name + '.path')}
+    elif check == 'ref_resolves':
+        args = _keys(args, ('repo', 'ref'), name + '.args', ('ref',))
+        ref = text_field(args['ref'], name + '.ref', 200)
+        if ref.startswith('-'): raise LedgerError(name + '.ref: not a ref.')
+        args = {'repo': _relative(args.get('repo', '.'), name + '.repo'), 'ref': ref}
+    else:
+        args = _keys(args, ('argv', 'cwd', 'max_minutes', 'pattern'), name + '.args', ('argv',) if check == 'command_ok' else ('argv', 'pattern'))
+        from ..work_contract import argv_value
+        if check == 'command_ok' and 'pattern' in args: raise LedgerError(name + ': command_ok takes no pattern.')
+        clean = {'argv': argv_value(args['argv'], name + '.argv'), 'cwd': _relative(args.get('cwd', '.'), name + '.cwd'),
+                 'max_minutes': _minutes(args.get('max_minutes', 5), name + '.max_minutes')}
+        if check == 'sdk_version':
+            try:
+                re.compile(text_field(args['pattern'], name + '.pattern', 200))
+            except re.error as error:
+                raise LedgerError(name + '.pattern is not a regular expression: ' + str(error)) from error
+            clean['pattern'] = args['pattern']
+        args = clean
+    return {'id': _id(value['id'], 'precondition id'), 'check': check, 'args': args, 'why': text_field(value['why'], name + '.why', 300)}
 
 
 # ---- immutable revisions on disk -------------------------------------------------------------------------------------

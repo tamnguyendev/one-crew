@@ -111,8 +111,9 @@ def propose(ledger, name, raw, author):
     return show(ledger, name)
 
 
-def amend(ledger, name, raw, reason, author):
-    """A new revision, never an edit. Approval and verdicts belong to a revision, so an amendment needs a new approval."""
+def amend(ledger, name, raw, reason, author, events=None):
+    """A new revision, never an edit. Approval and verdicts belong to a revision, so an amendment needs a new approval.
+    `events(revision)` -> [(kind, payload)] are written in the same transaction (step 0: unknown.closed, poc.answered)."""
     text_field(reason, 'reason', 200); text_field(author, 'author', 100)
     contract = contracts.validate(raw)
     with ledger.transaction(write=True) as conn:
@@ -125,24 +126,40 @@ def amend(ledger, name, raw, reason, author):
         emit(ledger, conn, state['task_id'], 'plan.amended', {'plan': name, 'revision': revision, 'from_revision': latest, 'sha': sha,
                                                                'parent_sha': state['revisions'][latest]['sha'], 'reason': reason,
                                                                'author': author, 'title': contract['title']})
+        for kind, payload in (events(revision) if events else ()): emit(ledger, conn, state['task_id'], kind, payload)
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
     return show(ledger, name)
 
 
-def approve(ledger, name, by, reference, revision=None, tick=()):
+def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
+    """Owner only, and only when step 0 is done (step0.evaluate): every reason it is not is returned in one refusal. The
+    owner's `choose` is recorded here and nowhere else."""
+    from . import step0
     require_owner(by, 'Approving a plan'); text_field(reference, 'reference', 500)
-    with ledger.transaction(write=True) as conn:
+    with ledger.transaction() as conn:                       # read first: the preconditions below may run for minutes
         state = anchor_events(ledger, conn, name)
         revision = revision or state['latest']
         if revision != state['latest']: raise LedgerError(f'Only the latest revision ({state["latest"]}) can be approved.')
         contract, sha = load(ledger, state, revision)
-        approved = state['approved']
-        if not (approved and approved['revision'] == revision and approved['sha'] == sha):  # a repeat is a no-op
-            should = {i['id'] for i in contract['items'] if i['tier'] == 'should'}
-            ticked = sorted(set(tick))
-            if set(ticked) - should: raise LedgerError('Only should items can be ticked: ' + ','.join(sorted(set(ticked) - should)))
+        approved, closed = state['approved'], step0.closed_events(conn, state['task_id'])
+    if approved and approved['revision'] == revision and approved['sha'] == sha:   # a repeat is a no-op, but the choice is made once
+        if choose is not None and choose != approved.get('chosen'):
+            raise LedgerError(f'The choice was made once ({approved.get("chosen")}); changing it needs plan amend (a change request).')
+        return show(ledger, name)
+    should = {i['id'] for i in contract['items'] if i['tier'] == 'should'}
+    ticked = sorted(set(tick))
+    if set(ticked) - should: raise LedgerError('Only should items can be ticked: ' + ','.join(sorted(set(ticked) - should)))
+    verdict = step0.evaluate(ledger, name, revision, sha, contract, closed, choose)
+    with ledger.transaction(write=True) as conn:
+        state = anchor_events(ledger, conn, name)
+        if state['latest'] != revision or state['revisions'][revision]['sha'] != sha:
+            raise LedgerError('The plan changed while step 0 was being checked; run approve again.')
+        if verdict['results']: step0.record_run(ledger, conn, state['task_id'], name, revision, sha, verdict, 'approve')
+        if verdict['ok']:
             emit(ledger, conn, state['task_id'], 'plan.approved', {'plan': name, 'revision': revision, 'sha': sha, 'by': by, 'reference': reference,
-                                                                    'ticked': ticked, 'actor_env': os.environ.get('ONECREW_ACTOR')})
+                                                                    'ticked': ticked, 'chosen': choose, 'actor_env': os.environ.get('ONECREW_ACTOR')})
+            step0.record_closed(ledger, conn, state['task_id'], name, revision, sha, verdict, choose)
+    if not verdict['ok']: raise LedgerError(step0.refusal_text(verdict))   # after the commit, so the precondition run stays recorded
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
     return show(ledger, name)
 
@@ -171,6 +188,7 @@ def accept(ledger, name, by, reference, artifact_sha):
 
 
 def show(ledger, name, revision=None):
+    from . import step0
     with ledger.transaction() as conn:
         state = anchor_events(ledger, conn, name)
         revision = revision or state['latest']
@@ -183,6 +201,7 @@ def show(ledger, name, revision=None):
                 'approved_revision': state['approved']['revision'] if state['approved'] else None,
                 'revisions': [{'revision': r, 'sha': p['sha'], 'reason': p.get('reason')} for r, p in sorted(state['revisions'].items())],
                 'contract': dict(contract, items=items), 'milestones': milestone_views(contract, state, revision),
+                'step0': step0.step0_status(conn, state['task_id'], revision), 'size': contract['size'],
                 'attention': {'questions_limit': contract['attention']['questions'], 'questions_used': len(requests),
                               'exceeded': state['exceeded']},
                 'questions': [{'request': r['id'], 'revision': r['revision'], 'state': r['state']} for r in requests],
