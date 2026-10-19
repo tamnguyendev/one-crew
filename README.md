@@ -1,5 +1,7 @@
 # OneCrew
 
+**v2.1.0:** hợp đồng công việc cho AI — xem [docs/CHANGELOG.md](docs/CHANGELOG.md) (có gì, giới hạn đã biết, cách chạy).
+
 OneCrew hướng tới một core local giữ **conversation chung → solution được duyệt → task thực thi → kết quả và phản hồi**, xuyên **Codex / Claude / Kiro** và các công cụ có adapter phù hợp. Công cụ trao đổi và worker thực hiện được chọn độc lập.
 
 **Kiến trúc hiện hành: [revision 9](docs/architecture.vi.md).** Đã triển khai conversation CLI/MCP, duyệt solution đúng hash trước job viết, consultation provider riêng chạy nền, change request và review lát đầu trước parallel DAG. Đã thử Claude review thật và hai CLI Claude/Codex đọc–ghi cùng CONV. Xem [hướng dẫn dùng và giới hạn](docs/revision9-implementation.vi.md), [evidence](docs/revision9-live-evidence.json) và [coverage](docs/proposal-coverage.md). JEV vẫn shadow; chưa có Desktop push callback hoặc Kiro MCP live evidence.
