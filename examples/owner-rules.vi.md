@@ -2,7 +2,7 @@
 
 Cố vấn chỉ phán xét theo các dòng dưới đây. Mỗi quy tắc một dòng, có mã R1..R6.
 
-R1. Build DEBUG để chạy thử; chỉ build RELEASE khi mọi thứ đã xong và đã được nghiệm thu.
+R1. Đang phát triển một tính năng thì chỉ build DEBUG; chỉ build RELEASE khi phát triển đã kết thúc, test đạt và chủ sản phẩm đã thử trên thiết bị thật, như một bước giao bản riêng.
 R2. Mỗi job chỉ có đúng hai tin nhắn gửi chủ sản phẩm: "Xin duyệt" và "Xin nghiệm thu", mỗi tin theo mẫu 5 mục bên dưới, cộng mục "Quyết định của tôi mà bạn chưa yêu cầu".
 R3. Mọi sản phẩm bàn giao (code, mockup, tài liệu, bản build) đều đi qua một hợp đồng v2.
 R4. Chẩn đoán chỉ đọc dưới khoảng 5 lệnh và các động từ của chủ sản phẩm nằm ngoài v2 nhưng phải được ghi log.
