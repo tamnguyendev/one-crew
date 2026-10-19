@@ -63,6 +63,15 @@ class World:
         # a plan whose contract file is gone: the report says so instead of guessing
         approved('gone', plan_json(title='Contract gone'))
         contracts.revision_path(cls.ledger, 'gone', 1).unlink()
+        # presentation fields (the owner's words) replace the English outputs; long texts must wrap, never be cut
+        cls.long_title = 'A very long title that goes past one hundred and fifty characters so that the old report would have cut it: ' + 'word ' * 12 + 'END-OF-TITLE'
+        cls.long_output = 'An output sentence that is also long enough to need wrapping over more than one line of the page ' + 'more ' * 30 + 'END-OF-OUTPUT'
+        pres = plan_json(title=cls.long_title, output=[cls.long_output], presentation={
+            'request': 'Chủ sở hữu muốn một trang báo cáo dễ đọc.', 'user_sees': ['Dòng kết luận ở trên cùng.', 'Giờ theo máy này.'],
+            'acceptance_steps': ['Mở trang báo cáo.', 'Đọc dòng Kết luận.']},
+            origin={'by': 'owner', 'at': 'chat 20/10', 'quote': 'tôi muốn biết nghiệm thu gì'}, decisions=[])
+        pres['items'] = [dict(i, source='origin') for i in pres['items']]
+        approved('pres', pres)
         # an approved plan with a commit made after approval that no receipt saw
         time.sleep(1.2)
         approved('rogue', plan_json(title='Out of control', milestones=[milestone(max_repairs=2)]))
@@ -94,7 +103,7 @@ def tearDownModule():
 
 class Scenario(unittest.TestCase):
     def setUp(self):
-        for name in ('temp', 'root', 'elsewhere', 'state', 'ledger', 'accepted_tree'): setattr(self, name, getattr(World, name))
+        for name in ('temp', 'root', 'elsewhere', 'state', 'ledger', 'accepted_tree', 'long_title'): setattr(self, name, getattr(World, name))
 
     def report(self, name, **kw):
         return report.render_report(self.state, name, **kw)
@@ -126,8 +135,58 @@ class ReportTests(Scenario):
         with self.ledger.transaction() as conn:
             task = plans.derive(self.ledger, conn, 'stp')['task_id']
         question = self.ledger.requests(task)[0]['question']['question']
-        self.assertIn(f'«{question}»', stopped)                     # the stop question, word for word
+        self.assertIn(f'«{question}»', ' '.join(stopped.split()))   # the stop question, word for word (only line breaks fold)
         self.assertIn('[mở]', stopped)
+
+    def test_the_conclusion_is_four_labelled_lines_before_section_1(self):
+        def head(name):
+            lines = self.report(name).splitlines()
+            top = lines[:lines.index('')]
+            return [l for l in top if not l.startswith(' ')]
+        self.assertEqual([l.split(':')[0] for l in head('acc')], ['Kết luận', 'Vì sao', 'Còn gì', 'Bạn cần làm'])
+        self.assertEqual(self.report('acc').splitlines()[0], 'Kết luận: XONG')
+        self.assertEqual(head('acc')[1:], ['Vì sao: mọi mốc đạt', 'Còn gì: should chưa có mốc đạt: S1', 'Bạn cần làm: không gì'])
+        self.assertLess(self.report('acc').index('Kết luận'), self.report('acc').index(SECTIONS[0]))
+        self.assertEqual(head('prop')[0::3] + head('prop')[1:3], ['Kết luận: ĐANG CHỜ', 'Bạn cần làm: duyệt bản 1', 'Vì sao: bản 1 chưa được duyệt',
+                                                                 'Còn gì: output chưa đạt: O1; should chưa có mốc đạt: S1'])
+        self.assertEqual(head('rogue')[0], 'Kết luận: ĐANG CHỜ'); self.assertEqual(head('rogue')[3], 'Bạn cần làm: nghiệm thu')
+        self.assertEqual(head('pres')[1], 'Vì sao: mốc M1 chưa có verdict')
+
+    def test_a_failed_milestone_is_explained_by_its_receipt(self):
+        failed = self.report('bad').splitlines()
+        self.assertEqual(failed[0], 'Kết luận: HỎNG')
+        self.assertEqual(failed[1], 'Vì sao: mốc M1: lệnh thoát mã 3')            # the receipt's exit code (BAD exits 3, no output)
+        self.assertEqual(failed[3], 'Bạn cần làm: không gì')
+        stopped = self.report('stp').splitlines()
+        self.assertEqual(stopped[0], 'Kết luận: DỪNG')
+        self.assertEqual(stopped[1], 'Vì sao: mốc M1: lệnh thoát mã 3 (max_repairs exceeded)')
+        self.assertEqual(stopped[3], 'Bạn cần làm: trả lời câu hỏi')
+        gone = self.report('gone').splitlines()
+        self.assertEqual(gone[:3], ['Kết luận: ĐANG CHỜ', f'Vì sao: {report.NO_DATA}', f'Còn gì: {report.NO_DATA}'])
+
+    def test_presentation_replaces_the_raw_outputs_and_they_return_without_it(self):
+        text = self.report('pres')
+        first = self.section(text, 1)
+        self.assertEqual(first[0], '  Yêu cầu: Chủ sở hữu muốn một trang báo cáo dễ đọc.')
+        self.assertIn('    1. Dòng kết luận ở trên cùng.', first); self.assertIn('    2. Đọc dòng Kết luận.', first)
+        self.assertTrue(first[-1].startswith('  Tiến độ: O1 CHƯA'))
+        self.assertNotIn('END-OF-OUTPUT', '\n'.join(first))                         # the English output is not printed when the owner's words are
+        self.assertIn('«The sample exists»', self.report('acc'))                    # no presentation: the outputs stay
+
+    def test_nothing_is_cut_long_text_wraps_and_times_are_local(self):
+        text = self.report('pres')
+        self.assertNotIn('…', text)
+        title = ' '.join(text.split())
+        self.assertIn(f'«{self.long_title}»', title)                                # the long title is whole, only wrapped
+        self.assertTrue(all(len(line) <= report.WIDTH for line in text.splitlines()))
+        self.assertGreater(len([l for l in text.splitlines() if l.startswith('  ') and 'word' in l]), 0)
+        output = ' '.join(self.report('bad', revision=1).split())
+        self.assertNotIn('UTC', output)
+        stamp = r'\d{4}-\d\d-\d\d \d\d:\d\d'
+        self.assertRegex(output, rf'từ {stamp} đến {stamp}, giờ máy này')
+        with self.ledger.transaction() as conn:
+            first = conn.execute('SELECT created_at FROM events ORDER BY seq LIMIT 1').fetchone()[0]
+        self.assertEqual(report._stamp(first), dt.datetime.fromisoformat(first).astimezone().strftime('%Y-%m-%d %H:%M'))
 
     def test_section_1_and_2_follow_the_verdicts(self):
         accepted = self.report('acc')
@@ -202,7 +261,7 @@ class ReportTests(Scenario):
     def test_unknown_plan_and_unknown_revision_are_refused(self):
         with self.assertRaises(LedgerError): self.report('nope')
         with self.assertRaises(LedgerError): self.report('acc', revision=9)
-        self.assertIn('bản 1/1', self.report('acc', revision=1).splitlines()[0])
+        self.assertIn('bản 1/1', self.report('acc', revision=1))
 
     def test_the_report_is_found_from_any_project_and_a_missing_ledger_is_refused(self):
         other = Ledger(self.elsewhere, self.state)
@@ -216,13 +275,19 @@ class DigestTests(Scenario):
 
     def test_open_plans_come_first_newest_event_first_and_closed_plans_make_one_line(self):
         lines = self.lines()
-        opened = [l for l in lines if 'chờ:' in l]
-        self.assertEqual([l.split()[0] for l in opened], ['rogue', 'gone', 'prop'])      # latest event first
+        opened = [l for l in lines if 'cần bạn làm gì:' in l]
+        self.assertEqual([l.split()[0] for l in opened], ['rogue', 'pres', 'gone', 'prop'])      # latest event first
         self.assertEqual(lines[-1], '3 việc đã đóng: 1 nghiệm thu, 1 dừng, 1 hỏng')
         self.assertEqual(len(lines), 1 + len(opened) + 1)
-        self.assertIn('prop', opened[2]); self.assertTrue(opened[2].endswith('chờ: chủ sở hữu'))
-        self.assertIn('rogue', opened[0]); self.assertIn('mốc 1/1', opened[0]); self.assertTrue(opened[0].endswith('chờ: chủ sở hữu'))
-        self.assertTrue(opened[1].endswith(f'chờ: {report.NO_DATA}'))                      # the contract file is gone
+        self.assertTrue(opened[3].endswith('cần bạn làm gì: duyệt bản 1'))
+        self.assertIn('mốc 1/1', opened[0]); self.assertTrue(opened[0].endswith('cần bạn làm gì: nghiệm thu'))
+        self.assertIn('mốc 0/1', opened[1]); self.assertTrue(opened[1].endswith('cần bạn làm gì: không gì'))     # the AI has not run a check yet
+        self.assertTrue(opened[2].endswith(f'cần bạn làm gì: {report.NO_DATA}'))             # the contract file is gone
+        self.assertNotIn('chờ:', '\n'.join(lines))
+
+    def test_the_action_column_for_every_state(self):
+        needs = {name: report._needs(report._lookup(self.state, name)) for name in ('acc', 'bad', 'stp', 'prop', 'rogue')}
+        self.assertEqual(needs, {'acc': 'không gì', 'bad': 'không gì', 'stp': 'trả lời câu hỏi', 'prop': 'duyệt bản 1', 'rogue': 'nghiệm thu'})
 
     def test_who_the_plan_waits_on(self):
         waits = {}
@@ -240,15 +305,15 @@ class DigestTests(Scenario):
     def test_at_most_ten_open_lines_and_a_note_for_the_rest(self):
         rows = [({'id': f'T{n}', 'project_id': 'p', 'project_path': '', 'request_key': f'plan:p{n}', 'created_at': f'2026-01-01T00:{n:02d}:00+00:00'},
                  f'2026-01-01T00:{n:02d}:00+00:00') for n in range(14)]
-        fake = {'name': 'x', 'state': {'status': 'proposed'}, 'views': [], 'contract': {'x': 1}, 'requests': [], 'revision': 1}
+        fake = {'name': 'x', 'state': {'status': 'proposed', 'latest': 1}, 'views': [], 'contract': {'x': 1}, 'requests': [], 'revision': 1}
 
         def gather(root, row, revision=None): return dict(fake, name=row['request_key'][5:])
         with patch.object(report, '_anchors', lambda root: rows), patch.object(report, '_gather', gather):
             lines = report.render_digest(self.state).splitlines()
-        opened = [l for l in lines if 'chờ:' in l]
+        opened = [l for l in lines if 'cần bạn làm gì:' in l]
         self.assertEqual(len(opened), 10)
         self.assertEqual([l.split()[0] for l in opened], [f'p{n}' for n in range(13, 3, -1)])      # newest first
-        self.assertIn('… còn 4 việc mở nữa', lines[-2]); self.assertEqual(lines[-1], '0 việc đã đóng: 0 nghiệm thu, 0 dừng, 0 hỏng')
+        self.assertIn('(còn 4 việc mở nữa', lines[-2]); self.assertEqual(lines[-1], '0 việc đã đóng: 0 nghiệm thu, 0 dừng, 0 hỏng')
 
 
 class ReadOnlyTests(Scenario):
