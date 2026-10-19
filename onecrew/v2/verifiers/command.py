@@ -7,6 +7,7 @@ well formed, is refused.
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -87,10 +88,31 @@ def _kill_tree(process):
     process.kill()
 
 
+MIN_SECONDS = 2.0                               # a success faster than this AND silent is named fast_and_silent (job 5: exit 0 in 0.8 s, no output, corrupted argv)
+NOT_FOUND_CODES = (127, 9009)                   # the shell's "command not found" (POSIX, cmd.exe)
+CONTROL = re.compile(r'[\x00-\x1f\x7f]')
+
+
+def suspicious_rule(receipt):
+    """Why a run that looks like a pass (or a missing program) cannot be believed, as `suspicious: <rule>`, or None. Judged from the
+    receipt's own fields, so the rule applies the same when verdict.record re-reads a receipt. A receipt written before the output sizes
+    were kept (no stdout_bytes) is not judged on emptiness."""
+    error = receipt.get('error') or ''
+    if error.startswith('FileNotFoundError') or receipt.get('exit_code') in NOT_FOUND_CODES: return 'suspicious: executable_not_found'
+    if receipt.get('exit_code') != 0 or receipt.get('timed_out'): return None
+    if any(CONTROL.search(a) for a in receipt.get('argv', ()) if isinstance(a, str)): return 'suspicious: control_char_argv'
+    if receipt.get('stdout_bytes') == 0 and receipt.get('stderr_bytes') == 0:
+        # Speed alone proves nothing (a device check prints its answer in 1-2 s): only a fast run that also printed nothing is named for both.
+        return 'suspicious: fast_and_silent' if receipt.get('seconds', MIN_SECONDS) < MIN_SECONDS else 'suspicious: empty_output'
+    return None
+
+
 def expected_result(receipt):
-    """The verdict a receipt supports: pass only on exit 0 with an unchanged artifact; fail on a real non-zero exit; else inconclusive."""
+    """The verdict a receipt supports: pass only on exit 0 with an unchanged artifact and no suspicious_rule; fail on a real non-zero exit;
+    else inconclusive."""
     if receipt['error'] or receipt['timed_out'] or receipt['exit_code'] is None or receipt['artifact_sha'] != receipt['artifact_sha_after']:
         return 'inconclusive'
+    if suspicious_rule(receipt): return 'inconclusive'
     return 'pass' if receipt['exit_code'] == 0 else 'fail'
 
 
@@ -131,5 +153,7 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
                'argv': argv, 'cwd': str(directory), 'exit_code': code, 'timed_out': timed_out, 'error': error,
                'seconds': round(time.monotonic() - begin, 2), 'started': started, 'artifact_sha': before, 'artifact_sha_after': after,
                'stdout': store.blob(out[-OUTPUT_CAP:]), 'stderr': store.blob(err[-OUTPUT_CAP:]),
-               'output_truncated': len(out) > OUTPUT_CAP or len(err) > OUTPUT_CAP}
+               'stdout_bytes': len(out), 'stderr_bytes': len(err), 'output_truncated': len(out) > OUTPUT_CAP or len(err) > OUTPUT_CAP}
+    rule = suspicious_rule(receipt)
+    if rule: receipt['suspicious'] = rule            # the receipt names the rule that made the verdict inconclusive
     return store.blob(canonical(receipt).encode('utf-8')), receipt

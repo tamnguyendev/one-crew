@@ -92,11 +92,18 @@ def build(ledger, name):
         if state['accepted'] and state['accepted']['revision'] == revision: status = 'accepted'
         elif revision in state['stopped']: status = 'stopped_with_report'
         task_id, latest = state['task_id'], state['latest']
+        later = {}                                                   # milestone -> seq of its latest verdict.recorded on this revision
+        for v in state['verdicts']:
+            if v['revision'] == revision: later[v['milestone']] = v['seq']
+        unanswered = sorted(m for (r, m), seq in state['issued_seq'].items() if r == revision and seq > later.get(m, 0))
+    questions = [r['id'] for r in ledger.requests(task_id, pending=True)]
     chosen = policy(ledger)
     root = Path(ledger.state_root).resolve()
     now = dt.datetime.now(dt.timezone.utc)
     return {'schema_version': 1, 'plan': name, 'revision': revision, 'plan_sha': sha, 'status': status,
             'pending_revision': latest if latest != revision else None, 'anchor_task': task_id,
+            # what the plan waits for outside the session: a receipt that has no verdict yet, an owner question nobody answered (the Stop hook lets go)
+            'waiting': {'receipt_without_verdict': unanswered, 'open_questions': questions},
             'mode': chosen.get('mode', 'log'), 'title': contract['title'], 'output': contract['output'],
             'owned': contract['scope']['owned'], 'non_goals': contract['non_goals'],
             'bash_deny': list(DEFAULT_BASH_DENY) + list(chosen.get('bash_deny', [])),

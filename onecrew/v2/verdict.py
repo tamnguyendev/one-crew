@@ -60,14 +60,16 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
     stopped = None
     with ledger.transaction(write=True) as conn:
         state = plans.anchor_events(ledger, conn, name)
-        if state['status'] != 'approved':
+        target = plans.resolve(ledger, state)
+        if target is None:
             raise LedgerError(f'No verdict can be recorded: plan {name} is {state["status"]}' + (
                 ' (the owner decides the next step; see the question on the plan)' if state['status'] == 'stopped_with_report' else '') + '.')
-        revision = state['latest']
+        revision = target['revision']                    # the latest, or the approved one while an amendment waits (unchanged milestones only)
         contract, sha = plans.load(ledger, state, revision)
         views = plans.milestone_views(contract, state, revision)
         index = next((i for i, m in enumerate(contract['milestones']) if m['id'] == milestone_id), None)
         if index is None: raise LedgerError('Unknown milestone ' + milestone_id + '.')
+        _refuse_frozen(name, target, milestone_id)
         milestone, view = contract['milestones'][index], views[index]
         earlier = [v['id'] for v in views[:index] if v['state'] != 'passed']
         if earlier: raise LedgerError('Milestone ' + earlier[0] + ' has not passed yet; milestones go in order.')
@@ -90,7 +92,7 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
             failures = view['failures'] + 1
             left = max(0, milestone['max_repairs'] - failures)
             plans.emit(ledger, conn, state['task_id'], 'milestone.failed', dict(base, result=result, failures=failures, repairs_left=left))
-            reason = stop_reason(contract, state, views, milestone, failures, artifact_sha)
+            reason = stop_reason(contract, state, views, milestone, failures, artifact_sha, revision)
             if reason:
                 stopped = dict(base, failures=failures, max_repairs=milestone['max_repairs'], reason=reason, mode=milestone['mode'])
                 plans.emit(ledger, conn, state['task_id'], 'milestone.stopped', stopped)
@@ -98,7 +100,7 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
         anchor = state['task_id']
     escalation = _escalate(ledger, name, anchor, stopped, limit) if stopped else None
     from . import active_plan; active_plan.export(ledger, name)  # L2: the hooks see the new milestone state
-    out = plans.show(ledger, name)
+    out = plans.show(ledger, name, revision)         # the revision the verdict was about (the approved one while an amendment waits)
     if escalation: out['stopped'] = escalation
     return out
 
@@ -112,13 +114,23 @@ def stuck_streak(state, revision, milestone_id, artifact_sha):
     return streak
 
 
-def stop_reason(contract, state, views, milestone, failures, artifact_sha):
+def _refuse_frozen(name, target, milestone_id):
+    """While an amendment waits for the owner, a milestone it changed does not run: not on the approved revision (its contract is being
+    replaced) and not on the pending one (not approved)."""
+    frozen = target['frozen']
+    if frozen and milestone_id in frozen['frozen']:
+        raise LedgerError(f'Milestone {milestone_id} of plan {name} is frozen: revision {frozen["pending_revision"]} changes it and is not approved yet. '
+                          f'Unchanged milestones ({", ".join(frozen["runnable"]) or "none"}) still run on revision {frozen["approved_revision"]}.')
+
+
+def stop_reason(contract, state, views, milestone, failures, artifact_sha, revision=None):
     """Why the verdict being recorded (a failure, already counted in `failures`) stops the plan, or None. The caps are the approved contract's: the AI cannot widen them."""
     limits = contracts.stop_limits(contract)
+    revision = revision or state['latest']
     if failures > milestone['max_repairs']: return 'max_repairs exceeded'
     if sum(v['failures'] for v in views) + 1 > limits['max_repairs_total']:
         return f'max_repairs_total exceeded ({limits["max_repairs_total"]} failed verdicts over all milestones)'
-    if stuck_streak(state, state['latest'], milestone['id'], artifact_sha) >= limits['max_stuck']:
+    if stuck_streak(state, revision, milestone['id'], artifact_sha) >= limits['max_stuck']:
         return f'max_stuck reached ({limits["max_stuck"]} failures in a row on an unchanged artifact)'
     return None
 
@@ -161,9 +173,11 @@ def run(ledger, name, milestone_id, directory=None):
     announced in the ledger (verdict.receipt_issued) before it is recorded, and record() accepts no other receipt."""
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
-        if state['status'] != 'approved': raise LedgerError(f'Plan {name} is {state["status"]}; nothing to verify.')
-        contract, sha = plans.load(ledger, state)
-        revision = state['latest']
+        target = plans.resolve(ledger, state)
+        if target is None: raise LedgerError(f'Plan {name} is {state["status"]}; nothing to verify.')
+        revision = target['revision']                    # the approved revision, which is not the latest while an amendment waits
+        contract, sha = plans.load(ledger, state, revision)
+        _refuse_frozen(name, target, milestone_id)
         written = state['revisions'][revision]
         first = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='plan.approved' ORDER BY seq LIMIT 1", (state['task_id'],)).fetchone()
         if first is None: raise LedgerError(f'Plan {name} has no plan.approved event; the reviewer has no base tree.')
@@ -181,7 +195,8 @@ def run(ledger, name, milestone_id, directory=None):
         blob, receipt = reviewer.run(ledger, name, revision, sha, milestone, directory, level, approved)
     with ledger.transaction(write=True) as conn:
         current = plans.anchor_events(ledger, conn, name)
-        if current['status'] != 'approved' or current['latest'] != revision: raise LedgerError(f'The plan changed while the {kind} ran; run it again.')
+        again = plans.resolve(ledger, current)
+        if again is None or again['revision'] != revision or (again['frozen'] and milestone_id in again['frozen']['frozen']): raise LedgerError(f'The plan changed while the {kind} ran; run it again.')
         plans.emit(ledger, conn, current['task_id'], 'verdict.receipt_issued',
                    {'plan': name, 'revision': revision, 'milestone': milestone_id, 'receipt': blob, 'cwd': str(directory)})
     return record(ledger, name, milestone_id, (command if kind == 'command' else reviewer).expected_result(receipt), kind, blob, receipt['artifact_sha'])

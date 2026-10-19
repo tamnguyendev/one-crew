@@ -47,7 +47,7 @@ def derive(ledger, conn, name):
     row = conn.execute('SELECT id FROM tasks WHERE project_id=? AND request_key=?', (ledger.project_id, ANCHOR + name)).fetchone()
     if not row: return None
     state = {'name': name, 'task_id': row['id'], 'revisions': {}, 'latest': 0, 'approved': None, 'accepted': None, 'verdicts': [],
-             'stopped': {}, 'issued': set(), 'exceeded': 0, 'advice': {}}
+             'stopped': {}, 'issued': set(), 'issued_seq': {}, 'exceeded': 0, 'advice': {}}
     marks = ','.join('?' * len(KINDS))
     for event in conn.execute(f'SELECT seq,kind,payload FROM events WHERE task_id=? AND kind IN ({marks}) ORDER BY seq', (row['id'], *KINDS)):
         kind, p = event['kind'], json.loads(event['payload'])
@@ -56,7 +56,9 @@ def derive(ledger, conn, name):
             state['latest'] = max(state['latest'], p['revision'])
         elif kind == 'plan.approved': state['approved'] = p
         elif kind == 'plan.accepted': state['accepted'] = p
-        elif kind == 'verdict.receipt_issued': state['issued'].add((p['revision'], p['milestone'], p['receipt']))
+        elif kind == 'verdict.receipt_issued':
+            state['issued'].add((p['revision'], p['milestone'], p['receipt']))
+            state['issued_seq'][(p['revision'], p['milestone'])] = event['seq']      # the latest issuance, to tell a receipt that still waits for its verdict
         elif kind == 'verdict.recorded': state['verdicts'].append(dict(p, seq=event['seq']))
         elif kind == 'milestone.stopped': state['stopped'][p['revision']] = p
         elif kind == 'attention.exceeded': state['exceeded'] += 1
@@ -95,6 +97,28 @@ def milestone_views(contract, state, revision):
                       'runs': len(mine), 'failures': failures, 'repairs_left': max(0, m['max_repairs'] - failures) if not passed else None,
                       'last_verdict': ({k: mine[-1].get(k) for k in ('result', 'by', 'artifact_sha', 'receipt', 'cwd')} if mine else None)})
     return views
+
+
+def resolve(ledger, state):
+    """The revision a verdict is about, or None when nothing is approved to run.
+
+    Normally that is the latest revision, once it is approved. While a newer revision is only proposed (an amendment waiting for the
+    owner), a milestone whose title and verifier are the same in both may still run on the APPROVED revision: `frozen` says which
+    milestones changed (blocked until the new revision is approved) and which did not. Invariant 1 holds: the revision a verdict runs on
+    always has a plan.approved event whose sha matches its file."""
+    if state['status'] == 'approved': return {'revision': state['latest'], 'frozen': None}
+    approved, latest = state['approved'], state['latest']
+    if (state['status'] != 'proposed' or not approved or approved['revision'] >= latest or state['accepted']
+            or approved['revision'] in state['stopped']
+            or state['revisions'].get(approved['revision'], {}).get('sha') != approved['sha']):
+        return None
+    old, _ = load(ledger, state, approved['revision'])
+    new, _ = load(ledger, state, latest)
+    now = {m['id']: m for m in new['milestones']}
+    same = [m['id'] for m in old['milestones'] if m['id'] in now and (m['title'], m['verifier']) == (now[m['id']]['title'], now[m['id']]['verifier'])]
+    changed = [m['id'] for m in old['milestones'] if m['id'] not in same]
+    return {'revision': approved['revision'], 'frozen': {'approved_revision': approved['revision'], 'pending_revision': latest,
+                                                         'frozen': changed, 'runnable': same}}
 
 
 def anchor_events(ledger, conn, name):
@@ -230,10 +254,15 @@ def show(ledger, name, revision=None):
         ticked = set(approved['ticked']) if approved else set()
         items = [dict(i, runs=i['tier'] == 'must' or (i['tier'] == 'should' and i['id'] in ticked)) for i in contract['items']]
         requests = [r for r in ledger.requests(state['task_id']) if r['question'].get('action', {}).get('type') == 'v2.plan_stopped']
-        return {'plan': name, 'status': state['status'], 'revision': revision, 'latest_revision': state['latest'], 'sha': sha,
+        target = resolve(ledger, state)
+        frozen = target['frozen'] if target and revision in (state['latest'], target['revision']) else None
+        views = milestone_views(contract, state, revision)
+        if frozen:       # a newer revision waits for the owner: which milestones stay runnable on the approved one, which are blocked
+            views = [dict(v, frozen=v['id'] in frozen['frozen']) for v in views]
+        out = {'plan': name, 'status': state['status'], 'revision': revision, 'latest_revision': state['latest'], 'sha': sha,
                 'approved_revision': state['approved']['revision'] if state['approved'] else None,
                 'revisions': [{'revision': r, 'sha': p['sha'], 'reason': p.get('reason')} for r, p in sorted(state['revisions'].items())],
-                'contract': dict(contract, items=items), 'milestones': milestone_views(contract, state, revision),
+                'contract': dict(contract, items=items), 'milestones': views,
                 'step0': step0.step0_status(conn, state['task_id'], revision), 'size': contract['size'],
                 'origin': contract.get('origin'), 'decisions': contract.get('decisions'), 'advice': _advice_view(state['advice'].get(revision), sha),
                 'stop': dict(contracts.stop_limits(contract), repairs_used=sum(v['failures'] for v in milestone_views(contract, state, revision))),
@@ -241,3 +270,5 @@ def show(ledger, name, revision=None):
                               'exceeded': state['exceeded']},
                 'questions': [{'request': r['id'], 'revision': r['revision'], 'state': r['state']} for r in requests],
                 'anchor_task': state['task_id'], 'state_root': str(ledger.state_root)}
+        if frozen: out['frozen'] = frozen
+        return out

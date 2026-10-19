@@ -403,6 +403,14 @@ def stop(args):
     if plan.get('status') != 'approved' or pending is None:
         session_state(root, session, {'stop_blocks': 0})
         return 0
+    waiting = plan.get('waiting') or {}
+    if waiting.get('receipt_without_verdict') or waiting.get('open_questions'):
+        # The turn can end: what is missing is not the session's to do. A receipt waits for its verdict (verdict run records it), or the owner
+        # has an open question. Nothing else lets go of an unfinished plan; the cap below still applies to it.
+        what = ('a receipt without a verdict for ' + ', '.join(waiting['receipt_without_verdict'])) if waiting.get('receipt_without_verdict') else ''
+        what += ('; ' if what else '') + ('an open owner question (' + ', '.join(waiting['open_questions']) + ')') if waiting.get('open_questions') else ''
+        record(root, plan, 'logged', 'Stop', f"waiting, the session is let go: {what}; milestone {pending['id']} ({pending['title']}) has no verdict yet", 'stop_waiting', session=session)
+        return 0
     state = session_state(root, session)
     reason = (f"Milestone {pending['id']} ({pending['title']}) has no passing verdict; run `onecrew verdict run --plan {plan['plan']} --milestone {pending['id']}` "
               f"(or `onecrew plan amend {plan['plan']}` to change the contract). Do not say it is done.")

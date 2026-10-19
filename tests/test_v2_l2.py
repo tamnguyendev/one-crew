@@ -40,7 +40,7 @@ class ReviewConditionTests(Fixture):
     def test_c8_the_command_runs_on_a_clean_checkout_not_on_the_live_workspace(self):
         (self.root / '.gitignore').write_text('__pycache__/\nnote.txt\n'); (self.root / 'm.py').write_text('VALUE = 0\n')
         self.git('add', '.'); self.git('commit', '-q', '-m', 'module')
-        check = 'import sys, os; import m; sys.exit(m.VALUE or (3 if os.path.exists("note.txt") else 0))'
+        check = 'import sys, os; import m; print("checked"); sys.exit(m.VALUE or (3 if os.path.exists("note.txt") else 0))'
         self.approved(value=plan_json(milestones=[milestone(argv=[PY, '-c', check])]))
         import py_compile
         poisoned = self.root / '__pycache__'; poisoned.mkdir()

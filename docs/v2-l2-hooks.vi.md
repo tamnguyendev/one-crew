@@ -44,3 +44,7 @@ Giới hạn thật: Bash không phải ranh giới bảo mật (hook đọc ch�
 ## Kế hoạch `stopped_with_report` (job 4, bản 4)
 
 Khi kế hoạch dừng, hook chặn tất cả: Edit/Write/MultiEdit/NotebookEdit và MỌI lệnh Bash/PowerShell đều exit 2, kể cả `cat` và `git status`; không có allowlist. Một allowlist lệnh shell (đã thử trong job 4) luôn có lối lách qua dấu nháy, `cd`, đường dẫn trùng tên chương trình hay tham số chạy lệnh, nên chủ sở hữu chọn bỏ hẳn. Để đọc bằng chứng (receipt, diff, tệp) khi dừng, dùng công cụ Read, Grep và Glob: chúng không đi qua hook này. Thông báo chặn nói rõ điều đó. Trạng thái `accepted` không bị hook chặn từ trước.
+
+## Hook `Stop` biết chờ (job 11a)
+
+`Stop` vẫn chặn kế hoạch chưa xong (tối đa `STOP_BLOCK_CAP` lần mỗi phiên, rồi thả), nhưng thả ngay (exit 0, ghi `logged` với `rule: stop_waiting`, không phải `stop_blocked`) khi kế hoạch đang chờ một việc không phải của phiên: (1) có `verdict.receipt_issued` cho mốc của revision đang chạy mà chưa có `verdict.recorded` sau nó, hoặc (2) có câu hỏi chủ sở hữu còn mở (request `pending` trên task neo). `active_plan.build` tính hai điều này vào trường `waiting` của tệp kế hoạch hoạt động (`receipt_without_verdict`, `open_questions`); hook chỉ đọc trường đó sau khi làm mới từ ledger. Hạn chế đã biết: biên lai chỉ được ghi SAU khi lệnh chạy xong, nên trong lúc `verdict run` còn đang chạy nền thì ledger chưa có gì để hook thấy; hook chỉ nhận ra giai đoạn "đã có biên lai, chưa có verdict" (thường rất ngắn) và câu hỏi mở.

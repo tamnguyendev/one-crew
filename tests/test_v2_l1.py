@@ -447,7 +447,7 @@ class LatestVerdictTests(Fixture):
         self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', second)['status'], 'accepted')
 
     def test_a_later_failure_reopens_a_passed_milestone(self):
-        check = 'import pathlib,sys; sys.exit(0 if pathlib.Path("a.txt").read_text().startswith("one") else 1)'
+        check = 'import pathlib,sys; print("checked"); sys.exit(0 if pathlib.Path("a.txt").read_text().startswith("one") else 1)'
         self.approved(value=plan_json(milestones=[milestone('M1', argv=[PY, '-c', check], max_repairs=2)]))
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         (self.root / 'a.txt').write_text('broken\n')

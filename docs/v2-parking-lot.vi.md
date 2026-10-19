@@ -72,3 +72,6 @@ Một dòng mỗi mục; `L#` là lát dự kiến.
 
 ## Job 9 (ghi chú)
 - Cố vấn (`docs/v2-advisor.vi.md`): luật nguồn/origin/cố vấn chỉ áp cho hợp đồng dùng trường mới hoặc khi `<state-root>/plans/owner-rules.md` tồn tại (để không phá hợp đồng cũ và test cũ); chưa `plan rules init` thì approve vẫn như cũ. Phản đối không chặn; chưa có chỗ nào buộc chủ sở hữu đọc lời phản đối trước khi duyệt ngoài việc `plan show` in ra.
+
+## Job 11a (ghi chú)
+- `plan lint` mới báo ký tự điều khiển trong `argv`, chưa đưa vào `contract.validate` (propose vẫn nhận `\x07`; chỉ `\0` và xuống dòng bị từ chối); một mốc `command` im lặng (không in gì) luôn `inconclusive` dù thật sự đạt, nên mốc kiểm phải in kết quả; `command.MIN_SECONDS` (2 giây) hiện chỉ đổi tên luật (`fast_and_silent`), không thêm điều kiện nào; hook `Stop` chỉ thấy biên lai SAU khi lệnh xong (chưa có sự kiện "bắt đầu chạy").
