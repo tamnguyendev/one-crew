@@ -19,6 +19,10 @@ def _parser():
     p.add_argument('--file', required=True, type=Path)
     p.add_argument('--author', required=True, help='Who wrote it (recorded, never trusted).')
     p = plan.add_parser('show'); p.add_argument('name'); p.add_argument('--revision', type=int)
+    p = plan.add_parser('report', help='One page of text from the ledger (read-only, no model): seven sections, Vietnamese labels.')
+    p.add_argument('name'); p.add_argument('--revision', type=int); p.add_argument('--out', type=Path, help='Also the only write: save the page here.')
+    p = plan.add_parser('digest', help='One line per plan in the state root; open plans first (read-only, no model).')
+    p.add_argument('--out', type=Path, help='Save the page here instead of printing it.')
     p = plan.add_parser('approve', help='Owner only.')
     p.add_argument('name'); p.add_argument('--by', required=True, help='Must be: owner'); p.add_argument('--reference', required=True, help='Where the owner said yes.')
     p.add_argument('--revision', type=int); p.add_argument('--tick', action='append', default=[], metavar='ITEM', help='Run this should item.')
@@ -66,8 +70,11 @@ def _parser():
 
 
 def _dispatch(ledger, args):
-    from . import gate, plan as plans, step0, verdict
+    from . import gate, plan as plans, report, step0, verdict
     if args.group == 'plan':
+        if args.command in ('report', 'digest'):         # read-only: a plan of any project in the state root, nothing written but --out
+            text = report.render_report(ledger.state_root, args.name, args.revision) if args.command == 'report' else report.render_digest(ledger.state_root)
+            return report.write_out(text, args.out, ledger.state_root) if args.out else text
         if args.command == 'propose': return plans.propose(ledger, args.name, read_json(args.file), args.author)
         if args.command == 'show': return plans.show(ledger, args.name, args.revision)
         if args.command == 'approve': return plans.approve(ledger, args.name, args.by, args.reference, args.revision, args.tick, args.choose)
@@ -100,8 +107,9 @@ def main(argv=None):
     args = _parser().parse_args(argv)
     ledger = Ledger(args.project, args.state_root)
     try:
-        from .gate import sync_refusals
-        sync_refusals(ledger)
+        if not (args.group == 'plan' and args.command in ('report', 'digest')):      # sync_refusals writes the ledger; report/digest never do
+            from .gate import sync_refusals
+            sync_refusals(ledger)
         result = _dispatch(ledger, args)
         print(result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, indent=2))
         return 0
