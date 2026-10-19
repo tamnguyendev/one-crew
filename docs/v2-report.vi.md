@@ -13,7 +13,7 @@ onecrew --state-root <state-root> plan digest [--out FILE]
 
 ## Bốn dòng kết luận (đầu trang, trước mục 1)
 
-Suy ra chỉ từ sổ: `Kết luận: XONG | HỎNG | DỪNG | ĐANG CHỜ` (đã nghiệm thu → XONG; một mốc hỏng hết lượt sửa → HỎNG; kế hoạch đã dừng → DỪNG; còn lại ĐANG CHỜ); `Vì sao:` mốc hỏng + dòng exit/lý do của biên nhận (mã thoát, hết giờ, dòng cuối của stderr/stdout, hoặc kết luận của reviewer), hay "mọi mốc đạt"; `Còn gì:` output chưa đạt, mục should chưa có mốc đạt, unknown còn mở, hay "không còn gì"; `Bạn cần làm:` nghiệm thu | duyệt bản N | trả lời câu hỏi | không gì.
+Suy ra chỉ từ sổ: `Kết luận: XONG | HỎNG | DỪNG | ĐANG CHỜ` (đã nghiệm thu → XONG; một mốc hỏng hết lượt sửa → HỎNG; kế hoạch đã dừng → DỪNG; còn lại ĐANG CHỜ); `Vì sao:` mốc hỏng + dòng exit/lý do của biên nhận (mã thoát, hết giờ, dòng cuối của stderr/stdout, hoặc kết luận của reviewer), hay "mọi mốc đạt"; `Còn gì:` output chưa đạt, mục should chưa có mốc đạt, unknown còn mở, hay "không còn gì"; `Bạn cần làm:` nghiệm thu | duyệt bản N | trả lời câu hỏi | không gì (kế hoạch dừng mà không còn câu hỏi mở: "quyết định việc đã dừng").
 
 ## Bảy mục (đúng thứ tự, thường dưới 60 dòng)
 

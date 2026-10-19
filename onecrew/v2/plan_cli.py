@@ -20,7 +20,7 @@ def _parser():
     p.add_argument('--author', required=True, help='Who wrote it (recorded, never trusted).')
     p = plan.add_parser('show'); p.add_argument('name'); p.add_argument('--revision', type=int)
     p = plan.add_parser('report', help='One page of text from the ledger (read-only, no model): seven sections, Vietnamese labels.')
-    p.add_argument('name'); p.add_argument('--revision', type=int); p.add_argument('--out', type=Path, help='Also the only write: save the page here.')
+    p.add_argument('name'); p.add_argument('--revision', type=int); p.add_argument('--out', type=Path, help='The only write: save the page here instead of printing it (refused inside the state root).')
     p = plan.add_parser('digest', help='One line per plan in the state root; open plans first (read-only, no model).')
     p.add_argument('--out', type=Path, help='Save the page here instead of printing it.')
     p = plan.add_parser('approve', help='Owner only.')

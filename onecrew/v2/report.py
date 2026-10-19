@@ -15,12 +15,13 @@ as it is: nothing is cut; long lines wrap at WIDTH and only whitespace is folded
 import datetime as dt
 import json
 import os
+import sqlite3
 import subprocess
 import textwrap
 from contextlib import contextmanager
 from pathlib import Path
 
-from ..ledger import Ledger, LedgerError
+from ..ledger import APP_ID, VERSION, Ledger, LedgerError
 from ..snapshots import Snapshots
 from . import contract as contracts, plan as plans, step0
 
@@ -45,9 +46,22 @@ class _Reader(Ledger):
 
     @contextmanager
     def transaction(self, write=False):
+        """The one door to the ledger in this module: sqlite is opened `mode=ro` (and `query_only`), here, so a write is an sqlite error."""
         if write: raise LedgerError('plan report/digest are read-only: they never write the ledger.')
-        with Ledger.transaction(self) as conn:
+        if not self.path.exists():
+            yield None
+            return
+        conn = sqlite3.connect(self.path.as_uri() + '?mode=ro', uri=True, timeout=10, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute('PRAGMA query_only=ON')
+            conn.execute('BEGIN')
+            if conn.execute('PRAGMA application_id').fetchone()[0] != APP_ID or conn.execute('PRAGMA user_version').fetchone()[0] not in (VERSION, 2, 3):
+                raise LedgerError('Unrecognized or unsupported ledger schema; nothing was read.')
             yield conn
+            conn.commit()
+        finally:
+            conn.close()
 
 
 def _wrap(text, indent='  ', hang=None):
@@ -269,6 +283,7 @@ def _milestones(f):
 
 
 def _minutes(f):
+    if not f['events']: return [f'  {NO_DATA}', '  Lệnh: chưa đếm được']
     first, last = f['events'][0][1], f['events'][-1][1]
     spent = (_when(last) - _when(first)).total_seconds() / 60
     budget = f['contract']['budget']['time'] if f['contract'] else None

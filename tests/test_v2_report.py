@@ -18,7 +18,7 @@ from unittest.mock import patch
 from onecrew.ledger import Ledger, LedgerError
 from onecrew.v2 import contract as contracts, plan as plans, plan_cli, report, verdict
 
-from test_v2_l1 import BAD, OK, milestone, plan_json
+from test_v2_l1 import BAD, milestone, plan_json
 
 SECTIONS = ['1. Output đạt tới đâu', '2. Mốc và verdict', '3. Phút so ngân sách', '4. Lần chặn', '5. Câu hỏi', '6. Chạy ngoài kiểm soát', '7. Bãi đỗ']
 
@@ -328,6 +328,20 @@ class ReadOnlyTests(Scenario):
         for name in ('acc', 'bad', 'stp', 'prop', 'gone', 'rogue'): self.report(name)
         report.render_digest(self.state)
         self.assertEqual(self.snapshot(), before)
+
+    def test_the_connection_is_sqlite_read_only(self):
+        import sqlite3
+        reader = report._Reader(self.state)
+        with reader.transaction() as conn:
+            self.assertEqual(conn.execute('PRAGMA query_only').fetchone()[0], 1)
+            with self.assertRaises(sqlite3.OperationalError): conn.execute("INSERT INTO events(task_id,kind,payload,created_at) VALUES('x','x','{}','x')")
+            with self.assertRaises(sqlite3.OperationalError): conn.execute('PRAGMA query_only=OFF'); conn.execute('DELETE FROM events')
+        self.assertIsNone(self.enter(report._Reader(Path(self.temp.name) / 'no-state')))      # no ledger: nothing is created
+        self.assertFalse((Path(self.temp.name) / 'no-state').exists())
+
+    @staticmethod
+    def enter(reader):
+        with reader.transaction() as conn: return conn
 
     def test_the_reader_refuses_to_write_and_needs_no_model(self):
         reader = report._Reader(self.state)
