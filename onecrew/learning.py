@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 from .ledger import Ledger, LedgerError, canonical, content_hash, text_field
+from .task_intake import outcomes  # noqa: F401  (core; re-exported)
 from .usage import summarize
 
 
@@ -53,14 +54,6 @@ def record(conn, ledger, task_id, state):
         ledger._event(conn,task_id,'learning.lesson',lesson)
         return True
     return False
-
-
-def outcomes(ledger,limit=50):
-    if type(limit) is not int or not 1<=limit<=200: raise LedgerError('limit must be 1-200.')
-    with ledger.transaction() as conn:
-        if conn is None: return []
-        rows=conn.execute("SELECT e.seq,e.payload FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.project_id=? AND e.kind='learning.outcome' ORDER BY e.seq DESC LIMIT ?",(ledger.project_id,limit)).fetchall()
-    return [{'event':r['seq'],**json.loads(r['payload'])} for r in rows]
 
 
 def propose(ledger,task_id,evidence,text):

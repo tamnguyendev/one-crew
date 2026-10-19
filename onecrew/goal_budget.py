@@ -5,32 +5,7 @@ import json
 
 from .ledger import Ledger, LedgerError, content_hash, exact_fields, text_field
 from .routing import instant
-
-
-def group(conn, task_id):
-    from .delivery_store import shared
-    delivery = shared(conn, task_id)
-    if delivery: return delivery
-    row = conn.execute("SELECT e.payload FROM events e, json_each(e.payload,'$.members') m WHERE e.kind='budget.group' AND json_extract(m.value,'$.task_id')=?", (task_id,)).fetchone()
-    if not row:
-        return None
-    result = json.loads(row['payload'])
-    ids = [r['task_id'] for r in result['members']]
-    slots = ','.join('?' for _ in ids)
-    totals = conn.execute(f'SELECT SUM(used_calls),SUM(reserved_calls) FROM executions WHERE task_id IN ({slots})', ids).fetchone()
-    result.update(used_calls=totals[0] or 0, reserved_calls=totals[1] or 0)
-    result['remaining_calls'] = max(0,result['max_calls']-result['used_calls']-result['reserved_calls'])
-    attempts = conn.execute(f"SELECT COUNT(*),SUM(status='unknown') FROM attempts WHERE task_id IN ({slots}) AND status IN ('reserved','running','unknown')",ids).fetchone()
-    result.update(active_attempts=attempts[0],unknown_attempts=attempts[1] or 0)
-    return result
-
-
-def cancellation_status(task_id, execution, budget):
-    """An owner cannot report stopped while any member still has an active attempt."""
-    goal = budget.get('goal')
-    if execution['cancel_requested'] and goal and goal['owner_task_id'] == task_id:
-        return 'cancelling' if goal['active_attempts'] else 'cancelled'
-    return execution['status']
+from .budget_core import cancellation_status, group  # noqa: F401  (the reads live in budget_core; re-exported)
 
 
 def create(workflow, owner_id, revision, proposal):

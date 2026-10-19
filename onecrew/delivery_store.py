@@ -5,10 +5,7 @@ import sqlite3
 import uuid
 
 from .ledger import LedgerError, canonical, content_hash
-
-
-def installed(conn):
-    return bool(conn and conn.execute("SELECT 1 FROM sqlite_master WHERE name='delivery_roots'").fetchone())
+from .budget_core import installed, root_id, shared  # noqa: F401  (the budget reads live in budget_core; re-exported)
 
 
 def ensure(conn,ledger=None):
@@ -22,30 +19,6 @@ def ensure(conn,ledger=None):
         finally:source.close();backup.close()
     conn.execute('CREATE TABLE IF NOT EXISTS delivery_roots(task_id TEXT PRIMARY KEY REFERENCES tasks(id), plan TEXT NOT NULL, revision TEXT NOT NULL)')
     conn.execute('CREATE TABLE IF NOT EXISTS delivery_children(task_id TEXT PRIMARY KEY REFERENCES tasks(id), root TEXT NOT NULL REFERENCES delivery_roots(task_id), node TEXT NOT NULL, generation INTEGER NOT NULL, UNIQUE(root,node,generation))')
-
-
-def root_id(conn, task):
-    if not installed(conn): return None
-    if conn.execute('SELECT 1 FROM delivery_roots WHERE task_id=?', (task,)).fetchone(): return task
-    row = conn.execute('SELECT root FROM delivery_children WHERE task_id=?', (task,)).fetchone()
-    return row[0] if row else None
-
-
-def shared(conn, task):
-    root = root_id(conn, task)
-    if root is None: return None
-    owner = conn.execute('SELECT * FROM tasks WHERE id=?', (root,)).fetchone()
-    from .budget import local_current
-    budget = local_current(conn, owner)
-    members = [root] + [r[0] for r in conn.execute('SELECT task_id FROM delivery_children WHERE root=? ORDER BY task_id', (root,))]
-    marks = ','.join('?' for _ in members)
-    counters = conn.execute(f'SELECT COALESCE(SUM(used_calls),0),COALESCE(SUM(reserved_calls),0) FROM executions WHERE task_id IN ({marks})', members).fetchone()
-    active = conn.execute(f"SELECT COUNT(*),COALESCE(SUM(status='unknown'),0) FROM attempts WHERE task_id IN ({marks}) AND status IN ('reserved','running','unknown')", members).fetchone()
-    plan = conn.execute('SELECT revision FROM delivery_roots WHERE task_id=?', (root,)).fetchone()[0]
-    return dict(owner_task_id=root, members=[{'task_id':t} for t in members], max_calls=budget['limits']['max_calls'],
-                deadline=budget['deadline'], used_calls=counters[0], reserved_calls=counters[1],
-                remaining_calls=max(0,budget['limits']['max_calls']-sum(counters)), active_attempts=active[0], unknown_attempts=active[1],
-                revision=content_hash({'root':root,'plan':plan,'budget':budget['revision']}), authority='sealed-delivery-plan')
 
 
 def guard(ledger, conn, task):

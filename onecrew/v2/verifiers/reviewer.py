@@ -16,8 +16,9 @@ import time
 from pathlib import Path
 
 from ...ledger import LedgerError, canonical, utcnow
-from ...qc_gate import independence
+from ...independence import independence
 from ...snapshots import Snapshots
+from ..claude_cli import cli_argv  # noqa: F401  (one finder; tests replace reviewer.cli_argv)
 from . import command
 
 VERDICTS = ('pass', 'fail', 'inconclusive')
@@ -27,15 +28,6 @@ MAX_NOTE = 500
 NO_CHANGE = 'no change since approval'
 TRUSTED_BASES = ('first_approval',)      # the only base_source an empty diff passes on without a call: the tree the owner approved. An accepted artifact or a guessed commit is diffed or inconclusive
 MODEL_LIKE = re.compile(r'(claude|gpt|gemini|codex)-[a-z0-9.\-]*\d[a-z0-9.\-]*', re.I)
-FALLBACK_CLI = Path.home() / '.local' / 'bin' / 'claude.exe'
-
-
-def cli_argv(env):
-    """The Claude CLI as an argv prefix: PATH of the filtered environment first, then the per-user install location. (Tests replace this.)"""
-    found = shutil.which('claude', path=env.get('PATH', ''))
-    if found: return [found]
-    if FALLBACK_CLI.exists(): return [str(FALLBACK_CLI)]
-    raise LedgerError('The Claude CLI was not found (PATH or ' + str(FALLBACK_CLI) + ').')
 
 
 # ---- who wrote the plan, and is the reviewer someone else ---------------------------------------------------------------

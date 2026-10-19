@@ -15,9 +15,9 @@ from pathlib import Path
 from ...ledger import LedgerError, canonical, utcnow
 from ...snapshots import Snapshots
 from .. import contract as contracts
+from ..claude_cli import default_model
 from . import command, reviewer
 
-DEFAULT_MODEL = 'claude-opus-5-5'
 PROVIDER = 'claude'
 VERDICTS = ('ok', 'objection')
 MAX_NOTE = 300
@@ -110,10 +110,11 @@ def call(prompt, model, env, scratch, limit):
 
 # ---- plan advise ------------------------------------------------------------------------------------------------------------
 
-def advise(ledger, name, model=DEFAULT_MODEL):
+def advise(ledger, name, model=None):
     """Ask the advisor about the latest revision and record `plan.advised`. Returns plan.show. The independence check runs first, so a refusal
     costs no call and records nothing. A missing rules file records advice that is `inconclusive` on all three questions and is not usable."""
     from .. import plan as plans
+    if model is None: model = default_model()
     if not isinstance(model, str) or not contracts.MODEL.fullmatch(model): raise LedgerError('model: expected a model id such as claude-opus-5-5.')
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)

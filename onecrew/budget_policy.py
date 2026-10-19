@@ -2,11 +2,8 @@
 import datetime as dt
 import math
 
-from .ledger import content_hash, canonical
-
-DEFAULT_CALLS = 100
-DEFAULT_SECONDS = 7200
-POLICY = {'version': 2, 'warning_fraction': .7, 'automatic_extension': False}
+from .ledger import canonical
+from .task_intake import DEFAULT_CALLS, DEFAULT_SECONDS, POLICY, recommend as core_recommend  # noqa: F401  (the intake defaults and advice are core)
 
 
 def watch_policy(policy, calls, seconds):
@@ -19,27 +16,7 @@ def watch_policy(policy, calls, seconds):
 
 def recommend(ledger, goal, mode, provider, model):
     from .learning import outcomes
-    # Exact goal, same project/mode/provider/model. Similar wording alone is not
-    # sufficient evidence to reduce a grant. Latest outcome wins per task.
-    latest = {}
-    for row in outcomes(ledger, 200): latest.setdefault(row['task'], row)
-    matching = [r for r in latest.values() if r.get('spec_revision') == content_hash(goal)
-                and (r.get('mode'), r.get('provider'), r.get('model')) == (mode, provider, model)]
-    good = [r for r in matching if r['phase'] == 'completed'
-            and r.get('verification') in ('passed', 'evidence_collected')
-            and r.get('acceptance') not in ('changes_requested', 'rejected')
-            and r.get('timing', {}).get('wall_seconds') is not None]
-    enough = len(good) >= 3 and len(good) == len(matching)
-    calls = min(10000, max(20, math.ceil(max(r['managed_calls'] for r in good) * 1.5))) if enough else DEFAULT_CALLS
-    seconds = min(28800, max(600, math.ceil(max(r['timing']['wall_seconds'] for r in good) * 1.5))) if enough else DEFAULT_SECONDS
-    return {'version': 1, 'classification': 'repeated_verified' if enough else 'insufficient_history',
-            'recommended': {'max_calls': calls, 'max_seconds': seconds},
-            'matching_tasks': len(matching), 'verified_tasks': len(good),
-            'evidence': [{'task': r['task'], 'event': r['event']} for r in matching],
-            'automatic_application': False, 'jev_used': False,
-            'limitations': ['Exact goal match only; environment may differ.',
-                           'Verification is not customer acceptance; wall time includes waits.',
-                           'Observed history is not proof that the proposed budget is sufficient.']}
+    return core_recommend(ledger, goal, mode, provider, model, outcomes)
 
 
 def timing(conn, task, state, attempts):

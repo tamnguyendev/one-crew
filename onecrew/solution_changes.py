@@ -1,24 +1,25 @@
-"""CREQ with a limit (DESIGN-MVP section 4, "CREQ co han"): with the v2 gate on, a solution change request must carry a `delta`
+"""(v1 side of the v2 gate: it reads the conversation tables, so it lives outside onecrew.v2.)
+CREQ with a limit (DESIGN-MVP section 4, "CREQ co han"): with the v2 gate on, a solution change request must carry a `delta`
 (what is added, dropped, or the budget change) and a `reason` of at most 200 characters, and at most MAX_CHANGES of them may be
 made for one conversation. The next one is refused and stops the plans bound to that conversation (stopped_with_report), so the
 owner decides instead of the AI negotiating forever. Called from solution_gate.question.
 """
 import json
 
-from ..ledger import LedgerError
+from .ledger import LedgerError
 
 MAX_CHANGES = 2
 DELTA_KEYS = ('add', 'drop', 'budget_delta')
 
 
 def check_request(ledger, cid, kind, reason, delta):
-    from . import gate
+    from .v2 import gate
     if not gate.enforced(ledger): return
     if not isinstance(reason, str) or not reason.strip() or len(reason) > 200:       # F5: every kind, the asker's own label decides nothing
         raise LedgerError('A request to the owner needs a reason of 1-200 characters (v2 gate on).')
     if kind == 'solution_change' and (not isinstance(delta, dict) or not delta or set(delta) - set(DELTA_KEYS) or len(json.dumps(delta)) > 1000):
         raise LedgerError('A change request needs a delta with at least one of add, drop, budget_delta (v2 gate on).')
-    from .. import conversations as c
+    from . import conversations as c
     with ledger.transaction() as conn:
         if not c.installed(conn): return
         made = list(conn.execute('SELECT payload FROM conversation_questions WHERE conversation=?', (cid,)))   # F5: all kinds count
@@ -32,7 +33,7 @@ def check_request(ledger, cid, kind, reason, delta):
 
 def _stop(ledger, name):
     """Stop the plan `name` at its current milestone (reason max_changes) and ask the owner the one question. True when stopped."""
-    from . import plan, verdict
+    from .v2 import plan, verdict
     with ledger.transaction(write=True) as conn:
         state = plan.derive(ledger, conn, name)
         if state is None or state['status'] != 'approved': return False

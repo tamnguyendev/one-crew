@@ -71,7 +71,7 @@ def publish(ledger,conn,task_id,state):
 
 
 def question(ledger,cid,key,text,reason,affected_tasks,source,kind='solution_change',delta=None):
-    from .v2.changes import check_request;check_request(ledger,cid,kind,reason,delta)  # v2: delta required, 200-char reason, at most 2 per conversation
+    from .solution_changes import check_request;check_request(ledger,cid,kind,reason,delta)  # v2: delta required, 200-char reason, at most 2 per conversation
     if kind not in ('solution_change','technical_review','clarification'):raise LedgerError('Invalid discussion request type.')
     c.clean(text,'question',1500);c.clean(reason,'reason',3000);c.clean(source,'source',100)
     if not isinstance(affected_tasks,list) or len(affected_tasks)>20 or len(set(affected_tasks))!=len(affected_tasks):raise LedgerError('Invalid affected task list.')

@@ -1,17 +1,49 @@
 [project]
 name = "onecrew"
-version = "2.1.0"
-description = "Local, content-bound spec review CLI"
+version = "2.2.0.dev0"
+description = "OneCrew v2: an AI work contract (approved plan, independent verdicts, human acceptance)"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.scripts]
-onecrew = "onecrew.cli:main"
-onecrew-entry-mcp = "onecrew.mcp_entry:main"
+onecrew = "onecrew.v2.cli:main"
 
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
+# The wheel ships the core and v2 only: exactly these modules (docs/v2-core.vi.md). Every module the others import (lazy imports
+# included) is in the list; tests/test_g1_core.py checks that, so a v1-only module cannot slip in or a needed one drop out.
+# The packages onecrew, onecrew.v2 and onecrew.v2.verifiers come in through their modules (their __init__.py is added by the build).
+# v1 (job, work, delivery, ...) runs from a checkout through onecrew_cli.py.
 [tool.setuptools]
-packages = ["onecrew"]
+packages = []
+py-modules = [
+    "onecrew.budget_core",
+    "onecrew.independence",
+    "onecrew.ledger",
+    "onecrew.model_preferences",
+    "onecrew.qc_intake",
+    "onecrew.routing",
+    "onecrew.snapshots",
+    "onecrew.specs",
+    "onecrew.task_intake",
+    "onecrew.work_contract",
+    "onecrew.v2.active_plan",
+    "onecrew.v2.claude_cli",
+    "onecrew.v2.cli",
+    "onecrew.v2.contract",
+    "onecrew.v2.gate",
+    "onecrew.v2.hook_cli",
+    "onecrew.v2.items",
+    "onecrew.v2.lint",
+    "onecrew.v2.ownership",
+    "onecrew.v2.plan",
+    "onecrew.v2.plan_cli",
+    "onecrew.v2.report",
+    "onecrew.v2.step0",
+    "onecrew.v2.verdict",
+    "onecrew.v2.verifiers.advisor",
+    "onecrew.v2.verifiers.command",
+    "onecrew.v2.verifiers.reviewer",
+]

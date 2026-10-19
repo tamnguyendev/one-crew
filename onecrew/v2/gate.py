@@ -44,7 +44,7 @@ def set_enforced(ledger, on, who, reference):
 def _over_budget(conn, task, budget):
     """A job may not carry larger limits than the approved plan's budget (invariant 3: the AI does not widen it). The limits
     compared are the CURRENT ones (original grant, or the latest extension), so widening after dispatch (C7) is caught too."""
-    from ..budget import local_current
+    from ..budget_core import local_current
     limits = local_current(conn, task)['limits']
     if limits['max_calls'] > budget['max_calls']:
         return f'the job allows {limits["max_calls"]} calls but the approved plan budget is {budget["max_calls"]}'

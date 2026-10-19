@@ -1,6 +1,7 @@
 """Keep existing spec CLI backwards compatible; add autonomous task commands."""
 import sys
 from . import specs
+from .v2.cli import GROUPS, HELP_LINES, route
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
@@ -29,10 +30,8 @@ def main(argv=None):
               '  skills     list / scan / review / approve / reject (recurring-task evidence)\n'
               '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
               '  qc         submit / status (judge a candidate branch built outside OneCrew: scope, fixed gate, independent review)\n'
-              '  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
-              '  verdict    record / run (v2 milestone verdicts with receipts)\n'
-              '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
-              '  host       install / register / start / stop / status / uninstall / run (runs jobs outside chat sessions)\n'
+              + HELP_LINES +
+              '  host      install / register / start / stop / status / uninstall / run (runs jobs outside chat sessions)\n'
               '  delivery   submit / start / resume / status / cancel (solution-level execution)\n'
               '  core       migrate / status / cancel / reconcile\n'
               '  work       enable / plan / run / start / runner / status / outputs / cancel / pause / resume / switch\n'
@@ -79,15 +78,8 @@ def main(argv=None):
     if len(args)>index and args[index]=='qc':
         from .qc_cli import main as qc_main
         return qc_main(args)
-    if len(args)>index and args[index] in ('hook','plan','verdict'):  # v2 (docs/v2-vs-v1.vi.md); no v1 verb is named plan, verdict or hook
-        from .v2.ownership import refuse_argv  # C3: the owner's verbs are refused inside an AI tool session
-        refused=refuse_argv(args[index:])
-        if refused:return refused
-        if args[index]=='hook':
-            from .v2.hook_cli import main as hook_main
-            return hook_main(args)
-        from .v2.plan_cli import main as v2_main
-        return v2_main(args)
+    if len(args)>index and args[index] in GROUPS:  # v2 (docs/v2-vs-v1.vi.md); no v1 verb is named plan, verdict or hook
+        return route(args,index)
     if len(args)>index and args[index]=='entry':
         from .entry_cli import main as entry_main
         return entry_main(args)

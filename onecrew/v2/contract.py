@@ -79,7 +79,7 @@ def _reviewer(config, name):
     narrow question the reviewer can answer with file:line, so a question that names no file or kind of change is refused here, at propose."""
     if not isinstance(config, dict) or set(config) - {'provider', 'model', 'criteria', 'max_minutes'} or {'provider', 'model', 'criteria'} - set(config):
         raise LedgerError(name + ': reviewer verifier takes provider, model, criteria and max_minutes.')
-    from ..qc_gate import NATIVE_REVIEWERS
+    from ..independence import NATIVE_REVIEWERS
     if config['provider'] not in NATIVE_REVIEWERS:
         raise LedgerError(f'{name}.provider: one of {", ".join(NATIVE_REVIEWERS)} (other vendors are not adapted yet).')
     model = config['model']

@@ -130,7 +130,7 @@ def anchor_events(ledger, conn, name):
 # ---- commands --------------------------------------------------------------------------------------------------------
 
 def _anchor(ledger, name, title):
-    from ..owned_intake import submit
+    from ..task_intake import submit
     return submit(ledger, f'Plan {name}: {title}'[:2000], ANCHOR + name, mode='audit')['id']
 
 
