@@ -22,7 +22,7 @@ OneCrew là hợp đồng công việc cho AI: AI chỉ làm trong plan đã đ�
 - Bước 0 hỏi MỘT lần, mỗi điều chưa rõ kèm mặc định: đúng yêu cầu (nhiều/ít hơn lời chủ sở hữu), phạm vi và file, môi trường kiểm có giống thật, nơi giao (trong repo; ngoài repo cần người điều phối), loại build theo vòng đời, thay đổi giữa chừng thấy trước (ghi thành decisions), cách chủ sở hữu nghiệm thu (đường bấm).
 - Hợp đồng JSON có `origin` (lời nguyên văn), `decisions`, `items[].source`, trường trình bày. Luôn `plan lint --file <json> --author <model id>` trước `plan propose`.
 - `plan advise` khi `decisions` không rỗng hoặc cỡ M/L. Rồi MỘT tin "Xin duyệt".
-- Chủ sở hữu tự `approve` + `enforce` trong terminal của họ (mẫu `scripts/owner/*.ps1`); AI không gõ các động từ đó (`plan approve|accept|enforce`, `hook mode`, `verdict record --by owner`).
+- Chủ sở hữu gõ `plan approve`, rồi `hook mode enforce --plan <tên>`, trong terminal của chính họ (mẫu `scripts/owner/approve.ps1` rồi `enforce.ps1`). AI không gõ các động từ đó (`plan approve|accept|enforce`, `hook mode`, `verdict record --by owner`).
 - Làm trong phạm vi hợp đồng, rồi `verdict run --plan <tên> --milestone <Mx>`; không nói "xong" trước verdict. Kết bằng `plan report` / `plan digest` và MỘT tin "Xin nghiệm thu". Báo cáo cho chủ sở hữu tối đa 6 dòng.
 - Không `git push`, không `git tag` từ phiên AI.
 
