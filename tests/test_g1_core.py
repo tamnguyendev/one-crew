@@ -186,10 +186,12 @@ class DefaultModelTests(unittest.TestCase):
         parsed = plan_cli._parser().parse_args(['plan', 'advise', 'P1'])
         self.assertIsNone(parsed.model)
 
-    def test_the_model_id_is_written_as_a_default_in_one_module_only(self):
-        pattern = re.compile(r'''(=|default\s*=)\s*['"]claude-opus-5-5['"]''')
+    def test_the_model_id_is_written_in_one_module_only(self):
+        """Any mention of the default id outside claude_cli (a default, a help text, a message) is a second place that goes stale. The only
+        mentions left are examples of what a model id looks like: "such as <id>", "like <id>" and "--author <id>"."""
+        example = re.compile(r'(such as|like|--author) claude-opus-5-5')
         holders = sorted(str(p.relative_to(ROOT)).replace('\\', '/') for p in (ROOT / 'onecrew').rglob('*.py')
-                         if pattern.search(p.read_text(encoding='utf-8')))
+                         if 'claude-opus-5-5' in example.sub('', p.read_text(encoding='utf-8')))
         self.assertEqual(holders, ['onecrew/v2/claude_cli.py'])
 
 

@@ -31,7 +31,7 @@ def main(argv=None):
               '  job        submit / start / run / status / outputs / cancel / resume (runtime-owned goals)\n'
               '  qc         submit / status (judge a candidate branch built outside OneCrew: scope, fixed gate, independent review)\n'
               + HELP_LINES +
-              '  host      install / register / start / stop / status / uninstall / run (runs jobs outside chat sessions)\n'
+              '  host       install / register / start / stop / status / uninstall / run (runs jobs outside chat sessions)\n'
               '  delivery   submit / start / resume / status / cancel (solution-level execution)\n'
               '  core       migrate / status / cancel / reconcile\n'
               '  work       enable / plan / run / start / runner / status / outputs / cancel / pause / resume / switch\n'

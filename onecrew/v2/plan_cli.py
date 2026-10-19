@@ -37,7 +37,7 @@ def _parser():
     p.add_argument('--reason', required=True, help='At most 200 characters.'); p.add_argument('--author', required=True)
     p = plan.add_parser('precheck', help='Run the preconditions and the target check (0 AI calls) without approving.'); p.add_argument('name')
     p = plan.add_parser('advise', help='One independent model call: three fixed questions about the latest revision, judged against the owner rules. Advice only.')
-    p.add_argument('name'); p.add_argument('--model', help='Must differ from the model that wrote the plan (default: ONECREW_DEFAULT_MODEL, else claude-opus-5-5).')
+    p.add_argument('name'); p.add_argument('--model', help='Must differ from the model that wrote the plan (default: ONECREW_DEFAULT_MODEL, or DEFAULT_MODEL in claude_cli).')
     rules = plan.add_parser('rules', help='The owner-rules file the advisor reads (<state-root>/plans/owner-rules.md).').add_subparsers(dest='action', required=True)
     rules.add_parser('init', help='Copy examples/owner-rules.vi.md there if absent (never overwrites).')
     rules.add_parser('show', help='Print the owner-rules file.')

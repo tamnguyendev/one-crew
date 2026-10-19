@@ -27,7 +27,7 @@ Mọi module còn lại của `onecrew/`: `workflow`, `owned*`, `delivery*`, `so
 
 `onecrew/v2/claude_cli.py` là chỗ duy nhất:
 - `cli_argv`: `shutil.which('claude')` trên PATH của môi trường lọc; không thấy thì thử theo hệ điều hành — Windows: `~\.local\bin\claude.exe`, `~\.claude\local\claude.exe`, `%APPDATA%\npm\claude.cmd|exe` (và `NPM_CONFIG_PREFIX`); Linux/macOS: `~/.local/bin/claude`, `~/.claude/local/claude`, `$NPM_CONFIG_PREFIX/bin/claude`, `~/.npm-global/bin/claude`, `/usr/local/bin`, `/opt/homebrew/bin`, `/usr/bin`. Lỗi liệt kê mọi nơi đã tìm.
-- `DEFAULT_MODEL = 'claude-opus-5-5'`, ghi đè bằng biến môi trường `ONECREW_DEFAULT_MODEL`. `plan advise` (không có `--model`) và `advisor.advise` dùng nó. Model của reviewer mỗi mốc vẫn do hợp đồng ghi rõ.
+- `DEFAULT_MODEL` (giá trị nằm trong `claude_cli.py`, không chép chỗ khác), ghi đè bằng biến môi trường `ONECREW_DEFAULT_MODEL`. `plan advise` (không có `--model`) và `advisor.advise` dùng nó. Model của reviewer mỗi mốc vẫn do hợp đồng ghi rõ.
 
 ## Build wheel
 
