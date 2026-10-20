@@ -155,6 +155,33 @@ class InitTests(Base):
         self.assertEqual(self.settings_path.read_text(encoding='utf-8'), '{ not json')
         self.assertFalse(where.config_file(self.repo).exists())            # nothing was written before the refusal
 
+    def test_a_wrong_shape_is_told_apart_from_bad_json_and_both_follow_the_language(self):
+        self.settings_path.parent.mkdir(parents=True)
+        self.settings_path.write_text('{"hooks": []}', encoding='utf-8')
+        english = self.init()
+        self.assertEqual(english[0], 2)
+        self.assertIn('wrong shape: "hooks" must be an object', english[1]); self.assertNotIn('not valid JSON', english[1])
+        self.settings_path.write_text('[1, 2]', encoding='utf-8')
+        self.assertIn('top level is not an object', self.init()[1])
+        self.settings_path.write_text('{ not json', encoding='utf-8')
+        self.assertIn('not valid JSON (line 1, column 3)', self.init()[1])
+        with patch.dict(os.environ, {'ONECREW_LANG': 'vi'}):
+            for text in ('{"hooks": []}', '[1]', '{ nope'):
+                self.settings_path.write_text(text, encoding='utf-8')
+                code, out = self.init()
+                self.assertEqual(code, 2)
+                self.assertNotRegex(out, r'\b(is not|must be|wrong|valid JSON|Nothing was changed)\b')       # no English sentence inside the Vietnamese one
+                self.assertTrue(DIACRITICS.search(out))
+            self.settings_path.write_text('{ nope', encoding='utf-8')
+            doctor = run(install.doctor, project=self.repo, state_root=self.state, exe=self.exe, claude=LOGGED_IN)[1]
+        self.assertTrue(any(l.startswith('FAIL') and 'JSON' in l and 'dòng' in l for l in doctor.splitlines()), doctor)
+        self.assertEqual(self.settings_path.read_text(encoding='utf-8'), '{ nope')
+
+    def test_the_claude_status_reason_is_a_code_not_an_english_sentence(self):
+        def silent(argv, **kw): return type('Done', (), {'stdout': 'odd', 'stderr': '', 'returncode': 3})()
+        with patch('onecrew.v2.claude_cli.cli_argv', return_value=['/x/claude']), patch.dict(os.environ, {'ONECREW_LANG': 'vi'}):
+            self.assertEqual(install.claude_status(run=silent), ('unknown', '/x/claude', 'mã thoát 3'))
+
     def test_without_yes_it_asks_and_a_no_writes_nothing(self):
         code, out = self.init(yes=False, ask=lambda prompt: 'n')
         self.assertEqual(code, 2)

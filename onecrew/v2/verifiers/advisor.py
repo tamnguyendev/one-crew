@@ -45,7 +45,7 @@ def rules_template(lang):
     try:
         return files('onecrew.templates').joinpath(name).read_bytes()
     except (OSError, ModuleNotFoundError):
-        raise LedgerError('The template onecrew/templates/' + name + ' is missing.')       # the old message, with the new place of the source
+        raise LedgerError('The template ' + str(Path(__file__).resolve().parents[2] / 'templates' / name) + ' is missing.')       # the old message; only the source path is new
 
 
 def init_rules(ledger, lang=None):

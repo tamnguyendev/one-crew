@@ -56,7 +56,7 @@ def claude_status(env=None, run=subprocess.run):
     try:
         done = run([*argv, 'auth', 'status'], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=LOGIN_TIMEOUT, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError) as error:
-        return 'unknown', path, type(error).__name__
+        return 'unknown', path, type(error).__name__                  # a code (the exception class), not a sentence
     text = ((done.stdout or '') + (done.stderr or '')).strip()
     try:
         value = json.loads(done.stdout)
@@ -66,10 +66,17 @@ def claude_status(env=None, run=subprocess.run):
         pass
     if done.returncode == 0 and not re.search(r'not\s+logged|logged\s+out|no\s+account', text, re.I): return 'ok', path, ''
     if re.search(r'not\s+logged|logged\s+out|no\s+account|login', text, re.I): return 'logged_out', path, ''
-    return 'unknown', path, f'exit {done.returncode}'
+    return 'unknown', path, t('why.exit', code=done.returncode)
 
 
 # ---- merging the settings file ----------------------------------------------------------------------------------------------
+
+class SettingsShape(ValueError):
+    """A settings file whose JSON is fine but whose shape is not (a key that should hold an object holds something else). Carries the key and the shape wanted."""
+    def __init__(self, key, expected):
+        super().__init__(key)
+        self.key, self.expected = key, expected
+
 
 def is_ours(handler):
     """A hook handler written by OneCrew: the installed `onecrew hook <verb>` form, or the checkout form (`-c ... onecrew.v2.hook_cli`)."""
@@ -84,10 +91,10 @@ def merge_settings(existing, ours):
     """`existing` with OneCrew's hooks and deny rules put in. Other keys, other tools' hooks, allow/deny entries stay; OneCrew's own entries are replaced in place."""
     merged = copy.deepcopy(existing)
     hooks = merged.setdefault('hooks', {})
-    if not isinstance(hooks, dict): raise ValueError('"hooks" is not an object')
+    if not isinstance(hooks, dict): raise SettingsShape('hooks', 'object')
     for event, entries in ours['hooks'].items():
         current = hooks.get(event, [])
-        if not isinstance(current, list): raise ValueError(f'"hooks.{event}" is not a list')
+        if not isinstance(current, list): raise SettingsShape('hooks.' + event, 'list')
         result, placed = [], False
         for entry in current:
             handlers = entry.get('hooks') if isinstance(entry, dict) else None
@@ -100,9 +107,9 @@ def merge_settings(existing, ours):
         if not placed: result += copy.deepcopy(entries)
         hooks[event] = result
     permissions = merged.setdefault('permissions', {})
-    if not isinstance(permissions, dict): raise ValueError('"permissions" is not an object')
+    if not isinstance(permissions, dict): raise SettingsShape('permissions', 'object')
     deny = permissions.setdefault('deny', [])
-    if not isinstance(deny, list): raise ValueError('"permissions.deny" is not a list')
+    if not isinstance(deny, list): raise SettingsShape('permissions.deny', 'list')
     deny += [rule for rule in ours['permissions']['deny'] if rule not in deny]
     return merged
 
@@ -118,14 +125,16 @@ def our_entries(settings):
 
 
 def read_settings(path):
-    """(dict, error). A missing file is an empty dict; a file that is not a JSON object is an error and is never overwritten."""
+    """(dict, reason). A missing file is an empty dict; a file that is not a JSON object is an error (reason = a sentence in the user's language) and is never overwritten."""
     if not path.exists(): return {}, None
     try:
         value = json.loads(path.read_text(encoding='utf-8-sig'))
-        if not isinstance(value, dict): raise ValueError('not a JSON object')
-        return value, None
+    except json.JSONDecodeError as error:
+        return None, t('settings.json_error', path=path, line=error.lineno, col=error.colno)
     except (OSError, ValueError) as error:
-        return None, f'{type(error).__name__}: {error}'
+        return None, t('settings.unreadable', path=path, code=type(error).__name__)
+    if not isinstance(value, dict): return None, t('settings.not_object', path=path)
+    return value, None
 
 
 def dump(value):
@@ -175,12 +184,12 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
     ours = hook_cli.portable_settings(exe, state)
     existing, bad = read_settings(settings_path)
     if bad:
-        say(t('init.bad_settings', path=settings_path, error=bad))
+        say(t('init.bad_settings', reason=bad))
         return 2
     try:
         merged = merge_settings(existing, ours)
-    except ValueError as error:
-        say(t('init.bad_settings', path=settings_path, error=error))
+    except SettingsShape as error:
+        say(t('init.bad_settings', reason=t('settings.shape', path=settings_path, field=error.key, expected=t('shape.' + error.expected))))
         return 2
     config = where.read_config(root)
     wanted_config = dict(config, state_root=str(state))
@@ -233,7 +242,7 @@ def check_hooks(root, state, exe):
     for name in ('settings.local.json', 'settings.json'):
         path = root / '.claude' / name
         data, bad = read_settings(path)
-        if bad: return 'FAIL', t('doctor.hook_bad', path=path, why=bad)
+        if bad: return 'FAIL', bad
         if data and our_entries(data): found.append((path, data))
     if not found:
         return 'FAIL', t('doctor.hook_missing', paths=' / '.join(str(root / '.claude' / n) for n in ('settings.local.json', 'settings.json')))
@@ -303,7 +312,7 @@ def doctor(project=None, state_root=None, exe=None, claude=claude_status):
         if not plan_file.is_file(): add('PASS', 'doctor.plan', t('doctor.plan_none'))
         else:
             plan, bad = hook_cli.load_plan(plan_file)
-            if bad: add('FAIL', 'doctor.plan', t('doctor.plan_bad', why=bad))
+            if bad: add('FAIL', 'doctor.plan', t('doctor.plan_bad', why=bad.split(':')[0]))
             else: add('PASS', 'doctor.plan', t('doctor.plan_ok', name=plan.get('plan'), revision=plan.get('revision'), mode=plan.get('mode')))
     for level, name, detail in lines: say(f'{level} {name}: {detail}')
     counts = {level: sum(1 for l in lines if l[0] == level) for level in ('FAIL', 'WARN', 'PASS')}
