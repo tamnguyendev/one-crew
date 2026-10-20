@@ -233,6 +233,16 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
     return show(ledger, name)
 
 
+def _base_tracked(ledger):
+    """The tree of the tracked files as the owner approves (HEAD + changes to tracked files, never an untracked file): where a reviewer's diff
+    starts, so no untracked content can be on the base side of it. None outside a Git repository."""
+    from .verifiers import command
+    try:
+        return command.tracked_tree(ledger.project)
+    except (LedgerError, OSError, subprocess.SubprocessError):
+        return None
+
+
 def _base_artifact(ledger):
     """The tree the project is in as the owner approves: what a reviewer verifier later diffs against. None outside a Git repository."""
     from .verifiers import command
@@ -263,7 +273,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
     ticked = sorted(set(tick))
     if set(ticked) - should: raise LedgerError('Only should items can be ticked: ' + ','.join(sorted(set(ticked) - should)))
     verdict = step0.evaluate(ledger, name, revision, sha, contract, closed, choose, author=written_by, advice=advice)
-    base_artifact = _base_artifact(ledger)
+    base_artifact, base_tracked = _base_artifact(ledger), _base_tracked(ledger)
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
         if state['latest'] != revision or state['revisions'][revision]['sha'] != sha:
@@ -271,17 +281,30 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
         if verdict['results']: step0.record_run(ledger, conn, state['task_id'], name, revision, sha, verdict, 'approve')
         if verdict['ok']:
             emit(ledger, conn, state['task_id'], 'plan.approved', {'plan': name, 'revision': revision, 'sha': sha, 'by': by, 'reference': reference,
-                                                                    'ticked': ticked, 'chosen': choose, 'base_artifact': base_artifact, **session_info()})
+                                                                    'ticked': ticked, 'chosen': choose, 'base_artifact': base_artifact,
+                                                                    **({'base_tracked': base_tracked} if base_tracked else {}), **session_info()})
             step0.record_closed(ledger, conn, state['task_id'], name, revision, sha, verdict, choose)
     if not verdict['ok']: raise LedgerError(step0.refusal_text(verdict))   # after the commit, so the precondition run stays recorded
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
     return show(ledger, name)
 
 
+def _as_tree(ledger, value):
+    """What `--artifact-sha` names, as a tree hash: a commit or a ref is read as its tree (an artifact is a tree). A value git cannot resolve is
+    returned as it is, so it still fails the comparison with the verdicts' artifacts."""
+    from .verifiers import command
+    if not isinstance(value, str) or not value or value.startswith('-'): return value
+    try:
+        return command._git(ledger.project, 'rev-parse', '--verify', '-q', value + '^{tree}') or value
+    except (LedgerError, OSError, subprocess.SubprocessError):
+        return value
+
+
 def accept(ledger, name, by, reference, artifact_sha):
     """The owner's acceptance. Refused unless every milestone of the current revision has a passing verdict and the final one
     was observed on exactly the artifact being accepted (invariants 4 and 6)."""
     require_owner(by, 'Accepting the result'); text_field(reference, 'reference', 500)
+    artifact_sha = _as_tree(ledger, artifact_sha)
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
         repeat = state['status'] == 'accepted' and state['accepted']['artifact_sha'] == artifact_sha

@@ -122,13 +122,22 @@ def without_untracked(directory, base, current, at=None):
 
 
 def review_diff(directory, approved, previous=None):
-    """(diff, base, base_source): exactly what a reviewer is sent. `previous` = (artifact, time) of this milestone's latest pass, if any."""
+    """(diff, base, base_source, tracked): exactly what a reviewer is sent, and the tracked tree it was cut against.
+    `previous` = (artifact, time, tracked tree or None) of this milestone's latest pass, if any.
+
+    Both sides of the diff are tracked-only trees. The side before is the `tracked_tree` that pass recorded in its receipt, else the `base_tracked`
+    the owner's approval recorded (next to `base_artifact`): trees made without add -A, so no untracked content can be in them. Only a plan that
+    recorded neither (an older ledger) falls back to the artifact (add -A) as the base, from which without_untracked removes what it can tell was
+    only lying around."""
     directory = Path(directory).resolve()
     base, base_source = base_tree(directory, approved)
-    at = (approved or {}).get('at')
-    if previous: (base, at), base_source = previous, 'previous_pass'
+    at, before = (approved or {}).get('at'), None
+    if previous:
+        (base, at), base_source, before = previous[:2], 'previous_pass', previous[2] if len(previous) > 2 else None
+    elif (approved or {}).get('base_artifact') and (approved or {}).get('base_tracked'):
+        before = approved['base_tracked']
     tracked = command.tracked_tree(directory)
-    return tree_diff(directory, without_untracked(directory, base, tracked, at), tracked), base, base_source
+    return tree_diff(directory, before or without_untracked(directory, base, tracked, at), tracked), base, base_source, tracked
 
 
 # ---- prompt and answer ----------------------------------------------------------------------------------------------------
@@ -249,7 +258,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     config = milestone['verifier']['config']
     directory = Path(directory).resolve()
     if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
-    diff, base, base_source = review_diff(directory, approved, previous)
+    diff, base, base_source, tracked = review_diff(directory, approved, previous)
     before = command.artifact_sha(directory)
     store = Snapshots(ledger.state_root)
     started, begin = utcnow(), time.monotonic()
@@ -272,7 +281,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     after = command.artifact_sha(directory)
     receipt = {'kind': 'reviewer-receipt', 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
                'config': config, 'cwd': str(directory), 'started': started, 'seconds': round(time.monotonic() - begin, 2),
-               'artifact_sha': before, 'artifact_sha_after': after, 'base_artifact': base, 'base_source': base_source,
+               'artifact_sha': before, 'artifact_sha_after': after, 'base_artifact': base, 'base_source': base_source, 'tracked_tree': tracked,
                'diff': store.blob(diff.encode('utf-8')), 'prompt': store.blob(prompt.encode('utf-8')) if prompt else None,
                'answer': store.blob(answer.encode('utf-8')) if answer else None, 'raw': store.blob(raw[-1_000_000:]) if raw else None,
                'calls': calls, 'note': note, 'usage': usage, 'error': error, 'timed_out': timed_out, 'problems': problems,

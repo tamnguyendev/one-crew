@@ -171,13 +171,23 @@ def inside_project(ledger, directory):
     return resolved
 
 
-def _review_context(conn, state, milestone_id):
-    """(base event, (artifact, time) of this milestone's latest pass or None): where the reviewer's diff starts. The base never moves with a later approval;
+def _tracked_of(ledger, receipt):
+    """The tracked tree a reviewer receipt recorded, or None (an older receipt, or one that cannot be read)."""
+    try:
+        tree = json.loads(Snapshots(ledger.state_root).read_blob(receipt).decode('utf-8')).get('tracked_tree')
+    except (OSError, ValueError, LedgerError, AttributeError):
+        return None
+    return tree if isinstance(tree, str) and tree else None
+
+
+def _review_context(ledger, conn, state, milestone_id):
+    """(base event, (artifact, time, tracked tree or None) of this milestone's latest pass, or None): where the reviewer's diff starts. The base never moves with a later approval;
     once this very milestone has passed (on any revision) the diff starts from what it passed on, so a repair is reviewed alone."""
     first = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='plan.approved' ORDER BY seq LIMIT 1", (state['task_id'],)).fetchone()
     if first is None: raise LedgerError(f'Plan {state["name"]} has no plan.approved event; the reviewer has no base tree.')
-    passes = [(v['artifact_sha'], v.get('at')) for v in state['verdicts'] if v['milestone'] == milestone_id and v['result'] == 'pass']      # (artifact, when it passed)
-    return reviewer.base_event(json.loads(first['payload']), state['accepted']), (passes[-1] if passes else None)
+    passes = [v for v in state['verdicts'] if v['milestone'] == milestone_id and v['result'] == 'pass']
+    last = passes[-1] if passes else None
+    return reviewer.base_event(json.loads(first['payload']), state['accepted']), ((last['artifact_sha'], last.get('at'), _tracked_of(ledger, last.get('receipt'))) if last else None)
 
 
 def _directory(ledger, milestone, directory):
@@ -195,7 +205,7 @@ def diff(ledger, name, milestone_id):
         milestone = next((m for m in contract['milestones'] if m['id'] == milestone_id), None)
         if milestone is None: raise LedgerError('Unknown milestone ' + milestone_id + '.')
         if milestone['verifier']['type'] != 'reviewer': raise LedgerError('Milestone ' + milestone_id + ' is not verified by a reviewer.')
-        approved, previous = _review_context(conn, state, milestone_id)
+        approved, previous = _review_context(ledger, conn, state, milestone_id)
     return reviewer.review_diff(_directory(ledger, milestone, None), approved, previous)[0]
 
 
@@ -224,7 +234,7 @@ def run(ledger, name, milestone_id, directory=None):
             if earlier: raise LedgerError('Milestone ' + earlier[0] + ' has not passed yet; milestones go in order.')
             if views[index]['state'] == 'passed' and not views[index].get('neutral_diff'):
                 raise LedgerError(f'Milestone {milestone_id} already passed on revision {revision} for this artifact.')
-        approved, previous = _review_context(conn, state, milestone_id)
+        approved, previous = _review_context(ledger, conn, state, milestone_id)
     milestone = next((m for m in contract['milestones'] if m['id'] == milestone_id), None)
     if milestone is None: raise LedgerError('Unknown milestone ' + milestone_id + '.')
     kind, config = milestone['verifier']['type'], milestone['verifier']['config']
