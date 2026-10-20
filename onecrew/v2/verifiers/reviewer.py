@@ -1,7 +1,8 @@
 """Verifier `reviewer`: one headless Claude call that answers the contract's criteria about the diff since approval, and nothing else.
 
-What the model sees is the diff (the approved base tree against the tree being judged, one definition of artifact: command.artifact_sha) and the
-criteria the owner approved. It does not see the author's report, commit messages or the plan text. Its answer is parsed strictly: a missing criterion,
+What the model sees is the diff (a base tree against the TRACKED files of the tree being judged: HEAD plus the changes of tracked files, so an
+untracked or ignored file, such as build output, is never in it) and the criteria the owner approved. The base is the artifact of the latest
+pass of this very milestone, else the tree the owner approved. The receipt still records the artifact (command.artifact_sha, one definition). It does not see the author's report, commit messages or the plan text. Its answer is parsed strictly: a missing criterion,
 an unknown verdict, a pass/fail without file evidence or text that is not the JSON asked for makes the verdict `inconclusive`, never `pass`.
 `outside_criteria` is stored in the receipt and changes nothing. The receipt is a blob like the command receipt and is announced by verdict.run
 (verdict.receipt_issued); record() accepts no other reviewer receipt.
@@ -78,6 +79,36 @@ def base_tree(directory, approved):
 def tree_diff(directory, base, current):
     top = command.toplevel(directory)
     return command._git(top, 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '-U3', base, current)
+
+
+def _names(text):
+    return {n for n in text.replace(chr(0), chr(10)).split(chr(10)) if n.strip(chr(13))}
+
+
+def without_untracked(directory, base, current):
+    """`base` is an artifact tree (add -A), so it may hold files that were only lying in the working tree when it was taken (build output, scratch).
+    Against the tracked tree `current` they would show as deleted. A path that is in `base`, not in `current`, not in HEAD and was never deleted by
+    a commit of HEAD's history is such a file: it is taken out of `base`. A real deletion (a tracked file removed in the work) stays."""
+    top = command.toplevel(directory)
+    gone = _names(command._git(top, 'diff', '--name-only', '--no-renames', '-z', '--diff-filter=D', base, current))
+    if not gone: return base
+    gone -= _names(command._git(top, 'ls-tree', '-r', '--name-only', '-z', 'HEAD'))
+    if gone: gone -= _names(command._git(top, 'log', '--format=', '--name-only', '-z', '--diff-filter=D', '--no-renames', 'HEAD'))
+    if not gone: return base
+    with tempfile.TemporaryDirectory() as temp:
+        env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
+        command._git(top, 'read-tree', base, env=env)
+        command._git(top, 'update-index', '--force-remove', '-z', '--stdin', env=env, input=(chr(0).join(sorted(gone)) + chr(0)).encode('utf-8'))
+        return command._git(top, 'write-tree', env=env)
+
+
+def review_diff(directory, approved, previous=None):
+    """(diff, base, base_source): exactly what a reviewer is sent. `previous` = the artifact of this milestone's latest pass, if any."""
+    directory = Path(directory).resolve()
+    base, base_source = base_tree(directory, approved)
+    if previous: base, base_source = previous, 'previous_pass'
+    tracked = command.tracked_tree(directory)
+    return tree_diff(directory, without_untracked(directory, base, tracked), tracked), base, base_source
 
 
 # ---- prompt and answer ----------------------------------------------------------------------------------------------------
@@ -193,14 +224,13 @@ def call(prompt, config, env, scratch, limit):
     return body['result'][:MAX_ANSWER], usage, None, False, out
 
 
-def run(ledger, name, revision, plan_sha, milestone, directory, independence_result, approved):
+def run(ledger, name, revision, plan_sha, milestone, directory, independence_result, approved, previous=None):
     """Review the milestone: returns (receipt_blob, receipt). The caller has already checked independence (before this call, so a refusal costs nothing)."""
     config = milestone['verifier']['config']
     directory = Path(directory).resolve()
     if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
-    base, base_source = base_tree(directory, approved)
+    diff, base, base_source = review_diff(directory, approved, previous)
     before = command.artifact_sha(directory)
-    diff = tree_diff(directory, base, before)
     store = Snapshots(ledger.state_root)
     started, begin = utcnow(), time.monotonic()
     answer, usage, error, timed_out, raw, calls, prompt, note = '', {}, None, False, b'', 0, None, None

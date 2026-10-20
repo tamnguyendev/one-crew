@@ -8,7 +8,7 @@ Một mốc khai `verifier: {"type": "reviewer", "config": {...}}` (mỗi mốc 
 ```
 
 ## Chạy thế nào
-`verdict run --plan P --milestone M` gọi `claude -p` đúng một lần (không công cụ, không phiên lưu, cwd trống). Prompt = diff giữa cây lúc chủ sở hữu duyệt (`plan.approved.base_artifact`; plan cũ: commit cuối trước giờ duyệt) và cây hiện tại, cộng các criterion. Báo cáo của tác giả, thông điệp commit và chữ trong plan không vào prompt.
+`verdict run --plan P --milestone M` gọi `claude -p` đúng một lần (không công cụ, không phiên lưu, cwd trống). Prompt = diff giữa cây lúc chủ sở hữu duyệt (`plan.approved.base_artifact`; plan cũ: commit cuối trước giờ duyệt) và cây hiện tại, cộng các criterion. Báo cáo của tác giả, thông điệp commit và chữ trong plan không vào prompt. Từ 2.2.0.dev2 diff chỉ gồm file có theo dõi và bắt đầu từ lần pass trước của chính mốc đó: xem `docs/v2-verify-cost.vi.md`.
 Trước khi gọi: `qc_gate.independence`. Cùng hãng mà cùng model, hoặc tác giả cùng hãng nhưng không rõ model → từ chối, không tốn call. Tác giả lấy từ `author` và `content_author` của revision; model tác giả là `author_model` của sự kiện hoặc chính tên tác giả nếu là mã model (`--author claude-sonnet-5-5`).
 
 ## Kết luận

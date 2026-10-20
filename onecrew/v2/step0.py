@@ -238,6 +238,13 @@ def rules_path(ledger):
     return Path(ledger.state_root) / 'plans' / 'owner-rules.md'
 
 
+def is_strict(ledger, contract):
+    """Is the contract held to the provenance rules? When it uses origin / decisions /
+    presentation / item sources, and always once the owner-rules file exists in this state root; presence counts, not truthiness."""
+    return (any(contract.get(k) is not None for k in ('origin', 'decisions', 'presentation')) or any('source' in i for i in contract['items'])
+            or rules_path(ledger).exists())
+
+
 def check_provenance(ledger, contract, sha, advice):
     """Where the contract comes from (origin, item sources, decisions) and whether the advisor looked at it. The full check applies to a contract
     that uses any of those fields and to every contract once the owner-rules file exists in this state root (`plan rules init`); a contract
@@ -245,8 +252,7 @@ def check_provenance(ledger, contract, sha, advice):
     An objection in the advice is never a reason: only the absence of usable advice is."""
     decisions = contract.get('decisions') or []
     known, items, reasons = {d['id'] for d in decisions}, contract['items'], []
-    strict = (any(contract.get(k) is not None for k in ('origin', 'decisions', 'presentation')) or any('source' in i for i in items)
-              or rules_path(ledger).exists())          # presence, not truthiness: an empty decisions list or presentation still opts in
+    strict = is_strict(ledger, contract)
     if strict and not contract.get('origin'):
         reasons.append(('origin_missing', 'the contract has no origin {by, at, quote}: what the owner actually asked for, in their words.'))
     if strict:
@@ -271,6 +277,9 @@ def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=Tru
     u, reasons = contract['understanding'], []
     if u['confidence'] == 'low':
         reasons.append(('confidence_low', 'understanding.confidence is low: find the document, run a PoC or brainstorm until it is not.'))
+    if contract['size'] in ('M', 'L') and not u['unknowns'] and not u.get('no_unknowns_because'):
+        reasons.append(('unknowns_missing', 'size M/L with no unknowns: either list what is not yet known, or say in understanding.no_unknowns_because '
+                                            '(at most 300 characters) what you checked that leaves nothing open. "None" is not an answer.'))
     for unknown in u['unknowns']:
         if unknown['status'] == 'open':
             reasons.append(('unknown_open', f'unknown {unknown["id"]} is open: {unknown["question"][:120]} (plan unknown close / plan poc record).'))

@@ -35,11 +35,11 @@ Tại thư mục gốc của checkout (cần mạng để pip lấy `setuptools`
 
 ```bash
 python -m pip wheel --no-deps -w dist .
-python -m venv /tmp/v && /tmp/v/bin/pip install dist/onecrew-2.2.0.dev1-py3-none-any.whl
+python -m venv /tmp/v && /tmp/v/bin/pip install dist/onecrew-2.2.0.dev2-py3-none-any.whl
 /tmp/v/bin/onecrew --help
 ```
 
-Phiên bản hiện là `2.2.0.dev1` (chưa phải số phát hành). Chưa có CI, PyPI (bước G3).
+Phiên bản hiện là `2.2.0.dev2` (chưa phải số phát hành). Chưa có CI, PyPI (bước G3).
 
 ## Chạy v1 từ checkout
 

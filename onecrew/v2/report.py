@@ -381,6 +381,28 @@ def _parked(f):
     return lines + _wrap('unknown còn mở: ' + ('; '.join(f'{u["id"]} «{u["question"]}»' for u in unknown) or 'không có'))
 
 
+NOTES_HEADING = 'Reviewer ghi chú ngoài tiêu chí'
+NOTE_CAP = 300
+
+
+def _reviewer_notes(f):
+    """The section after the seven: for every reviewer milestone that passed, what the reviewer noticed outside its criteria (its receipt's
+    outside_criteria), one bullet per remark, cut at NOTE_CAP characters. [] when no passed reviewer milestone has any: the page is then as before."""
+    lines = []
+    for view in f['views']:
+        last = view['last_verdict']
+        if view['state'] != 'passed' or view['verifier'] != 'reviewer' or not last or not last.get('receipt'): continue
+        try:
+            body = json.loads(_blob_text(f['state_root'], last['receipt']) or '')
+        except ValueError:
+            continue
+        notes = [' '.join(n.split()) for n in body.get('outside_criteria') or [] if isinstance(n, str) and n.strip()] if isinstance(body, dict) else []
+        if notes:
+            lines.append(f'  {view["id"]} «{view["title"]}»')
+            lines += [f'    - {n if len(n) <= NOTE_CAP else n[:NOTE_CAP - 1] + "…"}' for n in notes]
+    return ['', NOTES_HEADING] + lines if lines else []
+
+
 def _report(f):
     state, c = f['state'], f['contract']
     lines = _conclusion(f) + ['', f'BÁO CÁO: {f["name"]} — bản {f["revision"]}/{state["latest"]}, trạng thái {state["status"]}' + (f', cỡ {c["size"]}' if c else '')]
@@ -389,6 +411,7 @@ def _report(f):
     sections = (_outputs, _milestones, _minutes, _blocks, _questions, _outside, _parked)
     for number, (title, build) in enumerate(zip(TITLES, sections), 1):
         lines += ['', f'{number}. {title}'] + build(f)
+    lines += _reviewer_notes(f)
     return '\n'.join(lines) + '\n'
 
 

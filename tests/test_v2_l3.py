@@ -34,6 +34,8 @@ def step0_json(size='M', unknowns=(), assumptions=(('the file is text', 'a.txt:1
     value['understanding'] = {'restated_goal': 'Prove the sample.', 'target': {'repo': '.', 'ref': 'HEAD', 'paths': ['a.txt']},
                               'assumptions': [{'text': t, 'evidence': e} for t, e in assumptions], 'confidence': confidence,
                               'unknowns': [{'id': u, 'question': f'What about {u}?', 'status': 'open', 'closed_by': None, 'evidence': None} for u in unknowns]}
+    if size != 'S' and not unknowns:      # 2.2.0.dev2: size M/L with no unknowns says what was checked (unknowns_missing)
+        value['understanding']['no_unknowns_because'] = 'read a.txt:1 and the sample has one path; nothing is open'
     value['options'] = options('A', 'B') if opts == 'default' and size != 'S' else (None if opts == 'default' else opts)
     if value['options'] is None: del value['options']
     value['preconditions'] = pre or value['preconditions']

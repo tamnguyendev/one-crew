@@ -268,7 +268,7 @@ class VerdictTests(Fixture):
 
     def test_a_verdict_does_not_survive_an_amendment(self):
         self.approved(); verdict.run(self.ledger, 'P1', 'M1', self.root)
-        plans.amend(self.ledger, 'P1', plan_json(title='Different'), 'rescoped', 'claude')
+        plans.amend(self.ledger, 'P1', plan_json(title='Different', milestones=[milestone('M1', title='Rescoped milestone')]), 'rescoped', 'claude')   # 2.2.0.dev2: an unchanged milestone is carried over (tests/test_v3_verify_cost.py); a changed one is not
         plans.approve(self.ledger, 'P1', 'owner', 'ref')
         self.assertEqual(plans.show(self.ledger, 'P1')['milestones'][0]['state'], 'pending')
         with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())

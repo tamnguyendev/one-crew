@@ -1,0 +1,41 @@
+{
+  "schema_version": 2,
+  "title": "<tên việc, một dòng>",
+  "size": "M",
+  "origin": {"by": "owner", "at": "<ngày giờ>", "quote": "<lời nguyên văn của chủ sở hữu, không diễn giải>"},
+  "understanding": {
+    "restated_goal": "<nhắc lại yêu cầu bằng lời của bạn; chủ sở hữu đọc câu này đầu tiên>",
+    "target": {"repo": ".", "ref": "HEAD", "paths": ["<file hoặc thư mục sẽ sửa>"]},
+    "assumptions": [{"text": "<điều bạn tin là đúng>", "evidence": "<file:dòng hoặc URL chứng minh nó; không có thì là unknown, không phải giả định>"}],
+    "confidence": "high",
+    "unknowns": [],
+    "no_unknowns_because": "<cỡ M/L mà unknowns rỗng thì BẮT BUỘC: đã kiểm gì (file:dòng) để chắc không còn gì chưa biết; tối đa 300 ký tự>"
+  },
+  "options": {
+    "recommended": "A",
+    "reason": "<vì sao A>",
+    "items": [
+      {"id": "A", "summary": "<cách làm>", "evidence": ["<file:dòng>"], "strengths": ["<ưu>"], "weaknesses": ["<nhược>"], "unknowns": [], "cost": "<công sức>", "risk": "<rủi ro>"},
+      {"id": "B", "summary": "<cách khác, cả cách không làm gì cũng tính>", "evidence": ["<file:dòng>"], "strengths": [], "weaknesses": ["<vì sao không chọn>"], "unknowns": [], "cost": "<...>", "risk": "<...>"}
+    ]
+  },
+  "preconditions": [{"id": "P1", "check": "path_exists", "args": {"path": "<file phải có sẵn>"}, "why": "<vì sao chưa có thì không bắt đầu>"}],
+  "output": ["<kết quả 1, kiểm được bằng lệnh hoặc bằng diff>"],
+  "scope": {
+    "owned": ["<chỉ những đường dẫn được sửa>"],
+    "neutral": ["docs/**", "*.md", "CHANGELOG*"]
+  },
+  "non_goals": ["<điều chủ sở hữu KHÔNG xin; tiêu chí reviewer không được đòi những điều này>"],
+  "items": [{"id": "I1", "title": "<việc cụ thể>", "tier": "must", "milestone": "M1", "source": "origin"}],
+  "decisions": [],
+  "milestones": [
+    {"id": "M1", "title": "<cái gì phải đúng khi mốc này đạt>", "covers": ["O1"],
+     "verifier": {"type": "command", "config": {"argv": ["<python>", "-m", "unittest", "<module>"], "max_minutes": 15}}},
+    {"id": "M2", "title": "<reviewer độc lập>", "covers": ["O1"],
+     "verifier": {"type": "reviewer", "config": {"provider": "claude", "model": "<model khác người viết>", "max_minutes": 10, "criteria": [
+       {"id": "R1", "question": "<hỏi MỘT điều hẹp về file/dòng trong diff; 'fail if <điều gì thì hỏng>' là bắt buộc; đừng trích chữ đã có sẵn ở cây gốc>"}]}}}
+  ],
+  "budget": {"max_calls": 60, "time": 240},
+  "attention": {"questions": 1},
+  "profile_version": null
+}

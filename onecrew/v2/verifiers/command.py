@@ -21,11 +21,11 @@ from ...snapshots import Snapshots
 OUTPUT_CAP = 1_000_000
 
 
-def _git(directory, *args, env=None):
+def _git(directory, *args, env=None, input=None):
     # F8: the caller's GIT_DIR / GIT_WORK_TREE / ... never reach git; only what this module sets (GIT_INDEX_FILE) does
     clean = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
     done = subprocess.run(['git', '-C', str(directory), *args], capture_output=True, env=dict(clean, **{k: v for k, v in (env or {}).items() if k.upper().startswith('GIT_')}), timeout=120,
-                          creationflags=0x08000000 if os.name == 'nt' else 0)
+                          creationflags=0x08000000 if os.name == 'nt' else 0, input=input)
     if done.returncode: raise LedgerError('git ' + ' '.join(args[:2]) + ' failed: ' + done.stderr.decode('utf-8', 'replace')[:300])
     return done.stdout.decode('utf-8', 'replace').strip()
 
@@ -45,6 +45,24 @@ def artifact_sha(directory):
         _git(top, 'add', '-A', env=env)
         _git(top, 'rm', '-r', '--cached', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)  # hook files (.onecrew/) are not part of the artifact
         return _git(top, 'write-tree', env=env)
+
+
+def tracked_tree(directory):
+    """Git tree hash of HEAD plus the modifications of tracked files (`add -u`), through a throw-away index. Unlike artifact_sha, an
+    untracked or ignored file is never in it: what a reviewer is shown must not depend on build output lying around."""
+    top = _git(directory, 'rev-parse', '--show-toplevel')
+    with tempfile.TemporaryDirectory() as temp:
+        env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
+        _git(top, 'read-tree', 'HEAD', env=env)
+        _git(top, 'add', '-u', env=env)
+        _git(top, 'rm', '-r', '--cached', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)
+        return _git(top, 'write-tree', env=env)
+
+
+def changed_paths(directory, first, second):
+    """Paths (posix, relative to the repository top) that differ between two trees; renames are not paired, so both sides are listed."""
+    out = _git(directory, 'diff', '--name-only', '--no-renames', '-z', first, second)
+    return [p for p in out.split('\0') if p]
 
 
 def _checkout(directory, tree, destination):

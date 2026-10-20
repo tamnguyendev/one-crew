@@ -502,7 +502,7 @@ class PackagingTests(unittest.TestCase):
             self.assertGreater(len(packaged), 300)
         text = (ROOT / 'pyproject.toml').read_text(encoding='utf-8')
         self.assertIn('[tool.setuptools.package-data]', text); self.assertIn('"onecrew.templates" = ["*.md"]', text)
-        self.assertRegex(text, r'(?m)^version = "2\.2\.0\.dev1"$')
+        self.assertRegex(text, r'(?m)^version = "2\.2\.0\.dev2"$')
         for module in ('install', 'messages', 'owner_cli', 'where'): self.assertIn(f'"onecrew.v2.{module}"', text)
 
     def test_the_templates_are_the_six_rules_in_both_languages(self):

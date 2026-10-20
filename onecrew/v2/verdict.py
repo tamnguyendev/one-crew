@@ -68,12 +68,12 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
                 ' (the owner decides the next step; see the question on the plan)' if state['status'] == 'stopped_with_report' else '') + '.')
         revision = target['revision']                    # the latest, or the approved one while an amendment waits (unchanged milestones only)
         contract, sha = plans.load(ledger, state, revision)
-        views = plans.milestone_views(contract, state, revision)
+        views = plans.milestone_views(contract, state, revision, ledger)     # a pass counts while it still covers the artifact (carried over a wording-only amendment or a neutral-only commit)
         index = next((i for i, m in enumerate(contract['milestones']) if m['id'] == milestone_id), None)
         if index is None: raise LedgerError('Unknown milestone ' + milestone_id + '.')
         _refuse_frozen(name, target, milestone_id)
         milestone, view = contract['milestones'][index], views[index]
-        earlier = [v['id'] for v in views[:index] if v['state'] != 'passed']
+        earlier = [v['id'] for v in views[:index] if v['state'] != 'passed' and not v.get('stale')]    # a pass the artifact has since left still counts for the order; acceptance is what refuses it
         if earlier: raise LedgerError('Milestone ' + earlier[0] + ' has not passed yet; milestones go in order.')
         if view['state'] == 'passed' and view['last_verdict']['artifact_sha'] == artifact_sha:
             raise LedgerError(f'Milestone {milestone_id} already passed on revision {revision} for this artifact.')
@@ -171,6 +171,41 @@ def inside_project(ledger, directory):
     return resolved
 
 
+def _review_context(conn, state, milestone_id):
+    """(base event, artifact of this milestone's latest pass or None): where the reviewer's diff starts. The base never moves with a later approval;
+    once this very milestone has passed (on any revision) the diff starts from what it passed on, so a repair is reviewed alone."""
+    first = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='plan.approved' ORDER BY seq LIMIT 1", (state['task_id'],)).fetchone()
+    if first is None: raise LedgerError(f'Plan {state["name"]} has no plan.approved event; the reviewer has no base tree.')
+    passes = [v['artifact_sha'] for v in state['verdicts'] if v['milestone'] == milestone_id and v['result'] == 'pass']
+    return reviewer.base_event(json.loads(first['payload']), state['accepted']), (passes[-1] if passes else None)
+
+
+def _directory(ledger, milestone, directory):
+    configured = milestone['verifier']['config'].get('cwd')
+    return inside_project(ledger, directory or (Path(ledger.project) / configured if configured else ledger.project))
+
+
+def diff(ledger, name, milestone_id):
+    """The diff `verdict run` would send the reviewer of this milestone, as text. No model call, nothing written, no earlier milestone needed."""
+    with ledger.transaction() as conn:
+        state = plans.anchor_events(ledger, conn, name)
+        target = plans.resolve(ledger, state)
+        if target is None: raise LedgerError(f'Plan {name} is {state["status"]}; nothing to review.')
+        contract = plans.load(ledger, state, target['revision'])[0]
+        milestone = next((m for m in contract['milestones'] if m['id'] == milestone_id), None)
+        if milestone is None: raise LedgerError('Unknown milestone ' + milestone_id + '.')
+        if milestone['verifier']['type'] != 'reviewer': raise LedgerError('Milestone ' + milestone_id + ' is not verified by a reviewer.')
+        approved, previous = _review_context(conn, state, milestone_id)
+    return reviewer.review_diff(_directory(ledger, milestone, None), approved, previous)[0]
+
+
+def artifact(ledger, name):
+    """The artifact sha of the project now (what a verdict run now would observe, and what `owner accept --artifact-sha` takes)."""
+    with ledger.transaction() as conn:
+        plans.anchor_events(ledger, conn, name)
+    return {'artifact_sha': command.artifact_sha(ledger.project)}
+
+
 def run(ledger, name, milestone_id, directory=None):
     """Run the milestone's `command` or `reviewer` verifier. This is the only way to a verdict for such a milestone: the receipt is
     announced in the ledger (verdict.receipt_issued) before it is recorded, and record() accepts no other receipt."""
@@ -182,20 +217,24 @@ def run(ledger, name, milestone_id, directory=None):
         contract, sha = plans.load(ledger, state, revision)
         _refuse_frozen(name, target, milestone_id)
         written = state['revisions'][revision]
-        first = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='plan.approved' ORDER BY seq LIMIT 1", (state['task_id'],)).fetchone()
-        if first is None: raise LedgerError(f'Plan {name} has no plan.approved event; the reviewer has no base tree.')
-        approved = reviewer.base_event(json.loads(first['payload']), state['accepted'])        # the reviewer's base never moves with a later approval
+        index = next((i for i, m in enumerate(contract['milestones']) if m['id'] == milestone_id), None)
+        if index is not None:       # refused before the verifier runs (a reviewer call costs money): the same two refusals record() makes afterwards
+            views = plans.milestone_views(contract, state, revision, ledger)
+            earlier = [v['id'] for v in views[:index] if v['state'] != 'passed' and not v.get('stale')]    # a pass the artifact has since left still counts for the order; acceptance is what refuses it
+            if earlier: raise LedgerError('Milestone ' + earlier[0] + ' has not passed yet; milestones go in order.')
+            if views[index]['state'] == 'passed' and not views[index].get('neutral_diff'):
+                raise LedgerError(f'Milestone {milestone_id} already passed on revision {revision} for this artifact.')
+        approved, previous = _review_context(conn, state, milestone_id)
     milestone = next((m for m in contract['milestones'] if m['id'] == milestone_id), None)
     if milestone is None: raise LedgerError('Unknown milestone ' + milestone_id + '.')
     kind, config = milestone['verifier']['type'], milestone['verifier']['config']
     if kind not in KINDS: raise LedgerError('Milestone ' + milestone_id + ' is not verified by a command or a reviewer.')
-    configured = config.get('cwd')
-    directory = inside_project(ledger, directory or (Path(ledger.project) / configured if configured else ledger.project))
+    directory = _directory(ledger, milestone, directory)
     if kind == 'command':
         blob, receipt = command.run(ledger, name, revision, sha, milestone, directory)
     else:
         level = reviewer.check_independence(written, config)       # before any call: a reviewer that is the author costs nothing
-        blob, receipt = reviewer.run(ledger, name, revision, sha, milestone, directory, level, approved)
+        blob, receipt = reviewer.run(ledger, name, revision, sha, milestone, directory, level, approved, previous)
     with ledger.transaction(write=True) as conn:
         current = plans.anchor_events(ledger, conn, name)
         again = plans.resolve(ledger, current)

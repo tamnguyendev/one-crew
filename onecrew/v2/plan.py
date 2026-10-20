@@ -3,6 +3,7 @@
 
 OneCrew has no model here. It compares what the owner agreed (the revision) with what was observed (verdicts, receipts).
 """
+import fnmatch
 import json
 import os
 import subprocess
@@ -84,18 +85,81 @@ def load(ledger, state, revision=None):
     return contracts.read_revision(ledger, state['name'], revision, state['revisions'][revision]['sha'])
 
 
-def milestone_views(contract, state, revision):
-    """A milestone is passed only while its LATEST verdict on this revision is a pass; a later failure reopens it."""
+def _signature(milestone):
+    """What a verdict was about, apart from the artifact: the title and the verifier (type and config), as canonical JSON."""
+    return canonical({'title': milestone['title'], 'verifier': milestone['verifier']})
+
+
+def covers(ledger, verdict_artifact, current, kind, neutral):
+    """Does a verdict observed on `verdict_artifact` still speak for `current`? 'same'; 'neutral' when the two trees differ only in paths
+    matching scope.neutral (a command milestone only: a reviewer or an owner looked at those very files); else None."""
+    if verdict_artifact == current: return 'same'
+    if kind != 'command' or not neutral or ledger is None: return None
+    from .verifiers import command
+    try:
+        paths = command.changed_paths(ledger.project, verdict_artifact, current)
+    except (LedgerError, OSError, subprocess.SubprocessError):
+        return None
+    return 'neutral' if paths and all(any(fnmatch.fnmatchcase(p, g) for g in neutral) for p in paths) else None
+
+
+def _inherited(ledger, state, revision, milestone):
+    """The latest verdict of this milestone on an EARLIER revision when it is a pass and the milestone (title + verifier) is byte-identical in
+    that revision, else None. It is a way of reading the ledger: nothing is written."""
+    earlier = [v for v in state['verdicts'] if v['milestone'] == milestone['id'] and v['revision'] < revision]
+    if not earlier or earlier[-1]['result'] != 'pass': return None
+    try:
+        old = load(ledger, state, earlier[-1]['revision'])[0]
+    except LedgerError:
+        return None
+    before = next((m for m in old['milestones'] if m['id'] == milestone['id']), None)
+    return earlier[-1] if before is not None and _signature(before) == _signature(milestone) else None
+
+
+def milestone_views(contract, state, revision, ledger=None, artifact=None):
+    """A milestone is passed only while its LATEST verdict on this revision is a pass; a later failure reopens it.
+
+    With a `ledger` (its project is a Git repository) or an explicit `artifact`, the views also say whether that verdict still speaks for the
+    artifact being judged (`artifact`, else the project's artifact now): a pass on another artifact is not passed (`stale`), unless the two
+    differ only in scope.neutral paths and the verifier is a command (`neutral_diff`). A milestone with no verdict on this revision inherits the
+    latest pass of an earlier revision when its title and verifier are byte-identical and that verdict covers the artifact (`carried_from`).
+    Without either, the views are what they always were."""
+    current = [artifact, artifact is not None]
+    neutral = contracts.neutral_globs(contract)
+    approved = state['approved']
+    carries = (ledger is not None and bool(approved) and approved['revision'] == revision          # nothing is inherited by a revision the owner has not approved
+               and approved['sha'] == state['revisions'].get(revision, {}).get('sha'))
+
+    def now():
+        if not current[1]:
+            current[1] = True
+            from .verifiers import command
+            try:
+                current[0] = command.artifact_sha(ledger.project) if ledger is not None else None
+            except (LedgerError, OSError, subprocess.SubprocessError):
+                current[0] = None
+        return current[0]
     views = []
     for m in contract['milestones']:
         mine = [v for v in state['verdicts'] if v['revision'] == revision and v['milestone'] == m['id']]
         failures = len([v for v in mine if v['result'] != 'pass'])
         passed = bool(mine) and mine[-1]['result'] == 'pass'
         stopped = revision in state['stopped'] and state['stopped'][revision]['milestone'] == m['id']
+        verdict, extra = (mine[-1] if mine else None), {}
+        if ledger is not None or artifact is not None:
+            candidate = mine[-1] if passed else (_inherited(ledger, state, revision, m) if not mine and carries else None)
+            if candidate is not None and now() is not None:
+                how = covers(ledger, candidate['artifact_sha'], now(), m['verifier']['type'], neutral)
+                if how is None:
+                    if passed: passed, extra = False, {'stale': True}
+                else:
+                    if not passed: passed, verdict = True, candidate
+                    if candidate['revision'] != revision or how == 'neutral': extra['carried_from'] = candidate['revision']
+                    if how == 'neutral': extra['neutral_diff'] = True
         views.append({'id': m['id'], 'title': m['title'], 'mode': m['mode'], 'verifier': m['verifier']['type'],
                       'max_repairs': m['max_repairs'], 'state': 'passed' if passed else 'stopped' if stopped else 'failed' if failures else 'pending',
                       'runs': len(mine), 'failures': failures, 'repairs_left': max(0, m['max_repairs'] - failures) if not passed else None,
-                      'last_verdict': ({k: mine[-1].get(k) for k in ('result', 'by', 'artifact_sha', 'receipt', 'cwd')} if mine else None)})
+                      'last_verdict': ({k: verdict.get(k) for k in ('result', 'by', 'artifact_sha', 'receipt', 'cwd')} if verdict else None), **extra})
     return views
 
 
@@ -226,15 +290,17 @@ def accept(ledger, name, by, reference, artifact_sha):
             if state['status'] != 'approved': raise LedgerError(f'Cannot accept: the plan is {state["status"]}, not approved.')
             revision = state['latest']
             contract, sha = load(ledger, state, revision)
-            views = milestone_views(contract, state, revision)
-            missing = [v['id'] for v in views if v['state'] != 'passed']
+            views = milestone_views(contract, state, revision, ledger, artifact=artifact_sha)     # a verdict counts when it covers exactly this artifact (or differs only in neutral paths, command milestones)
+            missing = [v['id'] for v in views if v['state'] != 'passed' and not v.get('stale')]
             if missing: raise LedgerError('Cannot accept: no passing verdict for milestone ' + ', '.join(missing) + '.')
-            elsewhere = [v for v in views if v['last_verdict']['artifact_sha'] != artifact_sha]
+            elsewhere = [v for v in views if v.get('stale')]
             if elsewhere:
                 raise LedgerError(f'Cannot accept artifact {artifact_sha}: every milestone must have passed on exactly that artifact; '
-                                  + '; '.join(f'{v["id"]} passed on {v["last_verdict"]["artifact_sha"]}' for v in views) + '. Re-run the milestones that differ.')
+                                  + '; '.join(f'{v["id"]} passed on {v["last_verdict"]["artifact_sha"]}' for v in views if v['last_verdict']) + '. Re-run the milestones that differ.')
+            carried = {v['id']: v['carried_from'] for v in views if v.get('carried_from')}
             emit(ledger, conn, state['task_id'], 'plan.accepted', {'plan': name, 'revision': revision, 'sha': sha, 'by': by, 'reference': reference,
-                                                                    'artifact_sha': artifact_sha, 'receipts': {v['id']: v['last_verdict']['receipt'] for v in views}, **session_info()})
+                                                                    'artifact_sha': artifact_sha, 'receipts': {v['id']: v['last_verdict']['receipt'] for v in views},
+                                                                    **({'carried': carried} if carried else {}), **session_info()})
     return show(ledger, name)
 
 
@@ -256,7 +322,8 @@ def show(ledger, name, revision=None):
         requests = [r for r in ledger.requests(state['task_id']) if r['question'].get('action', {}).get('type') == 'v2.plan_stopped']
         target = resolve(ledger, state)
         frozen = target['frozen'] if target and revision in (state['latest'], target['revision']) else None
-        views = milestone_views(contract, state, revision)
+        accepted_here = state['accepted'] if state['accepted'] and state['accepted']['revision'] == revision else None
+        views = milestone_views(contract, state, revision, ledger, artifact=accepted_here['artifact_sha'] if accepted_here else None)   # an accepted plan is read at the artifact accepted
         if frozen:       # a newer revision waits for the owner: which milestones stay runnable on the approved one, which are blocked
             views = [dict(v, frozen=v['id'] in frozen['frozen']) for v in views]
         out = {'plan': name, 'status': state['status'], 'revision': revision, 'latest_revision': state['latest'], 'sha': sha,

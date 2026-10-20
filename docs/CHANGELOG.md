@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v2.2.0.dev2 (đợt 1: kiểm rẻ hơn, giữ sáu bất biến)
+
+- Verdict được **kế thừa** sang revision mới đã duyệt khi mốc (tiêu đề + verifier) byte-giống và artifact giống, hoặc (mốc `command`) chỉ khác ở `scope.neutral`; `plan show` có `carried_from`, `neutral_diff`, `stale`; `verdict run` kiểm thứ tự và "đã đạt" trước khi chạy. Không thêm sự kiện/bảng. `docs/v2-verify-cost.vi.md`.
+- `scope.neutral` (mặc định đọc là `docs/**`, `*.md`, `CHANGELOG*`, không ghi vào hợp đồng); `accept` nhận verdict kế thừa qua khác biệt trung lập và ghi `carried`.
+- Reviewer chỉ đọc file có theo dõi (HEAD + sửa đổi đã theo dõi), cơ sở là lần pass trước của chính mốc đó; `verdict diff --plan P --milestone M`, `verdict artifact --plan P`.
+- `plan lint`: `criterion_literal_present`, `criterion_vs_non_goal` (cảnh báo), `criterion_no_fail_clause` (từ chối), `--ack-criteria`; `unknowns_missing` + `understanding.no_unknowns_because` ở lint và approve. `examples/contract-template.json`.
+- `plan report`: mục "Reviewer ghi chú ngoài tiêu chí".
+- Tests: `tests/test_v3_verify_cost.py`. Hai assert cũ đổi theo luật mới (nêu ở đây để không lẫn): `test_a_verdict_does_not_survive_an_amendment` nay đổi chính mốc M1 (mốc không đổi thì kế thừa); `test_a_diff_over_the_cap_is_not_reviewed_in_part` nay commit file lớn (file chưa theo dõi không vào diff); hai kiểm version đổi sang `2.2.0.dev2`.
+
 ## v2.2.0.dev1 (G2: cài xong là có sổ, hook và lệnh chủ sở hữu)
 
 - `onecrew init [--state-root P] [--shared] [--yes]`: tạo sổ, `plans/owner-rules.md` (mẫu trong wheel), `.onecrew/config.json`, và gộp hook vào `.claude/settings.local.json` (`--shared`: `settings.json`) theo khóa; có `.bak`, hỏi y/N, chạy lần hai không đổi byte nào. Kiểm Claude CLI (tìm thấy + đã đăng nhập), không tự đăng nhập; thiếu thì vẫn ghi và exit 1.

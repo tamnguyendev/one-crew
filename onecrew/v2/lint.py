@@ -8,6 +8,9 @@ real path calls. What lint adds is only the list, the typed codes, and the argv 
 It is read-only on purpose: the ledger is opened through `ReadOnlyLedger`, whose `transaction(write=True)` raises, and
 `step0.evaluate(run=False)` neither runs a precondition nor stores a receipt. No ledger event and no file is written.
 """
+import os
+import re
+import subprocess
 from contextlib import contextmanager
 
 from ..ledger import Ledger, LedgerError, content_hash, text_field
@@ -20,7 +23,7 @@ from .verifiers.reviewer import MODEL_LIKE
 # The reasons of evaluate() that are about the form of the contract. The rest (unknowns open, options not chosen, advice, preconditions)
 # belong to the approval itself and say nothing about a typo, so lint leaves them to approve.
 FORM_CODES = ('target_repo', 'target_ref', 'target_path', 'assumption_no_evidence', 'assumption_evidence_invalid', 'option_evidence_invalid',
-              'origin_missing', 'item_without_source', 'unknown_decision')
+              'origin_missing', 'item_without_source', 'unknown_decision', 'unknowns_missing')
 
 
 class ReadOnlyLedger(Ledger):
@@ -82,5 +85,73 @@ def lint(ledger, raw, author=None):
     return reasons + [r for r in verdict['reasons'] if r[0] in FORM_CODES]
 
 
-def render(reasons):
-    return '\n'.join(f'[{code}] {text}' for code, text in reasons) if reasons else 'lint: clean'
+QUOTED = (re.compile(r"'([^'\n]{4,}?)'"), re.compile(r'"([^"\n]{4,}?)"'), re.compile(r'`([^`\n]{4,}?)`'))
+WORD = re.compile(r'[^\W\d_]{6,}')
+SHARED = 6                      # letters two words must share at the start to count as the same word (message / messages, translated / translating)
+
+
+def _criteria(raw):
+    """(milestone id, criterion id, question) of every reviewer criterion of the raw JSON, as far as it is shaped like a contract."""
+    found = []
+    for m in raw.get('milestones') if isinstance(raw, dict) and isinstance(raw.get('milestones'), list) else ():
+        verifier = m.get('verifier') if isinstance(m, dict) else None
+        config = verifier.get('config') if isinstance(verifier, dict) and verifier.get('type') == 'reviewer' else None
+        for c in config.get('criteria') if isinstance(config, dict) and isinstance(config.get('criteria'), list) else ():
+            if isinstance(c, dict) and isinstance(c.get('question'), str): found.append((m.get('id'), c.get('id'), c['question']))
+    return found
+
+
+def _in_base_tree(project, literal):
+    """Does `git grep -F` find `literal` in HEAD of the project? False when it cannot be asked (no repository, no commit)."""
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
+    try:
+        done = subprocess.run(['git', '-C', str(project), 'grep', '-F', '-q', '-e', literal, 'HEAD'], capture_output=True, env=env, timeout=60,
+                              creationflags=0x08000000 if os.name == 'nt' else 0)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
+
+
+def _no_fail_clause(raw):
+    return [('criterion_no_fail_clause', f'milestone {m} criterion {c}: the question has no "fail if ..." clause, so nobody can tell what would make it fail; '
+                                         'say what a fail looks like (the reviewer answers pass or fail, never "pass with remarks").')
+            for m, c, question in _criteria(raw) if 'fail if' not in question.lower()]
+
+
+def _warnings(ledger, raw, contract):
+    """Two checks that can be wrong in both directions, so they only warn: a quoted literal the base tree already contains (the reviewer would
+    fail a criterion the work cannot change), and a word a criterion shares with a non_goal (the criterion may ask for what the contract excludes)."""
+    out = []
+    for m, c, question in _criteria(raw):
+        seen = set()
+        for pattern in QUOTED:
+            for literal in pattern.findall(question):
+                if literal in seen: continue
+                seen.add(literal)
+                if _in_base_tree(ledger.project, literal):
+                    out.append(('criterion_literal_present', f'milestone {m} criterion {c}: "{literal[:60]}" already appears in the base tree (HEAD); '
+                                                              'a criterion that fails on it fails before any work. Ask about what the diff adds or removes.'))
+        stems = {w.lower()[:SHARED] for w in WORD.findall(question)}
+        for goal in contract['non_goals']:
+            shared = sorted(stems & {w.lower()[:SHARED] for w in WORD.findall(goal)})
+            if shared:
+                out.append(('criterion_vs_non_goal', f'milestone {m} criterion {c} shares "{shared[0]}..." with the non_goal "{goal[:80]}"; '
+                                                      'check the criterion does not ask for what the contract excludes.'))
+    return out
+
+
+def check(ledger, raw, author=None, ack_criteria=False):
+    """(reasons, warnings): reasons make `plan lint` exit 1, warnings are printed and change nothing. `ack_criteria` silences the two criteria
+    warnings (the author has read them); the missing "fail if" is a reason either way."""
+    reasons = lint(ledger, raw, author)
+    try:
+        contract = contracts.validate(raw)
+    except LedgerError:
+        return reasons, []
+    reasons = reasons + _no_fail_clause(raw)
+    return reasons, ([] if ack_criteria else _warnings(ledger, raw, contract))
+
+
+def render(reasons, warnings=()):
+    lines = [f'[{code}] {text}' for code, text in list(reasons) + list(warnings)]
+    return '\n'.join(lines) if lines else 'lint: clean'

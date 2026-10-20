@@ -15,6 +15,9 @@ SCHEMA_VERSION = 2
 FIELDS = {'schema_version', 'title', 'size', 'understanding', 'options', 'preconditions', 'output', 'scope', 'non_goals', 'items',
           'milestones', 'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation'}
 MAX_DECISIONS = 10
+MAX_NEUTRAL = 20
+# Paths whose change does not count as a change of the artifact when a verdict is carried over (scope.neutral; read as this when the contract has none, never written into it).
+NEUTRAL_DEFAULT = ('docs/**', '*.md', 'CHANGELOG*')
 DECISION_ID = re.compile(r'D[1-9][0-9]?')
 ORIGIN_SOURCE = 'origin'                   # items[].source: "origin" (the owner asked for it) or the id of a decision the author took
 PRESENTATION_TEXTS, PRESENTATION_LISTS = ('request', 'not_doing', 'guard'), ('user_sees', 'acceptance_steps', 'risk')
@@ -106,7 +109,8 @@ def validate(value):
                           else 'Contract must be a JSON object.')
     if value.get('schema_version') != SCHEMA_VERSION: raise LedgerError('Contract schema_version must be 2.')
     scope = value.get('scope')
-    if not isinstance(scope, dict) or set(scope) != {'owned'}: raise LedgerError('scope: expected {"owned": [...]}.')
+    if not isinstance(scope, dict) or 'owned' not in scope or set(scope) - {'owned', 'neutral'}:
+        raise LedgerError('scope: expected {"owned": [...]} and optionally "neutral": [globs].')
     items = _list(value.get('items'), 'items', 1, MAX_ITEMS, lambda v: _item(v))
     if len({i['id'] for i in items}) != len(items): raise LedgerError('items: duplicate id.')
     if not any(i['tier'] == 'must' for i in items): raise LedgerError('items: at least one must item.')
@@ -137,12 +141,20 @@ def validate(value):
             'size': size, 'understanding': _understanding(value.get('understanding'), size),
             'options': _options(value.get('options'), size),
             'preconditions': _list(value.get('preconditions'), 'preconditions', 1, 10, _precondition), 'output': output,
-            'scope': {'owned': _list(scope['owned'], 'scope.owned', 1, 40, lambda v: text_field(v, 'scope.owned', 300))},
+            'scope': {'owned': _list(scope['owned'], 'scope.owned', 1, 40, lambda v: text_field(v, 'scope.owned', 300)),
+                      **({'neutral': _list(scope['neutral'], 'scope.neutral', 0, MAX_NEUTRAL, lambda v: text_field(v, 'scope.neutral', 300))}
+                         if 'neutral' in scope else {})},
             'non_goals': _list(value.get('non_goals', []), 'non_goals', 0, 20, lambda v: text_field(v, 'non_goals', 300)),
             'items': items, 'milestones': milestones,
             'budget': {'max_calls': _int(budget['max_calls'], 'budget.max_calls', 1, 10000),
                        'time': _int(budget['time'], 'budget.time (minutes)', 1, 28800)},
             'attention': {'questions': _int(attention['questions'], 'attention.questions', 1, 3)}, 'stop': stop, 'profile_version': None}
+
+
+def neutral_globs(contract):
+    """The scope.neutral globs of a stored contract, or the default when it has none (a contract written before the field stays as it was)."""
+    scope = contract.get('scope') or {}
+    return list(scope['neutral']) if 'neutral' in scope else list(NEUTRAL_DEFAULT)
 
 
 def stop_limits(contract):
@@ -231,7 +243,7 @@ def _understanding(value, size):
     evidence, the confidence, and the unknowns. Anything the AI writes here is a claim until the ledger says otherwise
     (an unknown is closed only by an unknown.closed event, an assumption only counts with evidence)."""
     keys = ('restated_goal', 'target', 'assumptions', 'confidence', 'unknowns')
-    value = _keys(value, keys, 'understanding', keys)
+    value = _keys(value, keys + ('no_unknowns_because',), 'understanding', keys)
     if value['confidence'] not in CONFIDENCE: raise LedgerError('understanding.confidence: high, medium or low.')
     target = _keys(value['target'], ('repo', 'ref', 'paths'), 'understanding.target', ('repo', 'ref', 'paths'))
     ref = text_field(target['ref'], 'understanding.target.ref', 200)
@@ -240,10 +252,13 @@ def _understanding(value, size):
     assumptions = _list(value['assumptions'], 'understanding.assumptions', 0 if small else 1, 3 if small else 10, _assumption)
     unknowns = _list(value['unknowns'], 'understanding.unknowns', 0, 10, _unknown)
     if len({u['id'] for u in unknowns}) != len(unknowns): raise LedgerError('understanding.unknowns: duplicate id.')
-    return {'restated_goal': text_field(value['restated_goal'], 'understanding.restated_goal', 600 if small else 3000),
-            'target': {'repo': _relative(target['repo'], 'understanding.target.repo'), 'ref': ref,
-                       'paths': _list(target['paths'], 'understanding.target.paths', 0, 20, scoped_path)},
-            'assumptions': assumptions, 'confidence': value['confidence'], 'unknowns': unknowns}
+    out = {'restated_goal': text_field(value['restated_goal'], 'understanding.restated_goal', 600 if small else 3000),
+           'target': {'repo': _relative(target['repo'], 'understanding.target.repo'), 'ref': ref,
+                      'paths': _list(target['paths'], 'understanding.target.paths', 0, 20, scoped_path)},
+           'assumptions': assumptions, 'confidence': value['confidence'], 'unknowns': unknowns}
+    if 'no_unknowns_because' in value:       # step 0 asked for it when there are no unknowns (M/L); only written when given, so an older contract stays byte-identical
+        out['no_unknowns_because'] = text_field(value['no_unknowns_because'], 'understanding.no_unknowns_because', 300)
+    return out
 
 
 def _assumption(value):

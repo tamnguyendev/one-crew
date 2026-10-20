@@ -232,6 +232,7 @@ class VerdictTests(ReviewerFixture):
 
     def test_a_diff_over_the_cap_is_not_reviewed_in_part(self):
         self.start(); (self.root / 'big.txt').write_text('x\n' * reviewer.MAX_DIFF)
+        self.git('add', 'big.txt'); self.git('commit', '-q', '-m', 'big')       # 2.2.0.dev2: an untracked file is never in the reviewer diff, so the big file is tracked
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         self.assertEqual((self.last_receipt()[0]['result'], self.calls()), ('inconclusive', 0))
 

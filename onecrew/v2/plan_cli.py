@@ -20,6 +20,7 @@ def _parser():
     p.add_argument('--author', required=True, help='Who wrote it (recorded, never trusted).')
     p = plan.add_parser('lint', help='Every form refusal propose/approve would raise, one per line; exit 1 on any. Writes nothing (read-only ledger).')
     p.add_argument('--file', required=True, type=Path); p.add_argument('--author', help='Check it is a model id, as the reviewer needs.')
+    p.add_argument('--ack-criteria', action='store_true', help='Silence the two criteria warnings (a quoted literal already in the base tree; a word shared with a non_goal). A missing "fail if" is still refused.')
     p = plan.add_parser('show'); p.add_argument('name'); p.add_argument('--revision', type=int)
     p = plan.add_parser('report', help='One page of text from the ledger (read-only, no model): seven sections, Vietnamese labels.')
     p.add_argument('name'); p.add_argument('--revision', type=int); p.add_argument('--out', type=Path, help='The only write: save the page here instead of printing it (refused inside the state root).')
@@ -69,6 +70,10 @@ def _parser():
     p = verdict.add_parser('run', help='Run the milestone\'s command verifier and record its verdict.')
     p.add_argument('--plan', required=True); p.add_argument('--milestone', required=True)
     p.add_argument('--cwd', type=Path, help='Workspace to verify (default: the verifier\'s cwd, else the project).')
+    p = verdict.add_parser('diff', help='Print the diff a reviewer milestone would be sent now (tracked files only). No model call, nothing written.')
+    p.add_argument('--plan', required=True); p.add_argument('--milestone', required=True)
+    p = verdict.add_parser('artifact', help='Print the artifact sha of the project now, as JSON. Nothing written.')
+    p.add_argument('--plan', required=True)
     return parser
 
 
@@ -102,6 +107,8 @@ def _dispatch(ledger, args):
         plans.require_owner(args.by, 'Changing enforcement')
         return gate.set_enforced(ledger, args.state == 'on', args.by, args.reference)
     if args.command == 'run': return verdict.run(ledger, args.plan, args.milestone, args.cwd)
+    if args.command == 'diff': return verdict.diff(ledger, args.plan, args.milestone)
+    if args.command == 'artifact': return verdict.artifact(ledger, args.plan)
     data = args.receipt_file.read_bytes() if args.receipt_file else None
     return verdict.record(ledger, args.plan, args.milestone, args.result, args.by, args.receipt, args.artifact_sha, data, args.reference)
 
@@ -110,12 +117,12 @@ def _lint(args):
     """plan lint: no sync_refusals (it writes the ledger), a ledger that cannot be written, exit 1 when there is a reason, 2 when the file cannot be read."""
     from . import lint
     try:
-        reasons = lint.lint(lint.ReadOnlyLedger(args.project, args.state_root), read_json(args.file), args.author)
+        reasons, warnings = lint.check(lint.ReadOnlyLedger(args.project, args.state_root), read_json(args.file), args.author, args.ack_criteria)
     except (ValueError, OSError, LedgerError) as error:
         print(json.dumps({'error': str(error), 'type': type(error).__name__}, ensure_ascii=False))
         return 2
-    print(lint.render(reasons))
-    return 1 if reasons else 0
+    print(lint.render(reasons, warnings))
+    return 1 if reasons else 0               # a warning never changes the exit code
 
 
 def main(argv=None):
@@ -123,9 +130,13 @@ def main(argv=None):
     from . import where
     args.state_root = where.state_root_for(args.project, args.state_root)      # G2: <project>/.onecrew/config.json when no --state-root is given
     if args.group == 'plan' and args.command == 'lint': return _lint(args)
-    ledger = Ledger(args.project, args.state_root)
+    if args.group == 'verdict' and args.command in ('diff', 'artifact'):      # the ledger of a run that must write nothing: a write is an error, not a convention
+        from . import lint
+        ledger = lint.ReadOnlyLedger(args.project, args.state_root)
+    else:
+        ledger = Ledger(args.project, args.state_root)
     try:
-        if not (args.group == 'plan' and args.command in ('report', 'digest')):      # sync_refusals writes the ledger; report/digest never do
+        if not ((args.group == 'plan' and args.command in ('report', 'digest')) or (args.group == 'verdict' and args.command in ('diff', 'artifact'))):      # sync_refusals writes the ledger; these never do
             from .gate import sync_refusals
             sync_refusals(ledger)
         result = _dispatch(ledger, args)
