@@ -172,11 +172,11 @@ def inside_project(ledger, directory):
 
 
 def _review_context(conn, state, milestone_id):
-    """(base event, artifact of this milestone's latest pass or None): where the reviewer's diff starts. The base never moves with a later approval;
+    """(base event, (artifact, time) of this milestone's latest pass or None): where the reviewer's diff starts. The base never moves with a later approval;
     once this very milestone has passed (on any revision) the diff starts from what it passed on, so a repair is reviewed alone."""
     first = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='plan.approved' ORDER BY seq LIMIT 1", (state['task_id'],)).fetchone()
     if first is None: raise LedgerError(f'Plan {state["name"]} has no plan.approved event; the reviewer has no base tree.')
-    passes = [v['artifact_sha'] for v in state['verdicts'] if v['milestone'] == milestone_id and v['result'] == 'pass']
+    passes = [(v['artifact_sha'], v.get('at')) for v in state['verdicts'] if v['milestone'] == milestone_id and v['result'] == 'pass']      # (artifact, when it passed)
     return reviewer.base_event(json.loads(first['payload']), state['accepted']), (passes[-1] if passes else None)
 
 

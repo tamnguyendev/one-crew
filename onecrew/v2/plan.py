@@ -3,7 +3,6 @@
 
 OneCrew has no model here. It compares what the owner agreed (the revision) with what was observed (verdicts, receipts).
 """
-import fnmatch
 import json
 import os
 import subprocess
@@ -100,7 +99,7 @@ def covers(ledger, verdict_artifact, current, kind, neutral):
         paths = command.changed_paths(ledger.project, verdict_artifact, current)
     except (LedgerError, OSError, subprocess.SubprocessError):
         return None
-    return 'neutral' if paths and all(any(fnmatch.fnmatchcase(p, g) for g in neutral) for p in paths) else None
+    return 'neutral' if paths and all(contracts.neutral_match(p, neutral) for p in paths) else None
 
 
 def _inherited(ledger, state, revision, milestone):

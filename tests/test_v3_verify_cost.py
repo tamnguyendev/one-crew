@@ -130,6 +130,21 @@ class Carry(Fixture):
         (self.root / 'NOTES.md').write_text('notes\n'); (self.root / 'CHANGELOG').write_text('x\n'); self.git('add', '.'); self.git('commit', '-q', '-m', 'notes')
         self.assertEqual(self.view('M1')['state'], 'passed')
 
+    def test_neutral_globs_do_not_cross_a_slash_except_double_star(self):
+        default = list(contracts.NEUTRAL_DEFAULT)
+        for path in ('README.md', 'docs/a.txt', 'docs/deep/er/b.png', 'CHANGELOG', 'CHANGELOG.md'):
+            self.assertTrue(contracts.neutral_match(path, default), path)
+        for path in ('onecrew/templates/owner-rules.vi.md', 'src/notes.md', 'a.txt', 'docsx/a.txt', 'sub/CHANGELOG.md'):
+            self.assertFalse(contracts.neutral_match(path, default), path)
+        self.assertTrue(contracts.neutral_match('src/notes.md', ['**/*.md'])); self.assertTrue(contracts.neutral_match('notes.md', ['**/*.md']))
+        self.assertTrue(contracts.neutral_match('a/b.txt', ['a/?.txt'])); self.assertFalse(contracts.neutral_match('a/b/c.txt', ['a/*.txt']))
+
+    def test_a_markdown_file_below_the_top_is_not_neutral_by_default(self):
+        self.approved(value=plan_json())
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        (self.root / 'onecrew').mkdir(); (self.root / 'onecrew' / 'x.md').write_text('shipped text\n'); self.git('add', '.'); self.git('commit', '-q', '-m', 'template')
+        self.assertEqual(self.view('M1')['state'], 'pending')
+
     def test_scope_neutral_is_validated(self):
         for bad in (['x'] * 21, ['y' * 301], 'docs/**', [1]):
             with self.assertRaises(LedgerError, msg=bad): contracts.validate(plan_json(scope={'owned': ['a.txt'], 'neutral': bad}))
@@ -210,6 +225,21 @@ class ReviewerDiff(ReviewerFixture):
         self.start(); self.commit('a.txt', 'one\ntwo\n')
         text = verdict.diff(self.ledger, 'P1', 'M1')
         self.assertIn('+two', text); self.assertNotIn('out.txt', text)
+
+    def test_a_path_deleted_long_ago_that_holds_an_untracked_file_at_approval_is_not_in_the_diff(self):
+        self.commit('old.txt', 'was tracked once\n', 'add old'); self.git('rm', '-q', 'old.txt'); self.git('commit', '-q', '-m', 'drop old')
+        (self.root / 'old.txt').write_text('untracked secret scratch\n')                 # the same path, untracked, when the owner approves
+        self.start(); (self.root / 'b.txt').write_text('new work\n'); self.git('add', 'b.txt'); self.git('commit', '-q', '-m', 'work')
+        (self.root / 'old.txt').unlink()
+        text = verdict.diff(self.ledger, 'P1', 'M1')
+        self.assertIn('+new work', text); self.assertNotIn('old.txt', text); self.assertNotIn('scratch', text)
+
+    def test_a_file_tracked_at_the_base_and_removed_since_is_shown_after_a_pass_too(self):
+        self.commit('f.txt', 'keep me\n', 'f'); self.start(); self.commit('a.txt', 'one\ntwo\n')
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.git('rm', '-q', 'f.txt'); self.git('commit', '-q', '-m', 'drop f')
+        text = verdict.diff(self.ledger, 'P1', 'M1')
+        self.assertIn('-keep me', text); self.assertNotIn('+two', text)
 
     def test_a_real_deletion_is_still_shown(self):
         self.commit('f.txt', 'keep me\n', 'f'); self.start()
@@ -379,6 +409,10 @@ class LintRules(Fixture, Cli):
         value['understanding']['unknowns'] = []
         self.assertEqual(contracts.validate(value)['understanding']['no_unknowns_because'], 'read a.txt:1: one line, one path, nothing open')
         self.assertEqual(self.codes(self.check(sourced(plan_json()))[0]), [])           # size S is not caught
+        for weak in ('None', 'n/a', '', '   ', 'nothing open'):                          # under 20 characters, or empty: not an answer
+            short = size_m(); short['understanding']['no_unknowns_because'] = weak
+            if weak.strip(): self.assertEqual(self.codes(self.check(short)[0]), ['unknowns_missing'], weak)
+            else: self.assertRaises(LedgerError, contracts.validate, short)
 
     def test_approve_refuses_it_too_and_an_older_contract_is_still_read(self):
         value = size_m(); contract = contracts.validate(value)

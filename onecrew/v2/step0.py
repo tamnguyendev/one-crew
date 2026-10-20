@@ -30,6 +30,7 @@ FILE_LINE = re.compile(r'[\w./\\-]+\.\w+:\d+')
 PLACEHOLDER_HOSTS = ('example.com', 'example.org', 'example.net')
 PLACEHOLDER_TLDS = ('example', 'invalid', 'test', 'localhost', 'local')
 TAIL = 600
+MIN_BECAUSE = 20          # understanding.no_unknowns_because: shorter than this ("None", "n/a") says what was NOT checked
 
 
 def _actor(by=None):
@@ -277,9 +278,9 @@ def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=Tru
     u, reasons = contract['understanding'], []
     if u['confidence'] == 'low':
         reasons.append(('confidence_low', 'understanding.confidence is low: find the document, run a PoC or brainstorm until it is not.'))
-    if contract['size'] in ('M', 'L') and not u['unknowns'] and not u.get('no_unknowns_because'):
+    if contract['size'] in ('M', 'L') and not u['unknowns'] and len((u.get('no_unknowns_because') or '').strip()) < MIN_BECAUSE:
         reasons.append(('unknowns_missing', 'size M/L with no unknowns: either list what is not yet known, or say in understanding.no_unknowns_because '
-                                            '(at most 300 characters) what you checked that leaves nothing open. "None" is not an answer.'))
+                                            f'({MIN_BECAUSE} to 300 characters) what you checked that leaves nothing open. An empty text or "None" is not an answer.'))
     for unknown in u['unknowns']:
         if unknown['status'] == 'open':
             reasons.append(('unknown_open', f'unknown {unknown["id"]} is open: {unknown["question"][:120]} (plan unknown close / plan poc record).'))

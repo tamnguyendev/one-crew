@@ -7,6 +7,7 @@ an unknown verdict, a pass/fail without file evidence or text that is not the JS
 `outside_criteria` is stored in the receipt and changes nothing. The receipt is a blob like the command receipt and is announced by verdict.run
 (verdict.receipt_issued); record() accepts no other reviewer receipt.
 """
+import datetime as dt
 import json
 import os
 import re
@@ -85,15 +86,29 @@ def _names(text):
     return {n for n in text.replace(chr(0), chr(10)).split(chr(10)) if n.strip(chr(13))}
 
 
-def without_untracked(directory, base, current):
+def _commit_moments(at):
+    """The moment the base was taken, and one second before its whole second: a commit has a time in whole seconds, so the commit made in the
+    same second as the base cannot be told from one made just before it. Both commits' trees count as "tracked at the base"."""
+    try:
+        moment = dt.datetime.fromisoformat(at)
+    except (TypeError, ValueError):
+        return ()
+    return (at, (moment.replace(microsecond=0) - dt.timedelta(seconds=1)).isoformat())
+
+
+def without_untracked(directory, base, current, at=None):
     """`base` is an artifact tree (add -A), so it may hold files that were only lying in the working tree when it was taken (build output, scratch).
-    Against the tracked tree `current` they would show as deleted. A path that is in `base`, not in `current`, not in HEAD and was never deleted by
-    a commit of HEAD's history is such a file: it is taken out of `base`. A real deletion (a tracked file removed in the work) stays."""
+    Against the tracked tree `current` they would show as deleted. A path that is in `base`, not in `current`, not in HEAD now and not in the tree of
+    the last commit made before the base was taken (`at`; none when unknown) is such a file: it is taken out of `base`. A real deletion (a file
+    tracked at the base and removed since) stays. What is left: a path that was tracked in that commit but held an untracked file when the base was taken
+    (the file was `git rm --cached` and left on disk) can still appear as deleted."""
     top = command.toplevel(directory)
     gone = _names(command._git(top, 'diff', '--name-only', '--no-renames', '-z', '--diff-filter=D', base, current))
     if not gone: return base
     gone -= _names(command._git(top, 'ls-tree', '-r', '--name-only', '-z', 'HEAD'))
-    if gone: gone -= _names(command._git(top, 'log', '--format=', '--name-only', '-z', '--diff-filter=D', '--no-renames', 'HEAD'))
+    for moment in (_commit_moments(at) if gone and at else ()):
+        commit = command._git(top, 'rev-list', '-1', '--before=' + moment, 'HEAD')
+        if commit: gone -= _names(command._git(top, 'ls-tree', '-r', '--name-only', '-z', commit))
     if not gone: return base
     with tempfile.TemporaryDirectory() as temp:
         env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
@@ -103,12 +118,13 @@ def without_untracked(directory, base, current):
 
 
 def review_diff(directory, approved, previous=None):
-    """(diff, base, base_source): exactly what a reviewer is sent. `previous` = the artifact of this milestone's latest pass, if any."""
+    """(diff, base, base_source): exactly what a reviewer is sent. `previous` = (artifact, time) of this milestone's latest pass, if any."""
     directory = Path(directory).resolve()
     base, base_source = base_tree(directory, approved)
-    if previous: base, base_source = previous, 'previous_pass'
+    at = (approved or {}).get('at')
+    if previous: (base, at), base_source = previous, 'previous_pass'
     tracked = command.tracked_tree(directory)
-    return tree_diff(directory, without_untracked(directory, base, tracked), tracked), base, base_source
+    return tree_diff(directory, without_untracked(directory, base, tracked, at), tracked), base, base_source
 
 
 # ---- prompt and answer ----------------------------------------------------------------------------------------------------

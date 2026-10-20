@@ -157,6 +157,21 @@ def neutral_globs(contract):
     return list(scope['neutral']) if 'neutral' in scope else list(NEUTRAL_DEFAULT)
 
 
+def neutral_match(path, globs):
+    """Is the repository path (posix, relative) matched by one of the globs? `*` and `?` stay inside one path part; `**` crosses parts (`docs/**` is
+    everything under docs/, `**/*.md` is every .md at any depth, `*.md` only those at the top). Nothing else is special (no [classes])."""
+    for glob in globs:
+        out, i = [], 0
+        while i < len(glob):
+            if glob.startswith('**/', i): out.append('(?:.*/)?'); i += 3
+            elif glob.startswith('**', i): out.append('.*'); i += 2
+            elif glob[i] == '*': out.append('[^/]*'); i += 1
+            elif glob[i] == '?': out.append('[^/]'); i += 1
+            else: out.append(re.escape(glob[i])); i += 1
+        if re.fullmatch(''.join(out), path): return True
+    return False
+
+
 def stop_limits(contract):
     """The stop limits of a stored contract (a revision written before the field existed has none: the defaults)."""
     return dict(STOP_DEFAULT, **(contract.get('stop') or {}))
