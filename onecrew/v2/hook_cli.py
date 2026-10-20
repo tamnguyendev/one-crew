@@ -26,7 +26,7 @@ from pathlib import Path
 
 from . import where
 
-FILE ='active-plan.json'
+FILE = 'active-plan.json'
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 SHELL_TOOLS = ('Bash', 'PowerShell')
 PATH_KEYS = ('file_path', 'notebook_path', 'path')

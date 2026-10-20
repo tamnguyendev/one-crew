@@ -54,6 +54,7 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
     if result not in RESULTS: raise LedgerError('Result must be pass, fail or inconclusive.')
     if not isinstance(artifact_sha, str) or not SHA.fullmatch(artifact_sha): raise LedgerError('artifact sha must be a 40/64-hex hash.')
     key_field(milestone_id); text_field(by, 'by', 60)
+    if reference: text_field(reference, 'reference', 300)               # checked before anything is written
     if by == 'owner':
         plans.require_owner(by, 'An owner verdict')
         from .ownership import refuse_in_ai_session
@@ -87,7 +88,7 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
         plans.emit(ledger, conn, state['task_id'], 'verdict.recorded', dict(base, result=result, by=by, receipt=receipt,
                                                                             artifact_sha=artifact_sha, run=view['runs'] + 1,
                                                                             cwd=body.get('cwd') if body else None, **extra,
-                                                                            **({'reference': text_field(reference, 'reference', 300)} if reference else {})))
+                                                                            **({'reference': reference} if reference else {})))
         if result == 'pass':
             plans.emit(ledger, conn, state['task_id'], 'milestone.passed', dict(base, artifact_sha=artifact_sha))
         else:

@@ -1,7 +1,7 @@
 """The words of `onecrew init`, `onecrew doctor` and `onecrew owner`: one table, two languages.
 
-English is the default; ONECREW_LANG=vi switches to Vietnamese. Only these three commands read this table; the older output (plan report,
-plan digest, the hook messages) keeps the wording it always had. Every key has both languages (tests/test_g2_install.py checks it).
+English is the default; ONECREW_LANG=vi switches to Vietnamese. Only these three commands (and the help lines that list them in cli.py) read this table; the older output (plan report,
+plan digest, the hook messages, the texts the core raises) keeps the wording it always had, and a detail taken from one of those is shown as it is. Every key has both languages (tests/test_g2_install.py checks it).
 """
 import os
 
@@ -90,7 +90,7 @@ TEXT = {
     'doctor.hook_differs': {'en': '{path} has OneCrew hooks that differ from what init would write; run `onecrew init` to refresh them', 'vi': '{path} có hook OneCrew khác với bản init sẽ ghi; chạy `onecrew init` để làm mới'},
     'doctor.hook_stale': {'en': '{path} points at {command}, which does not exist; run `onecrew init` again from the current install', 'vi': '{path} trỏ vào {command}, file này không tồn tại; chạy lại `onecrew init` từ bản cài hiện tại'},
     'doctor.plan': {'en': 'active plan', 'vi': 'plan đang mở'},
-    'doctor.plan_ok': {'en': '{name} revision {revision}, hook mode {mode}', 'vi': '{name} revision {revision}, hook mode {mode}'},
+    'doctor.plan_ok': {'en': '{name} revision {revision}, hook mode {mode}', 'vi': '{name} bản {revision}, hook ở chế độ {mode}'},
     'doctor.plan_none': {'en': 'none (no .onecrew/active-plan.json)', 'vi': 'không có (không có .onecrew/active-plan.json)'},
     'doctor.plan_bad': {'en': 'active-plan.json cannot be read ({why})', 'vi': 'không đọc được active-plan.json ({why})'},
     'doctor.project': {'en': 'project', 'vi': 'dự án'},
@@ -104,6 +104,8 @@ TEXT = {
     'owner.accept': {'en': 'Accept the finished plan (= plan accept --by owner).', 'vi': 'Nghiệm thu plan đã xong (= plan accept --by owner).'},
     'owner.enforce': {'en': 'Switch the hook mode of a plan (= hook mode enforce|log --by owner).', 'vi': 'Đổi chế độ hook của plan (= hook mode enforce|log --by owner).'},
     'owner.record': {'en': 'Record an owner verdict (= verdict record --by owner).', 'vi': 'Ghi verdict của chủ sở hữu (= verdict record --by owner).'},
+    'owner.metavar_option': {'en': 'OPTION', 'vi': 'LỰA_CHỌN'},
+    'owner.metavar_item': {'en': 'ITEM', 'vi': 'MỤC'},
     'owner.reference': {'en': 'Where you said yes (a message, a ticket, a date).', 'vi': 'Nơi bạn đã đồng ý (tin nhắn, ticket, ngày).'},
     'owner.enforce_reference': {'en': 'onecrew owner enforce', 'vi': 'onecrew owner enforce'},
 }

@@ -306,6 +306,11 @@ class MessagesTests(unittest.TestCase):
         different = [k for k, v in messages.TEXT.items() if DIACRITICS.search(v['vi'])]
         self.assertGreater(len(different), len(messages.TEXT) * 0.8)
 
+    def test_no_vietnamese_text_is_a_copy_of_the_english_one(self):
+        neutral = re.compile(r'\{\w+\}|python|git|PASS|WARN|FAIL|onecrew|enforce|owner|state_root|[^A-Za-z]|\b\w{1,2}\b')      # names, levels, placeholders: the same in both languages
+        same = [k for k, v in messages.TEXT.items() if v['en'] == v['vi'] and re.search(r'[A-Za-z]{3,}', neutral.sub(' ', v['en']))]
+        self.assertEqual(same, [])
+
     def test_the_language_switch(self):
         with patch.dict(os.environ, {'ONECREW_LANG': 'vi'}): self.assertEqual((messages.lang(), messages.t('init.nothing')[:2]), ('vi', 'Mọ'))
         with patch.dict(os.environ, {'ONECREW_LANG': ''}): self.assertEqual(messages.lang(), 'en')
@@ -370,6 +375,20 @@ class OwnerTests(Base):
             _, cancelled = run(install.init, project=self.base / 'loose-vi', state_root=None, yes=True, exe=self.exe, claude=NO_CLAUDE)
             helps = [install._parser().format_help(), owner_cli._parser().format_help(), run(cli.main, ['--help'])[1]]
         for text in (vietnamese, bad, cancelled, *helps): self.assertTrue(DIACRITICS.search(text), text)
+        self.assertTrue(bad.startswith('init dừng:'), bad)                         # the sentence of the new command is Vietnamese; the core's own text follows it as it is
+        self.assertIn('Tạo sổ', helps[0]); self.assertIn('động từ của chủ sở hữu', helps[2])
+        with patch.dict(os.environ, {'ONECREW_LANG': 'vi'}):
+            approve = owner_cli._parser()._subparsers._group_actions[0].choices['approve'].format_help()
+        self.assertIn('LỰA_CHỌN', approve); self.assertIn('MỤC', approve)
+        self.assertNotIn('OPTION', approve)
+
+    def test_a_broken_active_plan_is_reported_by_a_vietnamese_sentence(self):
+        self.init()
+        (self.repo / '.onecrew' / hook_cli.FILE).write_text('{ broken', encoding='utf-8')
+        with patch.dict(os.environ, {'ONECREW_LANG': 'vi'}):
+            out = run(install.doctor, project=self.repo, state_root=self.state, exe=self.exe, claude=LOGGED_IN)[1]
+        line = next(l for l in out.splitlines() if 'active-plan.json' in l)
+        self.assertTrue(line.startswith('FAIL') and 'không đọc được' in line, line)
         self.assertFalse(DIACRITICS.search('\n'.join([install._parser().format_help(), owner_cli._parser().format_help(), run(cli.main, ['--help'])[1]])))
 
     def verdict_shas(self, node):
