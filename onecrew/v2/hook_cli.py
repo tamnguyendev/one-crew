@@ -24,7 +24,9 @@ import tempfile
 import uuid
 from pathlib import Path
 
-FILE = 'active-plan.json'
+from . import where
+
+FILE ='active-plan.json'
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 SHELL_TOOLS = ('Bash', 'PowerShell')
 PATH_KEYS = ('file_path', 'notebook_path', 'path')
@@ -263,7 +265,7 @@ def locate(args, event):
     project_copy = find_plan_file([explicit], walk=False) if explicit else find_plan_file([os.environ.get('CLAUDE_PROJECT_DIR'), event.get('cwd'), os.getcwd()])
     root = project_copy.parent.parent if project_copy else explicit
     if root is None: return None, None, None
-    copy = state_copy(args.state_root, root)
+    copy = state_copy(args.state_root or where.configured_state_root(root) or where.default_state_root(), root)     # G2: an installed hook has no --state-root
     return project_copy, root, copy
 
 
@@ -456,7 +458,7 @@ def sync(args):
     from . import plan as plans
     plan, root, _, _ = governing(args, {})
     if plan is None: raise ValueError('No active plan found for this project; pass --project (and --state-root).')
-    ledger = Ledger(root, args.state_root or plan.get('state_root'))
+    ledger = Ledger(root, where.state_root_for(root, args.state_root) or plan.get('state_root'))
     spool = root / '.onecrew' / 'violations.jsonl'
     lines = spool.read_text(encoding='utf-8', errors='replace').splitlines() if spool.exists() else []
     added = skipped = 0
@@ -477,11 +479,39 @@ def sync(args):
     return {'imported': added, 'skipped': skipped, 'lines': len(lines)}
 
 
+HOOK_EVENTS = (('PreToolUse', 'check', 15, 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', 'block'),     # only the tool gate fails closed: a crashing
+               ('UserPromptSubmit', 'prompt', 10, None, 'continue'),                                         # prompt/stop hook must not lock the session
+               ('Stop', 'stop', 30, None, 'continue'),
+               ('SessionStart', 'session', 30, 'startup|resume|clear|compact', 'continue'))
+OWNER_DENY = ('plan approve', 'plan accept', 'plan enforce', 'verdict record', 'hook mode', 'plan unknown close*owner', 'plan poc record*owner',
+              'owner approve', 'owner accept', 'owner enforce', 'owner record')    # any way of calling onecrew (venv python, -X utf8, onecrew.cmd); C13: an AI may still close an unknown with --by doc|poc
+
+
+def build_settings(handler, state_root):
+    """{'hooks', 'permissions'}; handler(verb, timeout, fail) is the handler dict of one hook event."""
+    def entry(verb, timeout, matcher, fail):
+        return dict({'matcher': matcher} if matcher else {}, hooks=[handler(verb, timeout, fail)])
+    return {'hooks': {event: [entry(verb, timeout, matcher, fail)] for event, verb, timeout, matcher, fail in HOOK_EVENTS},
+            'permissions': {'deny': deny_rules(state_root)}}
+
+
+def portable_settings(exe, state_root):
+    """What `onecrew init` writes: the installed `onecrew` executable runs `hook <verb>`; the project comes from CLAUDE_PROJECT_DIR and the state
+    root from <project>/.onecrew/config.json, so no handler names a repo, an interpreter or a state root."""
+    return build_settings(lambda verb, timeout, fail: {'type': 'command', 'command': str(exe), 'args': ['hook', verb], 'timeout': timeout, 'onFailure': fail},
+                          state_root)
+
+
 def settings(project, state_root, repo):
+    """The checkout form (`hook install --print` from onecrew_cli.py): this interpreter runs the checkout's hook_cli with explicit --project/--state-root."""
     code = f"import sys; sys.path.insert(0, {str(repo)!r}); from onecrew.v2.hook_cli import main; sys.exit(main(sys.argv[1:]))"
-    def entry(verb, timeout, matcher=None, fail='continue'):     # only the tool gate fails closed: a crashing prompt/stop hook must not lock the session
-        handler = {'type': 'command', 'command': sys.executable, 'args': ['-c', code, '--project', str(project), '--state-root', str(state_root), 'hook', verb], 'timeout': timeout, 'onFailure': fail}
-        return dict({'matcher': matcher} if matcher else {}, hooks=[handler])
+    return build_settings(lambda verb, timeout, fail: {'type': 'command', 'command': sys.executable,
+                                                       'args': ['-c', code, '--project', str(project), '--state-root', str(state_root), 'hook', verb],
+                                                       'timeout': timeout, 'onFailure': fail}, state_root)
+
+
+def deny_rules(state_root):
+    """permissions.deny: the one list the checkout print and `onecrew init` both write."""
     root = str(state_root).replace('\\', '/')
     deny = ['Edit(//' + root.lstrip('/') + '/**)',                       # Edit rules cover Write, MultiEdit and NotebookEdit too
             'Edit(**/plans/**)', 'Edit(**/*.sqlite*)', 'Edit(.onecrew/active-plan.json)', 'Edit(.onecrew/violations.jsonl)', 'Edit(.onecrew/hook-state.json)',
@@ -492,12 +522,9 @@ def settings(project, state_root, repo):
             'Bash(*-c*alias.*send-pack*)', 'PowerShell(*-c*alias.*send-pack*)', 'Bash(*--config-env*)', 'PowerShell(*--config-env*)',
             'Bash(git config * alias.*)', 'PowerShell(git config * alias.*)',
             'Edit(//' + str(Path.home()).replace('\\', '/').lstrip('/') + '/.claude/CLAUDE.md)', 'Edit(//' + str(Path.home()).replace('\\', '/').lstrip('/') + '/.claude/agents/**)']
-    for verb in ('plan approve', 'plan accept', 'plan enforce', 'verdict record', 'hook mode', 'plan unknown close*owner', 'plan poc record*owner'):   # any way of calling onecrew (venv python, -X utf8, onecrew.cmd); C13: an AI may still close an unknown with --by doc|poc
+    for verb in OWNER_DENY:
         deny += ['Bash(*' + verb + '*)', 'PowerShell(*' + verb + '*)']                # git tag is left to the hook: a permission rule cannot tell `git tag -l` from `git tag v1`
-    return {'hooks': {'PreToolUse': [entry('check', 15, 'Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell', fail='block')],
-                      'UserPromptSubmit': [entry('prompt', 10)], 'Stop': [entry('stop', 30)],
-                      'SessionStart': [entry('session', 30, 'startup|resume|clear|compact')]},
-            'permissions': {'deny': deny}}
+    return deny
 
 
 def parser():
@@ -525,14 +552,15 @@ def main(argv=None):
     from ..ledger import Ledger, LedgerError
     try:
         project = Path(args.project or os.environ.get('CLAUDE_PROJECT_DIR') or Path.cwd())
+        state_root = where.state_root_for(project, args.state_root)       # G2: config.json of the project when no --state-root
         if args.verb == 'sync': out = sync(args)
         elif args.verb == 'install':
             repo = Path(__file__).resolve().parents[2]
-            out = settings(project.resolve(), Path(Ledger(project, args.state_root).state_root), repo)
+            out = settings(project.resolve(), Path(Ledger(project, state_root).state_root), repo)
         else:
             from . import active_plan
             from .plan import require_owner
-            ledger = Ledger(project, args.state_root)
+            ledger = Ledger(project, state_root)
             if args.verb == 'mode':
                 require_owner(args.by, 'Changing the hook mode')
                 from .ownership import refuse_in_ai_session

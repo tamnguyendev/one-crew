@@ -5,10 +5,13 @@ groups (job, work, delivery, ...) are not in the wheel; they run from a checkout
 """
 import sys
 
-GROUPS = ('plan', 'verdict', 'hook')
+GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner')
 HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
               '  verdict    record / run (v2 milestone verdicts with receipts)\n'
-              '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n')
+              '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
+              '  init       set a repo up: ledger, owner rules, Claude Code hooks (from an installed copy)\n'
+              '  doctor     check this machine and repo: one PASS/WARN/FAIL line per check\n'
+              '  owner      approve / accept / enforce / record (the owner\'s verbs; refused inside an AI session)\n')
 
 
 def route(args, index):
@@ -19,6 +22,12 @@ def route(args, index):
     if args[index] == 'hook':
         from .hook_cli import main as hook_main
         return hook_main(args)
+    if args[index] in ('init', 'doctor'):
+        from .install import main as install_main
+        return install_main(args)
+    if args[index] == 'owner':
+        from .owner_cli import main as owner_main
+        return owner_main(args)
     from .plan_cli import main as v2_main
     return v2_main(args)
 

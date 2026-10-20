@@ -39,7 +39,7 @@ def _parser():
     p = plan.add_parser('advise', help='One independent model call: three fixed questions about the latest revision, judged against the owner rules. Advice only.')
     p.add_argument('name'); p.add_argument('--model', help='Must differ from the model that wrote the plan (default: ONECREW_DEFAULT_MODEL, or DEFAULT_MODEL in claude_cli).')
     rules = plan.add_parser('rules', help='The owner-rules file the advisor reads (<state-root>/plans/owner-rules.md).').add_subparsers(dest='action', required=True)
-    rules.add_parser('init', help='Copy examples/owner-rules.vi.md there if absent (never overwrites).')
+    rules.add_parser('init', help='Copy the owner-rules template (package data; ONECREW_LANG=en for English) there if absent (never overwrites).')
     rules.add_parser('show', help='Print the owner-rules file.')
     unknown = plan.add_parser('unknown', help='Unknowns of the understanding.').add_subparsers(dest='action', required=True)
     p = unknown.add_parser('close', help='Close an unknown with evidence; makes a new revision.')
@@ -119,6 +119,8 @@ def _lint(args):
 
 def main(argv=None):
     args = _parser().parse_args(argv)
+    from . import where
+    args.state_root = where.state_root_for(args.project, args.state_root)      # G2: <project>/.onecrew/config.json when no --state-root is given
     if args.group == 'plan' and args.command == 'lint': return _lint(args)
     ledger = Ledger(args.project, args.state_root)
     try:

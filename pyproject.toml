@@ -1,6 +1,6 @@
 [project]
 name = "onecrew"
-version = "2.2.0.dev0"
+version = "2.2.0.dev1"
 description = "OneCrew v2: an AI work contract (approved plan, independent verdicts, human acceptance)"
 requires-python = ">=3.10"
 dependencies = []
@@ -17,7 +17,7 @@ build-backend = "setuptools.build_meta"
 # The packages onecrew, onecrew.v2 and onecrew.v2.verifiers come in through their modules (their __init__.py is added by the build).
 # v1 (job, work, delivery, ...) runs from a checkout through onecrew_cli.py.
 [tool.setuptools]
-packages = []
+packages = ["onecrew.templates"]          # only the data package (owner-rules templates); the modules below bring their own packages in
 py-modules = [
     "onecrew.budget_core",
     "onecrew.independence",
@@ -35,15 +35,23 @@ py-modules = [
     "onecrew.v2.contract",
     "onecrew.v2.gate",
     "onecrew.v2.hook_cli",
+    "onecrew.v2.install",
     "onecrew.v2.items",
     "onecrew.v2.lint",
+    "onecrew.v2.messages",
+    "onecrew.v2.owner_cli",
     "onecrew.v2.ownership",
     "onecrew.v2.plan",
     "onecrew.v2.plan_cli",
     "onecrew.v2.report",
     "onecrew.v2.step0",
     "onecrew.v2.verdict",
+    "onecrew.v2.where",
     "onecrew.v2.verifiers.advisor",
     "onecrew.v2.verifiers.command",
     "onecrew.v2.verifiers.reviewer",
 ]
+
+# The owner-rules templates (vi and en) ship inside the wheel; `plan rules init` and `onecrew init` read them with importlib.resources.
+[tool.setuptools.package-data]
+"onecrew.templates" = ["*.md"]

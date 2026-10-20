@@ -7,6 +7,7 @@ independence check against the revision's authors (same model refused, before an
 asked for makes the answer `inconclusive`, never `ok`). The receipt is a blob: prompt, raw model output and the parsed answers.
 """
 import json
+import os
 import shutil
 import tempfile
 import time
@@ -28,7 +29,6 @@ QUESTIONS = (
     ('Q2', 'Does any decision, or the absence of a decision for an obvious default, contradict a rule in the owner-rules file? Name the rule id.'),
     ('Q3', 'Is the order of items and milestones against a rule in the owner-rules file (for example a release before the trial)? Name the rule id.'),
 )
-SOURCE_RULES = Path(__file__).resolve().parents[3] / 'examples' / 'owner-rules.vi.md'
 
 
 def rules_path(ledger):
@@ -38,14 +38,26 @@ def rules_path(ledger):
 
 # ---- the owner-rules file ---------------------------------------------------------------------------------------------------
 
-def init_rules(ledger):
-    """Copy examples/owner-rules.vi.md to <state-root>/plans/owner-rules.md. An existing file is never overwritten (the owner may have edited it)."""
+def rules_template(lang):
+    """The bytes of the owner-rules template shipped with the package (onecrew/templates/owner-rules.<lang>.md; examples/ keeps a copy)."""
+    from importlib.resources import files
+    name = f'owner-rules.{lang}.md'
+    try:
+        return files('onecrew.templates').joinpath(name).read_bytes()
+    except (OSError, ModuleNotFoundError) as error:
+        raise LedgerError(f'The template {name} is missing from the package ({error}).')
+
+
+def init_rules(ledger, lang=None):
+    """Copy the owner-rules template to <state-root>/plans/owner-rules.md. An existing file is never overwritten (the owner may have edited it).
+    lang: 'vi' or 'en'; None = ONECREW_LANG when it names one of them, else 'vi' (what `plan rules init` always did)."""
     target = rules_path(ledger)
     if target.exists(): return {'created': False, 'path': str(target), 'note': 'already there; not overwritten'}
-    if not SOURCE_RULES.is_file(): raise LedgerError('The template ' + str(SOURCE_RULES) + ' is missing.')
+    lang = lang or ('en' if os.environ.get('ONECREW_LANG', '').strip().lower() == 'en' else 'vi')
+    data = rules_template(lang)
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open('xb') as stream:                               # 'x': never replaces a file that appeared meanwhile
-        stream.write(SOURCE_RULES.read_bytes())
+        stream.write(data)
     return {'created': True, 'path': str(target)}
 
 

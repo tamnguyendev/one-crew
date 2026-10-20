@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v2.2.0.dev1 (G2: cài xong là có sổ, hook và lệnh chủ sở hữu)
+
+- `onecrew init [--state-root P] [--shared] [--yes]`: tạo sổ, `plans/owner-rules.md` (mẫu trong wheel), `.onecrew/config.json`, và gộp hook vào `.claude/settings.local.json` (`--shared`: `settings.json`) theo khóa; có `.bak`, hỏi y/N, chạy lần hai không đổi byte nào. Kiểm Claude CLI (tìm thấy + đã đăng nhập), không tự đăng nhập; thiếu thì vẫn ghi và exit 1.
+- Hook do init ghi dùng chính file `onecrew` đã cài (`onecrew hook <verb>`), không ghi đường dẫn python, repo hay `--project/--state-root`; hook lấy project từ `CLAUDE_PROJECT_DIR` và sổ từ `.onecrew/config.json`. `permissions.deny` thêm `owner approve|accept|enforce|record`. `hook install --print` (checkout) giữ dạng cũ, dùng chung danh sách deny.
+- `onecrew doctor`: một dòng PASS/WARN/FAIL cho Python, git, Claude CLI, đăng nhập, sổ, config.json, hook, plan đang mở; exit 1 khi có FAIL.
+- `onecrew owner approve|accept|enforce|record`: thay bốn script `scripts/owner/*.ps1`; cố định `--by owner`, bị từ chối trong phiên AI như các động từ cũ.
+- Ba lệnh mới nói tiếng Anh, `ONECREW_LANG=vi` đổi sang tiếng Việt (`onecrew/v2/messages.py`); output cũ không đổi. `docs/README.en.md`.
+- Mẫu quy tắc `owner-rules.vi.md` + `owner-rules.en.md` là package data của wheel (`onecrew/templates`); `plan rules init` đọc từ đó (mặc định bản vi như trước, `ONECREW_LANG=en` cho bản en). Lệnh `plan`/`verdict`/`owner` không có `--state-root` thì đọc `.onecrew/config.json` của project.
+- `tests/test_g2_install.py`.
+
 ## v2.2.0.dev0 (G1: lõi v2 cài được bằng pip)
 
 - Wheel chỉ gồm lõi + `onecrew.v2` + `onecrew.v2.verifiers` (danh sách `py-modules` trong `pyproject.toml`); lệnh `onecrew` của wheel là router v2 (`plan`, `verdict`, `hook`), `onecrew_cli.py` ở checkout vẫn là router đầy đủ v1 + v2. Chi tiết: `docs/v2-core.vi.md`.

@@ -35,11 +35,11 @@ Tại thư mục gốc của checkout (cần mạng để pip lấy `setuptools`
 
 ```bash
 python -m pip wheel --no-deps -w dist .
-python -m venv /tmp/v && /tmp/v/bin/pip install dist/onecrew-2.2.0.dev0-py3-none-any.whl
+python -m venv /tmp/v && /tmp/v/bin/pip install dist/onecrew-2.2.0.dev1-py3-none-any.whl
 /tmp/v/bin/onecrew --help
 ```
 
-Phiên bản hiện là `2.2.0.dev0` (chưa phải số phát hành). Chưa có CI, PyPI, `onecrew init`/`doctor` (các bước G2–G3).
+Phiên bản hiện là `2.2.0.dev1` (chưa phải số phát hành). Chưa có CI, PyPI (bước G3).
 
 ## Chạy v1 từ checkout
 
@@ -49,7 +49,8 @@ python onecrew_cli.py --project <repo> job submit ...     # hoặc: python -m on
 
 `onecrew_cli.py` giữ router đầy đủ v1 + v2. Lệnh `onecrew-entry-mcp` không còn trong wheel; chạy `python -m onecrew.mcp_entry` từ checkout.
 
-## Còn lại cho G2
+## Từ 2.2.0.dev1 (G2)
 
-- `plan rules init` đọc `examples/owner-rules.vi.md` cạnh checkout; trong bản cài từ wheel mẫu này không có (đưa vào wheel là việc G2).
-- `hook install --print` còn ghi đường dẫn tuyệt đối của checkout.
+- `onecrew init`, `onecrew doctor`, `onecrew owner approve|accept|enforce|record` nằm trong wheel (module `install`, `owner_cli`, `messages`, `where`); hướng dẫn một trang bằng tiếng Anh: `docs/README.en.md`.
+- Mẫu quy tắc là package data (`onecrew/templates/owner-rules.{vi,en}.md`, bản sao ở `examples/`); `plan rules init` đọc từ wheel.
+- Hook do `init` ghi gọi thẳng file `onecrew` đã cài; project lấy từ `CLAUDE_PROJECT_DIR`, sổ từ `<project>/.onecrew/config.json`. `hook install --print` từ checkout vẫn ghi đường dẫn của checkout.
