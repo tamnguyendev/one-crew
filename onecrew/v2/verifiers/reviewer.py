@@ -86,29 +86,33 @@ def _names(text):
     return {n for n in text.replace(chr(0), chr(10)).split(chr(10)) if n.strip(chr(13))}
 
 
-def _commit_moments(at):
-    """The moment the base was taken, and one second before its whole second: a commit has a time in whole seconds, so the commit made in the
-    same second as the base cannot be told from one made just before it. Both commits' trees count as "tracked at the base"."""
+NEAR_COMMITS = 50          # at most this many commits of the last seconds before the base are read
+
+
+def _commits_at(top, at):
+    """The commits that may have been HEAD when the base was taken at `at`: the last commit before the two seconds that precede it, and every
+    commit of those two seconds (up to `at`). A commit has a time in whole seconds, so commits made around the base cannot be ordered against it."""
     try:
-        moment = dt.datetime.fromisoformat(at)
+        start = (dt.datetime.fromisoformat(at).replace(microsecond=0) - dt.timedelta(seconds=2)).isoformat()
     except (TypeError, ValueError):
-        return ()
-    return (at, (moment.replace(microsecond=0) - dt.timedelta(seconds=1)).isoformat())
+        return []
+    near = command._git(top, 'rev-list', '--max-count=%d' % NEAR_COMMITS, '--since=' + start, '--until=' + at, 'HEAD').split()
+    before = command._git(top, 'rev-list', '-1', '--before=' + start, 'HEAD').split()
+    return near + before
 
 
 def without_untracked(directory, base, current, at=None):
     """`base` is an artifact tree (add -A), so it may hold files that were only lying in the working tree when it was taken (build output, scratch).
     Against the tracked tree `current` they would show as deleted. A path that is in `base`, not in `current`, not in HEAD now and not in the tree of
-    the last commit made before the base was taken (`at`; none when unknown) is such a file: it is taken out of `base`. A real deletion (a file
-    tracked at the base and removed since) stays. What is left: a path that was tracked in that commit but held an untracked file when the base was taken
-    (the file was `git rm --cached` and left on disk) can still appear as deleted."""
+    any commit around the moment the base was taken (`at`, see _commits_at; none when unknown) is such a file: it is taken out of `base`. A real
+    deletion (a file tracked at the base and removed since) stays. What is left: a path that was tracked in such a commit but held an untracked file when
+    the base was taken (the file was `git rm --cached` and left on disk) can still appear as deleted."""
     top = command.toplevel(directory)
     gone = _names(command._git(top, 'diff', '--name-only', '--no-renames', '-z', '--diff-filter=D', base, current))
     if not gone: return base
     gone -= _names(command._git(top, 'ls-tree', '-r', '--name-only', '-z', 'HEAD'))
-    for moment in (_commit_moments(at) if gone and at else ()):
-        commit = command._git(top, 'rev-list', '-1', '--before=' + moment, 'HEAD')
-        if commit: gone -= _names(command._git(top, 'ls-tree', '-r', '--name-only', '-z', commit))
+    for commit in (_commits_at(top, at) if gone and at else ()):
+        gone -= _names(command._git(top, 'ls-tree', '-r', '--name-only', '-z', commit))
     if not gone: return base
     with tempfile.TemporaryDirectory() as temp:
         env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}

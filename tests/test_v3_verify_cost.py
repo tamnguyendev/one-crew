@@ -13,6 +13,7 @@ import io
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -228,6 +229,7 @@ class ReviewerDiff(ReviewerFixture):
 
     def test_a_path_deleted_long_ago_that_holds_an_untracked_file_at_approval_is_not_in_the_diff(self):
         self.commit('old.txt', 'was tracked once\n', 'add old'); self.git('rm', '-q', 'old.txt'); self.git('commit', '-q', '-m', 'drop old')
+        time.sleep(3)                                                                    # "long ago" is more than the two seconds of commits that count as around the approval
         (self.root / 'old.txt').write_text('untracked secret scratch\n')                 # the same path, untracked, when the owner approves
         self.start(); (self.root / 'b.txt').write_text('new work\n'); self.git('add', 'b.txt'); self.git('commit', '-q', '-m', 'work')
         (self.root / 'old.txt').unlink()
