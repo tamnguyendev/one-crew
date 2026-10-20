@@ -115,7 +115,7 @@ def advise(ledger, name, model=None):
     costs no call and records nothing. A missing rules file records advice that is `inconclusive` on all three questions and is not usable."""
     from .. import plan as plans
     if model is None: model = default_model()
-    if not isinstance(model, str) or not contracts.MODEL.fullmatch(model): raise LedgerError('model: expected a model id such as claude-opus-5-5.')
+    if not isinstance(model, str) or not contracts.MODEL.fullmatch(model): raise LedgerError('model: expected a model id such as claude-sonnet-5-5.')
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
     revision = state['latest']

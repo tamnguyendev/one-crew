@@ -65,7 +65,7 @@ def _author(author):
     except LedgerError as error:
         return [('author_invalid', str(error))]
     if author not in OWNER_ACTORS and not MODEL_LIKE.fullmatch(author):
-        return [('author_not_model_id', f'author "{author}" is not a model id (like claude-opus-5-5), so a reviewer cannot tell whether it is independent.')]
+        return [('author_not_model_id', f'author "{author}" is not a model id (like claude-sonnet-5-5), so a reviewer cannot tell whether it is independent.')]
     return []
 
 

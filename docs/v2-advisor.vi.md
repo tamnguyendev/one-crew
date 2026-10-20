@@ -7,7 +7,7 @@ Hợp đồng v2 có thêm các trường TÙY CHỌN (hợp đồng cũ vẫn �
 - `advice_missing`: `decisions` khác rỗng, HOẶC size M/L, mà revision đang duyệt chưa có sự kiện `plan.advised` dùng được. Size S không có quyết định thì không cần cố vấn.
 - Ba lý do đầu và luật size M/L áp cho hợp đồng dùng bất kỳ trường mới nào, và cho MỌI hợp đồng khi file quy tắc đã có trong state-root. Hợp đồng cũ trong state-root chưa `plan rules init` không bị đòi (giữ test cũ). Phản đối của cố vấn không bao giờ chặn; chỉ việc thiếu lời cố vấn dùng được mới chặn.
 
-## Ba câu hỏi cố định (`plan advise <tên> [--model claude-opus-5-5]`)
+## Ba câu hỏi cố định (`plan advise <tên> [--model <mã model>]`)
 Một lần gọi `claude -p` như reviewer (không công cụ, thư mục trống, JSON). Mỗi câu trả `{verdict: ok|objection, note ≤300}`; chỉ xét theo file quy tắc.
 - Q1: hợp đồng có làm nhiều hơn `origin.quote` yêu cầu không?
 - Q2: có quyết định (hoặc việc thiếu quyết định cho một mặc định hiển nhiên) nào mâu thuẫn một quy tắc trong file không?

@@ -187,11 +187,10 @@ class DefaultModelTests(unittest.TestCase):
         self.assertIsNone(parsed.model)
 
     def test_the_model_id_is_written_in_one_module_only(self):
-        """Any mention of the default id outside claude_cli (a default, a help text, a message) is a second place that goes stale. The only
-        mentions left are examples of what a model id looks like: "such as <id>", "like <id>" and "--author <id>"."""
-        example = re.compile(r'(such as|like|--author) claude-opus-5-5')
-        holders = sorted(str(p.relative_to(ROOT)).replace('\\', '/') for p in (ROOT / 'onecrew').rglob('*.py')
-                         if 'claude-opus-5-5' in example.sub('', p.read_text(encoding='utf-8')))
+        """Any mention of the default id outside claude_cli (a default, a help text, a message, an example, a docstring, a doc page) is a second
+        place that goes stale when the default changes. Tests may name a model; the package and its docs may not."""
+        files = list((ROOT / 'onecrew').rglob('*.py')) + list((ROOT / 'docs').rglob('*.md')) + [ROOT / 'pyproject.toml']
+        holders = sorted(str(p.relative_to(ROOT)).replace('\\', '/') for p in files if 'claude-opus-5-5' in p.read_text(encoding='utf-8', errors='replace'))
         self.assertEqual(holders, ['onecrew/v2/claude_cli.py'])
 
 

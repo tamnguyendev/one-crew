@@ -34,7 +34,7 @@ MODEL_LIKE = re.compile(r'(claude|gpt|gemini|codex)-[a-z0-9.\-]*\d[a-z0-9.\-]*',
 
 def authors(revision_event):
     """[(name, model)] of the people behind a revision: who proposed it and who wrote its text. The model is the event's author_model, or the
-    author name itself when it is a model id (plan_cli has no --author-model; `--author claude-opus-5-5` says it)."""
+    author name itself when it is a model id (plan_cli has no --author-model; `--author claude-sonnet-5-5` says it)."""
     names = []
     for key in ('author', 'content_author'):
         name = revision_event.get(key)
