@@ -166,7 +166,7 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
     try:
         ledger = Ledger(root, chosen)
     except LedgerError as error:
-        say(str(error))
+        say(t('init.error', error=error))
         return 2
     state = ledger.state_root
     settings_path = root / '.claude' / ('settings.json' if shared else 'settings.local.json')
@@ -237,13 +237,20 @@ def check_hooks(root, state, exe):
         if data and our_entries(data): found.append((path, data))
     if not found:
         return 'FAIL', t('doctor.hook_missing', paths=' / '.join(str(root / '.claude' / n) for n in ('settings.local.json', 'settings.json')))
-    path, data = found[0]
-    commands = {str(h.get('command')) for entries in our_entries(data).values() for e in entries for h in e.get('hooks', []) if is_ours(h)}
-    gone = sorted(c for c in commands if not Path(c).is_file() and shutil.which(c) is None)
-    if gone: return 'FAIL', t('doctor.hook_stale', path=path, command=gone[0])
-    want = hook_cli.portable_settings(exe or sorted(commands)[0], state)
-    same = our_entries(data) == our_entries(want) and all(rule in ((data.get('permissions') or {}).get('deny') or []) for rule in want['permissions']['deny'])
-    return ('PASS', t('doctor.hook_ok', path=path)) if same else ('WARN', t('doctor.hook_differs', path=path))
+    results = []
+    for path, data in found:                       # every file that holds OneCrew hooks: a stale copy in the other file is reported too
+        commands = {str(h.get('command')) for entries in our_entries(data).values() for e in entries for h in e.get('hooks', []) if is_ours(h)}
+        gone = sorted(c for c in commands if not Path(c).is_file() and shutil.which(c) is None)
+        if gone:
+            results.append(('FAIL', t('doctor.hook_stale', path=path, command=gone[0])))
+            continue
+        want = hook_cli.portable_settings(exe or sorted(commands)[0], state)
+        same = our_entries(data) == our_entries(want) and all(rule in ((data.get('permissions') or {}).get('deny') or []) for rule in want['permissions']['deny'])
+        results.append(('PASS', t('doctor.hook_ok', path=path)) if same else ('WARN', t('doctor.hook_differs', path=path)))
+    for level in ('FAIL', 'WARN'):
+        bad = next((r for r in results if r[0] == level), None)
+        if bad: return bad
+    return 'PASS', ' / '.join(detail for _, detail in results)
 
 
 def doctor(project=None, state_root=None, exe=None, claude=claude_status):
@@ -310,11 +317,11 @@ def _parser():
     parser = argparse.ArgumentParser(prog='onecrew')
     parser.add_argument('--project', type=Path); parser.add_argument('--state-root', type=Path)
     groups = parser.add_subparsers(dest='group', required=True)
-    p = groups.add_parser('init', help='Create the ledger, the owner rules and the Claude Code hooks for this repo (safe to run again).')
+    p = groups.add_parser('init', help=t('cli.init'))
     p.add_argument('--project', type=Path, default=argparse.SUPPRESS); p.add_argument('--state-root', type=Path, default=argparse.SUPPRESS)
-    p.add_argument('--shared', action='store_true', help='Write .claude/settings.json (shared with the team) instead of settings.local.json.')
-    p.add_argument('--yes', '-y', action='store_true', help='Do not ask before writing.')
-    p = groups.add_parser('doctor', help='One PASS/WARN/FAIL line per check of this machine and repo; exit 1 on any FAIL.')
+    p.add_argument('--shared', action='store_true', help=t('cli.shared'))
+    p.add_argument('--yes', '-y', action='store_true', help=t('cli.yes'))
+    p = groups.add_parser('doctor', help=t('cli.doctor'))
     p.add_argument('--project', type=Path, default=argparse.SUPPRESS); p.add_argument('--state-root', type=Path, default=argparse.SUPPRESS)
     return parser
 

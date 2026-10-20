@@ -48,8 +48,9 @@ def _check_receipt(ledger, name, revision, plan_sha, milestone, result, by, arti
     return body
 
 
-def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receipt_bytes=None):
-    """receipt_bytes: a file to store as the receipt blob. Only owner-manual milestones take one."""
+def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receipt_bytes=None, reference=None):
+    """receipt_bytes: a file to store as the receipt blob. Only owner-manual milestones take one. reference: where the owner said so
+    (`onecrew owner record`); it is kept in the verdict event when given."""
     if result not in RESULTS: raise LedgerError('Result must be pass, fail or inconclusive.')
     if not isinstance(artifact_sha, str) or not SHA.fullmatch(artifact_sha): raise LedgerError('artifact sha must be a 40/64-hex hash.')
     key_field(milestone_id); text_field(by, 'by', 60)
@@ -85,7 +86,8 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
                  if body and body.get('kind') == 'reviewer-receipt' else {})
         plans.emit(ledger, conn, state['task_id'], 'verdict.recorded', dict(base, result=result, by=by, receipt=receipt,
                                                                             artifact_sha=artifact_sha, run=view['runs'] + 1,
-                                                                            cwd=body.get('cwd') if body else None, **extra))
+                                                                            cwd=body.get('cwd') if body else None, **extra,
+                                                                            **({'reference': text_field(reference, 'reference', 300)} if reference else {})))
         if result == 'pass':
             plans.emit(ledger, conn, state['task_id'], 'milestone.passed', dict(base, artifact_sha=artifact_sha))
         else:

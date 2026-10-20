@@ -5,13 +5,20 @@ groups (job, work, delivery, ...) are not in the wheel; they run from a checkout
 """
 import sys
 
+from .messages import t
+
 GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner')
-HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
-              '  verdict    record / run (v2 milestone verdicts with receipts)\n'
-              '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
-              '  init       set a repo up: ledger, owner rules, Claude Code hooks (from an installed copy)\n'
-              '  doctor     check this machine and repo: one PASS/WARN/FAIL line per check\n'
-              '  owner      approve / accept / enforce / record (the owner\'s verbs; refused inside an AI session)\n')
+OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
+                  '  verdict    record / run (v2 milestone verdicts with receipts)\n'
+                  '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n')
+
+
+def help_lines():
+    """The v2 lines of the top-level help: the three older ones as they were, then init / doctor / owner in the language of ONECREW_LANG."""
+    return OLD_HELP_LINES + ''.join(f'  {name:<10} {t("cli.line_" + name)}\n' for name in ('init', 'doctor', 'owner'))
+
+
+HELP_LINES = help_lines()       # the full v1 router (onecrew/cli.py) imports this
 
 
 def route(args, index):
@@ -43,7 +50,7 @@ def main(argv=None):
         else:
             break
     if len(args) <= index or args[index] in ('--help', '-h'):
-        print('OneCrew: --project <path> <group> <command> [options]\n' + HELP_LINES +
+        print('OneCrew: --project <path> <group> <command> [options]\n' + help_lines() +
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')
         return 0
     if args[index] in GROUPS: return route(args, index)

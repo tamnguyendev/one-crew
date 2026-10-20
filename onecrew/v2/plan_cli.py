@@ -62,6 +62,7 @@ def _parser():
     p.add_argument('--result', required=True, choices=['pass', 'fail', 'inconclusive'])
     p.add_argument('--by', required=True, help='The milestone\'s verifier (command, or owner for owner-manual).')
     p.add_argument('--artifact-sha', required=True)
+    p.add_argument('--reference', help='Where the owner said so (kept in the verdict event).')
     receipt = p.add_mutually_exclusive_group(required=True)
     receipt.add_argument('--receipt', help='64-hex blob key in this state root.')
     receipt.add_argument('--receipt-file', type=Path, help='Store this file as the receipt blob. Owner-manual milestones only; command milestones use verdict run.')
@@ -102,7 +103,7 @@ def _dispatch(ledger, args):
         return gate.set_enforced(ledger, args.state == 'on', args.by, args.reference)
     if args.command == 'run': return verdict.run(ledger, args.plan, args.milestone, args.cwd)
     data = args.receipt_file.read_bytes() if args.receipt_file else None
-    return verdict.record(ledger, args.plan, args.milestone, args.result, args.by, args.receipt, args.artifact_sha, data)
+    return verdict.record(ledger, args.plan, args.milestone, args.result, args.by, args.receipt, args.artifact_sha, data, args.reference)
 
 
 def _lint(args):

@@ -44,8 +44,8 @@ def rules_template(lang):
     name = f'owner-rules.{lang}.md'
     try:
         return files('onecrew.templates').joinpath(name).read_bytes()
-    except (OSError, ModuleNotFoundError) as error:
-        raise LedgerError(f'The template {name} is missing from the package ({error}).')
+    except (OSError, ModuleNotFoundError):
+        raise LedgerError('The template onecrew/templates/' + name + ' is missing.')       # the old message, with the new place of the source
 
 
 def init_rules(ledger, lang=None):

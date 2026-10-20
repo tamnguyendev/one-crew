@@ -319,6 +319,31 @@ class OwnerTests(Base):
         self.assertEqual(translate(['enforce', 'p'])[1][2], 'enforce')
         record = translate(['record', '--plan', 'p', '--milestone', 'M1', '--result', 'pass', '--artifact-sha', 'abc', '--receipt-file', 'f.txt', '--reference', 'R'])
         self.assertEqual((record[0], record[1][:2], record[1][record[1].index('--by') + 1]), ('plan_cli', ['verdict', 'record'], 'owner'))
+        self.assertEqual(record[1][record[1].index('--reference') + 1], 'R')
+
+    def test_the_reference_of_an_owner_record_reaches_the_verdict(self):
+        receipt = self.base / 'receipt.txt'; receipt.write_text('seen', encoding='utf-8')
+        with patch('onecrew.v2.verdict.record', return_value={'ok': True}) as recorded:
+            code, out = run(plan_cli.main, ['--project', str(self.repo), '--state-root', str(self.state), 'verdict', 'record', '--plan', 'p', '--milestone', 'M1',
+                                            '--result', 'pass', '--by', 'owner', '--artifact-sha', 'a' * 40, '--receipt-file', str(receipt), '--reference', 'tried it on the phone'])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(recorded.call_args[0][-1], 'tried it on the phone')
+        with patch('onecrew.v2.verdict.record', return_value={'ok': True}) as recorded:           # the older call, without it, is as before
+            run(plan_cli.main, ['--project', str(self.repo), '--state-root', str(self.state), 'verdict', 'record', '--plan', 'p', '--milestone', 'M1', '--result', 'pass',
+                                '--by', 'owner', '--artifact-sha', 'a' * 40, '--receipt-file', str(receipt)])
+        self.assertIsNone(recorded.call_args[0][-1])
+
+    def test_the_output_of_init_and_owner_in_both_languages(self):
+        _, english = self.init()
+        self.assertFalse(DIACRITICS.search(english), english)
+        other = self.base / 'other'; (other / '.git').mkdir(parents=True)
+        with patch.dict(os.environ, {'ONECREW_LANG': 'vi'}):
+            _, vietnamese = run(install.init, project=other, state_root=self.base / 'state-vi', yes=True, exe=self.exe, claude=NO_CLAUDE)
+            _, bad = run(install.init, project=other, state_root=other / 'inside', yes=True, exe=self.exe, claude=NO_CLAUDE)      # a LedgerError, translated around
+            _, cancelled = run(install.init, project=self.base / 'loose-vi', state_root=None, yes=True, exe=self.exe, claude=NO_CLAUDE)
+            helps = [install._parser().format_help(), owner_cli._parser().format_help(), run(cli.main, ['--help'])[1]]
+        for text in (vietnamese, bad, cancelled, *helps): self.assertTrue(DIACRITICS.search(text), text)
+        self.assertFalse(DIACRITICS.search('\n'.join([install._parser().format_help(), owner_cli._parser().format_help(), run(cli.main, ['--help'])[1]])))
 
     def verdict_shas(self, node):
         if isinstance(node, dict):
@@ -393,6 +418,33 @@ class HookLocationTests(Base):
         os.environ.pop('CLAUDE_PROJECT_DIR', None)
         self.assertEqual(where.project_from_environment(str(self.base)), self.base)
         self.assertEqual(where.git_root(self.repo / '.git'), self.repo.resolve())
+
+
+class ProtectionAndDiscoveryTests(Base):
+    def test_config_json_cannot_be_edited_by_the_ai(self):
+        self.init()
+        deny = self.settings()['permissions']['deny']
+        self.assertIn('Edit(.onecrew/config.json)', deny)
+        from onecrew.v2 import active_plan
+        self.assertIn('.onecrew/', active_plan.DEFAULT_PROTECTED)                  # the whole folder, config.json included, is protected from edits while a plan governs
+
+    def test_the_state_root_is_found_from_a_subdirectory_and_without_a_project(self):
+        self.init()
+        sub = self.repo / 'src' / 'deep'; sub.mkdir(parents=True)
+        self.assertEqual(where.configured_state_root(sub).resolve(), self.state.resolve())
+        self.assertEqual(where.state_root_for(None, None), None)                    # no TypeError when there is no project; the cwd here has no config
+        self.assertEqual(where.state_root_for(sub, self.base / 'given'), self.base / 'given')
+        cwd = os.getcwd(); os.chdir(sub); self.addCleanup(os.chdir, cwd)
+        self.assertEqual(where.configured_state_root(None).resolve(), self.state.resolve())
+
+    def test_doctor_reports_a_stale_copy_in_the_other_settings_file(self):
+        self.init()
+        shared = self.repo / '.claude' / 'settings.json'
+        data = self.settings()
+        data['hooks']['Stop'][0]['hooks'][0]['command'] = str(self.base / 'gone' / 'onecrew')
+        shared.write_text(json.dumps(data), encoding='utf-8')
+        out = run(install.doctor, project=self.repo, state_root=None, exe=self.exe, claude=LOGGED_IN)[1]
+        self.assertTrue(any(l.startswith('FAIL') and 'settings.json' in l and 'does not exist' in l for l in out.splitlines()), out)
 
 
 class PackagingTests(unittest.TestCase):

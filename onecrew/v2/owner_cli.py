@@ -9,7 +9,6 @@ Each one is the older command with `--by owner` fixed, run through the same code
 They are refused inside an AI tool session: ownership.OWNER_VERBS names these four, and the code they call refuses too (C3, C11).
 """
 import argparse
-import sys
 from pathlib import Path
 
 from .messages import t
@@ -44,7 +43,7 @@ def translate(args):
     if args.verb == 'enforce':
         return 'hook_cli', ['hook', 'mode', args.mode, '--by', 'owner', '--plan', args.plan, '--reference', args.reference]
     return 'plan_cli', ['verdict', 'record', '--plan', args.plan, '--milestone', args.milestone, '--result', args.result, '--by', 'owner',
-                        '--artifact-sha', args.artifact_sha, '--receipt-file', str(args.receipt_file)]
+                        '--artifact-sha', args.artifact_sha, '--receipt-file', str(args.receipt_file), '--reference', args.reference]
 
 
 def main(args):
@@ -54,7 +53,6 @@ def main(args):
     glob, rest = list(args[:index]), list(args[index + 1:])
     parsed = _parser().parse_args(rest)
     module, argv = translate(parsed)
-    if parsed.verb == 'record': print(f'reference: {parsed.reference}', file=sys.stderr)       # the verdict record has no field for it; it stays in the terminal log
     if module == 'hook_cli':
         from .hook_cli import main as run
     else:

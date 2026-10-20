@@ -30,10 +30,17 @@ def read_config(project):
         return {}
 
 
-def configured_state_root(project):
-    """The state root named by <project>/.onecrew/config.json, or None."""
-    value = read_config(project).get('state_root')
-    return Path(value) if isinstance(value, str) and value.strip() else None
+def configured_state_root(project=None):
+    """The state root named by config.json: of the git root at or above `project` (the cwd when None) first, then of `project` itself. None when neither has one."""
+    try:
+        start = Path(project) if project else Path.cwd()
+        top = git_root(start)
+        for directory in ([top] if top else []) + [start]:
+            value = read_config(directory).get('state_root')
+            if isinstance(value, str) and value.strip(): return Path(value)
+    except (OSError, TypeError, ValueError):
+        pass
+    return None
 
 
 def state_root_for(project, explicit=None):
