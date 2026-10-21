@@ -56,13 +56,13 @@ class Carry(Fixture):
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         before = self.view('M1')['last_verdict']['artifact_sha']
         plans.amend(self.ledger, 'P1', self.reword_m2(), 'M2 wording', 'claude')
-        self.assertEqual(self.view('M1')['state'], 'pending')                       # revision 2 is only proposed: nothing is inherited yet
+        self.assertEqual(self.view('M1')['state'], 'pending')
         plans.approve(self.ledger, 'P1', 'owner', 'said yes')
         m1 = self.view('M1')
         self.assertEqual((m1['state'], m1['carried_from'], m1['last_verdict']['artifact_sha'], m1['runs']), ('passed', 1, before, 0))
         self.assertNotIn('neutral_diff', m1)
         self.assertEqual(self.view('M2')['state'], 'pending')
-        done = verdict.run(self.ledger, 'P1', 'M2', self.root)                       # not refused with "M1 has not passed yet"
+        done = verdict.run(self.ledger, 'P1', 'M2', self.root)
         self.assertEqual([m['state'] for m in done['milestones']], ['passed', 'passed'])
         self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())['status'], 'accepted')
         accepted = [json.loads(p) if isinstance(p, str) else p for k, p in self.events() if k == 'plan.accepted'][0]
@@ -88,7 +88,7 @@ class Carry(Fixture):
         self.assertNotIn('plan.accepted', self.kinds())
         with self.assertRaises(LedgerError): command.changed_paths(self.root, '--relative=docs', self.tree())
         with self.assertRaises(LedgerError): command.changed_paths(self.root, self.tree(), '--relative=docs')
-        with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())          # the real change is not neutral and M1 ran before it
+        with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())
 
     def test_a_changed_title_or_verifier_is_not_carried(self):
         for changed in (plan_json(milestones=[milestone('M1', title='Another title'), milestone('M2')]),
@@ -106,7 +106,7 @@ class Carry(Fixture):
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         plans.amend(self.ledger, 'P1', self.reword_m2(), 'r2', 'claude'); plans.approve(self.ledger, 'P1', 'owner', 'ref')
         (self.root / 'a.txt').write_text('one\nmore\n'); self.git('add', '.'); self.git('commit', '-q', '-m', 'work')
-        self.assertEqual(self.view('M1')['state'], 'pending')                        # the artifact moved, so the old pass no longer speaks for it
+        self.assertEqual(self.view('M1')['state'], 'pending')
         plans.amend(self.ledger, 'P1', self.reword_m2('Milestone M2 reworded twice'), 'r3', 'claude'); plans.approve(self.ledger, 'P1', 'owner', 'ref')
         self.assertEqual(self.view('M1')['state'], 'pending')
 
@@ -116,10 +116,10 @@ class Carry(Fixture):
         (self.root / 'a.txt').write_text('one\nmore\n'); self.git('add', '.'); self.git('commit', '-q', '-m', 'work')
         m1 = self.view('M1')
         self.assertEqual((m1['state'], m1.get('stale')), ('pending', True))
-        verdict.run(self.ledger, 'P1', 'M2', self.root)                              # a stale pass still counts for the order, as it always did
+        verdict.run(self.ledger, 'P1', 'M2', self.root)
         with self.assertRaises(LedgerError) as caught: plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())
         self.assertIn('exactly that artifact', str(caught.exception))
-        verdict.run(self.ledger, 'P1', 'M1', self.root)                              # the milestone that differs is re-run
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
         self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())['status'], 'accepted')
 
     def test_a_commit_that_touches_only_neutral_paths_keeps_a_command_milestone_passed(self):
@@ -142,7 +142,7 @@ class Carry(Fixture):
 
     def test_the_default_neutral_paths_are_read_not_written(self):
         stored = contracts.validate(plan_json())
-        self.assertEqual(stored['scope'], {'owned': ['a.txt']})                      # a contract without scope.neutral stays byte-identical
+        self.assertEqual(stored['scope'], {'owned': ['a.txt']})
         self.assertEqual(contracts.neutral_globs(stored), ['docs/**', '*.md', 'CHANGELOG*'])
         self.assertEqual(contracts.neutral_globs(contracts.validate(plan_json(scope={'owned': ['a.txt'], 'neutral': []}))), [])
         self.approved(value=plan_json())
@@ -176,7 +176,7 @@ class Carry(Fixture):
         plans.amend(self.ledger, 'P1', self.reword_m2(), 'r2', 'claude'); plans.approve(self.ledger, 'P1', 'owner', 'ref')
         before = self.kinds(); self.view('M1')
         self.assertEqual(self.kinds(), before)
-        self.assertEqual([k for k in before if k == 'verdict.recorded'], ['verdict.recorded'])      # still the one verdict, on revision 1
+        self.assertEqual([k for k in before if k == 'verdict.recorded'], ['verdict.recorded'])
 
     def test_an_owner_manual_pass_is_carried_on_the_same_artifact_only(self):
         manual = {'id': 'M2', 'title': 'Looks right', 'verifier': {'type': 'owner-manual'}, 'covers': ['O1']}
@@ -230,7 +230,7 @@ class ReviewerDiff(ReviewerFixture):
         self.assertIn('+two', text); self.assertNotIn('big.bin', text); self.assertLess(len(text.encode('utf-8')), 10_000)
         self.assertEqual((self.prompts, self.kinds()), ([], kinds))
         verdict.run(self.ledger, 'P1', 'M1', self.root)
-        self.assertEqual(self.sent_diff(), text)                                     # verdict diff prints exactly what run sends
+        self.assertEqual(self.sent_diff(), text)
         self.assertNotIn('big.bin', self.prompts[0])
 
     def test_an_ignored_directory_does_not_break_the_cap(self):
@@ -241,14 +241,14 @@ class ReviewerDiff(ReviewerFixture):
         self.assertEqual((self.receipt()['result'], len(self.prompts)), ('pass', 1))
 
     def test_a_file_that_only_lay_around_at_approval_is_not_shown_as_deleted(self):
-        (self.root / 'build').mkdir(); (self.root / 'build' / 'out.txt').write_text('left over\n')       # untracked when the owner approves: in the base artifact
-        self.start(); (self.root / 'a.txt').write_text('one\ntwo\n'); self.git('add', 'a.txt'); self.git('commit', '-q', '-m', 'work')      # build/ stays untracked
+        (self.root / 'build').mkdir(); (self.root / 'build' / 'out.txt').write_text('left over\n')
+        self.start(); (self.root / 'a.txt').write_text('one\ntwo\n'); self.git('add', 'a.txt'); self.git('commit', '-q', '-m', 'work')
         text = verdict.diff(self.ledger, 'P1', 'M1')
         self.assertIn('+two', text); self.assertNotIn('out.txt', text)
 
     def test_a_path_deleted_long_ago_that_holds_an_untracked_file_at_approval_is_not_in_the_diff(self):
         self.commit('old.txt', 'was tracked once\n', 'add old'); self.git('rm', '-q', 'old.txt'); self.git('commit', '-q', '-m', 'drop old')
-        (self.root / 'old.txt').write_text('untracked secret scratch\n')                 # the same path, untracked, when the owner approves
+        (self.root / 'old.txt').write_text('untracked secret scratch\n')
         self.start(); (self.root / 'b.txt').write_text('new work\n'); self.git('add', 'b.txt'); self.git('commit', '-q', '-m', 'work')
         (self.root / 'old.txt').unlink()
         text = verdict.diff(self.ledger, 'P1', 'M1')
@@ -262,7 +262,7 @@ class ReviewerDiff(ReviewerFixture):
         self.assertIn('-keep me', text); self.assertNotIn('+two', text)
 
     def test_a_file_untracked_at_approval_and_committed_later_is_a_new_file_never_a_deletion_with_its_old_content(self):
-        (self.root / 'late.txt').write_text('OLD-UNTRACKED-CONTENT\n')                    # lying around when the owner approves
+        (self.root / 'late.txt').write_text('OLD-UNTRACKED-CONTENT\n')
         self.start(); self.commit('late.txt', 'committed text\n')
         text = verdict.diff(self.ledger, 'P1', 'M1')
         self.assertIn('+committed text', text); self.assertNotIn('OLD-UNTRACKED-CONTENT', text)
@@ -274,7 +274,7 @@ class ReviewerDiff(ReviewerFixture):
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         first = self.receipt()
         self.assertEqual(first['tracked_tree'], command.tracked_tree(self.root))
-        self.assertNotEqual(first['tracked_tree'], first['artifact_sha'])                  # the artifact has late.txt, the tracked tree has not
+        self.assertNotEqual(first['tracked_tree'], first['artifact_sha'])
         self.commit('late.txt', 'now committed\n')
         text = verdict.diff(self.ledger, 'P1', 'M1')
         self.assertIn('+now committed', text); self.assertNotIn('SCRATCH-AT-THE-PASS', text)
@@ -288,7 +288,7 @@ class ReviewerDiff(ReviewerFixture):
         self.assertNotEqual(approved['base_tracked'], approved['base_artifact'])
 
     def test_without_a_recorded_tracked_base_there_is_no_diff_and_no_call_only_an_explicit_error(self):
-        with patch.object(plans, '_base_tracked', return_value=None): self.start()          # an approval that recorded no base_tracked
+        with patch.object(plans, '_base_tracked', return_value=None): self.start()
         self.commit('a.txt', 'one\ntwo\n')
         with self.assertRaises(LedgerError) as caught: verdict.diff(self.ledger, 'P1', 'M1')
         self.assertIn('no tracked-only base tree', str(caught.exception))
@@ -303,11 +303,11 @@ class ReviewerDiff(ReviewerFixture):
         self.start(); self.commit('a.txt', 'one\ntwo\n')
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         self.commit('a.txt', 'one\ntwo\nthree\n')
-        self.assertNotIn('+two', verdict.diff(self.ledger, 'P1', 'M1'))                      # same config: starts after the pass
+        self.assertNotIn('+two', verdict.diff(self.ledger, 'P1', 'M1'))
         changed = review_milestone(criteria=[{'id': 'R1', 'question': 'Does a.txt still hold the line three? fail if the line is gone.'}])
         plans.amend(self.ledger, 'P1', plan_json(milestones=[changed]), 'criteria', 'codex'); plans.approve(self.ledger, 'P1', 'owner', 'ref')
         text = verdict.diff(self.ledger, 'P1', 'M1')
-        self.assertIn('+two', text); self.assertIn('+three', text)                          # other criteria: the whole change since the approval is reviewed
+        self.assertIn('+two', text); self.assertIn('+three', text)
 
     def test_a_real_deletion_is_still_shown(self):
         self.commit('f.txt', 'keep me\n', 'f'); self.start()
@@ -324,7 +324,7 @@ class ReviewerDiff(ReviewerFixture):
         text = verdict.diff(self.ledger, 'P1', 'M1')
         self.assertIn('+three', text); self.assertNotIn('+two', text)
         self.reply = json.dumps({'criteria': [{'id': 'R1', 'verdict': 'fail', 'evidence': [{'file': 'a.txt', 'line': 3, 'note': 'x'}]}], 'outside_criteria': []})
-        verdict.run(self.ledger, 'P1', 'M1', self.root)                                # a fail does not move the base
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
         self.assertEqual(self.receipt()['base_artifact'], first['artifact_sha']); self.assertEqual(self.receipt()['base_source'], 'previous_pass')
         self.assertIn('+three', self.sent_diff())
 
@@ -333,7 +333,7 @@ class ReviewerDiff(ReviewerFixture):
         (self.root / 'scratch.txt').write_text('untracked\n')
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         receipt = self.receipt()
-        self.assertEqual(receipt['artifact_sha'], command.artifact_sha(self.root))   # artifact sha keeps its meaning: untracked files included
+        self.assertEqual(receipt['artifact_sha'], command.artifact_sha(self.root))
         self.assertNotIn('scratch.txt', self.sent_diff())
 
     def test_the_cap_still_holds(self):
@@ -343,7 +343,7 @@ class ReviewerDiff(ReviewerFixture):
 
     def test_verdict_diff_needs_a_reviewer_milestone_and_no_earlier_pass(self):
         self.start(milestones=[milestone('M1'), review_milestone('M2')]); self.commit('a.txt', 'one\ntwo\n')
-        self.assertIn('+two', verdict.diff(self.ledger, 'P1', 'M2'))                  # M1 has not passed; diff does not care
+        self.assertIn('+two', verdict.diff(self.ledger, 'P1', 'M2'))
         with self.assertRaises(LedgerError): verdict.diff(self.ledger, 'P1', 'M1')
         with self.assertRaises(LedgerError): verdict.diff(self.ledger, 'P1', 'M9')
 
@@ -427,13 +427,13 @@ class LintRules(Fixture, Cli):
 
     def test_a_quoted_literal_already_in_the_base_tree_is_a_warning_not_a_refusal(self):
         reasons, warnings = self.check(self.reviewed("Is the string 'one' gone from a.txt? fail if it is still there."))
-        self.assertEqual((self.codes(reasons), warnings), ([], []))                       # 'one' is under 4 characters: not looked up
+        self.assertEqual((self.codes(reasons), warnings), ([], []))
         (self.root / 'a.txt').write_text('one\nclaude-opus-5-5\n'); self.git('add', '.'); self.git('commit', '-q', '-m', 'literal')
         for quote in ("'claude-opus-5-5'", '"claude-opus-5-5"', '`claude-opus-5-5`'):
             reasons, warnings = self.check(self.reviewed(f'Is {quote} absent from a.txt? fail if it appears.'))
             self.assertEqual((self.codes(reasons), self.codes(warnings)), ([], ['criterion_literal_present']), quote)
         reasons, warnings = self.check(self.reviewed("Is 'not-in-any-file' in a.txt? fail if it is."))
-        self.assertEqual(warnings, [])                                                    # a literal the tree does not have is fine
+        self.assertEqual(warnings, [])
 
     def test_a_criterion_without_fail_if_is_refused_in_any_case(self):
         for question in ('Is a.txt still present?', 'Is a.txt present? Fail If it was deleted.'):
@@ -476,8 +476,8 @@ class LintRules(Fixture, Cli):
         self.assertEqual(self.check(value), ([], []))
         value['understanding']['unknowns'] = []
         self.assertEqual(contracts.validate(value)['understanding']['no_unknowns_because'], 'read a.txt:1: one line, one path, nothing open')
-        self.assertEqual(self.codes(self.check(sourced(plan_json()))[0]), [])           # size S is not caught
-        for weak in ('None', 'n/a', '', '   ', 'nothing open'):                          # under 20 characters, or empty: not an answer
+        self.assertEqual(self.codes(self.check(sourced(plan_json()))[0]), [])
+        for weak in ('None', 'n/a', '', '   ', 'nothing open'):
             short = size_m(); short['understanding']['no_unknowns_because'] = weak
             if weak.strip(): self.assertEqual(self.codes(self.check(short)[0]), ['unknowns_missing'], weak)
             else: self.assertRaises(LedgerError, contracts.validate, short)
@@ -495,9 +495,9 @@ class LintRules(Fixture, Cli):
         legacy_m = plan_json(size='M'); legacy_m['understanding']['assumptions'] = [{'text': 'a', 'evidence': 'a.txt:1'}]
         legacy_m['options'] = size_m()['options']
         verdict_ = step0.evaluate(self.ledger, 'P1', 1, 'a' * 64, contracts.validate(legacy_m), {}, choose='A', run=False)
-        self.assertIn('unknowns_missing', [code for code, _ in verdict_['reasons']])       # readable, but not approvable, whatever its other fields
+        self.assertIn('unknowns_missing', [code for code, _ in verdict_['reasons']])
         small = step0.evaluate(self.ledger, 'P1', 1, 'a' * 64, contracts.validate(plan_json()), {}, run=False)
-        self.assertNotIn('unknowns_missing', [code for code, _ in small['reasons']])        # size S is not caught
+        self.assertNotIn('unknowns_missing', [code for code, _ in small['reasons']])
 
     def test_the_template_is_valid_json_with_blanks_and_the_notes(self):
         text = (Path(__file__).resolve().parent.parent / 'examples' / 'contract-template.json').read_text(encoding='utf-8')
@@ -532,7 +532,7 @@ class ReportNotes(ReviewerFixture):
         self.setUp(); self.passed_with(['one remark'])
         with_notes = self.text()
         self.assertIn('Reviewer ghi chú', with_notes)
-        self.assertEqual(with_notes.split('\nReviewer ghi chú', 1)[0].count('\n8. '), 0)    # not a numbered section: the seven stay seven
+        self.assertEqual(with_notes.split('\nReviewer ghi chú', 1)[0].count('\n8. '), 0)
         self.assertEqual(report.TITLES.__len__(), 7)
 
     def test_a_command_only_plan_has_no_section(self):
