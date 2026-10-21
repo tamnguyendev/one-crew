@@ -232,27 +232,92 @@ def variants(command):
     return [command, unquoted, unquoted.replace('\\', '')]
 
 
-def judge_shell(plan, root, cwd, command):
+def shell_segments(command):
+    """The command cut at `;`, `&&`, `||`, `|`, a lone `&` and line ends, outside quotes: a quoted string stays in the segment that holds it."""
+    parts, current, quote, i = [], [], None, 0
+    while i < len(command):
+        char = command[i]
+        if quote:
+            current.append(char)
+            if char == '\\' and quote == '"' and i + 1 < len(command) and command[i + 1] in '"\\':
+                current.append(command[i + 1]); i += 1
+            elif char == quote: quote = None
+        elif char in '"\'': quote = char; current.append(char)
+        elif char in ';|&\n':
+            parts.append(''.join(current)); current = []
+            while i + 1 < len(command) and command[i + 1] in '|&' and char in '|&': i += 1       # `&&` and `||` are one cut
+        else: current.append(char)
+        i += 1
+    parts.append(''.join(current))
+    return [p for p in parts if p.strip()]
+
+
+def repo_of(path):
+    """The repository root that holds `path` (the nearest folder with a .git at or above its existing folder), or None."""
+    folder = _nearest_dir(Path(path).parent)
+    try:
+        return where.git_root(folder) if folder is not None else None
+    except OSError:
+        return None
+
+
+def inside_repo(plan_root, target):
+    """Is `target` in the repository the plan's root belongs to? A nested repository (a worktree, a clone) inside the root is another repository."""
+    try:
+        mine = where.git_root(plan_root)
+    except OSError:
+        mine = None
+    theirs = repo_of(target)
+    if mine is None or theirs is None: return relative(target, plan_root) is not None
+    return os.path.normcase(str(mine)) == os.path.normcase(str(theirs))
+
+
+def judge_shell(plan, root, cwd, command, limited=False):
+    """The plan's verdict on a shell command. `limited` is a plan that is not the session's (it was reached through the cwd or through a path the command
+    writes): the deny and mention rules apply, since the command runs there, but only the paths the command writes INSIDE that plan's repository are
+    judged, and a path the hook cannot resolve is left to the session's plan."""
     forms = variants(command)
     for entry in plan.get('bash_deny', []):
         for form in forms:
             hit = re.search(entry[3:], form, re.I) if entry.startswith('re:') else (entry.casefold() in form.casefold())
             if hit: return 'bash_deny', f'The command matches the deny rule "{entry[3:] if entry.startswith("re:") else entry}". Approval, acceptance, enforcement, push, tag and installs are the owner\'s. Ask the owner in chat.'
-    first = (re.findall(r'[\w.-]+', command) or [''])[0].lower()
-    flat = _fold(' '.join(forms)).replace('.onecrew/scratch', '')
-    for item in [_fold(plan.get('state_root', '')) + '/plans', 'policy.json', '.sqlite', 'active-plan.json', 'violations.jsonl', 'hook-state.json', where.REGISTRY, '.claude/settings',
-                 '.onecrew', 'onecrew/plans']:
-        if item in flat and first not in READ_ONLY:
-            return 'protected', f'The command mentions {item}, which only the owner changes ({first or "?"} is not a read-only command).'
+    items = [_fold(plan.get('state_root', '')) + '/plans', 'policy.json', '.sqlite', 'active-plan.json', 'violations.jsonl', 'hook-state.json', where.REGISTRY, '.claude/settings',
+             '.onecrew', 'onecrew/plans']
+    for segment in shell_segments(command):         # each segment on its own: `ls; python -c "...remove(registry)"` is not read-only because its first word is
+        first = (re.findall(r'[\w.-]+', segment) or [''])[0].lower()
+        if first in READ_ONLY: continue
+        flat = _fold(' '.join(variants(segment))).replace('.onecrew/scratch', '')
+        for item in items:
+            if item in flat:
+                return 'protected', f'The command mentions {item}, which only the owner changes ({first or "?"} is not a read-only command).'
     for raw in all_targets(command):
         lowered = raw.casefold()
         if lowered in NULLS: continue
         if lowered.startswith(TEMP_VARS): continue
         if re.search(r'[$%`]', raw):
+            if limited: continue
             return 'unresolvable_target', f'The command writes to "{raw}", a path the hook cannot resolve; write to a literal path inside the owned scope.'
-        verdict = judge_path(plan, root, normalize(raw, cwd), 'The command writes there.')
+        target = normalize(raw, cwd)
+        if limited and not inside_repo(root, target): continue
+        verdict = judge_path(plan, root, target, 'The command writes there.')
         if verdict: return verdict
     return None
+
+
+def touches_repo(plan, root, event, base):
+    """Does this call write somewhere in the repository of the plan's root? (An Edit: its path; a shell command: any path it appears to write.)"""
+    data = event.get('tool_input') if isinstance(event.get('tool_input'), dict) else {}
+    try:
+        if event.get('tool_name') in EDIT_TOOLS:
+            raw = next((data[k] for k in PATH_KEYS if isinstance(data.get(k), str) and data[k]), None)
+            return raw is not None and inside_repo(root, normalize(raw, base))
+        if event.get('tool_name') in SHELL_TOOLS and isinstance(data.get('command'), str):
+            for raw in all_targets(data['command']):
+                if re.search(r'[$%`]', raw) or raw.casefold() in NULLS or raw.casefold().startswith(TEMP_VARS): continue
+                if inside_repo(root, normalize(raw, base)): return True
+    except (OSError, ValueError):
+        return True
+    return False
 
 
 # ---- the verbs -------------------------------------------------------------------------------------------------------------
@@ -288,36 +353,37 @@ def _shell_target_dirs(command, base):
     return found
 
 
-def candidate_dirs(args, event):
-    """Every place a plan applies to this call from: the project of the session, and the repositories of what the call writes.
+SESSION, LIMITED = 'session', 'limited'
 
-    An Edit/Write: the repository that holds the PATH being written, the project (CLAUDE_PROJECT_DIR) and the event's cwd. A shell command: the event's cwd,
-    the project, and the repository of every path the command appears to write. Every other hook event (prompt, stop, session): the project alone,
-    where.project_from_environment (CLAUDE_PROJECT_DIR, else the event's cwd, else ours). The process's own cwd is a place only when nothing else names one."""
+
+def candidate_dirs(args, event):
+    """[(place, role)]: every place a plan applies to this call from, and in what role.
+
+    The SESSION's project is where.project_from_environment (CLAUDE_PROJECT_DIR, else the event's cwd, else ours): its plan judges the whole call. A
+    LIMITED place is another repository the call reaches: for an Edit/Write the one that holds the PATH being written (the cwd is not a place); for a shell
+    command the one that holds its cwd and the ones that hold the paths it appears to write. A limited plan judges only what the call does inside its own
+    repository (see judge_call). Every other hook event (prompt, stop, session) has the session's project alone."""
     cwd = event.get('cwd') if isinstance(event.get('cwd'), str) and event.get('cwd') else None
-    project = os.environ.get('CLAUDE_PROJECT_DIR') or None
+    session = where.project_from_environment(cwd)
     tool = event.get('tool_name')
     data = event.get('tool_input') if isinstance(event.get('tool_input'), dict) else {}
+    places = [(session, SESSION)]
     if tool in EDIT_TOOLS:
         raw = next((data[k] for k in PATH_KEYS if isinstance(data.get(k), str) and data[k]), None)
         try:
-            target = normalize(raw, cwd or project or os.getcwd()) if raw else None
+            target = normalize(raw, cwd or os.environ.get('CLAUDE_PROJECT_DIR') or os.getcwd()) if raw else None
         except (OSError, ValueError):
             target = None
-        order = [_nearest_dir(target.parent) if target is not None else None, project, cwd]
+        if target is not None and _nearest_dir(target.parent) is not None: places.append((_nearest_dir(target.parent), LIMITED))
     elif tool in SHELL_TOOLS:
         command = data.get('command')
-        order = [cwd, project] + (_shell_target_dirs(command, cwd or project or os.getcwd()) if isinstance(command, str) else [])
-    else:
-        return [where.project_from_environment(cwd)]
-    found = []
-    for start in order:
-        if start and start not in found: found.append(start)
-    return found or [os.getcwd()]          # the process's own cwd only when nothing names a place at all
+        if cwd: places.append((cwd, LIMITED))
+        if isinstance(command, str): places += [(folder, LIMITED) for folder in _shell_target_dirs(command, cwd or os.environ.get('CLAUDE_PROJECT_DIR') or os.getcwd())]
+    return places
 
 
 def locate_all(args, event):
-    """[(project copy, project root, state-root copy)] of EVERY plan that applies to this call, one per project, in the order of candidate_dirs; [] when none.
+    """[(project copy, project root, state-root copy, role)] of EVERY plan that applies to this call, one per project, in the order of candidate_dirs; [] when none.
 
     B1: the project copy `<project>/.onecrew/active-plan.json` is the first source and the state-root copy `<state-root>/plans/<name>/active-plan.json`
     (written at the same time, outside the project) is the second. Deleting the project copy, or the whole `.onecrew/`, therefore does not end
@@ -336,13 +402,13 @@ def locate_all(args, event):
             return configured
         return where.registered_state_root(directory) or where.default_state_root()
 
-    found, seen = [], set()
-    for start in ([explicit] if explicit else candidate_dirs(args, event)):
+    found, seen = [], {}
+    for start, role in ([(explicit, SESSION)] if explicit else candidate_dirs(args, event)):
         hit = None
         project_copy = find_plan_file([start], walk=not explicit)
         if project_copy:
             root = project_copy.parent.parent
-            hit = (project_copy, root, state_copy(state_of(root), root))
+            hit = [project_copy, root, state_copy(state_of(root), root), role]
         else:
             try:
                 directories = [explicit] if explicit else where.repository_dirs(start)
@@ -351,20 +417,21 @@ def locate_all(args, event):
             for directory in directories:       # no project copy: the state-root copy that names this very directory as its project still governs it
                 copy = state_copy(state_of(directory), directory)
                 if copy:
-                    hit = (None, directory, copy)
+                    hit = [None, directory, copy, role]
                     break
         if hit is None: continue
         key = os.path.normcase(str(Path(hit[1]).resolve()))
         if key not in seen:
-            seen.add(key)
+            seen[key] = hit
             found.append(hit)
-    return found
+        elif role == SESSION: seen[key][3] = SESSION          # a repository reached both ways is the session's
+    return [tuple(hit) for hit in found]
 
 
 def locate(args, event):
     """The first of locate_all, or (None, explicit project, None): the one plan of the verbs that have no tool call (prompt, stop, session, sync)."""
     found = locate_all(args, event)
-    return found[0] if found else (None, Path(args.project) if args.project else None, None)
+    return found[0][:3] if found else (None, Path(args.project) if args.project else None, None)
 
 
 def state_copy(state_root, root):
@@ -416,43 +483,49 @@ def govern(project_copy, root, copy):
 
 
 def check(args):
-    """Exit 2 when ANY plan that applies to the call blocks it. Every plan of locate_all judges the call (the session's project, the repository of what is
-    written, the repository of the cwd): a plan that is accepted, in log mode, only proposed or not there at all never lets through what another plan
-    blocks, and a repository nested inside the project (a fake `.git` included) cannot take the place of the session's plan. No plan anywhere: nothing to
-    enforce."""
+    """Exit 2 when ANY plan that applies to the call blocks it. The plans are the session's (its project: judges the whole call) and the plans of the other
+    repositories the call reaches (the repository that holds a path it writes; for a shell command also the one that holds its cwd), which judge only what
+    the call does inside their own repository. A plan that is accepted, in log mode, only proposed or not there at all never lets through what another plan
+    blocks. No plan anywhere: nothing to enforce."""
     event, bad_input = read_stdin()
     code = 0
-    for located in locate_all(args, event):
-        plan, root, bad_plan, source = govern(*located)
-        if plan is not None and judge_call(plan, root, bad_plan, source, event, bad_input) == 2: code = 2
+    for project_copy, project_root, copy, role in locate_all(args, event):
+        plan, root, bad_plan, source = govern(project_copy, project_root, copy)
+        if plan is not None and judge_call(plan, root, bad_plan, source, event, bad_input, limited=role != SESSION) == 2: code = 2
     return code
 
 
-def judge_call(plan, root, bad_plan, source, event, bad_input):
-    """One plan's verdict on one call: 2 when it blocks the call (enforce mode), else 0."""
+def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False):
+    """One plan's verdict on one call: 2 when it blocks the call (enforce mode), else 0.
+
+    `limited` is a plan that is not the session's: it was reached through the cwd of a shell command or through a path the call writes. It judges what
+    the call writes inside ITS repository (a path of another repository, a nested worktree included, is not its business), and for a shell command
+    also the deny and mention rules, because the command runs there. A plan that is stopped_with_report refuses a call only when the call writes in
+    its repository, so a cwd that drifted into it does not lock the session, and `cd` back to the session's project is always possible."""
     mode = 'enforce' if plan.get('mode') == 'enforce' else 'log'
     session, tool = event.get('session_id'), event.get('tool_name') or '?'
     if source == 'restored': record(root, plan, 'logged', tool, '.onecrew/active-plan.json was missing and was restored from the state root', 'plan_restored', session=session, mode=mode)
     try:
-        if bad_input or bad_plan: raise ValueError(bad_input or bad_plan)
+        base = event.get('cwd') or root
+        touched = not limited or touches_repo(plan, root, event, base)
+        if bad_input or (bad_plan and touched): raise ValueError(bad_input or bad_plan)
         if plan.get('status') not in ('approved', 'stopped_with_report'):
             return 0
         expires = plan.get('expires')
-        if expires and dt.datetime.fromisoformat(expires) < dt.datetime.now(dt.timezone.utc):
+        if touched and expires and dt.datetime.fromisoformat(expires) < dt.datetime.now(dt.timezone.utc):
             raise ValueError('the active plan expired; the owner re-approves it (plan approve) to refresh it')
-        base = event.get('cwd') or root
         data = event.get('tool_input') if isinstance(event.get('tool_input'), dict) else {}
         verdict = None
-        if plan.get('status') == 'stopped_with_report':      # first in the chain and not tool-specific: edits and shell commands alike get this verdict
+        if plan.get('status') == 'stopped_with_report' and touched:      # first in the chain and not tool-specific: edits and shell commands alike get this verdict
             verdict = ('stopped', f"Plan {plan.get('plan')} is stopped_with_report: the owner decides the next step; nothing further is changed. "
                                   f"Every shell command and every edit is refused; read the evidence with Read, Grep and Glob.")
         elif tool in EDIT_TOOLS:
             raw = next((data[k] for k in PATH_KEYS if isinstance(data.get(k), str) and data[k]), None)
             if raw is None: raise ValueError(f'{tool} call without a path field ({"/".join(PATH_KEYS)})')
-            verdict = judge_path(plan, root, normalize(raw, base), 'Do not edit it.')
+            verdict = judge_path(plan, root, normalize(raw, base), 'Do not edit it.') if touched else None
         elif tool in SHELL_TOOLS:
             if not isinstance(data.get('command'), str): raise ValueError(f'{tool} call without command')
-            verdict = judge_shell(plan, root, base, data['command'])
+            verdict = judge_shell(plan, root, base, data['command'], limited=limited)
         else:
             return 0                                     # a tool this hook does not govern
     except Exception as error:                          # noqa: BLE001 - fail closed in enforce, open in log

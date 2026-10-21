@@ -5,6 +5,7 @@ artifact (a Git tree hash of the working tree) to the exit code and output. verd
 (verdict.receipt_issued) and record() takes no other receipt for a command milestone, so a hand-written receipt, however
 well formed, is refused.
 """
+import codecs
 import json
 import os
 import re
@@ -76,7 +77,8 @@ def changed_paths(directory, first, second):
     commit differs is listed too, whatever `diff.ignoreSubmodules` or the `ignore` of .gitmodules say (--ignore-submodules=none): this list decides what
     a reviewer is shown and which commits are neutral, so nothing may be left out of it by a configuration."""
     _two_trees(first, second)
-    out = _git(directory, 'diff', '--name-only', '--no-renames', '--ignore-submodules=none', '-z', '--end-of-options', first, second)
+    # from the repository's top, always: `diff.relative=true` (a config an AI can set) makes git list only the paths below the folder it runs in
+    out = _git(toplevel(directory), 'diff', '--name-only', '--no-renames', '--ignore-submodules=none', '-z', '--end-of-options', first, second)
     return [p for p in out.split('\0') if p]
 
 
@@ -85,7 +87,7 @@ def binary_paths(directory, first, second):
     .git/info/attributes), a diff driver marked binary or core.bigFileThreshold keeps out of the text diff. Read from --numstat, which prints `-` for both
     counts of such a path."""
     _two_trees(first, second)
-    out = _git(directory, 'diff', '--numstat', '--no-renames', '--ignore-submodules=none', '-z', '--end-of-options', first, second)
+    out = _git(toplevel(directory), 'diff', '--numstat', '--no-renames', '--ignore-submodules=none', '-z', '--end-of-options', first, second)      # from the top (see changed_paths)
     found = []
     for item in out.split('\0'):
         counts = item.split('\t', 2)
@@ -112,12 +114,25 @@ def blob_head(directory, tree, path, size=8000):
         process.stdout.close()
 
 
+TEXT_MARKS = (codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE, codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)       # a byte order mark: text in UTF-16/32, whatever NULs it holds
+
+
+def looks_binary(head):
+    """A NUL byte in the first bytes (git's own test), unless the file starts with a UTF-16/32 byte order mark: that is text, made of NULs."""
+    return b'\0' in head and not head.startswith(TEXT_MARKS)
+
+
 def text_hidden_paths(directory, first, second, paths):
-    """Of `paths` (changed, and shown by git only as `Binary files differ`), those whose TEXT is withheld: neither version has a NUL byte in its first 8000
-    bytes, which a real binary file (an image, a jar) has. A diff attribute, a diff driver marked binary or core.bigFileThreshold keeps such text out of the
-    diff; a real binary file is named by its `Binary files differ` header and is not in this list."""
+    """Of `paths` (changed, and shown by git only as `Binary files differ`), those whose TEXT may be withheld: unless EVERY version that exists (the old and
+    the new one) is a real binary file (looks_binary), one of them is text that a diff attribute, a diff driver marked binary, core.bigFileThreshold or a
+    NUL byte hides. A real binary file (an image, a jar), before and after, is named by its `Binary files differ` header and is not in this list. The
+    test is the NUL byte, so a text file with a NUL in it counts as binary (a known limit, in the docs)."""
     _two_trees(first, second)
-    return [p for p in paths if not any(b'\0' in blob_head(directory, tree, p) for tree in (first, second))]
+    found = []
+    for path in paths:
+        versions = [head for head in (blob_head(directory, tree, path) for tree in (first, second)) if head]
+        if not versions or not all(looks_binary(head) for head in versions): found.append(path)
+    return found
 
 
 def _checkout(directory, tree, destination):
