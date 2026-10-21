@@ -158,7 +158,7 @@ def judge_path(plan, root, target, action):
     scratch = [normalize(s, root) if not os.path.isabs(s) else Path(s).resolve() for s in plan.get('scratch', [])]
     if rel is not None and under(rel, '.onecrew/scratch'): return None
     home = Path.home().resolve() / '.claude'
-    guarded = [normalize(p, root) for p in plan.get('protected', [])] + [home / 'settings.json', home / 'settings.local.json']
+    guarded = [normalize(p, root) for p in plan.get('protected', [])] + [home / 'settings.json', home / 'settings.local.json', where.registry_file().resolve()]      # the registry: the owner's pointer to the state root
     for item in guarded:
         if target == item or item in target.parents:
             return 'protected', f'{target} is protected: the ledger, plans/ and hook files are the owner\'s, not the AI\'s. {action}'
@@ -170,8 +170,8 @@ def judge_path(plan, root, target, action):
     for item in scratch:                                  # a scratch place outside the project never excuses a file inside it
         if item in Path(root).parents: continue           # nor does one that contains the whole project (a project under %TEMP%)
         if (target == item or item in target.parents) and (rel is None or item == Path(root) or Path(root) in item.parents): return None
-    where = rel if rel is not None else f'{target} (outside the project)'
-    return 'outside_owned', f'{where} is not in the owned scope. {rules_text(plan)}'
+    place = rel if rel is not None else f'{target} (outside the project)'
+    return 'outside_owned', f'{place} is not in the owned scope. {rules_text(plan)}'
 
 
 # ---- shell commands --------------------------------------------------------------------------------------------------------
@@ -240,7 +240,7 @@ def judge_shell(plan, root, cwd, command):
             if hit: return 'bash_deny', f'The command matches the deny rule "{entry[3:] if entry.startswith("re:") else entry}". Approval, acceptance, enforcement, push, tag and installs are the owner\'s. Ask the owner in chat.'
     first = (re.findall(r'[\w.-]+', command) or [''])[0].lower()
     flat = _fold(' '.join(forms)).replace('.onecrew/scratch', '')
-    for item in [_fold(plan.get('state_root', '')) + '/plans', 'policy.json', '.sqlite', 'active-plan.json', 'violations.jsonl', 'hook-state.json', '.claude/settings',
+    for item in [_fold(plan.get('state_root', '')) + '/plans', 'policy.json', '.sqlite', 'active-plan.json', 'violations.jsonl', 'hook-state.json', where.REGISTRY, '.claude/settings',
                  '.onecrew', 'onecrew/plans']:
         if item in flat and first not in READ_ONLY:
             return 'protected', f'The command mentions {item}, which only the owner changes ({first or "?"} is not a read-only command).'
@@ -274,13 +274,26 @@ def _nearest_dir(path):
     return None
 
 
-def candidate_dirs(args, event):
-    """The directories a plan is looked for from, in order; the first one whose repository has a plan governs the call.
+def _shell_target_dirs(command, base):
+    """The folders that hold the paths a shell command appears to write (all_targets, resolved against `base`; a target the hook cannot resolve is skipped
+    here, judge_shell refuses it on its own)."""
+    found = []
+    for raw in all_targets(command):
+        if re.search(r'[$%`]', raw) or raw.casefold() in NULLS or raw.casefold().startswith(TEMP_VARS): continue
+        try:
+            folder = _nearest_dir(normalize(raw, base).parent)
+        except (OSError, ValueError):
+            continue
+        if folder is not None and folder not in found: found.append(folder)
+    return found
 
-    An Edit/Write is judged by the repository that holds the PATH being written, then the project (CLAUDE_PROJECT_DIR), then the event's cwd; a shell
-    command by the event's cwd, then the project; every other hook event (prompt, stop, session) by the project alone: where.project_from_environment,
-    CLAUDE_PROJECT_DIR else the event's cwd else ours. The process's own cwd is a place only when nothing else names one. A session opened in a parent
-    checkout therefore still finds the plan of the worktree whose file it edits, and the plan of a repository that holds none of these places never governs."""
+
+def candidate_dirs(args, event):
+    """Every place a plan applies to this call from: the project of the session, and the repositories of what the call writes.
+
+    An Edit/Write: the repository that holds the PATH being written, the project (CLAUDE_PROJECT_DIR) and the event's cwd. A shell command: the event's cwd,
+    the project, and the repository of every path the command appears to write. Every other hook event (prompt, stop, session): the project alone,
+    where.project_from_environment (CLAUDE_PROJECT_DIR, else the event's cwd, else ours). The process's own cwd is a place only when nothing else names one."""
     cwd = event.get('cwd') if isinstance(event.get('cwd'), str) and event.get('cwd') else None
     project = os.environ.get('CLAUDE_PROJECT_DIR') or None
     tool = event.get('tool_name')
@@ -293,7 +306,8 @@ def candidate_dirs(args, event):
             target = None
         order = [_nearest_dir(target.parent) if target is not None else None, project, cwd]
     elif tool in SHELL_TOOLS:
-        order = [cwd, project]
+        command = data.get('command')
+        order = [cwd, project] + (_shell_target_dirs(command, cwd or project or os.getcwd()) if isinstance(command, str) else [])
     else:
         return [where.project_from_environment(cwd)]
     found = []
@@ -302,34 +316,55 @@ def candidate_dirs(args, event):
     return found or [os.getcwd()]          # the process's own cwd only when nothing names a place at all
 
 
-def locate(args, event):
-    """(project copy, project root, state-root copy) of the plan that governs this call, or (None, explicit project, None).
+def locate_all(args, event):
+    """[(project copy, project root, state-root copy)] of EVERY plan that applies to this call, one per project, in the order of candidate_dirs; [] when none.
 
     B1: the project copy `<project>/.onecrew/active-plan.json` is the first source and the state-root copy `<state-root>/plans/<name>/active-plan.json`
     (written at the same time, outside the project) is the second. Deleting the project copy, or the whole `.onecrew/`, therefore does not end
     enforcement: a state-root copy that names this project brings the plan back, and a project copy that disagrees with it is treated as tampered with
-    (see `tampered`). The state root is `--state-root`, else `<project>/.onecrew/config.json`, else the registry that `onecrew init` also wrote outside
-    the project (where.registered_state_root), else the default: a custom state root survives the deletion of `.onecrew/` once init has run.
-    Without --project, candidate_dirs says where to look, each place searched up to the root of its repository and no further: the plan of a parent
-    repository never governs a repository inside it."""
+    (see `tampered`). The state root is `--state-root`, else `<project>/.onecrew/config.json` (which the hook also records in the registry outside the
+    project, where.register_project), else that registry, else the default: a custom state root survives the deletion of `.onecrew/`.
+    Each place is searched up to the root of its repository and no further, so the plan of a parent repository never governs a repository inside it. The
+    plans are all kept: a call is judged by every one of them (check), and none can be replaced by a nearer one, however it got there."""
     explicit = Path(args.project) if args.project else None
 
     def state_of(directory):       # G2: an installed hook has no --state-root
-        return args.state_root or where.configured_state_root(directory) or where.registered_state_root(directory) or where.default_state_root()
+        if args.state_root: return args.state_root
+        folder, configured = where.configured(directory)
+        if configured:
+            where.register_project(folder, configured)
+            return configured
+        return where.registered_state_root(directory) or where.default_state_root()
 
+    found, seen = [], set()
     for start in ([explicit] if explicit else candidate_dirs(args, event)):
+        hit = None
         project_copy = find_plan_file([start], walk=not explicit)
         if project_copy:
             root = project_copy.parent.parent
-            return project_copy, root, state_copy(state_of(root), root)
-        try:
-            directories = [explicit] if explicit else where.repository_dirs(start)
-        except OSError:
-            continue
-        for directory in directories:       # no project copy: the state-root copy that names this very directory as its project still governs it
-            copy = state_copy(state_of(directory), directory)
-            if copy: return None, directory, copy
-    return None, explicit, None
+            hit = (project_copy, root, state_copy(state_of(root), root))
+        else:
+            try:
+                directories = [explicit] if explicit else where.repository_dirs(start)
+            except OSError:
+                continue
+            for directory in directories:       # no project copy: the state-root copy that names this very directory as its project still governs it
+                copy = state_copy(state_of(directory), directory)
+                if copy:
+                    hit = (None, directory, copy)
+                    break
+        if hit is None: continue
+        key = os.path.normcase(str(Path(hit[1]).resolve()))
+        if key not in seen:
+            seen.add(key)
+            found.append(hit)
+    return found
+
+
+def locate(args, event):
+    """The first of locate_all, or (None, explicit project, None): the one plan of the verbs that have no tool call (prompt, stop, session, sync)."""
+    found = locate_all(args, event)
+    return found[0] if found else (None, Path(args.project) if args.project else None, None)
 
 
 def state_copy(state_root, root):
@@ -355,8 +390,12 @@ def tampered(project_plan, copy_plan):
 
 
 def governing(args, event):
-    """(plan, root, error, source). error is a text when the files disagree or cannot be read; source tells where the plan came from."""
-    project_copy, root, copy = locate(args, event)
+    """(plan, root, error, source) of the first plan that applies (see `locate`)."""
+    return govern(*locate(args, event))
+
+
+def govern(project_copy, root, copy):
+    """(plan, root, error, source) of one located plan. error is a text when the files disagree or cannot be read; source tells where the plan came from."""
     if project_copy is None and copy is None: return None, root, None, None
     if copy is None:
         plan, bad = load_plan(project_copy)
@@ -377,9 +416,20 @@ def governing(args, event):
 
 
 def check(args):
+    """Exit 2 when ANY plan that applies to the call blocks it. Every plan of locate_all judges the call (the session's project, the repository of what is
+    written, the repository of the cwd): a plan that is accepted, in log mode, only proposed or not there at all never lets through what another plan
+    blocks, and a repository nested inside the project (a fake `.git` included) cannot take the place of the session's plan. No plan anywhere: nothing to
+    enforce."""
     event, bad_input = read_stdin()
-    plan, root, bad_plan, source = governing(args, event)
-    if plan is None: return 0                           # no plan anywhere (project copy and state-root copy): nothing to enforce
+    code = 0
+    for located in locate_all(args, event):
+        plan, root, bad_plan, source = govern(*located)
+        if plan is not None and judge_call(plan, root, bad_plan, source, event, bad_input) == 2: code = 2
+    return code
+
+
+def judge_call(plan, root, bad_plan, source, event, bad_input):
+    """One plan's verdict on one call: 2 when it blocks the call (enforce mode), else 0."""
     mode = 'enforce' if plan.get('mode') == 'enforce' else 'log'
     session, tool = event.get('session_id'), event.get('tool_name') or '?'
     if source == 'restored': record(root, plan, 'logged', tool, '.onecrew/active-plan.json was missing and was restored from the state root', 'plan_restored', session=session, mode=mode)
@@ -577,6 +627,7 @@ def deny_rules(state_root):
     """permissions.deny: the one list the checkout print and `onecrew init` both write."""
     root = str(state_root).replace('\\', '/')
     deny = ['Edit(//' + root.lstrip('/') + '/**)',                       # Edit rules cover Write, MultiEdit and NotebookEdit too
+            'Edit(//' + str(where.registry_file()).replace('\\', '/').lstrip('/') + ')',      # the registry of project -> state root, outside the project
             'Edit(**/plans/**)', 'Edit(**/*.sqlite*)', 'Edit(.onecrew/active-plan.json)', 'Edit(.onecrew/violations.jsonl)', 'Edit(.onecrew/hook-state.json)', 'Edit(.onecrew/config.json)',
             'Edit(.claude/settings*.json)',
             'Bash(git push:*)', 'Bash(git * push*)', 'PowerShell(git push *)', 'PowerShell(git * push*)',

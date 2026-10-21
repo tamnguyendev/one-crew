@@ -82,7 +82,8 @@ def changed_paths(directory, first, second):
 
 def binary_paths(directory, first, second):
     """The changed paths that git itself shows only as `Binary files ... differ`: a binary file, or text that a diff attribute (`-diff`, also in
-    .git/info/attributes) or core.bigFileThreshold keeps out of the text diff. Read from --numstat, which prints `-` for both counts of such a path."""
+    .git/info/attributes), a diff driver marked binary or core.bigFileThreshold keeps out of the text diff. Read from --numstat, which prints `-` for both
+    counts of such a path."""
     _two_trees(first, second)
     out = _git(directory, 'diff', '--numstat', '--no-renames', '--ignore-submodules=none', '-z', '--end-of-options', first, second)
     found = []
@@ -90,6 +91,33 @@ def binary_paths(directory, first, second):
         counts = item.split('\t', 2)
         if len(counts) == 3 and counts[0] == '-' and counts[1] == '-': found.append(counts[2])
     return found
+
+
+def blob_head(directory, tree, path, size=8000):
+    """The first `size` bytes of `path` as `tree` holds it (git's own window for deciding that a file is binary); b'' when the tree has no such file."""
+    clean = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
+    try:
+        process = subprocess.Popen(['git', '-C', str(directory), 'cat-file', 'blob', f'{tree}:{path}'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=clean,
+                                   creationflags=0x08000000 if os.name == 'nt' else 0)
+    except OSError:
+        return b''
+    try:
+        return process.stdout.read(size)
+    finally:
+        try:
+            process.kill()
+        except OSError:
+            pass
+        process.wait()
+        process.stdout.close()
+
+
+def text_hidden_paths(directory, first, second, paths):
+    """Of `paths` (changed, and shown by git only as `Binary files differ`), those whose TEXT is withheld: neither version has a NUL byte in its first 8000
+    bytes, which a real binary file (an image, a jar) has. A diff attribute, a diff driver marked binary or core.bigFileThreshold keeps such text out of the
+    diff; a real binary file is named by its `Binary files differ` header and is not in this list."""
+    _two_trees(first, second)
+    return [p for p in paths if not any(b'\0' in blob_head(directory, tree, p) for tree in (first, second))]
 
 
 def _checkout(directory, tree, destination):

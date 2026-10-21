@@ -177,19 +177,18 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None):
 
 def _accepted_views(contract, state, revision, accepted):
     """The views of an ACCEPTED revision, from what the `plan.accepted` event recorded and not from today's rules: each milestone is passed on the verdict
-    whose receipt the event names (`receipts`), carried from the revision the event says (`carried`), and `neutral_diff` when that verdict was observed on
-    another artifact than the one accepted (only a neutral difference could have allowed that). A plan accepted under older rules (the dev2 default
-    neutral list, carried verdicts of a looser signature) therefore reads as it was accepted, and its report does not move. `runs`, `failures` and the
-    rest are what the revision recorded."""
+    that was recorded last with the receipt the event names (`receipts`; the same evidence file can be judged twice, and the second verdict is the one
+    accepted). Nothing says `carried_from`, `neutral_diff` or `stale`: the plan was accepted, those are words for a plan still on its way, and what carried
+    a pass is in the event (`carried`). A plan accepted under older rules (2.1, the dev2 default neutral list) therefore reads as it was accepted, and its
+    report does not move; the one difference is a milestone accepted on a verdict carried from an earlier revision, which the old report called "no verdict
+    yet" and which now reads as the pass it was accepted on. `runs`, `failures` and the rest are what the revision recorded."""
     views = milestone_views(contract, state, revision)
-    receipts, carried = accepted.get('receipts') or {}, accepted.get('carried') or {}
+    receipts = accepted.get('receipts') or {}
     for view in views:
         wanted = receipts.get(view['id'])
-        verdict = next((v for v in state['verdicts'] if v['milestone'] == view['id'] and wanted and v.get('receipt') == wanted), None)
-        if verdict is None: continue          # nothing recorded for it: the view stays what the revision itself recorded
-        view.update(state='passed', repairs_left=None, last_verdict={k: verdict.get(k) for k in ('result', 'by', 'artifact_sha', 'receipt', 'cwd')})
-        if view['id'] in carried: view['carried_from'] = carried[view['id']]
-        if verdict.get('artifact_sha') != accepted.get('artifact_sha') and view['verifier'] == 'command': view['neutral_diff'] = True
+        matching = [v for v in state['verdicts'] if v['milestone'] == view['id'] and wanted and v.get('receipt') == wanted]
+        if not matching: continue             # nothing recorded for it: the view stays what the revision itself recorded
+        view.update(state='passed', repairs_left=None, last_verdict={k: matching[-1].get(k) for k in ('result', 'by', 'artifact_sha', 'receipt', 'cwd')})
     return views
 
 
@@ -336,6 +335,8 @@ def _as_tree(ledger, value):
     from .verifiers import command
     if not isinstance(value, str) or not command.TREE_ID.fullmatch(value):
         raise LedgerError('--artifact-sha must be a tree (or commit) id of 40 or 64 lowercase hex characters, not ' + repr(str(value)[:40]) + '.')
+    if set(value) == {'0'}:
+        raise LedgerError('--artifact-sha is the null id (all zeros): that is what a receipt records when no artifact could be made, never an artifact to accept.')
     try:
         tree = command._git(ledger.project, 'rev-parse', '--verify', '-q', '--end-of-options', value + '^{tree}')
     except (LedgerError, OSError, subprocess.SubprocessError):

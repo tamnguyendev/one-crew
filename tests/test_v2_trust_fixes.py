@@ -48,8 +48,8 @@ class HookBase(unittest.TestCase):
         nowhere = str(self.base / 'nowhere')
         os.environ.update(LOCALAPPDATA=nowhere, HOME=nowhere, USERPROFILE=nowhere)       # the default state root is not the real one
 
-    def document(self, project, mode='enforce', owned=('a.txt',)):
-        return {'plan': 'p', 'revision': 1, 'plan_sha': 'x', 'status': 'approved', 'mode': mode, 'owned': list(owned), 'non_goals': [], 'bash_deny': [], 'protected': [],
+    def document(self, project, mode='enforce', owned=('a.txt',), status='approved', name='p'):
+        return {'plan': name, 'revision': 1, 'plan_sha': 'x', 'status': status, 'mode': mode, 'owned': list(owned), 'non_goals': [], 'bash_deny': [], 'protected': [],
                 'scratch': [], 'title': 'Hợp đồng thử tiếng Việt', 'output': ['Tệp mẫu tồn tại'], 'budget': {'max_calls': 5, 'time': 30},
                 'milestones': [{'id': 'M1', 'title': VI_MILESTONE, 'state': 'pending', 'verifier': {'type': 'command'}}],
                 'project': str(project), 'state_root': str(self.state), 'exported_at': '2026-10-21T00:00:00+00:00'}
@@ -110,11 +110,11 @@ class HookFindsItsPlan(HookBase):
         self.assertIsNone(self.governing(inner)[0])
         self.assertEqual(self.check('Edit', inner / 'anything.txt', project=inner)[0], 0)
 
-    def test_the_plan_of_another_project_does_not_govern(self):
+    def test_an_event_without_a_tool_is_governed_by_the_project_alone(self):
         other = self.base / 'other'; (other / '.git').mkdir(parents=True)
         self.project_copy(other)
         self.assertEqual(self.governing(other)[0]['plan'], 'p')
-        self.assertIsNone(self.governing(self.repo, cwd=other)[0])             # the project is CLAUDE_PROJECT_DIR; the cwd of the event is not another project to ask
+        self.assertIsNone(self.governing(self.repo, cwd=other)[0])             # stop, session and prompt: the project is CLAUDE_PROJECT_DIR; the cwd is not another project to ask
         self.config(self.repo); self.state_copy(other)
         self.assertIsNone(self.governing(self.repo)[0])                        # a state-root copy names its own project, not this one
 
@@ -140,9 +140,9 @@ class HookFindsItsPlan(HookBase):
         self.assertEqual(code, 0)
         self.assertEqual(where.registered_state_root(self.repo).resolve(), self.state.resolve())
         self.assertFalse(str(where.registry_file()).startswith(str(self.repo)))
-        gone = self.base / 'gone'; gone.mkdir(); where.register_project(gone, self.state); gone.rmdir()
-        where.register_project(self.repo, self.state)
-        self.assertEqual(list(json.loads(where.registry_file().read_text(encoding='utf-8'))['projects']), [os.path.normcase(str(self.repo.resolve()))])
+        gone, other = self.base / 'gone', self.base / 'other'; gone.mkdir(); other.mkdir(); where.register_project(gone, self.state); gone.rmdir()
+        where.register_project(other, self.state)                                            # a write drops the entries of directories that are gone from a mounted drive
+        self.assertEqual(sorted(json.loads(where.registry_file().read_text(encoding='utf-8'))['projects']), sorted(os.path.normcase(str(p.resolve())) for p in (self.repo, other)))
 
 
 class HookJudgesTheRepositoryOfThePath(HookBase):
@@ -167,11 +167,98 @@ class HookJudgesTheRepositoryOfThePath(HookBase):
         self.assertEqual(code, 2, text)
         self.assertEqual(self.check('Bash', project=self.repo, cwd=self.repo, command='echo x > other.txt')[0], 0)
 
+    def test_the_registry_is_written_whenever_the_hook_reads_a_config_json_and_cannot_be_edited_by_the_ai(self):
+        self.config(self.repo); self.project_copy(self.repo); self.state_copy(self.repo)
+        self.assertIsNone(where.registered_state_root(self.repo))
+        self.assertEqual(self.check('Edit', self.repo / 'a.txt', project=self.repo)[0], 0)           # no init was ever run here: the hook records the pointer itself
+        self.assertEqual(where.registered_state_root(self.repo).resolve(), self.state.resolve())
+        shutil.rmtree(self.repo / '.onecrew')
+        self.assertEqual(self.check('Edit', self.repo / 'outside.txt', project=self.repo)[0], 2)      # and it carries the plan across the deletion of .onecrew/
+        registry = where.registry_file()
+        self.assertTrue(registry.is_file())
+        for tool, command in (('Write', None), ('Bash', f'rm "{registry}"'), ('Bash', f'python -c "import os; os.remove(r\'{registry}\')"'), ('PowerShell', f'Remove-Item "{registry}"')):
+            code, text = self.check(tool, registry, project=self.repo, command=command)
+            self.assertEqual(code, 2, (tool, text))
+        self.assertIn('hook-projects.json', ''.join(hook_cli.deny_rules(self.state)))
+
+    def test_two_writers_do_not_lose_each_others_entries_and_an_unmounted_drive_is_not_forgotten(self):
+        import threading
+        projects = []
+        for n in range(6):
+            project = self.base / f'proj{n}'; project.mkdir(); projects.append(project)
+        threads = [threading.Thread(target=where.register_project, args=(project, self.state)) for project in projects]
+        for thread in threads: thread.start()
+        for thread in threads: thread.join()
+        self.assertEqual(sorted(json.loads(where.registry_file().read_text(encoding='utf-8'))['projects']), sorted(os.path.normcase(str(p.resolve())) for p in projects))
+        self.assertFalse(where.registry_file().with_name(where.REGISTRY + '.lock').exists())
+        if os.name == 'nt' and not Path('Q:\\').exists():                                              # a project on a drive that is not mounted now stays
+            data = json.loads(where.registry_file().read_text(encoding='utf-8')); data['projects']['q:\\unplugged\\project'] = str(self.state)
+            where.registry_file().write_text(json.dumps(data), encoding='utf-8')
+            gone = self.base / 'gone'; gone.mkdir(); where.register_project(gone, self.state); gone.rmdir()
+            where.register_project(projects[0], self.base / 'elsewhere')
+            kept = json.loads(where.registry_file().read_text(encoding='utf-8'))['projects']
+            self.assertIn('q:\\unplugged\\project', kept); self.assertNotIn(os.path.normcase(str(gone.resolve())), kept)
+
     def test_the_process_cwd_is_a_place_only_when_nothing_else_names_one(self):
         os.environ.pop('CLAUDE_PROJECT_DIR', None)
         args = argparse.Namespace(project=None, state_root=None)
         self.assertEqual(hook_cli.candidate_dirs(args, {'tool_name': 'Bash', 'tool_input': {'command': 'ls'}}), [os.getcwd()])
         self.assertEqual(hook_cli.candidate_dirs(args, {'tool_name': 'Bash', 'tool_input': {'command': 'ls'}, 'cwd': str(self.child)}), [str(self.child)])
+
+
+class HookEveryPlanJudges(HookBase):
+    """A call is judged by EVERY plan that applies (the session's project, the repository of what it writes, the repository of its cwd) and blocked when any
+    enforce plan blocks it: a plan that is accepted, in log mode or absent never excuses another, and a nested repository cannot take the session's place."""
+
+    def plan_repo(self, path, gitfile=False, **kw):
+        path.mkdir(parents=True, exist_ok=True)
+        if gitfile: (path / '.git').write_text('gitdir: nowhere\n')
+        else: (path / '.git').mkdir(exist_ok=True)
+        self.project_copy(path, **kw)
+        return path
+
+    def echo_to(self, path):
+        return f'echo x > {path.as_posix()}'
+
+    def test_a_plan_of_another_repository_never_lets_through_what_the_sessions_plan_blocks(self):
+        w, q = self.plan_repo(self.base / 'w'), self.plan_repo(self.base / 'q')
+        for label, kw in (('accepted, owns everything', dict(status='accepted', owned=('**',))), ('approved, owns everything', dict(owned=('**',))), ('log mode', dict(mode='log'))):
+            with self.subTest(label):
+                self.project_copy(q, **kw)
+                code, text = self.check('Edit', q / 'x.txt', project=w, cwd=w)
+                self.assertEqual(code, 2, text)
+        self.assertEqual(self.check('Edit', w / 'a.txt', project=w, cwd=w)[0], 0)
+
+    def test_the_plan_of_a_parent_repository_applies_when_a_session_in_a_child_edits_it(self):
+        parent = self.plan_repo(self.base / 'parent', owned=('src/**',)); child = self.plan_repo(parent / 'wt', gitfile=True)
+        self.assertEqual(self.check('Edit', parent / 'src' / 'x.py', project=child, cwd=child)[0], 2)          # the child's plan owns only a.txt
+        self.assertEqual(self.check('Edit', child / 'a.txt', project=child, cwd=child)[0], 0)
+
+    def test_a_shell_command_is_judged_by_the_plan_of_the_repository_it_writes_in(self):
+        parent = self.base / 'p4'; (parent / '.git').mkdir(parents=True)                                       # the session's project holds no plan
+        wt = self.plan_repo(parent / 'wt', gitfile=True)
+        self.assertEqual(self.check('Bash', project=parent, cwd=parent, command=self.echo_to(wt / 'secret.txt'))[0], 2)
+        self.assertEqual(self.check('Edit', wt / 'secret.txt', project=parent, cwd=parent)[0], 2)
+        self.config(wt); self.state_copy(wt); (wt / '.onecrew' / hook_cli.FILE).unlink()                       # the project copy of the worktree is gone: its state-root copy still blocks
+        self.assertEqual(self.check('Bash', project=parent, cwd=parent, command=self.echo_to(wt / 'secret.txt'))[0], 2)
+        self.assertEqual(self.check('Edit', wt / 'secret.txt', project=parent, cwd=parent)[0], 2)
+        self.assertEqual(self.check('Bash', project=parent, cwd=parent, command=self.echo_to(parent / 'other.txt'))[0], 0)       # a path of the plan-less parent is nobody's
+
+    def test_a_plan_in_the_cwd_cannot_excuse_what_the_sessions_plan_blocks(self):
+        session = self.plan_repo(self.base / 'p5'); wt = self.plan_repo(session / 'wt', gitfile=True, status='accepted', owned=('**',))
+        self.assertEqual(self.check('Bash', project=session, cwd=wt, command=self.echo_to(session / 'secret.txt'))[0], 2)
+        self.assertEqual(self.check('Bash', project=session, cwd=session, command=self.echo_to(session / 'secret.txt'))[0], 2)
+
+    def test_a_fake_repository_made_inside_the_owned_scope_cannot_replace_the_sessions_plan(self):
+        session = self.plan_repo(self.base / 'p6', owned=('src/**',))
+        fake = self.plan_repo(session / 'src' / 'fake', gitfile=True, status='accepted', owned=('**',))         # what an AI that may write src/** can make: a .git and a plan of its own
+        self.assertEqual(self.check('Bash', project=session, cwd=fake, command=self.echo_to(session / 'secret.txt'))[0], 2)
+        self.assertEqual(self.check('Edit', session / 'secret.txt', project=session, cwd=fake)[0], 2)
+        self.assertEqual(self.check('Edit', fake / 'x.txt', project=session, cwd=fake)[0], 0)                   # inside src/**: the session's plan allows it
+
+    def test_a_log_mode_plan_alone_blocks_nothing(self):
+        solo = self.plan_repo(self.base / 'solo', mode='log')
+        self.assertEqual(self.check('Edit', solo / 'outside.txt', project=solo)[0], 0)
 
 
 # ---- P0.7: UTF-8 on stdout and stderr, and the handlers of other tools --------------------------------------------------------------------
@@ -334,16 +421,17 @@ class ReviewerSeesWhatGitTracks(ReviewerBase):
             self.assertEqual(reviewer.not_shown(self.root, 'a' * 40, 'b' * 40, '\n'.join(header(p) for p in names[:-1])), [names[-1]])
 
 
-    def test_a_binary_file_is_named_and_the_reviewer_is_not_asked(self):
+    def test_a_real_binary_file_is_named_by_the_diff_and_does_not_stop_a_pass(self):
         self.start(); self.commit('a.txt', 'one\ntwo\n')
-        (self.root / 'img.bin').write_bytes(b'\x00\x01\x02 not text'); self.git('add', 'img.bin')
+        (self.root / 'icon.png').write_bytes(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR' + bytes(range(256))); self.git('add', 'icon.png')
+        self.assertIn('Binary files', verdict.diff(self.ledger, 'P1', 'M1'))
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         receipt = self.last()
-        self.assertEqual((receipt['result'], receipt['calls'], receipt['not_shown'], self.prompts), ('inconclusive', 0, ['img.bin'], []))
-        self.assertIn('Binary files differ', receipt['error']); self.assertIn('img.bin', receipt['error'])
-        with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())
+        self.assertEqual((receipt['result'], receipt['calls'], receipt['not_shown']), ('pass', 1, []))
+        self.assertIn('icon.png', self.prompts[0]); self.assertIn('Binary files', self.prompts[0])           # the model is told that the file changed, and that it cannot read it
+        self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())['status'], 'accepted')
 
-    def test_text_that_a_diff_attribute_keeps_out_of_the_diff_is_not_passed_either(self):
+    def test_text_that_a_diff_attribute_keeps_out_of_the_diff_is_not_passed(self):
         self.start()
         (self.root / '.git' / 'info').mkdir(exist_ok=True); (self.root / '.git' / 'info' / 'attributes').write_text('*.py -diff\n')
         self.commit('run.py', 'import os; os.system("rm -rf ~")\n'); self.commit('a.txt', 'one\ntwo\n')
@@ -351,7 +439,20 @@ class ReviewerSeesWhatGitTracks(ReviewerBase):
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         receipt = self.last()
         self.assertEqual((receipt['result'], receipt['calls'], receipt['not_shown'], self.prompts), ('inconclusive', 0, ['run.py'], []))
-        self.assertIn('-diff', receipt['error'])
+        self.assertIn('-diff', receipt['error']); self.assertIn('although they hold text', receipt['error'])
+
+    def test_text_that_a_binary_diff_driver_or_the_big_file_threshold_hides_is_not_passed_either(self):
+        self.start()
+        self.git('config', 'diff.hide.binary', 'true')
+        (self.root / '.git' / 'info').mkdir(exist_ok=True); (self.root / '.git' / 'info' / 'attributes').write_text('*.py diff=hide\n')
+        self.commit('run.py', 'import os; os.system("rm -rf ~")\n')
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.assertEqual((self.last()['result'], self.last()['not_shown'], self.prompts), ('inconclusive', ['run.py'], []))
+        self.setUp(); self.start()
+        self.git('config', 'core.bigFileThreshold', '1k'); self.commit('big.txt', 'line\n' * 400)
+        self.assertIn('Binary files', verdict.diff(self.ledger, 'P1', 'M1'))
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.assertEqual((self.last()['result'], self.last()['not_shown'], self.prompts), ('inconclusive', ['big.txt'], []))
 
     def test_the_reason_lists_the_ways_the_artifact_can_differ_from_what_the_reviewer_is_shown(self):
         self.start(); self.commit('a.txt', 'one\ntwo\n')
@@ -393,6 +494,10 @@ class SubmodulesAreNeverIgnored(ReviewerBase):
 
     def test_ignore_all_in_gitmodules_does_not_hide_a_bump(self):
         self.make_submodule(gitmodules=True)
+        self.check_in_the_diff()
+
+    def test_a_log_style_submodule_diff_configuration_does_not_make_the_review_inconclusive(self):
+        self.make_submodule(); self.git('config', 'diff.submodule', 'log')                  # git then prints a log and no `diff --git` header for the submodule
         self.check_in_the_diff()
 
     def test_a_submodule_bump_is_not_a_neutral_change(self):
@@ -623,11 +728,12 @@ class ReportReadsTheSharedView(ReviewerBase):
         self.commit('NOTES.md', 'notes\n')                                              # a commit the contract itself calls neutral: the pass is carried over it
         self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())['status'], 'accepted')
         text, shown = self.text(), self.view()
-        self.assertEqual((shown['state'], shown.get('neutral_diff')), ('passed', True))
-        self.assertIn('Kết luận: XONG', text); self.assertIn('M1 pass (chỉ khác đường dẫn trung lập)', text)
+        self.assertEqual(shown['state'], 'passed'); self.assertNotIn('neutral_diff', shown); self.assertNotIn('carried_from', shown)      # accepted: no word for a plan still on its way
+        self.assertIn('Kết luận: XONG', text); self.assertIn('M1 pass · by command', text); self.assertNotIn('trung lập', text); self.assertNotIn('kế thừa', text)
+        accepted = [p for k, p in self.events() if k == 'plan.accepted'][0]
+        self.assertEqual(accepted['carried'], {'M1': 1})                                 # what carried the pass is in the acceptance event
         with patch.object(contracts, 'neutral_globs', return_value=[]):                 # rules under which that acceptance would not have been possible
-            again = self.view()
-            self.assertEqual((again['state'], again.get('neutral_diff')), ('passed', True))
+            self.assertEqual(self.view()['state'], 'passed')
             self.assertEqual(self.text(), text)
 
     def test_an_accepted_carried_verdict_stays_carried_whatever_the_inheritance_rule_says_now(self):
@@ -638,9 +744,30 @@ class ReportReadsTheSharedView(ReviewerBase):
         verdict.run(self.ledger, 'P1', 'M2', self.root)
         self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())['status'], 'accepted')
         text = self.text()
-        self.assertIn('Kết luận: XONG', text); self.assertIn('M1 pass (kế thừa từ bản 1)', text)
+        self.assertIn('Kết luận: XONG', text); self.assertIn('M1 pass · by command', text); self.assertNotIn('kế thừa', text); self.assertNotIn('M1 chưa có verdict', text)
+        self.assertNotIn('carried_from', self.view('M1'))
         with patch.object(plans, '_inherited', return_value=None):
             self.assertEqual(self.view('M1')['state'], 'passed'); self.assertEqual(self.text(), text)
+
+    def test_an_owner_receipt_judged_twice_reads_as_the_verdict_that_was_accepted(self):
+        manual = {'id': 'M2', 'title': 'Looks right', 'verifier': {'type': 'owner-manual'}, 'covers': ['O1'], 'max_repairs': 3}
+        self.approved(value=plan_json(milestones=[milestone('M1'), manual]))
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        blob = Snapshots(self.ledger.state_root).blob(b'screenshot of the device\n')
+        verdict.record(self.ledger, 'P1', 'M2', 'fail', 'owner', blob, self.tree())
+        verdict.record(self.ledger, 'P1', 'M2', 'pass', 'owner', blob, self.tree())            # the same evidence file, judged again
+        self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())['status'], 'accepted')
+        shown = self.view('M2')
+        self.assertEqual((shown['state'], shown['last_verdict']['result']), ('passed', 'pass'))
+        text = self.text()
+        self.assertIn('M2 pass · by owner', text); self.assertNotIn('M2 fail', text); self.assertIn('Kết luận: XONG', text)
+
+    def test_accept_refuses_the_null_artifact(self):
+        self.approved(); verdict.run(self.ledger, 'P1', 'M1', self.root)
+        for null in ('0' * 40, '0' * 64):
+            with self.assertRaises(LedgerError) as caught: plans.accept(self.ledger, 'P1', 'owner', 'ref', null)
+            self.assertIn('null id', str(caught.exception))
+        self.assertNotIn('plan.accepted', self.kinds())
 
     def test_an_accepted_plan_is_read_at_the_artifact_accepted_so_its_report_does_not_move(self):
         self.approved(); verdict.run(self.ledger, 'P1', 'M1', self.root)

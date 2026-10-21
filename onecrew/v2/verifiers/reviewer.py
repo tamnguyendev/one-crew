@@ -86,7 +86,7 @@ def tree_diff(directory, base, current):
     # fixed prefixes and no rename pairing, so each changed path has exactly one `diff --git a/<path> b/<path>` header (not_shown relies on it); submodules
     # are never ignored, whatever diff.ignoreSubmodules or .gitmodules say
     return command._git(top, '-c', 'core.quotepath=off', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--ignore-submodules=none',
-                        '--src-prefix=a/', '--dst-prefix=b/', '-U3', '--end-of-options', base, current)
+                        '--submodule=short', '--src-prefix=a/', '--dst-prefix=b/', '-U3', '--end-of-options', base, current)
 
 
 class NoTrackedBase(LedgerError):
@@ -281,7 +281,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
         hidden = command.changed_paths(directory, tracked, before)           # the tree the reviewer is shown and the artifact differ here (see HIDDEN)
         if not hidden:
             unshown = not_shown(directory, base_tracked, tracked, diff)
-            binary = [p for p in command.binary_paths(directory, base_tracked, tracked) if p not in unshown]
+            binary = command.text_hidden_paths(directory, base_tracked, tracked, [p for p in command.binary_paths(directory, base_tracked, tracked) if p not in unshown])
         no_base = None
     except LedgerError as problem:      # no tree to start from (or git cannot make one): nothing is sent, the verdict is inconclusive with this reason
         diff, base, base_source, tracked, base_tracked, no_base = '', None, 'none', None, None, str(problem)
@@ -290,8 +290,9 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     if no_base: error = no_base
     elif hidden: error = f'the tree the reviewer is shown and the artifact differ at {len(hidden)} path(s): {named(hidden)}. {HIDDEN}'
     elif unshown: error = f'the diff does not show {len(unshown)} changed path(s): {named(unshown)}; the reviewer is not asked about what it cannot see.'
-    elif binary: error = (f'git shows {len(binary)} changed path(s) only as "Binary files differ": {named(binary)}. They are binary, or a diff attribute (-diff, '
-                          f'also in .git/info/attributes) or core.bigFileThreshold keeps their text out of the diff; the reviewer cannot read them, so it is not asked.')
+    elif binary: error = (f'git shows {len(binary)} changed path(s) only as "Binary files differ" although they hold text: {named(binary)}. A diff attribute (-diff, '
+                          f'also in .git/info/attributes), a diff driver marked binary or core.bigFileThreshold keeps their text out of the diff; the reviewer cannot read '
+                          f'them, so it is not asked. Remove what hides the text, or take the change out of the reviewed commits.')
     elif not diff.strip() and base_source in TRUSTED_BASES and base == before: note = NO_CHANGE     # the tree is the one the owner approved (or accepted): nothing to review, nothing to fix
     elif not diff.strip(): error = 'no change since approval; there is nothing to review'
     elif len(diff.encode('utf-8')) > MAX_DIFF: error = f'diff is {len(diff.encode("utf-8"))} bytes, over the {MAX_DIFF} cap; it is not reviewed in part'
