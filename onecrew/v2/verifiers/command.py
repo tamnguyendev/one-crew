@@ -67,11 +67,29 @@ def tracked_tree(directory):
         return _git(top, 'write-tree', env=env)
 
 
-def changed_paths(directory, first, second):
-    """Paths (posix, relative to the repository top) that differ between two trees; renames are not paired, so both sides are listed."""
+def _two_trees(first, second):
     if not all(isinstance(t, str) and TREE_ID.fullmatch(t) for t in (first, second)): raise LedgerError('A tree id is 40 or 64 lowercase hex characters.')
-    out = _git(directory, 'diff', '--name-only', '--no-renames', '-z', '--end-of-options', first, second)
+
+
+def changed_paths(directory, first, second):
+    """Paths (posix, relative to the repository top) that differ between two trees; renames are not paired, so both sides are listed. A submodule whose
+    commit differs is listed too, whatever `diff.ignoreSubmodules` or the `ignore` of .gitmodules say (--ignore-submodules=none): this list decides what
+    a reviewer is shown and which commits are neutral, so nothing may be left out of it by a configuration."""
+    _two_trees(first, second)
+    out = _git(directory, 'diff', '--name-only', '--no-renames', '--ignore-submodules=none', '-z', '--end-of-options', first, second)
     return [p for p in out.split('\0') if p]
+
+
+def binary_paths(directory, first, second):
+    """The changed paths that git itself shows only as `Binary files ... differ`: a binary file, or text that a diff attribute (`-diff`, also in
+    .git/info/attributes) or core.bigFileThreshold keeps out of the text diff. Read from --numstat, which prints `-` for both counts of such a path."""
+    _two_trees(first, second)
+    out = _git(directory, 'diff', '--numstat', '--no-renames', '--ignore-submodules=none', '-z', '--end-of-options', first, second)
+    found = []
+    for item in out.split('\0'):
+        counts = item.split('\t', 2)
+        if len(counts) == 3 and counts[0] == '-' and counts[1] == '-': found.append(counts[2])
+    return found
 
 
 def _checkout(directory, tree, destination):

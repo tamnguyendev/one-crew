@@ -1,11 +1,13 @@
 """Where a project's OneCrew state lives, for the commands that run without --project / --state-root (the installed hooks and `onecrew init`).
 
 * The project: `--project`, else CLAUDE_PROJECT_DIR (set by Claude Code for every hook), else the hook event's cwd, else the process cwd.
-* The state root: `--state-root`, else `<project>/.onecrew/config.json` {"state_root": ...} (written by `onecrew init`), else the system default
-  (the same default the Ledger uses). Stdlib only: `hook check` imports this before every tool call.
+* The state root: `--state-root`, else `<project>/.onecrew/config.json` {"state_root": ...} (written by `onecrew init`), else (hooks only) the registry
+  `onecrew init` also wrote outside the project, else the system default (the same default the Ledger uses). Stdlib only: `hook check` imports this
+  before every tool call.
 """
 import json
 import os
+import uuid
 from pathlib import Path
 
 CONFIG = 'config.json'
@@ -46,6 +48,51 @@ def configured_state_root(project=None):
 def state_root_for(project, explicit=None):
     """Explicit value first, then config.json; None leaves the choice to the Ledger default."""
     return Path(explicit) if explicit else configured_state_root(project)
+
+
+# ---- the registry: where `onecrew init` recorded a project's state root, outside the project --------------------------------------------
+
+REGISTRY = 'hook-projects.json'
+
+
+def registry_file():
+    return default_state_root() / REGISTRY
+
+
+def _key(project):
+    return os.path.normcase(str(Path(project).resolve()))
+
+
+def registered_state_root(project):
+    """The state root that `onecrew init` recorded for this very project in the registry (<default state root>/hook-projects.json, a place outside the
+    project), or None. The hook falls back to it when `.onecrew/config.json` is gone, so deleting `.onecrew/` does not hide a custom state root."""
+    try:
+        value = json.loads(registry_file().read_text(encoding='utf-8-sig'))
+        found = (value.get('projects') or {}).get(_key(project)) if isinstance(value, dict) else None
+        return Path(found) if isinstance(found, str) and found.strip() else None
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def register_project(project, state_root):
+    """Record `project` -> `state_root` in the registry (entries of projects that no longer exist are dropped). Never raises: a registry that cannot be
+    written leaves `.onecrew/config.json` as the only pointer, as before."""
+    try:
+        path = registry_file()
+        try:
+            value = json.loads(path.read_text(encoding='utf-8-sig'))
+        except (OSError, ValueError):
+            value = {}
+        old = value.get('projects') if isinstance(value, dict) and isinstance(value.get('projects'), dict) else {}
+        projects = {k: v for k, v in old.items() if isinstance(v, str) and Path(k).is_dir()}
+        projects[_key(project)] = str(state_root)
+        if projects == old: return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
+        temporary.write_text(json.dumps({'projects': projects}, indent=2, ensure_ascii=False), encoding='utf-8')
+        os.replace(temporary, path)
+    except (OSError, ValueError, TypeError):
+        pass
 
 
 def project_from_environment(event_cwd=None):

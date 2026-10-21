@@ -266,34 +266,69 @@ def read_stdin():
         return {}, f'{type(error).__name__}: {error}'
 
 
+def _nearest_dir(path):
+    """The nearest existing directory at or above `path` (a file that does not exist yet has its folder, or one above it)."""
+    here = Path(path)
+    for directory in (here, *here.parents):
+        if directory.is_dir(): return directory
+    return None
+
+
+def candidate_dirs(args, event):
+    """The directories a plan is looked for from, in order; the first one whose repository has a plan governs the call.
+
+    An Edit/Write is judged by the repository that holds the PATH being written, then the project (CLAUDE_PROJECT_DIR), then the event's cwd; a shell
+    command by the event's cwd, then the project; every other hook event (prompt, stop, session) by the project alone: where.project_from_environment,
+    CLAUDE_PROJECT_DIR else the event's cwd else ours. The process's own cwd is a place only when nothing else names one. A session opened in a parent
+    checkout therefore still finds the plan of the worktree whose file it edits, and the plan of a repository that holds none of these places never governs."""
+    cwd = event.get('cwd') if isinstance(event.get('cwd'), str) and event.get('cwd') else None
+    project = os.environ.get('CLAUDE_PROJECT_DIR') or None
+    tool = event.get('tool_name')
+    data = event.get('tool_input') if isinstance(event.get('tool_input'), dict) else {}
+    if tool in EDIT_TOOLS:
+        raw = next((data[k] for k in PATH_KEYS if isinstance(data.get(k), str) and data[k]), None)
+        try:
+            target = normalize(raw, cwd or project or os.getcwd()) if raw else None
+        except (OSError, ValueError):
+            target = None
+        order = [_nearest_dir(target.parent) if target is not None else None, project, cwd]
+    elif tool in SHELL_TOOLS:
+        order = [cwd, project]
+    else:
+        return [where.project_from_environment(cwd)]
+    found = []
+    for start in order:
+        if start and start not in found: found.append(start)
+    return found or [os.getcwd()]          # the process's own cwd only when nothing names a place at all
+
+
 def locate(args, event):
-    """(plan_file, project root) of the plan that governs this call, or (None, None).
+    """(project copy, project root, state-root copy) of the plan that governs this call, or (None, explicit project, None).
 
     B1: the project copy `<project>/.onecrew/active-plan.json` is the first source and the state-root copy `<state-root>/plans/<name>/active-plan.json`
-    (written at the same time, outside the project) is the second. Deleting `.onecrew/` therefore does not end enforcement: a state-root copy that
-    names this project brings the plan back, and a project copy that disagrees with it is treated as tampered with (see `tampered`).
-    Without --project the project is where.project_from_environment (CLAUDE_PROJECT_DIR, else the event's cwd, else ours): one directory, searched up to the
-    root of its repository and no further, so the plan of a parent repository or of another project never governs it."""
+    (written at the same time, outside the project) is the second. Deleting the project copy, or the whole `.onecrew/`, therefore does not end
+    enforcement: a state-root copy that names this project brings the plan back, and a project copy that disagrees with it is treated as tampered with
+    (see `tampered`). The state root is `--state-root`, else `<project>/.onecrew/config.json`, else the registry that `onecrew init` also wrote outside
+    the project (where.registered_state_root), else the default: a custom state root survives the deletion of `.onecrew/` once init has run.
+    Without --project, candidate_dirs says where to look, each place searched up to the root of its repository and no further: the plan of a parent
+    repository never governs a repository inside it."""
     explicit = Path(args.project) if args.project else None
 
-    def state_of(directory):
-        return args.state_root or where.configured_state_root(directory) or where.default_state_root()      # G2: an installed hook has no --state-root
+    def state_of(directory):       # G2: an installed hook has no --state-root
+        return args.state_root or where.configured_state_root(directory) or where.registered_state_root(directory) or where.default_state_root()
 
-    if explicit:
-        project_copy, directories = find_plan_file([explicit], walk=False), [explicit]
-    else:       # the project is one directory (CLAUDE_PROJECT_DIR, else the event's cwd, else ours) and its plan is looked for up to the repository root only
-        start = where.project_from_environment(event.get('cwd') if isinstance(event.get('cwd'), str) else None)
-        project_copy = find_plan_file([start])
+    for start in ([explicit] if explicit else candidate_dirs(args, event)):
+        project_copy = find_plan_file([start], walk=not explicit)
+        if project_copy:
+            root = project_copy.parent.parent
+            return project_copy, root, state_copy(state_of(root), root)
         try:
-            directories = where.repository_dirs(start)
+            directories = [explicit] if explicit else where.repository_dirs(start)
         except OSError:
-            directories = []
-    if project_copy:
-        root = project_copy.parent.parent
-        return project_copy, root, state_copy(state_of(root), root)
-    for directory in directories:       # no project copy: the state-root copy that names this very directory as its project still governs it
-        copy = state_copy(state_of(directory), directory)
-        if copy: return None, directory, copy
+            continue
+        for directory in directories:       # no project copy: the state-root copy that names this very directory as its project still governs it
+            copy = state_copy(state_of(directory), directory)
+            if copy: return None, directory, copy
     return None, explicit, None
 
 

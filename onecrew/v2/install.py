@@ -5,6 +5,7 @@ init (once per repo, again whenever the install moves): the state root (ledger, 
 already there: other tools' hooks, `permissions.allow` and `permissions.deny` entries and every other key stay; OneCrew's own entries are replaced, never
 doubled; a `.bak` copy is kept before the first change; a second run writes nothing. The hook command is the installed `onecrew` executable itself
 (`onecrew hook <verb>`): the project comes from CLAUDE_PROJECT_DIR and the state root from config.json at run time (hook_cli.portable_settings).
+init also records project -> state root in a registry outside the project (where.register_project), the pointer the hook falls back to when `.onecrew/` is gone.
 The Claude CLI is looked for and asked whether it is logged in; init never logs in for the user.
 
 doctor: one line `PASS|WARN|FAIL <name>: <detail>` per check; exit 1 when any line is FAIL.
@@ -231,6 +232,7 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
             write_text(settings_path, dump(merged))
     else:
         say(t('init.nothing'))
+    where.register_project(root, state)       # a second pointer to the state root, outside .onecrew/, for the hook when that folder is gone
     say(t('init.done', state=state, settings=settings_path, command=exe, rules=rules_path))
     say(t('init.config_note'))
     state_name, path, why = claude()

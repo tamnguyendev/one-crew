@@ -83,7 +83,10 @@ def tree_diff(directory, base, current):
     after --end-of-options: a stored value such as `--output=x` is never read as an option."""
     if not all(isinstance(t, str) and command.TREE_ID.fullmatch(t) for t in (base, current)): raise LedgerError('A tree id is 40 or 64 lowercase hex characters.')
     top = command.toplevel(directory)
-    return command._git(top, '-c', 'core.quotepath=off', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '-U3', '--end-of-options', base, current)
+    # fixed prefixes and no rename pairing, so each changed path has exactly one `diff --git a/<path> b/<path>` header (not_shown relies on it); submodules
+    # are never ignored, whatever diff.ignoreSubmodules or .gitmodules say
+    return command._git(top, '-c', 'core.quotepath=off', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--ignore-submodules=none',
+                        '--src-prefix=a/', '--dst-prefix=b/', '-U3', '--end-of-options', base, current)
 
 
 class NoTrackedBase(LedgerError):
@@ -93,7 +96,13 @@ class NoTrackedBase(LedgerError):
 NO_BASE = ('no tracked-only base tree: neither a passing review of this milestone with the same reviewer config nor plan.approved.base_tracked '
            'was recorded, and the base is read only from the first approval. Propose and approve the plan again (a new plan, whose first approval records it) to review this milestone.')
 BAD_BASE = 'the recorded base tree is not a tree id (40 or 64 lowercase hex characters), so it is not given to git: '
+NO_ARTIFACT = '0' * 40      # the artifact sha of a receipt that could not make one: an inconclusive verdict needs a well-formed value, and never gets a pass
 LISTED = 20                 # paths named in a reason; the rest is counted
+HIDDEN = ('The artifact is the working tree as `git add -A` would take it; the reviewer is shown what Git tracks (the real index plus the changes of the files '
+          'in it). They differ for: an untracked file that is not ignored; a file taken out of the index (`git rm --cached`) but still on disk; a file that is '
+          'in the index but not in HEAD and that .gitignore matches (`git add -f`, not committed); a file flagged assume-unchanged or skip-worktree; a submodule '
+          'whose commit moved without being staged; or a change made while this review was being made. `git add` the file, commit it, add it to .gitignore, '
+          'clear the flag or remove it, then run the milestone again.')
 
 
 def named(paths):
@@ -121,10 +130,23 @@ def review_diff(directory, approved, previous=None):
     return tree_diff(directory, before, tracked), base, base_source, tracked, before
 
 
+QUOTED = {7: 'a', 8: 'b', 9: 't', 10: 'n', 11: 'v', 12: 'f', 13: 'r', 34: '"', 92: '\\'}
+
+
+def _git_name(prefix, path):
+    """`a/<path>` the way git writes it in a `diff --git` header (core.quotepath=off): in double quotes with C escapes when it holds a control character,
+    a double quote or a backslash, as it is otherwise."""
+    name = prefix + path
+    if not any(ord(c) < 32 or ord(c) == 127 or c in '"\\' for c in name): return name
+    return '"' + ''.join('\\' + QUOTED[ord(c)] if ord(c) in QUOTED else '\\%03o' % ord(c) if ord(c) < 32 or ord(c) == 127 else c for c in name) + '"'
+
+
 def not_shown(directory, before, tracked, diff):
-    """The paths that differ between the two trees and are not named in the diff text. Git prints a header for every changed path (a binary file, a
-    symlink and a submodule included, as `Binary files differ` or the link target or `Subproject commit`), so a path that is not in the text was not shown."""
-    return [path for path in command.changed_paths(directory, before, tracked) if path not in diff]
+    """The paths that differ between the two trees (git's own list, exact) whose header `diff --git a/<path> b/<path>` is not a line of the diff text.
+    Git prints one header for every changed path (a binary file, a symlink and a submodule included), so a path without one was not shown. The
+    comparison is of whole header lines, not of substrings: `a.py` is not shown by a header of `data/a.py`."""
+    headers = {line for line in diff.split('\n') if line.startswith('diff --git ')}
+    return [path for path in command.changed_paths(directory, before, tracked) if f'diff --git {_git_name("a/", path)} {_git_name("b/", path)}' not in headers]
 
 
 # ---- prompt and answer ----------------------------------------------------------------------------------------------------
@@ -247,22 +269,29 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     directory = Path(directory).resolve()
     if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
     started, begin = utcnow(), time.monotonic()
-    before = command.artifact_sha(directory)        # the artifact first; what the reviewer is shown is cut from ONE tree made right after it, and checked against it
-    hidden, unshown = [], []
+    hidden, unshown, binary = [], [], []
+    try:       # the artifact first; what the reviewer is shown is cut from ONE tree made right after it, and checked against it
+        before = command.artifact_sha(directory)
+        no_artifact = None
+    except LedgerError as problem:      # git cannot make the artifact (a repository with no commit, say): the verdict is inconclusive, with this reason
+        before, no_artifact = NO_ARTIFACT, f'the artifact of the working tree cannot be made, so nothing is reviewed: {problem}'
     try:
+        if no_artifact: raise LedgerError(no_artifact)
         diff, base, base_source, tracked, base_tracked = review_diff(directory, approved, previous)
-        hidden = command.changed_paths(directory, tracked, before)           # in the artifact, not in the tree the reviewer is shown: untracked files that are not ignored
-        unshown = [] if hidden else not_shown(directory, base_tracked, tracked, diff)
+        hidden = command.changed_paths(directory, tracked, before)           # the tree the reviewer is shown and the artifact differ here (see HIDDEN)
+        if not hidden:
+            unshown = not_shown(directory, base_tracked, tracked, diff)
+            binary = [p for p in command.binary_paths(directory, base_tracked, tracked) if p not in unshown]
         no_base = None
     except LedgerError as problem:      # no tree to start from (or git cannot make one): nothing is sent, the verdict is inconclusive with this reason
         diff, base, base_source, tracked, base_tracked, no_base = '', None, 'none', None, None, str(problem)
     store = Snapshots(ledger.state_root)
     answer, usage, error, timed_out, raw, calls, prompt, note = '', {}, None, False, b'', 0, None, None
     if no_base: error = no_base
-    elif hidden:
-        error = (f'the artifact holds {len(hidden)} file(s) the reviewer is not shown: {named(hidden)}. They are untracked and not ignored (or changed while this review '
-                 'was being made). `git add` them, add them to .gitignore or remove them, then run the milestone again.')
+    elif hidden: error = f'the tree the reviewer is shown and the artifact differ at {len(hidden)} path(s): {named(hidden)}. {HIDDEN}'
     elif unshown: error = f'the diff does not show {len(unshown)} changed path(s): {named(unshown)}; the reviewer is not asked about what it cannot see.'
+    elif binary: error = (f'git shows {len(binary)} changed path(s) only as "Binary files differ": {named(binary)}. They are binary, or a diff attribute (-diff, '
+                          f'also in .git/info/attributes) or core.bigFileThreshold keeps their text out of the diff; the reviewer cannot read them, so it is not asked.')
     elif not diff.strip() and base_source in TRUSTED_BASES and base == before: note = NO_CHANGE     # the tree is the one the owner approved (or accepted): nothing to review, nothing to fix
     elif not diff.strip(): error = 'no change since approval; there is nothing to review'
     elif len(diff.encode('utf-8')) > MAX_DIFF: error = f'diff is {len(diff.encode("utf-8"))} bytes, over the {MAX_DIFF} cap; it is not reviewed in part'
@@ -278,11 +307,14 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     rows, outside, problems = parse_answer(answer, config['criteria']) if answer else (
         [{'id': c['id'], 'verdict': 'pass' if note else 'inconclusive', 'evidence': []} for c in config['criteria']], [], [])
     if calls and not answer and not error and not timed_out: problems = ['the reviewer sent an empty answer']
-    after = command.artifact_sha(directory)
+    try:
+        after = before if no_artifact else command.artifact_sha(directory)
+    except LedgerError:
+        after = None                         # not the same as before: never a pass
     receipt = {'kind': 'reviewer-receipt', 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
                'config': config, 'cwd': str(directory), 'started': started, 'seconds': round(time.monotonic() - begin, 2),
                'artifact_sha': before, 'artifact_sha_after': after, 'base_artifact': base, 'base_source': base_source, 'tracked_tree': tracked,
-               'base_tracked': base_tracked, 'not_shown': hidden + unshown, 'diff': store.blob(diff.encode('utf-8')), 'prompt': store.blob(prompt.encode('utf-8')) if prompt else None,
+               'base_tracked': base_tracked, 'not_shown': hidden + unshown + binary, 'diff': store.blob(diff.encode('utf-8')), 'prompt': store.blob(prompt.encode('utf-8')) if prompt else None,
                'answer': store.blob(answer.encode('utf-8')) if answer else None, 'raw': store.blob(raw[-1_000_000:]) if raw else None,
                'calls': calls, 'note': note, 'usage': usage, 'error': error, 'timed_out': timed_out, 'problems': problems,
                'criteria': rows, 'outside_criteria': outside, 'independence': independence_result}

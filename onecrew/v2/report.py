@@ -244,7 +244,9 @@ def _conclusion(f):
     elif kind == 'accepted' or (rows is not None and f['views'] and all(v['state'] == 'passed' for v in f['views'])): why = 'mọi mốc đạt'
     elif state['status'] == 'proposed': why = f'bản {state["latest"]} chưa được duyệt'
     elif f['contract'] is None: why = NO_DATA
-    else: why = 'mốc ' + next(v['id'] for v in f['views'] if v['state'] != 'passed') + ' chưa có verdict'
+    else:
+        waiting = next(v for v in f['views'] if v['state'] != 'passed')
+        why = f'mốc {waiting["id"]} ' + ('cũ: đạt trên artifact khác, cần chạy lại' if waiting.get('stale') else 'chưa có verdict')
     parked = _parked_data(f)
     if rows is None or parked is None: left = NO_DATA
     else:
@@ -260,13 +262,25 @@ def _conclusion(f):
 
 # ---- the seven sections -----------------------------------------------------------------------------------------------
 
+def _verdict_word(view, short=False):
+    """What the milestone's verdict is worth in the state `plan show` gives it: the result as it was recorded, plus `cũ` (a pass on another artifact, which no
+    longer covers the artifact now: state pending, `stale`), `kế thừa` (carried over from an earlier revision) or `trung lập` (only a path the contract
+    declares neutral differs). A passed milestone with none of these reads exactly as it always did."""
+    last = view['last_verdict']
+    if not last: return 'chưa có verdict'
+    if view.get('stale'): return 'cũ' if short else f'cũ ({last["result"]} trên artifact khác, cần chạy lại)'
+    if view.get('neutral_diff'): return f'{last["result"]} (chỉ khác đường dẫn trung lập)' if not short else f'{last["result"]} trung lập'
+    if view.get('carried_from'): return f'{last["result"]} (kế thừa từ bản {view["carried_from"]})' if not short else f'{last["result"]} kế thừa'
+    return last['result']
+
+
 def _outputs(f):
     rows = _output_rows(f)
     if rows is None: return _wrap(f'{NO_DATA} (hợp đồng bản {f["revision"]} không đọc được: {f["error"]})', '')
     by_id = {v['id']: v for v in f['views']}
 
     def shown(covering):
-        return ' '.join(f'{m}={by_id[m]["last_verdict"]["result"] if by_id[m]["last_verdict"] else "chưa có verdict"}' for m in covering)
+        return ' '.join(f'{m}={_verdict_word(by_id[m], short=True)}' for m in covering)
     shown_to_owner = f['contract'].get('presentation') or {}
     if any(shown_to_owner.get(k) for k in ('request', 'user_sees', 'acceptance_steps')):
         lines = _wrap(f'Yêu cầu: {shown_to_owner["request"]}') if shown_to_owner.get('request') else []
@@ -286,7 +300,7 @@ def _milestones(f):
     for v in f['views']:
         last, mark = v['last_verdict'], ' · DỪNG' if v['state'] == 'stopped' else ''
         used = f'sửa {v["failures"]}/{v["max_repairs"]}'
-        if last: lines += _wrap(f'{v["id"]} {last["result"]} · by {last["by"]} · {_short(last["artifact_sha"])} · {used}{mark} · «{v["title"]}»', '  ', '      ')
+        if last: lines += _wrap(f'{v["id"]} {_verdict_word(v)} · by {last["by"]} · {_short(last["artifact_sha"])} · {used}{mark} · «{v["title"]}»', '  ', '      ')
         else: lines += _wrap(f'{v["id"]} chưa có verdict · {used} · «{v["title"]}»', '  ', '      ')
     return lines
 

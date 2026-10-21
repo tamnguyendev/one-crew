@@ -175,11 +175,30 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None):
     return views
 
 
+def _accepted_views(contract, state, revision, accepted):
+    """The views of an ACCEPTED revision, from what the `plan.accepted` event recorded and not from today's rules: each milestone is passed on the verdict
+    whose receipt the event names (`receipts`), carried from the revision the event says (`carried`), and `neutral_diff` when that verdict was observed on
+    another artifact than the one accepted (only a neutral difference could have allowed that). A plan accepted under older rules (the dev2 default
+    neutral list, carried verdicts of a looser signature) therefore reads as it was accepted, and its report does not move. `runs`, `failures` and the
+    rest are what the revision recorded."""
+    views = milestone_views(contract, state, revision)
+    receipts, carried = accepted.get('receipts') or {}, accepted.get('carried') or {}
+    for view in views:
+        wanted = receipts.get(view['id'])
+        verdict = next((v for v in state['verdicts'] if v['milestone'] == view['id'] and wanted and v.get('receipt') == wanted), None)
+        if verdict is None: continue          # nothing recorded for it: the view stays what the revision itself recorded
+        view.update(state='passed', repairs_left=None, last_verdict={k: verdict.get(k) for k in ('result', 'by', 'artifact_sha', 'receipt', 'cwd')})
+        if view['id'] in carried: view['carried_from'] = carried[view['id']]
+        if verdict.get('artifact_sha') != accepted.get('artifact_sha') and view['verifier'] == 'command': view['neutral_diff'] = True
+    return views
+
+
 def views_for(ledger, contract, state, revision):
-    """The milestone views of `revision` as `plan show`, `plan report` and the hooks read them (accept reads the same function at the artifact it is given):
-    carried verdicts included, a pass the artifact has left stale. A revision that was accepted is read at the artifact accepted, so what was accepted
-    reads the same later; any other is read at the project's artifact now."""
+    """The milestone views of `revision` as `plan show`, `plan report` and the hooks read them (accept judges with milestone_views at the artifact it is
+    given): carried verdicts included, a pass the artifact has left stale. A revision that was accepted is read from the acceptance record
+    (_accepted_views), so what was accepted reads the same forever; any other is read at the project's artifact now."""
     accepted = state['accepted'] if state['accepted'] and state['accepted']['revision'] == revision else None
+    if accepted and isinstance(accepted.get('receipts'), dict): return _accepted_views(contract, state, revision, accepted)
     return milestone_views(contract, state, revision, ledger, artifact=accepted['artifact_sha'] if accepted else None)
 
 
