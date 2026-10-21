@@ -8,12 +8,9 @@
 No test calls a model: reviewer.call is replaced.
 """
 import contextlib
-import copy
 import io
 import json
 import os
-import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -79,6 +76,19 @@ class Carry(Fixture):
         event = [json.loads(p) if isinstance(p, str) else p for k, p in self.events() if k == 'plan.accepted'][0]
         self.assertEqual(event['artifact_sha'], self.tree())
         with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', 'zzzz')
+
+    def test_accept_takes_only_a_hex_id_and_never_hands_anything_else_to_git(self):
+        self.approved(value=plan_json())
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        (self.root / 'a.txt').write_text('changed\n'); (self.root / 'docs').mkdir(); (self.root / 'docs' / 'r.md').write_text('# r\n'); self.git('add', '.'); self.git('commit', '-q', '-m', 'real change')
+        for bad in ('--relative=docs', '--stat', '-p', '', None, 'HEAD', 'main', self.tree().upper(), 'zzzz', '1' * 39):
+            with self.subTest(bad=bad):
+                with self.assertRaises(LedgerError) as caught: plans.accept(self.ledger, 'P1', 'owner', 'ref', bad)
+                self.assertIn('hex', str(caught.exception))
+        self.assertNotIn('plan.accepted', self.kinds())
+        with self.assertRaises(LedgerError): command.changed_paths(self.root, '--relative=docs', self.tree())
+        with self.assertRaises(LedgerError): command.changed_paths(self.root, self.tree(), '--relative=docs')
+        with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())          # the real change is not neutral and M1 ran before it
 
     def test_a_changed_title_or_verifier_is_not_carried(self):
         for changed in (plan_json(milestones=[milestone('M1', title='Another title'), milestone('M2')]),
@@ -183,8 +193,6 @@ class Carry(Fixture):
 
 
 class ReviewerFixture(Fixture, Cli):
-    legacy = False          # True: the approval is made as an older version made it (no base_tracked), so the fallback path is the one under test
-
     def setUp(self):
         super().setUp()
         self.prompts = []
@@ -197,8 +205,7 @@ class ReviewerFixture(Fixture, Cli):
 
     def start(self, milestones=None, **extra):
         plans.propose(self.ledger, 'P1', plan_json(milestones=milestones or [review_milestone()], **extra), 'codex')
-        with patch.object(plans, '_base_tracked', return_value=None) if self.legacy else contextlib.nullcontext():
-            plans.approve(self.ledger, 'P1', 'owner', 'said yes in chat')
+        plans.approve(self.ledger, 'P1', 'owner', 'said yes in chat')
 
     def commit(self, name, text, message='work'):
         (self.root / name).parent.mkdir(parents=True, exist_ok=True)
@@ -241,7 +248,6 @@ class ReviewerDiff(ReviewerFixture):
 
     def test_a_path_deleted_long_ago_that_holds_an_untracked_file_at_approval_is_not_in_the_diff(self):
         self.commit('old.txt', 'was tracked once\n', 'add old'); self.git('rm', '-q', 'old.txt'); self.git('commit', '-q', '-m', 'drop old')
-        if self.legacy: time.sleep(3)                                                                    # "long ago" is more than the two seconds of commits that count as around the approval
         (self.root / 'old.txt').write_text('untracked secret scratch\n')                 # the same path, untracked, when the owner approves
         self.start(); (self.root / 'b.txt').write_text('new work\n'); self.git('add', 'b.txt'); self.git('commit', '-q', '-m', 'work')
         (self.root / 'old.txt').unlink()
@@ -256,7 +262,6 @@ class ReviewerDiff(ReviewerFixture):
         self.assertIn('-keep me', text); self.assertNotIn('+two', text)
 
     def test_a_file_untracked_at_approval_and_committed_later_is_a_new_file_never_a_deletion_with_its_old_content(self):
-        if self.legacy: self.skipTest('the fallback for older ledgers cannot tell; its limit is stated in docs/v2-verify-cost.vi.md')
         (self.root / 'late.txt').write_text('OLD-UNTRACKED-CONTENT\n')                    # lying around when the owner approves
         self.start(); self.commit('late.txt', 'committed text\n')
         text = verdict.diff(self.ledger, 'P1', 'M1')
@@ -275,13 +280,34 @@ class ReviewerDiff(ReviewerFixture):
         self.assertIn('+now committed', text); self.assertNotIn('SCRATCH-AT-THE-PASS', text)
 
     def test_the_approval_records_the_tracked_tree_next_to_the_artifact(self):
-        if self.legacy: self.skipTest('an older approval records no base_tracked')
         (self.root / 'scratch.txt').write_text('lying around\n')
         self.start()
         approved = [p for k, p in self.events() if k == 'plan.approved'][0]
         approved = json.loads(approved) if isinstance(approved, str) else approved
         self.assertEqual((approved['base_tracked'], approved['base_artifact']), (self.git('rev-parse', 'HEAD^{tree}'), command.artifact_sha(self.root)))
         self.assertNotEqual(approved['base_tracked'], approved['base_artifact'])
+
+    def test_without_a_recorded_tracked_base_there_is_no_diff_and_no_call_only_an_explicit_error(self):
+        with patch.object(plans, '_base_tracked', return_value=None): self.start()          # an approval that recorded no base_tracked
+        self.commit('a.txt', 'one\ntwo\n')
+        with self.assertRaises(LedgerError) as caught: verdict.diff(self.ledger, 'P1', 'M1')
+        self.assertIn('no tracked-only base tree', str(caught.exception))
+        code, text = self.cli('verdict', 'diff', '--plan', 'P1', '--milestone', 'M1')
+        self.assertEqual(code, 2); self.assertIn('no tracked-only base tree', text)
+        view = verdict.run(self.ledger, 'P1', 'M1', self.root)
+        receipt = self.receipt()
+        self.assertEqual((receipt['result'], receipt['calls'], self.prompts, receipt['base_source']), ('inconclusive', 0, [], 'none'))
+        self.assertIn('no tracked-only base tree', receipt['error']); self.assertNotEqual(view['milestones'][0]['state'], 'passed')
+
+    def test_only_a_pass_with_the_same_reviewer_config_is_a_base(self):
+        self.start(); self.commit('a.txt', 'one\ntwo\n')
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.commit('a.txt', 'one\ntwo\nthree\n')
+        self.assertNotIn('+two', verdict.diff(self.ledger, 'P1', 'M1'))                      # same config: starts after the pass
+        changed = review_milestone(criteria=[{'id': 'R1', 'question': 'Does a.txt still hold the line three? fail if the line is gone.'}])
+        plans.amend(self.ledger, 'P1', plan_json(milestones=[changed]), 'criteria', 'codex'); plans.approve(self.ledger, 'P1', 'owner', 'ref')
+        text = verdict.diff(self.ledger, 'P1', 'M1')
+        self.assertIn('+two', text); self.assertIn('+three', text)                          # other criteria: the whole change since the approval is reviewed
 
     def test_a_real_deletion_is_still_shown(self):
         self.commit('f.txt', 'keep me\n', 'f'); self.start()
@@ -329,11 +355,6 @@ class ReviewerDiff(ReviewerFixture):
         self.assertEqual((code, json.loads(text)), (0, {'artifact_sha': command.artifact_sha(self.root)}))
         code, text = self.cli('verdict', 'artifact', '--plan', 'nope')
         self.assertEqual(code, 2)
-
-
-class ReviewerDiffLegacy(ReviewerDiff):
-    """The same tests with an approval that recorded no base_tracked (a ledger from before 2.2.0.dev2): the fallback path."""
-    legacy = True
 
 
 class ReviewerCarry(ReviewerFixture):

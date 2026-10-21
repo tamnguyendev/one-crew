@@ -19,6 +19,7 @@ from ...ledger import LedgerError, canonical, utcnow
 from ...snapshots import Snapshots
 
 OUTPUT_CAP = 1_000_000
+TREE_ID = re.compile(r'[0-9a-f]{40}|[0-9a-f]{64}')          # the only shape of a tree id that is ever given to git
 
 
 def _git(directory, *args, env=None, input=None):
@@ -61,7 +62,8 @@ def tracked_tree(directory):
 
 def changed_paths(directory, first, second):
     """Paths (posix, relative to the repository top) that differ between two trees; renames are not paired, so both sides are listed."""
-    out = _git(directory, 'diff', '--name-only', '--no-renames', '-z', first, second)
+    if not all(isinstance(t, str) and TREE_ID.fullmatch(t) for t in (first, second)): raise LedgerError('A tree id is 40 or 64 lowercase hex characters.')
+    out = _git(directory, 'diff', '--name-only', '--no-renames', '-z', '--end-of-options', first, second)
     return [p for p in out.split('\0') if p]
 
 

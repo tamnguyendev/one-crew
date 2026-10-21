@@ -290,14 +290,17 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
 
 
 def _as_tree(ledger, value):
-    """What `--artifact-sha` names, as a tree hash: a commit or a ref is read as its tree (an artifact is a tree). A value git cannot resolve is
-    returned as it is, so it still fails the comparison with the verdicts' artifacts."""
+    """What `--artifact-sha` names, as a tree hash. Only a 40/64-hex id is ever given to git (anything else, an option such as --relative=docs
+    included, is refused here, before git runs); a commit id is read as its tree. A hex id git cannot resolve is returned as it is, so it still
+    fails the comparison with the verdicts' artifacts."""
     from .verifiers import command
-    if not isinstance(value, str) or not value or value.startswith('-'): return value
+    if not isinstance(value, str) or not command.TREE_ID.fullmatch(value):
+        raise LedgerError('--artifact-sha must be a tree (or commit) id of 40 or 64 lowercase hex characters, not ' + repr(str(value)[:40]) + '.')
     try:
-        return command._git(ledger.project, 'rev-parse', '--verify', '-q', value + '^{tree}') or value
+        tree = command._git(ledger.project, 'rev-parse', '--verify', '-q', '--end-of-options', value + '^{tree}')
     except (LedgerError, OSError, subprocess.SubprocessError):
         return value
+    return tree if command.TREE_ID.fullmatch(tree or '') else value
 
 
 def accept(ledger, name, by, reference, artifact_sha):
