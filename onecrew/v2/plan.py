@@ -95,12 +95,14 @@ def _signature(milestone, contract):
 
 def covers(ledger, verdict_artifact, current, kind, neutral):
     """Does a verdict observed on `verdict_artifact` still speak for `current`? 'same'; 'neutral' when the two trees differ only in paths
-    matching scope.neutral (a command milestone only: a reviewer or an owner looked at those very files); else None."""
+    matching scope.neutral (a command milestone only: a reviewer or an owner looked at those very files) and no submodule moved to another
+    commit, even one whose path scope.neutral names; else None."""
     if verdict_artifact == current: return 'same'
     if kind != 'command' or not neutral or ledger is None: return None
     from .verifiers import command
     try:
         paths = command.changed_paths(ledger.project, verdict_artifact, current)
+        if command.submodule_paths(ledger.project, verdict_artifact, current): return None      # a submodule that moved is never neutral, wherever its path is
     except (LedgerError, OSError, subprocess.SubprocessError):
         return None
     return 'neutral' if paths and all(contracts.neutral_match(p, neutral) for p in paths) else None

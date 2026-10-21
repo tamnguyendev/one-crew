@@ -272,30 +272,43 @@ def inside_repo(plan_root, target):
     return os.path.normcase(str(mine)) == os.path.normcase(str(theirs))
 
 
-def judge_shell(plan, root, cwd, command, limited=False):
+NAME_CHAR = r'[\w.-]'             # a character that can be part of a file name: a protected name next to one is another name
+
+
+def mentions(flat, item, how):
+    """Does the (folded) command text mention the protected `item`? how '' : anywhere in the text. 'whole': as a whole path component (`.onecrew`, not the
+    end of `11.OneCrew`): neither preceded nor followed by a character of a file name, so after the start, a separator, a quote or a space and before the
+    end or one of them. 'start': as the start of a path component (`onecrew/plans`, not `11.OneCrew/plans`)."""
+    if not how: return item in flat
+    pattern = f'(?<!{NAME_CHAR})' + re.escape(item) + (f'(?!{NAME_CHAR})' if how == 'whole' else '')
+    return re.search(pattern, flat) is not None
+
+
+def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=False):
     """The plan's verdict on a shell command. `limited` is a plan that is not the session's (it was reached through the cwd or through a path the command
     writes): the deny and mention rules apply, since the command runs there, but only the paths the command writes INSIDE that plan's repository are
-    judged, and a path the hook cannot resolve is left to the session's plan."""
+    judged, and a path the hook cannot resolve is left to the session's plan, unless `refuse_unresolvable` (the plan of the cwd when the session has no
+    enforce plan of its own: nothing else would look at it)."""
     forms = variants(command)
     for entry in plan.get('bash_deny', []):
         for form in forms:
             hit = re.search(entry[3:], form, re.I) if entry.startswith('re:') else (entry.casefold() in form.casefold())
             if hit: return 'bash_deny', f'The command matches the deny rule "{entry[3:] if entry.startswith("re:") else entry}". Approval, acceptance, enforcement, push, tag and installs are the owner\'s. Ask the owner in chat.'
-    items = [_fold(plan.get('state_root', '')) + '/plans', 'policy.json', '.sqlite', 'active-plan.json', 'violations.jsonl', 'hook-state.json', where.REGISTRY, '.claude/settings',
-             '.onecrew', 'onecrew/plans']
+    items = [(_fold(plan.get('state_root', '')) + '/plans', ''), ('policy.json', ''), ('.sqlite', ''), ('active-plan.json', ''), ('violations.jsonl', ''), ('hook-state.json', ''),
+             (where.REGISTRY, ''), ('.claude/settings', ''), ('.onecrew', 'whole'), ('onecrew/plans', 'start')]
     for segment in shell_segments(command):         # each segment on its own: `ls; python -c "...remove(registry)"` is not read-only because its first word is
         first = (re.findall(r'[\w.-]+', segment) or [''])[0].lower()
         if first in READ_ONLY: continue
         flat = _fold(' '.join(variants(segment))).replace('.onecrew/scratch', '')
-        for item in items:
-            if item in flat:
+        for item, how in items:
+            if mentions(flat, item, how):
                 return 'protected', f'The command mentions {item}, which only the owner changes ({first or "?"} is not a read-only command).'
     for raw in all_targets(command):
         lowered = raw.casefold()
         if lowered in NULLS: continue
         if lowered.startswith(TEMP_VARS): continue
         if re.search(r'[$%`]', raw):
-            if limited: continue
+            if limited and not refuse_unresolvable: continue
             return 'unresolvable_target', f'The command writes to "{raw}", a path the hook cannot resolve; write to a literal path inside the owned scope.'
         target = normalize(raw, cwd)
         if limited and not inside_repo(root, target): continue
@@ -353,7 +366,8 @@ def _shell_target_dirs(command, base):
     return found
 
 
-SESSION, LIMITED = 'session', 'limited'
+SESSION, CWD, LIMITED = 'session', 'cwd', 'limited'          # roles of a plan, strongest first: the session's, the plan of the repository of the cwd, another repository the call writes in
+RANK = {SESSION: 2, CWD: 1, LIMITED: 0}
 
 
 def candidate_dirs(args, event):
@@ -377,7 +391,7 @@ def candidate_dirs(args, event):
         if target is not None and _nearest_dir(target.parent) is not None: places.append((_nearest_dir(target.parent), LIMITED))
     elif tool in SHELL_TOOLS:
         command = data.get('command')
-        if cwd: places.append((cwd, LIMITED))
+        if cwd: places.append((cwd, CWD))
         if isinstance(command, str): places += [(folder, LIMITED) for folder in _shell_target_dirs(command, cwd or os.environ.get('CLAUDE_PROJECT_DIR') or os.getcwd())]
     return places
 
@@ -424,7 +438,7 @@ def locate_all(args, event):
         if key not in seen:
             seen[key] = hit
             found.append(hit)
-        elif role == SESSION: seen[key][3] = SESSION          # a repository reached both ways is the session's
+        elif RANK[role] > RANK[seen[key][3]]: seen[key][3] = role          # a repository reached more than one way keeps the strongest role
     return [tuple(hit) for hit in found]
 
 
@@ -488,14 +502,17 @@ def check(args):
     the call does inside their own repository. A plan that is accepted, in log mode, only proposed or not there at all never lets through what another plan
     blocks. No plan anywhere: nothing to enforce."""
     event, bad_input = read_stdin()
+    governed = [(govern(project_copy, project_root, copy), role) for project_copy, project_root, copy, role in locate_all(args, event)]
+    # a path the hook cannot resolve (`$PWD/x`) is judged by the session's plan; when the session has no enforce plan of its own, the plan of the cwd judges it
+    watched = any(plan is not None and role == SESSION and plan.get('mode') == 'enforce' and plan.get('status') in ('approved', 'stopped_with_report')
+                  for (plan, _, _, _), role in governed)
     code = 0
-    for project_copy, project_root, copy, role in locate_all(args, event):
-        plan, root, bad_plan, source = govern(project_copy, project_root, copy)
-        if plan is not None and judge_call(plan, root, bad_plan, source, event, bad_input, limited=role != SESSION) == 2: code = 2
+    for (plan, root, bad_plan, source), role in governed:
+        if plan is not None and judge_call(plan, root, bad_plan, source, event, bad_input, limited=role != SESSION, refuse_unresolvable=role == CWD and not watched) == 2: code = 2
     return code
 
 
-def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False):
+def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, refuse_unresolvable=False):
     """One plan's verdict on one call: 2 when it blocks the call (enforce mode), else 0.
 
     `limited` is a plan that is not the session's: it was reached through the cwd of a shell command or through a path the call writes. It judges what
@@ -525,7 +542,7 @@ def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False):
             verdict = judge_path(plan, root, normalize(raw, base), 'Do not edit it.') if touched else None
         elif tool in SHELL_TOOLS:
             if not isinstance(data.get('command'), str): raise ValueError(f'{tool} call without command')
-            verdict = judge_shell(plan, root, base, data['command'], limited=limited)
+            verdict = judge_shell(plan, root, base, data['command'], limited=limited, refuse_unresolvable=refuse_unresolvable)
         else:
             return 0                                     # a tool this hook does not govern
     except Exception as error:                          # noqa: BLE001 - fail closed in enforce, open in log

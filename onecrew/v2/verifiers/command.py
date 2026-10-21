@@ -82,6 +82,19 @@ def changed_paths(directory, first, second):
     return [p for p in out.split('\0') if p]
 
 
+def submodule_paths(directory, first, second):
+    """The changed paths that are a submodule (a gitlink, mode 160000) in either tree. A submodule that moved to another commit is code nobody here can
+    read, so it is never a neutral change, whatever path it sits at."""
+    _two_trees(first, second)
+    out = _git(toplevel(directory), 'diff', '--raw', '-z', '--no-renames', '--ignore-submodules=none', '--end-of-options', first, second)
+    parts = out.split('\0')
+    found = []
+    for meta, path in zip(parts[0::2], parts[1::2]):          # `:<old mode> <new mode> <old sha> <new sha> <status>` then the path
+        modes = meta.lstrip(':').split(' ')[:2]
+        if '160000' in modes: found.append(path)
+    return found
+
+
 def binary_paths(directory, first, second):
     """The changed paths that git itself shows only as `Binary files ... differ`: a binary file, or text that a diff attribute (`-diff`, also in
     .git/info/attributes), a diff driver marked binary or core.bigFileThreshold keeps out of the text diff. Read from --numstat, which prints `-` for both
