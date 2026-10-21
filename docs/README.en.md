@@ -8,7 +8,7 @@ You need Python 3.10+, git, and (for reviewers and `plan advise`) the Claude CLI
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install onecrew-2.2.0.dev2-py3-none-any.whl      # Windows: .venv\Scripts\pip
+.venv/bin/pip install onecrew-2.2.0.dev3-py3-none-any.whl      # Windows: .venv\Scripts\pip
 ```
 
 ## 2. Set up a repo

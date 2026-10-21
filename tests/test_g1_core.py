@@ -197,7 +197,7 @@ class DefaultModelTests(unittest.TestCase):
 class PackagingTests(unittest.TestCase):
     def test_metadata(self):
         text = pyproject()
-        self.assertRegex(text, r'(?m)^version = "2\.2\.0\.dev2"$')
+        self.assertRegex(text, r'(?m)^version = "2\.2\.0\.dev3"$')
         self.assertRegex(text, r'(?m)^name = "onecrew"$')
         self.assertRegex(text, r'(?m)^onecrew = "onecrew\.v2\.cli:main"$')
         self.assertRegex(text, r'(?m)^dependencies = \[\]$')

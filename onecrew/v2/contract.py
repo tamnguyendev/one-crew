@@ -16,8 +16,6 @@ FIELDS = {'schema_version', 'title', 'size', 'understanding', 'options', 'precon
           'milestones', 'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation'}
 MAX_DECISIONS = 10
 MAX_NEUTRAL = 20
-# Paths whose change does not count as a change of the artifact when a verdict is carried over (scope.neutral; read as this when the contract has none, never written into it).
-NEUTRAL_DEFAULT = ('docs/**', '*.md', 'CHANGELOG*')
 DECISION_ID = re.compile(r'D[1-9][0-9]?')
 ORIGIN_SOURCE = 'origin'                   # items[].source: "origin" (the owner asked for it) or the id of a decision the author took
 PRESENTATION_TEXTS, PRESENTATION_LISTS = ('request', 'not_doing', 'guard'), ('user_sees', 'acceptance_steps', 'risk')
@@ -152,9 +150,11 @@ def validate(value):
 
 
 def neutral_globs(contract):
-    """The scope.neutral globs of a stored contract, or the default when it has none (a contract written before the field stays as it was)."""
+    """The scope.neutral globs the contract itself declares: paths whose change does not count as a change of the artifact when a command verdict is
+    carried over. There is no built-in list: a path the contract does not name is never neutral (code can sit under docs/, and Markdown can be read at
+    run time), so a contract with no `neutral` has none."""
     scope = contract.get('scope') or {}
-    return list(scope['neutral']) if 'neutral' in scope else list(NEUTRAL_DEFAULT)
+    return list(scope.get('neutral') or [])
 
 
 def neutral_match(path, globs):

@@ -143,15 +143,16 @@ class Carry(Fixture):
     def test_the_default_neutral_paths_are_read_not_written(self):
         stored = contracts.validate(plan_json())
         self.assertEqual(stored['scope'], {'owned': ['a.txt']})
-        self.assertEqual(contracts.neutral_globs(stored), ['docs/**', '*.md', 'CHANGELOG*'])
+        self.assertEqual(contracts.neutral_globs(stored), [])
         self.assertEqual(contracts.neutral_globs(contracts.validate(plan_json(scope={'owned': ['a.txt'], 'neutral': []}))), [])
         self.approved(value=plan_json())
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         (self.root / 'NOTES.md').write_text('notes\n'); (self.root / 'CHANGELOG').write_text('x\n'); self.git('add', '.'); self.git('commit', '-q', '-m', 'notes')
-        self.assertEqual(self.view('M1')['state'], 'passed')
+        self.assertNotEqual(self.view('M1')['state'], 'passed')
+        with self.assertRaises(LedgerError): plans.accept(self.ledger, 'P1', 'owner', 'ref', self.tree())
 
     def test_neutral_globs_do_not_cross_a_slash_except_double_star(self):
-        default = list(contracts.NEUTRAL_DEFAULT)
+        default = ['docs/**', '*.md', 'CHANGELOG*']
         for path in ('README.md', 'docs/a.txt', 'docs/deep/er/b.png', 'CHANGELOG', 'CHANGELOG.md'):
             self.assertTrue(contracts.neutral_match(path, default), path)
         for path in ('onecrew/templates/owner-rules.vi.md', 'src/notes.md', 'a.txt', 'docsx/a.txt', 'sub/CHANGELOG.md'):
@@ -230,8 +231,9 @@ class ReviewerDiff(ReviewerFixture):
         self.assertIn('+two', text); self.assertNotIn('big.bin', text); self.assertLess(len(text.encode('utf-8')), 10_000)
         self.assertEqual((self.prompts, self.kinds()), ([], kinds))
         verdict.run(self.ledger, 'P1', 'M1', self.root)
-        self.assertEqual(self.sent_diff(), text)
-        self.assertNotIn('big.bin', self.prompts[0])
+        receipt = self.receipt()
+        self.assertEqual(receipt['result'], 'inconclusive'); self.assertIn('big.bin', receipt['error'])
+        self.assertEqual(self.prompts, [])
 
     def test_an_ignored_directory_does_not_break_the_cap(self):
         self.start(); self.commit('.gitignore', 'build/\n')
@@ -272,10 +274,16 @@ class ReviewerDiff(ReviewerFixture):
         self.start(); self.commit('a.txt', 'one\ntwo\n')
         (self.root / 'late.txt').write_text('SCRATCH-AT-THE-PASS\n')
         verdict.run(self.ledger, 'P1', 'M1', self.root)
+        refused = self.receipt()
+        self.assertEqual(refused['result'], 'inconclusive'); self.assertIn('late.txt', refused['error'])
+        self.assertEqual(self.prompts, [])
+        self.commit('.gitignore', 'late.txt\n')
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
         first = self.receipt()
+        self.assertEqual(first['result'], 'pass')
         self.assertEqual(first['tracked_tree'], command.tracked_tree(self.root))
-        self.assertNotEqual(first['tracked_tree'], first['artifact_sha'])
-        self.commit('late.txt', 'now committed\n')
+        self.assertNotIn('late.txt', self.git('ls-tree', '-r', '--name-only', first['tracked_tree']))
+        (self.root / 'late.txt').write_text('now committed\n'); self.git('add', '-f', 'late.txt'); self.git('commit', '-q', '-m', 'late')
         text = verdict.diff(self.ledger, 'P1', 'M1')
         self.assertIn('+now committed', text); self.assertNotIn('SCRATCH-AT-THE-PASS', text)
 

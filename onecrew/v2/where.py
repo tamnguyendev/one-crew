@@ -60,3 +60,12 @@ def git_root(start):
     for directory in (here, *here.parents):
         if (directory / '.git').exists(): return directory
     return None
+
+
+def repository_dirs(start):
+    """`start` and its parents up to and including the repository root (the first one holding a .git), nearest first; no directory above the
+    repository is ever in the list. Outside any repository only `start` itself: there is no boundary to search up to."""
+    here = Path(start).resolve()
+    top = git_root(here)
+    if top is None: return [here]
+    return [directory for directory in (here, *here.parents) if directory == top or top in directory.parents]

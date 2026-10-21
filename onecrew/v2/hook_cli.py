@@ -44,15 +44,26 @@ def now():
 
 # ---- locating and reading the plan -----------------------------------------------------------------------------------------
 
+def utf8_streams():
+    """stdout and stderr write UTF-8 whatever code page the pipe was given (Windows hands a hook cp1252): the hook prints Vietnamese titles, and an
+    encoding error there would end in a crash instead of the block it was about to give."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def find_plan_file(candidates, walk=True):
-    """First <dir>/.onecrew/active-plan.json found (walking up from each candidate directory unless walk is False)."""
+    """First <dir>/.onecrew/active-plan.json found in a candidate directory and, unless walk is False, in its parents up to the repository root (never
+    above it: the plan of a parent repository does not govern a repository inside it)."""
     for start in candidates:
         if not start: continue
         try:
-            here = Path(start).resolve()
+            directories = where.repository_dirs(start) if walk else [Path(start).resolve()]
         except OSError:
             continue
-        for directory in ((here, *here.parents) if walk else (here,)):
+        for directory in directories:
             if (directory / '.onecrew' / FILE).is_file(): return directory / '.onecrew' / FILE
     return None
 
@@ -260,13 +271,30 @@ def locate(args, event):
 
     B1: the project copy `<project>/.onecrew/active-plan.json` is the first source and the state-root copy `<state-root>/plans/<name>/active-plan.json`
     (written at the same time, outside the project) is the second. Deleting `.onecrew/` therefore does not end enforcement: a state-root copy that
-    names this project brings the plan back, and a project copy that disagrees with it is treated as tampered with (see `tampered`)."""
+    names this project brings the plan back, and a project copy that disagrees with it is treated as tampered with (see `tampered`).
+    Without --project the project is where.project_from_environment (CLAUDE_PROJECT_DIR, else the event's cwd, else ours): one directory, searched up to the
+    root of its repository and no further, so the plan of a parent repository or of another project never governs it."""
     explicit = Path(args.project) if args.project else None
-    project_copy = find_plan_file([explicit], walk=False) if explicit else find_plan_file([os.environ.get('CLAUDE_PROJECT_DIR'), event.get('cwd'), os.getcwd()])
-    root = project_copy.parent.parent if project_copy else explicit
-    if root is None: return None, None, None
-    copy = state_copy(args.state_root or where.configured_state_root(root) or where.default_state_root(), root)     # G2: an installed hook has no --state-root
-    return project_copy, root, copy
+
+    def state_of(directory):
+        return args.state_root or where.configured_state_root(directory) or where.default_state_root()      # G2: an installed hook has no --state-root
+
+    if explicit:
+        project_copy, directories = find_plan_file([explicit], walk=False), [explicit]
+    else:       # the project is one directory (CLAUDE_PROJECT_DIR, else the event's cwd, else ours) and its plan is looked for up to the repository root only
+        start = where.project_from_environment(event.get('cwd') if isinstance(event.get('cwd'), str) else None)
+        project_copy = find_plan_file([start])
+        try:
+            directories = where.repository_dirs(start)
+        except OSError:
+            directories = []
+    if project_copy:
+        root = project_copy.parent.parent
+        return project_copy, root, state_copy(state_of(root), root)
+    for directory in directories:       # no project copy: the state-root copy that names this very directory as its project still governs it
+        copy = state_copy(state_of(directory), directory)
+        if copy: return None, directory, copy
+    return None, explicit, None
 
 
 def state_copy(state_root, root):
@@ -545,6 +573,7 @@ def parser():
 
 
 def main(argv=None):
+    utf8_streams()          # before anything is printed, whichever way the hook was started (this module through `python -c`, or the installed `onecrew hook <verb>`)
     args = parser().parse_args(argv)
     if args.group != 'hook': return 2
     if args.verb in ('check', 'prompt', 'stop', 'session'):

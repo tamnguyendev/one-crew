@@ -1,8 +1,10 @@
 """Verifier `reviewer`: one headless Claude call that answers the contract's criteria about the diff since approval, and nothing else.
 
-What the model sees is the diff (a base tree against the TRACKED files of the tree being judged: HEAD plus the changes of tracked files, so an
-untracked or ignored file, such as build output, is never in it) and the criteria the owner approved. The base is the artifact of the latest
-pass of this very milestone, else the tree the owner approved. The receipt still records the artifact (command.artifact_sha, one definition). It does not see the author's report, commit messages or the plan text. Its answer is parsed strictly: a missing criterion,
+What the model sees is the diff (a base tree against the TRACKED files of the tree being judged: the real index plus the changes of the files in it, so a
+file that was `git add`ed is in it and an untracked or ignored file, such as build output, is not) and the criteria the owner approved. The base is the
+tracked tree of the latest pass of this very milestone, else the one the owner approved. The artifact is taken first, the tracked tree once right after it,
+and the diff is cut from that tree and the receipt keeps it; an untracked file that is not ignored, or any change made during the run, makes the verdict
+`inconclusive` and names the paths. The receipt still records the artifact (command.artifact_sha, one definition). It does not see the author's report, commit messages or the plan text. Its answer is parsed strictly: a missing criterion,
 an unknown verdict, a pass/fail without file evidence or text that is not the JSON asked for makes the verdict `inconclusive`, never `pass`.
 `outside_criteria` is stored in the receipt and changes nothing. The receipt is a blob like the command receipt and is announced by verdict.run
 (verdict.receipt_issued); record() accepts no other reviewer receipt.
@@ -77,8 +79,11 @@ def base_tree(directory, approved):
 
 
 def tree_diff(directory, base, current):
+    """The diff between two trees. Both ids come from the ledger or from a receipt, so each must be 40/64 lowercase hex before git sees it, and they go
+    after --end-of-options: a stored value such as `--output=x` is never read as an option."""
+    if not all(isinstance(t, str) and command.TREE_ID.fullmatch(t) for t in (base, current)): raise LedgerError('A tree id is 40 or 64 lowercase hex characters.')
     top = command.toplevel(directory)
-    return command._git(top, 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '-U3', base, current)
+    return command._git(top, '-c', 'core.quotepath=off', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '-U3', '--end-of-options', base, current)
 
 
 class NoTrackedBase(LedgerError):
@@ -87,24 +92,39 @@ class NoTrackedBase(LedgerError):
 
 NO_BASE = ('no tracked-only base tree: neither a passing review of this milestone with the same reviewer config nor plan.approved.base_tracked '
            'was recorded, and the base is read only from the first approval. Propose and approve the plan again (a new plan, whose first approval records it) to review this milestone.')
+BAD_BASE = 'the recorded base tree is not a tree id (40 or 64 lowercase hex characters), so it is not given to git: '
+LISTED = 20                 # paths named in a reason; the rest is counted
+
+
+def named(paths):
+    """The paths for a reason: the first LISTED of them, then how many more."""
+    return ', '.join(paths[:LISTED]) + (f' and {len(paths) - LISTED} more' if len(paths) > LISTED else '')
 
 
 def review_diff(directory, approved, previous=None):
-    """(diff, base, base_source, tracked): exactly what a reviewer is sent, the artifact the receipt names as its base, and the tracked tree it was cut against.
+    """(diff, base, base_source, tracked, before): exactly what a reviewer is sent, the artifact the receipt names as its base, the tree it was cut against
+    and the tree it started from.
 
-    Both sides of the diff are tracked-only trees recorded in the ledger. The side before is `previous`, the tracked_tree that this milestone's latest
-    passing review (same reviewer config) recorded in its receipt, else the `base_tracked` that the first plan.approved recorded; the side after is the
-    tracked tree now (HEAD + changes of tracked files). Neither contains an untracked file. When there is no such tree NoTrackedBase is raised: the base is
-    not made from anything else.
+    Both sides of the diff are trees recorded in the ledger or made from one snapshot: the side before is `previous`, the tracked_tree that this
+    milestone's latest passing review (same reviewer config) recorded in its receipt, else the `base_tracked` that the first plan.approved recorded; the
+    side after is the tracked tree now (command.tracked_tree: the real index plus the changes of the files in it, so a new file that was `git add`ed is in
+    it and an untracked one is not). `tracked` is made once here and the diff is cut from it, not from the working tree again; the receipt keeps it. When
+    there is no tree to start from NoTrackedBase is raised: the base is not made from anything else.
     `previous` = (artifact, tracked tree) of that pass, or None. `base`/`base_source` are the add -A artifact the receipt names (it decides only the
     "no change since approval" note), never a side of the diff."""
     directory = Path(directory).resolve()
-    base, base_source = base_tree(directory, approved)
-    if previous: (base, before), base_source = previous, 'previous_pass'
-    else: before = (approved or {}).get('base_tracked')
+    before = previous[1] if previous else (approved or {}).get('base_tracked')
     if not before: raise NoTrackedBase(NO_BASE)
+    if not isinstance(before, str) or not command.TREE_ID.fullmatch(before): raise NoTrackedBase(BAD_BASE + repr(str(before)[:60]))
+    base, base_source = (previous[0], 'previous_pass') if previous else base_tree(directory, approved)
     tracked = command.tracked_tree(directory)
-    return tree_diff(directory, before, tracked), base, base_source, tracked
+    return tree_diff(directory, before, tracked), base, base_source, tracked, before
+
+
+def not_shown(directory, before, tracked, diff):
+    """The paths that differ between the two trees and are not named in the diff text. Git prints a header for every changed path (a binary file, a
+    symlink and a submodule included, as `Binary files differ` or the link target or `Subproject commit`), so a path that is not in the text was not shown."""
+    return [path for path in command.changed_paths(directory, before, tracked) if path not in diff]
 
 
 # ---- prompt and answer ----------------------------------------------------------------------------------------------------
@@ -182,6 +202,7 @@ def overall(rows, problems, error, timed_out, same_artifact):
 
 def expected_result(receipt):
     result = overall(receipt['criteria'], receipt['problems'], receipt['error'], receipt['timed_out'], receipt['artifact_sha'] == receipt['artifact_sha_after'])
+    if receipt.get('not_shown'): return 'inconclusive'       # the artifact holds a path the model was not shown: never a pass, whatever the answer says
     if result == 'pass' and not receipt.get('calls'):
         # A pass without a model call exists on one branch only: the tree is exactly the one recorded at approval. Anything else without a call is not a pass.
         unchanged = (receipt.get('note') == NO_CHANGE and receipt.get('base_source') in TRUSTED_BASES and not receipt.get('error')
@@ -225,16 +246,23 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     config = milestone['verifier']['config']
     directory = Path(directory).resolve()
     if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
-    try:
-        diff, base, base_source, tracked = review_diff(directory, approved, previous)
-        no_base = None
-    except NoTrackedBase as problem:      # no tree to start from: nothing is sent, the verdict is inconclusive with this reason
-        diff, base, base_source, tracked, no_base = '', None, 'none', None, str(problem)
-    before = command.artifact_sha(directory)
-    store = Snapshots(ledger.state_root)
     started, begin = utcnow(), time.monotonic()
+    before = command.artifact_sha(directory)        # the artifact first; what the reviewer is shown is cut from ONE tree made right after it, and checked against it
+    hidden, unshown = [], []
+    try:
+        diff, base, base_source, tracked, base_tracked = review_diff(directory, approved, previous)
+        hidden = command.changed_paths(directory, tracked, before)           # in the artifact, not in the tree the reviewer is shown: untracked files that are not ignored
+        unshown = [] if hidden else not_shown(directory, base_tracked, tracked, diff)
+        no_base = None
+    except LedgerError as problem:      # no tree to start from (or git cannot make one): nothing is sent, the verdict is inconclusive with this reason
+        diff, base, base_source, tracked, base_tracked, no_base = '', None, 'none', None, None, str(problem)
+    store = Snapshots(ledger.state_root)
     answer, usage, error, timed_out, raw, calls, prompt, note = '', {}, None, False, b'', 0, None, None
     if no_base: error = no_base
+    elif hidden:
+        error = (f'the artifact holds {len(hidden)} file(s) the reviewer is not shown: {named(hidden)}. They are untracked and not ignored (or changed while this review '
+                 'was being made). `git add` them, add them to .gitignore or remove them, then run the milestone again.')
+    elif unshown: error = f'the diff does not show {len(unshown)} changed path(s): {named(unshown)}; the reviewer is not asked about what it cannot see.'
     elif not diff.strip() and base_source in TRUSTED_BASES and base == before: note = NO_CHANGE     # the tree is the one the owner approved (or accepted): nothing to review, nothing to fix
     elif not diff.strip(): error = 'no change since approval; there is nothing to review'
     elif len(diff.encode('utf-8')) > MAX_DIFF: error = f'diff is {len(diff.encode("utf-8"))} bytes, over the {MAX_DIFF} cap; it is not reviewed in part'
@@ -254,7 +282,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     receipt = {'kind': 'reviewer-receipt', 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
                'config': config, 'cwd': str(directory), 'started': started, 'seconds': round(time.monotonic() - begin, 2),
                'artifact_sha': before, 'artifact_sha_after': after, 'base_artifact': base, 'base_source': base_source, 'tracked_tree': tracked,
-               'diff': store.blob(diff.encode('utf-8')), 'prompt': store.blob(prompt.encode('utf-8')) if prompt else None,
+               'base_tracked': base_tracked, 'not_shown': hidden + unshown, 'diff': store.blob(diff.encode('utf-8')), 'prompt': store.blob(prompt.encode('utf-8')) if prompt else None,
                'answer': store.blob(answer.encode('utf-8')) if answer else None, 'raw': store.blob(raw[-1_000_000:]) if raw else None,
                'calls': calls, 'note': note, 'usage': usage, 'error': error, 'timed_out': timed_out, 'problems': problems,
                'criteria': rows, 'outside_criteria': outside, 'independence': independence_result}

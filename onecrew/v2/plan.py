@@ -84,9 +84,13 @@ def load(ledger, state, revision=None):
     return contracts.read_revision(ledger, state['name'], revision, state['revisions'][revision]['sha'])
 
 
-def _signature(milestone):
-    """What a verdict was about, apart from the artifact: the title and the verifier (type and config), as canonical JSON."""
-    return canonical({'title': milestone['title'], 'verifier': milestone['verifier']})
+def _signature(milestone, contract):
+    """What a verdict was about, apart from the artifact, as canonical JSON: the title, the verifier (type and config), the output ids the milestone
+    covers and the full text of each of those outputs in `contract`. Adding, dropping or rewording a covered output changes it, so the milestone runs
+    again; an output the milestone does not cover is not in it, so rewording that one costs the milestone nothing."""
+    texts = dict(zip(contracts.output_ids(contract['output']), contract['output']))
+    covers = sorted(set(milestone.get('covers') or []))
+    return canonical({'title': milestone['title'], 'verifier': milestone['verifier'], 'covers': covers, 'outputs': {oid: texts.get(oid) for oid in covers}})
 
 
 def covers(ledger, verdict_artifact, current, kind, neutral):
@@ -102,9 +106,10 @@ def covers(ledger, verdict_artifact, current, kind, neutral):
     return 'neutral' if paths and all(contracts.neutral_match(p, neutral) for p in paths) else None
 
 
-def _inherited(ledger, state, revision, milestone):
-    """The latest verdict of this milestone on an EARLIER revision when it is a pass and the milestone (title + verifier) is byte-identical in
-    that revision, else None. It is a way of reading the ledger: nothing is written."""
+def _inherited(ledger, state, revision, milestone, contract):
+    """The latest verdict of this milestone on an EARLIER revision when it is a pass, the milestone is the same in that revision (_signature: title,
+    verifier, covers and the text of every output it covers) and the independence rule still holds for THIS revision, else None. It is a way of
+    reading the ledger: nothing is written."""
     earlier = [v for v in state['verdicts'] if v['milestone'] == milestone['id'] and v['revision'] < revision]
     if not earlier or earlier[-1]['result'] != 'pass': return None
     try:
@@ -112,7 +117,14 @@ def _inherited(ledger, state, revision, milestone):
     except LedgerError:
         return None
     before = next((m for m in old['milestones'] if m['id'] == milestone['id']), None)
-    return earlier[-1] if before is not None and _signature(before) == _signature(milestone) else None
+    if before is None or _signature(before, old) != _signature(milestone, contract): return None
+    if milestone['verifier']['type'] == 'reviewer':       # the authors of the new revision may be the reviewer: a pass is not carried to someone who would be reviewing their own text
+        from .verifiers import reviewer
+        try:
+            reviewer.check_independence(state['revisions'][revision], milestone['verifier']['config'])
+        except LedgerError:
+            return None
+    return earlier[-1]
 
 
 def milestone_views(contract, state, revision, ledger=None, artifact=None):
@@ -120,8 +132,9 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None):
 
     With a `ledger` (its project is a Git repository) or an explicit `artifact`, the views also say whether that verdict still speaks for the
     artifact being judged (`artifact`, else the project's artifact now): a pass on another artifact is not passed (`stale`), unless the two
-    differ only in scope.neutral paths and the verifier is a command (`neutral_diff`). A milestone with no verdict on this revision inherits the
-    latest pass of an earlier revision when its title and verifier are byte-identical and that verdict covers the artifact (`carried_from`).
+    differ only in the paths the contract itself declares in scope.neutral (there is no built-in list) and the verifier is a command (`neutral_diff`). A
+    milestone with no verdict on this revision inherits the latest pass of an earlier revision when its title, verifier, covers and the text of every output it
+    covers are the same, the independence rule holds for this revision and that verdict covers the artifact (`carried_from`).
     Without either, the views are what they always were."""
     current = [artifact, artifact is not None]
     neutral = contracts.neutral_globs(contract)
@@ -134,7 +147,7 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None):
             current[1] = True
             from .verifiers import command
             try:
-                current[0] = command.artifact_sha(ledger.project) if ledger is not None else None
+                current[0] = command.artifact_sha(ledger.project) if ledger is not None and getattr(ledger, 'project', None) else None
             except (LedgerError, OSError, subprocess.SubprocessError):
                 current[0] = None
         return current[0]
@@ -146,7 +159,7 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None):
         stopped = revision in state['stopped'] and state['stopped'][revision]['milestone'] == m['id']
         verdict, extra = (mine[-1] if mine else None), {}
         if ledger is not None or artifact is not None:
-            candidate = mine[-1] if passed else (_inherited(ledger, state, revision, m) if not mine and carries else None)
+            candidate = mine[-1] if passed else (_inherited(ledger, state, revision, m, contract) if not mine and carries else None)
             if candidate is not None and now() is not None:
                 how = covers(ledger, candidate['artifact_sha'], now(), m['verifier']['type'], neutral)
                 if how is None:
@@ -160,6 +173,14 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None):
                       'runs': len(mine), 'failures': failures, 'repairs_left': max(0, m['max_repairs'] - failures) if not passed else None,
                       'last_verdict': ({k: verdict.get(k) for k in ('result', 'by', 'artifact_sha', 'receipt', 'cwd')} if verdict else None), **extra})
     return views
+
+
+def views_for(ledger, contract, state, revision):
+    """The milestone views of `revision` as `plan show`, `plan report` and the hooks read them (accept reads the same function at the artifact it is given):
+    carried verdicts included, a pass the artifact has left stale. A revision that was accepted is read at the artifact accepted, so what was accepted
+    reads the same later; any other is read at the project's artifact now."""
+    accepted = state['accepted'] if state['accepted'] and state['accepted']['revision'] == revision else None
+    return milestone_views(contract, state, revision, ledger, artifact=accepted['artifact_sha'] if accepted else None)
 
 
 def resolve(ledger, state):
@@ -347,8 +368,7 @@ def show(ledger, name, revision=None):
         requests = [r for r in ledger.requests(state['task_id']) if r['question'].get('action', {}).get('type') == 'v2.plan_stopped']
         target = resolve(ledger, state)
         frozen = target['frozen'] if target and revision in (state['latest'], target['revision']) else None
-        accepted_here = state['accepted'] if state['accepted'] and state['accepted']['revision'] == revision else None
-        views = milestone_views(contract, state, revision, ledger, artifact=accepted_here['artifact_sha'] if accepted_here else None)   # an accepted plan is read at the artifact accepted
+        views = views_for(ledger, contract, state, revision)   # an accepted plan is read at the artifact accepted
         if frozen:       # a newer revision waits for the owner: which milestones stay runnable on the approved one, which are blocked
             views = [dict(v, frozen=v['id'] in frozen['frozen']) for v in views]
         out = {'plan': name, 'status': state['status'], 'revision': revision, 'latest_revision': state['latest'], 'sha': sha,

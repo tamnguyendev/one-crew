@@ -182,13 +182,14 @@ def _receipt_body(ledger, receipt):
 def _review_context(ledger, conn, state, milestone_id, config):
     """(base event, (artifact, tracked tree) of this milestone's latest usable pass or None): where the reviewer's diff starts.
     A usable pass is a reviewer verdict of this milestone, on any revision, whose receipt recorded the very same reviewer config (a changed config or
-    criteria is a different review) and a tracked_tree. Without one the diff starts from base_tracked of the first approval (reviewer.review_diff)."""
+    criteria is a different review) and a tracked_tree that is a tree id. Without one the diff starts from base_tracked of the first approval (reviewer.review_diff)."""
     first = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='plan.approved' ORDER BY seq LIMIT 1", (state['task_id'],)).fetchone()
     if first is None: raise LedgerError(f'Plan {state["name"]} has no plan.approved event; the reviewer has no base tree.')
     for v in reversed([v for v in state['verdicts'] if v['milestone'] == milestone_id and v['result'] == 'pass' and v.get('by') == 'reviewer']):
         body = _receipt_body(ledger, v.get('receipt'))
         tracked = body.get('tracked_tree')
-        if body.get('config') == config and isinstance(tracked, str) and tracked:
+        # a tree id read from a receipt is given to git later, so only a 40/64-hex one is a base; anything else is as if the pass had recorded none
+        if body.get('config') == config and isinstance(tracked, str) and command.TREE_ID.fullmatch(tracked) and command.TREE_ID.fullmatch(str(v.get('artifact_sha'))):
             return reviewer.base_event(json.loads(first['payload']), state['accepted']), (v['artifact_sha'], tracked)
     return reviewer.base_event(json.loads(first['payload']), state['accepted']), None
 

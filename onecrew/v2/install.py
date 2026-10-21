@@ -26,6 +26,8 @@ from . import claude_cli, hook_cli, where
 from .messages import lang, t
 
 EXE_NAMES = ('onecrew', 'onecrew.exe', 'onecrew.cmd')
+CHECKOUT_IMPORT = 'from onecrew.v2.hook_cli import main'      # the code of the checkout form (hook_cli.settings)
+HOOK_VERBS = tuple(verb for _, verb, _, _, _ in hook_cli.HOOK_EVENTS)
 LOGIN_TIMEOUT = 30
 
 
@@ -79,12 +81,18 @@ class SettingsShape(ValueError):
 
 
 def is_ours(handler):
-    """A hook handler written by OneCrew: the installed `onecrew hook <verb>` form, or the checkout form (`-c ... onecrew.v2.hook_cli`)."""
+    """A hook handler written by OneCrew: the installed `onecrew hook <verb>` form, or the checkout form (an interpreter running `-c <code that imports main
+    from onecrew.v2.hook_cli>` and ending in `hook <verb>`, as an args list or as one command line). The shape is what counts: a handler of another tool
+    that only mentions the module (`echo onecrew.v2.hook_cli is monitored`) is not ours and is never replaced."""
     if not isinstance(handler, dict): return False
-    command = re.split(r'[\\/]', str(handler.get('command', '')))[-1].casefold()
+    text = handler.get('command', '')
     args = handler.get('args')
-    if command in EXE_NAMES and isinstance(args, list) and args[:1] == ['hook']: return True
-    return 'onecrew.v2.hook_cli' in json.dumps(handler)
+    if not isinstance(text, str) or not (args is None or isinstance(args, list)): return False
+    if re.split(r'[\\/]', text)[-1].casefold() in EXE_NAMES and isinstance(args, list) and args[:1] == ['hook']: return True
+    if isinstance(args, list):
+        return len(args) >= 2 and any(isinstance(a, str) and CHECKOUT_IMPORT in a for a in args) and args[-2] == 'hook' and args[-1] in HOOK_VERBS
+    words = text.split()
+    return CHECKOUT_IMPORT in text and len(words) >= 2 and words[-2] == 'hook' and words[-1].strip('"\'') in HOOK_VERBS
 
 
 def merge_settings(existing, ours):

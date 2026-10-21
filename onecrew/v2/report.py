@@ -3,7 +3,9 @@
 
 * the ledger is opened with sqlite `mode=ro` (a `_Reader` that refuses `transaction(write=True)`), so no event, request or file
   of the state root can be written; the only write is the optional `--out` file, which is refused inside the state root;
-* no model, no network: the outside looks are `git log` on the repository the receipts name and reading receipt blobs, which change nothing;
+* no model, no network: the outside looks are `git log` on the repository the receipts name, reading receipt blobs, and (for a plan that is not
+  accepted) the artifact of the plan's project, hashed through a throw-away index exactly as `plan show` does it so that both name the same milestone
+  states; none of them changes the state root or the working tree;
 * the plan is found by name in the whole state root, and the directory of the receipts (not `--project`) says where the hook
   log and the repository are, so a plan of another project reads the same from any folder;
 * a source that is missing prints "không có dữ liệu" / "không có nhật ký hook", never a guess.
@@ -96,7 +98,10 @@ def _anchors(state_root):
 
 
 def _gather(state_root, row, revision=None):
-    """Everything both commands read about one plan, in one pass over the ledger."""
+    """Everything both commands read about one plan, in one pass over the ledger.
+
+    The milestone views here are what the plan recorded on its own revision. The digest keeps them: it opens every plan of the state root, so it never
+    hashes a project, and its lines stay as 2.1 printed them. `_lookup` (the report) replaces them with the views `plan show` and `accept` use."""
     reader = _Reader(state_root, row['project_id'], row['project_path'])
     name = row['request_key'][len(plans.ANCHOR):]
     with reader.transaction() as conn:
@@ -119,7 +124,11 @@ def _gather(state_root, row, revision=None):
 def _lookup(state_root, name, revision=None):
     found = [row for row, _ in _anchors(state_root) if row['request_key'] == plans.ANCHOR + name]
     if not found: raise LedgerError(f'No plan named {name} in {Path(state_root).resolve()}.')
-    return _gather(state_root, found[-1], revision)
+    f = _gather(state_root, found[-1], revision)
+    if f['contract']:       # the report reads the same milestone views as `plan show` and `accept` (plans.views_for): a carried verdict counts, a pass the artifact has left is stale,
+        row = f['row']      # an accepted revision is read at the artifact accepted
+        f['views'] = plans.views_for(_Reader(state_root, row['project_id'], row['project_path']), f['contract'], f['state'], f['revision'])
+    return f
 
 
 # ---- what is reached, what is parked ----------------------------------------------------------------------------------

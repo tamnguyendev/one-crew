@@ -87,7 +87,7 @@ def build(ledger, name):
         revision = state['approved']['revision']
         if state['approved']['sha'] != state['revisions'].get(revision, {}).get('sha'): return None
         contract, sha = plans.load(ledger, state, revision)
-        views = plans.milestone_views(contract, state, revision, ledger)         # the hooks see a carried-over milestone as passed, and a stale one as not
+        views = plans.views_for(ledger, contract, state, revision)         # the hooks see what plan show sees: a carried-over milestone as passed, a stale one as not
         status = state['status'] if revision == state['latest'] else 'approved'
         if state['accepted'] and state['accepted']['revision'] == revision: status = 'accepted'
         elif revision in state['stopped']: status = 'stopped_with_report'

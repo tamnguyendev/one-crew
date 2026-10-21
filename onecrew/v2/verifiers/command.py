@@ -27,7 +27,9 @@ def _git(directory, *args, env=None, input=None):
     clean = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
     done = subprocess.run(['git', '-C', str(directory), *args], capture_output=True, env=dict(clean, **{k: v for k, v in (env or {}).items() if k.upper().startswith('GIT_')}), timeout=120,
                           creationflags=0x08000000 if os.name == 'nt' else 0, input=input)
-    if done.returncode: raise LedgerError('git ' + ' '.join(args[:2]) + ' failed: ' + done.stderr.decode('utf-8', 'replace')[:300])
+    if done.returncode:
+        reason = done.stderr.decode('utf-8', 'replace') if isinstance(done.stderr, bytes) else str(done.stderr or '')
+        raise LedgerError('git ' + ' '.join(args[:2]) + ' failed: ' + reason[:300])
     return done.stdout.decode('utf-8', 'replace').strip()
 
 
@@ -49,12 +51,17 @@ def artifact_sha(directory):
 
 
 def tracked_tree(directory):
-    """Git tree hash of HEAD plus the modifications of tracked files (`add -u`), through a throw-away index. Unlike artifact_sha, an
-    untracked or ignored file is never in it: what a reviewer is shown must not depend on build output lying around."""
+    """Git tree hash of what Git tracks now: a copy of the repository's real index (so a new file that was `git add`ed is in it) plus the
+    modifications and deletions of the files in it (`add -u`), through a throw-away index. Unlike artifact_sha, an untracked file is never in it, and
+    an ignored one is not either: what a reviewer is shown must not depend on build output lying around. The real index and the refs are not touched.
+    Whatever the artifact holds and this tree does not is `changed_paths(tracked, artifact)`: the untracked files that are not ignored."""
     top = _git(directory, 'rev-parse', '--show-toplevel')
+    real = Path(_git(top, 'rev-parse', '--git-path', 'index'))
+    real = real if real.is_absolute() else Path(top) / real
     with tempfile.TemporaryDirectory() as temp:
         env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
-        _git(top, 'read-tree', 'HEAD', env=env)
+        if real.is_file(): shutil.copyfile(real, env['GIT_INDEX_FILE'])
+        else: _git(top, 'read-tree', 'HEAD', env=env)                  # a repository whose index was never written: what HEAD holds is what Git tracks
         _git(top, 'add', '-u', env=env)
         _git(top, 'rm', '-r', '--cached', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)
         return _git(top, 'write-tree', env=env)

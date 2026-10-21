@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v2.2.0.dev3 (v22-trust-fixes: sửa các lỗi Codex tìm ở 8383446, không thêm tính năng)
+
+- **Hook di động** (P0.1): không có `--project`, hook lấy project từ `CLAUDE_PROJECT_DIR` (rồi cwd của sự kiện, rồi cwd của tiến trình) và tìm plan chỉ tới gốc repo; mất `<project>/.onecrew/active-plan.json` mà bản sao state-root của chính project còn thì vẫn tìm thấy và vẫn chặn. Plan của repo cha hay project khác không còn chi phối.
+- **Reviewer** (P0.2, P0.3): cây reviewer = index thật + sửa đổi của file đã có trong index (file mới đã `git add` có trong diff); file chưa theo dõi mà không bị ignore làm mốc `inconclusive`, lý do nêu đường dẫn (`not_shown` trong biên nhận); artifact lấy trước, cây chụp một lần, diff cắt từ đúng cây đó (biên nhận có `base_tracked` và `tracked_tree`); thay đổi trong lúc review → `inconclusive`.
+- **Trung lập** (P0.4): bỏ danh sách mặc định (`NEUTRAL_DEFAULT`); chỉ `scope.neutral` hợp đồng tự khai mới trung lập. Đổi hành vi so với 2.2.0.dev2: commit chỉ sửa `docs/**`, `*.md`, `CHANGELOG*` nay chạy lại mốc `command` nếu hợp đồng không khai.
+- **Kế thừa** (P0.6): chữ ký gồm tiêu đề, verifier, `covers` và toàn văn từng output mốc phủ (sửa chữ output không phủ vẫn giữ pass); mốc `reviewer` kiểm lại luật độc lập cho revision mới.
+- **Report** (P0.5): `plan report` dùng cùng view mốc với `plan show` và `accept` (kế thừa, ghi chú reviewer của lần pass được kế thừa, `stale`); plan đã nghiệm thu đọc tại artifact đã nghiệm thu nên report không đổi. `plan digest` không đổi.
+- **UTF-8** (P0.7): mọi lệnh hook ép stdout/stderr UTF-8 (module và `onecrew hook <verb>`); `init`/`merge_settings` chỉ thay handler do OneCrew cài, giữ handler của công cụ khác có nhắc tên module.
+- **Mã cây** (D3): mã cây đọc từ biên nhận/sổ phải là hex 40/64 và đứng sau `--end-of-options`; plan không có cây tracked-only dùng được → biên nhận `inconclusive` có lý do, không làm `verdict run` lỗi.
+- Tests: `tests/test_v2_trust_fixes.py` (mỗi lỗi một test thất bại ở `8383446`). Bốn test của `tests/test_v3_verify_cost.py` đổi kỳ vọng theo D4/D5 (`test_the_default_neutral_paths_are_read_not_written`, `test_neutral_globs_do_not_cross_a_slash_except_double_star`, `test_an_untracked_file_is_never_in_the_diff_and_verdict_diff_makes_no_call_and_writes_nothing`, `test_the_same_after_a_pass_the_pass_remembers_the_tracked_tree_not_the_untracked_files`); hai kiểm version đổi sang `2.2.0.dev3`. `docs/v2-verify-cost.vi.md`.
+
 ## v2.2.0.dev2 (đợt 1: kiểm rẻ hơn, giữ sáu bất biến)
 
 - Verdict được **kế thừa** sang revision mới đã duyệt khi mốc (tiêu đề + verifier) byte-giống và artifact giống, hoặc (mốc `command`) chỉ khác ở `scope.neutral`; `plan show` có `carried_from`, `neutral_diff`, `stale`; `verdict run` kiểm thứ tự và "đã đạt" trước khi chạy. Không thêm sự kiện/bảng. `docs/v2-verify-cost.vi.md`.
