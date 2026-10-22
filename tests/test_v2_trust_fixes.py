@@ -363,6 +363,72 @@ class HookEveryPlanJudges(HookBase):
             with self.subTest(text):
                 self.assertEqual(hook_cli.mentions(text, '.onecrew', 'whole'), whole)
 
+    AFTER_THE_NAME = '!#$%&()*+,:;<=>?＠[]^`{|}~'           # every character that can follow `.onecrew` and leave it the folder: a glob, a brace, a stream, a list...
+
+    def test_the_folder_is_mentioned_whatever_follows_it_except_a_name_character(self):
+        for char in self.AFTER_THE_NAME + '"\'/\\ \t\n':
+            for dots in ('', '.', '..'):
+                with self.subTest(char=char, dots=dots):
+                    self.assertTrue(hook_cli.mentions(f'cmd .onecrew{dots}{char}y', '.onecrew', 'whole'))
+        for text in ('.onecrew.bak', '.onecrew-old', '.onecrew_old', '.onecrewx', '.onecrew.bak.', '.onecrew..bak', '.onecrew.9', '.onecrewé', '11.onecrew', 'x.onecrew', '-.onecrew'):
+            with self.subTest(text):
+                self.assertFalse(hook_cli.mentions(text, '.onecrew', 'whole'))
+
+    def test_a_glob_a_brace_a_list_or_a_stream_still_reaches_the_folder(self):
+        reaches = ['mv .onecrew{,.bak}', 'rm -rf .onecrew*', 'mv .onecrew* backup/', 'Remove-Item .onecrew,x -Recurse -Force', 'Remove-Item (Join-Path . .onecrew) -Recurse -Force',
+                   'python -c "import os; os.rename(\'.onecrew::$INDEX_ALLOCATION\',\'g\')"', 'mv .onecrew?  backup/', 'mv .onecrew[.]  backup/', 'rd /s .onecrew:x']
+        passes = ['mv .onecrew.bak backup/', 'mv .onecrew-old backup/', 'mv .onecrew.bak.  backup/', 'python -c "open(\'.onecrew_old\')"', 'mv 11.OneCrew backup/']
+        for protected in ((), ('.onecrew/',)):
+            project = self.plan_repo(self.base / f'glob{len(protected)}', protected=protected, owned=('**',))          # the plan owns everything: only the mention rule can block
+            for command in reaches:
+                with self.subTest(protected=len(protected), blocked=command):
+                    self.assertEqual(self.check('Bash', project=project, command=command)[0], 2)
+            for command in passes:
+                with self.subTest(protected=len(protected), passes=command):
+                    self.assertEqual(self.check('Bash', project=project, command=command)[0], 0)
+            for char in self.AFTER_THE_NAME:                    # each one, in a python string outside the built-in deny
+                command = f'python -c "import os; os.rename(\'.onecrew{char}\',\'g\')"'
+                with self.subTest(protected=len(protected), char=char):
+                    self.assertEqual(self.check('Bash', project=project, command=command)[0], 2)
+
+    def test_a_path_in_a_string_cannot_climb_out_of_scratch_through_spaces_or_brackets(self):
+        """The scratch exemption reads the whole string (to the next quote), not the shell word: `scratch /..` and `a(/../..` leave scratch, and Windows drops
+        the trailing spaces and dots of a component."""
+        climbs = ['.onecrew/scratch /..', '.onecrew/scratch/a(/../../config.json', '.onecrew/scratch/a)/../../config.json', '.onecrew/scratch/a;/../../config.json',
+                  '.onecrew/scratch\t/../config.json', '.onecrew/scratch./../config.json', '.onecrew/scratch../../config.json', '.onecrew/scratch/ /../../config.json',
+                  '.onecrew/scratch/a /../../config.json', '.onecrew\\scratch \\..\\config.json', '.onecrew/scratch/a&/../../config.json', '.onecrew/scratch/a</../../config.json',
+                  '.onecrew/scratch/.../../config.json', '.onecrew/scratch/a|b/../../../config.json']
+        stays = ['.onecrew/scratch/x', '.onecrew/scratch/a/../b', '.onecrew/scratch/my dir/f.txt', '.onecrew/scratch/a (1)/b', '.onecrew/scratch/a;b/c', '.onecrew/scratch/a(/../b',
+                 '.onecrew/scratch/a/b/../../c', '.onecrew/scratch ./x', '.onecrew/scratch/']
+        for protected in ((), ('.onecrew/',)):
+            project = self.plan_repo(self.base / f'climb{len(protected)}', protected=protected, owned=('**',))         # likewise: only the mention rule can block
+            for template in self.OUT_OF_THE_BUILT_IN_DENY:
+                for name in climbs:
+                    with self.subTest(protected=len(protected), climbs=name, command=template[:16]):
+                        self.assertEqual(self.check('Bash', project=project, command=template.format(x=name))[0], 2)
+                for name in stays:
+                    with self.subTest(protected=len(protected), stays=name, command=template[:16]):
+                        self.assertEqual(self.check('Bash', project=project, command=template.format(x=name))[0], 0)
+            for command in ('pytest -o cache_dir=.onecrew/scratch/cache', 'cp .onecrew/scratch/a.txt .onecrew/scratch/b.txt', 'python run.py > .onecrew/scratch/out.log 2>&1',
+                            'cp a.txt ".onecrew/scratch/my dir/a.txt"'):
+                with self.subTest(protected=len(protected), passes=command):
+                    self.assertEqual(self.check('Bash', project=project, command=command)[0], 0)
+            for command in ('cp a .onecrew/scratch/x .onecrew/config.json', 'cp .onecrew/scratch/x policy.json', 'cp .onecrew/scratch/x active-plan.json',
+                            'mv .onecrew/scratch/x ".onecrew/scratch/../config.json"'):
+                with self.subTest(protected=len(protected), blocked=command):         # only the path that stays in scratch is excused, not what stands next to it
+                    self.assertEqual(self.check('Bash', project=project, command=command)[0], 2)
+
+    def test_how_windows_reads_a_component_in_a_scratch_path(self):
+        for text, stays in (('.onecrew/scratch/x', True), ('.onecrew/scratch', True), ('.onecrew/scratch/', True), ('.onecrew/scratch /x', True), ('.onecrew/scratch. /x', True),
+                            ('.onecrew/scratch/a/../b', True), ('.onecrew/scratch/./x', True), ('.onecrew/scratch //x', True),
+                            ('.onecrew/scratch /..', False), ('.onecrew/scratch../..', False), ('.onecrew/scratch/ /..', False), ('.onecrew/scratch/.../x', False),
+                            ('.onecrew/scratch/.../../config.json', False), ('.onecrew/scratch/a(/../../config.json', False), ('.onecrew/scratchy/x', False),
+                            ('.onecrew/scratch::$index_allocation', False), ('.onecrew/scratch::$index_allocation/x', False), ('.onecrew/config.json', False), ('.onecrew/', False)):
+            with self.subTest(text):
+                self.assertEqual(hook_cli.stays_in_scratch(text), stays)
+        self.assertEqual([hook_cli.scratch_component(p) for p in ('scratch ', 'scratch.', 'scratch. .', ' ', '', '.', '..', '...', '. ', 'a b', '.x', 'x.y.')],
+                         ['scratch', 'scratch', 'scratch', '', '', '.', '..', '..', '.', 'a b', '.x', 'x.y'])
+
 
 # ---- P0.7: UTF-8 on stdout and stderr, and the handlers of other tools --------------------------------------------------------------------
 
@@ -435,7 +501,10 @@ class InitKeepsWhatIsNotItsOwn(unittest.TestCase):
                                                           if h['args'][-1] == verb),
             'verify kit (-X utf8)': {'type': 'command', 'command': 'D:\\venv\\Scripts\\python.exe', 'args': ['-X', 'utf8', '-c', self.CODE, '--project', 'D:\\p', '--state-root', 'D:\\s', 'hook', verb],
                                      'timeout': 15, 'onFailure': 'block'},
+            'verify kit (-Xutf8, attached)': {'type': 'command', 'command': 'D:\\venv\\Scripts\\python.exe', 'args': ['-Xutf8', '-c', self.CODE, '--project', 'D:\\p', 'hook', verb]},
+            'interpreter flags': {'type': 'command', 'command': sys.executable, 'args': ['-u', '-B', '-X', 'utf8', '-c', self.CODE, 'hook', verb]},
             'python path with spaces, args list': {'type': 'command', 'command': spaced, 'args': ['-c', self.CODE, '--project', 'D:\\a b', 'hook', verb]},
+            'args list, a repository path with a ; and a $': {'type': 'command', 'command': sys.executable, 'args': ['-c', self.CODE.replace('D:\\\\repo', 'D:\\\\a;b$c'), '--project', 'D:\\a;b', 'hook', verb]},
             'command line, quoted python path with spaces': {'type': 'command', 'command': f'"{spaced}" -X utf8 -c "{self.CODE}" --project "D:\\a b" --state-root "D:\\s" hook {verb}'},
             'command line, unquoted python': {'type': 'command', 'command': f'python -c "{self.CODE}" --project D:\\p hook {verb}'}}
 
@@ -466,6 +535,22 @@ class InitKeepsWhatIsNotItsOwn(unittest.TestCase):
             'installed exe, something else': {'type': 'command', 'command': 'C:\\venv\\Scripts\\onecrew.exe', 'args': ['plan', 'show', 'p']},
             'installed exe, more words': {'type': 'command', 'command': 'onecrew hook check now'},
             'another program that ends in onecrew': {'type': 'command', 'command': 'my-onecrew', 'args': ['hook', 'check']},
+            'command line, --project D:/p;audit-tool': {'type': 'command', 'command': f'python -c "{code}" --project D:/p;audit-tool hook check'},
+            'command line, --project D:/p&audit-tool': {'type': 'command', 'command': f'python -c "{code}" --project D:/p&audit-tool hook check'},
+            'command line, --project D:/p|audit-tool': {'type': 'command', 'command': f'python -c "{code}" --project D:/p|audit-tool hook check'},
+            'command line, --project D:/p>audit.log': {'type': 'command', 'command': f'python -c "{code}" --project D:/p>audit.log hook check'},
+            'command line, --state-root $(audit-tool)': {'type': 'command', 'command': f'python -c "{code}" --state-root "$(audit-tool --log)" hook check'},
+            'command line, --project $(audit-tool)': {'type': 'command', 'command': f'python -c "{code}" --project "$(audit-tool --log)" hook check'},
+            'command line, --project with a backtick': {'type': 'command', 'command': f'python -c "{code}" --project "`audit-tool`" hook check'},
+            'command line, python path with $(...)': {'type': 'command', 'command': f'"/tmp/$(audit-tool)/python" -c "{code}" hook check'},
+            'command line, a line break before hook': {'type': 'command', 'command': f'python -c "{code}" --project D:/p\nhook check'},
+            'command line, code with $(...) in it': {'type': 'command', 'command': f'python -c "{code.replace("D:" + chr(92) * 2 + "repo", "$(audit-tool)")}" hook check'},
+            'command line, exe then ; another': {'type': 'command', 'command': 'onecrew hook check;audit-tool'},
+            'command line, exe path with &': {'type': 'command', 'command': 'C:/a&b/onecrew.exe hook check'},
+            'interpreter flag twice': {'type': 'command', 'command': sys.executable, 'args': ['-u', '-u', '-c', code, 'hook', 'check']},
+            '-X utf8 twice': {'type': 'command', 'command': sys.executable, 'args': ['-X', 'utf8', '-Xutf8', '-c', code, 'hook', 'check']},
+            '--state-root twice': {'type': 'command', 'command': sys.executable, 'args': ['-c', code, '--state-root', 'a', '--state-root', 'b', 'hook', 'check']},
+            '-X without a value': {'type': 'command', 'command': sys.executable, 'args': ['-X']},
             'a prompt handler': {'type': 'prompt', 'command': 'onecrew', 'args': ['hook', 'check']},
             'unbalanced quote': {'type': 'command', 'command': 'onecrew "hook check'},
             'args that are not strings': {'type': 'command', 'command': sys.executable, 'args': ['-c', code, 7, 'hook', 'check']},
@@ -480,6 +565,21 @@ class InitKeepsWhatIsNotItsOwn(unittest.TestCase):
             with self.subTest('merge keeps ' + label):
                 self.assertIn(handler, kept)
         self.assertEqual(sum(1 for h in kept if install.is_ours(h)), 1)
+
+    def test_doctor_looks_for_the_program_of_a_command_line_handler_not_for_the_whole_line(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve(); (root / '.git').mkdir()
+            exe = root / 'Program Files' / 'OneCrew' / 'onecrew.exe'; exe.parent.mkdir(parents=True); exe.write_text('')
+            want = hook_cli.portable_settings(exe, root / 'state')
+            as_lines = {event: [dict(entry, hooks=[{'type': 'command', 'command': f'"{exe}" hook {h["args"][-1]}'} for h in entry['hooks']]) for entry in entries]
+                        for event, entries in want['hooks'].items()}
+            (root / '.claude').mkdir()
+            (root / '.claude' / 'settings.local.json').write_text(json.dumps({'hooks': as_lines}), encoding='utf-8')
+            level, detail = install.check_hooks(root, root / 'state', None)
+            self.assertNotEqual(level, 'FAIL', detail)                                  # it exists: nothing is stale (it may differ from what init would write now)
+            exe.unlink()
+            level, detail = install.check_hooks(root, root / 'state', None)
+            self.assertEqual(level, 'FAIL'); self.assertIn(str(exe), detail)           # gone: the stale program is named, not the line
 
 
 # ---- the reviewer: P0.2, P0.3 and D3 ------------------------------------------------------------------------------------------------------------

@@ -274,27 +274,58 @@ def inside_repo(plan_root, target):
 
 
 NAME_CHAR = r'[\w.-]'             # a character that can be part of a file name: a protected name next to one is another name
-SCRATCH_REF = re.compile(r'(?<![\w.-])\.onecrew/[^\s"\'`;|&<>()]*')       # a path that goes into .onecrew/ (folded: separators are /)
+SCRATCH_START = re.compile(r'(?<![\w.-])\.onecrew/')                           # where a path goes into .onecrew/ (folded: separators are /)
+SCRATCH_WORD_END = re.compile(r'[\s"\'`;|&<>()]')                              # where a shell word ends
+SCRATCH_TEXT_END = re.compile(r'["\'`]')                                       # where a string literal (or a command substitution) ends
 
 
 def mentions(flat, item, how):
     """Does the (folded) command text mention the protected `item`? how '' : anywhere in the text. 'whole': as a whole path component (`.onecrew`, not the
-    end of `11.OneCrew`): not preceded by a character of a file name, and followed, after any dots, by the end of the component (a separator, a quote, a
-    space or the end), because Windows drops trailing dots, so `.onecrew.` and `.onecrew..` are `.onecrew`, while `.onecrew.bak` and `.onecrew-old` are other
-    names. 'start': as the start of a path component (`onecrew/plans`, not `11.OneCrew/plans`)."""
+    end of `11.OneCrew`): not preceded by a character of a file name, and NOT followed, after any dots, by one (a letter, digit, `_` or `-`): whatever else
+    follows (a separator, a quote, a space, the end, but also `{,.bak}`, `*`, `,`, `(`, `:` as in `.onecrew::$INDEX_ALLOCATION`) leaves the name `.onecrew`,
+    because a glob or a brace or a stream suffix still reaches the folder, and Windows drops trailing dots (`.onecrew.` and `.onecrew..` are `.onecrew`),
+    while `.onecrew.bak` and `.onecrew-old` are other names. 'start': as the start of a path component (`onecrew/plans`, not `11.OneCrew/plans`)."""
     if not how: return item in flat
-    pattern = f'(?<!{NAME_CHAR})' + re.escape(item) + (r'(?=\.*(?:$|[\s"\'/\\]))' if how == 'whole' else '')
+    pattern = f'(?<!{NAME_CHAR})' + re.escape(item) + (r'(?!\.*[\w-])' if how == 'whole' else '')
     return re.search(pattern, flat) is not None
 
 
+def scratch_component(part):
+    """One component of a path as Windows reads it: trailing spaces and dots are dropped, a component of only dots is `.` or `..`, one of only spaces is
+    nothing (so `scratch /..` and `scratch./..` leave `scratch`). Kept on every system: it can only make a path look less like scratch, never more."""
+    bare = part.rstrip()
+    if bare and not bare.strip('.'): return '.' if len(bare) == 1 else '..'
+    return part.rstrip(' .\t\r\n\x0b\x0c')
+
+
+def stays_in_scratch(text):
+    """Does a path that starts with `.onecrew/` stay under `.onecrew/scratch/`, component by component, once Windows' reading of each component is applied and
+    `..` is folded away as posixpath.normpath does it (`.onecrew/scratch/../config.json`, `.onecrew/scratch/a/../../x`, `.onecrew/scratchy/..` do not)?"""
+    normal = posixpath.normpath('/'.join(scratch_component(part) for part in text.split('/')))
+    return normal == '.onecrew/scratch' or normal.startswith('.onecrew/scratch/')
+
+
 def without_scratch(flat):
-    """The text without the paths that stay under `.onecrew/scratch/` (the one place of `.onecrew/` the AI may write). A path counts only after `\\` became `/`
-    and `..` was folded away as posixpath.normpath does it, and only for whole components: `.onecrew/scratch/x` is scratch, `.onecrew/scratch/../config.json`,
-    `.onecrew/scratch/a/../../x` and `.onecrew/scratchy/..` are not."""
-    def drop(match):
-        normal = posixpath.normpath(match.group(0))
-        return '' if normal == '.onecrew/scratch' or normal.startswith('.onecrew/scratch/') else match.group(0)
-    return SCRATCH_REF.sub(drop, flat)
+    """One (folded) text without the paths that stay under `.onecrew/scratch/`, the one place of `.onecrew/` the AI may write. A path is cut out only when it
+    stays in scratch read BOTH as the shell word (up to a space, a paren, `;`, `&`, `|`, `<`, `>`, a quote) and as the longest string it could be, to the next quote or
+    backtick or the end of the text, up to the next word that starts with `.onecrew/` (a path in a string may hold spaces, parens and `;`, so
+    `'.onecrew/scratch /..'` and `'.onecrew/scratch/a(/../../config.json'` leave scratch); only the word is cut, so another protected name after it
+    stays in the text."""
+    kept, position = [], 0
+    for match in SCRATCH_START.finditer(flat):
+        if match.start() < position: continue                     # inside a word that was already cut
+        start = match.start()
+        word = SCRATCH_WORD_END.search(flat, start)
+        word_end = word.start() if word else len(flat)
+        text = SCRATCH_TEXT_END.search(flat, start)
+        text_end = text.start() if text else len(flat)
+        for later in SCRATCH_START.finditer(flat, word_end):      # another path that starts after a space is its own
+            if later.start() >= text_end: break
+            if flat[later.start() - 1:later.start()].isspace(): text_end = later.start(); break
+        if stays_in_scratch(flat[start:word_end]) and stays_in_scratch(flat[start:text_end]):
+            kept.append(flat[position:start]); position = word_end
+    kept.append(flat[position:])
+    return ''.join(kept)
 
 
 def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=False):
@@ -312,7 +343,7 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
     for segment in shell_segments(command):         # each segment on its own: `ls; python -c "...remove(registry)"` is not read-only because its first word is
         first = (re.findall(r'[\w.-]+', segment) or [''])[0].lower()
         if first in READ_ONLY: continue
-        flat = without_scratch(_fold(' '.join(variants(segment))))
+        flat = ' '.join(without_scratch(_fold(form)) for form in variants(segment))       # each form on its own: a path never runs from one into the next
         for item, how in items:
             if mentions(flat, item, how):
                 return 'protected', f'The command mentions {item}, which only the owner changes ({first or "?"} is not a read-only command).'

@@ -86,8 +86,8 @@ PYTHON_FLAGS = ('-u', '-B', '-E', '-I', '-s', '-S')                             
 
 
 def command_words(text):
-    """The words of a command line, quotes grouping and removed (a path with spaces in double quotes is one word); a backslash is a plain character, as in a
-    Windows path. None when a quote is never closed."""
+    """The words of a command line, quotes grouping and removed (a path with spaces in double quotes is one word). A backslash is a plain character, as in a
+    Windows path, except that `\\"` inside double quotes is a quote. None when a quote is never closed."""
     words, current, quote, started = [], [], None, False
     index = 0
     while index < len(text):
@@ -106,31 +106,69 @@ def command_words(text):
     return words
 
 
+SHELL_ACTIVE = re.compile(r'[;&|<>$`]')          # in a command line, a word with one of these could end the command or run another (`;`, `&`, `|`, `$(...)`, backticks)
+
+
+def handler_words(handler):
+    """(words, line) of a command handler: [command, *args] when `args` is a list of strings (nothing reads it as a shell line), else the `command` line cut by
+    command_words (line=True: a shell reads it). (None, False) when the handler is not a command we can read."""
+    if not isinstance(handler, dict) or handler.get('type', 'command') != 'command': return None, False
+    command, args = handler.get('command'), handler.get('args')
+    if not isinstance(command, str) or not command.strip(): return None, False
+    if args is None: return command_words(command), True
+    if isinstance(args, list) and all(isinstance(a, str) for a in args): return [command, *args], False
+    return None, False
+
+
+def checkout_code_index(rest):
+    """The index in `rest` (the words after the interpreter) of the checkout code, when `rest` is exactly the arguments of the checkout form: interpreter flags
+    (`-u -B -E -I -s -S`, `-X <option>` or `-X<option>`) each at most once, `-c <the code>`, `--project <p>` and `--state-root <s>` each at most once, then
+    `hook <verb>`. None otherwise."""
+    index, seen = 0, set()
+    while index < len(rest):
+        word = rest[index]
+        if word in PYTHON_FLAGS: option, step = word, 1
+        elif word == '-X' and index + 1 < len(rest): option, step = ('-X', rest[index + 1]), 2
+        elif word.startswith('-X') and len(word) > 2: option, step = ('-X', word[2:]), 1
+        else: break
+        if option in seen: return None
+        seen.add(option)
+        index += step
+    if index + 1 >= len(rest) or rest[index] != '-c' or not CHECKOUT_CODE.fullmatch(rest[index + 1]): return None
+    code, index, given = index + 1, index + 2, set()
+    while index + 1 < len(rest) and rest[index] in ('--project', '--state-root') and rest[index] not in given:
+        given.add(rest[index])
+        index += 2
+    return code if len(rest) - index == 2 and rest[index] == 'hook' and rest[index + 1] in HOOK_VERBS else None
+
+
 def is_ours(handler):
     """A hook handler written by OneCrew, judged by its structure: the program that runs, then its arguments, are exactly one of the forms OneCrew
     generates (the words come from `args`, or from the `command` line cut by command_words, a quoted path with spaces being one word):
       * the installed executable: `<path>/onecrew[.exe|.cmd] hook <verb>`  (hook_cli.portable_settings, from 2.2.0.dev1);
-      * the checkout form: a Python interpreter, any `-X <option>` / `-u -B -E -I -s -S` flags, `-c <the code hook_cli.settings generates>`, then `--project <p>` and/or
-        `--state-root <s>` (2.1, 2.2 and the `-X utf8` one the verify kit uses), then `hook <verb>`.
-    <verb> is one of the four hook verbs. Anything else is not ours and is never replaced: `echo from onecrew.v2.hook_cli import main hook check`, a
-    wrapper or audit tool in front of the interpreter (`audit-tool python -c "<our code>" hook check`), a handler that only mentions the module."""
-    if not isinstance(handler, dict) or handler.get('type', 'command') != 'command': return False
-    command, args = handler.get('command'), handler.get('args')
-    if not isinstance(command, str) or not command.strip(): return False
-    if args is None: words = command_words(command)
-    elif isinstance(args, list) and all(isinstance(a, str) for a in args): words = [command, *args]
-    else: return False
-    if not words: return False
+      * the checkout form: a Python interpreter, interpreter flags and `-X <option>` / `-X<option>`, `-c <the code hook_cli.settings generates>`, then `--project <p>`
+        and/or `--state-root <s>` (2.1, 2.2 and the `-X utf8` one the verify kit uses), then `hook <verb>`; every option at most once.
+    <verb> is one of the four hook verbs. In a command LINE (no `args`) a shell reads the words, so a word with `;` `&` `|` `<` `>` `$` or a backtick, or a
+    line break in the line, is not ours (`--project D:/p;audit-tool hook check`, `--project "$(audit-tool --log)"`): the checkout code, which has `;` and `(` of
+    its own, is the one word that is only refused if it holds `$` or a backtick. Anything else is not ours and is never replaced:
+    `echo from onecrew.v2.hook_cli import main hook check`, a wrapper or audit tool in front of the interpreter (`audit-tool python -c "<our code>" hook check`),
+    a handler that only mentions the module."""
+    words, line = handler_words(handler)
+    if not words or (line and re.search(r'[\r\n]', handler['command'])): return False
     program, rest = re.split(r'[\\/]', words[0].strip())[-1], words[1:]
-    if program.casefold() in EXE_NAMES: return len(rest) == 2 and rest[0] == 'hook' and rest[1] in HOOK_VERBS
-    if not PYTHON_NAME.fullmatch(program): return False
-    index = 0
-    while index < len(rest) and (rest[index] in PYTHON_FLAGS or (rest[index] == '-X' and index + 1 < len(rest))): index += 2 if rest[index] == '-X' else 1
-    if index + 1 >= len(rest) or rest[index] != '-c' or not CHECKOUT_CODE.fullmatch(rest[index + 1]): return False
-    index += 2
-    seen = set()
-    while index + 1 < len(rest) and rest[index] in ('--project', '--state-root') and rest[index] not in seen: seen.add(rest[index]); index += 2
-    return len(rest) - index == 2 and rest[index] == 'hook' and rest[index + 1] in HOOK_VERBS
+    if program.casefold() in EXE_NAMES:
+        code = None
+        if not (len(rest) == 2 and rest[0] == 'hook' and rest[1] in HOOK_VERBS): return False
+    elif PYTHON_NAME.fullmatch(program):
+        code = checkout_code_index(rest)
+        if code is None: return False
+        code += 1                                                      # an index in `words`
+    else: return False
+    if line:
+        for position, word in enumerate(words):
+            risky = re.search(r'[$`]', word) if position == code else SHELL_ACTIVE.search(word)
+            if risky: return False
+    return True
 
 
 def merge_settings(existing, ours):
@@ -295,7 +333,7 @@ def check_hooks(root, state, exe):
         return 'FAIL', t('doctor.hook_missing', paths=' / '.join(str(root / '.claude' / n) for n in ('settings.local.json', 'settings.json')))
     results = []
     for path, data in found:                       # every file that holds OneCrew hooks: a stale copy in the other file is reported too
-        commands = {str(h.get('command')) for entries in our_entries(data).values() for e in entries for h in e.get('hooks', []) if is_ours(h)}
+        commands = {handler_words(h)[0][0] for entries in our_entries(data).values() for e in entries for h in e.get('hooks', []) if is_ours(h)}       # the program each runs, not the whole line
         gone = sorted(c for c in commands if not Path(c).is_file() and shutil.which(c) is None)
         if gone:
             results.append(('FAIL', t('doctor.hook_stale', path=path, command=gone[0])))
