@@ -18,6 +18,7 @@ import datetime as dt
 import fnmatch
 import json
 import os
+import posixpath
 import re
 import sys
 import tempfile
@@ -273,15 +274,27 @@ def inside_repo(plan_root, target):
 
 
 NAME_CHAR = r'[\w.-]'             # a character that can be part of a file name: a protected name next to one is another name
+SCRATCH_REF = re.compile(r'(?<![\w.-])\.onecrew/[^\s"\'`;|&<>()]*')       # a path that goes into .onecrew/ (folded: separators are /)
 
 
 def mentions(flat, item, how):
     """Does the (folded) command text mention the protected `item`? how '' : anywhere in the text. 'whole': as a whole path component (`.onecrew`, not the
-    end of `11.OneCrew`): neither preceded nor followed by a character of a file name, so after the start, a separator, a quote or a space and before the
-    end or one of them. 'start': as the start of a path component (`onecrew/plans`, not `11.OneCrew/plans`)."""
+    end of `11.OneCrew`): not preceded by a character of a file name, and followed, after any dots, by the end of the component (a separator, a quote, a
+    space or the end), because Windows drops trailing dots, so `.onecrew.` and `.onecrew..` are `.onecrew`, while `.onecrew.bak` and `.onecrew-old` are other
+    names. 'start': as the start of a path component (`onecrew/plans`, not `11.OneCrew/plans`)."""
     if not how: return item in flat
-    pattern = f'(?<!{NAME_CHAR})' + re.escape(item) + (f'(?!{NAME_CHAR})' if how == 'whole' else '')
+    pattern = f'(?<!{NAME_CHAR})' + re.escape(item) + (r'(?=\.*(?:$|[\s"\'/\\]))' if how == 'whole' else '')
     return re.search(pattern, flat) is not None
+
+
+def without_scratch(flat):
+    """The text without the paths that stay under `.onecrew/scratch/` (the one place of `.onecrew/` the AI may write). A path counts only after `\\` became `/`
+    and `..` was folded away as posixpath.normpath does it, and only for whole components: `.onecrew/scratch/x` is scratch, `.onecrew/scratch/../config.json`,
+    `.onecrew/scratch/a/../../x` and `.onecrew/scratchy/..` are not."""
+    def drop(match):
+        normal = posixpath.normpath(match.group(0))
+        return '' if normal == '.onecrew/scratch' or normal.startswith('.onecrew/scratch/') else match.group(0)
+    return SCRATCH_REF.sub(drop, flat)
 
 
 def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=False):
@@ -299,7 +312,7 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
     for segment in shell_segments(command):         # each segment on its own: `ls; python -c "...remove(registry)"` is not read-only because its first word is
         first = (re.findall(r'[\w.-]+', segment) or [''])[0].lower()
         if first in READ_ONLY: continue
-        flat = _fold(' '.join(variants(segment))).replace('.onecrew/scratch', '')
+        flat = without_scratch(_fold(' '.join(variants(segment))))
         for item, how in items:
             if mentions(flat, item, how):
                 return 'protected', f'The command mentions {item}, which only the owner changes ({first or "?"} is not a read-only command).'

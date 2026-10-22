@@ -48,8 +48,8 @@ class HookBase(unittest.TestCase):
         nowhere = str(self.base / 'nowhere')
         os.environ.update(LOCALAPPDATA=nowhere, HOME=nowhere, USERPROFILE=nowhere)       # the default state root is not the real one
 
-    def document(self, project, mode='enforce', owned=('a.txt',), status='approved', name='p', scratch=()):
-        return {'plan': name, 'revision': 1, 'plan_sha': 'x', 'status': status, 'mode': mode, 'owned': list(owned), 'non_goals': [], 'bash_deny': [], 'protected': [],
+    def document(self, project, mode='enforce', owned=('a.txt',), status='approved', name='p', scratch=(), protected=()):
+        return {'plan': name, 'revision': 1, 'plan_sha': 'x', 'status': status, 'mode': mode, 'owned': list(owned), 'non_goals': [], 'bash_deny': [], 'protected': list(protected),
                 'scratch': list(scratch), 'title': 'Hợp đồng thử tiếng Việt', 'output': ['Tệp mẫu tồn tại'], 'budget': {'max_calls': 5, 'time': 30},
                 'milestones': [{'id': 'M1', 'title': VI_MILESTONE, 'state': 'pending', 'verifier': {'type': 'command'}}],
                 'project': str(project), 'state_root': str(self.state), 'exported_at': '2026-10-21T00:00:00+00:00'}
@@ -334,6 +334,35 @@ class HookEveryPlanJudges(HookBase):
         self.assertEqual(hook_cli.shell_segments('a; b && c || d | e & f\ng'), ['a', ' b ', ' c ', ' d ', ' e ', ' f', 'g'])
         self.assertEqual(hook_cli.shell_segments('python -c "a; b" ; ls'), ['python -c "a; b" ', ' ls'])
 
+    OUT_OF_THE_BUILT_IN_DENY = ('python -c "import pathlib; pathlib.Path(\'{x}\').unlink()"', 'python -c "import os; os.replace(\'{x}\',\'gone\')"',
+                                'node -e "require(\'fs\').rmSync(\'{x}\',{{recursive:true}})"')       # forms DEFAULT_BASH_DENY (rmtree, os.remove, os.unlink) does not catch
+
+    def test_every_spelling_of_the_protected_folder_is_the_protected_folder(self):
+        """`.onecrew.` and `.onecrew..` are `.onecrew` on Windows (trailing dots are dropped), and `.onecrew/scratch/..` is not scratch."""
+        names = ['.onecrew', '.onecrew.', '.onecrew..', '.onecrew/scratch/../config.json', '.onecrew\\scratch\\..\\config.json', '.onecrew/scratch/a/../../config.json',
+                 '.onecrew/scratchy/..', '.onecrew/scratch/../../x', './.onecrew/scratch/../active-plan.json']
+        passes = ['.onecrew/scratch/x', '.onecrew/scratch/', '.onecrew\\scratch\\x', '.onecrew/scratch/a/../b', '.onecrew-old', '.onecrew.bak', '.onecrewx/y', '11.OneCrew/x', 'my.onecrew/x']
+        for protected in ((), ('.onecrew/',)):                                          # with the mention rule alone, and with the folder also in the plan's protected list
+            project = self.plan_repo(self.base / f'prot{len(protected)}', protected=protected)
+            for template in self.OUT_OF_THE_BUILT_IN_DENY:
+                for name in names:
+                    with self.subTest(protected=len(protected), blocked=name, command=template[:16]):
+                        self.assertEqual(self.check('Bash', project=project, command=template.format(x=name))[0], 2)
+                for name in passes:
+                    with self.subTest(protected=len(protected), passes=name, command=template[:16]):
+                        self.assertEqual(self.check('Bash', project=project, command=template.format(x=name))[0], 0)
+
+    def test_scratch_is_exempt_only_for_a_path_that_stays_under_it(self):
+        for text, kept in (('.onecrew/scratch/x', False), ('.onecrew/scratch', False), ('x/.onecrew/scratch/y/z', False), ('.onecrew/scratch/../scratch/x', False),
+                           ('.onecrew/scratch/../config.json', True), ('.onecrew/scratch/a/../../config.json', True), ('.onecrew/scratchy/..', True), ('.onecrew/scratchy/x', True),
+                           ('.onecrew/config.json', True)):
+            with self.subTest(text):
+                self.assertEqual(hook_cli.without_scratch(text) != '' and '.onecrew' in hook_cli.without_scratch(text), kept, hook_cli.without_scratch(text))
+        for text, whole in (('.onecrew', True), ('x/.onecrew/', True), ('".onecrew"', True), ('.onecrew.', True), ('.onecrew..', True), ('.onecrew. "', True), ('.onecrew ', True),
+                            ('.onecrew.bak', False), ('.onecrew-old', False), ('.onecrewx', False), ('11.onecrew', False), ('11.onecrew/x', False), ('.onecrew.bak.', False)):
+            with self.subTest(text):
+                self.assertEqual(hook_cli.mentions(text, '.onecrew', 'whole'), whole)
+
 
 # ---- P0.7: UTF-8 on stdout and stderr, and the handlers of other tools --------------------------------------------------------------------
 
@@ -388,6 +417,69 @@ class InitKeepsWhatIsNotItsOwn(unittest.TestCase):
         merged = install.merge_settings(old, hook_cli.portable_settings(Path('/x/onecrew'), Path('/s')))
         self.assertEqual([h['command'] for e in merged['hooks']['Stop'] for h in e['hooks'] if not install.is_ours(h)], [self.MENTIONS[0]['command']])
         self.assertEqual(sum(1 for e in merged['hooks']['Stop'] for h in e['hooks'] if install.is_ours(h)), 1)
+
+    CODE = "import sys; sys.path.insert(0, 'D:\\\\repo'); from onecrew.v2.hook_cli import main; sys.exit(main(sys.argv[1:]))"
+
+    def forms(self, verb='check'):
+        """Every form of a OneCrew hook handler that exists (hook_cli.portable_settings and hook_cli.settings from git history, and the `-X utf8` ones the verify
+        kit writes), each as {label: handler}; a path with spaces included."""
+        spaced = 'C:\\Program Files\\Python 313\\python.exe'
+        return {
+            'installed exe, args list': {'type': 'command', 'command': 'C:\\venv\\Scripts\\onecrew.exe', 'args': ['hook', verb], 'timeout': 15, 'onFailure': 'block'},
+            'installed exe, command line': {'type': 'command', 'command': f'C:\\venv\\Scripts\\onecrew.exe hook {verb}'},
+            'installed exe, path with spaces, command line': {'type': 'command', 'command': f'"C:\\Program Files\\OneCrew\\onecrew.exe" hook {verb}'},
+            'installed cmd shim': {'type': 'command', 'command': '/opt/venv/bin/onecrew.cmd', 'args': ['hook', verb]},
+            'checkout form of 598e49b (only --project)': {'type': 'command', 'command': sys.executable, 'args': ['-c', self.CODE, '--project', 'D:\\p', 'hook', verb]},
+            'checkout form of 2.1 (--project and --state-root)': {'type': 'command', 'command': sys.executable, 'args': ['-c', self.CODE, '--project', 'D:\\p', '--state-root', 'D:\\s', 'hook', verb]},
+            'checkout form of 2.2 (hook_cli.settings)': next(h for entries in hook_cli.settings(Path('D:/p'), Path('D:/s'), ROOT)['hooks'].values() for e in entries for h in e['hooks']
+                                                          if h['args'][-1] == verb),
+            'verify kit (-X utf8)': {'type': 'command', 'command': 'D:\\venv\\Scripts\\python.exe', 'args': ['-X', 'utf8', '-c', self.CODE, '--project', 'D:\\p', '--state-root', 'D:\\s', 'hook', verb],
+                                     'timeout': 15, 'onFailure': 'block'},
+            'python path with spaces, args list': {'type': 'command', 'command': spaced, 'args': ['-c', self.CODE, '--project', 'D:\\a b', 'hook', verb]},
+            'command line, quoted python path with spaces': {'type': 'command', 'command': f'"{spaced}" -X utf8 -c "{self.CODE}" --project "D:\\a b" --state-root "D:\\s" hook {verb}'},
+            'command line, unquoted python': {'type': 'command', 'command': f'python -c "{self.CODE}" --project D:\\p hook {verb}'}}
+
+    def test_every_form_onecrew_generated_is_recognised_for_every_verb(self):
+        for verb in ('check', 'prompt', 'stop', 'session'):
+            for label, handler in self.forms(verb).items():
+                with self.subTest(verb=verb, form=label):
+                    self.assertTrue(install.is_ours(handler), handler)
+        self.assertEqual(install.command_words('"C:\\Program Files\\x\\p.exe" -c "a b; c" --project D:\\q hook check'), ['C:\\Program Files\\x\\p.exe', '-c', 'a b; c', '--project', 'D:\\q', 'hook', 'check'])
+
+    def test_a_handler_that_looks_like_ours_in_part_is_not(self):
+        code = self.CODE
+        keep = {
+            'echo of the import and the words': {'type': 'command', 'command': 'echo from onecrew.v2.hook_cli import main hook check'},
+            'echo of our whole command': {'type': 'command', 'command': f'echo python -c "{code}" hook check'},
+            'audit tool in front, command line': {'type': 'command', 'command': f'audit-tool python -c "{code}" hook check'},
+            'audit tool in front, args list': {'type': 'command', 'command': 'audit-tool', 'args': ['python', '-c', code, 'hook', 'check']},
+            'wrapper that takes -c itself': {'type': 'command', 'command': 'audit-tool', 'args': ['-c', code, 'hook', 'check']},
+            'our code with something added to it': {'type': 'command', 'command': sys.executable, 'args': ['-c', code + '; print("more")', 'hook', 'check']},
+            'our code with something before it': {'type': 'command', 'command': sys.executable, 'args': ['-c', 'import os; ' + code, 'hook', 'check']},
+            'a print of the import': {'type': 'command', 'command': sys.executable, 'args': ['-c', 'print("from onecrew.v2.hook_cli import main")', 'hook', 'check']},
+            'only mentions the module': {'type': 'command', 'command': 'echo onecrew.v2.hook_cli is monitored'},
+            'our code, an unknown verb': {'type': 'command', 'command': sys.executable, 'args': ['-c', code, 'hook', 'sync']},
+            'our code, something after the verb': {'type': 'command', 'command': sys.executable, 'args': ['-c', code, 'hook', 'check', '--extra']},
+            'our code, an unknown option': {'type': 'command', 'command': sys.executable, 'args': ['-c', code, '--elsewhere', 'D:\\p', 'hook', 'check']},
+            'our code, --project twice': {'type': 'command', 'command': sys.executable, 'args': ['-c', code, '--project', 'a', '--project', 'b', 'hook', 'check']},
+            'installed exe, another verb': {'type': 'command', 'command': 'C:\\venv\\Scripts\\onecrew.exe', 'args': ['hook', 'sync']},
+            'installed exe, something else': {'type': 'command', 'command': 'C:\\venv\\Scripts\\onecrew.exe', 'args': ['plan', 'show', 'p']},
+            'installed exe, more words': {'type': 'command', 'command': 'onecrew hook check now'},
+            'another program that ends in onecrew': {'type': 'command', 'command': 'my-onecrew', 'args': ['hook', 'check']},
+            'a prompt handler': {'type': 'prompt', 'command': 'onecrew', 'args': ['hook', 'check']},
+            'unbalanced quote': {'type': 'command', 'command': 'onecrew "hook check'},
+            'args that are not strings': {'type': 'command', 'command': sys.executable, 'args': ['-c', code, 7, 'hook', 'check']},
+            'no command': {'type': 'command', 'args': ['hook', 'check']}}
+        for label, handler in keep.items():
+            with self.subTest(label):
+                self.assertFalse(install.is_ours(handler), handler)
+        existing = {'hooks': {'PreToolUse': [{'matcher': 'Bash', 'hooks': list(keep.values())}]}}
+        merged = install.merge_settings(existing, hook_cli.portable_settings(Path('/x/onecrew'), Path('/s')))
+        kept = [h for entry in merged['hooks']['PreToolUse'] for h in entry['hooks']]
+        for label, handler in keep.items():
+            with self.subTest('merge keeps ' + label):
+                self.assertIn(handler, kept)
+        self.assertEqual(sum(1 for h in kept if install.is_ours(h)), 1)
 
 
 # ---- the reviewer: P0.2, P0.3 and D3 ------------------------------------------------------------------------------------------------------------

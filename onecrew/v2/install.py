@@ -27,7 +27,6 @@ from . import claude_cli, hook_cli, where
 from .messages import lang, t
 
 EXE_NAMES = ('onecrew', 'onecrew.exe', 'onecrew.cmd')
-CHECKOUT_IMPORT = 'from onecrew.v2.hook_cli import main'      # the code of the checkout form (hook_cli.settings)
 HOOK_VERBS = tuple(verb for _, verb, _, _, _ in hook_cli.HOOK_EVENTS)
 LOGIN_TIMEOUT = 30
 
@@ -81,19 +80,57 @@ class SettingsShape(ValueError):
         self.key, self.expected = key, expected
 
 
+CHECKOUT_CODE = re.compile(r'import sys; sys\.path\.insert\(0, (?:\'(?:[^\'\\]|\\.)*\'|"(?:[^"\\]|\\.)*")\); from onecrew\.v2\.hook_cli import main; sys\.exit\(main\(sys\.argv\[1:\]\)\)')
+PYTHON_NAME = re.compile(r'pythonw?[\d.]*[a-z]?(?:\.exe)?|py(?:\.exe)?', re.I)         # sys.executable: python, python3, python3.13.exe, pythonw.exe, py
+PYTHON_FLAGS = ('-u', '-B', '-E', '-I', '-s', '-S')                                      # flags of the interpreter that may stand before -c (and -X <option>)
+
+
+def command_words(text):
+    """The words of a command line, quotes grouping and removed (a path with spaces in double quotes is one word); a backslash is a plain character, as in a
+    Windows path. None when a quote is never closed."""
+    words, current, quote, started = [], [], None, False
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == quote: quote = None
+            elif char == '\\' and quote == '"' and text[index + 1:index + 2] == '"': current.append('"'); index += 1
+            else: current.append(char)
+        elif char in '"\'': quote, started = char, True
+        elif char.isspace():
+            if started or current: words.append(''.join(current)); current, started = [], False
+        else: current.append(char); started = True
+        index += 1
+    if quote: return None
+    if started or current: words.append(''.join(current))
+    return words
+
+
 def is_ours(handler):
-    """A hook handler written by OneCrew: the installed `onecrew hook <verb>` form, or the checkout form (an interpreter running `-c <code that imports main
-    from onecrew.v2.hook_cli>` and ending in `hook <verb>`, as an args list or as one command line). The shape is what counts: a handler of another tool
-    that only mentions the module (`echo onecrew.v2.hook_cli is monitored`) is not ours and is never replaced."""
-    if not isinstance(handler, dict): return False
-    text = handler.get('command', '')
-    args = handler.get('args')
-    if not isinstance(text, str) or not (args is None or isinstance(args, list)): return False
-    if re.split(r'[\\/]', text)[-1].casefold() in EXE_NAMES and isinstance(args, list) and args[:1] == ['hook']: return True
-    if isinstance(args, list):
-        return len(args) >= 2 and any(isinstance(a, str) and CHECKOUT_IMPORT in a for a in args) and args[-2] == 'hook' and args[-1] in HOOK_VERBS
-    words = text.split()
-    return CHECKOUT_IMPORT in text and len(words) >= 2 and words[-2] == 'hook' and words[-1].strip('"\'') in HOOK_VERBS
+    """A hook handler written by OneCrew, judged by its structure: the program that runs, then its arguments, are exactly one of the forms OneCrew
+    generates (the words come from `args`, or from the `command` line cut by command_words, a quoted path with spaces being one word):
+      * the installed executable: `<path>/onecrew[.exe|.cmd] hook <verb>`  (hook_cli.portable_settings, from 2.2.0.dev1);
+      * the checkout form: a Python interpreter, any `-X <option>` / `-u -B -E -I -s -S` flags, `-c <the code hook_cli.settings generates>`, then `--project <p>` and/or
+        `--state-root <s>` (2.1, 2.2 and the `-X utf8` one the verify kit uses), then `hook <verb>`.
+    <verb> is one of the four hook verbs. Anything else is not ours and is never replaced: `echo from onecrew.v2.hook_cli import main hook check`, a
+    wrapper or audit tool in front of the interpreter (`audit-tool python -c "<our code>" hook check`), a handler that only mentions the module."""
+    if not isinstance(handler, dict) or handler.get('type', 'command') != 'command': return False
+    command, args = handler.get('command'), handler.get('args')
+    if not isinstance(command, str) or not command.strip(): return False
+    if args is None: words = command_words(command)
+    elif isinstance(args, list) and all(isinstance(a, str) for a in args): words = [command, *args]
+    else: return False
+    if not words: return False
+    program, rest = re.split(r'[\\/]', words[0].strip())[-1], words[1:]
+    if program.casefold() in EXE_NAMES: return len(rest) == 2 and rest[0] == 'hook' and rest[1] in HOOK_VERBS
+    if not PYTHON_NAME.fullmatch(program): return False
+    index = 0
+    while index < len(rest) and (rest[index] in PYTHON_FLAGS or (rest[index] == '-X' and index + 1 < len(rest))): index += 2 if rest[index] == '-X' else 1
+    if index + 1 >= len(rest) or rest[index] != '-c' or not CHECKOUT_CODE.fullmatch(rest[index + 1]): return False
+    index += 2
+    seen = set()
+    while index + 1 < len(rest) and rest[index] in ('--project', '--state-root') and rest[index] not in seen: seen.add(rest[index]); index += 2
+    return len(rest) - index == 2 and rest[index] == 'hook' and rest[index + 1] in HOOK_VERBS
 
 
 def merge_settings(existing, ours):
