@@ -239,13 +239,60 @@ def anchor_events(ledger, conn, name):
 
 # ---- commands --------------------------------------------------------------------------------------------------------
 
+import re as _re
+
+# W12a: a plan name becomes part of a filesystem path (plans/<name>/) and of the anchor key (plan:<name>). A name with a path
+# separator, a parent ref, a drive form or a leading separator could write OUTSIDE the state root, and a ':' collides with the
+# anchor-key separator. Reject all of those BEFORE any write, on every create path. The stored path does not change (W12b/R04 adds
+# per-project namespacing); this is only the name gate.
+_PLAN_NAME = _re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$')
+_FORBIDDEN = {':': "a colon (it is the anchor-key separator plan:<name>)", '/': 'a path separator', chr(92): 'a path separator',
+              '..': 'a parent-directory reference'}
+
+
+def valid_plan_name(name):
+    """Return `name` if it is a safe plan name; else raise LedgerError naming the forbidden character. Rejects ':', '/', '\\', '..',
+    a drive form (C:x), and absolute paths — anything that could put the plan file outside plans/<name>/ or break the anchor key."""
+    if not isinstance(name, str) or not name:
+        raise LedgerError('plan name: expected a non-empty name of letters, digits, _, . or -.')
+    for bad, why in _FORBIDDEN.items():
+        if bad in name:
+            raise LedgerError(f'plan name {name!r} is refused: it contains {why}. A plan name is letters, digits, _, . or - only, '
+                              f'so it cannot escape plans/<name>/ or collide with the anchor key.')
+    if _re.match(r'^[A-Za-z]:', name):                       # drive form C:x / C:\x
+        raise LedgerError(f'plan name {name!r} is refused: it looks like a drive path. A plan name is letters, digits, _, . or - only.')
+    from pathlib import PurePath, PureWindowsPath
+    if PurePath(name).is_absolute() or PureWindowsPath(name).is_absolute() or name.startswith(('/', chr(92))):
+        raise LedgerError(f'plan name {name!r} is refused: it is an absolute or rooted path.')
+    if not _PLAN_NAME.match(name):
+        raise LedgerError(f'plan name {name!r} is refused: use 1-100 chars of letters, digits, _, . or - (starting with a letter or digit).')
+    return name
+
+
+def refuse_duplicate_name(ledger, name):
+    """W12a: in a shared state root, two projects must not create the same plan name (the R00 storage plans/<name>/ is shared, so the
+    second would collide with or branch into the first). If ANOTHER project already owns plan:<name>, refuse and name that project, writing
+    nothing. Same-project re-create is left to propose's own 'already exists'. Full same-name support is W12b (R04)."""
+    with ledger.transaction() as conn:
+        if conn is None:
+            return
+        row = conn.execute('SELECT project_id FROM tasks WHERE request_key=? AND project_id<>?',
+                           (ANCHOR + name, ledger.project_id)).fetchone()
+    if row is not None:
+        raise LedgerError(f'plan name {name!r} is already used by another project ({row["project_id"][:12]}) in this state root; '
+                          f'the R00 store plans/{name}/ is shared, so a second project cannot reuse the name (W12b adds per-project names). '
+                          f'Nothing was written.')
+
+
 def _anchor(ledger, name, title):
     from ..task_intake import submit
     return submit(ledger, f'Plan {name}: {title}'[:2000], ANCHOR + name, mode='audit')['id']
 
 
 def propose(ledger, name, raw, author):
+    valid_plan_name(name)                       # W12a: reject ':', path chars, drive form, absolute — before any write
     key_field(name); key_field(ANCHOR + name)
+    refuse_duplicate_name(ledger, name)         # W12a: a second project with the same name is refused, nothing written
     text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
     if contracts.revision_path(ledger, name, 1).exists(): raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
