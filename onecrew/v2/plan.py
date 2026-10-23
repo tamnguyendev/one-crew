@@ -36,6 +36,12 @@ def refuse_owner_author(author):
 
 
 def emit(ledger, conn, task_id, kind, payload):
+    # W11a: a `plan:` anchor is a root the old version reads. Only class 0/A events, and class-0 payloads that keep every old field,
+    # may be written there (00 §6.1). The guard is a no-op on plan-ns: roots and on non-plan tasks.
+    row = conn.execute('SELECT request_key FROM tasks WHERE id=?', (task_id,)).fetchone()
+    if row is not None:
+        from . import compat
+        compat.check_write(kind, payload, row['request_key'])
     ledger._event(conn, task_id, kind, dict(payload, at=utcnow()))
 
 
