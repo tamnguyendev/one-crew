@@ -10,6 +10,12 @@ import subprocess
 from .ledger import LedgerError, canonical, content_hash, key_field
 
 ACTORS = ('claude', 'codex', 'user', 'keeper', 'onecrew', 'other-entry')
+OWNER_CLAIMS = ('owner', 'user')            # W03: actor names that claim the owner's authority
+AI_SESSION_MARKERS = ('CLAUDE_CODE_CHILD_SESSION',)   # same marker v2 ownership uses; a decision/intervention cannot be signed owner from an AI session
+
+
+def in_ai_session():
+    return any(name in os.environ for name in AI_SESSION_MARKERS)
 OTHER_ENTRIES = ('kiro', 'cursor', 'copilot', 'gemini', 'windsurf')
 SUFFIXES = ('.py', '.md', '.cjs', '.json')
 PACKAGE = Path(__file__).resolve().parent
@@ -91,6 +97,9 @@ def record(ledger, task_id, command, *, actor=None, channel='cli', reason=None, 
     command = key_field('.'.join(command.split()) if isinstance(command, str) else command)  # 'delivery start' -> 'delivery.start'
     key_field(channel)
     who = (_exact(actor) or _mapped(actor) or 'unknown') if actor else _resolve()
+    claimed = actor.strip().lower() if isinstance(actor, str) else actor
+    if (claimed in OWNER_CLAIMS or who in OWNER_CLAIMS) and in_ai_session():   # W03/T20 E5: an AI session cannot record an owner-attributed intervention
+        raise LedgerError('intervention refused: an owner actor (' + str(actor) + ') cannot be recorded from inside an AI tool session (CLAUDE_CODE_CHILD_SESSION is set).')
     if details is not None:
         if not isinstance(details, dict): raise LedgerError('Intervention details must be an object.')
         if len(canonical(details)) > 4000: details = {'truncated': True, 'sha256': content_hash(details)}

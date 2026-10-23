@@ -21,6 +21,7 @@ packages = ["onecrew.templates"]          # only the data package (owner-rules t
 py-modules = [
     "onecrew.budget_core",
     "onecrew.independence",
+    "onecrew.interventions",
     "onecrew.ledger",
     "onecrew.model_preferences",
     "onecrew.qc_intake",
@@ -33,6 +34,7 @@ py-modules = [
     "onecrew.v2.claude_cli",
     "onecrew.v2.cli",
     "onecrew.v2.contract",
+    "onecrew.v2.decisions",
     "onecrew.v2.gate",
     "onecrew.v2.hook_cli",
     "onecrew.v2.install",
