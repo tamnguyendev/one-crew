@@ -31,6 +31,7 @@ py-modules = [
     "onecrew.task_intake",
     "onecrew.work_contract",
     "onecrew.v2.active_plan",
+    "onecrew.v2.boundary",
     "onecrew.v2.claude_cli",
     "onecrew.v2.compat",
     "onecrew.v2.compat_cli",
