@@ -37,18 +37,21 @@ CLASS_B = (
 # The fields the OLD version reads for each class-0 kind. A class-0 write that drops one, or stores it as the wrong type, is a read
 # block (B4): the old version crashes KeyError on plan show / digest of the whole state root (EV-K). Only these fields are load-bearing
 # for the old reader; a new version may add fields freely. 'at' is added to every event by plan.emit.
+# Only the fields the OLD projector derive()/status() actually DEREFERENCES: it reads p['revision'] on every revision-bearing kind in its
+# KINDS tuple, and p['milestone'] / p['receipt'] on a receipt. A missing one is exactly the KeyError EV-K reproduced (plan.advised without
+# 'revision' before a valid plan.accepted). A kind the old projector does not read (task.submitted, hook.*, request.*) has NO load-bearing
+# field here, so it is never a read block — listing one would wrongly flag healthy roots.
 CLASS_0_REQUIRED = {
-    'task.submitted': ('title',),
-    'plan.proposed': ('plan', 'revision', 'sha'),
-    'plan.amended': ('plan', 'revision', 'sha'),
-    'plan.approved': ('plan', 'revision'),
-    'plan.accepted': ('plan', 'revision'),
-    'plan.advised': ('plan', 'revision', 'sha'),
-    'verdict.recorded': ('plan', 'revision'),
-    'verdict.receipt_issued': ('plan', 'revision'),
-    'milestone.passed': ('plan', 'revision'),
-    'milestone.failed': ('plan', 'revision'),
-    'milestone.stopped': ('plan', 'revision'),
+    'plan.proposed': ('revision',),
+    'plan.amended': ('revision',),
+    'plan.approved': ('revision',),
+    'plan.accepted': ('revision',),
+    'plan.advised': ('revision',),
+    'verdict.recorded': ('revision',),
+    'verdict.receipt_issued': ('revision', 'milestone', 'receipt'),
+    'milestone.passed': ('revision',),
+    'milestone.failed': ('revision',),
+    'milestone.stopped': ('revision',),
 }
 
 

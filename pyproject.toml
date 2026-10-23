@@ -33,6 +33,8 @@ py-modules = [
     "onecrew.v2.active_plan",
     "onecrew.v2.claude_cli",
     "onecrew.v2.compat",
+    "onecrew.v2.compat_cli",
+    "onecrew.v2.compat_scan",
     "onecrew.v2.cli",
     "onecrew.v2.contract",
     "onecrew.v2.decisions",

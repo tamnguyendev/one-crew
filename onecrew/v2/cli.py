@@ -7,7 +7,7 @@ import sys
 
 from .messages import t
 
-GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner')
+GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat')
 OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
                   '  verdict    record / run (v2 milestone verdicts with receipts)\n'
                   '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n')
@@ -35,6 +35,9 @@ def route(args, index):
     if args[index] == 'owner':
         from .owner_cli import main as owner_main
         return owner_main(args)
+    if args[index] == 'compat':
+        from .compat_cli import main as compat_main
+        return compat_main(args)
     from .plan_cli import main as v2_main
     return v2_main(args)
 
