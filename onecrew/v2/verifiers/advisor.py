@@ -137,6 +137,7 @@ def advise(ledger, name, model=None):
     rules = rules_path(ledger)
     text = rules.read_text(encoding='utf-8') if rules.is_file() else None
     prompt, answer, usage, error, timed_out, raw, calls, began = None, '', {}, None, False, b'', 0, time.monotonic()
+    error_kind = None                                 # W27a: provider_unavailable | timeout | invalid_response | None
     if text is None:
         answers, problems = inconclusive(NO_RULES), [NO_RULES]
     else:
@@ -150,14 +151,16 @@ def advise(ledger, name, model=None):
         if error or timed_out or not answer:
             why = error or ('timed out' if timed_out else 'the advisor sent an empty answer')
             answers, problems = inconclusive(why), [why]
+            error_kind = 'timeout' if timed_out else 'provider_unavailable'    # W27a: a provider that errored or sent nothing is unavailable
         else:
             answers, problems = parse_answer(answer)
+            error_kind = 'invalid_response' if problems else None              # W27a: the advisor answered but the JSON was not the shape asked for
     usable = text is not None and not problems and all(a['verdict'] in VERDICTS for a in answers)
     receipt = store.blob(canonical({
         'kind': 'advisor-receipt', 'plan': name, 'revision': revision, 'plan_sha': sha, 'model': model, 'independence': level,
         'rules_sha': store.blob(text.encode('utf-8')) if text is not None else None, 'prompt': store.blob(prompt.encode('utf-8')) if prompt else None,
         'answer': store.blob(answer.encode('utf-8')) if answer else None, 'raw': store.blob(raw[-1_000_000:]) if raw else None,
-        'calls': calls, 'usage': usage, 'error': error, 'timed_out': timed_out, 'problems': problems, 'answers': answers,
+        'calls': calls, 'usage': usage, 'error': error, 'timed_out': timed_out, 'problems': problems, 'answers': answers, 'provider_error': error_kind,
         'seconds': round(time.monotonic() - began, 2)}).encode('utf-8'))
     with ledger.transaction(write=True) as conn:
         current = plans.anchor_events(ledger, conn, name)
@@ -165,5 +168,6 @@ def advise(ledger, name, model=None):
             raise LedgerError('The plan changed while the advisor was answering; run plan advise again.')
         plans.emit(ledger, conn, current['task_id'], 'plan.advised',
                    {'plan': name, 'revision': revision, 'sha': sha, 'model': model, 'independence': level['level'], 'answers': answers,
-                    'usable': usable, 'problems': problems, 'note': NO_RULES if text is None else None, 'receipt': receipt, 'calls': calls})
+                    'usable': usable, 'problems': problems, 'note': NO_RULES if text is None else None, 'receipt': receipt, 'calls': calls,
+                    'provider_error': error_kind})      # W27a: a typed provider error (unavailable/timeout/invalid_response) is inconclusive, not advice_missing
     return plans.show(ledger, name)

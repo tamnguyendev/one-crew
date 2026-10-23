@@ -265,6 +265,9 @@ def check_provenance(ledger, contract, sha, advice):
     if decisions or (strict and contract['size'] in ('M', 'L')):
         if not advice or advice.get('sha') != sha:
             reasons.append(('advice_missing', 'no plan.advised event for this revision: run plan advise (decisions or size M/L need the advisor\'s three answers; objections do not block).'))
+        elif advice.get('provider_error'):
+            pass    # W27a: a typed provider error (unavailable / timeout / invalid_response) makes the advice inconclusive, with the reason
+                    # recorded on plan.advised; it does NOT block approval and never becomes advice_missing (T09a). The pinned provider is unchanged.
         elif not advice.get('usable'):
             reasons.append(('advice_missing', 'the advice recorded for this revision is inconclusive (' + str(advice.get('problems') or advice.get('note') or 'no usable answers')[:100]
                             + '); run plan advise again.'))
