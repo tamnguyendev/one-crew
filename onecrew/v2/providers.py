@@ -266,11 +266,20 @@ def cli_identity(provider, env=None, prefix=None, timeout=VERSION_SECONDS):
     output of `--version`. Nothing is written. For the matrix of T40b: a receipt of a fake can be told from a real one by this sha256."""
     env = os.environ if env is None else env
     prefix = prefix or cli_prefix(provider, dict(env))
-    files = {p: sha256_file(p) for p in prefix if os.path.isfile(p)}
+    files, identity_errors = {}, {}
+    for path in prefix:
+        if os.path.isfile(path):
+            try:
+                files[path] = sha256_file(path)
+            except OSError as problem:
+                # Windows execution aliases can launch but cannot be read as files.
+                # Keep identity explicitly incomplete, never invent a binary hash.
+                identity_errors[path] = type(problem).__name__
     try:
         done = subprocess.run([*prefix, '--version'], capture_output=True, timeout=timeout, env=dict(env), stdin=subprocess.DEVNULL,
                               creationflags=0x08000000 if os.name == 'nt' else 0)
         version = (done.stdout or done.stderr).decode('utf-8', 'replace').strip()[:200]
     except (OSError, subprocess.SubprocessError) as problem:
         version = f'unavailable: {type(problem).__name__}'
-    return {'provider': provider, 'argv': list(prefix), 'path': prefix[0], 'sha256': files.get(prefix[0]), 'files': files, 'version': version}
+    return {'provider': provider, 'argv': list(prefix), 'path': prefix[0], 'sha256': files.get(prefix[0]), 'files': files, 'version': version,
+            **({'identity_errors': identity_errors} if identity_errors else {})}

@@ -435,6 +435,14 @@ class OwnerManualAndNotDeciderTests(ProviderFixture):
 # ---- what W45 will record about a real CLI -----------------------------------------------------------------------------------------------------
 
 class IdentityTests(ProviderFixture):
+    def test_unreadable_execution_alias_is_explicitly_unverified(self):
+        with patch.object(providers, 'sha256_file', side_effect=OSError(22, 'execution alias')):
+            identity = providers.cli_identity('codex', dict(os.environ))
+        self.assertIsNone(identity['sha256'])
+        self.assertEqual(identity['files'], {})
+        self.assertTrue(identity['identity_errors'])
+        self.assertEqual(identity['version'], 'fake-codex 0.0.1')
+
     def test_cli_identity_names_the_executable_by_sha256_and_version(self):
         identity = providers.cli_identity('codex', dict(os.environ))
         script = str(self.fake / 'fake_cli.py')
