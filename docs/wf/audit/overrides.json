@@ -232,12 +232,15 @@
   "classes": [
    "C"
   ],
-  "tests": [
-   "tests/test_wf_t08b_no_exactly_once.py (2) — T08b E6 grep có tiêu chí trên mã/trạng thái/bản ghi thả; registry R08 check.t08b_no_exactly_once",
-   "tests/test_wf_managed_executor.py (như cũ, +2 rebuild)"
+  "implementation": [
+   "onecrew/v2/managed_executor.py start — prepared không có dispatching trên attempt reserved = crash trước dispatch → dispatch đúng một lần dưới cùng intent; có dispatching → unknown, không relaunch"
   ],
-  "missing": "T08b điểm (a) vẫn mô phỏng bằng gọi start hai lần (không kill thật trước dispatch); T30 E1 các test host v1 chưa trong gate R08.",
-  "next": "Kill thật ở (a) (0,5 h); đăng ký tests.test_host/test_control phần checkpoint vào R08 (chậm)."
+  "tests": [
+   "tests/test_wf_t08b_crash_before_dispatch.py (1) — kill tiến trình điều khiển THẬT trong prepare, restart: X chạy đúng 1 lần, 1 charge, replay candidate; registry R08 check.t08b_crash_before_dispatch",
+   "tests/test_wf_t08b_no_exactly_once.py (2) — E6; tests/test_wf_managed_executor.py (như cũ)"
+  ],
+  "missing": "T30 E1: các test host v1 (tests/test_host.py, test_control.py checkpoint) chưa trong gate R08 (chậm); không có bảng xanh trước/sau trong registry.",
+  "next": "Đăng ký test host v1 vào R08 (gate dài hơn) hoặc ghi rõ ngoài gate."
  },
  "W44": {
   "status": "Done",
@@ -365,5 +368,21 @@
   ],
   "missing": "Quan sát kind 'command' (liveness lệnh dài) và 'hypothesis' vẫn chỉ vào qua CLI operator; đường chạy thật (common_executor) phát 'tool/run'/'unknown' sau khi node xong; verifier command dùng communicate() không stream nên không có liveness giữa chừng. Luật đếm lặp đã tách và v1 gọi lại thật (E13). Không dừng lệnh dài giữa chừng (E9) đúng vì không có luật dừng nào cho lệnh.",
   "next": "Stream output của verifier command theo chu kỳ và phát quan sát 'command' (1 h); đăng ký tests.test_search_recovery (ca PromptBudgetError của kiro cần xử lý riêng)."
+ },
+ "W32b": {
+  "status": "Done",
+  "classes": [],
+  "implementation": [
+   "onecrew/v2/internal_plan.py _validate — trần 2 h, chia khi vượt, indivisible {reason ≥20 ký tự, cap_seconds hữu hạn = cap}, estimate ≤ cap; onecrew/v2/runtime_unknowns.open_unknown(blocks_estimate, survey_node) — khảo sát chỉ đọc, cap ≤ 2 h, đứng trước implementation"
+  ],
+  "tests": [
+   "tests/test_wf_t36a_scenario.py (3) — T36a E1, E2, E3, E5, E6, E8 trong một kịch bản (đồng hồ giả 3 giờ); registry R04 check.t36a_scenario",
+   "tests/test_wf_runtime_unknowns, test_wf_kn_estimates như cũ"
+  ],
+  "missing": "",
+  "next": "Biên nhận gate snapshot.",
+  "evidence": [
+   "commit sau 9107d61 (W37b/W32b)"
+  ]
  }
 }

@@ -1,14 +1,14 @@
 {
- "commit": "9107d61",
+ "commit": "HEAD",
  "counts": {
-  "Done": 57,
-  "Partial": 31,
+  "Done": 58,
+  "Partial": 30,
   "Blocked": 4
  },
  "by_category": {
   "feature": {
-   "Done": 46,
-   "Partial": 14
+   "Done": 47,
+   "Partial": 13
   },
   "bộ kiểm": {
    "Done": 11,
@@ -1333,27 +1333,19 @@
     "T36a": "DoD"
    },
    "outcome": "Trường ước lượng (khoảng) cho task của kế hoạch nội bộ; trần mỗi task; luật chia (chia khi vượt trần; việc không chia được có lý do và trần riêng)",
-   "status": "Partial",
-   "classes": [
-    "C"
-   ],
+   "status": "Done",
+   "classes": [],
    "implementation": [
-    "onecrew/v2/internal_plan.py:108-186 _validate — estimate_seconds (khoảng), execution_cap_seconds ≤ 7200 trừ khi có indivisible{reason ≥20 ký tự, cap hữu hạn}, estimate ≤ cap; revise: cap ≤ phần deadline còn lại",
-    "onecrew/v2/estimates.py:14 interval; internal_plan.py ceilings (deadline còn lại từ budget_core)",
-    "onecrew/v2/runtime_unknowns.py:54 — task chưa ước lượng được thành node khảo sát có trần trước implementation"
+    "onecrew/v2/internal_plan.py _validate — trần 2 h, chia khi vượt, indivisible {reason ≥20 ký tự, cap_seconds hữu hạn = cap}, estimate ≤ cap; onecrew/v2/runtime_unknowns.open_unknown(blocks_estimate, survey_node) — khảo sát chỉ đọc, cap ≤ 2 h, đứng trước implementation"
    ],
    "tests": [
-    "test_wf_task_caps.test_ordinary_large_task_requires_real_decomposition — T36a E1,E5",
-    "…test_indivisible_cap_is_sealed_and_does_not_extend_root_deadline — E3,E8 (cap không vượt deadline)",
-    "…test_bad_exception_and_nonfinite_caps_are_rejected — E5",
-    "…test_attempt_starting_during_replan_prevents_revision_publication",
-    "test_wf_runtime_unknowns.test_estimate_unknown_runs_survey_before_implementation… — E2,E6 (nằm ở check.runtime_unknowns, không ở check.task_caps của T36a)"
+    "tests/test_wf_t36a_scenario.py (3) — T36a E1, E2, E3, E5, E6, E8 trong một kịch bản (đồng hồ giả 3 giờ); registry R04 check.t36a_scenario",
+    "tests/test_wf_runtime_unknowns, test_wf_kn_estimates như cũ"
    ],
-   "missing": "Quy tắc có và nối vào internal_plan.revise. Thiếu: (1) không có kịch bản A/B/C của T36a trong một fixture (ba task, C chờ người dùng, đồng hồ chạy 3 giờ) nên E8 \"deadline trước/sau bằng nhau\" chỉ kiểm gián tiếp (cap > phần deadline còn lại bị từ chối, và authority._deadline); (2) E2/E6 nằm ở module khác không gắn vào T36a trong registry; (3) engine không tự chia A — chỉ từ chối kế hoạch có task > 2 giờ (bên lập kế hoạch phải chia); (4) không bản cài.",
-   "next": "Thêm test T36a gộp A/B/C + đồng hồ giả, gắn check.runtime_unknowns vào T36a trong registry. Phụ thuộc W31b, W10, W04.",
+   "missing": "",
+   "next": "Biên nhận gate snapshot.",
    "evidence": [
-    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.task_caps.json",
-    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.runtime_unknowns.json"
+    "commit sau 9107d61 (W37b/W32b)"
    ]
   },
   {
@@ -2272,18 +2264,14 @@
     "C"
    ],
    "implementation": [
-    "onecrew/v2/managed_executor.py:158-196 — start(): ghi intent 'prepared' (đúng một lần, khoá theo task_revision+node_sha) và 'dispatching' (base+node+prompt_sha) TRƯỚC khi gọi provider; nếu đã dispatched thì recover(), không replay",
-    "onecrew/v2/managed_executor.py:198-220 / :276-297 — _rebuild() từ bằng chứng bền (điểm crash c) và recover(): Supervisor.reconcile trước, rồi rebuild, không worker.run; trạng thái unknown thì giữ và báo",
-    "onecrew/v2/managed_executor.py:22 — unresolved(): chặn replan/revise khi còn kết quả chưa rõ (dùng bởi internal_plan.revise)",
-    "onecrew/v2/managed_executor.py:257 + onecrew/host_status_core.py — T30: trạng thái host đọc từ v1 (automatic_restart=False, restart_reason nêu reboot)",
-    "onecrew/v2/node_actions_cli.py — CLI prepare-tests/repair/diagnose/replan (T08b registry)"
+    "onecrew/v2/managed_executor.py start — prepared không có dispatching trên attempt reserved = crash trước dispatch → dispatch đúng một lần dưới cùng intent; có dispatching → unknown, không relaunch"
    ],
    "tests": [
-    "tests/test_wf_t08b_no_exactly_once.py (2) — T08b E6 grep có tiêu chí trên mã/trạng thái/bản ghi thả; registry R08 check.t08b_no_exactly_once",
-    "tests/test_wf_managed_executor.py (như cũ, +2 rebuild)"
+    "tests/test_wf_t08b_crash_before_dispatch.py (1) — kill tiến trình điều khiển THẬT trong prepare, restart: X chạy đúng 1 lần, 1 charge, replay candidate; registry R08 check.t08b_crash_before_dispatch",
+    "tests/test_wf_t08b_no_exactly_once.py (2) — E6; tests/test_wf_managed_executor.py (như cũ)"
    ],
-   "missing": "T08b điểm (a) vẫn mô phỏng bằng gọi start hai lần (không kill thật trước dispatch); T30 E1 các test host v1 chưa trong gate R08.",
-   "next": "Kill thật ở (a) (0,5 h); đăng ký tests.test_host/test_control phần checkpoint vào R08 (chậm).",
+   "missing": "T30 E1: các test host v1 (tests/test_host.py, test_control.py checkpoint) chưa trong gate R08 (chậm); không có bảng xanh trước/sau trong registry.",
+   "next": "Đăng ký test host v1 vào R08 (gate dài hơn) hoặc ghi rõ ngoài gate.",
    "evidence": [
     "receipts R08-check.managed_executor (10/10), R08-check.node_actions_cli (3/3), R08-check.engine_managed (2/2), R08-check.host_checkpoint (2/2) pass trên b2cc754"
    ]
