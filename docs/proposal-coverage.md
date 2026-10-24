@@ -1,5 +1,24 @@
 # Proposal Coverage
 
+## WF development — Claude takeover after Codex, 2026-10-24 (afternoon)
+
+Baseline of the takeover `2bfc223` (Codex's last state, committed unchanged); final commit on `codex/wf-development` at the
+time of the combined gate: `5e1309f`. Full account, handoff-item table, limits and the Codex review guide:
+`docs/wf/TAKEOVER-CLAUDE-2026-10-24.md`; status per testcase: `docs/wf/FEATURE-SCOPE.md` (generated from
+`wfkit/development-testcases.json`).
+
+| IDs | Implementation and verification | Status | Remaining |
+|---|---|---|---|
+| W07/W08 reuse law, candidate reviewer (T22, T16b, T40a) | `common_verification.proof_mismatch/expected_of`: approved-check binding for every retained proof; reviewer branch on the candidate tree with producer-model independence and metered calls; CRLF alternates bug fixed; `incidents` typed reviewer proofs | 9 counterexamples + 4 reviewer cases, 32-case family rerun | Real provider CLI not proven (W45) |
+| W15 (T04b, T01) | Review bound to the snapshot/generation it saw; repair of the code node invalidates it; in-flight review retained | 2 cases, complete matrix | — |
+| W36/W18 (T07b E16, T15c) | `managed_executor.hold_for_findings` via `findings.after_change`; ACK only at the Supervisor safe point; no pause to non-managed attempts | 2 cases with a real local process; T15c complete | Real external session not driven |
+| W37b crash (c) | Durable `dispatching` intent; `recover()` rebuilds from settled process + base + worker.result; `failed` vs `unknown` | 2 new managed cases, 20-case managed family | Not every crash shape is recoverable; unknown stays unknown |
+| W18 hook holds generation | `workflow-holds.json` marker + `workflow_holds.register_seq`; enforce fails closed when the export is behind | 2 cases + finding_scope 15 | — |
+| T39 (R00 WK0) | `wfkit/program_contract.py`, `wfkit/owner_actions.py`, 3-case program run | complete matrix (E1–E16) | Real Codex review and real owner remain outside |
+| Pre-existing failures on 2bfc223 | repair_tasks ×3 (engine `_input_blocks`), retention owner-manual without Git, boundary `typing.io`, installed scenarios under the AI-session marker, trust-fixes tree-id vs W09 | fixed, classified by rerunning on the untouched checkpoint | — |
+| Registry / manifest | 18 checks added, 6 criteria complete with per-E matrices, development manifest frozen at `5e1309f` (`eac1f3f` withdrawn, unused) | combined gate: see the takeover document §3 | 82 partial, 10 blocked remain by policy |
+| W45, PL-A/PL-B, owner acceptance | — | Blocked | Owner permission for paid provider calls; real jobs; owner verbs |
+
 ## WF development — Codex integration, 2026-10-24
 
 Source: `outputs/onecrew-as-qc/workflow-chung/00` through `06` in the parent workspace;

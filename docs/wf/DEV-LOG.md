@@ -1,5 +1,14 @@
 # DEV-LOG — development chương trình workflow chung
 
+## Claude tiếp quản từ Codex — 24/10 chiều, cùng nhánh `codex/wf-development`
+
+- Điểm tiếp quản `f2cc7f4` + phần chưa commit của Codex, chốt nguyên trạng ở `2bfc223` (sao lưu `D:\OneCrewRuns\wf-codex-handoff-backup-20261024`). Codex đã dừng; agent Sonnet của lượt sáng (nhánh `wf/*`) bị cắt vì hạn mức chi tiêu, kết quả của chúng không ghép vào nhánh này.
+- Ownership: một người làm (Claude) trên worktree `wf-codex`; không agent phụ sau khi hạn mức reset vì hàng đợi tích hợp là nút cổ chai, không phải thông lượng code.
+- Đường găng đã đi: candidate reviewer/reuse (A) → W15/W36/W37b/hook holds (B, C) → sửa lỗi có sẵn của bản Codex → registry + T39 → đóng băng manifest → gate tích hợp một wheel.
+- Báo cáo tiếp quản, bảng đối chiếu handoff, giới hạn và gói cho Codex review: [TAKEOVER-CLAUDE-2026-10-24.md](TAKEOVER-CLAUDE-2026-10-24.md). Phạm vi → testcase → trạng thái: [FEATURE-SCOPE.md](FEATURE-SCOPE.md) (sinh từ registry).
+- Log test: `D:\OneCrewRuns\wf-dev-logs\*.txt` (takeover-*, fixA-*, fixB-*, fixC-*, fixE-*, regress-*, groupE-*, t39-*, dev-gate-*, cg-r00-*).
+- Blocker thật còn lại: W45 provider thật (cần cho phép chi phí), PL-A/PL-B việc thật, nghiệm thu chủ sở hữu. Không gọi là hoàn tất toàn bộ chương trình.
+
 ## Codex tiếp quản development — 24/10, nhánh riêng
 
 - Nhánh `codex/wf-development`, worktree `D:\TamNT\Workspace\11.OneCrew\wf-codex`, nền `d3120c6`; các worktree Claude và sổ thật giữ nguyên.

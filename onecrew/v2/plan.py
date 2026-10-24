@@ -13,7 +13,11 @@ from .ownership import session_info
 
 ANCHOR = 'plan:'
 KINDS = ('plan.proposed', 'plan.amended', 'plan.approved', 'plan.accepted', 'verdict.recorded', 'milestone.passed',
-         'milestone.failed', 'milestone.stopped', 'attention.exceeded', 'dispatch.refused_no_plan', 'verdict.receipt_issued', 'plan.advised', 'plan.closed')
+         'milestone.failed', 'milestone.stopped', 'attention.exceeded', 'dispatch.refused_no_plan', 'verdict.receipt_issued', 'plan.advised')
+# Class-B kinds the projector also reads, but which exist only on `plan-ns:` roots (W30c): kept apart from KINDS, the class-0/A set a
+# `plan:` anchor may carry (00 section 6.1, T13a). compat.check_write refuses them on a `plan:` anchor.
+NS_KINDS = ('plan.closed',)
+READ_KINDS = KINDS + NS_KINDS
 OWNER_ACTORS = ('user', 'owner')
 
 
@@ -55,9 +59,9 @@ def derive(ledger, conn, name):
     state = {'name': namespaces.parse(row['request_key'])[0], 'selector': row['request_key'], 'anchor': row['request_key'],
              'task_id': row['id'], 'revisions': {}, 'latest': 0, 'approved': None, 'accepted': None, 'verdicts': [],
              'stopped': {}, 'issued': set(), 'issued_seq': {}, 'exceeded': 0, 'advice': {}}
-    marks = ','.join('?' * len(KINDS))
+    marks = ','.join('?' * len(READ_KINDS))
     declared = False
-    for event in conn.execute(f'SELECT seq,kind,payload FROM events WHERE task_id=? AND kind IN ({marks}) ORDER BY seq', (row['id'], *KINDS)):
+    for event in conn.execute(f'SELECT seq,kind,payload FROM events WHERE task_id=? AND kind IN ({marks}) ORDER BY seq', (row['id'], *READ_KINDS)):
         kind, p = event['kind'], json.loads(event['payload'])
         if kind in ('plan.proposed', 'plan.amended'):
             if kind == 'plan.proposed' and not declared:
