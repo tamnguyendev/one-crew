@@ -163,6 +163,11 @@ class Supervisor:
         job = Job()  # Must succeed before creating a process.
         began = time.monotonic()
         reason = None
+        # W51 (T18b): an executor may ask to be told, every `liveness_every` seconds, that the command is still running and how much it
+        # has written. The hook is optional and never fails the run; v1 callers set nothing and see no change.
+        liveness = getattr(self.control, 'liveness_hook', None)
+        every = float(getattr(self.control, 'liveness_every', 30.0) or 30.0)
+        last_tick = began
         try:
             with input_path.open('rb') as input_stream, (root/'stdout.txt').open('wb') as out, (root/'stderr.txt').open('wb') as err:
                 child = subprocess.Popen(argv, cwd=cwd, stdin=input_stream, stdout=out, stderr=err, env=env,
@@ -189,6 +194,13 @@ class Supervisor:
                         reason = 'output_limit'
                     if reason:
                         break
+                    if liveness is not None and time.monotonic() - last_tick >= every:
+                        last_tick = time.monotonic()
+                        try:
+                            liveness(attempt, {'elapsed_seconds': round(time.monotonic() - began, 3),
+                                               'stdout_bytes': (root/'stdout.txt').stat().st_size, 'stderr_bytes': (root/'stderr.txt').stat().st_size})
+                        except Exception:                      # noqa: BLE001 — an observation must never stop the supervised command
+                            pass
                     time.sleep(.05)
                 job.stop()  # Also kills descendants after a successful parent exit.
                 child.wait(timeout=10)

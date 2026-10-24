@@ -208,7 +208,8 @@ class ManagedExecutor(executors.Executor):
         self._write(attempt['id'], 'dispatching', base=prepared['base'], node_definition=node,
                     prompt_sha=content_hash(prepared['prompt']), profile=prepared['profile'])
         started = time.monotonic()
-        prepared['worker'].run(attempt, prepared['prompt'], prepared['schema'], prepared['profile'])
+        with self.native.liveness(ledger, control, task, node, attempt):          # W51: liveness while the command runs
+            prepared['worker'].run(attempt, prepared['prompt'], prepared['schema'], prepared['profile'])
         settled = control.attempt(attempt['id'])
         if not self._safe(settled):
             raise LedgerError('A managed candidate needs a successful, settled Supervisor process-tree receipt.')

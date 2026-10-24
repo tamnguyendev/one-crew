@@ -80,6 +80,8 @@ def state(ledger, selector, conn=None):
         elif event['kind'] == 'node.resumed':
             fresh = _fresh([next(item for item in definition['nodes'] if item['id'] == nid)])[nid]
             fresh.update(generation=record['generation'] + 1, early_runs=copy.deepcopy(record['early_runs']))
+            if payload.get('resume_artifact'):                   # W36: the continuation starts from the partial candidate
+                fresh.update(resume_artifact=payload['resume_artifact'], continues=payload.get('continues_attempt'))
             fresh['valid_internal_revisions']=[internal_revision]
             records[nid] = fresh
     approved = root['approved'] or {}
@@ -241,7 +243,16 @@ def publish_retained(ledger, selector, *, node=None):
                     continue
                 candidate = payload.get('candidate')
                 if not candidate: continue
-                Snapshots(ledger.state_root).read_blob(candidate['receipt'])
+                try:
+                    body = json.loads(Snapshots(ledger.state_root).read_blob(candidate['receipt']))
+                except ValueError:
+                    body = {}                                        # an opaque receipt of another executor: never partial
+                if isinstance(body, dict) and body.get('partial') is True:
+                    # W36 (T07b E16): the retained candidate is partial (the worker paused with work left): it is never published as the
+                    # node's result; a new attempt continues from it once the hold is clear
+                    _continue(ledger, conn, view, nid, candidate, record['attempt'], body.get('continuation'))
+                    return {'node': nid, 'state': 'continuing', 'generation': record['generation'] + 1, 'resume_artifact': candidate['artifact'],
+                            'continues_attempt': record['attempt'], 'released_retained': True}
                 from .retention import pin_evidence
                 pin_evidence(ledger, root['selector'], candidate['artifact'])
                 _event(ledger, conn, view, nid, 'node.produced', progress_status='unknown', retained_event=row['seq'], **candidate)
@@ -282,6 +293,8 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
                             'write': definitions[edge['node']]['write'], 'receipt': view['nodes'][edge['node']]['receipt']}
               for edge in item['depends']}
     item['input_artifacts'] = inputs
+    if view['nodes'][nid].get('resume_artifact'):
+        item['resume_artifact'] = view['nodes'][nid]['resume_artifact']; item['continues'] = view['nodes'][nid].get('continues')
     ip.decide(ledger, root, contract, sha, {'kind': 'decision', 'q': 'Q2', 'nodes': [nid], 'eligible': True}, ctx, 'onecrew.engine')
     pin = item.get('executor', {})
     task = submit(ledger, item['goal'], f'wf:{root["task_id"]}:{nid}:g{view["nodes"][nid]["generation"]}',
@@ -310,7 +323,12 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
         if (not isinstance(produced, dict) or set(produced) != {'artifact', 'receipt'}
                 or not isinstance(produced['artifact'], str) or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', produced['artifact'])):
             raise LedgerError('Executor must return artifact identity and durable receipt.')
-        Snapshots(ledger.state_root).read_blob(produced['receipt'])
+        receipt_bytes = Snapshots(ledger.state_root).read_blob(produced['receipt'])
+        try:
+            receipt_body = json.loads(receipt_bytes)                 # a native-node-receipt; other executors may seal opaque receipts
+        except ValueError:
+            receipt_body = {}
+        partial = isinstance(receipt_body, dict) and receipt_body.get('partial') is True
         if callable(getattr(executor,'state',None)):
             execution_state=executor.state(attempt['id'])
             if execution_state['state'] in ('paused','pause_requested','stopped','stop_requested','unknown'):
@@ -322,6 +340,18 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
                     else:
                         _retain(ledger,conn,view,nid,'Managed result held after root/input change',candidate=produced,attempt=attempt['id'])
                 return {'node':nid,'state':'held','executor_state':execution_state['state'],'candidate':produced}
+        if partial:
+            # W36 (T07b E16): the worker stopped at a safe point with work left: the candidate is kept, never published as the node's
+            # result, and the node continues with a NEW attempt from it (generation + 1; spent budget stays spent).
+            with ledger.transaction(write=True) as conn:
+                current = state(ledger, root['selector'], conn)
+                if not _publication_current(current, view, nid):
+                    _retain(ledger, conn, view, nid, 'Root changed during execution', candidate=produced, attempt=attempt['id'])
+                    return {'node': nid, 'state': 'retained', 'reason': 'Root changed; partial candidate retained', **produced}
+                _retain(ledger, conn, current, nid, 'Partial candidate: work remains after the safe point', candidate=produced, attempt=attempt['id'])
+                _continue(ledger, conn, current, nid, produced, attempt['id'], receipt_body.get('continuation'))
+            return {'node': nid, 'state': 'continuing', 'generation': view['nodes'][nid]['generation'] + 1,
+                    'resume_artifact': produced['artifact'], 'continues_attempt': attempt['id']}
         progress = progress_track.read(ledger, root['selector'], nid)
         progress_status = progress['checkpoint']['status'] if progress else 'unknown'
         if progress_status in ('blocked', 'waiting'):
@@ -393,8 +423,22 @@ def release_paused(ledger,selector,nid,executor):
         body=json.loads(Snapshots(ledger.state_root).read_blob(candidate['receipt']))
         if body.get('attempt')!=record['attempt'] or body.get('artifact')!=candidate['artifact']:
             raise LedgerError('Paused candidate receipt does not bind the original attempt/artifact.')
+        if body.get('partial') is True:
+            # W36 (T07b E16): the paused worker had work left -> continue with a NEW attempt from this candidate; the old attempt is
+            # not reused for execution and the budget it spent stays spent.
+            _continue(ledger,conn,view,nid,candidate,record['attempt'],body.get('continuation'))
+            return {'node':nid,'state':'continuing','generation':record['generation']+1,'resume_artifact':candidate['artifact'],
+                    'continues_attempt':record['attempt'],'reused_safe_candidate':False}
         _event(ledger,conn,view,nid,'node.produced',progress_status='unknown',reused_safe_candidate=True,**candidate)
     return {'node':nid,'state':'produced','reused_safe_candidate':True,**candidate}
+
+
+def _continue(ledger, conn, view, nid, candidate, attempt_id, continuation):
+    """W36 (T07b E16): a new generation of `nid` that starts from `candidate` (the partial result of `attempt_id`). Written as
+    `node.resumed`, the existing class-B kind the state projector already turns into a fresh pending record (generation + 1);
+    the next `step` dispatches a NEW attempt whose base is the partial candidate. Nothing here resets a budget or a deadline."""
+    _event(ledger, conn, view, nid, 'node.resumed', resume_artifact=candidate['artifact'], continues_attempt=attempt_id,
+           continuation=continuation, reason='work remains after the safe point: a new attempt continues it', budget_reset=False)
 
 
 def verify(ledger, selector, nid, checker):

@@ -3,6 +3,7 @@
 The installed distribution and checkout use these same bounded protocols. It
 publishes scoped snapshot candidates or reports; project apply is a later action.
 """
+import contextlib
 import json
 import time
 
@@ -10,7 +11,7 @@ from . import artifact_provider_core as providers
 from .control_core import Control, migrate
 from .ledger import LedgerError, canonical, content_hash
 from .snapshots import Snapshots
-from .artifact_core import artifact_schema, artifacts
+from .artifact_core import artifact_schema, artifacts, continuation_of
 from .v2 import executors, progress_track
 
 REPORT_SCHEMA = {'type': 'object', 'properties': {'summary': {'type': 'string'},
@@ -33,7 +34,8 @@ class NativeExecutor(executors.Executor):
     def start(self, ledger, control, task, node, attempt):
         prepared = self.prepare(ledger, control, task, node, attempt)
         started = time.monotonic()
-        prepared['worker'].run(attempt, prepared['prompt'], prepared['schema'], prepared['profile'])
+        with self.liveness(ledger, control, task, node, attempt):
+            prepared['worker'].run(attempt, prepared['prompt'], prepared['schema'], prepared['profile'])
         settled = control.attempt(attempt['id'])
         if settled['status'] != 'settled': raise LedgerError('The existing provider worker did not settle its attempt.')
         return self.finish(ledger, task, node, attempt, prepared, settled, elapsed=time.monotonic() - started)
@@ -73,6 +75,13 @@ class NativeExecutor(executors.Executor):
             if collisions - set(node['write']):
                 raise LedgerError('Conflicting input artifacts require explicit integration write ownership: ' + ', '.join(sorted(collisions)))
             if inherited: base = store.overlay(base, inherited, paths)
+            resume = node.get('resume_artifact')
+            if resume:
+                # W36 (T07b E16): a continuation starts from the partial candidate of the paused attempt, never from scratch
+                manifest = store.load(resume)
+                carried = {path: (store.read_blob(value['working']) if value['working'] else None)
+                           for path, value in manifest['files'].items() if path in node['write'] and path in paths}
+                if carried: base = store.overlay(base, carried, paths)
             context = store.context(base)
             schema = artifact_schema(node['write']) if node['write'] else REPORT_SCHEMA
             prompt = ('Implement only this node. Native tools are disabled. Return only the required JSON. '
@@ -85,6 +94,28 @@ class NativeExecutor(executors.Executor):
             raise
         profile = {'provider': pin['provider'], 'model': pin['model'], 'step_seconds': int(node['execution_cap_seconds'])}
         return {'worker': worker, 'store': store, 'pin': pin, 'base': base, 'context': context, 'schema': schema, 'prompt': prompt, 'profile': profile}
+
+    @contextlib.contextmanager
+    def liveness(self, ledger, control, task, node, attempt):
+        """W51 (T18b): while the worker's command runs, the Supervisor calls back every `control.liveness_every` seconds and the
+        observation is recorded through the shared progress tracker (`kind: command`, source executor_clock, output sizes hashed):
+        a long command with output every few minutes is seen as alive; silence is NOT turned into "no progress" (the status only
+        moves to blocked at the execution cap). No model call, no operator input."""
+        binding = ledger.task(task['id'], full=True)['handoff']['plan_binding']
+        ticks = [0]
+        def hook(current, snapshot):
+            ticks[0] += 1
+            digest = content_hash({'stdout': snapshot.get('stdout_bytes'), 'stderr': snapshot.get('stderr_bytes')})
+            progress_track.observe(ledger, binding['selector'], node['id'], self, current['id'], f"liveness-{current['id']}-{ticks[0]}",
+                                   {'kind': 'command', 'elapsed_seconds': snapshot['elapsed_seconds'], 'output_hash': digest},
+                                   source='executor_clock', ref=f"attempt:{current['id']}:stdout={snapshot.get('stdout_bytes')}:stderr={snapshot.get('stderr_bytes')}",
+                                   command_cap_seconds=node['execution_cap_seconds'])
+        previous = getattr(control, 'liveness_hook', None)
+        control.liveness_hook = hook
+        try:
+            yield hook
+        finally:
+            control.liveness_hook = previous
 
     def rebuild_context(self, ledger, control, node, base):
         """The dispatch context again from a recorded launch intent (same base snapshot, same pin); no provider launch."""
@@ -102,6 +133,7 @@ class NativeExecutor(executors.Executor):
         worker, store, pin, base, context, profile = (prepared[k] for k in ('worker', 'store', 'pin', 'base', 'context', 'profile'))
         value, usage = worker.result(settled)
         response = store.blob(canonical(value).encode('utf-8'))
+        continuation, value = continuation_of(value)           # W36: a declared remainder makes this a PARTIAL candidate
         if node['write']:
             changes = artifacts(value, node['write'])
             artifact = store.overlay(base, changes, node['write'])
@@ -130,6 +162,8 @@ class NativeExecutor(executors.Executor):
                 'base': base, 'artifact': artifact, 'inputs': node.get('input_artifacts', {}), 'response': response,
                 'usage': usage, 'elapsed_seconds': round(float(elapsed), 6),
                 'changed_paths': changed, 'content_sha': measured_hash, 'internal_model_call_cap': False,
+                'partial': continuation is not None, 'continuation': continuation,
+                'continues_attempt': node.get('continues'), 'resume_artifact': node.get('resume_artifact'),
                 'scope_enforced_by': 'shared workflow.artifacts + snapshots.overlay; no project apply',
                 **({'rebuilt_from': rebuilt_from} if rebuilt_from else {})}
         receipt = store.blob(canonical(body).encode('utf-8'))

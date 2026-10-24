@@ -12,11 +12,28 @@ ARTIFACT_SCHEMA = {'type': 'object', 'additionalProperties': False,
                                       'path': {'type': 'string'}, 'content': {'type': ['string', 'null']}}}}}}
 
 
+CONTINUATION_SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['remaining'],
+                       'properties': {'remaining': {'type': 'string', 'minLength': 1}}}
+
+
 def artifact_schema(owned):
     schema = deepcopy(ARTIFACT_SCHEMA)
     files = schema['properties']['files']
     files['items']['properties']['path']['enum'] = list(owned)
+    # W36 (T07b E16): a worker that stops at a safe point with work left says so; the files are a PARTIAL candidate then
+    schema['properties']['continuation'] = deepcopy(CONTINUATION_SCHEMA)
     return schema
+
+
+def continuation_of(value):
+    """The worker's declared remaining work (None when the result is complete) and the value without it, for `artifacts`."""
+    if not isinstance(value, dict) or 'continuation' not in value:
+        return None, value
+    continuation = value['continuation']
+    if (not isinstance(continuation, dict) or set(continuation) != {'remaining'} or not isinstance(continuation['remaining'], str)
+            or not continuation['remaining'].strip()):
+        raise LedgerError('continuation.remaining: what is left to do, as non-empty text; omit continuation when the work is complete.')
+    return {'remaining': text_field(continuation['remaining'], 'continuation.remaining', 2000)}, {k: v for k, v in value.items() if k != 'continuation'}
 
 
 def artifacts(value, owned):
