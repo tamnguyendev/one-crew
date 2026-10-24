@@ -12,6 +12,8 @@
 - Một ca P6 prompt-cap của bộ v1 dài hỏng ngay ở baseline trước extraction; giữ log, không đổi test để cho qua. Các ca register 26 trước/26 sau và learning 3 trước/3 sau đạt.
 - Tiếp tục development: engine/internal revision/điều phối; thông báo dùng outbox v1; incident/lesson/localization. Chưa coi checkpoint này là hoàn thành WF.
 - Bằng chứng chi tiết và phần chưa xong: `docs/proposal-coverage.md`. Log tại `D:\OneCrewRuns\wf-dev-logs\codex-*.txt`. Chưa phát hành hay nghiệm thu toàn bộ WF.
+- Checkpoint tiếp: engine tuần tự dùng Control/ready_batch v1, worker pin riêng provider/model; core tiến triển/recovery và outbox được tách một nguồn để v1/v2 cùng dùng. Trả lời dừng đóng root, tiếp tục giữ nguyên quyền/budget và kiểm generation. Receipt hết hiệu lực khi input/config/môi trường đổi. Lỗi sửa xong có incident và lesson project trước khi root xong.
+- Kiểm tích hợp 55 ca đạt; hàng rào kết quả về muộn sau đóng root được kiểm thêm trong nhóm 19 ca đạt. Bản cài notification và stale evidence đã chạy offline; provider/window dùng fixture, không phải chứng nhận dùng thật. Tiếp tục candidate checker/handoff, unknown, repair và DAG song song; không dừng ở checkpoint này.
 
 Ngắn, cập nhật theo checkpoint. Phạm vi và trạng thái từng task: [FEATURE-SCOPE.md](FEATURE-SCOPE.md).
 

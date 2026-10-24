@@ -305,6 +305,8 @@ class OneCoreTests(Fixture):
         heads = {name: [line for line in report.render_report(self.ledger.state_root, name).splitlines() if line.startswith('#')] for name in self.names}
         self.assertEqual(len(heads['CODE']), len(heads['DOC']))
         self.assertEqual([re.sub(r'(CODE|DOC)', 'X', h) for h in heads['CODE']], [re.sub(r'(CODE|DOC)', 'X', h) for h in heads['DOC']])
+        for name in self.names:
+            self.assertIn(name, report.render_present(self.ledger.state_root, name))
 
     # [E2] only the adapter field and its checks differ
     def test_e2_the_two_contracts_differ_only_in_the_verifier(self):

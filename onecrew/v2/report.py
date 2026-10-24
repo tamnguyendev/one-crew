@@ -93,7 +93,7 @@ def _anchors(state_root):
         if conn is None: raise LedgerError(f'Không có sổ ở {reader.path}.')
         rows = conn.execute("SELECT id, project_id, project_path, request_key, created_at FROM tasks WHERE request_key LIKE 'plan:%' OR request_key LIKE 'plan-ns:%' "
                             'ORDER BY created_at, id').fetchall()
-        last = {r[0]: r[1] for r in conn.execute("SELECT task_id, MAX(created_at) FROM events WHERE kind NOT IN ('learning.outcome','control.intervention','context.entry') GROUP BY task_id")}
+        last = {r[0]: r[1] for r in conn.execute("SELECT task_id, MAX(created_at) FROM events WHERE kind NOT IN ('learning.outcome','control.intervention','context.entry','learning.incident','learning.lesson') GROUP BY task_id")}
     return [(dict(row), last.get(row['id'], row['created_at'])) for row in rows]
 
 
@@ -107,7 +107,7 @@ def _gather(state_root, row, revision=None):
     with reader.transaction() as conn:
         state = plans.derive(reader, conn, row['request_key'])
         events = [(e['kind'], e['created_at'], json.loads(e['payload']))
-                  for e in conn.execute("SELECT kind, created_at, payload FROM events WHERE task_id=? AND kind NOT IN ('learning.outcome','control.intervention','context.entry') ORDER BY seq", (row['id'],))]
+                  for e in conn.execute("SELECT kind, created_at, payload FROM events WHERE task_id=? AND kind NOT IN ('learning.outcome','control.intervention','context.entry','learning.incident','learning.lesson') ORDER BY seq", (row['id'],))]
         closed = set(step0.closed_events(conn, row['id']))
     if revision is not None and revision not in state['revisions']:
         raise LedgerError(f'Plan {name} has no revision {revision}.')
@@ -168,6 +168,7 @@ def _standing(f):
     A heuristic from the ledger, not a promise: the ledger does not say whether the AI is still working."""
     status, views, state = f['state']['status'], f['views'], f['state']
     if status == 'accepted': return 'accepted', '—'
+    if status == 'closed': return 'closed', '—'
     if status == 'stopped_with_report': return 'stopped', '—'
     if f['contract'] is None: return 'open', NO_DATA
     if status == 'proposed': return 'open', 'chủ sở hữu'
@@ -184,7 +185,7 @@ def _needs(f):
     """What the owner has to do now: nghiệm thu | duyệt bản N | trả lời câu hỏi | không gì (and, for a stopped plan with no open question,
     the decision that stays with the owner)."""
     status, state = f['state']['status'], f['state']
-    if status == 'accepted': return NOTHING
+    if status in ('accepted', 'closed'): return NOTHING
     if any(r['state'] == 'pending' for r in f['requests']): return 'trả lời câu hỏi'
     if status == 'proposed': return f'duyệt bản {state["latest"]}'
     if status == 'stopped_with_report': return 'quyết định việc đã dừng'
@@ -243,7 +244,7 @@ def _failing(f):
 def _conclusion(f):
     """Four lines for the owner, from ledger data only. Wrapped, never cut."""
     kind, _ = _standing(f)
-    word = {'accepted': 'XONG', 'stopped': 'DỪNG', 'failed': 'HỎNG'}.get(kind, 'ĐANG CHỜ')
+    word = {'accepted': 'XONG', 'stopped': 'DỪNG', 'failed': 'HỎNG', 'closed': 'ĐÃ ĐÓNG'}.get(kind, 'ĐANG CHỜ')
     state, rows = f['state'], _output_rows(f)
     view, reason = _failing(f)
     if kind in ('stopped', 'failed') or (kind == 'open' and view):
@@ -256,7 +257,8 @@ def _conclusion(f):
     elif f['contract'] is None: why = NO_DATA
     else:
         waiting = next(v for v in f['views'] if v['state'] != 'passed')
-        why = f'mốc {waiting["id"]} ' + ('cũ: đạt trên artifact khác, cần chạy lại' if waiting.get('stale') else 'chưa có verdict')
+        why = f'mốc {waiting["id"]} ' + ('cũ: ' + '; '.join(waiting['stale_reasons']) if waiting.get('stale_reasons') else
+                                            'cũ: đạt trên artifact khác, cần chạy lại' if waiting.get('stale') else 'chưa có verdict')
     parked = _parked_data(f)
     if rows is None or parked is None: left = NO_DATA
     else:
@@ -278,7 +280,8 @@ def _verdict_word(view, short=False):
     declares neutral differs). A passed milestone with none of these reads exactly as it always did."""
     last = view['last_verdict']
     if not last: return 'chưa có verdict'
-    if view.get('stale'): return 'cũ' if short else f'cũ ({last["result"]} trên artifact khác, cần chạy lại)'
+    if view.get('stale'): return 'cũ' if short else ('cũ (' + '; '.join(view['stale_reasons']) + ')' if view.get('stale_reasons') else
+                                                   f'cũ ({last["result"]} trên artifact khác, cần chạy lại)')
     if view.get('neutral_diff'): return f'{last["result"]} (chỉ khác đường dẫn trung lập)' if not short else f'{last["result"]} trung lập'
     if view.get('carried_from'): return f'{last["result"]} (kế thừa từ bản {view["carried_from"]})' if not short else f'{last["result"]} kế thừa'
     return last['result']
@@ -460,7 +463,7 @@ def render_report(state_root, name, revision=None, project_id=None):
 def render_digest(state_root):
     anchors = _anchors(state_root)
     names = [namespaces.parse(row['request_key'])[0] for row, _ in anchors]
-    opened, counts = [], {'accepted': 0, 'stopped': 0, 'failed': 0}
+    opened, counts = [], {'accepted': 0, 'stopped': 0, 'failed': 0, 'closed': 0}
     for row, last in anchors:
         f = _gather(state_root, row)
         kind, _ = _standing(f)
@@ -474,7 +477,8 @@ def render_digest(state_root):
     lines += [text for _, text in opened[:OPEN_CAP]]
     if len(opened) > OPEN_CAP: lines.append(f'(còn {len(opened) - OPEN_CAP} việc mở nữa, không hiển thị)')
     if not anchors: lines.append(NO_DATA)
-    else: lines.append(f'{sum(counts.values())} việc đã đóng: {counts["accepted"]} nghiệm thu, {counts["stopped"]} dừng, {counts["failed"]} hỏng')
+    else: lines.append(f'{sum(counts.values())} việc đã đóng: {counts["accepted"]} nghiệm thu, {counts["stopped"]} dừng, {counts["failed"]} hỏng' +
+                       (f', {counts["closed"]} chủ sở hữu đóng' if counts['closed'] else ''))
     return '\n'.join(lines) + '\n'
 
 
@@ -544,6 +548,8 @@ def _evidence(f, view):
         if readable: return 'ok', f'mốc {mid} {_verdict_word(view)} · by {last["by"]} · artifact {last["artifact_sha"]}', link
         return 'lost', f'mốc {mid}: verdict {last["result"]} nhưng biên nhận {key or "(không ghi)"} không đọc được trong sổ', None
     if view.get('stale'):
+        if view.get('stale_reasons'):
+            return 'stale', f'mốc {mid}: ' + '; '.join(view['stale_reasons']), link
         return 'stale', (f'mốc {mid}: bằng chứng cũ, {last["result"]} trên artifact {last["artifact_sha"]}, artifact hiện tại {_artifact_now(f) or "không xác định"}'), link
     reason = _receipt_reason(f, view)
     return 'failed', f'mốc {mid}: verdict gần nhất {last["result"]} trên artifact {last["artifact_sha"]}' + (f' ({reason})' if reason else ''), link
@@ -686,6 +692,8 @@ def _present_result(f):
     c = f['contract']
     if c is None: return _wrap(NO_DATA)
     lines, sees = [], (c.get('presentation') or {}).get('user_sees') or []
+    if f['state'].get('closed'):
+        lines += _wrap('ĐÃ ĐÓNG — ' + f['state']['closed']['reason'])
     if sees: lines.append('  Bạn sẽ thấy:')
     for number, item in enumerate(sees, 1): lines += _wrap(f'{number}. {item}', '    ', '       ')
     accepted = f['state']['accepted']

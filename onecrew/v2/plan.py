@@ -13,7 +13,7 @@ from .ownership import session_info
 
 ANCHOR = 'plan:'
 KINDS = ('plan.proposed', 'plan.amended', 'plan.approved', 'plan.accepted', 'verdict.recorded', 'milestone.passed',
-         'milestone.failed', 'milestone.stopped', 'attention.exceeded', 'dispatch.refused_no_plan', 'verdict.receipt_issued', 'plan.advised')
+         'milestone.failed', 'milestone.stopped', 'attention.exceeded', 'dispatch.refused_no_plan', 'verdict.receipt_issued', 'plan.advised', 'plan.closed')
 OWNER_ACTORS = ('user', 'owner')
 
 
@@ -68,6 +68,7 @@ def derive(ledger, conn, name):
             state['latest'] = max(state['latest'], p['revision'])
         elif kind == 'plan.approved': state['approved'] = p
         elif kind == 'plan.accepted': state['accepted'] = p
+        elif kind == 'plan.closed' and namespaces.has_capability(state, 'sequential-engine'): state['closed'] = p
         elif kind == 'verdict.receipt_issued':
             state['issued'].add((p['revision'], p['milestone'], p['receipt']))
             state['issued_seq'][(p['revision'], p['milestone'])] = event['seq']      # the latest issuance, to tell a receipt that still waits for its verdict
@@ -80,6 +81,7 @@ def derive(ledger, conn, name):
 
 
 def status(state):
+    if state.get('closed'): return 'closed'
     latest = state['latest']
     if not latest: return 'proposed'
     if state['accepted'] and state['accepted']['revision'] == latest: return 'accepted'
@@ -141,7 +143,7 @@ def _inherited(ledger, state, revision, milestone, contract):
     return earlier[-1]
 
 
-def milestone_views(contract, state, revision, ledger=None, artifact=None):
+def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=None):
     """A milestone is passed only while its LATEST verdict on this revision is a pass; a later failure reopens it.
 
     With a `ledger` (its project is a Git repository) or an explicit `artifact`, the views also say whether that verdict still speaks for the
@@ -176,8 +178,18 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None):
             candidate = mine[-1] if passed else (_inherited(ledger, state, revision, m, contract) if not mine and carries else None)
             if candidate is not None and now() is not None:
                 how = covers(ledger, candidate['artifact_sha'], now(), m['verifier']['type'], neutral)
+                if ledger is not None and m['verifier']['type'] != 'owner-manual':
+                    from . import verification_evidence
+                    binding = verification_evidence.receipt_assessment(ledger, contract, m, revision,
+                        candidate['receipt'], now(), task_id=state['task_id'], conn=conn,
+                        require_bound=namespaces.has_capability(state, 'sequential-engine'))
+                    if binding is not None:
+                        if not binding['reusable'] or (binding['requires_record'] and not binding['recorded']):
+                            how = None
+                            extra.update(stale=True, stale_reasons=binding['reasons'] or ['Evidence reuse basis must be recorded.'],
+                                         checks_to_rerun=binding['checks_to_rerun'], reuse_basis=binding.get('reuse_basis'))
                 if how is None:
-                    if passed: passed, extra = False, {'stale': True}
+                    if passed: passed = False; extra['stale'] = True
                 else:
                     if not passed: passed, verdict = True, candidate
                     if candidate['revision'] != revision or how == 'neutral': extra['carried_from'] = candidate['revision']
@@ -295,10 +307,10 @@ def _anchor(ledger, name, title):
     return submit(ledger, f'Plan {name}: {title}'[:2000], namespaces.NAMESPACED + name, mode='audit')['id']
 
 
-def propose(ledger, name, raw, author, workflow=False):
+def propose(ledger, name, raw, author, workflow=False, capabilities=None):
     valid_plan_name(name)                       # W12a: reject ':', path chars, drive form, absolute — before any write
     key_field(name); key_field(ANCHOR + name)
-    metadata = namespaces.workflow_metadata(workflow)
+    metadata = namespaces.workflow_metadata(workflow, capabilities)
     text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
     selector = namespaces.NAMESPACED + name
@@ -320,7 +332,7 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
     contract = contracts.validate(raw)
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
-        if state['status'] == 'accepted': raise LedgerError(f'Plan {name} is accepted; it cannot be amended.')
+        if state['status'] in ('accepted', 'closed'): raise LedgerError(f'Plan {name} is {state["status"]}; it cannot be amended.')
         latest, sha_now = state['latest'], content_hash(contract)
         if state['revisions'][latest]['sha'] == sha_now: raise LedgerError('The amendment is identical to the current revision.')
         revision = latest + 1
@@ -362,6 +374,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
     if estimate is not None: estimates.normalize(estimate)
     with ledger.transaction() as conn:                       # read first: the preconditions below may run for minutes
         state = anchor_events(ledger, conn, name)
+        if state['status'] == 'closed': raise LedgerError('A closed root cannot be reopened by approval; create a new root.')
         revision = revision or state['latest']
         if revision != state['latest']: raise LedgerError(f'Only the latest revision ({state["latest"]}) can be approved.')
         contract, sha = load(ledger, state, revision)
@@ -382,6 +395,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
         state = anchor_events(ledger, conn, name)
         if state['latest'] != revision or state['revisions'][revision]['sha'] != sha:
             raise LedgerError('The plan changed while step 0 was being checked; run approve again.')
+        if state['status'] == 'closed': raise LedgerError('The root was closed while step 0 was being checked.')
         if verdict['results']: step0.record_run(ledger, conn, state['task_id'], name, revision, sha, verdict, 'approve')
         if verdict['ok']:
             from .retention import pin_trees
@@ -430,7 +444,17 @@ def accept(ledger, name, by, reference, artifact_sha):
             from .verifiers import artifact as identities
             if not identities.is_git(ledger.project) and any(m['verifier']['type'] != 'owner-manual' for m in contract['milestones']):
                 artifact_sha = identities.canonical(ledger, artifact_sha)
-            views = milestone_views(contract, state, revision, ledger, artifact=artifact_sha)     # a verdict counts when it covers exactly this artifact (or differs only in neutral paths, command milestones)
+            from . import verification_evidence
+            for milestone in contract['milestones']:
+                candidates = [v for v in state['verdicts'] if v['milestone'] == milestone['id'] and v['revision'] <= revision]
+                candidate = candidates[-1] if candidates else None
+                if candidate and candidate['result'] == 'pass' and milestone['verifier']['type'] != 'owner-manual':
+                    assessment = verification_evidence.receipt_assessment(ledger, contract, milestone, revision,
+                        candidate['receipt'], artifact_sha, task_id=state['task_id'], conn=conn,
+                        require_bound=namespaces.has_capability(state, 'sequential-engine'))
+                    if assessment and assessment['reusable'] and assessment['requires_record'] and not assessment['recorded']:
+                        verification_evidence.record_reuse(ledger, name, milestone['id'], candidate['receipt'], artifact_sha, conn=conn)
+            views = milestone_views(contract, state, revision, ledger, artifact=artifact_sha, conn=conn)
             missing = [v['id'] for v in views if v['state'] != 'passed' and not v.get('stale')]
             if missing: raise LedgerError('Cannot accept: no passing verdict for milestone ' + ', '.join(missing) + '.')
             elsewhere = [v for v in views if v.get('stale')]
@@ -488,4 +512,5 @@ def show(ledger, name, revision=None):
                 'anchor_task': state['task_id'], 'state_root': str(ledger.state_root)}
         if frozen: out['frozen'] = frozen
         out.update({key: state[key] for key in ('workflow_version', 'capabilities') if key in state})
+        if state.get('closed'): out['closed'] = state['closed']
         return out

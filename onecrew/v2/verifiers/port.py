@@ -306,7 +306,7 @@ def _checks(report, box):
     return clean, findings, unverified
 
 
-def run(ledger, name, revision, plan_sha, milestone, directory):
+def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None):
     """Run the milestone's adapter on a clean checkout of the artifact; returns (receipt_blob, receipt)."""
     adapter = get(milestone['verifier']['type'])
     directory = Path(directory).resolve()
@@ -314,14 +314,16 @@ def run(ledger, name, revision, plan_sha, milestone, directory):
     scratch = tempfile.mkdtemp(prefix='ocv-')
     try:
         workspace, before, proof = artifact.capture(ledger, directory, scratch)
-        return _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before, scratch, workspace, proof)
+        return _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before, scratch, workspace, proof, evidence_context)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before, scratch, workspace, proof):
+def _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before, scratch, workspace, proof, evidence_context=None):
     config = milestone['verifier']['config']
     own = {k: v for k, v in config.items() if k != 'authority'}
+    from .. import verification_evidence
+    binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before) if evidence_context else None
     top = Path(scratch) / 'src'
     box = Port(workspace, config['authority'], adapter.NAME)
     first = _fingerprint(top)
@@ -354,6 +356,7 @@ def _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before
                'artifact_sha': before, 'artifact_sha_after': after, 'checks': checks, 'findings': findings, 'unverified': unverified,
                'files_read': sorted(box._read)[:500], 'retries_used': box._retries, 'calls': box._calls,
                'violations': [dict(v, adapter=adapter.NAME) for v in box._violations[:50]], 'error': error, 'timed_out': timed_out, **proof}
+    if binding is not None: receipt['evidence_binding'] = binding
     return Snapshots(ledger.state_root).blob(canonical(receipt).encode('utf-8')), receipt
 
 

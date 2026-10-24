@@ -50,6 +50,24 @@ tested using unmodified `d3120c6`, not removed or weakened.
 
 Foundation integration checkpoint: 51 existing v2 core/event-class tests passed (174.429s) after the shared hooks; 5 isolated-module closure tests passed. Offline wheel tests executed both the Git workflow and non-Git data lifecycle with install-boundary validation. The first non-Git install test exposed a real approval gap; explicit `target.ref=snapshot` was implemented, then that failing case passed from a rebuilt wheel. No actual ledger was approved or accepted.
 
+### WF cycle 2 — runtime connections, evidence and learning
+
+| IDs | Implementation and verification | Status | Remaining |
+|---|---|---|---|
+| W04/W06/W14a/W21 | Internal revisions preserve root contract and acceptance; shared v1 `ready_batch`, node state helpers and Control admission; one slot, dependency states, bounded advance and integration checks. Native checkout executor pins provider/model per node, reuses provider workers and scoped snapshot artifacts. Engine9/native6/owner-answer4 passed together, including closing a root during execution and retaining but not publishing its late result. | Partial | Candidate-aware configured checker, authorized CAS handoff, connected CLI and whole-root delivery still required; callback checks and fake provider tests do not prove live provider support. |
+| W24/W24b | Shared v1 notification/outbox/window/locking cores, current-state projection, question revision deduplication and forecast exceptions. V1 24 before and25 after; shared-hook44; offline wheel pull/replay/ACK/owner-answer/fake-window lifecycle passed30.304s. | Partial | Actual user display/delivery is not exercised; remaining integrated release and rollback drills. |
+| W30c | Real recorded owner answer drives idempotent close or resumes exact held generations inside the existing grant; stale revisions and unknown attempts cannot resume. Ten original answer/question cases; four workflow cases; actual archived d3120c6 comparator; installed stop/progress passed20.281s. | Partial | Finding/repair/unknown lifecycle integration remains; no answer increases grants or accepts results. |
+| W07/W08 | Verifier receipts bind observed input, acceptance, configuration and environment; precise stale reasons; explicit neutral-scope reuse has an atomic persisted basis. Twelve source cases plus nonGit corruption counterexample; offline installed input-change/stale/rerun/corrupt-retention case passed18.915s. | Partial | Environment fingerprint covers observed interpreter/platform and effective env hashes, not every OS library; whole engine candidate and release coverage remains. |
+| W51/W20 shared cores | Extracted the exact v1 progress/recovery decisions; v1 imports the shared implementation. Twenty progress cases before/after; nine new progress cases plus recovery identity; sixteen executor regression cases. Durable observation distinguishes wait/unknown, command output liveness and bounded repeated hypotheses. | Partial | Repair/replan consumer and managed process pause/recovery still required; a diagnostic observation itself cannot control an external worker. |
+| W49a/W49b | Authentic fail/environment/fix/pass receipts create one incident and a project lesson before root completion; refuted hypotheses stay separate from cause. Four whole-flow cases, v1 learning3 and actual1b4f4c6 neutral-event comparator pass. Offline wheel automatic repair→lesson→CLI read passed48.592s with clean module boundary. | Partial | Remaining release checks; no automatic global promotion, policy injection or finding closure. |
+
+Integrated cycle check: 55 answer/progress/engine/native/G1 tests passed111.003s.
+The later closed-root publication fence passed the targeted19-case integration.
+These counts overlap; they are not an aggregate completion percentage. Code in
+this checkpoint reuses the v1 cores instead of introducing parallel stores or
+dispatch schedulers. New source modules and adapter fixtures do not certify the
+unimplemented remainder or external provider cells.
+
 ## Windows completion/blocker window — 2026-10-10
 
 Proposal source: user requests one result on completion/blocker without recurring scheduler; user selected the Windows OneCrew window. Baseline: 392ca42. Cycle DN01–DN05. Contract: docs/desktop-notifications.vi.md.

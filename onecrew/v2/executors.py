@@ -285,6 +285,13 @@ def _parser():
     o.add_argument('--at'); o.add_argument('--until'); o.add_argument('--wait-reason', choices=WAIT_REASONS)
     s = sub.add_parser('summary', help='Start, end and waits of each attempt, with sources; unknown stays unknown.')
     s.add_argument('--plan', required=True); s.add_argument('--lang', choices=('vi', 'en'), default='vi'); s.add_argument('--json', action='store_true')
+    o = sub.add_parser('progress', help='Record sourced tool/liveness evidence; does not stop or authorize a worker.')
+    o.add_argument('--plan', required=True); o.add_argument('--node', required=True)
+    o.add_argument('--executor', required=True, choices=sorted(REGISTRY)); o.add_argument('--attempt', required=True)
+    o.add_argument('--key', required=True); o.add_argument('--source', required=True); o.add_argument('--ref', required=True)
+    o.add_argument('--at'); o.add_argument('--command-cap-seconds', type=float); o.add_argument('--file', type=Path, required=True)
+    s = sub.add_parser('progress-show', help='Read the latest sourced progress checkpoint, without effects.')
+    s.add_argument('--plan', required=True); s.add_argument('--node', required=True)
     return p
 
 
@@ -307,13 +314,22 @@ def main(argv=None):
         from . import where
         state_root = where.state_root_for(parsed.project, parsed.state_root)
         from .lint import ReadOnlyLedger
-        ledger = Ledger(parsed.project, state_root) if parsed.command == 'observe' else ReadOnlyLedger(parsed.project, state_root)
+        ledger = Ledger(parsed.project, state_root) if parsed.command in ('observe', 'progress') else ReadOnlyLedger(parsed.project, state_root)
+        if parsed.command in ('progress', 'progress-show'):
+            from . import progress_track
+            if parsed.command == 'progress-show':
+                value = progress_track.read(ledger, parsed.plan, parsed.node)
+            else:
+                value = progress_track.observe(ledger, parsed.plan, parsed.node, REGISTRY[parsed.executor],
+                    parsed.attempt, parsed.key, json.loads(parsed.file.read_text(encoding='utf-8-sig')),
+                    source=parsed.source, ref=parsed.ref, at=parsed.at, command_cap_seconds=parsed.command_cap_seconds)
+            print(json.dumps(value, ensure_ascii=False, indent=2)); return 0
         if parsed.command == 'observe':
             print(json.dumps(observe(ledger, parsed.plan, REGISTRY[parsed.executor], parsed.attempt, parsed.what, source=parsed.source, ref=parsed.ref,
                                      at=parsed.at, until=parsed.until, wait_reason=parsed.wait_reason), ensure_ascii=False, indent=2)); return 0
         report = summary(ledger, parsed.plan)
         print(json.dumps(report, ensure_ascii=False, indent=2) if parsed.json else render(report, parsed.lang)); return 0
-    except LedgerError as error:
+    except (LedgerError, OSError, ValueError, TypeError) as error:
         print(json.dumps({'error': str(error), 'type': type(error).__name__}, ensure_ascii=False))
         return 2
 

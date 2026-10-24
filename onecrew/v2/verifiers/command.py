@@ -217,7 +217,7 @@ def expected_result(receipt):
     return 'pass' if receipt['exit_code'] == 0 else 'fail'
 
 
-def run(ledger, name, revision, plan_sha, milestone, directory):
+def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None):
     """Execute the milestone's command; returns (receipt_blob, receipt)."""
     argv, limit = milestone['verifier']['config']['argv'], milestone['verifier']['config']['max_minutes']
     directory = Path(directory).resolve()
@@ -225,15 +225,17 @@ def run(ledger, name, revision, plan_sha, milestone, directory):
     before = artifact_sha(directory)
     scratch = tempfile.mkdtemp(prefix='ocv-')
     try:
-        return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch)
+        return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch):
+def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context=None):
     workspace = _checkout(directory, before, scratch)
     # S1: children are always UTF-8, so a Vietnamese path or message cannot turn a pass into an encoding failure.
     env = verifier_env(directory)
+    from .. import verification_evidence
+    binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before, env) if evidence_context else None
     started, error, timed_out, code, out, err = utcnow(), None, False, None, b'', b''
     begin = time.monotonic()
     try:
@@ -256,5 +258,6 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
                'stdout': store.blob(out[-OUTPUT_CAP:]), 'stderr': store.blob(err[-OUTPUT_CAP:]),
                'stdout_bytes': len(out), 'stderr_bytes': len(err), 'output_truncated': len(out) > OUTPUT_CAP or len(err) > OUTPUT_CAP}
     rule = suspicious_rule(receipt)
+    if binding is not None: receipt['evidence_binding'] = binding
     if rule: receipt['suspicious'] = rule            # the receipt names the rule that made the verdict inconclusive
     return store.blob(canonical(receipt).encode('utf-8')), receipt

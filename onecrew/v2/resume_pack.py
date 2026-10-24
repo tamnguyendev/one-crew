@@ -26,6 +26,7 @@ def changes_vs_approved(old, new):
 
 
 def _why(view, state, revision):
+    if view.get('stale_reasons'): return '; '.join(view['stale_reasons'])
     if view.get('stale'): return 'verdict nằm ở artifact khác (stale)'
     if view['state'] == 'passed': return 'đạt'
     if view['state'] == 'stopped': return 'dừng: ' + str(state['stopped'].get(revision, {}).get('reason'))
@@ -74,7 +75,7 @@ def build(ledger, name, context=None):
     elif state['status'] == 'approved' and views and all(v['state'] == 'passed' for v in views):
         missing.append({'what': 'chủ sở hữu nghiệm thu', 'because': 'mọi mốc đạt, chưa nghiệm thu'})
     elif state['status'] == 'stopped_with_report': missing.append({'what': 'quyết định của chủ sở hữu về việc đã dừng', 'because': 'plan dừng'})
-    if standing == 'accepted': remaining = {'who': None, 'what': NOTHING_LEFT}
+    if standing in ('accepted', 'closed'): remaining = {'who': None, 'what': NOTHING_LEFT}
     else:
         owner_moves = standing in ('stopped',) or who == 'chủ sở hữu'
         remaining = {'who': 'chủ sở hữu' if owner_moves else who, 'what': needs if needs != report.NOTHING else (
@@ -87,6 +88,10 @@ def build(ledger, name, context=None):
             'decided': decided, 'open_questions': open_questions, 'milestones': milestones, 'missing_evidence': missing,
             'pending_change': _pending_change(facts, ledger), 'remaining': remaining, 'context': []}
     pack['header'] = HEADER.format(seq=pack['max_seq'])
+    if standing == 'closed':
+        pack['open_questions'] = []
+        pack['decided']['closed'] = state.get('closed')
+        pack['missing_evidence'] = [dict(item, required_to_continue=False) for item in missing]
     if context: pack['context'] = context(ledger, name)
     return pack
 

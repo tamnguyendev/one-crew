@@ -69,7 +69,7 @@ def ensure_baseline(ledger, conn, selector, value=None):
 
 def _state(ledger, conn, selector):
     state = plan.anchor_events(ledger, conn, selector)
-    if not state['approved'] or state['status'] == 'accepted': raise LedgerError('Forecast changes require an open approved plan.')
+    if not state['approved'] or state['status'] in ('accepted', 'closed'): raise LedgerError('Forecast changes require an open approved plan.')
     return state
 
 
@@ -88,9 +88,12 @@ def reforecast(ledger, selector, key, remaining_seconds, reason, refs):
     span, refs = interval(remaining_seconds), evidence(refs)
     with ledger.transaction(write=True) as conn:
         state = _state(ledger, conn, selector)
-        return _append(ledger, conn, state, 'estimate.eta', dict(
+        result = _append(ledger, conn, state, 'estimate.eta', dict(
             key=key, estimate_type='eta', remaining_seconds=span, reason=reason, evidence=refs,
             revision=state['approved']['revision'], plan=state['name'], calibrated=False))
+    from .exceptions import observe
+    observe(ledger, selector)
+    return result
 
 
 def additional(ledger, selector, key, category, reason, acceptance, seconds, refs):
@@ -104,11 +107,14 @@ def additional(ledger, selector, key, category, reason, acceptance, seconds, ref
         allowed = {'O' + str(i + 1) for i in range(len(contract['output']))}
         if not isinstance(acceptance, list) or not acceptance or not set(acceptance) <= allowed:
             raise LedgerError('Additional work must name approved acceptance IDs.')
-        return _append(ledger, conn, state, 'work.additional', dict(
+        result = _append(ledger, conn, state, 'work.additional', dict(
             key=key, estimate_type='additional', category=category, reason=reason, acceptance=acceptance,
             execution_seconds=span, evidence=refs, plan=state['name'], revision=state['approved']['revision'],
             disposition={'mandatory': 'forecast', 'optional': 'backlog', 'outside_authority': 'U2'}[category],
             grants_execution=False))
+    from .exceptions import observe
+    observe(ledger, selector)
+    return result
 
 
 def read(ledger, selector):

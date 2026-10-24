@@ -10,6 +10,7 @@ from . import namespaces, plan
 def list_for_plan(ledger, selector, pending=False):
     with ledger.transaction() as conn:
         state = plan.anchor_events(ledger, conn, selector)
+        if pending and state['status'] == 'closed': return []
     return ledger.requests(state['task_id'], pending=pending)
 
 
@@ -29,11 +30,13 @@ def answer(ledger, request_id, revision, choice, reference):
     # v1 atomically verifies request revision, choice and replay conflicts.
     receipt = ledger.reply(request_id, revision, choice, source='owner-terminal',
                            reference=reference, decided_by='user', by='user')
+    from . import answer_effects
+    effect = answer_effects.apply(ledger, request_id)
     with ledger.transaction() as conn:
         task = ledger._task(conn, row['task_id'])
     from . import active_plan
     active_plan.export(ledger, task['request_key'])
-    return receipt
+    return dict(receipt, controller_effect=effect) if effect.get('applied') else receipt
 
 
 def main(argv):

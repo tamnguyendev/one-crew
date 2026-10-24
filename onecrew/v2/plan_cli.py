@@ -18,7 +18,8 @@ def _parser():
     p.add_argument('name', help='Plan name = the request key of the job that will carry it out.')
     p.add_argument('--file', required=True, type=Path)
     p.add_argument('--author', required=True, help='Who wrote it (recorded, never trusted).')
-    p.add_argument('--workflow', action='store_true', help='Declare workflow v1 with namespaced-storage capability only; schema 2 contract semantics remain.')
+    p.add_argument('--workflow', action='store_true', help='Declare the stable default workflow capabilities; schema 2 alone retains legacy semantics.')
+    p.add_argument('--capability', action='append', help='Explicit implemented capability set (repeat; requires --workflow); dependencies must be included.')
     p = plan.add_parser('lint', help='Every form refusal propose/approve would raise, one per line; exit 1 on any. Writes nothing (read-only ledger).')
     p.add_argument('--file', required=True, type=Path); p.add_argument('--author', help='Check it is a model id, as the reviewer needs.')
     p.add_argument('--ack-criteria', action='store_true', help='Silence the two criteria warnings (a quoted literal already in the base tree; a word shared with a non_goal). A missing "fail if" is still refused.')
@@ -77,6 +78,9 @@ def _parser():
     p = brainstorm.add_parser('table', help='Print the options as a table of at most 30 lines.'); p.add_argument('name')
     p = plan.add_parser('enforce', help='Owner only: require an approved plan before any job of this state root can run.')
     p.add_argument('state', choices=['on', 'off']); p.add_argument('--by', required=True); p.add_argument('--reference', required=True)
+    p = plan.add_parser('evidence-reuse', help='Record a validated scope.neutral basis; never creates a passing verdict.')
+    p.add_argument('name'); p.add_argument('--milestone', required=True); p.add_argument('--receipt', required=True)
+    p.add_argument('--artifact-sha', required=True)
     retention = plan.add_parser('retention', help='Local evidence tree refs; no automatic cleanup.').add_subparsers(dest='action', required=True)
     p = retention.add_parser('list'); p.add_argument('name')
     p = retention.add_parser('cleanup', help='Owner only; remove this plan scope refs, never prune objects.')
@@ -106,6 +110,9 @@ def _parser():
 def _dispatch(ledger, args):
     from . import gate, plan as plans, report, step0, verdict
     if args.group == 'plan':
+        if args.command == 'evidence-reuse':
+            from . import verification_evidence
+            return verification_evidence.record_reuse(ledger, args.name, args.milestone, args.receipt, args.artifact_sha)
         if args.command == 'retention':
             from . import retention
             return (retention.list_refs(ledger, args.name) if args.action == 'list'
@@ -115,7 +122,7 @@ def _dispatch(ledger, args):
             elif args.command == 'report' and args.handover: text = report.render_handover(ledger.state_root, args.name, args.revision, project_id=ledger.project_id)
             else: text = report.render_report(ledger.state_root, args.name, args.revision, project_id=ledger.project_id) if args.command == 'report' else report.render_digest(ledger.state_root)
             return report.write_out(text, args.out, ledger.state_root) if args.out else text
-        if args.command == 'propose': return plans.propose(ledger, args.name, read_json(args.file), args.author, workflow=args.workflow)
+        if args.command == 'propose': return plans.propose(ledger, args.name, read_json(args.file), args.author, workflow=args.workflow, capabilities=args.capability)
         if args.command == 'show': return plans.show(ledger, args.name, args.revision)
         if args.command == 'approve': return plans.approve(ledger, args.name, args.by, args.reference, args.revision, args.tick, args.choose,
                                                          estimate=read_json(args.estimate_file) if args.estimate_file else None)

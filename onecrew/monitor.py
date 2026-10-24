@@ -9,22 +9,11 @@ import subprocess
 import sys
 import time
 
-from .discovery import SECRET
+from .display_core import safe
 from .ledger import Ledger, LedgerError, canonical, content_hash
 from .snapshots import durable_write
 from .supervisor import identity, native_python, probe
 from .workflow import task_lock
-
-
-def safe(value, limit=180):
-    text=str(value or '')
-    if SECRET.search(text) or re.search(r'(?i)(password|secret|token|api.?key)\s*[=:]',text):
-        return '[sensitive content withheld]'
-    text=re.sub(r'https?://[^\s/@]+:[^\s/@]+@[^\s]+','[credential URL withheld]',text)
-    # Never allow logs/model output to inject terminal control sequences.
-    text=re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)', '', text)
-    text=''.join(c if c.isprintable() else ' ' for c in text)
-    return text[:limit]+('…' if len(text)>limit else '')
 
 
 def snapshot(ledger, task=None, all_projects=False, limit=12, verbose=False):

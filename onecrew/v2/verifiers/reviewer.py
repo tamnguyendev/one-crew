@@ -259,7 +259,7 @@ def call(prompt, config, env, scratch, limit):
     return body['result'][:MAX_ANSWER], usage, None, False, out
 
 
-def run(ledger, name, revision, plan_sha, milestone, directory, independence_result, approved, previous=None, open_findings=None):
+def run(ledger, name, revision, plan_sha, milestone, directory, independence_result, approved, previous=None, open_findings=None, evidence_context=None):
     """Review the milestone: returns (receipt_blob, receipt). The caller has already checked independence (before this call, so a refusal costs nothing)."""
     config = milestone['verifier']['config']
     directory = Path(directory).resolve()
@@ -282,6 +282,9 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     except LedgerError as problem:      # no tree to start from (or git cannot make one): nothing is sent, the verdict is inconclusive with this reason
         diff, base, base_source, tracked, base_tracked, no_base = '', None, 'none', None, None, str(problem)
     store = Snapshots(ledger.state_root)
+    from .. import verification_evidence
+    env = command.verifier_env(directory)
+    binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before, env) if evidence_context and not no_artifact else None
     answer, usage, error, timed_out, raw, calls, prompt, note = '', {}, None, False, b'', 0, None, None
     if no_base: error = no_base
     elif hidden: error = f'the tree the reviewer is shown and the artifact differ at {len(hidden)} path(s): {named(hidden)}. {HIDDEN}'
@@ -302,7 +305,6 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
             error = f'prior findings and diff exceed the {MAX_DIFF}-byte review context cap; nothing was reviewed in part'
             prompt = None
         else:
-            env = command.verifier_env(directory)
             scratch = tempfile.mkdtemp(prefix='ocr-')
             try:
                 calls = 1
@@ -326,5 +328,6 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
                'criteria': rows, 'outside_criteria': outside, 'independence': independence_result}
     if open_findings is not None:
         receipt['open_findings'] = [{'id': f['id'], 'criterion': f['criterion'], 'status': 'open'} for f in open_findings]
+    if binding is not None: receipt['evidence_binding'] = binding
     receipt['result'] = expected_result(receipt)
     return store.blob(canonical(receipt).encode('utf-8')), receipt

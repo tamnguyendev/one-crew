@@ -201,7 +201,7 @@ print(json.dumps(ledger.task(sys.argv[3])['budget']['goal'], sort_keys=True))
 
     def test_default_schema2_and_preexisting_storage_only_workflow_keep_old_budget_semantics(self):
         for name, workflow in (('schema2', False), ('old-storage', True)):
-            with patch.object(namespaces, 'CAPABILITIES', ('namespaced-storage',)):
+            with patch.object(namespaces, 'DEFAULT_CAPABILITIES', ('namespaced-storage',)):
                 plans.propose(self.ledger, name, plan_json(budget={'max_calls': 3, 'time': 30}), 'codex', workflow=workflow)
             plans.approve(self.ledger, name, 'owner', 'fixture unchanged semantics')
             task = submit(self.ledger, 'Inspect a document', name + '-job', plan_selector='plan-ns:' + name,

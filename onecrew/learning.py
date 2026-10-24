@@ -69,8 +69,7 @@ def propose(ledger,task_id,evidence,text):
         value={'task':task_id,'evidence_event':evidence,'snapshot':outcome['snapshot'],
             'text':text,'status':'proposed','automatic_injection':False,'automatic_promotion':False}
         value['id']=content_hash(value)
-        if not conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='learning.lesson' AND json_extract(payload,'$.id')=?",(task_id,value['id'])).fetchone():
-            ledger._event(conn,task_id,'learning.lesson',value)
+        outcome_core.append_learning(conn,ledger,task_id,'learning.lesson',value)
     return value
 
 

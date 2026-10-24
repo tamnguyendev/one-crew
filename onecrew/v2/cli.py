@@ -7,7 +7,7 @@ import sys
 
 from .messages import t
 
-GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate')
+GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson')
 OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
                   '  verdict    record / run (v2 milestone verdicts with receipts)\n'
                   '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
@@ -15,8 +15,12 @@ OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enfo
                   '  outcome    record / show / missing / reconcile / intervene (recorded results)\n'
                   '  continue   read-only resume pack; grants no authority\n'
                   '  context    add / observe / retrieve (project and shared knowledge)\n'
+                  '  incident   list / observe / finalize (evidence of errors and repairs)\n'
+                  '  lesson     list / record / general / withdraw (project lessons and general candidates)\n'
                   '  question   list / show / answer (owner-only answers)\n'
                   '  estimate   show / update / additional (sourced ranges)\n'
+                  '  notifications pull / ack (plan notices; delivery never answers or accepts)\n'
+                  '  desktop    enable / disable / status / show / retry (shared local outbox)\n'
                   '  executor   list / observe / summary (declared capabilities and observed runs)\n')
 
 
@@ -63,6 +67,12 @@ def route(args, index):
     if args[index] == 'estimate':
         from .estimates import main as estimate_main
         return estimate_main(args)
+    if args[index] in ('incident', 'lesson'):
+        from .learning_cli import main as learning_main
+        return learning_main(args)
+    if args[index] in ('notifications', 'desktop'):
+        from .notification_cli import main as notification_main
+        return notification_main(args)
     from .plan_cli import main as v2_main
     return v2_main(args)
 

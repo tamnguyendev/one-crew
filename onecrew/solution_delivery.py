@@ -8,6 +8,7 @@ from .ledger import LedgerError, canonical, content_hash, key_field, utcnow, val
 from .owned import Owned
 from .workflow import task_lock
 from .control import CapacityWait
+from .dependency_core import initial_node_states
 from . import delivery_store as db
 
 
@@ -117,7 +118,7 @@ class Delivery(Owned):
                 snapshot=None,message='OneCrew planning pending.' if planned else 'Delivery preflight pending.',pending=None,step=0,response=None,
                 plan=None if planned else plan,files={},original={},receipts=[],tests=[],deliveries=[],usage=[],outputs=[],worker=payload['owned_execution'],
                 delivery={'version':1,'generation':0,'repairs':0,'child_intent':None,'source':None,'baseline':None,
-                    'nodes':{} if planned else {n['id']:{'phase':'pending','generation':0,'receipt':None,'child':None} for n in plan['nodes']},
+                    'nodes':{} if planned else initial_node_states(plan['nodes']),
                     'history':[],'criteria':{} if planned else {a['id']:'pending' for a in plan['acceptance']},'delivery_status':'pending',
                     'planning':{'mode':'onecrew','stage':'discover','envelope_hash':plan['envelope_hash']} if planned else {'mode':'entry'},
                     'failures':{},'recoveries':[],'escalations':[]})
@@ -134,7 +135,7 @@ class Delivery(Owned):
             conn.execute('UPDATE delivery_roots SET plan=?,revision=? WHERE task_id=?',(canonical(plan),content_hash(plan),task_id))
             self.ledger._event(conn,task_id,'delivery.plan_sealed',{'plan_revision':content_hash(plan),**provenance})
         d=s['delivery'];s['plan']=plan
-        d['nodes']={n['id']:{'phase':'pending','generation':0,'receipt':None,'child':None} for n in plan['nodes']}
+        d['nodes']=initial_node_states(plan['nodes'])
         d['criteria']={a['id']:'pending' for a in plan['acceptance']}
         d['planning'].update(provenance,stage='sealed',plan_revision=content_hash(plan))
         s['message']='OneCrew plan sealed inside the approved envelope; preflight pending.'

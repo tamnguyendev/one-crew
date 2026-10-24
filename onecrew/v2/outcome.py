@@ -20,8 +20,8 @@ from .. import interventions, outcome_core
 from ..ledger import LedgerError, content_hash, key_field, text_field
 from . import compat, namespaces, plan as plans
 
-END_PHASE = {'accepted': 'completed', 'stopped_with_report': 'blocked', 'failed': 'failed'}
-_STANDING_END = {'accepted': 'accepted', 'stopped': 'stopped_with_report', 'failed': 'failed'}
+END_PHASE = {'accepted': 'completed', 'stopped_with_report': 'blocked', 'failed': 'failed', 'closed': 'cancelled'}
+_STANDING_END = {'accepted': 'accepted', 'stopped': 'stopped_with_report', 'failed': 'failed', 'closed': 'closed'}
 
 
 def _anchor_events(ledger, name):
@@ -50,7 +50,7 @@ def ending(ledger, name):
         done = [e for e in mine if e['kind'] == 'plan.accepted'][-1]
         artifact = done['payload'].get('artifact_sha')
     else:
-        done = [e for e in mine if e['kind'] == ('milestone.stopped' if end == 'stopped_with_report' else 'milestone.failed')][-1]
+        done = [e for e in mine if e['kind'] == {'stopped_with_report': 'milestone.stopped', 'failed': 'milestone.failed', 'closed': 'plan.closed'}[end]][-1]
         artifact = ([e for e in mine if e['kind'] == 'verdict.recorded' and e['seq'] < done['seq']] or [{'payload': {}}])[-1]['payload'].get('artifact_sha')
     return {'end': end, 'revision': revision, 'phase': END_PHASE[end], 'artifact_sha': artifact, 'event': done['seq'], 'sha': sha,
             '_task': task, '_events': events, '_facts': facts, '_done': done}
@@ -71,7 +71,7 @@ def build_payload(ledger, name, found=None):
     contract = facts['contract']
     data = {'version': 1, 'task': task['id'], 'task_revision': task['revision'], 'spec_revision': found['sha'], 'phase': found['phase'],
             'mode': 'plan', 'provider': None, 'model': None, 'provider_handoffs': [], 'snapshot': found['artifact_sha'],
-            'verification': 'passed' if found['end'] == 'accepted' else 'failed',
+            'verification': 'passed' if found['end'] == 'accepted' else 'unknown' if found['end'] == 'closed' else 'failed',
             'acceptance': 'accepted' if found['end'] == 'accepted' else 'not_requested',
             'progress': {'milestones': {v['id']: v['state'] for v in views}}, 'recovery': None, 'managed_calls': None, 'usage': None,
             'assistance': 'unknown', 'quality_score': None, 'routing_policy': 'v2-plan', 'device_tested': False, 'candidate_files': None,
@@ -98,7 +98,7 @@ def _historical_ends(ledger, name):
     found = {}
     for index, done in enumerate(events):
         kind, payload = done['kind'], done['payload']
-        if kind not in ('plan.accepted', 'milestone.stopped', 'milestone.failed'):
+        if kind not in ('plan.accepted', 'milestone.stopped', 'milestone.failed', 'plan.closed'):
             continue
         # failed + stopped are published by one verdict transaction. The
         # intermediate failed event is not a second terminal outcome.
@@ -123,7 +123,7 @@ def _historical_ends(ledger, name):
         facts = {'state': state, 'contract': contract, 'views': views, 'requests': [], 'revision': revision}
         standing, _ = report._standing(facts)
         end = _STANDING_END.get(standing)
-        expected = {'plan.accepted': 'accepted', 'milestone.stopped': 'stopped_with_report', 'milestone.failed': 'failed'}[kind]
+        expected = {'plan.accepted': 'accepted', 'milestone.stopped': 'stopped_with_report', 'milestone.failed': 'failed', 'plan.closed': 'closed'}[kind]
         if end != expected:
             continue
         key = (revision, end)

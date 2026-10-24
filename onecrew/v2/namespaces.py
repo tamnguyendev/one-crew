@@ -6,7 +6,10 @@ from ..ledger import LedgerError
 LEGACY = 'plan:'
 NAMESPACED = 'plan-ns:'
 WORKFLOW_VERSION = 1
-CAPABILITIES = ('namespaced-storage', 'finding-register', 'root-budget')
+DEFAULT_CAPABILITIES = ('namespaced-storage', 'finding-register', 'root-budget')
+CAPABILITIES = (*DEFAULT_CAPABILITIES, 'internal-plan', 'sequential-engine')
+DEPENDENCIES = {'internal-plan': {'namespaced-storage', 'root-budget'},
+                'sequential-engine': {'namespaced-storage', 'root-budget', 'internal-plan'}}
 
 
 def parse(value):
@@ -55,10 +58,16 @@ def active_file(ledger, value):
     return Path(ledger.state_root) / 'plans' / ledger.project_id / 'active-plan.json'
 
 
-def workflow_metadata(enabled):
+def workflow_metadata(enabled, capabilities=None):
     if type(enabled) is not bool:
         raise LedgerError('workflow must be a boolean; unsupported workflow versions/capabilities cannot be enabled.')
-    return {'workflow_version': WORKFLOW_VERSION, 'capabilities': list(CAPABILITIES)} if enabled else {}
+    if not enabled:
+        if capabilities is not None: raise LedgerError('Explicit capabilities require workflow=True.')
+        return {}
+    selected = list(DEFAULT_CAPABILITIES) if capabilities is None else capabilities
+    value = {'workflow_version': WORKFLOW_VERSION, 'capabilities': selected}
+    check_workflow(value)
+    return {'workflow_version': WORKFLOW_VERSION, 'capabilities': [capability for capability in CAPABILITIES if capability in selected]}
 
 
 def has_capability(state, capability):
@@ -77,3 +86,6 @@ def check_workflow(payload):
             or len(set(capabilities)) != len(capabilities)
             or any(capability not in CAPABILITIES for capability in capabilities)):
         raise LedgerError('Unsupported workflow version or capability; supported: ' + ', '.join(CAPABILITIES) + '.')
+    for capability in capabilities:
+        if not DEPENDENCIES.get(capability, set()) <= set(capabilities):
+            raise LedgerError('Capability ' + capability + ' requires ' + ', '.join(sorted(DEPENDENCIES[capability])) + '.')

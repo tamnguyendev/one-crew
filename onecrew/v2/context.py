@@ -251,6 +251,8 @@ def retrieve(ledger, *, plan=None, scope='both', revision=None, limit=200):
                         'kind': p['kind'], 'label': label, 'label_vi': LABEL_VI[label], 'stored_label': p['label'], 'text': p['text'], 'source': p['source'],
                         'source_text': p['source_text'], 'symbol': p.get('symbol'), 'conditions': p.get('conditions'), 'stale_reason': reason,
                         'plan_revision': p.get('plan_revision'), 'at': p['at'], 'is_instruction': False})
+    from . import lessons
+    entries = lessons.refine_context(ledger, entries, revision or current)
     return {'data_not_authority': True, 'notice': NOTICE, 'scope': scope, 'plan': plan, 'checked_at': current, 'entries': entries}
 
 

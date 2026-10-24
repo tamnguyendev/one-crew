@@ -85,3 +85,86 @@ with tempfile.TemporaryDirectory() as temp:
     plan.accept(ledger,'Data','owner','temporary fixture acceptance',sha)
     assert len(outcome.outcomes(ledger,'Data'))==1
 ''')
+
+    def test_installed_progress_and_owner_stop_keep_evidence_and_end_the_root(self):
+        contract = plan_json()
+        contract['milestones'][0]['max_repairs'] = 0
+        self.check_body('''
+import json, sys, subprocess, tempfile
+from pathlib import Path
+from onecrew.ledger import Ledger
+from onecrew.snapshots import Snapshots
+from onecrew.v2 import plan, verdict, namespaces, questions, progress_track, executors, outcome, resume_pack, report
+with tempfile.TemporaryDirectory() as temp:
+    root=Path(temp)/'project'; root.mkdir(); (root/'a.txt').write_text('base\\n')
+    def git(*args): subprocess.run(['git','-C',str(root),*args],check=True,capture_output=True)
+    git('init','-q'); git('add','.'); git('-c','user.name=fixture','-c','user.email=fixture@localhost','commit','-qm','base')
+    ledger=Ledger(root,Path(temp)/'state')
+    contract=json.loads(''' + repr(json.dumps(contract)) + ''')
+    contract['milestones'][0]['verifier']['config']['argv']=[sys.executable,'-c','raise SystemExit(1)']
+    plan.propose(ledger,'P1',contract,'codex',workflow=True,capabilities=list(namespaces.CAPABILITIES))
+    plan.approve(ledger,'P1','owner','temporary fixture')
+    receipt=Snapshots(ledger.state_root).blob(b'actual local observation')
+    result=progress_track.observe(ledger,'P1','M1',executors.HookAdapter(),'A1','K1',{'kind':'unknown'},source='receipt',ref=receipt)
+    assert result['checkpoint']['status']=='unknown' and result['grants_execution'] is False
+    stopped=verdict.run(ledger,'P1','M1')
+    assert stopped['status']=='stopped_with_report'
+    req=questions.list_for_plan(ledger,'P1',pending=True)[0]
+    questions.answer(ledger,req['id'],req['revision'],'stop','Stop after checked failure.')
+    assert plan.show(ledger,'P1')['status']=='closed'
+    assert outcome.ending(ledger,'P1')['phase']=='cancelled'
+    assert resume_pack.build(ledger,'P1')['remaining']['who'] is None
+    assert 'ĐÃ ĐÓNG' in report.render_present(ledger.state_root,'P1')
+''')
+
+    def test_installed_verified_repair_creates_project_lesson_before_root_completion(self):
+        contract = plan_json()
+        contract['scope']['owned'] = ['a.txt']
+        contract['milestones'][0]['verifier'] = {'type':'reviewer','config':{
+            'provider':'claude','model':'fixture-model','max_minutes':1,
+            'criteria':[{'id':'R1','question':'Does a.txt preserve both rows?'}]}}
+        self.check_body('''
+import json, tempfile, subprocess, io, contextlib
+from pathlib import Path
+from onecrew.ledger import Ledger
+from onecrew.v2 import plan, verdict, incidents, lessons, findings, context
+from onecrew.v2.cli import main
+with tempfile.TemporaryDirectory() as temp:
+    root=Path(temp)/'project'; root.mkdir(); (root/'a.txt').write_text('2\\n')
+    (root/'.gitignore').write_text('.onecrew/\\n')
+    def git(*args): return subprocess.run(['git','-C',str(root),*args],check=True,capture_output=True,text=True).stdout.strip()
+    git('init','-q'); git('config','user.name','fixture'); git('config','user.email','fixture@localhost')
+    git('add','.'); git('commit','-qm','bug')
+    ledger=Ledger(root,Path(temp)/'state')
+    contract=json.loads(''' + repr(json.dumps(contract)) + ''')
+    plan.propose(ledger,'P1',contract,'codex',workflow=True)
+    plan.approve(ledger,'P1','owner','temporary fixture only')
+    (root/'a.txt').write_text('2\\n# changed broken output\\n'); git('add','.'); git('commit','-qm','failing candidate')
+    def fake_provider(prompt,config,env,scratch,limit):
+        result='pass' if (root/'a.txt').read_text()=='1\\n2\\n' else 'fail'
+        return json.dumps({'criteria':[{'id':'R1','verdict':result,'evidence':[{'file':'a.txt','line':1,'note':'Fixture compares all rows'}]}],'outside_criteria':[]}),{},None,False,b''
+    from onecrew.v2.verifiers import reviewer
+    original_call=reviewer.call
+    reviewer.call=fake_provider
+    try:
+        failed=verdict.run(ledger,'P1','M1')
+        assert failed['milestones'][0]['state']=='failed', failed['milestones'][0]
+        assert not incidents.list_incidents(ledger,'P1')
+        (root/'a.txt').write_text('1\\n2\\n'); git('add','.'); git('commit','-qm','repair')
+        passed=verdict.run(ledger,'P1','M1')
+        assert passed['milestones'][0]['state']=='passed', passed['milestones'][0]
+    finally:
+        reviewer.call=original_call
+    assert len(incidents.list_incidents(ledger,'P1'))==1, incidents.observations(ledger,'P1')
+    entries=lessons.retrieve(ledger,name='P1')['entries']
+    assert entries and entries[0]['scope']=='project'
+    assert plan.show(ledger,'P1')['status']=='approved'
+    assert findings.list_findings(ledger,'P1')[0]['status']=='open'
+    task=plan.show(ledger,'P1')['anchor_task']
+    before=ledger.events(task)
+    out=io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code=main(['--project',str(root),'--state-root',str(ledger.state_root),'lesson','list','--name','P1'])
+    assert code==0 and json.loads(out.getvalue())['entries']
+    assert ledger.events(task)==before
+''')

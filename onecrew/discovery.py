@@ -9,10 +9,7 @@ EXCLUDED = {'.git', '.onecrew', '.ssh', '.aws', '.azure', '.config', '.codex',
             '.claude', '.kiro', '.venv', 'venv', 'node_modules', '__pycache__',
             'build', 'dist', '.dart_tool', '.idea', '.vscode'}
 PRIVATE = re.compile(r'(credential|secret|token|password|private.?key|id_rsa|id_ed25519|^auth\.json$)', re.I)
-SECRET = re.compile(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|'
-                    r'\b(?:ghp_|github_pat_|sk-proj-|sk-ant-|apikey_)[A-Za-z0-9_-]{15,}|'
-                    r'(?im:^\s*(?:[A-Z_]*(?:PASSWORD|SECRET|API_KEY|ACCESS_TOKEN))\s*[=:]\s*["\x27]?[^\s"\x27]{8,})|'
-                    r'(?i:["\x27](?:[a-z_]*(?:password|secret|api_key|access_token|refresh_token|auth_token))["\x27]\s*:\s*["\x27][^"\x27]{8,})')
+from .display_core import SECRET
 TEXT = {'.py','.js','.mjs','.cjs','.ts','.mts','.cts','.tsx','.jsx','.json','.md','.txt','.toml','.yaml','.yml',
         '.dart','.xml','.sql','.xsql','.html','.css','.scss','.go','.rs','.java',
         '.kt','.cs','.cpp','.c','.h','.sh','.ps1','.bat','.ini','.cfg','.lock','.arb'}

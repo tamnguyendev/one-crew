@@ -89,6 +89,9 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
                 raise LedgerError('A receipt file is accepted only for an owner-manual milestone; a command or reviewer milestone is verified by verdict run.')
             receipt = Snapshots(ledger.state_root).blob(receipt_bytes)
         body = _check_receipt(ledger, state['name'], revision, sha, milestone, result, by, artifact_sha, receipt, state['issued'])
+        if body and result == 'pass' and namespaces.has_capability(state, 'sequential-engine'):
+            from . import verification_evidence
+            verification_evidence.require_binding(body)
         from .retention import pin_evidence
         if result == 'pass' and set(artifact_sha) == {'0'}:
             raise LedgerError('A passing verdict requires an artifact, not the null tree id.')
@@ -124,6 +127,14 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
         limit = contract['attention']['questions']
         anchor = state['task_id']
     escalation = _escalate(ledger, name, anchor, stopped, limit) if stopped else None
+    # Learning follows authentic committed evidence; failure must not rewrite
+    # the verifier result. Replaying the hook can reconcile an interrupted write.
+    try:
+        from . import incidents
+        incidents.after_verdict(ledger, name, milestone_id, receipt)
+    except Exception as error:
+        import sys
+        print('OneCrew learning pending: ' + type(error).__name__ + ': ' + str(error)[:200], file=sys.stderr)
     from . import active_plan; active_plan.export(ledger, name)  # L2: the hooks see the new milestone state
     out = plans.show(ledger, name, revision)         # the revision the verdict was about (the approved one while an amendment waits)
     if escalation: out['stopped'] = escalation
@@ -278,17 +289,19 @@ def run(ledger, name, milestone_id, directory=None):
     level = reviewer.check_independence(written, config) if kind == 'reviewer' else None
     minutes = config.get('max_minutes') or config['authority']['max_minutes']
     run_id = _begin_run(ledger, name, revision, milestone_id, kind, minutes)
+    evidence_context = ({'evidence_context': {'selector': state['selector'], 'revision': revision, 'contract': contract}}
+                        if namespaces.has_capability(state, 'sequential-engine') else {})
     try:
         if kind == 'command':
-            blob, receipt = command.run(ledger, state['name'], revision, sha, milestone, directory)
+            blob, receipt = command.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context)
         elif kind == 'reviewer':
-            context = {}
+            context = dict(evidence_context)
             if namespaces.has_capability(state, 'finding-register'):
                 from . import findings
                 context['open_findings'] = findings.reviewer_context(ledger, name, milestone_id, task_id=state['task_id'])
             blob, receipt = reviewer.run(ledger, state['name'], revision, sha, milestone, directory, level, approved, previous, **context)
         else:
-            blob, receipt = port.run(ledger, state['name'], revision, sha, milestone, directory)
+            blob, receipt = port.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context)
             port.record_violations(ledger, name, revision, milestone_id, blob, receipt)
         with ledger.transaction(write=True) as conn:
             current = plans.anchor_events(ledger, conn, name)
