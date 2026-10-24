@@ -7,6 +7,27 @@ t04 = open(os.path.join(R, 'docs', 'wf', 'sources', '04-TASKS.vi.md'), encoding=
 gate = sys.argv[1] if len(sys.argv) > 1 else 'chưa có'
 commit = sys.argv[2] if len(sys.argv) > 2 else 'HEAD'
 fixture = sys.argv[3] if len(sys.argv) > 3 else 'pending'   # 'passed' only from a gate receipt where every implementation check passed
+bundles = json.load(open(sys.argv[4], encoding='utf-8')) if len(sys.argv) > 4 else {}   # release -> path of release-check.json (wfkit.release_bundle)
+
+
+def bundle_lines(rel):
+    """The T54 bundle of this release, point by point, from the producer's release-check.json (real local observations); the INPUTS blocker
+    (no delivered previous build) is named as the external condition it is."""
+    path = bundles.get(rel)
+    if not path:
+        return [f'- Bundle T54 (`python -m wfkit.release_bundle {rel} --out <thư mục mới>` rồi `python -m wfkit.release_check bundle.json`): chưa chạy cho bản này.']
+    v = json.load(open(path, encoding='utf-8'))
+    cond = v.get('conditions', {})
+    words = {True: 'đạt (biên nhận thật)', False: 'không đạt'}
+    names = {'INPUTS': 'INPUTS — lịch sử cổng giao của bản trước', 'T54.1': 'T54.1 — kịch bản chạy từ bản cài', 'T54.2': 'T54.2 — nâng cấp giữ ID/ngân sách/evidence/attempt',
+             'T54.3': 'T54.3 — lớp sự kiện, S/G/C bản cũ', 'T54.4': 'T54.4 — rollback từ chối/cho phép, roll-forward', 'T54.5': 'T54.5 — ghi chú bốn trạng thái'}
+    out = [f'- Bundle T54 thật (`wfkit.release_bundle`, kết quả `release_check`: **{v.get("decision")}**; bundle `{v.get("bundle", "")}`):']
+    for key in ('INPUTS', 'T54.1', 'T54.2', 'T54.3', 'T54.4', 'T54.5'):
+        reason = next((r['detail'] for r in v.get('reasons', []) if r['code'] == key), '')
+        out.append(f'  - {names[key]}: {words.get(cond.get(key), "chưa có")}' + (f' — {reason}' if reason else ''))
+    out.append('  - Bản trước trong bundle là d3120c6 (baseline mà `compat scan` mô hình), KHÔNG phải bản đã giao: chưa có release nào của chương trình được giao, '
+               'nên điều kiện INPUTS chỉ có thể đạt sau khi chủ sở hữu giao một release (điều kiện ngoài).')
+    return out
 rows = []
 for l in t04.split('## Ánh xạ 62 ID task cũ')[0].split('\n'):
     m = re.match(r'^\| ([A-Z][A-Za-z0-9-]*?)(\s*\(S\))? \| ', l)
@@ -53,7 +74,7 @@ for rel, body in cfg['releases'].items():
               '## Evidence status', '',
               f'- Registry {rel}: complete {counts["complete"]}, partial {counts["partial"]}, blocked {counts["blocked"]} (`python -m wfkit.development_gate list`).',
               f'- Gate development trên một wheel: {gate}.',
-              f'- Bundle T54 ({pack[0] if pack else "W40-" + rel}, `python -m wfkit.release_check bundle.json`): **chưa có** — thiếu bản giao trước thật, kịch bản đầu-cuối theo release, artifact đóng băng, lịch sử biên nhận đã giao. Fixture bundle (`--allow-simulated`) chỉ chứng minh luật của validator.',
+              *bundle_lines(rel),
               '- Không ghi "đã giao", "Codex đã review" hay "chủ sở hữu đã nghiệm thu".', '',
               'Bốn trạng thái bằng chứng (định dạng của `release_check` T54.5, mỗi dòng một trạng thái):', '',
               'Code: present', f'Fixture checks: {fixture}', 'Real checks: not-run', 'Acceptance: not-requested', '']
