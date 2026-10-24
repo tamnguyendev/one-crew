@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 from ..ledger import LedgerError, content_hash, key_field, text_field, utcnow
-from . import plan
+from . import namespaces, plan
 
 KINDS = ('estimate.baseline', 'estimate.eta', 'work.additional')
 
@@ -106,8 +106,7 @@ def additional(ledger, selector, key, category, reason, acceptance, seconds, ref
     key_field(key); text_field(reason, 'reason', 1000)
     if not reason.strip(): raise LedgerError('Additional work requires a reason.')
     if category not in ('mandatory', 'optional', 'outside_authority'): raise LedgerError('Unknown additional work category.')
-    if nodes is not None and (not isinstance(nodes, list) or not all(isinstance(n, str) and n for n in nodes)):
-        raise LedgerError('nodes: the internal node ids that depend on the additional work.')
+    nodes, still_running = _node_lists(ledger, selector, nodes, still_running)        # refused BEFORE any write
     if nodes and category != 'outside_authority':
         raise LedgerError('Only outside-authority work holds nodes; mandatory work goes to the forecast, optional work to the backlog.')
     span, refs = interval(seconds), evidence(refs)
@@ -123,7 +122,7 @@ def additional(ledger, selector, key, category, reason, acceptance, seconds, ref
             disposition={'mandatory': 'forecast', 'optional': 'backlog', 'outside_authority': 'U2'}[category],
             grants_execution=False))
     if category == 'outside_authority':
-        result['u2'] = _outside_authority(ledger, selector, key, reason, acceptance, refs, nodes or [], still_running or [])
+        result['u2'] = _outside_authority(ledger, selector, key, reason, acceptance, refs, nodes, still_running)   # raises when the hold cannot be written
     internal = observe_internal(ledger, selector, reason=reason, evidence=refs)
     if internal is None:
         from .exceptions import observe
@@ -131,8 +130,31 @@ def additional(ledger, selector, key, category, reason, acceptance, seconds, ref
     return result
 
 
+def _node_lists(ledger, selector, nodes, still_running):
+    """The dependent nodes (to hold) and the nodes named as still running: lists of ids of the current internal plan, disjoint. Checked
+    before anything is written, so a typo never leaves a U2 without its hold."""
+    def checked(value, field):
+        if value is None: return []
+        if not isinstance(value, list) or not all(isinstance(n, str) and n for n in value) or len(set(value)) != len(value):
+            raise LedgerError(f'{field}: a list of distinct internal node ids.')
+        return list(value)
+    nodes, still_running = checked(nodes, 'nodes'), checked(still_running, 'still_running')
+    if not nodes and not still_running: return nodes, still_running
+    from . import internal_plan as ip
+    with ledger.transaction() as conn:
+        root = plan.anchor_events(ledger, conn, selector)
+        current = ip.current(ledger, root['selector'], conn) if namespaces.has_capability(root, 'sequential-engine') else None
+    known = {n['id'] for n in (current or {}).get('definition', {}).get('nodes', [])} if current and current.get('definition') else set()
+    unknown = [n for n in nodes + still_running if n not in known]
+    if unknown: raise LedgerError(f'nodes/still_running name nodes that are not in the current internal plan: {", ".join(unknown)}.')
+    if set(nodes) & set(still_running): raise LedgerError('a node cannot be both held and still running.')
+    return nodes, still_running
+
+
 def _outside_authority(ledger, selector, key, reason, acceptance, refs, nodes, still_running):
-    """T36b [E11]: the U2 request for work outside the grant (one per key, idempotent) and the hold of exactly the dependent nodes."""
+    """T36b [E11]: the U2 request for work outside the grant (one per key, idempotent) and the hold of exactly the dependent nodes.
+    The hold is opened FIRST (runtime_unknowns, idempotent by key): if it cannot be written the error propagates — the caller never
+    hears "held" when nothing holds. A retry re-enters every step idempotently (work.additional by key, request by key, unknown by key)."""
     with ledger.transaction() as conn:
         state = _state(ledger, conn, selector)
     task_id = state['task_id']
@@ -145,16 +167,15 @@ def _outside_authority(ledger, selector, key, reason, acceptance, refs, nodes, s
                 'recommendation': 'skip',
                 'action': {'type': 'authorize', 'parameters': {'class': 'U2', 'additional': key, 'acceptance': acceptance, 'nodes': nodes,
                                                                'still_running': still_running, 'evidence': refs}}}
-    existing = next((r for r in ledger.requests(task_id) if r.get('key') == request_key or r['question'].get('action', {}).get('parameters', {}).get('additional') == key), None)
-    request = existing or ledger.create_request(task_id, request_key, question)
     held = None
     if nodes:
         from . import runtime_unknowns
-        try:
-            held = runtime_unknowns.open_unknown(ledger, selector, 'additional-' + key, question=question['question'], affected=nodes, required_by=nodes,
-                                                 resolver='owner', evidence=refs)
-        except LedgerError as error:
-            held = {'error': str(error)}
+        held = runtime_unknowns.open_unknown(ledger, selector, 'additional-' + key, question=question['question'], affected=nodes, required_by=nodes,
+                                             resolver='owner', evidence=refs)
+        if not held or held.get('state') != 'open' and held.get('state') != 'resolved':
+            raise LedgerError('The hold of the dependent nodes was not written; the outside-authority work is not recorded as held.')
+    existing = next((r for r in ledger.requests(task_id) if r['question'].get('action', {}).get('parameters', {}).get('additional') == key), None)
+    request = existing or ledger.create_request(task_id, request_key, question)
     return {'request': request['id'], 'request_revision': request['revision'], 'class': 'U2', 'held_nodes': nodes, 'unknown': held}
 
 
@@ -292,7 +313,10 @@ def main(argv):
             if args.command == 'update':
                 result = reforecast(ledger, args.plan, body['key'], body['remaining_seconds'], body['reason'], body['evidence'])
             else:
-                result = additional(ledger, args.plan, body['key'], body['category'], body['reason'], body['acceptance'], body['execution_seconds'], body['evidence'])
+                extra = set(body) - {'key', 'category', 'reason', 'acceptance', 'execution_seconds', 'evidence', 'nodes', 'still_running'}
+                if extra: raise LedgerError('additional: unknown fields ' + ', '.join(sorted(extra)))
+                result = additional(ledger, args.plan, body['key'], body['category'], body['reason'], body['acceptance'], body['execution_seconds'], body['evidence'],
+                                    nodes=body.get('nodes'), still_running=body.get('still_running'))
         print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
     except (LedgerError, OSError, ValueError, KeyError, TypeError) as error:
         print(json.dumps({'error': str(error), 'type': type(error).__name__}, ensure_ascii=False)); return 2
