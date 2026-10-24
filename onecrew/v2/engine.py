@@ -106,6 +106,7 @@ def state(ledger, selector, conn=None):
             'active_nodes':active_nodes,'capabilities':list(root.get('capabilities',())),
             'unknown_blockers': runtime_unknowns.blockers(ledger, root['selector'], conn),
             'finding_blockers': finding_scope.blockers(ledger, root['selector'], definition['nodes'] if definition else [], conn),
+            'request_blockers': finding_scope.request_blockers(ledger, root['selector'], definition['nodes'] if definition else [], conn),
             'failed_blockers':failed_blockers}
 
 
@@ -209,7 +210,7 @@ def _input_blocks(view, nid):
         # still holds (in scope, already verified, not re-issued) then no longer blocks them — otherwise the repair could never run.
         own = set(view.get('finding_blockers', {}).get(nid, []))
         findings_ = [f for f in view.get('finding_blockers', {}).get(target, []) if target == nid or f in own]
-        if view.get('unknown_blockers', {}).get(target) or findings_ or failed: return True
+        if view.get('unknown_blockers', {}).get(target) or view.get('request_blockers', {}).get(target) or findings_ or failed: return True
         pending.extend(edge['node'] for edge in nodes.get(target, {}).get('depends', []))
     return False
 

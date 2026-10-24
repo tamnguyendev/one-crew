@@ -59,6 +59,34 @@ def _release_repairs(ledger, held, open_findings, nodes):
         if not held[node['id']]: del held[node['id']]
 
 
+V2_SCOPED_TYPES = ('workflow.branch', 'authorize')      # the v1 branch question and the v2 U2 question (W32a) both name the nodes they hold
+
+
+def request_blockers(ledger, selector, nodes, conn=None):
+    """W18 (T07a [E14]): the branch hold that comes from PENDING REQUESTS, through v1's admission rule (`admission_core.blocking`, the
+    same function the v1 controller uses) with the v2 policy: only a request that names its nodes holds them (plus their dependents
+    through `dependency_core.affected_tasks`); a question without a scope holds nothing — independent work goes on (HD-25, T16).
+    {node: [request ids]}; {} without the finding-register capability."""
+    if conn is None:
+        with ledger.transaction() as connection:
+            return request_blockers(ledger, selector, nodes, connection)
+    root = plan.anchor_events(ledger, conn, selector)
+    if not namespaces.has_capability(root, 'finding-register') or not nodes: return {}
+    from .. import admission_core
+    from . import internal_plan
+    rows = admission_core.pending(conn, root['task_id'])
+    if not rows: return {}
+    projection = internal_plan.influence_projection(nodes)
+    result = {}
+    for node in nodes:
+        held = admission_core.blocking(rows, 'task:' + node['id'], scoped_types=V2_SCOPED_TYPES, unscoped_blocks=False)
+        if not held: continue
+        for nid in dependency_core.affected_tasks(projection, [node['id']]):
+            for request_id in held:
+                if request_id not in result.setdefault(nid, []): result[nid].append(request_id)
+    return result
+
+
 def write_scope(ledger, selector, conn=None):
     """The existing active-plan cache's precise write withdrawal projection."""
     if conn is None:
