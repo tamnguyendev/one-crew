@@ -43,9 +43,7 @@ def _check_receipt(ledger, name, revision, plan_sha, milestone, result, by, arti
         if body.get(field) != want: raise LedgerError(f'Receipt does not belong to this plan/milestone ({field} differs).')
     if body.get('artifact_sha') != artifact:
         raise LedgerError(f'Artifact sha {artifact} does not match the one the receipt observed ({body.get("artifact_sha")}).')
-    expected = _result(verifier, body)
-    if expected == 'pass' and integrity and integrity.get('weakened'):
-        expected = 'fail'                   # W05/T19: a green command on a weakened suite supports only a fail (U1), never a pass
+    expected = integrity_result(_result(verifier, body), integrity)   # W05/T19: a green command on a weakened suite supports a fail (U1), on an unproven one at most inconclusive
     if result != expected: raise LedgerError(f'Receipt supports a {expected} verdict, not {result}.')
     # A well-formed receipt is not enough: it must be one that verdict.run issued. Anything hand-written is refused (F1).
     if (revision, milestone['id'], receipt) not in issued:
@@ -55,6 +53,15 @@ def _check_receipt(ledger, name, revision, plan_sha, milestone, result, by, arti
 
 def _result(kind, receipt):
     return (command if kind == 'command' else reviewer if kind == 'reviewer' else port).expected_result(receipt)
+
+
+def integrity_result(result, integrity):
+    """W05/T19: what a command result supports once the test suite is compared with the approved base. A pass on a weakened suite is a
+    fail (U1); a pass on a suite this analysis cannot prove intact (insufficient) is at most inconclusive; a fail stays a fail."""
+    if result != 'pass' or not integrity: return result
+    if integrity.get('weakened'): return 'fail'
+    if integrity.get('insufficient') or integrity.get('error'): return 'inconclusive'
+    return result
 
 
 def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receipt_bytes=None, reference=None, integrity=None):
@@ -106,8 +113,9 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
                  if body and body.get('kind') == 'reviewer-receipt' else {})
         if body and (body.get('kind') == 'command-receipt' or port.known(milestone['verifier']['type'])):
             extra['calls'] = body.get('calls', 0)
-        if integrity and (integrity.get('weakened') or integrity.get('added') or integrity.get('error')):     # W05/T19
+        if integrity and (integrity.get('weakened') or integrity.get('added') or integrity.get('insufficient') or integrity.get('error')):     # W05/T19
             extra['test_integrity'] = {'weakened': integrity.get('weakened', [])[:20], 'added': integrity.get('added', [])[:20],
+                                       'insufficient': integrity.get('insufficient', [])[:20],
                                        'receipt': integrity.get('receipt'), 'classification': integrity.get('classification'),
                                        'base': integrity.get('base'), 'error': integrity.get('error')}
         plans.emit(ledger, conn, state['task_id'], 'verdict.recorded', dict(base, result=result, by=by, receipt=receipt,
@@ -342,9 +350,7 @@ def run(ledger, name, milestone_id, directory=None):
     except BaseException as error:
         _abandon_own(ledger, name, run_id, error)
         raise
-    result = _result(kind, receipt)
-    if integrity and integrity.get('weakened') and result == 'pass':
-        result = 'fail'                        # T19 [E1]/[E3]: the gate is red on a weakened suite, whatever the command printed
+    result = integrity_result(_result(kind, receipt), integrity)      # T19 [E1]/[E3]: red on a weakened suite, not green on an unproven one
     shown = record(ledger, name, milestone_id, result, kind, blob, receipt['artifact_sha'], integrity=integrity)
     _unmark(ledger, run_id)
     return shown
@@ -496,9 +502,7 @@ def _complete_from_marker(ledger, name, revision, milestone_id, run, marker):
     if stale:
         return None
     integrity = marker.get('integrity')
-    result = _result(run.get('kind'), receipt)
-    if integrity and integrity.get('weakened') and result == 'pass':
-        result = 'fail'
+    result = integrity_result(_result(run.get('kind'), receipt), integrity)
     return record(ledger, name, milestone_id, result, run.get('kind'), blob, receipt['artifact_sha'], integrity=integrity)
 
 
@@ -533,11 +537,11 @@ def _test_integrity(ledger, directory, approved, receipt):
             return None
         report = test_integrity.compare(directory, base, current)
     except (LedgerError, OSError, ValueError) as error:
-        return {'error': str(error)[:300], 'weakened': [], 'added': []}
+        return {'error': str(error)[:300], 'weakened': [], 'added': [], 'insufficient': [], 'classification': 'insufficient'}   # not told -> not established
     actor = os.environ.get('ONECREW_ACTOR') or 'unknown'
     record_ = dict(report, base_source=source, provenance={'by': actor, 'receipt': None},
-                   classification='U1' if report['weakened'] else None)
-    if report['weakened'] or report['added']:
+                   classification='U1' if report['weakened'] else 'insufficient' if report['insufficient'] else None)
+    if report['weakened'] or report['added'] or report['insufficient']:
         record_['receipt'] = Snapshots(ledger.state_root).blob(canonical(record_).encode('utf-8'))
     return record_
 
