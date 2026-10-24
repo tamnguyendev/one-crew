@@ -1,9 +1,12 @@
 """Shared candidate verifier using the owner's sealed milestone verifiers.
 
 The adapter constructs the actual Git candidate with v1 Integration.tree, checks
-out that tree, and calls the existing command verifier or registered adapter port. It never executes node
-prose or treats a report as a file candidate. Reviewer/manual adapters are not
-implemented here and are refused explicitly.
+out that tree, and calls the existing command verifier, the reviewer verifier or a
+registered adapter port. It never executes node prose or treats a report as a file
+candidate. A reviewer milestone is judged for independence against the proposal
+authors AND the actual producing child models before any call, and its provider
+call goes through the metered root budget. Owner-manual checks are refused here:
+they need the owner.
 """
 import copy
 import json
@@ -77,8 +80,60 @@ def producer_pins(ledger, view, item):
     return sorted(pins, key=lambda p: p['node'])
 
 
-def _reuse(ledger, view, item, artifact, previous_receipt, tree, binding):
-    """Authenticate current node evidence, then ask the shared W07 law."""
+PROOF_FIELD = {'candidate-command-check': 'command_receipt', 'candidate-adapter-check': 'adapter_receipt',
+               'candidate-reviewer-check': 'reviewer_receipt'}
+PROOF_KIND = {'command': 'candidate-command-check', 'reviewer': 'candidate-reviewer-check'}   # adapters: candidate-adapter-check
+
+
+def expected_of(kind, proof):
+    """The verdict a retained proof supports, by the verifier family that wrote it."""
+    if kind == 'candidate-command-check': return command.expected_result(proof)
+    if kind == 'candidate-reviewer-check': return reviewer.expected_result(proof)
+    return port.expected_result(proof)
+
+
+def proof_mismatch(wrapper, proof, milestone, plan_sha, revision, tree):
+    """Why a retained (wrapper, proof) pair is NOT the approved milestone's own check on this candidate tree under this
+    contract; None when it is. Shared by handoff reuse and native learning so a receipt of another command, a no-op, a
+    relabelled family, another contract/revision or a cap above the approved one can never stand in for the real check."""
+    kind = wrapper.get('kind')
+    field = PROOF_FIELD.get(kind)
+    if not field or field not in wrapper: return 'unknown candidate proof kind'
+    vtype = milestone['verifier']['type']
+    want = PROOF_KIND.get(vtype, 'candidate-adapter-check')
+    if kind != want: return 'proof family differs from the approved verifier type'
+    if wrapper.get('milestone') != milestone['id'] or proof.get('milestone') != milestone['id']: return 'proof names another milestone'
+    if wrapper.get('tree') != tree or proof.get('artifact_sha') != tree or proof.get('artifact_sha_after') != tree: return 'proof is not on this candidate tree'
+    if proof.get('plan_sha') != plan_sha or proof.get('revision') != revision: return 'proof belongs to another contract or revision'
+    expected_kind = {'candidate-command-check': 'command-receipt', 'candidate-reviewer-check': 'reviewer-receipt'}.get(kind)
+    if expected_kind and proof.get('kind') != expected_kind: return 'proof body is not a ' + expected_kind
+    config = milestone['verifier']['config']
+    approved_cap = config['authority']['max_minutes'] if vtype not in ('command', 'reviewer') else config['max_minutes']
+    effective = wrapper.get('effective_max_minutes')
+    if not isinstance(effective, (int, float)) or isinstance(effective, bool) or effective <= 0 or effective > approved_cap:
+        return 'effective time cap is not within the approved cap'
+    if kind == 'candidate-command-check':
+        if proof.get('argv') != config['argv']: return 'proof ran another command than the approved argv'
+    else:
+        recorded = proof.get('config')
+        if not isinstance(recorded, dict): return 'proof records no verifier config'
+        if vtype == 'reviewer':
+            same = {k: v for k, v in recorded.items() if k != 'max_minutes'} == {k: v for k, v in config.items() if k != 'max_minutes'}
+            cap_ok = isinstance(recorded.get('max_minutes'), (int, float)) and 0 < recorded['max_minutes'] <= config['max_minutes']
+        else:
+            own = lambda c: {k: v for k, v in c.items() if k != 'authority'}
+            auth = lambda c: {k: v for k, v in (c.get('authority') or {}).items() if k != 'max_minutes'}
+            same = own(recorded) == own(config) and auth(recorded) == auth(config)
+            got = (recorded.get('authority') or {}).get('max_minutes')
+            cap_ok = isinstance(got, (int, float)) and 0 < got <= approved_cap
+        if not same: return 'proof config differs from the approved milestone config'
+        if not cap_ok: return 'proof time cap is not within the approved cap'
+    return None
+
+
+def _reuse(ledger, view, item, artifact, previous_receipt, tree, binding, plan_sha, milestones):
+    """Authenticate current node evidence (every retained proof is the approved check on this tree under this
+    contract, with the binding the checker observed), then ask the shared W07 law."""
     if not previous_receipt or view['nodes'][item['id']].get('verification_receipt') != previous_receipt:
         return None
     store = Snapshots(ledger.state_root)
@@ -97,18 +152,26 @@ def _reuse(ledger, view, item, artifact, previous_receipt, tree, binding):
         if (observed.get('artifact') != artifact or observed.get('candidate_tree') != tree or len(rows) != len(ids)
                 or {r['id'] for r in rows} != set(ids) or any(r['result'] != 'pass' for r in rows)):
             return None
+        observed_binding = observed.get('evidence_binding')
+        if observed_binding is None or observed_binding.get('revision') != view['contract_revision']:
+            return None
         for row in rows:
             wrapper = json.loads(store.read_blob(row['evidence']))
             kind = wrapper.get('kind')
-            field = {'candidate-command-check': 'command_receipt', 'candidate-adapter-check': 'adapter_receipt',
-                     'candidate-reviewer-check': 'reviewer_receipt'}.get(kind)
+            field = PROOF_FIELD.get(kind)
             if not field or wrapper.get('node') != item['id'] or wrapper.get('snapshot') != artifact or wrapper.get('tree') != tree or wrapper.get('milestone') != row['id']:
                 return None
-            proof = json.loads(store.read_blob(wrapper[field]))
-            expected = command.expected_result(proof) if kind == 'candidate-command-check' else reviewer.expected_result(proof) if kind == 'candidate-reviewer-check' else port.expected_result(proof)
-            if expected != 'pass' or proof.get('artifact_sha') != tree or proof.get('artifact_sha_after') != tree:
+            if wrapper.get('evidence_binding') != observed_binding:
                 return None
-        assessment = verification_evidence.assess(observed.get('evidence_binding'), binding)
+            milestone = milestones.get(row['id'])
+            if milestone is None:
+                return None
+            proof = json.loads(store.read_blob(wrapper[field]))
+            if proof_mismatch(wrapper, proof, milestone, plan_sha, view['contract_revision'], tree) is not None:
+                return None
+            if expected_of(kind, proof) != 'pass':
+                return None
+        assessment = verification_evidence.assess(observed_binding, binding)
         if not assessment['reusable'] or assessment['requires_record']:
             return None
         return dict(observed, evidence_binding=binding, reuse_basis={'kind': 'current-node-verification', 'source_receipt': previous_receipt,
@@ -141,7 +204,7 @@ class CandidateChecker:
         for check_id in order['ordered']:
             milestone = milestones.get(check_id)
             if not milestone or (milestone['verifier']['type'] not in ('command', 'reviewer') and not port.known(milestone['verifier']['type'])):
-                raise LedgerError('Candidate checker needs an approved command/reviewer or registered adapter milestone; owner-manual checks require the owner.')
+                raise LedgerError('Candidate checker needs an approved command milestone, an approved reviewer milestone or a registered adapter milestone; owner-manual checks require the owner.')
             if milestone['verifier']['type'] not in ('command', 'reviewer'):
                 granted = milestone['verifier']['config']['authority']
                 if granted['calls'] or granted['commands']:
@@ -180,7 +243,7 @@ class CandidateChecker:
             configuration={'contract_sha': sha, 'milestones': selected, 'internal_revision': view['internal_revision'],
                            'execution_cap_seconds': item['execution_cap_seconds'], 'producers': actual_producers},
             environment=observed_env, checks=[check['id'] for check in item['checks']])
-        reused = _reuse(ledger, view, item, artifact, previous_receipt, tree, binding)
+        reused = _reuse(ledger, view, item, artifact, previous_receipt, tree, binding, sha, milestones)
         if reused is not None:
             return reused
         rows = []
@@ -191,7 +254,8 @@ class CandidateChecker:
             # disposable review repository. Git writes stay in its own object DB.
             objects = Path(command._git(ledger.project, 'rev-parse', '--git-path', 'objects'))
             if not objects.is_absolute(): objects = command.toplevel(ledger.project) / objects
-            (checkout / '.git' / 'objects' / 'info' / 'alternates').write_text(str(objects.resolve()).replace('\\', '/') + '\n')
+            # bytes, not text mode: on Windows write_text would end the line with CR LF and git would look for "objects\r"
+            (checkout / '.git' / 'objects' / 'info' / 'alternates').write_bytes((str(objects.resolve()).replace('\\', '/') + '\n').encode('utf-8'))
             source_git = GitCandidate(ledger, store)
             for key in ('core.autocrlf', 'core.eol'):
                 value = source_git.git('config', '--get', key, allow_failure=True)

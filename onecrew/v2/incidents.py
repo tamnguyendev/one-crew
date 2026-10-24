@@ -64,7 +64,7 @@ def _receipt(ledger, conn, state, selector, receipt, latest=False):
 def _node_receipt(ledger, conn, state, receipt, body, *, latest=False):
     """Adapt the engine's issued event and real candidate checker receipts."""
     from . import engine
-    from .verifiers import command, port
+    from .. import common_verification as cv
     store = Snapshots(ledger.state_root)
     rows = conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='node.verification' AND json_extract(payload,'$.receipt')=? ORDER BY seq",
                         (state['task_id'], receipt)).fetchall()
@@ -106,19 +106,16 @@ def _node_receipt(ledger, conn, state, receipt, body, *, latest=False):
         try:
             wrapper = json.loads(store.read_blob(row['evidence']))
             kind = wrapper.get('kind')
-            if kind not in ('candidate-command-check', 'candidate-adapter-check'):
-                continue
-            ref = wrapper['command_receipt' if kind == 'candidate-command-check' else 'adapter_receipt']
+            if kind not in cv.PROOF_FIELD:
+                continue        # typed support covers command, adapter and reviewer proofs; anything else stays unknown
+            ref = wrapper[cv.PROOF_FIELD[kind]]
             proof = json.loads(store.read_blob(ref))
             milestone = next((m for m in contract['milestones'] if m['id'] == row['id']), None)
             if (milestone is None or wrapper.get('node') != item['id'] or wrapper.get('snapshot') != body['artifact']
                     or wrapper.get('tree') != observed.get('candidate_tree')
-                    or proof.get('artifact_sha') != wrapper['tree'] or proof.get('artifact_sha_after') != wrapper['tree']
-                    or proof.get('revision') != definition_event['revision'] or proof.get('plan_sha') != sha
-                    or proof.get('milestone') != row['id']):
+                    or cv.proof_mismatch(wrapper, proof, milestone, sha, definition_event['revision'], wrapper['tree']) is not None):
                 raise LedgerError('Candidate check evidence does not bind the recorded node artifact and contract.')
-            expected = command.expected_result(proof) if kind == 'candidate-command-check' else port.expected_result(proof)
-            if expected != row['result'] or (kind == 'candidate-command-check' and proof.get('argv') != milestone['verifier']['config']['argv']):
+            if cv.expected_of(kind, proof) != row['result']:
                 raise LedgerError('Candidate result differs from its actual configured verification.')
             environment |= bool(proof.get('error') or proof.get('timed_out') or proof.get('provider_error'))
             supported.append({'id': row['id'], 'result': row['result'], 'kind': kind, 'receipt': ref, 'body': proof,
@@ -315,6 +312,8 @@ def _node_location(ledger, proof):
         if check['result'] != 'pass':
             continue
         paths = []
+        if check['kind'] == 'candidate-reviewer-check':
+            continue        # a review reads a diff, not a configured file input; nothing to locate from it
         if check['kind'] == 'candidate-adapter-check':
             paths.append(check['config'].get('path'))
         else:
