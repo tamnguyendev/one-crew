@@ -191,6 +191,12 @@ class ManagedExecutor(executors.Executor):
                     'phase': 'prepared', 'task_revision': task['revision'], 'node': node['id'], 'node_sha': content_hash(node),
                     'read': list(node['read']), 'write': list(node['write']),
                     'inputs_sha': content_hash(node.get('input_artifacts', {}))})
+        launched = any(p['phase'] == 'dispatching' for p in history)
+        if dispatched and not launched and current['status'] == 'reserved':
+            # T08b crash point (a): the controller died after the `prepared` intent and before the `dispatching` intent. The dispatching
+            # intent is written before any provider/process launch, so without it no process can have run: dispatch once now, under the
+            # same intent (not a replay of anything). With the intent present the outcome is unknown and nothing is relaunched below.
+            dispatched = False
         if dispatched:
             recovered = self.recover(attempt['id'])
             if recovered.get('candidate'):
