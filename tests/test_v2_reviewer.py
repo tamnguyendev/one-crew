@@ -94,7 +94,7 @@ class SchemaTests(Fixture):
             contracts.validate(plan_json(milestones=[reviewer_milestone(criteria=[{'id': 'R1', 'question': question}])]))
 
     def test_other_reviewer_config_is_refused(self):
-        bad = [reviewer_milestone(provider='codex'), reviewer_milestone(model='--dangerous'), reviewer_milestone(criteria=[]),
+        bad = [reviewer_milestone(provider='gemini'), reviewer_milestone(model='--dangerous'), reviewer_milestone(criteria=[]),
                reviewer_milestone(criteria=[CRITERIA[0], CRITERIA[0]]), reviewer_milestone(max_minutes=0), reviewer_milestone(extra=1),
                reviewer_milestone(criteria=[{'id': 'R1', 'question': 'a.txt?', 'weight': 3}])]
         for milestone in bad:
