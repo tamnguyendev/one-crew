@@ -1,5 +1,5 @@
 {
- "commit": "0d296fe",
+ "commit": "9107d61",
  "counts": {
   "Done": 57,
   "Partial": 31,
@@ -717,16 +717,18 @@
    "status": "Done",
    "classes": [],
    "implementation": [
-    "onecrew/v2/estimates.py additional(..., nodes=, still_running=) + _outside_authority — phát sinh vượt quyền: đúng một request U2 (authorize/class U2, idempotent theo key) và giữ đúng node phụ thuộc qua runtime_unknowns (resolver owner); bắt buộc vào ETA có lý do; tùy chọn vào backlog; không request cho hai loại này"
+    "onecrew/v2/estimates.py additional(..., nodes=, still_running=) + _outside_authority — phát sinh vượt quyền: đúng một request U2 (authorize/class U2, idempotent theo key) và giữ đúng node phụ thuộc qua runtime_unknowns (resolver owner); bắt buộc vào ETA có lý do; tùy chọn vào backlog; không request cho hai loại này",
+    "onecrew/v2/estimates.py _node_lists (kiểm nodes/still_running trước mọi ghi), _outside_authority mở unknown TRƯỚC và không nuốt lỗi, CLI `estimate additional --file` truyền nodes/still_running (sau review Codex 9aca8be P1)"
    ],
    "tests": [
     "tests/test_wf_t36b_additional_u2.py (1) — T36b E11, E16, E17 + phần còn lại chạy, resolve của owner thả A; registry R03 check.t36b_additional_u2",
-    "tests/test_wf_estimates.py (6), test_wf_kn_estimates.py (6) như cũ"
+    "tests/test_wf_estimates.py (6), test_wf_kn_estimates.py (6) như cũ",
+    "tests/test_wf_t36b_cli.py (4) — tái hiện đỏ trước sửa (CLI bỏ nodes; node sai/hold lỗi vẫn exit 0), xanh sau; registry R03 check.t36b_cli"
    ],
-   "missing": "T36b E4/E7 (2 giờ chờ, ba cột) và E12 (executor không đo chạy verdict run thật) vẫn chỉ có ở test_wf_estimates/metrics dạng chuỗi unknown — chưa kịch bản đồng hồ giả.",
-   "next": "Nếu muốn T36b complete: kịch bản đồng hồ giả E4/E7/E12 (1–2 h).",
+   "missing": "T36b E4/E7 (2 giờ chờ) và E12 (executor không đo chạy verdict run thật) chưa có kịch bản đồng hồ giả (như trước).",
+   "next": "Biên nhận gate snapshot 9107d61.",
    "evidence": [
-    "commit 28f8fb0"
+    "commit 28f8fb0, 50820d6"
    ]
   },
   {
@@ -1043,16 +1045,18 @@
    "implementation": [
     "onecrew/v2/acceptance_diff.py — classify_text/classify_nodes/classify_contract: (a) câu chữ, (b) thêm cách kiểm = routine; (c) ngưỡng, (d) bỏ kết quả, (e) thu hẹp, (f) nghĩa vụ, (g) trường lạ = U1",
     "onecrew/v2/plan.py amend — ghi acceptance_diff vào plan.amended; onecrew/v2/internal_plan.py revise — dùng classify_nodes thay kiểm thô",
-    "onecrew/v2/test_integrity.py compare + onecrew/v2/verdict.py _test_integrity/record — bộ kiểm bị làm yếu (assert nới, test xoá) làm mốc đỏ (U1), test thêm được nhận kèm provenance"
+    "onecrew/v2/test_integrity.py compare + onecrew/v2/verdict.py _test_integrity/record — bộ kiểm bị làm yếu (assert nới, test xoá) làm mốc đỏ (U1), test thêm được nhận kèm provenance",
+    "onecrew/v2/test_integrity.py analyse/compare (sau review Codex 9aca8be P1): băm cả định nghĩa test (decorator), skip/expectedFailure/xfail cấp lớp, discovery theo tên file, support hash (import/helper/fixture/setUp) → insufficient; onecrew/v2/verdict.py integrity_result: weakened→fail (U1), insufficient/error→inconclusive"
    ],
    "tests": [
     "tests/test_wf_acceptance_change.py (9) — T21 E1–E4; registry R04 check.acceptance_change, T21 complete",
-    "tests/test_wf_test_integrity.py (5) — T19 E1–E4; registry R04 check.test_integrity, T19 complete"
+    "tests/test_wf_test_integrity.py (5) — T19 E1–E4; registry R04 check.test_integrity, T19 complete",
+    "tests/test_wf_t19_counterexamples.py (5) — tái hiện đỏ trước sửa (skip hàm/lớp, helper yếu PASS; mất discovery), xanh sau; registry R04 check.t19_counterexamples; ma trận T19 bổ sung"
    ],
    "missing": "",
-   "next": "Biên nhận gate 0d296fe cho hai check mới (đang chạy).",
+   "next": "Biên nhận gate snapshot 9107d61 (đang chạy).",
    "evidence": [
-    "commit a84b1fb, 602414f (registry), 0d296fe (manifest)"
+    "commit 5f8d7b6"
    ]
   },
   {
@@ -1846,16 +1850,18 @@
    "classes": [],
    "implementation": [
     "onecrew/v2/verdict.py reconcile/_mark/_unmark/_complete_from_marker/release_run/held_runs — marker bền `dispatched`/`receipt` theo run_id dưới <state root>/verdict-runs; trước mọi run mới: run bị bỏ rơi được reconcile (verdict.run_reconciled); có receipt marker → phát hành biên nhận của run cũ, không chạy lại; chỉ dispatched → verdict.run_held, từ chối chạy, chỉ `verdict release-run --reason` (verdict.run_released) mới cho chạy lại; không marker / abandon 'error' → chạy mới",
-    "onecrew/v2/compat.py — ba kind lớp A; onecrew/v2/plan_cli.py — `verdict release-run`; verdict.status có `held` và outcome held_unknown_outcome"
+    "onecrew/v2/compat.py — ba kind lớp A; onecrew/v2/plan_cli.py — `verdict release-run`; verdict.status có `held` và outcome held_unknown_outcome",
+    "onecrew/v2/verdict.py (sau review Codex 9aca8be P1): run_reconciled(unknown) LÀ hold (held_runs suy từ determination, run_held ghi cùng giao dịch); _record_issued hoàn tất verdict từ receipt đã phát hành; marker chỉ xoá sau khi ghi verdict; hold theo mốc qua mọi revision; _begin_run từ chối khi còn hold; release cần lý do, không đổi quyền"
    ],
    "tests": [
     "tests/test_wf_t08a_reconcile.py (4) — T08a E2, E4 với kill tiến trình thật ở (b), marker (c), (a) không marker; registry R05 check.t08a_reconcile, T08a complete",
-    "tests/test_wf_t08b_no_exactly_once.py (2) — T08 E6 grep; tests/test_wf_r03a_run_started.py (18) như cũ"
+    "tests/test_wf_t08b_no_exactly_once.py (2) — T08 E6 grep; tests/test_wf_r03a_run_started.py (18) như cũ",
+    "tests/test_wf_t08a_faults.py (5) — fault injection thật (patch plans.emit ném tại kind), X đếm bằng file: tái hiện đỏ (i)(ii)(iv) trước sửa, xanh sau; registry R05 check.t08a_faults; ma trận T08a bổ sung"
    ],
    "missing": "",
-   "next": "Biên nhận gate 0d296fe.",
+   "next": "Biên nhận gate snapshot 9107d61.",
    "evidence": [
-    "commit b225e5c, 0d296fe"
+    "commit b225e5c, 60658ec"
    ]
   },
   {

@@ -4,9 +4,11 @@ Nhánh `codex/wf-development`, worktree `D:\TamNT\Workspace\11.OneCrew\wf-codex`
 được chốt nguyên trạng thành `2bfc223` (sao lưu: `D:\OneCrewRuns\wf-codex-handoff-backup-20261024`). Không reset, không ghi đè; sổ thật,
 worktree khác và job đang chạy không bị đụng. Không push, tag, publish; không approve/accept trên sổ thật; không gọi provider trả phí.
 
-Trạng thái (cập nhật lần 2, tối 24/10): **DEVELOPMENT trong phạm vi tự làm được đã hoàn thành phần Partial có thể hoàn thành và tự kiểm;
-các phần cần provider thật, pilot thật, bản giao trước thật và nghiệm thu của chủ sở hữu vẫn CHƯA KIỂM CHỨNG/BLOCKED.** Chưa có nghiệm thu
-sản phẩm, chưa có review của Codex. Đây là gói để Codex review tổng thể một lượt.
+Trạng thái (cập nhật lần 3, đêm 24/10, sau review Codex tại `9aca8be`): **CÒN VIỆC LOCAL CHƯA XONG** — Codex tìm 3 P1 (W05 test_integrity bỏ qua
+decorator/discovery; W32a CLI không truyền nodes và nuốt lỗi hold; W37a crash giữa reconcile và hold cho phép chạy lại X) và 2 P2 (gate phải chạy
+trên snapshot cố định; bảng 92 task/trạng thái). W05, W32a, W37a đã hạ về Partial; gate `0d296fe` bị dừng vì chạy trên cây làm việc (không phải
+gate cuối). Các phần cần provider thật, pilot thật, bản giao trước thật và nghiệm thu của chủ sở hữu vẫn CHƯA KIỂM CHỨNG/BLOCKED. Chưa có
+nghiệm thu sản phẩm; review Codex lượt 1 đã nhận, chưa có review lượt 2.
 
 Bảng 92 task: [audit/AUDIT-92.md](audit/AUDIT-92.md) (dữ liệu: `audit/audit-92.json`, cách chấm: `audit/overrides.json` đè lên 4 bản điền của agent).
 Phạm vi theo testcase: [FEATURE-SCOPE.md](FEATURE-SCOPE.md). Release notes (development, chưa giao): [release-notes/](release-notes/README.md).
@@ -93,3 +95,16 @@ Không chạy: toàn bộ `tests.test_v2_reviewer` (RealCliTests gọi provider 
 - Tái lập: `PYTHONPATH=.;tests` với python 3.12 của runtime Codex, từ shell không mang marker phiên AI; từng module test ở mục 2; gate như mục 3 (thư mục `--out` mới).
 - Câu hỏi review: (1) `reconcile` có đường nào chạy lại X khi marker `dispatched` tồn tại mà không có `release-run`; `_complete_from_marker` có phát hành biên nhận sai revision; (2) `record_node_verification`/`_release_repairs`/`_input_blocks` có mở cửa cho dependent chạy trên input đang bị finding giữ ngoài trường hợp repair; (3) `_remember` có làm hỏng giao dịch quyết định; (4) `_outside_authority` có tạo request thứ hai hay giữ sai node; (5) `_still_open`/`_private_reasons` có chặn nhầm; (6) manifest development thu hồi + đóng băng lại ở `0d296fe` có che lệch nào (bằng chứng: chỉ 7 pin `registry` lệch, không file test).
 - Không ghi "Codex đã review", "chủ sở hữu đã duyệt/nghiệm thu", "release đã giao": chưa xảy ra.
+
+## 7. Review Codex tại `9aca8be` — 3 P1 + 2 P2 (xử lý đêm 24/10)
+
+| # | Finding | Nguyên nhân | Sửa (commit) | Tái hiện trước / sau |
+|---|---|---|---|---|
+| P1 | W05: thêm `@unittest.skip` vào test đã duyệt mà mốc vẫn PASS, `test_integrity = None` | `test_integrity` chỉ băm thân hàm; không nhìn decorator, lớp, discovery, helper | `analyse` băm cả định nghĩa (decorator), skip/xfail cấp lớp, discovery theo tên file, support hash → `insufficient`; `verdict.integrity_result`: weakened→fail (U1), insufficient/error→inconclusive (`5f8d7b6`) | `tests/test_wf_t19_counterexamples.py`: trước sửa 4/5 đỏ (skip hàm/lớp, helper yếu → `passed`); sau 5/5 + T19/T21 cũ 14/14. Giới hạn: Python theo tên file; không bắt sinh test động/`load_tests`/pytest.ini/mã dưới kiểm |
+| P1 | W32a: CLI `estimate additional --file` bỏ `nodes`/`still_running`; lỗi hold bị nuốt | API nhận tham số nhưng CLI không truyền; `_outside_authority` try/except trả `{'error'}` như thành công | `_node_lists` kiểm trước mọi ghi; mở unknown trước, lỗi lan ra ngoài; CLI truyền và từ chối trường lạ; retry idempotent theo key (`50820d6`) | `tests/test_wf_t36b_cli.py`: trước sửa 4/4 đỏ (U2 không hold, node sai/hold lỗi vẫn exit 0); sau 4/4; resolve unknown không đổi quyền (write ngoài scope vẫn U2, request vẫn pending) |
+| P1 | W37a: crash giữa `run_reconciled(unknown)` và `run_held` → run bị bỏ qua, X chạy lại | hai sự kiện ở hai giao dịch; `reconcile` lọc theo revision; marker xoá trước khi ghi verdict | `reconciled(unknown)` LÀ hold (một giao dịch với `run_held`); `_record_issued` hoàn tất verdict từ receipt đã phát hành; marker xoá sau ghi; hold theo mốc qua mọi revision; `_begin_run` từ chối khi còn hold (`60658ec`) | `tests/test_wf_t08a_faults.py` (fault injection thật qua `plans.emit`, X đếm bằng file): trước sửa (i)(ii)(iv) đỏ; sau 5/5 + t08a_reconcile 4 + E6 2 |
+| P2 | Gate chạy trên cây làm việc đang đổi, gắn commit đầu vào receipt; `0d296fe` ghi dirty | `development_gate run` kiểm checkout hiện tại | `development_gate snapshot --commit <sha>`: worktree tách rời sạch tại commit, fingerprint doc-dir + interpreter, gate chạy BÊN TRONG snapshot, từ chối nếu snapshot đổi (`bcc4d88`); gate `0d296fe` bị dừng, biên nhận cũ giữ nguyên nhãn "chạy trên cây làm việc" | `tests/test_wf_snapshot_gate.py` 3/3 (sửa ngoài không tới snapshot; sửa trong/HEAD đổi/doc đổi → refused). Gate snapshot thật trên `9107d61`: xem mục 3 |
+| P2 | Trạng thái 92 task: W05/W32a/W37a ghi Done khi còn lỗi; câu "đã hoàn thành phần tự làm được" | chấm theo test có, chưa có phản chứng độc lập | Hạ về Partial ngay khi bắt đầu, nâng lại Done chỉ sau sửa + phản chứng; câu tuyên bố sửa ở đầu file; đăng ký W03/W06/W24b + 4 test review vào registry (`9107d61`); bảng 92 sinh lại | `docs/wf/audit/AUDIT-92.md` tại `9107d61`: Done 57 · Partial 31 · Blocked 4 (3 P1 quay lại Done có phản chứng) |
+
+Manifest development thu hồi + đóng băng lại ở `9107d61` (321 pin). Lệch trước khi đóng băng lại (kitguard.verify qua `layout()`): 4 snapshot `registry`
+(R01/R03/R04/R05) + `wfkit/development_gate.py` (runner snapshot, `bcc4d88`); không file test pin nào.
