@@ -1,5 +1,7 @@
 """`onecrew compat scan` — the read-only compatibility scan (W46a). Prints one line per `plan:` root and a JSON body. The only optional
-write is `--out <file>`, which is refused inside the state root (the scan must never write there)."""
+write is `--out <file>`, which is refused inside the state root (the scan must never write there).
+Both legacy and namespaced roots are reported. Unreadable existing state is an
+error, never an empty zero-block rollback permission."""
 import argparse
 import json
 import sys
@@ -14,7 +16,7 @@ def _parser():
     p.add_argument('--project', default=None)
     p.add_argument('--state-root', dest='state_root', default=None)
     sub = p.add_subparsers(dest='command', required=True)
-    s = sub.add_parser('scan', help='read-only compatibility scan of every plan: root')
+    s = sub.add_parser('scan', help='read-only compatibility scan of legacy and namespaced roots (B1–B4)')
     s.add_argument('--out', default=None, help='write the JSON report to this file (refused inside the state root)')
     s.add_argument('--json', action='store_true', help='print only the JSON report')
     return p
@@ -61,7 +63,7 @@ def main(argv=None):
             else:
                 _print_table(report)
             return 0
-    except LedgerError as error:
+    except (LedgerError, OSError) as error:
         print(json.dumps({'error': str(error), 'type': 'LedgerError'}, ensure_ascii=False), file=sys.stderr)
         return 2
     return 2
@@ -71,6 +73,7 @@ def _print_table(report):
     b = report['blocking']
     print(f"compat scan — {report['state_root']}")
     print(f"ledger sha: {report['ledger_sha']}")
+    print(f"old version: {report['old_version']}")
     print(f"blocking conditions: {b['total']} (read {b['read']}, continue {b['continue']})")
     for r in report['roots']:
         props = r['properties']
@@ -79,6 +82,8 @@ def _print_table(report):
               + (' [preserved-only]' if r['preserved_only'] else ''))
         for blk in r['blocks']:
             print(f"      {blk['id']} ({blk['type']}): {blk['why']}  | released by: {blk['released_by']}")
+        if r.get('duplicate_note'):
+            print('      duplicates: ' + r['duplicate_note'])
 
 
 if __name__ == '__main__':

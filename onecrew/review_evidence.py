@@ -3,6 +3,8 @@ import hashlib
 import json
 import re
 from .ledger import LedgerError, canonical
+from . import finding_core
+from .finding_core import norm as _norm, safe as _safe, open_findings, register as _reg
 
 PROTOCOL = 2
 MAX_ROUNDS = 10      # P6: evidence round trips of ONE completion review (work mode). A receipt that does not fit arrives page by page,
@@ -308,41 +310,8 @@ def _texts(value):
     return out
 
 
-def _norm(text):
-    """What makes two findings the same defect: the same words in the same case (whitespace is not a difference). Two defects that
-    differ in a name's case or in code are two findings; one finding is never silently merged into another."""
-    return ' '.join(str(text).split())
-
-
-def _safe(text):
-    """A text as the checkpoint can hold it (a lone surrogate cannot be written as UTF-8); the blob keeps the exact characters."""
-    return str(text).encode('utf-8', 'replace').decode('utf-8')
-
-
-def open_findings(state):
-    found = [f for f in (state.get('review_register') or {}).get('findings') or [] if f.get('status') == 'open']
-    # a checkpoint written by the unreleased d5a0c43 intermediate (state['review_findings']): its open findings cannot be closed here,
-    # but they are never invisible to the gate - the job stays unaccepted until an operator decides (fail closed)
-    for old in state.get('review_findings') or []:
-        if isinstance(old, dict) and old.get('status') == 'open':
-            claim = str(old.get('claim', ''))
-            found.append({'id': str(old.get('id', 'RF?')), 'status': 'open', 'review': 0, 'round': old.get('round', 0), 'candidate': None,
-                          'chars': old.get('chars', len(claim)), 'head': claim[:HEAD], 'norm': '', 'legacy': True,
-                          'source': dict(old.get('source') or {})})
-    return found
-
-
 def _candidate(state):
     return ((state.get('work') or {}).get('verification') or {}).get('candidate')
-
-
-def _reg(state):
-    """The register, created if absent. R4 adds `unprocessed` (incomplete-processing obligations) and `ob_next`; a register
-    written before R4 has neither, so they are defaulted on read."""
-    register = state.setdefault('review_register', {'next': 1, 'notes_next': 1, 'review': 1, 'findings': [], 'notes': []})
-    register.setdefault('unprocessed', [])
-    register.setdefault('ob_next', 1)
-    return register
 
 
 def unprocessed(state):
@@ -428,16 +397,17 @@ def record_round(state, review, *, shown, round_no, store=None, listed=None, clo
         if not match: result['refused'].append('not understood (RF<n>:<receipt>:<why>): ' + text[:60]); continue
         ident, receipt = match.group(1).upper(), int(match.group(2))
         target = by_id.get(ident)
-        if target is None or target['status'] != 'open' or ident in taken:
-            result['refused'].append(f'{ident} is not an open finding'); continue
-        if listed is not None and ident not in seen_ids:
-            refused_on[ident] = f'{ident} was not shown to the reviewer in this review'
-        elif receipt not in reached:
-            refused_on[ident] = f'receipt {receipt} was not shown in this review'
-        elif (held.get(receipt) or {}).get('action') == 'finish':
-            refused_on[ident] = f'receipt {receipt} is a finish: the rejection that carries a finding is not evidence that it is resolved'
-        if ident in refused_on:
-            result['refused'].append(f'{ident}: ' + refused_on[ident]); continue
+        why = finding_core.closure_reason(findings, ident, receipt, shown=reached,
+                                         listed=seen_ids if listed is not None else None,
+                                         receipts=state.get('receipts') or [], taken=taken)
+        why = why or refused_on.get(ident)
+        if why:
+            if target is not None and target['status'] == 'open' and ident not in taken:
+                refused_on[ident] = why
+                result['refused'].append(f'{ident}: ' + why)
+            else:
+                result['refused'].append(why)
+            continue
         closing.append((target, receipt, text)); taken.add(ident)
     # the same defect reported again alongside the closure of the finding that states it is a NEW finding: closing and re-reporting
     # one claim in one answer contradict each other, and the claim must not vanish between them
@@ -492,22 +462,20 @@ def record_round(state, review, *, shown, round_no, store=None, listed=None, clo
     if listed is not None: state['review_listed'] = seen_ids
     for ident, why in refused_on.items(): by_id[ident]['closure_refused'] = why
     for target, receipt, how in closing:
-        target.pop('closure_refused', None)
-        target['head'] = target['head'][:HEAD_CLOSED]
-        target.update(status='resolved', resolution=dict(
-            {'review': ordinal, 'round': round_no, 'receipt': receipt, 'candidate': candidate, 'chars': len(how),
-             'head': _safe(how[:HEAD_CLOSED]),
-             'kind': 'new_evidence' if receipt > target.get('receipts_at', 0) else 'earlier_evidence'},
-            **keep(how, stored.get(('how', how)))))
+        finding_core.close_finding(register, target['id'], receipt, shown=reached,
+            listed=seen_ids if listed is not None else None, receipts=state.get('receipts') or [],
+            resolution=dict({'review': ordinal, 'round': round_no, 'receipt': receipt, 'candidate': candidate, 'chars': len(how),
+                             'head': _safe(how[:HEAD_CLOSED]),
+                             'kind': 'new_evidence' if receipt > target.get('receipts_at', 0) else 'earlier_evidence'},
+                            **keep(how, stored.get(('how', how)))), head_closed=HEAD_CLOSED)
         result['closed'].append(target['id'])
     for text, receipt, norm in new:
-        number = register['next']; register['next'] = number + 1
-        register['findings'].append(dict(
-            {'id': f'RF{number}', 'status': 'open', 'review': ordinal, 'round': round_no, 'candidate': candidate,
+        entry = finding_core.append_finding(register, dict(
+            {'review': ordinal, 'round': round_no, 'candidate': candidate,
              'receipts_at': len(state.get('receipts') or []), 'chars': len(text), 'head': _safe(text[:HEAD]), 'norm': norm,
              'source': {'round': round_no, 'receipt': receipt, 'pages': pages}},
             **keep(text, stored.get(('claim', text)))))
-        result['opened'].append(f'RF{number}')
+        result['opened'].append(entry['id'])
     # R4: recording these findings may complete a prior obligation (the overflow retried within the limit, or the same response
     # recorded whole). Clear only those whose every constituent claim is now in the register.
     _clear_processed_obligations(state)

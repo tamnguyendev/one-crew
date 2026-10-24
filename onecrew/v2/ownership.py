@@ -18,8 +18,9 @@ from ..ledger import LedgerError
 
 AI_MARKERS = ('CLAUDE_CODE_CHILD_SESSION',)
 OWNER_VERBS = {('plan', 'approve'), ('plan', 'accept'), ('plan', 'enforce'), ('hook', 'mode'),
+               ('question', 'answer'), ('owner', 'answer'),
                ('owner', 'approve'), ('owner', 'accept'), ('owner', 'enforce'), ('owner', 'record')}     # G2: `onecrew owner ...` is the same verbs under one name
-OWNER_FORMS = {('verdict', 'record'), ('plan', 'unknown', 'close'), ('plan', 'poc', 'record')}   # owner verbs only with --by owner (C13); an AI may close an unknown with --by doc|poc
+OWNER_FORMS = {('verdict', 'record'), ('plan', 'unknown', 'close'), ('plan', 'poc', 'record'), ('plan', 'retention', 'cleanup')}   # owner verbs only with --by owner (C13); an AI may close an unknown with --by doc|poc
 OWNER_ACTORS = ('user', 'owner')
 
 

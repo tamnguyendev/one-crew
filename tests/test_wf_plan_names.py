@@ -1,6 +1,8 @@
 """T48a (W12a) — plan-name validation before any write, and the same-name refusal across two projects in one state root (R00).
 
-New code only (no old binary). A state root shared by P1 and P2 (the real layout: many projects, one state root). Forbidden names
+Name validation runs on current code. The R00 cross-project refusal runs on its
+unmodified archive because W12b intentionally replaces that rule with namespaces.
+A state root shared by P1 and P2 (the real layout: many projects, one state root). Forbidden names
 (`:`, path chars, drive form, absolute) are rejected before anything is written; a second project creating a name P1 already owns is
 refused, naming P1, with nothing written; P1's plan is untouched.
 """
@@ -79,7 +81,7 @@ class PlanNameValidationTests(unittest.TestCase):
 
     def test_valid_name_is_accepted(self):
         plans.propose(self.f.l1, GOOD, ov.contract('Beta'), 'claude')
-        self.assertTrue((self.f.state_root / 'plans' / GOOD / 'v1.json').exists())
+        self.assertTrue((self.f.state_root / 'plans' / self.f.l1.project_id / GOOD / 'v1.json').exists())
 
 
 class SameNameAcrossProjectsTests(unittest.TestCase):
@@ -89,15 +91,20 @@ class SameNameAcrossProjectsTests(unittest.TestCase):
     # E10 / E11: two projects, same state root, same name -> the SECOND create is refused, names the other project, writes nothing;
     # the first project's plan is unchanged.
     def test_e10_second_project_same_name_is_refused(self):
-        plans.propose(self.f.l1, 'gamma', ov.contract('Gamma'), 'claude')
+        archive = ov.archive('d3120c6', Path(__file__).resolve().parents[1], self.f.base)
+        old = ov.OldVersion(archive)
+        contract_file = self.f.base / 'gamma.json'
+        contract_file.write_text(json.dumps(ov.contract('Gamma')), encoding='utf-8')
+        code, output = old.run(self.f.p1, self.f.state_root, 'plan', 'propose', 'gamma', '--file', str(contract_file), '--author', 'claude')
+        self.assertEqual(code, 0, output)
         plan_dir = self.f.state_root / 'plans' / 'gamma'
         before_hash = (plan_dir / 'v1.json').read_bytes()
         before_events = self.f.plan_events()
         before_files = self.f.state_files()
 
-        with self.assertRaises(LedgerError) as c:
-            plans.propose(self.f.l2, 'gamma', ov.contract('Gamma P2', 'P2 goal'), 'claude')
-        msg = str(c.exception).lower()
+        code, output = old.run(self.f.p2, self.f.state_root, 'plan', 'propose', 'gamma', '--file', str(contract_file), '--author', 'claude')
+        self.assertEqual(code, 2, output)
+        msg = output.lower()
         self.assertIn('another project', msg)
         self.assertIn('nothing was written', msg)
 

@@ -337,7 +337,9 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
     for entry in plan.get('bash_deny', []):
         for form in forms:
             hit = re.search(entry[3:], form, re.I) if entry.startswith('re:') else (entry.casefold() in form.casefold())
-            if hit: return 'bash_deny', f'The command matches the deny rule "{entry[3:] if entry.startswith("re:") else entry}". Approval, acceptance, enforcement, push, tag and installs are the owner\'s. Ask the owner in chat.'
+            if hit:
+                note = ' Local evidence refs/onecrew must not be published.' if 'refs/onecrew' in form.casefold() else ''
+                return 'bash_deny', f'The command matches the deny rule "{entry[3:] if entry.startswith("re:") else entry}". Approval, acceptance, enforcement, push, tag and installs are the owner\'s. Ask the owner in chat.' + note
     items = [(_fold(plan.get('state_root', '')) + '/plans', ''), ('policy.json', ''), ('.sqlite', ''), ('active-plan.json', ''), ('violations.jsonl', ''), ('hook-state.json', ''),
              (where.REGISTRY, ''), ('.claude/settings', ''), ('.onecrew', 'whole'), ('onecrew/plans', 'start')]
     for segment in shell_segments(command):         # each segment on its own: `ls; python -c "...remove(registry)"` is not read-only because its first word is
@@ -629,13 +631,18 @@ def refreshed(root, plan):
     """The plan as the ledger knows it now (so Stop sees verdicts and acceptance); the file when the ledger cannot be read."""
     try:
         from ..ledger import Ledger
-        from . import active_plan
+        from . import active_plan, namespaces
         ledger = Ledger(Path(plan['project']), Path(plan['state_root']))
-        fresh = active_plan.build(ledger, plan['plan'])
+        try:
+            from . import verdict
+            verdict.reap(ledger, plan.get('anchor', plan['plan']))
+        except Exception:
+            pass  # build ignores lost runs even if the cleanup record cannot be written
+        fresh = active_plan.build(ledger, plan.get('anchor', plan['plan']))
         if fresh:
             fresh['expires'] = plan.get('expires', fresh['expires'])   # a session start must not renew the owner's approval window
             active_plan._write(active_plan.project_file(root), fresh)                               # both copies, so they keep agreeing
-            active_plan._write(Path(plan['state_root']) / 'plans' / plan['plan'] / FILE, fresh)
+            active_plan._write(namespaces.active_file(ledger, fresh['anchor']), fresh)
             return fresh
     except Exception:                                    # noqa: BLE001 - a stale file is better than no answer
         pass
@@ -653,10 +660,12 @@ def stop(args):
         session_state(root, session, {'stop_blocks': 0})
         return 0
     waiting = plan.get('waiting') or {}
-    if waiting.get('receipt_without_verdict') or waiting.get('open_questions'):
+    if waiting.get('receipt_without_verdict') or waiting.get('open_questions') or waiting.get('run_in_progress'):
         # The turn can end: what is missing is not the session's to do. A receipt waits for its verdict (verdict run records it), or the owner
         # has an open question. Nothing else lets go of an unfinished plan; the cap below still applies to it.
         what = ('a receipt without a verdict for ' + ', '.join(waiting['receipt_without_verdict'])) if waiting.get('receipt_without_verdict') else ''
+        if waiting.get('run_in_progress'):
+            what += ('; ' if what else '') + 'a verdict run in progress for ' + ', '.join(waiting['run_in_progress'])
         what += ('; ' if what else '') + ('an open owner question (' + ', '.join(waiting['open_questions']) + ')') if waiting.get('open_questions') else ''
         record(root, plan, 'logged', 'Stop', f"waiting, the session is let go: {what}; milestone {pending['id']} ({pending['title']}) has no verdict yet", 'stop_waiting', session=session)
         return 0
@@ -731,7 +740,7 @@ HOOK_EVENTS = (('PreToolUse', 'check', 15, 'Edit|Write|MultiEdit|NotebookEdit|Ba
                ('Stop', 'stop', 30, None, 'continue'),
                ('SessionStart', 'session', 30, 'startup|resume|clear|compact', 'continue'))
 OWNER_DENY = ('plan approve', 'plan accept', 'plan enforce', 'verdict record', 'hook mode', 'plan unknown close*owner', 'plan poc record*owner',
-              'owner approve', 'owner accept', 'owner enforce', 'owner record')    # any way of calling onecrew (venv python, -X utf8, onecrew.cmd); C13: an AI may still close an unknown with --by doc|poc
+              'owner approve', 'owner accept', 'owner enforce', 'owner record', 'owner answer', 'question answer')    # owner-only entry points
 
 
 def build_settings(handler, state_root):

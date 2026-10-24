@@ -89,7 +89,9 @@ class Audit:
 def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None,
            max_calls=None, max_seconds=None, image=None, branch=None, remote=None, android_build=None, native_change=None,
            solution_id=None, solution_revision=None, contract=None, qc=None,
+           plan_selector=None, plan_revision=None,
            _delivery_parent=None, _delivery_node=None, _delivery_generation=0, _delivery_scope=None, extension=None):
+    calls_default, seconds_default = max_calls is None, max_seconds is None
     ext = extension or Audit
     if mode == 'work':
         # Generic job: the user's work contract (goal, scope, invariants, acceptance, authority) is the sealed agreement.
@@ -100,15 +102,44 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     if _delivery_scope is not None and (_delivery_scope != 'tests' or not _delivery_parent):
         raise LedgerError('Only a delivery coordinator may narrow a child to a tests-only repair.')
     key_field(request_key)
+    if plan_revision is not None and (type(plan_revision) is not int or plan_revision < 1):
+        raise LedgerError('plan_revision must be a positive integer.')
     # Idempotent replay retains the original choice after operator preferences change.
     with ledger.transaction() as conn:
-        prior=conn.execute('SELECT payload FROM tasks WHERE project_id=? AND request_key=?',
+        prior=conn.execute('SELECT * FROM tasks WHERE project_id=? AND request_key=?',
                           (ledger.project_id,request_key)).fetchone() if conn else None
+        from .v2 import plan_binding
+        root_binding = json.loads(prior['payload']).get('plan_binding') if prior else None
+        if root_binding is not None:
+            if ((plan_selector is not None and plan_selector != root_binding['selector'])
+                    or (plan_revision is not None and plan_revision != root_binding['revision'])):
+                raise LedgerError('Submission key already has a different sealed plan binding.')
+        elif plan_selector is not None:
+            root_binding = plan_binding.capture(ledger, conn, plan_selector, plan_revision)
+        elif plan_revision is not None:
+            raise LedgerError('plan_revision requires an explicit plan_selector.')
+        elif not prior:
+            root_binding = plan_binding.implicit_workflow(ledger, conn, request_key)
+        if _delivery_parent:
+            inherited_root = plan_binding.inherited_workflow(ledger, conn, _delivery_parent)
+            if inherited_root is not None:
+                if root_binding is not None and root_binding != inherited_root:
+                    raise LedgerError('A workflow child cannot leave its parent sealed plan root.')
+                root_binding = inherited_root
+        from .budget_core import group
+        shared_defaults = group(conn, root_binding['root_task_id']) if root_binding else None
+        shared_seconds = ((dt.datetime.fromisoformat(shared_defaults['deadline']) - dt.datetime.fromisoformat(plan_binding.first_approval_at(ledger, conn, root_binding))).total_seconds()
+                          if shared_defaults else None)
     from .model_preferences import resolve, read
     previous=json.loads(prior['payload']).get('owned_execution') if prior else None
     prior_limits=json.loads(prior['payload'])['grant']['limits'] if prior else {}
     if max_calls is None: max_calls=prior_limits.get('max_calls',DEFAULT_CALLS)
     if max_seconds is None: max_seconds=prior_limits.get('max_seconds',DEFAULT_SECONDS)
+    if shared_defaults and not prior:
+        if calls_default:
+            max_calls = min(max_calls, shared_defaults['max_calls'])
+        if seconds_default:
+            max_seconds = min(max_seconds, int(shared_seconds))
     # An explicit provider/model pins this job; only default intake inherits the chain.
     inherit_fallbacks = provider is None and model is None
     preference = previous or read(ledger)
@@ -138,6 +169,8 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     payload = dict(schema_version=1,project_id=ledger.project_id,project_path=ledger.project_path,
                    spec_id='GOAL',spec_revision=content_hash(goal),spec_text=goal,title=goal[:200],
                    goal=goal,owned_execution=options,grant=grant)
+    if root_binding is not None:
+        payload['plan_binding'] = root_binding
     if not prior or 'solution_required' in json.loads(prior['payload']):
         # A work contract carries the user's authorization itself; a bound SOL is still honoured when given.
         payload['solution_required']=mode not in ('audit','work')
@@ -155,16 +188,29 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
             if old['revision'] != revision:
                 raise LedgerError('Submission key already has a different goal, authority or budget.')
             return ledger._task_view(conn,old)
+        if root_binding is not None:
+            plan_binding.validate(ledger, conn, root_binding)
+            from .budget_core import ensure_plan_group
+            plan_budget = ensure_plan_group(ledger, conn, root_binding['selector'])
+            if plan_budget and (max_calls > plan_budget['max_calls'] or max_seconds > (dt.datetime.fromisoformat(plan_budget['deadline']) - dt.datetime.fromisoformat(plan_binding.first_approval_at(ledger, conn, root_binding))).total_seconds()):
+                raise LedgerError('Child grant exceeds the shared workflow root budget.')
+        else:
+            plan_budget = None
         binding = ext.solution_binding(ledger,conn,mode,solution_id,solution_revision,_delivery_parent)
         task_id = 'TASK-'+uuid.uuid4().hex
         created = utcnow()
         deadline = (dt.datetime.fromisoformat(created)+dt.timedelta(seconds=max_seconds)).isoformat()
         if _delivery_parent: deadline=min(deadline,root_budget['deadline'])
+        if plan_budget:
+            deadline = min(deadline, plan_budget['deadline'], key=dt.datetime.fromisoformat)
+            if dt.datetime.fromisoformat(deadline) <= dt.datetime.fromisoformat(created):
+                raise LedgerError('The shared workflow root deadline is exhausted.')
         conn.execute('INSERT INTO tasks VALUES(?,?,?,?,?,?,?,?)',
                      (task_id,ledger.project_id,ledger.project_path,request_key,revision,canonical(payload),created,deadline))
         if binding:
             ext.bind(conn,task_id,binding,solution_id,solution_revision)
         if _delivery_parent:
             ext.link_child(conn,task_id,_delivery_parent,_delivery_node,_delivery_generation)
-        ledger._event(conn,task_id,'task.submitted',{'revision':revision,'request_key':request_key,'mode':'owned_execution'})
+        ledger._event(conn,task_id,'task.submitted',{'revision':revision,'request_key':request_key,'mode':'owned_execution',
+                                                  **({'plan_binding': root_binding} if root_binding is not None else {})})
         return ledger._task_view(conn,ledger._task(conn,task_id))

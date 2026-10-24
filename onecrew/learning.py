@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from .ledger import Ledger, LedgerError, canonical, content_hash, text_field
 from .task_intake import outcomes  # noqa: F401  (core; re-exported)
+from . import outcome_core
 from .usage import summarize
 
 
@@ -37,10 +38,9 @@ def record(conn, ledger, task_id, state):
     data['repair_rounds']=state.get('native_change',{}).get('repairs',state.get('native_audit',{}).get('repairs'))
     data['test_results']={'passed':sum(t.get('passed') is True for t in state.get('tests',[])),
                           'failed':sum(t.get('passed') is False for t in state.get('tests',[]))}
-    data['id']=content_hash({k:v for k,v in data.items() if k!='id'})
-    if not conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='learning.outcome' AND json_extract(payload,'$.id')=?",(task_id,data['id'])).fetchone():
-        ledger._event(conn,task_id,'learning.outcome',data)
-        event=conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+    data['id']=outcome_core.outcome_id(data)
+    event=outcome_core.append_outcome(conn,ledger,task_id,data)
+    if event is not None:
         # Facts become a proposed retrospective, never a verified procedure or
         # an automatically injected instruction/model-selection rule.
         lesson={'task':task_id,'evidence_event':event,'snapshot':data['snapshot'],

@@ -25,12 +25,17 @@ CLASS_0 = (
     'hook.stop_blocked', 'request.created', 'request.revised', 'request.deferred', 'request.answered',
 )
 CLASS_A = (
+    'adapter.violation',
+    'executor.observed',
+    'survey.opened', 'survey.finished', 'survey.denied',
     'learning.outcome', 'control.intervention', 'verdict.run_started', 'verdict.run_abandoned', 'context.entry',
     'estimate.baseline', 'estimate.eta', 'work.additional', 'notice.exception', 'learning.incident', 'learning.lesson',
     'decision.recorded',                              # W03: the decision record is a neutral addition
     'proposal.checked',                               # W47: the step-0 proposal check result (nothing reads it as status or gate for the old version)
 )
 CLASS_B = (
+    'budget.group',
+    'finding.registered',
     'plan.revoked', 'plan.revised', 'plan.closed', 'request.applied',
     'decision.hold', 'decision.defer', 'milestone.held',              # W26 rule-based decisions / W36 pauses (named here for the boundary)
 )
@@ -54,6 +59,7 @@ CLASS_0_REQUIRED = {
     'milestone.failed': ('revision',),
     'milestone.stopped': ('revision',),
 }
+CLASS_0_FIELD_TYPES = {'revision': int, 'milestone': str, 'receipt': str}
 
 
 def event_class(kind):
@@ -74,13 +80,25 @@ def anchor_kind(anchor):
     return anchor
 
 
-def class0_payload_ok(kind, payload):
-    """True when every field the old reader needs for `kind` is present and not None. Missing/None is a changed-shape class-0 payload (B4)."""
-    if not isinstance(payload, dict): return False
+def class0_payload_errors(kind, payload):
+    """Load-bearing field shape only; additional fields keep their existing freedom."""
+    if not isinstance(payload, dict): return ['payload expected object']
+    errors = []
     for field in required_fields(kind):
         if field not in payload or payload[field] is None:
-            return False
-    return True
+            errors.append(f'missing {field}')
+        else:
+            expected = CLASS_0_FIELD_TYPES[field]
+            # bool is an int subclass, but it is not the revision type the old
+            # writer emitted. JSON strings/arrays must not become dict/set keys.
+            if type(payload[field]) is not expected:
+                errors.append(f'{field} expected {expected.__name__}, got {type(payload[field]).__name__}')
+    return errors
+
+
+def class0_payload_ok(kind, payload):
+    """Every old-reader field is present with its original type (B4 otherwise)."""
+    return not class0_payload_errors(kind, payload)
 
 
 def check_write(kind, payload, anchor):
@@ -99,7 +117,7 @@ def check_write(kind, payload, anchor):
         raise LedgerError(f'event {kind!r} is class B (it changes status, gate or continuation): the old version would read or continue the '
                           f'root wrongly (B2). A class-B event belongs only on a plan-ns: root (W12b/R04), never a plan: anchor.')
     if klass == '0' and not class0_payload_ok(kind, payload):
-        missing = [f for f in required_fields(kind) if not isinstance(payload, dict) or payload.get(f) is None]
-        raise LedgerError(f'event {kind!r} is class 0 but its payload drops the field(s) {", ".join(missing)} the old version reads: the old '
-                          f'reader crashes KeyError on this root and on digest of the whole state root (B4, read block). Keep every old field.')
+        problems = '; '.join(class0_payload_errors(kind, payload))
+        raise LedgerError(f'event {kind!r} has an incompatible class-0 payload: {problems}. The old reader can crash KeyError/TypeError '
+                          f'on this root and on digest of the whole state root (B4, read block). Keep every old field and its type.')
     return None

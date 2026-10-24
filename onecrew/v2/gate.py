@@ -56,9 +56,9 @@ def _over_budget(conn, task, budget):
 def check_extension(ledger, conn, task, max_calls, seconds):
     """C7: with the gate on, budget.extend / remove_deadline may not take the job past the budget of its approved plan.
     `seconds` None means "no time limit"."""
-    if not enforced(ledger): return
-    from . import plan
-    state = plan.derive(ledger, conn, task['request_key'])
+    from . import plan, plan_binding
+    if not enforced(ledger) and not plan_binding.required(conn, task): return
+    state = plan_binding.state_for_task(ledger, conn, task)
     if state is None or state['status'] != 'approved':
         raise LedgerError('Budget not extended (v2): no approved plan named ' + task['request_key'] + '.')
     budget = plan.load(ledger, state)[0]['budget']
@@ -71,11 +71,11 @@ def check_extension(ledger, conn, task, max_calls, seconds):
 def require_plan(ledger, conn, task):
     """Raise LedgerError unless the task's plan is approved. The refusal is spooled to a file (the caller's transaction is
     about to roll back, and may be read-only) and becomes a `dispatch.refused_no_plan` event in sync_refusals()."""
-    if not enforced(ledger): return
-    from . import plan
+    from . import plan, plan_binding
+    if not enforced(ledger) and not plan_binding.required(conn, task): return
     name = task['request_key']
     try:
-        state = plan.derive(ledger, conn, name)
+        state = plan_binding.state_for_task(ledger, conn, task)
         if state is None: reason = 'no plan named ' + name + ' (plan propose, then the owner runs plan approve)'
         elif state['status'] != 'approved': reason = f'plan {name} is {state["status"]}, not approved'
         else:

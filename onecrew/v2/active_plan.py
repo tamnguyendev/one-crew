@@ -32,6 +32,8 @@ OWNER = r'--b(?:y)?[ =]+owner\b'                                              # 
 DEFAULT_BASH_DENY = ['re:' + GIT + r'\s+' + PUSH, 're:' + GITNAME + ALIAS_PUSH, r're:\s--config-env[ =]+\S*alias\.', r're:GIT_CONFIG_(?:COUNT|KEY_\d|PARAMETERS)', 're:' + GIT + r'\s+tag\s+(?!-l\b|--list\b|-n\b)\S', 're:' + GIT + r'\s+config\b.*\balias\.',
                      'rm -rf', 'Remove-Item -Recurse', 'pip install',
                      r're:\bplan\s+(approve|accept|enforce)\b',                    # C3: the owner's verbs are not the AI's
+                     r're:\bplan\s+retention\s+cleanup\b',
+                     r're:\b(?:question|owner)\s+answer\b',
                      r're:(?s)\bverdict\s+record\b.*' + OWNER, r're:\bhook\s+mode\b', r're:\bplan_cli\b',
                      r're:(?s)\bplan\s+unknown\s+close\b.*' + OWNER,               # C13: L3's owner verbs (an AI may still close an unknown with --by doc|poc)
                      r're:(?s)\bplan\s+poc\s+record\b.*' + OWNER,
@@ -96,14 +98,18 @@ def build(ledger, name):
         for v in state['verdicts']:
             if v['revision'] == revision: later[v['milestone']] = v['seq']
         unanswered = sorted(m for (r, m), seq in state['issued_seq'].items() if r == revision and seq > later.get(m, 0))
+        from . import verdict
+        running = sorted({r.get('milestone') for r in verdict.live_runs(conn, task_id, revision)})
     questions = [r['id'] for r in ledger.requests(task_id, pending=True)]
     chosen = policy(ledger)
     root = Path(ledger.state_root).resolve()
     now = dt.datetime.now(dt.timezone.utc)
-    return {'schema_version': 1, 'plan': name, 'revision': revision, 'plan_sha': sha, 'status': status,
+    return {'schema_version': 1, 'plan': state['name'], 'anchor': state['selector'],
+            **{key: state[key] for key in ('workflow_version', 'capabilities') if key in state},
+            'revision': revision, 'plan_sha': sha, 'status': status,
             'pending_revision': latest if latest != revision else None, 'anchor_task': task_id,
             # what the plan waits for outside the session: a receipt that has no verdict yet, an owner question nobody answered (the Stop hook lets go)
-            'waiting': {'receipt_without_verdict': unanswered, 'open_questions': questions},
+            'waiting': {'receipt_without_verdict': unanswered, 'open_questions': questions, 'run_in_progress': running},
             'mode': chosen.get('mode', 'log'), 'title': contract['title'], 'output': contract['output'],
             'owned': contract['scope']['owned'], 'non_goals': contract['non_goals'],
             'bash_deny': list(DEFAULT_BASH_DENY) + list(chosen.get('bash_deny', [])),
@@ -121,7 +127,8 @@ def export(ledger, name):
     try:
         document = build(ledger, name)
         if document is None: return None
-        _write(Path(ledger.state_root) / 'plans' / name / FILE, document)
+        from . import namespaces
+        _write(namespaces.active_file(ledger, document['anchor']), document)
         _write(project_file(ledger.project), document)
         return document
     except (OSError, LedgerError, ValueError) as error:

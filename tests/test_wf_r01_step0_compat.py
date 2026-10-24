@@ -3,7 +3,8 @@
 The new kinds written on a `plan:` anchor must be class 0/A and leave the old version's S (status), G (gate) and C (continue) unchanged:
   * `proposal.checked` (W47) - ok, refused and survey_first results;
   * the decision card (W30a) - a `request.created` (class 0) carrying a `v2.decision_card` action, and the HD-05 `decision.recorded` record.
-The root is built by the NEW code (propose, then the step-0 calls on a COPY of the state root); the old binary reads both copies.
+The legacy root is built by the unmodified OLD binary, then current step-0 code
+writes neutral events on a COPY; the old binary reads both copies.
 """
 import json
 import shutil
@@ -43,7 +44,10 @@ class OldVersionReadsStep0EventsTests(unittest.TestCase):
         cls.old = ov.OldVersion(ov.archive(BASELINE, REPO, cls.runs))
         cls.proj = ov.git_project(cls.runs, 'P1')
         cls.base = cls.runs / 'state-base'
-        plans.propose(Ledger(cls.proj, cls.base), 'r1', ov.contract('R01 step 0'), 'claude-probe')
+        contract_file = cls.runs / 'legacy-r1.json'
+        contract_file.write_text(json.dumps(ov.contract('R01 step 0')), encoding='utf-8')
+        code, out = cls.old.run(cls.proj, cls.base, 'plan', 'propose', 'r1', '--file', str(contract_file), '--author', 'claude-probe')
+        if code: raise AssertionError(out)
         cls.pid = ov.project_id(cls.base, cls.proj)
         cls.task = ov.anchor_id(cls.base, cls.pid, 'plan:r1')
         ov.make_approved(cls.base, cls.task, 'r1')

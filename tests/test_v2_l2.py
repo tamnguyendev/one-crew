@@ -160,7 +160,7 @@ class HookFixture(Fixture):
 class ExportTests(HookFixture):
     def test_approve_and_amend_export_the_active_plan_in_two_places(self):
         self.approved('P1', owned_plan())
-        inside, outside = self.root / '.onecrew' / 'active-plan.json', self.state / 'plans' / 'P1' / 'active-plan.json'
+        inside, outside = self.root / '.onecrew' / 'active-plan.json', self.state / 'plans' / self.ledger.project_id / 'active-plan.json'
         for path in (inside, outside): self.assertTrue(path.exists(), path)
         document = json.loads(inside.read_text(encoding='utf-8'))
         self.assertEqual((document['plan'], document['revision'], document['mode'], document['status']), ('P1', 1, 'log', 'approved'))
@@ -284,7 +284,7 @@ class CheckTests(HookFixture):
 
     def test_an_expired_plan_blocks_in_enforce(self):
         self.enforce()
-        for path in (self.root / '.onecrew' / 'active-plan.json', self.state / 'plans' / 'P1' / 'active-plan.json'):    # the state-root copy governs
+        for path in (self.root / '.onecrew' / 'active-plan.json', self.state / 'plans' / self.ledger.project_id / 'active-plan.json'):    # the state-root copy governs
             document = json.loads(path.read_text(encoding='utf-8')); document['expires'] = '2020-01-01T00:00:00+00:00'
             path.write_text(json.dumps(document), encoding='utf-8')
         code, _, err = self.run_hook('check', self.edit('a.txt'))

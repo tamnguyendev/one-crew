@@ -5,7 +5,7 @@ names back, so there is one source. Only reads live here: extensions (budget.ext
 import datetime as dt
 import json
 
-from .ledger import content_hash
+from .ledger import LedgerError, content_hash
 
 # Comparable sentinel for existing deadline consumers, only selected by an
 # explicit operator event. Original grants/deadlines remain immutable.
@@ -68,10 +68,10 @@ def shared(conn, task):
 
 # ---- shared goal budget -------------------------------------------------------------------------------------------------------
 
-def group(conn, task_id):
+def _existing_group(conn, task_id):
     delivery = shared(conn, task_id)
     if delivery: return delivery
-    row = conn.execute("SELECT e.payload FROM events e, json_each(e.payload,'$.members') m WHERE e.kind='budget.group' AND json_extract(m.value,'$.task_id')=?", (task_id,)).fetchone()
+    row = conn.execute("SELECT e.payload FROM events e, json_each(e.payload,'$.members') m WHERE e.kind='budget.group' AND COALESCE(json_extract(e.payload,'$.membership'),'')!='plan-bindings' AND json_extract(m.value,'$.task_id')=?", (task_id,)).fetchone()
     if not row:
         return None
     result = json.loads(row['payload'])
@@ -82,6 +82,93 @@ def group(conn, task_id):
     result['remaining_calls'] = max(0,result['max_calls']-result['used_calls']-result['reserved_calls'])
     attempts = conn.execute(f"SELECT COUNT(*),SUM(status='unknown') FROM attempts WHERE task_id IN ({slots}) AND status IN ('reserved','running','unknown')",ids).fetchone()
     result.update(active_attempts=attempts[0],unknown_attempts=attempts[1] or 0)
+    return result
+
+
+def ensure_plan_group(ledger, conn, selector):
+    """Seal the existing budget.group format for an explicit root-budget workflow.
+
+    The first approval starts its clock. Later approvals may narrow this policy;
+    a new child, retry or approval never grants more calls or a later deadline.
+    Membership is derived from sealed task handoffs, not a second task store.
+    """
+    from .v2 import namespaces, plan as plans
+    state = plans.derive(ledger, conn, selector)
+    if state is None or not namespaces.has_capability(state, 'root-budget'):
+        return None
+    if not state['selector'].startswith(namespaces.NAMESPACED) or state['status'] != 'approved':
+        raise LedgerError('A shared workflow budget requires the approved namespaced root.')
+    approvals = conn.execute("SELECT seq,payload,created_at FROM events WHERE task_id=? AND kind='plan.approved' ORDER BY seq", (state['task_id'],)).fetchall()
+    first = json.loads(approvals[0]['payload'])
+    first_contract = plans.load(ledger, state, first['revision'])[0]
+    current_contract = plans.load(ledger, state, state['approved']['revision'])[0]
+    start = dt.datetime.fromisoformat(first.get('at') or approvals[0]['created_at'])
+    calls = min(first_contract['budget']['max_calls'], current_contract['budget']['max_calls'])
+    minutes = min(first_contract['budget']['time'], current_contract['budget']['time'])
+    deadline = (start + dt.timedelta(minutes=minutes)).isoformat()
+    old = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='budget.group' AND json_extract(payload,'$.membership')='plan-bindings' ORDER BY seq DESC LIMIT 1", (state['task_id'],)).fetchone()
+    if old:
+        previous = json.loads(old['payload'])
+        calls, deadline = min(calls, previous['max_calls']), min(deadline, previous['deadline'], key=dt.datetime.fromisoformat)
+        if (calls, deadline) == (previous['max_calls'], previous['deadline']):
+            return _plan_group(conn, state['task_id'])
+    payload = {'owner_task_id': state['task_id'], 'project_id': ledger.project_id,
+               'members': [{'task_id': state['task_id']}], 'membership': 'plan-bindings',
+               'max_calls': calls, 'deadline': deadline, 'reason': 'Budget of the owner-approved workflow root',
+               'authority': 'approved-plan-root', 'automatic_dispatch': False,
+               'source_approval': {'seq': approvals[0]['seq'], 'revision': first['revision'], 'sha': first['sha']},
+               'current_approval': {'revision': state['approved']['revision'], 'sha': state['approved']['sha']}}
+    payload['revision'] = content_hash(payload)
+    plans.emit(ledger, conn, state['task_id'], 'budget.group', payload)
+    return _plan_group(conn, state['task_id'])
+
+
+def _plan_group(conn, task_id):
+    task = conn.execute('SELECT id,project_id,payload FROM tasks WHERE id=?', (task_id,)).fetchone()
+    if task is None:
+        return None
+    binding = json.loads(task['payload']).get('plan_binding')
+    submitted = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='task.submitted' ORDER BY seq LIMIT 1", (task_id,)).fetchone()
+    original = json.loads(submitted['payload']).get('plan_binding') if submitted else None
+    chosen = original or binding or {}
+    if not isinstance(chosen, dict):
+        raise LedgerError('Invalid task plan binding in shared budget membership.')
+    root = chosen.get('root_task_id', task_id)
+    row = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='budget.group' AND json_extract(payload,'$.membership')='plan-bindings' ORDER BY seq DESC LIMIT 1", (root,)).fetchone()
+    if not row:
+        return None
+    result = json.loads(row['payload'])
+    if result.get('project_id') != task['project_id']:
+        raise LedgerError('Shared workflow budget belongs to another project.')
+    members = conn.execute("SELECT t.id FROM tasks t WHERE t.project_id=? AND (t.id=? OR json_extract(t.payload,'$.plan_binding.root_task_id')=? OR EXISTS (SELECT 1 FROM events e WHERE e.task_id=t.id AND e.kind='task.submitted' AND json_extract(e.payload,'$.plan_binding.root_task_id')=?)) ORDER BY t.id",
+                           (result['project_id'], root, root, root)).fetchall()
+    ids = [member['id'] for member in members]
+    result['members'] = [{'task_id': member} for member in ids]
+    used, reserved, active, unknown = 0, 0, 0, 0
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE name='executions'").fetchone():
+        marks = ','.join('?' for _ in ids)
+        totals = conn.execute(f'SELECT COALESCE(SUM(used_calls),0),COALESCE(SUM(reserved_calls),0) FROM executions WHERE task_id IN ({marks})', ids).fetchone()
+        used, reserved = totals
+        attempts = conn.execute(f"SELECT COUNT(*),COALESCE(SUM(status='unknown'),0) FROM attempts WHERE task_id IN ({marks}) AND status IN ('reserved','running','unknown')", ids).fetchone()
+        active, unknown = attempts
+    result.update(used_calls=used, reserved_calls=reserved, remaining_calls=max(0, result['max_calls'] - used - reserved),
+                  active_attempts=active, unknown_attempts=unknown,
+                  revision=content_hash({'policy': result['revision'], 'members': ids}))
+    return result
+
+
+def group(conn, task_id):
+    existing, root = _existing_group(conn, task_id), _plan_group(conn, task_id)
+    if existing is None:
+        return root
+    if root is None:
+        return existing
+    # Delivery/explicit goal constraints continue to apply alongside the root.
+    # Preserve their owner/cancellation semantics and use the tighter allowance.
+    result = dict(existing, plan_root=root)
+    result['remaining_calls'] = min(existing['remaining_calls'], root['remaining_calls'])
+    result['deadline'] = min(existing['deadline'], root['deadline'], key=dt.datetime.fromisoformat)
+    result['revision'] = content_hash({'existing': existing['revision'], 'plan_root': root['revision']})
     return result
 
 

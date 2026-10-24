@@ -46,6 +46,9 @@ def main(argv=None):
         from .host import main as host_main
         return host_main(args[index:])
     if len(args)>index and args[index]=='eval':
+        if args[index:index+2] == ['eval', 'plan-metrics']:
+            from .v2.metrics import main as metrics_main
+            return metrics_main(args)
         from .evaluation import main as eval_main
         return eval_main(args)
     if len(args)>index and args[index]=='desktop':

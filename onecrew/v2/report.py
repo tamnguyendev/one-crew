@@ -25,7 +25,7 @@ from pathlib import Path
 
 from ..ledger import APP_ID, VERSION, Ledger, LedgerError
 from ..snapshots import Snapshots
-from . import contract as contracts, plan as plans, step0
+from . import contract as contracts, plan as plans, namespaces, step0
 
 NO_DATA = 'không có dữ liệu'
 NO_HOOK_LOG = 'không có nhật ký hook'
@@ -91,9 +91,9 @@ def _anchors(state_root):
     reader = _Reader(state_root)
     with reader.transaction() as conn:
         if conn is None: raise LedgerError(f'Không có sổ ở {reader.path}.')
-        rows = conn.execute("SELECT id, project_id, project_path, request_key, created_at FROM tasks WHERE request_key LIKE 'plan:%' "
+        rows = conn.execute("SELECT id, project_id, project_path, request_key, created_at FROM tasks WHERE request_key LIKE 'plan:%' OR request_key LIKE 'plan-ns:%' "
                             'ORDER BY created_at, id').fetchall()
-        last = {r[0]: r[1] for r in conn.execute('SELECT task_id, MAX(created_at) FROM events GROUP BY task_id')}
+        last = {r[0]: r[1] for r in conn.execute("SELECT task_id, MAX(created_at) FROM events WHERE kind NOT IN ('learning.outcome','control.intervention','context.entry') GROUP BY task_id")}
     return [(dict(row), last.get(row['id'], row['created_at'])) for row in rows]
 
 
@@ -103,11 +103,11 @@ def _gather(state_root, row, revision=None):
     The milestone views here are what the plan recorded on its own revision. The digest keeps them: it opens every plan of the state root, so it never
     hashes a project, and its lines stay as 2.1 printed them. `_lookup` (the report) replaces them with the views `plan show` and `accept` use."""
     reader = _Reader(state_root, row['project_id'], row['project_path'])
-    name = row['request_key'][len(plans.ANCHOR):]
+    name = namespaces.parse(row['request_key'])[0]
     with reader.transaction() as conn:
-        state = plans.derive(reader, conn, name)
+        state = plans.derive(reader, conn, row['request_key'])
         events = [(e['kind'], e['created_at'], json.loads(e['payload']))
-                  for e in conn.execute('SELECT kind, created_at, payload FROM events WHERE task_id=? ORDER BY seq', (row['id'],))]
+                  for e in conn.execute("SELECT kind, created_at, payload FROM events WHERE task_id=? AND kind NOT IN ('learning.outcome','control.intervention','context.entry') ORDER BY seq", (row['id'],))]
         closed = set(step0.closed_events(conn, row['id']))
     if revision is not None and revision not in state['revisions']:
         raise LedgerError(f'Plan {name} has no revision {revision}.')
@@ -121,10 +121,18 @@ def _gather(state_root, row, revision=None):
             'error': error, 'views': views, 'requests': reader.requests(row['id']), 'state_root': Path(state_root).resolve()}
 
 
-def _lookup(state_root, name, revision=None):
-    found = [row for row, _ in _anchors(state_root) if row['request_key'] == plans.ANCHOR + name]
+def _lookup(state_root, name, revision=None, project_id=None):
+    bare, explicit = namespaces.parse(name)
+    keys = (explicit,) if explicit else (namespaces.LEGACY + bare, namespaces.NAMESPACED + bare)
+    found = [row for row, _ in _anchors(state_root) if row['request_key'] in keys]
+    local = [row for row in found if row['project_id'] == project_id]
+    if local:
+        found = local
     if not found: raise LedgerError(f'No plan named {name} in {Path(state_root).resolve()}.')
-    f = _gather(state_root, found[-1], revision)
+    if len(found) > 1:
+        choices = ', '.join(row['request_key'] + ' (project ' + row['project_id'][:12] + ')' for row in found)
+        raise LedgerError(f'Plan {bare} is ambiguous: choose an explicit anchor and project: {choices}.')
+    f = _gather(state_root, found[0], revision)
     if f['contract']:       # the report reads the same milestone views as `plan show` and `accept` (plans.views_for): a carried verdict counts, a pass the artifact has left is stale,
         row = f['row']      # an accepted revision is read at the artifact accepted
         f['views'] = plans.views_for(_Reader(state_root, row['project_id'], row['project_path']), f['contract'], f['state'], f['revision'])
@@ -181,6 +189,8 @@ def _needs(f):
     if status == 'proposed': return f'duyệt bản {state["latest"]}'
     if status == 'stopped_with_report': return 'quyết định việc đã dừng'
     if f['contract'] is None: return NO_DATA
+    if _open_findings(f): return 'chưa cần quyết; AI cần xử lý finding còn mở trước khi bàn giao'
+    if f.get('finding_error'): return 'chưa thể nghiệm thu: không đọc được sổ finding'
     first = next((v for v in f['views'] if v['state'] != 'passed'), None)
     if first is None or (first['state'] == 'pending' and first['verifier'] == 'owner-manual'): return 'nghiệm thu'
     return NOTHING                                                                # the AI repairs, or a check is still to run
@@ -431,6 +441,9 @@ def _report(f):
     lines = _conclusion(f) + ['', f'BÁO CÁO: {f["name"]} — bản {f["revision"]}/{state["latest"]}, trạng thái {state["status"]}' + (f', cỡ {c["size"]}' if c else '')]
     lines += _wrap(f'Tiêu đề: «{c["title"]}»' if c else f'Tiêu đề: {NO_DATA}', '', '  ')
     lines += _wrap(f'Dự án: {f["row"]["project_path"]}', '', '  ')
+    lines += _forecast_lines(f)
+    if state.get('workflow_version') is not None:
+        lines += _wrap(f'Workflow: {state["workflow_version"]}; capabilities: {", ".join(state["capabilities"])}', '', '  ')
     sections = (_outputs, _milestones, _minutes, _blocks, _questions, _outside, _parked)
     for number, (title, build) in enumerate(zip(TITLES, sections), 1):
         lines += ['', f'{number}. {title}'] + build(f)
@@ -438,14 +451,15 @@ def _report(f):
     return '\n'.join(lines) + '\n'
 
 
-def render_report(state_root, name, revision=None):
-    return _report(_lookup(state_root, name, revision))
+def render_report(state_root, name, revision=None, project_id=None):
+    return _report(_lookup(state_root, name, revision, project_id))
 
 
 # ---- digest -----------------------------------------------------------------------------------------------------------
 
 def render_digest(state_root):
     anchors = _anchors(state_root)
+    names = [namespaces.parse(row['request_key'])[0] for row, _ in anchors]
     opened, counts = [], {'accepted': 0, 'stopped': 0, 'failed': 0}
     for row, last in anchors:
         f = _gather(state_root, row)
@@ -453,7 +467,8 @@ def render_digest(state_root):
         if kind != 'open': counts[kind] += 1; continue
         passed = len([v for v in f['views'] if v['state'] == 'passed'])
         total = f'{passed}/{len(f["views"])}' if f['contract'] else '?/?'
-        opened.append((last, f'{f["name"]:<38} {f["state"]["status"]:<12} mốc {total:<5} cần bạn làm gì: {_needs(f)}'))
+        label = f['name'] if names.count(f['name']) == 1 else f'{row["request_key"]} [{row["project_id"][:12]}]'
+        opened.append((last, f'{label:<38} {f["state"]["status"]:<12} mốc {total:<5} cần bạn làm gì: {_needs(f)}'))
     opened.sort(key=lambda item: item[0], reverse=True)
     lines = [f'TÓM TẮT CÁC VIỆC ({len(anchors)} kế hoạch) — sổ: {Path(state_root).resolve()}']
     lines += [text for _, text in opened[:OPEN_CAP]]
@@ -461,6 +476,303 @@ def render_digest(state_root):
     if not anchors: lines.append(NO_DATA)
     else: lines.append(f'{sum(counts.values())} việc đã đóng: {counts["accepted"]} nghiệm thu, {counts["stopped"]} dừng, {counts["failed"]} hỏng')
     return '\n'.join(lines) + '\n'
+
+
+# ---- handover by acceptance (W23a, HD-31) and `plan present` ------------------------------------------------------------
+#
+# Both read what `_lookup` reads (the views of `plan show`), write nothing and call no model. An acceptance is an output criterion (O1, O2, ...); its
+# evidence is the verdict of the milestones that cover it. It is "đạt" only when EVERY covering milestone is passed in the state `plan show` gives it (so a
+# pass on another artifact is not) AND the receipt it names can be read from the blob store. It is "cần kiểm lại" when some covering milestone has a verdict
+# that no longer counts (older artifact, failed, receipt gone), and "chưa có" when the rest has no verdict at all. A line of an acceptance that is not "đạt"
+# never contains that word.
+
+OK, RECHECK, NONE_YET = 'đạt', 'cần kiểm lại', 'chưa có'
+PRESENT_TITLES = ('Yêu cầu', 'Kết quả bàn giao', 'Rủi ro', 'Cách nghiệm thu', 'Bằng chứng còn thiếu')
+LIMITS_HEADING = 'Hạn chế còn lại:'
+FINDINGS_NOTE = 'Finding còn mở: root này chưa bật sổ finding; không kết luận rằng không có lỗi.'
+
+
+def _open_findings(f):
+    if 'open_findings' not in f:
+        if not namespaces.has_capability(f['state'], 'finding-register'):
+            f['open_findings'] = []
+        else:
+            from .findings import list_findings
+            reader = _Reader(f['state_root'], f['row']['project_id'], f['row']['project_path'])
+            try:
+                f['open_findings'] = list_findings(reader, f['row']['request_key'], task_id=f['row']['id'], open_only=True)
+            except LedgerError as error:
+                f['finding_error'] = str(error)
+                f['open_findings'] = []
+    return f['open_findings']
+
+
+def _finding_limits(f):
+    rows = _open_findings(f)
+    if f.get('finding_error'):
+        return ['Finding còn mở: không đọc được sổ finding: ' + f['finding_error']]
+    if not namespaces.has_capability(f['state'], 'finding-register'):
+        return [FINDINGS_NOTE]
+    return ([f'Finding còn mở: {r["id"]} · {r["severity"]} · mốc {r["node"]} · {r["head"]} · biên nhận {r["source"]["receipt"]}' for r in rows]
+            or ['Finding còn mở: 0 theo sổ finding của root.'])
+CHECKER = {'command': 'lệnh tự chạy trên artifact, bạn không phải làm gì', 'reviewer': 'một reviewer (model khác) đọc diff và trả lời tiêu chí',
+           'owner-manual': 'bạn tự thử rồi ghi kết quả (verdict của chủ sở hữu)'}
+
+
+def _artifact_now(f):
+    """The artifact the evidence is judged against: the one accepted, else the project's tree now (None when it cannot be made)."""
+    accepted = f['state']['accepted']
+    if accepted and accepted['revision'] == f['revision']: return accepted.get('artifact_sha')
+    if 'artifact_now' not in f:
+        from .verifiers import artifact as identities
+        try:
+            f['artifact_now'] = identities.identity(Path(f['row']['project_path'])) if f['row']['project_path'] else None
+        except (LedgerError, OSError, subprocess.SubprocessError):
+            f['artifact_now'] = None
+    return f['artifact_now']
+
+
+def _evidence(f, view):
+    """(kind, text, receipt line or None) of one milestone as evidence: ok | stale | failed | lost | none. The receipt line is never wrapped (a path is one word)."""
+    last, mid = view['last_verdict'], view['id']
+    if not last: return 'none', f'mốc {mid} chưa có verdict', None
+    key = last.get('receipt')
+    path = str(f['state_root'] / 'snapshots' / 'blobs' / key) if key else None
+    readable = bool(key) and _blob_text(f['state_root'], key) is not None
+    link = f'biên nhận {path}' if readable else None
+    if view['state'] == 'passed':
+        if readable: return 'ok', f'mốc {mid} {_verdict_word(view)} · by {last["by"]} · artifact {last["artifact_sha"]}', link
+        return 'lost', f'mốc {mid}: verdict {last["result"]} nhưng biên nhận {key or "(không ghi)"} không đọc được trong sổ', None
+    if view.get('stale'):
+        return 'stale', (f'mốc {mid}: bằng chứng cũ, {last["result"]} trên artifact {last["artifact_sha"]}, artifact hiện tại {_artifact_now(f) or "không xác định"}'), link
+    reason = _receipt_reason(f, view)
+    return 'failed', f'mốc {mid}: verdict gần nhất {last["result"]} trên artifact {last["artifact_sha"]}' + (f' ({reason})' if reason else ''), link
+
+
+def _acceptance(f):
+    """[{id, text, status, evidence: [(kind, text, receipt line)]}] per output criterion, or None when the contract cannot be read."""
+    rows = _output_rows(f)
+    if rows is None: return None
+    by_id = {v['id']: v for v in f['views']}
+    out = []
+    for oid, text, covering, _ in rows:
+        evidence = [_evidence(f, by_id[m]) for m in covering]
+        for finding in _open_findings(f):
+            if finding['node'] in covering:
+                evidence.append(('finding', f'finding {finding["id"]} ({finding["severity"]}) chưa được đóng bằng biên nhận hợp lệ', None))
+        kinds = {e[0] for e in evidence}
+        status = (OK if evidence and kinds == {'ok'} else RECHECK if kinds & {'stale', 'failed', 'lost', 'finding'} else NONE_YET)
+        if f.get('finding_error'): status = RECHECK
+        if not evidence: evidence = [('none', 'không có mốc nào kiểm output này', None)]
+        out.append({'id': oid, 'text': text, 'status': status, 'evidence': evidence})
+    return out
+
+
+def _acceptance_lines(f):
+    rows = _acceptance(f)
+    if rows is None: return _wrap(f'{NO_DATA} (hợp đồng bản {f["revision"]} không đọc được: {f["error"]})')
+    lines = []
+    for row in rows:
+        lines += _wrap(f'{row["id"]} {row["status"]} «{row["text"]}»', '  ', '      ')
+        for _, text, link in row['evidence']: lines += _wrap(text, '      ', '        ') + ([f'        {link}'] if link else [])
+    return lines
+
+
+def _limits(f):
+    rows = _acceptance(f)
+    if rows is None: return [NO_DATA]
+    limits = [f'{r["id"]} {r["status"]}: ' + '; '.join(e[1] for e in r['evidence'] if e[0] != 'ok') for r in rows if r['status'] != OK]
+    waiting, unknown = _parked_data(f)
+    if waiting: limits.append('should chưa có mốc pass: ' + '; '.join(f'{i["id"]} «{i["title"]}»' for i in waiting))
+    if unknown: limits.append('unknown còn mở: ' + '; '.join(f'{u["id"]} «{u["question"]}»' for u in unknown))
+    if f['state']['status'] != 'accepted' and any(v['last_verdict'] for v in f['views']) and _artifact_now(f) is None:
+        limits.append('không xác định được artifact hiện tại của dự án, nên chưa kiểm được bằng chứng còn khớp')
+    return limits + _finding_limits(f)
+
+
+def _heading(f, word):
+    state, c = f['state'], f['contract']
+    lines = [f'{word}: {f["name"]} — bản {f["revision"]}/{state["latest"]}, trạng thái {state["status"]}']
+    lines += _wrap(f'Tiêu đề: «{c["title"]}»' if c else f'Tiêu đề: {NO_DATA}', '', '  ')
+    return lines + _wrap(f'Dự án: {f["row"]["project_path"]}', '', '  ')
+
+
+def render_handover(state_root, name, revision=None, project_id=None):
+    """The handover report by acceptance: each output criterion as đạt / cần kiểm lại / chưa có with the evidence behind it, then what is left."""
+    f = _lookup(state_root, name, revision, project_id)
+    lines = _heading(f, 'BÀN GIAO') + ['Theo acceptance:'] + _acceptance_lines(f) + [LIMITS_HEADING]
+    for limit in _limits(f): lines += _wrap('- ' + limit, '  ', '    ')
+    return '\n'.join(lines) + '\n'
+
+
+# ---- plan present -----------------------------------------------------------------------------------------------------
+
+_GONE = object()
+
+
+def _diff(old, new, path=''):
+    """The shared, lossless contract diff, retaining the existing display API."""
+    from .. import contract_diff
+    return contract_diff.diff(old, new, path, missing=_GONE)
+
+
+def _value(value):
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _pending(f):
+    """(baseline revision, was it approved) when the revision shown waits for the owner after an amendment; else None."""
+    state = f['state']
+    if f['revision'] != state['latest'] or state['latest'] < 2 or state['status'] != 'proposed': return None
+    approved = state['approved']
+    if approved and approved['revision'] < state['latest']: return approved['revision'], True
+    return state['revisions'][state['latest']].get('from_revision') or state['latest'] - 1, False
+
+
+def _amend_block(f):
+    pending = _pending(f)
+    if pending is None: return []
+    base, was_approved = pending
+    state, reader = f['state'], _Reader(f['state_root'], f['row']['project_id'], f['row']['project_path'])
+    event = state['revisions'][f['revision']]
+    lines = ['', f'ĐỔI SO VỚI BẢN {"ĐÃ DUYỆT" if was_approved else "TRƯỚC (chưa có bản nào được duyệt)"} (bản {base} → bản {f["revision"]})']
+    if event.get('reason') is not None: lines += _wrap(f'Lý do amend: «{event["reason"]}»', '', '    ')
+    if event.get('author'): lines += _wrap(f'Người sửa: {event["author"]}', '', '    ')
+    try:
+        old = plans.load(reader, state, base)[0]
+    except LedgerError as error:
+        return lines + _wrap(f'{NO_DATA} (bản {base} không đọc được: {error})', '', '    ')
+    if f['contract'] is None: return lines + _wrap(f'{NO_DATA} (bản {f["revision"]} không đọc được)', '', '    ')
+    changes = _diff(old, f['contract'])
+    for where, how, before, after in changes:
+        text = (f'{where}: ' + (f'thêm «{_value(after)}»' if how == 'thêm' else f'bỏ «{_value(before)}»' if how == 'bỏ'
+                                else f'đổi «{_value(before)}» → «{_value(after)}»' if how == 'đổi' else 'đổi thứ tự'))
+        lines += _wrap('- ' + text, '  ', '      ')
+    if not changes: lines.append('  không có khác biệt nào trong hợp đồng')
+    try:
+        target = plans.resolve(reader, state)
+    except LedgerError:
+        target = None
+    frozen = target['frozen'] if target else None
+    if frozen:
+        lines += _wrap('Ảnh hưởng: mốc chạy tiếp được trên bản đã duyệt: ' + (', '.join(frozen['runnable']) or 'không có') +
+                       '; mốc chờ bản mới được duyệt: ' + (', '.join(frozen['frozen']) or 'không có'), '', '    ')
+    else:
+        lines += _wrap('Ảnh hưởng: chưa mốc nào chạy được cho tới khi bản mới được duyệt', '', '    ')
+    return lines
+
+
+def _present_request(f):
+    c = f['contract']
+    if c is None: return _wrap(NO_DATA)
+    shown = c.get('presentation') or {}
+    lines = _wrap(shown['request'] if shown.get('request') else 'Mục tiêu (AI diễn đạt lại): ' + c['understanding']['restated_goal'])
+    if c.get('origin'): lines += _wrap(f'Lời gốc ({c["origin"]["by"]}, {c["origin"]["at"]}): «{c["origin"]["quote"]}»')
+    lines += _wrap('Không làm: ' + (shown['not_doing'] if shown.get('not_doing') else '; '.join(c['non_goals']) or 'không ghi'))
+    if shown.get('guard'): lines += _wrap('Giữ nguyên: ' + shown['guard'])
+    return lines
+
+
+def _milestone_facts(f):
+    lines = []
+    for v in f['views']:
+        last = v['last_verdict']
+        lines += _wrap(f'{v["id"]} {v["state"]} · {_verdict_word(v, short=True)} · by {last["by"]} · artifact {last["artifact_sha"]}' if last
+                       else f'{v["id"]} {v["state"]} · chưa có verdict', '  ', '      ')
+    return lines
+
+
+def _present_result(f):
+    c = f['contract']
+    if c is None: return _wrap(NO_DATA)
+    lines, sees = [], (c.get('presentation') or {}).get('user_sees') or []
+    if sees: lines.append('  Bạn sẽ thấy:')
+    for number, item in enumerate(sees, 1): lines += _wrap(f'{number}. {item}', '    ', '       ')
+    accepted = f['state']['accepted']
+    if accepted and accepted['revision'] == f['revision']:
+        lines += _wrap(f'Đã nghiệm thu bởi {accepted.get("by")} («{accepted.get("reference")}») trên artifact {accepted.get("artifact_sha")}')
+    return lines + ['  Theo acceptance:'] + _acceptance_lines(f) + ['  Mốc:'] + _milestone_facts(f)
+
+
+def _present_risk(f):
+    c = f['contract']
+    if c is None: return _wrap(NO_DATA)
+    items = [f'(tác giả ghi) {r}' for r in (c.get('presentation') or {}).get('risk') or []]
+    view, reason = _failing(f)
+    if view: items.append(f'mốc {view["id"]} ' + ('dừng' if view['state'] == 'stopped' else 'hỏng') + ': ' + (_receipt_reason(f, view) or 'không đọc được biên nhận')
+                          + (f' ({reason})' if reason else ''))
+    data = _parked_data(f)
+    items += [f'unknown còn mở {u["id"]}: «{u["question"]}»' for u in data[1]]
+    understanding = c['understanding']
+    if understanding['confidence'] != 'high': items.append(f'độ tin cậy của hiểu yêu cầu: {understanding["confidence"]}')
+    items += [f'giả định chưa có bằng chứng: «{a["text"]}»' for a in understanding['assumptions'] if not a.get('evidence')]
+    if f['state']['exceeded']: items.append(f'đã vượt hạn mức chú ý {f["state"]["exceeded"]} lần')
+    lines = []
+    for item in items: lines += _wrap('- ' + item, '  ', '    ')
+    return (lines or ['  không có rủi ro nào được ghi']) + _wrap(f'Ngân sách: {c["budget"]["max_calls"]} lần gọi, {c["budget"]["time"]} phút')
+
+
+def _present_acceptance(f):
+    c = f['contract']
+    if c is None: return _wrap(NO_DATA)
+    steps = (c.get('presentation') or {}).get('acceptance_steps')
+    lines = []
+    if steps:
+        for number, step in enumerate(steps, 1): lines += _wrap(f'{number}. {step}', '  ', '     ')
+    else:
+        for m in c['milestones']:
+            checker = CHECKER.get(m['verifier']['type'], 'bộ kiểm ' + m['verifier']['type'] + ' trên artifact cố định')
+            lines += _wrap(f'mốc {m["id"]} «{m["title"]}»: {checker}', '  ', '      ')
+    return lines + _wrap(f'Việc của bạn bây giờ: {_needs(f)}')
+
+
+def _present_missing(f):
+    rows = _acceptance(f)
+    if rows is None: return _wrap(NO_DATA)
+    lines = []
+    for row in [r for r in rows if r['status'] != OK]:
+        lines += _wrap(f'{row["id"]} {row["status"]}: ' + '; '.join(e[1] for e in row['evidence'] if e[0] != 'ok'), '  ', '      ')
+    for u in _parked_data(f)[1]: lines += _wrap(f'unknown còn mở {u["id"]}: «{u["question"]}»', '  ', '      ')
+    if _open_findings(f) or f.get('finding_error'):
+        for limit in _finding_limits(f): lines += _wrap(limit, '  ', '      ')
+    if f['state']['status'] != 'accepted' and any(v['last_verdict'] for v in f['views']) and _artifact_now(f) is None:
+        lines += _wrap('không xác định được artifact hiện tại, nên chưa kiểm được bằng chứng còn khớp', '  ', '      ')
+    return lines or ['  không thiếu bằng chứng nào cho các acceptance']
+
+
+def render_present(state_root, name, revision=None, project_id=None):
+    """`plan present`: one page of plain text, from the ledger, no model - what the owner reads before approving or accepting."""
+    f = _lookup(state_root, name, revision, project_id)
+    state = f['state']
+    approved = state['approved']['revision'] if state['approved'] else 'chưa có'
+    lines = _heading(f, 'TRÌNH') + [f'Bản đã duyệt: {approved}', f'Sha bản: {state["revisions"][f["revision"]]["sha"]}', f'Mã việc: {state["task_id"]}']
+    lines += _wrap(f'Cần bạn làm: {_needs(f)}', '', '  ') + _amend_block(f)
+    lines += _forecast_lines(f)
+    for number, (title, build) in enumerate(zip(PRESENT_TITLES, (_present_request, _present_result, _present_risk, _present_acceptance, _present_missing)), 1):
+        lines += ['', f'{number}. {title}'] + build(f)
+    return '\n'.join(lines) + '\n'
+
+
+def _forecast_lines(f):
+    from . import estimates
+    try:
+        row = f['row']
+        out = estimates.read(_Reader(f['state_root'], row['project_id'], row['project_path']), row['request_key'])
+    except (LedgerError, OSError, ValueError) as error:
+        return ['Ước lượng: không đọc được dữ liệu (' + str(error) + ').']
+    if not out['baseline']: return []
+    def span(value):
+        return 'chưa có dữ liệu' if value is None else f'{value[0] / 3600:g}–{value[1] / 3600:g} giờ'
+    def elapsed(value):
+        return 'chưa đo được' if value == 'unknown' else f'{value / 3600:g} giờ'
+    lines = [f'Ước lượng ban đầu: {span(out["baseline"]["execution_seconds"])}; còn lại: {span(out["remaining_seconds"])} (chưa hiệu chỉnh).',
+             f'Thực thi: {elapsed(out["execution_seconds"])}; chờ: {elapsed(out["waiting_seconds"])}; deadline: {out["deadline"] or "chưa đặt"}.']
+    if out['history']:
+        last = out['history'][-1]
+        lines += _wrap('Lý do đổi ước lượng: ' + last['reason'], '', '  ')
+    for item in out['additional']:
+        lines += _wrap(f'Phát sinh {item["key"]} ({item["category"]}, {item["disposition"]}): {item["reason"]}', '', '  ')
+    return lines
 
 
 # ---- the only write: --out --------------------------------------------------------------------------------------------

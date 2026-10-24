@@ -8,7 +8,7 @@ import os
 import subprocess
 
 from ..ledger import LedgerError, canonical, content_hash, key_field, text_field, utcnow
-from . import contract as contracts
+from . import contract as contracts, namespaces
 from .ownership import session_info
 
 ANCHOR = 'plan:'
@@ -50,14 +50,20 @@ def emit(ledger, conn, task_id, kind, payload):
 def derive(ledger, conn, name):
     """State of plan `name` from the anchor task's events, or None when there is no such plan."""
     if conn is None: return None
-    row = conn.execute('SELECT id FROM tasks WHERE project_id=? AND request_key=?', (ledger.project_id, ANCHOR + name)).fetchone()
+    row = namespaces.resolve(ledger, conn, name)
     if not row: return None
-    state = {'name': name, 'task_id': row['id'], 'revisions': {}, 'latest': 0, 'approved': None, 'accepted': None, 'verdicts': [],
+    state = {'name': namespaces.parse(row['request_key'])[0], 'selector': row['request_key'], 'anchor': row['request_key'],
+             'task_id': row['id'], 'revisions': {}, 'latest': 0, 'approved': None, 'accepted': None, 'verdicts': [],
              'stopped': {}, 'issued': set(), 'issued_seq': {}, 'exceeded': 0, 'advice': {}}
     marks = ','.join('?' * len(KINDS))
+    declared = False
     for event in conn.execute(f'SELECT seq,kind,payload FROM events WHERE task_id=? AND kind IN ({marks}) ORDER BY seq', (row['id'], *KINDS)):
         kind, p = event['kind'], json.loads(event['payload'])
         if kind in ('plan.proposed', 'plan.amended'):
+            if kind == 'plan.proposed' and not declared:
+                declared = True
+                namespaces.check_workflow(p)
+                state.update({key: p[key] for key in ('workflow_version', 'capabilities') if key in p})
             state['revisions'][p['revision']] = p
             state['latest'] = max(state['latest'], p['revision'])
         elif kind == 'plan.approved': state['approved'] = p
@@ -87,7 +93,7 @@ def load(ledger, state, revision=None):
     """(contract, sha) of a revision, re-hashed against the sha the ledger recorded."""
     revision = revision or state['latest']
     if revision not in state['revisions']: raise LedgerError(f'Plan {state["name"]} has no revision {revision}.')
-    return contracts.read_revision(ledger, state['name'], revision, state['revisions'][revision]['sha'])
+    return contracts.read_revision(ledger, state.get('selector', state['name']), revision, state['revisions'][revision]['sha'])
 
 
 def _signature(milestone, contract):
@@ -153,9 +159,9 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None):
     def now():
         if not current[1]:
             current[1] = True
-            from .verifiers import command
+            from .verifiers import artifact as identities
             try:
-                current[0] = command.artifact_sha(ledger.project) if ledger is not None and getattr(ledger, 'project', None) else None
+                current[0] = identities.identity(ledger.project) if ledger is not None and getattr(ledger, 'project', None) else None
             except (LedgerError, OSError, subprocess.SubprocessError):
                 current[0] = None
         return current[0]
@@ -286,22 +292,23 @@ def refuse_duplicate_name(ledger, name):
 
 def _anchor(ledger, name, title):
     from ..task_intake import submit
-    return submit(ledger, f'Plan {name}: {title}'[:2000], ANCHOR + name, mode='audit')['id']
+    return submit(ledger, f'Plan {name}: {title}'[:2000], namespaces.NAMESPACED + name, mode='audit')['id']
 
 
-def propose(ledger, name, raw, author):
+def propose(ledger, name, raw, author, workflow=False):
     valid_plan_name(name)                       # W12a: reject ':', path chars, drive form, absolute — before any write
     key_field(name); key_field(ANCHOR + name)
-    refuse_duplicate_name(ledger, name)         # W12a: a second project with the same name is refused, nothing written
+    metadata = namespaces.workflow_metadata(workflow)
     text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
-    if contracts.revision_path(ledger, name, 1).exists(): raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
+    selector = namespaces.NAMESPACED + name
+    if contracts.revision_path(ledger, selector, 1).exists(): raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
     task_id = _anchor(ledger, name, contract['title'])
-    sha = contracts.write_revision(ledger, name, 1, contract)
+    sha = contracts.write_revision(ledger, selector, 1, contract)
     with ledger.transaction(write=True) as conn:
-        if derive(ledger, conn, name)['latest']: raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
-        emit(ledger, conn, task_id, 'plan.proposed', {'plan': name, 'revision': 1, 'sha': sha, 'author': author, 'content_author': author, 'title': contract['title']})
-    return show(ledger, name)
+        if derive(ledger, conn, selector)['latest']: raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
+        emit(ledger, conn, task_id, 'plan.proposed', {'plan': name, 'revision': 1, 'sha': sha, 'author': author, 'content_author': author, 'title': contract['title'], **metadata})
+    return show(ledger, selector)
 
 
 def amend(ledger, name, raw, reason, author, events=None, keep_content_author=False):
@@ -317,8 +324,8 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
         latest, sha_now = state['latest'], content_hash(contract)
         if state['revisions'][latest]['sha'] == sha_now: raise LedgerError('The amendment is identical to the current revision.')
         revision = latest + 1
-        sha = contracts.write_revision(ledger, name, revision, contract)
-        emit(ledger, conn, state['task_id'], 'plan.amended', {'plan': name, 'revision': revision, 'from_revision': latest, 'sha': sha,
+        sha = contracts.write_revision(ledger, state['selector'], revision, contract)
+        emit(ledger, conn, state['task_id'], 'plan.amended', {'plan': state['name'], 'revision': revision, 'from_revision': latest, 'sha': sha,
                                                                'parent_sha': state['revisions'][latest]['sha'], 'reason': reason,
                                                                'author': author, 'title': contract['title'],
                                                                'content_author': (state['revisions'][latest].get('content_author') or state['revisions'][latest].get('author')) if keep_content_author else author})
@@ -346,11 +353,13 @@ def _base_artifact(ledger):
         return None
 
 
-def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
+def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, estimate=None):
     """Owner only, and only when step 0 is done (step0.evaluate): every reason it is not is returned in one refusal. The
     owner's `choose` is recorded here and nowhere else."""
     from . import step0
     require_owner(by, 'Approving a plan'); text_field(reference, 'reference', 500)
+    from . import estimates
+    if estimate is not None: estimates.normalize(estimate)
     with ledger.transaction() as conn:                       # read first: the preconditions below may run for minutes
         state = anchor_events(ledger, conn, name)
         revision = revision or state['latest']
@@ -375,9 +384,15 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
             raise LedgerError('The plan changed while step 0 was being checked; run approve again.')
         if verdict['results']: step0.record_run(ledger, conn, state['task_id'], name, revision, sha, verdict, 'approve')
         if verdict['ok']:
+            from .retention import pin_trees
+            bases = [tree for tree in (base_artifact, base_tracked) if tree is not None]
+            if bases: pin_trees(ledger, name, *bases)
             emit(ledger, conn, state['task_id'], 'plan.approved', {'plan': name, 'revision': revision, 'sha': sha, 'by': by, 'reference': reference,
                                                                     'ticked': ticked, 'chosen': choose, 'base_artifact': base_artifact,
                                                                     **({'base_tracked': base_tracked} if base_tracked else {}), **session_info()})
+            from ..budget_core import ensure_plan_group
+            ensure_plan_group(ledger, conn, state['selector'])
+            estimates.ensure_baseline(ledger, conn, state['selector'], estimate)
             step0.record_closed(ledger, conn, state['task_id'], name, revision, sha, verdict, choose)
     if not verdict['ok']: raise LedgerError(step0.refusal_text(verdict))   # after the commit, so the precondition run stays recorded
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
@@ -412,6 +427,9 @@ def accept(ledger, name, by, reference, artifact_sha):
             if state['status'] != 'approved': raise LedgerError(f'Cannot accept: the plan is {state["status"]}, not approved.')
             revision = state['latest']
             contract, sha = load(ledger, state, revision)
+            from .verifiers import artifact as identities
+            if not identities.is_git(ledger.project) and any(m['verifier']['type'] != 'owner-manual' for m in contract['milestones']):
+                artifact_sha = identities.canonical(ledger, artifact_sha)
             views = milestone_views(contract, state, revision, ledger, artifact=artifact_sha)     # a verdict counts when it covers exactly this artifact (or differs only in neutral paths, command milestones)
             missing = [v['id'] for v in views if v['state'] != 'passed' and not v.get('stale')]
             if missing: raise LedgerError('Cannot accept: no passing verdict for milestone ' + ', '.join(missing) + '.')
@@ -419,10 +437,20 @@ def accept(ledger, name, by, reference, artifact_sha):
             if elsewhere:
                 raise LedgerError(f'Cannot accept artifact {artifact_sha}: every milestone must have passed on exactly that artifact; '
                                   + '; '.join(f'{v["id"]} passed on {v["last_verdict"]["artifact_sha"]}' for v in views if v['last_verdict']) + '. Re-run the milestones that differ.')
+            if namespaces.has_capability(state, 'finding-register'):
+                from .findings import list_findings
+                open_findings = list_findings(ledger, name, task_id=state['task_id'], open_only=True)
+                if open_findings:
+                    raise LedgerError('Cannot accept: unresolved findings ' + ', '.join(f['id'] for f in open_findings) + '.')
             carried = {v['id']: v['carried_from'] for v in views if v.get('carried_from')}
+            from .retention import pin_evidence
+            pin_evidence(ledger, name, artifact_sha,
+                         strict=any(m['verifier']['type'] != 'owner-manual' for m in contract['milestones']))
             emit(ledger, conn, state['task_id'], 'plan.accepted', {'plan': name, 'revision': revision, 'sha': sha, 'by': by, 'reference': reference,
                                                                     'artifact_sha': artifact_sha, 'receipts': {v['id']: v['last_verdict']['receipt'] for v in views},
                                                                     **({'carried': carried} if carried else {}), **session_info()})
+    from . import outcome
+    outcome.note(ledger, name)
     return show(ledger, name)
 
 
@@ -447,7 +475,7 @@ def show(ledger, name, revision=None):
         views = views_for(ledger, contract, state, revision)   # an accepted plan is read at the artifact accepted
         if frozen:       # a newer revision waits for the owner: which milestones stay runnable on the approved one, which are blocked
             views = [dict(v, frozen=v['id'] in frozen['frozen']) for v in views]
-        out = {'plan': name, 'status': state['status'], 'revision': revision, 'latest_revision': state['latest'], 'sha': sha,
+        out = {'plan': state['name'], 'anchor': state['selector'], 'status': state['status'], 'revision': revision, 'latest_revision': state['latest'], 'sha': sha,
                 'approved_revision': state['approved']['revision'] if state['approved'] else None,
                 'revisions': [{'revision': r, 'sha': p['sha'], 'reason': p.get('reason')} for r, p in sorted(state['revisions'].items())],
                 'contract': dict(contract, items=items), 'milestones': views,
@@ -459,4 +487,5 @@ def show(ledger, name, revision=None):
                 'questions': [{'request': r['id'], 'revision': r['revision'], 'state': r['state']} for r in requests],
                 'anchor_task': state['task_id'], 'state_root': str(ledger.state_root)}
         if frozen: out['frozen'] = frozen
+        out.update({key: state[key] for key in ('workflow_version', 'capabilities') if key in state})
         return out

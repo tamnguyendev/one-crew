@@ -1,5 +1,18 @@
 # DEV-LOG — development chương trình workflow chung
 
+## Codex tiếp quản development — 24/10, nhánh riêng
+
+- Nhánh `codex/wf-development`, worktree `D:\TamNT\Workspace\11.OneCrew\wf-codex`, nền `d3120c6`; các worktree Claude và sổ thật giữ nguyên.
+- Sol: implementation/test theo module (retention/namespace/binding; findings/discovery). Astra: bằng chứng bàn giao, quyền hạn, review các chỗ nối và rollback. Parent: tích hợp, report/policy, kiểm bản cài. Tối đa ba agent phụ trong phiên này.
+- Dùng lại W30a/W47 đã commit; W23a và W31a dùng snapshot có hash từ nhánh Claude rồi kiểm độc lập. Không coi thay đổi đang làm ở nhánh nguồn là hoàn thành.
+- Commit đã kiểm: `230089a` (danh tính CLI), `53e07f1` (CG-KET từ dữ liệu thật của bundle; fixture không phải pilot thật), `038a0b3` (quyền root, sửa các đường cho qua sai).
+- Namespace/retention/findings và policy đang ghép; review đã tái hiện và sửa trường hợp dùng pass cũ để đóng finding sau fail mới. Việc nối job với root tường minh và scan rollback đang được kiểm.
+- Checkpoint tích hợp: R01 40 ca; R02 57 ca (các lỗi fixture/helper được sửa và chỉ chạy lại ca hỏng); R03 quan sát 34 ca +7 ca sửa hẹp; metrics 20 ca; root budget 9+2 ca và goal v1 10 ca; RX1 79 ca được đối chiếu, generic finding 4 ca. Số đếm theo suite, có thể chồng nhau, không cộng thành một tỷ lệ hoàn thành.
+- Bản cài tạm offline: luồng Git đã đi qua approval→verdict→retention→context→accept→outcome→metrics→resume. Ca dữ liệu ngoài Git phát hiện lỗi step0 đòi Git; đã sửa target `ref=snapshot`, chạy lại ca từ wheel đạt. Không dùng emit duyệt giả để che lỗi này.
+- Một ca P6 prompt-cap của bộ v1 dài hỏng ngay ở baseline trước extraction; giữ log, không đổi test để cho qua. Các ca register 26 trước/26 sau và learning 3 trước/3 sau đạt.
+- Tiếp tục development: engine/internal revision/điều phối; thông báo dùng outbox v1; incident/lesson/localization. Chưa coi checkpoint này là hoàn thành WF.
+- Bằng chứng chi tiết và phần chưa xong: `docs/proposal-coverage.md`. Log tại `D:\OneCrewRuns\wf-dev-logs\codex-*.txt`. Chưa phát hành hay nghiệm thu toàn bộ WF.
+
 Ngắn, cập nhật theo checkpoint. Phạm vi và trạng thái từng task: [FEATURE-SCOPE.md](FEATURE-SCOPE.md).
 
 ## Quyết định ảnh hưởng implementation

@@ -51,9 +51,9 @@ def judge(contract, ticked, item, used_item, used_all):
 def check_operation(ledger, conn, task, operation):
     """Raise LedgerError when `operation` belongs to an item that may not spend another call. Called inside Control.reserve."""
     item = operation.get('item') if isinstance(operation, dict) else None
-    from . import gate, plan
-    if item is None or not gate.enforced(ledger): return
-    state = plan.derive(ledger, conn, task['request_key'])
+    from . import gate, plan, plan_binding
+    if item is None or (not gate.enforced(ledger) and not plan_binding.required(conn, task)): return
+    state = plan_binding.state_for_task(ledger, conn, task)
     if state is None or state['status'] != 'approved': return          # require_plan has already refused (or will)
     contract, _ = plan.load(ledger, state)
     ticked = set((state['approved'] or {}).get('ticked', []))
@@ -62,7 +62,7 @@ def check_operation(ledger, conn, task, operation):
     verdict = judge(contract, ticked, str(item), used_item, row['n'] if row else 0)
     if verdict is None: return
     reason, ask = verdict
-    extra = {'plan': task['request_key'], 'revision': state['latest'], 'item': item, 'used': used_item, 'cap': shares(contract, ticked)[0]} if ask else None
+    extra = {'plan': state['selector'], 'revision': state['latest'], 'item': item, 'used': used_item, 'cap': shares(contract, ticked)[0]} if ask else None
     gate.refuse(ledger, task, reason, extra)
 
 

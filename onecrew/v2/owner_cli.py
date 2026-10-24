@@ -20,6 +20,10 @@ def _parser():
     p = verbs.add_parser('approve', help=t('owner.approve'))
     p.add_argument('plan'); p.add_argument('--reference', required=True, help=t('owner.reference')); p.add_argument('--choose', metavar=t('owner.metavar_option'))
     p.add_argument('--tick', action='append', default=[], metavar=t('owner.metavar_item')); p.add_argument('--revision', type=int)
+    p.add_argument('--estimate-file', type=Path)
+    p = verbs.add_parser('answer', help='Record a choice on a current request; it does not approve a plan.')
+    p.add_argument('request'); p.add_argument('--revision', required=True)
+    p.add_argument('--choice', required=True); p.add_argument('--reference', required=True)
     p = verbs.add_parser('accept', help=t('owner.accept'))
     p.add_argument('plan'); p.add_argument('--artifact-sha', required=True); p.add_argument('--reference', required=True, help=t('owner.reference'))
     p = verbs.add_parser('enforce', help=t('owner.enforce'))
@@ -32,11 +36,14 @@ def _parser():
 
 def translate(args):
     """(module, argv) of the older command a parsed `owner` verb stands for (--by owner fixed)."""
+    if args.verb == 'answer':
+        return 'questions', ['question', 'answer', args.request, '--revision', str(args.revision), '--choice', args.choice, '--reference', args.reference]
     if args.verb == 'approve':
         argv = ['plan', 'approve', args.plan, '--by', 'owner', '--reference', args.reference]
         argv += ['--revision', str(args.revision)] if args.revision is not None else []
         argv += [x for tick in args.tick for x in ('--tick', tick)]
         argv += ['--choose', args.choose] if args.choose else []
+        argv += ['--estimate-file', str(args.estimate_file)] if args.estimate_file else []
         return 'plan_cli', argv
     if args.verb == 'accept':
         return 'plan_cli', ['plan', 'accept', args.plan, '--by', 'owner', '--reference', args.reference, '--artifact-sha', args.artifact_sha]
@@ -53,7 +60,9 @@ def main(args):
     glob, rest = list(args[:index]), list(args[index + 1:])
     parsed = _parser().parse_args(rest)
     module, argv = translate(parsed)
-    if module == 'hook_cli':
+    if module == 'questions':
+        from .questions import main as run
+    elif module == 'hook_cli':
         from .hook_cli import main as run
     else:
         from .plan_cli import main as run

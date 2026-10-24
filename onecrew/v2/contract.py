@@ -13,7 +13,7 @@ from ..snapshots import scoped_path
 
 SCHEMA_VERSION = 2
 FIELDS = {'schema_version', 'title', 'size', 'understanding', 'options', 'preconditions', 'output', 'scope', 'non_goals', 'items',
-          'milestones', 'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation', 'authority'}
+          'milestones', 'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation', 'authority', 'review_policy'}
 MAX_DECISIONS = 10
 MAX_NEUTRAL = 20
 DECISION_ID = re.compile(r'D[1-9][0-9]?')
@@ -58,9 +58,13 @@ def _int(value, name, low, high):
 
 
 def _verifier(value, name):
-    if not isinstance(value, dict) or set(value) - {'type', 'config'} or value.get('type') not in VERIFIERS:
-        raise LedgerError(name + ': verifier.type must be one of ' + ', '.join(VERIFIERS) + '.')
+    from .verifiers import port
+    available = VERIFIERS + port.names()
+    if not isinstance(value, dict) or set(value) - {'type', 'config'} or value.get('type') not in available:
+        raise LedgerError(name + ': verifier.type must be one of ' + ', '.join(available) + '.')
     config = value.get('config') or {}
+    if value['type'] not in VERIFIERS:
+        return {'type': value['type'], 'config': port.normalize(value['type'], config, name)}
     if value['type'] == 'command':
         if not isinstance(config, dict) or set(config) - {'argv', 'cwd', 'max_minutes'}:
             raise LedgerError(name + ': command verifier takes argv, cwd and max_minutes.')
@@ -147,6 +151,9 @@ def validate(value):
     stop = {k: _int(stop.get(k, STOP_DEFAULT[k]), 'stop.' + k, *STOP_RANGE[k]) for k in STOP_DEFAULT}
     if value.get('profile_version') is not None: raise LedgerError('profile_version must stay null in L1.')
     optional = _provenance(value)       # origin, decisions, presentation: only the ones given, so a contract without them stays byte-identical
+    if 'review_policy' in value:
+        from . import review_policy
+        optional['review_policy'] = review_policy.normalize(value['review_policy'])
     if value.get('authority') is not None:
         from . import authority
         optional['authority'] = authority.normalize(value['authority'])
@@ -300,14 +307,30 @@ def _assumption(value):
 
 
 def _unknown(value):
-    value = _keys(value, ('id', 'question', 'status', 'closed_by', 'evidence'), 'unknown', ('id', 'question', 'status'))
+    value = _keys(value, ('id', 'question', 'status', 'closed_by', 'evidence', 'affected', 'required_by'), 'unknown', ('id', 'question', 'status'))
     status, closer, evidence = value['status'], value.get('closed_by'), value.get('evidence')
     if status not in ('open', 'closed'): raise LedgerError('unknown.status: open or closed.')
     if status == 'open' and (closer or evidence): raise LedgerError('unknown: an open unknown has no closed_by or evidence.')
     if status == 'closed' and (closer not in CLOSERS or not evidence):
         raise LedgerError('unknown: a closed unknown needs closed_by (doc|poc|owner) and evidence.')
-    return {'id': _id(value['id'], 'unknown id'), 'question': text_field(value['question'], 'unknown.question', 500), 'status': status,
-            'closed_by': closer, 'evidence': text_field(evidence, 'unknown.evidence', 1000) if evidence else None}
+    out = {'id': _id(value['id'], 'unknown id'), 'question': text_field(value['question'], 'unknown.question', 500), 'status': status,
+           'closed_by': closer, 'evidence': text_field(evidence, 'unknown.evidence', 1000) if evidence else None}
+    out.update(_unknown_scope(value, out['id']))
+    return out
+
+
+UNKNOWN_REQUIRED_BY = ('option_choice', 'estimate', 'approval')
+
+
+def _unknown_scope(value, uid):
+    """Both scope fields or neither; legacy unknowns stay byte-identical."""
+    if 'affected' not in value and 'required_by' not in value: return {}
+    if 'affected' not in value or 'required_by' not in value:
+        raise LedgerError(f'unknown {uid}: give both affected and required_by, or neither.')
+    required = value['required_by']
+    if not (isinstance(required, str) and (required in UNKNOWN_REQUIRED_BY or re.fullmatch(r'milestone:[A-Za-z][A-Za-z0-9_-]{0,31}', required))):
+        raise LedgerError(f'unknown {uid}.required_by: one of {", ".join(UNKNOWN_REQUIRED_BY)} or milestone:<id>.')
+    return {'affected': _list(value['affected'], f'unknown {uid}.affected', 1, 10, lambda v: _id(v, f'unknown {uid}.affected')), 'required_by': required}
 
 
 def _options(value, size):
@@ -370,7 +393,8 @@ def _precondition(value):
 # ---- immutable revisions on disk -------------------------------------------------------------------------------------
 
 def plan_dir(ledger, name):
-    return Path(ledger.state_root) / 'plans' / key_field(name)
+    from . import namespaces
+    return namespaces.plan_dir(ledger, name)
 
 
 def revision_path(ledger, name, revision):
@@ -381,7 +405,8 @@ def write_revision(ledger, name, revision, contract):
     """Write-once: an existing revision is never replaced."""
     path = revision_path(ledger, name, revision)
     path.parent.mkdir(parents=True, exist_ok=True)
-    document = {'plan': name, 'revision': revision, 'content_sha': content_hash(contract), 'contract': contract}
+    from . import namespaces
+    document = {'plan': namespaces.parse(name)[0], 'revision': revision, 'content_sha': content_hash(contract), 'contract': contract}
     with path.open('xb') as stream:
         stream.write(json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True).encode('utf-8'))
     return document['content_sha']

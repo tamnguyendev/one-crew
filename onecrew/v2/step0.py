@@ -170,6 +170,19 @@ def check_target(ledger, contract):
     target, project, reasons = contract['understanding']['target'], Path(ledger.project), []
     root, problem = _repo_root(project, target['repo'])
     if root is None:
+        from .verifiers import artifact, port
+        directory = (project / target['repo']).resolve()
+        if (target['ref'] == 'snapshot' and directory == project.resolve() and directory.is_dir()
+                and all(port.known(m['verifier']['type']) for m in contract['milestones'])):
+            try:
+                artifact.identity(directory)  # validates bounded local source without writing a snapshot
+                for path in target['paths']:
+                    resolved = (directory / path).resolve()
+                    if not resolved.is_relative_to(directory) or not resolved.exists():
+                        reasons.append(('target_path', f'target path {path} is missing or outside the snapshot source.'))
+                return reasons
+            except (LedgerError, OSError) as error:
+                return [('target_repo', f'Snapshot target cannot be read: {error}')]
         return [('target_repo', f'target.repo {target["repo"]} {problem} (project {project}).')]
     if _commit(root, target['ref']) is None:
         reasons.append(('target_ref', f'target.ref {target["ref"]} does not resolve in {root}.'))
@@ -404,11 +417,14 @@ def review_proposal(ledger, name, requirement, proposal):
     """Check the step-0 proposal against the request (proposal.check: no model, no process) and record the result as a neutral
     `proposal.checked` event on the plan. A refused or survey-first result holds approval of that revision until a later check passes.
     Writes no request to the owner."""
-    from . import plan as plans, proposal as proposals
+    from . import plan as plans, proposal as proposals, survey
     result = proposals.check(ledger, requirement, proposal)
     body = {'requirement': requirement, 'proposal': proposal}
     with ledger.transaction(write=True) as conn:
         state = plans.anchor_events(ledger, conn, name)
+        for unknown in result['unknowns']:
+            if unknown['id'] in result['survey_required']:
+                survey.open_in(ledger, conn, state, unknown, unknown.get('survey'))
         plans.emit(ledger, conn, state['task_id'], 'proposal.checked',
                    {'plan': name, 'revision': state['latest'], 'result': result['result'], 'ok': result['ok'],
                     'reasons': [{'code': c, 'text': t} for c, t in result['reasons']], 'table': result['table'], 'backlog': result['backlog'],
