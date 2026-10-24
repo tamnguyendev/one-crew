@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-RB-TEST",
+ "file": "tests/test_wf_release_bundle.py",
+ "old_sha256": "c3f2492d937fd211037945e733af8b5a9310f987116f4260ca0eafb5672d73f2",
+ "new_sha256": "8da66548fe51a2117ffc7ab365543e675769184aa319db0270129c974b7ac063",
+ "reason": "Same review + P1-D: expectations follow the strengthened producer: T54.1 behaviour scenarios present and passed with every R01 inventory task proven; T54.3 expected_kinds == validator inventory, every inventory kind observed and compared; the legacy root goes through the owner-recorded baseline route (first verdict inconclusive with the no-baseline reason, baseline recorded, second verdict passed) instead of the former 'failed is a known limit' acceptance. Stricter only. 7/7 OK.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị sau review Codex a2476ab): 'Tôi ủy quyền bạn tự quyết các sửa đổi kỹ thuật cần thiết... Sửa code, adapter, CLI, validator, harness, test và fixture... Nếu cần bản ghi U1/lineage, tự xử lý đúng cơ chế và ghi \"quyết định theo ủy quyền\", không giả owner trực tiếp duyệt.' Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 2 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

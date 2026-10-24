@@ -364,13 +364,21 @@
    "C"
   ],
   "implementation": [
-   "wfkit/development-testcases.json R04 — ma trận audit 24/10: T02, T04a, T16a, T17a, T21, T36a complete; T03 (E1/E7), T19 (E1: deleted-test case chưa assert U1), T37 (E3/E6 chờ quyết định O4) partial, gaps ghi rõ"
+   "tests/test_wf_t19_gaps.py, t03_gaps (25/10) + ma trận audit 24/10; registry R04"
   ],
   "tests": [
-   "tests/test_wf_t19_counterexamples.py (5), test_wf_test_integrity, test_wf_t37_child_acceptance, test_wf_t36a_scenario (3), test_wf_t20_reply_guard — đã đăng ký"
+   "T02: complete",
+   "T03: complete",
+   "T04a: complete",
+   "T16a: complete",
+   "T17a: complete",
+   "T19: complete",
+   "T21: complete",
+   "T36a: complete",
+   "T37: partial — Audited 24/10 night: covered E1, E2, E4, E5; UNCOVERED E3, E6. E3/E6 are step 3, which runs only if open decision O4 is answered 'co'. It is not answered, so pe"
   ],
-  "missing": "T03 E1/E7 (ánh xạ acceptance khi tách task chưa có assert); T19 E1 (test xoá chưa assert classification U1); T37 E3/E6 chờ quyết định O4 (chủ sở hữu). Không phải blocker ngoài trừ O4.",
-  "next": "Thêm assert U1 cho ca xoá test; test ánh xạ acceptance khi tách task; hỏi O4."
+  "missing": "Testcase còn partial (E chưa phủ ghi trong registry gaps): T37. Không phải điều kiện ngoài.",
+  "next": "Viết test cho các E còn thiếu (ghi rõ trong registry)."
  },
  "WK05b": {
   "status": "Partial",
@@ -378,13 +386,23 @@
    "C"
   ],
   "implementation": [
-   "wfkit/release_bundle.py — T54e E6 trong bundle R05: intent chưa rõ reconcile trước khi root tiếp tục (thứ tự seq), attempt chưa rõ còn lại reconcile qua Supervisor/Control (yêu cầu reconcile tay, không tiếp tục)"
+   "Ma trận audit 25/10 áp vào registry R05; T54e thuộc W40-R05 (bundle R05 intent_events)"
   ],
   "tests": [
-   "bundles/R05/release-check.json — T54.4 đạt (intent_events); tests/test_wf_t08a_reconcile, t08a_faults, t11_integration_finding, t18b_liveness, t07a_e14_request_holds, t07b_e16_continuation"
+   "T04c: complete",
+   "T08a: complete",
+   "T11: complete",
+   "T16b: partial — Audited 25/10: covered ; UNCOVERED E5, E6, E7, E12. Sub-case E ids: E5, E6, E7, E12. No test runs the T16b scenario (one root run exercising Q1, Q2, Q3, Q4, Q5,",
+   "T16c: partial — Audited 25/10: covered E8, E13; UNCOVERED E9. Sub-case E ids: E8, E9, E13. E8: CLI test asserts SKIP reason, policy depth+revision+policy_sha, scope, validity, ",
+   "T17c: partial — Audited 25/10: covered ; UNCOVERED E4, E5, E9. Sub-case E ids: E4, E5, E9. E4/E9: no test counts the cards sent for the U2 hold of B1 (=1) or checks the card fi",
+   "T18a: partial — Audited 25/10: covered E2, E4, E5, E7; UNCOVERED E1, E3, E6, E8. Sub-case E ids: E1-E8. E2: blocked diagnosis lists failed check id, 3 attempts with distinct re",
+   "T18b: complete",
+   "T29: complete",
+   "T43d: partial — Audited 25/10: covered ; UNCOVERED E7, E13. Sub-case E ids: E7, E13. E7: WorkflowAnswerTests continue/stop tests show held generations resume per the choice and",
+   "T47c: partial — Audited 25/10: covered E2; UNCOVERED E4, E6. Sub-case E ids: E2, E4, E6. E2: plan-ns root closed, plan.closed once, pending questions empty, reason (= reference"
   ],
-  "missing": "Ma trận [E]→test cho T04c/T16b/T16c/T17c/T18a/T43d/T47c chưa audit từng E (T07a/T18b/T08a/T11/T29 complete). Không phải blocker ngoài.",
-  "next": "Audit ma trận các testcase R05 còn lại (như đã làm cho R03/R04)."
+  "missing": "Testcase còn partial (E chưa phủ ghi trong registry gaps): T16b, T16c, T17c, T18a, T43d, T47c. Không phải điều kiện ngoài.",
+  "next": "Viết test cho các E còn thiếu (ghi rõ trong registry)."
  },
  "W51": {
   "status": "Done",
@@ -448,7 +466,8 @@
    "onecrew/v2/compat_scan.py — như cũ (B1/B3, tên trùng, đóng băng)"
   ],
   "tests": [
-   "tests/test_wf_compat_scan.py + tests/test_wf_t49_counterexamples.py — phản chứng từng luật scan (xem W46a); tests/test_wf_rollback.py (8) N8–N11 như cũ"
+   "tests/test_wf_compat_scan.py + tests/test_wf_t49_counterexamples.py — phản chứng từng luật scan (xem W46a); tests/test_wf_rollback.py (8) N8–N11 như cũ",
+   "wfkit/release_check.py T54.3 — inventory sự kiện theo release là của validator (wfkit/release_events.json); producer không chọn được tập so; phản chứng bỏ kind/feature im lặng/sai lớp/anchor/thiếu so bản cũ/inventory release khác bị từ chối"
   ],
   "missing": "",
   "next": ""
@@ -457,11 +476,13 @@
   "status": "Done",
   "classes": [],
   "implementation": [
-   "tests/wf_wheel.py (khung wheel/venv/boundary) — như cũ; wfkit/release_bundle.py — khung đóng gói + kiểm bản cài dùng lại cho mọi release (Producer: kịch bản bản cài theo release qua console script `onecrew` của venv)"
+   "tests/wf_wheel.py (khung wheel/venv/boundary) — như cũ; wfkit/release_bundle.py — khung đóng gói + kiểm bản cài dùng lại cho mọi release (Producer: kịch bản bản cài theo release qua console script `onecrew` của venv)",
+   "tests/wf_scenarios.py + wf_scenarios_r01_r04.py + wf_scenarios_r05_rx2.py — khung kịch bản HÀNH VI bản cài theo release (khai báo: yêu cầu, sự kiện phải ghi, assertion); wfkit/release_check.py T54.1 chỉ nhận kịch bản có assertion đạt + sự kiện ghi thật + ranh giới module (review a2476ab P1: import-only bị từ chối)"
   ],
   "tests": [
    "tests/test_wf_installed_r00_scenarios.py (1) — E1: kịch bản R00 (T48a tên cấm, T13a lớp B/kind lạ, T20 reply của user trong phiên AI bị từ chối, verdict run qua `onecrew.exe` của venv, T49a scan chỉ đọc) chạy bằng BẢN CÀI với kiểm ranh giới module; registry R01 check.installed_r00_scenarios (installed=true)",
-   "tests/test_wf_packaging.py (10) M1–M8 như cũ; tests/test_wf_release_bundle.py (6)"
+   "tests/test_wf_packaging.py (10) M1–M8 như cũ; tests/test_wf_release_bundle.py (6)",
+   "tests/test_wf_scenarios.py — mọi kịch bản đạt trên wheel trong venv sạch, phủ inventory; phản chứng import-only/feature tắt/im lặng/checkout trên sys.path bị từ chối; tests/test_wf_release_check.py T54.1/T54.3 phản chứng mới"
   ],
   "missing": "",
   "next": ""
@@ -470,11 +491,13 @@
   "status": "Done",
   "classes": [],
   "implementation": [
-   "wfkit/upgrade_drill.py — Drill (hai wheel thật d3120c6/HEAD trong một venv, cài cũ→mới→cũ→mới trên BẢN SAO sổ sinh) + open_finding/finding_after: finding mở THẬT (doc adapter, link hỏng) trong root plan-ns tạo qua CLI bản cài, giữ nguyên id/dòng/biên nhận qua rollback và roll-forward (T13b E3)"
+   "wfkit/upgrade_drill.py — Drill (hai wheel thật d3120c6/HEAD trong một venv, cài cũ→mới→cũ→mới trên BẢN SAO sổ sinh) + open_finding/finding_after: finding mở THẬT (doc adapter, link hỏng) trong root plan-ns tạo qua CLI bản cài, giữ nguyên id/dòng/biên nhận qua rollback và roll-forward (T13b E3)",
+   "onecrew/v2/plan.py derive (recorded_at từ dòng sổ), verifiers/reviewer.py base_tree (base_artifact → baseline chủ sở hữu ghi → commit cuối trước lúc duyệt), verdict.record_baseline + CLI `verdict baseline` (chỉ chủ sở hữu, có chứng cứ, không ghi đè), report chỉ đường — root cũ thiếu baseline tiếp tục được, không PASS mặc định (review a2476ab P1-D)"
   ],
   "tests": [
    "tests/test_wf_upgrade_drill.py (3) — cài thật, giữ SQL/blob, scan cũ bị từ chối, attempt chưa rõ reconcile trước retry, finding mở giữ nguyên; registry mọi release check.upgrade_drill (installed=true)",
-   "U1-20261024-DRILL-KIT / -TEST (ủy quyền đêm 24/10, không phải chữ ký chủ sở hữu) — mở rộng drill, không bỏ kiểm nào"
+   "U1-20261024-DRILL-KIT / -TEST (ủy quyền đêm 24/10, không phải chữ ký chủ sở hữu) — mở rộng drill, không bỏ kiểm nào",
+   "tests/test_wf_t13b_legacy_baseline.py (3) — (a) thời gian dòng sổ → commit cuối trước duyệt → pass; (b) không có commit trước → inconclusive có lý do + đường chỉ dẫn, AI không ghi được, chủ sở hữu ghi từ commit thật → pass, không ghi đè, binary cũ vẫn đọc; (c) root mới giữ base_artifact; registry R01/R04 check.legacy_baseline"
   ],
   "missing": "",
   "next": ""
@@ -536,15 +559,13 @@
    "C"
   ],
   "implementation": [
-   "wfkit/pilot_report.py — script kiểm báo cáo pilot T35b (giữa kỳ) / T35c (tổng hợp): cấu trúc, mẫu số k/3 · k/10, từ trạng thái 00 §9.3, dòng nhiễu/amend/cho qua sai, AC5 tách Baseline; phản chứng m1–m5",
-   "wfkit/finalgate.py — như cũ"
+   "wfkit/pilot_entry.py — same_core tham số hoá theo state root (T14c), cổng vào PL-A/PL-B (T45b/T45c) đọc biên nhận cổng giao, hash bản dựng, project bị giám sát, T14b, NL provider qua bộ đánh giá chung, báo cáo giữa kỳ; wfkit/pilot_report.py (T35b/T35c checker); wfkit/finalgate.py"
   ],
   "tests": [
-   "tests/test_wf_t55_cases.py (44) — C1–C9, N0, CK1–CK11/CK13–CK20/CK22/CK24/CK25, z1–z12 đặt tên trên bộ đánh giá thật; registry PL check.t55_cases",
-   "tests/test_wf_pilot_report.py — mẫu đúng qua, m1–m5 bị bắt đúng lý do, không ghi gì, không nhận \"nghiệm thu\"; registry PL check.pilot_report"
+   "tests/test_wf_t14c_kit.py (4), tests/test_wf_t45_entry_gates.py (20), tests/test_wf_t55_cases.py (44), tests/test_wf_pilot_report.py (29); registry PL check.t14c_kit, check.t45_entry_gates, check.t55_cases, check.pilot_report"
   ],
-  "missing": "Còn: (1) T14c không có module riêng (cùng kiểm của T14b chạy trên sổ pilot — cần sổ pilot thật, PL-B); (2) T45b/T45c chưa có cổng vào chạy độc lập trước giai đoạn (chỉ kiểm gián tiếp trong finalgate.history_check); (3) CK12/CK21/CK23: tập lý do từ chối của finalgate.decide khác bảng (thêm KQ4/KQ7) — phát hiện ghi lại, cần quyết định sửa bảng hay bộ đánh giá; (4) phần báo cáo của z1–z12 (K-HL/K-KET trên bản bộ đánh giá lỗi) chưa có.",
-  "next": "Viết cổng vào PL-A/PL-B độc lập (T45b/T45c) + kiểm T14c tham số hoá sổ; quyết định CK12/CK21/CK23."
+  "missing": "Còn: T45d/T45e (hash hook/config trước–sau giai đoạn, đếm U2 dưới AC1 — thuộc báo cáo pilot), T45a E5 (từ chối pilot chạy từ checkout), CK12/CK21/CK23 lệch bảng (quyết định), phần báo cáo z1–z12. Dữ liệu pilot thật là điều kiện ngoài (W38). Không phải blocker ngoài cho phần kit.",
+  "next": "Viết kiểm hash hook/config theo giai đoạn + đếm U2; quyết định CK12/21/23."
  },
  "WK03": {
   "status": "Partial",
@@ -552,13 +573,22 @@
    "C"
   ],
   "implementation": [
-   "wfkit/development-testcases.json R03 — ma trận [E]→test audit 24/10 (đọc test, chỉ ghi E có test khẳng định): T15b (sửa ma trận sai lớp HoldTests→DeclarationTests, bỏ E9 của T15c), T41b, T43a complete; T12/T35d/T36b/T41a/T43b/T43c/T47a partial với danh sách E chưa phủ ghi rõ trong gaps"
+   "tests/test_wf_t12_gaps.py, t36b_gaps, t43_gaps, t47_gaps, t35_gaps, t41_gaps (25/10) + ma trận audit 24/10; registry R03"
   ],
   "tests": [
-   "Các module R03 đã đăng ký (19 check) + check.t36b_additional_u2, check.t36b_cli; gate snapshot trên commit cuối"
+   "T12: complete",
+   "T15b: complete",
+   "T35d: complete",
+   "T36b: partial — UNCOVERED E4, E7, E17, E15. E4: the time left to the deadline MINUS the owner wait is not computed (estimates.read wall_clock_remaining_seconds is None) — produ",
+   "T41a: complete",
+   "T41b: complete",
+   "T43a: complete",
+   "T43b: complete",
+   "T43c: complete",
+   "T47a: complete"
   ],
-  "missing": "E chưa có test (ghi trong registry): T12 E1/E3/E4/E6 (root verified chờ nghiệm thu); T36b E4/E7/E9/E13/E14/E15/E17/E18/E21 (restart, đồng hồ giả 2 giờ, cảnh báo 70%, so bản cũ work.additional); T43b E6/E8/E26, T47a E11/E12 (\"dừng\" trên root plan:); T43c E16/E17/E22/E25; T41a E2 và T35d E3 (tái hiện đỏ trước sửa). Không phải blocker ngoài.",
-  "next": "Viết các test còn thiếu theo danh sách trên (đợt kế), chủ yếu T36b (đồng hồ giả + restart)."
+  "missing": "Testcase còn partial (E chưa phủ ghi trong registry gaps): T36b. Không phải điều kiện ngoài.",
+  "next": "Viết test cho các E còn thiếu (ghi rõ trong registry)."
  },
  "WK04b": {
   "status": "Partial",
@@ -566,13 +596,19 @@
    "C"
   ],
   "implementation": [
-   "tests/test_wf_t49_counterexamples.py — phản chứng/mutant của compat_scan (E9/E18/E23/E24) đã có (registry R01 check.t49_counterexamples); wfkit/release_bundle.py — rollback thật trên bản cài cho T49d/T54d (bundle R04)"
+   "Ma trận audit 25/10 (matrix_r04b_r05.json) áp vào registry R04; tests/test_wf_t49_counterexamples.py; T54d thuộc W40-R04"
   ],
   "tests": [
-   "tests/test_wf_compat_scan.py, test_wf_rollback.py, test_wf_t49_counterexamples.py, test_wf_upgrade_drill.py; bundle R04 (bundles/R04/release-check.json)"
+   "T05: partial — Audited 25/10: covered E3; UNCOVERED E1, E2, E4, E5, E6. T05 is single-part: E1-E6. Only test_three_states (check.engine) calls eligible() on the fixture ledger",
+   "T25: complete",
+   "T26: partial — Audited 25/10: covered E1, E2, E3; UNCOVERED E4. T26 is single-part: E1-E4. E1: the gate result's solution_ref, read from the approved root contract, equals the",
+   "T32: partial — Audited 25/10: covered E1, E2, E3, E5; UNCOVERED E4. T32 is single-part: E1-E5. E1: the second writer's reserve is refused, and the message contains the root an",
+   "T48b: complete",
+   "T49c: partial — Audited 25/10: covered E9, E10, E24; UNCOVERED E21, E22, E13. T49c ids: E21, E22, E9, E10, E13, E24. E21 uncovered: test_s2 asserts 7 rows, the block ids per ro",
+   "T49d: partial — Audited 25/10: covered E17; UNCOVERED E5, E6, E7, E12, E16. T49d ids: E5, E6, E7, E12, E16, E17. E5 uncovered: test_n1_to_n7 asserts the remaining block set and"
   ],
-  "missing": "T49d N1–N7 chi tiết trên S2 với hai bản cài (E5/E6/E7 từng ô) chưa có kịch bản riêng (drill + bundle chỉ chạy S1/legacy + future); ma trận [E]→test cho T05/T25/T26/T32/T48b/T49c/T49d/T54d chưa audit từng E. Không phải blocker ngoài.",
-  "next": "Kịch bản S2+N1–N7 trên bản cài vào producer; audit ma trận các testcase còn lại."
+  "missing": "Testcase còn partial (E chưa phủ ghi trong registry gaps): T05, T26, T32, T49c, T49d. Không phải điều kiện ngoài.",
+  "next": "Viết test cho các E còn thiếu (ghi rõ trong registry)."
  },
  "W40-R01": {
   "status": "Blocked",
@@ -580,6 +616,7 @@
    "E"
   ],
   "implementation": [
+   "tests/wf_scenarios_*.py — kịch bản hành vi bản cài của R01 (yêu cầu W-task → kịch bản → assertion → sự kiện); wfkit/release_events.json — inventory sự kiện R01; bundle R01 T54.1/T54.3 chấm theo đó (review a2476ab P1)",
    "wfkit/release_bundle.py — Producer('R01'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
    "docs/wf/release-notes/R01.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle"
   ],
@@ -587,7 +624,7 @@
    "tests/test_wf_release_bundle.py (6) — chạy producer thật cho R01: T54.1–T54.4 đạt trên biên nhận thật, INPUTS bị từ chối đúng lý do, biên nhận giả/sửa bị từ chối; registry R01 check.release_bundle",
    "Bundle R01: bundles/R01/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)"
   ],
-  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
+  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, kịch bản hành vi bản cài theo DoD + inventory sự kiện (review a2476ab), năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
   "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có."
  },
  "W40-R02": {
@@ -596,6 +633,7 @@
    "E"
   ],
   "implementation": [
+   "tests/wf_scenarios_*.py — kịch bản hành vi bản cài của R02 (yêu cầu W-task → kịch bản → assertion → sự kiện); wfkit/release_events.json — inventory sự kiện R02; bundle R02 T54.1/T54.3 chấm theo đó (review a2476ab P1)",
    "wfkit/release_bundle.py — Producer('R02'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
    "docs/wf/release-notes/R02.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle"
   ],
@@ -603,7 +641,7 @@
    "tests/test_wf_release_bundle.py (6) — chạy producer thật cho R01: T54.1–T54.4 đạt trên biên nhận thật, INPUTS bị từ chối đúng lý do, biên nhận giả/sửa bị từ chối; registry R01 check.release_bundle",
    "Bundle R02: bundles/R02/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)"
   ],
-  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
+  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, kịch bản hành vi bản cài theo DoD + inventory sự kiện (review a2476ab), năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
   "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có."
  },
  "W40-R03": {
@@ -612,6 +650,7 @@
    "E"
   ],
   "implementation": [
+   "tests/wf_scenarios_*.py — kịch bản hành vi bản cài của R03 (yêu cầu W-task → kịch bản → assertion → sự kiện); wfkit/release_events.json — inventory sự kiện R03; bundle R03 T54.1/T54.3 chấm theo đó (review a2476ab P1)",
    "wfkit/release_bundle.py — Producer('R03'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
    "docs/wf/release-notes/R03.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle"
   ],
@@ -619,7 +658,7 @@
    "tests/test_wf_release_bundle.py (6) — chạy producer thật cho R01: T54.1–T54.4 đạt trên biên nhận thật, INPUTS bị từ chối đúng lý do, biên nhận giả/sửa bị từ chối; registry R01 check.release_bundle",
    "Bundle R03: bundles/R03/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)"
   ],
-  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
+  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, kịch bản hành vi bản cài theo DoD + inventory sự kiện (review a2476ab), năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
   "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có."
  },
  "W40-R04": {
@@ -628,6 +667,7 @@
    "E"
   ],
   "implementation": [
+   "tests/wf_scenarios_*.py — kịch bản hành vi bản cài của R04 (yêu cầu W-task → kịch bản → assertion → sự kiện); wfkit/release_events.json — inventory sự kiện R04; bundle R04 T54.1/T54.3 chấm theo đó (review a2476ab P1)",
    "wfkit/release_bundle.py — Producer('R04'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
    "docs/wf/release-notes/R04.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle"
   ],
@@ -635,7 +675,7 @@
    "tests/test_wf_release_bundle.py (6) — chạy producer thật cho R01: T54.1–T54.4 đạt trên biên nhận thật, INPUTS bị từ chối đúng lý do, biên nhận giả/sửa bị từ chối; registry R01 check.release_bundle",
    "Bundle R04: bundles/R04/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)"
   ],
-  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
+  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, kịch bản hành vi bản cài theo DoD + inventory sự kiện (review a2476ab), năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
   "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có."
  },
  "W40-R05": {
@@ -644,6 +684,7 @@
    "E"
   ],
   "implementation": [
+   "tests/wf_scenarios_*.py — kịch bản hành vi bản cài của R05 (yêu cầu W-task → kịch bản → assertion → sự kiện); wfkit/release_events.json — inventory sự kiện R05; bundle R05 T54.1/T54.3 chấm theo đó (review a2476ab P1)",
    "wfkit/release_bundle.py — Producer('R05'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
    "docs/wf/release-notes/R05.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle"
   ],
@@ -651,7 +692,7 @@
    "tests/test_wf_release_bundle.py (6) — chạy producer thật cho R01: T54.1–T54.4 đạt trên biên nhận thật, INPUTS bị từ chối đúng lý do, biên nhận giả/sửa bị từ chối; registry R01 check.release_bundle",
    "Bundle R05: bundles/R05/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)"
   ],
-  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
+  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, kịch bản hành vi bản cài theo DoD + inventory sự kiện (review a2476ab), năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
   "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có."
  },
  "W40-R06": {
@@ -660,6 +701,7 @@
    "E"
   ],
   "implementation": [
+   "tests/wf_scenarios_*.py — kịch bản hành vi bản cài của R06 (yêu cầu W-task → kịch bản → assertion → sự kiện); wfkit/release_events.json — inventory sự kiện R06; bundle R06 T54.1/T54.3 chấm theo đó (review a2476ab P1)",
    "wfkit/release_bundle.py — Producer('R06'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
    "docs/wf/release-notes/R06.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle"
   ],
@@ -667,7 +709,7 @@
    "tests/test_wf_release_bundle.py (6) — chạy producer thật cho R01: T54.1–T54.4 đạt trên biên nhận thật, INPUTS bị từ chối đúng lý do, biên nhận giả/sửa bị từ chối; registry R01 check.release_bundle",
    "Bundle R06: bundles/R06/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)"
   ],
-  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
+  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, kịch bản hành vi bản cài theo DoD + inventory sự kiện (review a2476ab), năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
   "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có."
  },
  "W40-R07": {
@@ -676,6 +718,7 @@
    "E"
   ],
   "implementation": [
+   "tests/wf_scenarios_*.py — kịch bản hành vi bản cài của R07 (yêu cầu W-task → kịch bản → assertion → sự kiện); wfkit/release_events.json — inventory sự kiện R07; bundle R07 T54.1/T54.3 chấm theo đó (review a2476ab P1)",
    "wfkit/release_bundle.py — Producer('R07'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
    "docs/wf/release-notes/R07.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle"
   ],
@@ -683,7 +726,7 @@
    "tests/test_wf_release_bundle.py (6) — chạy producer thật cho R01: T54.1–T54.4 đạt trên biên nhận thật, INPUTS bị từ chối đúng lý do, biên nhận giả/sửa bị từ chối; registry R01 check.release_bundle",
    "Bundle R07: bundles/R07/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)"
   ],
-  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
+  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, kịch bản hành vi bản cài theo DoD + inventory sự kiện (review a2476ab), năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
   "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có."
  },
  "W40-R08": {
@@ -692,6 +735,7 @@
    "E"
   ],
   "implementation": [
+   "tests/wf_scenarios_*.py — kịch bản hành vi bản cài của R08 (yêu cầu W-task → kịch bản → assertion → sự kiện); wfkit/release_events.json — inventory sự kiện R08; bundle R08 T54.1/T54.3 chấm theo đó (review a2476ab P1)",
    "wfkit/release_bundle.py — Producer('R08'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
    "docs/wf/release-notes/R08.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle"
   ],
@@ -699,7 +743,7 @@
    "tests/test_wf_release_bundle.py (6) — chạy producer thật cho R01: T54.1–T54.4 đạt trên biên nhận thật, INPUTS bị từ chối đúng lý do, biên nhận giả/sửa bị từ chối; registry R01 check.release_bundle",
    "Bundle R08: bundles/R08/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)"
   ],
-  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
+  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, kịch bản hành vi bản cài theo DoD + inventory sự kiện (review a2476ab), năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
   "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có."
  },
  "W40-RX1": {
@@ -708,6 +752,7 @@
    "E"
   ],
   "implementation": [
+   "tests/wf_scenarios_*.py — kịch bản hành vi bản cài của RX1 (yêu cầu W-task → kịch bản → assertion → sự kiện); wfkit/release_events.json — inventory sự kiện RX1; bundle RX1 T54.1/T54.3 chấm theo đó (review a2476ab P1)",
    "wfkit/release_bundle.py — Producer('RX1'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
    "docs/wf/release-notes/RX1.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle",
    "tests/wf_installed_adapters.py — root tài liệu chạy đầu-cuối từ bản cài, adapter_runs vào biên nhận installed (T54j E8)"
@@ -717,7 +762,7 @@
    "Bundle RX1: bundles/RX1/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)",
    "tests/test_wf_installed_adapters.py (2) — registry RX1/RX2 check.installed_adapters (installed=true)"
   ],
-  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
+  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, kịch bản hành vi bản cài theo DoD + inventory sự kiện (review a2476ab), năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history.",
   "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có."
  },
  "W40-RX2": {
@@ -726,6 +771,7 @@
    "E"
   ],
   "implementation": [
+   "tests/wf_scenarios_*.py — kịch bản hành vi bản cài của RX2 (yêu cầu W-task → kịch bản → assertion → sự kiện); wfkit/release_events.json — inventory sự kiện RX2; bundle RX2 T54.1/T54.3 chấm theo đó (review a2476ab P1)",
    "wfkit/release_bundle.py — Producer('RX2'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
    "docs/wf/release-notes/RX2.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle",
    "tests/wf_installed_adapters.py — root dữ liệu + vận hành chạy đầu-cuối từ bản cài, adapter_runs vào biên nhận installed (T54k)"
@@ -735,7 +781,7 @@
    "Bundle RX2: bundles/RX2/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)",
    "tests/test_wf_installed_adapters.py (2)"
   ],
-  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history. Định danh artifact ngoài Git qua nâng cấp/rollback chưa kiểm riêng trong drill.",
+  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, kịch bản hành vi bản cài theo DoD + inventory sự kiện (review a2476ab), năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history. Định danh artifact ngoài Git qua nâng cấp/rollback chưa kiểm riêng trong drill.",
   "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có."
  },
  "W40-RP": {
@@ -744,6 +790,7 @@
    "E"
   ],
   "implementation": [
+   "tests/wf_scenarios_*.py — kịch bản hành vi bản cài của RP (yêu cầu W-task → kịch bản → assertion → sự kiện); wfkit/release_events.json — inventory sự kiện RP; bundle RP T54.1/T54.3 chấm theo đó (review a2476ab P1)",
    "wfkit/release_bundle.py — Producer('RP'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
    "docs/wf/release-notes/RP.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle",
    "wfkit/provider_matrix.py — ma trận thật sáu dòng (W45) cho T54i E7: 4 dùng được, 2 chưa kiểm chứng (codex)"
@@ -752,7 +799,7 @@
    "tests/test_wf_release_bundle.py (6) — chạy producer thật cho R01: T54.1–T54.4 đạt trên biên nhận thật, INPUTS bị từ chối đúng lý do, biên nhận giả/sửa bị từ chối; registry R01 check.release_bundle",
    "Bundle RP: bundles/RP/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)"
   ],
-  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history. W45 đã chạy thật: ma trận 4/6 dùng được (codex chưa kiểm chứng vì thiếu CLI); còn lại chỉ INPUTS (bản giao trước).",
+  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, kịch bản hành vi bản cài theo DoD + inventory sự kiện (review a2476ab), năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history. W45 đã chạy thật: ma trận 4/6 dùng được (codex chưa kiểm chứng vì thiếu CLI); còn lại chỉ INPUTS (bản giao trước).",
   "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có."
  },
  "W45": {

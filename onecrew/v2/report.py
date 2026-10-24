@@ -632,6 +632,11 @@ def _evidence(f, view):
             return 'stale', f'mốc {mid}: ' + '; '.join(view['stale_reasons']), link
         return 'stale', (f'mốc {mid}: bằng chứng cũ, {last["result"]} trên artifact {last["artifact_sha"]}, artifact hiện tại {_artifact_now(f) or "không xác định"}'), link
     reason = _receipt_reason(f, view)
+    full = next((v for v in reversed((f.get('state') or {}).get('verdicts') or []) if v.get('receipt') == key), {})   # the ledger event carries the integrity record
+    integrity = full.get('test_integrity') or last.get('test_integrity') or {}
+    if last.get('result') == 'inconclusive' and 'no approved baseline' in str(integrity.get('error') or ''):
+        return 'failed', (f'mốc {mid}: verdict gần nhất inconclusive — root cũ chưa có baseline đã duyệt (bản cũ không ghi artifact gốc, không có commit trước lúc duyệt); '
+                          f'chủ sở hữu ghi baseline có chứng cứ: `onecrew verdict baseline --plan {f["name"]} --from-commit <commit đã duyệt> --by owner --reference <nơi quyết định>` rồi chạy lại mốc'), link
     return 'failed', f'mốc {mid}: verdict gần nhất {last["result"]} trên artifact {last["artifact_sha"]}' + (f' ({reason})' if reason else ''), link
 
 

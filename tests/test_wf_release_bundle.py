@@ -80,14 +80,37 @@ class ReleaseBundleTests(unittest.TestCase):
         self.assertTrue(legacy); self.assertEqual({e['class'] for e in legacy} - {'0', 'A'}, set())
         self.assertEqual(events['class_b_on_legacy_anchor'], [])
         self.assertTrue(all(c['compare']['S'] and c['compare']['G'] and c['compare']['C'] for c in events['comparisons']))
-        self.assertIn({'verdict.run_started', 'verdict.receipt_issued', 'verdict.recorded'} <= {e['kind'] for e in legacy}, (True,))
+        self.assertIn('verdict.run_started', {e['kind'] for e in legacy})                                        # class A written by the current code on the legacy anchor
+        self.assertTrue({'verdict.run_started', 'verdict.receipt_issued', 'verdict.recorded'} <= set(events['observed_kinds']))
         # known limit, recorded: the legacy root was approved by the OLD build without a base artifact, so the new build's test-integrity check
         # cannot be established and the passing command is `inconclusive` -> the milestone is `failed`, with the reason in the receipt
-        verdict = events['legacy_verdict']
-        if events['legacy_milestone'] != 'passed':
-            self.assertEqual(events['legacy_milestone'], 'failed')
-            self.assertEqual((verdict['result'], verdict['test_integrity']), ('inconclusive', 'insufficient'))
-            self.assertIn('no approval time or base artifact', verdict['reason'])
+        # P1-D: the legacy root approved by the OLD build (fixture approval, no base artifact, no commit before it) CONTINUES through the owner-recorded
+        # baseline route: first verdict inconclusive with the no-baseline reason, baseline recorded from the sample project's first commit, second
+        # verdict passed. Nothing is passed by default.
+        route = events['baseline_route']
+        self.assertIsNotNone(route, 'the fixture approval has no baseline: the route must have been exercised')
+        self.assertEqual(route['first_verdict'], 'inconclusive'); self.assertIn('no approved baseline', route['reason'])
+        self.assertEqual(route['second_verdict'], 'passed'); self.assertEqual(events['legacy_milestone'], 'passed')
+        self.assertTrue(route['baseline']['tree'])
+        # T54.3 is judged against the validator's inventory, not the producer's choice
+        from wfkit import release_check
+        table = release_check.inventory('R01')
+        self.assertEqual(events['expected_kinds'], table['kinds']); self.assertTrue(set(table['kinds']) <= set(events['observed_kinds']))
+        self.assertTrue({c['kind'] for c in events['comparisons']} >= {k for k in table['kinds']})
+        self.assertTrue(all(c['compare']['S'] and c['compare']['G'] and c['compare']['C'] for c in events['comparisons']))
+
+    def test_e1_installed_point_is_behaviour_scenarios_not_imports(self):
+        installed = self.receipt(self.bundle['checks']['installed'])
+        scenarios = installed['scenarios']
+        self.assertGreaterEqual(len(scenarios), 3)
+        for r in scenarios:
+            self.assertEqual(r['result'], 'pass', (r['scenario'], r['reasons']))
+            self.assertTrue(r['assertions']); self.assertTrue(all(a['ok'] for a in r['assertions']))
+            self.assertEqual(r['boundary_violations'], [])
+            self.assertTrue(set(r['expected_events']) <= set(r['observed_events']))
+        proven = {req.split()[0] for r in scenarios for req in r['requirements']}
+        from wfkit import release_check
+        self.assertTrue(set(release_check.inventory('R01')['tasks']) <= proven, proven)
 
     def test_e5_the_notes_point_follows_the_four_state_lines(self):
         notes = self.receipt(self.bundle['checks']['notes'])

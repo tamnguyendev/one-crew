@@ -1,0 +1,149 @@
+{
+ "version": 1,
+ "purpose": "T54.3 per-release event inventory: the kinds each release ADDS (from the task DoDs of docs/wf/sources/04-TASKS.vi.md), their class, and the releases that add no kind (with the reason and the regression flow that must still run). release_check compares the OBSERVED kinds of the release's installed behaviour scenarios against this table; the producer cannot choose what to compare.",
+ "releases": {
+  "R01": {
+   "kinds": [
+    "proposal.checked",
+    "survey.opened",
+    "survey.finished",
+    "decision.recorded"
+   ],
+   "tasks": [
+    "W47",
+    "W31a",
+    "W30a"
+   ]
+  },
+  "R02": {
+   "kinds": [
+    "learning.outcome",
+    "control.intervention",
+    "context.entry"
+   ],
+   "tasks": [
+    "W23b",
+    "W48a",
+    "W48b"
+   ]
+  },
+  "R03": {
+   "kinds": [
+    "verdict.run_started",
+    "estimate.baseline",
+    "estimate.eta",
+    "work.additional",
+    "notice.exception",
+    "executor.observed"
+   ],
+   "tasks": [
+    "W44",
+    "W32a",
+    "W24",
+    "W33a"
+   ]
+  },
+  "R04": {
+   "kinds": [
+    "workflow.unknown_opened",
+    "workflow.unknown_resolved",
+    "plan.revised",
+    "node.started",
+    "node.produced",
+    "node.verification",
+    "node.accepted",
+    "solution.linked",
+    "budget.group"
+   ],
+   "tasks": [
+    "W02",
+    "W04",
+    "W06",
+    "W13",
+    "W12b",
+    "W10"
+   ]
+  },
+  "R05": {
+   "kinds": [
+    "finding.registered",
+    "node.held",
+    "node.resumed",
+    "node.result_retained",
+    "evidence.reuse",
+    "workflow.recovery_decided",
+    "request.applied",
+    "plan.closed",
+    "verdict.run_reconciled",
+    "verdict.run_held",
+    "verdict.run_released",
+    "workflow.handoff"
+   ],
+   "tasks": [
+    "W17",
+    "W18",
+    "W21",
+    "W08",
+    "W20",
+    "W26",
+    "W30c",
+    "W37a",
+    "W19"
+   ],
+   "note": "decision.hold / decision.defer are reserved class-B names in compat.CLASS_B with NO writer in the product (25/10 audit): the W26 rule decisions (SKIP/DEFER/REVIEW/HOLD) are recorded through decision.recorded (class A, R00). They are therefore not in the inventory; listing them would demand an event nothing writes."
+  },
+  "R06": {
+   "kinds": [
+    "learning.incident",
+    "learning.lesson"
+   ],
+   "tasks": [
+    "W49a",
+    "W49b"
+   ]
+  },
+  "R07": {
+   "kinds": [],
+   "none_reason": "W50a/W50b add no event kind: issue lookup and image fallback are read paths over the existing ledger and evidence (04-TASKS W50a/W50b).",
+   "regression": "localization lookup + explicit map + image fallback on the installed build",
+   "tasks": [
+    "W50a",
+    "W50b"
+   ]
+  },
+  "R08": {
+   "kinds": [
+    "executor.managed"
+   ],
+   "tasks": [
+    "W14b",
+    "W15",
+    "W36"
+   ]
+  },
+  "RP": {
+   "kinds": [],
+   "none_reason": "W43 pins provider/model in the contract and reuses plan.advised / verdict.recorded (class 0); the real six cells are W45 evidence, not events.",
+   "regression": "contract lint accepts the provider fields; reviewer and advisor run through a LOCAL fake CLI on the installed build with provider/model in the receipt",
+   "tasks": [
+    "W43"
+   ]
+  },
+  "RX1": {
+   "kinds": [
+    "adapter.violation"
+   ],
+   "tasks": [
+    "W22"
+   ]
+  },
+  "RX2": {
+   "kinds": [],
+   "none_reason": "W39 data/ops adapters reuse the verdict lifecycle (verdict.receipt_issued / verdict.recorded / milestone.*) and add no kind.",
+   "regression": "data and ops roots run end to end from the installed build (tests.wf_installed_adapters)",
+   "tasks": [
+    "W39"
+   ]
+  }
+ }
+}

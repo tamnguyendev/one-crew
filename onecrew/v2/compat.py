@@ -36,6 +36,7 @@ CLASS_A = (
     'decision.recorded',                              # W03: the decision record is a neutral addition
     'proposal.checked',                               # W47: the step-0 proposal check result (nothing reads it as status or gate for the old version)
     'verdict.run_reconciled', 'verdict.run_held', 'verdict.run_released',   # W37a: reconcile of a run of unknown outcome (the old version counts only verdict.recorded)
+    'plan.baseline_recorded',                         # P1-D (review a2476ab): the owner records the base tree of a root approved by a build that kept none
 )
 CLASS_B = (
     'solution.linked',

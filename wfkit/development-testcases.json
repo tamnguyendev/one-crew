@@ -368,6 +368,22 @@
      ],
      "installed": false,
      "scope": "W40 shared release framework: a real R01 bundle run; T54.1-T54.4 pass on real receipts, INPUTS refused for the recorded external reason; tampered/borrowed evidence refused."
+    },
+    "check.scenarios": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_scenarios"
+     ],
+     "installed": true,
+     "scope": "W40 framework (review a2476ab P1): every declared installed BEHAVIOUR scenario of every release passes on the wheel in a clean venv and covers the release event inventory (wfkit/release_events.json); framework counter-examples (import-only, disabled feature, silent feature, checkout on sys.path) refused."
+    },
+    "check.legacy_baseline": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t13b_legacy_baseline"
+     ],
+     "installed": false,
+     "scope": "T13b E3/E4 + T19 (review a2476ab P1-D): a root approved by the OLD binary continues after the upgrade — baseline from the approval row time, else the owner-recorded baseline (verdict baseline) with evidence; never PASS by default; AI session refused; base_artifact roots unchanged."
     }
    },
    "acceptance": {
@@ -968,26 +984,35 @@
      "scope": "Registry fail-closed rules only.",
      "acceptance_snapshot": {
       "T12": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.exceptions",
-        "check.installed_notifications"
+        "check.installed_notifications",
+        "check.t12_gaps"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Audited 24/10 night: covered E2, E5; UNCOVERED E1, E3, E4, E6. No test uses the T12 precondition (root verified, waiting for acceptance). Send failure/retry/close is exercised only on a proposed root (approval notice) and, in the installed case, on an approved root. E2/E5 hold: ledger events are identical after a failed send and the retry. E1: the notice state is not asserted to go 'chua giao'->'da giao' (only 'pending' after failure, then the launch count) and the root is not verified. E3/E6: the window is closed only on a proposed root, where acceptance is impossible anyway, so 'not accepted' is vacuous. E4: 'not failed after a failed send' is asserted "
-        }
-       ],
-       "evidence_matrix_partial": {
+       "gaps": [],
+       "evidence_matrix": {
         "E2": [
          "tests.test_wf_exceptions.ExceptionTests.test_actual_v1_pull_ack_and_desktop_failure_retry_never_approve",
          "tests.test_wf_installed_notifications.InstalledNotifications.test_installed_cli_question_pull_ack_desktop_retry_and_answer"
         ],
         "E5": [
          "tests.test_wf_exceptions.ExceptionTests.test_actual_v1_pull_ack_and_desktop_failure_retry_never_approve"
+        ],
+        "E1": [
+         "tests.test_wf_t12_gaps.VerifiedRootNoticeTests.test_e1_e4_failed_send_is_undelivered_notice_state_and_the_root_stays_verified"
+        ],
+        "E4": [
+         "tests.test_wf_t12_gaps.VerifiedRootNoticeTests.test_e1_e4_failed_send_is_undelivered_notice_state_and_the_root_stays_verified"
+        ],
+        "E3": [
+         "tests.test_wf_t12_gaps.VerifiedRootNoticeTests.test_e3_e6_closing_the_window_of_a_verified_root_is_not_acceptance"
+        ],
+        "E6": [
+         "tests.test_wf_t12_gaps.VerifiedRootNoticeTests.test_e3_e6_closing_the_window_of_a_verified_root_is_not_acceptance"
         ]
-       }
+       },
+       "scope": "Audited 24/10; E1/E3/E4/E6 added 25/10 on a real verified root."
       },
       "T15b": {
        "status": "complete",
@@ -1020,18 +1045,14 @@
        "scope": "Per-E matrix audited 24/10 night against the registered modules (read-only audit of the tests themselves). T15b E ids are E1, E3, E4, E6 only (E9 is tagged T15c). REGISTRY DEFECT: the current evidence_matrix cites tests.test_wf_r03a_executors.HoldTests.*, a class that does not exist (the tests are in DeclarationTests), and lists E9, which is not a T15b expectation. Its E4 also cites the managed-history test, which is not E4 evidence for a hook executor. check.observation_integration and check.shared_wo"
       },
       "T35d": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.r03a_metrics",
+        "check.t35_gaps",
         "check.t35d_handover_findings"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Audited 24/10 night: covered E1, E2, E8, E9, E10; UNCOVERED E3. T35d ids: E1, E2, E3, E8, E9, E10. E3: the adapter call counter is asserted (AdapterTests.test_e3_the_measure_calls_the_v1_functions), but E3 also requires the existing v1 guard tests (TD27, incl. tests/test_eval_scorecard.py) green before and after; that module is not registered under R03. tests.test_wf_t35d_handover_findings labels itself 'T35d [E4]' but E4 is a T35a id (outcome); it is not T35d evidence, so check.t35d_handover_findings is not needed."
-        }
-       ],
-       "evidence_matrix_partial": {
+       "gaps": [],
+       "evidence_matrix": {
         "E1": [
          "tests.test_wf_r03a_metrics.FiguresTests.test_e1_time_to_usable_output",
          "tests.test_wf_r03a_metrics.FiguresTests.test_e1_rework",
@@ -1050,8 +1071,12 @@
         "E10": [
          "tests.test_wf_r03a_metrics.AdapterTests.test_e10_a_copied_classification_is_caught_by_the_call_counter",
          "tests.test_wf_r03a_metrics.AdapterTests.test_e10_the_module_holds_no_copy_of_the_v1_classification"
+        ],
+        "E3": [
+         "tests.test_wf_t35_gaps.EvalScorecardGuard.test_t35d_e3_guard_v1_eval_scorecard_green_before_and_after_the_split"
         ]
-       }
+       },
+       "scope": "Audited 24/10; E3 guard (before/after the evaluation_core split) added 25/10."
       },
       "T36b": {
        "status": "partial",
@@ -1059,12 +1084,13 @@
         "check.estimates",
         "check.r03a_executors",
         "check.t36b_additional_u2",
-        "check.t36b_cli"
+        "check.t36b_cli",
+        "check.t36b_gaps"
        ],
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Audited 24/10 night: covered E10, E11, E12, E16; UNCOVERED E4, E7, E9, E13, E14, E15, E17, E18, E21. T36b ids: E4, E7, E9, E10, E11, E12, E13, E14, E15, E16, E17, E18, E21. E4/E7: no fake-clock 2-hour owner wait; execution/waiting are only asserted 'unknown'. E9: baseline immutability across reforecast and re-approval is asserted, but no restart of the coordinating process. E13: no restart/reload test. E14: the overwrite half is covered by test_reforecast, the restart half is not. E15: 'not 0' is covered, but the count of 'no progress' events for milestone 2 is not asserted. E17: ETA over baseline -> 0 requests is asserted (test_wf_exceptions...test_approved_upper_bound_same_cause_dedup_and_s"
+         "detail": "UNCOVERED E4, E7, E17, E15. E4: the time left to the deadline MINUS the owner wait is not computed (estimates.read wall_clock_remaining_seconds is None) — product change; E7: a wait inside an attempt is counted as execution (executors.summary does not subtract waits) — product change; E17: no 70% budget warning exists for an R03 v2 root (only v1 effort_watch) — product/infrastructure; E15 unchanged. Not external conditions; next development round."
         }
        ],
        "evidence_matrix_partial": {
@@ -1086,29 +1112,44 @@
          "tests.test_wf_estimates.EstimateTests.test_reforecast_needs_reason_and_evidence_and_keeps_history",
          "tests.test_wf_t36b_additional_u2.AdditionalWorkTests.test_e11_three_kinds_mandatory_forecast_optional_backlog_outside_authority_u2_holds_dependents",
          "tests.test_wf_estimates.EstimateTests.test_optional_work_never_enters_remaining_or_silently_expands_scope"
+        ],
+        "E9": [
+         "tests.test_wf_t36b_gaps.T36bGaps.test_e9_e13_e14_restart_keeps_baseline_history_and_additions"
+        ],
+        "E13": [
+         "tests.test_wf_t36b_gaps.T36bGaps.test_e9_e13_e14_restart_keeps_baseline_history_and_additions"
+        ],
+        "E14": [
+         "tests.test_wf_t36b_gaps.T36bGaps.test_e9_e13_e14_restart_keeps_baseline_history_and_additions"
+        ],
+        "E18": [
+         "tests.test_wf_t36b_gaps.T36bGaps.test_e18_present_and_report_never_claim_calibration_p85_or_probability"
+        ],
+        "E21": [
+         "tests.test_wf_t36b_gaps.T36bGaps.test_e21_old_version_reads_same_status_gate_continue_with_work_additional"
         ]
        }
       },
       "T41a": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
-        "check.r03a_run_started"
+        "check.r03a_run_started",
+        "check.t41_gaps"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Audited 24/10 night: covered E1, E6; UNCOVERED E2. T41a ids: E1, E2, E6. E2: the hook passing silently during a run is asserted, but E2's required reproduction (on pre-fix code the hook blocks/reminds, red for the right reason) is not run by any test; OldVersionTests only compare ledger reads, not the old Stop hook."
-        }
-       ],
-       "evidence_matrix_partial": {
+       "gaps": [],
+       "evidence_matrix": {
         "E1": [
          "tests.test_wf_r03a_run_started.StopWhileRunningTests.test_e1_e2_e6_stop_hook_does_not_block_or_remind_while_the_milestone_runs"
         ],
         "E6": [
          "tests.test_wf_r03a_run_started.StopWhileRunningTests.test_e1_e2_e6_stop_hook_does_not_block_or_remind_while_the_milestone_runs",
          "tests.test_wf_r03a_run_started.StopWhileRunningTests.test_a_running_milestone_leaves_no_blocked_or_reminded_event_in_the_ledger"
+        ],
+        "E2": [
+         "tests.test_wf_t41_gaps.PreFixStopHookTests.test_t41a_e2_pre_fix_hook_blocks_while_running_and_the_fixed_hook_lets_go"
         ]
-       }
+       },
+       "scope": "Audited 24/10; E2 (red before the fix, archive ee46539) added 25/10."
       },
       "T41b": {
        "status": "complete",
@@ -1203,39 +1244,41 @@
        "scope": "Per-E matrix audited 24/10 night against the registered modules (read-only audit of the tests themselves). T43a ids: E1, E2, E3, E4, E5, E9, E10, E11, E14, E15. Notices are read from exceptions.desktop_snapshots (current-state projection), not a fake adapter's recorded list. E4 is a grep plus 'no heartbeat-named file under the state root'. E14 is a grep only (no list of registered channels). E11: window closed on a proposed root (approval notice) with the ledger unchanged; the [E11] comment in test_e15"
       },
       "T43b": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.exceptions",
         "check.installed_notifications",
-        "check.questions"
+        "check.questions",
+        "check.t43_gaps"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Audited 24/10 night: covered E12; UNCOVERED E6, E8, E26. T43b ids: E6, E8, E12, E26. E6: the question notice target = {request id, revision} is asserted (test_four_actionable_states...), but the opened content being the card (problem, options, recommendation, evidence, scope) is not. E8: no test opens and closes a question notice while its request is pending; the window tests answer first or use an approval notice (pull/ack alone leaves the request pending in the installed test). E26: no R03 test on a plan: root asserts request.answered carries the choice together with 0 request.applied / 0 plan.closed; test_wf_questions only checks receipt choice +"
-        }
-       ],
-       "evidence_matrix_partial": {
+       "gaps": [],
+       "evidence_matrix": {
         "E12": [
          "tests.test_wf_exceptions.ExceptionTests.test_actual_v1_pull_ack_and_desktop_failure_retry_never_approve",
          "tests.test_wf_installed_notifications.InstalledNotifications.test_installed_cli_question_pull_ack_desktop_retry_and_answer"
+        ],
+        "E6": [
+         "tests.test_wf_t43_gaps.NoticeGapTests.test_t43b_e6_question_notice_opens_the_decision_card_of_that_request"
+        ],
+        "E8": [
+         "tests.test_wf_t43_gaps.NoticeGapTests.test_t43b_e8_open_and_close_of_a_pending_question_notice_is_not_an_answer"
+        ],
+        "E26": [
+         "tests.test_wf_t43_gaps.NoticeGapTests.test_t43b_e26_card_answer_on_plan_root_records_choice_without_apply_or_close"
         ]
-       }
+       },
+       "scope": "Audited 24/10; E6/E8/E26 added 25/10 (E6: the card equals the stored question; reason/impact stand for evidence/scope)."
       },
       "T43c": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.estimates",
         "check.exceptions",
+        "check.t43_gaps",
         "check.t43c_quiet"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Audited 24/10 night: covered E18, E19, E20, E21, E23, E24; UNCOVERED E16, E17, E22, E25. T43c ids: E16-E25. E16: one notice + same-cause dedup + new ETA are asserted, but the reason, evidence (ETA/addition record IDs) and user-action fields never are. E17: only that a 'deadline' status is in the set after 15:01; milestone name, promised time, reason, new ETA and exactly-one are not asserted. E22: dedup is covered, but 'every exception notice has non-empty reason and evidence' is not asserted. E25: the class-A S/G/C comparator after reforecast+observe is asserted (test_actual_archived_cli...), but neither that a notice.exception was written in that test nor that v1 notifications.pu"
-        }
-       ],
-       "evidence_matrix_partial": {
+       "gaps": [],
+       "evidence_matrix": {
         "E18": [
          "tests.test_wf_exceptions.ExceptionTests.test_deadline_and_blocker_delay_show_current_resolution_once",
          "tests.test_wf_exceptions.ExceptionTests.test_revised_u2_gets_new_card_and_old_card_is_superseded"
@@ -1260,22 +1303,31 @@
          "tests.test_wf_exceptions.ExceptionTests.test_approved_upper_bound_same_cause_dedup_and_six_hours_quiet",
          "tests.test_wf_exceptions.ExceptionTests.test_mandatory_addition_is_one_cause_optional_does_not_alert_or_grant",
          "tests.test_wf_exceptions.ExceptionTests.test_deadline_and_blocker_delay_show_current_resolution_once"
+        ],
+        "E16": [
+         "tests.test_wf_t43_gaps.NoticeGapTests.test_t43c_e16_baseline_notice_has_reason_evidence_eta_and_user_action_and_dedups"
+        ],
+        "E17": [
+         "tests.test_wf_t43_gaps.NoticeGapTests.test_t43c_e17_overdue_promised_milestone_notice_names_milestone_time_reason_and_eta"
+        ],
+        "E22": [
+         "tests.test_wf_t43_gaps.NoticeGapTests.test_t43c_e22_every_exception_notice_has_reason_and_evidence"
+        ],
+        "E25": [
+         "tests.test_wf_t43_gaps.NoticeGapTests.test_t43c_e25_notice_exception_is_class_a_and_v1_pull_returns_its_row"
         ]
-       }
+       },
+       "scope": "Audited 24/10; E16/E17/E22/E25 added 25/10."
       },
       "T47a": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.questions",
+        "check.t47_gaps",
         "check.t47a_answers"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Audited 24/10 night: covered E1, E3, E5, E7, E8, E9; UNCOVERED E11, E12. T47a ids: E1, E3, E5, E7, E8, E9, E11, E12. E5: refusal (exit 2) in the AI session is asserted, the 'same message as approve' is not. E11: test_e11_stop_answer_is_shown_as_chosen_on_present_and_report runs on a workflow (plan-ns, capabilities) root where 'stop' closes the plan (plan.closed + request.applied, R05 behaviour); it asserts only page text, not stopped_with_report / 0 class-B events on a plan: root. The inherited tests.test_wf_t47a_answers.AnswerPagesTests.test_actual_old_root_remains_stopped_and_readable_by_old_cli (from test_wf_answer_effects) covers the plan: root status and 0 req"
-        }
-       ],
-       "evidence_matrix_partial": {
+       "gaps": [],
+       "evidence_matrix": {
         "E1": [
          "tests.test_wf_t47a_answers.AnswerPagesTests.test_e1_the_read_command_prints_the_card_fields_in_both_places_without_answering"
         ],
@@ -1295,8 +1347,15 @@
         "E9": [
          "tests.test_wf_questions.QuestionTests.test_ai_cannot_answer_even_with_resume_data",
          "tests.test_wf_questions.QuestionTests.test_owner_cli_uses_the_actual_hash_revision_and_ai_cannot_replay_it"
+        ],
+        "E11": [
+         "tests.test_wf_t47_gaps.LegacyRootAnswerTests.test_e11_stop_on_plan_root_is_recorded_shown_chosen_and_has_no_class_b_effect"
+        ],
+        "E12": [
+         "tests.test_wf_t47_gaps.LegacyRootAnswerTests.test_e12_amend_answer_on_plan_root_is_recorded_with_choice_reference_owner_and_no_apply"
         ]
-       }
+       },
+       "scope": "Audited 24/10; E11/E12 added 25/10 on a plan: root created by the archived old binary."
       },
       "T54c": {
        "status": "partial",
@@ -1395,30 +1454,87 @@
      ],
      "installed": false,
      "scope": "Six quiet hours produce no notice; no heartbeat; transport states only."
+    },
+    "check.t36b_gaps": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t36b_gaps"
+     ],
+     "installed": false,
+     "scope": "T36b E4(part)/E9/E13/E14/E18/E21: owner wait apart from execution and the deadline, restart keeps baseline/eta/additional (real new process), no calibration/P85 claims, old build reads work.additional with the same S/G/C."
+    },
+    "check.t43_gaps": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t43_gaps"
+     ],
+     "installed": false,
+     "scope": "T43c E16/E17/E22/E25, T43b E6/E8/E26: notice fields, overdue notice, v1 notifications.pull returns notice.exception, card open/close is not an answer, card answer on a plan: root records without apply/close."
+    },
+    "check.t47_gaps": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t47_gaps"
+     ],
+     "installed": false,
+     "scope": "T47a E11/E12: \"stop\" and amend answers on a legacy plan: root (created by the archived old binary) are recorded without class-B effects."
+    },
+    "check.t12_gaps": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t12_gaps"
+     ],
+     "installed": false,
+     "scope": "T12 E1/E3/E4/E6: on a real verified root, a failed send is an undelivered notice state (root stays verified); closing the window is not acceptance."
+    },
+    "check.t35_gaps": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t35_gaps"
+     ],
+     "installed": false,
+     "scope": "T35d E3 guard: tests.test_eval_scorecard green on the archive before the evaluation_core split and on this checkout, same test names."
+    },
+    "check.t41_gaps": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t41_gaps"
+     ],
+     "installed": false,
+     "scope": "T41a E2: the pre-fix hook (archive ee46539) blocks while a real verdict run is in flight; the fixed hook says nothing."
     }
    },
    "acceptance": {
     "T12": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.exceptions",
-      "check.installed_notifications"
+      "check.installed_notifications",
+      "check.t12_gaps"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Audited 24/10 night: covered E2, E5; UNCOVERED E1, E3, E4, E6. No test uses the T12 precondition (root verified, waiting for acceptance). Send failure/retry/close is exercised only on a proposed root (approval notice) and, in the installed case, on an approved root. E2/E5 hold: ledger events are identical after a failed send and the retry. E1: the notice state is not asserted to go 'chua giao'->'da giao' (only 'pending' after failure, then the launch count) and the root is not verified. E3/E6: the window is closed only on a proposed root, where acceptance is impossible anyway, so 'not accepted' is vacuous. E4: 'not failed after a failed send' is asserted "
-      }
-     ],
-     "evidence_matrix_partial": {
+     "gaps": [],
+     "evidence_matrix": {
       "E2": [
        "tests.test_wf_exceptions.ExceptionTests.test_actual_v1_pull_ack_and_desktop_failure_retry_never_approve",
        "tests.test_wf_installed_notifications.InstalledNotifications.test_installed_cli_question_pull_ack_desktop_retry_and_answer"
       ],
       "E5": [
        "tests.test_wf_exceptions.ExceptionTests.test_actual_v1_pull_ack_and_desktop_failure_retry_never_approve"
+      ],
+      "E1": [
+       "tests.test_wf_t12_gaps.VerifiedRootNoticeTests.test_e1_e4_failed_send_is_undelivered_notice_state_and_the_root_stays_verified"
+      ],
+      "E4": [
+       "tests.test_wf_t12_gaps.VerifiedRootNoticeTests.test_e1_e4_failed_send_is_undelivered_notice_state_and_the_root_stays_verified"
+      ],
+      "E3": [
+       "tests.test_wf_t12_gaps.VerifiedRootNoticeTests.test_e3_e6_closing_the_window_of_a_verified_root_is_not_acceptance"
+      ],
+      "E6": [
+       "tests.test_wf_t12_gaps.VerifiedRootNoticeTests.test_e3_e6_closing_the_window_of_a_verified_root_is_not_acceptance"
       ]
-     }
+     },
+     "scope": "Audited 24/10; E1/E3/E4/E6 added 25/10 on a real verified root."
     },
     "T15b": {
      "status": "complete",
@@ -1451,18 +1567,14 @@
      "scope": "Per-E matrix audited 24/10 night against the registered modules (read-only audit of the tests themselves). T15b E ids are E1, E3, E4, E6 only (E9 is tagged T15c). REGISTRY DEFECT: the current evidence_matrix cites tests.test_wf_r03a_executors.HoldTests.*, a class that does not exist (the tests are in DeclarationTests), and lists E9, which is not a T15b expectation. Its E4 also cites the managed-history test, which is not E4 evidence for a hook executor. check.observation_integration and check.shared_wo"
     },
     "T35d": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.r03a_metrics",
+      "check.t35_gaps",
       "check.t35d_handover_findings"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Audited 24/10 night: covered E1, E2, E8, E9, E10; UNCOVERED E3. T35d ids: E1, E2, E3, E8, E9, E10. E3: the adapter call counter is asserted (AdapterTests.test_e3_the_measure_calls_the_v1_functions), but E3 also requires the existing v1 guard tests (TD27, incl. tests/test_eval_scorecard.py) green before and after; that module is not registered under R03. tests.test_wf_t35d_handover_findings labels itself 'T35d [E4]' but E4 is a T35a id (outcome); it is not T35d evidence, so check.t35d_handover_findings is not needed."
-      }
-     ],
-     "evidence_matrix_partial": {
+     "gaps": [],
+     "evidence_matrix": {
       "E1": [
        "tests.test_wf_r03a_metrics.FiguresTests.test_e1_time_to_usable_output",
        "tests.test_wf_r03a_metrics.FiguresTests.test_e1_rework",
@@ -1481,8 +1593,12 @@
       "E10": [
        "tests.test_wf_r03a_metrics.AdapterTests.test_e10_a_copied_classification_is_caught_by_the_call_counter",
        "tests.test_wf_r03a_metrics.AdapterTests.test_e10_the_module_holds_no_copy_of_the_v1_classification"
+      ],
+      "E3": [
+       "tests.test_wf_t35_gaps.EvalScorecardGuard.test_t35d_e3_guard_v1_eval_scorecard_green_before_and_after_the_split"
       ]
-     }
+     },
+     "scope": "Audited 24/10; E3 guard (before/after the evaluation_core split) added 25/10."
     },
     "T36b": {
      "status": "partial",
@@ -1490,12 +1606,13 @@
       "check.estimates",
       "check.r03a_executors",
       "check.t36b_additional_u2",
-      "check.t36b_cli"
+      "check.t36b_cli",
+      "check.t36b_gaps"
      ],
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Audited 24/10 night: covered E10, E11, E12, E16; UNCOVERED E4, E7, E9, E13, E14, E15, E17, E18, E21. T36b ids: E4, E7, E9, E10, E11, E12, E13, E14, E15, E16, E17, E18, E21. E4/E7: no fake-clock 2-hour owner wait; execution/waiting are only asserted 'unknown'. E9: baseline immutability across reforecast and re-approval is asserted, but no restart of the coordinating process. E13: no restart/reload test. E14: the overwrite half is covered by test_reforecast, the restart half is not. E15: 'not 0' is covered, but the count of 'no progress' events for milestone 2 is not asserted. E17: ETA over baseline -> 0 requests is asserted (test_wf_exceptions...test_approved_upper_bound_same_cause_dedup_and_s"
+       "detail": "UNCOVERED E4, E7, E17, E15. E4: the time left to the deadline MINUS the owner wait is not computed (estimates.read wall_clock_remaining_seconds is None) — product change; E7: a wait inside an attempt is counted as execution (executors.summary does not subtract waits) — product change; E17: no 70% budget warning exists for an R03 v2 root (only v1 effort_watch) — product/infrastructure; E15 unchanged. Not external conditions; next development round."
       }
      ],
      "evidence_matrix_partial": {
@@ -1517,29 +1634,44 @@
        "tests.test_wf_estimates.EstimateTests.test_reforecast_needs_reason_and_evidence_and_keeps_history",
        "tests.test_wf_t36b_additional_u2.AdditionalWorkTests.test_e11_three_kinds_mandatory_forecast_optional_backlog_outside_authority_u2_holds_dependents",
        "tests.test_wf_estimates.EstimateTests.test_optional_work_never_enters_remaining_or_silently_expands_scope"
+      ],
+      "E9": [
+       "tests.test_wf_t36b_gaps.T36bGaps.test_e9_e13_e14_restart_keeps_baseline_history_and_additions"
+      ],
+      "E13": [
+       "tests.test_wf_t36b_gaps.T36bGaps.test_e9_e13_e14_restart_keeps_baseline_history_and_additions"
+      ],
+      "E14": [
+       "tests.test_wf_t36b_gaps.T36bGaps.test_e9_e13_e14_restart_keeps_baseline_history_and_additions"
+      ],
+      "E18": [
+       "tests.test_wf_t36b_gaps.T36bGaps.test_e18_present_and_report_never_claim_calibration_p85_or_probability"
+      ],
+      "E21": [
+       "tests.test_wf_t36b_gaps.T36bGaps.test_e21_old_version_reads_same_status_gate_continue_with_work_additional"
       ]
      }
     },
     "T41a": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
-      "check.r03a_run_started"
+      "check.r03a_run_started",
+      "check.t41_gaps"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Audited 24/10 night: covered E1, E6; UNCOVERED E2. T41a ids: E1, E2, E6. E2: the hook passing silently during a run is asserted, but E2's required reproduction (on pre-fix code the hook blocks/reminds, red for the right reason) is not run by any test; OldVersionTests only compare ledger reads, not the old Stop hook."
-      }
-     ],
-     "evidence_matrix_partial": {
+     "gaps": [],
+     "evidence_matrix": {
       "E1": [
        "tests.test_wf_r03a_run_started.StopWhileRunningTests.test_e1_e2_e6_stop_hook_does_not_block_or_remind_while_the_milestone_runs"
       ],
       "E6": [
        "tests.test_wf_r03a_run_started.StopWhileRunningTests.test_e1_e2_e6_stop_hook_does_not_block_or_remind_while_the_milestone_runs",
        "tests.test_wf_r03a_run_started.StopWhileRunningTests.test_a_running_milestone_leaves_no_blocked_or_reminded_event_in_the_ledger"
+      ],
+      "E2": [
+       "tests.test_wf_t41_gaps.PreFixStopHookTests.test_t41a_e2_pre_fix_hook_blocks_while_running_and_the_fixed_hook_lets_go"
       ]
-     }
+     },
+     "scope": "Audited 24/10; E2 (red before the fix, archive ee46539) added 25/10."
     },
     "T41b": {
      "status": "complete",
@@ -1634,39 +1766,41 @@
      "scope": "Per-E matrix audited 24/10 night against the registered modules (read-only audit of the tests themselves). T43a ids: E1, E2, E3, E4, E5, E9, E10, E11, E14, E15. Notices are read from exceptions.desktop_snapshots (current-state projection), not a fake adapter's recorded list. E4 is a grep plus 'no heartbeat-named file under the state root'. E14 is a grep only (no list of registered channels). E11: window closed on a proposed root (approval notice) with the ledger unchanged; the [E11] comment in test_e15"
     },
     "T43b": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.exceptions",
       "check.installed_notifications",
-      "check.questions"
+      "check.questions",
+      "check.t43_gaps"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Audited 24/10 night: covered E12; UNCOVERED E6, E8, E26. T43b ids: E6, E8, E12, E26. E6: the question notice target = {request id, revision} is asserted (test_four_actionable_states...), but the opened content being the card (problem, options, recommendation, evidence, scope) is not. E8: no test opens and closes a question notice while its request is pending; the window tests answer first or use an approval notice (pull/ack alone leaves the request pending in the installed test). E26: no R03 test on a plan: root asserts request.answered carries the choice together with 0 request.applied / 0 plan.closed; test_wf_questions only checks receipt choice +"
-      }
-     ],
-     "evidence_matrix_partial": {
+     "gaps": [],
+     "evidence_matrix": {
       "E12": [
        "tests.test_wf_exceptions.ExceptionTests.test_actual_v1_pull_ack_and_desktop_failure_retry_never_approve",
        "tests.test_wf_installed_notifications.InstalledNotifications.test_installed_cli_question_pull_ack_desktop_retry_and_answer"
+      ],
+      "E6": [
+       "tests.test_wf_t43_gaps.NoticeGapTests.test_t43b_e6_question_notice_opens_the_decision_card_of_that_request"
+      ],
+      "E8": [
+       "tests.test_wf_t43_gaps.NoticeGapTests.test_t43b_e8_open_and_close_of_a_pending_question_notice_is_not_an_answer"
+      ],
+      "E26": [
+       "tests.test_wf_t43_gaps.NoticeGapTests.test_t43b_e26_card_answer_on_plan_root_records_choice_without_apply_or_close"
       ]
-     }
+     },
+     "scope": "Audited 24/10; E6/E8/E26 added 25/10 (E6: the card equals the stored question; reason/impact stand for evidence/scope)."
     },
     "T43c": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.estimates",
       "check.exceptions",
+      "check.t43_gaps",
       "check.t43c_quiet"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Audited 24/10 night: covered E18, E19, E20, E21, E23, E24; UNCOVERED E16, E17, E22, E25. T43c ids: E16-E25. E16: one notice + same-cause dedup + new ETA are asserted, but the reason, evidence (ETA/addition record IDs) and user-action fields never are. E17: only that a 'deadline' status is in the set after 15:01; milestone name, promised time, reason, new ETA and exactly-one are not asserted. E22: dedup is covered, but 'every exception notice has non-empty reason and evidence' is not asserted. E25: the class-A S/G/C comparator after reforecast+observe is asserted (test_actual_archived_cli...), but neither that a notice.exception was written in that test nor that v1 notifications.pu"
-      }
-     ],
-     "evidence_matrix_partial": {
+     "gaps": [],
+     "evidence_matrix": {
       "E18": [
        "tests.test_wf_exceptions.ExceptionTests.test_deadline_and_blocker_delay_show_current_resolution_once",
        "tests.test_wf_exceptions.ExceptionTests.test_revised_u2_gets_new_card_and_old_card_is_superseded"
@@ -1691,22 +1825,31 @@
        "tests.test_wf_exceptions.ExceptionTests.test_approved_upper_bound_same_cause_dedup_and_six_hours_quiet",
        "tests.test_wf_exceptions.ExceptionTests.test_mandatory_addition_is_one_cause_optional_does_not_alert_or_grant",
        "tests.test_wf_exceptions.ExceptionTests.test_deadline_and_blocker_delay_show_current_resolution_once"
+      ],
+      "E16": [
+       "tests.test_wf_t43_gaps.NoticeGapTests.test_t43c_e16_baseline_notice_has_reason_evidence_eta_and_user_action_and_dedups"
+      ],
+      "E17": [
+       "tests.test_wf_t43_gaps.NoticeGapTests.test_t43c_e17_overdue_promised_milestone_notice_names_milestone_time_reason_and_eta"
+      ],
+      "E22": [
+       "tests.test_wf_t43_gaps.NoticeGapTests.test_t43c_e22_every_exception_notice_has_reason_and_evidence"
+      ],
+      "E25": [
+       "tests.test_wf_t43_gaps.NoticeGapTests.test_t43c_e25_notice_exception_is_class_a_and_v1_pull_returns_its_row"
       ]
-     }
+     },
+     "scope": "Audited 24/10; E16/E17/E22/E25 added 25/10."
     },
     "T47a": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.questions",
+      "check.t47_gaps",
       "check.t47a_answers"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Audited 24/10 night: covered E1, E3, E5, E7, E8, E9; UNCOVERED E11, E12. T47a ids: E1, E3, E5, E7, E8, E9, E11, E12. E5: refusal (exit 2) in the AI session is asserted, the 'same message as approve' is not. E11: test_e11_stop_answer_is_shown_as_chosen_on_present_and_report runs on a workflow (plan-ns, capabilities) root where 'stop' closes the plan (plan.closed + request.applied, R05 behaviour); it asserts only page text, not stopped_with_report / 0 class-B events on a plan: root. The inherited tests.test_wf_t47a_answers.AnswerPagesTests.test_actual_old_root_remains_stopped_and_readable_by_old_cli (from test_wf_answer_effects) covers the plan: root status and 0 req"
-      }
-     ],
-     "evidence_matrix_partial": {
+     "gaps": [],
+     "evidence_matrix": {
       "E1": [
        "tests.test_wf_t47a_answers.AnswerPagesTests.test_e1_the_read_command_prints_the_card_fields_in_both_places_without_answering"
       ],
@@ -1726,8 +1869,15 @@
       "E9": [
        "tests.test_wf_questions.QuestionTests.test_ai_cannot_answer_even_with_resume_data",
        "tests.test_wf_questions.QuestionTests.test_owner_cli_uses_the_actual_hash_revision_and_ai_cannot_replay_it"
+      ],
+      "E11": [
+       "tests.test_wf_t47_gaps.LegacyRootAnswerTests.test_e11_stop_on_plan_root_is_recorded_shown_chosen_and_has_no_class_b_effect"
+      ],
+      "E12": [
+       "tests.test_wf_t47_gaps.LegacyRootAnswerTests.test_e12_amend_answer_on_plan_root_is_recorded_with_choice_reference_owner_and_no_apply"
       ]
-     }
+     },
+     "scope": "Audited 24/10; E11/E12 added 25/10 on a plan: root created by the archived old binary."
     },
     "T54c": {
      "status": "partial",
@@ -1955,20 +2105,16 @@
        "scope": "Per-E matrix audited 24/10 night against the registered modules (read-only audit of the tests themselves). Fixture differs slightly (B2, B3 are single nodes). E3: B1a and B2 run and verify while U-loc is open; B3 is not run before U-global opens. E2: refusals are asserted as LedgerError, the reason text is not checked. Holds are read through blockers(), not hold/release events."
       },
       "T03": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.control_core",
         "check.engine",
         "check.metered_verifier",
-        "check.root_budget"
+        "check.root_budget",
+        "check.t03_gaps"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Audited 24/10 night: covered E2, E3, E4, E5, E6, E8; UNCOVERED E1, E7. E1: no test asserts the old->new acceptance mapping in plan.revised (the code writes definition.acceptance and acceptance_diff, untested); only adding an outside item (O99) is refused. E7: the 'split drops an item' counter-example is not tested: the O99 mutation leaves O1 still covered by node I, so it tests 'new item outside authority', not loss. E2: the split is two child jobs of the root (the test_wf_root_budget docstring disclaims internal subdivision); remaining stays 40 for the children and a not-started retry; an ambiguous retry holds 1 reserved (39 + 1). E4: plan.revised count = revisi"
-        }
-       ],
-       "evidence_matrix_partial": {
+       "gaps": [],
+       "evidence_matrix": {
         "E2": [
          "tests.test_wf_root_budget.RootBudgetTests.test_sixty_spent_new_child_keys_retry_unknown_and_process_restart_keep_forty"
         ],
@@ -1989,8 +2135,16 @@
         "E8": [
          "tests.test_wf_engine.EngineTests.test_internal_revision_preserves_contract_acceptance_budget_and_decision_provenance",
          "tests.test_wf_engine.EngineTests.test_acceptance_loss_check_weakening_or_scope_expansion_is_refused_without_revision"
+        ],
+        "E1": [
+         "tests.test_wf_t03_gaps.SplitKeepsAcceptance.test_e1_split_records_old_to_new_acceptance_mapping_in_plan_revised"
+        ],
+        "E7": [
+         "tests.test_wf_t03_gaps.SplitKeepsAcceptance.test_e7_split_that_drops_an_item_is_refused_as_u1_and_publishes_nothing",
+         "tests.test_wf_t03_gaps.SplitKeepsAcceptance.test_e7_counter_example_the_lossless_variant_of_the_same_split_is_accepted"
         ]
-       }
+       },
+       "scope": "Audited 24/10; E1/E7 added 25/10."
       },
       "T04a": {
        "status": "complete",
@@ -2078,26 +2232,15 @@
        "scope": "Per-E matrix audited 24/10 night against the registered modules (read-only audit of the tests themselves). T17a ids: E1, E6, E7. The record's scope field is not asserted for this decision (outcome and class U2 are)."
       },
       "T19": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.engine",
         "check.t19_counterexamples",
+        "check.t19_gaps",
         "check.test_integrity"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Audited 24/10 night: covered E2, E3, E4; UNCOVERED E1. E1 requires both (a) and (b) to be red AND classified U1. (a) is asserted U1; (b) deletion (test_b_a_deleted_test_makes_the_gate_red, and test_c_a_test_that_is_no_longer_discovered_is_removed) asserts only failed/fail + weakened kind 'removed', never classification U1, and the 'lam yeu bo kiem' reason is not asserted. One-line fix: assert classification == 'U1' in test_b. The registry marks T19 complete with E1 covered. test_unchanged_suite_records_nothing_extra (cited for E4 in the registry) is not E4 evidence. check.engine holds no T19 evidence."
-        }
-       ],
+       "gaps": [],
        "evidence_matrix": {
-        "E1": [
-         "tests.test_wf_test_integrity.TestIntegrityTests.test_a_loosened_assert_makes_the_gate_red_as_u1",
-         "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red",
-         "tests.test_wf_t19_counterexamples.CounterexampleTests.test_a_skip_decorator_on_the_test_is_a_weakening",
-         "tests.test_wf_t19_counterexamples.CounterexampleTests.test_b_skipping_the_whole_class_is_a_weakening",
-         "tests.test_wf_t19_counterexamples.CounterexampleTests.test_c_a_test_that_is_no_longer_discovered_is_removed"
-        ],
         "E2": [
          "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
          "tests.test_wf_t19_counterexamples.CounterexampleTests.test_valid_additions_reformat_and_moves_still_pass"
@@ -2109,26 +2252,15 @@
         ],
         "E4": [
          "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
-         "tests.test_wf_test_integrity.TestIntegrityTests.test_unchanged_suite_records_nothing_extra",
          "tests.test_wf_t19_counterexamples.CounterexampleTests.test_valid_additions_reformat_and_moves_still_pass"
+        ],
+        "E1": [
+         "tests.test_wf_t19_gaps.DeletedTestIsU1.test_e1_b_deleted_test_is_red_fail_and_classified_u1_with_receipt",
+         "tests.test_wf_t19_gaps.DeletedTestIsU1.test_e1_b_mutant_hiding_the_deletion_turns_the_gate_green",
+         "tests.test_wf_t19_gaps.DeletedTestIsU1.test_e1_integrity_result_maps_a_weakened_suite_to_fail"
         ]
        },
-       "scope": "A temporary Git project with its own small test file; the worker is the test editing the file (interface only). Nothing asks the owner. Codex P1 round: decorators, class skips, discovery and support code are compared; unproven is inconclusive, never a pass. Python test files by name only.",
-       "evidence_matrix_partial": {
-        "E2": [
-         "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
-         "tests.test_wf_t19_counterexamples.CounterexampleTests.test_valid_additions_reformat_and_moves_still_pass"
-        ],
-        "E3": [
-         "tests.test_wf_test_integrity.TestIntegrityTests.test_a_loosened_assert_makes_the_gate_red_as_u1",
-         "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red",
-         "tests.test_wf_t19_counterexamples.CounterexampleTests.test_d_a_weakened_helper_with_an_unchanged_test_body_is_not_a_pass"
-        ],
-        "E4": [
-         "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
-         "tests.test_wf_t19_counterexamples.CounterexampleTests.test_valid_additions_reformat_and_moves_still_pass"
-        ]
-       }
+       "scope": "Audited 24/10; E1 deleted-test case added 25/10 (review a2476ab)."
       },
       "T21": {
        "status": "complete",
@@ -2230,62 +2362,138 @@
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T05 has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered E3; UNCOVERED E1, E2, E4, E5, E6. T05 is single-part: E1-E6. Only test_three_states (check.engine) calls eligible() on the fixture ledger. E3 covered: with requires=produced and advance limit 1, ready() lists Early after C is produced, and after one run eligible() is not ready with an 'advance' reason. E1 uncovered: D is asserted not ready and the reason contains 'verified', but the U id ('C') is not asserted (the code does emit 'C requires verified'). E2 uncovered: no test calls eligible() on D after C becomes verified. The nearest is the native executor step picking integration node I after verify C, which is the scheduler, "
         }
-       ]
+       ],
+       "evidence_matrix_partial": {
+        "E3": [
+         "tests.test_wf_engine.EngineTests.test_three_states_bounded_advance_and_reused_ready_batch_drive_real_one_slot_engine"
+        ]
+       }
       },
       "T25": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
-        "check.namespace"
+        "check.events",
+        "check.namespace",
+        "check.v2_trust_fixes"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T25 has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_namespace.NamespaceTests.test_legacy_schema2_item_change_stays_amend_and_old_reader_still_reads_it",
+         "tests.test_wf_namespace.NamespaceTests.test_new_schema2_item_change_still_requires_amend_and_new_approval"
+        ],
+        "E2": [
+         "tests.test_wf_namespace.NamespaceTests.test_workflow_roots_declare_only_implemented_version_and_capability"
+        ],
+        "E3": [
+         "tests.test_wf_namespace.NamespaceTests.test_old_cli_cannot_see_or_continue_new_roots_and_does_not_rewrite_their_files",
+         "tests.test_wf_events.OldVersionComparatorTests.test_e11_class_A_events_keep_S_G_C"
+        ],
+        "E4": [
+         "tests.test_wf_namespace.NamespaceTests.test_legacy_schema2_item_change_stays_amend_and_old_reader_still_reads_it",
+         "tests.test_wf_namespace.NamespaceTests.test_new_schema2_item_change_still_requires_amend_and_new_approval",
+         "tests.test_v2_trust_fixes.ReportReadsTheSharedView.test_an_accepted_plan_is_read_from_its_acceptance_record_not_from_todays_rules"
+        ]
+       },
+       "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T25 is single-part: E1-E4. E1: a real v2.2 root created by the archived d3120c6 CLI gets an item change. The test asserts plan.amended and status proposed at revision 2 with approved_revision 1 (re-approval needed); the same holds for a new schema-2 root. E2: a workflow root has workflow_version 1 and a non-empty capability list. E3: the archived CLI's show/report/verdict on the new namespaced roo"
       },
       "T26": {
        "status": "partial",
        "checks": [
-        "check.solution_link",
-        "check.installed_solution_link"
+        "check.installed_solution_link",
+        "check.solution_link"
        ],
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T26 has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered E1, E2, E3; UNCOVERED E4. T26 is single-part: E1-E4. E1: the gate result's solution_ref, read from the approved root contract, equals the SOL {id, revision} (the newer revision after amend and approval; REF in the installed run). E2: solution_gate.check / check_task returns authority 'root', the approved anchor's task_id and sha, and solution_authority 'none'. E3: with the root linked but unapproved, submitting a write job raises, and a pre-link job is refused with 'SOL approval grants no execution'. In the installed run, intake_binding raises before root approval. E4 uncovered: a second root for the same work is refus"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {
+        "E1": [
+         "tests.test_wf_solution_link.SolutionLinkTests.test_source_ref_change_needs_current_root_revision_approval_and_new_handoff",
+         "tests.test_wf_installed_solution_link.InstalledSolutionLinkTests.test_installed_cli_linked_root_is_the_only_handoff_authority"
+        ],
+        "E2": [
+         "tests.test_wf_solution_link.SolutionLinkTests.test_sol_only_approval_cannot_dispatch_before_root_approval",
+         "tests.test_wf_solution_link.SolutionLinkTests.test_root_is_single_grant_even_if_sol_decision_changes",
+         "tests.test_wf_installed_solution_link.InstalledSolutionLinkTests.test_installed_cli_linked_root_is_the_only_handoff_authority"
+        ],
+        "E3": [
+         "tests.test_wf_solution_link.SolutionLinkTests.test_sol_only_approval_cannot_dispatch_before_root_approval",
+         "tests.test_wf_installed_solution_link.InstalledSolutionLinkTests.test_installed_cli_linked_root_is_the_only_handoff_authority"
+        ]
+       }
       },
       "T32": {
        "status": "partial",
        "checks": [
-        "check.root_writer",
+        "check.control_core",
+        "check.namespace",
         "check.plan_binding",
         "check.root_budget",
-        "check.control_core"
+        "check.root_writer"
        ],
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T32 has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered E1, E2, E3, E5; UNCOVERED E4. T32 is single-part: E1-E5. E1: the second writer's reserve is refused, and the message contains the root anchor_task and W1's task id. E2: 60 spends by a child give the root group used 60 / remaining 40 of 100, and three spends across two children exhaust a 3-call root. The root's spend equals the children's spend through the shared group counters, not through per-child budget events, which the evidence line names. E3: the same name P1 in another project gets a different anchor_task, and its writer reserves while P1's writer is live. Distinct storage directories come from the namespace test (p"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {
+        "E1": [
+         "tests.test_wf_root_writer.RootWriterTests.test_second_ordinary_writer_refused_before_reservation_and_budget_charge"
+        ],
+        "E2": [
+         "tests.test_wf_root_budget.RootBudgetTests.test_sixty_spent_new_child_keys_retry_unknown_and_process_restart_keep_forty",
+         "tests.test_wf_root_budget.RootBudgetTests.test_new_job_keys_cannot_reset_exhausted_root"
+        ],
+        "E3": [
+         "tests.test_wf_root_writer.RootWriterTests.test_same_name_in_other_project_is_a_different_writer_root",
+         "tests.test_wf_namespace.NamespaceTests.test_new_schema2_roots_share_name_across_projects_without_sharing_paths"
+        ],
+        "E5": [
+         "tests.test_wf_root_budget.RootBudgetTests.test_child_cannot_enlarge_root_calls_time_or_create_a_separate_grant",
+         "tests.test_wf_root_budget.RootBudgetTests.test_new_job_keys_cannot_reset_exhausted_root"
+        ]
+       }
       },
       "T48b": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.namespace",
         "check.plan_binding"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T48b has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E2": [
+         "tests.test_wf_namespace.NamespaceTests.test_new_schema2_roots_share_name_across_projects_without_sharing_paths",
+         "tests.test_wf_namespace.NamespaceTests.test_workflow_roots_declare_only_implemented_version_and_capability"
+        ],
+        "E3": [
+         "tests.test_wf_namespace.NamespaceTests.test_legacy_read_and_report_leave_old_files_paths_hashes_and_mtimes_unchanged"
+        ],
+        "E4": [
+         "tests.test_wf_namespace.NamespaceTests.test_legacy_read_and_report_leave_old_files_paths_hashes_and_mtimes_unchanged"
+        ],
+        "E7": [
+         "tests.test_wf_namespace.NamespaceTests.test_new_schema2_roots_share_name_across_projects_without_sharing_paths",
+         "tests.test_wf_namespace.NamespaceTests.test_workflow_roots_declare_only_implemented_version_and_capability",
+         "tests.test_wf_namespace.NamespaceTests.test_legacy_read_and_report_leave_old_files_paths_hashes_and_mtimes_unchanged",
+         "tests.test_wf_namespace.NamespaceTests.test_active_copy_uses_one_project_level_and_old_hook_can_find_it"
+        ],
+        "E8": [
+         "tests.test_wf_namespace.NamespaceTests.test_bare_dual_anchor_refuses_and_explicit_selectors_read_amend_export_and_pin_exact_root"
+        ],
+        "E9": [
+         "tests.test_wf_namespace.NamespaceTests.test_new_schema2_roots_share_name_across_projects_without_sharing_paths",
+         "tests.test_wf_namespace.NamespaceTests.test_workflow_roots_declare_only_implemented_version_and_capability",
+         "tests.test_wf_namespace.NamespaceTests.test_old_cli_cannot_see_or_continue_new_roots_and_does_not_rewrite_their_files"
+        ]
+       },
+       "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T48b ids: E2, E3, E4, E7, E8, E9 (E6 is labelled (T48a); its (T48b) clause only points to E2, so it is not a separate T48b id; E1, E5, E10, E11 are T48a). All covered, with caveats: E2 the two project directories differ only implicitly (distinct project_id, each path asserted equal to plans/<pid>/beta; workflow path asserts plan_dir, not v1.json existence). E3 the new plan show is the API view com"
       },
       "T49c": {
        "status": "partial",
@@ -2295,9 +2503,21 @@
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T49c has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered E9, E10, E24; UNCOVERED E21, E22, E13. T49c ids: E21, E22, E9, E10, E13, E24. E21 uncovered: test_s2 asserts 7 rows, the block ids per root and preserved_only/properties for R2, R3, DUPb, but never asserts DUPa 'readable and continuable' properties nor the DUPb 'duplicate name, not blocking' label, nor DUPk's 'branches and writes to another project' property (only 'B3' in its amend prediction, in another test). E22 uncovered: per-cell comparison is missing: old show/report/amend/verdict are run only for R2 (not R3, DUPb) and only assert nonzero + 'No plan named', without comparing to the scan's per-command prediction or hashing pla"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {
+        "E9": [
+         "tests.test_wf_namespace_compat.NamespaceCompatTests.test_s2_properties_blocks_and_scan_preserves_files"
+        ],
+        "E10": [
+         "tests.test_wf_namespace_compat.NamespaceCompatTests.test_s2_properties_blocks_and_scan_preserves_files",
+         "tests.test_wf_namespace_compat.NamespaceCompatTests.test_real_old_moved_legacy_writes_other_directory"
+        ],
+        "E24": [
+         "tests.test_wf_namespace_compat.NamespaceCompatTests.test_real_old_namespace_reads_and_propose_split"
+        ]
+       }
       },
       "T49d": {
        "status": "partial",
@@ -2308,9 +2528,15 @@
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T49d has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered E17; UNCOVERED E5, E6, E7, E12, E16. T49d ids: E5, E6, E7, E12, E16, E17. E5 uncovered: test_n1_to_n7 asserts the remaining block set and ran=False per N1-N4/N7 (N4: stopped does not release B1/B3) but on the rollback_drill gate function only (module docstring: 'not an installation swap'): no script exit code/message and no new-venv package list before/after per case; the drill's single rejected case (test_real_installs...) is a different fixture. E6 uncovered: N5/N6 only assert ran=True; no ledger-hash-equality-at-rollback-start receipt, no rollback, and none of the step-3 old-version commands after N5 (R1 amend/verdict, R3/DUPb"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {
+        "E17": [
+         "tests.test_wf_namespace_compat.NamespaceCompatTests.test_n1_to_n7_gate_branches",
+         "tests.test_wf_upgrade_drill.UpgradeDrillTests.test_stale_scan_is_rejected_before_any_install_swap"
+        ]
+       }
       },
       "T54d": {
        "status": "partial",
@@ -2425,6 +2651,46 @@
      ],
      "installed": false,
      "scope": "A/B/C scenario on the fixture engine with a fake clock: split rule, survey before implementation, indivisible reason+cap, waiting moves no deadline."
+    },
+    "check.legacy_baseline": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t13b_legacy_baseline"
+     ],
+     "installed": false,
+     "scope": "T13b E3/E4 + T19 (review a2476ab P1-D): a root approved by the OLD binary continues after the upgrade — baseline from the approval row time, else the owner-recorded baseline (verdict baseline) with evidence; never PASS by default; AI session refused; base_artifact roots unchanged."
+    },
+    "check.t19_gaps": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t19_gaps"
+     ],
+     "installed": false,
+     "scope": "T19 E1(b): a DELETED test is red, fail, U1 with receipt; mutant hiding the deletion goes green."
+    },
+    "check.t03_gaps": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t03_gaps"
+     ],
+     "installed": false,
+     "scope": "T03 E1/E7: splitting a task records the acceptance mapping in plan.revised; a split that drops an item is refused as U1 and publishes nothing; lossless variant accepted."
+    },
+    "check.events": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_events"
+     ],
+     "installed": false,
+     "scope": "Registered 25/10 (audit): evidence of T25 cited this module."
+    },
+    "check.v2_trust_fixes": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_v2_trust_fixes"
+     ],
+     "installed": false,
+     "scope": "Registered 25/10 (audit): evidence of T25 cited this module."
     }
    },
    "acceptance": {
@@ -2459,20 +2725,16 @@
      "scope": "Per-E matrix audited 24/10 night against the registered modules (read-only audit of the tests themselves). Fixture differs slightly (B2, B3 are single nodes). E3: B1a and B2 run and verify while U-loc is open; B3 is not run before U-global opens. E2: refusals are asserted as LedgerError, the reason text is not checked. Holds are read through blockers(), not hold/release events."
     },
     "T03": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.control_core",
       "check.engine",
       "check.metered_verifier",
-      "check.root_budget"
+      "check.root_budget",
+      "check.t03_gaps"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Audited 24/10 night: covered E2, E3, E4, E5, E6, E8; UNCOVERED E1, E7. E1: no test asserts the old->new acceptance mapping in plan.revised (the code writes definition.acceptance and acceptance_diff, untested); only adding an outside item (O99) is refused. E7: the 'split drops an item' counter-example is not tested: the O99 mutation leaves O1 still covered by node I, so it tests 'new item outside authority', not loss. E2: the split is two child jobs of the root (the test_wf_root_budget docstring disclaims internal subdivision); remaining stays 40 for the children and a not-started retry; an ambiguous retry holds 1 reserved (39 + 1). E4: plan.revised count = revisi"
-      }
-     ],
-     "evidence_matrix_partial": {
+     "gaps": [],
+     "evidence_matrix": {
       "E2": [
        "tests.test_wf_root_budget.RootBudgetTests.test_sixty_spent_new_child_keys_retry_unknown_and_process_restart_keep_forty"
       ],
@@ -2493,8 +2755,16 @@
       "E8": [
        "tests.test_wf_engine.EngineTests.test_internal_revision_preserves_contract_acceptance_budget_and_decision_provenance",
        "tests.test_wf_engine.EngineTests.test_acceptance_loss_check_weakening_or_scope_expansion_is_refused_without_revision"
+      ],
+      "E1": [
+       "tests.test_wf_t03_gaps.SplitKeepsAcceptance.test_e1_split_records_old_to_new_acceptance_mapping_in_plan_revised"
+      ],
+      "E7": [
+       "tests.test_wf_t03_gaps.SplitKeepsAcceptance.test_e7_split_that_drops_an_item_is_refused_as_u1_and_publishes_nothing",
+       "tests.test_wf_t03_gaps.SplitKeepsAcceptance.test_e7_counter_example_the_lossless_variant_of_the_same_split_is_accepted"
       ]
-     }
+     },
+     "scope": "Audited 24/10; E1/E7 added 25/10."
     },
     "T04a": {
      "status": "complete",
@@ -2582,26 +2852,15 @@
      "scope": "Per-E matrix audited 24/10 night against the registered modules (read-only audit of the tests themselves). T17a ids: E1, E6, E7. The record's scope field is not asserted for this decision (outcome and class U2 are)."
     },
     "T19": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.engine",
       "check.t19_counterexamples",
+      "check.t19_gaps",
       "check.test_integrity"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Audited 24/10 night: covered E2, E3, E4; UNCOVERED E1. E1 requires both (a) and (b) to be red AND classified U1. (a) is asserted U1; (b) deletion (test_b_a_deleted_test_makes_the_gate_red, and test_c_a_test_that_is_no_longer_discovered_is_removed) asserts only failed/fail + weakened kind 'removed', never classification U1, and the 'lam yeu bo kiem' reason is not asserted. One-line fix: assert classification == 'U1' in test_b. The registry marks T19 complete with E1 covered. test_unchanged_suite_records_nothing_extra (cited for E4 in the registry) is not E4 evidence. check.engine holds no T19 evidence."
-      }
-     ],
+     "gaps": [],
      "evidence_matrix": {
-      "E1": [
-       "tests.test_wf_test_integrity.TestIntegrityTests.test_a_loosened_assert_makes_the_gate_red_as_u1",
-       "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red",
-       "tests.test_wf_t19_counterexamples.CounterexampleTests.test_a_skip_decorator_on_the_test_is_a_weakening",
-       "tests.test_wf_t19_counterexamples.CounterexampleTests.test_b_skipping_the_whole_class_is_a_weakening",
-       "tests.test_wf_t19_counterexamples.CounterexampleTests.test_c_a_test_that_is_no_longer_discovered_is_removed"
-      ],
       "E2": [
        "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
        "tests.test_wf_t19_counterexamples.CounterexampleTests.test_valid_additions_reformat_and_moves_still_pass"
@@ -2613,26 +2872,15 @@
       ],
       "E4": [
        "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
-       "tests.test_wf_test_integrity.TestIntegrityTests.test_unchanged_suite_records_nothing_extra",
        "tests.test_wf_t19_counterexamples.CounterexampleTests.test_valid_additions_reformat_and_moves_still_pass"
+      ],
+      "E1": [
+       "tests.test_wf_t19_gaps.DeletedTestIsU1.test_e1_b_deleted_test_is_red_fail_and_classified_u1_with_receipt",
+       "tests.test_wf_t19_gaps.DeletedTestIsU1.test_e1_b_mutant_hiding_the_deletion_turns_the_gate_green",
+       "tests.test_wf_t19_gaps.DeletedTestIsU1.test_e1_integrity_result_maps_a_weakened_suite_to_fail"
       ]
      },
-     "scope": "A temporary Git project with its own small test file; the worker is the test editing the file (interface only). Nothing asks the owner. Codex P1 round: decorators, class skips, discovery and support code are compared; unproven is inconclusive, never a pass. Python test files by name only.",
-     "evidence_matrix_partial": {
-      "E2": [
-       "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
-       "tests.test_wf_t19_counterexamples.CounterexampleTests.test_valid_additions_reformat_and_moves_still_pass"
-      ],
-      "E3": [
-       "tests.test_wf_test_integrity.TestIntegrityTests.test_a_loosened_assert_makes_the_gate_red_as_u1",
-       "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red",
-       "tests.test_wf_t19_counterexamples.CounterexampleTests.test_d_a_weakened_helper_with_an_unchanged_test_body_is_not_a_pass"
-      ],
-      "E4": [
-       "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
-       "tests.test_wf_t19_counterexamples.CounterexampleTests.test_valid_additions_reformat_and_moves_still_pass"
-      ]
-     }
+     "scope": "Audited 24/10; E1 deleted-test case added 25/10 (review a2476ab)."
     },
     "T21": {
      "status": "complete",
@@ -2734,62 +2982,138 @@
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T05 has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered E3; UNCOVERED E1, E2, E4, E5, E6. T05 is single-part: E1-E6. Only test_three_states (check.engine) calls eligible() on the fixture ledger. E3 covered: with requires=produced and advance limit 1, ready() lists Early after C is produced, and after one run eligible() is not ready with an 'advance' reason. E1 uncovered: D is asserted not ready and the reason contains 'verified', but the U id ('C') is not asserted (the code does emit 'C requires verified'). E2 uncovered: no test calls eligible() on D after C becomes verified. The nearest is the native executor step picking integration node I after verify C, which is the scheduler, "
       }
-     ]
+     ],
+     "evidence_matrix_partial": {
+      "E3": [
+       "tests.test_wf_engine.EngineTests.test_three_states_bounded_advance_and_reused_ready_batch_drive_real_one_slot_engine"
+      ]
+     }
     },
     "T25": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
-      "check.namespace"
+      "check.events",
+      "check.namespace",
+      "check.v2_trust_fixes"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T25 has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_namespace.NamespaceTests.test_legacy_schema2_item_change_stays_amend_and_old_reader_still_reads_it",
+       "tests.test_wf_namespace.NamespaceTests.test_new_schema2_item_change_still_requires_amend_and_new_approval"
+      ],
+      "E2": [
+       "tests.test_wf_namespace.NamespaceTests.test_workflow_roots_declare_only_implemented_version_and_capability"
+      ],
+      "E3": [
+       "tests.test_wf_namespace.NamespaceTests.test_old_cli_cannot_see_or_continue_new_roots_and_does_not_rewrite_their_files",
+       "tests.test_wf_events.OldVersionComparatorTests.test_e11_class_A_events_keep_S_G_C"
+      ],
+      "E4": [
+       "tests.test_wf_namespace.NamespaceTests.test_legacy_schema2_item_change_stays_amend_and_old_reader_still_reads_it",
+       "tests.test_wf_namespace.NamespaceTests.test_new_schema2_item_change_still_requires_amend_and_new_approval",
+       "tests.test_v2_trust_fixes.ReportReadsTheSharedView.test_an_accepted_plan_is_read_from_its_acceptance_record_not_from_todays_rules"
+      ]
+     },
+     "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T25 is single-part: E1-E4. E1: a real v2.2 root created by the archived d3120c6 CLI gets an item change. The test asserts plan.amended and status proposed at revision 2 with approved_revision 1 (re-approval needed); the same holds for a new schema-2 root. E2: a workflow root has workflow_version 1 and a non-empty capability list. E3: the archived CLI's show/report/verdict on the new namespaced roo"
     },
     "T26": {
      "status": "partial",
      "checks": [
-      "check.solution_link",
-      "check.installed_solution_link"
+      "check.installed_solution_link",
+      "check.solution_link"
      ],
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T26 has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered E1, E2, E3; UNCOVERED E4. T26 is single-part: E1-E4. E1: the gate result's solution_ref, read from the approved root contract, equals the SOL {id, revision} (the newer revision after amend and approval; REF in the installed run). E2: solution_gate.check / check_task returns authority 'root', the approved anchor's task_id and sha, and solution_authority 'none'. E3: with the root linked but unapproved, submitting a write job raises, and a pre-link job is refused with 'SOL approval grants no execution'. In the installed run, intake_binding raises before root approval. E4 uncovered: a second root for the same work is refus"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {
+      "E1": [
+       "tests.test_wf_solution_link.SolutionLinkTests.test_source_ref_change_needs_current_root_revision_approval_and_new_handoff",
+       "tests.test_wf_installed_solution_link.InstalledSolutionLinkTests.test_installed_cli_linked_root_is_the_only_handoff_authority"
+      ],
+      "E2": [
+       "tests.test_wf_solution_link.SolutionLinkTests.test_sol_only_approval_cannot_dispatch_before_root_approval",
+       "tests.test_wf_solution_link.SolutionLinkTests.test_root_is_single_grant_even_if_sol_decision_changes",
+       "tests.test_wf_installed_solution_link.InstalledSolutionLinkTests.test_installed_cli_linked_root_is_the_only_handoff_authority"
+      ],
+      "E3": [
+       "tests.test_wf_solution_link.SolutionLinkTests.test_sol_only_approval_cannot_dispatch_before_root_approval",
+       "tests.test_wf_installed_solution_link.InstalledSolutionLinkTests.test_installed_cli_linked_root_is_the_only_handoff_authority"
+      ]
+     }
     },
     "T32": {
      "status": "partial",
      "checks": [
-      "check.root_writer",
+      "check.control_core",
+      "check.namespace",
       "check.plan_binding",
       "check.root_budget",
-      "check.control_core"
+      "check.root_writer"
      ],
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T32 has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered E1, E2, E3, E5; UNCOVERED E4. T32 is single-part: E1-E5. E1: the second writer's reserve is refused, and the message contains the root anchor_task and W1's task id. E2: 60 spends by a child give the root group used 60 / remaining 40 of 100, and three spends across two children exhaust a 3-call root. The root's spend equals the children's spend through the shared group counters, not through per-child budget events, which the evidence line names. E3: the same name P1 in another project gets a different anchor_task, and its writer reserves while P1's writer is live. Distinct storage directories come from the namespace test (p"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {
+      "E1": [
+       "tests.test_wf_root_writer.RootWriterTests.test_second_ordinary_writer_refused_before_reservation_and_budget_charge"
+      ],
+      "E2": [
+       "tests.test_wf_root_budget.RootBudgetTests.test_sixty_spent_new_child_keys_retry_unknown_and_process_restart_keep_forty",
+       "tests.test_wf_root_budget.RootBudgetTests.test_new_job_keys_cannot_reset_exhausted_root"
+      ],
+      "E3": [
+       "tests.test_wf_root_writer.RootWriterTests.test_same_name_in_other_project_is_a_different_writer_root",
+       "tests.test_wf_namespace.NamespaceTests.test_new_schema2_roots_share_name_across_projects_without_sharing_paths"
+      ],
+      "E5": [
+       "tests.test_wf_root_budget.RootBudgetTests.test_child_cannot_enlarge_root_calls_time_or_create_a_separate_grant",
+       "tests.test_wf_root_budget.RootBudgetTests.test_new_job_keys_cannot_reset_exhausted_root"
+      ]
+     }
     },
     "T48b": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.namespace",
       "check.plan_binding"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T48b has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E2": [
+       "tests.test_wf_namespace.NamespaceTests.test_new_schema2_roots_share_name_across_projects_without_sharing_paths",
+       "tests.test_wf_namespace.NamespaceTests.test_workflow_roots_declare_only_implemented_version_and_capability"
+      ],
+      "E3": [
+       "tests.test_wf_namespace.NamespaceTests.test_legacy_read_and_report_leave_old_files_paths_hashes_and_mtimes_unchanged"
+      ],
+      "E4": [
+       "tests.test_wf_namespace.NamespaceTests.test_legacy_read_and_report_leave_old_files_paths_hashes_and_mtimes_unchanged"
+      ],
+      "E7": [
+       "tests.test_wf_namespace.NamespaceTests.test_new_schema2_roots_share_name_across_projects_without_sharing_paths",
+       "tests.test_wf_namespace.NamespaceTests.test_workflow_roots_declare_only_implemented_version_and_capability",
+       "tests.test_wf_namespace.NamespaceTests.test_legacy_read_and_report_leave_old_files_paths_hashes_and_mtimes_unchanged",
+       "tests.test_wf_namespace.NamespaceTests.test_active_copy_uses_one_project_level_and_old_hook_can_find_it"
+      ],
+      "E8": [
+       "tests.test_wf_namespace.NamespaceTests.test_bare_dual_anchor_refuses_and_explicit_selectors_read_amend_export_and_pin_exact_root"
+      ],
+      "E9": [
+       "tests.test_wf_namespace.NamespaceTests.test_new_schema2_roots_share_name_across_projects_without_sharing_paths",
+       "tests.test_wf_namespace.NamespaceTests.test_workflow_roots_declare_only_implemented_version_and_capability",
+       "tests.test_wf_namespace.NamespaceTests.test_old_cli_cannot_see_or_continue_new_roots_and_does_not_rewrite_their_files"
+      ]
+     },
+     "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T48b ids: E2, E3, E4, E7, E8, E9 (E6 is labelled (T48a); its (T48b) clause only points to E2, so it is not a separate T48b id; E1, E5, E10, E11 are T48a). All covered, with caveats: E2 the two project directories differ only implicitly (distinct project_id, each path asserted equal to plans/<pid>/beta; workflow path asserts plan_dir, not v1.json existence). E3 the new plan show is the API view com"
     },
     "T49c": {
      "status": "partial",
@@ -2799,9 +3123,21 @@
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T49c has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered E9, E10, E24; UNCOVERED E21, E22, E13. T49c ids: E21, E22, E9, E10, E13, E24. E21 uncovered: test_s2 asserts 7 rows, the block ids per root and preserved_only/properties for R2, R3, DUPb, but never asserts DUPa 'readable and continuable' properties nor the DUPb 'duplicate name, not blocking' label, nor DUPk's 'branches and writes to another project' property (only 'B3' in its amend prediction, in another test). E22 uncovered: per-cell comparison is missing: old show/report/amend/verdict are run only for R2 (not R3, DUPb) and only assert nonzero + 'No plan named', without comparing to the scan's per-command prediction or hashing pla"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {
+      "E9": [
+       "tests.test_wf_namespace_compat.NamespaceCompatTests.test_s2_properties_blocks_and_scan_preserves_files"
+      ],
+      "E10": [
+       "tests.test_wf_namespace_compat.NamespaceCompatTests.test_s2_properties_blocks_and_scan_preserves_files",
+       "tests.test_wf_namespace_compat.NamespaceCompatTests.test_real_old_moved_legacy_writes_other_directory"
+      ],
+      "E24": [
+       "tests.test_wf_namespace_compat.NamespaceCompatTests.test_real_old_namespace_reads_and_propose_split"
+      ]
+     }
     },
     "T49d": {
      "status": "partial",
@@ -2812,9 +3148,15 @@
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T49d has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered E17; UNCOVERED E5, E6, E7, E12, E16. T49d ids: E5, E6, E7, E12, E16, E17. E5 uncovered: test_n1_to_n7 asserts the remaining block set and ran=False per N1-N4/N7 (N4: stopped does not release B1/B3) but on the rollback_drill gate function only (module docstring: 'not an installation swap'): no script exit code/message and no new-venv package list before/after per case; the drill's single rejected case (test_real_installs...) is a different fixture. E6 uncovered: N5/N6 only assert ran=True; no ledger-hash-equality-at-rollback-start receipt, no rollback, and none of the step-3 old-version commands after N5 (R1 amend/verdict, R3/DUPb"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {
+      "E17": [
+       "tests.test_wf_namespace_compat.NamespaceCompatTests.test_n1_to_n7_gate_branches",
+       "tests.test_wf_upgrade_drill.UpgradeDrillTests.test_stale_scan_is_rejected_before_any_install_swap"
+      ]
+     }
     },
     "T54d": {
      "status": "partial",
@@ -3285,16 +3627,20 @@
        ]
       },
       "T04c": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.test_preparation"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04c has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_test_preparation.TestPreparationTests.test_preparation_finishes_before_any_implementation_artifact"
+        ],
+        "E7": [
+         "tests.test_wf_test_preparation.TestPreparationTests.test_preparation_finishes_before_any_implementation_artifact"
+        ]
+       },
+       "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). Sub-case E ids: E1, E7. E1: node.verification of P precedes node.produced of C (asserted by event index). E7: P has depends [], is the only ready node first, and no node.held event exists for P. Registry check.test_preparation is correct."
       },
       "T08a": {
        "status": "complete",
@@ -3328,30 +3674,45 @@
        "status": "partial",
        "checks": [
         "check.candidate_handoff",
-        "check.native_executor",
         "check.candidate_reviewer",
+        "check.native_executor",
         "check.observed_handoff"
        ],
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T16b has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered ; UNCOVERED E5, E6, E7, E12. Sub-case E ids: E5, E6, E7, E12. No test runs the T16b scenario (one root run exercising Q1, Q2, Q3, Q4, Q5, Q8, Q9, Q10 on one ledger). E5: no request count across one whole run covering all those decisions (only piecewise requests==[] in engine/recovery tests). E6: no test asserts an HD-05 record per decision class Q1/Q2/Q4/Q5/Q8/Q9/Q10 with a OneCrew subject, nor Q3 noted in the task commit; engine fixtures do not grant Q5/Q10 in self_decide. E7: split revision bump with unchanged contract is shown in tests.test_wf_engine.EngineTests.test_internal_revision_preserves_contract_acceptance_budg"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {}
       },
       "T16c": {
        "status": "partial",
        "checks": [
-        "check.review_policy",
         "check.review_dispatch",
-        "check.review_optional_cli"
+        "check.review_optional_cli",
+        "check.review_policy",
+        "check.runtime_unknowns"
        ],
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T16c has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered E8, E13; UNCOVERED E9. Sub-case E ids: E8, E9, E13. E8: CLI test asserts SKIP reason, policy depth+revision+policy_sha, scope, validity, HD-05 record in ledger, request count unchanged; runtime_unknowns tests assert the local unknown blocks only B1b while B1a/B2 run and creates no request (R04 module, not registered in R05). E13: requests unchanged for SKIP and unknown HOLD, mandatory gate id refused for SKIP, mutant SKIP on required gate refused before checker, no SKIP record scoped to a mandatory gate, mandatory verify still runs with pass. E9 uncovered: no HD-05 record asserted for the Q8 unknown hold, and contra"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {
+        "E8": [
+         "tests.test_wf_review_optional_cli.ReviewOptionalCliTests.test_light_policy_skips_from_the_cli_with_a_record_and_without_a_request_or_checker_call",
+         "tests.test_wf_runtime_unknowns.RuntimeUnknownTests.test_local_and_global_unknowns_preserve_independent_execution",
+         "tests.test_wf_runtime_unknowns.RuntimeUnknownTests.test_resolution_requires_correct_role_and_resolving_evidence"
+        ],
+        "E13": [
+         "tests.test_wf_review_optional_cli.ReviewOptionalCliTests.test_light_policy_skips_from_the_cli_with_a_record_and_without_a_request_or_checker_call",
+         "tests.test_wf_review_dispatch.ReviewDispatchTests.test_required_subset_and_mutant_skip_are_refused_before_checker",
+         "tests.test_wf_review_dispatch.ReviewDispatchTests.test_runtime_unknown_holds_optional_and_required_review_before_spend",
+         "tests.test_wf_review_dispatch.ReviewDispatchTests.test_light_optional_skip_does_not_complete_node_and_required_engine_checker_runs"
+        ]
+       }
       },
       "T17c": {
        "status": "partial",
@@ -3363,9 +3724,10 @@
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T17c has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered ; UNCOVERED E4, E5, E9. Sub-case E ids: E4, E5, E9. E4/E9: no test counts the cards sent for the U2 hold of B1 (=1) or checks the card fields (problem, options, recommendation, evidence, scope, deadline); WorkflowAnswerTests.hold only takes pending[0]. E5: tests.test_wf_answer_effects.WorkflowAnswerTests.test_continue_resumes_exact_held_generations_inside_original_grant_once shows A resumes per the choice (generation+1, next step A) but never asserts the request is closed (one-line fix: assert pending list empty). Registry defect: cited checks candidate_handoff, handoff_reuse, observed_handoff contain no card/answer "
         }
-       ]
+       ],
+       "evidence_matrix_partial": {}
       },
       "T18a": {
        "status": "partial",
@@ -3376,9 +3738,25 @@
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T18a has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered E2, E4, E5, E7; UNCOVERED E1, E3, E6, E8. Sub-case E ids: E1-E8. E2: blocked diagnosis lists failed check id, 3 attempts with distinct receipts, spend vs ceiling, shown in report/handover. E4: no passing node.verification after the block. E5: checks hash unchanged. E7: requests==[] after the loop. E1 uncovered: 'diagnose' disposition and replan are asserted, but the authority basis of the event is never asserted. E3 uncovered: only used_calls <= max_calls; no run to the cap showing spent == ceiling (test docstring defers E3 elsewhere). E6 uncovered: only max_calls compared before/after; deadline ceiling not compared. E8 uncovered: no "
         }
-       ]
+       ],
+       "evidence_matrix_partial": {
+        "E2": [
+         "tests.test_wf_t18a_blocker.BlockerEvidenceTests.test_e2_blocked_decision_lists_red_checks_attempts_and_spend_and_the_report_shows_it"
+        ],
+        "E4": [
+         "tests.test_wf_t18a_blocker.BlockerEvidenceTests.test_e2_blocked_decision_lists_red_checks_attempts_and_spend_and_the_report_shows_it"
+        ],
+        "E5": [
+         "tests.test_wf_t18a_blocker.BlockerEvidenceTests.test_e2_blocked_decision_lists_red_checks_attempts_and_spend_and_the_report_shows_it"
+        ],
+        "E7": [
+         "tests.test_wf_t18a_blocker.BlockerEvidenceTests.test_e2_blocked_decision_lists_red_checks_attempts_and_spend_and_the_report_shows_it",
+         "tests.test_wf_recovery_policy.RecoveryPolicyTests.test_repeat_receipt_idempotent_and_changed_generation_does_not_reset_bounds",
+         "tests.test_wf_recovery_policy.RecoveryPolicyTests.test_one_bounded_replan_preserves_grant_then_blocks_repeated_failure"
+        ]
+       }
       },
       "T18b": {
        "status": "complete",
@@ -3460,9 +3838,10 @@
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T43d has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered ; UNCOVERED E7, E13. Sub-case E ids: E7, E13. E7: WorkflowAnswerTests continue/stop tests show held generations resume per the choice and request.applied is implied by controller_effect, but request closure is never asserted (partial). E13: 'never answered while plan still stopped' not asserted; questions.answer persists the reply and applies it in separate transactions, and AnswerEffectTests.test_recorded_but_unapplied_reply_reconciles_without_answering_again shows that intermediate state exists, so a final-state check is insufficient. No notification-card path exercised on plan-ns. Registry check.answer_effects "
         }
-       ]
+       ],
+       "evidence_matrix_partial": {}
       },
       "T47c": {
        "status": "partial",
@@ -3472,9 +3851,14 @@
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T47c has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered E2; UNCOVERED E4, E6. Sub-case E ids: E2, E4, E6. E2: plan-ns root closed, plan.closed once, pending questions empty, reason (= reference) rendered by plan present from the plan.closed event, outcome cancelled, verdict.run refused; the reply-only counterexample would fail status=='closed'. E4 uncovered: only request.applied count==1 (stop and amend); choice, reference, owner subject of the answer and request_id equality of the applied event not asserted. E6 uncovered: reply and apply are separate transactions; the 'no moment answered-while-stopped' property is not asserted and the crash-window test shows that state"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {
+        "E2": [
+         "tests.test_wf_answer_effects.AnswerEffectTests.test_stop_closes_once_and_prevents_further_work_without_accepting"
+        ]
+       }
       },
       "T54e": {
        "status": "partial",
@@ -3638,6 +4022,14 @@
      ],
      "installed": false,
      "scope": "T18b E9/E13: a running command is observed alive through the shared progress tracker; silence is unknown, not a stop; a failing hook never stops the command."
+    },
+    "check.runtime_unknowns": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_runtime_unknowns"
+     ],
+     "installed": false,
+     "scope": "Registered 25/10 (audit): evidence of T16c cited this module."
     }
    },
    "acceptance": {
@@ -3844,16 +4236,20 @@
      ]
     },
     "T04c": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.test_preparation"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04c has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_test_preparation.TestPreparationTests.test_preparation_finishes_before_any_implementation_artifact"
+      ],
+      "E7": [
+       "tests.test_wf_test_preparation.TestPreparationTests.test_preparation_finishes_before_any_implementation_artifact"
+      ]
+     },
+     "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). Sub-case E ids: E1, E7. E1: node.verification of P precedes node.produced of C (asserted by event index). E7: P has depends [], is the only ready node first, and no node.held event exists for P. Registry check.test_preparation is correct."
     },
     "T08a": {
      "status": "complete",
@@ -3887,30 +4283,45 @@
      "status": "partial",
      "checks": [
       "check.candidate_handoff",
-      "check.native_executor",
       "check.candidate_reviewer",
+      "check.native_executor",
       "check.observed_handoff"
      ],
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T16b has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered ; UNCOVERED E5, E6, E7, E12. Sub-case E ids: E5, E6, E7, E12. No test runs the T16b scenario (one root run exercising Q1, Q2, Q3, Q4, Q5, Q8, Q9, Q10 on one ledger). E5: no request count across one whole run covering all those decisions (only piecewise requests==[] in engine/recovery tests). E6: no test asserts an HD-05 record per decision class Q1/Q2/Q4/Q5/Q8/Q9/Q10 with a OneCrew subject, nor Q3 noted in the task commit; engine fixtures do not grant Q5/Q10 in self_decide. E7: split revision bump with unchanged contract is shown in tests.test_wf_engine.EngineTests.test_internal_revision_preserves_contract_acceptance_budg"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {}
     },
     "T16c": {
      "status": "partial",
      "checks": [
-      "check.review_policy",
       "check.review_dispatch",
-      "check.review_optional_cli"
+      "check.review_optional_cli",
+      "check.review_policy",
+      "check.runtime_unknowns"
      ],
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T16c has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered E8, E13; UNCOVERED E9. Sub-case E ids: E8, E9, E13. E8: CLI test asserts SKIP reason, policy depth+revision+policy_sha, scope, validity, HD-05 record in ledger, request count unchanged; runtime_unknowns tests assert the local unknown blocks only B1b while B1a/B2 run and creates no request (R04 module, not registered in R05). E13: requests unchanged for SKIP and unknown HOLD, mandatory gate id refused for SKIP, mutant SKIP on required gate refused before checker, no SKIP record scoped to a mandatory gate, mandatory verify still runs with pass. E9 uncovered: no HD-05 record asserted for the Q8 unknown hold, and contra"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {
+      "E8": [
+       "tests.test_wf_review_optional_cli.ReviewOptionalCliTests.test_light_policy_skips_from_the_cli_with_a_record_and_without_a_request_or_checker_call",
+       "tests.test_wf_runtime_unknowns.RuntimeUnknownTests.test_local_and_global_unknowns_preserve_independent_execution",
+       "tests.test_wf_runtime_unknowns.RuntimeUnknownTests.test_resolution_requires_correct_role_and_resolving_evidence"
+      ],
+      "E13": [
+       "tests.test_wf_review_optional_cli.ReviewOptionalCliTests.test_light_policy_skips_from_the_cli_with_a_record_and_without_a_request_or_checker_call",
+       "tests.test_wf_review_dispatch.ReviewDispatchTests.test_required_subset_and_mutant_skip_are_refused_before_checker",
+       "tests.test_wf_review_dispatch.ReviewDispatchTests.test_runtime_unknown_holds_optional_and_required_review_before_spend",
+       "tests.test_wf_review_dispatch.ReviewDispatchTests.test_light_optional_skip_does_not_complete_node_and_required_engine_checker_runs"
+      ]
+     }
     },
     "T17c": {
      "status": "partial",
@@ -3922,9 +4333,10 @@
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T17c has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered ; UNCOVERED E4, E5, E9. Sub-case E ids: E4, E5, E9. E4/E9: no test counts the cards sent for the U2 hold of B1 (=1) or checks the card fields (problem, options, recommendation, evidence, scope, deadline); WorkflowAnswerTests.hold only takes pending[0]. E5: tests.test_wf_answer_effects.WorkflowAnswerTests.test_continue_resumes_exact_held_generations_inside_original_grant_once shows A resumes per the choice (generation+1, next step A) but never asserts the request is closed (one-line fix: assert pending list empty). Registry defect: cited checks candidate_handoff, handoff_reuse, observed_handoff contain no card/answer "
       }
-     ]
+     ],
+     "evidence_matrix_partial": {}
     },
     "T18a": {
      "status": "partial",
@@ -3935,9 +4347,25 @@
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T18a has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered E2, E4, E5, E7; UNCOVERED E1, E3, E6, E8. Sub-case E ids: E1-E8. E2: blocked diagnosis lists failed check id, 3 attempts with distinct receipts, spend vs ceiling, shown in report/handover. E4: no passing node.verification after the block. E5: checks hash unchanged. E7: requests==[] after the loop. E1 uncovered: 'diagnose' disposition and replan are asserted, but the authority basis of the event is never asserted. E3 uncovered: only used_calls <= max_calls; no run to the cap showing spent == ceiling (test docstring defers E3 elsewhere). E6 uncovered: only max_calls compared before/after; deadline ceiling not compared. E8 uncovered: no "
       }
-     ]
+     ],
+     "evidence_matrix_partial": {
+      "E2": [
+       "tests.test_wf_t18a_blocker.BlockerEvidenceTests.test_e2_blocked_decision_lists_red_checks_attempts_and_spend_and_the_report_shows_it"
+      ],
+      "E4": [
+       "tests.test_wf_t18a_blocker.BlockerEvidenceTests.test_e2_blocked_decision_lists_red_checks_attempts_and_spend_and_the_report_shows_it"
+      ],
+      "E5": [
+       "tests.test_wf_t18a_blocker.BlockerEvidenceTests.test_e2_blocked_decision_lists_red_checks_attempts_and_spend_and_the_report_shows_it"
+      ],
+      "E7": [
+       "tests.test_wf_t18a_blocker.BlockerEvidenceTests.test_e2_blocked_decision_lists_red_checks_attempts_and_spend_and_the_report_shows_it",
+       "tests.test_wf_recovery_policy.RecoveryPolicyTests.test_repeat_receipt_idempotent_and_changed_generation_does_not_reset_bounds",
+       "tests.test_wf_recovery_policy.RecoveryPolicyTests.test_one_bounded_replan_preserves_grant_then_blocks_repeated_failure"
+      ]
+     }
     },
     "T18b": {
      "status": "complete",
@@ -4019,9 +4447,10 @@
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T43d has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered ; UNCOVERED E7, E13. Sub-case E ids: E7, E13. E7: WorkflowAnswerTests continue/stop tests show held generations resume per the choice and request.applied is implied by controller_effect, but request closure is never asserted (partial). E13: 'never answered while plan still stopped' not asserted; questions.answer persists the reply and applies it in separate transactions, and AnswerEffectTests.test_recorded_but_unapplied_reply_reconciles_without_answering_again shows that intermediate state exists, so a final-state check is insufficient. No notification-card path exercised on plan-ns. Registry check.answer_effects "
       }
-     ]
+     ],
+     "evidence_matrix_partial": {}
     },
     "T47c": {
      "status": "partial",
@@ -4031,9 +4460,14 @@
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T47c has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered E2; UNCOVERED E4, E6. Sub-case E ids: E2, E4, E6. E2: plan-ns root closed, plan.closed once, pending questions empty, reason (= reference) rendered by plan present from the plan.closed event, outcome cancelled, verdict.run refused; the reply-only counterexample would fail status=='closed'. E4 uncovered: only request.applied count==1 (stop and amend); choice, reference, owner subject of the answer and request_id equality of the applied event not asserted. E6 uncovered: reply and apply are separate transactions; the 'no moment answered-while-stopped' property is not asserted and the crash-window test shows that state"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {
+      "E2": [
+       "tests.test_wf_answer_effects.AnswerEffectTests.test_stop_closes_once_and_prevents_further_work_without_accepting"
+      ]
+     }
     },
     "T54e": {
      "status": "partial",
@@ -4125,33 +4559,69 @@
      "scope": "Registry fail-closed rules only.",
      "acceptance_snapshot": {
       "T52a": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
-        "check.r06_learning",
+        "check.installed_node_learning",
         "check.node_learning",
-        "check.installed_node_learning"
+        "check.r06_learning"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T52a has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_r06_learning.AutomaticLearningTests.test_automatic_three_attempt_incident_and_mid_root_project_lesson"
+        ],
+        "E2": [
+         "tests.test_wf_r06_learning.AutomaticLearningTests.test_intentional_red_and_forged_evidence_do_not_become_product_learning",
+         "tests.test_wf_node_learning.NodeLearningTests.test_prepared_acceptance_red_is_not_a_product_failure_episode"
+        ],
+        "E3": [
+         "tests.test_wf_r06_learning.ClassACompatibilityTests.test_real_prior_binary_and_v1_consumers_keep_their_semantics"
+        ],
+        "E9": [
+         "tests.test_wf_r06_learning.AutomaticLearningTests.test_automatic_three_attempt_incident_and_mid_root_project_lesson"
+        ],
+        "E10": [
+         "tests.test_wf_r06_learning.AutomaticLearningTests.test_automatic_three_attempt_incident_and_mid_root_project_lesson",
+         "tests.test_wf_r06_learning.AutomaticLearningTests.test_intentional_red_and_forged_evidence_do_not_become_product_learning"
+        ]
+       },
+       "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T52a E ids: E1, E2, E3, E9, E10. E1: learning.incident count 1, the three attempt receipts with classifications environment/product/verified, refuted_hypotheses H1. E9: counts 1 and 1 after three attempts, and a repeated after_verdict adds nothing (a write-per-fail mutant gives 2, so the test goes red). E10: cause is None and finalize(cause='H1') is refused. E2: the intentional red is classified i"
       },
       "T52b": {
        "status": "partial",
        "checks": [
-        "check.r06_learning",
-        "check.r02_boundaries",
         "check.installed_node_learning",
+        "check.r02_boundaries",
+        "check.r06_learning",
         "check.t52b_lesson_limits"
        ],
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T52b has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered E4, E5, E6, E8, E13, E14; UNCOVERED E7, E11, E12. T52b E ids: E4, E5, E6, E7, E8, E11, E12, E13, E14. Covered: E4 (lesson seq is after the green verdict seq while the root is still approved, the lesson carries revision and test, and context.retrieve returns it; an only-at-root-end mutant leaves no lesson and the test goes red), E5/E13 (conditions, incident/evidence/source lesson, grep for path/name/symbol, refusals), E6 (label stale with 'revision' in stale_reason), E8 (joint deletion with learning.incident, see T52a), E14 (the E4 order plus a refusal after the root stops). Uncovered: E7, because withdraw is called with a reason but no test a"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {
+        "E4": [
+         "tests.test_wf_r06_learning.AutomaticLearningTests.test_automatic_three_attempt_incident_and_mid_root_project_lesson"
+        ],
+        "E5": [
+         "tests.test_wf_t52b_lesson_limits.LessonLimitsTests.test_e5_general_candidate_has_conditions_and_source_and_no_private_detail"
+        ],
+        "E6": [
+         "tests.test_wf_r06_learning.AutomaticLearningTests.test_general_candidate_stale_project_and_withdrawal_remain_data"
+        ],
+        "E8": [
+         "tests.test_wf_r06_learning.ClassACompatibilityTests.test_real_prior_binary_and_v1_consumers_keep_their_semantics"
+        ],
+        "E13": [
+         "tests.test_wf_t52b_lesson_limits.LessonLimitsTests.test_e5_general_candidate_has_conditions_and_source_and_no_private_detail"
+        ],
+        "E14": [
+         "tests.test_wf_r06_learning.AutomaticLearningTests.test_automatic_three_attempt_incident_and_mid_root_project_lesson",
+         "tests.test_wf_t52b_lesson_limits.LessonLimitsTests.test_e14_no_lesson_after_the_root_ended"
+        ]
+       }
       },
       "T54f": {
        "status": "partial",
@@ -4214,33 +4684,69 @@
    },
    "acceptance": {
     "T52a": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
-      "check.r06_learning",
+      "check.installed_node_learning",
       "check.node_learning",
-      "check.installed_node_learning"
+      "check.r06_learning"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T52a has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_r06_learning.AutomaticLearningTests.test_automatic_three_attempt_incident_and_mid_root_project_lesson"
+      ],
+      "E2": [
+       "tests.test_wf_r06_learning.AutomaticLearningTests.test_intentional_red_and_forged_evidence_do_not_become_product_learning",
+       "tests.test_wf_node_learning.NodeLearningTests.test_prepared_acceptance_red_is_not_a_product_failure_episode"
+      ],
+      "E3": [
+       "tests.test_wf_r06_learning.ClassACompatibilityTests.test_real_prior_binary_and_v1_consumers_keep_their_semantics"
+      ],
+      "E9": [
+       "tests.test_wf_r06_learning.AutomaticLearningTests.test_automatic_three_attempt_incident_and_mid_root_project_lesson"
+      ],
+      "E10": [
+       "tests.test_wf_r06_learning.AutomaticLearningTests.test_automatic_three_attempt_incident_and_mid_root_project_lesson",
+       "tests.test_wf_r06_learning.AutomaticLearningTests.test_intentional_red_and_forged_evidence_do_not_become_product_learning"
+      ]
+     },
+     "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T52a E ids: E1, E2, E3, E9, E10. E1: learning.incident count 1, the three attempt receipts with classifications environment/product/verified, refuted_hypotheses H1. E9: counts 1 and 1 after three attempts, and a repeated after_verdict adds nothing (a write-per-fail mutant gives 2, so the test goes red). E10: cause is None and finalize(cause='H1') is refused. E2: the intentional red is classified i"
     },
     "T52b": {
      "status": "partial",
      "checks": [
-      "check.r06_learning",
-      "check.r02_boundaries",
       "check.installed_node_learning",
+      "check.r02_boundaries",
+      "check.r06_learning",
       "check.t52b_lesson_limits"
      ],
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T52b has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered E4, E5, E6, E8, E13, E14; UNCOVERED E7, E11, E12. T52b E ids: E4, E5, E6, E7, E8, E11, E12, E13, E14. Covered: E4 (lesson seq is after the green verdict seq while the root is still approved, the lesson carries revision and test, and context.retrieve returns it; an only-at-root-end mutant leaves no lesson and the test goes red), E5/E13 (conditions, incident/evidence/source lesson, grep for path/name/symbol, refusals), E6 (label stale with 'revision' in stale_reason), E8 (joint deletion with learning.incident, see T52a), E14 (the E4 order plus a refusal after the root stops). Uncovered: E7, because withdraw is called with a reason but no test a"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {
+      "E4": [
+       "tests.test_wf_r06_learning.AutomaticLearningTests.test_automatic_three_attempt_incident_and_mid_root_project_lesson"
+      ],
+      "E5": [
+       "tests.test_wf_t52b_lesson_limits.LessonLimitsTests.test_e5_general_candidate_has_conditions_and_source_and_no_private_detail"
+      ],
+      "E6": [
+       "tests.test_wf_r06_learning.AutomaticLearningTests.test_general_candidate_stale_project_and_withdrawal_remain_data"
+      ],
+      "E8": [
+       "tests.test_wf_r06_learning.ClassACompatibilityTests.test_real_prior_binary_and_v1_consumers_keep_their_semantics"
+      ],
+      "E13": [
+       "tests.test_wf_t52b_lesson_limits.LessonLimitsTests.test_e5_general_candidate_has_conditions_and_source_and_no_private_detail"
+      ],
+      "E14": [
+       "tests.test_wf_r06_learning.AutomaticLearningTests.test_automatic_three_attempt_incident_and_mid_root_project_lesson",
+       "tests.test_wf_t52b_lesson_limits.LessonLimitsTests.test_e14_no_lesson_after_the_root_ended"
+      ]
+     }
     },
     "T54f": {
      "status": "partial",
@@ -4318,22 +4824,37 @@
       "T53a": {
        "status": "partial",
        "checks": [
-        "check.r07_localization",
-        "check.installed_localization"
+        "check.installed_localization",
+        "check.r07_localization"
        ],
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T53a has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered E1, E3, E4, E11; UNCOVERED E2, E7, E8. T53a E ids: E1, E2, E3, E4, E7, E8, E11. E1 needs both tests: the checkout test asserts reason, revision, next_check test_export_build with condition 'thang 2'; the installed test adds file=='reports.py' and line>0. E3/E11: observations are labelled observed and suspects are labelled hypothesis, in separate fields. E4: status 'chua du du lieu', 3 needed items, no suspects. Uncovered: E2/E7, because symbol_present at the pinned revision is checked only for the two expected methods, never for every entry in result['suspects']; the HEAD-rename counterexample is present (pinned_symbols_survive_hea"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {
+        "E1": [
+         "tests.test_wf_r07_localization.LocalizationTests.test_text_suspects_have_pinned_sources_checks_and_separate_hypotheses",
+         "tests.test_wf_installed_localization.InstalledLocalization.test_installed_issue_lookup_and_explicit_map_keep_pinned_evidence_and_honest_image_fallback"
+        ],
+        "E3": [
+         "tests.test_wf_r07_localization.LocalizationTests.test_text_suspects_have_pinned_sources_checks_and_separate_hypotheses"
+        ],
+        "E4": [
+         "tests.test_wf_r07_localization.LocalizationTests.test_pinned_symbols_survive_head_rename_and_vague_issue_has_no_suspects"
+        ],
+        "E11": [
+         "tests.test_wf_r07_localization.LocalizationTests.test_text_suspects_have_pinned_sources_checks_and_separate_hypotheses"
+        ]
+       }
       },
       "T53b": {
        "status": "complete",
        "checks": [
-        "check.r07_localization",
         "check.installed_localization",
-        "check.issue_provider"
+        "check.issue_provider",
+        "check.r07_localization"
        ],
        "gaps": [],
        "evidence_matrix": {
@@ -4343,18 +4864,18 @@
          "tests.test_wf_r07_localization.LocalizationTests.test_image_capability_is_checked_before_any_image_access"
         ],
         "E6": [
+         "tests.test_wf_r07_localization.HeldOutTests.test_six_pre_fix_issues_never_read_fix_or_own_issue_lessons",
          "tests.test_wf_issue_provider.IssueProviderTests.test_e6_evaluate_command_reports_top_k_with_a_denominator_from_separate_files"
         ],
         "E9": [
-         "tests.test_wf_issue_provider.IssueProviderTests.test_e9_counterexample_a_declaration_without_the_capability_check_is_caught",
-         "tests.test_wf_r07_localization.LocalizationTests.test_image_capability_is_checked_before_any_image_access"
+         "tests.test_wf_r07_localization.LocalizationTests.test_image_capability_is_checked_before_any_image_access",
+         "tests.test_wf_issue_provider.IssueProviderTests.test_e9_counterexample_a_declaration_without_the_capability_check_is_caught"
         ],
         "E10": [
-         "tests.test_wf_issue_provider.IssueProviderTests.test_e6_evaluate_command_reports_top_k_with_a_denominator_from_separate_files",
-         "tests.test_wf_r07_localization.LocalizationTests.test_six_pre_fix_issues_never_read_fix_or_own_issue_lessons"
+         "tests.test_wf_r07_localization.HeldOutTests.test_six_pre_fix_issues_never_read_fix_or_own_issue_lessons"
         ]
        },
-       "scope": "No product provider declares a vision adapter: the V case uses an injected fixture observer. Top-k is static fixture ranking, not a real-provider measurement."
+       "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T53b E ids: E5, E6, E9, E10. E5: V (an injected adapter or provider dict) reads the image once and gives image-sourced observations; T gives 'khong doc anh' and no image observation. E9: T has an observer but no capability, and the observer is never called (removing the check makes it red). E6: 6 rows with denominator 6 for k=1/3/5 and seconds_to_candidate; per-row rank is implied because top-1 hi"
       },
       "T54g": {
        "status": "partial",
@@ -4403,22 +4924,37 @@
     "T53a": {
      "status": "partial",
      "checks": [
-      "check.r07_localization",
-      "check.installed_localization"
+      "check.installed_localization",
+      "check.r07_localization"
      ],
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T53a has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered E1, E3, E4, E11; UNCOVERED E2, E7, E8. T53a E ids: E1, E2, E3, E4, E7, E8, E11. E1 needs both tests: the checkout test asserts reason, revision, next_check test_export_build with condition 'thang 2'; the installed test adds file=='reports.py' and line>0. E3/E11: observations are labelled observed and suspects are labelled hypothesis, in separate fields. E4: status 'chua du du lieu', 3 needed items, no suspects. Uncovered: E2/E7, because symbol_present at the pinned revision is checked only for the two expected methods, never for every entry in result['suspects']; the HEAD-rename counterexample is present (pinned_symbols_survive_hea"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {
+      "E1": [
+       "tests.test_wf_r07_localization.LocalizationTests.test_text_suspects_have_pinned_sources_checks_and_separate_hypotheses",
+       "tests.test_wf_installed_localization.InstalledLocalization.test_installed_issue_lookup_and_explicit_map_keep_pinned_evidence_and_honest_image_fallback"
+      ],
+      "E3": [
+       "tests.test_wf_r07_localization.LocalizationTests.test_text_suspects_have_pinned_sources_checks_and_separate_hypotheses"
+      ],
+      "E4": [
+       "tests.test_wf_r07_localization.LocalizationTests.test_pinned_symbols_survive_head_rename_and_vague_issue_has_no_suspects"
+      ],
+      "E11": [
+       "tests.test_wf_r07_localization.LocalizationTests.test_text_suspects_have_pinned_sources_checks_and_separate_hypotheses"
+      ]
+     }
     },
     "T53b": {
      "status": "complete",
      "checks": [
-      "check.r07_localization",
       "check.installed_localization",
-      "check.issue_provider"
+      "check.issue_provider",
+      "check.r07_localization"
      ],
      "gaps": [],
      "evidence_matrix": {
@@ -4428,18 +4964,18 @@
        "tests.test_wf_r07_localization.LocalizationTests.test_image_capability_is_checked_before_any_image_access"
       ],
       "E6": [
+       "tests.test_wf_r07_localization.HeldOutTests.test_six_pre_fix_issues_never_read_fix_or_own_issue_lessons",
        "tests.test_wf_issue_provider.IssueProviderTests.test_e6_evaluate_command_reports_top_k_with_a_denominator_from_separate_files"
       ],
       "E9": [
-       "tests.test_wf_issue_provider.IssueProviderTests.test_e9_counterexample_a_declaration_without_the_capability_check_is_caught",
-       "tests.test_wf_r07_localization.LocalizationTests.test_image_capability_is_checked_before_any_image_access"
+       "tests.test_wf_r07_localization.LocalizationTests.test_image_capability_is_checked_before_any_image_access",
+       "tests.test_wf_issue_provider.IssueProviderTests.test_e9_counterexample_a_declaration_without_the_capability_check_is_caught"
       ],
       "E10": [
-       "tests.test_wf_issue_provider.IssueProviderTests.test_e6_evaluate_command_reports_top_k_with_a_denominator_from_separate_files",
-       "tests.test_wf_r07_localization.LocalizationTests.test_six_pre_fix_issues_never_read_fix_or_own_issue_lessons"
+       "tests.test_wf_r07_localization.HeldOutTests.test_six_pre_fix_issues_never_read_fix_or_own_issue_lessons"
       ]
      },
-     "scope": "No product provider declares a vision adapter: the V case uses an injected fixture observer. Top-k is static fixture ranking, not a real-provider measurement."
+     "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T53b E ids: E5, E6, E9, E10. E5: V (an injected adapter or provider dict) reads the image once and gives image-sourced observations; T gives 'khong doc anh' and no image observation. E9: T has an observer but no capability, and the observer is never called (removing the check makes it red). E6: 6 rows with denominator 6 for k=1/3/5 and seconds_to_candidate; per-row rank is implied because top-1 hi"
     },
     "T54g": {
      "status": "partial",
@@ -4553,38 +5089,39 @@
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T01 has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered ; UNCOVERED E1, E2, E3, E4, E5. T01 single-part: E1-E5. No R08 test has the T01 fixture: a rule-based decision (W26) AND a review of N both in flight on A1/R1 while R2/A2 is written. Pieces exist only on one side each: review side in tests.test_wf_review_snapshot (repair of C makes R pending with no receipt; an in-flight review is retained, node.result_retained) and, unregistered in R08, tests.test_wf_review_dispatch (late optional output after replan -> 'stale_observation') and tests.test_wf_review_policy (plan changed during decisions.record -> 'changed while deciding'; cache rebinds on artifact/policy change). E1: no test"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {}
       },
       "T04b": {
-       "status": "complete",
+       "status": "partial",
        "checks": [
-        "check.parallel_engine",
         "check.candidate_adapters",
+        "check.parallel_engine",
         "check.review_snapshot",
         "check.review_snapshot_integration"
        ],
-       "gaps": [],
-       "evidence_matrix": {
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Audited 25/10: covered E2, E3, E5; UNCOVERED E6. T04b ids: E2, E3, E5, E6. E2: the integration test asserts the reviewer receipt artifact_sha = candidate tree and the stored diff is A1's ('+candidate', not the later change); the unit test only binds R.inputs.C.artifact = A1 (opaque blob, no diff hash), so it is not cited for E2. E3: R is pending with no receipt after C's new generation, and A2 needs its own reviewer call. E5: a review in flight when C moves on is retained, R stays pending (no pass published); after repair the old receipt no longer applies. E6 uncovered: the evidence is the FILE LIST of R's diff excluding files changed only i"
+        }
+       ],
+       "scope": "Fixture worker and fixture reviewer on the real engine, ledger and Control; the review artifact binding is the engine receipt. No real reviewer model.",
+       "evidence_matrix_partial": {
         "E2": [
-         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
          "tests.test_wf_review_snapshot_integration.ReviewSnapshotIntegrationTests.test_reviewer_reviews_the_fixed_snapshot_while_an_independent_node_and_the_project_move_on"
         ],
         "E3": [
          "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
-         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_in_flight_when_code_moves_on_is_retained_not_published",
          "tests.test_wf_review_snapshot_integration.ReviewSnapshotIntegrationTests.test_reviewer_reviews_the_fixed_snapshot_while_an_independent_node_and_the_project_move_on"
         ],
         "E5": [
+         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_in_flight_when_code_moves_on_is_retained_not_published",
          "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
-        ],
-        "E6": [
-         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
-         "tests.test_wf_review_snapshot_integration.ReviewSnapshotIntegrationTests.test_reviewer_reviews_the_fixed_snapshot_while_an_independent_node_and_the_project_move_on"
         ]
-       },
-       "scope": "Fixture worker and fixture reviewer on the real engine, ledger and Control; the review artifact binding is the engine receipt. No real reviewer model."
+       }
       },
       "T04d": {
        "status": "complete",
@@ -4598,6 +5135,7 @@
         "E10": [
          "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root",
          "tests.test_wf_parallel_engine.ParallelEngineTests.test_disjoint_workers_overlap_and_reuse_actual_scheduler_and_root_budget",
+         "tests.test_wf_parallel_native.ParallelNativeTests.test_public_batch_runs_two_scoped_native_processes_with_real_containment_receipts",
          "tests.test_wf_parallel_engine.ParallelEngineTests.test_overlapping_ownership_never_occupies_two_slots_and_one_slot_order_is_preserved"
         ],
         "E11": [
@@ -4607,7 +5145,7 @@
          "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root"
         ]
        },
-       "scope": "Two real Control slots with a fixture isolated executor; the finding comes from the real register through a fixture failed check."
+       "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T04d ids: E10, E11, E12. E10: overlap is forced by a 2-party barrier (E1/E2, A/B) and by two supervised processes each waiting for the other; the one-slot half rests on engine.ready(slots=1) (= ready_batch[:1]) == ['A'] and a one-slot remaining run of Overlap, which is weak (no full per-step order comparison of a one-slot run). E11: finding_blockers == {E1, F, I} (branch and consumer chain, via bl"
       },
       "T07b": {
        "status": "complete",
@@ -4655,42 +5193,56 @@
        "scope": "Real managed worker processes (Supervisor) on temporary ledgers; the generation fence is control_core attempt generation, not a rewritten comparison; E16 both ways: a complete candidate is adopted without rerun, a partial candidate is continued by a new linked attempt."
       },
       "T08b": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.managed_executor",
         "check.node_actions_cli",
-        "check.t08b_no_exactly_once",
-        "check.t08b_crash_before_dispatch"
+        "check.t08b_crash_before_dispatch",
+        "check.t08b_no_exactly_once"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T08b has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_t08b_crash_before_dispatch.CrashBeforeDispatchTests.test_e1_a_real_crash_after_prepared_before_dispatching_runs_x_exactly_once_after_restart"
+        ],
+        "E3": [
+         "tests.test_wf_t08b_crash_before_dispatch.CrashBeforeDispatchTests.test_e1_a_real_crash_after_prepared_before_dispatching_runs_x_exactly_once_after_restart",
+         "tests.test_wf_managed_executor.ManagedExecutorTests.test_crash_before_dispatch_is_once_and_saved_candidate_replays_without_process_or_charge"
+        ],
+        "E5": [
+         "tests.test_wf_t08b_crash_before_dispatch.CrashBeforeDispatchTests.test_e1_a_real_crash_after_prepared_before_dispatching_runs_x_exactly_once_after_restart",
+         "tests.test_wf_managed_executor.ManagedExecutorTests.test_crash_before_dispatch_is_once_and_saved_candidate_replays_without_process_or_charge"
+        ],
+        "E6": [
+         "tests.test_wf_t08b_no_exactly_once.NoExactlyOnceTests.test_e6_code_and_states_never_claim_exactly_once",
+         "tests.test_wf_t08b_no_exactly_once.NoExactlyOnceTests.test_e6_the_record_of_a_release_denies_the_promise_and_status_text_does_not_claim_it"
+        ]
+       },
+       "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T08b ids: E1, E3, E5, E6 (E2/E4 are T08a). E1: real os._exit after 'prepared', restart -> marker exactly one line, one launch, one prepared intent. E3/E5: point (d) is a re-call of start() after the candidate checkpoint in the same process (no real process death at (d); ManagedExecutor keeps no in-memory state, history is read from the ledger): replay == saved candidate (same receipt blob hash), l"
       },
       "T15c": {
-       "status": "complete",
+       "status": "partial",
        "checks": [
         "check.managed_executor",
         "check.managed_hold"
        ],
-       "gaps": [],
-       "evidence_matrix": {
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Audited 25/10: covered E7, E9; UNCOVERED E8. T15c ids: E7, E8, E9. E7: one pause_requested intent naming the finding and C, marker absent while in flight, then state 'paused' with text 'đã dừng tại điểm an toàn' after the operation completes; executor state CLI reports paused. E9: Dispatcher refuses pause/stop/isolate to HookAdapter with sent == []; hold_for_findings returns [] and writes no executor.managed event for a non-managed attempt (a send-to-all mutant would fail both). E8 uncovered: the source requires two same-scope nodes on an executor that does NOT declare isolation, with non-intersecting start/finish events. The cited paral"
+        }
+       ],
+       "scope": "Real local supervised processes as the managed worker (no provider); a real Claude Code or Codex session being paused is not proven.",
+       "evidence_matrix_partial": {
         "E7": [
          "tests.test_wf_managed_hold.ManagedHoldTests.test_new_finding_pauses_the_running_managed_node_at_its_safe_point_and_release_reuses_the_candidate",
          "tests.test_wf_managed_executor.ManagedExecutorTests.test_pause_is_requested_during_operation_then_acknowledged_at_real_safe_point"
-        ],
-        "E8": [
-         "tests.test_wf_parallel_engine.ParallelEngineTests.test_overlapping_ownership_never_occupies_two_slots_and_one_slot_order_is_preserved",
-         "tests.test_wf_parallel_engine.ParallelEngineTests.test_active_write_scope_stays_excluded_even_after_other_slot_finishes"
         ],
         "E9": [
          "tests.test_wf_managed_executor.ManagedExecutorTests.test_hook_executor_never_receives_managed_pause_or_isolate",
          "tests.test_wf_managed_hold.ManagedHoldTests.test_hold_is_not_sent_to_an_attempt_without_a_managed_history"
         ]
-       },
-       "scope": "Real local supervised processes as the managed worker (no provider); a real Claude Code or Codex session being paused is not proven."
+       }
       },
       "T30": {
        "status": "complete",
@@ -4904,38 +5456,39 @@
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T01 has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered ; UNCOVERED E1, E2, E3, E4, E5. T01 single-part: E1-E5. No R08 test has the T01 fixture: a rule-based decision (W26) AND a review of N both in flight on A1/R1 while R2/A2 is written. Pieces exist only on one side each: review side in tests.test_wf_review_snapshot (repair of C makes R pending with no receipt; an in-flight review is retained, node.result_retained) and, unregistered in R08, tests.test_wf_review_dispatch (late optional output after replan -> 'stale_observation') and tests.test_wf_review_policy (plan changed during decisions.record -> 'changed while deciding'; cache rebinds on artifact/policy change). E1: no test"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {}
     },
     "T04b": {
-     "status": "complete",
+     "status": "partial",
      "checks": [
-      "check.parallel_engine",
       "check.candidate_adapters",
+      "check.parallel_engine",
       "check.review_snapshot",
       "check.review_snapshot_integration"
      ],
-     "gaps": [],
-     "evidence_matrix": {
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Audited 25/10: covered E2, E3, E5; UNCOVERED E6. T04b ids: E2, E3, E5, E6. E2: the integration test asserts the reviewer receipt artifact_sha = candidate tree and the stored diff is A1's ('+candidate', not the later change); the unit test only binds R.inputs.C.artifact = A1 (opaque blob, no diff hash), so it is not cited for E2. E3: R is pending with no receipt after C's new generation, and A2 needs its own reviewer call. E5: a review in flight when C moves on is retained, R stays pending (no pass published); after repair the old receipt no longer applies. E6 uncovered: the evidence is the FILE LIST of R's diff excluding files changed only i"
+      }
+     ],
+     "scope": "Fixture worker and fixture reviewer on the real engine, ledger and Control; the review artifact binding is the engine receipt. No real reviewer model.",
+     "evidence_matrix_partial": {
       "E2": [
-       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
        "tests.test_wf_review_snapshot_integration.ReviewSnapshotIntegrationTests.test_reviewer_reviews_the_fixed_snapshot_while_an_independent_node_and_the_project_move_on"
       ],
       "E3": [
        "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
-       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_in_flight_when_code_moves_on_is_retained_not_published",
        "tests.test_wf_review_snapshot_integration.ReviewSnapshotIntegrationTests.test_reviewer_reviews_the_fixed_snapshot_while_an_independent_node_and_the_project_move_on"
       ],
       "E5": [
+       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_in_flight_when_code_moves_on_is_retained_not_published",
        "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
-      ],
-      "E6": [
-       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
-       "tests.test_wf_review_snapshot_integration.ReviewSnapshotIntegrationTests.test_reviewer_reviews_the_fixed_snapshot_while_an_independent_node_and_the_project_move_on"
       ]
-     },
-     "scope": "Fixture worker and fixture reviewer on the real engine, ledger and Control; the review artifact binding is the engine receipt. No real reviewer model."
+     }
     },
     "T04d": {
      "status": "complete",
@@ -4949,6 +5502,7 @@
       "E10": [
        "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root",
        "tests.test_wf_parallel_engine.ParallelEngineTests.test_disjoint_workers_overlap_and_reuse_actual_scheduler_and_root_budget",
+       "tests.test_wf_parallel_native.ParallelNativeTests.test_public_batch_runs_two_scoped_native_processes_with_real_containment_receipts",
        "tests.test_wf_parallel_engine.ParallelEngineTests.test_overlapping_ownership_never_occupies_two_slots_and_one_slot_order_is_preserved"
       ],
       "E11": [
@@ -4958,7 +5512,7 @@
        "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root"
       ]
      },
-     "scope": "Two real Control slots with a fixture isolated executor; the finding comes from the real register through a fixture failed check."
+     "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T04d ids: E10, E11, E12. E10: overlap is forced by a 2-party barrier (E1/E2, A/B) and by two supervised processes each waiting for the other; the one-slot half rests on engine.ready(slots=1) (= ready_batch[:1]) == ['A'] and a one-slot remaining run of Overlap, which is weak (no full per-step order comparison of a one-slot run). E11: finding_blockers == {E1, F, I} (branch and consumer chain, via bl"
     },
     "T07b": {
      "status": "complete",
@@ -5006,42 +5560,56 @@
      "scope": "Real managed worker processes (Supervisor) on temporary ledgers; the generation fence is control_core attempt generation, not a rewritten comparison; E16 both ways: a complete candidate is adopted without rerun, a partial candidate is continued by a new linked attempt."
     },
     "T08b": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.managed_executor",
       "check.node_actions_cli",
-      "check.t08b_no_exactly_once",
-      "check.t08b_crash_before_dispatch"
+      "check.t08b_crash_before_dispatch",
+      "check.t08b_no_exactly_once"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T08b has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_t08b_crash_before_dispatch.CrashBeforeDispatchTests.test_e1_a_real_crash_after_prepared_before_dispatching_runs_x_exactly_once_after_restart"
+      ],
+      "E3": [
+       "tests.test_wf_t08b_crash_before_dispatch.CrashBeforeDispatchTests.test_e1_a_real_crash_after_prepared_before_dispatching_runs_x_exactly_once_after_restart",
+       "tests.test_wf_managed_executor.ManagedExecutorTests.test_crash_before_dispatch_is_once_and_saved_candidate_replays_without_process_or_charge"
+      ],
+      "E5": [
+       "tests.test_wf_t08b_crash_before_dispatch.CrashBeforeDispatchTests.test_e1_a_real_crash_after_prepared_before_dispatching_runs_x_exactly_once_after_restart",
+       "tests.test_wf_managed_executor.ManagedExecutorTests.test_crash_before_dispatch_is_once_and_saved_candidate_replays_without_process_or_charge"
+      ],
+      "E6": [
+       "tests.test_wf_t08b_no_exactly_once.NoExactlyOnceTests.test_e6_code_and_states_never_claim_exactly_once",
+       "tests.test_wf_t08b_no_exactly_once.NoExactlyOnceTests.test_e6_the_record_of_a_release_denies_the_promise_and_status_text_does_not_claim_it"
+      ]
+     },
+     "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T08b ids: E1, E3, E5, E6 (E2/E4 are T08a). E1: real os._exit after 'prepared', restart -> marker exactly one line, one launch, one prepared intent. E3/E5: point (d) is a re-call of start() after the candidate checkpoint in the same process (no real process death at (d); ManagedExecutor keeps no in-memory state, history is read from the ledger): replay == saved candidate (same receipt blob hash), l"
     },
     "T15c": {
-     "status": "complete",
+     "status": "partial",
      "checks": [
       "check.managed_executor",
       "check.managed_hold"
      ],
-     "gaps": [],
-     "evidence_matrix": {
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Audited 25/10: covered E7, E9; UNCOVERED E8. T15c ids: E7, E8, E9. E7: one pause_requested intent naming the finding and C, marker absent while in flight, then state 'paused' with text 'đã dừng tại điểm an toàn' after the operation completes; executor state CLI reports paused. E9: Dispatcher refuses pause/stop/isolate to HookAdapter with sent == []; hold_for_findings returns [] and writes no executor.managed event for a non-managed attempt (a send-to-all mutant would fail both). E8 uncovered: the source requires two same-scope nodes on an executor that does NOT declare isolation, with non-intersecting start/finish events. The cited paral"
+      }
+     ],
+     "scope": "Real local supervised processes as the managed worker (no provider); a real Claude Code or Codex session being paused is not proven.",
+     "evidence_matrix_partial": {
       "E7": [
        "tests.test_wf_managed_hold.ManagedHoldTests.test_new_finding_pauses_the_running_managed_node_at_its_safe_point_and_release_reuses_the_candidate",
        "tests.test_wf_managed_executor.ManagedExecutorTests.test_pause_is_requested_during_operation_then_acknowledged_at_real_safe_point"
-      ],
-      "E8": [
-       "tests.test_wf_parallel_engine.ParallelEngineTests.test_overlapping_ownership_never_occupies_two_slots_and_one_slot_order_is_preserved",
-       "tests.test_wf_parallel_engine.ParallelEngineTests.test_active_write_scope_stays_excluded_even_after_other_slot_finishes"
       ],
       "E9": [
        "tests.test_wf_managed_executor.ManagedExecutorTests.test_hook_executor_never_receives_managed_pause_or_isolate",
        "tests.test_wf_managed_hold.ManagedHoldTests.test_hold_is_not_sent_to_an_attempt_without_a_managed_history"
       ]
-     },
-     "scope": "Real local supervised processes as the managed worker (no provider); a real Claude Code or Codex session being paused is not proven."
+     }
     },
     "T30": {
      "status": "complete",
@@ -5585,28 +6153,50 @@
       "T14a": {
        "status": "partial",
        "checks": [
+        "check.candidate_adapters",
         "check.rx1_core",
-        "check.rx1_doc",
-        "check.candidate_adapters"
+        "check.rx1_doc"
        ],
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T14a has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered E1, E2, E7; UNCOVERED E3, E8. T14a E ids: E1, E2, E3, E7, E8. E1: the event-kind lists are equal, payload key shapes are equal, budget/stop/attention/scope are equal, and the stop rule and handover headings are the same, with the real doc adapter. E2: the contracts minus verifier and title are equal. E7: no module imports verifiers.doc except the loader (rglob over onecrew/), and both roots go through verdict.record. Uncovered: E3/E8, because the grep runs over a hand-picked CORE tuple (verdict, contract, plan, ... plus port) that omits modules on the exercised path: namespaces.py (imported by verdict, plan and report), ve"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {
+        "E1": [
+         "tests.test_wf_rx1_core.OneCoreTests.test_e1_both_roots_have_the_same_lifecycle_in_the_ledger",
+         "tests.test_wf_rx1_core.OneCoreTests.test_e1_the_events_carry_the_same_fields_of_authority_and_budget",
+         "tests.test_wf_rx1_core.OneCoreTests.test_e1_the_same_stop_rule_ends_both_roots_the_same_way",
+         "tests.test_wf_rx1_core.OneCoreTests.test_e1_the_handover_has_the_same_shape"
+        ],
+        "E2": [
+         "tests.test_wf_rx1_core.OneCoreTests.test_e2_the_two_contracts_differ_only_in_the_verifier"
+        ],
+        "E7": [
+         "tests.test_wf_rx1_core.OneCoreTests.test_e7_nothing_in_the_core_is_called_only_for_the_document_adapter",
+         "tests.test_wf_rx1_core.OneCoreTests.test_e7_both_roots_ran_through_the_same_functions"
+        ]
+       }
       },
       "T23": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.rx1_core"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T23 has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_rx1_core.AdapterOverstepTests.test_e1_the_core_refuses_all_four_and_names_the_rule"
+        ],
+        "E2": [
+         "tests.test_wf_rx1_core.AdapterOverstepTests.test_e2_each_refusal_is_one_violation_record_in_the_ledger"
+        ],
+        "E3": [
+         "tests.test_wf_rx1_core.AdapterOverstepTests.test_e3_the_state_after_shows_none_of_the_four_took_effect"
+        ]
+       },
+       "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T23 E ids: E1, E2, E3 (single part). E1: 4 refusals naming retry policy / receipt close / owner acceptance verb / reservation, with the in-grant retry/spend allowed. E2: exactly 4 adapter.violation events (adapter probe, op, rule, plan, milestone, revision). E3: retries_used 1 (<= policy), finding open, no plan.accepted or milestone.passed, calls 1 inside the reservation. The probe is a fake adapt"
       },
       "T54j": {
        "status": "partial",
@@ -5656,28 +6246,50 @@
     "T14a": {
      "status": "partial",
      "checks": [
+      "check.candidate_adapters",
       "check.rx1_core",
-      "check.rx1_doc",
-      "check.candidate_adapters"
+      "check.rx1_doc"
      ],
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T14a has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered E1, E2, E7; UNCOVERED E3, E8. T14a E ids: E1, E2, E3, E7, E8. E1: the event-kind lists are equal, payload key shapes are equal, budget/stop/attention/scope are equal, and the stop rule and handover headings are the same, with the real doc adapter. E2: the contracts minus verifier and title are equal. E7: no module imports verifiers.doc except the loader (rglob over onecrew/), and both roots go through verdict.record. Uncovered: E3/E8, because the grep runs over a hand-picked CORE tuple (verdict, contract, plan, ... plus port) that omits modules on the exercised path: namespaces.py (imported by verdict, plan and report), ve"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {
+      "E1": [
+       "tests.test_wf_rx1_core.OneCoreTests.test_e1_both_roots_have_the_same_lifecycle_in_the_ledger",
+       "tests.test_wf_rx1_core.OneCoreTests.test_e1_the_events_carry_the_same_fields_of_authority_and_budget",
+       "tests.test_wf_rx1_core.OneCoreTests.test_e1_the_same_stop_rule_ends_both_roots_the_same_way",
+       "tests.test_wf_rx1_core.OneCoreTests.test_e1_the_handover_has_the_same_shape"
+      ],
+      "E2": [
+       "tests.test_wf_rx1_core.OneCoreTests.test_e2_the_two_contracts_differ_only_in_the_verifier"
+      ],
+      "E7": [
+       "tests.test_wf_rx1_core.OneCoreTests.test_e7_nothing_in_the_core_is_called_only_for_the_document_adapter",
+       "tests.test_wf_rx1_core.OneCoreTests.test_e7_both_roots_ran_through_the_same_functions"
+      ]
+     }
     },
     "T23": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.rx1_core"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T23 has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_rx1_core.AdapterOverstepTests.test_e1_the_core_refuses_all_four_and_names_the_rule"
+      ],
+      "E2": [
+       "tests.test_wf_rx1_core.AdapterOverstepTests.test_e2_each_refusal_is_one_violation_record_in_the_ledger"
+      ],
+      "E3": [
+       "tests.test_wf_rx1_core.AdapterOverstepTests.test_e3_the_state_after_shows_none_of_the_four_took_effect"
+      ]
+     },
+     "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T23 E ids: E1, E2, E3 (single part). E1: 4 refusals naming retry policy / receipt close / owner acceptance verb / reservation, with the in-grant retry/spend allowed. E2: exactly 4 adapter.violation events (adapter probe, op, rule, plan, milestone, revision). E3: retries_used 1 (<= policy), finding open, no plan.accepted or milestone.passed, calls 1 inside the reservation. The probe is a fake adapt"
     },
     "T54j": {
      "status": "partial",
@@ -5990,34 +6602,36 @@
          "tests.test_wf_kn_estimates.InternalEstimateTests.test_late_forecast_callback_cannot_overwrite_newer_internal_revision"
         ]
        },
-       "scope": "Declared estimate intervals on disposable ledger; real plan/engine/Control integration. No calibrated ETA or provider quality claim.",
+       "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T36c E ids: E19, E20. E19: remaining equals the sum of unfinished task intervals ([32,53]), a split keeps [32,53], a mandatory addition gives old+[5,7]=[37,60] with a reason, an optional addition is not added, the baseline equals the approval value even after restart, and a verified node is excluded. E20: the baseline is asserted equal after every replan (a reset-baseline mutant goes red), every h",
        "gaps": []
       },
       "T46b": {
        "status": "partial",
        "checks": [
-        "check.r02_resume",
-        "check.r02_boundaries"
+        "check.r02_boundaries",
+        "check.r02_resume"
        ],
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T46b has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered ; UNCOVERED E2. T46b E ids: E2 only. test_e11_pending_change_and_reason_come_from_the_ledger shows that P2's pending_change equals the diff of the two ledger revisions and that the reason equals plan.amended. It compares the pack output only to resume_pack.changes_vs_approved, the pack's own function. SharedContractDiff (r02_boundaries) proves that report._diff and changes_vs_approved both call contract_diff.diff, but only on synthetic dicts, not while the P2 pack and plan present are generated. Missing: the W23a function call counter >= 1 during pack generation for P2, and the integration mutant ('the pack c"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {}
       },
       "T47b": {
        "status": "partial",
        "checks": [
-        "check.questions",
-        "check.answer_effects"
+        "check.answer_effects",
+        "check.questions"
        ],
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T47b has not been independently certified by this registry."
+         "detail": "Audited 25/10: covered ; UNCOVERED E10. T47b E ids: E10 only. The candidate tests.test_wf_questions.QuestionTests.test_ai_cannot_answer_even_with_resume_data never builds the resume pack (no 'continue' or resume_pack.build call), despite its name. It checks only that the request state stays pending, not that requests and events are unchanged before and after. r02_resume test_e9_the_pack_is_not_authority covers approve/accept after the pack, not answering. No test does the second attempt of case (d) right after the AI session builds the pack. Registry: partial with questions/answer_effects, which is consistent, but neither module hol"
         }
-       ]
+       ],
+       "evidence_matrix_partial": {}
       }
      },
      "baseline": {
@@ -6073,34 +6687,36 @@
        "tests.test_wf_kn_estimates.InternalEstimateTests.test_late_forecast_callback_cannot_overwrite_newer_internal_revision"
       ]
      },
-     "scope": "Declared estimate intervals on disposable ledger; real plan/engine/Control integration. No calibrated ETA or provider quality claim.",
+     "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T36c E ids: E19, E20. E19: remaining equals the sum of unfinished task intervals ([32,53]), a split keeps [32,53], a mandatory addition gives old+[5,7]=[37,60] with a reason, an optional addition is not added, the baseline equals the approval value even after restart, and a verified node is excluded. E20: the baseline is asserted equal after every replan (a reset-baseline mutant goes red), every h",
      "gaps": []
     },
     "T46b": {
      "status": "partial",
      "checks": [
-      "check.r02_resume",
-      "check.r02_boundaries"
+      "check.r02_boundaries",
+      "check.r02_resume"
      ],
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T46b has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered ; UNCOVERED E2. T46b E ids: E2 only. test_e11_pending_change_and_reason_come_from_the_ledger shows that P2's pending_change equals the diff of the two ledger revisions and that the reason equals plan.amended. It compares the pack output only to resume_pack.changes_vs_approved, the pack's own function. SharedContractDiff (r02_boundaries) proves that report._diff and changes_vs_approved both call contract_diff.diff, but only on synthetic dicts, not while the P2 pack and plan present are generated. Missing: the W23a function call counter >= 1 during pack generation for P2, and the integration mutant ('the pack c"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {}
     },
     "T47b": {
      "status": "partial",
      "checks": [
-      "check.questions",
-      "check.answer_effects"
+      "check.answer_effects",
+      "check.questions"
      ],
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T47b has not been independently certified by this registry."
+       "detail": "Audited 25/10: covered ; UNCOVERED E10. T47b E ids: E10 only. The candidate tests.test_wf_questions.QuestionTests.test_ai_cannot_answer_even_with_resume_data never builds the resume pack (no 'continue' or resume_pack.build call), despite its name. It checks only that the request state stays pending, not that requests and events are unchanged before and after. r02_resume test_e9_the_pack_is_not_authority covers approve/accept after the pack, not answering. No test does the second attempt of case (d) right after the AI session builds the pack. Registry: partial with questions/answer_effects, which is consistent, but neither module hol"
       }
-     ]
+     ],
+     "evidence_matrix_partial": {}
     }
    }
   },
@@ -6301,6 +6917,30 @@
      ],
      "installed": false,
      "scope": "T35b/T35c report checker (wfkit.pilot_report) on fixture reports: structure, denominators, 00 S9.3 status words, m1-m5 counter-examples refused; writes nothing; never evidence of a pilot."
+    },
+    "check.package_check": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_package_check"
+     ],
+     "installed": false,
+     "scope": "Handover package verifier (review a2476ab P1-A): judge() derives the result from mandatory steps, refuses incoherent/forged reports, encoding errors, wrong-reason negatives, pip activity in a blocked rollback; real package run exercises both rollback branches."
+    },
+    "check.t14c_kit": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t14c_kit"
+     ],
+     "installed": false,
+     "scope": "WKPL / T14c: the same-core check made parametric over a state root (CODE vs DATA/OPS roots: lifecycle, budget fields, handover shape) + refusal counter-example; the function that will run on the PL-B ledger."
+    },
+    "check.t45_entry_gates": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t45_entry_gates"
+     ],
+     "installed": false,
+     "scope": "WKPL / T45b-T45c: standalone PL-A / PL-B entry gates (wfkit.pilot_entry) over delivery receipts, build hash, monitored project, T14b, provider NL via the shared evaluator, interim report; one negative per condition; case K."
     }
    },
    "acceptance": {

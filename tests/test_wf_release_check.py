@@ -10,6 +10,7 @@ import unittest
 from zipfile import ZipFile
 
 from onecrew.ledger import content_hash
+from onecrew.v2 import compat
 from wfkit import release_check as check
 from wfkit.finalgate import identity
 
@@ -46,14 +47,45 @@ class ReleaseCheckTests(unittest.TestCase):
         value = self.read(self.bundle['checks'][name]); fn(value)
         self.bundle['checks'][name] = self.ref(value)
 
-    def installed(self, artifact, tag, at='2026-10-24T12:00:00Z'):
+    def scenario(self, release, tag='new', **over):
+        """One fixture BEHAVIOUR scenario record of the shape tests.wf_scenarios.run_scenario writes: assertions, requirements (task ids of the release
+        inventory), the inventory kinds as expected and observed events, modules from the venv, the venv interpreter, a sandboxed state root."""
+        table = check.inventory(release); venv = str(Path(self.sandbox)/tag)
+        value = {'kind': 'behavior', 'scenario': f'{release.lower()}-fixture', 'release': release, 'requirements': [t + ' fixture requirement' for t in table['tasks']],
+                 'expected_events': list(table['kinds']), 'no_new_events': table.get('none_reason'), 'observed_events': list(table['kinds']) + ['plan.proposed'],
+                 'assertions': [{'name': 'state is passed', 'ok': True, 'detail': ''}, {'name': 'text rendered', 'ok': True, 'detail': ''}],
+                 'boundary_violations': [], 'modules': [{'name': 'onecrew.v2.example', 'path': str(Path(venv)/'site-packages'/'onecrew'/'v2'/'example.py')}],
+                 'command': [str(Path(venv)/'python.exe'), '-I', '-c', '<scenario>'], 'state_root': str(Path(self.sandbox)/'scenarios'/release/'state'),
+                 'result': 'pass', 'reasons': [], **identity(self.current)}
+        value.update(over); return value
+
+    def events_receipt(self, release):
+        table = check.inventory(release)
+        new_events = [{'kind': k, 'class': compat.event_class(k), 'anchor': 'plan-ns:P1' if compat.event_class(k) == 'B' else 'plan:legacy', 'payload': {'plan': 'legacy', 'revision': 1}}
+                      for k in table['kinds']]
+        neutral = [k for k in table['kinds'] if compat.event_class(k) == 'A']
+        extra = {} if table['kinds'] else {'none_reason': table['none_reason'], 'regression_scenarios': [f'{release.lower()}-fixture']}
+        return self.receipt(kind='events', release=release, old_artifact=identity(self.previous), expected_kinds=list(table['kinds']),
+                            observed_kinds=list(table['kinds']) + ['plan.proposed'], new_events=new_events,
+                            comparisons=[{'kind': k, 'before': {'S': 'approved', 'G': 'allowed', 'C': 'continue'}, 'after': {'S': 'approved', 'G': 'allowed', 'C': 'continue'}} for k in neutral], **extra)
+
+    def installed(self, artifact, tag, at='2026-10-24T12:00:00Z', release='R01'):
         venv = str(Path(self.sandbox)/tag)
         site = str(Path(venv)/'site-packages'); path = str(Path(site)/'onecrew/v2/example.py')
         with ZipFile(self.root/artifact['wheel']) as archive: sha = hashlib.sha256(archive.read('onecrew/v2/example.py')).hexdigest()
-        return self.receipt(artifact, kind='installed', at=at, command=[str(Path(venv)/'python.exe'), '-m', 'onecrew.v2.cli', 'plan', 'show', 'legacy'],
+        return self.receipt(artifact, kind='installed', at=at, release=release, command=[str(Path(venv)/'python.exe'), '-m', 'onecrew.v2.cli', 'plan', 'show', 'legacy'],
             exit_code=0, venv=venv, fresh_venv=True, state_root=str(Path(self.sandbox)/'copy'),
             site=[site], checkout=str(self.root/'checkout'), boundary_violations=[], checkout_control_refused=True,
-            new_modules=['onecrew/v2/example.py'], loaded=[{'name':'onecrew.v2.example','path':path,'archive_path':'onecrew/v2/example.py','sha256':sha}])
+            new_modules=['onecrew/v2/example.py'], loaded=[{'name':'onecrew.v2.example','path':path,'archive_path':'onecrew/v2/example.py','sha256':sha}],
+            scenarios=[self.scenario(release, tag)])
+
+    def retarget(self, release):
+        """Point the fixture bundle at another release: every receipt names it; installed and events are rebuilt from that release's inventory."""
+        self.bundle['release'] = release
+        for name in check.CHECKS: self.change(name, lambda r: r.update(release=release))
+        self.bundle['checks']['installed'] = self.installed(self.current, 'new', release=release)
+        self.bundle['checks']['events'] = self.events_receipt(release)
+        self.change('rollback', lambda r: r.update(forward_run=self.installed(self.current, 'forward', '2026-10-24T11:59:00Z', release=release)))
 
     def scan(self, blocked):
         hashes = {str(Path(self.sandbox)/'copy/plans/legacy/v1.json'): 'c'*64}
@@ -76,9 +108,7 @@ class ReleaseCheckTests(unittest.TestCase):
                 'installed':self.installed(self.current,'new'),
                 'upgrade':self.receipt(kind='upgrade', at='2026-10-24T11:57:00Z', **{'from':identity(self.previous),'to':identity(self.current)},
                     state_root=str(Path(self.sandbox)/'copy'), source_state_root=str(self.root/'source'), before=copy.deepcopy(self.snapshot),after=copy.deepcopy(self.snapshot)),
-                'events':self.receipt(kind='events', old_artifact=identity(self.previous),new_events=[
-                    {'kind':'learning.outcome','class':'A','anchor':'plan:legacy','payload':{'phase':'completed'}}],
-                    comparisons=[{'kind':'learning.outcome','before':{'S':'approved','G':'allowed','C':'continue'},'after':{'S':'approved','G':'allowed','C':'continue'}}]),
+                'events':self.events_receipt('R01'),
                 'rollback':self.receipt(kind='rollback',rejected=self.scan(True),allowed=allowed,
                     forward_run=self.installed(self.current,'forward','2026-10-24T11:59:00Z'),before=copy.deepcopy(self.snapshot),after=copy.deepcopy(self.snapshot)),
                 'notes':self.receipt(kind='notes',markdown=notes)}}
@@ -146,8 +176,7 @@ class ReleaseCheckTests(unittest.TestCase):
             self.bundle=copy.deepcopy(original); self.change('notes',lambda r:r.update(markdown=r['markdown'].replace(before,after))); self.refused('T54.5')
 
     def test_r05_rollforward_reconciles_before_continue_or_effect(self):
-        self.bundle['release']='R05'
-        for name in check.CHECKS: self.change(name,lambda r:r.update(release='R05'))
+        self.retarget('R05')
         self.change('rollback',lambda r:r.update(intent_events=[{'seq':1,'kind':'reconciled','intent':'ATT-A'}, {'seq':2,'kind':'continued','intent':'ATT-A'}]))
         self.assertEqual(self.result()['decision'],'pass',self.result())
         self.change('rollback',lambda r:r.update(intent_events=[{'seq':1,'kind':'effect','intent':'ATT-A'}, {'seq':2,'kind':'reconciled','intent':'ATT-A'}]))
@@ -159,8 +188,7 @@ class ReleaseCheckTests(unittest.TestCase):
         self.bundle['checks']['installed']={'path':'../outside.json','sha256':'f'*64}; self.refused('T54.1')
 
     def test_rp_uses_shared_matrix_rule_without_requiring_future_pilot_reviewer(self):
-        self.bundle['release']='RP'
-        for name in check.CHECKS: self.change(name,lambda r:r.update(release='RP'))
+        self.retarget('RP')
         rows,items=[],[]
         for provider in ('claude','codex','kiro'):
             for role in ('reviewer','advisor'):
@@ -181,12 +209,50 @@ class ReleaseCheckTests(unittest.TestCase):
         self.refused('T54.5')
 
     def test_rx_adapter_scenario_is_required_on_delivered_build(self):
-        self.bundle['release']='RX1'
-        for name in check.CHECKS: self.change(name,lambda r:r.update(release='RX1'))
+        self.retarget('RX1')
         self.change('installed',lambda r:r.update(adapter_runs=[{'adapter':'doc','root':'plan-ns:Doc',
             'result':'pass','artifact':'d'*64,**identity(self.current)}]))
         self.assertEqual(self.result()['decision'],'pass',self.result())
         self.change('installed',lambda r:r.update(adapter_runs=[])); self.refused('T54.1')
+
+    def test_t54_1_import_only_or_disabled_feature_or_shadowed_module_or_wrong_wheel_is_refused(self):
+        """Review a2476ab P1: an installed scenario proves a feature only through assertions on behaviour and the events it writes."""
+        original=copy.deepcopy(self.bundle)
+        mutations={'no scenario at all':lambda r:r.update(scenarios=[]),
+            'import-only (no assertion)':lambda r:r['scenarios'][0].update(assertions=[]),
+            'feature disabled (assertion failed)':lambda r:r['scenarios'][0]['assertions'].append({'name':'card shown','ok':False,'detail':'nothing shown'}),
+            'feature silent (event not written)':lambda r:r['scenarios'][0].update(observed_events=['plan.proposed']),
+            'empty result claimed pass':lambda r:r['scenarios'][0].update(result='fail',reasons=['failed assertions: x']),
+            'checkout shadows the module':lambda r:r['scenarios'][0]['modules'].append({'name':'onecrew.v2.plan','path':str(self.root/'checkout/onecrew/v2/plan.py')}),
+            'boundary violation':lambda r:r['scenarios'][0].update(boundary_violations=[['onecrew.v2.plan','checkout']]),
+            'wrong wheel/revision':lambda r:r['scenarios'][0].update(wheel_sha256='e'*64),
+            'not the venv interpreter':lambda r:r['scenarios'][0].update(command=[sys.executable,'-c','x']),
+            'a release task without a scenario':lambda r:r['scenarios'][0].update(requirements=['W99 something else'])}
+        for label,fn in mutations.items():
+            with self.subTest(label):
+                self.bundle=copy.deepcopy(original); self.change('installed',fn); self.refused('T54.1')
+        self.bundle=copy.deepcopy(original); self.assertEqual(self.result()['decision'],'pass')
+
+    def test_t54_3_inventory_is_the_validators_and_every_kind_must_be_observed_classified_and_compared(self):
+        """Review a2476ab P1: the expected inventory comes from wfkit/release_events.json, not from the producer; dropping a kind, a silent
+        feature, a wrong class/payload/anchor, a missing comparison or another release's inventory is refused even when result says pass."""
+        original=copy.deepcopy(self.bundle)
+        table=check.inventory('R01'); first=table['kinds'][0]
+        mutations={'kind dropped from receipt':lambda r:r.update(new_events=[e for e in r['new_events'] if e['kind']!=first]),
+            'feature did not emit (not observed)':lambda r:r.update(observed_kinds=[k for k in r['observed_kinds'] if k!=first]),
+            'wrong class':lambda r:r['new_events'][0].update(**{'class':'B'}),
+            'class B on a legacy anchor':lambda r:r['new_events'].append({'kind':'node.started','class':'B','anchor':'plan:legacy','payload':{}}),
+            'class-0 payload without its field':lambda r:r['new_events'].append({'kind':'plan.approved','class':'0','anchor':'plan:legacy','payload':{'plan':'legacy'}}),
+            'comparison dropped':lambda r:r.update(comparisons=r['comparisons'][1:]),
+            'another release inventory':lambda r:r.update(expected_kinds=check.inventory('R02')['kinds']),
+            'inventory narrowed by the producer':lambda r:r.update(expected_kinds=r['expected_kinds'][1:])}
+        for label,fn in mutations.items():
+            with self.subTest(label):
+                self.bundle=copy.deepcopy(original); self.change('events',fn); self.refused('T54.3')
+        # a release without new kinds: the declared reason and a passing regression scenario are required
+        self.bundle=copy.deepcopy(original); self.retarget('R07'); self.assertEqual(self.result()['decision'],'pass',self.result())
+        self.change('events',lambda r:r.update(none_reason='whatever')); self.refused('T54.3')
+        self.bundle=copy.deepcopy(original); self.retarget('R07'); self.change('events',lambda r:r.update(regression_scenarios=['not-run'])); self.refused('T54.3')
 
     def test_cli_empty_bundle_is_structured_refusal(self):
         path=self.root/'empty.json'; path.write_text('{}')

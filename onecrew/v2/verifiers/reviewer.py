@@ -72,11 +72,14 @@ def base_tree(directory, approved):
     before it. A plan approved before the field existed has only the second."""
     recorded = (approved or {}).get('base_artifact')
     if recorded: return recorded, (approved or {}).get('source') or 'first_approval'
-    at = (approved or {}).get('at')
-    if not at: raise LedgerError('The plan has no approval time or base artifact; the reviewer has nothing to compare against.')
+    baseline = (approved or {}).get('baseline')                       # P1-D: plan.baseline_recorded by the owner (verdict baseline), with its provenance
+    if isinstance(baseline, dict) and isinstance(baseline.get('tree'), str) and command.TREE_ID.fullmatch(baseline['tree']):
+        return baseline['tree'], 'baseline recorded by ' + str(baseline.get('by')) + ' from commit ' + str(baseline.get('from_commit', ''))[:12]
+    at = (approved or {}).get('at') or (approved or {}).get('recorded_at')    # the payload's time, else the ledger row's time of the approval
+    if not at: raise LedgerError(NO_BASELINE + ' (the approval carries neither a time nor a base artifact)')
     top = command.toplevel(directory)
     commit = command._git(top, 'rev-list', '-1', '--before=' + at, 'HEAD')
-    if not commit: raise LedgerError('No commit before the approval at ' + at + '; the reviewer has nothing to compare against.')
+    if not commit: raise LedgerError(NO_BASELINE + ' (no commit before the approval at ' + at + ')')
     return command._git(top, 'rev-parse', commit + '^{tree}'), 'last commit before approval ' + commit[:12]
 
 
@@ -89,6 +92,11 @@ def tree_diff(directory, base, current):
     # are never ignored, whatever diff.ignoreSubmodules or .gitmodules say
     return command._git(top, '-c', 'core.quotepath=off', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '--ignore-submodules=none',
                         '--submodule=short', '--src-prefix=a/', '--dst-prefix=b/', '-U3', '--end-of-options', base, current)
+
+
+NO_BASELINE = ('no approved baseline for this root: it was approved by a build that recorded no base artifact and no commit of this repository can be '
+               'placed before its approval. The owner records the baseline with evidence: `onecrew verdict baseline --plan <name> --from-commit <sha> '
+               '--by owner --reference <where it was decided>`; until then every command verdict on it is inconclusive (nothing is passed by default)')
 
 
 class NoTrackedBase(LedgerError):

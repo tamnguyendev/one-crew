@@ -17,7 +17,8 @@ KINDS = ('plan.proposed', 'plan.amended', 'plan.approved', 'plan.accepted', 'ver
 # Class-B kinds the projector also reads, but which exist only on `plan-ns:` roots (W30c): kept apart from KINDS, the class-0/A set a
 # `plan:` anchor may carry (00 section 6.1, T13a). compat.check_write refuses them on a `plan:` anchor.
 NS_KINDS = ('plan.closed',)
-READ_KINDS = KINDS + NS_KINDS
+BASELINE_KIND = 'plan.baseline_recorded'       # P1-D: class A; the old reader ignores it, the new one reads it when base_artifact is missing
+READ_KINDS = KINDS + NS_KINDS + (BASELINE_KIND,)
 OWNER_ACTORS = ('user', 'owner')
 
 
@@ -61,7 +62,7 @@ def derive(ledger, conn, name):
              'stopped': {}, 'issued': set(), 'issued_seq': {}, 'exceeded': 0, 'advice': {}}
     marks = ','.join('?' * len(READ_KINDS))
     declared = False
-    for event in conn.execute(f'SELECT seq,kind,payload FROM events WHERE task_id=? AND kind IN ({marks}) ORDER BY seq', (row['id'], *READ_KINDS)):
+    for event in conn.execute(f'SELECT seq,kind,payload,created_at FROM events WHERE task_id=? AND kind IN ({marks}) ORDER BY seq', (row['id'], *READ_KINDS)):
         kind, p = event['kind'], json.loads(event['payload'])
         if kind in ('plan.proposed', 'plan.amended'):
             if kind == 'plan.proposed' and not declared:
@@ -70,7 +71,12 @@ def derive(ledger, conn, name):
                 state.update({key: p[key] for key in ('workflow_version', 'capabilities') if key in p})
             state['revisions'][p['revision']] = p
             state['latest'] = max(state['latest'], p['revision'])
-        elif kind == 'plan.approved': state['approved'] = p
+        elif kind == 'plan.approved':
+            # the ledger's own time of the approval row is provenance even when an old build's payload carries no 'at'
+            state['approved'] = dict(p, recorded_at=event['created_at']) if event['created_at'] and not p.get('at') else p
+        elif kind == BASELINE_KIND:
+            if state['approved'] is not None and p.get('revision') == state['approved'].get('revision'):
+                state['approved'] = dict(state['approved'], baseline=p)
         elif kind == 'plan.accepted': state['accepted'] = p
         elif kind == 'plan.closed' and namespaces.has_capability(state, 'sequential-engine'): state['closed'] = p
         elif kind == 'verdict.receipt_issued':

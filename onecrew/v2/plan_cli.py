@@ -107,6 +107,8 @@ def _parser():
     p.add_argument('--plan', required=True)
     p = verdict.add_parser('release-run', help='W37a: release a run held with an unknown outcome so the milestone may be run again (an explicit, recorded decision).')
     p.add_argument('--plan', required=True); p.add_argument('--run', required=True); p.add_argument('--reason', required=True)
+    p = verdict.add_parser('baseline', help='Owner only: record the base tree of a root approved by an older build that kept none (P1-D); the commit the root was approved against, with a reference.')
+    p.add_argument('--plan', required=True); p.add_argument('--from-commit', required=True); p.add_argument('--by', required=True); p.add_argument('--reference', required=True)
     return parser
 
 
@@ -172,6 +174,7 @@ def _dispatch(ledger, args):
     if args.command == 'artifact': return verdict.artifact(ledger, args.plan)
     if args.command == 'status': return verdict.status(ledger, args.plan)
     if args.command == 'release-run': return verdict.release_run(ledger, args.plan, args.run, args.reason)
+    if args.command == 'baseline': return verdict.record_baseline(ledger, args.plan, args.from_commit, args.by, args.reference)
     data = args.receipt_file.read_bytes() if args.receipt_file else None
     return verdict.record(ledger, args.plan, args.milestone, args.result, args.by, args.receipt, args.artifact_sha, data, args.reference)
 

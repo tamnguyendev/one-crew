@@ -35,6 +35,7 @@ from tests import wf_rollback as rollback
 from tests import wf_wheel as wheel
 from wfkit import release_check
 from wfkit.upgrade_drill import Drill, ROOT, sha, build_source
+from tests import wf_scenarios as scenarios
 
 RELEASES = tuple(release_check.PARTS)
 NOTES_DIR = ROOT / 'docs' / 'wf' / 'release-notes'
@@ -232,7 +233,17 @@ class Producer(Drill):
         return [{'path': p, 'before': h, 'after': sha(p)} for p, h in self._monitored_before.items()]
 
     def point_installed(self):
-        """T54.1: the release scenario from the installed current wheel (console script `onecrew` of the venv + installed modules)."""
+        """T54.1 (review a2476ab P1): the release's declared BEHAVIOUR scenarios (tests/wf_scenarios_*.py) run on the installed current wheel in the
+        drill's venv — each with assertions on results and the event kinds it must write — plus the common installed steps on the drill ledger.
+        The receipt carries every scenario record; release_check judges them against its own inventory (an import-only probe cannot pass)."""
+        with build_source(self.artifacts['current']['source']):
+            ctx = wheel.build_ctx(self.python, self.artifacts['current']['modules'], self.artifacts['current']['packages'])
+        self.scenario_receipts = scenarios.run_release(self.release, self.python, ctx, self.out / 'scenarios', self.artifacts['current']['commit'],
+                                                       self.artifacts['current']['wheel_sha256'])
+        failed = [r for r in self.scenario_receipts if r['result'] != 'pass']
+        (self.out / 'scenarios' / 'summary.json').write_text(json.dumps([{k: r[k] for k in ('scenario', 'result', 'reasons', 'requirements', 'expected_events', 'missing_events')}
+                                                                           for r in self.scenario_receipts], ensure_ascii=False, indent=1), encoding='utf-8')
+        if failed: raise LedgerError('installed behaviour scenarios failed: ' + '; '.join(f"{r['scenario']}: {r['reasons']}" for r in failed)[:900])
         exe = self.python.with_name('onecrew' + ('.exe' if os.name == 'nt' else ''))
         probes = SCENARIOS.get(self.release, '')
         body = f'''
@@ -257,7 +268,8 @@ assert 'legacy' in report.render_report(state, 'legacy')
 _RESULT = {{'steps': steps, 'release': {self.release!r}}}
 '''
         result, _ = self.capture(f'installed-scenario-{self.release}', body)
-        extra = {'scenario': result}
+        extra = {'scenario': result, 'scenarios': self.scenario_receipts,
+                 'requirements_map': {r['scenario']: r['requirements'] for r in self.scenario_receipts}}
         if self.release in ('RX1', 'RX2'):
             extra['adapter_runs'] = self.adapter_runs()
         return self.install_receipt(self.records[-1], 'current', extra)
@@ -297,6 +309,18 @@ with ledger.transaction() as conn:
     task = plan.anchor_events(ledger, conn, 'plan:legacy')['task_id']
     before = [r[0] for r in conn.execute('SELECT seq FROM events WHERE task_id=? ORDER BY seq', (task,))]
 shown = verdict.run(ledger, 'plan:legacy', 'M1', {str(self.project)!r})
+route = None
+with ledger.transaction() as conn:
+    first_verdict = plan.anchor_events(ledger, conn, 'plan:legacy')['verdicts'][-1]
+if first_verdict.get('result') == 'inconclusive' and 'no approved baseline' in str((first_verdict.get('test_integrity') or {{}}).get('error') or ''):
+    # the fixture approval (old harness) carries no time that any commit precedes: the P1-D route -- the owner records the baseline from the
+    # commit the root was approved against (here the project's first commit), then the milestone is checked again against it
+    import subprocess as _sp
+    first_commit = _sp.run(['git', '-C', {str(self.project)!r}, 'rev-list', '--max-parents=0', 'HEAD'], capture_output=True, text=True).stdout.split()[0]
+    recorded = verdict.record_baseline(ledger, 'plan:legacy', first_commit, 'owner', 'bundle drill: fixture approval predates every commit; baseline = first commit of the sample project', {str(self.project)!r})
+    shown = verdict.run(ledger, 'plan:legacy', 'M1', {str(self.project)!r})
+    route = {{'first_verdict': first_verdict.get('result'), 'reason': (first_verdict.get('test_integrity') or {{}}).get('error'), 'baseline': recorded,
+             'second_verdict': shown['milestones'][0]['state']}}
 with ledger.transaction() as conn:
     passed = conn.execute("SELECT seq FROM events WHERE task_id=? AND kind='milestone.passed'", (task,)).fetchone()
 if passed:
@@ -320,22 +344,60 @@ for name in ('future', 'findings'):
                 ns.append({{'seq': r['seq'], 'kind': r['kind'], 'payload': json.loads(r['payload'] or '{{}}'), 'anchor': root['selector'], 'class': compat.event_class(r['kind'])}})
     except Exception as error:   # noqa: BLE001
         ns.append({{'root': name, 'error': str(error)[:200]}})
-_RESULT = {{'written': written, 'namespaced': [e for e in ns if 'kind' in e], 'milestone': shown['milestones'][0]['state'],
+_RESULT = {{'written': written, 'namespaced': [e for e in ns if 'kind' in e], 'milestone': shown['milestones'][0]['state'], 'baseline_route': route,
            'verdict_result': recorded.get('result'), 'integrity_classification': integrity.get('classification'), 'integrity_error': integrity.get('error')}}
 ''')
         reading_after = old.read(binary, self.project, rollback.copy_ledger(work, self.out / 'events-after'), 'legacy')
-        new_events = [e for e in result['written']] + [e for e in result['namespaced'] if e['class'] == 'B']
-        kinds_a = sorted({e['kind'] for e in result['written'] if e['class'] == 'A'})
-        comparisons = [{'kind': k, 'before': reading_before, 'after': reading_after, 'compare': old.compare(reading_before, reading_after)} for k in kinds_a]
+        # T54.3 (review a2476ab P1): the inventory is the validator's (wfkit/release_events.json); the observed kinds come from the installed behaviour
+        # scenarios of this release plus what the current code wrote on the legacy anchor; each inventory kind is carried with a REAL sample event
+        table = release_check.inventory(self.release)
+        samples = {}
+        for e in result['written']: samples.setdefault(e['kind'], {'kind': e['kind'], 'payload': e['payload'], 'anchor': 'plan:legacy', 'class': e['class'], 'source': 'legacy anchor, current code'})
+        for e in result['namespaced']: samples.setdefault(e['kind'], {'kind': e['kind'], 'payload': e['payload'], 'anchor': e['anchor'], 'class': e['class'], 'source': 'drill namespaced root'})
+        observed = {e['kind'] for e in result['written']} | {e['kind'] for e in result['namespaced']}
+        for r in getattr(self, 'scenario_receipts', []):
+            observed |= set(r['observed_events'])
+            for e in r.get('event_samples', []):
+                if e['kind'] not in samples and compat.event_class(e['kind']) is not None:
+                    samples[e['kind']] = {'kind': e['kind'], 'payload': e['payload'], 'anchor': e['anchor'], 'class': compat.event_class(e['kind']), 'source': 'scenario ' + r['scenario']}
+        new_events = [samples[k] for k in sorted(samples) if compat.event_class(k) in ('A', 'B') and (k in table['kinds'] or samples[k]['source'].startswith('legacy'))]
+        # class A of the inventory: the old binary's S/G/C must be identical with the kind on the legacy anchor (W11a R0+A probe with the REAL sample payload)
+        comparisons, probes = [], {}
+        for kind in sorted(set(table['kinds']) | {e['kind'] for e in result['written'] if e['class'] == 'A'}):
+            if compat.event_class(kind) != 'A': continue
+            if kind in {e['kind'] for e in result['written']}:
+                comparisons.append({'kind': kind, 'before': reading_before, 'after': reading_after, 'compare': old.compare(reading_before, reading_after), 'probe': 'written by the current code on the legacy anchor'})
+                continue
+            sample = samples.get(kind, {'payload': {'plan': 'legacy', 'revision': 1}})
+            probe_state = rollback.copy_ledger(self.out / 'source-state', self.out / f'probe-{kind.replace(".", "-")}')
+            before_probe = old.read(binary, self.project, rollback.copy_ledger(probe_state, self.out / f'probe-{kind.replace(".", "-")}-before'), 'legacy')
+            self.capture(f'probe-{kind.replace(".", "-")}', f'''
+import json
+from onecrew.ledger import Ledger
+from onecrew.v2 import plan, compat
+ledger = Ledger({str(self.project)!r}, {str(probe_state)!r})
+payload = dict({json.dumps(sample['payload'])!r} and json.loads({json.dumps(sample['payload'])!r}) or {{}}, plan='legacy', revision=1)
+with ledger.transaction(write=True) as conn:
+    task = plan.anchor_events(ledger, conn, 'plan:legacy')['task_id']
+    plan.emit(ledger, conn, task, {kind!r}, payload)
+_RESULT = {{'kind': {kind!r}, 'class': compat.event_class({kind!r}), 'payload': payload}}
+''')
+            after_probe = old.read(binary, self.project, rollback.copy_ledger(probe_state, self.out / f'probe-{kind.replace(".", "-")}-after'), 'legacy')
+            comparisons.append({'kind': kind, 'before': before_probe, 'after': after_probe, 'compare': old.compare(before_probe, after_probe), 'probe': 'sample event with the scenario payload on a legacy anchor copy'})
+            probes[kind] = str(probe_state)
         self.event_log = result
         # Known limit (recorded, not hidden): a legacy root approved by the OLD build has no approval base artifact, so the W05 test-integrity
         # check of the new build cannot be established and a passing command is recorded `inconclusive` (milestone `failed`), never `passed`.
         # The events written (verdict.run_started, receipt_issued, recorded, learning.outcome, estimate.eta …) and the old binary's S/G/C are
         # what T54.3 judges; the milestone state is reported as observed, with the integrity reason.
+        extra = {}
+        if not table['kinds']:
+            extra = {'none_reason': table['none_reason'], 'regression_scenarios': [r['scenario'] for r in getattr(self, 'scenario_receipts', []) if r['result'] == 'pass']}
         return self.receipt('events', old_artifact=self.identity('previous'), old_binary='git archive ' + self.baseline + ' (unmodified)',
-                            new_events=new_events, comparisons=comparisons, legacy_milestone=result['milestone'],
+                            expected_kinds=list(table['kinds']), observed_kinds=sorted(observed), inventory_tasks=table['tasks'],
+                            new_events=new_events, comparisons=comparisons, probes=probes, legacy_milestone=result['milestone'], baseline_route=result.get('baseline_route'),
                             legacy_verdict={'result': result['verdict_result'], 'test_integrity': result['integrity_classification'], 'reason': result['integrity_error']},
-                            class_b_on_legacy_anchor=[e['kind'] for e in result['written'] if e['class'] == 'B'])
+                            class_b_on_legacy_anchor=[e['kind'] for e in result['written'] if e['class'] == 'B'], **extra)
 
     def _scan(self, scan):
         """The scanner names its rollback target by the short revision it models (compat_scan.OLD_REVISION); the bundle compares it with the

@@ -26,6 +26,44 @@ from wfkit.provider_evidence import evaluate as providers
 PARTS = {**{f'R{i:02}': f'T54{chr(96+i)}' for i in range(1, 9)}, 'RP': 'T54i', 'RX1': 'T54j', 'RX2': 'T54k'}
 CHECKS = ('installed', 'upgrade', 'events', 'rollback', 'notes')
 SECTIONS = ('Usable outcomes', 'Limits', 'Install', 'Rollback', 'Evidence status')
+INVENTORY_PATH = Path(__file__).resolve().parent / 'release_events.json'
+
+
+def inventory(release):
+    """The validator's OWN per-release event inventory (wfkit/release_events.json): the kinds the release adds and the tasks it proves. The producer
+    cannot choose what T54.3 compares against; a release that adds no kind must say why and still run its regression flow."""
+    table = json.loads(INVENTORY_PATH.read_text(encoding='utf-8'))['releases']
+    require(release in table, 'no event inventory for ' + str(release))
+    row = table[release]
+    require(isinstance(row.get('kinds'), list) and isinstance(row.get('tasks'), list) and row['tasks'], 'malformed event inventory')
+    require(row['kinds'] or (isinstance(row.get('none_reason'), str) and row['none_reason'] and row.get('regression')), 'a release without new kinds needs a reason and a regression flow')
+    return row
+
+
+def scenario_observation(scenario, artifact, sandbox, venv):
+    """T54.1 (review a2476ab P1): one installed BEHAVIOUR scenario. Import-only probes cannot pass: a scenario needs recorded assertions that all
+    passed, named requirements, the event kinds it must write (or the release's declared reason for none) really written, a clean module
+    boundary, the venv's interpreter, a sandboxed state root and this build's identity."""
+    require(isinstance(scenario, dict) and scenario.get('kind') == 'behavior', 'scenario is not a behaviour observation')
+    require(isinstance(scenario.get('scenario'), str) and scenario['scenario'], 'scenario id missing')
+    require(scenario.get('result') == 'pass', f"scenario {scenario.get('scenario')} did not pass: {scenario.get('reasons')}")
+    require(identity(scenario) == identity(artifact), f"scenario {scenario['scenario']} ran on another build")
+    assertions = scenario.get('assertions')
+    require(isinstance(assertions, list) and assertions, f"scenario {scenario['scenario']} recorded no assertion (an import proves nothing)")
+    for a in assertions:
+        require(isinstance(a, dict) and isinstance(a.get('name'), str) and a.get('ok') is True, f"scenario {scenario['scenario']}: assertion failed: {a.get('name')}")
+    requirements = strings(scenario.get('requirements'), 'scenario requirements', True)
+    expected = strings(scenario.get('expected_events', []), 'expected events')
+    observed = strings(scenario.get('observed_events', []), 'observed events')
+    require(expected or scenario.get('no_new_events'), f"scenario {scenario['scenario']} declares no event to prove and no reason")
+    require(expected <= observed, f"scenario {scenario['scenario']} did not write {sorted(expected - observed)}")
+    require(scenario.get('boundary_violations') == [], f"scenario {scenario['scenario']}: module boundary violations")
+    modules = scenario.get('modules')
+    require(isinstance(modules, list) and modules and all(under(m['path'], venv) for m in modules), f"scenario {scenario['scenario']}: an onecrew module was not loaded from the venv")
+    command = scenario.get('command')
+    require(isinstance(command, list) and command and under(command[0], venv), f"scenario {scenario['scenario']}: not run by the venv interpreter")
+    require(under(scenario['state_root'], sandbox), f"scenario {scenario['scenario']}: state root outside the sandbox")
+    return requirements, expected, observed
 
 
 def digest(value, label):
@@ -147,6 +185,16 @@ def decide(bundle, root='.', allow_simulated=False):
         row = receipt('installed'); install_observation(row, current, archives[1], sandbox)
         modules = strings(row['new_modules'], 'new modules', True)
         require(modules <= archives[1].keys(), 'release module missing from wheel')
+        table = inventory(release)
+        scenarios = row.get('scenarios')
+        require(isinstance(scenarios, list) and scenarios, 'no installed behaviour scenario (T54.1 needs behaviour, not imports)')
+        proven, observed_all = set(), set()
+        for scenario in scenarios:
+            requirements, expected, observed = scenario_observation(scenario, current, sandbox, row['venv'])
+            proven |= {r.split()[0] for r in requirements}; observed_all |= observed
+        missing_tasks = [t for t in table['tasks'] if t not in proven]
+        require(not missing_tasks, 'release tasks without a behaviour scenario: ' + ', '.join(missing_tasks))
+        require(set(table['kinds']) <= observed_all, 'inventory kinds not written by any scenario: ' + ', '.join(sorted(set(table['kinds']) - observed_all)))
         if release in ('RX1', 'RX2'):
             expected = {'doc'} if release == 'RX1' else {'data', 'ops'}
             require({r['adapter'] for r in row['adapter_runs']} >= expected, 'installed adapter scenario missing')
@@ -165,16 +213,28 @@ def decide(bundle, root='.', allow_simulated=False):
         row = receipt('events')
         require(identity(row['old_artifact']) == identity(previous), 'event comparator used wrong old build')
         require(isinstance(row['new_events'], list), 'event classification inventory missing')
-        neutral = set()
+        table = inventory(release)
+        expected = set(table['kinds'])
+        require(strings(row.get('expected_kinds', []), 'expected kinds') == expected, 'receipt inventory differs from the release inventory')
+        written = {}
         for event in row['new_events']:
             classification = compat.event_class(event['kind'])
             require(classification is not None and classification == event['class'], 'unknown or misclassified event')
             compat.check_write(event['kind'], event['payload'], event['anchor'])
             require(classification != 'B' or event['anchor'].startswith('plan-ns:'), 'class B event on legacy anchor')
-            if classification == 'A': neutral.add(event['kind'])
+            written.setdefault(event['kind'], classification)
+        observed = strings(row.get('observed_kinds', []), 'observed kinds')
+        require(expected <= observed, 'inventory kinds not observed on the installed build: ' + ', '.join(sorted(expected - observed)))
+        require(expected <= set(written), 'inventory kinds without a classified event in the receipt: ' + ', '.join(sorted(expected - set(written))))
+        if not expected:
+            require(row.get('none_reason') == table['none_reason'], 'a release without new kinds must carry the declared reason')
+            regression = strings(row.get('regression_scenarios', []), 'regression scenarios', True)
+            passed = {sc['scenario'] for sc in receipt('installed').get('scenarios', []) if sc.get('result') == 'pass'}
+            require(regression <= passed, 'regression scenarios of a release without new kinds did not pass on the installed build')
+        neutral = {k for k, c in written.items() if c == 'A'} | {k for k in expected if compat.event_class(k) == 'A'}
         comparisons = row['comparisons']
-        require(isinstance(comparisons, list) and comparisons, 'old behavior comparison missing')
-        require(neutral <= {r['kind'] for r in comparisons}, 'class A behavior comparison missing')
+        require(isinstance(comparisons, list) and (comparisons or not neutral), 'old behavior comparison missing')
+        require(neutral <= {r['kind'] for r in comparisons}, 'class A behavior comparison missing: ' + ', '.join(sorted(neutral - {r['kind'] for r in comparisons})))
         for comparison in comparisons:
             require(set(comparison['before']) >= {'S','G','C'} and set(comparison['after']) >= {'S','G','C'}, 'incomplete S/G/C observation')
             require(all(comparison['before'][key] == comparison['after'][key] for key in ('S','G','C')), 'old S/G/C behavior changed')

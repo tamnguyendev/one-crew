@@ -236,15 +236,19 @@ def _review_context(ledger, conn, state, milestone_id, config):
     """(base event, (artifact, tracked tree) of this milestone's latest usable pass or None): where the reviewer's diff starts.
     A usable pass is a reviewer verdict of this milestone, on any revision, whose receipt recorded the very same reviewer config (a changed config or
     criteria is a different review) and a tracked_tree that is a tree id. Without one the diff starts from base_tracked of the first approval (reviewer.review_diff)."""
-    first = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='plan.approved' ORDER BY seq LIMIT 1", (state['task_id'],)).fetchone()
+    first = conn.execute("SELECT payload, created_at FROM events WHERE task_id=? AND kind='plan.approved' ORDER BY seq LIMIT 1", (state['task_id'],)).fetchone()
     if first is None: raise LedgerError(f'Plan {state["name"]} has no plan.approved event; the reviewer has no base tree.')
+    approval = json.loads(first['payload'])
+    if not approval.get('at') and first['created_at']: approval['recorded_at'] = first['created_at']        # P1-D: the ledger row's time is provenance too
+    recorded = (state.get('approved') or {}).get('baseline')
+    if recorded and recorded.get('revision') == approval.get('revision'): approval['baseline'] = recorded     # P1-D: the owner-recorded baseline
     for v in reversed([v for v in state['verdicts'] if v['milestone'] == milestone_id and v['result'] == 'pass' and v.get('by') == 'reviewer']):
         body = _receipt_body(ledger, v.get('receipt'))
         tracked = body.get('tracked_tree')
         # a tree id read from a receipt is given to git later, so only a 40/64-hex one is a base; anything else is as if the pass had recorded none
         if body.get('config') == config and isinstance(tracked, str) and command.TREE_ID.fullmatch(tracked) and command.TREE_ID.fullmatch(str(v.get('artifact_sha'))):
-            return reviewer.base_event(json.loads(first['payload']), state['accepted']), (v['artifact_sha'], tracked)
-    return reviewer.base_event(json.loads(first['payload']), state['accepted']), None
+            return reviewer.base_event(approval, state['accepted']), (v['artifact_sha'], tracked)
+    return reviewer.base_event(approval, state['accepted']), None
 
 
 def _directory(ledger, milestone, directory):
@@ -572,6 +576,35 @@ def release_run(ledger, name, run_id, reason):
                    'note': 'A release lets the verifier run a second time; the first dispatch may have had an effect. Exactly-once is not promised.'}
         plans.emit(ledger, conn, state['task_id'], 'verdict.run_released', payload)
     _unmark(ledger, run_id)
+    return payload
+
+
+def record_baseline(ledger, name, from_commit, by, reference, directory=None):
+    """P1-D (T13b, review a2476ab): a root approved by an older build kept no base artifact, and no commit precedes its approval, so the new build's
+    test-integrity check cannot be established. The OWNER records the baseline: the tree of a commit of the project that the root was approved
+    against, with a reference to where that was decided. Recorded as plan.baseline_recorded (class A: the old reader ignores it). Refused in an AI
+    session, when a base artifact already exists, or when the commit is not in the repository. Nothing else about the root changes (ID, revision,
+    budget, deadline, evidence, attempts, findings stay as they are)."""
+    plans.require_owner(by, 'verdict baseline')
+    text_field(reference, 'reference', 2000)
+    if not reference.strip(): raise LedgerError('A recorded baseline needs a reference (where the owner decided which commit the root was approved against).')
+    directory = Path(directory or ledger.project).resolve()
+    if not isinstance(from_commit, str) or not re.fullmatch(r'[0-9a-fA-F]{7,64}', from_commit): raise LedgerError('--from-commit is a commit hash (7-64 hex).')
+    top = command.toplevel(directory)
+    commit = command._git(top, 'rev-parse', '--verify', '--end-of-options', from_commit + '^{commit}')
+    if not commit: raise LedgerError(f'Commit {from_commit} is not in {top}.')
+    tree = command._git(top, 'rev-parse', commit + '^{tree}')
+    with ledger.transaction(write=True) as conn:
+        state = plans.anchor_events(ledger, conn, name)
+        approved = state['approved']
+        if not approved: raise LedgerError('The plan is not approved; a baseline is recorded for an approved revision.')
+        if approved.get('base_artifact'): raise LedgerError('This approval already records its base artifact; nothing to record.')
+        previous = approved.get('baseline')
+        if previous and previous.get('tree') != tree: raise LedgerError(f'A baseline is already recorded (tree {previous["tree"][:12]}); it is not rewritten.')
+        if previous: return previous
+        payload = {'plan': state['name'], 'revision': approved['revision'], 'from_commit': commit, 'tree': tree, 'by': by, 'reference': reference.strip(),
+                   'source': 'owner-recorded baseline (plan approved by a build without base artifact)', 'actor': os.environ.get('ONECREW_ACTOR') or 'owner-terminal'}
+        plans.emit(ledger, conn, state['task_id'], plans.BASELINE_KIND, payload)
     return payload
 
 
