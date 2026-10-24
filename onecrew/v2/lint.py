@@ -78,7 +78,8 @@ def lint(ledger, raw, author=None):
     try:
         contract = contracts.validate(raw)
     except LedgerError as error:
-        code = 'text_over_limit' if 'at most' in str(error) and 'characters' in str(error) else 'schema'
+        code = ('text_over_limit' if 'at most' in str(error) and 'characters' in str(error)
+                else 'authority' if str(error).startswith('authority') else 'schema')
         return reasons + [(code, str(error))]
     verdict = step0.evaluate(ledger, 'lint', 0, content_hash(contract), contract, {}, choose=contract['options']['recommended'] if contract['options'] else None,
                              run=False, author=author)

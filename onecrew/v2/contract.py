@@ -13,7 +13,7 @@ from ..snapshots import scoped_path
 
 SCHEMA_VERSION = 2
 FIELDS = {'schema_version', 'title', 'size', 'understanding', 'options', 'preconditions', 'output', 'scope', 'non_goals', 'items',
-          'milestones', 'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation'}
+          'milestones', 'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation', 'authority'}
 MAX_DECISIONS = 10
 MAX_NEUTRAL = 20
 DECISION_ID = re.compile(r'D[1-9][0-9]?')
@@ -147,6 +147,9 @@ def validate(value):
     stop = {k: _int(stop.get(k, STOP_DEFAULT[k]), 'stop.' + k, *STOP_RANGE[k]) for k in STOP_DEFAULT}
     if value.get('profile_version') is not None: raise LedgerError('profile_version must stay null in L1.')
     optional = _provenance(value)       # origin, decisions, presentation: only the ones given, so a contract without them stays byte-identical
+    if value.get('authority') is not None:
+        from . import authority
+        optional['authority'] = authority.normalize(value['authority'])
     if value.get('advisor') is not None: optional['advisor'] = _advisor(value['advisor'])      # W43: the provider and model of the advisor, when the contract pins them
     return {**optional, 'schema_version': SCHEMA_VERSION, 'title': text_field(value.get('title'), 'title', 200),
             'size': size, 'understanding': _understanding(value.get('understanding'), size),

@@ -81,6 +81,9 @@ def require_plan(ledger, conn, task):
         else:
             contract, _ = plan.load(ledger, state)  # the file must still hash to what the owner approved
             reason = _over_budget(conn, task, contract['budget'])
+            if reason is None:
+                from . import authority          # W02: the job's sealed authority and paths must be inside the root's grant
+                reason = authority.child_reason(contract, task)
             if reason is None: return
     except LedgerError as error:
         reason = str(error)

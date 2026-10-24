@@ -44,6 +44,28 @@ def relative_dir(value, name='cwd'):
     return value
 
 
+def normalize_authority(authority):
+    """The `authority` object of a work contract, normalized, or LedgerError. One source for the meaning of the seven fields: the root contract of
+    v2 (W02, onecrew/v2/authority.py) calls this for the v1 part of its grant."""
+    if not isinstance(authority, dict) or set(authority) - AUTHORITY: raise LedgerError('authority: unknown keys.')
+    for key in ('edit', 'commands', 'apply_to_project', 'edit_tests', 'push', 'unconfined_commands'):
+        if key in authority and type(authority[key]) is not bool: raise LedgerError('authority.' + key + ' must be boolean.')
+    if authority.get('push'):
+        raise LedgerError('authority.push is not available in work contracts; publication needs its own delivery job.')
+    branches = authority.get('local_branches') or []
+    if not isinstance(branches, list) or len(branches) > 10: raise LedgerError('authority.local_branches: at most 10 names.')
+    at = authority.get('branch_at', 'pinned_head')
+    if at != 'pinned_head' and not SHA.fullmatch(str(at)): raise LedgerError('authority.branch_at: pinned_head or a full SHA.')
+    if authority.get('apply_to_project') and not authority.get('edit'): raise LedgerError('apply_to_project requires edit.')
+    if authority.get('unconfined_commands') and not authority.get('commands'): raise LedgerError('unconfined_commands requires commands.')
+    return {'edit': bool(authority.get('edit')), 'commands': bool(authority.get('commands')),
+            'local_branches': sorted({branch_name(b) for b in branches}), 'branch_at': at,
+            'apply_to_project': bool(authority.get('apply_to_project')),
+            'edit_tests': bool(authority.get('edit_tests')), 'push': False,
+            # The user's choice to let commands write outside the workspace (e.g. a Flutter SDK cache).
+            'unconfined_commands': bool(authority.get('unconfined_commands'))}
+
+
 def validate(value, project):
     """Normalized contract, or LedgerError. project: the OneCrew project root (Path)."""
     if not isinstance(value, dict) or set(value) - FIELDS:
@@ -70,18 +92,7 @@ def validate(value, project):
     if len(checks) > 10: raise LedgerError('checks: at most 10.')
     if any(c['kind'] == 'command' for c in checks) and not ((value.get('authority') or {}).get('edit') or (value.get('authority') or {}).get('commands')):
         raise LedgerError('Command checks run in the isolated workspace: grant edit or commands.')
-    authority = value.get('authority') or {}
-    if not isinstance(authority, dict) or set(authority) - AUTHORITY: raise LedgerError('authority: unknown keys.')
-    for key in ('edit', 'commands', 'apply_to_project', 'edit_tests', 'push', 'unconfined_commands'):
-        if key in authority and type(authority[key]) is not bool: raise LedgerError('authority.' + key + ' must be boolean.')
-    if authority.get('push'):
-        raise LedgerError('authority.push is not available in work contracts; publication needs its own delivery job.')
-    branches = authority.get('local_branches') or []
-    if not isinstance(branches, list) or len(branches) > 10: raise LedgerError('authority.local_branches: at most 10 names.')
-    at = authority.get('branch_at', 'pinned_head')
-    if at != 'pinned_head' and not SHA.fullmatch(str(at)): raise LedgerError('authority.branch_at: pinned_head or a full SHA.')
-    if authority.get('apply_to_project') and not authority.get('edit'): raise LedgerError('apply_to_project requires edit.')
-    if authority.get('unconfined_commands') and not authority.get('commands'): raise LedgerError('unconfined_commands requires commands.')
+    authority = normalize_authority(value.get('authority') or {})
     signed = value.get('authorized_by')
     if not isinstance(signed, dict) or set(signed) != {'source', 'reference'}:
         raise LedgerError('authorized_by: source and reference (attribution of the user authorization).')
@@ -90,12 +101,7 @@ def validate(value, project):
             'preserve': _texts(value.get('preserve'), 'preserve', 20, 500),
             'acceptance': _texts(value.get('acceptance'), 'acceptance', 20, 1000, required=True),
             'checks': checks,
-            'authority': {'edit': bool(authority.get('edit')), 'commands': bool(authority.get('commands')),
-                          'local_branches': sorted({branch_name(b) for b in branches}), 'branch_at': at,
-                          'apply_to_project': bool(authority.get('apply_to_project')),
-                          'edit_tests': bool(authority.get('edit_tests')), 'push': False,
-                          # The user's choice to let commands write outside the workspace (e.g. a Flutter SDK cache).
-                          'unconfined_commands': bool(authority.get('unconfined_commands'))},
+            'authority': authority,
             'authorized_by': {'source': text_field(signed['source'], 'authorized_by.source', 120),
                               'reference': text_field(signed['reference'], 'authorized_by.reference', 500)}}
 

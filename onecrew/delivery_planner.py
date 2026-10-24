@@ -109,11 +109,7 @@ def envelope_permissions(env):
     return permissions
 
 
-def within(path, prefixes):
-    for p in prefixes:
-        if p.endswith('/') and path.startswith(p): return True
-        if path == p.rstrip('/') or path.startswith(p.rstrip('/') + '/'): return True
-    return False
+from .v2.authority import within  # noqa: E402  (W02: one path-prefix test; the v2 grant check shares it)
 
 
 def covers(env, plan):
