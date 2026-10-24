@@ -539,15 +539,16 @@ class InstallOriginRealTests(unittest.TestCase):
             shutil.rmtree(runs2, ignore_errors=True)
 
     def test_without_wf_wheel_it_still_builds(self):
-        env_keep = os.environ.pop('WF_WHEEL', None)
+        keep = {k: os.environ.pop(k, None) for k in ('WF_WHEEL', 'WF_WHEEL_SHA256', 'WF_WHEEL_USED_LOG')}   # the gate sets all three
         try:
             runs2 = _tmp()
             got, version, _ = wh.build_wheel(runs2)
             self.assertTrue(Path(got).is_file())
             shutil.rmtree(runs2, ignore_errors=True)
         finally:
-            if env_keep is not None:
-                os.environ['WF_WHEEL'] = env_keep
+            for k, v in keep.items():
+                if v is not None:
+                    os.environ[k] = v
 
 
 # --------------------------------------------------------------------------------------------------------------------
