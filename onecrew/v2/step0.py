@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from ..ledger import LedgerError, canonical, text_field
+from ..ledger import LedgerError, canonical, content_hash, text_field
 from ..qc_intake import _commit, locate
 from ..snapshots import Snapshots
 from . import contract as contracts
@@ -274,7 +274,7 @@ def check_provenance(ledger, contract, sha, advice):
     return reasons
 
 
-def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=True, author=None, advice=None):
+def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=True, author=None, advice=None, proposal_check=None):
     """Every reason approve would refuse for. `closed` = closed_events(...). With run=False the preconditions are not executed
     (used by tests of the pure rules); approve and precheck always run them. `author` = who wrote the revision (recorded, never trusted).
     `advice` = the plan.advised payload of this revision, if any (check_provenance)."""
@@ -313,6 +313,9 @@ def evaluate(ledger, name, revision, sha, contract, closed, choose=None, run=Tru
             if bad: reasons.append(('option_evidence_invalid', bad))
     reasons += check_target(ledger, contract)
     reasons += check_provenance(ledger, contract, sha, advice)
+    if proposal_check and proposal_check.get('result') != 'ok':      # W47: a proposal check recorded for this revision that did not pass
+        reasons.append(('proposal_refused', f'the proposal check of this revision says {proposal_check.get("result")}: ' + '; '.join(
+            r['code'] for r in proposal_check.get('reasons', []))[:200] + ' (plan proposal check).'))
     results = [run_precondition(ledger, p) for p in contract['preconditions']] if run else []
     reasons += [('precondition_red', f'precondition {r["id"]} ({r["check"]}) is red: {r["detail"]}') for r in results if not r['ok']]
     receipt = None
@@ -360,8 +363,10 @@ def precheck(ledger, name):
         closed = closed_events(conn, state['task_id'])
         latest = state['revisions'][state['latest']]
         advice = state['advice'].get(state['latest'])
+        check = latest_proposal_check(conn, state['task_id'], state['latest'])
     verdict = evaluate(ledger, name, state['latest'], sha, contract, closed, choose=contract['options']['recommended'] if contract['options'] else None,
-                       author=latest.get('content_author') or latest.get('author'), advice=advice)
+                       author=latest.get('content_author') or latest.get('author'), advice=advice,
+                       proposal_check=check)
     with ledger.transaction(write=True) as conn:
         record_run(ledger, conn, state['task_id'], name, state['latest'], sha, verdict, 'precheck')
     lines = [f'PRECHECK {name} revision {state["latest"]} (0 AI calls)']
@@ -382,6 +387,34 @@ def step0_status(conn, task_id, revision):
     run = last.get('precondition.recorded')
     return {'closed': 'plan.step0_closed' in last, 'chosen': (last.get('plan.step0_closed') or {}).get('chosen'),
             'preconditions': {'ok': run['ok'], 'phase': run['phase'], 'receipt': run['receipt']} if run else None}
+
+
+# ---- the proposal check (W47) ---------------------------------------------------------------------------------------------
+
+def latest_proposal_check(conn, task_id, revision):
+    """The latest `proposal.checked` payload recorded for this revision, or None (no check was run: nothing holds the approval)."""
+    found = None
+    for row in conn.execute('SELECT payload FROM events WHERE task_id=? AND kind=? ORDER BY seq', (task_id, 'proposal.checked')):
+        payload = json.loads(row['payload'])
+        if payload.get('revision') == revision: found = payload
+    return found
+
+
+def review_proposal(ledger, name, requirement, proposal):
+    """Check the step-0 proposal against the request (proposal.check: no model, no process) and record the result as a neutral
+    `proposal.checked` event on the plan. A refused or survey-first result holds approval of that revision until a later check passes.
+    Writes no request to the owner."""
+    from . import plan as plans, proposal as proposals
+    result = proposals.check(ledger, requirement, proposal)
+    body = {'requirement': requirement, 'proposal': proposal}
+    with ledger.transaction(write=True) as conn:
+        state = plans.anchor_events(ledger, conn, name)
+        plans.emit(ledger, conn, state['task_id'], 'proposal.checked',
+                   {'plan': name, 'revision': state['latest'], 'result': result['result'], 'ok': result['ok'],
+                    'reasons': [{'code': c, 'text': t} for c, t in result['reasons']], 'table': result['table'], 'backlog': result['backlog'],
+                    'preferred': result['preferred'], 'unknowns': result['unknowns'], 'survey_required': result['survey_required'],
+                    'extras': result['extras'], 'owner_requests': 0, 'input_sha': content_hash(body)})
+    return result
 
 
 # ---- decision cards (W30a) ----------------------------------------------------------------------------------------------

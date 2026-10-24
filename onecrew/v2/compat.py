@@ -28,6 +28,7 @@ CLASS_A = (
     'learning.outcome', 'control.intervention', 'verdict.run_started', 'verdict.run_abandoned', 'context.entry',
     'estimate.baseline', 'estimate.eta', 'work.additional', 'notice.exception', 'learning.incident', 'learning.lesson',
     'decision.recorded',                              # W03: the decision record is a neutral addition
+    'proposal.checked',                               # W47: the step-0 proposal check result (nothing reads it as status or gate for the old version)
 )
 CLASS_B = (
     'plan.revoked', 'plan.revised', 'plan.closed', 'request.applied',

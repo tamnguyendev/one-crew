@@ -51,6 +51,7 @@ py-modules = [
     "onecrew.v2.plan",
     "onecrew.v2.plan_cli",
     "onecrew.v2.providers",
+    "onecrew.v2.proposal",
     "onecrew.v2.report",
     "onecrew.v2.step0",
     "onecrew.v2.verdict",

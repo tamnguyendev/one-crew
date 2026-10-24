@@ -58,6 +58,9 @@ def _parser():
     p = card.add_parser('present', help='Step 0 shows the owner only the important choices, in ONE card; technical choices inside the authority are decided and recorded (HD-05), not asked.')
     p.add_argument('name'); p.add_argument('--file', required=True, type=Path, help='{"choices": [...]}: each choice has id, class, problem, options, recommendation, evidence, scope, decide_by.')
     p.add_argument('--model', required=True, help='The model that decided the technical choices (recorded as the subject).'); p.add_argument('--component', default='step0')
+    proposal = plan.add_parser('proposal', help='The step-0 proposal check (W47).').add_subparsers(dest='action', required=True)
+    p = proposal.add_parser('check', help='Hold a proposal to the request: not too little, not too much (no model). Recorded on the plan; a refused check holds approval.')
+    p.add_argument('name'); p.add_argument('--file', required=True, type=Path, help='{"requirement": {...}, "proposal": {...}}')
     brainstorm = plan.add_parser('brainstorm', help='Options of the plan.').add_subparsers(dest='action', required=True)
     p = brainstorm.add_parser('table', help='Print the options as a table of at most 30 lines.'); p.add_argument('name')
     p = plan.add_parser('enforce', help='Owner only: require an approved plan before any job of this state root can run.')
@@ -102,6 +105,12 @@ def _dispatch(ledger, args):
         if args.command == 'poc':
             return step0.poc_record(ledger, args.name, args.unknown, args.answer, args.evidence, args.confidence,
                                     read_json(args.poc_contract) if args.poc_contract else None, args.by)
+        if args.command == 'proposal':
+            body = read_json(args.file)
+            out = step0.review_proposal(ledger, args.name, body.get('requirement'), body.get('proposal'))
+            if not out['ok']:
+                raise LedgerError(f'Proposal refused ({out["result"]}):' + ''.join(f' | [{c}] {t}' for c, t in out['reasons']))
+            return out
         if args.command == 'card':
             return step0.present_decisions(ledger, args.name, read_json(args.file).get('choices'), {'component': args.component, 'model': args.model})
         if args.command == 'brainstorm':

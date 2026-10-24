@@ -359,6 +359,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
         approved, closed = state['approved'], step0.closed_events(conn, state['task_id'])
         written_by = state['revisions'][revision].get('content_author') or state['revisions'][revision].get('author')
         advice = state['advice'].get(revision)
+        proposal_check = step0.latest_proposal_check(conn, state['task_id'], revision)      # W47
     if approved and approved['revision'] == revision and approved['sha'] == sha:   # a repeat is a no-op, but the choice is made once
         if choose is not None and choose != approved.get('chosen'):
             raise LedgerError(f'The choice was made once ({approved.get("chosen")}); changing it needs plan amend (a change request).')
@@ -366,7 +367,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None):
     should = {i['id'] for i in contract['items'] if i['tier'] == 'should'}
     ticked = sorted(set(tick))
     if set(ticked) - should: raise LedgerError('Only should items can be ticked: ' + ','.join(sorted(set(ticked) - should)))
-    verdict = step0.evaluate(ledger, name, revision, sha, contract, closed, choose, author=written_by, advice=advice)
+    verdict = step0.evaluate(ledger, name, revision, sha, contract, closed, choose, author=written_by, advice=advice, proposal_check=proposal_check)
     base_artifact, base_tracked = _base_artifact(ledger), _base_tracked(ledger)
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
