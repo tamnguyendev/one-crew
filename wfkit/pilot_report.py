@@ -1,0 +1,539 @@
+"""Read-only checker for the two pilot reports (kit task WKPL; T35b and T35c).
+
+Run ``python -m wfkit.pilot_report report.json report.md``. Nothing is written,
+no ledger is opened, no provider or pilot job runs. No pilot has run and no
+report generator exists yet: this module proves the report RULES on fixture
+reports only. The result always carries ``owner_acceptance: False`` and
+``pilot_evidence: False``: a report (whatever it says, "nghiệm thu" included)
+is never owner acceptance nor evidence that a real pilot happened.
+
+Input = a JSON document plus its rendered Markdown text. JSON schema (schema=1):
+
+* ``schema`` 1; ``kind`` "interim" (T35b, after PL-A, N=3) or "aggregate"
+  (T35c, after PL-B, N=10); ``phase`` "PL-A" / "PL-B" (must match kind);
+  ``simulated`` bool; ``jobs`` list of N distinct job IDs.
+* ``metrics``: list of {id, group, source, n, k, status, label, summary, cells,
+  [target, target_status, skip_leak_part]}. ``id`` from CATALOG (00 §9.1; group
+  fixed by the catalog). ``cells`` maps every job to {"value": number,
+  [derived_from]} or {"no_data": reason}. ``summary`` is {"value", "unit"} or
+  {"no_data": reason}. ``status``: đủ (k=N) / thiếu (0<k<N) / không có (k=0).
+  ``label``: interim "giữa kỳ k/3"; aggregate the 00 §9.3 words.
+* ``owner_notes_missing``: {metric id (group B): [jobs without owner notes]}.
+* ``outcomes``: {roots: [{root, job, plan, revision, final_outcome, outcome_rows}],
+  missing: [root], target: 0}.
+* interim only: ``ledger_columns`` {command, ledger_sha256, hand_filled,
+  rows: [{job, column (decision|intervention|outcome), ledger, chat, match, [reason]}]};
+  ``desktop_window`` {event_id, emitted_at, shown_at, delivery_status}.
+* aggregate only: ``tiers`` {tier1: {comparisons: [{metric, baseline_count,
+  baseline_jobs, baseline_per_job, pilot_count, pilot_jobs, pilot_per_job,
+  source}], limits: [str]}, tier2: {metrics: [ids], conclusion},
+  tier3: {conclusion, comparison_group}}; ``owner_decisions`` {actions: [{job, at,
+  verb, kind, sources}], mismatches: [{job, at, ledger, chat, reason}],
+  per_job: {job: {kind: count}}, ac1: {max_per_job, outside_u1_u4, status}};
+  ``skip_leak`` {skip_count, links: [{finding, skip_record}]};
+  ``manual_fixes`` {decision_log_rows: [{at, job, before, after, reason}],
+  interventions, [mismatch_reason]}; ``providers`` [{provider, calls, failures,
+  reasons: {"hạn mức": n, "lỗi công cụ": n}, inconclusive_receipts}];
+  ``continuation_trial`` {job, tool, package_sha256, answers: [{question,
+  correct}], grader: {identity, model}, coordinator_model, result}.
+
+Markdown: each metric is rendered on ONE line containing its id in backticks,
+"k/N", the status, the label, "không có dữ liệu" when the summary has no data,
+and "<job>: không có dữ liệu: thiếu ghi chép của chủ sở hữu" for each job
+listed in owner_notes_missing. Aggregate: the first two non-heading lines are
+"AC5 — năng lực đo: đạt|không đạt ..." and "Baseline: m chỉ số đủ 10/10 (ids),
+n thiếu (ids), p không có (ids)"; sections "## Tầng 1/2/3" exist.
+
+Readings (narrowest, from 05 T35 and 00 §9.1–§9.3):
+* E7 interim: every catalog metric except skip_leak (needs HD-20 of R05, T35c)
+  has value or no-data, k/3, source, group, status; no line and no label
+  contains the word "baseline". Group A completeness is NOT enforced at T35b
+  (E7 does not ask it; AC5 is an aggregate header).
+* E25/E31: every root has exactly one outcome row for its final outcome; a
+  root with 0 rows must be listed under ``missing``; a non-empty list is a
+  failed expectation (target 0), so the report is refused, naming the roots.
+* E26: 3 jobs x 3 columns rows; match must equal ledger==chat; a mismatched row
+  carries both sources and a reason; hand_filled must be 0. Structural only:
+  the checker cannot re-read the pilot ledger.
+* E28: one desktop window record with delivery status "đã giao".
+* E6/E33/E36: label "đã lập baseline (10/10)" only when k=10, else
+  "baseline một phần (k/10)" or "chưa lập baseline (0/10)"; B/C short never
+  blocks. E32: group A k<10 -> AC5 "không đạt" naming job and metric, and the
+  report is refused (the gate cannot pass), even when the header says so.
+* E35 (m1/m3): k=0 summary must be no-data (never "0 phút"); a job listed as
+  missing owner notes must have a no-data cell (never 0); k must equal the
+  number of value cells. E37 (m4): "baseline đầy đủ", or "đã lập baseline"
+  outside a 10/10 metric line, while a metric is short. E12 (m5): any tier-3
+  conclusion other than "chưa kết luận giảm" (the comparison group of E1 only
+  exists after the programme). E11: a tier-1 comparison carrying a time
+  conclusion, or a line citing 20/10 that claims a time reduction.
+* E20–E24, E29, E30, E38 as structural/consistency checks on their sections.
+  E23: owner minutes never ``derived_from`` wait time or event gaps.
+y1/y2 belong to T45e (script kiểm đối chiếu), not T35, and are not checked here.
+"""
+import argparse
+import json
+import re
+from datetime import datetime
+from pathlib import Path
+
+CATALOG = {
+    'time_to_usable': 'A', 'exec_time': 'A', 'wait_time': 'A', 'owner_minutes': 'B',
+    'owner_decisions': 'A', 'actual_actions': 'C', 'rework_rounds': 'A',
+    'amend_authoring_error': 'C', 'amend_requirement_change': 'C', 'amend_emergent': 'C',
+    'owner_retries': 'C', 'false_pass': 'A', 'skip_leak': 'A', 'owner_keystrokes': 'C',
+    'ledger_manual_fixes': 'C', 'noise_stop_hook': 'A', 'noise_notifications': 'A',
+    'wrong_scope_block': 'A', 'missed_wait_1h': 'A', 'missed_wait_1h_owner': 'B', 'verify_cost': 'A',
+}
+TARGETS = {'noise_stop_hook': 0, 'noise_notifications': 0, 'missed_wait_1h': 0, 'missed_wait_1h_owner': 0,
+           'false_pass': 0, 'wrong_scope_block': 0, 'skip_leak': 0, 'ledger_manual_fixes': 0,
+           'amend_authoring_error': 0, 'amend_emergent': '≈0'}
+TIER1 = {'owner_keystrokes': (33, ('owner_keystrokes',)), 'amend_total': (23, ('amend_authoring_error',
+         'amend_requirement_change', 'amend_emergent')), 'noise_stop_hook': (81, ('noise_stop_hook',)),
+         'false_pass': (2, ('false_pass',))}
+TIER2 = frozenset(('time_to_usable', 'owner_minutes', 'wait_time', 'rework_rounds', 'actual_actions', 'owner_retries'))
+LIMITS = ('nhóm việc khác', 'cỡ mẫu', 'cách đếm')
+KINDS = ('root_approval', 'acceptance', 'U1', 'U2', 'U3', 'U4', 'other')
+OUTCOMES = ('accepted', 'stopped_with_report', 'failed')
+QUESTIONS = ('bước kế', 'việc của chủ sở hữu', 'việc không được làm', 'mốc thiếu', 'câu hỏi mở')
+NO_NOTES = 'thiếu ghi chép của chủ sở hữu'
+NO_REDUCTION = 'chưa kết luận giảm'
+AC5 = 'AC5 — năng lực đo: '
+BASELINE_RE = re.compile(r'^Baseline: (\d+) chỉ số đủ 10/10 \(([^)]*)\), (\d+) thiếu \(([^)]*)\), (\d+) không có \(([^)]*)\)$')
+
+
+def require(ok, message):
+    if not ok:
+        raise ValueError(message)
+
+
+def status_for(k, n):
+    return 'đủ' if k == n else ('không có' if k == 0 else 'thiếu')
+
+
+def label_for(k, n, kind):
+    if kind == 'interim':
+        return f'giữa kỳ {k}/{n}'
+    return {'đủ': f'đã lập baseline ({k}/{n})', 'thiếu': f'baseline một phần ({k}/{n})',
+            'không có': f'chưa lập baseline (0/{n})'}[status_for(k, n)]
+
+
+def number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def timestamp(value):
+    require(isinstance(value, str), 'timestamp missing')
+    result = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    require(result.tzinfo is not None, 'timestamp needs timezone')
+    return result
+
+
+def values(metric):
+    return {j: c['value'] for j, c in metric['cells'].items() if 'value' in c}
+
+
+class Checker:
+    def __init__(self, report, text):
+        self.report, self.text, self.problems = report, text, []
+        self.lines = text.splitlines()
+
+    def add(self, message):
+        if message not in self.problems:
+            self.problems.append(message)
+
+    def check(self, fn, *args):
+        try:
+            fn(*args)
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            self.add(str(exc) if isinstance(exc, ValueError) else f'INPUT: {type(exc).__name__}: {exc}')
+
+    def metric_line(self, mid):
+        found = [line for line in self.lines if f'`{mid}`' in line]
+        return found[0] if len(found) == 1 else None
+
+    # --- top level -----------------------------------------------------------------------------------
+    def top(self):
+        r = self.report
+        require(r.get('schema') == 1, 'INPUT: schema must be 1')
+        require(r.get('kind') in ('interim', 'aggregate'), 'INPUT: kind must be interim|aggregate')
+        self.kind = r['kind']
+        self.n = 3 if self.kind == 'interim' else 10
+        require(r.get('phase') == ('PL-A' if self.kind == 'interim' else 'PL-B'), 'INPUT: phase does not match kind')
+        require(type(r.get('simulated')) is bool, 'INPUT: simulated must be declared')
+        jobs = r.get('jobs')
+        require(isinstance(jobs, list) and all(isinstance(j, str) and j for j in jobs) and len(set(jobs)) == len(jobs)
+                and len(jobs) == self.n, f'INPUT: jobs must be {self.n} distinct IDs')
+        self.jobs = jobs
+        metrics = r.get('metrics')
+        require(isinstance(metrics, list) and all(isinstance(m, dict) for m in metrics), 'INPUT: metrics missing')
+        ids = [m.get('id') for m in metrics]
+        require(len(ids) == len(set(ids)), 'INPUT: duplicate metric id')
+        self.metrics = {m['id']: m for m in metrics}
+
+    # --- per metric (E7 / E6 / E33 / E35 / E36) ------------------------------------------------------
+    def metric(self, m):
+        mid, eid = m.get('id'), 'E7' if self.kind == 'interim' else 'E6'
+        require(mid in CATALOG, f'{eid} unknown metric {mid!r}')
+        require(m.get('group') == CATALOG[mid], f'{eid} {mid}: group must be {CATALOG[mid]} (00 §9.1)')
+        require(isinstance(m.get('source'), str) and m['source'].strip(), f'{eid} {mid}: source missing')
+        require(CATALOG[mid] != 'A' or m['source'].startswith('sổ'), f'{eid} {mid}: group A source must be the ledger (sổ)')
+        require(m.get('n') == self.n, f'{eid} {mid}: denominator must be k/{self.n}')
+        cells = m.get('cells')
+        require(isinstance(cells, dict) and set(cells) == set(self.jobs), f'{eid} {mid}: one cell per job required')
+        for job, cell in cells.items():
+            ok = isinstance(cell, dict) and (('value' in cell) != ('no_data' in cell))
+            require(ok, f'{eid} {mid} {job}: cell needs a value or "không có dữ liệu"')
+            if 'value' in cell:
+                require(number(cell['value']) and cell['value'] >= 0, f'{eid} {mid} {job}: value must be a number')
+            else:
+                require(isinstance(cell['no_data'], str) and cell['no_data'], f'{eid} {mid} {job}: no-data needs a reason')
+            if mid == 'owner_minutes':
+                require(cell.get('derived_from') not in ('wait_time', 'event_gap'),
+                        f'E23 owner_minutes {job}: phút chủ động suy ra từ {cell.get("derived_from")} (cấm)')
+        k = m.get('k')
+        require(isinstance(k, int) and 0 <= k <= self.n, f'{eid} {mid}: k must be 0..{self.n}')
+        summary = m.get('summary')
+        require(isinstance(summary, dict) and ('value' in summary) != ('no_data' in summary), f'{eid} {mid}: summary missing')
+        if k == 0 and 'value' in summary:
+            self.add(f'E35 ô không có dữ liệu hiện {summary["value"]} {summary.get("unit", "")}'.rstrip()
+                     + f': {mid} 0/{self.n} phải ghi "không có dữ liệu"')
+        require(len(values(m)) == k, f'E35 ô không có dữ liệu hiện số: {mid} có {len(values(m))} ô giá trị nhưng mẫu số {k}/{self.n}')
+        require(m.get('status') == status_for(k, self.n), f'{eid} {mid}: status must be {status_for(k, self.n)!r} for {k}/{self.n}')
+        label, want = m.get('label'), label_for(k, self.n, self.kind)
+        if self.kind == 'interim':
+            require('baseline' not in str(label).lower(), f'E7 {mid}: báo cáo giữa kỳ không ghi baseline')
+        elif isinstance(label, str) and label.startswith('đã lập baseline') and k < self.n:
+            raise ValueError(f'E36 baseline khi mẫu số {k}/{self.n}: {mid}')
+        require(label == want, f'{eid} {mid}: label must be {want!r}')
+        line = self.metric_line(mid)
+        require(line is not None, f'{eid} {mid}: exactly one rendered line required')
+        require(f'{k}/{self.n}' in line and m['status'] in line and want in line, f'{eid} {mid}: rendered line lacks k/N, status or label')
+        if 'no_data' in summary:
+            require('không có dữ liệu' in line, f'{eid} {mid}: rendered line must say "không có dữ liệu"')
+        if k == 0 and re.search(r'(?<![\d/.,])0\s*phút', line):
+            self.add(f'E35 ô không có dữ liệu hiện 0: {mid} dòng 0/{self.n} ghi "0 phút"')
+        if self.kind == 'aggregate' and mid in TARGETS:
+            require(m.get('target') == TARGETS[mid], f'{self.target_eid(mid)} {mid}: target must be {TARGETS[mid]}')
+            total = sum(values(m).values())
+            want_status = ('đạt' if total == 0 else 'không đạt') if TARGETS[mid] == 0 else m.get('target_status')
+            require(m.get('target_status') in ('đạt', 'không đạt') and m['target_status'] == want_status,
+                    f'{self.target_eid(mid)} {mid}: status vs target must be {want_status!r}')
+
+    @staticmethod
+    def target_eid(mid):
+        return {'false_pass': 'E22', 'wrong_scope_block': 'E22', 'skip_leak': 'E29', 'ledger_manual_fixes': 'E30',
+                'amend_authoring_error': 'E21', 'amend_emergent': 'E21'}.get(mid, 'E20')
+
+    def metrics_all(self):
+        required = set(CATALOG) - ({'skip_leak'} if self.kind == 'interim' else set())
+        missing = sorted(required - set(self.metrics))
+        if missing:
+            self.add(('E7' if self.kind == 'interim' else 'E6') + f' metrics missing: {", ".join(missing)}')
+            for mid, eid in (('ledger_manual_fixes', 'E30'), ('skip_leak', 'E29'), ('false_pass', 'E22')):
+                if mid in missing and self.kind == 'aggregate':
+                    self.add(f'{eid} dòng {mid} bị bỏ khỏi báo cáo')
+        for m in self.metrics.values():
+            self.check(self.metric, m)
+
+    def owner_notes(self):
+        missing = self.report.get('owner_notes_missing', {})
+        require(isinstance(missing, dict), 'INPUT: owner_notes_missing must be an object')
+        for mid, jobs in missing.items():
+            require(CATALOG.get(mid) == 'B' and mid in self.metrics, f'INPUT: owner_notes_missing names non-B metric {mid}')
+            line = self.metric_line(mid) or ''
+            for job in jobs:
+                cell = self.metrics[mid]['cells'].get(job, {})
+                if 'value' in cell:
+                    self.add(f'E35 ô không có dữ liệu hiện {cell["value"]}: {mid} {job} (thiếu ghi chép của chủ sở hữu)')
+                elif NO_NOTES not in cell.get('no_data', ''):
+                    self.add(f'E23 {mid} {job}: lý do phải là "{NO_NOTES}"')
+                if f'{job}: không có dữ liệu: {NO_NOTES}' not in line:
+                    self.add(f'E23 {mid} {job}: ô phải ghi "không có dữ liệu: {NO_NOTES}"')
+
+    # --- outcomes (E25 interim, E31 aggregate) -------------------------------------------------------
+    def outcomes(self):
+        eid = 'E25' if self.kind == 'interim' else 'E31'
+        o = self.report.get('outcomes')
+        require(isinstance(o, dict) and isinstance(o.get('roots'), list) and o['roots'], f'{eid} outcomes section missing')
+        require(o.get('target') == 0, f'{eid} outcomes: target must be 0')
+        zero = []
+        for row in o['roots']:
+            require(row.get('job') in self.jobs and row.get('root') and row.get('plan') and isinstance(row.get('revision'), int),
+                    f'{eid} outcome row needs root, job, plan, revision')
+            require(row.get('final_outcome') in OUTCOMES, f'{eid} {row["root"]}: final outcome must be one of {OUTCOMES}')
+            rows = row.get('outcome_rows')
+            require(isinstance(rows, int) and rows >= 0, f'{eid} {row["root"]}: outcome_rows missing')
+            if rows > 1:
+                self.add(f'{eid} {row["root"]}: khoá (plan, revision, kết cục) có {rows} dòng learning.outcome')
+            if rows == 0:
+                zero.append(row['root'])
+        require(set(self.jobs) <= {r['job'] for r in o['roots']}, f'{eid} every job needs its root outcome')
+        listed = o.get('missing')
+        require(isinstance(listed, list) and sorted(listed) == sorted(zero), f'{eid} root thiếu outcome không được liệt kê đúng: {sorted(zero)}')
+        line = next((l for l in self.lines if l.startswith('Root thiếu outcome:')), None)
+        require(line is not None and all(r in line for r in zero), f'{eid} dòng "Root thiếu outcome:" missing')
+        if zero:
+            self.add(f'{eid} root thiếu learning.outcome: {", ".join(sorted(zero))} (mục tiêu 0)')
+
+    # --- interim only --------------------------------------------------------------------------------
+    def no_baseline_text(self):
+        for line in self.lines:
+            require('baseline' not in line.lower(), f'E7 báo cáo giữa kỳ không ghi baseline: {line.strip()[:80]}')
+
+    def ledger_columns(self):
+        lc = self.report.get('ledger_columns')
+        require(isinstance(lc, dict), 'E26 ledger_columns missing')
+        require(isinstance(lc.get('command'), str) and lc['command'] and re.fullmatch(r'[0-9a-f]{64}', str(lc.get('ledger_sha256'))),
+                'E26 ledger command and ledger hash required')
+        rows = lc.get('rows')
+        require(isinstance(rows, list), 'E26 rows missing')
+        keys = [(r.get('job'), r.get('column')) for r in rows]
+        want = {(j, c) for j in self.jobs for c in ('decision', 'intervention', 'outcome')}
+        require(len(keys) == len(set(keys)) and set(keys) == want, 'E26 need one row per job and column (3 x 3)')
+        for r in rows:
+            require(r.get('ledger') is not None, f'E26 {r["job"]} {r["column"]}: ledger value missing (not taken by code)')
+            require(r.get('match') is (r.get('ledger') == r.get('chat')), f'E26 {r["job"]} {r["column"]}: match flag inconsistent')
+            if not r['match']:
+                require(r.get('chat') is not None and isinstance(r.get('reason'), str) and r['reason'],
+                        f'E26 {r["job"]} {r["column"]}: dòng lệch phải ghi cả hai nguồn và lý do')
+        require(lc.get('hand_filled') == 0, f'E26 số ô điền tay phải = 0 (got {lc.get("hand_filled")})')
+
+    def desktop_window(self):
+        d = self.report.get('desktop_window')
+        require(isinstance(d, dict) and isinstance(d.get('event_id'), str) and d['event_id'], 'E28 desktop window record missing')
+        require(timestamp(d.get('shown_at')) >= timestamp(d.get('emitted_at')), 'E28 window shown before the event')
+        require(d.get('delivery_status') == 'đã giao', 'E28 notification status must be "đã giao"')
+        require(any(d['event_id'] in l and 'Cửa sổ Windows' in l for l in self.lines), 'E28 report line about the desktop window missing')
+
+    # --- aggregate only ------------------------------------------------------------------------------
+    def header(self):
+        body = [l.strip() for l in self.lines if l.strip() and not l.lstrip().startswith('#')]
+        require(len(body) >= 2, 'E34 header lines missing')
+        ac5, base = body[0], body[1]
+        groups = {'đủ': [], 'thiếu': [], 'không có': []}
+        for mid, m in sorted(self.metrics.items()):
+            if isinstance(m.get('k'), int):
+                groups[status_for(m['k'], self.n)].append(mid)
+        a_short = [(job, mid) for mid, m in sorted(self.metrics.items()) if CATALOG.get(mid) == 'A'
+                   for job in self.jobs if 'value' not in m.get('cells', {}).get(job, {'value': 0})]
+        for job, mid in a_short:
+            self.add(f'E32 AC5 — năng lực đo: không đạt: nhóm A thiếu {job} {mid} (lỗi bộ ghi)')
+        others = [p for p in self.problems if not p.startswith(('E32', 'E34'))]
+        ok = not a_short and not others
+        require(ac5.startswith(AC5), 'E34 first line must be "AC5 — năng lực đo: đạt/không đạt"')
+        verdict = ac5[len(AC5):]
+        if ok:
+            require(verdict == 'đạt', f'E34 AC5 line says {verdict!r} but the table gives đạt')
+        else:
+            require(verdict.startswith('không đạt'), 'E32 AC5 line says đạt but the report does not meet AC5')
+            for job, mid in a_short:
+                require(job in verdict and mid in verdict, f'E32 AC5 line must name {job} {mid}')
+        match = BASELINE_RE.match(base)
+        require(match, 'E34 second line must be "Baseline: m chỉ số đủ 10/10 (…), n thiếu (…), p không có (…)"')
+        for i, key in enumerate(('đủ', 'thiếu', 'không có')):
+            count, names = int(match.group(2 * i + 1)), [x.strip() for x in match.group(2 * i + 2).split(',') if x.strip()]
+            require(count == len(groups[key]) and sorted(names) == groups[key],
+                    f'E34 Baseline line {key}: says {count} ({", ".join(names)}), table has {len(groups[key])} ({", ".join(groups[key])})')
+
+    def blanket_baseline(self):
+        short = [mid for mid, m in self.metrics.items() if m.get('k') != self.n]
+        metric_lines = {self.metric_line(mid): mid for mid in self.metrics}
+        for line in self.lines:
+            low = line.lower()
+            if 'baseline đầy đủ' in low or ('đã lập baseline' in low and line not in metric_lines):
+                if short:
+                    self.add(f'E37 kết luận baseline đầy đủ khi còn chỉ số thiếu: {", ".join(sorted(short))}')
+            elif 'đã lập baseline' in low and line in metric_lines:
+                m = self.metrics[metric_lines[line]]
+                if m.get('k') != self.n:
+                    self.add(f'E36 baseline khi mẫu số {m.get("k")}/{self.n}: {metric_lines[line]}')
+
+    def section(self, title):
+        out, inside = [], False
+        for line in self.lines:
+            if line.startswith('## '):
+                inside = line.startswith(f'## {title}')
+                continue
+            if inside:
+                out.append(line)
+        return out
+
+    def tiers(self):
+        t = self.report.get('tiers')
+        require(isinstance(t, dict) and all(isinstance(t.get(x), dict) for x in ('tier1', 'tier2', 'tier3')), 'E6 three tiers required')
+        for title in ('Tầng 1', 'Tầng 2', 'Tầng 3'):
+            require(any(l.startswith(f'## {title}') for l in self.lines), f'E6 section "## {title}" missing')
+        t1 = t['tier1']
+        limits = ' '.join(t1.get('limits', []))
+        require(all(x in limits for x in LIMITS), f'E6 tier 1 must state the limits: {", ".join(LIMITS)}')
+        comps = t1.get('comparisons')
+        require(isinstance(comps, list), 'E6 tier 1 comparisons missing')
+        by = {c.get('metric'): c for c in comps}
+        require(set(by) == set(TIER1) and len(by) == len(comps), f'E6 tier 1 compares exactly {", ".join(sorted(TIER1))}')
+        for name, c in by.items():
+            require('time_conclusion' not in c, f'E11 kết luận về thời gian từ số đếm 20/10: {name}')
+            base, parts = TIER1[name]
+            require(c.get('baseline_count') == base and c.get('baseline_jobs') == 11 and isinstance(c.get('source'), str) and c['source'],
+                    f'E6 tier 1 {name}: baseline must be {base} trên 11 việc with source')
+            require(abs(c.get('baseline_per_job', -1) - base / 11) < 0.01, f'E6 tier 1 {name}: per-job baseline rate wrong')
+            ms = [self.metrics.get(p) for p in parts]
+            if all(ms):
+                k = min(m['k'] for m in ms)
+                total = sum(sum(values(m).values()) for m in ms)
+                require(c.get('pilot_jobs') == k and c.get('pilot_count') == total,
+                        f'E6 tier 1 {name}: pilot count/denominator must be {total} trên {k} việc')
+                require(k and abs(c.get('pilot_per_job', -1) - total / k) < 0.01, f'E6 tier 1 {name}: per-job pilot rate wrong')
+        for line in self.lines:
+            low = line.lower()
+            if '20/10' in low and re.search(r'phút|thời gian|giờ', low) and re.search(r'giảm|nhanh|tiết kiệm|ít hơn', low) and 'không' not in low:
+                self.add(f'E11 kết luận về thời gian từ số đếm 20/10: {line.strip()[:80]}')
+        t2 = t['tier2']
+        require(TIER2 <= set(t2.get('metrics', [])), f'E23 tier 2 must list {", ".join(sorted(TIER2))}')
+        require(t2.get('conclusion') == NO_REDUCTION, f'E23 tier 2 must say "{NO_REDUCTION}"')
+        require(any(NO_REDUCTION in l for l in self.section('Tầng 2')), f'E23 tier 2 text must say "{NO_REDUCTION}"')
+        t3 = t['tier3']
+        text3 = [l for l in self.section('Tầng 3') if 'giảm' in l.lower() and NO_REDUCTION not in l.lower()]
+        if t3.get('conclusion') != NO_REDUCTION or text3:
+            why = 'khi chưa có nhóm so sánh' if not t3.get('comparison_group') else 'trong báo cáo pilot (nhóm tương đương chỉ có sau E1)'
+            self.add(f'E12 kết luận giảm {why}')
+        require(any(NO_REDUCTION in l for l in self.section('Tầng 3')), f'E6 tier 3 text must say "{NO_REDUCTION}"')
+
+    def false_pass(self):
+        fp, sl = self.metrics.get('false_pass'), self.metrics.get('skip_leak')
+        if fp and sl and 'value' in sl['summary']:
+            require(fp.get('skip_leak_part') == sl['summary']['value'], 'E22 cho qua sai phải tách số lỗi lọt qua SKIP khỏi tổng')
+
+    def decisions(self):
+        d = self.report.get('owner_decisions')
+        require(isinstance(d, dict), 'E24 owner_decisions missing')
+        seen, counts = set(), {j: dict.fromkeys(KINDS, 0) for j in self.jobs}
+        for a in d.get('actions', []):
+            require(a.get('job') in self.jobs and a.get('kind') in KINDS and isinstance(a.get('verb'), str) and a['verb'],
+                    'E24 action needs job, kind, verb')
+            timestamp(a.get('at'))
+            src = a.get('sources')
+            require(isinstance(src, list) and src and set(src) <= {'ledger', 'chat'}, 'E24 action needs its source')
+            key = (a['job'], a['at'], a['verb'])
+            if key in seen:
+                self.add(f'E24 hành động bị đếm hai lần: {a["job"]} {a["at"]} {a["verb"]}')
+            seen.add(key)
+            counts[a['job']][a['kind']] += 1
+        for mm in d.get('mismatches', []):
+            require(mm.get('ledger') is not None and mm.get('chat') is not None and mm.get('reason'),
+                    'E24 dòng lệch phải ghi cả hai nguồn và lý do')
+        per_job = d.get('per_job')
+        require(isinstance(per_job, dict) and set(per_job) == set(self.jobs), 'E24 per-job decision table missing')
+        for job in self.jobs:
+            got = {k: per_job[job].get(k, 0) for k in KINDS}
+            require(got == counts[job], f'E24 {job}: decision table {got} does not match the actions {counts[job]}')
+        metric = self.metrics.get('owner_decisions')
+        if metric:
+            for job, v in values(metric).items():
+                require(v == sum(counts[job].values()), f'E24 {job}: owner_decisions cell {v} differs from the action count')
+        ac1 = d.get('ac1', {})
+        ok = all(sum(c.values()) <= 2 and c['other'] == 0 for c in counts.values())
+        require(ac1.get('max_per_job') == 2 and ac1.get('outside_u1_u4') == 0, 'E24 AC1 target must be ≤ 2 per job, 0 outside U1–U4')
+        require(ac1.get('status') == ('đạt' if ok else 'không đạt'), 'E24 AC1 status inconsistent with the table')
+        require(any(l.startswith('AC1') for l in self.lines), 'E24 AC1 line missing')
+
+    def skip_leak(self):
+        s, m = self.report.get('skip_leak'), self.metrics.get('skip_leak')
+        require(isinstance(s, dict) and isinstance(s.get('skip_count'), int) and isinstance(s.get('links'), list), 'E29 skip_leak section missing')
+        for link in s['links']:
+            require(link.get('finding') and link.get('skip_record'), 'E29 each leak links a finding to its SKIP (HD-20) record')
+        require(len({l['skip_record'] for l in s['links']}) <= s['skip_count'], 'E29 more SKIP records than SKIPs')
+        if m:
+            require(sum(values(m).values()) == len(s['links']), 'E29 skip leak count differs from the linked findings')
+            line = self.metric_line('skip_leak') or ''
+            require(f'{len(s["links"])}/{s["skip_count"]} SKIP' in line, 'E29 line must show count/SKIP denominator')
+
+    def manual_fixes(self):
+        s, m = self.report.get('manual_fixes'), self.metrics.get('ledger_manual_fixes')
+        require(isinstance(s, dict) and isinstance(s.get('decision_log_rows'), list), 'E30 manual_fixes section missing')
+        for row in s['decision_log_rows']:
+            require(all(row.get(k) for k in ('at', 'job', 'before', 'after', 'reason')), 'E30 decision-log row needs time, job, before, after, reason')
+        rows = len(s['decision_log_rows'])
+        if s.get('interventions') != rows:
+            require(s.get('mismatch_reason'), 'E30 nhật ký quyết định lệch control.intervention: ghi cả hai nguồn và lý do')
+        if m:
+            got = sum(values(m).values())
+            require(got == rows, f'E30 sửa tay trạng thái sổ ghi {got} khi nhật ký quyết định có {rows} dòng')
+
+    def providers(self):
+        p = self.report.get('providers')
+        require(isinstance(p, list) and p, 'E38 provider failure table missing')
+        for row in p:
+            name, calls, fails = row.get('provider'), row.get('calls'), row.get('failures')
+            require(name and isinstance(calls, int) and calls > 0 and isinstance(fails, int) and 0 <= fails <= calls,
+                    f'E38 {name}: failures and denominator (calls) required')
+            reasons = row.get('reasons', {})
+            require(set(reasons) <= {'hạn mức', 'lỗi công cụ'} and sum(reasons.values()) == fails, f'E38 {name}: reasons must add up')
+            require(row.get('inconclusive_receipts') == fails, f'E38 {name}: count differs from inconclusive receipts')
+            require(any(l.startswith(f'Provider {name}: {fails}/{calls}') for l in self.lines), f'E38 {name}: report line missing')
+
+    def continuation(self):
+        c = self.report.get('continuation_trial')
+        require(isinstance(c, dict) and c.get('job') in self.jobs and c.get('tool'), 'E27 continuation trial missing')
+        require(re.fullmatch(r'[0-9a-f]{64}', str(c.get('package_sha256'))), 'E27 package hash required')
+        answers = c.get('answers', [])
+        require([a.get('question') for a in answers] == list(QUESTIONS), 'E27 five questions required in order')
+        grader = c.get('grader', {})
+        require(grader.get('identity') and grader.get('model'), 'E27 grader identity and model required')
+        require(grader['identity'] == 'owner' or grader['model'] != c.get('coordinator_model'),
+                'E27 người chấm phải độc lập (khác model với người điều phối, hoặc chủ sở hữu)')
+        all_ok = all(a.get('correct') is True for a in answers)
+        require(c.get('result') == ('đạt' if all_ok else 'không đạt'), 'E27 "đạt" only when all five answers are correct')
+
+    def run(self):
+        try:
+            self.top()
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            self.add(str(exc) if isinstance(exc, ValueError) else f'INPUT: {exc}')
+            return
+        if self.report.get('owner_acceptance'):
+            self.add('INPUT: a report cannot record owner acceptance (owner verb in the ledger only)')
+        self.metrics_all()
+        self.check(self.owner_notes)
+        self.check(self.outcomes)
+        if self.kind == 'interim':
+            for fn in (self.no_baseline_text, self.ledger_columns, self.desktop_window):
+                self.check(fn)
+        else:
+            for fn in (self.blanket_baseline, self.tiers, self.false_pass, self.decisions, self.skip_leak,
+                       self.manual_fixes, self.providers, self.continuation):
+                self.check(fn)
+            self.check(self.header)
+
+
+def check_report(report, text):
+    """Validate one pilot report. Pure function: reads its arguments only."""
+    c = Checker(report if isinstance(report, dict) else {}, text if isinstance(text, str) else '')
+    c.run()
+    return {'result': 'refused' if c.problems else 'pass', 'problems': c.problems,
+            'kind': c.report.get('kind'), 'simulated': c.report.get('simulated'),
+            'owner_acceptance': False, 'pilot_evidence': False}
+
+
+def check_files(json_path, md_path):
+    try:
+        report = json.loads(Path(json_path).read_text(encoding='utf-8'))
+        text = Path(md_path).read_text(encoding='utf-8')
+    except (OSError, ValueError) as exc:
+        return {'result': 'refused', 'problems': [f'INPUT: {exc}'], 'kind': None, 'simulated': None,
+                'owner_acceptance': False, 'pilot_evidence': False}
+    return check_report(report, text)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('report_json')
+    parser.add_argument('report_md')
+    args = parser.parse_args(argv)
+    result = check_files(args.report_json, args.report_md)
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0 if result['result'] == 'pass' else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
