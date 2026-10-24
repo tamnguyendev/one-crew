@@ -1,5 +1,33 @@
 # Proposal Coverage
 
+## WF development — Codex integration, 2026-10-24
+
+Source: `outputs/onecrew-as-qc/workflow-chung/00` through `06` in the parent workspace;
+task IDs and deferred boundaries remain those of `docs/wf/FEATURE-SCOPE.md`.
+Baseline `d3120c6`; isolated branch `codex/wf-development`, worktree `wf-codex`.
+The user authorized direct development and parallel model-specific work. No live
+ledger approval, acceptance, deployment, provider switch or old-job restart is part of this run.
+
+| ID | Requirement | Implementation evidence | Test evidence | Status | Remaining |
+|---|---|---|---|---|---|
+| W30a, W47 | Shared decision cards and sufficient proposals | Reused `e1b906b`, `5ecc038` as `ed91471`, `a9e54a5` | R01 card/proposal/compat tests in integration run | Partial | Recheck combined artifact and installed wheel; other R01 features remain |
+| W09/T31 | Keep Git evidence through GC; owner-scoped cleanup | `v2/retention.py`, approval/receipt/verdict/accept wiring, CLI and hook | 10 real-Git unit tests; 14 integration tests; missing-pin wiring mutant rejected | Partial | Final namespace-aware regression and wheel; opaque manual artifact hashes remain blob evidence, historical refs are not backfilled |
+| W17 | One finding lifecycle shared with v1 | `finding_core`, v1 `review_evidence`, v2 `findings` | 16 register cases plus v1 preservation tests | Partial | Automatic runtime registration/context and namespaced acceptance gate integration in progress |
+| W38d/T45d/T55 | Compute KQ1–KQ7 from evidence and actual wheel changes | `wfkit/finalgate.py`, shared `dependency_core` extracted from v1 amendment | 42 pinned-fixture validator tests; source receipt tampering, changed dependency closure and false real-evidence labels refused | Partial | v1 amendment regression and artifact packaging check pending; no real pilot claim |
+| W02 | Enforce root authority and reuse v1 authority fields | Reused committed `baf85c2` implementation; hardening `v2/authority.py` | Review reproduced traversal, missing write scope and Q4 permission bypass; counterexamples being repaired | Partial | Revised gate/enforce regression |
+| W11b/W12b | Explicit capabilities, per-project namespaces, legacy selectors | Namespace implementation in progress | T25/T48b tests in progress | Partial | One-writer and solution linkage are separate unfinished W12b portions |
+| RP identity | An unreadable CLI executable cannot be claimed verified | `providers.cli_identity`: explicit missing hash and identity_errors | Execution-alias error regression; finalgate rejects incomplete CLI identity | Partial | Targeted Windows run pending |
+| WF remainder | All other agreed feature IDs | Existing source inventory in FEATURE-SCOPE; concurrent source branches are not evidence of completion here | No combined final-artifact evidence yet | Missing | Continue development/integration; do not call this roadmap complete |
+| PL-A/PL-B real pilot | Actual user jobs and final human acceptance | Development tooling only | Simulated fixtures explicitly labeled | Blocked | Requires actual selected jobs and owner acceptance, outside this development run |
+| RD/RR/RL/Digital Twin | Deferred roadmap programs | Existing roadmap boundary | Not in WF development scope | Not applicable | No opportunistic expansion |
+
+Workflow/model split: Sol implements bounded modules and tests; Astra examines
+cross-cutting authority/evidence invariants and repairs demonstrated failures;
+parent integrates shared files and runs cross-module/installed-package checks.
+Three agents maximum in this session. Test providers are fakes; model names in
+fixture receipts are not evidence of real provider support. Original v1 and active
+Claude worktrees remain unchanged.
+
 ## Windows completion/blocker window — 2026-10-10
 
 Proposal source: user requests one result on completion/blocker without recurring scheduler; user selected the Windows OneCrew window. Baseline: 392ca42. Cycle DN01–DN05. Contract: docs/desktop-notifications.vi.md.

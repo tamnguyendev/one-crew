@@ -20,6 +20,7 @@ build-backend = "setuptools.build_meta"
 packages = ["onecrew.templates"]          # only the data package (owner-rules templates); the modules below bring their own packages in
 py-modules = [
     "onecrew.budget_core",
+    "onecrew.dependency_core",
     "onecrew.independence",
     "onecrew.interventions",
     "onecrew.ledger",
