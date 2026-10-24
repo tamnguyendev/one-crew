@@ -594,16 +594,39 @@
        ]
       },
       "T51a": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
-        "check.r02_context"
+        "check.r02_context",
+        "check.context_wiring"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T51a has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_r02_context.ContextWriteTests.test_e1_four_updates_for_four_significant_changes",
+         "tests.test_wf_r02_context.ContextWriteTests.test_e1_counter_writing_after_every_operation_is_caught",
+         "tests.test_wf_context_wiring.ContextWiringTests.test_decisions_and_a_verified_node_write_sourced_entries_without_a_model"
+        ],
+        "E2": [
+         "tests.test_wf_r02_context.ContextWriteTests.test_e2_every_entry_has_a_source_that_resolves_and_one_of_five_labels",
+         "tests.test_wf_context_wiring.ContextWiringTests.test_decisions_and_a_verified_node_write_sourced_entries_without_a_model"
+        ],
+        "E3": [
+         "tests.test_wf_r02_context.ContextWriteTests.test_e3_writing_the_same_content_again_adds_no_entry",
+         "tests.test_wf_context_wiring.ContextWiringTests.test_a_repeated_decision_adds_no_entry_and_a_failed_verification_is_not_a_finished_task"
+        ],
+        "E9": [
+         "tests.test_wf_r02_context.ContextWriteTests.test_e9_no_model_call_while_writing"
+        ],
+        "E10": [
+         "tests.test_wf_r02_context.ContextWriteTests.test_e10_an_entry_without_a_source_or_label_is_refused",
+         "tests.test_wf_r02_context.ContextWriteTests.test_unknown_operation_types_and_a_hostile_label_do_not_write"
+        ],
+        "E15": [
+         "tests.test_wf_r02_context.ContextWriteTests.test_e15_class_a_no_table_no_schema_change_and_the_old_version_keeps_S_G_C",
+         "tests.test_wf_r02_context.ClassACompatibilityTests.test_e15_old_version_reads_the_same_S_G_C"
+        ]
+       },
+       "scope": "The four significant operations come from the fixture worker AND from the real code paths (authority.record, engine.verify); the fake worker proves the writing rule only."
       },
       "T51b": {
        "status": "partial",
@@ -651,6 +674,14 @@
      ],
      "installed": false,
      "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    },
+    "check.context_wiring": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_context_wiring"
+     ],
+     "installed": false,
+     "scope": "Context written by the engine/authority code paths; fixture engine, no model."
     }
    },
    "acceptance": {
@@ -679,16 +710,39 @@
      ]
     },
     "T51a": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
-      "check.r02_context"
+      "check.r02_context",
+      "check.context_wiring"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T51a has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_r02_context.ContextWriteTests.test_e1_four_updates_for_four_significant_changes",
+       "tests.test_wf_r02_context.ContextWriteTests.test_e1_counter_writing_after_every_operation_is_caught",
+       "tests.test_wf_context_wiring.ContextWiringTests.test_decisions_and_a_verified_node_write_sourced_entries_without_a_model"
+      ],
+      "E2": [
+       "tests.test_wf_r02_context.ContextWriteTests.test_e2_every_entry_has_a_source_that_resolves_and_one_of_five_labels",
+       "tests.test_wf_context_wiring.ContextWiringTests.test_decisions_and_a_verified_node_write_sourced_entries_without_a_model"
+      ],
+      "E3": [
+       "tests.test_wf_r02_context.ContextWriteTests.test_e3_writing_the_same_content_again_adds_no_entry",
+       "tests.test_wf_context_wiring.ContextWiringTests.test_a_repeated_decision_adds_no_entry_and_a_failed_verification_is_not_a_finished_task"
+      ],
+      "E9": [
+       "tests.test_wf_r02_context.ContextWriteTests.test_e9_no_model_call_while_writing"
+      ],
+      "E10": [
+       "tests.test_wf_r02_context.ContextWriteTests.test_e10_an_entry_without_a_source_or_label_is_refused",
+       "tests.test_wf_r02_context.ContextWriteTests.test_unknown_operation_types_and_a_hostile_label_do_not_write"
+      ],
+      "E15": [
+       "tests.test_wf_r02_context.ContextWriteTests.test_e15_class_a_no_table_no_schema_change_and_the_old_version_keeps_S_G_C",
+       "tests.test_wf_r02_context.ClassACompatibilityTests.test_e15_old_version_reads_the_same_S_G_C"
+      ]
+     },
+     "scope": "The four significant operations come from the fixture worker AND from the real code paths (authority.record, engine.verify); the fake worker proves the writing rule only."
     },
     "T51b": {
      "status": "partial",
@@ -847,23 +901,43 @@
        ]
       },
       "T15b": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.r03a_executors",
         "check.observation_integration",
-        "check.shared_worker_ports"
+        "check.shared_worker_ports",
+        "check.hold_report"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T15b has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_hold_report.HoldReportTests.test_e1_e3_e4_a_hook_attempt_is_held_by_withdrawing_write_permission_and_the_report_says_so",
+         "tests.test_wf_r03a_executors.HoldTests.test_e1_e9_the_core_sends_no_pause_to_an_executor_without_the_capability"
+        ],
+        "E3": [
+         "tests.test_wf_hold_report.HoldReportTests.test_e1_e3_e4_a_hook_attempt_is_held_by_withdrawing_write_permission_and_the_report_says_so",
+         "tests.test_wf_r03a_executors.HoldTests.test_e3_the_report_says_write_permission_was_withdrawn_not_that_it_stopped"
+        ],
+        "E4": [
+         "tests.test_wf_hold_report.HoldReportTests.test_e1_e3_e4_a_hook_attempt_is_held_by_withdrawing_write_permission_and_the_report_says_so",
+         "tests.test_wf_hold_report.HoldReportTests.test_a_managed_history_turns_the_same_row_into_a_requested_pause_that_is_not_confirmed"
+        ],
+        "E6": [
+         "tests.test_wf_r03a_executors.ObservationTests.test_e6_a_number_the_adapter_does_not_measure_is_refused_and_reported_as_not_measured",
+         "tests.test_wf_r03a_executors.ObservationTests.test_e6_a_measuring_executor_may_report_what_it_measures_and_only_that"
+        ],
+        "E9": [
+         "tests.test_wf_hold_report.HoldReportTests.test_e1_e3_e4_a_hook_attempt_is_held_by_withdrawing_write_permission_and_the_report_says_so",
+         "tests.test_wf_r03a_executors.HoldTests.test_e1_e9_the_core_sends_no_pause_to_an_executor_without_the_capability"
+        ]
+       },
+       "scope": "The hook attempt is a fixture Control attempt (no real Claude Code session); the hook refusal itself is proven in T15a."
       },
       "T35d": {
        "status": "partial",
        "checks": [
-        "check.r03a_metrics"
+        "check.r03a_metrics",
+        "check.t35d_handover_findings"
        ],
        "gaps": [
         {
@@ -875,7 +949,8 @@
       "T36b": {
        "status": "partial",
        "checks": [
-        "check.estimates"
+        "check.estimates",
+        "check.t36b_additional_u2"
        ],
        "gaps": [
         {
@@ -912,7 +987,8 @@
        "status": "partial",
        "checks": [
         "check.exceptions",
-        "check.installed_notifications"
+        "check.installed_notifications",
+        "check.t43a_channels"
        ],
        "gaps": [
         {
@@ -950,7 +1026,8 @@
       "T47a": {
        "status": "partial",
        "checks": [
-        "check.questions"
+        "check.questions",
+        "check.t47a_answers"
        ],
        "gaps": [
         {
@@ -1000,6 +1077,46 @@
      ],
      "installed": false,
      "scope": "Implementation regression; not a full T15b acceptance certificate."
+    },
+    "check.hold_report": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_hold_report"
+     ],
+     "installed": false,
+     "scope": "Hold record and report wording from the executor declaration; hook attempt is a fixture."
+    },
+    "check.t35d_handover_findings": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t35d_handover_findings"
+     ],
+     "installed": false,
+     "scope": "Open-finding lines of the handover; node findings from the engine."
+    },
+    "check.t36b_additional_u2": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t36b_additional_u2"
+     ],
+     "installed": false,
+     "scope": "Three kinds of additional work on the fixture engine; the U2 and the holds are real."
+    },
+    "check.t47a_answers": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t47a_answers"
+     ],
+     "installed": false,
+     "scope": "Owner answers on a stopped plan; the AI-session read is the real CLI with the session marker set."
+    },
+    "check.t43a_channels": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t43a_channels"
+     ],
+     "installed": false,
+     "scope": "Criteria grep of the notification modules and the v1 desktop core path with a fixture launcher."
     }
    },
    "acceptance": {
@@ -1017,23 +1134,43 @@
      ]
     },
     "T15b": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.r03a_executors",
       "check.observation_integration",
-      "check.shared_worker_ports"
+      "check.shared_worker_ports",
+      "check.hold_report"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T15b has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_hold_report.HoldReportTests.test_e1_e3_e4_a_hook_attempt_is_held_by_withdrawing_write_permission_and_the_report_says_so",
+       "tests.test_wf_r03a_executors.HoldTests.test_e1_e9_the_core_sends_no_pause_to_an_executor_without_the_capability"
+      ],
+      "E3": [
+       "tests.test_wf_hold_report.HoldReportTests.test_e1_e3_e4_a_hook_attempt_is_held_by_withdrawing_write_permission_and_the_report_says_so",
+       "tests.test_wf_r03a_executors.HoldTests.test_e3_the_report_says_write_permission_was_withdrawn_not_that_it_stopped"
+      ],
+      "E4": [
+       "tests.test_wf_hold_report.HoldReportTests.test_e1_e3_e4_a_hook_attempt_is_held_by_withdrawing_write_permission_and_the_report_says_so",
+       "tests.test_wf_hold_report.HoldReportTests.test_a_managed_history_turns_the_same_row_into_a_requested_pause_that_is_not_confirmed"
+      ],
+      "E6": [
+       "tests.test_wf_r03a_executors.ObservationTests.test_e6_a_number_the_adapter_does_not_measure_is_refused_and_reported_as_not_measured",
+       "tests.test_wf_r03a_executors.ObservationTests.test_e6_a_measuring_executor_may_report_what_it_measures_and_only_that"
+      ],
+      "E9": [
+       "tests.test_wf_hold_report.HoldReportTests.test_e1_e3_e4_a_hook_attempt_is_held_by_withdrawing_write_permission_and_the_report_says_so",
+       "tests.test_wf_r03a_executors.HoldTests.test_e1_e9_the_core_sends_no_pause_to_an_executor_without_the_capability"
+      ]
+     },
+     "scope": "The hook attempt is a fixture Control attempt (no real Claude Code session); the hook refusal itself is proven in T15a."
     },
     "T35d": {
      "status": "partial",
      "checks": [
-      "check.r03a_metrics"
+      "check.r03a_metrics",
+      "check.t35d_handover_findings"
      ],
      "gaps": [
       {
@@ -1045,7 +1182,8 @@
     "T36b": {
      "status": "partial",
      "checks": [
-      "check.estimates"
+      "check.estimates",
+      "check.t36b_additional_u2"
      ],
      "gaps": [
       {
@@ -1082,7 +1220,8 @@
      "status": "partial",
      "checks": [
       "check.exceptions",
-      "check.installed_notifications"
+      "check.installed_notifications",
+      "check.t43a_channels"
      ],
      "gaps": [
       {
@@ -1120,7 +1259,8 @@
     "T47a": {
      "status": "partial",
      "checks": [
-      "check.questions"
+      "check.questions",
+      "check.t47a_answers"
      ],
      "gaps": [
       {
@@ -1392,28 +1532,58 @@
        ]
       },
       "T19": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
-        "check.engine"
+        "check.engine",
+        "check.test_integrity"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T19 has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_test_integrity.TestIntegrityTests.test_a_loosened_assert_makes_the_gate_red_as_u1",
+         "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red"
+        ],
+        "E2": [
+         "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request"
+        ],
+        "E3": [
+         "tests.test_wf_test_integrity.TestIntegrityTests.test_a_loosened_assert_makes_the_gate_red_as_u1",
+         "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red"
+        ],
+        "E4": [
+         "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
+         "tests.test_wf_test_integrity.TestIntegrityTests.test_unchanged_suite_records_nothing_extra"
+        ]
+       },
+       "scope": "A temporary Git project with its own small test file; the worker is the test editing the file (interface only). Nothing asks the owner."
       },
       "T21": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
-        "check.engine"
+        "check.engine",
+        "check.acceptance_change"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T21 has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_acceptance_change.ContractPairsTests.test_a_wording_only_is_not_a_change_of_acceptance",
+         "tests.test_wf_acceptance_change.ContractPairsTests.test_b_an_added_check_is_not_a_change_of_acceptance",
+         "tests.test_wf_acceptance_change.NodePairsTests.test_reworded_spec_and_added_check_are_routine_but_removed_or_tightened_are_u1"
+        ],
+        "E2": [
+         "tests.test_wf_acceptance_change.ContractPairsTests.test_c_a_changed_threshold_is_u1",
+         "tests.test_wf_acceptance_change.ContractPairsTests.test_d_a_dropped_required_result_is_u1",
+         "tests.test_wf_acceptance_change.ContractPairsTests.test_e_a_narrowed_acceptance_is_u1",
+         "tests.test_wf_acceptance_change.ContractPairsTests.test_f_a_changed_obligation_is_u1"
+        ],
+        "E3": [
+         "tests.test_wf_acceptance_change.ContractPairsTests.test_g_an_unknown_field_change_is_treated_as_a_change"
+        ],
+        "E4": [
+         "tests.test_wf_acceptance_change.ContractPairsTests.test_e4_table_of_seven_no_c_to_f_is_routine"
+        ]
+       },
+       "scope": "Pure comparator on contract and node pairs; the U1 classification is consumed by plan.amend (acceptance_diff in plan.amended) and internal_plan.revise."
       },
       "T36a": {
        "status": "partial",
@@ -1596,6 +1766,22 @@
      ],
      "installed": false,
      "scope": "Implementation regression; not a full T32 acceptance certificate."
+    },
+    "check.acceptance_change": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_acceptance_change"
+     ],
+     "installed": false,
+     "scope": "Pure comparator on contract pairs; seven changes a-g."
+    },
+    "check.test_integrity": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_test_integrity"
+     ],
+     "installed": false,
+     "scope": "Temporary Git project with its own test file; the milestone command runs it."
     }
    },
    "acceptance": {
@@ -1667,28 +1853,58 @@
      ]
     },
     "T19": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
-      "check.engine"
+      "check.engine",
+      "check.test_integrity"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T19 has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_test_integrity.TestIntegrityTests.test_a_loosened_assert_makes_the_gate_red_as_u1",
+       "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red"
+      ],
+      "E2": [
+       "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request"
+      ],
+      "E3": [
+       "tests.test_wf_test_integrity.TestIntegrityTests.test_a_loosened_assert_makes_the_gate_red_as_u1",
+       "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red"
+      ],
+      "E4": [
+       "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
+       "tests.test_wf_test_integrity.TestIntegrityTests.test_unchanged_suite_records_nothing_extra"
+      ]
+     },
+     "scope": "A temporary Git project with its own small test file; the worker is the test editing the file (interface only). Nothing asks the owner."
     },
     "T21": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
-      "check.engine"
+      "check.engine",
+      "check.acceptance_change"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T21 has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_acceptance_change.ContractPairsTests.test_a_wording_only_is_not_a_change_of_acceptance",
+       "tests.test_wf_acceptance_change.ContractPairsTests.test_b_an_added_check_is_not_a_change_of_acceptance",
+       "tests.test_wf_acceptance_change.NodePairsTests.test_reworded_spec_and_added_check_are_routine_but_removed_or_tightened_are_u1"
+      ],
+      "E2": [
+       "tests.test_wf_acceptance_change.ContractPairsTests.test_c_a_changed_threshold_is_u1",
+       "tests.test_wf_acceptance_change.ContractPairsTests.test_d_a_dropped_required_result_is_u1",
+       "tests.test_wf_acceptance_change.ContractPairsTests.test_e_a_narrowed_acceptance_is_u1",
+       "tests.test_wf_acceptance_change.ContractPairsTests.test_f_a_changed_obligation_is_u1"
+      ],
+      "E3": [
+       "tests.test_wf_acceptance_change.ContractPairsTests.test_g_an_unknown_field_change_is_treated_as_a_change"
+      ],
+      "E4": [
+       "tests.test_wf_acceptance_change.ContractPairsTests.test_e4_table_of_seven_no_c_to_f_is_routine"
+      ]
+     },
+     "scope": "Pure comparator on contract and node pairs; the U1 classification is consumed by plan.amend (acceptance_diff in plan.amended) and internal_plan.revise."
     },
     "T36a": {
      "status": "partial",
@@ -2100,18 +2316,33 @@
        ]
       },
       "T11": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.engine",
         "check.candidate_handoff",
-        "check.candidate_reviewer"
+        "check.candidate_reviewer",
+        "check.t11_integration_finding"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T11 has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_e1_e2_e4_integration_red_opens_one_dependency_scoped_finding_and_holds_the_root",
+         "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_the_same_red_receipt_twice_merges_and_writes_no_second_register_event"
+        ],
+        "E2": [
+         "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_e1_e2_e4_integration_red_opens_one_dependency_scoped_finding_and_holds_the_root"
+        ],
+        "E3": [
+         "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_e3_e5_repair_inside_the_scope_reruns_the_failed_check_first_then_the_scope_not_the_suite"
+        ],
+        "E4": [
+         "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_e1_e2_e4_integration_red_opens_one_dependency_scoped_finding_and_holds_the_root"
+        ],
+        "E5": [
+         "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_e3_e5_repair_inside_the_scope_reruns_the_failed_check_first_then_the_scope_not_the_suite"
+        ]
+       },
+       "scope": "Fixture checker results on the real engine/register/repair plan; the repair worker is the fixture executor (interface only)."
       },
       "T15a": {
        "status": "complete",
@@ -2175,7 +2406,9 @@
        "status": "partial",
        "checks": [
         "check.findings",
-        "check.adapter_findings"
+        "check.adapter_findings",
+        "check.register_v1_guard",
+        "check.register_v1_guard_p6"
        ],
        "gaps": [
         {
@@ -2222,18 +2455,25 @@
        ]
       },
       "T08a": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.node_actions_cli",
         "check.installed_node_actions",
-        "check.metered_verifier"
+        "check.metered_verifier",
+        "check.t08a_reconcile"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T08a has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E2": [
+         "tests.test_wf_t08a_reconcile.ReconcileTests.test_b_killed_during_x_is_held_not_rerun_until_a_recorded_release",
+         "tests.test_wf_t08a_reconcile.ReconcileTests.test_c_x_finished_before_the_receipt_is_completed_from_its_marker_without_a_second_run",
+         "tests.test_wf_t08a_reconcile.ReconcileTests.test_a_a_run_that_never_dispatched_and_one_that_raised_let_a_new_run_start"
+        ],
+        "E4": [
+         "tests.test_wf_t08a_reconcile.ReconcileTests.test_b_killed_during_x_is_held_not_rerun_until_a_recorded_release"
+        ]
+       },
+       "scope": "X is a fixture command counted by its marker file; (b) is a real process kill, (c) is staged with the run markers and a fabricated abandoned run. Exactly-once is not claimed; T08b (R08) covers the managed intents."
       },
       "T16b": {
        "status": "partial",
@@ -2254,7 +2494,8 @@
        "status": "partial",
        "checks": [
         "check.review_policy",
-        "check.review_dispatch"
+        "check.review_dispatch",
+        "check.review_optional_cli"
        ],
        "gaps": [
         {
@@ -2280,7 +2521,8 @@
       "T18a": {
        "status": "partial",
        "checks": [
-        "check.recovery_policy"
+        "check.recovery_policy",
+        "check.t18a_blocker"
        ],
        "gaps": [
         {
@@ -2302,17 +2544,39 @@
        ]
       },
       "T29": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.review_dispatch",
-        "check.installed_review_dispatch"
+        "check.installed_review_dispatch",
+        "check.review_optional_cli"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T29 has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_review_optional_cli.ReviewOptionalCliTests.test_light_policy_skips_from_the_cli_with_a_record_and_without_a_request_or_checker_call",
+         "tests.test_wf_review_dispatch.ReviewDispatchTests.test_light_optional_skip_does_not_complete_node_and_required_engine_checker_runs"
+        ],
+        "E2": [
+         "tests.test_wf_review_optional_cli.ReviewOptionalCliTests.test_light_policy_skips_from_the_cli_with_a_record_and_without_a_request_or_checker_call",
+         "tests.test_wf_review_dispatch.ReviewDispatchTests.test_light_optional_skip_does_not_complete_node_and_required_engine_checker_runs"
+        ],
+        "E3": [
+         "tests.test_wf_review_optional_cli.ReviewOptionalCliTests.test_light_policy_skips_from_the_cli_with_a_record_and_without_a_request_or_checker_call",
+         "tests.test_wf_review_dispatch.ReviewDispatchTests.test_unproduced_defer_and_held_hold_do_not_call_or_create_request"
+        ],
+        "E4": [
+         "tests.test_wf_review_optional_cli.ReviewOptionalCliTests.test_light_policy_skips_from_the_cli_with_a_record_and_without_a_request_or_checker_call",
+         "tests.test_wf_review_dispatch.ReviewDispatchTests.test_required_subset_and_mutant_skip_are_refused_before_checker",
+         "tests.test_wf_review_dispatch.ReviewDispatchTests.test_only_approved_optional_ids_and_no_required_gate_alias"
+        ],
+        "E5": [
+         "tests.test_wf_review_dispatch.ReviewDispatchTests.test_provider_output_action_is_only_observation_and_cached_per_engine_inputs"
+        ],
+        "E6": [
+         "tests.test_wf_review_dispatch.ReviewDispatchTests.test_light_optional_skip_does_not_complete_node_and_required_engine_checker_runs"
+        ]
+       },
+       "scope": "Fixture checkers; the reviewer milestone of the mandatory gate is the engine checker fixture, not a real model."
       },
       "T43d": {
        "status": "partial",
@@ -2420,6 +2684,54 @@
      ],
      "installed": false,
      "scope": "Implementation regression; not a full T15a acceptance certificate."
+    },
+    "check.t08a_reconcile": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t08a_reconcile"
+     ],
+     "installed": false,
+     "scope": "Real process kill at (b); (c) staged with the run markers; fixture commands as X."
+    },
+    "check.t11_integration_finding": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t11_integration_finding"
+     ],
+     "installed": false,
+     "scope": "Fixture checker; the register, holds and repair plan are real."
+    },
+    "check.review_optional_cli": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_review_optional_cli"
+     ],
+     "installed": false,
+     "scope": "Public CLI path of the rule-based optional review; fixture checker."
+    },
+    "check.t18a_blocker": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t18a_blocker"
+     ],
+     "installed": false,
+     "scope": "Blocker evidence and report; the budget cap itself is enforced and tested by the root budget."
+    },
+    "check.register_v1_guard": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_review_lifecycle"
+     ],
+     "installed": false,
+     "scope": "The existing v1 register guard tests, unchanged, run by the gate for T28 [E1] (slow)."
+    },
+    "check.register_v1_guard_p6": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_review_p6"
+     ],
+     "installed": false,
+     "scope": "The existing v1 register P6 tests, unchanged, run by the gate for T28 [E1] (slow)."
     }
    },
    "acceptance": {
@@ -2451,18 +2763,33 @@
      ]
     },
     "T11": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.engine",
       "check.candidate_handoff",
-      "check.candidate_reviewer"
+      "check.candidate_reviewer",
+      "check.t11_integration_finding"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T11 has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_e1_e2_e4_integration_red_opens_one_dependency_scoped_finding_and_holds_the_root",
+       "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_the_same_red_receipt_twice_merges_and_writes_no_second_register_event"
+      ],
+      "E2": [
+       "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_e1_e2_e4_integration_red_opens_one_dependency_scoped_finding_and_holds_the_root"
+      ],
+      "E3": [
+       "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_e3_e5_repair_inside_the_scope_reruns_the_failed_check_first_then_the_scope_not_the_suite"
+      ],
+      "E4": [
+       "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_e1_e2_e4_integration_red_opens_one_dependency_scoped_finding_and_holds_the_root"
+      ],
+      "E5": [
+       "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_e3_e5_repair_inside_the_scope_reruns_the_failed_check_first_then_the_scope_not_the_suite"
+      ]
+     },
+     "scope": "Fixture checker results on the real engine/register/repair plan; the repair worker is the fixture executor (interface only)."
     },
     "T15a": {
      "status": "complete",
@@ -2526,7 +2853,9 @@
      "status": "partial",
      "checks": [
       "check.findings",
-      "check.adapter_findings"
+      "check.adapter_findings",
+      "check.register_v1_guard",
+      "check.register_v1_guard_p6"
      ],
      "gaps": [
       {
@@ -2573,18 +2902,25 @@
      ]
     },
     "T08a": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.node_actions_cli",
       "check.installed_node_actions",
-      "check.metered_verifier"
+      "check.metered_verifier",
+      "check.t08a_reconcile"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T08a has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E2": [
+       "tests.test_wf_t08a_reconcile.ReconcileTests.test_b_killed_during_x_is_held_not_rerun_until_a_recorded_release",
+       "tests.test_wf_t08a_reconcile.ReconcileTests.test_c_x_finished_before_the_receipt_is_completed_from_its_marker_without_a_second_run",
+       "tests.test_wf_t08a_reconcile.ReconcileTests.test_a_a_run_that_never_dispatched_and_one_that_raised_let_a_new_run_start"
+      ],
+      "E4": [
+       "tests.test_wf_t08a_reconcile.ReconcileTests.test_b_killed_during_x_is_held_not_rerun_until_a_recorded_release"
+      ]
+     },
+     "scope": "X is a fixture command counted by its marker file; (b) is a real process kill, (c) is staged with the run markers and a fabricated abandoned run. Exactly-once is not claimed; T08b (R08) covers the managed intents."
     },
     "T16b": {
      "status": "partial",
@@ -2605,7 +2941,8 @@
      "status": "partial",
      "checks": [
       "check.review_policy",
-      "check.review_dispatch"
+      "check.review_dispatch",
+      "check.review_optional_cli"
      ],
      "gaps": [
       {
@@ -2631,7 +2968,8 @@
     "T18a": {
      "status": "partial",
      "checks": [
-      "check.recovery_policy"
+      "check.recovery_policy",
+      "check.t18a_blocker"
      ],
      "gaps": [
       {
@@ -2653,17 +2991,39 @@
      ]
     },
     "T29": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.review_dispatch",
-      "check.installed_review_dispatch"
+      "check.installed_review_dispatch",
+      "check.review_optional_cli"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T29 has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_review_optional_cli.ReviewOptionalCliTests.test_light_policy_skips_from_the_cli_with_a_record_and_without_a_request_or_checker_call",
+       "tests.test_wf_review_dispatch.ReviewDispatchTests.test_light_optional_skip_does_not_complete_node_and_required_engine_checker_runs"
+      ],
+      "E2": [
+       "tests.test_wf_review_optional_cli.ReviewOptionalCliTests.test_light_policy_skips_from_the_cli_with_a_record_and_without_a_request_or_checker_call",
+       "tests.test_wf_review_dispatch.ReviewDispatchTests.test_light_optional_skip_does_not_complete_node_and_required_engine_checker_runs"
+      ],
+      "E3": [
+       "tests.test_wf_review_optional_cli.ReviewOptionalCliTests.test_light_policy_skips_from_the_cli_with_a_record_and_without_a_request_or_checker_call",
+       "tests.test_wf_review_dispatch.ReviewDispatchTests.test_unproduced_defer_and_held_hold_do_not_call_or_create_request"
+      ],
+      "E4": [
+       "tests.test_wf_review_optional_cli.ReviewOptionalCliTests.test_light_policy_skips_from_the_cli_with_a_record_and_without_a_request_or_checker_call",
+       "tests.test_wf_review_dispatch.ReviewDispatchTests.test_required_subset_and_mutant_skip_are_refused_before_checker",
+       "tests.test_wf_review_dispatch.ReviewDispatchTests.test_only_approved_optional_ids_and_no_required_gate_alias"
+      ],
+      "E5": [
+       "tests.test_wf_review_dispatch.ReviewDispatchTests.test_provider_output_action_is_only_observation_and_cached_per_engine_inputs"
+      ],
+      "E6": [
+       "tests.test_wf_review_dispatch.ReviewDispatchTests.test_light_optional_skip_does_not_complete_node_and_required_engine_checker_runs"
+      ]
+     },
+     "scope": "Fixture checkers; the reviewer milestone of the mandatory gate is the engine checker fixture, not a real model."
     },
     "T43d": {
      "status": "partial",
@@ -2797,7 +3157,8 @@
        "checks": [
         "check.r06_learning",
         "check.r02_boundaries",
-        "check.installed_node_learning"
+        "check.installed_node_learning",
+        "check.t52b_lesson_limits"
        ],
        "gaps": [
         {
@@ -2855,6 +3216,14 @@
      ],
      "installed": true,
      "scope": "Implementation regression; not a full T52a acceptance certificate."
+    },
+    "check.t52b_lesson_limits": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t52b_lesson_limits"
+     ],
+     "installed": false,
+     "scope": "Controlled reviewer answer; general candidate rules and the ended-root refusal."
     }
    },
    "acceptance": {
@@ -2877,7 +3246,8 @@
      "checks": [
       "check.r06_learning",
       "check.r02_boundaries",
-      "check.installed_node_learning"
+      "check.installed_node_learning",
+      "check.t52b_lesson_limits"
      ],
      "gaps": [
       {
@@ -2973,17 +3343,32 @@
        ]
       },
       "T53b": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.r07_localization",
-        "check.installed_localization"
+        "check.installed_localization",
+        "check.issue_provider"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T53b has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E5": [
+         "tests.test_wf_issue_provider.IssueProviderTests.test_product_providers_declare_no_vision_so_the_cli_keeps_the_text_path_and_says_so",
+         "tests.test_wf_issue_provider.IssueProviderTests.test_an_injected_adapter_makes_the_same_cli_call_read_the_image",
+         "tests.test_wf_r07_localization.LocalizationTests.test_image_capability_is_checked_before_any_image_access"
+        ],
+        "E6": [
+         "tests.test_wf_issue_provider.IssueProviderTests.test_e6_evaluate_command_reports_top_k_with_a_denominator_from_separate_files"
+        ],
+        "E9": [
+         "tests.test_wf_issue_provider.IssueProviderTests.test_e9_counterexample_a_declaration_without_the_capability_check_is_caught",
+         "tests.test_wf_r07_localization.LocalizationTests.test_image_capability_is_checked_before_any_image_access"
+        ],
+        "E10": [
+         "tests.test_wf_issue_provider.IssueProviderTests.test_e6_evaluate_command_reports_top_k_with_a_denominator_from_separate_files",
+         "tests.test_wf_r07_localization.LocalizationTests.test_six_pre_fix_issues_never_read_fix_or_own_issue_lessons"
+        ]
+       },
+       "scope": "No product provider declares a vision adapter: the V case uses an injected fixture observer. Top-k is static fixture ranking, not a real-provider measurement."
       },
       "T54g": {
        "status": "partial",
@@ -3018,6 +3403,14 @@
      ],
      "installed": false,
      "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    },
+    "check.issue_provider": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_issue_provider"
+     ],
+     "installed": false,
+     "scope": "Provider capability declaration on the CLI path; no product provider declares vision."
     }
    },
    "acceptance": {
@@ -3035,17 +3428,32 @@
      ]
     },
     "T53b": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.r07_localization",
-      "check.installed_localization"
+      "check.installed_localization",
+      "check.issue_provider"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T53b has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E5": [
+       "tests.test_wf_issue_provider.IssueProviderTests.test_product_providers_declare_no_vision_so_the_cli_keeps_the_text_path_and_says_so",
+       "tests.test_wf_issue_provider.IssueProviderTests.test_an_injected_adapter_makes_the_same_cli_call_read_the_image",
+       "tests.test_wf_r07_localization.LocalizationTests.test_image_capability_is_checked_before_any_image_access"
+      ],
+      "E6": [
+       "tests.test_wf_issue_provider.IssueProviderTests.test_e6_evaluate_command_reports_top_k_with_a_denominator_from_separate_files"
+      ],
+      "E9": [
+       "tests.test_wf_issue_provider.IssueProviderTests.test_e9_counterexample_a_declaration_without_the_capability_check_is_caught",
+       "tests.test_wf_r07_localization.LocalizationTests.test_image_capability_is_checked_before_any_image_access"
+      ],
+      "E10": [
+       "tests.test_wf_issue_provider.IssueProviderTests.test_e6_evaluate_command_reports_top_k_with_a_denominator_from_separate_files",
+       "tests.test_wf_r07_localization.LocalizationTests.test_six_pre_fix_issues_never_read_fix_or_own_issue_lessons"
+      ]
+     },
+     "scope": "No product provider declares a vision adapter: the V case uses an injected fixture observer. Top-k is static fixture ranking, not a real-provider measurement."
     },
     "T54g": {
      "status": "partial",
@@ -3168,42 +3576,52 @@
        "checks": [
         "check.parallel_engine",
         "check.candidate_adapters",
-        "check.review_snapshot"
+        "check.review_snapshot",
+        "check.review_snapshot_integration"
        ],
        "gaps": [],
        "evidence_matrix": {
         "E2": [
-         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
+         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
+         "tests.test_wf_review_snapshot_integration.ReviewSnapshotIntegrationTests.test_reviewer_reviews_the_fixed_snapshot_while_an_independent_node_and_the_project_move_on"
         ],
         "E3": [
          "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
-         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_in_flight_when_code_moves_on_is_retained_not_published"
+         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_in_flight_when_code_moves_on_is_retained_not_published",
+         "tests.test_wf_review_snapshot_integration.ReviewSnapshotIntegrationTests.test_reviewer_reviews_the_fixed_snapshot_while_an_independent_node_and_the_project_move_on"
         ],
         "E5": [
          "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
         ],
         "E6": [
-         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
+         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
+         "tests.test_wf_review_snapshot_integration.ReviewSnapshotIntegrationTests.test_reviewer_reviews_the_fixed_snapshot_while_an_independent_node_and_the_project_move_on"
         ]
        },
        "scope": "Fixture worker and fixture reviewer on the real engine, ledger and Control; the review artifact binding is the engine receipt. No real reviewer model."
       },
       "T04d": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.parallel_engine",
-        "check.parallel_native"
+        "check.parallel_native",
+        "check.t04d_finding_holds_branch"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04d has not been independently certified by this registry."
-        },
-        {
-         "kind": "final-artifact-rerun",
-         "detail": "Failed-produced-node advancement and unchanged-branch late-result regressions are repaired; full source matrix remains to be certified on the final artifact."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E10": [
+         "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root",
+         "tests.test_wf_parallel_engine.ParallelEngineTests.test_disjoint_workers_overlap_and_reuse_actual_scheduler_and_root_budget",
+         "tests.test_wf_parallel_engine.ParallelEngineTests.test_overlapping_ownership_never_occupies_two_slots_and_one_slot_order_is_preserved"
+        ],
+        "E11": [
+         "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root"
+        ],
+        "E12": [
+         "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root"
+        ]
+       },
+       "scope": "Two real Control slots with a fixture isolated executor; the finding comes from the real register through a fixture failed check."
       },
       "T07b": {
        "status": "partial",
@@ -3348,6 +3766,22 @@
      ],
      "installed": false,
      "scope": "Implementation regression on the checkout through the public managed batch CLI with two local supervised processes; not an installed-wheel check and not a full T04d acceptance certificate."
+    },
+    "check.t04d_finding_holds_branch": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t04d_finding_holds_branch"
+     ],
+     "installed": false,
+     "scope": "Two real Control slots, fixture isolated executor, real register."
+    },
+    "check.review_snapshot_integration": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_review_snapshot_integration"
+     ],
+     "installed": false,
+     "scope": "Real reviewer verifier on the candidate snapshot with a fixture CLI answer; no real model."
     }
    },
    "acceptance": {
@@ -3369,42 +3803,52 @@
      "checks": [
       "check.parallel_engine",
       "check.candidate_adapters",
-      "check.review_snapshot"
+      "check.review_snapshot",
+      "check.review_snapshot_integration"
      ],
      "gaps": [],
      "evidence_matrix": {
       "E2": [
-       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
+       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
+       "tests.test_wf_review_snapshot_integration.ReviewSnapshotIntegrationTests.test_reviewer_reviews_the_fixed_snapshot_while_an_independent_node_and_the_project_move_on"
       ],
       "E3": [
        "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
-       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_in_flight_when_code_moves_on_is_retained_not_published"
+       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_in_flight_when_code_moves_on_is_retained_not_published",
+       "tests.test_wf_review_snapshot_integration.ReviewSnapshotIntegrationTests.test_reviewer_reviews_the_fixed_snapshot_while_an_independent_node_and_the_project_move_on"
       ],
       "E5": [
        "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
       ],
       "E6": [
-       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
+       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
+       "tests.test_wf_review_snapshot_integration.ReviewSnapshotIntegrationTests.test_reviewer_reviews_the_fixed_snapshot_while_an_independent_node_and_the_project_move_on"
       ]
      },
      "scope": "Fixture worker and fixture reviewer on the real engine, ledger and Control; the review artifact binding is the engine receipt. No real reviewer model."
     },
     "T04d": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.parallel_engine",
-      "check.parallel_native"
+      "check.parallel_native",
+      "check.t04d_finding_holds_branch"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04d has not been independently certified by this registry."
-      },
-      {
-       "kind": "final-artifact-rerun",
-       "detail": "Failed-produced-node advancement and unchanged-branch late-result regressions are repaired; full source matrix remains to be certified on the final artifact."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E10": [
+       "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root",
+       "tests.test_wf_parallel_engine.ParallelEngineTests.test_disjoint_workers_overlap_and_reuse_actual_scheduler_and_root_budget",
+       "tests.test_wf_parallel_engine.ParallelEngineTests.test_overlapping_ownership_never_occupies_two_slots_and_one_slot_order_is_preserved"
+      ],
+      "E11": [
+       "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root"
+      ],
+      "E12": [
+       "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root"
+      ]
+     },
+     "scope": "Two real Control slots with a fixture isolated executor; the finding comes from the real register through a fixture failed check."
     },
     "T07b": {
      "status": "partial",
