@@ -132,7 +132,36 @@ def _gather(state_root, row, revision=None):
     views = plans.milestone_views(contract, state, revision) if contract else []
     return {'name': name, 'row': row, 'state': state, 'events': events, 'closed': closed, 'revision': revision, 'contract': contract,
             'error': error, 'views': views, 'requests': reader.requests(row['id']), 'state_root': Path(state_root).resolve(), 'runtime_unknowns': unknowns,
-            'holds': holds, 'recovery_blockers': blockers if namespaces.has_capability(state, 'sequential-engine') else []}
+            'holds': holds, 'recovery_blockers': blockers if namespaces.has_capability(state, 'sequential-engine') else [],
+            'owner_choices': _owner_choices(reader.requests(row['id']))}
+
+
+CHOICE_WORDS = {'stop': 'đã chọn dừng', 'amend_plan': 'đã chọn amend (chờ bản mới được duyệt; hợp đồng chưa đổi)', 'continue': 'đã chọn tiếp tục trong quyền đã cấp'}
+
+
+def _owner_choices(requests):
+    """W30b (T47a [E11]): what the owner chose on the plan's own questions (stop / amend / continue), from `request.answered`
+    (the answer's choice and reference), never from an applied effect."""
+    rows = []
+    for request in requests:
+        if request.get('state') != 'answered' or not isinstance(request.get('answer'), dict): continue
+        action = (request.get('question') or {}).get('action') or {}
+        if action.get('type') not in ('v2.plan_stopped', 'v2.workflow_hold'): continue
+        answer = request['answer']
+        choice = answer.get('choice')
+        if choice not in CHOICE_WORDS: continue
+        provenance = answer.get('provenance') or {}
+        rows.append({'request': request['id'], 'choice': choice, 'reference': provenance.get('reference') or answer.get('reference'),
+                     'by': provenance.get('by') or answer.get('by'), 'at': answer.get('at') or request.get('updated_at')})
+    return rows
+
+
+def _choice_lines(f):
+    lines = []
+    for row in f.get('owner_choices', []):
+        who = 'Chủ sở hữu' if row.get('by') in ('user', 'owner') else f'Trả lời ({row.get("by") or "không rõ chủ thể"})'
+        lines.append(f'{who} {CHOICE_WORDS[row["choice"]]}' + (f' («{row["reference"]}»)' if row.get('reference') else '') + f' — câu hỏi {row["request"]}')
+    return lines
 
 
 def _blocker_lines(f):
@@ -492,7 +521,7 @@ def _report(f):
     lines += _forecast_lines(f)
     for unknown in f.get('runtime_unknowns', []):
         lines += _wrap(f'Chưa rõ {unknown["unknown"]}: {unknown["question"]}; giữ {", ".join(unknown["required_by"])}; chủ thể giải: {unknown["resolver"]}.', '', '  ')
-    for line in _hold_lines(f) + _blocker_lines(f): lines += _wrap(line, '', '  ')
+    for line in _hold_lines(f) + _blocker_lines(f) + _choice_lines(f): lines += _wrap(line, '', '  ')
     if state.get('workflow_version') is not None:
         lines += _wrap(f'Workflow: {state["workflow_version"]}; capabilities: {", ".join(state["capabilities"])}', '', '  ')
     sections = (_outputs, _milestones, _minutes, _blocks, _questions, _outside, _parked)
@@ -748,6 +777,7 @@ def _present_result(f):
     accepted = f['state']['accepted']
     if accepted and accepted['revision'] == f['revision']:
         lines += _wrap(f'Đã nghiệm thu bởi {accepted.get("by")} («{accepted.get("reference")}») trên artifact {accepted.get("artifact_sha")}')
+    for line in _choice_lines(f): lines += _wrap(line)
     return lines + ['  Theo acceptance:'] + _acceptance_lines(f) + ['  Mốc:'] + _milestone_facts(f)
 
 

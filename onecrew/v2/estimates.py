@@ -99,10 +99,17 @@ def reforecast(ledger, selector, key, remaining_seconds, reason, refs):
     return result
 
 
-def additional(ledger, selector, key, category, reason, acceptance, seconds, refs):
+def additional(ledger, selector, key, category, reason, acceptance, seconds, refs, *, nodes=None, still_running=None):
+    """One piece of work found on the way (T36b [E11]). mandatory -> the forecast; optional -> the backlog, never the ETA;
+    outside_authority -> the work is NOT taken: one U2 request names it, and the internal nodes that depend on it (`nodes`) are held
+    through the unknown mechanism (W31a) until the owner's answer resolves it; everything else keeps running."""
     key_field(key); text_field(reason, 'reason', 1000)
     if not reason.strip(): raise LedgerError('Additional work requires a reason.')
     if category not in ('mandatory', 'optional', 'outside_authority'): raise LedgerError('Unknown additional work category.')
+    if nodes is not None and (not isinstance(nodes, list) or not all(isinstance(n, str) and n for n in nodes)):
+        raise LedgerError('nodes: the internal node ids that depend on the additional work.')
+    if nodes and category != 'outside_authority':
+        raise LedgerError('Only outside-authority work holds nodes; mandatory work goes to the forecast, optional work to the backlog.')
     span, refs = interval(seconds), evidence(refs)
     with ledger.transaction(write=True) as conn:
         state = _state(ledger, conn, selector)
@@ -115,11 +122,40 @@ def additional(ledger, selector, key, category, reason, acceptance, seconds, ref
             execution_seconds=span, evidence=refs, plan=state['name'], revision=state['approved']['revision'],
             disposition={'mandatory': 'forecast', 'optional': 'backlog', 'outside_authority': 'U2'}[category],
             grants_execution=False))
+    if category == 'outside_authority':
+        result['u2'] = _outside_authority(ledger, selector, key, reason, acceptance, refs, nodes or [], still_running or [])
     internal = observe_internal(ledger, selector, reason=reason, evidence=refs)
     if internal is None:
         from .exceptions import observe
         observe(ledger, selector)
     return result
+
+
+def _outside_authority(ledger, selector, key, reason, acceptance, refs, nodes, still_running):
+    """T36b [E11]: the U2 request for work outside the grant (one per key, idempotent) and the hold of exactly the dependent nodes."""
+    with ledger.transaction() as conn:
+        state = _state(ledger, conn, selector)
+    task_id = state['task_id']
+    request_key = 'additional:' + key
+    question = {'schema_version': 1,
+                'question': f'Việc phát sinh «{key}» nằm ngoài quyền đã cấp: {reason.strip()}',
+                'reason': 'Phát sinh vượt quyền (U2): OneCrew không tự làm; cần chủ sở hữu cấp quyền hoặc bỏ.',
+                'impact': ('Giữ ' + ', '.join(nodes) if nodes else 'Không giữ node nào') + ('; vẫn chạy ' + ', '.join(still_running) if still_running else '') + f'; acceptance liên quan: {", ".join(acceptance)}.',
+                'options': [{'id': 'grant', 'label': 'Cấp quyền cho việc phát sinh này (amend hợp đồng)'}, {'id': 'skip', 'label': 'Không làm; giữ phạm vi đã duyệt'}],
+                'recommendation': 'skip',
+                'action': {'type': 'authorize', 'parameters': {'class': 'U2', 'additional': key, 'acceptance': acceptance, 'nodes': nodes,
+                                                               'still_running': still_running, 'evidence': refs}}}
+    existing = next((r for r in ledger.requests(task_id) if r.get('key') == request_key or r['question'].get('action', {}).get('parameters', {}).get('additional') == key), None)
+    request = existing or ledger.create_request(task_id, request_key, question)
+    held = None
+    if nodes:
+        from . import runtime_unknowns
+        try:
+            held = runtime_unknowns.open_unknown(ledger, selector, 'additional-' + key, question=question['question'], affected=nodes, required_by=nodes,
+                                                 resolver='owner', evidence=refs)
+        except LedgerError as error:
+            held = {'error': str(error)}
+    return {'request': request['id'], 'request_revision': request['revision'], 'class': 'U2', 'held_nodes': nodes, 'unknown': held}
 
 
 def _internal_projection(ledger, conn, selector, rows):
