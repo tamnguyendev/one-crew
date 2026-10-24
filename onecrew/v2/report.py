@@ -568,6 +568,8 @@ def render_digest(state_root):
 # never contains that word.
 
 OK, RECHECK, NONE_YET = 'đạt', 'cần kiểm lại', 'chưa có'
+# W23a / T38b [E4]: the state of one TASK (milestone), by what the ledger holds for it — never inferred from a missing receipt alone
+CHECKED, RECHECK_TASK, SPECIFIED = 'đã-kiểm', 'phải kiểm lại', 'testcase-đã-đặc-tả'
 PRESENT_TITLES = ('Yêu cầu', 'Kết quả bàn giao', 'Rủi ro', 'Cách nghiệm thu', 'Bằng chứng còn thiếu')
 LIMITS_HEADING = 'Hạn chế còn lại:'
 FINDINGS_NOTE = 'Finding còn mở: root này chưa bật sổ finding; không kết luận rằng không có lỗi.'
@@ -617,7 +619,7 @@ def _artifact_now(f):
 def _evidence(f, view):
     """(kind, text, receipt line or None) of one milestone as evidence: ok | stale | failed | lost | none. The receipt line is never wrapped (a path is one word)."""
     last, mid = view['last_verdict'], view['id']
-    if not last: return 'none', f'mốc {mid} chưa có verdict', None
+    if not last: return 'none', f'mốc {mid} {SPECIFIED}: testcase có trong hợp đồng (bản {f["revision"]}), chưa chạy kiểm lần nào', None
     key = last.get('receipt')
     path = str(f['state_root'] / 'snapshots' / 'blobs' / key) if key else None
     readable = bool(key) and _blob_text(f['state_root'], key) is not None
@@ -656,8 +658,11 @@ def _acceptance_lines(f):
     rows = _acceptance(f)
     if rows is None: return _wrap(f'{NO_DATA} (hợp đồng bản {f["revision"]} không đọc được: {f["error"]})')
     lines = []
+    by_id = {v['id']: v for v in f['views']}
+    covering = {oid: cov for oid, _, cov, _ in (_output_rows(f) or [])}
     for row in rows:
-        lines += _wrap(f'{row["id"]} {row["status"]} «{row["text"]}»', '  ', '      ')
+        states = ', '.join(f'{m} {task_state(f, by_id[m])[0]}' for m in covering.get(row['id'], []) if m in by_id)
+        lines += _wrap(f'{row["id"]} {row["status"]} «{row["text"]}»' + (f' — task: {states}' if states else ''), '  ', '      ')
         for _, text, link in row['evidence']: lines += _wrap(text, '      ', '        ') + ([f'        {link}'] if link else [])
     return lines
 
@@ -757,12 +762,27 @@ def _present_request(f):
     return lines
 
 
+def task_state(f, view):
+    """W23a / T38b [E4]: (state, source) of one milestone as a task: `đã-kiểm` only for a valid pass on the current artifact with a
+    readable receipt; `phải kiểm lại` when a verdict exists but no longer counts (older artifact, failed, receipt gone, open finding);
+    `testcase-đã-đặc-tả` when the testcase is in the approved contract and no verdict was ever recorded. The source names the receipt,
+    the reason or the contract revision — a missing receipt is never read as a missing testcase."""
+    kind, text, link = _evidence(f, view)
+    if kind == 'ok' and not any(finding['node'] == view['id'] for finding in _open_findings(f)):
+        return CHECKED, link or text
+    if kind == 'none':
+        return SPECIFIED, text
+    return RECHECK_TASK, text
+
+
 def _milestone_facts(f):
     lines = []
     for v in f['views']:
         last = v['last_verdict']
-        lines += _wrap(f'{v["id"]} {v["state"]} · {_verdict_word(v, short=True)} · by {last["by"]} · artifact {last["artifact_sha"]}' if last
-                       else f'{v["id"]} {v["state"]} · chưa có verdict', '  ', '      ')
+        state, source = task_state(f, v)
+        head = (f'{v["id"]} {v["state"]} · {_verdict_word(v, short=True)} · by {last["by"]} · artifact {last["artifact_sha"]}' if last
+                else f'{v["id"]} {v["state"]} · chưa có verdict')
+        lines += _wrap(f'{head} · trạng thái task: {state} · nguồn: {source}', '  ', '      ')
     return lines
 
 

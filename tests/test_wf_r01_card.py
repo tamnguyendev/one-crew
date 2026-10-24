@@ -64,7 +64,8 @@ class CardTests(Step0):
         for field in cards.CARD_FIELDS:
             self.assertTrue(card[field], field)                                 # six fields, none empty
         self.assertEqual([p['id'] for p in card['parts']], ['B1'])              # only the business choice
-        self.assertNotIn('T1', json.dumps(shown)); self.assertNotIn('T2', json.dumps(shown))
+        card_json = json.dumps([r['question'] for r in shown])                  # the card as shown, not the row timestamps (ISO '...T1x:..' hours)
+        self.assertNotIn('T1', card_json); self.assertNotIn('T2', card_json)
         self.assertEqual(out['request']['id'], shown[0]['id'])
         records = self.decisions()
         self.assertEqual(len(records), 2)                                       # HD-05 record per technical choice

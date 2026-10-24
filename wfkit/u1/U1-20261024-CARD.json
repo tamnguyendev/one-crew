@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261024-CARD",
+ "file": "tests/test_wf_r01_card.py",
+ "old_sha256": "8011f2fde611c6736998a4c273c982d0ace885c1e4f3cab7e2a1c23c0eaa65f7",
+ "new_sha256": "9b26d873a355cdcb45d76672d64750de447ae188943763229084f88b083f2e15",
+ "reason": "T50b [E7]/[E11] asserts that the technical choices T1/T2 never appear in the shown card. The assertion scanned json.dumps of the whole request rows, which include ISO timestamps (created_at/updated_at); every hour 10-19 UTC renders as '...T1x:...' and matched 'T1', so the test failed by time of day (seen 11:xx UTC on eae44ce, 0d296fe, bb177f0). The assertion now scans the question/card payload only; the requirement (no technical choice in the card) is unchanged and still checked.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 24/10/2026 đêm: ủy quyền G 'Sửa test không ổn định hoặc test kiểm sai đối tượng, với bằng chứng rằng yêu cầu gốc được giữ nguyên' và 'Nếu cơ chế nội bộ yêu cầu bản ghi quyết định/U1 ... tự ghi quyết định theo ủy quyền này, nêu căn cứ và bằng chứng; không giả rằng tôi trực tiếp review hoặc ký duyệt'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), commit on codex/wf-development",
+ "at": "2026-10-24"
+}

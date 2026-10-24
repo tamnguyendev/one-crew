@@ -295,19 +295,9 @@ def valid_plan_name(name):
     return name
 
 
-def refuse_duplicate_name(ledger, name):
-    """W12a: in a shared state root, two projects must not create the same plan name (the R00 storage plans/<name>/ is shared, so the
-    second would collide with or branch into the first). If ANOTHER project already owns plan:<name>, refuse and name that project, writing
-    nothing. Same-project re-create is left to propose's own 'already exists'. Full same-name support is W12b (R04)."""
-    with ledger.transaction() as conn:
-        if conn is None:
-            return
-        row = conn.execute('SELECT project_id FROM tasks WHERE request_key=? AND project_id<>?',
-                           (ANCHOR + name, ledger.project_id)).fetchone()
-    if row is not None:
-        raise LedgerError(f'plan name {name!r} is already used by another project ({row["project_id"][:12]}) in this state root; '
-                          f'the R00 store plans/{name}/ is shared, so a second project cannot reuse the name (W12b adds per-project names). '
-                          f'Nothing was written.')
+# W12a -> W12b: the R00 cross-project refusal (`refuse_duplicate_name`) was superseded at R04 by per-project namespaces (`plan-ns:`,
+# plans/<project_id>/<name>; see wfkit/namespace-lineage.json and tests/test_wf_namespace.py): two projects may use one plan name without
+# sharing a path. The R00 behaviour stays executable at the lineage's old commit; the current code keeps only the name validation above.
 
 
 def _anchor(ledger, name, title):

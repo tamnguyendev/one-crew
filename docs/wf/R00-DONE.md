@@ -28,7 +28,7 @@ commit, and the baseline suite still passes. The "old version" in every compatib
 - commit 43359ac4dccfca965b5137ddc412ff5c81471382
 
 ### W12a - plan-name validation + same-name refusal (T48a)
-- Files: `onecrew/v2/plan.py` (`valid_plan_name`, `refuse_duplicate_name`, wired into `propose`), `tests/test_wf_plan_names.py`
+- Files: `onecrew/v2/plan.py` (`valid_plan_name`, wired into `propose`), `tests/test_wf_plan_names.py`. Lịch sử: `refuse_duplicate_name` (từ chối trùng tên giữa hai project) là hành vi R00 tại commit cũ của lineage; R04/W12b thay bằng không gian tên theo project (`plan-ns:`, `plans/<project_id>/<tên>`) và hàm này được gỡ khỏi mã hiện hành (24/10, succession ghi ở `wfkit/namespace-lineage.json`, E10 của T48a vẫn chạy trên binary cũ trong `tests/test_wf_plan_names.py`).
 - A plan name with `:`, a path separator, `..`, a drive form or an absolute/rooted path is refused before any write. In a shared state root, a second project reusing a name is refused (naming the other project), writing nothing. Storage path unchanged (W12b/R04 adds per-project namespacing).
 - Tests: `tests/test_wf_plan_names.py` PlanNameValidationTests (E1 forbidden names rejected before any write; E5 drive form writes nothing outside; valid name accepted) and SameNameAcrossProjectsTests (E10/E11 second project refused, P1 untouched; same-project re-create = already exists).
 - commit aa2c54d3215b447d65521e91a83df36302adb8a2
