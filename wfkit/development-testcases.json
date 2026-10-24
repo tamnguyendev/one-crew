@@ -1986,17 +1986,23 @@
        ]
       },
       "T15a": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.finding_scope",
         "check.hook_holds_generation"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T15a has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E2": [
+         "tests.test_wf_finding_scope.FindingScopeTests.test_exported_external_hook_withdraws_only_affected_writes_without_opening_ledger",
+         "tests.test_wf_hook_holds_generation.HookHoldsGenerationTests.test_register_newer_than_exported_plan_fails_closed_until_re_export"
+        ],
+        "E5": [
+         "tests.test_wf_finding_scope.FindingScopeTests.test_real_register_holds_writers_readers_and_dependents_but_independent_node_runs",
+         "tests.test_wf_finding_scope.FindingScopeTests.test_exported_external_hook_withdraws_only_affected_writes_without_opening_ledger"
+        ]
+       },
+       "scope": "The real OneCrew hook judged through a fake tool call (interface of an external session); a real Claude Code session is not driven."
       },
       "T17b": {
        "status": "partial",
@@ -2331,17 +2337,23 @@
      ]
     },
     "T15a": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.finding_scope",
       "check.hook_holds_generation"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T15a has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E2": [
+       "tests.test_wf_finding_scope.FindingScopeTests.test_exported_external_hook_withdraws_only_affected_writes_without_opening_ledger",
+       "tests.test_wf_hook_holds_generation.HookHoldsGenerationTests.test_register_newer_than_exported_plan_fails_closed_until_re_export"
+      ],
+      "E5": [
+       "tests.test_wf_finding_scope.FindingScopeTests.test_real_register_holds_writers_readers_and_dependents_but_independent_node_runs",
+       "tests.test_wf_finding_scope.FindingScopeTests.test_exported_external_hook_withdraws_only_affected_writes_without_opening_ledger"
+      ]
+     },
+     "scope": "The real OneCrew hook judged through a fake tool call (interface of an external session); a real Claude Code session is not driven."
     },
     "T17b": {
      "status": "partial",
@@ -3024,18 +3036,29 @@
        ]
       },
       "T04b": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.parallel_engine",
         "check.candidate_adapters",
         "check.review_snapshot"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04b has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E2": [
+         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
+        ],
+        "E3": [
+         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
+         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_in_flight_when_code_moves_on_is_retained_not_published"
+        ],
+        "E5": [
+         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
+        ],
+        "E6": [
+         "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
+        ]
+       },
+       "scope": "Fixture worker and fixture reviewer on the real engine, ledger and Control; the review artifact binding is the engine receipt. No real reviewer model."
       },
       "T04d": {
        "status": "partial",
@@ -3087,17 +3110,27 @@
        ]
       },
       "T15c": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.managed_executor",
         "check.managed_hold"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T15c has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E7": [
+         "tests.test_wf_managed_hold.ManagedHoldTests.test_new_finding_pauses_the_running_managed_node_at_its_safe_point_and_release_reuses_the_candidate",
+         "tests.test_wf_managed_executor.ManagedExecutorTests.test_pause_is_requested_during_operation_then_acknowledged_at_real_safe_point"
+        ],
+        "E8": [
+         "tests.test_wf_parallel_engine.ParallelEngineTests.test_overlapping_ownership_never_occupies_two_slots_and_one_slot_order_is_preserved",
+         "tests.test_wf_parallel_engine.ParallelEngineTests.test_active_write_scope_stays_excluded_even_after_other_slot_finishes"
+        ],
+        "E9": [
+         "tests.test_wf_managed_executor.ManagedExecutorTests.test_hook_executor_never_receives_managed_pause_or_isolate",
+         "tests.test_wf_managed_hold.ManagedHoldTests.test_hold_is_not_sent_to_an_attempt_without_a_managed_history"
+        ]
+       },
+       "scope": "Real local supervised processes as the managed worker (no provider); a real Claude Code or Codex session being paused is not proven."
       },
       "T30": {
        "status": "partial",
@@ -3204,18 +3237,29 @@
      ]
     },
     "T04b": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.parallel_engine",
       "check.candidate_adapters",
       "check.review_snapshot"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04b has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E2": [
+       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
+      ],
+      "E3": [
+       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review",
+       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_in_flight_when_code_moves_on_is_retained_not_published"
+      ],
+      "E5": [
+       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
+      ],
+      "E6": [
+       "tests.test_wf_review_snapshot.ReviewSnapshotTests.test_review_receipt_binds_the_snapshot_it_was_given_and_a_new_generation_needs_a_new_review"
+      ]
+     },
+     "scope": "Fixture worker and fixture reviewer on the real engine, ledger and Control; the review artifact binding is the engine receipt. No real reviewer model."
     },
     "T04d": {
      "status": "partial",
@@ -3267,17 +3311,27 @@
      ]
     },
     "T15c": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.managed_executor",
       "check.managed_hold"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T15c has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E7": [
+       "tests.test_wf_managed_hold.ManagedHoldTests.test_new_finding_pauses_the_running_managed_node_at_its_safe_point_and_release_reuses_the_candidate",
+       "tests.test_wf_managed_executor.ManagedExecutorTests.test_pause_is_requested_during_operation_then_acknowledged_at_real_safe_point"
+      ],
+      "E8": [
+       "tests.test_wf_parallel_engine.ParallelEngineTests.test_overlapping_ownership_never_occupies_two_slots_and_one_slot_order_is_preserved",
+       "tests.test_wf_parallel_engine.ParallelEngineTests.test_active_write_scope_stays_excluded_even_after_other_slot_finishes"
+      ],
+      "E9": [
+       "tests.test_wf_managed_executor.ManagedExecutorTests.test_hook_executor_never_receives_managed_pause_or_isolate",
+       "tests.test_wf_managed_hold.ManagedHoldTests.test_hold_is_not_sent_to_an_attempt_without_a_managed_history"
+      ]
+     },
+     "scope": "Real local supervised processes as the managed worker (no provider); a real Claude Code or Codex session being paused is not proven."
     },
     "T30": {
      "status": "partial",
@@ -3387,18 +3441,73 @@
      "scope": "Registry fail-closed rules only.",
      "acceptance_snapshot": {
       "T40a": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.rp_providers",
         "check.metered_verifier",
         "check.candidate_reviewer"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T40a has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_rp_providers.MatrixTests.test_e1_e13_two_contracts_that_differ_only_in_the_provider_and_model_fields_both_run",
+         "tests.test_wf_rp_providers.MatrixTests.test_e1_the_advisor_provider_is_also_one_field"
+        ],
+        "E2": [
+         "tests.test_wf_rp_providers.CommandShapeTests.test_e2_codex_is_exec_read_only",
+         "tests.test_wf_rp_providers.CommandShapeTests.test_e2_kiro_trusts_only_fs_read"
+        ],
+        "E3": [
+         "tests.test_wf_rp_providers.MatrixTests.test_e19_e3_each_provider_as_reviewer_runs_through_its_cli_with_a_receipt_of_provider_and_model",
+         "tests.test_wf_rp_providers.MatrixTests.test_e19_e3_each_provider_as_advisor_runs_through_its_cli_with_a_receipt_of_provider_and_model",
+         "tests.test_wf_candidate_reviewer.CandidateReviewerTests.test_reviewer_milestone_runs_on_candidate_with_independence_from_actual_producer"
+        ],
+        "E4": [
+         "tests.test_wf_rp_providers.IndependenceTests.test_e4_codex_is_another_vendor_than_a_claude_author",
+         "tests.test_wf_rp_providers.IndependenceTests.test_e4_claude_with_the_authors_own_model_is_refused_before_the_call",
+         "tests.test_wf_rp_providers.IndependenceTests.test_e4_kiro_is_judged_by_the_model_it_runs",
+         "tests.test_wf_rp_providers.IndependenceTests.test_e4_same_vendor_with_an_unknown_author_model_is_refused",
+         "tests.test_wf_rp_providers.IndependenceTests.test_e4_a_codex_author_is_not_independent_of_a_codex_reviewer_of_the_same_model",
+         "tests.test_wf_rp_providers.IndependenceTests.test_e4_the_advisor_follows_the_same_rule",
+         "tests.test_wf_candidate_reviewer.CandidateReviewerTests.test_producer_on_the_reviewer_model_is_refused_before_any_call"
+        ],
+        "E5": [
+         "tests.test_wf_rp_providers.QuotaTests.test_e5_e12_reviewer_quota_is_inconclusive_with_a_reason_and_no_other_provider_is_tried",
+         "tests.test_wf_rp_providers.QuotaTests.test_e5_e12_advisor_quota_is_typed_inconclusive_and_reported_and_does_not_block_approval",
+         "tests.test_wf_candidate_reviewer.CandidateReviewerTests.test_provider_error_keeps_the_node_inconclusive_not_failed"
+        ],
+        "E6": [
+         "tests.test_wf_rp_providers.OwnerManualAndNotDeciderTests.test_e6_the_owner_manual_milestone_runs_as_before_next_to_a_codex_reviewer"
+        ],
+        "E7": [
+         "tests.test_wf_rp_providers.OwnerManualAndNotDeciderTests.test_e7_a_stray_field_such_as_skip_is_not_a_decision",
+         "tests.test_wf_rp_providers.OwnerManualAndNotDeciderTests.test_e7_a_verdict_word_that_is_not_pass_fail_inconclusive_is_inconclusive",
+         "tests.test_wf_rp_providers.OwnerManualAndNotDeciderTests.test_e7_the_advisor_answers_ok_or_objection_and_a_stray_verdict_is_inconclusive"
+        ],
+        "E17": [
+         "tests.test_wf_rp_providers.ContractTests.test_e17_the_three_providers_with_a_model_are_accepted_for_reviewer_and_advisor",
+         "tests.test_wf_rp_providers.ContractTests.test_e17_another_provider_or_a_missing_model_is_refused_by_lint"
+        ],
+        "E19": [
+         "tests.test_wf_rp_providers.MatrixTests.test_e19_e3_each_provider_as_reviewer_runs_through_its_cli_with_a_receipt_of_provider_and_model",
+         "tests.test_wf_rp_providers.MatrixTests.test_e19_e3_each_provider_as_advisor_runs_through_its_cli_with_a_receipt_of_provider_and_model"
+        ],
+        "E12": [
+         "tests.test_wf_rp_providers.QuotaTests.test_e5_e12_reviewer_quota_is_inconclusive_with_a_reason_and_no_other_provider_is_tried",
+         "tests.test_wf_rp_providers.QuotaTests.test_a_missing_cli_is_inconclusive_too_not_a_switch"
+        ],
+        "E13": [
+         "tests.test_wf_rp_providers.MatrixTests.test_e1_e13_two_contracts_that_differ_only_in_the_provider_and_model_fields_both_run"
+        ],
+        "E14": [
+         "tests.test_wf_rp_providers.MatrixTests.test_e19_e3_each_provider_as_reviewer_runs_through_its_cli_with_a_receipt_of_provider_and_model"
+        ],
+        "E15": [
+         "tests.test_wf_rp_providers.ReadOnlyTests.test_e15_a_codex_file_change_is_an_error_not_a_pass",
+         "tests.test_wf_rp_providers.ReadOnlyTests.test_e15_nothing_is_written_in_the_project_by_any_provider"
+        ]
+       },
+       "scope": "Fake CLIs stand in for the three providers (interface only); the live codex/kiro command lines are CHUA KIEM CHUNG until W45/T40b runs them for real."
       },
       "T40b": {
        "status": "blocked",
@@ -3476,18 +3585,73 @@
    },
    "acceptance": {
     "T40a": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.rp_providers",
       "check.metered_verifier",
       "check.candidate_reviewer"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T40a has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_rp_providers.MatrixTests.test_e1_e13_two_contracts_that_differ_only_in_the_provider_and_model_fields_both_run",
+       "tests.test_wf_rp_providers.MatrixTests.test_e1_the_advisor_provider_is_also_one_field"
+      ],
+      "E2": [
+       "tests.test_wf_rp_providers.CommandShapeTests.test_e2_codex_is_exec_read_only",
+       "tests.test_wf_rp_providers.CommandShapeTests.test_e2_kiro_trusts_only_fs_read"
+      ],
+      "E3": [
+       "tests.test_wf_rp_providers.MatrixTests.test_e19_e3_each_provider_as_reviewer_runs_through_its_cli_with_a_receipt_of_provider_and_model",
+       "tests.test_wf_rp_providers.MatrixTests.test_e19_e3_each_provider_as_advisor_runs_through_its_cli_with_a_receipt_of_provider_and_model",
+       "tests.test_wf_candidate_reviewer.CandidateReviewerTests.test_reviewer_milestone_runs_on_candidate_with_independence_from_actual_producer"
+      ],
+      "E4": [
+       "tests.test_wf_rp_providers.IndependenceTests.test_e4_codex_is_another_vendor_than_a_claude_author",
+       "tests.test_wf_rp_providers.IndependenceTests.test_e4_claude_with_the_authors_own_model_is_refused_before_the_call",
+       "tests.test_wf_rp_providers.IndependenceTests.test_e4_kiro_is_judged_by_the_model_it_runs",
+       "tests.test_wf_rp_providers.IndependenceTests.test_e4_same_vendor_with_an_unknown_author_model_is_refused",
+       "tests.test_wf_rp_providers.IndependenceTests.test_e4_a_codex_author_is_not_independent_of_a_codex_reviewer_of_the_same_model",
+       "tests.test_wf_rp_providers.IndependenceTests.test_e4_the_advisor_follows_the_same_rule",
+       "tests.test_wf_candidate_reviewer.CandidateReviewerTests.test_producer_on_the_reviewer_model_is_refused_before_any_call"
+      ],
+      "E5": [
+       "tests.test_wf_rp_providers.QuotaTests.test_e5_e12_reviewer_quota_is_inconclusive_with_a_reason_and_no_other_provider_is_tried",
+       "tests.test_wf_rp_providers.QuotaTests.test_e5_e12_advisor_quota_is_typed_inconclusive_and_reported_and_does_not_block_approval",
+       "tests.test_wf_candidate_reviewer.CandidateReviewerTests.test_provider_error_keeps_the_node_inconclusive_not_failed"
+      ],
+      "E6": [
+       "tests.test_wf_rp_providers.OwnerManualAndNotDeciderTests.test_e6_the_owner_manual_milestone_runs_as_before_next_to_a_codex_reviewer"
+      ],
+      "E7": [
+       "tests.test_wf_rp_providers.OwnerManualAndNotDeciderTests.test_e7_a_stray_field_such_as_skip_is_not_a_decision",
+       "tests.test_wf_rp_providers.OwnerManualAndNotDeciderTests.test_e7_a_verdict_word_that_is_not_pass_fail_inconclusive_is_inconclusive",
+       "tests.test_wf_rp_providers.OwnerManualAndNotDeciderTests.test_e7_the_advisor_answers_ok_or_objection_and_a_stray_verdict_is_inconclusive"
+      ],
+      "E17": [
+       "tests.test_wf_rp_providers.ContractTests.test_e17_the_three_providers_with_a_model_are_accepted_for_reviewer_and_advisor",
+       "tests.test_wf_rp_providers.ContractTests.test_e17_another_provider_or_a_missing_model_is_refused_by_lint"
+      ],
+      "E19": [
+       "tests.test_wf_rp_providers.MatrixTests.test_e19_e3_each_provider_as_reviewer_runs_through_its_cli_with_a_receipt_of_provider_and_model",
+       "tests.test_wf_rp_providers.MatrixTests.test_e19_e3_each_provider_as_advisor_runs_through_its_cli_with_a_receipt_of_provider_and_model"
+      ],
+      "E12": [
+       "tests.test_wf_rp_providers.QuotaTests.test_e5_e12_reviewer_quota_is_inconclusive_with_a_reason_and_no_other_provider_is_tried",
+       "tests.test_wf_rp_providers.QuotaTests.test_a_missing_cli_is_inconclusive_too_not_a_switch"
+      ],
+      "E13": [
+       "tests.test_wf_rp_providers.MatrixTests.test_e1_e13_two_contracts_that_differ_only_in_the_provider_and_model_fields_both_run"
+      ],
+      "E14": [
+       "tests.test_wf_rp_providers.MatrixTests.test_e19_e3_each_provider_as_reviewer_runs_through_its_cli_with_a_receipt_of_provider_and_model"
+      ],
+      "E15": [
+       "tests.test_wf_rp_providers.ReadOnlyTests.test_e15_a_codex_file_change_is_an_error_not_a_pass",
+       "tests.test_wf_rp_providers.ReadOnlyTests.test_e15_nothing_is_written_in_the_project_by_any_provider"
+      ]
+     },
+     "scope": "Fake CLIs stand in for the three providers (interface only); the live codex/kiro command lines are CHUA KIEM CHUNG until W45/T40b runs them for real."
     },
     "T40b": {
      "status": "blocked",
