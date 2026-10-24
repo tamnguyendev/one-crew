@@ -407,73 +407,126 @@ def _reconcile_events(conn, task_id):
 
 
 def held_runs(conn, task_id):
-    """The abandoned runs held with an unknown outcome and not released (run_id -> hold payload)."""
-    events = _reconcile_events(conn, task_id)
-    return {run_id: rows['verdict.run_held'] for run_id, rows in events.items()
-            if 'verdict.run_held' in rows and 'verdict.run_released' not in rows}
+    """The runs held with an unknown outcome and not released (run_id -> the hold record). A run is held as soon as its reconcile record
+    says `unknown` — the hold is that record, not a second event, so no write boundary can leave an unknown run unheld."""
+    return {run_id: _hold_of(rows) for run_id, rows in _reconcile_events(conn, task_id).items() if _hold_of(rows) is not None}
+
+
+def _hold_of(rows):
+    if 'verdict.run_released' in rows: return None
+    held = rows.get('verdict.run_held')
+    reconciled = rows.get('verdict.run_reconciled')
+    if held is not None: return held
+    if reconciled is not None and reconciled.get('determination') == 'unknown': return reconciled
+    return None
+
+
+def _held_message(run, hold):
+    return (f"Milestone {run.get('milestone')} has a run of unknown outcome (run {run.get('run_id')}, revision {run.get('revision')}, dispatched "
+            f"{hold.get('dispatched_at')}, process lost: {hold.get('abandoned_reason')}). It is held and not run again by itself: check what the "
+            f"verifier did, then `onecrew verdict release-run --plan {run.get('plan')} --run {run.get('run_id')} --reason ...`.")
+
+
+def _reconciled_payload(name, run, determination, detail):
+    return {'plan': name, 'revision': run.get('revision'), 'milestone': run.get('milestone'), 'run_id': run.get('run_id'), 'kind': run.get('kind'),
+            'abandoned_reason': (run.get('abandoned') or {}).get('reason'), 'determination': determination, 'detail': detail,
+            'established': determination not in ('unknown',)}          # reconciled != determined: only `established` records settle the outcome
+
+
+def _emit_reconciled(ledger, name, run, determination, detail, conn=None):
+    if conn is None:
+        with ledger.transaction(write=True) as connection:
+            return _emit_reconciled(ledger, name, run, determination, detail, connection)
+    current = plans.anchor_events(ledger, conn, name)
+    plans.emit(ledger, conn, current['task_id'], 'verdict.run_reconciled', _reconciled_payload(name, run, determination, detail))
 
 
 def reconcile(ledger, name, revision, milestone_id):
-    """Settle every abandoned, unreconciled run of (revision, milestone) before a new one. Returns the recorded state when a run was completed
-    from its receipt marker (the caller returns it instead of running again), None when a new run may start; raises LedgerError when a run
-    is held (unknown outcome) — nothing is dispatched then."""
+    """Before any new run of `milestone_id`, settle every earlier run of that milestone (any revision) whose end is not recorded:
+      * a held run (unknown outcome, not released)             -> raise: nothing is dispatched;
+      * a receipt issued but its verdict not recorded           -> record it from that receipt (no second X); returns the state;
+      * an abandoned run with a receipt marker                  -> issue + record the old run's receipt (no second X); returns the state;
+      * an abandoned run with only the `dispatched` marker      -> ONE write: `run_reconciled(unknown)` (which IS the hold) + `run_held`; raise;
+      * an abandoned run with no marker, or closed by its own error -> `run_reconciled(not_dispatched|raised)`; a new run may start.
+    Returns None when a new run may start. Idempotent: a second call writes nothing new."""
     reap(ledger, name)
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
-        runs = run_records(conn, state['task_id'])
+        runs = [r for r in run_records(conn, state['task_id']) if r.get('milestone') == milestone_id]
         events = _reconcile_events(conn, state['task_id'])
+        recorded = {v.get('receipt') for v in state['verdicts']}
     held = [r for r in runs if r.get('run_id') in held_runs_of(events)]
-    held = [r for r in held if (r.get('revision'), r.get('milestone')) == (revision, milestone_id)]
     if held:
-        raise LedgerError(_held_message(held[0], events[held[0]['run_id']]['verdict.run_held']))
+        raise LedgerError(_held_message(held[0], _hold_of(events[held[0]['run_id']])))
     for run in runs:
-        if (run.get('revision'), run.get('milestone')) != (revision, milestone_id) or run['abandoned'] is None or run.get('run_id') in events:
+        rows = events.get(run.get('run_id'), {})
+        if run['receipt'] is not None:
+            if run['receipt'].get('receipt') not in recorded:
+                shown = _record_issued(ledger, name, revision, milestone_id, run)
+                if shown is not None: return shown
+            _unmark(ledger, run['run_id'])
+            continue
+        if run['abandoned'] is None or 'verdict.run_reconciled' in rows:
             continue
         reason = run['abandoned'].get('reason')
         receipt_marker, dispatched = _marker(ledger, run['run_id'], 'receipt'), _marker(ledger, run['run_id'], 'dispatched')
         if reason == 'error' or dispatched is None:
-            determination = 'raised' if reason == 'error' else 'not_dispatched'       # the process itself saw X end / X never started
-            _emit_reconciled(ledger, name, run, determination, 'a new run may start')
+            _emit_reconciled(ledger, name, run, 'raised' if reason == 'error' else 'not_dispatched', 'a new run may start')
             _unmark(ledger, run['run_id'])
             continue
         if receipt_marker is not None:
             shown = _complete_from_marker(ledger, name, revision, milestone_id, run, receipt_marker)
-            if shown is not None:
-                return shown
+            if shown is not None: return shown
             continue
-        _emit_reconciled(ledger, name, run, 'unknown', 'X was dispatched and no receipt exists; held, not run again')
-        with ledger.transaction(write=True) as conn:
+        with ledger.transaction(write=True) as conn:                     # the unknown determination and the hold are one write
             current = plans.anchor_events(ledger, conn, name)
-            payload = {'plan': name, 'revision': revision, 'milestone': milestone_id, 'run_id': run['run_id'], 'kind': run.get('kind'),
-                       'dispatched_at': dispatched.get('at'), 'abandoned_reason': reason,
-                       'reason': 'The verifier was dispatched and its process was lost before any receipt: its effect (files it wrote, a model call) is unknown. '
-                                 'It is not run again by itself; release it with `verdict release-run` after checking.'}
-            plans.emit(ledger, conn, current['task_id'], 'verdict.run_held', payload)
-        raise LedgerError(_held_message(run, payload))
+            hold = {'plan': name, 'revision': run.get('revision'), 'milestone': milestone_id, 'run_id': run['run_id'], 'kind': run.get('kind'),
+                    'dispatched_at': dispatched.get('at'), 'abandoned_reason': reason,
+                    'reason': 'The verifier was dispatched and its process was lost before any receipt: its effect (files it wrote, a model call) is unknown. '
+                              'It is not run again by itself; release it with `verdict release-run` after checking.'}
+            plans.emit(ledger, conn, current['task_id'], 'verdict.run_reconciled',
+                       dict(_reconciled_payload(name, run, 'unknown', 'X was dispatched and no receipt exists; held, not run again'), dispatched_at=dispatched.get('at')))
+            plans.emit(ledger, conn, current['task_id'], 'verdict.run_held', hold)
+        raise LedgerError(_held_message(run, hold))
     return None
 
 
 def held_runs_of(events):
-    return {run_id for run_id, rows in events.items() if 'verdict.run_held' in rows and 'verdict.run_released' not in rows}
+    return {run_id for run_id, rows in events.items() if _hold_of(rows) is not None}
 
 
-def _held_message(run, hold):
-    return (f"Milestone {run.get('milestone')} has a run of unknown outcome (run {run.get('run_id')}, dispatched {hold.get('dispatched_at')}, "
-            f"process lost: {hold.get('abandoned_reason')}). It is held and not run again by itself: check what the verifier did, then "
-            f"`onecrew verdict release-run --plan {run.get('plan')} --run {run.get('run_id')} --reason ...`.")
-
-
-def _emit_reconciled(ledger, name, run, determination, detail):
-    with ledger.transaction(write=True) as conn:
-        current = plans.anchor_events(ledger, conn, name)
-        plans.emit(ledger, conn, current['task_id'], 'verdict.run_reconciled',
-                   {'plan': name, 'revision': run.get('revision'), 'milestone': run.get('milestone'), 'run_id': run.get('run_id'), 'kind': run.get('kind'),
-                    'abandoned_reason': run['abandoned'].get('reason'), 'determination': determination, 'detail': detail})
+def _record_issued(ledger, name, revision, milestone_id, run):
+    """A receipt that verdict.run issued for this run exists in the ledger but its verdict was never recorded (crash between the two writes).
+    Record it from the ledger's own receipt — the one place the result lives — with the integrity record of its marker when present, else
+    recomputed against the approved base. Returns the recorded state, or None when the receipt belongs to another revision (then it is
+    evidence of a known outcome only; a new run may start and the run is marked reconciled)."""
+    issued = run['receipt']
+    if issued.get('revision') != revision:
+        with ledger.transaction() as conn:
+            events = _reconcile_events(conn, plans.anchor_events(ledger, conn, name)['task_id'])
+        if 'verdict.run_reconciled' not in events.get(run.get('run_id'), {}):
+            _emit_reconciled(ledger, name, run, 'completed_stale', 'the receipt was issued for an earlier revision; its verdict is not recorded on the current one')
+        return None
+    blob = issued['receipt']
+    try:
+        body = json.loads(Snapshots(ledger.state_root).read_blob(blob))
+    except Exception as error:                                           # noqa: BLE001
+        raise LedgerError(f'The issued receipt {blob[:12]} of run {run.get("run_id")} cannot be read; nothing is run again until it is settled: {error}') from error
+    marker = _marker(ledger, run['run_id'], 'receipt') or {}
+    integrity = marker.get('integrity')
+    if integrity is None and run.get('kind') == 'command':
+        with ledger.transaction() as conn:
+            state = plans.anchor_events(ledger, conn, name)
+        integrity = _test_integrity(ledger, Path(issued.get('cwd') or marker.get('cwd') or ledger.project), state['approved'], body)
+    shown = record(ledger, name, milestone_id, integrity_result(_result(run.get('kind'), body), integrity), run.get('kind'), blob, body['artifact_sha'], integrity=integrity)
+    _unmark(ledger, run['run_id'])
+    return shown
 
 
 def _complete_from_marker(ledger, name, revision, milestone_id, run, marker):
     """Crash at (c): X finished and its receipt is on disk. Issue and record it for the OLD run (no second X). None when the plan moved on
-    (the receipt is then evidence of a known outcome only, and a new run may start)."""
+    (the receipt is then evidence of a known outcome only, and a new run may start). The marker is removed only after the verdict is
+    recorded, so a crash in between is completed by `_record_issued` on the next call."""
     blob, receipt = marker['blob'], marker['receipt']
     try:
         Snapshots(ledger.state_root).read_blob(blob)
@@ -484,32 +537,30 @@ def _complete_from_marker(ledger, name, revision, milestone_id, run, marker):
     with ledger.transaction(write=True) as conn:
         current = plans.anchor_events(ledger, conn, name)
         again = plans.resolve(ledger, current)
-        if again is None or again['revision'] != revision or (again['frozen'] and milestone_id in again['frozen']['frozen']):
-            plans.emit(ledger, conn, current['task_id'], 'verdict.run_reconciled',
-                       {'plan': name, 'revision': revision, 'milestone': milestone_id, 'run_id': run['run_id'], 'kind': run.get('kind'),
-                        'abandoned_reason': run['abandoned'].get('reason'), 'determination': 'completed_stale', 'detail': 'X finished; the plan changed since, so its receipt is not issued'})
+        if again is None or again['revision'] != revision or run.get('revision') != revision or (again['frozen'] and milestone_id in again['frozen']['frozen']):
+            _emit_reconciled(ledger, name, run, 'completed_stale', 'X finished; the plan changed since, so its receipt is not issued', conn)
             stale = True
         else:
             from .retention import pin_evidence
             pin_evidence(ledger, name, receipt['artifact_sha'], receipt, strict=True)
-            plans.emit(ledger, conn, current['task_id'], 'verdict.run_reconciled',
-                       {'plan': name, 'revision': revision, 'milestone': milestone_id, 'run_id': run['run_id'], 'kind': run.get('kind'),
-                        'abandoned_reason': run['abandoned'].get('reason'), 'determination': 'completed', 'detail': 'X finished before the crash; its receipt is issued, X is not run again'})
+            _emit_reconciled(ledger, name, run, 'completed', 'X finished before the crash; its receipt is issued, X is not run again', conn)
             plans.emit(ledger, conn, current['task_id'], 'verdict.receipt_issued',
                        {'plan': current['name'], 'revision': revision, 'milestone': milestone_id, 'receipt': blob, 'cwd': marker.get('cwd'), 'run_id': run['run_id'], 'reconciled': True})
             stale = False
-    _unmark(ledger, run['run_id'])
     if stale:
+        _unmark(ledger, run['run_id'])
         return None
     integrity = marker.get('integrity')
-    result = integrity_result(_result(run.get('kind'), receipt), integrity)
-    return record(ledger, name, milestone_id, result, run.get('kind'), blob, receipt['artifact_sha'], integrity=integrity)
+    shown = record(ledger, name, milestone_id, integrity_result(_result(run.get('kind'), receipt), integrity), run.get('kind'), blob, receipt['artifact_sha'], integrity=integrity)
+    _unmark(ledger, run['run_id'])
+    return shown
 
 
 def release_run(ledger, name, run_id, reason):
     """The explicit decision that lets a held milestone run again. Records who (ONECREW_ACTOR, as the AI's own name) and why; never implied by
-    silence, a restart or a second `verdict run`."""
+    silence, a restart or a second `verdict run`. It does not change the grant: the next run is checked by the same rules as any run."""
     text_field(reason, 'reason', 2000)
+    if not reason.strip(): raise LedgerError('A release needs a reason (what was checked about the lost run).')
     with ledger.transaction(write=True) as conn:
         state = plans.anchor_events(ledger, conn, name)
         held = held_runs(conn, state['task_id'])
@@ -672,6 +723,9 @@ def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes):
     run_id = uuid.uuid4().hex[:12]
     with ledger.transaction(write=True) as conn:                    # the check and the write are one transaction: two runs cannot both pass it
         state = plans.anchor_events(ledger, conn, name)
+        held = [r for r in held_runs(conn, state['task_id']).values() if r.get('milestone') == milestone_id]
+        if held:
+            raise LedgerError(f'Milestone {milestone_id} has a held run of unknown outcome ({held[0].get("run_id")}); release it before a new run.')
         for run in run_records(conn, state['task_id']):
             if _open(run) and (run.get('revision'), run.get('milestone')) == (revision, milestone_id) and lost_reason(run, started, process_alive) is None:
                 raise LedgerError(f'Milestone {milestone_id} is already being checked (run {run.get("run_id")}, process {run.get("pid")} since {run.get("started")}); '
@@ -715,9 +769,9 @@ def status(ledger, name, now=None, alive=None):
             else: outcome = 'timed_out' if _receipt_body(ledger, recorded.get('receipt')).get('timed_out') else 'inconclusive'
         elif run['abandoned'] is not None:
             outcome, reason = 'abandoned', run['abandoned'].get('reason')
-            rows = reconciled.get(run.get('run_id'), {})
-            if 'verdict.run_held' in rows and 'verdict.run_released' not in rows:
-                outcome, reason = 'held_unknown_outcome', rows['verdict.run_held'].get('reason')     # W37a: not run again until released
+            hold = _hold_of(reconciled.get(run.get('run_id'), {}))
+            if hold is not None:
+                outcome, reason = 'held_unknown_outcome', hold.get('reason') or hold.get('detail')     # W37a: not run again until released
         elif lost_reason(run, now, alive):
             outcome, reason = 'abandoned', 'lost'                           # only when closing it failed to write
         else:
