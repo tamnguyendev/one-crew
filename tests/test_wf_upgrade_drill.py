@@ -43,6 +43,11 @@ class UpgradeDrillTests(unittest.TestCase):
         self.assertEqual(result['reconcile']['effect_replays_before_reconcile'],0)
         self.assertEqual(result['reconcile']['marker'],'once,after-reconcile')
         self.assertTrue(result['upgrade_preserved']['tables']['attempts'])
+        finding=result['finding']                                                      # T13b [E3]: a real open finding survives rollback + roll-forward
+        self.assertEqual(finding['before']['criterion'],'links'); self.assertTrue(finding['after']['same'])
+        self.assertEqual(finding['after']['id'],finding['before']['id']); self.assertEqual(finding['after']['receipt_sha256'],finding['before']['receipt_sha256'])
+        order=[row['label'] for row in result['observations']]
+        self.assertLess(order.index('finding-opened'),order.index('rolled-back-read')); self.assertLess(order.index('rolled-forward-read'),order.index('finding-kept-after-roll-forward'))
         self.assertEqual(json.loads((self.out/'receipt.json').read_text())['result'],'pass')
 
     def test_stale_scan_is_rejected_before_any_install_swap(self):

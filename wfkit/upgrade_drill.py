@@ -214,6 +214,7 @@ _RESULT={{'proof':proof,'unknown_attempt':'ATT-fixture','used_calls':2}}
         if any(new_read.get(key)!=value for key,value in old_read.items()):
             raise LedgerError('Installed legacy plan projection changed across upgrade.')
         unknown=self.prepare_unknown()
+        finding=self.open_finding()
         before_scan=snapshot(self.state)
         rejected=self.cli('blocked-scan','compat','scan','--json')
         blocked=guard_swap(self.state,rejected)
@@ -239,6 +240,7 @@ _RESULT={{'proof':proof,'unknown_attempt':'ATT-fixture','used_calls':2}}
         self.install('current'); self.cli('rolled-forward-read','plan','show','legacy')
         if snapshot(self.state)!=rollback_before: raise LedgerError('Roll-forward changed retained state before reconcile.')
         reconciled=self.reconcile_unknown(unknown)
+        kept=self.finding_after(finding)
         if snapshot(self.out/'source-state')!=source_before: raise LedgerError('Pristine source fixture was changed.')
         result={'schema':1,'result':'pass','kind':'installed-upgrade-drill','provenance':{'kind':'real','source':'local installed CLI/Control observations'},
             'scenario':'generated fixture, not pilot','owner_acceptance':False,'release_gate':False,
@@ -246,7 +248,7 @@ _RESULT={{'proof':proof,'unknown_attempt':'ATT-fixture','used_calls':2}}
             'artifacts':self.artifacts,'installs':self.installs,'observations':self.records,
             'upgrade_preserved':before,'rollback_preserved':rollback_before,'source_unchanged':True,
             'rejected':{'switched':False,'scan':rejected},'allowed':{'switched':True,'scan':allowed},
-            'frozen_active_copies':frozen,'reconcile':reconciled}
+            'frozen_active_copies':frozen,'reconcile':reconciled,'finding':{'before':finding,'after':kept}}
         (self.out/'receipt.json').write_text(json.dumps(result,ensure_ascii=False,sort_keys=True,indent=2),encoding='utf-8')
         return result
 
@@ -277,6 +279,51 @@ def effect(_):
     raise OSError('fixture result lost after local effect')
 receipt=control.execute_action(action['id'],effect); assert receipt['status']=='unknown'
 _RESULT={{'task':task['id'],'action':action['id'],'revision':action['revision'],'marker':{str(marker)!r}}}
+''')
+        return result
+
+    def open_finding(self):
+        """T13b [E3]: a REAL open finding (a doc check that fails on the current build) in a namespaced root, so the drill proves that the
+        finding, its evidence receipt and its ID survive rollback to the previous build and roll-forward unchanged."""
+        (self.project/'guide.md').write_text('# Guide\n[reference](missing.txt)\n',encoding='utf-8')
+        for args in (['add','guide.md'],['-c','user.name=t','-c','user.email=t@t','commit','-q','-m','guide']):
+            subprocess.run(['git',*args],cwd=self.project,check=True,capture_output=True)
+        contract=old.contract('Finding preservation fixture')
+        contract['milestones']=[{'id':'M1','title':'Check guide','mode':'until_pass','max_repairs':3,
+                                 'verifier':{'type':'doc','config':{'docs':['guide.md']}},'covers':['O1']}]
+        contract['scope']={'owned':['guide.md']}; contract['understanding']['target']['paths']=['guide.md']
+        contract['preconditions']=[{'id':'P1','check':'path_exists','args':{'path':'guide.md'},'why':'the guide is there'}]
+        path=self.out/'finding.json'; path.write_text(json.dumps(contract),encoding='utf-8')
+        self.cli('finding-root-create','plan','propose','findings','--file',str(path),'--author','fixture','--workflow')
+        result,_=self.capture('finding-opened',f'''
+import json, hashlib
+from onecrew.ledger import Ledger
+from onecrew.snapshots import Snapshots
+from onecrew.v2 import plan,verdict,findings
+ledger=Ledger({str(self.project)!r},{str(self.state)!r})
+plan.approve(ledger,'findings','owner','fixture approval on a temporary generated ledger; not an owner action')   # seals the budget the verifier needs
+shown=verdict.run(ledger,'findings','M1')
+last=shown['milestones'][0]['last_verdict']; assert last['result']=='fail',last
+rows=findings.list_findings(ledger,'findings',open_only=True); assert len(rows)==1 and rows[0]['criterion']=='links',rows
+receipt=Snapshots(ledger.state_root).read_blob(rows[0]['source']['receipt'])
+_RESULT={{'id':rows[0]['id'],'criterion':rows[0]['criterion'],'receipt':rows[0]['source']['receipt'],'receipt_sha256':hashlib.sha256(receipt).hexdigest(),
+          'state':rows[0].get('state') or rows[0].get('status'),'row':rows[0]}}
+''')
+        return result
+
+    def finding_after(self,finding):
+        result,_=self.capture('finding-kept-after-roll-forward',f'''
+import json, hashlib
+from onecrew.ledger import Ledger
+from onecrew.snapshots import Snapshots
+from onecrew.v2 import findings
+ledger=Ledger({str(self.project)!r},{str(self.state)!r}); before={finding!r}
+rows=findings.list_findings(ledger,'findings',open_only=True)
+assert [row['id'] for row in rows]==[before['id']],rows
+assert rows[0]==before['row'],(rows[0],before['row'])
+receipt=Snapshots(ledger.state_root).read_blob(before['receipt'])
+assert hashlib.sha256(receipt).hexdigest()==before['receipt_sha256']
+_RESULT={{'id':rows[0]['id'],'row':rows[0],'receipt_sha256':hashlib.sha256(receipt).hexdigest(),'same':rows[0]==before['row']}}
 ''')
         return result
 
