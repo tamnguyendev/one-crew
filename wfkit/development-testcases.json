@@ -155,16 +155,28 @@
        ]
       },
       "T38b": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
-        "check.r01_report"
+        "check.r01_report",
+        "check.t38b_task_states"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T38b has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E4": [
+         "tests.test_wf_t38b_task_states.TaskStateTests.test_e4_e7_e8_three_states_with_their_sources",
+         "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_e1_each_acceptance_is_in_its_state_with_evidence_link"
+        ],
+        "E7": [
+         "tests.test_wf_t38b_task_states.TaskStateTests.test_e4_e7_e8_three_states_with_their_sources",
+         "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_e3_nothing_but_fresh_evidence_is_reported_as_ok",
+         "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_counter_a_report_that_ignores_the_artifact_would_call_ac2_ok"
+        ],
+        "E8": [
+         "tests.test_wf_t38b_task_states.TaskStateTests.test_e4_e7_e8_three_states_with_their_sources",
+         "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_a_receipt_that_cannot_be_read_does_not_count_as_evidence"
+        ]
+       },
+       "scope": "Three command milestones on a temporary ledger (pass / fail with a repair left / never run); the words are checked on handover and present pages."
       },
       "T42": {
        "status": "partial",
@@ -313,6 +325,38 @@
      ],
      "installed": false,
      "scope": "Codex P2: the gate runs on a clean detached snapshot of one commit; moved/dirty snapshot or changed external source refuses."
+    },
+    "check.t38b_task_states": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t38b_task_states"
+     ],
+     "installed": false,
+     "scope": "T38b E4/E7/E8: three task states (da-kiem / phai kiem lai / testcase-da-dac-ta) from their own evidence on handover and present."
+    },
+    "check.t13a_emitted_kinds": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t13a_emitted_kinds"
+     ],
+     "installed": false,
+     "scope": "R00 task W11a (T13a E1/E2) evidence kept in the development registry because the R00 kit is frozen history: kinds really written on a legacy anchor by the current code; old binary ee46539 still reads it; class-B/unknown refused."
+    },
+    "check.t49_counterexamples": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t49_counterexamples"
+     ],
+     "installed": false,
+     "scope": "R00 task W46a/W46b (T49a E9/E18/E23/E24) evidence: one scan rule removed at a time gives a different, wrong table that the fixture expectations catch."
+    },
+    "check.installed_r00_scenarios": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_r00_scenarios"
+     ],
+     "installed": true,
+     "scope": "R00 task W40 (T33a E1): the R00 scenarios (T48a, T13a, T20, T49a, verdict run) run from the installed wheel with the module boundary check."
     }
    },
    "acceptance": {
@@ -354,16 +398,28 @@
      ]
     },
     "T38b": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
-      "check.r01_report"
+      "check.r01_report",
+      "check.t38b_task_states"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T38b has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E4": [
+       "tests.test_wf_t38b_task_states.TaskStateTests.test_e4_e7_e8_three_states_with_their_sources",
+       "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_e1_each_acceptance_is_in_its_state_with_evidence_link"
+      ],
+      "E7": [
+       "tests.test_wf_t38b_task_states.TaskStateTests.test_e4_e7_e8_three_states_with_their_sources",
+       "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_e3_nothing_but_fresh_evidence_is_reported_as_ok",
+       "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_counter_a_report_that_ignores_the_artifact_would_call_ac2_ok"
+      ],
+      "E8": [
+       "tests.test_wf_t38b_task_states.TaskStateTests.test_e4_e7_e8_three_states_with_their_sources",
+       "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_a_receipt_that_cannot_be_read_does_not_count_as_evidence"
+      ]
+     },
+     "scope": "Three command milestones on a temporary ledger (pass / fail with a repair left / never run); the words are checked on handover and present pages."
     },
     "T42": {
      "status": "partial",
@@ -2385,17 +2441,65 @@
        ]
       },
       "T07a": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
+        "check.findings",
+        "check.findings_integration",
+        "check.adapter_findings",
         "check.finding_scope",
-        "check.repair_tasks"
+        "check.repair_tasks",
+        "check.t04d_finding_holds_branch",
+        "check.t11_integration_finding",
+        "check.t07a_e14_request_holds"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T07a has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E2": [
+         "tests.test_wf_findings.FindingTests.test_dedup_stable_claims_and_scope_update",
+         "tests.test_wf_adapter_findings.AdapterFindings.test_duplicate_failure_preserves_first_source_and_supersedes_intermediate_pass"
+        ],
+        "E3": [
+         "tests.test_wf_findings.FindingTests.test_out_of_order_closure_is_durable_and_does_not_close_later_open",
+         "tests.test_wf_findings.FindingTests.test_green_receipt_from_before_the_finding_cannot_close_it"
+        ],
+        "E4": [
+         "tests.test_wf_findings.FindingTests.test_rejection_needs_authentic_passing_evidence",
+         "tests.test_wf_findings.FindingTests.test_forged_unissued_or_unrecorded_receipts_are_not_evidence"
+        ],
+        "E6": [
+         "tests.test_wf_findings.FindingTests.test_dedup_stable_claims_and_scope_update",
+         "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_the_same_red_receipt_twice_merges_and_writes_no_second_register_event"
+        ],
+        "E7": [
+         "tests.test_wf_findings.FindingTests.test_t28_pass_evidence_closes_via_common_register_and_survives_restart",
+         "tests.test_wf_findings.FindingTests.test_rejection_needs_authentic_passing_evidence",
+         "tests.test_wf_findings.FindingTests.test_wrong_generation_artifact_plan_and_criterion_do_not_close"
+        ],
+        "E9": [
+         "tests.test_wf_findings.FindingTests.test_failed_criterion_retains_context_and_notes_stay_in_receipt",
+         "tests.test_wf_findings_integration.FindingRuntimeTests.test_real_verdict_registers_and_next_reviewer_sees_unresolved_finding"
+        ],
+        "E10": [
+         "tests.test_wf_findings.FindingTests.test_next_revision_receives_open_finding_and_old_receipt_cannot_close",
+         "tests.test_wf_findings_integration.FindingRuntimeTests.test_real_verdict_registers_and_next_reviewer_sees_unresolved_finding"
+        ],
+        "E11": [
+         "tests.test_wf_findings.FindingTests.test_failed_criterion_retains_context_and_notes_stay_in_receipt"
+        ],
+        "E12": [
+         "tests.test_wf_findings.FindingTests.test_changed_criterion_is_stale_and_not_in_next_reviewer_context"
+        ],
+        "E13": [
+         "tests.test_wf_finding_scope.FindingScopeTests.test_real_register_holds_writers_readers_and_dependents_but_independent_node_runs",
+         "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root"
+        ],
+        "E14": [
+         "tests.test_wf_t07a_e14_request_holds.RequestHoldTests.test_e14_a_scoped_request_holds_its_nodes_and_dependents_through_the_real_path_and_a_card_holds_nothing",
+         "tests.test_wf_t07a_e14_request_holds.RequestHoldTests.test_wrong_wiring_v1_default_policy_would_hold_independent_work",
+         "tests.test_wf_finding_scope.FindingScopeTests.test_real_register_holds_writers_readers_and_dependents_but_independent_node_runs"
+        ]
+       },
+       "scope": "Real register, real verdict/reviewer receipts, real engine holds on temporary ledgers; E14 through admission_core.blocking (the v1 rule) and dependency_core.affected_tasks. E11 counter-example (every note turned into a finding) is asserted by behaviour, not by a mutant."
       },
       "T11": {
        "status": "complete",
@@ -2621,16 +2725,41 @@
        ]
       },
       "T18b": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
-        "check.progress"
+        "check.progress",
+        "check.t18b_liveness"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T18b has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E9": [
+         "tests.test_wf_progress.ProgressRulesTests.test_long_command_with_new_output_runs_until_its_cap",
+         "tests.test_wf_t18b_liveness.LivenessTests.test_e9_e13_a_running_command_is_observed_alive_through_the_shared_tracker_and_silence_is_not_blocked"
+        ],
+        "E10": [
+         "tests.test_wf_progress.ProgressRulesTests.test_v1_and_v2_use_same_counter_and_new_source_resets_exploration"
+        ],
+        "E11": [
+         "tests.test_wf_progress.ProgressRulesTests.test_fourth_rejected_hypothesis_blocks_with_evidence"
+        ],
+        "E12": [
+         "tests.test_wf_progress.ProgressRulesTests.test_wait_and_unknown_do_not_consume_repeat_budget",
+         "tests.test_wf_progress.ProgressRulesTests.test_quiet_output_is_unknown_not_proof_of_no_progress_and_receipt_advances"
+        ],
+        "E13": [
+         "tests.test_wf_progress.ProgressRulesTests.test_recovery_decision_remains_the_exact_v1_implementation",
+         "tests.test_wf_progress.ProgressRulesTests.test_v1_and_v2_use_same_counter_and_new_source_resets_exploration",
+         "tests.test_wf_t18b_liveness.LivenessTests.test_e9_e13_a_running_command_is_observed_alive_through_the_shared_tracker_and_silence_is_not_blocked"
+        ],
+        "E14": [
+         "tests.test_wf_t18b_liveness.LivenessTests.test_e9_e13_a_running_command_is_observed_alive_through_the_shared_tracker_and_silence_is_not_blocked",
+         "tests.test_wf_progress.ProgressRulesTests.test_wait_and_unknown_do_not_consume_repeat_budget"
+        ],
+        "E15": [
+         "tests.test_wf_progress.ProgressRulesTests.test_invalid_or_cosmetic_measurements_cannot_be_progress"
+        ]
+       },
+       "scope": "Shared progress_track for v1 and v2 (one counter); liveness of a real Supervisor command through common_executor.liveness; M/K/H/W/U rules on temporary ledgers."
       },
       "T29": {
        "status": "complete",
@@ -2829,6 +2958,30 @@
      ],
      "installed": false,
      "scope": "Codex P1 W37a fault injection at every write boundary of the reconcile; X counted by a marker file."
+    },
+    "check.t04d_finding_holds_branch": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t04d_finding_holds_branch"
+     ],
+     "installed": false,
+     "scope": "Two real Control slots, fixture isolated executor, real register."
+    },
+    "check.t07a_e14_request_holds": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t07a_e14_request_holds"
+     ],
+     "installed": false,
+     "scope": "T07a E14: scoped requests hold their nodes through the shared admission rule (admission_core.blocking); wrong-wiring counter-example."
+    },
+    "check.t18b_liveness": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t18b_liveness"
+     ],
+     "installed": false,
+     "scope": "T18b E9/E13: a running command is observed alive through the shared progress tracker; silence is unknown, not a stop; a failing hook never stops the command."
     }
    },
    "acceptance": {
@@ -2847,17 +3000,65 @@
      ]
     },
     "T07a": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
+      "check.findings",
+      "check.findings_integration",
+      "check.adapter_findings",
       "check.finding_scope",
-      "check.repair_tasks"
+      "check.repair_tasks",
+      "check.t04d_finding_holds_branch",
+      "check.t11_integration_finding",
+      "check.t07a_e14_request_holds"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T07a has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E2": [
+       "tests.test_wf_findings.FindingTests.test_dedup_stable_claims_and_scope_update",
+       "tests.test_wf_adapter_findings.AdapterFindings.test_duplicate_failure_preserves_first_source_and_supersedes_intermediate_pass"
+      ],
+      "E3": [
+       "tests.test_wf_findings.FindingTests.test_out_of_order_closure_is_durable_and_does_not_close_later_open",
+       "tests.test_wf_findings.FindingTests.test_green_receipt_from_before_the_finding_cannot_close_it"
+      ],
+      "E4": [
+       "tests.test_wf_findings.FindingTests.test_rejection_needs_authentic_passing_evidence",
+       "tests.test_wf_findings.FindingTests.test_forged_unissued_or_unrecorded_receipts_are_not_evidence"
+      ],
+      "E6": [
+       "tests.test_wf_findings.FindingTests.test_dedup_stable_claims_and_scope_update",
+       "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_the_same_red_receipt_twice_merges_and_writes_no_second_register_event"
+      ],
+      "E7": [
+       "tests.test_wf_findings.FindingTests.test_t28_pass_evidence_closes_via_common_register_and_survives_restart",
+       "tests.test_wf_findings.FindingTests.test_rejection_needs_authentic_passing_evidence",
+       "tests.test_wf_findings.FindingTests.test_wrong_generation_artifact_plan_and_criterion_do_not_close"
+      ],
+      "E9": [
+       "tests.test_wf_findings.FindingTests.test_failed_criterion_retains_context_and_notes_stay_in_receipt",
+       "tests.test_wf_findings_integration.FindingRuntimeTests.test_real_verdict_registers_and_next_reviewer_sees_unresolved_finding"
+      ],
+      "E10": [
+       "tests.test_wf_findings.FindingTests.test_next_revision_receives_open_finding_and_old_receipt_cannot_close",
+       "tests.test_wf_findings_integration.FindingRuntimeTests.test_real_verdict_registers_and_next_reviewer_sees_unresolved_finding"
+      ],
+      "E11": [
+       "tests.test_wf_findings.FindingTests.test_failed_criterion_retains_context_and_notes_stay_in_receipt"
+      ],
+      "E12": [
+       "tests.test_wf_findings.FindingTests.test_changed_criterion_is_stale_and_not_in_next_reviewer_context"
+      ],
+      "E13": [
+       "tests.test_wf_finding_scope.FindingScopeTests.test_real_register_holds_writers_readers_and_dependents_but_independent_node_runs",
+       "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root"
+      ],
+      "E14": [
+       "tests.test_wf_t07a_e14_request_holds.RequestHoldTests.test_e14_a_scoped_request_holds_its_nodes_and_dependents_through_the_real_path_and_a_card_holds_nothing",
+       "tests.test_wf_t07a_e14_request_holds.RequestHoldTests.test_wrong_wiring_v1_default_policy_would_hold_independent_work",
+       "tests.test_wf_finding_scope.FindingScopeTests.test_real_register_holds_writers_readers_and_dependents_but_independent_node_runs"
+      ]
+     },
+     "scope": "Real register, real verdict/reviewer receipts, real engine holds on temporary ledgers; E14 through admission_core.blocking (the v1 rule) and dependency_core.affected_tasks. E11 counter-example (every note turned into a finding) is asserted by behaviour, not by a mutant."
     },
     "T11": {
      "status": "complete",
@@ -3083,16 +3284,41 @@
      ]
     },
     "T18b": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
-      "check.progress"
+      "check.progress",
+      "check.t18b_liveness"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T18b has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E9": [
+       "tests.test_wf_progress.ProgressRulesTests.test_long_command_with_new_output_runs_until_its_cap",
+       "tests.test_wf_t18b_liveness.LivenessTests.test_e9_e13_a_running_command_is_observed_alive_through_the_shared_tracker_and_silence_is_not_blocked"
+      ],
+      "E10": [
+       "tests.test_wf_progress.ProgressRulesTests.test_v1_and_v2_use_same_counter_and_new_source_resets_exploration"
+      ],
+      "E11": [
+       "tests.test_wf_progress.ProgressRulesTests.test_fourth_rejected_hypothesis_blocks_with_evidence"
+      ],
+      "E12": [
+       "tests.test_wf_progress.ProgressRulesTests.test_wait_and_unknown_do_not_consume_repeat_budget",
+       "tests.test_wf_progress.ProgressRulesTests.test_quiet_output_is_unknown_not_proof_of_no_progress_and_receipt_advances"
+      ],
+      "E13": [
+       "tests.test_wf_progress.ProgressRulesTests.test_recovery_decision_remains_the_exact_v1_implementation",
+       "tests.test_wf_progress.ProgressRulesTests.test_v1_and_v2_use_same_counter_and_new_source_resets_exploration",
+       "tests.test_wf_t18b_liveness.LivenessTests.test_e9_e13_a_running_command_is_observed_alive_through_the_shared_tracker_and_silence_is_not_blocked"
+      ],
+      "E14": [
+       "tests.test_wf_t18b_liveness.LivenessTests.test_e9_e13_a_running_command_is_observed_alive_through_the_shared_tracker_and_silence_is_not_blocked",
+       "tests.test_wf_progress.ProgressRulesTests.test_wait_and_unknown_do_not_consume_repeat_budget"
+      ],
+      "E15": [
+       "tests.test_wf_progress.ProgressRulesTests.test_invalid_or_cosmetic_measurements_cannot_be_progress"
+      ]
+     },
+     "scope": "Shared progress_track for v1 and v2 (one counter); liveness of a real Supervisor command through common_executor.liveness; M/K/H/W/U rules on temporary ledgers."
     },
     "T29": {
      "status": "complete",
@@ -3728,23 +3954,49 @@
        "scope": "Two real Control slots with a fixture isolated executor; the finding comes from the real register through a fixture failed check."
       },
       "T07b": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.parallel_engine",
         "check.managed_executor",
         "check.managed_hold",
-        "check.engine_managed"
+        "check.engine_managed",
+        "check.findings",
+        "check.finding_scope",
+        "check.t04d_finding_holds_branch",
+        "check.t11_integration_finding",
+        "check.hook_holds_generation",
+        "check.t07b_e16_continuation"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T07b has not been independently certified by this registry."
-        },
-        {
-         "kind": "final-artifact-rerun",
-         "detail": "Failed-produced-node advancement and unchanged-branch late-result regressions are repaired; full source matrix remains to be certified on the final artifact."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_managed_hold.ManagedHoldTests.test_new_finding_pauses_the_running_managed_node_at_its_safe_point_and_release_reuses_the_candidate",
+         "tests.test_wf_finding_scope.FindingScopeTests.test_late_finding_retains_settled_candidate_then_resolution_releases_without_retry",
+         "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root"
+        ],
+        "E5": [
+         "tests.test_wf_findings.FindingTests.test_wrong_generation_artifact_plan_and_criterion_do_not_close",
+         "tests.test_wf_findings.FindingTests.test_old_generation_pass_cannot_close_after_new_generation_is_recorded",
+         "tests.test_wf_parallel_engine.ParallelEngineTests.test_failed_branch_can_repair_while_independent_worker_finishes_original_generation"
+        ],
+        "E8": [
+         "tests.test_wf_managed_executor.ManagedExecutorTests.test_crash_before_dispatch_is_once_and_saved_candidate_replays_without_process_or_charge",
+         "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_the_same_red_receipt_twice_merges_and_writes_no_second_register_event",
+         "tests.test_wf_t07b_e16_continuation.ContinuationTests.test_e16_release_of_a_partial_candidate_continues_with_a_new_attempt_and_keeps_the_spent_budget"
+        ],
+        "E15": [
+         "tests.test_wf_hook_holds_generation.HookHoldsGenerationTests.test_marker_of_another_anchor_or_older_generation_is_ignored",
+         "tests.test_wf_engine_managed.EngineManagedTests.test_settled_but_unknown_managed_result_cannot_be_replayed_by_new_internal_revision",
+         "tests.test_wf_t07b_e16_continuation.ContinuationTests.test_e16_release_of_a_partial_candidate_continues_with_a_new_attempt_and_keeps_the_spent_budget"
+        ],
+        "E16": [
+         "tests.test_wf_managed_executor.ManagedExecutorTests.test_pause_is_requested_during_operation_then_acknowledged_at_real_safe_point",
+         "tests.test_wf_managed_hold.ManagedHoldTests.test_new_finding_pauses_the_running_managed_node_at_its_safe_point_and_release_reuses_the_candidate",
+         "tests.test_wf_t07b_e16_continuation.ContinuationTests.test_e16_release_of_a_partial_candidate_continues_with_a_new_attempt_and_keeps_the_spent_budget",
+         "tests.test_wf_t07b_e16_continuation.ContinuationTests.test_a_partial_result_without_a_pause_also_continues_with_a_new_attempt"
+        ]
+       },
+       "scope": "Real managed worker processes (Supervisor) on temporary ledgers; the generation fence is control_core attempt generation, not a rewritten comparison; E16 both ways: a complete candidate is adopted without rerun, a partial candidate is continued by a new linked attempt."
       },
       "T08b": {
        "status": "partial",
@@ -3785,19 +4037,43 @@
        "scope": "Real local supervised processes as the managed worker (no provider); a real Claude Code or Codex session being paused is not proven."
       },
       "T30": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.managed_executor",
         "check.node_actions_cli",
         "check.engine_managed",
-        "check.host_checkpoint"
+        "check.host_checkpoint",
+        "check.host_v1_guard",
+        "check.t08b_crash_before_dispatch",
+        "check.t30_counterexamples"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T30 has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_host (whole module, registered as check.host_v1_guard; tests.test_control is run outside the gate: one environment-conditional skip)"
+        ],
+        "E2": [
+         "tests.test_wf_host_checkpoint.HostCheckpointTests.test_missing_registration_is_read_only_and_never_claims_reboot_restart",
+         "tests.test_wf_host_checkpoint.HostCheckpointTests.test_existing_v1_registration_and_real_pid_lease_are_the_source"
+        ],
+        "E3": [
+         "tests.test_wf_managed_executor.ManagedExecutorTests.test_actual_controller_death_after_dispatch_reconciles_before_any_retry",
+         "tests.test_wf_t08b_crash_before_dispatch.CrashBeforeDispatchTests.test_e1_a_real_crash_after_prepared_before_dispatching_runs_x_exactly_once_after_restart",
+         "tests.test_wf_engine_managed.EngineManagedTests.test_acknowledged_pause_is_held_then_same_candidate_is_released_without_another_process"
+        ],
+        "E4": [
+         "tests.test_wf_host_checkpoint.HostCheckpointTests.test_missing_registration_is_read_only_and_never_claims_reboot_restart"
+        ],
+        "E5": [
+         "tests.test_wf_managed_executor.ManagedExecutorTests.test_actual_controller_death_after_effect_before_receipt_keeps_marker_once",
+         "tests.test_wf_managed_executor.ManagedExecutorTests.test_unknown_launch_or_missing_candidate_is_reconciled_and_never_blindly_replayed"
+        ],
+        "E6": [
+         "tests.test_wf_t30_counterexamples.RecoveryCounterexampleTests.test_e6_a_recovery_that_skips_reconcile_never_settles_the_crashed_attempt",
+         "tests.test_wf_t30_counterexamples.HostStatusCounterexampleTests.test_e6_a_status_that_claims_background_running_without_reading_the_host_is_caught"
+        ]
+       },
+       "scope": "Real controller death (os._exit) in a child process; the v1 host tests as the E1 guard; host status read from the v1 registry/lease files only."
       },
       "T54h": {
        "status": "partial",
@@ -3904,6 +4180,62 @@
      ],
      "installed": false,
      "scope": "Real child-process death after the prepared intent and before dispatch; restart runs X once (marker file)."
+    },
+    "check.findings": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_findings"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T28 acceptance certificate."
+    },
+    "check.hook_holds_generation": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_hook_holds_generation"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T15a acceptance certificate."
+    },
+    "check.finding_scope": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_finding_scope"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T15a acceptance certificate."
+    },
+    "check.t11_integration_finding": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t11_integration_finding"
+     ],
+     "installed": false,
+     "scope": "Fixture checker; the register, holds and repair plan are real."
+    },
+    "check.t07b_e16_continuation": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t07b_e16_continuation"
+     ],
+     "installed": false,
+     "scope": "T07b E16: a partial candidate released after a safe-point pause continues with a NEW attempt linked to the prior one; spent budget kept; late result of the old attempt fenced."
+    },
+    "check.host_v1_guard": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_host"
+     ],
+     "installed": false,
+     "scope": "T30 E1: the v1 host tests (admission, supervision, lease, durable admission) stay green before and after; tests.test_control carries one environment-conditional skip and is run outside the gate."
+    },
+    "check.t30_counterexamples": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t30_counterexamples"
+     ],
+     "installed": false,
+     "scope": "T30 E6: a recovery that skips reconcile and a status that claims background running without reading the host are both caught by the integration checks."
     }
    },
    "acceptance": {
@@ -3973,23 +4305,49 @@
      "scope": "Two real Control slots with a fixture isolated executor; the finding comes from the real register through a fixture failed check."
     },
     "T07b": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.parallel_engine",
       "check.managed_executor",
       "check.managed_hold",
-      "check.engine_managed"
+      "check.engine_managed",
+      "check.findings",
+      "check.finding_scope",
+      "check.t04d_finding_holds_branch",
+      "check.t11_integration_finding",
+      "check.hook_holds_generation",
+      "check.t07b_e16_continuation"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T07b has not been independently certified by this registry."
-      },
-      {
-       "kind": "final-artifact-rerun",
-       "detail": "Failed-produced-node advancement and unchanged-branch late-result regressions are repaired; full source matrix remains to be certified on the final artifact."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_managed_hold.ManagedHoldTests.test_new_finding_pauses_the_running_managed_node_at_its_safe_point_and_release_reuses_the_candidate",
+       "tests.test_wf_finding_scope.FindingScopeTests.test_late_finding_retains_settled_candidate_then_resolution_releases_without_retry",
+       "tests.test_wf_t04d_finding_holds_branch.FindingHoldsBranchTests.test_e11_e12_finding_on_e1_holds_f_not_e2_and_not_the_root"
+      ],
+      "E5": [
+       "tests.test_wf_findings.FindingTests.test_wrong_generation_artifact_plan_and_criterion_do_not_close",
+       "tests.test_wf_findings.FindingTests.test_old_generation_pass_cannot_close_after_new_generation_is_recorded",
+       "tests.test_wf_parallel_engine.ParallelEngineTests.test_failed_branch_can_repair_while_independent_worker_finishes_original_generation"
+      ],
+      "E8": [
+       "tests.test_wf_managed_executor.ManagedExecutorTests.test_crash_before_dispatch_is_once_and_saved_candidate_replays_without_process_or_charge",
+       "tests.test_wf_t11_integration_finding.IntegrationFindingTests.test_the_same_red_receipt_twice_merges_and_writes_no_second_register_event",
+       "tests.test_wf_t07b_e16_continuation.ContinuationTests.test_e16_release_of_a_partial_candidate_continues_with_a_new_attempt_and_keeps_the_spent_budget"
+      ],
+      "E15": [
+       "tests.test_wf_hook_holds_generation.HookHoldsGenerationTests.test_marker_of_another_anchor_or_older_generation_is_ignored",
+       "tests.test_wf_engine_managed.EngineManagedTests.test_settled_but_unknown_managed_result_cannot_be_replayed_by_new_internal_revision",
+       "tests.test_wf_t07b_e16_continuation.ContinuationTests.test_e16_release_of_a_partial_candidate_continues_with_a_new_attempt_and_keeps_the_spent_budget"
+      ],
+      "E16": [
+       "tests.test_wf_managed_executor.ManagedExecutorTests.test_pause_is_requested_during_operation_then_acknowledged_at_real_safe_point",
+       "tests.test_wf_managed_hold.ManagedHoldTests.test_new_finding_pauses_the_running_managed_node_at_its_safe_point_and_release_reuses_the_candidate",
+       "tests.test_wf_t07b_e16_continuation.ContinuationTests.test_e16_release_of_a_partial_candidate_continues_with_a_new_attempt_and_keeps_the_spent_budget",
+       "tests.test_wf_t07b_e16_continuation.ContinuationTests.test_a_partial_result_without_a_pause_also_continues_with_a_new_attempt"
+      ]
+     },
+     "scope": "Real managed worker processes (Supervisor) on temporary ledgers; the generation fence is control_core attempt generation, not a rewritten comparison; E16 both ways: a complete candidate is adopted without rerun, a partial candidate is continued by a new linked attempt."
     },
     "T08b": {
      "status": "partial",
@@ -4030,19 +4388,43 @@
      "scope": "Real local supervised processes as the managed worker (no provider); a real Claude Code or Codex session being paused is not proven."
     },
     "T30": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.managed_executor",
       "check.node_actions_cli",
       "check.engine_managed",
-      "check.host_checkpoint"
+      "check.host_checkpoint",
+      "check.host_v1_guard",
+      "check.t08b_crash_before_dispatch",
+      "check.t30_counterexamples"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T30 has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_host (whole module, registered as check.host_v1_guard; tests.test_control is run outside the gate: one environment-conditional skip)"
+      ],
+      "E2": [
+       "tests.test_wf_host_checkpoint.HostCheckpointTests.test_missing_registration_is_read_only_and_never_claims_reboot_restart",
+       "tests.test_wf_host_checkpoint.HostCheckpointTests.test_existing_v1_registration_and_real_pid_lease_are_the_source"
+      ],
+      "E3": [
+       "tests.test_wf_managed_executor.ManagedExecutorTests.test_actual_controller_death_after_dispatch_reconciles_before_any_retry",
+       "tests.test_wf_t08b_crash_before_dispatch.CrashBeforeDispatchTests.test_e1_a_real_crash_after_prepared_before_dispatching_runs_x_exactly_once_after_restart",
+       "tests.test_wf_engine_managed.EngineManagedTests.test_acknowledged_pause_is_held_then_same_candidate_is_released_without_another_process"
+      ],
+      "E4": [
+       "tests.test_wf_host_checkpoint.HostCheckpointTests.test_missing_registration_is_read_only_and_never_claims_reboot_restart"
+      ],
+      "E5": [
+       "tests.test_wf_managed_executor.ManagedExecutorTests.test_actual_controller_death_after_effect_before_receipt_keeps_marker_once",
+       "tests.test_wf_managed_executor.ManagedExecutorTests.test_unknown_launch_or_missing_candidate_is_reconciled_and_never_blindly_replayed"
+      ],
+      "E6": [
+       "tests.test_wf_t30_counterexamples.RecoveryCounterexampleTests.test_e6_a_recovery_that_skips_reconcile_never_settles_the_crashed_attempt",
+       "tests.test_wf_t30_counterexamples.HostStatusCounterexampleTests.test_e6_a_status_that_claims_background_running_without_reading_the_host_is_caught"
+      ]
+     },
+     "scope": "Real controller death (os._exit) in a child process; the v1 host tests as the E1 guard; host status read from the v1 registry/lease files only."
     },
     "T54h": {
      "status": "partial",
@@ -4647,17 +5029,25 @@
      "scope": "Registry fail-closed rules only.",
      "acceptance_snapshot": {
       "T14b": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.rx2_adapters",
-        "check.candidate_adapters"
+        "check.candidate_adapters",
+        "check.t14b_same_core"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T14b has not been independently certified by this registry."
-        }
-       ]
+       "gaps": [],
+       "evidence_matrix": {
+        "E5": [
+         "tests.test_wf_t14b_same_core.SameCoreTests.test_e5_data_and_ops_roots_share_lifecycle_authority_budget_findings_and_handover_with_code",
+         "tests.test_wf_rx2_adapters.SameCoreTests.test_data_and_ops_use_same_receipt_record_and_artifact_path"
+        ],
+        "E9": [
+         "tests.test_wf_t14b_same_core.SameCoreTests.test_e9_no_data_or_ops_special_case_in_the_core",
+         "tests.test_wf_rx1_core.OneCoreTests.test_e3_e8_the_core_has_no_branch_on_the_kind_of_work_or_the_project",
+         "tests.test_wf_rx1_core.OneCoreTests.test_e7_nothing_in_the_core_is_called_only_for_the_document_adapter"
+        ]
+       },
+       "scope": "Three roots in one temporary ledger; the only dispatch by kind is the verifier port registry."
       },
       "T54k": {
        "status": "partial",
@@ -4692,21 +5082,37 @@
      ],
      "installed": false,
      "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    },
+    "check.t14b_same_core": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t14b_same_core"
+     ],
+     "installed": false,
+     "scope": "T14b E5/E9: DATA and OPS roots share lifecycle, authority, budget, finding register and handover with a CODE root; a criteria grep over the core finds no data/ops branch."
     }
    },
    "acceptance": {
     "T14b": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.rx2_adapters",
-      "check.candidate_adapters"
+      "check.candidate_adapters",
+      "check.t14b_same_core"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T14b has not been independently certified by this registry."
-      }
-     ]
+     "gaps": [],
+     "evidence_matrix": {
+      "E5": [
+       "tests.test_wf_t14b_same_core.SameCoreTests.test_e5_data_and_ops_roots_share_lifecycle_authority_budget_findings_and_handover_with_code",
+       "tests.test_wf_rx2_adapters.SameCoreTests.test_data_and_ops_use_same_receipt_record_and_artifact_path"
+      ],
+      "E9": [
+       "tests.test_wf_t14b_same_core.SameCoreTests.test_e9_no_data_or_ops_special_case_in_the_core",
+       "tests.test_wf_rx1_core.OneCoreTests.test_e3_e8_the_core_has_no_branch_on_the_kind_of_work_or_the_project",
+       "tests.test_wf_rx1_core.OneCoreTests.test_e7_nothing_in_the_core_is_called_only_for_the_document_adapter"
+      ]
+     },
+     "scope": "Three roots in one temporary ledger; the only dispatch by kind is the verifier port registry."
     },
     "T54k": {
      "status": "partial",

@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261024-DRILL-TEST",
+ "file": "tests/test_wf_upgrade_drill.py",
+ "old_sha256": "0d772d58690800b63f204c73be9d5c7f4f1af025f17db411e6ddb6d1530eeed3",
+ "new_sha256": "33fdbfde4307d09fa40a3896ff66680e3936fc0c7c7e143966fe772f954a807f",
+ "reason": "W41 / T13b [E3]: test_real_installs_preserve_state_refuse_then_roll_back_and_reconcile additionally asserts the finding block of the drill receipt (criterion 'links', same id and receipt sha256 before/after, opened before the rollback install and checked after the roll-forward install). No assertion removed or loosened. Evidence: tests.test_wf_upgrade_drill 3/3 OK at 9c49010.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 24/10/2026 đêm, mục A: 'Nếu cơ chế nội bộ yêu cầu bản ghi quyết định/U1 ... tự ghi quyết định theo ủy quyền này, nêu căn cứ và bằng chứng; không giả rằng tôi trực tiếp review hoặc ký duyệt'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), commit 9c49010 on codex/wf-development",
+ "at": "2026-10-24"
+}
