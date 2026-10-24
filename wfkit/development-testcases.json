@@ -722,7 +722,8 @@
        "status": "partial",
        "checks": [
         "check.r03a_executors",
-        "check.observation_integration"
+        "check.observation_integration",
+        "check.shared_worker_ports"
        ],
        "gaps": [
         {
@@ -863,6 +864,14 @@
      ],
      "installed": false,
      "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    },
+    "check.shared_worker_ports": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_shared_worker_ports"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T15b acceptance certificate."
     }
    },
    "acceptance": {
@@ -883,7 +892,8 @@
      "status": "partial",
      "checks": [
       "check.r03a_executors",
-      "check.observation_integration"
+      "check.observation_integration",
+      "check.shared_worker_ports"
      ],
      "gaps": [
       {
@@ -1203,7 +1213,8 @@
        "status": "partial",
        "checks": [
         "check.root_budget",
-        "check.metered_verifier"
+        "check.metered_verifier",
+        "check.control_core"
        ],
        "gaps": [
         {
@@ -1217,7 +1228,8 @@
        "checks": [
         "check.engine",
         "check.native_executor",
-        "check.installed_native"
+        "check.installed_native",
+        "check.engine_cli"
        ],
        "gaps": [
         {
@@ -1303,7 +1315,8 @@
       "T05": {
        "status": "partial",
        "checks": [
-        "check.engine"
+        "check.engine",
+        "check.failed_dependency"
        ],
        "gaps": [
         {
@@ -1342,7 +1355,8 @@
        "checks": [
         "check.root_writer",
         "check.plan_binding",
-        "check.root_budget"
+        "check.root_budget",
+        "check.control_core"
        ],
        "gaps": [
         {
@@ -1430,6 +1444,30 @@
      ],
      "installed": false,
      "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    },
+    "check.engine_cli": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_engine_cli"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T04a acceptance certificate."
+    },
+    "check.failed_dependency": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_failed_dependency"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T05 acceptance certificate."
+    },
+    "check.control_core": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_control_core"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T32 acceptance certificate."
     }
    },
    "acceptance": {
@@ -1450,7 +1488,8 @@
      "status": "partial",
      "checks": [
       "check.root_budget",
-      "check.metered_verifier"
+      "check.metered_verifier",
+      "check.control_core"
      ],
      "gaps": [
       {
@@ -1464,7 +1503,8 @@
      "checks": [
       "check.engine",
       "check.native_executor",
-      "check.installed_native"
+      "check.installed_native",
+      "check.engine_cli"
      ],
      "gaps": [
       {
@@ -1550,7 +1590,8 @@
     "T05": {
      "status": "partial",
      "checks": [
-      "check.engine"
+      "check.engine",
+      "check.failed_dependency"
      ],
      "gaps": [
       {
@@ -1589,7 +1630,8 @@
      "checks": [
       "check.root_writer",
       "check.plan_binding",
-      "check.root_budget"
+      "check.root_budget",
+      "check.control_core"
      ],
      "gaps": [
       {
@@ -1906,7 +1948,8 @@
        "status": "partial",
        "checks": [
         "check.evidence_binding",
-        "check.candidate_adapters"
+        "check.candidate_adapters",
+        "check.candidate_reuse_counter"
        ],
        "gaps": [
         {
@@ -1932,7 +1975,8 @@
        "status": "partial",
        "checks": [
         "check.engine",
-        "check.candidate_handoff"
+        "check.candidate_handoff",
+        "check.candidate_reviewer"
        ],
        "gaps": [
         {
@@ -1944,7 +1988,8 @@
       "T15a": {
        "status": "partial",
        "checks": [
-        "check.finding_scope"
+        "check.finding_scope",
+        "check.hook_holds_generation"
        ],
        "gaps": [
         {
@@ -1969,7 +2014,9 @@
       "T22": {
        "status": "partial",
        "checks": [
-        "check.evidence_binding"
+        "check.evidence_binding",
+        "check.candidate_reuse_counter",
+        "check.handoff_reuse"
        ],
        "gaps": [
         {
@@ -2058,7 +2105,9 @@
        "status": "partial",
        "checks": [
         "check.candidate_handoff",
-        "check.native_executor"
+        "check.native_executor",
+        "check.candidate_reviewer",
+        "check.observed_handoff"
        ],
        "gaps": [
         {
@@ -2083,7 +2132,9 @@
       "T17c": {
        "status": "partial",
        "checks": [
-        "check.candidate_handoff"
+        "check.candidate_handoff",
+        "check.handoff_reuse",
+        "check.observed_handoff"
        ],
        "gaps": [
         {
@@ -2195,6 +2246,46 @@
      ],
      "installed": false,
      "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    },
+    "check.candidate_reuse_counter": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_candidate_reuse_counter"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T22 acceptance certificate."
+    },
+    "check.candidate_reviewer": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_candidate_reviewer"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T16b acceptance certificate."
+    },
+    "check.handoff_reuse": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_handoff_reuse"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T22 acceptance certificate."
+    },
+    "check.observed_handoff": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_observed_handoff"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T17c acceptance certificate."
+    },
+    "check.hook_holds_generation": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_hook_holds_generation"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T15a acceptance certificate."
     }
    },
    "acceptance": {
@@ -2202,7 +2293,8 @@
      "status": "partial",
      "checks": [
       "check.evidence_binding",
-      "check.candidate_adapters"
+      "check.candidate_adapters",
+      "check.candidate_reuse_counter"
      ],
      "gaps": [
       {
@@ -2228,7 +2320,8 @@
      "status": "partial",
      "checks": [
       "check.engine",
-      "check.candidate_handoff"
+      "check.candidate_handoff",
+      "check.candidate_reviewer"
      ],
      "gaps": [
       {
@@ -2240,7 +2333,8 @@
     "T15a": {
      "status": "partial",
      "checks": [
-      "check.finding_scope"
+      "check.finding_scope",
+      "check.hook_holds_generation"
      ],
      "gaps": [
       {
@@ -2265,7 +2359,9 @@
     "T22": {
      "status": "partial",
      "checks": [
-      "check.evidence_binding"
+      "check.evidence_binding",
+      "check.candidate_reuse_counter",
+      "check.handoff_reuse"
      ],
      "gaps": [
       {
@@ -2354,7 +2450,9 @@
      "status": "partial",
      "checks": [
       "check.candidate_handoff",
-      "check.native_executor"
+      "check.native_executor",
+      "check.candidate_reviewer",
+      "check.observed_handoff"
      ],
      "gaps": [
       {
@@ -2379,7 +2477,9 @@
     "T17c": {
      "status": "partial",
      "checks": [
-      "check.candidate_handoff"
+      "check.candidate_handoff",
+      "check.handoff_reuse",
+      "check.observed_handoff"
      ],
      "gaps": [
       {
@@ -2541,7 +2641,9 @@
       "T52a": {
        "status": "partial",
        "checks": [
-        "check.r06_learning"
+        "check.r06_learning",
+        "check.node_learning",
+        "check.installed_node_learning"
        ],
        "gaps": [
         {
@@ -2554,7 +2656,8 @@
        "status": "partial",
        "checks": [
         "check.r06_learning",
-        "check.r02_boundaries"
+        "check.r02_boundaries",
+        "check.installed_node_learning"
        ],
        "gaps": [
         {
@@ -2596,13 +2699,31 @@
      ],
      "installed": false,
      "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    },
+    "check.node_learning": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_node_learning"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T52a acceptance certificate."
+    },
+    "check.installed_node_learning": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_node_learning"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T52a acceptance certificate."
     }
    },
    "acceptance": {
     "T52a": {
      "status": "partial",
      "checks": [
-      "check.r06_learning"
+      "check.r06_learning",
+      "check.node_learning",
+      "check.installed_node_learning"
      ],
      "gaps": [
       {
@@ -2615,7 +2736,8 @@
      "status": "partial",
      "checks": [
       "check.r06_learning",
-      "check.r02_boundaries"
+      "check.r02_boundaries",
+      "check.installed_node_learning"
      ],
      "gaps": [
       {
@@ -2891,7 +3013,8 @@
       "T01": {
        "status": "partial",
        "checks": [
-        "check.parallel_engine"
+        "check.parallel_engine",
+        "check.review_snapshot"
        ],
        "gaps": [
         {
@@ -2904,7 +3027,8 @@
        "status": "partial",
        "checks": [
         "check.parallel_engine",
-        "check.candidate_adapters"
+        "check.candidate_adapters",
+        "check.review_snapshot"
        ],
        "gaps": [
         {
@@ -2916,7 +3040,8 @@
       "T04d": {
        "status": "partial",
        "checks": [
-        "check.parallel_engine"
+        "check.parallel_engine",
+        "check.parallel_native"
        ],
        "gaps": [
         {
@@ -2933,7 +3058,9 @@
        "status": "partial",
        "checks": [
         "check.parallel_engine",
-        "check.managed_executor"
+        "check.managed_executor",
+        "check.managed_hold",
+        "check.engine_managed"
        ],
        "gaps": [
         {
@@ -2962,7 +3089,8 @@
       "T15c": {
        "status": "partial",
        "checks": [
-        "check.managed_executor"
+        "check.managed_executor",
+        "check.managed_hold"
        ],
        "gaps": [
         {
@@ -2975,7 +3103,9 @@
        "status": "partial",
        "checks": [
         "check.managed_executor",
-        "check.node_actions_cli"
+        "check.node_actions_cli",
+        "check.engine_managed",
+        "check.host_checkpoint"
        ],
        "gaps": [
         {
@@ -3017,13 +3147,54 @@
      ],
      "installed": false,
      "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    },
+    "check.review_snapshot": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_review_snapshot"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T04b acceptance certificate."
+    },
+    "check.managed_hold": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_managed_hold"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T07b acceptance certificate."
+    },
+    "check.engine_managed": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_engine_managed"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T07b acceptance certificate."
+    },
+    "check.host_checkpoint": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_host_checkpoint"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T30 acceptance certificate."
+    },
+    "check.parallel_native": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_parallel_native"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T04d acceptance certificate."
     }
    },
    "acceptance": {
     "T01": {
      "status": "partial",
      "checks": [
-      "check.parallel_engine"
+      "check.parallel_engine",
+      "check.review_snapshot"
      ],
      "gaps": [
       {
@@ -3036,7 +3207,8 @@
      "status": "partial",
      "checks": [
       "check.parallel_engine",
-      "check.candidate_adapters"
+      "check.candidate_adapters",
+      "check.review_snapshot"
      ],
      "gaps": [
       {
@@ -3048,7 +3220,8 @@
     "T04d": {
      "status": "partial",
      "checks": [
-      "check.parallel_engine"
+      "check.parallel_engine",
+      "check.parallel_native"
      ],
      "gaps": [
       {
@@ -3065,7 +3238,9 @@
      "status": "partial",
      "checks": [
       "check.parallel_engine",
-      "check.managed_executor"
+      "check.managed_executor",
+      "check.managed_hold",
+      "check.engine_managed"
      ],
      "gaps": [
       {
@@ -3094,7 +3269,8 @@
     "T15c": {
      "status": "partial",
      "checks": [
-      "check.managed_executor"
+      "check.managed_executor",
+      "check.managed_hold"
      ],
      "gaps": [
       {
@@ -3107,7 +3283,9 @@
      "status": "partial",
      "checks": [
       "check.managed_executor",
-      "check.node_actions_cli"
+      "check.node_actions_cli",
+      "check.engine_managed",
+      "check.host_checkpoint"
      ],
      "gaps": [
       {
@@ -3212,7 +3390,8 @@
        "status": "partial",
        "checks": [
         "check.rp_providers",
-        "check.metered_verifier"
+        "check.metered_verifier",
+        "check.candidate_reviewer"
        ],
        "gaps": [
         {
@@ -3285,6 +3464,14 @@
      ],
      "installed": false,
      "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    },
+    "check.candidate_reviewer": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_candidate_reviewer"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T40a acceptance certificate."
     }
    },
    "acceptance": {
@@ -3292,7 +3479,8 @@
      "status": "partial",
      "checks": [
       "check.rp_providers",
-      "check.metered_verifier"
+      "check.metered_verifier",
+      "check.candidate_reviewer"
      ],
      "gaps": [
       {

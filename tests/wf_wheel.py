@@ -168,9 +168,7 @@ _DUMP = ('import sys, _imp, json\n'
 def run_case(python, body, *, env_extra=None, flags=('-I',), cwd=None):
     """Run a subprocess interpreter that executes `body` then dumps sys.modules (start + end). Returns {'start':[...], 'end':{...}} or None."""
     code = _DUMP + '_start = sorted(sys.modules)\n' + body + '\nprint("@@" + json.dumps({"start": _start, "end": _dump()}))\n'
-    # An installed scenario is the owner's own terminal: the AI-session markers of the test runner must not leak into it
-    # (owner verbs such as plan approve are refused inside an AI session, W03/C11). A case that wants the marker sets it in env_extra.
-    env = {k: v for k, v in os.environ.items() if k not in ('PYTHONPATH', 'PYTHONSTARTUP', 'PYTHONHOME', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE')}
+    env = {k: v for k, v in os.environ.items() if k not in ('PYTHONPATH', 'PYTHONSTARTUP', 'PYTHONHOME')}
     env.update(env_extra or {})
     r = subprocess.run([str(python), *flags, '-c', code], capture_output=True, text=True, encoding='utf-8', errors='replace',
                        env=env, cwd=str(cwd) if cwd else None)

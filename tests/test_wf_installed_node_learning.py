@@ -7,9 +7,13 @@ from onecrew.v2 import boundary
 from tests import wf_wheel as wh
 from tests.test_v2_l1 import plan_json, milestone
 from tests.test_wf_engine import node
+from tests.wf_env import owner_terminal
 
 
 class InstalledNodeLearning(unittest.TestCase):
+    def setUp(self):
+        owner_terminal(self)        # the installed scenario approves the plan as the owner, in the owner's own terminal
+
     @classmethod
     def setUpClass(cls):
         cls.runs = wh._runs()
