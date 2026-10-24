@@ -1,0 +1,2747 @@
+{
+ "commit": "0d296fe",
+ "counts": {
+  "Done": 57,
+  "Partial": 31,
+  "Blocked": 4
+ },
+ "by_category": {
+  "feature": {
+   "Done": 46,
+   "Partial": 14
+  },
+  "bộ kiểm": {
+   "Done": 11,
+   "Partial": 6
+  },
+  "phát hành": {
+   "Partial": 11
+  },
+  "provider thật": {
+   "Blocked": 1
+  },
+  "pilot/nghiệm thu": {
+   "Blocked": 3
+  }
+ },
+ "rows": [
+  {
+   "id": "WK0",
+   "release": "R00",
+   "category": "bộ kiểm",
+   "testcases": {
+    "T38a": "DoD",
+    "T39": "DoD"
+   },
+   "outcome": "Làm trong bước trình, trước khi duyệt (03 §6). Khung kit của chương trình: kit-guard (manifest sha256, chỉ thêm sau khi đóng băng, provenance; làm yếu thì từ ch",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "wfkit/kitguard.py:251 — verify — kit-guard: manifest sha256, chỉ thêm sau đóng băng, U1/provenance; làm yếu bị từ chối",
+    "wfkit/doccheck.py:93 — run — bộ tự kiểm tài liệu (06 §7) thành lệnh kit, chạy qua gate.py",
+    "wfkit/owner_actions.py:21 — count — đếm thao tác owner từ sổ + nhật ký chat (T39)",
+    "wfkit/program_contract.py:65 — check — hợp đồng chương trình: 4 mốc command + M5 owner-manual, không reviewer"
+   ],
+   "tests": [
+    "tests.test_wf_kit.KitGuardTests.test_edited_pinned_test_file_is_refused / test_removing_a_pin_from_the_manifest_is_a_weakening_when_git_knows_the_old_one — kit-guard từ chối làm yếu",
+    "tests.test_wf_kit.DocCheckTests (test_clean_run_passes_and_the_receipt_carries_the_block_hash, test_a_counterexample_that_slips_through_fails, test_unregistered_or_changed_block_is_refused_by_kit_guard) — T38a E1,E2,E3",
+    "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions — T39 E1-E11,E13-E16",
+    "tests.test_wf_program_transition...test_a_second_approval_is_more_than_the_two_routine_decisions — T39 E6",
+    "tests.test_wf_program_transition...test_reviewer_copy_of_m5_is_inconclusive_over_the_diff_cap_and_blocks_accept — T39 E11,E12"
+   ],
+   "missing": "Không thiếu theo DoD. Lưu ý: kit-guard đang hoạt động đúng và CHẶN cổng R00 ở b2cc754 vì tests/test_wf_plan_names.py đổi hash so với pin (không có U1) — xem W12a. T38a phụ thuộc thư mục tài liệu ngoài repo (D:\\...\\outputs\\onecrew-as-qc\\workflow-chung).",
+   "next": "Không cần thêm cho WK0; cần quyết định U1 hoặc khôi phục test T48a để cổng R00 qua (thuộc W12a).",
+   "evidence": [
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\runs\\test_wf_kit.log (46 OK)",
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\kitguard.json (ok:false, 1 problem)",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R01-check.program_transition.json (3/3 pass)",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\decision.json acceptance.R01.T39 = complete, evidence_matrix E1-E16",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\document-selfcheck.json (150 phản chứng bị bắt, 15/15 đối chứng)"
+   ]
+  },
+  {
+   "id": "WK00",
+   "release": "R00",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm R00: T09a, T13a, T13b, T20, T33a, T45a, T48a, T49a, T49b",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "wfkit/gate.py:260 — main — cổng CG-R00: kit-guard, 1 wheel, biên nhận mỗi testcase, kịch bản cài đặt + đối chứng checkout",
+    "wfkit/testcases.json — R00 -> 10 testcase (T20,T13a,T49a,T48a,T09a,T33a,T13b,T49b,T45a,T38a) -> module",
+    "wfkit/gate.py:74 — install_scenario; :128 decide"
+   ],
+   "tests": [
+    "tests.test_wf_kit.GateRuleTests (7 ca: thiếu biên nhận T33a, T13b/T49b khác hash, không pass, skip, commit khác, wheel khác, không đòi release sau) — T45a E1",
+    "tests.test_wf_kit.InstallOriginRealTests.test_scenario_run_from_the_checkout_is_refused / test_check_install_gives_ok_and_a_refused_control — T45a E5",
+    "tests.test_wf_kit.GateConfigTests.test_r00_testcase_map"
+   ],
+   "missing": "Mọi 9 testcase nêu trong outcome có module trong wfkit/testcases.json và đạt (T09a 7/7, T13a 10/10, T13b 8/8, T20 8/8, T33a 10/10, T45a 46/46, T48a 5/5, T49a 9/9, T49b 8/8). NHƯNG quyết định gate R00 trên b2cc754 = REFUSED (kit-guard: tests/test_wf_plan_names.py changed). edit_scope ghi verify-kit\\wf\\r00_check.py nhưng thực tế là wfkit/gate.py + testcases.json. HEAD eae44ce không có U1 cho tệp này.",
+   "next": "Không cần mã mới; chỉ gỡ lý do refused (U1 hoặc trả test T48a về dạng đã pin) rồi chạy lại gate R00.",
+   "evidence": [
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\decision.json (decision: refused, reason kit-guard)",
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\..\\cg-r00-b2cc754-console.txt (10/10 testcase pass)",
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\install-scenario.json (accepted; control checkout refused)"
+   ]
+  },
+  {
+   "id": "W03",
+   "release": "R00",
+   "category": "feature",
+   "testcases": {
+    "T20": "DoD",
+    "T16a": "kiểm chung"
+   },
+   "outcome": "Bản ghi quyết định (chủ thể thật, căn cứ, bằng chứng, phạm vi, hiệu lực); `interventions` vào wheel; từ chối `by=owner` trong phiên AI",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/ledger.py reply — decided_by='user' hay by in (user, owner) bị từ chối trong phiên AI (CLAUDE_CODE_CHILD_SESSION), trước mọi ghi; áp cho cả `ledger request reply --decided-by user` (ledger_cli gọi cùng hàm)",
+    "onecrew/v2/decisions.py, plan.require_owner, questions.answer — như cũ"
+   ],
+   "tests": [
+    "tests/test_wf_t20_reply_guard.py (2) — T20 E5: API và CLI đều từ chối trong phiên AI, request vẫn pending, không request.answered; entry trả lời dưới tên mình; owner từ terminal riêng được ghi (chưa đăng ký registry: thêm ở lần đóng băng kế)",
+    "tests/test_wf_r04a_authority.py, test_v2_trust_fixes.py (TreeIds) như cũ"
+   ],
+   "missing": "",
+   "next": "Đăng ký check vào R00/R04 ở lần đóng băng kế (không đổi registry khi gate 0d296fe đang chạy).",
+   "evidence": [
+    "commit a84b1fb (guard)"
+   ]
+  },
+  {
+   "id": "W11a",
+   "release": "R00",
+   "category": "feature",
+   "testcases": {
+    "T13a": "DoD"
+   },
+   "outcome": "Sổ loại sự kiện trên anchor bản cũ thấy (00 §6.1): chỉ ghi lớp 0 (giữ mọi trường cũ, cùng kiểu) hay lớp A lên anchor `plan:`, không dùng `KINDS` của `derive()` ",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "onecrew/v2/compat.py:73,112 — event_class / check_write — sổ loại 0/A/B, chặn lớp B và payload lớp 0 đổi dạng trên anchor plan:",
+    "onecrew/v2/plan.py:42 — emit — mọi ghi qua plan.emit gọi compat.check_write (no-op cho plan-ns:)",
+    "tests/wf_oldversion.py — bộ so bản cũ S/G/C/H/V trên archive ee46539 (trong tests, không phải wheel)"
+   ],
+   "tests": [
+    "tests.test_wf_events.EventClassLedgerTests.test_e13_task_submitted_is_class0_though_outside_KINDS — E13 (phía mã mới)",
+    "...test_e12_class_B_on_plan_anchor_is_refused — E12; ...test_e14_intent_class_B_refused — E14 (chỉ kiểm lớp, không chạy bản cũ)",
+    "...test_e6_class0_missing_field_is_read_block — E6",
+    "tests.test_wf_events.OldVersionComparatorTests.test_e11_class_A_events_keep_S_G_C — E11 (chỉ 4 loại lớp A mẫu)",
+    "...test_e12_class_B_plan_revoked_old_still_reads_approved; ...test_e6_class0_changed_payload_crashes_old_reader; ...test_e13_old_binary_reads_anchor_with_task_submitted"
+   ],
+   "missing": "E1 dùng danh sách tự khai trong test (set(plans.KINDS)|{...}) thay vì liệt kê sự kiện thật mã mới ghi lên anchor R0 (không phát hiện kind mới chưa khai). E2 (root schema 2 đọc bằng mã mới + root mới khai version) không có test riêng ở module này. E5 (rà output không nói bản cũ \"ghi nhận\") không có test. E14 không chạy bản cũ trên R0+B2 (action.executing). E11 chỉ 4/~25 loại lớp A (phần còn lại do T35a/T51a kiểm riêng). Từ khi mọi root mới là plan-ns:, guard chỉ còn tác dụng trên root plan: cũ. Chạy từ checkout, không qua wheel (đúng theo T13a).",
+   "next": "Thêm test liệt kê (kind, field) thật từ ledger sau một lượt lệnh schema 2 và so với sổ loại; thêm ca R0+B2 qua bản cũ và ca E2/E5. Không phụ thuộc.",
+   "evidence": [
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\runs\\test_wf_events.log (10 OK)",
+    "đọc tests/test_wf_events.py:31-60,91-165"
+   ]
+  },
+  {
+   "id": "W12a",
+   "release": "R00",
+   "category": "feature",
+   "testcases": {
+    "T48a": "DoD"
+   },
+   "outcome": "Kiểm tên plan trước khi ghi (từ chối `:`, ký tự đường dẫn, dạng ổ đĩa, đường dẫn tuyệt đối) ở mọi đường tạo; hai project cùng state root mà trùng tên plan thì l",
+   "status": "Partial",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/plan.py:279 — valid_plan_name — từ chối \":\", \"/\", \"\\\", \"..\", dạng ổ đĩa, đường dẫn tuyệt đối; gọi ở plan.py:319 (propose) và namespaces.parse",
+    "onecrew/v2/plan.py:298 — refuse_duplicate_name — từ chối tên trùng giữa hai project: MỒ CÔI, không còn nơi nào gọi",
+    "onecrew/v2/plan.py:324 — propose luôn tạo anchor plan-ns:<tên> và lưu plans/<project_id>/<tên>/ (W12b)"
+   ],
+   "tests": [
+    "tests.test_wf_plan_names.PlanNameValidationTests.test_e1_forbidden_names_rejected_before_any_write — E1, E5, E6 (chạy mã hiện tại)",
+    "...test_e5_drive_form_writes_nothing_outside — E5",
+    "tests.test_wf_plan_names.SameNameAcrossProjectsTests.test_e10_second_project_same_name_is_refused — E10,E11 nhưng chạy trên ARCHIVE d3120c6, không phải mã hiện tại"
+   ],
+   "missing": "Hành vi T48a E10 (từ chối tên trùng giữa hai project) đã được W12b (R04, không gian tên theo project) thay thế có chủ đích; `plan.refuse_duplicate_name` mồ côi. Pin R00 của tests/test_wf_plan_names.py đang lệch (lineage W12b, đã khai trong wfkit/namespace-lineage.json). Không sửa thêm mã: đây là quyết định của chủ sở hữu, không phải thiếu code.",
+   "next": "Chủ sở hữu quyết: (a) U1 chấp nhận T48a E10 bị W12b thay (xoá refuse_duplicate_name) hoặc (b) giữ W12a như nghĩa của R00 đã đóng băng. Claude không tự chọn.",
+   "evidence": [
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\kitguard.json (changed tests/test_wf_plan_names.py, pinned 0ae1d8b9… actual cf0b0162…)",
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\runs\\test_wf_plan_names.log (5 OK)",
+    "git diff aa2c54d HEAD -- tests/test_wf_plan_names.py",
+    "probe: 2 ledger cùng state-root, propose \"gamma\" lần hai => chấp nhận",
+    "grep refuse_duplicate_name: chỉ có định nghĩa"
+   ]
+  },
+  {
+   "id": "W46a",
+   "release": "R00",
+   "category": "feature",
+   "testcases": {
+    "T49a": "DoD"
+   },
+   "outcome": "Lệnh chỉ đọc `compat scan` trong wheel: mỗi root anchor `plan:` có ba tính chất (giữ nguyên, bản cũ đọc được, bản cũ tiếp tục được), trạng thái theo luật bản cũ",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "onecrew/v2/compat_scan.py:333 — scan — chỉ đọc (report._Reader mode=ro): 3 tính chất, trạng thái, lớp sự kiện, B4/B2, dự đoán từng lệnh",
+    "onecrew/v2/compat_scan.py:242 — scan_root",
+    "onecrew/v2/compat_cli.py:49 — main; onecrew/v2/cli.py:58 định tuyến nhóm \"compat\"; pyproject có compat_cli/compat_scan",
+    "đã nối vào tests/wf_rollback.py:22 và wfkit/upgrade_drill.py (guard_swap)"
+   ],
+   "tests": [
+    "tests.test_wf_compat_scan.CompatScanTests.test_e1_rows_and_properties_on_S1 — E1",
+    "...test_e3_blocks_named_with_type_and_release — E3",
+    "...test_e23_accepted_does_not_release_read_block — E23; ...test_e18_paused_does_not_release — E18",
+    "...test_e2_predictions_match_real_old_binary, test_e2_x1_read_block_crashes_real_old_binary — E2 (một phần)",
+    "...test_e24_prediction_is_per_command — E24; ...test_e4_scan_is_read_only — E4,E15; ...test_cli_routes_and_out_is_refused_inside_state_root"
+   ],
+   "missing": "E2 yêu cầu dự đoán khớp bản cũ ở TỪNG ô của bảng lệnh T49; test chỉ so với bản cũ thật hai lệnh (plan show theo exit 0, plan amend theo hướng refused/ok) trên r1/r4/x2 và show+digest trên x1; không so report, verdict run, accept, propose, hook check. E11 (báo cáo không nói bản cũ \"ghi nhận\") không có test. Không chạy từ venv song song (chỉ từ checkout, đúng T49a nhưng outcome nói venv).",
+   "next": "Mở rộng test E2 thành bảng đầy đủ lệnh x root so với bản cũ thật (đã có hạ tầng ov.OldVersion). Không phụ thuộc.",
+   "evidence": [
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\runs\\test_wf_compat_scan.log (9 OK)",
+    "đọc tests/test_wf_compat_scan.py:124-160"
+   ]
+  },
+  {
+   "id": "W27a",
+   "release": "R00",
+   "category": "feature",
+   "testcases": {
+    "T09a": "DoD"
+   },
+   "outcome": "Lỗi provider của cố vấn có kiểu (không dùng được, quá giờ, sai schema): verdict `inconclusive` kèm lý do, không còn thành `advice_missing` chặn duyệt (`v2:step0",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/verifiers/advisor.py:127 — advise — lỗi provider (hết hạn mức, quá giờ, rỗng) => answers inconclusive + provider_error typed; không đổi provider đã pin (dòng 151-169)",
+    "onecrew/v2/step0.py:262 — check_provenance — advice có provider_error KHÔNG sinh advice_missing (dòng ~283)",
+    "nối vào plan.approve qua step0.evaluate (plan.py:408); plan advise CLI"
+   ],
+   "tests": [
+    "tests.test_wf_advisor_errors.AdvisorProviderErrorTests.test_e1_unavailable_is_typed_inconclusive / test_e1_timeout_is_typed_inconclusive / test_e1_bad_schema_is_typed_inconclusive — T09a E1",
+    "...test_e2_approval_not_blocked_by_provider_error; ...test_e12_check_provenance_emits_no_advice_missing_on_provider_error — E2,E12",
+    "...test_e3_pinned_model_unchanged_no_other_provider — E3,E14",
+    "...test_counter_missing_advice_still_blocks — đối chứng"
+   ],
+   "missing": "Không thiếu theo DoD. Lưu ý thiết kế: duyệt được phép khi lời khuyên chỉ là inconclusive do lỗi provider (đúng spec); E13 (không ghi thành ý kiến âm/SKIP/pass) chỉ kiểm gián tiếp qua verdict inconclusive.",
+   "next": "Không cần.",
+   "evidence": [
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\runs\\test_wf_advisor_errors.log (7 OK)"
+   ]
+  },
+  {
+   "id": "W40",
+   "release": "R00",
+   "category": "feature",
+   "testcases": {
+    "T33a": "DoD"
+   },
+   "outcome": "Khung đóng gói và kiểm bản cài, dùng lại cho mọi release: module cần thiết vào wheel (hoặc tách module mới để tránh `V1_ONLY`); kịch bản của R00 chạy bằng lệnh ",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "onecrew/v2/boundary.py:44,85 — classify / violations — nhóm onecrew (shipped+RECORD), stdlib theo interpreter, dependency, __main__; không miễn module nạp lúc khởi động",
+    "tests/wf_wheel.py — dựng wheel offline, venv sạch, ctx từ RECORD (hạ tầng trong tests)",
+    "pyproject.toml:61 — onecrew.v2.boundary vào wheel; dùng lại ở wfkit/upgrade_drill.py:154, wfkit/release_check.py:70, tests/test_wf_installed_*.py"
+   ],
+   "tests": [
+    "tests.test_wf_packaging.InstallBoundaryTests.test_m1_parent_packages_pass / test_m2_sqlite_socket_in_dlls_pass / test_m3_builtin_and_frozen_pass — T33a E5,E8",
+    "...test_m4_checkout_shadows_onecrew_fails — E4; ...test_m5_v1_module_from_checkout_fails — E6; ...test_m6_undeclared_dependency_fails — E7",
+    "...test_m7_fake_stdlib_source_fails, test_m8_startup_loaded_checkout_is_not_exempt — E10",
+    "...test_r00_scenario_runs_from_installed_command_clean — E1 (chỉ kịch bản `compat scan`)"
+   ],
+   "missing": "E1 nói kịch bản R00 (T09a, T13a, T20, T48a, T49a) chạy bằng lệnh của bản cài đặt; chỉ kịch bản T49a (compat scan) chạy từ wheel. Các testcase T09a/T13a/T20/T48a/T13b/T49b chạy từ checkout (không có .wheel-used cho chúng). Gate chỉ import module trong kịch bản cài đặt (gate.py _SCENARIO). Phần ranh giới module (M1-M8) đầy đủ và đạt trên wheel.",
+   "next": "Thêm kịch bản cài đặt cho T09a/T20/T48a (lệnh của bản cài) vào test_wf_packaging hoặc gate. Không phụ thuộc.",
+   "evidence": [
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\runs\\test_wf_packaging.log (10 OK), test_wf_packaging.wheel-used",
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\install-scenario.json"
+   ]
+  },
+  {
+   "id": "W41",
+   "release": "R00",
+   "category": "feature",
+   "testcases": {
+    "T13b": "DoD",
+    "T49b": "DoD"
+   },
+   "outcome": "Khung diễn tập nâng cấp, rollback và roll-forward trên bản sao sổ, dùng lại cho mọi release; ở R00 là 2.1 → 2.2.x. `compat scan` (W46a) chạy từ venv song song; ",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "tests/wf_rollback.py:22 — rollback_drill — quét bằng compat scan, từ chối khi còn B2/B4, chạy khi scan=0 (cùng ledger_sha); nhánh từ chối/thành công tách riêng",
+    "wfkit/upgrade_drill.py:183 — Drill.execute — diễn tập thật bằng venv: previous(d3120c6) -> current -> previous -> current, guard_swap, reconcile (bổ sung sau R00)",
+    "chưa có script rollback cài đặt thật trong R00; hạ tầng nằm trong tests/ và wfkit/ (không vào wheel)"
+   ],
+   "tests": [
+    "tests.test_wf_rollback.RollbackDrillTests.test_t13b_upgrade_preserves_ids_budget_evidence_and_attempt — T13b E3 (chỉ ID/kind/ngân sách/attempt; \"nâng cấp\" = mã mới đọc sổ)",
+    "...test_t13b_old_root_reads_old_semantics_after_upgrade — T13b E4",
+    "...test_n8_blocked_by_b2_refuses, test_n9_accepted_x1_still_b4_refuses, test_n10_paused_x1_still_b4_refuses — T49b E19,E25",
+    "...test_n11_scan_zero_runs_and_old_reads, test_roll_forward_preserves_everything — E20 (một phần)",
+    "...test_diagnosis_source_is_scan_hash — E8",
+    "tests.test_wf_upgrade_drill.UpgradeDrillTests.test_real_installs_preserve_state_refuse_then_roll_back_and_reconcile — cài thật (không gắn vào T13b/T49b trong registry)"
+   ],
+   "missing": "test_wf_rollback KHÔNG dùng wheel/venv (không có .wheel-used) dù T13b yêu cầu hai bản cài đặt trong venv tạm; \"nâng cấp\" chỉ là mã mới đọc sổ, rollback chỉ gọi scan. Thiếu: finding mở trong snapshot T13b E3, bằng chứng E10 (đường dẫn/hash/mtime), E20 \"amend X2 bị từ chối vì accepted\", báo cáo rollback ghi 3 tính chất cho mỗi root (E8). Phần cài thật có ở wfkit/upgrade_drill.py + test_wf_upgrade_drill (pass trên wheel) nhưng baseline là d3120c6, không map vào T13b/T49b.",
+   "next": "Map/chuyển T13b, T49b sang kết quả test_wf_upgrade_drill (hoặc cho test_wf_rollback dùng Drill), thêm finding mở, hash/mtime và ca amend X2. Phụ thuộc W40 (wf_wheel), W46a.",
+   "evidence": [
+    "D:\\OneCrewRuns\\wf-dev-logs\\cg-r00-b2cc754\\runs\\test_wf_rollback.log (8 OK, không wheel-used)",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R01-check.upgrade_drill.json (3 pass, wheel)"
+   ]
+  },
+  {
+   "id": "WK01",
+   "release": "R01",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm R01: T24a, T27, T33b, T38b, T42, T50a, T50b, T54a",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "wfkit/development-testcases.json:R01 — 8 testcase của outcome đều có check/module trong registry (T24a,T38b,T42 -> check.r01_report; T27 -> check.r01_step0_survey+check.survey_worker; T33b -> check.installed_features; T50a -> check.r01_step0_proposal+check.r01_step0_compat; T50b -> check.r01_card; T54a -> check.upgrade_drill+check.installed_features)",
+    "wfkit/development_gate.py:152 — run (cổng development dùng chung kit-guard, manifest riêng)",
+    "KHÔNG có r01_check.py và wfkit/testcases.json không có mục R01 (gate release R01 không cấu hình)"
+   ],
+   "tests": [
+    "tests.test_wf_development_kit (registry, 8 OK trên b2cc754) — kiểm quy tắc registry fail-closed",
+    "module đạt trên b2cc754: test_wf_r01_report 26/26, test_wf_r01_step0_survey 22/22, test_wf_survey_worker 6/6, test_wf_r01_step0_proposal 14/14, test_wf_r01_step0_compat 2/2, test_wf_r01_card 10/10, test_wf_installed_features 4/4, test_wf_upgrade_drill 3/3"
+   ],
+   "missing": "Theo luật task bộ kiểm: mọi testcase có module trong registry và đạt => Done. Lưu ý: cả 8 testcase vẫn ở trạng thái registry \"partial\" (gap acceptance-audit hoặc release-evidence); registry nói rõ đây là regression triển khai, không phải chứng nhận acceptance.",
+   "next": "Không cần mã. Cập nhật trạng thái registry khi có kết quả audit từng task (T24a/T27/T42/T50a/T50b); T33b/T54a chờ phát hành R01 thật.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R01-*.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\decision.json (acceptance R01)"
+   ]
+  },
+  {
+   "id": "W47",
+   "release": "R01",
+   "category": "feature",
+   "testcases": {
+    "T50a": "DoD"
+   },
+   "outcome": "Đề xuất vừa đủ ở bước 0: một phương án ưu tiên, kết quả trước–sau, căn cứ chọn phương án ít tác động mà đủ đạt; mỗi thay đổi nối với một acceptance, ràng buộc h",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/proposal.py:260 — check — luật: acceptance_dropped/changed, change_not_linked, missing_declaration, ngữ nghĩa phá hủy (delete/hide/modify x menu/url/api/storage), survey_first; không model, không process",
+    "onecrew/v2/step0.py:416 — review_proposal — ghi sự kiện proposal.checked (lớp A) và mở khảo sát cho unknown chặn",
+    "onecrew/v2/step0.py:329 + plan.py:400 — approve bị giữ khi lần kiểm gần nhất của revision không ok",
+    "onecrew/v2/plan_cli.py:71 — `plan proposal check`; compat.py:37 khai proposal.checked lớp A"
+   ],
+   "tests": [
+    "tests.test_wf_r01_step0_proposal.ProposalCheckTests.test_e1_p1_passes_with_a_table_and_the_optional_in_the_backlog — T50a E1",
+    "...test_e2_p2_hidden_menu_is_not_enough — E2; ...test_e3_p3_a_hide_flag_is_not_a_permanent_deletion — E3,E10",
+    "...test_e4_p4_a_change_tied_to_nothing_is_caught_and_named — E4,E9; ...test_e5_p5_clear_work_in_authority_needs_no_options_and_asks_nothing — E5",
+    "...test_e6_a_blocking_unknown_is_scoped_and_blocks_the_choice — E6; ...test_e13_p6_missing_declaration_is_refused — E13",
+    "...test_e8_dropping_or_loosening_an_acceptance_is_refused — E8; ...test_e12_no_model_call — E12; ...test_counter_proofs_the_samples_pass_when_their_rule_is_removed",
+    "tests.test_wf_r01_step0_compat.OldVersionReadsStep0EventsTests.test_proposal_checked_is_class_a_and_the_old_version_reads_the_same"
+   ],
+   "missing": "Mọi [E] của T50a có test và đạt. Lưu ý thiết kế: kiểm đề xuất là tuỳ chọn — plan chưa có proposal.checked vẫn duyệt được (test_a_plan_with_no_proposal_check_is_not_held_by_it); đề xuất do fixture/entry cấp, không đo chất lượng đề xuất của model thật (đúng phạm vi T50a). Registry còn gap acceptance-audit.",
+   "next": "Cập nhật registry T50a sang complete sau khi chủ sở hữu/audit chấp nhận; (tuỳ chọn) quyết định có bắt buộc proposal check trước approve cho plan size M/L không.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R01-check.r01_step0_proposal.json (14/14), R01-check.r01_step0_compat.json (2/2)"
+   ]
+  },
+  {
+   "id": "W23a",
+   "release": "R01",
+   "category": "feature",
+   "testcases": {
+    "T42": "DoD",
+    "T24a": "DoD",
+    "T38b": "DoD"
+   },
+   "outcome": "Báo cáo bàn giao theo acceptance (HD-31) và `plan present` tối giản (P1.2): một trang sinh từ sổ, không gọi model (yêu cầu, kết quả bàn giao, rủi ro, cách nghiệ",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "onecrew/v2/report.py:616 — render_handover — báo cáo theo acceptance: đạt / cần kiểm lại / chưa có, link biên nhận, artifact",
+    "onecrew/v2/report.py:761 — render_present — `plan present` 5 mục, 0 model, khối thay đổi so bản đã duyệt + lý do amend",
+    "onecrew/v2/plan_cli.py:30,121 — `plan present`, `plan report --handover` (đã nối); dùng bởi resume_pack/estimates"
+   ],
+   "tests": [
+    "tests.test_wf_r01_report.HandoverByAcceptanceTests.test_e1_each_acceptance_is_in_its_state_with_evidence_link — T24a E1",
+    "...test_e3_nothing_but_fresh_evidence_is_reported_as_ok, test_counter_a_report_that_ignores_the_artifact_would_call_ac2_ok — T24a E3, T38b E7/E8 (một phần)",
+    "...test_e2_limits_are_listed_and_name_the_open_acceptances — T24a E2",
+    "tests.test_wf_r01_report.PlanPresentTests.test_e1_e4_plain_text_page_for_every_plan_exit_zero, test_e2_five_sections_in_order_for_every_plan, test_e1_e7_no_model_is_called, test_e5_e8_every_fact_matches_plan_show, test_e3_a_pending_revision_shows_the_diff_and_the_reason, test_e4_an_old_2_1_plan_is_presented, test_e6_plan_report_is_the_full_page_and_present_does_not_change_it, test_e10_no_html_graph_or_timeline — T42 E1-E10",
+    "...InstalledCommandTests.test_present_and_handover_run_from_the_installed_entry_point (wheel)"
+   ],
+   "missing": "T38b E4 yêu cầu ba trạng thái theo task: A `đã-kiểm`, B phải kiểm lại, C `testcase-đã-đặc-tả`; không có chuỗi/trạng thái đó trong mã (grep rỗng): báo cáo chỉ có đạt/cần kiểm lại/chưa có theo acceptance, không phân biệt \"chỉ có testcase\" (C) với \"chưa có\". Không có test fixture ba-task A/B/C của T38b. T24a và T42 đủ test.",
+   "next": "Thêm trạng thái testcase-đã-đặc-tả cho acceptance chỉ có testcase (hoặc ghi rõ ánh xạ sang \"chưa có\") và test A/B/C. Không phụ thuộc.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R01-check.r01_report.json (26/26, wheel-used)",
+    "grep \"đã-kiểm|testcase-đã\" trong onecrew/ và tests/: không có"
+   ]
+  },
+  {
+   "id": "W30a",
+   "release": "R01",
+   "category": "feature",
+   "testcases": {
+    "T50b": "DoD"
+   },
+   "outcome": "Một schema thẻ quyết định (REQ/CREQ/`decisions`): vấn đề, lựa chọn, đề xuất, bằng chứng, phạm vi, mốc phải quyết; bước 0 chỉ trình lựa chọn quan trọng và gộp và",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/cards.py:166 — present — một schema thẻ (problem, options, recommendation, evidence, scope, decide_by); chỉ lựa chọn quan trọng vào ĐÚNG MỘT thẻ; lựa chọn kỹ thuật trong quyền ghi decisions.record (HD-05)",
+    "onecrew/v2/cards.py:99 — build_card; to_request (REQ) / to_creq / to_decision — ba cách hiển thị một schema",
+    "onecrew/v2/step0.py:438 — present_decisions; onecrew/v2/plan_cli.py:67-68 — `card present`"
+   ],
+   "tests": [
+    "tests.test_wf_r01_card.CardTests.test_e7_one_card_with_six_fields_and_two_technical_choices_recorded — T50b E7",
+    "...test_e11_no_question_for_a_technical_choice, test_e11_the_same_decision_is_never_two_cards — E11",
+    "...test_two_important_choices_are_merged_into_one_card; ...test_a_technical_choice_outside_the_authority_is_not_decided_silently",
+    "...test_the_same_schema_renders_as_req_creq_and_a_contract_decision; ...test_every_field_is_required_and_nothing_is_written_on_refusal; ...test_cli_presents_the_card",
+    "tests.test_wf_r01_step0_compat...test_a_decision_card_and_hd05_record_do_not_change_what_the_old_version_reads"
+   ],
+   "missing": "Mọi [E] của T50b có test và đạt. Thẻ là công cụ gọi tay (entry gọi `card present`), approve không tự bắt buộc. Registry còn gap acceptance-audit. Câu trả lời thẻ là W30b/R03.",
+   "next": "Cập nhật registry T50b sau audit; không cần mã.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R01-check.r01_card.json (10/10)"
+   ]
+  },
+  {
+   "id": "W31a",
+   "release": "R01",
+   "category": "feature",
+   "testcases": {
+    "T27": "DoD"
+   },
+   "outcome": "Khảo sát/PoC ở bước 0 có trần, điều kiện kết thúc, phạm vi chỉ đọc; unknown ghi `affected`, `required_by` ngay khi đề xuất",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/survey.py:122 — open_survey; :230 — run — trần (phút, số lần gọi), điều kiện kết thúc, phạm vi chỉ đọc; kết thúc bằng answered hoặc blocked kèm bằng chứng; sự kiện survey.* lớp A",
+    "onecrew/v2/survey_worker.py:84 — run — consumer provider ghim, chỉ đọc, không chuyển provider",
+    "onecrew/v2/plan_cli.py:74-77,151 — `plan survey open|show|run`; step0.py:416-427 mở khảo sát cho unknown chặn",
+    "unknown mang affected/required_by từ khi đề xuất (survey.REQUIRED_BY, contract)"
+   ],
+   "tests": [
+    "tests.test_wf_r01_step0_survey.SurveyTests.test_e1_an_answer_that_refutes_the_hypothesis_is_a_success_with_evidence — T27 E1,E4",
+    "...test_e2_no_answer_inside_the_time_cap_is_a_blocker_that_stops_at_the_cap, test_e5_an_answer_that_arrives_after_the_cap_is_discarded — E2,E5",
+    "...test_e3_a_write_attempt_is_denied_with_the_read_only_reason, test_a_write_made_behind_the_context_is_detected_and_blocks — E3",
+    "...test_e6_every_closed_survey_has_an_answer_or_a_blocker_with_evidence — E6; ...test_an_unknown_carries_affected_and_required_by_from_the_proposal",
+    "tests.test_wf_survey_worker.SurveyWorkerTests (6 ca: pin model, trích dẫn bịa bị chặn, ngoài phạm vi không gọi provider, quá giờ không đổi provider, crash sau intent)"
+   ],
+   "missing": "Mọi [E] của T27 có test và đạt (worker giả, đúng phạm vi T27). Giới hạn đã khai: chỉ-đọc được thực thi qua context và phát hiện sau (so cây trước/sau), chưa cách ly OS cho tiến trình provider thật; chất lượng câu trả lời thật không chứng minh.",
+   "next": "Không cần; cách ly OS thuộc executor (release sau). Cập nhật registry T27 sau audit.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R01-check.r01_step0_survey.json (22/22), R01-check.survey_worker.json (6/6)"
+   ]
+  },
+  {
+   "id": "W40-R01",
+   "release": "R01",
+   "category": "phát hành",
+   "testcases": {
+    "T54a": "DoD",
+    "T33b": "DoD"
+   },
+   "outcome": "Phát hành R01: module mới vào wheel, kịch bản R01 chạy từ bản cài với kiểm ranh giới module của T33a; diễn tập nâng cấp R00 → R01 và rollback trên bản sao sổ bằ",
+   "status": "Partial",
+   "classes": [
+    "A",
+    "C",
+    "E"
+   ],
+   "implementation": [
+    "tests/test_wf_installed_features.py — kịch bản workflow đầu-cuối (propose, approve, verdict, retention, context, accept, outcome, metrics, report, resume_pack) chạy từ wheel + boundary.violations",
+    "wfkit/upgrade_drill.py:183 — diễn tập cài thật (d3120c6 -> current -> d3120c6 -> current) với reconcile",
+    "wfkit/release_check.py:95 — decide: kiểm gói bằng chứng T54 (đăng ký ở RP/check.release_check, chưa cho R01)",
+    "KHÔNG có ghi chú phát hành R01 và không có gói bằng chứng R01"
+   ],
+   "tests": [
+    "tests.test_wf_installed_features.InstalledFeaturesTests.test_workflow_approval_evidence_report_outcome_context_and_metrics — T54a E1 (root code, bản cài, ranh giới); T33b E2",
+    "tests.test_wf_upgrade_drill.UpgradeDrillTests.test_real_installs_preserve_state_refuse_then_roll_back_and_reconcile — T54a E2,E4,E6 (baseline d3120c6, KHÔNG phải R00)",
+    "tests.test_wf_release_check (RP) — luật validator, không áp cho R01"
+   ],
+   "missing": "Thiếu: (1) ghi chú phát hành đủ 5 mục + bốn trạng thái (T54 E5) — không có tệp nào cho R01; (2) diễn tập nâng cấp R00 -> R01: R00 chưa được giao (gate R00 refused), registry tự nói không suy ra bản giao liền trước; drill dùng d3120c6; (3) kịch bản R01 từ bản cài chỉ có luồng chung, không có proposal check/card/survey/present trong wheel (present chỉ trong test_wf_r01_report.InstalledCommandTests); (4) kiểm lớp sự kiện mới cho R01 (E3) chỉ qua test_wf_r01_step0_compat (2 ca); (5) không chạy release_check cho R01. Sổ dữ liệu giả đúng, không dùng sổ thật.",
+   "next": "Sau khi gate R00 qua và owner giao R00: dựng bundle release_check cho R01 (đăng ký check vào R01), viết ghi chú phát hành, thêm kịch bản cài đặt cho proposal/card/survey, diễn tập từ wheel R00. Phụ thuộc W47, W23a, W30a, W31a, W40, W41 (W41 Partial).",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R01-check.installed_features.json (4/4, wheel)",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R01-check.upgrade_drill.json (3/3, wheel)",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\decision.json acceptance.R01.T54a/T33b = partial (release-evidence)"
+   ]
+  },
+  {
+   "id": "WK02",
+   "release": "R02",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm R02: T35a, T46a, T51a, T51b, T54b",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "wfkit/development-testcases.json:R02 — T35a -> check.r02_outcome; T46a -> check.r02_resume; T51a -> check.r02_context; T51b -> check.r02_retrieval+check.r02_boundaries; T54b -> check.upgrade_drill+check.installed_features",
+    "KHÔNG có r02_check.py; không có mục R02 trong wfkit/testcases.json (chỉ cổng development)"
+   ],
+   "tests": [
+    "module đạt trên b2cc754: test_wf_r02_outcome 18/18, test_wf_r02_resume 10/10, test_wf_r02_context 9/9, test_wf_r02_retrieval 9/9, test_wf_r02_boundaries 8/8, test_wf_installed_features 4/4, test_wf_upgrade_drill 3/3, registry 8/8"
+   ],
+   "missing": "Theo luật task bộ kiểm: Done. Cả 5 testcase vẫn \"partial\" trong registry (acceptance-audit hoặc release-evidence).",
+   "next": "Không cần mã; cập nhật trạng thái registry sau audit của W23b/W48a/W48b.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R02-*.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\decision.json acceptance.R02"
+   ]
+  },
+  {
+   "id": "W23b",
+   "release": "R02",
+   "category": "feature",
+   "testcases": {
+    "T35a": "DoD",
+    "T46a": "DoD"
+   },
+   "outcome": "Ghi outcome (A1, cùng định dạng `learning.outcome`) cho mọi kết cục, can thiệp (A4, `control.intervention` qua `interventions.record`), gói tiếp tục chỉ đọc (A5",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/outcome.py:135,155 — record / note — learning.outcome đúng định dạng v1 (outcome_core.append_outcome), khử trùng theo (plan, revision, kết cục), lỗi không chặn lệnh gốc",
+    "nối vào đường dùng: plan.py:498 (accept), verdict.py:146 (dừng), answer_effects.py:66 (đóng), evidence_cli `outcome record|show|missing|reconcile`",
+    "onecrew/v2/outcome.py:216 — intervene -> interventions.record (control.intervention, A4)",
+    "onecrew/v2/resume_pack.py:52 — build (A5) chỉ đọc; `continue <plan>` ở evidence_cli.py:72; cli.py:70",
+    "compat.py:34 khai learning.outcome, control.intervention lớp A"
+   ],
+   "tests": [
+    "tests.test_wf_r02_outcome.OutcomeEndTests (E4, E13, E14 x3, E15, E41) ; OutcomeFailureTests (E17, E18, E19 x2)",
+    "tests.test_wf_r02_outcome.OldCodeReproductionTests.test_e16_accepting_leaves_no_outcome_before_w23b_and_one_after — T35a E16",
+    "tests.test_wf_r02_outcome.ClassAAgainstOldVersionTests.test_e39_old_version_keeps_S_G_C_with_the_class_A_events, test_e39_v1_consumers_give_the_same_answers_for_v1_tasks, test_e40_a_v2_outcome_never_matches_a_v1_goal_but_a_forged_one_would — T35a E39,E40",
+    "tests.test_wf_r02_resume.ResumePackTests (E1,E3,E4,E5,E6,E7/8/10,E9,E11) — T46a"
+   ],
+   "missing": "Mọi [E] của T35a (E4,E13,E14,E15,E16,E17,E18,E19,E39,E40,E41) và T46a (E1,E3,E4,E5,E6,E7-E11) có test đạt. Lưu ý: test chạy từ checkout; bản cài chỉ kiểm outcome/resume_pack trong installed_features; E39 dùng bản cũ ee46539 từ archive, chưa chạy với R00 đã cài. Registry còn gap acceptance-audit.",
+   "next": "Cập nhật registry T35a/T46a sau audit; E39 trên bản cài thuộc W40-R02.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R02-check.r02_outcome.json (18/18), R02-check.r02_resume.json (10/10)"
+   ]
+  },
+  {
+   "id": "W48a",
+   "release": "R02",
+   "category": "feature",
+   "testcases": {
+    "T51a": "DoD"
+   },
+   "outcome": "Ngữ cảnh ghi trong lúc làm bằng sự kiện `context.entry` (lớp A) trên anchor, không thêm bảng hay đổi version schema của sổ (`ledger.py:183`): mỗi mục có nguồn (",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/authority.py record/_remember — mỗi quyết định HD-05 (ip.decide, engine.request_action) để lại một context.entry kind decision, nguồn = sự kiện decision.recorded, khử trùng theo chủ đề; lỗi context không huỷ bản ghi quyết định",
+    "onecrew/v2/engine.py verify — node verified → context.entry task_done, nguồn = biên nhận đã phát hành; incidents đã ghi hypothesis_refuted; localization/symbol như cũ"
+   ],
+   "tests": [
+    "tests/test_wf_context_wiring.py (3) — thu bằng mã, không một entry mỗi sự kiện, lặp không ghi, lỗi context không huỷ quyết định; registry R02 check.context_wiring, T51a complete (ma trận với test_wf_r02_context)"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe.",
+   "evidence": [
+    "commit b225e5c"
+   ]
+  },
+  {
+   "id": "W48b",
+   "release": "R02",
+   "category": "feature",
+   "testcases": {
+    "T51b": "DoD"
+   },
+   "outcome": "Truy xuất ngữ cảnh hai phạm vi bằng một cơ chế: project (dữ kiện riêng) và chung (nội dung đã khái quát, có điều kiện và nguồn); không tự chuyển dữ liệu riêng s",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/context.py:218 — retrieve — một cơ chế, tham số scope project|general|both; kiểm revision/symbol => stale kèm lý do; mọi kết quả ghi rõ là dữ liệu",
+    "onecrew/v2/context.py:126 — _private_reasons — chặn nội dung chung chứa chi tiết riêng; không tự chuyển project -> general",
+    "onecrew/v2/evidence_cli.py:67 — `context retrieve`; resume_pack.py dùng context.for_pack"
+   ],
+   "tests": [
+    "tests.test_wf_r02_retrieval.RetrievalTests.test_e4_symbol_gone_at_c2_is_stale_with_the_reason, test_e11_nothing_with_a_stale_reason_is_labelled_verified — T51b E4,E11",
+    "...test_e5_projects_are_not_mixed — E5,E12; ...test_e6_one_mechanism_and_no_automatic_transfer — E6,E14",
+    "...test_e7_a_new_session_answers_from_the_pack_only — E7; ...test_e8_e13_command_shaped_memory_is_data_not_authority — E8,E13",
+    "tests.test_wf_r02_boundaries (4 ca ranh giới project/selector, general không lộ basename)"
+   ],
+   "missing": "Mọi [E] của T51b có test và đạt. Giới hạn: phụ thuộc W48a (ghi) nên trên thực tế kho ít dữ liệu nếu không ai gọi `context observe`; stale kiểm văn bản whole-word, không phân tích cú pháp.",
+   "next": "Cập nhật registry T51b sau audit.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R02-check.r02_retrieval.json (9/9), R02-check.r02_boundaries.json (8/8)"
+   ]
+  },
+  {
+   "id": "W40-R02",
+   "release": "R02",
+   "category": "phát hành",
+   "testcases": {
+    "T54b": "DoD"
+   },
+   "outcome": "Phát hành R02: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R02; lớp A mới (`learning.outcome`, `control.intervention`) được chứng minh trên",
+   "status": "Partial",
+   "classes": [
+    "A",
+    "C",
+    "E"
+   ],
+   "implementation": [
+    "tests/test_wf_installed_features.py, wfkit/upgrade_drill.py, wfkit/release_check.py:95 (như W40-R01)",
+    "KHÔNG có ghi chú phát hành R02, không có gói bằng chứng R02, chưa đăng ký release_check cho R02"
+   ],
+   "tests": [
+    "tests.test_wf_installed_features...test_workflow_approval_evidence_report_outcome_context_and_metrics — T54b E1 (outcome + context trên bản cài, ranh giới module)",
+    "tests.test_wf_upgrade_drill.UpgradeDrillTests... — T54b E2,E4,E6 (baseline d3120c6)",
+    "tests.test_wf_r02_outcome.ClassAAgainstOldVersionTests.test_e39_old_version_keeps_S_G_C_with_the_class_A_events — E3 nhưng chạy từ checkout với archive ee46539, không phải bản cài"
+   ],
+   "missing": "Thiếu: (1) chứng minh lớp A mới (learning.outcome, control.intervention) TRÊN BẢN CÀI với bản cũ là R00 — bản cũ trong drill là d3120c6, và R00 chưa giao; (2) ghi chú phát hành 5 mục, bốn trạng thái; (3) kịch bản R02 trên bản cài chỉ một luồng, không gồm continue/resume_pack qua lệnh cài; (4) không có receipt lịch sử giao hàng. Sổ dùng là dữ liệu giả (đúng).",
+   "next": "Sau khi R00 và R01 được giao: bundle release_check R02, ghi chú phát hành, diễn tập lớp A với bản R01/R00 đã cài. Phụ thuộc W23b, W48a, W48b, W40, W41.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R02-check.upgrade_drill.json, R02-check.installed_features.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\decision.json acceptance.R02.T54b = partial (release-evidence)"
+   ]
+  },
+  {
+   "id": "WK03",
+   "release": "R03",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm R03: T12, T15b, T35d, T36b, T41a, T41b, T43a, T43b, T43c, T47a, T54c",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "wfkit/development-testcases.json — mục R03: 9 check + registry + 11 acceptance (T12,T15b,T35d,T36b,T41a/b,T43a/b/c,T47a,T54c)",
+    "wfkit/development_gate.py — runner/freeze (kit-guard riêng, manifest wfkit/development-manifest.json: R03 22 pin, đóng băng 24/10 09:11)",
+    "tests/test_wf_development_kit.py — kiểm quy tắc registry (fail-closed)",
+    "DEV-LOG 24/10: quyết định đặt bộ kiểm trong repo thay cho verify-kit\\wf\\r03_check.py (file này không tồn tại)"
+   ],
+   "tests": [
+    "mọi testcase của WK03 đều có module trong registry: exceptions, installed_notifications, r03a_executors, observation_integration, r03a_metrics, estimates, r03a_run_started, questions, upgrade_drill",
+    "gate b2cc754: 8/9 module R03 đạt; r03a_run_started 17/18 (FAIL test_e8_no_progress_events_or_notices)"
+   ],
+   "missing": "(1) R03/check.r03a_run_started không đạt trên b2cc754 (tập sự kiện cho phép của E8 thiếu estimate.baseline); đã sửa ở eae44ce bằng bản ghi U1-20261024-E8 nhưng chưa chạy lại gate (decision.json: refused). (2) Cả 11 testcase còn partial/acceptance-audit: không có ma trận [E]→test cho R03. [E] không có test nào: T43a E4 và T43c E21 (heartbeat không bật lại), T43a E14 (chỉ kênh desktop v1, không rà email/webhook), T47a E1 (sáu trường thẻ), E3/E7 (amend), E11 (\"đã chọn dừng\" trên plan present, chưa có mã), T36b E4 (tách thực thi/chờ/deadline sau 2 giờ chờ), E11 (phát sinh vượt quyền thành U2 + giữ phụ thuộc), E18 (không \"hiệu chỉnh\"/P85), T41a (đỏ trên mã trước sửa). (3) Không có selftest/phản chứng ở cấp bộ kiểm cho phần \"năng lực mới\" của R03 (chỉ T15b, T35d có bộ đếm/mutant trong test).",
+   "next": "Chạy lại gate R03 trên HEAD (sau eae44ce) để r03a_run_started xanh; viết bảng evidence_matrix [E]→test cho 11 testcase R03 và thêm test cho các [E] nêu trên (phụ thuộc W44, W33a, W32a, W24, W24b, W30b); thêm phản chứng mức bộ kiểm.",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R03-check.r03a_run_started.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R03-check.exceptions.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R03-check.questions.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R03-check.estimates.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/decision.json (decision=refused; R03/R04 acceptance đều partial/acceptance-audit)",
+    "wfkit/development-manifest.json",
+    "docs/wf/DEV-LOG.md"
+   ]
+  },
+  {
+   "id": "W44",
+   "release": "R03",
+   "category": "feature",
+   "testcases": {
+    "T41a": "DoD",
+    "T41b": "DoD"
+   },
+   "outcome": "`verdict.run_started` (P1.1): ghi sự kiện bắt đầu chạy khi `verdict run` bắt đầu; Stop hook coi mốc đang chạy là đang chạy; thiết kế và kiểm đủ bốn kết cục hoàn",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/verdict.py:455 _begin_run — ghi verdict.run_started (pid, host, deadline = max_minutes+120s), từ chối chạy trùng",
+    "onecrew/v2/verdict.py:391 run_records / :415 lost_reason / :436 reap / :472 _abandon_own — bốn kết cục, verdict.run_abandoned không tính repair",
+    "onecrew/v2/verdict.py:483 status — liệt kê \"checking\" và kết cục từng lần chạy (reap trước khi đọc)",
+    "onecrew/v2/active_plan.py:133 waiting.run_in_progress → onecrew/v2/hook_cli.py:673-690 stop (và :659 reap trong refreshed): Stop hook cho qua khi mốc đang chạy",
+    "onecrew/v2/compat.py:34 — verdict.run_started / run_abandoned xếp lớp A"
+   ],
+   "tests": [
+    "test_wf_r03a_run_started.StopWhileRunningTests.test_e1_e2_e6_stop_hook_does_not_block_or_remind_while_the_milestone_runs — E1,E2,E6",
+    "…test_e5_after_a_failed_run_the_hook_blocks_again — E5",
+    "…StopWhileRunningTests.test_a_running_milestone_leaves_no_blocked_or_reminded_event_in_the_ledger — E6",
+    "…FourEndsTests.test_e3_completed_run / test_e3_failed_run / test_e3_timed_out_run — E3",
+    "…test_e3_e4_e7_killed_run_is_abandoned_and_never_hangs_checking — E3,E4,E7",
+    "…test_e4_e5_the_stop_hook_closes_a_lost_run_and_treats_the_milestone_by_its_final_state — E4,E5",
+    "…test_e7_overdue_run_with_a_living_pid_is_abandoned_and_a_healthy_one_is_not; test_a_run_of_another_host…; test_only_one_live_run_per_milestone — E7",
+    "…test_e8_no_progress_events_or_notices — E8",
+    "…test_e9_the_new_kinds_are_class_A_and_an_abandoned_run_costs_no_repair — E9",
+    "…OldVersionTests.test_e9_e10_old_version_ignores_the_new_kinds…; test_e10_a_counter_example_that_counts_an_abandoned_run_as_a_failure_is_different — E9,E10 (mutant)"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe cho check.r03a_run_started (18 test; E8 đã áp U1-20261024-E8). Lỗi dọn thư mục WinError 145 ở test_e3_e4_e7 là không ổn định của hạ tầng Windows (tiến trình bị giết còn giữ handle .git/objects); lần chạy hồi quy 24/10 (129 test) xanh.",
+   "evidence": [
+    "D:/OneCrewRuns/wf-dev-logs/w37a-regress.txt (129 OK)"
+   ]
+  },
+  {
+   "id": "W33a",
+   "release": "R03",
+   "category": "feature",
+   "testcases": {
+    "T15b": "DoD"
+   },
+   "outcome": "Quan sát có nguồn: adapter khai capability (bắt đầu, dừng, pause tại điểm an toàn, cô lập, đo, recovery); ghi start/end/wait theo attempt, nguồn thời gian và th",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/managed_executor.py hold_views — bản ghi giữ theo khai báo executor (hook: ngừng cấp quyền ghi, không lệnh pause; managed: đã yêu cầu dừng tại điểm an toàn, chưa xác nhận); hold_for_findings dùng lại hold_views",
+    "onecrew/v2/report.py _hold_lines — 'Giữ node N (finding F): đã ngừng cấp quyền ghi' trong report/bàn giao, không bao giờ 'đã dừng'"
+   ],
+   "tests": [
+    "tests/test_wf_hold_report.py (2) — T15b E1, E3, E4, E9; registry R03 check.hold_report, T15b complete (E6 từ test_wf_r03a_executors)"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe.",
+   "evidence": [
+    "commit b225e5c"
+   ]
+  },
+  {
+   "id": "W32a",
+   "release": "R03",
+   "category": "feature",
+   "testcases": {
+    "T36b": "DoD"
+   },
+   "outcome": "Baseline ước lượng theo khoảng, ghi một lần ngay sau `plan.approved` bằng sự kiện `estimate.baseline` (lớp A; hợp đồng v2 không có trường ước lượng, `v2:contrac",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/estimates.py additional(..., nodes=, still_running=) + _outside_authority — phát sinh vượt quyền: đúng một request U2 (authorize/class U2, idempotent theo key) và giữ đúng node phụ thuộc qua runtime_unknowns (resolver owner); bắt buộc vào ETA có lý do; tùy chọn vào backlog; không request cho hai loại này"
+   ],
+   "tests": [
+    "tests/test_wf_t36b_additional_u2.py (1) — T36b E11, E16, E17 + phần còn lại chạy, resolve của owner thả A; registry R03 check.t36b_additional_u2",
+    "tests/test_wf_estimates.py (6), test_wf_kn_estimates.py (6) như cũ"
+   ],
+   "missing": "T36b E4/E7 (2 giờ chờ, ba cột) và E12 (executor không đo chạy verdict run thật) vẫn chỉ có ở test_wf_estimates/metrics dạng chuỗi unknown — chưa kịch bản đồng hồ giả.",
+   "next": "Nếu muốn T36b complete: kịch bản đồng hồ giả E4/E7/E12 (1–2 h).",
+   "evidence": [
+    "commit 28f8fb0"
+   ]
+  },
+  {
+   "id": "W23c",
+   "release": "R03",
+   "category": "feature",
+   "testcases": {
+    "T35d": "DoD"
+   },
+   "outcome": "Số đo hiệu quả lấy từ sổ bằng hàm đánh giá v1 qua adapter (02, TD27): thời gian tới đầu ra, rework, quyết định của người dùng theo động từ và request, chi phí k",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/metrics.py:38 v1_evaluator (tra hàm theo tên module onecrew.evaluation_core), :177 measure, :260 measure_all (không ghi sổ, unknown có lý do)",
+    "onecrew/v2/cli.py:46-48 và onecrew/cli.py:49-51 — lệnh `eval plan-metrics`",
+    "onecrew/evaluation_core.py — hàm phân loại v1 dùng chung (checkout và wheel)"
+   ],
+   "tests": [
+    "test_wf_r03a_metrics.FiguresTests.test_e1_time_to_usable_output / test_e1_rework / test_e1_check_cost / test_e1_owner_decisions_by_verb_and_by_request / test_e1_figures_with_no_source_in_the_ledger_are_unknown_and_say_why — E1",
+    "…test_e2_waiting_is_not_active_minutes; test_an_open_question_is_an_open_wait_not_a_number — E2,E9",
+    "…AdapterTests.test_e3_the_measure_calls_the_v1_functions; test_e3_the_v1_view_keeps_unknown_unknown — E3",
+    "…test_e10_a_copied_classification_is_caught_by_the_call_counter; test_e10_the_module_holds_no_copy_of_the_v1_classification — E10 (phản chứng)",
+    "…WholeLedgerTests.test_all_roots_with_a_denominator_per_figure; test_the_measure_writes_nothing; CliTests.test_the_checkout_command_prints_the_figures",
+    "tests.test_eval_scorecard + tests.test_evaluation_core (v1) — E3 \"xanh trước và sau\": chạy lại 7 test OK ở HEAD"
+   ],
+   "missing": "Chỉ còn việc trạng thái: tests.test_eval_scorecard/test_evaluation_core không nằm trong check.r03a_metrics hay registry nên E3 \"xanh trước/sau\" không có biên nhận gate (tôi chạy tay: 7 OK). T35d vẫn ghi partial/acceptance-audit trong registry.",
+   "next": "Thêm hai module v1 vào check.r03a_metrics (hoặc registry) và đổi T35d sang complete kèm evidence_matrix E1,E2,E3,E8,E9,E10.",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R03-check.r03a_metrics.json",
+    "chạy tay tests.test_eval_scorecard + tests.test_evaluation_core: 7 OK"
+   ]
+  },
+  {
+   "id": "W24",
+   "release": "R03",
+   "category": "feature",
+   "testcases": {
+    "T12": "DoD",
+    "T43a": "DoD"
+   },
+   "outcome": "Ba trạng thái riêng `verified` / `accepted` / thông báo đã giao (HD-31); đúng một thông báo cho mỗi sự kiện cần chủ sở hữu (duyệt, câu hỏi, plan dừng, xong), bấ",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/exceptions.py:257 desktop_snapshots / :165 handles / :174 message — chiếu approval, question, stopped, verified vào outbox v1 (verified kèm current_status, delivery_is_not_acceptance, user_attention_verified=False)",
+    "onecrew/notifications.py:15-17,72-75 và onecrew/desktop_notifications.py:80-81,129-131 — outbox/desktop v1 gọi exceptions.*",
+    "onecrew/v2/notification_cli.py:8-33, notification_window.py:5 — pull/ack/desktop riêng cho plan (consumer riêng)",
+    "onecrew/v2/exceptions.py:67 observe — chỉ ghi notice.exception; không bật heartbeat (không có mã heartbeat nào trong v2)"
+   ],
+   "tests": [
+    "tests/test_wf_t43a_channels.py (2) — T43a E4 (không công tắc heartbeat trong mã, không file cấu hình heartbeat sinh ra), E5 (qua desktop_core v1, một launch mỗi record, phát lại không thêm), E14 (grep có tiêu chí: 0 email/smtp/zalo/webhook/HTTP ra ngoài), E15 (thông báo dừng/xong mở đúng trang plan present); registry R03 check.t43a_channels",
+    "tests/test_wf_exceptions.py (15) như cũ"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe. T43a vẫn partial trong registry (E6–E8, E10–E13 nằm ở test_wf_exceptions, chưa lập ma trận).",
+   "evidence": [
+    "commit 28f8fb0"
+   ]
+  },
+  {
+   "id": "W24b",
+   "release": "R03",
+   "category": "feature",
+   "testcases": {
+    "T43c": "DoD"
+   },
+   "outcome": "Thông báo ngoại lệ (đổi có chủ đích so với W24 cũ), ghi bằng `notice.exception` (lớp A) để outbox v1 đọc từ sổ: lệch đáng kể so với baseline, blocker, mốc đã hẹ",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/exceptions.py:67 observe — notice.exception (lớp A) khi lệch baseline (cận trên / tương đối theo policy), mốc quá hẹn, blocker U2; khử trùng theo nguyên nhân, gộp bản bị thay",
+    "onecrew/v2/exceptions.py:174 message / :257 desktop_snapshots — nội dung có lý do, bằng chứng, ETA mới, việc cần làm; bản đến muộn nêu event_at + trạng thái hiện tại",
+    "onecrew/v2/estimates.py:97,120,199 — gọi observe sau reforecast/additional/internal",
+    "onecrew/v2/compat.py:35 — notice.exception lớp A"
+   ],
+   "tests": [
+    "tests/test_wf_t43c_quiet.py (2) — T43c E20/E21 (6 giờ không ngoại lệ → 0 thông báo, phản chứng 'mỗi giờ' = 6; không bật heartbeat), E23 (trạng thái giao là trạng thái vận chuyển, không có 'đã đọc' do hệ thống; user_attention_verified=false) (chưa đăng ký registry)",
+    "tests/test_wf_exceptions.py — E16–E19, E22, E24 như cũ"
+   ],
+   "missing": "",
+   "next": "Đăng ký check vào R03 ở lần đóng băng kế.",
+   "evidence": [
+    "commit (tests batch 5)"
+   ]
+  },
+  {
+   "id": "W30b",
+   "release": "R03",
+   "category": "feature",
+   "testcases": {
+    "T47a": "DoD",
+    "T43b": "DoD"
+   },
+   "outcome": "Câu trả lời được ghi đúng (A6, phần không đổi trạng thái): lệnh đọc và lệnh trả lời câu hỏi trong wheel (động từ của chủ sở hữu); lựa chọn ghi vào `request.answ",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/report.py _owner_choices/_choice_lines — 'Chủ sở hữu đã chọn dừng / amend (chờ bản mới được duyệt) / tiếp tục («tham chiếu») — câu hỏi REQ-…' trong plan present và report, đọc từ request.answered"
+   ],
+   "tests": [
+    "tests/test_wf_t47a_answers.py (3) — T47a E1 (lệnh đọc in thẻ ở owner terminal và phiên AI, không trả lời), E3/E7 (amend → chờ bản mới, hợp đồng không đổi, verdict run bị từ chối tới khi duyệt), E11 (đã chọn dừng trên present/report); registry R03 check.t47a_answers"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe. T43b E6/E26 giữ như cũ.",
+   "evidence": [
+    "commit 28f8fb0"
+   ]
+  },
+  {
+   "id": "W40-R03",
+   "release": "R03",
+   "category": "phát hành",
+   "testcases": {
+    "T54c": "DoD"
+   },
+   "outcome": "Phát hành R03: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R03; `verdict.run_started`, `verdict.run_abandoned` chứng minh lớp A trên bản cà",
+   "status": "Partial",
+   "classes": [
+    "A",
+    "C",
+    "E"
+   ],
+   "implementation": [
+    "wfkit/release_check.py — validator T54 (năm điều, bốn trạng thái), chỉ kiểm bundle, không tạo bản phát hành",
+    "wfkit/upgrade_drill.py + tests/test_wf_upgrade_drill.py — diễn tập cài previous→current→previous→current, scan/refusal/reconcile (chung mọi release, baseline cố định d3120c6)",
+    "tests/test_wf_installed_notifications.py — thông báo trên bản cài",
+    "KHÔNG có: kịch bản/ biên nhận riêng của R03 hay ghi chú phát hành R03"
+   ],
+   "tests": [
+    "test_wf_upgrade_drill.UpgradeDrillTests.test_real_installs_preserve_state_refuse_then_roll_back_and_reconcile — điều 2,4 (chung)",
+    "…test_stale_scan_is_rejected_before_any_install_swap",
+    "test_wf_release_check.* — validator (fixture --allow-simulated)",
+    "test_wf_installed_notifications.test_installed_cli_question_pull_ack_desktop_retry_and_answer — điều 1 một phần",
+    "test_wf_events.test_e11_class_A_events_keep_S_G_C — lớp A trên checkout"
+   ],
+   "missing": "T54c: (1) verdict.run_started/run_abandoned chứng minh lớp A trên bản cài với bản dựng trước là bản cũ — chưa có (test W44 chạy từ checkout + archive d3120c6, không từ wheel; upgrade_drill/installed_notifications không chạm hai loại này). (2) Không có bundle biên nhận R03 (installed/upgrade/events/rollback/notes) cho release_check, không có ghi chú phát hành R03 (5 mục, 4 trạng thái). (3) Baseline của drill là d3120c6, không phải bản dựng trước R03 đã qua cổng. (4) Gate b2cc754: release_delivery=false, r03a_run_started fail. [E12] không thể đạt khi chưa có cổng.",
+   "next": "Viết kịch bản R03 trong wfkit (bản cài: verdict run bị giết → run_abandoned, scan/old-reader S,G,C, quay lại) + bundle + ghi chú; chạy sau khi W44, W33a, W32a, W23c, W24, W24b, W30b xong và gate R03 xanh; cần W40-R01 (phụ thuộc).",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R03-check.upgrade_drill.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R03-check.installed_notifications.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R03-check.r03a_run_started.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/decision.json (decision=refused; R03/R04 acceptance đều partial/acceptance-audit)"
+   ]
+  },
+  {
+   "id": "WK04a",
+   "release": "R04",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm R04, nhóm quyền và kế hoạch: T02, T03, T04a, T16a, T17a, T19, T21, T36a, T37",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "wfkit/development-testcases.json — mục R04 (22 check), manifest wfkit/development-manifest.json (R04 42 pin)",
+    "wfkit/development_gate.py — runner; tests/test_wf_development_kit.py"
+   ],
+   "tests": [
+    "gate b2cc754: r04a_authority 20/20, runtime_unknowns 7, root_budget 10, engine 10, task_caps 4, engine_cli 2, installed_native 2, installed_unknowns 5, control_core 3, metered_verifier 4, native_executor 6, test_preparation 3 — đều đạt",
+    "T19 và T21 chỉ gắn check.engine (tests.test_wf_engine) — module không có assertion nào về hash/manifest bộ kiểm hay phân loại (a)–(g)"
+   ],
+   "missing": "T19/T21 nay có test thật (W05) và T37 có test (W06); còn T03/T16a thiếu [E] theo bản audit (xem W04, W02); phần phản chứng ở mức bộ kiểm cho T36a/T02 chưa có.",
+   "next": "Sau gate 0d296fe: đăng ký các check mới; bổ sung phản chứng T36a/T02.",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.r04a_authority.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.engine.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.task_caps.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.runtime_unknowns.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.root_budget.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/decision.json (decision=refused; R03/R04 acceptance đều partial/acceptance-audit)"
+   ]
+  },
+  {
+   "id": "WK04b",
+   "release": "R04",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm R04, nhóm trạng thái và tương thích: T05, T25, T26, T32, T48b, T49c, T49d, T54d",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "wfkit/development-testcases.json — mục R04 (check.namespace, namespace_compat, plan_binding, root_writer, solution_link, installed_solution_link, upgrade_drill, failed_dependency)",
+    "wfkit/development_gate.py; wfkit/namespace-lineage.json"
+   ],
+   "tests": [
+    "gate b2cc754 đạt cả: namespace 9, namespace_compat 10, plan_binding 7, root_writer 8, solution_link 11, installed_solution_link 1, failed_dependency 2, upgrade_drill 3, namespace_lineage 3"
+   ],
+   "missing": "Đủ module trong registry và đạt trên b2cc754 cho T05,T25,T26,T32,T48b,T49c,T49d,T54d. Còn thiếu: không có phản chứng/mutant ở mức bộ kiểm cho phần \"năng lực mới\" (T49c E9,E10,E13,E24 phản chứng của scan; T49d chỉ có cổng N1–N7 trên checkout, không phải cài thật; T54d chỉ có drill chung). Registry partial.",
+   "next": "Bổ sung selftest (mutant) cho compat_scan T49c và evidence_matrix [E]→test; chờ W40-R04 để T49d/T54d có bằng chứng cài thật. Phụ thuộc WK0.",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.namespace_compat.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.namespace.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.solution_link.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.upgrade_drill.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/decision.json (decision=refused; R03/R04 acceptance đều partial/acceptance-audit)"
+   ]
+  },
+  {
+   "id": "W01 (S)",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {},
+   "outcome": "Câu trả lời: ánh xạ từng trường `authority` của v1 (`edit`, `commands`, `local_branches`, `branch_at`, `apply_to_project`, `edit_tests`, `unconfined_commands`) ",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "docs/wf/R04-W01-authority.md — bảng ánh xạ 7 trường + ba danh sách, có file:dòng (UNTRACKED, tạo 17:26 24/10 trong lúc audit, chưa review/commit)",
+    "onecrew/v2/authority.py:1-17 docstring (hình thức O2, \"Where it bites\"); :125 covers, :195 child_reason, :243 _write",
+    "onecrew/v2/gate.py:85 — child_reason chạy ở gate.require_plan (thi hành 7 trường + paths)",
+    "v1: onecrew/work_contract.py:15 AUTHORITY, onecrew/work_tools.py:1063 (apply_to_project), onecrew/owned.py:97"
+   ],
+   "tests": [
+    "test_wf_r04a_authority.GateTests.test_each_of_the_seven_fields_and_the_paths_are_enforced — bằng chứng từng trường thi hành ở gate",
+    "…SchemaTests.test_e15_the_table_is_code_and_the_schema_is_the_o2_list; test_forbidden_or_foreign_fields_are_refused"
+   ],
+   "missing": "Câu trả lời có (file mới) và phần lớn file:dòng đúng (authority.py:125,195,243 khớp), nhưng có điểm SAI so với mã: (1) nói `_simple_grant(\"edit_tests\")` — không tồn tại, edit_tests đi qua handler test_edit/_write(field=\"edit_tests\") (authority.py:286-290) và Q4; (2) nói \"W05 phát hiện làm yếu bộ kiểm qua hash/manifest (wfkit/kitguard.py)\" — kitguard là kit của chính chương trình, W05 chưa có mã; (3) nói self_decide ngoài danh sách thì \"request cho chủ sở hữu\" — authority.decide/internal_plan.decide trả U3 và raise, KHÔNG tạo request (xem docstring authority.py); (4) nói common_handoff áp apply_to_project theo grant — common_handoff chỉ import authority, không gọi; thi hành thật của apply_to_project ở root v2 là child_reason (gate) và work_tools.py:1063 (job v1). Chưa đối chiếu từng trường với chỗ thi hành của v1 ngoài tham chiếu TD08.",
+   "next": "Sửa bốn điểm trên trong docs/wf/R04-W01-authority.md, thêm cột \"v1 thi hành ở\" (work_contract/work_tools/owned) và commit; rồi đóng W01. Phụ thuộc: không.",
+   "evidence": [
+    "docs/wf/R04-W01-authority.md (mtime 17:26)",
+    "onecrew/v2/authority.py",
+    "00-THIET-KE §7 O2 (D:/TamNT/Workspace/11.OneCrew/outputs/onecrew-as-qc/workflow-chung/)",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.r04a_authority.json"
+   ]
+  },
+  {
+   "id": "W02",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {
+    "T17a": "DoD",
+    "T16a": "kiểm chung",
+    "T37": "kiểm chung"
+   },
+   "outcome": "Hợp đồng root có quyền cấp (ghi, lệnh, nhánh, sửa test, trần ngân sách/deadline, danh sách tự quyết); lint và niêm phong; kiểm \"kế hoạch ⊆ quyền\" kiểu `covers()",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/authority.py:86 normalize (7 trường v1 + self_decide/granted_actions/auto_accept=[]; từ chối trường lạ), :105 seal, :125 covers, :243-:356 handler U1–U4, :356 decide, :393 enforce",
+    "onecrew/v2/contract.py:161 — grant nằm trong hợp đồng root, lint từ chối trường lạ",
+    "onecrew/v2/gate.py:85 — authority.child_reason chạy ở require_plan (job con nằm trong grant)",
+    "onecrew/v2/engine.py:493, internal_plan.py:88-90 — decide+record (HD-05) trên đường dùng thật; onecrew/delivery_planner.py:112 dùng chung within"
+   ],
+   "tests": [
+    "test_wf_r04a_authority.DecisionTests.test_t17a_a_write_outside_scope_is_refused_u2_nothing_is_written_and_the_grant_is_unchanged — T17a E1,E6,E7",
+    "…test_write_aliases_traversal_and_missing_scope_do_not_execute",
+    "…test_e1_e3_e10_all_twelve_decisions… — T16a E1,E3,E10,E11",
+    "…test_e2_e14_out_of_scope_and_over_ceiling_are_u2_and_the_mutants_are_caught — T16a E2,E14 (mutant)",
+    "…test_e16_the_scope_test_goes_through_covers — T16a E16 (mutant)",
+    "…SchemaTests.test_e15_the_table_is_code_and_the_schema_is_the_o2_list; test_lint_names_a_foreign_field_with_the_authority_code",
+    "…GateTests.test_each_of_the_seven_fields_and_the_paths_are_enforced; test_inside_the_grant_dispatches; test_a_legacy_root_without_authority_keeps_its_behaviour",
+    "…test_native_job_actual_sealed_recipe_cannot_escape_root; test_generic_writer_with_no_sealed_paths_is_refused_not_given_root_scope"
+   ],
+   "missing": "DoD của W02 (T17a) đủ: quyền cấp thi hành ở gate, phân loại U1–U4, covers() dùng chung, lint+niêm phong, phản chứng có. Chỉ còn trạng thái: registry T17a/T16a/T37 vẫn partial/acceptance-audit. T16a E4 (revision kế hoạch tăng, hợp đồng không đổi) thuộc W04.",
+   "next": "Cập nhật registry: T17a complete với evidence_matrix E1,E6,E7; T16a để W04 đóng E4.",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.r04a_authority.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.engine.json"
+   ]
+  },
+  {
+   "id": "W04",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {
+    "T16a": "DoD",
+    "T03": "kiểm chung"
+   },
+   "outcome": "Revision kế hoạch nội bộ (`plan.revised`) tách khỏi revision hợp đồng; trong quyền thì không cần duyệt",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/internal_plan.py:187 revise (plan.revised tách khỏi plan.amended; trong quyền không request; U1 nếu mất acceptance/đổi check; U2 nếu ghi ngoài phạm vi)",
+    "onecrew/v2/internal_plan.py:108 _validate (acceptance phủ đúng output, mô tả node/trần/ước lượng)",
+    "onecrew/v2/engine_cli.py:26 (`engine revise`), engine.py:30-111 đọc plan.revised",
+    "onecrew/v2/authority.py:356 decide Q1 (chia, acceptance_changed=False) + decisions.record"
+   ],
+   "tests": [
+    "test_wf_engine.EngineTests.test_internal_revision_preserves_contract_acceptance_budget_and_decision_provenance — T16a E4, T03 E4 (hợp đồng byte-giống, 0 plan.amended, 0 request, đếm plan.revised)",
+    "…test_acceptance_loss_check_weakening_or_scope_expansion_is_refused_without_revision — T03 E7",
+    "test_wf_engine_cli.test_public_revise_state_ready_and_connected_step_reuse_runtime",
+    "test_wf_task_caps.test_attempt_starting_during_replan_prevents_revision_publication",
+    "test_wf_root_budget.test_sixty_spent_new_child_keys_retry_unknown_and_process_restart_keep_forty — T03 E2,E5 (kiểm chung)"
+   ],
+   "missing": "Hành vi đủ cho DoD T16a E4 và phần của T03; chỉ còn trạng thái registry (partial/acceptance-audit). Lưu ý scope ghi plan.py nhưng cài ở internal_plan.py.",
+   "next": "Cập nhật registry T16a/T03; không cần code.",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.engine.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.engine_cli.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.root_budget.json"
+   ]
+  },
+  {
+   "id": "W05",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {
+    "T21": "DoD",
+    "T19": "DoD"
+   },
+   "outcome": "Phân loại đổi acceptance (HD-04) và phát hiện làm yếu bộ kiểm qua hash/manifest",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/acceptance_diff.py — classify_text/classify_nodes/classify_contract: (a) câu chữ, (b) thêm cách kiểm = routine; (c) ngưỡng, (d) bỏ kết quả, (e) thu hẹp, (f) nghĩa vụ, (g) trường lạ = U1",
+    "onecrew/v2/plan.py amend — ghi acceptance_diff vào plan.amended; onecrew/v2/internal_plan.py revise — dùng classify_nodes thay kiểm thô",
+    "onecrew/v2/test_integrity.py compare + onecrew/v2/verdict.py _test_integrity/record — bộ kiểm bị làm yếu (assert nới, test xoá) làm mốc đỏ (U1), test thêm được nhận kèm provenance"
+   ],
+   "tests": [
+    "tests/test_wf_acceptance_change.py (9) — T21 E1–E4; registry R04 check.acceptance_change, T21 complete",
+    "tests/test_wf_test_integrity.py (5) — T19 E1–E4; registry R04 check.test_integrity, T19 complete"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe cho hai check mới (đang chạy).",
+   "evidence": [
+    "commit a84b1fb, 602414f (registry), 0d296fe (manifest)"
+   ]
+  },
+  {
+   "id": "W06",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {
+    "T05": "DoD",
+    "T37": "DoD"
+   },
+   "outcome": "Ba trạng thái node; dependency khai `requires`; hàm \"đủ điều kiện chạy\" theo trạng thái",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/engine.py:120 eligible (requires produced/verified/accepted, advance có giới hạn, lý do nêu node + trạng thái), :150 _ready qua dependency_core.ready_batch, :464 accept_node (Q12 + node.accepted)",
+    "onecrew/v2/internal_plan.py:108 _validate (requires thuộc produced/verified/accepted; integration bắt buộc verified/accepted)",
+    "onecrew/v2/engine_cli.py — ready/state/step/verify/accept (CLI)"
+   ],
+   "tests": [
+    "tests/test_wf_t37_child_acceptance.py (1) — T37 E1 (hai task con accepted nội bộ, bản ghi HD-05 Q12 mỗi task), E2/E4/E5 (root vẫn approved; accept từ phiên AI bị từ chối; plan.accepted = 0). E3/E6 (bước 3) không chạy vì O4 chưa được trả lời 'có' — ghi 'không chạy', không tính đạt (chưa đăng ký registry)",
+    "tests/test_wf_failed_dependency.py (T05) như cũ"
+   ],
+   "missing": "",
+   "next": "Đăng ký check vào R04 ở lần đóng băng kế.",
+   "evidence": [
+    "commit (tests batch 5)"
+   ]
+  },
+  {
+   "id": "W10",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {
+    "T03": "DoD",
+    "T32": "kiểm chung"
+   },
+   "outcome": "Ngân sách và deadline không reset qua chia/retry/restart; đóng lỗ \"khoá khác thì ngân sách mới\" trong cùng root",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/budget_core.py:88 ensure_plan_group (niêm phong ngân sách + deadline ở lần duyệt đầu), :160 group, :53 shared",
+    "onecrew/task_intake.py:136-137,200-201 — job con kế thừa ngân sách/deadline của root, không tạo ngân sách riêng",
+    "onecrew/v2/gate.py:60-75 (_over_budget/extend) và :85 require_plan; plan_binding.py:14-93 (niêm phong binding)",
+    "onecrew/goal_budget.py:48-52 — chặn tạo nhóm ngân sách mới trong root"
+   ],
+   "tests": [
+    "test_wf_root_budget.test_actual_approval_seals_budget_before_any_children_and_starts_first_deadline — E3",
+    "…test_sixty_spent_new_child_keys_retry_unknown_and_process_restart_keep_forty — T03 E2,E5 (khoá khác/retry/restart)",
+    "…test_new_job_keys_cannot_reset_exhausted_root",
+    "…test_two_children_reserve_atomically_against_one_remaining_call",
+    "…test_child_cannot_enlarge_root_calls_time_or_create_a_separate_grant — T32 E5",
+    "…test_new_approval_revision_cannot_reset_spend_or_automatically_increase_budget",
+    "…test_first_deadline_limits_late_children_and_expired_dispatch — E6/E8",
+    "…test_preexisting_goal_constraint_is_not_bypassed_by_workflow_root; test_default_schema2_and_preexisting_storage_only_workflow_keep_old_budget_semantics",
+    "test_wf_plan_binding.test_binding_is_sealed_and_replay_does_not_reset_calls_or_deadline; test_wf_control_core (3)"
+   ],
+   "missing": "DoD T03 phần ngân sách/deadline (E2,E3,E5,E6) đủ, kể cả đường \"khoá khác thì ngân sách mới\". Còn trạng thái registry (partial). T03 E1/E7 (ánh xạ acceptance khi chia) do W04. Không tìm thấy đường tạo ngân sách mới còn mở (đã rà budget_core/task_intake/goal_budget/gate).",
+   "next": "Cập nhật registry T03 (E2,E3,E5,E6 → test trên) sau khi W04 đóng E1/E7/E8.",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.root_budget.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.control_core.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.plan_binding.json"
+   ]
+  },
+  {
+   "id": "W11b",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {
+    "T25": "DoD"
+   },
+   "outcome": "Version workflow và capability khai trong root; plan schema 2 giữ semantics",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/namespaces.py:62 workflow_metadata, :80 check_workflow (version 1 + capability thực sự cài, từ chối còn lại), :74 has_capability",
+    "onecrew/v2/plan.py:318 propose(workflow=…) và :70 (workflow_version, capabilities vào state), :535 hiển thị",
+    "onecrew/v2/report.py — render_report nêu capability (namespaced-storage…)",
+    "onecrew/v2/contract.py — schema 2 giữ semantics (amend khi đổi item/mốc)"
+   ],
+   "tests": [
+    "test_wf_namespace.test_workflow_roots_declare_only_implemented_version_and_capability — T25 E2",
+    "…test_legacy_schema2_item_change_stays_amend_and_old_reader_still_reads_it — E1,E3,E4",
+    "…test_new_schema2_item_change_still_requires_amend_and_new_approval — E1,E4",
+    "…test_legacy_read_and_report_leave_old_files_paths_hashes_and_mtimes_unchanged",
+    "…test_old_cli_cannot_see_or_continue_new_roots_and_does_not_rewrite_their_files",
+    "test_wf_events.test_e11_class_A_events_keep_S_G_C; test_e13_old_binary_reads_anchor_with_task_submitted — E3"
+   ],
+   "missing": "DoD T25 (E1–E4) có test; chỉ còn cập nhật registry (T25 partial). Ghi chú: E3 \"bản cũ đọc sự kiện mới\" được kiểm bằng archive d3120c6 trên checkout; kiểm bản cài thuộc T13b/T54.",
+   "next": "Cập nhật registry T25 → complete (evidence_matrix E1–E4).",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.namespace.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.namespace_lineage_rules.json"
+   ]
+  },
+  {
+   "id": "W12b",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {
+    "T26": "DoD",
+    "T32": "DoD",
+    "T48b": "DoD"
+   },
+   "outcome": "Một nguồn duyệt (SOL liên kết như solution revision); một writer mỗi root; không gian tên theo project (A8): root mới (schema 2 và workflow mới) ở `plans/<proje",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/namespaces.py:16 parse, :25 resolve, :39 selector, :48 plan_dir (plans/<project_id>/<tên>), :55 active_file; plan.py:272,301,309 anchor plan-ns:",
+    "onecrew/v2/solution_link.py:17-196 (SOL như solution revision, một root mỗi việc, intake_binding, check_task) → solution_gate",
+    "onecrew/v2/root_writer.py:28 guard (một writer mỗi root, theo project)",
+    "onecrew/v2/plan_binding.py:14-93 (binding root đúng anchor/revision), compat.py:126 (không ghi lớp B lên plan:)"
+   ],
+   "tests": [
+    "test_wf_namespace.test_new_schema2_roots_share_name_across_projects_without_sharing_paths — T48b E2,E7; T32 E3",
+    "…test_bare_dual_anchor_refuses_and_explicit_selectors_read_amend_export_and_pin_exact_root — E8",
+    "…test_old_cli_cannot_see_or_continue_new_roots_… — E9; …test_legacy_read_and_report_leave_old_files… — E3,E4; …test_bad_names_fail_before_writes_in_both_creation_modes",
+    "test_wf_solution_link.test_sol_only_approval_cannot_dispatch_before_root_approval; test_root_is_single_grant_even_if_sol_decision_changes; test_second_root_for_same_work_is_refused_with_existing_root_identity — T26 E1–E4",
+    "test_wf_installed_solution_link.test_installed_cli_linked_root_is_the_only_handoff_authority — bản cài",
+    "test_wf_root_writer.test_second_ordinary_writer_refused_before_reservation_and_budget_charge; test_same_name_in_other_project_is_a_different_writer_root — T32 E1,E3,E4",
+    "test_wf_plan_binding.test_dual_roots_require_explicit_binding_and_different_approvals_do_not_leak"
+   ],
+   "missing": "Đủ [E] của T26, T32, T48b cho DoD của W12b; chỉ còn cập nhật registry (cả ba partial). Ghi chú: tests/test_wf_plan_names.py::test_e10 vẫn khẳng định luật từ chối của W12a nhưng chạy trên archive d3120c6, không mâu thuẫn W12b.",
+   "next": "Cập nhật registry T26, T32, T48b → complete; T32 cần thêm evidence E2 từ test_wf_root_budget.",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.namespace.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.solution_link.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.installed_solution_link.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.root_writer.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.plan_binding.json"
+   ]
+  },
+  {
+   "id": "W46b",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {
+    "T49c": "DoD"
+   },
+   "outcome": "`compat scan` mở rộng cho anchor `plan-ns:` (đóng băng khi rollback), tên trùng, B1 (active plan trỏ root bản cũ không thấy), B3 (anchor `plan:` có file ở đường",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "onecrew/v2/compat_scan.py:242 scan_root (B1 active plan, B2, B3 ghi chéo project, tên trùng, plan-ns: chỉ bảo toàn/đóng băng), :333 scan (chỉ đọc, hash đầu vào)",
+    "onecrew/v2/compat_cli.py:49 main (`compat scan`, rollback gate); compat.py (bảng sự kiện lớp)",
+    "tests/wf_rollback.py:22 rollback_drill (gate N1–N7 trên checkout)"
+   ],
+   "tests": [
+    "test_wf_namespace_compat.test_s2_properties_blocks_and_scan_preserves_files — E21 (bảy root S2: B1,B2,B3, preserved_only), scan không đổi file",
+    "…test_n1_to_n7_gate_branches — N1–N7 (T49d E5,E6 phần gate)",
+    "…test_real_old_namespace_reads_and_propose_split — E22 (propose r2 tạo plan:, propose dup bị từ chối), E24",
+    "…test_real_old_moved_legacy_writes_other_directory — E10/B3 chạy bản cũ thật",
+    "…test_b1_either_copy_stale_acceptance_and_expiry; test_b3_requires_writable_target_and_own_acceptance",
+    "…test_invalid_existing_state_never_returns_zero_permission; test_wrong_types_crash_actual_old_reader_even_after_acceptance — E13 (một phần)",
+    "…test_contract_field_predictions_match_archived_validator"
+   ],
+   "missing": "Hành vi đủ, đối chiếu bản cũ thật. Thiếu: (1) phản chứng của scan nêu trong [E9],[E10],[E13],[E24] (scan coi mọi root có anchor là đọc được; bỏ qua tên trùng; \"No plan named\" chung cho mọi lệnh plan-ns:) không có mutant/selftest — các test thật chỉ đỏ gián tiếp khi bản cũ khác dự đoán; (2) script kiểm báo cáo (báo cáo mẫu ghi R2 \"mất\"/\"đọc được\" bị bắt — E13) không tồn tại (grep wfkit/onecrew: 0); (3) bảng dự đoán 6 lệnh × 3 cột chỉ được đối chiếu một phần (show/propose/amend/verdict run — chưa có `report` và `digest` cho plan-ns: hoặc DUPk).",
+   "next": "Thêm selftest mutant cho compat_scan (3 bản sai) và hàm/script kiểm báo cáo rollback; hoàn thiện bảng 6×3 đối chiếu bản cũ. Phụ thuộc W46a, W12b, WK04b.",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.namespace_compat.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.namespace_lineage_rules.json"
+   ]
+  },
+  {
+   "id": "W13 (S)",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {},
+   "outcome": "Câu trả lời: engine cho lát tuần tự R04 (mô hình node/cạnh/generation của delivery, `parallel.ready_batch` với một slot, hay mở rộng item/mốc v2) và điều kiện m",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "docs/wf/R04-W13-engine.md — câu trả lời kèm file:dòng (UNTRACKED, tạo 17:27 24/10 trong lúc audit, chưa commit)",
+    "onecrew/v2/engine.py:150-168 _ready (ready_batch + 1 slot), :143-147 _slot_limit, :246-349 step (Control.reserve), :350 run_batch; docstring :1-5",
+    "v1: onecrew/dependency_core.py:5-19 (ready_batch, initial_node_states, affected_tasks), onecrew/parallel.py"
+   ],
+   "tests": [
+    "test_wf_engine.test_three_states_bounded_advance_and_reused_ready_batch_drive_real_one_slot_engine (ready_batch wraps ≥3)",
+    "test_wf_parallel_engine (điều kiện mở song song R08), test_wf_failed_dependency"
+   ],
+   "missing": "Có câu trả lời ghi (docs/wf/R04-W13-engine.md + docstring engine.py): chọn ready_batch + 1 slot + Control + plan.revised thay vì mở rộng item/mốc; điều kiện R08 = capability parallel-engine + executor khai isolate. Tôi kiểm các trích dẫn: engine.py:24,100,143-147,150-168,253-256,357-359 đúng (lệch tối đa vài dòng), không có scheduler thứ hai. Còn lại: file chưa được commit/duyệt; FEATURE-SCOPE chưa cập nhật.",
+   "next": "Commit docs/wf/R04-W13-engine.md; đổi trạng thái W13 trong FEATURE-SCOPE.",
+   "evidence": [
+    "docs/wf/R04-W13-engine.md (mtime 17:27)",
+    "onecrew/v2/engine.py",
+    "onecrew/dependency_core.py",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.engine.json"
+   ]
+  },
+  {
+   "id": "W14a",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {
+    "T04a": "DoD",
+    "T16b": "kiểm chung",
+    "T17b": "kiểm chung"
+   },
+   "outcome": "Root chạy task tuần tự theo engine đã chọn, dependency theo trạng thái (HD-15), một slot. Lớp mỏng nối các hàm tái dùng (`ready_batch`, mô hình node/cạnh/genera",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/engine.py:150 _ready → dependency_core.ready_batch, :120 eligible, :246 step (task_intake.submit + Control.reserve/launch/finish, generation fence)",
+    "onecrew/v2/engine_cli.py:15 main (ready/state/step/verify/accept/batch/revise) nối vào onecrew/v2/cli.py (group `engine`)",
+    "onecrew/common_executor.py:21 NativeExecutor, onecrew/v2/executors.py:95 Dispatcher — executor khai capability",
+    "onecrew/v2/internal_plan.py:187 revise — nguồn kế hoạch của engine"
+   ],
+   "tests": [
+    "test_wf_engine.test_three_states_bounded_advance_and_reused_ready_batch_drive_real_one_slot_engine — T04a E4,E8,E9 (patch ready_batch ≥3)",
+    "…test_single_slot_unknown_attempt_is_retained_and_never_reinvoked; test_u2_holds_actual_dependency_closure_while_independent_node_runs — T17b E2,E3 (kiểm chung)",
+    "test_wf_failed_dependency (2); test_wf_engine_cli (2); test_wf_native_executor (6)",
+    "test_wf_installed_native.test_installed_parallel_managed_processes_then_actual_integration_and_handoff; test_installed_cli_producer_integration_commands_cas_and_owner_accept — bản cài",
+    "test_wf_control_core (3)"
+   ],
+   "missing": "DoD T04a (E4,E8,E9) có test, engine không có luật nghiệp vụ, tái dùng ready_batch/Control, có kiểm bản cài. Còn: registry T04a partial; T16b/T17b là \"kiểm chung\" của R05 (không thuộc DoD). Không có mutant \"engine tự chọn node\" (E9 chỉ có bộ đếm).",
+   "next": "Cập nhật registry T04a → complete (E4,E8,E9).",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.engine.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.engine_cli.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.installed_native.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.native_executor.json"
+   ]
+  },
+  {
+   "id": "W31b",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {
+    "T02": "DoD"
+   },
+   "outcome": "Unknown trong thực thi có `affected`, `required_by`, chủ thể giải; giữ cục bộ hoặc toàn cục trên engine tuần tự; unknown chặn ước lượng thì thành node khảo sát ",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/runtime_unknowns.py:54 open_unknown (affected/required_by/resolver; local hay root), :94 resolve (vai trò + bằng chứng, khảo sát có trần), :31 blockers, :125 validate_revision",
+    "onecrew/v2/engine.py (_input_blocks/eligible) — node required_by bị giữ, phần độc lập chạy tiếp",
+    "onecrew/v2/cli.py (group `unknown`: list/open/resolve), unknown_cli.py; report.py:115 (plan present nêu \"giữ B1b\")",
+    "onecrew/v2/step0.py — luật PoC/khảo sát dùng lại"
+   ],
+   "tests": [
+    "test_wf_runtime_unknowns.test_local_and_global_unknowns_preserve_independent_execution — T02 E1,E3,E4,E6",
+    "…test_resolution_requires_correct_role_and_resolving_evidence — E2,E5",
+    "…test_idempotency_and_internal_revision_cannot_erase_an_open_unknown; test_removing_required_node_does_not_erase_open_unknown",
+    "…test_estimate_unknown_requires_bounded_readonly_survey_dependency; test_estimate_unknown_runs_survey_before_implementation_and_requires_its_receipt — node khảo sát trước implementation",
+    "…test_cli_and_present_expose_precise_hold_without_writes_on_read",
+    "test_wf_installed_unknowns.test_unknown_cli_and_root_delivery_guard_from_wheel (5) — bản cài"
+   ],
+   "missing": "DoD T02 (E1–E6) có test; chỉ còn cập nhật registry (T02 partial). Ghi chú: \"B1.n2 không chạy khi U-loc mở\" được test bằng thứ tự step, không đếm sự kiện bắt đầu B1b trong khoảng mở.",
+   "next": "Cập nhật registry T02 → complete (evidence_matrix E1–E6).",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.runtime_unknowns.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.installed_unknowns.json"
+   ]
+  },
+  {
+   "id": "W32b",
+   "release": "R04",
+   "category": "feature",
+   "testcases": {
+    "T36a": "DoD"
+   },
+   "outcome": "Trường ước lượng (khoảng) cho task của kế hoạch nội bộ; trần mỗi task; luật chia (chia khi vượt trần; việc không chia được có lý do và trần riêng)",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "onecrew/v2/internal_plan.py:108-186 _validate — estimate_seconds (khoảng), execution_cap_seconds ≤ 7200 trừ khi có indivisible{reason ≥20 ký tự, cap hữu hạn}, estimate ≤ cap; revise: cap ≤ phần deadline còn lại",
+    "onecrew/v2/estimates.py:14 interval; internal_plan.py ceilings (deadline còn lại từ budget_core)",
+    "onecrew/v2/runtime_unknowns.py:54 — task chưa ước lượng được thành node khảo sát có trần trước implementation"
+   ],
+   "tests": [
+    "test_wf_task_caps.test_ordinary_large_task_requires_real_decomposition — T36a E1,E5",
+    "…test_indivisible_cap_is_sealed_and_does_not_extend_root_deadline — E3,E8 (cap không vượt deadline)",
+    "…test_bad_exception_and_nonfinite_caps_are_rejected — E5",
+    "…test_attempt_starting_during_replan_prevents_revision_publication",
+    "test_wf_runtime_unknowns.test_estimate_unknown_runs_survey_before_implementation… — E2,E6 (nằm ở check.runtime_unknowns, không ở check.task_caps của T36a)"
+   ],
+   "missing": "Quy tắc có và nối vào internal_plan.revise. Thiếu: (1) không có kịch bản A/B/C của T36a trong một fixture (ba task, C chờ người dùng, đồng hồ chạy 3 giờ) nên E8 \"deadline trước/sau bằng nhau\" chỉ kiểm gián tiếp (cap > phần deadline còn lại bị từ chối, và authority._deadline); (2) E2/E6 nằm ở module khác không gắn vào T36a trong registry; (3) engine không tự chia A — chỉ từ chối kế hoạch có task > 2 giờ (bên lập kế hoạch phải chia); (4) không bản cài.",
+   "next": "Thêm test T36a gộp A/B/C + đồng hồ giả, gắn check.runtime_unknowns vào T36a trong registry. Phụ thuộc W31b, W10, W04.",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.task_caps.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.runtime_unknowns.json"
+   ]
+  },
+  {
+   "id": "W40-R04",
+   "release": "R04",
+   "category": "phát hành",
+   "testcases": {
+    "T54d": "DoD",
+    "T49d": "DoD"
+   },
+   "outcome": "Phát hành R04: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R04; root mới mang anchor `plan-ns:`, nên diễn tập rollback xử lý B1, B3, đóng b",
+   "status": "Partial",
+   "classes": [
+    "A",
+    "C",
+    "E"
+   ],
+   "implementation": [
+    "wfkit/upgrade_drill.py:98-300 Drill.execute — một root plan:legacy + plan-ns:future ẩn, cài previous(d3120c6)→current→previous→current, scan/từ chối/cho phép",
+    "wfkit/release_check.py — validator T54; tests/wf_rollback.py:22 rollback_drill; onecrew/v2/compat_scan.py:333",
+    "tests/test_wf_namespace_compat.py:98 test_n1_to_n7_gate_branches — N1–N7 chỉ gate trên checkout",
+    "KHÔNG có: kịch bản R04 với S2 (R1,R4,R2,R3,DUPa/b/k) trên bản cài, bundle biên nhận R04, ghi chú phát hành R04"
+   ],
+   "tests": [
+    "test_wf_upgrade_drill.UpgradeDrillTests.test_real_installs_preserve_state_refuse_then_roll_back_and_reconcile — T54d điều 2,4 (chung, không phải ma trận S2)",
+    "test_wf_namespace_compat.test_n1_to_n7_gate_branches; test_real_old_namespace_reads_and_propose_split — T49d E5,E6 một phần (archive, không cài)",
+    "test_wf_installed_native, test_wf_installed_solution_link, test_wf_installed_unknowns — điều 1 một phần",
+    "test_wf_release_check.* — validator"
+   ],
+   "missing": "T49d: chưa có diễn tập N1–N7 trên hai bản cài với S2: E5 (nêu đúng tập điều kiện còn lại ở bản cài), E6 (sau rollback: R1 tiếp tục, R2/R3/DUPb \"No plan named\", amend R4/DUPk bị từ chối, amend DUPa ok, propose r2 tạo plan:r2), E7 (roll-forward: ID/revision/ngân sách cộng phần R1 tiêu, plan show r2 từ chối nêu hai anchor) — chỉ có từng mảnh trên checkout. T54d: không có bundle/ghi chú; baseline d3120c6 không phải bản dựng trước R04. Gate b2cc754: release_delivery=false. Phụ thuộc chưa xong: W05 (không có mã), W01 (doc chưa commit), các [E] partial ở W06, W46b, W32b.",
+   "next": "Sau khi W05, W06, W46b, W32b, W01 xong: viết kịch bản bản cài R04 (S2 + N1–N7 + roll-forward) vào wfkit/upgrade_drill, dựng bundle + ghi chú phát hành R04 và chạy release_check; cần W40-R03 và W40-R01 (phụ thuộc W40, W41).",
+   "evidence": [
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.upgrade_drill.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.namespace_compat.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/receipts/R04-check.installed_native.json",
+    "C:/Users/NUC/AppData/Local/Temp/wf-dev-gate-20261024-b2cc754/decision.json (decision=refused; R03/R04 acceptance đều partial/acceptance-audit)"
+   ]
+  },
+  {
+   "id": "WK05a",
+   "release": "R05",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm R05, nhóm evidence và finding: T06, T07a, T11, T15a, T17b, T22, T24b, T28, T31, T38c",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "wfkit/development-testcases.json#releases.R05 — registry R05: 10 testcase của nhóm (T06,T07a,T11,T15a,T17b,T22,T24b,T28,T31,T38c) đều ánh xạ sang check.* có module unittest",
+    "wfkit/development_gate.py — chạy các check.* và ghi biên nhận; không có file verify-kit\\wf\\r05a_check.py riêng, registry + gate đóng vai bộ kiểm"
+   ],
+   "tests": [
+    "R05 check.evidence_binding/candidate_adapters/candidate_reuse_counter (T06,T22), finding_scope/repair_tasks (T07a,T38c), engine/candidate_handoff/candidate_reviewer (T11), hook_holds_generation (T15a), findings_integration/retention_integration (T17b), findings_report (T24b), findings/adapter_findings (T28), retention (T31)"
+   ],
+   "missing": "Theo quy tắc WK*: mọi testcase có module và đạt trên b2cc754 (31/31 biên nhận R05 pass; chỉ T15a 'complete', còn lại 'partial/acceptance-audit' ở cấp T-case). Lưu ý: các test bảo vệ của v1 mà T28 [E1] và T07a [E14] viện dẫn (tests/test_review_lifecycle, test_review_p6, test_branch_inbox, test_amendment) không nằm trong registry/gate.",
+   "next": "Không cần để khép bộ kiểm; khi khép W17/W18 thì đăng ký thêm các test bảo vệ v1 vào R05 để bộ kiểm bắt được hồi quy.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.evidence_binding.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.finding_scope.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.engine.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.hook_holds_generation.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.findings_integration.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.findings_report.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.findings.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.retention.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-registry.json"
+   ]
+  },
+  {
+   "id": "WK05b",
+   "release": "R05",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm R05, nhóm vòng sửa, quyết định, tích hợp: T04c, T08a, T16b, T16c, T17c, T18a, T18b, T29, T43d, T47c, T54e",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "wfkit/development-testcases.json#releases.R05 — registry cho T04c,T08a,T16b,T16c,T17c,T18a,T18b,T29,T43d,T47c,T54e",
+    "wfkit/development_gate.py — gate chạy các check.* đó"
+   ],
+   "tests": [
+    "check.test_preparation (T04c), check.node_actions_cli/installed_node_actions/metered_verifier (T08a), check.native_executor/observed_handoff/candidate_handoff/candidate_reviewer (T16b,T17c), check.review_policy/review_dispatch/installed_review_dispatch (T16c,T29), check.recovery_policy (T18a), check.progress (T18b), check.answer_effects (T43d,T47c), check.upgrade_drill/installed_native/installed_node_actions (T54e)"
+   ],
+   "missing": "T08a nay có module thật (check.t08a_reconcile, complete) và T11/T29 complete; còn T54e [E6] (roll-forward reconcile intent trước khi root tiếp tục — W40-R05) chưa có kịch bản trong kit; T18a/T16b/T47c… vẫn partial theo ma trận.",
+   "next": "Kịch bản T54e E6 trong upgrade_drill (1 h) khi làm W40-R05.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-registry.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.metered_verifier.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.node_actions_cli.json",
+    "docs/wf/audit/tasks-92.json (registry T08a/T54e)"
+   ]
+  },
+  {
+   "id": "W07",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T06": "DoD"
+   },
+   "outcome": "Biên nhận gắn thêm input, cấu hình, môi trường; stale nêu đúng thứ đổi",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/verification_evidence.py:87 — bind: gắn artifact, revision, acceptance, inputs, configuration, environment, checks (băm, không sao chép giá trị môi trường)",
+    "onecrew/v2/verification_evidence.py:103 — for_receipt: gọi trước khi kiểm với artifact và môi trường hiệu lực; input_identities (:46) lấy vân tay trong cây Git bất biến/snapshot",
+    "onecrew/v2/verification_evidence.py:136 — assess: stale nêu đúng 'input changed: X' / 'checker configuration changed' / 'checker environment changed: <thành phần>' / 'acceptance changed'",
+    "Đường dùng thật: verifiers/command.py:239, reviewer.py:285, port.py:326 ghi binding vào biên nhận; plan.py:190 và :468 (stale trong plan show/accept); verdict.py:93 require_binding; common_verification.py:236 bind cho node ứng viên"
+   ],
+   "tests": [
+    "tests.test_wf_evidence_binding.BindingPolicyTests.test_each_changed_dimension_is_named_and_original_checks_are_retained — T06 E1,E4 (I1, C, V, acceptance)",
+    "...test_artifact_change_outside_inputs_is_not_implicitly_neutral — E2 (đổi file ngoài input, không căn cứ => stale)",
+    "...BoundReceiptTests.test_actual_run_binds_inputs_configuration_environment_and_readonly_stale_reasons — E1,E3 trên lần chạy thật (đổi checker/env/interface.txt => stale, plan show stale, sổ không đổi)",
+    "...test_malformed_binding_and_null_artifact_are_never_reused; test_opt_in_root_cannot_publish_new_unbound_or_mismatched_binding_pass — phản chứng 'biên nhận không gắn input'",
+    "...test_reviewer_receipt_binds_effective_environment_with_fake_provider_only; NonGitBoundReceiptTests — reviewer và artifact không Git",
+    "tests.test_wf_candidate_reuse_counter (9 test) — common_verification.proof_mismatch (:95): lệnh khác, mốc khác, hợp đồng/revision khác, cây khác, trần thời gian vượt bị từ chối"
+   ],
+   "missing": "Không thiếu [E] của T06. Ghi chú: môi trường là vân tay python/platform/biến môi trường hiệu lực, không phải kiểm kê thư viện hệ điều hành (docstring nói rõ). Chỉ chạy từ checkout, không có check cài đặt riêng cho W07 (T54 phủ phần cài).",
+   "next": "Chỉ cần đổi trạng thái registry T06 từ partial sang complete kèm evidence_matrix (E1..E4 -> các test trên).",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.evidence_binding.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.candidate_adapters.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.candidate_reuse_counter.json"
+   ]
+  },
+  {
+   "id": "W08",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T22": "DoD"
+   },
+   "outcome": "Căn cứ tái dùng evidence được ghi; căn cứ chỉ là `scope.neutral` đã khai hay căn cứ theo hành vi có bằng chứng, không theo đường dẫn; không rõ thì kiểm rộng hơn",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/verification_evidence.py:136 — assess: tái dùng chỉ khi (a) cùng artifact, hoặc (b) scope.neutral đã khai trong hợp đồng khớp TỪNG đường dẫn đổi (contracts.neutral_match), verifier là command, không submodule; mọi trường hợp khác 'kiểm lại' với checks_to_rerun = hợp check cũ+mới",
+    "onecrew/v2/verification_evidence.py:236 — record_reuse: ghi evidence.reuse (key, basis={kind:scope.neutral, contract_revision, from/to artifact, changed_paths, matching_globs}, binding_sha256, grants_authority:false), idempotent, ghim cây",
+    "onecrew/v2/plan.py:190-196 và :468-477 — milestone chỉ còn 'passed' khi căn cứ đã 'recorded'; accept tự ghi căn cứ trước khi tính; plan_cli.py:115 lệnh record_reuse",
+    "basis 'path' luôn bị từ chối; basis 'behavioral' thiếu evidence => 'lacks evidence', có evidence => 'evaluator is not available; recheck' (chưa bao giờ chấp nhận)"
+   ],
+   "tests": [
+    "tests.test_wf_evidence_binding.BindingPolicyTests.test_artifact_change_outside_inputs_is_not_implicitly_neutral — T22 E1,E5,E6 ((a) chỉ đường dẫn, (e) behavioral không bằng chứng)",
+    "...test_neutral_reuse_requires_declared_matching_paths_and_record — E4 (d) và các biến thể không khớp/submodule/reviewer",
+    "...BoundReceiptTests.test_neutral_basis_is_persisted_idempotently_and_never_changes_original_receipt — E3,E4 trên sổ thật",
+    "...test_outside_input_unrelated_path_and_forged_receipt_cannot_reuse — E2 (b) kiểm lại + record_reuse bị từ chối",
+    "...test_reuse_record_is_visible_in_same_transaction_and_rolls_back_atomically",
+    "tests.test_wf_handoff_reuse (2 test), tests.test_wf_candidate_reuse_counter — đường tái dùng của node ứng viên"
+   ],
+   "missing": "[E1..E6] đều có test. Hai điểm cần biết: (1) căn cứ 'theo hành vi có bằng chứng' chưa bao giờ được chấp nhận (không có bộ đánh giá trung lập hành vi) — đúng theo T22 [E1]/[E5], nghĩa là W08 thực chất chỉ hỗ trợ scope.neutral; (2) receipt_assessment không nhận tham số basis nên hai loại basis path/behavioral chỉ được kiểm ở hàm thuần assess; đường thật không thể cung cấp chúng (an toàn). Biến thể (c) 'cấu hình kiểm đổi' có test ở T06.",
+   "next": "Cập nhật registry T22 (complete + evidence_matrix). Nếu sau này có bộ đánh giá trung lập hành vi thì mở rộng assess.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.evidence_binding.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.candidate_reuse_counter.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.handoff_reuse.json"
+   ]
+  },
+  {
+   "id": "W09",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T31": "DoD"
+   },
+   "outcome": "Retention: ref cục bộ giữ cây và blob mà evidence tham chiếu; không push; không tự xoá ref, chỉ chủ sở hữu dọn; hook chặn `git push` có `refs/onecrew` (A10; mặc",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/retention.py:49 — pin_trees: ref refs/onecrew/evidence/<hash(project,state_root,plan)>/<tree> bằng update-ref --no-deref, chỉ nhận cây, idempotent, không bao giờ xoá",
+    "onecrew/v2/retention.py:77 — cleanup: chỉ chủ sở hữu (require_owner), chỉ ref của đúng plan/state-root, không prune",
+    "onecrew/v2/retention.py:92 — pin_evidence: ghim trước khi công bố evidence (gọi từ verdict.py, plan.py:418/491, engine.py:239/345, common_verification.py:233, common_handoff.py:144, record_reuse)",
+    "onecrew/v2/plan_cli.py:85-120 plan retention list/cleanup; v2/ownership.py:23 coi cleanup là động từ owner",
+    "onecrew/v2/active_plan.py:32-35 + hook_cli.py:357-362 — hook chặn mọi 'git push' (DEFAULT_BASH_DENY) và 'plan retention cleanup' từ phiên AI; thông điệp nêu refs/onecrew"
+   ],
+   "tests": [
+    "tests.test_wf_retention.RetentionTests.test_e1_e2_orphan_trees_and_blobs_survive_gc_and_process_restart — T31 E1,E2",
+    "...test_e3_counterexample_unpinned_orphan_is_really_pruned — E3 phản chứng (không ref thì gc dọn)",
+    "...test_e4_pins_are_local_no_push_is_invoked_and_bare_remote_stays_empty — E4",
+    "...test_e5_repin_and_restarts_never_delete_refs; test_e5_owner_cleanup_only_removes_exact_plan_and_state_root; test_e5_cleanup_refuses_ai_actor_and_ai_session_without_mutation — E5",
+    "tests.test_wf_retention_integration (14 test) — verdict/accept/receipt sống sót gc+restart; test_hook_blocks_push_of_retention_refs_with_specific_reason — E6 (Bash và PowerShell); test_retention_cli_lists_and_owner_cleanup_refuses_ai_actor_and_session"
+   ],
+   "missing": "Đủ. Ghi chú nhỏ: phản chứng E6 'hook không có luật này làm test đỏ' chưa độc lập — việc chặn push đến từ luật chung 're:git push' của DEFAULT_BASH_DENY, 'refs/onecrew' chỉ thêm lời nhắn; gỡ riêng nội dung refs/onecrew thì test vẫn xanh (hành vi vẫn đúng).",
+   "next": "Chỉ cập nhật trạng thái registry T31 (complete + evidence_matrix).",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.retention.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.retention_integration.json"
+   ]
+  },
+  {
+   "id": "W16",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T04c": "DoD"
+   },
+   "outcome": "Node chuẩn bị test từ acceptance chạy trước implementation",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/test_preparation.py:8 — prepare: thêm node chuẩn bị test từ acceptance của implementation (depends=[]); implementation và mọi node integration phụ thuộc 'verified' của nó; qua ip.decide (Q4) và ip.revise, ghi quyết định HD-05, giữ ghim executor, chặn khi thiếu edit_tests",
+    "onecrew/v2/node_actions_cli.py:21 + engine_cli.py:29,48 — lệnh 'engine prepare-tests'",
+    "Lập lịch bằng engine thật qua dependency_core.ready_batch"
+   ],
+   "tests": [
+    "tests.test_wf_test_preparation.TestPreparationTests.test_preparation_finishes_before_any_implementation_artifact — T04c E1,E7 (P ready đầu tiên, C chỉ sau khi P verified, không có node.held cho P, ready_batch gọi >=4 lần)",
+    "...test_preparation_cannot_expand_test_write_grant_or_target_integration; ...test_preparation_requires_the_existing_test_edit_grant — không nới quyền",
+    "tests.test_wf_node_actions_cli.test_prepare_tests_cli_blocks_implementation_until_preparation_verified; tests.test_wf_installed_node_actions (trên wheel cài)"
+   ],
+   "missing": "Đủ cho DoD (E1, E7). Node chuẩn bị do entry gọi 'prepare-tests' (không tự sinh từ acceptance); đúng với 'điều phối' của W16 nhưng chưa có bộ sinh tự động.",
+   "next": "Chỉ cập nhật registry T04c.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.test_preparation.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.installed_node_actions.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.node_actions_cli.json"
+   ]
+  },
+  {
+   "id": "W17",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T28": "DoD",
+    "T07a": "kiểm chung"
+   },
+   "outcome": "Finding register cho plan v2 (A3; phần \"không thêm cổng\" của đề xuất `DE-XUAT-LO3-A3-A5` không theo, vì HD-25 giữ nhánh bị ảnh hưởng): tách hàm thuần của `revie",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/finding_core.py:12-67 — norm/claim_key/append_finding/closure_reason/close_finding: lõi dùng chung (v1 review_evidence.py:6,400,465,473 và v2 findings.py đều gọi)",
+    "onecrew/v2/findings.py:225 record_verification / :215 record_review / :310 resolve — register plan v2: mức độ critical/major/minor, phạm vi read/write, gộp trùng, đóng chỉ bằng biên nhận pass thật, bác bỏ cần bằng chứng, stale khi đổi tiêu chí",
+    "onecrew/v2/verdict.py:111-118 — ghi finding cùng giao dịch với verdict.recorded (chỉ khi root có capability finding-register)",
+    "onecrew/v2/findings.py:283 reviewer_context — finding mở được đưa vào lần review sau (common_verification.py:294)"
+   ],
+   "tests": [
+    "tests.test_review_lifecycle + tests.test_review_p6 đăng ký vào R05 (check.register_v1_guard, check.register_v1_guard_p6) cho T28 E1 — chậm (~40 phút), chạy trong gate 0d296fe",
+    "tests.test_wf_findings (T28 E2–E6) như cũ"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe cho hai check register (nếu đỏ thì W17 về Partial).",
+   "evidence": [
+    "commit 602414f"
+   ]
+  },
+  {
+   "id": "W18",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T07a": "DoD",
+    "T15a": "DoD",
+    "T17b": "DoD",
+    "T16b": "kiểm chung"
+   },
+   "outcome": "Phạm vi ảnh hưởng theo dependency + phạm vi đọc/ghi; giữ nhánh (tuần tự: không chạy task bị ảnh hưởng; executor bên ngoài: chặn ghi; worker được quản lý dừng tạ",
+   "status": "Partial",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/finding_scope.py:10 — blockers: finding mở => tập node bị giữ = node của finding + node đọc/ghi trùng phạm vi + integration, mở rộng bằng dependency_core.affected_tasks trên influence_projection (đọc coi như phụ thuộc người ghi); không có finding/không bật capability => {}",
+    "onecrew/v2/finding_scope.py:37 — write_scope: đường ghi bị rút lại, xuất vào active-plan; engine.py:94-108 đưa finding_blockers vào state/ready; hook_cli.py:160-186 chặn ghi trong phạm vi (fail-closed khi register mới hơn bản xuất, 'session is not stopped')",
+    "onecrew/v2/findings.py:188-208 after_change — xuất lại + managed_executor.py:56 hold_for_findings (yêu cầu worker được quản lý dừng ở điểm an toàn, chỉ khi có lịch sử managed)",
+    "onecrew/dependency_core.py:19 affected_tasks — một nguồn với v1 amendment.py:4"
+   ],
+   "tests": [
+    "tests.test_wf_finding_scope.test_real_register_holds_writers_readers_and_dependents_but_independent_node_runs — T07a E13 (và E14 một nửa), T17b E2,E3,E8 (held={Nw,Nr,Nd,I}; Nx chạy tiếp; affected_tasks được gọi)",
+    "...test_exported_external_hook_withdraws_only_affected_writes_without_opening_ledger — T15a E2,E5 (Edit/PowerShell bị chặn, ngoài phạm vi qua, Read qua, không mở sổ)",
+    "tests.test_wf_hook_holds_generation (12 test, gồm 5 ca trên) — fail-closed theo generation của register",
+    "...test_late_finding_retains_settled_candidate_then_resolution_releases_without_retry; ...test_finding_changes_optional_and_required_rule_cache_to_hold",
+    "tests.test_wf_managed_hold (R08, 2 test pass) — T07a E16 / T15c E7,E9"
+   ],
+   "missing": "T07a E14 nêu tái dùng `branch_inbox.blocks` (v1: chặn theo request workflow.branch). v2 không tạo request workflow.branch; gọi admission_core.blocks như hiện có sẽ coi MỌI request đang chờ (thẻ U2, thẻ quyết định) là chặn toàn root — trái T16 (quyết định thông thường không chặn việc độc lập). Phạm vi giữ của finding dùng dependency_core.affected_tasks (tái dùng thật, có bộ đếm). Đây là lệch có lý do giữa spec và thiết kế v2, không phải thiếu code.",
+   "next": "Chủ sở hữu quyết: ghi nhận E14 chỉ còn affected_tasks (register finding là đường giữ nhánh của v2) hay yêu cầu nối blocks với bộ lọc riêng cho workflow.branch.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.finding_scope.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.hook_holds_generation.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.findings_integration.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R08-check.managed_hold.json",
+    "Chạy tay: tests.test_branch_inbox, tests.test_amendment, tests.test_control — OK"
+   ]
+  },
+  {
+   "id": "W19",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T38c": "DoD",
+    "T11": "kiểm chung",
+    "T18a": "kiểm chung",
+    "T16b": "kiểm chung"
+   },
+   "outcome": "Repair task; chạy lại ca từng hỏng trước, rồi phần bị ảnh hưởng; vô hiệu hoá theo generation",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/repair_tasks.py:55 — prepare: chỉ nhận biên nhận kiểm node thật, mới nhất, trên artifact hiện tại, có ca 'fail'; owner phải là node ghi và nằm trong phạm vi ảnh hưởng của node hỏng; affected = dependency_core.affected_tasks(influence_projection); mỗi node bị ảnh hưởng nhận generation +1 qua ip.revise (không có bảng/lịch riêng); gọi recovery_policy.authorize_repair",
+    "onecrew/v2/repair_tasks.py:93 — verification_order: ca từng hỏng chạy trước, mọi check đã cấu hình vẫn bắt buộc, ràng buộc generation + checks_sha",
+    "onecrew/common_verification.py:201-203,271-340 — CandidateChecker dùng verification_order; ca hỏng trước còn đỏ thì các check sau ghi 'blocked' (không chạy)",
+    "onecrew/v2/node_actions_cli.py:21 — 'engine repair'; engine.py:449 gọi recovery_policy.assess sau mọi kiểm node 'fail'"
+   ],
+   "tests": [
+    "tests.test_wf_repair_tasks.test_focused_repair_preserves_unrelated_generation_and_failed_case_runs_first — T38c E5,E9, T11 E3,E5 (affected=['C','I'], B giữ nguyên, order F1,A1,A2; số lần chạy nhỏ hơn toàn suite; affected_tasks được gọi)",
+    "...test_old_generation_green_cannot_publish_after_repair_reissues_owner — vô hiệu hoá theo generation (kết quả generation cũ bị giữ lại, không verified)",
+    "...test_still_failing_prerequisite_blocks_later_checks_and_never_verifies_node; test_stale_forged_unknown_failures_and_unrelated_target_are_refused",
+    "tests.test_wf_candidate_handoff.test_actual_failed_command_runs_first_and_blocks_other_checks_until_fixed + test_fixed_prerequisite_then_runs_every_remaining_required_command — qua command.run thật: ran==['M1'] rồi ['M1','M2']",
+    "tests.test_wf_failed_dependency (R04) — failed_blockers + generation mới khôi phục phụ thuộc; tests.test_wf_installed_node_actions trên wheel cài"
+   ],
+   "missing": "Đủ cho DoD T38c. Ghi chú: 'repair' do entry gọi (engine tự đánh giá nhưng không tự tạo repair); ca phạm vi không xác định được -> kiểm rộng (HD-18) chưa có test riêng. Nghi vấn CHƯA kiểm chứng: dấu 'repair-evidence:' nằm trong input node và verification_order ném LedgerError nếu generation node đổi tiếp bởi một revise khác (marker cũ) — chưa dựng ca để xác nhận.",
+   "next": "Cập nhật registry T38c (complete + evidence_matrix). Tùy chọn: thêm ca 'revise khác sau repair' để chắc marker cũ không làm hỏng CandidateChecker.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.repair_tasks.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.candidate_handoff.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.installed_node_actions.json"
+   ]
+  },
+  {
+   "id": "W51",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T18b": "DoD"
+   },
+   "outcome": "Không dừng nhầm việc đang tiến triển. Tách phần dùng chung của `progress.observe` (đếm lặp theo hash kết quả công cụ; luật khảo sát: nguồn mới đặt lại đếm, đọc ",
+   "status": "Partial",
+   "classes": [
+    "B"
+   ],
+   "implementation": [
+    "onecrew/progress_core.py:32 observe_counters + :148 prepare_evidence — hàm thuần tách từ v1; chỉ import .ledger (không nạp work_tools/sandbox_gate/owned_git/review_evidence); có trong wheel (pyproject.toml:41)",
+    "onecrew/progress.py:4,69 — progress.observe của v1 import và GỌI observe_counters (không chép); progress.py không vào wheel",
+    "onecrew/v2/progress_track.py:24 advance / :98 observe — v2 gọi cùng progress_core.observe_counters; phần mới: kind 'command' (liveness theo output_hash/receipt_ref mới trong cửa sổ, dừng ở trần lệnh), 'hypothesis' (trần 3, thứ 4 => blocked kèm danh sách đã bác), 'wait'/'unknown' không tiêu đếm, lines_changed bị từ chối",
+    "Đường dùng: common_executor.py:146-152 ghi quan sát 'tool/run' sau mỗi node; engine.py:226,319 đọc checkpoint và giữ node (node.held 'progress_blocked') hoặc chờ; executors.py:319 CLI 'executor progress'"
+   ],
+   "tests": [
+    "tests.test_wf_progress.ProgressRulesTests.test_v1_and_v2_use_same_counter_and_new_source_resets_exploration — E13 (legacy.observe_counters is progress_core.observe_counters; bộ đếm gọi 5 lần), E10 dạng tương đương",
+    "...test_long_command_with_new_output_runs_until_its_cap — E9 (M chạy 40 phút, chỉ dừng ở trần)",
+    "...test_quiet_output_is_unknown_not_proof_of_no_progress_and_receipt_advances; test_wait_and_unknown_do_not_consume_repeat_budget — E12,E14",
+    "...test_fourth_rejected_hypothesis_blocks_with_evidence — E11",
+    "...test_invalid_or_cosmetic_measurements_cannot_be_progress — E15 (kind lines_changed bị từ chối)",
+    "...ProgressLedgerTests (2 test) — CLI ghi/đọc quan sát thật, idempotent; executor không khai đo thì 'command' bị từ chối"
+   ],
+   "missing": "Quan sát kind 'command' (liveness lệnh dài) và 'hypothesis' vẫn chỉ vào qua CLI operator; đường chạy thật (common_executor) phát 'tool/run'/'unknown' sau khi node xong; verifier command dùng communicate() không stream nên không có liveness giữa chừng. Luật đếm lặp đã tách và v1 gọi lại thật (E13). Không dừng lệnh dài giữa chừng (E9) đúng vì không có luật dừng nào cho lệnh.",
+   "next": "Stream output của verifier command theo chu kỳ và phát quan sát 'command' (1 h); đăng ký tests.test_search_recovery (ca PromptBudgetError của kiro cần xử lý riêng).",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.progress.json",
+    "Chạy tay: tests.test_search_recovery trên worktree: Ran 43, errors=1"
+   ]
+  },
+  {
+   "id": "W20",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T18a": "DoD"
+   },
+   "outcome": "Vòng sửa không tiến triển → tự chẩn đoán, replan trong quyền, hoặc blocker có bằng chứng",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/recovery_policy.py assess — diagnosis.attempts (mọi biên nhận node.verification 'fail' của node) và diagnosis.spent (max/used/reserved/remaining_calls, deadline từ budget_core.group)",
+    "onecrew/v2/report.py _blocker_lines — 'Blocker node N: ca đỏ … · n lần thử (biên nhận) · đã tiêu x/y lời gọi, hạn … · tiếp: …' trong plan report và bàn giao"
+   ],
+   "tests": [
+    "tests/test_wf_t18a_blocker.py (2) — T18a E2, E4–E7; registry R05 check.t18a_blocker (T18a vẫn partial: E3 trần ngân sách do root budget kiểm ở nơi khác, E8 bộ đếm decide có ở recovery_policy)",
+    "tests/test_wf_recovery_policy.py (4) như cũ"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe.",
+   "evidence": [
+    "commit b225e5c"
+   ]
+  },
+  {
+   "id": "W21",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T11": "DoD"
+   },
+   "outcome": "Node tích hợp: unit xanh mà tích hợp đỏ thì root chưa `verified`",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/findings.py record_node_verification/_node_proof/_node_milestone/node_scope — finding nội bộ từ biên nhận node của engine, phạm vi = node mà I tích hợp (deps có write ∩ I.read), biên nhận pass đóng finding qua register",
+    "onecrew/v2/engine.py verify — gọi register khi root có finding-register; onecrew/v2/finding_scope.py _release_repairs — node do repair cấp lại không bị finding đó giữ; engine._input_blocks — input bị giữ nhưng dependent đã được thả không chặn",
+    "onecrew/v2/repair_tasks.py rerun_order — ca hỏng của I trước, rồi kiểm của N1/N2, nhỏ hơn toàn suite"
+   ],
+   "tests": [
+    "tests/test_wf_t11_integration_finding.py (3) — T11 E1–E5; registry R05 check.t11_integration_finding, T11 complete",
+    "tests/test_wf_finding_scope.py, test_wf_repair_tasks.py, test_wf_engine.py — hồi quy xanh"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe.",
+   "evidence": [
+    "commit b225e5c"
+   ]
+  },
+  {
+   "id": "W23d",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T24b": "DoD"
+   },
+   "outcome": "Bàn giao theo finding: báo cáo và `plan present` liệt kê finding còn mở lấy từ register (W17), finding đã đóng có bằng chứng thì không",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/report.py _finding_limits — dòng finding mở có ID · severity · mốc · tiêu chí · artifact · head · biên nhận"
+   ],
+   "tests": [
+    "tests/test_wf_t35d_handover_findings.py (1) — F1 mở + F2 đóng qua register: bàn giao chỉ liệt kê F1 với tiêu chí và artifact; registry R03 check.t35d_handover_findings"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe.",
+   "evidence": [
+    "commit c4cfede"
+   ]
+  },
+  {
+   "id": "W26",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T29": "DoD",
+    "T16c": "DoD"
+   },
+   "outcome": "Lớp quyết định theo quy tắc: `SKIP`/`DEFER`/`REVIEW`/`HOLD` có lý do, bằng chứng, phạm vi, hiệu lực; cache theo (input, revision, policy); lõi giữ cổng bắt buộc",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/engine_cli.py — lệnh `engine review-optional <plan> <node> <review>` chạy review_dispatch.optional với CandidateChecker của host (REVIEW gọi checker; SKIP/DEFER/HOLD không gọi); từ chối khi node chưa produced hoặc port host bị tắt"
+   ],
+   "tests": [
+    "tests/test_wf_review_optional_cli.py (2) — T29 E1–E4, T16c E8; registry R05 check.review_optional_cli, T29 complete (E5/E6 từ test_wf_review_dispatch)"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe.",
+   "evidence": [
+    "commit b225e5c"
+   ]
+  },
+  {
+   "id": "W30c",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T47c": "DoD",
+    "T43d": "DoD"
+   },
+   "outcome": "Áp câu trả lời thành trạng thái trên root `plan-ns:`: trả lời \"dừng\" đóng root có lý do (`plan.closed`, lớp B); trả lời \"tiếp tục\" mở lại đúng phần bị giữ (`req",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/answer_effects.py:8 apply — chỉ root plan-ns: có capability sequential-engine; chỉ câu trả lời có provenance user; 'stop' => plan.closed (lý do = tham chiếu) + request.applied; 'continue' => engine.resume_held đúng generation đã giữ trong hạn mức cũ; 'amend_plan' => chỉ ghi, chờ revision mới được duyệt; superseded/lặp được xử lý; :70 reconcile sau crash",
+    "onecrew/v2/questions.py:33-34 — answer gọi apply; engine.py:247-248 gọi answer_effects.reconcile trước khi chạy; engine.py:517 resume_held (từ chối nếu attempt chưa settle)",
+    "Root plan: cũ/mặc định schema 2 giữ stopped_with_report (legacy_root)"
+   ],
+   "tests": [
+    "tests.test_wf_answer_effects.test_stop_closes_once_and_prevents_further_work_without_accepting — T47c E2,E4,E6 (plan.closed 1, request.applied 1, verdict run bị từ chối, không còn trong danh sách chờ, present nêu lý do)",
+    "...test_actual_old_root_remains_stopped_and_readable_by_old_cli (bản cũ d3120c6 thật) và test_default_schema_two_records_answer_but_keeps_old_stop_semantics — root plan: cũ giữ stopped_with_report, 0 sự kiện lớp B",
+    "...test_amend_answer_does_not_bypass_revision_approval_or_limits; test_recorded_but_unapplied_reply_reconciles_without_answering_again; test_unattributed_answer_never_changes_root_state",
+    "...test_continue_resumes_exact_held_generations_inside_original_grant_once — T43d E7,E13; test_stale_internal_revision_does_not_resume_new_plan; test_unknown_attempt_cannot_be_reset_by_continue_answer"
+   ],
+   "missing": "Đủ cho DoD T47c/T43d (phần 'câu trả lời qua thẻ có hiệu lực'). Phần thông báo của T43d (W24) thuộc R03.",
+   "next": "Cập nhật registry T47c/T43d (complete + evidence_matrix).",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.answer_effects.json"
+   ]
+  },
+  {
+   "id": "W37a",
+   "release": "R05",
+   "category": "feature",
+   "testcases": {
+    "T08a": "DoD"
+   },
+   "outcome": "Reconcile tối thiểu trong vòng sửa tuần tự: lệnh có kết quả chưa rõ (crash sau dispatch, trước biên nhận) được reconcile trước mọi retry; không xác định được th",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/verdict.py reconcile/_mark/_unmark/_complete_from_marker/release_run/held_runs — marker bền `dispatched`/`receipt` theo run_id dưới <state root>/verdict-runs; trước mọi run mới: run bị bỏ rơi được reconcile (verdict.run_reconciled); có receipt marker → phát hành biên nhận của run cũ, không chạy lại; chỉ dispatched → verdict.run_held, từ chối chạy, chỉ `verdict release-run --reason` (verdict.run_released) mới cho chạy lại; không marker / abandon 'error' → chạy mới",
+    "onecrew/v2/compat.py — ba kind lớp A; onecrew/v2/plan_cli.py — `verdict release-run`; verdict.status có `held` và outcome held_unknown_outcome"
+   ],
+   "tests": [
+    "tests/test_wf_t08a_reconcile.py (4) — T08a E2, E4 với kill tiến trình thật ở (b), marker (c), (a) không marker; registry R05 check.t08a_reconcile, T08a complete",
+    "tests/test_wf_t08b_no_exactly_once.py (2) — T08 E6 grep; tests/test_wf_r03a_run_started.py (18) như cũ"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe.",
+   "evidence": [
+    "commit b225e5c, 0d296fe"
+   ]
+  },
+  {
+   "id": "W40-R05",
+   "release": "R05",
+   "category": "phát hành",
+   "testcases": {
+    "T54e": "DoD"
+   },
+   "outcome": "Phát hành R05: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R05; sự kiện lớp B (`HOLD`, `DEFER`, intent) chỉ trên root `plan-ns:`; roll-forw",
+   "status": "Partial",
+   "classes": [
+    "A",
+    "C"
+   ],
+   "implementation": [
+    "wfkit/release_check.py:95 decide — validator T54 năm điều; nhánh R05/R08 (dòng ~196-206) đòi intent_events: reconcile trước continued/effect, mọi unknown phải reconcile",
+    "wfkit/upgrade_drill.py:98-307 — diễn tập cài thật previous->current->previous->current; reconcile_unknown (:283) dùng Control action với file marker: reconcile_seq < continued_seq, effect_replays_before_reconcile=0",
+    "tests/test_wf_installed_native.py, tests/test_wf_installed_node_actions.py — chạy trên wheel cài",
+    "KHÔNG có: bundle biên nhận R05, ghi chú phát hành R05 (năm mục, bốn trạng thái), producer tạo bundle cho release_check"
+   ],
+   "tests": [
+    "tests.test_wf_upgrade_drill.UpgradeDrillTests.test_real_installs_preserve_state_refuse_then_roll_back_and_reconcile — T54e E6 dạng chung (marker 'once,after-reconcile'; baseline d3120c6, không phải bản R04)",
+    "tests.test_wf_installed_native (2 test), tests.test_wf_installed_node_actions (1 test) — điều 1 cho module R05/R08 trên wheel",
+    "tests.test_wf_release_check.test_r05_rollforward_reconciles_before_continue_or_effect — luật validator (bundle giả lập)"
+   ],
+   "missing": "Không có bản phát hành R05: không bundle/ghi chú; điều 2-4 chưa chạy với bản dựng trước là bản đã giao (R04 chưa giao); điều 3 (sự kiện lớp B HOLD/DEFER/intent chỉ trên plan-ns:) chưa kiểm trên bản cài; T54e [E6] chỉ ở dạng Drill generic, không gắn với intent của vòng sửa vì W37a chưa có. Phụ thuộc chưa khép: W37a (A), W18, W20, W21, W26, W51, W23d, W17 (C), W40-R03/R04/W40.",
+   "next": "Sau khi W37a và các task trên khép: kịch bản cài R05 (repair loop + unknown intent + sự kiện lớp B trên plan-ns) vào wfkit, producer bundle chung, ghi chú R05, chạy release_check --mode real. Phụ thuộc W07,W08,W09,W16,W17,W18,W19,W51,W20,W21,W23d,W26,W30c,W37a,W40-R03,W40-R04.",
+   "evidence": [
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.upgrade_drill.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.installed_native.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\receipts\\R05-check.installed_node_actions.json",
+    "C:\\Users\\NUC\\AppData\\Local\\Temp\\wf-dev-gate-20261024-b2cc754\\decision.json (acceptance.R05.T54e = partial/release-evidence)"
+   ]
+  },
+  {
+   "id": "WK06",
+   "release": "R06",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm R06: T52a, T52b, T54f",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "wfkit/development-testcases.json (releases.R06) — registry R06: check.r06_learning, check.node_learning, check.installed_node_learning, check.r02_boundaries, check.upgrade_drill, check.installed_features — nối T52a/T52b/T54f vào module test",
+    "docs/wf/DEV-LOG.md:35 — bộ kiểm WK* đặt trong repo (tests/test_wf_*.py), không phải verify-kit\\wf\\r06_check.py (thư mục không có Git); kit-guard dùng manifest sha256 của file test"
+   ],
+   "tests": [
+    "tests.test_wf_r06_learning (4 test) — T52a/T52b",
+    "tests.test_wf_node_learning (4 test) — T52a",
+    "tests.test_wf_installed_node_learning (1 test) — T52a/T52b trên wheel",
+    "tests.test_wf_r02_boundaries (8 test) — T52b",
+    "tests.test_wf_upgrade_drill (3 test) + tests.test_wf_installed_features (4 test) — T54f"
+   ],
+   "missing": "Không thiếu module. Trạng thái registry T52a/T52b vẫn 'partial' (acceptance-audit) và T54f 'partial' (release-evidence): đó là cập nhật trạng thái, không phải thiếu bộ kiểm. Phản chứng của phần năng lực mới có (xem W49a/W49b).",
+   "next": "Cập nhật ghi chú registry khi W49a/W49b/W40-R06 khép; không cần thêm module.",
+   "evidence": [
+    "receipts R06-check.{r06_learning,node_learning,installed_node_learning,r02_boundaries,upgrade_drill,installed_features}.json: result=pass, 0 skip, 0 error, commit b2cc754",
+    "TEMP wf-dev-gate-20261024-b2cc754/receipts/R06-registry.json: pass"
+   ]
+  },
+  {
+   "id": "W49a",
+   "release": "R06",
+   "category": "feature",
+   "testcases": {
+    "T52a": "DoD"
+   },
+   "outcome": "Incident trong root: nối finding, các attempt, giả thuyết bị bác bỏ; phân biệt test đỏ có chủ đích, lỗi môi trường, lỗi sản phẩm; một incident nhiều attempt, kh",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/incidents.py:129 — observe(): một lần chạy thật -> phân loại environment/product/verified/intentional_red, giả thuyết bị bác bỏ cần sự kiện context 'refuted'",
+    "onecrew/v2/incidents.py:191 — finalize(): đúng một incident (INC-hash theo task+finding), cause luôn None, chỉ sau verified repair; ghi learning.incident qua outcome_core.append_learning + compat.check_write (lớp A)",
+    "onecrew/v2/incidents.py:220 / :263 / :341 — after_verdict / observe_node / after_node: móc từ verdict.py:133 (đường reviewer) và engine.py:457 (đường node native), lỗi thì in 'learning pending' mà không đổi kết quả verifier",
+    "onecrew/v2/learning_cli.py:15-20 — CLI incident list/observe/finalize, định tuyến qua onecrew/v2/cli.py:79",
+    "onecrew/v2/compat.py:35 — learning.incident khai lớp A"
+   ],
+   "tests": [
+    "tests.test_wf_r06_learning.AutomaticLearningTests.test_automatic_three_attempt_incident_and_mid_root_project_lesson — E1 (1 incident, 3 attempt environment/product/verified, H1 bác bỏ), E9 (gọi lại after_verdict vẫn 1 incident), E10 (cause=None)",
+    "tests.test_wf_r06_learning.AutomaticLearningTests.test_intentional_red_and_forged_evidence_do_not_become_product_learning — E2 (đỏ có chủ đích cần quyết định acceptance-test-preparation, không thành incident; finalize bị từ chối), biên nhận giả bị từ chối",
+    "tests.test_wf_r06_learning.ClassACompatibilityTests.test_real_prior_binary_and_v1_consumers_keep_their_semantics — E3 (binary cũ ee46539: S/G/C bằng nhau; learning.outcomes/recommend/skills.* bằng nhau)",
+    "tests.test_wf_node_learning (4 test) — đường node native: fail->repair->pass tạo đúng một episode; lỗi môi trường/CLI giả không thành incident sản phẩm; red chuẩn bị acceptance không là lỗi sản phẩm",
+    "tests.test_wf_installed_node_learning.InstalledNodeLearning.test_native_fail_repair_pass_emits_one_episode_and_lesson_on_actual_candidate — trên wheel cài"
+   ],
+   "missing": "Không thiếu [E] của DoD T52a. Giới hạn đã khai: worker/CLI giả chỉ chứng minh luật ghi, không chứng minh chẩn đoán nguyên nhân thật (T52a nêu rõ).",
+   "next": "Chỉ cập nhật trạng thái registry T52a từ partial lên complete sau khi gắn evidence_matrix E1-E3,E9,E10 như đã làm cho T04b/T15c.",
+   "evidence": [
+    "receipts R06-check.r06_learning (4/4), R06-check.node_learning (4/4), R06-check.installed_node_learning (1/1): pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "W49b",
+   "release": "R06",
+   "category": "feature",
+   "testcases": {
+    "T52b": "DoD"
+   },
+   "outcome": "Lesson sau khi sửa đã kiểm, trước khi root kết thúc: bản project giữ vị trí, revision, test; bản chung là ứng viên đã khái quát có điều kiện và nguồn, bỏ chi ti",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/lessons.py _still_open/ENDED — record và propose_general từ chối khi root accepted/stopped_with_report/closed",
+    "onecrew/v2/context.py _private_reasons — tên file đứng trước dấu câu ('service.py.') vẫn bị bắt"
+   ],
+   "tests": [
+    "tests/test_wf_t52b_lesson_limits.py (2) — T52b E5 (điều kiện, nguồn, không chi tiết riêng, phản chứng) và E14 (sau khi root kết thúc: từ chối, không ghi); registry R06 check.t52b_lesson_limits",
+    "tests/test_wf_r06_learning.py (6) như cũ"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe. T52b vẫn partial trong registry (E4/E7 chưa lập ma trận).",
+   "evidence": [
+    "commit c4cfede"
+   ]
+  },
+  {
+   "id": "W40-R06",
+   "release": "R06",
+   "category": "phát hành",
+   "testcases": {
+    "T54f": "DoD"
+   },
+   "outcome": "Phát hành R06: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R06; `learning.incident`, `learning.lesson` của root v2 chứng minh lớp A với bản",
+   "status": "Partial",
+   "classes": [
+    "B",
+    "C"
+   ],
+   "implementation": [
+    "wfkit/upgrade_drill.py:86 — Drill: 4 lần cài thật previous/current/previous/current, scan bị chặn rồi cho phép, reconcile trước continue (chung cho mọi release, không có nội dung riêng R06)",
+    "wfkit/release_check.py:~141 — decide(): validator T54 năm điều cho bundle JSON (installed/upgrade/events/rollback/notes); events kiểm lớp A và so S/G/C với comparison; chỉ là validator",
+    "tests/test_wf_installed_features.py:124 — test cài wheel: sửa đã kiểm tạo incident+lesson trước khi root kết thúc"
+   ],
+   "tests": [
+    "tests.test_wf_upgrade_drill.UpgradeDrillTests.test_real_installs_preserve_state_refuse_then_roll_back_and_reconcile — T54 điều 1-4 dạng chung (ranh giới module rỗng, nâng cấp giữ bảng, scan/rollback hai nhánh, reconcile trước continue)",
+    "tests.test_wf_installed_features.InstalledFeaturesTests.test_installed_verified_repair_creates_project_lesson_before_root_completion — learning.incident/lesson chạy được trên bản cài",
+    "tests.test_wf_release_check (13 test) — luật validator T54 trên bundle fixture --allow-simulated",
+    "tests.test_wf_r06_learning.ClassACompatibilityTests — lớp A với binary cũ (ngoài bản cài, không phải điều 3 của T54 trên wheel)"
+   ],
+   "missing": "Chưa có bản phát hành R06: (a) không có bundle T54 thật/giả cho R06 và không có script SINH bundle: grep cho thấy release_check chỉ được test_wf_release_check dùng, Drill không xuất installed/upgrade/events/rollback/notes cho release_check; (b) không có ghi chú phát hành R06 (năm mục, bốn trạng thái) — repo chỉ có R00-DONE.md; (c) điều 3 của T54 cho learning.incident/lesson (lớp A với bản dựng trước là bản cũ, consumer skills/learning) chưa chạy trên wheel cài bằng Drill; chỉ chạy trên checkout + archive ee46539 (test_wf_r06_learning); (d) Drill dựng wheel từ checkout (build_source) và baseline d3120c6, chưa gắn hash wheel giao của R06 và cổng giao trước (W40-R02, W40-R05 chưa khép).",
+   "next": "Viết bộ sinh bundle T54 (producer) nối Drill + installed run + comparator vào schema của release_check; chạy trên wheel R06 với previous = bản đã qua cổng gần nhất; soạn ghi chú R06 qua mẫu 5 mục; chạy release_check --mode real. Phụ thuộc W49a/W49b, W40-R02, W40-R05, W40, W41.",
+   "evidence": [
+    "receipts R06-check.upgrade_drill (3/3), R06-check.installed_features (4/4) pass trên b2cc754; grep release_check/adapter_runs: chỉ wfkit/release_check.py và tests/test_wf_release_check.py"
+   ]
+  },
+  {
+   "id": "WK07",
+   "release": "R07",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm R07: T53a, T53b, T54g",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "wfkit/development-testcases.json (releases.R07) — check.r07_localization, check.installed_localization, check.upgrade_drill: nối T53a/T53b/T54g"
+   ],
+   "tests": [
+    "tests.test_wf_r07_localization (6 test) — T53a/T53b",
+    "tests.test_wf_installed_localization (1 test) — T53a/T53b/T54g trên wheel",
+    "tests.test_wf_upgrade_drill (3 test) — T54g"
+   ],
+   "missing": "Không thiếu module. Tập đánh giá của bộ kiểm không chứa lời giải: HeldOutTests chặn đọc commit sửa (guarded _git) và retrieve context, và evaluate từ chối trường 'fix'.",
+   "next": "Không cần việc thêm cho WK07; các khoảng trống thật nằm ở W50b (adapter ảnh/đánh giá).",
+   "evidence": [
+    "receipts R07-check.r07_localization (6/6), R07-check.installed_localization (1/1), R07-check.upgrade_drill (3/3) pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "W50a",
+   "release": "R07",
+   "category": "feature",
+   "testcases": {
+    "T53a": "DoD"
+   },
+   "outcome": "Mô tả issue → nghi phạm: tìm chuỗi, route, symbol, thay đổi gần đây; bản đồ project tăng dần; lesson liên quan (W48b); danh sách nghi phạm (file, method) có lý ",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/localization.py:173 — localize(): chuỗi/route/symbol/commit gần đây, tái dùng Discovery.search của v1 (biên nhận tìm kiếm), danh sách nghi phạm (file, method, reason, source file:dòng@revision, next_check), observation tách khỏi hypothesis, 'chưa đủ dữ liệu' + needed",
+    "onecrew/v2/localization.py:132 — index_project(): bản đồ project tăng dần (tái dùng map cũ, bỏ symbol giả mạo)",
+    "onecrew/v2/localization.py:242 — kiểm symbol tồn tại ở revision ghim (context.symbol_present); lesson liên quan chỉ là dữ liệu 'similar, needs verification', proposed_changes=[]",
+    "onecrew/v2/learning_cli.py:31-44 + onecrew/v2/cli.py:79 — CLI 'issue localize' / 'issue map' (chỉ đọc, không ghi sổ)"
+   ],
+   "tests": [
+    "tests.test_wf_r07_localization.LocalizationTests.test_text_suspects_have_pinned_sources_checks_and_separate_hypotheses — E1 (ReportController.export, ExportService.build đủ lý do/nguồn/phép kiểm), E3/E11 (observed vs hypothesis), tái dùng Discovery.search, sổ không đổi, CLI",
+    "tests.test_wf_r07_localization.LocalizationTests.test_pinned_symbols_survive_head_rename_and_vague_issue_has_no_suspects — E2/E7 (đổi tên ở HEAD, vẫn tra ở revision ghim; phản chứng HEAD), E4 (app chậm -> chưa đủ dữ liệu, suspects rỗng, needed=3)",
+    "tests.test_wf_r07_localization.LocalizationTests.test_related_lesson_is_data_and_never_a_fix_instruction — E8",
+    "tests.test_wf_r07_localization.LocalizationTests.test_incremental_map_uses_existing_context_and_rejects_forged_cached_declarations — bản đồ tăng dần",
+    "tests.test_wf_installed_localization.InstalledLocalization.test_installed_issue_lookup_and_explicit_map_keep_pinned_evidence_and_honest_image_fallback — trên wheel"
+   ],
+   "missing": "Không thiếu [E] của DoD T53a. Chất lượng top-k trên việc thật (pilot) được T53a nêu là không chứng minh.",
+   "next": "Cập nhật trạng thái registry T53a (partial/acceptance-audit) khi gắn evidence_matrix E1-E4,E7,E8,E11.",
+   "evidence": [
+    "receipts R07-check.r07_localization (6/6), R07-check.installed_localization (1/1) pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "W50b",
+   "release": "R07",
+   "category": "feature",
+   "testcases": {
+    "T53b": "DoD"
+   },
+   "outcome": "Ảnh issue: chỉ đọc ảnh khi provider khai capability vision; không có thì giữ luồng văn bản và không tuyên bố đã hiểu ảnh; đánh giá trên code trước bản sửa, tập ",
+   "status": "Done",
+   "classes": [
+    "E"
+   ],
+   "implementation": [
+    "onecrew/v2/providers.py VISION_ADAPTERS/vision() — khai capability theo provider; không provider nào của sản phẩm khai vision (CLI chỉ văn bản, chưa kiểm trên CLI thật) nên ảnh không bao giờ được mở và kết quả nêu lý do",
+    "onecrew/v2/learning_cli.py — `issue localize --provider {claude,codex,kiro}` truyền khai báo vào localize; `issue evaluate --cases --oracle` chạy đánh giá tập giữ riêng (top-1/3/5 có mẫu số; oracle đọc sau lookup; tập có lời giải bị từ chối)"
+   ],
+   "tests": [
+    "tests/test_wf_issue_provider.py (4) — T53b E5 (T/V), E6, E9 phản chứng, E10; registry R07 check.issue_provider, T53b complete"
+   ],
+   "missing": "Adapter vision thật cho một provider và đánh giá trên việc thật là điều kiện ngoài (E) — không chạy provider trả phí.",
+   "next": "Khi chủ sở hữu cấp quyền provider: nối adapter vision thật vào VISION_ADAPTERS và đo top-k trên pilot.",
+   "evidence": [
+    "commit b225e5c"
+   ]
+  },
+  {
+   "id": "W40-R07",
+   "release": "R07",
+   "category": "phát hành",
+   "testcases": {
+    "T54g": "DoD"
+   },
+   "outcome": "Phát hành R07: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R07",
+   "status": "Partial",
+   "classes": [
+    "B",
+    "C"
+   ],
+   "implementation": [
+    "wfkit/upgrade_drill.py:86 — Drill (chung, không có kịch bản R07)",
+    "wfkit/release_check.py — validator T54 (không có nhánh riêng R07; R07 không thêm sự kiện nên chỉ cần luồng cũ như trước)",
+    "tests/test_wf_installed_localization.py — chạy CLI 'issue map/localize' từ wheel cài"
+   ],
+   "tests": [
+    "tests.test_wf_upgrade_drill (3 test) — điều 1,2,4 dạng chung",
+    "tests.test_wf_installed_localization.InstalledLocalization.test_installed_issue_lookup_and_explicit_map_keep_pinned_evidence_and_honest_image_fallback — điều 1 cho module localization trên wheel",
+    "tests.test_wf_release_check (13 test) — luật validator"
+   ],
+   "missing": "Không có bundle/ghi chú phát hành R07 và không có producer bundle (xem W40-R06); điều 3 cho R07 (release không thêm sự kiện -> kiểm luồng cũ liên quan vẫn như trước) chưa có kiểm riêng trên bản cài; ghi chú phải nêu giới hạn 'ảnh: chỉ fallback văn bản' (W50b chưa có adapter ảnh). Phụ thuộc W50b chưa khép và W40-R02.",
+   "next": "Dùng producer bundle chung từ W40-R06 chạy cho R07 trên wheel R07 (previous = R06 hoặc R05 đã qua cổng); ghi chú R07 nêu rõ khả năng vision chưa có.",
+   "evidence": [
+    "receipts R07-check.upgrade_drill (3/3), R07-check.installed_localization (1/1) pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "WK08",
+   "release": "R08",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm R08: T01, T04b, T04d, T07b, T08b, T15c, T30, T54h",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "wfkit/development-testcases.json (releases.R08) — 12 check: parallel_engine, candidate_adapters, managed_executor, node_actions_cli, upgrade_drill, installed_native, review_snapshot, managed_hold, engine_managed, host_checkpoint, parallel_native, registry; nối T01,T04b,T04d,T07b,T08b,T15c,T30,T54h"
+   ],
+   "tests": [
+    "tests.test_wf_parallel_engine, test_wf_parallel_native, test_wf_review_snapshot, test_wf_candidate_adapters — T01/T04b/T04d",
+    "tests.test_wf_managed_executor, test_wf_managed_hold, test_wf_engine_managed, test_wf_node_actions_cli, test_wf_host_checkpoint — T07b/T08b/T15c/T30",
+    "tests.test_wf_upgrade_drill, test_wf_installed_native — T54h"
+   ],
+   "missing": "Mọi testcase WK08 liệt kê đều có module trong registry/gate và đạt. Không có ca gọi model thật (đúng yêu cầu not_done_when). Lưu ý: 'có module' không có nghĩa mọi [E] có test — các khoảng trống nằm ở W14b/W15/W36/W37b.",
+   "next": "Không cần việc thêm cho WK08.",
+   "evidence": [
+    "receipts R08-check.*.json: 11 check pass (2+2+2+2+10+2+3+5+1+2+3 test), 0 skip, 0 error trên b2cc754"
+   ]
+  },
+  {
+   "id": "W14b",
+   "release": "R08",
+   "category": "feature",
+   "testcases": {
+    "T04d": "DoD"
+   },
+   "outcome": "DAG song song: nhiều slot qua `ready_batch` sau khi một slot đã đúng (W14a); phần độc lập chạy tiếp khi một nhánh bị giữ; không scheduler thứ hai",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/engine.py:168 — chọn node sẵn sàng qua dependency_core.ready_batch (không scheduler thứ hai), loại trừ phạm vi ghi đang hoạt động",
+    "onecrew/v2/engine.py:171 / :246 / :352 — ready(slots) / step(slots, _target) / run_batch(slots): 1 hoặc 2 slot, từ chối nếu executor không khai 'isolate'",
+    "onecrew/v2/engine_cli.py:24,57-59 — 'engine batch PLAN --slots 1|2' dùng ManagedExecutor (đường dùng thật)"
+   ],
+   "tests": [
+    "tests/test_wf_t04d_finding_holds_branch.py (1) — T04d E10–E12: finding ở E1 giữ E1/F/I, E2 verified, không sự kiện giữ cho E2/root; registry R08 check.t04d_finding_holds_branch, T04d complete",
+    "tests/test_wf_parallel_engine.py (5) — như cũ"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe.",
+   "evidence": [
+    "commit c4cfede"
+   ]
+  },
+  {
+   "id": "W15",
+   "release": "R08",
+   "category": "feature",
+   "testcases": {
+    "T04b": "DoD",
+    "T01": "DoD"
+   },
+   "outcome": "Review và test chạy trên snapshot cố định; code tiếp tục trên phiên bản khác",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/engine.py:394 — verify(): kiểm tra gắn với artifact/generation của node; kết quả về sau khi generation đổi bị giữ lại (node.result_retained), không phát hành",
+    "onecrew/v2/repair_tasks.py (prepare) — sửa C tăng generation của C và mọi node phụ thuộc (R) về pending; R phải được review lại trên A2",
+    "onecrew/v2/verifiers/reviewer.py:240 / :262 — call() và run(): reviewer THẬT (chỉ đọc, qua CLI) nhận diff ở revision ghim; onecrew/common_verification.py:183 CandidateChecker chạy reviewer trên cây ứng viên (artifact_sha == candidate_tree) cho node native",
+    "onecrew/v2/review_dispatch.py / review_policy.py — lớp quyết định theo quy tắc W26 (nhóm khác)"
+   ],
+   "tests": [
+    "tests/test_wf_review_snapshot_integration.py (1) — reviewer THẬT (verifier reviewer, CLI giả qua reviewer.call) trên snapshot A1 trong khi X được sản xuất và cây dự án đổi; diff/prompt chỉ có A1; rồi A2 cần review mới và diff là của A2 (T04b E2/E3/E6); registry R08 check.review_snapshot_integration, ma trận T04b bổ sung"
+   ],
+   "missing": "",
+   "next": "Biên nhận gate 0d296fe.",
+   "evidence": [
+    "commit b225e5c (test), c4cfede (A2)"
+   ]
+  },
+  {
+   "id": "W33b",
+   "release": "R08",
+   "category": "feature",
+   "testcases": {
+    "T15c": "DoD"
+   },
+   "outcome": "Interface executor đầy đủ: dừng, pause tại điểm an toàn, cô lập, recovery theo capability đã khai (W33a); adapter Windows (supervisor) và adapter hook (Claude C",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/executors.py:84,124 — khai Declaration/capability, Dispatcher.send từ chối lệnh không khai (CapabilityMissing), HookAdapter không có pause/isolate",
+    "onecrew/v2/managed_executor.py:83-297 — ManagedExecutor (Supervisor/Job Object Windows): start (intent bền trước dispatch), stop (chờ cây tiến trình chết), pause_at_safe_point (ghi yêu cầu, chỉ ack khi thao tác kết thúc), isolate (phạm vi ghi/đọc, artifact-only), measure, recover (reconcile -> rebuild, không worker.run)",
+    "onecrew/v2/executors.py (HookAdapter) — adapter hook Claude Code: chỉ ngừng cấp quyền ghi, không nhận pause/isolate",
+    "onecrew/v2/managed_cli.py + onecrew/v2/cli.py (executor state/recover/...) — đường CLI; engine.py:370 release_paused"
+   ],
+   "tests": [
+    "tests.test_wf_managed_executor.ManagedExecutorTests.test_pause_is_requested_during_operation_then_acknowledged_at_real_safe_point — T15c E7 ('đã dừng tại điểm an toàn' sau thao tác xong, marker 1 dòng, Control.pause chỉ sau safe point), isolate, CLI executor state/recover",
+    "tests.test_wf_managed_executor.ManagedExecutorTests.test_hook_executor_never_receives_managed_pause_or_isolate — T15c E9 (Dispatcher.sent == [] với HookAdapter)",
+    "tests.test_wf_managed_executor.ManagedExecutorTests.test_stop_waits_for_supervisor_tree_death_and_never_calls_it_a_safe_pause",
+    "tests.test_wf_parallel_engine.ParallelEngineTests.test_overlapping_ownership_never_occupies_two_slots_and_one_slot_order_is_preserved + test_parallel_refuses_undeclared_isolation_and_unsupported_slot_counts — T15c E8",
+    "tests.test_wf_managed_hold.ManagedHoldTests.test_new_finding_pauses_the_running_managed_node_at_its_safe_point_and_release_reuses_the_candidate — E7/E9 qua finding thật",
+    "tests.test_wf_r03a_executors (W33a, nhóm khác) — capability khai báo"
+   ],
+   "missing": "Không thiếu [E] của DoD T15c (registry đã 'complete' với evidence_matrix E7,E8,E9). Giới hạn đã khai: worker giả có capability chỉ chứng minh giao diện; phiên Claude Code/Codex thật bị dừng không chứng minh được.",
+   "next": "Không cần việc thêm cho DoD của W33b.",
+   "evidence": [
+    "receipts R08-check.managed_executor (10/10), R08-check.managed_hold (2/2), R08-check.parallel_engine (5/5) pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "W36",
+   "release": "R08",
+   "category": "feature",
+   "testcases": {
+    "T07b": "DoD"
+   },
+   "outcome": "Generation; kết quả muộn hay trùng được ghi và bỏ qua; pause tại điểm an toàn cho worker được quản lý",
+   "status": "Partial",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/managed_executor.py:56 — hold_for_findings(): finding giữ node có attempt quản lý đang chạy -> pause_at_safe_point một lần, không gửi cho attempt không có lịch sử managed",
+    "onecrew/v2/findings.py:188 — after_change() được gọi từ verdict.py:~143 và findings.py:236,306 sau mỗi thay đổi register",
+    "onecrew/v2/findings.py:114-149 — _proof(): bằng chứng finding phải thuộc generation hiện tại (từ chối generation cũ)",
+    "onecrew/v2/engine.py:394/370 — verify()/release_paused(): kết quả muộn bị giữ lại (node.result_retained), thả lại đúng candidate cũ, không chạy lại tiến trình",
+    "onecrew/control_core.py:195,230 — launched/finish fence theo generation (v1, tái dùng)"
+   ],
+   "tests": [
+    "tests.test_wf_managed_hold.ManagedHoldTests.test_new_finding_pauses_the_running_managed_node_at_its_safe_point_and_release_reuses_the_candidate — E16 phần dừng ở điểm an toàn (marker 1 dòng, không ngắt giữa thao tác), không lặp yêu cầu, ngân sách không tăng, candidate bị giữ rồi thả",
+    "tests.test_wf_managed_hold.ManagedHoldTests.test_hold_is_not_sent_to_an_attempt_without_a_managed_history",
+    "tests.test_wf_finding_scope.FindingScopeTests.test_late_finding_retains_settled_candidate_then_resolution_releases_without_retry — kết quả muộn bị giữ, 1 lần gọi worker",
+    "tests.test_wf_findings.FindingTests.test_old_generation_pass_cannot_close_after_new_generation_is_recorded + test_wrong_generation_artifact_plan_and_criterion_do_not_close — chặn generation cũ",
+    "tests.test_wf_engine_managed.EngineManagedTests (2 test) — pause ack được engine dùng không gọi thêm; unknown không replay",
+    "tests.test_wf_managed_executor.test_crash_before_dispatch_is_once_and_saved_candidate_replays_without_process_or_charge — E8 không tính phí hai lần"
+   ],
+   "missing": "T07b E16 'khi nhánh được thả, chạy tiếp bằng một attempt mới' so với handoff mục C 'tái dùng candidate đã settle trước checkpoint': mã hiện tại (engine.release_paused, test_wf_managed_hold) thả bằng cách nhận lại candidate của chính attempt đã dừng ở điểm an toàn khi thao tác đã xong, không mở tiến trình mới; trường hợp worker còn việc dở sau điểm an toàn chưa có đường 'attempt mới'. Không tự sửa spec hay test để khớp.",
+   "next": "Chủ sở hữu quyết nghĩa của E16 (tái dùng khi việc đã xong + attempt mới khi còn dở, hay luôn attempt mới); sau đó 1–2 h để thêm đường attempt mới cho candidate chưa đủ.",
+   "evidence": [
+    "receipts R08-check.managed_hold (2/2), R08-check.engine_managed (2/2), R08-check.parallel_engine (5/5) pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "W37b",
+   "release": "R08",
+   "category": "feature",
+   "testcases": {
+    "T08b": "DoD",
+    "T30": "DoD"
+   },
+   "outcome": "Intent bền, idempotency, reconcile qua bốn điểm crash; khôi phục checkpoint khác tự khởi động sau reboot",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "onecrew/v2/managed_executor.py:158-196 — start(): ghi intent 'prepared' (đúng một lần, khoá theo task_revision+node_sha) và 'dispatching' (base+node+prompt_sha) TRƯỚC khi gọi provider; nếu đã dispatched thì recover(), không replay",
+    "onecrew/v2/managed_executor.py:198-220 / :276-297 — _rebuild() từ bằng chứng bền (điểm crash c) và recover(): Supervisor.reconcile trước, rồi rebuild, không worker.run; trạng thái unknown thì giữ và báo",
+    "onecrew/v2/managed_executor.py:22 — unresolved(): chặn replan/revise khi còn kết quả chưa rõ (dùng bởi internal_plan.revise)",
+    "onecrew/v2/managed_executor.py:257 + onecrew/host_status_core.py — T30: trạng thái host đọc từ v1 (automatic_restart=False, restart_reason nêu reboot)",
+    "onecrew/v2/node_actions_cli.py — CLI prepare-tests/repair/diagnose/replan (T08b registry)"
+   ],
+   "tests": [
+    "tests/test_wf_t08b_no_exactly_once.py (2) — T08b E6 grep có tiêu chí trên mã/trạng thái/bản ghi thả; registry R08 check.t08b_no_exactly_once",
+    "tests/test_wf_managed_executor.py (như cũ, +2 rebuild)"
+   ],
+   "missing": "T08b điểm (a) vẫn mô phỏng bằng gọi start hai lần (không kill thật trước dispatch); T30 E1 các test host v1 chưa trong gate R08.",
+   "next": "Kill thật ở (a) (0,5 h); đăng ký tests.test_host/test_control phần checkpoint vào R08 (chậm).",
+   "evidence": [
+    "receipts R08-check.managed_executor (10/10), R08-check.node_actions_cli (3/3), R08-check.engine_managed (2/2), R08-check.host_checkpoint (2/2) pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "W40-R08",
+   "release": "R08",
+   "category": "phát hành",
+   "testcases": {
+    "T54h": "DoD"
+   },
+   "outcome": "Phát hành R08: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R08; tạm dừng mới (lớp B) chỉ trên root `plan-ns:`",
+   "status": "Partial",
+   "classes": [
+    "B",
+    "C"
+   ],
+   "implementation": [
+    "wfkit/release_check.py:~125-140 — nhánh R05/R08 yêu cầu intent_events: reconcile trước continued/effect, unknown phải được reconcile hết (validator)",
+    "wfkit/upgrade_drill.py:86,253-312 — Drill có prepare_unknown/reconcile_unknown thật (reconcile_seq < continued_seq, effect_replays_before_reconcile=0)",
+    "tests/test_wf_installed_native.py — engine native trên wheel cài; tạm dừng mới (lớp B) chỉ trên plan-ns"
+   ],
+   "tests": [
+    "tests.test_wf_upgrade_drill.UpgradeDrillTests.test_real_installs_preserve_state_refuse_then_roll_back_and_reconcile — E6-dạng T54e/h: reconcile trước continue, marker once,after-reconcile",
+    "tests.test_wf_installed_native (2 test) — điều 1 cho module R08 trên wheel",
+    "tests.test_wf_release_check.ReleaseCheckTests.test_r05_rollforward_reconciles_before_continue_or_effect — luật validator",
+    "tests.test_wf_host_checkpoint / test_wf_managed_executor (checkout) — hành vi lớp B, không phải trên bản cài"
+   ],
+   "missing": "Như W40-R06: không có bundle/ghi chú phát hành R08, không có producer bundle; điều 3 (sự kiện mới executor.managed/node.held... lớp B chỉ trên plan-ns, không sự kiện lớp B nào trên anchor plan:) chưa chạy trên wheel cài với bản dựng trước; Drill không chạy managed executor thật (Supervisor) trên bản cài; T54h E6 mới đạt ở dạng Drill generic. Phụ thuộc W14b/W15/W36/W37b chưa khép và W40-R03/R04/R05.",
+   "next": "Producer bundle chung (xem W40-R06) + kịch bản cài: chạy 'engine batch --slots 2' + executor pause/recover từ venv cài trên bản sao sổ có root plan-ns; kiểm không có sự kiện lớp B trên anchor plan:; ghi chú R08 5 mục; release_check --mode real. Phụ thuộc đóng W14b,W15,W36,W37b.",
+   "evidence": [
+    "receipts R08-check.upgrade_drill (3/3), R08-check.installed_native (2/2) pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "WKP",
+   "release": "RP",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm RP: T40a, T40b, T40c, T54i",
+   "status": "Partial",
+   "classes": [
+    "A",
+    "E"
+   ],
+   "implementation": [
+    "wfkit/development-testcases.json (releases.RP) — check.rp_providers, check.metered_verifier, check.candidate_reviewer, check.release_check, check.finalgate, check.upgrade_drill; T40a complete, T40b blocked (checks=[] gap external-provider), T40c/T54i partial"
+   ],
+   "tests": [
+    "tests.test_wf_rp_providers (33), test_wf_metered_verifier (4), test_wf_candidate_reviewer (4) — T40a",
+    "tests.test_wf_release_check (13), test_wf_finalgate (42), test_wf_upgrade_drill (3) — T40c/T54i"
+   ],
+   "missing": "T40b không có module nào trong registry (checks rỗng): bộ kiểm không có script kiểm ma trận với x1-x7 dưới dạng ca đặt tên; các phần chỉ phủ gián tiếp (test_kq6_*, test_kq7_*, test_rp_uses_shared_matrix_rule_without_requiring_future_pilot_reviewer: thiếu hạn mức -> không dùng được, ma trận sáu ô, hash CLI không khớp). Không có manifest sha256 của CLI giả để phân biệt biên nhận giả với thật (E20, x3): finalgate/provider_evidence chỉ dựa vào cờ 'simulated' tự khai và việc --allow-simulated. Không tính ô CLI giả là ô thật: được bảo vệ bằng cờ simulated, chưa bằng manifest.",
+   "next": "Thêm tests/test_wf_provider_matrix.py (x1-x7 đặt tên, manifest sha256 của fake CLI trong tests/test_wf_rp_providers) và đăng ký check.provider_matrix cho T40b; phần chạy thật là W45 (E).",
+   "evidence": [
+    "receipts RP-check.rp_providers (33/33), RP-check.finalgate (42/42), RP-check.release_check (13/13), RP-check.candidate_reviewer (4/4), RP-check.metered_verifier (4/4) pass trên b2cc754; registry T40b blocked"
+   ]
+  },
+  {
+   "id": "W43",
+   "release": "RP",
+   "category": "feature",
+   "testcases": {
+    "T40a": "DoD",
+    "T40b": "kiểm chung"
+   },
+   "outcome": "Reviewer và cố vấn theo nhà cung cấp (P1.0): hợp đồng khai `provider` (`claude`, `codex`, `kiro`) kèm `model`; mỗi provider là một lệnh CLI chỉ đọc; biên nhận g",
+   "status": "Done",
+   "classes": [],
+   "implementation": [
+    "onecrew/v2/providers.py:46-285 — model_vendor/independence (theo hãng và model), build_argv (codex exec -s read-only, kiro-cli chat --no-interactive --trust-tools=fs_read --model, prompt dài qua stdin), call, quota_error/error_kind, parse_codex/parse_kiro, cli_identity (sha256 file thực thi + --version)",
+    "onecrew/v2/contract.py:163 — hợp đồng khai provider/model cho reviewer và advisor; lint từ chối provider lạ hay thiếu model",
+    "onecrew/v2/verifiers/reviewer.py:51-57 — check_independence trước khi gọi (claude dùng độc lập v1, provider khác dùng providers.independence); biên nhận ghi provider/model",
+    "onecrew/v2/verifiers/advisor.py:121-166 — cố vấn cùng quy tắc; lỗi quota -> inconclusive, không đổi provider",
+    "onecrew/v2/verdict.py:103 — đường dùng thật: reviewer qua verdict/engine"
+   ],
+   "tests": [
+    "tests.test_wf_rp_providers.ContractTests.test_e17_* (3 test) — E17 lint provider/model",
+    "tests.test_wf_rp_providers.CommandShapeTests (5 test) — E2 argv chỉ đọc, kiro stdin, thiếu CLI nêu nơi tìm và không chuyển",
+    "tests.test_wf_rp_providers.IndependenceTests (6 test) — E4 độc lập theo hãng, từ chối trước khi gọi (0 lời gọi)",
+    "tests.test_wf_rp_providers.MatrixTests.test_e19_e3_each_provider_as_reviewer/advisor_runs_through_its_cli_with_a_receipt_of_provider_and_model + test_e1_e13_two_contracts_that_differ_only_in_the_provider_and_model_fields_both_run — E1,E3,E13,E14,E19 (sáu ô)",
+    "tests.test_wf_rp_providers.QuotaTests (4 test) — E5/E12 hết hạn mức -> inconclusive, không thử provider khác",
+    "tests.test_wf_rp_providers.ReadOnlyTests (3 test) — E15 không ghi file",
+    "tests.test_wf_rp_providers.OwnerManualAndNotDeciderTests (4 test) — E6, E7 (trường SKIP lạ không thành bản ghi quyết định)",
+    "tests.test_wf_candidate_reviewer + tests.test_wf_metered_verifier — reviewer/ngân sách qua đường engine"
+   ],
+   "missing": "Không thiếu [E] của DoD T40a (registry 'complete', E1-E7,E12-E15,E17,E19). Lưu ý trung thực: toàn bộ bằng chứng dùng CLI giả; dạng lệnh thật của codex/kiro 'CHUA KIEM CHUNG' (providers.py:14) cho tới W45/T40b — đó là phần kiểm chung, không thuộc DoD.",
+   "next": "Không cần việc thêm cho DoD của W43; xem W45 cho phần chạy thật.",
+   "evidence": [
+    "receipts RP-check.rp_providers (33/33), RP-check.candidate_reviewer (4/4), RP-check.metered_verifier (4/4) pass trên b2cc754; chạy toàn bộ tests.test_wf_rp_providers dùng fake CLI, không gọi provider thật"
+   ]
+  },
+  {
+   "id": "W45",
+   "release": "RP",
+   "category": "provider thật",
+   "testcases": {
+    "T40b": "DoD"
+   },
+   "outcome": "Kiểm thật ma trận provider (R3): chạy mỗi ô của ma trận provider × vai trò (`claude`, `codex`, `kiro` × reviewer, cố vấn) một lần bằng CLI thật trên một artifac",
+   "status": "Blocked",
+   "classes": [
+    "A",
+    "E"
+   ],
+   "implementation": [
+    "PHẦN DEVELOPMENT ĐÃ CÓ: onecrew/v2/providers.py:264 cli_identity() — sha256 file thực thi, file trong prefix, --version (ghi nhận danh tính CLI thật)",
+    "PHẦN DEVELOPMENT ĐÃ CÓ: wfkit/provider_evidence.py:11 evaluate() — kiểm sáu ô (provider/role/model/vendor khớp ghim, hash CLI ghim, hash file prefix, original giữ hash gốc, kết quả khớp trạng thái) dùng chung bởi finalgate KQ6 và release_check RP",
+    "PHẦN DEVELOPMENT ĐÃ CÓ: wfkit/finalgate.py:73,95 — evidence_status() (HL2/HL5: usable/recheck/unverified/failed) và provider_capability() (NL)",
+    "KHÔNG CÓ: kịch bản chạy sáu ô từ bản cài đặt (grep 'W45' chỉ ra docstring providers.py và comment test)"
+   ],
+   "tests": [
+    "tests.test_wf_rp_providers.IdentityTests (2 test) — cli_identity trên CLI giả (sha256 + version), alias không đọc được -> unverified",
+    "tests.test_wf_finalgate.FinalGateTests.test_kq6_* (4 test) + test_common_hl_c4_c5_c6_do_not_inherit_without_valid_proof + test_full_matrix_direct_and_inherited_both_pass — luật ma trận/HL/NL trên biên nhận fixture",
+    "tests.test_wf_release_check.ReleaseCheckTests.test_rp_uses_shared_matrix_rule_without_requiring_future_pilot_reviewer"
+   ],
+   "missing": "PHẦN DEV THIẾU (loại A): (1) kịch bản/lệnh chạy mỗi ô (claude/codex/kiro x reviewer/cố vấn) một lần bằng providers.call từ venv cài trên artifact mẫu chỉ đọc, ghi biên nhận có provider/model đã pin trong hợp đồng chương trình, cli_identity, hash cây trước/sau (E11), log stdin đóng/exit/JSON (E18), bảng so verdict (E10), hash wheel đã chạy; (2) biên nhận 'chưa kiểm chứng' có lý do khi thiếu CLI/tài khoản/hạn mức mà không đổi pin; (3) manifest sha256 CLI giả để E20/x3; (4) script kiểm ma trận x1-x7 (xem WKP). PHẦN LOẠI E: CLI thật đã đăng nhập, hạn mức, model đã pin cho từng ô; ô thiếu tài khoản (ví dụ kiro) hợp lệ là 'chưa kiểm chứng' (T40b đạt với bất kỳ số ô đạt, E27), nhưng ô 'đạt' cần tài khoản thật.",
+   "next": "Tối thiểu để gỡ: (a) viết wfkit/provider_matrix.py (runner + bảng sáu dòng + hash bản dựng + manifest CLI giả) và x1-x7 test (A, không cần provider); (b) chủ sở hữu chạy runner một lần trên máy có claude/codex đăng nhập (hoặc ghi chưa kiểm chứng cho ô thiếu) — chỉ (b) là E. Phụ thuộc W43, W40, WKP.",
+   "evidence": [
+    "registry T40b blocked (external-provider), checks=[]; grep W45 trong onecrew/wfkit/tests; đọc wfkit/provider_evidence.py và finalgate.py"
+   ]
+  },
+  {
+   "id": "W40-RP",
+   "release": "RP",
+   "category": "phát hành",
+   "testcases": {
+    "T54i": "DoD",
+    "T40c": "DoD"
+   },
+   "outcome": "Phát hành RP: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của RP; giao subset đã kiểm thật (T40c): ghi chú phát hành và file ma trận giao kèm n",
+   "status": "Partial",
+   "classes": [
+    "B",
+    "C",
+    "E"
+   ],
+   "implementation": [
+    "PHẦN DEVELOPMENT ĐÃ CÓ: wfkit/release_check.py:~202-215 — nhánh RP của notes: dùng provider_evidence.evaluate dùng chung, subset == tập ô 'usable', p1_count == len(subset), p1_label == 'subset', RP không đòi PL-B",
+    "PHẦN DEVELOPMENT ĐÃ CÓ: wfkit/finalgate.py:73 evidence_status() + :95 provider_capability() — bộ đánh giá hiệu lực chung HL/NL (dùng lại ở KQ6/KQ7 cổng cuối, không nhánh theo tên provider)",
+    "wfkit/finalgate.py KQ7 — mọi công bố T40c/T54i/T40d cùng tập ô, partial không được nhãn full",
+    "wfkit/upgrade_drill.py:86 — Drill chung"
+   ],
+   "tests": [
+    "tests.test_wf_release_check.ReleaseCheckTests.test_rp_uses_shared_matrix_rule_without_requiring_future_pilot_reviewer — T54i E7 (subset ['codex:advisor'], thêm 'kiro:reviewer' bị từ chối T54.5)",
+    "tests.test_wf_finalgate.FinalGateTests.test_kq7_all_publication_sets_must_match + test_kq7_partial_cannot_claim_full + test_kq6_blocked_does_not_create_pass_or_erase_inheritance + test_common_hl_c4_c5_c6_do_not_inherit_without_valid_proof + test_n0_partial_optional_unverified_passes_retains_hash — T40c E29/E30/E35/E37/E38 ở mức luật",
+    "tests.test_wf_release_check.ReleaseCheckTests.test_notes_keep_four_states_separate_and_real_claims_need_real_receipts — T54 E11 (không gộp giả lập/thật, không 'nghiệm thu')"
+   ],
+   "missing": "PHẦN DEV: (1) Loại B/C: không có bản phát hành RP — không producer bundle, không ghi chú RP và file ma trận giao kèm; bộ đánh giá HL/NL nằm trong finalgate/provider_evidence nhưng chưa được 'giao kèm trong kit' như một công cụ chạy lại (CLI chỉ 'python -m wfkit.finalgate/release_check' trên bundle). (2) Loại C: ca K (4 ô đạt, 2 kiro chưa kiểm chứng -> RP vẫn giao), x6/x7 và C1-C9 của T55 không được liệt kê thành ca đặt tên; chỉ C4-C6 và một số biến thể có test; không test tập 'dùng được' của T54i = T40c = T40d trên chín ca (E40). PHẦN E: ma trận thật của bản giao (W45) và biên nhận thật; không có thì ghi chú RP chỉ có thể liệt kê 'chưa kiểm chứng'.",
+   "next": "Nhỏ nhất: viết bảng ca K, x6, x7, C1-C9 thành tests/test_wf_finalgate.py (không cần provider) và producer bundle RP; soạn ghi chú RP từ ma trận thật sau W45 (E). Phụ thuộc W43, W45, W40, W41.",
+   "evidence": [
+    "receipts RP-check.release_check (13/13), RP-check.finalgate (42/42), RP-check.upgrade_drill (3/3) pass trên b2cc754; registry T40c/T54i partial"
+   ]
+  },
+  {
+   "id": "WKX1",
+   "release": "RX1",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm RX1: T14a, T23, T54j",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "wfkit/development-testcases.json (releases.RX1) — check.rx1_core, check.rx1_doc, check.candidate_adapters, check.upgrade_drill, check.installed_features: nối T14a/T23/T54j"
+   ],
+   "tests": [
+    "tests.test_wf_rx1_core (28 test) — T23, T14a",
+    "tests.test_wf_rx1_doc (51 test) — T14a",
+    "tests.test_wf_candidate_adapters (2 test) — T14a trên engine/ứng viên",
+    "tests.test_wf_upgrade_drill (3) + tests.test_wf_installed_features (4) — T54j"
+   ],
+   "missing": "Mọi testcase WK liệt kê có module và đạt; phần năng lực mới có phản chứng (adapter vượt quyền, link/ID/nguồn hỏng). Lưu ý: T54j E8 (diễn tập đầu-cuối root tài liệu TRÊN BẢN CÀI) chưa có module riêng — thuộc W40-RX1.",
+   "next": "Không cần việc thêm cho WKX1.",
+   "evidence": [
+    "receipts RX1-check.* : rx1_core 28/28, rx1_doc 51/51, candidate_adapters 2/2, upgrade_drill 3/3, installed_features 4/4 pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "W22",
+   "release": "RX1",
+   "category": "feature",
+   "testcases": {
+    "T14a": "DoD",
+    "T23": "DoD"
+   },
+   "outcome": "Adapter kiểm cho đầu ra tài liệu dạng verifier của v2 (nguồn, cấu trúc, link/ID); lõi chặn adapter vượt quyền; không cần engine của R04",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "onecrew/v2/verifiers/port.py:1-60,142,310,369,385 — cổng lõi-adapter: BUILTIN=('doc','data','ops') là bảng duy nhất, Port chỉ đọc trong checkout sạch, từ chối retry/call/command/đọc ngoài/đóng finding/đặt status, run() tính result từ checks (expected_result), record_violations ghi adapter.violation (lớp A)",
+    "onecrew/v2/verifiers/doc.py — adapter tài liệu (nguồn, cấu trúc heading/bảng, link, ID); không import shell/mạng/ledger",
+    "onecrew/v2/verdict.py:14,105,238,290,319-320 — đường dùng thật: port.run/record_violations trong verdict.run; common_verification.py trên node native",
+    "onecrew/v2/compat.py — adapter.violation lớp A"
+   ],
+   "tests": [
+    "tests.test_wf_rx1_core.AdapterOverstepTests (test_e1_the_core_refuses_all_four_and_names_the_rule, test_e2_each_refusal_is_one_violation_record_in_the_ledger, test_e3_the_state_after_shows_none_of_the_four_took_effect + 12 test khác) — T23 E1-E3 (4 hành vi vượt quyền, 4 bản ghi, trạng thái sau)",
+    "tests.test_wf_rx1_core.OneCoreTests (test_e1_both_roots_have_the_same_lifecycle..., test_e2_the_two_contracts_differ_only_in_the_verifier, test_e3_e8_the_core_has_no_branch_on_the_kind_of_work_or_the_project, test_e7_nothing_in_the_core_is_called_only_for_the_document_adapter) — T14a E1,E2,E3 + cấm E7,E8",
+    "tests.test_wf_rx1_core.OldVersionTests — lớp A với binary cũ",
+    "tests.test_wf_rx1_doc.DocVerdictTests/DocChecksTests (51 test) — adapter tài liệu thật, receipt do lõi cấp, biên nhận viết tay bị từ chối",
+    "tests.test_wf_candidate_adapters.CandidateAdapterTests — cùng engine kiểm ba adapter trên ứng viên"
+   ],
+   "missing": "Không thiếu [E] của DoD T14a/T23 (registry vẫn 'partial/acceptance-audit' — là cập nhật trạng thái). Worker giả cho phần sửa: chỉ giao diện (đã khai).",
+   "next": "Cập nhật registry T14a/T23 khi gắn evidence_matrix.",
+   "evidence": [
+    "receipts RX1-check.rx1_core (28/28), RX1-check.rx1_doc (51/51), RX1-check.candidate_adapters (2/2) pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "W40-RX1",
+   "release": "RX1",
+   "category": "phát hành",
+   "testcases": {
+    "T54j": "DoD"
+   },
+   "outcome": "Phát hành RX1: theo quy trình chung của T54 (khung W40, W41 ở R00) cho adapter tài liệu; diễn tập đầu-cuối một root tài liệu trên bản cài (phần tài liệu của P-0",
+   "status": "Partial",
+   "classes": [
+    "A",
+    "B",
+    "C"
+   ],
+   "implementation": [
+    "wfkit/release_check.py:~148-155 — nhánh RX1/RX2: bắt buộc installed.adapter_runs có adapter 'doc' (RX1), 'data'+'ops' (RX2), root/result/artifact/hash đúng artifact giao (validator)",
+    "wfkit/upgrade_drill.py:86 — Drill chung",
+    "tests/test_wf_installed_features.py — wheel cài chạy luồng root, lesson, data artifact phi-Git; KHÔNG có root tài liệu"
+   ],
+   "tests": [
+    "tests.test_wf_release_check.ReleaseCheckTests.test_rx_adapter_scenario_is_required_on_delivered_build — chỉ test validator: thiếu adapter_runs -> T54.1 bị từ chối",
+    "tests.test_wf_upgrade_drill (3 test) — chung",
+    "tests.test_wf_installed_features (4 test) — không chạy doc"
+   ],
+   "missing": "T54j E8: chưa có diễn tập đầu-cuối MỘT ROOT TÀI LIỆU TRÊN BẢN CÀI (venv sạch, sổ tạm, dữ liệu giả, biên nhận có hash bản dựng). tests.test_wf_rx1_doc chạy trên checkout (CLI checkout). Không ai SINH trường adapter_runs (chỉ validator và test fixture dùng nó) — class B. Cũng thiếu bundle/ghi chú phát hành RX1 như R06.",
+   "next": "Thêm tests/test_wf_installed_doc.py theo mẫu test_wf_installed_node_learning (dựng wheel, venv sạch, 'verdict run' trên root doc milestone, xuất adapter_runs); nối vào producer bundle chung; ghi chú RX1. Phụ thuộc W22, W40, W41.",
+   "evidence": [
+    "receipts RX1-check.upgrade_drill (3/3), RX1-check.installed_features (4/4) pass trên b2cc754; grep 'adapter_runs': chỉ wfkit/release_check.py và tests/test_wf_release_check.py"
+   ]
+  },
+  {
+   "id": "WKX2",
+   "release": "RX2",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm RX2: T14b, T54k",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "wfkit/development-testcases.json (releases.RX2) — check.rx2_adapters, check.candidate_adapters, check.upgrade_drill, check.installed_features: nối T14b/T54k"
+   ],
+   "tests": [
+    "tests.test_wf_rx2_adapters (14 test) — T14b",
+    "tests.test_wf_candidate_adapters (2 test) — T14b trên engine",
+    "tests.test_wf_upgrade_drill (3) + tests.test_wf_installed_features (4) — T54k"
+   ],
+   "missing": "Mọi testcase WKX2 liệt kê có module và đạt; phản chứng cho adapter dữ liệu/vận hành (schema, trùng, thiếu hàng, ops unknown không retry) có. Phần cài đặt cho ops (T54k) xem W40-RX2.",
+   "next": "Không cần việc thêm cho WKX2.",
+   "evidence": [
+    "receipts RX2-check.rx2_adapters (14/14), candidate_adapters (2/2), upgrade_drill (3/3), installed_features (4/4) pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "W39",
+   "release": "RX2",
+   "category": "feature",
+   "testcases": {
+    "T14b": "DoD"
+   },
+   "outcome": "Adapter kiểm cho đầu ra dữ liệu (schema, đối soát, mẫu) và vận hành (pre/postcondition, receipt, reconcile); danh tính artifact không phải Git",
+   "status": "Partial",
+   "classes": [
+    "C"
+   ],
+   "implementation": [
+    "onecrew/v2/verifiers/data.py:37,150 — validate_config/run: schema, đối soát (reconcile), mẫu, exact decimal, CSV/JSON",
+    "onecrew/v2/verifiers/ops.py:31 — adapter vận hành: precondition/postcondition/receipt/reconcile (bằng chứng cục bộ), unknown/pending không retry",
+    "onecrew/v2/verifiers/artifact.py:14,48 — is_git/identity: danh tính artifact không phải Git; verdict.py:238 từ chối HEAD/non-adapter trên target không-Git",
+    "onecrew/v2/verifiers/port.py:BUILTIN — đăng ký data/ops qua cùng cổng với doc (không nhánh theo loại trong lõi)"
+   ],
+   "tests": [
+    "tests.test_wf_rx2_adapters.LocalChecks (11 test) — schema/đối soát/mẫu/exact decimal, ops tích cực và từng phản chứng, ops unknown, snapshot identity/tamper/null, scope Windows alias, receipt hỏng không bao giờ pass, ghi scratch bị phát hiện",
+    "tests.test_wf_rx2_adapters.SameCoreTests.test_data_and_ops_use_same_receipt_record_and_artifact_path — data và ops cùng receipt/artifact, cùng danh sách loại sự kiện (kinds('DATA') == kinds('OPS'))",
+    "tests.test_wf_rx2_adapters.NonGitLifecycle (2 test) — T14b nguồn phi-Git: run/issue/record/repair, receipt giả bị từ chối, HEAD/non-adapter bị chặn",
+    "tests.test_wf_rx1_core.OneCoreTests.test_e3_the_name_of_a_shipped_adapter_is_in_the_one_table_and_in_no_condition_of_the_core — BUILTIN gồm data/ops, không tên adapter trong điều kiện lõi (E9)",
+    "tests.test_wf_candidate_adapters.CandidateAdapterTests.test_same_engine_verifies_three_adapters_on_candidate_without_host_command_grant"
+   ],
+   "missing": "T14b E5/E9 so sánh 'cùng vòng đời, quyền, ngân sách, finding, bàn giao như root CODE': SameCoreTests chỉ so DATA với OPS với nhau (và RX1 OneCoreTests so CODE với DOC); không có test so root dữ liệu/vận hành với root code trên các mặt quyền (authority), ngân sách, finding, handover. TD32 (hình dạng lease) cho ops chưa được chỉ ra là dùng lại. Registry partial (acceptance-audit).",
+   "next": "Thêm vào tests/test_wf_rx2_adapters.py: mở rộng OneCoreTests của RX1 sang cặp CODE/DATA và CODE/OPS (cùng tập sự kiện vòng đời, trường authority/budget, stop rule, handover shape, chỉ khác verifier). Phụ thuộc W22.",
+   "evidence": [
+    "receipts RX2-check.rx2_adapters (14/14), RX2-check.candidate_adapters (2/2) pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "W40-RX2",
+   "release": "RX2",
+   "category": "phát hành",
+   "testcases": {
+    "T54k": "DoD"
+   },
+   "outcome": "Phát hành RX2: theo quy trình chung của T54 (khung W40, W41 ở R00) cho adapter dữ liệu và vận hành; artifact ngoài Git có định danh",
+   "status": "Partial",
+   "classes": [
+    "A",
+    "B",
+    "C"
+   ],
+   "implementation": [
+    "wfkit/release_check.py:~148-155 — RX2 yêu cầu adapter_runs có 'data' và 'ops' trên artifact giao (validator)",
+    "tests/test_wf_installed_features.py:67 — test cài wheel: artifact dữ liệu phi-Git cùng vòng đời (adapter data); KHÔNG có ops",
+    "wfkit/upgrade_drill.py:86 — Drill chung"
+   ],
+   "tests": [
+    "tests.test_wf_installed_features.InstalledFeaturesTests.test_non_git_data_artifact_uses_same_lifecycle_and_present — artifact ngoài Git có định danh, trên wheel (chỉ data)",
+    "tests.test_wf_release_check.ReleaseCheckTests.test_rx_adapter_scenario_is_required_on_delivered_build — validator (cũng chỉ ví dụ RX1)",
+    "tests.test_wf_upgrade_drill (3 test)"
+   ],
+   "missing": "Không có diễn tập trên bản cài cho adapter ops (precondition/postcondition/receipt/reconcile) và root vận hành; adapter_runs không có producer; không bundle/ghi chú RX2; Drill chưa kiểm định danh artifact ngoài Git qua nâng cấp/rollback. Phụ thuộc W39, W40-RX1 chưa khép.",
+   "next": "Mở rộng tests/test_wf_installed_features.py (hoặc test cài mới) chạy ops + data từ venv cài, xuất adapter_runs; dùng producer bundle chung; ghi chú RX2 nêu 'chưa có việc dữ liệu/vận hành thật (PL-B)'.",
+   "evidence": [
+    "receipts RX2-check.upgrade_drill (3/3), RX2-check.installed_features (4/4) pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "WKN",
+   "release": "KN",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm tích hợp giữa release: T36c, T46b, T47b. Mỗi phần chạy khi bản dựng có đủ hai release của nó",
+   "status": "Done",
+   "classes": [
+    "D"
+   ],
+   "implementation": [
+    "wfkit/development-testcases.json (releases.KN) — check.task_caps, estimates, kn_estimates, r02_resume, installed_common_consumers, questions, answer_effects, r02_boundaries: nối T36c (complete, E19/E20), T46b, T47b"
+   ],
+   "tests": [
+    "tests.test_wf_kn_estimates (6 test) — T36c E19/E20",
+    "tests.test_wf_task_caps (4), test_wf_estimates (6) — T36c",
+    "tests.test_wf_r02_resume (10), test_wf_installed_common_consumers (1), test_wf_r02_boundaries (8) — T46b",
+    "tests.test_wf_questions (5), test_wf_answer_effects (11) — T47b"
+   ],
+   "missing": "Mọi testcase liệt kê có module và đạt. T46b/T47b còn 'partial/acceptance-audit' (cập nhật trạng thái). Phần tích hợp không bị tính vào DoD một release (đăng ký riêng ở nhóm KN). 'Mỗi phần chạy khi bản dựng có đủ hai release của nó': chưa thấy điều kiện chạy có cổng theo release trong đăng ký, nhưng không làm mất tính đầy đủ module.",
+   "next": "Không cần việc thêm cho WKN.",
+   "evidence": [
+    "receipts KN-check.* : kn_estimates 6/6, task_caps 4/4, estimates 6/6, r02_resume 10/10, installed_common_consumers 1/1, r02_boundaries 8/8, questions 5/5, answer_effects 11/11 pass trên b2cc754"
+   ]
+  },
+  {
+   "id": "WKPL",
+   "release": "PL",
+   "category": "bộ kiểm",
+   "testcases": {},
+   "outcome": "Bộ kiểm pilot và cổng cuối: T14c, T35b, T35c, T45b, T45c, T45d, T45e, T40d, T55a",
+   "status": "Partial",
+   "classes": [
+    "A",
+    "E"
+   ],
+   "implementation": [
+    "wfkit/finalgate.py — validator CG-KET (KQ1-KQ7) cho T45b-e, T40d, T55a (check.finalgate là module duy nhất của PL trong registry)",
+    "wfkit/owner_actions.py:21 — count() đếm hành động chủ sở hữu từ sổ + nhật ký chat (một phần cho T35c E24)",
+    "onecrew/v2/metrics.py — số đo nhóm A từ sổ (T35d), chưa có báo cáo giữa kỳ/tổng hợp"
+   ],
+   "tests": [
+    "tests.test_wf_finalgate (42 test) — T45b-e, T40d, T55a ở mức luật (KQ1-KQ7, hash, gate đã qua trước giai đoạn, U2 hook)",
+    "tests.test_wf_r03a_metrics — T35d (không thuộc PL)"
+   ],
+   "missing": "Không có script kiểm báo cáo pilot cho T35b (báo cáo giữa kỳ: k/3, nguồn, nhóm nguồn, không baseline) và T35c (báo cáo tổng hợp: ba tầng, trạng thái chỉ số theo 00 §9.3, m1-m5, dòng nhiễu, amend, cho qua sai, quyết định/AC1, AC5 năng lực đo, đếm hai nguồn) — grep 'baseline'/'AC5' chỉ trong development_gate/program_contract/finalgate; T14c không có module; T35b/T35c/T14c checks=[] trong registry; T45b/T45c (cổng vào) chỉ được kiểm gián tiếp bên trong finalgate.history_check, chưa phải cổng vào chạy trước giai đoạn (luật chọn project bộ giám sát 2.1, E10, E13 chưa thấy test). T55a: các ca C1-C9, CK1-CK25 và phản chứng z1-z12 chưa được liệt kê đặt tên. Biên nhận giả lập không được tính là kết quả pilot (finalgate yêu cầu real).",
+   "next": "A: viết wfkit/pilot_report.py + tests (script kiểm báo cáo m1-m5, y1/y2, ca K/p1) và test đặt tên C1-C9/CK1-CK25/z1-z12; E: số liệu thật từ W38b/W38c. Phụ thuộc WK0.",
+   "evidence": [
+    "receipts PL-check.finalgate (42/42) pass trên b2cc754; registry T14c,T35b,T35c blocked checks=[]; T45b-e,T40d,T55a blocked checks=[check.finalgate]"
+   ]
+  },
+  {
+   "id": "W38b",
+   "release": "PL-A",
+   "category": "pilot/nghiệm thu",
+   "testcases": {
+    "T35b": "DoD",
+    "T45b": "cổng vào"
+   },
+   "outcome": "PL-A: 3 việc thật đầu tiên (code, tài liệu) do chủ sở hữu chọn, trên bản cài đặt cô lập (venv + state-root riêng) của một bản dùng thử có R02, R03, RX1 đã qua c",
+   "status": "Blocked",
+   "classes": [
+    "A",
+    "E"
+   ],
+   "implementation": [
+    "PHẦN DEVELOPMENT ĐÃ CÓ: wfkit/finalgate.py:~261-280 — kiểm PL-A có biên nhận cổng vào T45b trước started_at, cổng giao CG-R01/R02/R03/CG-RX1 đạt trước, cùng hash",
+    "PHẦN DEVELOPMENT ĐÃ CÓ: wfkit/owner_actions.py:21 count(); onecrew/v2/metrics.py (đo từ sổ)",
+    "KHÔNG CÓ: bảng DO-10-VIEC.csv, báo cáo giữa kỳ T35b, bộ cổng vào PL-A chạy độc lập, script kiểm báo cáo"
+   ],
+   "tests": [
+    "tests.test_wf_finalgate.FinalGateTests.test_kq4_entry_refused + test_kq4_late_entry_for_each_phase + test_kq4_release_wrong_hash_and_late_release + test_kq4_unavailable_pin — luật cổng vào giai đoạn (fixture)"
+   ],
+   "missing": "Loại E: 3 việc thật do chủ sở hữu chọn, trên bản cài cô lập có R02, R03, RX1 đã qua cổng giao; đo theo 00 §9. Loại A (dev): cổng vào PL-A chạy độc lập (bước trước W38b; luật chọn project E10/E13), bảng đo DO-10-VIEC.csv sinh từ sổ (E26), script kiểm báo cáo giữa kỳ (E7, E25) — hiện không có. Biên nhận giả lập không thay kết quả pilot.",
+   "next": "A: viết cổng vào PL-A + sinh bảng đo + script kiểm báo cáo giữa kỳ (không cần pilot). E: chủ sở hữu chọn 3 việc, cài bản dùng thử có R02/R03/RX1 qua cổng, chạy và ghi nhận. Phụ thuộc W40-R01/R02/R03/RX1 (R03/R02 ngoài nhóm), WKPL.",
+   "evidence": [
+    "registry T35b blocked external-pilot; T45b blocked check.finalgate; không có DO-10-VIEC.csv trong repo"
+   ]
+  },
+  {
+   "id": "W38c",
+   "release": "PL-B",
+   "category": "pilot/nghiệm thu",
+   "testcases": {
+    "T35c": "DoD",
+    "T14c": "DoD",
+    "T45c": "cổng vào"
+   },
+   "outcome": "PL-B: đủ ít nhất 10 việc thật tích lũy, có ít nhất một việc dữ liệu và một việc vận hành; reviewer khác hãng dùng ô `đạt` thật trong subset của RP (T40b, T40c) ",
+   "status": "Blocked",
+   "classes": [
+    "A",
+    "E"
+   ],
+   "implementation": [
+    "PHẦN DEVELOPMENT ĐÃ CÓ: wfkit/finalgate.py:~261-280 PL-B entry, :235 NL (reviewer khác hãng dùng được + pin), providers_check; wfkit/provider_evidence.py evaluate; mỗi bằng chứng ghi hash bản dựng (Evidence/identity)",
+    "KHÔNG CÓ: báo cáo tổng hợp T35c, đếm 10 việc có ít nhất một việc dữ liệu và một vận hành (T14c), script kiểm báo cáo m1-m5"
+   ],
+   "tests": [
+    "tests.test_wf_finalgate.FinalGateTests.test_kq3_* (4 test) — KQ3 yêu cầu T35c/T14c là biên nhận pilot thật, đánh giá không thay pilot",
+    "tests.test_wf_finalgate.FinalGateTests.test_kq6_* (4 test) — KQ6/NL"
+   ],
+   "missing": "Loại E: ít nhất 10 việc thật tích lũy (có dữ liệu và vận hành), reviewer khác hãng dùng ô 'đạt' thật (T40b/T40c, W45 chưa chạy), báo cáo AC theo phiên bản/giai đoạn. Loại A (dev): script kiểm báo cáo tổng hợp T35c (E6, E20-E24, E29-E38; m1-m5) và bảng đo — không có; kiểm 'ô provider pilot không dùng chưa dùng được không giữ cổng' (ca K) chưa thành ca đặt tên.",
+   "next": "A: pilot_report checker (dùng chung với WKPL). E: hoàn tất W38b, W45 ít nhất một ô reviewer khác hãng đạt thật, chạy 7 việc còn lại gồm dữ liệu và vận hành. Phụ thuộc W38b, W40-RX2, W40-RP, W40-R05, WKPL.",
+   "evidence": [
+    "registry T35c, T14c blocked external-pilot; T45c blocked check.finalgate"
+   ]
+  },
+  {
+   "id": "W38d",
+   "release": "KET",
+   "category": "pilot/nghiệm thu",
+   "testcases": {
+    "T45e": "DoD",
+    "T55a": "DoD"
+   },
+   "outcome": "Đối chiếu bằng chứng pilot với artifact cuối (03 §5.2), rồi cho mọi cổng chạy trên artifact cuối dùng kết quả đó qua bộ đánh giá hiệu lực chung của W40-RP, và c",
+   "status": "Blocked",
+   "classes": [
+    "C",
+    "E"
+   ],
+   "implementation": [
+    "PHẦN DEVELOPMENT ĐÃ CÓ: wfkit/finalgate.py:31 compare() — phân tích ảnh hưởng từ file đổi trong wheel thật (diff hai wheel) x bản đồ phụ thuộc đã ghim, lan bằng dependency_core.affected_tasks (hàm closure v1), file ngoài bản đồ ảnh hưởng mọi mục, giữ hash bằng chứng gốc",
+    "wfkit/finalgate.py:73,95,103-250 — evidence_status/provider_capability/decide: CG-KET KQ1-KQ7, mục bị ảnh hưởng cần kiểm bổ sung trên artifact cuối (kind 'supplement'), không chạy lại toàn pilot",
+    "wfkit/provider_evidence.py:11 — bộ đánh giá hiệu lực chung cho ô provider; wfkit/release_check.py — dùng cùng bộ đánh giá ở RP",
+    "wfkit/doccheck.py/kitguard.py — lệnh bộ tự kiểm tài liệu kèm hash trong mỗi biên nhận cổng"
+   ],
+   "tests": [
+    "tests.test_wf_finalgate.FinalGateTests.test_kq2_* (9 test: thiếu đối chiếu, sai cặp hash, bỏ dependency, cạnh bị bỏ không viết lại bản đồ, wheel hash, diff wheel thật, file lạ ảnh hưởng mọi mục, thiếu supplement, original bị đổi hash) — T45e E21,E23,E24,E26",
+    "tests.test_wf_finalgate.FinalGateTests.test_kq1_* (6), test_kq3_* (4), test_kq4_* (4), test_kq5_* (2), test_kq6_* (4), test_kq7_* (2), test_closure_preserves_v1_owned_overlap_and_dependencies, test_all_failed_conditions_are_reported_once, test_cli_outputs_structured_decision_and_never_accepts — T55a ở mức luật",
+    "tests.test_wf_finalgate.FinalGateTests.test_fixture_cannot_claim_real_gate — biên nhận giả lập không chứng minh cổng thật"
+   ],
+   "missing": "PHẦN DEV (C): chín ca ô C1-C9 và hai mươi lăm ca CK1-CK25 của T55a không được liệt kê thành bộ ca đặt tên (chỉ C4-C6 + vài biến thể); phản chứng z1-z12 không có test đặt tên; script kiểm đối chiếu cho y1/y2, 'kế hoạch chạy lại cả 10 việc pilot' (E25) và 'phân tích bỏ trống' chưa thấy ('compare' chỉ kiểm hash/đồ thị, không có checker kế hoạch chạy lại); 'kiểm bổ sung' mới được kiểm có mặt/pass, không có công cụ CHẠY kiểm bổ sung trên artifact cuối (ô provider bị ảnh hưởng, nâng cấp sổ pilot, tính lại báo cáo). PHẦN E: bằng chứng pilot A thật (W38c), artifact cuối B có R06-R08 và hash bản dựng thật; biên nhận ma trận thật; nghiệm thu U3/U4 của chủ sở hữu.",
+   "next": "Nhỏ nhất (dev): viết ca đặt tên T55a (C1-C9, CK1-CK25, z1-z12) trong tests/test_wf_finalgate.py và một checker kế hoạch đối chiếu (y1/y2/E25); phần E chờ W38c, W40-R06/R07/R08 trên bản dựng thật và W45.",
+   "evidence": [
+    "receipts PL-check.finalgate (42/42) pass trên b2cc754; registry T45e, T55a blocked external-pilot"
+   ]
+  }
+ ]
+}
