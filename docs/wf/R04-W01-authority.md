@@ -10,12 +10,12 @@ Câu trả lời đối chiếu với implementation đã chọn (hình thức �
 | `unconfined_commands` | Lệnh không bị OS giới hạn | `_simple_grant('unconfined_commands')` đòi cả `commands` (`:255`); `child_wanted` suy `unconfined_commands=True` cho native trusted-project tests (`:183-188`) | |
 | `local_branches` | Tên nhánh cục bộ được tạo | `covers()` đòi tên tường minh, không chấp nhận wildcard (`:130-136`); `child_reason`: `git.branch` không có tên nhánh → U2 (`:204-208`) | |
 | `branch_at` | Điểm cắt nhánh (`pinned_head`) | `covers()` so với grant (`:137-138`) | |
-| `apply_to_project` | Áp candidate vào cây dự án | `PERMISSION_FIELDS` `project.apply`/`workspace.apply` → `apply_to_project`; `common_handoff.handoff` chỉ áp khi grant có (`onecrew/common_handoff.py`, quyết định Q4 qua `internal_plan.decide`) | `workflow.handoff` (lớp B, root `plan-ns:`) |
-| `edit_tests` | Được sửa test | `_simple_grant('edit_tests')`; `child_wanted` bật khi job con đụng test (`:188`); W05 phát hiện làm yếu bộ kiểm qua hash/manifest (`wfkit/kitguard.py`, T19/T21) | |
+| `apply_to_project` | Áp candidate vào cây dự án | `PERMISSION_FIELDS` `project.apply`/`workspace.apply` → `apply_to_project` cho job con; ở handoff, `common_handoff.handoff` gửi hành động `{'kind': 'apply', 'paths': …}` qua `internal_plan.decide` → `_HANDLERS['apply'] = _simple_grant('apply_to_project')` (`common_handoff.py:86-88`, `authority.py:292`): không có grant thì U2, không áp | `workflow.handoff` (lớp B, root `plan-ns:`) |
+| `edit_tests` | Được sửa test | Hành động `test_edit`: `_write(..., field='edit_tests')` và đòi cả `edit` (`authority.py:287-288`); `child_wanted` bật khi job con đụng test (`:188`). Phát hiện làm yếu bộ kiểm qua hash/manifest là W05 (T19/T21) — **chưa có mã** tính đến audit 24/10; `wfkit/kitguard.py` chỉ bảo vệ bộ kiểm của chương trình, không phải mốc của từng root | |
 | `push` | — | **Không bao giờ cấp**: `git.push` ở child → U2 (`:206`); không phải trường hợp đồng | |
-| `self_decide` | Q1–Q12 OneCrew được tự quyết | `internal_plan.decide` (`v2/internal_plan.py:88-94`): Q ngoài danh sách → request cho chủ sở hữu; trong danh sách → bản ghi quyết định (`decision.recorded`, W03) | chỉ ghi |
+| `self_decide` | Q1–Q12 OneCrew được tự quyết | `authority.decide` (`authority.py:280-284, 353`): Q trong danh sách → trong quyền, bản ghi quyết định (`decision.recorded`, W03); Q ngoài danh sách → U3, `internal_plan.decide` (`v2/internal_plan.py:88-94`) từ chối và giữ phần việc đó; việc mở request cho chủ sở hữu là bước riêng (thẻ gộp W30a, trả lời W30b), không tự động | chỉ ghi |
 | `granted_actions`, `auto_accept` | Hành động đã cấp; không auto-accept | `normalize` (`:86-102`) cố định `auto_accept=[]`: nghiệm thu luôn là động từ owner | chỉ ghi |
 
-Kết luận khảo sát: không thêm trường mới; bốn trường bool + `local_branches`/`branch_at` thi hành ở gate (`authority.decide` → U2 khi vượt),
+Kết luận khảo sát: không thêm trường mới; năm trường bool + `local_branches`/`branch_at` thi hành ở gate (`authority.decide` → U2 khi vượt),
 `self_decide` quyết định hỏi hay tự quyết, `apply_to_project` thi hành ở bước handoff, `push` không tồn tại. Dùng lại TD08 (`work_contract` của v1)
 và TD14 `covers()`. Kiểm: `tests/test_wf_r04a_authority.py` (T17a, T16a, T37), `tests/test_wf_engine.py` (T04a), hook `tests/test_v2_l2.py`.
