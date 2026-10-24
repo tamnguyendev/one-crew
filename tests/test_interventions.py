@@ -32,7 +32,7 @@ class LedgerFixture:
         tmp = tempfile.TemporaryDirectory(); case.addCleanup(tmp.cleanup)
         self.base = Path(tmp.name).resolve()
         env = patch.dict(os.environ, {'ONECREW_DESKTOP_HOME': str(self.base/'desktop')}); env.start(); case.addCleanup(env.stop)
-        for name in ('ONECREW_ACTOR', 'ONECREW_RUNNER_INITIATOR', 'ONECREW_KEEPER'): os.environ.pop(name, None)
+        for name in ('ONECREW_ACTOR', 'ONECREW_RUNNER_INITIATOR', 'ONECREW_KEEPER', 'CLAUDE_CODE_CHILD_SESSION'): os.environ.pop(name, None)  # human-entry path; the AI-session refusal (W03) is tested in test_wf_decisions
         self.project = self.base/'project'; (self.project/'specs').mkdir(parents=True)
         (self.project/'specs/SPEC-001-duyet-spec.md').write_text(SAMPLE, encoding='utf-8')
         self.state_root = self.base/'state'; self.ledger = Ledger(self.project, self.state_root)

@@ -23,6 +23,17 @@ R00 (xong) → R04 (16 task) → R05 (17) → R08 (7) → KET. R03 cần R01. Đ
 
 | Agent | Nhánh / worktree | Task | File chính (owner) | Trạng thái |
 |---|---|---|---|---|
+| r01-step0 (Sonnet) | `wf/r01-step0`, `D:\OneCrewRuns\wf\r01-step0` | W30a, W47, W31a | `v2/step0.py`, module thẻ/đề xuất mới | đang làm từ 09:5x |
+| r01-report (Sonnet) | `wf/r01-report`, `D:\OneCrewRuns\wf\r01-report` | W23a | `v2/report.py`, lệnh `plan present` | đang làm |
+| r02 (Sonnet) | `wf/r02`, `D:\OneCrewRuns\wf\r02` | W23b, W48a, W48b | module outcome/gói tiếp tục/ngữ cảnh mới | đang làm |
+| r04a (Sonnet) | `wf/r04a`, `D:\OneCrewRuns\wf\r04a` | W01, W02, W06, W04, W05, W10 | `v2/contract.py`, `plan.py`, `gate.py`, `lint.py`, `budget_core.py`, `task_intake.py` | đang làm (đường găng) |
+| rp-w43 (Sonnet) | `wf/rp-w43`, `D:\OneCrewRuns\wf\rp-w43` | W43 | `v2/verifiers/reviewer.py`, `advisor.py`, `claude_cli.py`, adapter provider | đang làm |
+| rx1 (Sonnet) | `wf/rx1`, `D:\OneCrewRuns\wf\rx1` | W22 | `v2/verifiers/doc.py` (mới) | đang làm |
+| kit (Sonnet) | `wf/kit`, `D:\OneCrewRuns\wf\kit` | WK0, WK00 (T45a, T38a) | `wfkit/` (mới), `tests/test_wf_kit.py` | đang làm |
+| r03a (Sonnet) | `wf/r03a`, `D:\OneCrewRuns\wf\r03a` | W44, W33a, W23c | `v2/verdict.py`, `hook_cli.py` (Stop), module quan sát/số đo mới | đang làm |
+| chính (Opus) | `wf/dev`, `wf-dev` | tích hợp, kiểm lại, W40-Rnn | — | — |
+
+File dùng chung giữa nhánh (sửa nhỏ, cộng thêm, agent chính gộp): `v2/contract.py`, `step0.py`, `plan.py`, `cli.py`, `compat.py`, `pyproject.toml`.
 
 ## Hàng đợi tích hợp
 
