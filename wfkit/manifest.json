@@ -1,195 +1,195 @@
 {
  "releases": {
   "R00": {
-   "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
-   "frozen_at": "2026-10-24T02:51:38Z",
+   "commit": "8e0d52c825866383d507f17c535326307cdb5612",
+   "frozen_at": "2026-10-24T02:54:16Z",
    "pins": {
     "doc:wf-doc-check": {
-     "added_at": "2026-10-24T02:51:38Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:16Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "doc",
      "sha256": "a2ef6c0a26970915d062cfe9ea318a51d8d36154de2be7d79ab4b9c1c2839f9f"
     },
     "tests/test_wf_advisor_errors.py": {
-     "added_at": "2026-10-24T02:51:37Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:14Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "tests/test_wf_advisor_errors.py",
      "sha256": "42699e84d8b71227d8a6aaefac9faa44779236b52d9793828d9761888bd176e9"
     },
     "tests/test_wf_compat_scan.py": {
-     "added_at": "2026-10-24T02:51:37Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:14Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "tests/test_wf_compat_scan.py",
      "sha256": "1ac7858e78d3867c409eaa39cf05d298812ed2d2404c17993149ff775e2d8a40"
     },
     "tests/test_wf_decisions.py": {
-     "added_at": "2026-10-24T02:51:37Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:14Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "tests/test_wf_decisions.py",
      "sha256": "7467825847c8c3778109163c73fd74a4c76f83f8d002d614b7894e6220e26b30"
     },
     "tests/test_wf_events.py": {
-     "added_at": "2026-10-24T02:51:37Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:14Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "tests/test_wf_events.py",
      "sha256": "2cc5d9f13599a8e3a5c02d99add3bdbd3463232957fef5155c4705013272f1e3"
     },
     "tests/test_wf_kit.py": {
-     "added_at": "2026-10-24T02:51:37Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:15Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "tests/test_wf_kit.py",
-     "sha256": "2c9faf7eaa6927a65a812af6e6b274267e250a82f16c482a0ab7527c1e0743de"
+     "sha256": "ef3c9262fa8e7df155216660488ac441978e105cad094c472b68cc58711bcc2f"
     },
     "tests/test_wf_packaging.py": {
-     "added_at": "2026-10-24T02:51:37Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:15Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "tests/test_wf_packaging.py",
      "sha256": "74e90af7d8e81c41e205851045848b572bd64128e869a7353794a5e18f03e049"
     },
     "tests/test_wf_plan_names.py": {
-     "added_at": "2026-10-24T02:51:37Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:14Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "tests/test_wf_plan_names.py",
      "sha256": "0ae1d8b96f6339146a965962e4cba4f6055404006eb9a3f0318451a968503f1c"
     },
     "tests/test_wf_rollback.py": {
-     "added_at": "2026-10-24T02:51:37Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:15Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "tests/test_wf_rollback.py",
      "sha256": "99d14a237eee0ac40d750acf6ad80904cdd606e43bc130999e85717e1cd10588"
     },
     "tests/wf_oldversion.py": {
-     "added_at": "2026-10-24T02:51:36Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:14Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "tests/wf_oldversion.py",
      "sha256": "4ead761edf736589233cb9b8e7fcec1a15269bc472d97e1b2056de9974d66776"
     },
     "tests/wf_rollback.py": {
-     "added_at": "2026-10-24T02:51:36Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:14Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "tests/wf_rollback.py",
      "sha256": "0832dbe36348ed94f50dbd293a25bf88970ecc32adaeaaba06b8e38c04b13537"
     },
     "tests/wf_wheel.py": {
-     "added_at": "2026-10-24T02:51:36Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:14Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "tests/wf_wheel.py",
      "sha256": "6d1d7b6e20b3caa91e35e08a41e3f87b0ed00dd9d8846c43c9dbb94ac15c80c2"
     },
     "wfkit/__init__.py": {
-     "added_at": "2026-10-24T02:51:36Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:13Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "wfkit/__init__.py",
      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "wfkit/doccheck.py": {
-     "added_at": "2026-10-24T02:51:36Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:14Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "wfkit/doccheck.py",
      "sha256": "a7b8c73c185905111a68f586a04b7a01760c00fb2fa9d9f3f2dc719499ebbc51"
     },
     "wfkit/gate.py": {
-     "added_at": "2026-10-24T02:51:36Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:13Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "wfkit/gate.py",
      "sha256": "8c739232aeba8d78bf2d6ce1c8da7281840304e9f668283c3adbd4b5f5936e43"
     },
     "wfkit/kitguard.py": {
-     "added_at": "2026-10-24T02:51:36Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:13Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "file",
      "path": "wfkit/kitguard.py",
      "sha256": "4e656c1a21a94e61971fd610a44c457dce7700aecb52a6d6b59a6c84c6ad6d0e"
     },
     "wfkit/testcases.json#R00/T09a": {
-     "added_at": "2026-10-24T02:51:38Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:15Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "case",
      "release": "R00",
      "sha256": "f1de052004ced74a21bfe7fa6c33f5e0b303719c71c4766c614abdad73fd2605",
      "testcase": "T09a"
     },
     "wfkit/testcases.json#R00/T13a": {
-     "added_at": "2026-10-24T02:51:37Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:15Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "case",
      "release": "R00",
      "sha256": "8bb4d01d8c2fe2e701df7ad908d5b6fec4f4f13f242ccfdae1992430800323ca",
      "testcase": "T13a"
     },
     "wfkit/testcases.json#R00/T13b": {
-     "added_at": "2026-10-24T02:51:38Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:15Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "case",
      "release": "R00",
      "sha256": "e56be9c8f3096ae3aa8dc0cc4db12f36348f3ff94f37d99b1db1f5ab705955cc",
      "testcase": "T13b"
     },
     "wfkit/testcases.json#R00/T20": {
-     "added_at": "2026-10-24T02:51:37Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:15Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "case",
      "release": "R00",
      "sha256": "ab6978103b49f6e548fe6aa9345d289a67abd8b2bf282fd811fd8de279f52e8b",
      "testcase": "T20"
     },
     "wfkit/testcases.json#R00/T33a": {
-     "added_at": "2026-10-24T02:51:38Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:15Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "case",
      "release": "R00",
      "sha256": "094c12919d30218719751e2f2bed969453d42a18be7def16e2d1abd96ced7fdf",
      "testcase": "T33a"
     },
     "wfkit/testcases.json#R00/T38a": {
-     "added_at": "2026-10-24T02:51:38Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:16Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "case",
      "release": "R00",
      "sha256": "45509e6e36154f99700c3cd80d70d2b8cdb5148c41c445d15abc61bcf39ed615",
      "testcase": "T38a"
     },
     "wfkit/testcases.json#R00/T45a": {
-     "added_at": "2026-10-24T02:51:38Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:16Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "case",
      "release": "R00",
      "sha256": "fc8f3df805b122d8749f40edd951894d72bfac3e496b63882aa620ace6040c85",
      "testcase": "T45a"
     },
     "wfkit/testcases.json#R00/T48a": {
-     "added_at": "2026-10-24T02:51:38Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:15Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "case",
      "release": "R00",
      "sha256": "32b32b95317fc0f424c4a54b90300f76de313f2f8da09b89669d2fb42177ede7",
      "testcase": "T48a"
     },
     "wfkit/testcases.json#R00/T49a": {
-     "added_at": "2026-10-24T02:51:37Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:15Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "case",
      "release": "R00",
      "sha256": "bbac467dfdad391caecf307bfa4bf8875b15a86745e61f62f0da45f7b8b47591",
      "testcase": "T49a"
     },
     "wfkit/testcases.json#R00/T49b": {
-     "added_at": "2026-10-24T02:51:38Z",
-     "commit": "15d6c079cebef22265d13c65e1f10215b4da689a",
+     "added_at": "2026-10-24T02:54:16Z",
+     "commit": "8e0d52c825866383d507f17c535326307cdb5612",
      "kind": "case",
      "release": "R00",
      "sha256": "e56be9c8f3096ae3aa8dc0cc4db12f36348f3ff94f37d99b1db1f5ab705955cc",
