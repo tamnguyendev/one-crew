@@ -16,12 +16,9 @@ SCHEMA={'type':'object','properties':{k:{'type':'string'} for k in ('verdict','f
         'required':['verdict','findings','alternatives','questions','limitations'],'additionalProperties':False}
 
 
-def installed(conn):
-    return bool(conn and conn.execute("SELECT 1 FROM sqlite_master WHERE name='consultations'").fetchone())
+from .admission_core import consultations_installed as installed, active_consultations as active_count
 
 
-def active_count(conn):
-    return conn.execute("SELECT COUNT(*) FROM consultations WHERE json_extract(state,'$.attempt.status') IN ('reserved','running','unknown')").fetchone()[0] if installed(conn) else 0
 
 
 def get(ledger,conn,cid):

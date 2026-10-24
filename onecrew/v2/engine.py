@@ -84,10 +84,12 @@ def state(ledger, selector, conn=None):
         if record['attempt']:
             attempt = conn.execute('SELECT status FROM attempts WHERE id=?', (record['attempt'],)).fetchone()
             if attempt and attempt['status'] != 'settled': inflight = True
+    from . import runtime_unknowns
     return {'root': root['task_id'], 'selector': root['selector'], 'root_status': root['status'],
             'contract_revision': approved.get('revision'), 'contract_sha': approved.get('sha'),
             'definition_contract_revision': contract_revision, 'definition_contract_sha': contract_sha,
-            'internal_revision': internal_revision, 'definition': definition, 'nodes': records, 'inflight': inflight}
+            'internal_revision': internal_revision, 'definition': definition, 'nodes': records, 'inflight': inflight,
+            'unknown_blockers': runtime_unknowns.blockers(ledger, root['selector'], conn)}
 
 
 def _rank(record):
@@ -99,6 +101,8 @@ def _early_key(upstream, record):
 
 
 def eligible(view, nid):
+    if view['root_status'] != 'approved' or _unknown_blocks(view, nid):
+        return {'ready': False, 'reason': 'Root is not approved or this node requires an unresolved fact'}
     if view['definition'] is None or nid not in view['nodes']:
         return {'ready': False, 'reason': 'No internal node ' + nid}
     record = view['nodes'][nid]
@@ -156,15 +160,56 @@ def _forecast(ledger, view, key, reason):
 def _publication_current(current, original, nid):
     return (current['root_status'] == 'approved'
             and current['contract_sha'] == original['contract_sha']
+            and current['contract_revision'] == original['contract_revision']
             and current['internal_revision'] == original['internal_revision']
             and nid in current['nodes']
+            and not _unknown_blocks(current, nid)
             and current['nodes'][nid]['generation'] == original['nodes'][nid]['generation'])
+
+
+def _unknown_blocks(view, nid):
+    pending, seen = [nid], set()
+    nodes = {node['id']: node for node in (view['definition'] or {}).get('nodes', [])}
+    while pending:
+        target = pending.pop()
+        if target in seen: continue
+        seen.add(target)
+        if view.get('unknown_blockers', {}).get(target): return True
+        pending.extend(edge['node'] for edge in nodes.get(target, {}).get('depends', []))
+    return False
 
 
 def _retain(ledger, conn, original, nid, reason, **evidence):
     # Reference the execution's original identities, never a newer generation.
     _event(ledger, conn, original, nid, 'node.result_retained', reason=reason,
            contract_sha=original['contract_sha'], grants_delivery=False, **evidence)
+
+
+def publish_retained(ledger, selector):
+    """A resolved fact can release a settled result without another model call."""
+    with ledger.transaction(write=True) as conn:
+        root, _, _ = ip.context(ledger, conn, selector, 'sequential-engine')
+        view = state(ledger, root['selector'], conn)
+        for nid, record in view['nodes'].items():
+            if record['phase'] != 'running' or not _publication_current(view, view, nid): continue
+            progress = progress_track.read(ledger, root['selector'], nid)
+            if progress and progress['checkpoint']['status'] in ('blocked', 'waiting'): continue
+            attempt = conn.execute('SELECT status FROM attempts WHERE id=?', (record['attempt'],)).fetchone()
+            if not attempt or attempt['status'] != 'settled': continue
+            for row in conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='node.result_retained' ORDER BY seq DESC", (view['root'],)):
+                payload = json.loads(row['payload'])
+                if (payload.get('node') != nid or payload.get('generation') != record['generation']
+                        or payload.get('internal_revision') != view['internal_revision']
+                        or payload.get('contract_sha') != view['contract_sha'] or payload.get('attempt') != record['attempt']):
+                    continue
+                candidate = payload.get('candidate')
+                if not candidate: continue
+                Snapshots(ledger.state_root).read_blob(candidate['receipt'])
+                from .retention import pin_evidence
+                pin_evidence(ledger, root['selector'], candidate['artifact'])
+                _event(ledger, conn, view, nid, 'node.produced', progress_status='unknown', retained_event=row['seq'], **candidate)
+                return {'node': nid, 'state': 'produced', 'released_retained': True, **candidate}
+    return None
 
 
 def step(ledger, selector, executor, *, control=None):
@@ -174,6 +219,8 @@ def step(ledger, selector, executor, *, control=None):
     if (control is None or control.ledger.project_id != ledger.project_id
             or Path(control.ledger.state_root).resolve() != Path(ledger.state_root).resolve()):
         raise LedgerError('A connected executor Control for this project/state root is required.')
+    retained = publish_retained(ledger, selector)
+    if retained: return retained
     with ledger.transaction() as conn:
         root, contract, sha = ip.context(ledger, conn, selector, 'sequential-engine')
         view = state(ledger, root['selector'], conn)
@@ -186,7 +233,9 @@ def step(ledger, selector, executor, *, control=None):
     item = copy.deepcopy(next(node for node in view['definition']['nodes'] if node['id'] == nid))
     if getattr(executor, 'requires_pin', False) and 'executor' not in item:
         raise LedgerError('This node has no pinned executor role/provider/model.')
-    inputs = {edge['node']: {key: view['nodes'][edge['node']][key] for key in ('artifact', 'state', 'generation')}
+    definitions = {node['id']: node for node in view['definition']['nodes']}
+    inputs = {edge['node']: {**{key: view['nodes'][edge['node']][key] for key in ('artifact', 'state', 'generation')},
+                            'write': definitions[edge['node']]['write'], 'receipt': view['nodes'][edge['node']]['receipt']}
               for edge in item['depends']}
     item['input_artifacts'] = inputs
     ip.decide(ledger, root, contract, sha, {'kind': 'decision', 'q': 'Q2', 'nodes': [nid], 'eligible': True}, ctx, 'onecrew.engine')
@@ -227,7 +276,7 @@ def step(ledger, selector, executor, *, control=None):
                     _event(ledger, conn, current, nid, 'node.held', reason=progress['checkpoint']['reason'],
                            classification='progress_' + progress_status, candidate=produced)
                 else:
-                    _retain(ledger, conn, view, nid, 'Root changed during execution', candidate=produced)
+                    _retain(ledger, conn, view, nid, 'Root changed during execution', candidate=produced, attempt=attempt['id'])
             return {'node': nid, 'state': 'held' if progress_status == 'blocked' else 'waiting', 'progress': progress_status}
     except Exception as error:
         if control.attempt(attempt['id'])['status'] != 'settled':
@@ -260,6 +309,14 @@ def verify(ledger, selector, nid, checker):
         item = next(node for node in view['definition']['nodes'] if node['id'] == nid)
         artifact = view['nodes'][nid]['artifact']
         ctx = ip.ceilings(ledger, conn, root)
+    from . import review_dispatch
+    decision = review_dispatch.required(ledger, root['selector'], nid, [check['id'] for check in item['checks']])
+    if decision['action'] != 'REVIEW':
+        raise LedgerError('The required verification is held or deferred by its rule decision.')
+    with ledger.transaction() as conn:
+        current = state(ledger, root['selector'], conn)
+        if not _publication_current(current, view, nid) or current['nodes'][nid]['artifact'] != artifact:
+            raise LedgerError('The node changed before checker dispatch; recompute its required decision.')
     observed = checker(item, artifact)
     rows = observed.get('checks', []) if isinstance(observed, dict) and isinstance(observed.get('checks'), list) else []
     configured = {check['id'] for check in item['checks']}
@@ -274,11 +331,14 @@ def verify(ledger, selector, nid, checker):
         except (OSError, LedgerError) as error:
             passed = False
             evidence_errors.append(str(error)[:300])
+    failed = (matches and len(rows) == len(configured) and actual == configured and not evidence_errors
+              and any(row.get('result') == 'fail' for row in rows)
+              and all(row.get('result') in ('pass', 'fail', 'blocked') for row in rows))
     body = {'kind': 'node-verifier-receipt', 'root': root['task_id'], 'node': nid,
             'internal_revision': view['internal_revision'], 'generation': view['nodes'][nid]['generation'],
             'artifact': artifact, 'inputs': view['nodes'][nid]['inputs'], 'observed': observed,
             'evidence_errors': evidence_errors, 'checks_sha': content_hash(item['checks']),
-            'result': 'pass' if passed else 'inconclusive'}
+            'result': 'pass' if passed else 'fail' if failed else 'inconclusive'}
     receipt = Snapshots(ledger.state_root).blob(canonical(body).encode())
     if matches:
         ip.decide(ledger, root, contract, sha, {'kind': 'decision', 'q': 'Q9', 'nodes': [nid],
@@ -294,6 +354,15 @@ def verify(ledger, selector, nid, checker):
     if not publish:
         raise LedgerError('The root or node changed while its checker ran; evidence was retained without verification.')
     _forecast(ledger, state(ledger, root['selector']), 'verification-' + receipt[:32], 'Node verification recorded')
+    if body['result'] == 'fail':
+        from . import recovery_policy
+        try:
+            body['recovery'] = recovery_policy.assess(ledger, root['selector'], nid)
+        except LedgerError as error:
+            # A concurrent replan/closure cannot erase the completed check or
+            # authorize repair against its now-stale evidence.
+            body['recovery'] = {'disposition': 'reconcile', 'reason': str(error),
+                                'grants_authority': False, 'creates_owner_request': False}
     return body
 
 
@@ -312,6 +381,11 @@ def accept_node(ledger, selector, nid):
             raise LedgerError('Internal acceptance requires the current verified node.')
         _event(ledger, conn, current, nid, 'node.accepted')
     return state(ledger, root['selector'])['nodes'][nid]
+
+
+def review_optional(ledger, selector, nid, review_id, checker, artifact):
+    from .review_dispatch import optional
+    return optional(ledger, selector, nid, review_id, checker, artifact)
 
 
 def request_action(ledger, selector, nid, action):
@@ -401,7 +475,7 @@ def resume_held(ledger, selector, *, request_id, request_revision, contract_sha,
 
 def verification_ready(ledger, selector):
     view = state(ledger, selector)
-    if (view['root_status'] != 'approved' or not view['definition'] or view['definition_contract_sha'] != view['contract_sha'] or
+    if (view['root_status'] != 'approved' or view['unknown_blockers'] or not view['definition'] or view['definition_contract_sha'] != view['contract_sha'] or
             not any(node['integration'] for node in view['definition']['nodes'])):
         return False
     if not all(_rank(record) >= STATES['verified'] for record in view['nodes'].values()): return False
@@ -431,8 +505,17 @@ def root_ready(ledger, selector, artifact=None):
         if (proof.get('kind') != 'workflow-handoff-receipt' or proof.get('root') != view['root']
                 or proof.get('contract_sha') != view['contract_sha'] or proof.get('internal_revision') != view['internal_revision']
                 or proof.get('integration_artifact') != record['artifact'] or proof.get('generation') != record['generation']
+                or proof.get('node') != integration['id'] or proof.get('child') != record['child']
                 or proof.get('method') != 'v1-cas-apply' or not proof.get('apply_receipt')):
             return False
+        applied = json.loads(Snapshots(ledger.state_root).read_blob(proof['apply_receipt']))
+        if (applied.get('status') != 'verified' or applied.get('result', {}).get('candidate') != proof.get('delivered_artifact')
+                or not applied.get('result', {}).get('verified')):
+            return False
+        with ledger.transaction() as conn:
+            actual_action = conn.execute("SELECT 1 FROM actions WHERE task_id=? AND status='verified' AND receipt=?",
+                                         (record['child'], canonical(applied))).fetchone()
+        if actual_action is None: return False
         from .verifiers import command
         observed = command.artifact_sha(ledger.project)
         return proof.get('delivered_artifact') == observed and (artifact is None or artifact == observed)

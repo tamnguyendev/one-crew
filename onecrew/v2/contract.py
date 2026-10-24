@@ -13,7 +13,7 @@ from ..snapshots import scoped_path
 
 SCHEMA_VERSION = 2
 FIELDS = {'schema_version', 'title', 'size', 'understanding', 'options', 'preconditions', 'output', 'scope', 'non_goals', 'items',
-          'milestones', 'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation', 'authority', 'review_policy'}
+          'milestones', 'budget', 'attention', 'stop', 'profile_version', 'origin', 'decisions', 'presentation', 'authority', 'review_policy', 'solution_ref'}
 MAX_DECISIONS = 10
 MAX_NEUTRAL = 20
 DECISION_ID = re.compile(r'D[1-9][0-9]?')
@@ -151,6 +151,9 @@ def validate(value):
     stop = {k: _int(stop.get(k, STOP_DEFAULT[k]), 'stop.' + k, *STOP_RANGE[k]) for k in STOP_DEFAULT}
     if value.get('profile_version') is not None: raise LedgerError('profile_version must stay null in L1.')
     optional = _provenance(value)       # origin, decisions, presentation: only the ones given, so a contract without them stays byte-identical
+    if 'solution_ref' in value:
+        from . import solution_link
+        optional['solution_ref'] = solution_link.normalize(value['solution_ref'])
     if 'review_policy' in value:
         from . import review_policy
         optional['review_policy'] = review_policy.normalize(value['review_policy'])

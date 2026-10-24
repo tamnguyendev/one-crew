@@ -21,7 +21,7 @@ class NativeExecutorTests(EngineFixture):
         self.preflight_error = None
         self.result_error = None
         self.adapter = NativeExecutor(self.ledger)
-        factory = patch('onecrew.providers.make_worker', side_effect=self.factory)
+        factory = patch('onecrew.artifact_provider_core.make_worker', side_effect=self.factory)
         factory.start(); self.addCleanup(factory.stop)
 
     def factory(self, control, provider):

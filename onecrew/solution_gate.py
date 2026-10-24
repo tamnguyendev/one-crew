@@ -23,6 +23,10 @@ def check(ledger,task_id,conn=None):
     from .v2.gate import require_plan  # v2: with enforcement on, no approved plan means no dispatch, in every mode (incl. work)
     require_plan(ledger,conn,task)
     b=bound(ledger,conn,task_id)
+    from .v2 import solution_link
+    root_authority = solution_link.check_task(ledger, conn, task, b)
+    if root_authority is not None:
+        return root_authority
     if not b:
         if payload.get('solution_required')=='spec':
             from .specs import Project
@@ -47,6 +51,10 @@ def check(ledger,task_id,conn=None):
 
 def context(ledger,task_id):
     with ledger.transaction() as conn:
+        from .v2 import solution_link
+        root_authority = solution_link.check_task(ledger, conn, ledger._task(conn, task_id))
+        if root_authority is not None:
+            return dict(root_authority, instruction='The approved root revision is the authority and acceptance contract. The linked SOL is source material only; it grants no independent scope, tools or budget.')
         b=bound(ledger,conn,task_id)
         if not b:return {'binding':'legacy_or_read_only','authority':'existing sealed grant'}
         sol=c._solution(ledger,conn,b['solution'],b['revision'])

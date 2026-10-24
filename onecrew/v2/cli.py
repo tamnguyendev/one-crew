@@ -7,7 +7,7 @@ import sys
 
 from .messages import t
 
-GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson')
+GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson', 'issue', 'unknown', 'engine')
 OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
                   '  verdict    record / run (v2 milestone verdicts with receipts)\n'
                   '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
@@ -17,6 +17,10 @@ OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enfo
                   '  context    add / observe / retrieve (project and shared knowledge)\n'
                   '  incident   list / observe / finalize (evidence of errors and repairs)\n'
                   '  lesson     list / record / general / withdraw (project lessons and general candidates)\n'
+                  '  issue      localize / map (pinned file and method hypotheses)\n'
+                  '  unknown    list / open / resolve (scoped execution questions)\n'
+                  '  engine     revise / state / ready / step / verify / handoff (common workflow)\n'
+                  '  engine     prepare-tests / repair / diagnose / replan (bounded in-grant work)\n'
                   '  question   list / show / answer (owner-only answers)\n'
                   '  estimate   show / update / additional (sourced ranges)\n'
                   '  notifications pull / ack (plan notices; delivery never answers or accepts)\n'
@@ -67,9 +71,15 @@ def route(args, index):
     if args[index] == 'estimate':
         from .estimates import main as estimate_main
         return estimate_main(args)
-    if args[index] in ('incident', 'lesson'):
+    if args[index] in ('incident', 'lesson', 'issue'):
         from .learning_cli import main as learning_main
         return learning_main(args)
+    if args[index] == 'unknown':
+        from .unknown_cli import main as unknown_main
+        return unknown_main(args)
+    if args[index] == 'engine':
+        from .engine_cli import main as engine_main
+        return engine_main(args)
     if args[index] in ('notifications', 'desktop'):
         from .notification_cli import main as notification_main
         return notification_main(args)

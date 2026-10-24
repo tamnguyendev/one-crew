@@ -56,7 +56,7 @@ def evaluate(policy, *, node, mandatory, ready=True, unknowns=(), evidence):
     return {key: checked[key] for key in ('action', 'confidence', 'reason', 'evidence')}
 
 
-def decide(ledger, name, node, *, artifact_sha, ready=True, unknowns=(), evidence=()):
+def decide(ledger, name, node, *, artifact_sha, ready=True, unknowns=(), evidence=(), required=False, input_state=None):
     """Read approved root, evaluate, and idempotently persist a W03 decision.
 
     Runtime-supplied unknowns add to the root's unknowns; they cannot erase them.
@@ -64,6 +64,8 @@ def decide(ledger, name, node, *, artifact_sha, ready=True, unknowns=(), evidenc
     hits still call the shared validator. No result completes a milestone.
     """
     key_field(node)
+    if type(required) is not bool: raise LedgerError('Required review status must be a boolean.')
+    if input_state is not None and not isinstance(input_state, dict): raise LedgerError('Review input state must be a mapping.')
     text_field(artifact_sha, 'decision artifact', 128)
     if not isinstance(evidence, (tuple, list)) or not all(isinstance(x, str) and x for x in evidence):
         raise LedgerError('Decision evidence must be references.')
@@ -76,12 +78,13 @@ def decide(ledger, name, node, *, artifact_sha, ready=True, unknowns=(), evidenc
         revision = state['approved']['revision']
         contract, sha = plans.load(ledger, state, revision)
         policy = normalize(contract.get('review_policy', DEFAULT))
-        mandatory = node in {m['id'] for m in contract['milestones']}
+        mandatory = required or node in {m['id'] for m in contract['milestones']}
         unresolved = {u['id'] for u in contract['understanding'].get('unknowns', []) if u['status'] != 'closed'}
         unresolved.update(unknowns)
         references = sorted(set(evidence) | {f'contract:{sha}', f'artifact:{artifact_sha}'})
         inputs = {'node': node, 'artifact_sha': artifact_sha, 'ready': ready,
                   'unknowns': sorted(unresolved), 'evidence': references, 'mandatory': mandatory}
+        if input_state is not None: inputs['engine'] = input_state
         cache_key = 'review-policy-' + content_hash({'revision': revision, 'sha': sha, 'policy': policy, 'input': inputs})
         stored = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='decision.recorded' AND json_extract(payload,'$.key')=? ORDER BY seq DESC LIMIT 1",
                               (state['task_id'], cache_key)).fetchone()

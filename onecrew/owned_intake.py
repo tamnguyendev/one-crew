@@ -72,6 +72,11 @@ class V1(Audit):
         from .conversations import ensure, approved
         ensure(conn)
         if not solution_id or not solution_revision:raise LedgerError('Review/approve a solution first; pass solution_id and solution_revision for implementation.')
+        from .v2 import solution_link
+        linked = solution_link.intake_binding(ledger, conn, solution_id, solution_revision)
+        if linked is not None:
+            root, sol = linked
+            return sol, {'id': 'root:' + root['root_task_id'] + ':' + root['sha']}
         sol,decision=approved(ledger,conn,solution_id,solution_revision)
         # One feature contract has one live writer. Parallel implementation uses
         # the existing sealed DAG with explicit ownership/integration checks.

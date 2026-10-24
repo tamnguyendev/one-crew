@@ -20,7 +20,9 @@ def capture(ledger, conn, selector, revision=None):
         raise LedgerError('Plan binding requires the selected root to be approved in this project.')
     if revision is not None and (type(revision) is not int or revision != state['latest']):
         raise LedgerError('Plan binding revision is stale or invalid.')
-    _, sha = plans.load(ledger, state)
+    contract, sha = plans.load(ledger, state)
+    from . import solution_link
+    solution_link.validate_root(ledger, conn, state, contract, sha)
     return {'project_id': ledger.project_id, 'root_task_id': state['task_id'],
             'selector': state['selector'], 'revision': state['latest'], 'sha': sha}
 

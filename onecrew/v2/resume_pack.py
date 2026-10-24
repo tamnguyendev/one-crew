@@ -71,8 +71,10 @@ def build(ledger, name, context=None):
     missing = [{'what': f'verdict pass del mốc {v["id"]}', 'because': _why(v, state, facts['revision'])} for v in views if v['state'] != 'passed' or v.get('stale')]
     parked = report._parked_data(facts)
     if parked: missing += [{'what': f'đóng điều chưa biết {u["id"]}', 'because': 'còn mở'} for u in parked[1]]
+    runtime_unknowns = facts.get('runtime_unknowns', [])
+    missing += [{'what':'giải unknown ' + u['unknown'], 'because':'giữ ' + ', '.join(u['required_by']), 'resolver':u['resolver']} for u in runtime_unknowns]
     if state['status'] == 'proposed': missing.append({'what': f'chủ sở hữu duyệt bản {state["latest"]}', 'because': 'chưa duyệt'})
-    elif state['status'] == 'approved' and views and all(v['state'] == 'passed' for v in views):
+    elif state['status'] == 'approved' and views and all(v['state'] == 'passed' for v in views) and not runtime_unknowns:
         missing.append({'what': 'chủ sở hữu nghiệm thu', 'because': 'mọi mốc đạt, chưa nghiệm thu'})
     elif state['status'] == 'stopped_with_report': missing.append({'what': 'quyết định của chủ sở hữu về việc đã dừng', 'because': 'plan dừng'})
     if standing in ('accepted', 'closed'): remaining = {'who': None, 'what': NOTHING_LEFT}
@@ -88,6 +90,7 @@ def build(ledger, name, context=None):
             'decided': decided, 'open_questions': open_questions, 'milestones': milestones, 'missing_evidence': missing,
             'pending_change': _pending_change(facts, ledger), 'remaining': remaining, 'context': []}
     pack['header'] = HEADER.format(seq=pack['max_seq'])
+    if runtime_unknowns: pack['runtime_unknowns'] = runtime_unknowns
     if standing == 'closed':
         pack['open_questions'] = []
         pack['decided']['closed'] = state.get('closed')

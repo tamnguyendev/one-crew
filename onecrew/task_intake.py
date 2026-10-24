@@ -126,6 +126,13 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
                 if root_binding is not None and root_binding != inherited_root:
                     raise LedgerError('A workflow child cannot leave its parent sealed plan root.')
                 root_binding = inherited_root
+        if solution_id is not None:
+            from .v2 import solution_link
+            linked = solution_link.intake_binding(ledger, conn, solution_id, solution_revision)
+            if linked is not None:
+                if root_binding is not None and root_binding != linked[0]:
+                    raise LedgerError('The SOL work belongs to a different approved root than this handoff.')
+                root_binding = linked[0]
         from .budget_core import group
         shared_defaults = group(conn, root_binding['root_task_id']) if root_binding else None
         shared_seconds = ((dt.datetime.fromisoformat(shared_defaults['deadline']) - dt.datetime.fromisoformat(plan_binding.first_approval_at(ledger, conn, root_binding))).total_seconds()

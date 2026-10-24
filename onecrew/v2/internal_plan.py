@@ -2,6 +2,7 @@
 import copy
 import datetime as dt
 import json
+import math
 
 from ..ledger import LedgerError, canonical, content_hash, text_field, utcnow
 from ..snapshots import Snapshots, scope_list
@@ -77,7 +78,7 @@ def _validate(nodes, outputs):
               'estimate_seconds', 'execution_cap_seconds', 'budget_calls', 'checks', 'integration'}
     result, known = copy.deepcopy(nodes), set()
     for node in result:
-        if not isinstance(node, dict) or not fields <= set(node) or set(node) - fields - {'executor'}:
+        if not isinstance(node, dict) or not fields <= set(node) or set(node) - fields - {'executor', 'indivisible'}:
             raise LedgerError('Internal node fields must explicitly declare goal, inputs/outputs, acceptance, dependencies, scope, resources, estimate, cap, budget and checks.')
         contracts._id(node['id'], 'node id')
         if 'executor' in node:
@@ -99,9 +100,20 @@ def _validate(nodes, outputs):
             if not isinstance(node[field], list): raise LedgerError('Node read/write scopes must be explicit file lists.')
             node[field] = scope_list(node[field]) if node[field] else []
         node['estimate_seconds'] = estimates.interval(node['estimate_seconds'])
-        if (type(node['execution_cap_seconds']) not in (int, float) or not 0 < node['execution_cap_seconds'] <= 7200
+        cap = node['execution_cap_seconds']
+        exception = node.get('indivisible')
+        if exception is not None:
+            if (not isinstance(exception, dict) or set(exception) != {'reason','cap_seconds'}
+                    or type(exception['cap_seconds']) not in (int,float) or not math.isfinite(exception['cap_seconds'])
+                    or exception['cap_seconds'] != cap):
+                raise LedgerError('An indivisible operation needs its reason and matching finite execution cap.')
+            text_field(exception['reason'], 'indivisible reason', 1000)
+            if len(exception['reason'].strip()) < 20:
+                raise LedgerError('Explain why the operation cannot be split (at least 20 characters).')
+        if (type(cap) not in (int, float) or not math.isfinite(cap) or cap < 1
+                or cap > 7200 and exception is None
                 or node['estimate_seconds'][1] > node['execution_cap_seconds']):
-            raise LedgerError('Node estimate exceeds its finite execution cap (at most two hours).')
+            raise LedgerError('Split a task above two hours, or give an indivisible operation reason and finite own cap; estimate must fit that cap.')
         if type(node['budget_calls']) is not int or not 1 <= node['budget_calls'] <= 10000:
             raise LedgerError('Node budget_calls must be a finite positive integer.')
         if type(node['integration']) is not bool or not isinstance(node['checks'], list) or not node['checks']:
@@ -159,6 +171,8 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
     if changed:
         decide(ledger, state, contract, sha, {'kind': 'change_acceptance', 'nodes': [n.get('id') for n in nodes]}, ctx, 'onecrew.internal_plan')
     normalized = _validate(nodes, outputs)
+    if any(node['execution_cap_seconds'] > ctx['remaining_seconds'] for node in normalized):
+        raise LedgerError('A task execution cap exceeds the remaining root deadline; replanning cannot extend it.')
     paths = sorted({path for node in normalized for path in node['write']})
     if paths:
         # The same scope function used by the root authority gate, not another matcher.
@@ -177,8 +191,17 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
     revision = before['internal_revision'] + 1
     with ledger.transaction(write=True) as conn:
         again, _, current_sha = context(ledger, conn, state['selector'])
+        from . import runtime_unknowns
+        runtime_unknowns.validate_revision(ledger, state['selector'], normalized, conn)
         if current_sha != sha or current(ledger, state['selector'], conn)['internal_revision'] != before['internal_revision']:
             raise LedgerError('The root or internal plan changed before revision publication.')
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='attempts'").fetchone():
+            active = conn.execute("SELECT 1 FROM events e JOIN attempts a ON a.id=json_extract(e.payload,'$.attempt') WHERE e.task_id=? AND e.kind='node.started' AND a.status!='settled' LIMIT 1", (state['task_id'],)).fetchone()
+            if active: raise LedgerError('Reconcile the active workflow attempt before publishing a revision.')
+        remaining = ceilings(ledger, conn, again)
+        if (action['cost']['calls'] > remaining['remaining_calls'] or action['cost']['seconds'] > remaining['remaining_seconds']
+                or any(node['execution_cap_seconds'] > remaining['remaining_seconds'] for node in normalized)):
+            raise LedgerError('Remaining root budget/deadline changed before revision publication.')
         plans.emit(ledger, conn, again['task_id'], KIND, {'plan': state['name'], 'revision': state['approved']['revision'],
                    'internal_revision': revision, 'contract_sha': sha, 'definition': blob, 'definition_sha': definition_sha,
                    'reason': reason, 'decision': decision, 'evidence': refs})

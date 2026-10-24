@@ -109,6 +109,10 @@ def _gather(state_root, row, revision=None):
         events = [(e['kind'], e['created_at'], json.loads(e['payload']))
                   for e in conn.execute("SELECT kind, created_at, payload FROM events WHERE task_id=? AND kind NOT IN ('learning.outcome','control.intervention','context.entry','learning.incident','learning.lesson') ORDER BY seq", (row['id'],))]
         closed = set(step0.closed_events(conn, row['id']))
+        unknowns = []
+        if namespaces.has_capability(state, 'sequential-engine'):
+            from . import runtime_unknowns
+            unknowns = [u for u in runtime_unknowns.read(reader, row['request_key'], conn) if u['state'] == 'open']
     if revision is not None and revision not in state['revisions']:
         raise LedgerError(f'Plan {name} has no revision {revision}.')
     revision = revision or state['latest']
@@ -118,7 +122,7 @@ def _gather(state_root, row, revision=None):
         contract, error = None, str(problem)
     views = plans.milestone_views(contract, state, revision) if contract else []
     return {'name': name, 'row': row, 'state': state, 'events': events, 'closed': closed, 'revision': revision, 'contract': contract,
-            'error': error, 'views': views, 'requests': reader.requests(row['id']), 'state_root': Path(state_root).resolve()}
+            'error': error, 'views': views, 'requests': reader.requests(row['id']), 'state_root': Path(state_root).resolve(), 'runtime_unknowns': unknowns}
 
 
 def _lookup(state_root, name, revision=None, project_id=None):
@@ -175,6 +179,8 @@ def _standing(f):
     pending = next((v for v in views if v['state'] != 'passed'), None)
     if pending and pending['state'] == 'failed' and pending['repairs_left'] == 0: return 'failed', '—'
     if any(r['state'] == 'pending' for r in f['requests']): return 'open', 'chủ sở hữu'
+    if f.get('runtime_unknowns'):
+        return 'open', 'chủ sở hữu' if any(u['resolver']=='owner' for u in f['runtime_unknowns']) else 'AI'
     if pending is None: return 'open', 'chủ sở hữu'                              # every milestone passed: acceptance is the owner's
     if pending['state'] == 'failed': return 'open', 'AI'                          # a repair round remains
     if pending['verifier'] == 'owner-manual': return 'open', 'chủ sở hữu'
@@ -190,6 +196,8 @@ def _needs(f):
     if status == 'proposed': return f'duyệt bản {state["latest"]}'
     if status == 'stopped_with_report': return 'quyết định việc đã dừng'
     if f['contract'] is None: return NO_DATA
+    if f.get('runtime_unknowns'):
+        return 'giải điều chưa biết thuộc chủ sở hữu' if any(u['resolver']=='owner' for u in f['runtime_unknowns']) else 'chưa cần quyết; AI cần giải unknown đúng phần bị giữ'
     if _open_findings(f): return 'chưa cần quyết; AI cần xử lý finding còn mở trước khi bàn giao'
     if f.get('finding_error'): return 'chưa thể nghiệm thu: không đọc được sổ finding'
     first = next((v for v in f['views'] if v['state'] != 'passed'), None)
@@ -445,6 +453,8 @@ def _report(f):
     lines += _wrap(f'Tiêu đề: «{c["title"]}»' if c else f'Tiêu đề: {NO_DATA}', '', '  ')
     lines += _wrap(f'Dự án: {f["row"]["project_path"]}', '', '  ')
     lines += _forecast_lines(f)
+    for unknown in f.get('runtime_unknowns', []):
+        lines += _wrap(f'Chưa rõ {unknown["unknown"]}: {unknown["question"]}; giữ {", ".join(unknown["required_by"])}; chủ thể giải: {unknown["resolver"]}.', '', '  ')
     if state.get('workflow_version') is not None:
         lines += _wrap(f'Workflow: {state["workflow_version"]}; capabilities: {", ".join(state["capabilities"])}', '', '  ')
     sections = (_outputs, _milestones, _minutes, _blocks, _questions, _outside, _parked)
@@ -756,6 +766,8 @@ def render_present(state_root, name, revision=None, project_id=None):
     lines = _heading(f, 'TRÌNH') + [f'Bản đã duyệt: {approved}', f'Sha bản: {state["revisions"][f["revision"]]["sha"]}', f'Mã việc: {state["task_id"]}']
     lines += _wrap(f'Cần bạn làm: {_needs(f)}', '', '  ') + _amend_block(f)
     lines += _forecast_lines(f)
+    for unknown in f.get('runtime_unknowns', []):
+        lines += _wrap(f'Chưa rõ {unknown["unknown"]}: {unknown["question"]}; giữ {", ".join(unknown["required_by"])}; chủ thể giải: {unknown["resolver"]}.', '', '  ')
     for number, (title, build) in enumerate(zip(PRESENT_TITLES, (_present_request, _present_result, _present_risk, _present_acceptance, _present_missing)), 1):
         lines += ['', f'{number}. {title}'] + build(f)
     return '\n'.join(lines) + '\n'

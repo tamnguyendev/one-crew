@@ -217,7 +217,7 @@ def expected_result(receipt):
     return 'pass' if receipt['exit_code'] == 0 else 'fail'
 
 
-def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None):
+def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None, *, effective_environment=None):
     """Execute the milestone's command; returns (receipt_blob, receipt)."""
     argv, limit = milestone['verifier']['config']['argv'], milestone['verifier']['config']['max_minutes']
     directory = Path(directory).resolve()
@@ -225,15 +225,16 @@ def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context
     before = artifact_sha(directory)
     scratch = tempfile.mkdtemp(prefix='ocv-')
     try:
-        return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context)
+        return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context,
+                    effective_environment=effective_environment)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context=None):
+def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context=None, *, effective_environment=None):
     workspace = _checkout(directory, before, scratch)
     # S1: children are always UTF-8, so a Vietnamese path or message cannot turn a pass into an encoding failure.
-    env = verifier_env(directory)
+    env = verifier_env(directory) if effective_environment is None else dict(effective_environment)
     from .. import verification_evidence
     binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before, env) if evidence_context else None
     started, error, timed_out, code, out, err = utcnow(), None, False, None, b'', b''

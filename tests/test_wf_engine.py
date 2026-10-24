@@ -63,6 +63,27 @@ class EngineFixture(Fixture):
 
 
 class EngineTests(EngineFixture):
+    def test_unknown_arriving_during_execution_retains_then_releases_without_a_second_call(self):
+        from onecrew.v2 import runtime_unknowns
+        self.revise([node('C'), node('I', ['C'], integration=True, write=())])
+        calls = []
+        def late_fact(ledger, control, task, item, attempt):
+            calls.append(item['id'])
+            candidate = self.execute(ledger, control, task, item, attempt)
+            runtime_unknowns.open_unknown(ledger, 'P1', 'late-fact', question='Which input is required?',
+                affected=['C','I'], required_by=['C'], resolver='doc', evidence=['a.txt:1'])
+            return candidate
+        result = self.step(late_fact)
+        self.assertEqual(result['state'], 'retained')
+        self.assertNotIn('node.produced', self.kinds())
+        self.assertEqual(self.engine.ready(self.ledger, 'P1'), [])
+        runtime_unknowns.resolve(self.ledger, 'P1', 'late-fact', by='doc', evidence='a.txt:1', answer='Existing text format confirmed')
+        released = self.step(late_fact)
+        self.assertTrue(released['released_retained'])
+        self.assertEqual(released['artifact'], result['artifact'])
+        self.assertEqual(calls, ['C'])
+        self.verify('C')
+
     def close_root(self):
         with self.ledger.transaction(write=True) as conn:
             root = plans.anchor_events(self.ledger, conn, 'P1')

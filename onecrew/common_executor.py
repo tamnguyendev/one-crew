@@ -1,17 +1,16 @@
-"""Checkout adapter for the common engine, using the existing native CLI workers.
+"""Common engine adapter using the shared native CLI workers and Control.
 
-This v1 host module is intentionally outside the v2 wheel boundary. The shipped
-engine accepts its connected Control port; no dynamic dependency hiding is used.
-It publishes scoped snapshot candidates or reports, never applies to the project.
+The installed distribution and checkout use these same bounded protocols. It
+publishes scoped snapshot candidates or reports; project apply is a later action.
 """
 import json
 import time
 
-from . import providers
-from .control import Control, migrate
+from . import artifact_provider_core as providers
+from .control_core import Control, migrate
 from .ledger import LedgerError, canonical, content_hash
 from .snapshots import Snapshots
-from .workflow import artifact_schema, artifacts
+from .artifact_core import artifact_schema, artifacts
 from .v2 import executors, progress_track
 
 REPORT_SCHEMA = {'type': 'object', 'properties': {'summary': {'type': 'string'},
@@ -54,6 +53,7 @@ class NativeExecutor(executors.Executor):
                     context = store.context(artifact)
                     contexts[source] = {'artifact': artifact, 'files': context}
                     for path, value in manifest['files'].items():
+                        if path not in binding.get('write', []): continue
                         if path not in paths: continue
                         data = store.read_blob(value['working']) if value['working'] else None
                         if path in inherited and inherited[path] != data: collisions.add(path)
@@ -100,7 +100,7 @@ class NativeExecutor(executors.Executor):
                     continue
             # Report prose can be a produced artifact, but rewriting it is not
             # progress. Only independently retained inputs/receipts contribute.
-            artifact, changed = response, []
+            artifact, changed = (base if node['integration'] else response), []
             measured_hash = content_hash({'source': context, 'inputs': node.get('input_artifacts', {}),
                                           'validated_evidence': sorted(set(validated))})
         body = {'kind': 'native-node-receipt', 'task': task['id'], 'attempt': attempt['id'], 'node': node['id'],

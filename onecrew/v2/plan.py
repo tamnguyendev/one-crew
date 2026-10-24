@@ -314,12 +314,15 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None):
     text_field(author, 'author', 100); refuse_owner_author(author)
     contract = contracts.validate(raw)
     selector = namespaces.NAMESPACED + name
+    from . import solution_link
+    solution_link.prepare(ledger, selector, contract)
     if contracts.revision_path(ledger, selector, 1).exists(): raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
     task_id = _anchor(ledger, name, contract['title'])
     sha = contracts.write_revision(ledger, selector, 1, contract)
     with ledger.transaction(write=True) as conn:
         if derive(ledger, conn, selector)['latest']: raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
         emit(ledger, conn, task_id, 'plan.proposed', {'plan': name, 'revision': 1, 'sha': sha, 'author': author, 'content_author': author, 'title': contract['title'], **metadata})
+        solution_link.record(ledger, conn, task_id, selector, 1, sha, contract)
     return show(ledger, selector)
 
 
@@ -336,12 +339,15 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
         latest, sha_now = state['latest'], content_hash(contract)
         if state['revisions'][latest]['sha'] == sha_now: raise LedgerError('The amendment is identical to the current revision.')
         revision = latest + 1
+        from . import solution_link
+        solution_link.validate_revision(ledger, conn, state['selector'], contract)
         sha = contracts.write_revision(ledger, state['selector'], revision, contract)
         emit(ledger, conn, state['task_id'], 'plan.amended', {'plan': state['name'], 'revision': revision, 'from_revision': latest, 'sha': sha,
                                                                'parent_sha': state['revisions'][latest]['sha'], 'reason': reason,
                                                                'author': author, 'title': contract['title'],
                                                                'content_author': (state['revisions'][latest].get('content_author') or state['revisions'][latest].get('author')) if keep_content_author else author})
         for kind, payload in (events(revision) if events else ()): emit(ledger, conn, state['task_id'], kind, payload)
+        solution_link.record(ledger, conn, state['task_id'], state['selector'], revision, sha, contract)
     from . import active_plan; active_plan.export(ledger, name)  # L2: one line (hooks read the exported file, not the ledger)
     return show(ledger, name)
 
@@ -379,6 +385,8 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
         if revision != state['latest']: raise LedgerError(f'Only the latest revision ({state["latest"]}) can be approved.')
         contract, sha = load(ledger, state, revision)
         approved, closed = state['approved'], step0.closed_events(conn, state['task_id'])
+        from . import solution_link
+        solution_link.validate_root(ledger, conn, state, contract, sha, revision)
         written_by = state['revisions'][revision].get('content_author') or state['revisions'][revision].get('author')
         advice = state['advice'].get(revision)
         proposal_check = step0.latest_proposal_check(conn, state['task_id'], revision)      # W47
@@ -398,6 +406,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
         if state['status'] == 'closed': raise LedgerError('The root was closed while step 0 was being checked.')
         if verdict['results']: step0.record_run(ledger, conn, state['task_id'], name, revision, sha, verdict, 'approve')
         if verdict['ok']:
+            solution_link.validate_root(ledger, conn, state, contract, sha, revision)
             from .retention import pin_trees
             bases = [tree for tree in (base_artifact, base_tracked) if tree is not None]
             if bases: pin_trees(ledger, name, *bases)
@@ -444,6 +453,10 @@ def accept(ledger, name, by, reference, artifact_sha):
             from .verifiers import artifact as identities
             if not identities.is_git(ledger.project) and any(m['verifier']['type'] != 'owner-manual' for m in contract['milestones']):
                 artifact_sha = identities.canonical(ledger, artifact_sha)
+            if namespaces.has_capability(state, 'sequential-engine'):
+                from . import engine
+                if not engine.root_ready(ledger, state['selector'], artifact=artifact_sha):
+                    raise LedgerError('Cannot accept: workflow nodes, integration and authorized delivered-artifact handoff are not verified.')
             from . import verification_evidence
             for milestone in contract['milestones']:
                 candidates = [v for v in state['verdicts'] if v['milestone'] == milestone['id'] and v['revision'] <= revision]

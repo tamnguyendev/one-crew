@@ -52,6 +52,8 @@ Foundation integration checkpoint: 51 existing v2 core/event-class tests passed 
 
 ### WF cycle 2 — runtime connections, evidence and learning
 
+Implementation checkpoint: `d473cd2`. Further cycle-3 modules are not included in this claim.
+
 | IDs | Implementation and verification | Status | Remaining |
 |---|---|---|---|
 | W04/W06/W14a/W21 | Internal revisions preserve root contract and acceptance; shared v1 `ready_batch`, node state helpers and Control admission; one slot, dependency states, bounded advance and integration checks. Native checkout executor pins provider/model per node, reuses provider workers and scoped snapshot artifacts. Engine9/native6/owner-answer4 passed together, including closing a root during execution and retaining but not publishing its late result. | Partial | Candidate-aware configured checker, authorized CAS handoff, connected CLI and whole-root delivery still required; callback checks and fake provider tests do not prove live provider support. |
@@ -67,6 +69,27 @@ These counts overlap; they are not an aggregate completion percentage. Code in
 this checkpoint reuses the v1 cores instead of introducing parallel stores or
 dispatch schedulers. New source modules and adapter fixtures do not certify the
 unimplemented remainder or external provider cells.
+
+### WF cycle 3 — installed execution and bounded correction
+
+This checkpoint supersedes the corresponding unfinished connections in cycles 1–2;
+it does not certify all release gates, providers or actual user pilots.
+
+| IDs | Connected implementation and evidence | Status / remaining |
+|---|---|---|
+| W14a/W21/W40 | Installed `engine` CLI uses shared native providers, Control, candidate Git trees, configured command checks and the original CAS project apply. Root acceptance requires authentic integration/handoff plus its root verdict. Installed CLI→fake provider→real commands→CAS→root verdict→temporary owner acceptance passed35.640s; legacy modules absent and boundary clean. Candidate/handoff5, native/CLI16 and late-result cases passed. | Sequential command-checked delivery implemented; other configured verifier kinds in the candidate adapter, parallel scheduling and release gates remain. No live provider certification. |
+| W12b/T26/T32 | Existing Control reservations/actions enforce one root writer; immutable SOL conversation linkage makes root approval authoritative, fences pre-link live attempts, pending questions and stopped solutions. Source11 passed13.545s; installed linkage/Control configure/reserve/launch refusal passed19.053s; root writer8 passed12.375s. | Bounded linkage and writer invariant implemented. No automatic root transfer/unlink; parallel managed control follows. |
+| W31b/W32b | Scoped runtime unknowns hold declared dependencies; estimate blockers require a verified bounded survey and its exact receipt. Late settled results can publish after resolution without another provider call. Task estimates/caps/deadlines and replan admission races are enforced. Installed unknown/root-accept bypass case passed35.304s; cap3+race1 and survey2 tests passed. | Implemented paths; combined release/rollback matrix remains. |
+| W26 | Mandatory review decision precedes checker invocation; optional decisions cannot satisfy mandatory checks or accept output. Decision/result binds root, inputs and generation; late results are fenced. Nine integration cases, three reapproval/prechecker/installed cases and two unknown-hold cases passed. | Rule-based consumer implemented. Model decider remains deferred RD. |
+| W16/W19/W20 | CLI `prepare-tests`, `repair`, `diagnose`, `replan` uses ordinary nodes, unchanged acceptance, shared v1 failure policy, failed-first command checks and durable bounded replan reservations. Actual failed verification automatically records next action; generation changes never reset counters. Diagnostic replay reloads its immutable proposal and rebinds retained check order. Parent10 cases passed17.601s; installed helper workflow passed16.383s; real command diagnostic/crash replay passed9.687s. | Connected bounded correction implemented; unknown managed effects/reconciliation and branch finding integration remain in the next cycle. |
+| W50a/W50b | Installed issue CLI uses pinned revision Discovery, incremental context maps, project lessons and bounded file/method hypotheses. Vision is capability-gated; absent adapter reports text fallback. Six source cases and installed localization/boundary2 passed24.230s. | Text localization implemented; actual vision provider and real-case accuracy are unverified. Held-out fixture scores are not actual root-cause-time savings. |
+| Shared v1 cores | Exact process/provider/artifact/Git/CAS functions extracted; legacy APIs delegate. Control keeps existing attempt/action/quota/budget semantics with separate explicit root vs legacy policy. Process/provider17 before/after, workflow/ports19, fallback10, artifact/integration28 and Control34 before/after pass (Control33 passed, one environment skip). Core policy3 verifies bound launch, unbound refusal and closed-root launch fencing. | Shared implementations shipped; no parallel v1 reimplementation. G1 closure5 passed; final combined build still required. |
+
+These overlapping test counts are evidence for named paths, not a percentage of
+roadmap completion. The unrelated historical CTS prompt-budget failure and the
+environment skip are not counted as passes. R08, WK/actual upgrade drills and
+the final integrated artifact remain outstanding; real provider/pilot evidence
+requires external execution and is reported separately from fixture coverage.
 
 ## Windows completion/blocker window — 2026-10-10
 

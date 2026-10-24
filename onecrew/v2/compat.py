@@ -25,6 +25,7 @@ CLASS_0 = (
     'hook.stop_blocked', 'request.created', 'request.revised', 'request.deferred', 'request.answered',
 )
 CLASS_A = (
+    'review.observed',
     'evidence.reuse',
     'adapter.violation',
     'executor.observed',
@@ -35,6 +36,9 @@ CLASS_A = (
     'proposal.checked',                               # W47: the step-0 proposal check result (nothing reads it as status or gate for the old version)
 )
 CLASS_B = (
+    'solution.linked',
+    'workflow.recovery_decided', 'workflow.recovery_replanned',
+    'workflow.unknown_opened', 'workflow.unknown_resolved',
     'node.started', 'node.produced', 'node.verification', 'node.accepted', 'node.held', 'node.resumed',
     'node.result_retained', 'workflow.handoff',
     'budget.group',

@@ -1047,9 +1047,7 @@ def changed_files(state):
     return snapshot(state)['changes']
 
 
-def _clean_blob(repo, path, name):
-    """The blob Git would store for a working file under the repository's own line-ending/filter configuration."""
-    return git(repo, 'hash-object', '--path=' + name, str(path)).decode().strip()
+from .project_apply_core import clean_blob as _clean_blob
 
 
 def _blob(state, tree, name):
@@ -1071,57 +1069,9 @@ def apply(runtime, task_id, state, contract, args):
     names = {c['path'] for c in changes} | set(earlier)
     if not changes and not earlier: raise LedgerError('No workspace changes to apply.')
     files = [{'path': name, 'blob': _blob(state, snap['tree'], name)} for name in sorted(names)]
-    payload = {'kind': 'apply', 'repository': str(repo), 'base': base, 'candidate': snap['tree'], 'files': files}
-    control = runtime.control
-    backup = home(runtime, task_id) / 'rollback'
-
-    def observe(value):
-        ok = all(((repo / f['path']).is_file() and _clean_blob(repo, repo / f['path'], f['path']) == f['blob'])
-                 if f['blob'] else not (repo / f['path']).exists() for f in value['files'])
-        return dict(value, verified=ok, rollback=str(backup))
-
-    def untouched(value):
-        for f in value['files']:
-            target = safe_file(repo, f['path'])
-            original = git(repo, 'rev-parse', '--verify', '--quiet', base + ':' + f['path'], allow_failure=True)
-            current = _clean_blob(repo, target, f['path']) if target.is_file() else None
-            allowed = {original.decode().strip() if original else None}
-            if f['path'] in earlier: allowed.add(earlier[f['path']])  # this job's own verified apply may be updated
-            if current not in allowed:
-                raise LedgerError('Project file changed since the pin; refusing to overwrite: ' + f['path'])
-    key = 'work:apply:' + content_hash(payload)[:16]
-    with runtime.ledger.transaction() as conn:
-        prior = conn.execute('SELECT 1 FROM actions WHERE task_id=? AND request_key=?', (task_id, key)).fetchone()
-    if not prior: untouched(payload)  # refuse before any effect exists
-    action = control.propose_action(task_id, key, payload)
-    if action['status'] == 'proposed':
-        control.authorize_action(action['id'], action['revision']); action['status'] = 'authorized'
-    if action['status'] in ('unknown', 'executing'):
-        receipt = control.reconcile_action(action['id'], action['revision'], observe)
-    elif action['status'] == 'verified': receipt = json.loads(action['receipt'])
-    else: receipt = None
-    if receipt is None:
-        def effect(value):
-            untouched(value)  # again under the action, in case the user edited in between
-            backup.mkdir(parents=True, exist_ok=True)
-            manifest_path = backup / 'manifest.json'
-            manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {'base': base, 'files': {}}
-            for f in value['files']:
-                target = safe_file(repo, f['path'])
-                if f['path'] not in manifest['files']:  # the user's original is kept once; later applies never overwrite it
-                    copy = content_hash(f['path'])[:16] + '.orig'
-                    if target.is_file(): durable_write(backup / copy, target.read_bytes())
-                    manifest['files'][f['path']] = {'original': copy if target.is_file() else None}
-                if f['blob'] is None: target.unlink(missing_ok=True)
-                else:
-                    # The workspace checks out with the user's own line-ending rules, so its bytes are what the user would have.
-                    target.parent.mkdir(parents=True, exist_ok=True); durable_write(target, safe_file(root, f['path']).read_bytes())
-            durable_write(manifest_path, canonical(manifest).encode())
-            return observe(value)
-        receipt = control.execute_action(action['id'], effect)
-    if receipt.get('status') != 'verified':
-        from .owned_git import EffectUnknown
-        raise EffectUnknown('Apply effect unconfirmed; resume reconciles it without writing again.')
+    from .project_apply_core import apply as apply_project
+    receipt = apply_project(runtime.ledger, runtime.control, task_id, repo, root, base, snap['tree'],
+                            files, earlier, home(runtime, task_id) / 'rollback')
     state['work']['applied'] = True
     state['work']['applied_files'] = dict(earlier, **{f['path']: f['blob'] for f in receipt['result']['files']})
     return receipt

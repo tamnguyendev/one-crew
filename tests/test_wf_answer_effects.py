@@ -81,6 +81,13 @@ class AnswerEffectTests(Fixture):
 
 
 class WorkflowAnswerTests(EngineFixture):
+    def test_root_command_pass_cannot_bypass_internal_delivery_handoff(self):
+        verdict.run(self.ledger,'P1','M1')
+        artifact=verdict.artifact(self.ledger,'P1')['artifact_sha']
+        with patch.dict(os.environ, {'ONECREW_ACTOR': ''}), self.assertRaisesRegex(LedgerError, 'handoff'):
+            plan.accept(self.ledger,'P1','owner','fixture cannot bypass workflow',artifact)
+        self.assertNotIn('plan.accepted',self.kinds())
+
     def hold(self):
         self.revise([node('A'), node('B', write=('b.txt',)), node('I', ['A', 'B'], integration=True, write=())])
         self.engine.request_action(self.ledger, 'P1', 'A', {'kind': 'write', 'paths': ['outside.txt']})

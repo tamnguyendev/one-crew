@@ -27,12 +27,21 @@ def _parser():
     p = lesson.add_parser('general', help='Propose a separate, conditional general candidate.')
     p.add_argument('name'); p.add_argument('lesson'); p.add_argument('--text', required=True); p.add_argument('--condition', required=True, action='append')
     p = lesson.add_parser('withdraw'); p.add_argument('name'); p.add_argument('lesson'); p.add_argument('--reason', required=True)
+    issue = groups.add_parser('issue', help='Read-only, pinned issue lookup; suspects remain hypotheses.').add_subparsers(dest='command', required=True)
+    p = issue.add_parser('localize'); p.add_argument('description'); p.add_argument('--name'); p.add_argument('--revision', default='HEAD')
+    p.add_argument('--image', type=Path, help='Without a declared vision adapter the image is not opened.')
+    p = issue.add_parser('map', help='Explicitly record a bounded incremental map using context.entry.')
+    p.add_argument('name'); p.add_argument('--revision', default='HEAD')
     return parser
 
 
 def _run(args):
     from . import incidents, lessons
-    ledger = _ledger(args, args.command == 'list')
+    ledger = _ledger(args, args.command in ('list', 'localize'))
+    if args.group == 'issue':
+        from . import localization
+        if args.command == 'map': return localization.index_project(ledger, args.name, args.revision)
+        return localization.localize(ledger, args.description, name=args.name, revision=args.revision, image=args.image)
     if args.group == 'incident':
         if args.command == 'list':
             return {'incidents': incidents.list_incidents(ledger, args.name), 'observations': incidents.observations(ledger, args.name)}

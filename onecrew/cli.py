@@ -81,6 +81,9 @@ def main(argv=None):
     if len(args)>index and args[index]=='qc':
         from .qc_cli import main as qc_main
         return qc_main(args)
+    if len(args)>index and args[index]=='engine':
+        from .common_engine_cli import main as engine_main
+        return engine_main(args)
     if len(args)>index and args[index] in GROUPS:  # v2 (docs/v2-vs-v1.vi.md); no v1 verb is named plan, verdict or hook
         return route(args,index)
     if len(args)>index and args[index]=='entry':
