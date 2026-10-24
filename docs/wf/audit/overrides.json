@@ -745,13 +745,27 @@
   ],
   "implementation": [
    "wfkit/release_bundle.py — Producer('RP'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
-   "docs/wf/release-notes/RP.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle"
+   "docs/wf/release-notes/RP.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle",
+   "wfkit/provider_matrix.py — ma trận thật sáu dòng (W45) cho T54i E7: 4 dùng được, 2 chưa kiểm chứng (codex)"
   ],
   "tests": [
    "tests/test_wf_release_bundle.py (6) — chạy producer thật cho R01: T54.1–T54.4 đạt trên biên nhận thật, INPUTS bị từ chối đúng lý do, biên nhận giả/sửa bị từ chối; registry R01 check.release_bundle",
    "Bundle RP: bundles/RP/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)"
   ],
-  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history. Ngoài INPUTS còn W45 (ô provider thật): ghi chú RP chỉ có thể ghi \"chưa kiểm chứng\" cho sáu ô; file ma trận thật chưa có.",
+  "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history. W45 đã chạy thật: ma trận 4/6 dùng được (codex chưa kiểm chứng vì thiếu CLI); còn lại chỉ INPUTS (bản giao trước).",
   "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có."
+ },
+ "W45": {
+  "status": "Done",
+  "classes": [],
+  "implementation": [
+   "wfkit/provider_matrix.py — chạy mỗi ô provider × vai trò MỘT lần bằng CLI thật từ bản cài (venv D:\\OneCrewRuns\\wf-w45-venv-ceb46c6, wheel c44704da… của ceb46c6) trên project mẫu chỉ đọc; biên nhận có sha256 file CLI, --version, model pin, hash bản dựng; đánh giá bằng wfkit.provider_evidence.evaluate (bộ đánh giá chung)"
+  ],
+  "tests": [
+   "D:\\OneCrewRuns\\wf-w45-matrix-ceb46c6\\matrix.md + receipts/ (6 biên nhận thật, 24/10 16:37Z): claude reviewer/advisor ĐẠT (claude.exe 2.1.286, $0.18), kiro reviewer/advisor ĐẠT (kiro-cli 2.30.0→2.34.0 tự cập nhật giữa hai lần gọi, ghi đúng hai sha), codex reviewer/advisor CHƯA KIỂM CHỨNG (không có CLI codex trên máy, chỉ có app). 4/6 dùng được → P1.0 subset. Trong gói bàn giao: provider-matrix/",
+   "tests/test_wf_provider_matrix.py (19) — luật ma trận x1–x7 trên bộ đánh giá chung"
+  ],
+  "missing": "Pin provider/model lấy từ kit (MODELS/ADVISOR_MODELS) vì hợp đồng chương trình chưa được duyệt; chất lượng review không được chứng minh (một diff hai dòng). Ủy quyền: chat \"cho chạy W45\" đêm 24/10. Harness thêm sau commit gate (ceb46c6), không đổi wheel.",
+  "next": "Khi cài codex CLI: chạy lại hai ô codex bằng cùng lệnh."
  }
 }

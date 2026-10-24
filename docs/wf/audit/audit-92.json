@@ -1,8 +1,8 @@
 {
  "commit": "ceb46c6",
  "counts": {
-  "Done": 72,
-  "Blocked": 15,
+  "Done": 73,
+  "Blocked": 14,
   "Partial": 5
  },
  "by_category": {
@@ -17,7 +17,7 @@
    "Blocked": 11
   },
   "provider thật": {
-   "Blocked": 1
+   "Done": 1
   },
   "pilot/nghiệm thu": {
    "Blocked": 3
@@ -2238,24 +2238,17 @@
     "T40b": "DoD"
    },
    "outcome": "Kiểm thật ma trận provider (R3): chạy mỗi ô của ma trận provider × vai trò (`claude`, `codex`, `kiro` × reviewer, cố vấn) một lần bằng CLI thật trên một artifac",
-   "status": "Blocked",
-   "classes": [
-    "A",
-    "E"
-   ],
+   "status": "Done",
+   "classes": [],
    "implementation": [
-    "PHẦN DEVELOPMENT ĐÃ CÓ: onecrew/v2/providers.py:264 cli_identity() — sha256 file thực thi, file trong prefix, --version (ghi nhận danh tính CLI thật)",
-    "PHẦN DEVELOPMENT ĐÃ CÓ: wfkit/provider_evidence.py:11 evaluate() — kiểm sáu ô (provider/role/model/vendor khớp ghim, hash CLI ghim, hash file prefix, original giữ hash gốc, kết quả khớp trạng thái) dùng chung bởi finalgate KQ6 và release_check RP",
-    "PHẦN DEVELOPMENT ĐÃ CÓ: wfkit/finalgate.py:73,95 — evidence_status() (HL2/HL5: usable/recheck/unverified/failed) và provider_capability() (NL)",
-    "KHÔNG CÓ: kịch bản chạy sáu ô từ bản cài đặt (grep 'W45' chỉ ra docstring providers.py và comment test)"
+    "wfkit/provider_matrix.py — chạy mỗi ô provider × vai trò MỘT lần bằng CLI thật từ bản cài (venv D:\\OneCrewRuns\\wf-w45-venv-ceb46c6, wheel c44704da… của ceb46c6) trên project mẫu chỉ đọc; biên nhận có sha256 file CLI, --version, model pin, hash bản dựng; đánh giá bằng wfkit.provider_evidence.evaluate (bộ đánh giá chung)"
    ],
    "tests": [
-    "tests.test_wf_rp_providers.IdentityTests (2 test) — cli_identity trên CLI giả (sha256 + version), alias không đọc được -> unverified",
-    "tests.test_wf_finalgate.FinalGateTests.test_kq6_* (4 test) + test_common_hl_c4_c5_c6_do_not_inherit_without_valid_proof + test_full_matrix_direct_and_inherited_both_pass — luật ma trận/HL/NL trên biên nhận fixture",
-    "tests.test_wf_release_check.ReleaseCheckTests.test_rp_uses_shared_matrix_rule_without_requiring_future_pilot_reviewer"
+    "D:\\OneCrewRuns\\wf-w45-matrix-ceb46c6\\matrix.md + receipts/ (6 biên nhận thật, 24/10 16:37Z): claude reviewer/advisor ĐẠT (claude.exe 2.1.286, $0.18), kiro reviewer/advisor ĐẠT (kiro-cli 2.30.0→2.34.0 tự cập nhật giữa hai lần gọi, ghi đúng hai sha), codex reviewer/advisor CHƯA KIỂM CHỨNG (không có CLI codex trên máy, chỉ có app). 4/6 dùng được → P1.0 subset. Trong gói bàn giao: provider-matrix/",
+    "tests/test_wf_provider_matrix.py (19) — luật ma trận x1–x7 trên bộ đánh giá chung"
    ],
-   "missing": "PHẦN DEV THIẾU (loại A): (1) kịch bản/lệnh chạy mỗi ô (claude/codex/kiro x reviewer/cố vấn) một lần bằng providers.call từ venv cài trên artifact mẫu chỉ đọc, ghi biên nhận có provider/model đã pin trong hợp đồng chương trình, cli_identity, hash cây trước/sau (E11), log stdin đóng/exit/JSON (E18), bảng so verdict (E10), hash wheel đã chạy; (2) biên nhận 'chưa kiểm chứng' có lý do khi thiếu CLI/tài khoản/hạn mức mà không đổi pin; (3) manifest sha256 CLI giả để E20/x3; (4) script kiểm ma trận x1-x7 (xem WKP). PHẦN LOẠI E: CLI thật đã đăng nhập, hạn mức, model đã pin cho từng ô; ô thiếu tài khoản (ví dụ kiro) hợp lệ là 'chưa kiểm chứng' (T40b đạt với bất kỳ số ô đạt, E27), nhưng ô 'đạt' cần tài khoản thật.",
-   "next": "Tối thiểu để gỡ: (a) viết wfkit/provider_matrix.py (runner + bảng sáu dòng + hash bản dựng + manifest CLI giả) và x1-x7 test (A, không cần provider); (b) chủ sở hữu chạy runner một lần trên máy có claude/codex đăng nhập (hoặc ghi chưa kiểm chứng cho ô thiếu) — chỉ (b) là E. Phụ thuộc W43, W40, WKP.",
+   "missing": "Pin provider/model lấy từ kit (MODELS/ADVISOR_MODELS) vì hợp đồng chương trình chưa được duyệt; chất lượng review không được chứng minh (một diff hai dòng). Ủy quyền: chat \"cho chạy W45\" đêm 24/10. Harness thêm sau commit gate (ceb46c6), không đổi wheel.",
+   "next": "Khi cài codex CLI: chạy lại hai ô codex bằng cùng lệnh.",
    "evidence": [
     "registry T40b blocked (external-provider), checks=[]; grep W45 trong onecrew/wfkit/tests; đọc wfkit/provider_evidence.py và finalgate.py"
    ]
@@ -2275,13 +2268,14 @@
    ],
    "implementation": [
     "wfkit/release_bundle.py — Producer('RP'): năm điều T54 trên quan sát thật cục bộ (bản cài trong venv của drill, bản sao sổ sinh, bộ so bản cũ d3120c6, rollback từ chối/cho phép + roll-forward, ghi chú) ghi thành biên nhận cho wfkit/release_check",
-    "docs/wf/release-notes/RP.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle"
+    "docs/wf/release-notes/RP.md — ghi chú 5 mục T54 + 4 trạng thái tách dòng, sinh từ registry + kết quả bundle",
+    "wfkit/provider_matrix.py — ma trận thật sáu dòng (W45) cho T54i E7: 4 dùng được, 2 chưa kiểm chứng (codex)"
    ],
    "tests": [
     "tests/test_wf_release_bundle.py (6) — chạy producer thật cho R01: T54.1–T54.4 đạt trên biên nhận thật, INPUTS bị từ chối đúng lý do, biên nhận giả/sửa bị từ chối; registry R01 check.release_bundle",
     "Bundle RP: bundles/RP/release-check.json trong gói bàn giao (điều kiện từng điểm T54.1–T54.5, INPUTS)"
    ],
-   "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history. Ngoài INPUTS còn W45 (ô provider thật): ghi chú RP chỉ có thể ghi \"chưa kiểm chứng\" cho sáu ô; file ma trận thật chưa có.",
+   "missing": "Điều kiện ngoài (đủ 5 điều kiện của mục G): (1) điều 2–4 của T54 cần \"bản dựng trước = bản đã qua cổng giao gần nhất\" và release_check đòi biên nhận cổng giao CG- đạt của bản trước; (2) bằng chứng thiếu: không có biên nhận CG- nào trong state/kit — chưa release nào của chương trình được chủ sở hữu giao; registry ghi \"không suy ra bản giao từ d3120c6\"; (3) thay thế cục bộ đã dùng: bản trước = d3120c6 (baseline mà compat scan mô hình) trên hai wheel thật trong một venv; (4) việc cục bộ độc lập đã xong: producer bundle chung, năm điều chạy thật, ghi chú 5 mục + 4 trạng thái, kết quả release_check lưu trong gói; (5) hành động ngoài nhỏ nhất: chủ sở hữu giao (nghiệm thu) một release để có biên nhận CG- cho bản trước, rồi chạy lại `python -m wfkit.release_bundle <R>` với gate_history. W45 đã chạy thật: ma trận 4/6 dùng được (codex chưa kiểm chứng vì thiếu CLI); còn lại chỉ INPUTS (bản giao trước).",
    "next": "Sau khi chủ sở hữu giao một release: cung cấp biên nhận CG- của bản trước làm gate_history và chạy lại producer; mọi phần cục bộ đã có.",
    "evidence": [
     "receipts RP-check.release_check (13/13), RP-check.finalgate (42/42), RP-check.upgrade_drill (3/3) pass trên b2cc754; registry T40c/T54i partial"

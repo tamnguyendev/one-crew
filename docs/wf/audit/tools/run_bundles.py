@@ -8,7 +8,7 @@ RELEASES = ['R01', 'R02', 'R03', 'R04', 'R05', 'R06', 'R07', 'R08', 'RP', 'RX1',
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument('out'); ap.add_argument('--gate'); ap.add_argument('--only'); a = ap.parse_args()
+    ap = argparse.ArgumentParser(); ap.add_argument('out'); ap.add_argument('--gate'); ap.add_argument('--only'); ap.add_argument('--matrix', help='W45 matrix dir (RP)'); a = ap.parse_args()
     out = Path(a.out).resolve()
     if not out.is_relative_to(Path(tempfile.gettempdir()).resolve()): sys.exit('out must be under the OS temp dir (the producer refuses anything else)')
     out.mkdir(parents=True, exist_ok=True)
@@ -17,7 +17,7 @@ def main():
     index, summary = {}, {}
     for rel in (a.only.split(',') if a.only else RELEASES):
         target = out / rel
-        cmd = [sys.executable, '-X', 'utf8', '-m', 'wfkit.release_bundle', rel, '--out', str(target)] + (['--gate', a.gate] if a.gate else [])
+        cmd = [sys.executable, '-X', 'utf8', '-m', 'wfkit.release_bundle', rel, '--out', str(target)] + (['--gate', a.gate] if a.gate else []) + (['--matrix', a.matrix] if a.matrix and rel == 'RP' else [])
         done = subprocess.run(cmd, cwd=str(R), env=env, capture_output=True, text=True, encoding='utf-8', errors='replace')
         line = next((l for l in done.stdout.splitlines() if l.startswith('{')), None)
         result = json.loads(line) if line else {'decision': 'error', 'reason': (done.stdout + done.stderr)[-600:]}

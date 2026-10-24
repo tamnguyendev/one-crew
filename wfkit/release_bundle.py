@@ -97,10 +97,20 @@ def preservation_rows(state, ids=None):
 class Producer(Drill):
     """The W41 drill plus the four other T54 points, written as release_check receipts."""
 
-    def __init__(self, release, out, repo=ROOT, baseline='d3120c6', gate=None, adapters=None):
+    def __init__(self, release, out, repo=ROOT, baseline='d3120c6', gate=None, adapters=None, matrix=None):
         if release not in RELEASES: raise LedgerError('unsupported release ' + str(release))
         super().__init__(out, repo, baseline)
         self.release, self.gate_decision, self.adapters = release, gate, adapters
+        self.matrix_dir = Path(matrix) if matrix else None               # RP: the W45 real matrix (wfkit.provider_matrix output) for T54i [E7]
+        # The CURRENT artifact is the gate's own wheel when a gate is cited: same bytes, same sha256, identified by the gate's commit (the snapshot
+        # worktree of that commit built it). Without a gate the drill builds a wheel from this checkout and names HEAD.
+        self.gate_build = None
+        if gate and gate.get('snapshot', {}).get('log'):
+            build_path = Path(gate['snapshot']['log']).parent / 'gate' / 'build.json'
+            if build_path.exists():
+                self.gate_build = json.loads(build_path.read_text(encoding='utf-8'))
+                if sha(self.gate_build['wheel']) != self.gate_build['wheel_sha256']: raise LedgerError('gate wheel bytes changed since the gate')
+                if self.gate_build['commit'] != gate['snapshot']['commit']: raise LedgerError('gate build.json and decision name different commits')
         self.receipts_dir = self.out / 'receipts'; self.receipts_dir.mkdir()
         self.archived = None; self.event_log = []
         self._monitored_before = {str(p): sha(p) for p in self.monitored_paths() if p.exists()}
@@ -112,7 +122,20 @@ class Producer(Drill):
         return result
 
     def build(self):
-        super().build()
+        if self.gate_build:
+            saved = {k: os.environ.get(k) for k in ('WF_WHEEL', 'WF_WHEEL_SHA256')}
+            os.environ['WF_WHEEL'] = self.gate_build['wheel']; os.environ['WF_WHEEL_SHA256'] = self.gate_build['wheel_sha256']
+            try:
+                super().build()
+            finally:
+                for k, v in saved.items():
+                    if v is None: os.environ.pop(k, None)
+                    else: os.environ[k] = v
+            if self.artifacts['current']['wheel_sha256'] != self.gate_build['wheel_sha256']: raise LedgerError('the drill did not reuse the gate wheel')
+            self.artifacts['current']['commit'] = self.gate_build['commit']
+            self.artifacts['current']['built_by'] = 'development snapshot gate ' + self.gate_build['commit'][:12]
+        else:
+            super().build()
         self.archived = old.archive(self.baseline, self.repo, self.out / 'old-archive')     # the comparator runs the UNMODIFIED old tree
 
     def artifact(self, name):
@@ -177,6 +200,8 @@ class Producer(Drill):
         bundle['checks']['upgrade'] = self.point_upgrade(drill)
         bundle['checks']['events'] = self.point_events()
         bundle['checks']['rollback'] = self.point_rollback(drill)
+        if self.release == 'RP':
+            bundle['provider_bundle'], self.provider_notes = self.provider_bundle()
         bundle['checks']['notes'] = self.point_notes()
         bundle['blockers'] = [{'condition': 'INPUTS', 'kind': 'external', 'detail': 'No release of this program has been delivered (no passing CG- gate receipt of a '
                               'previous build exists). The previous build used here is the scanner-supported baseline d3120c6, not a delivered build. '
@@ -369,12 +394,37 @@ _RESULT = out
             fields['effect_replays_before_reconcile'] = unknown['effect_replays_before_reconcile']
         return self.receipt('rollback', **fields)
 
+    def provider_bundle(self):
+        """RP / T54i [E7]: the six real cells of W45 (matrix.json + receipts copied into this bundle so release_check reads them by hash), judged by the
+        shared evaluator; the notes receipt carries the same states, the usable subset and the P1.0 count/label ('subset' unless 6/6)."""
+        if not self.matrix_dir or not (self.matrix_dir / 'matrix.json').exists():
+            raise LedgerError('RP needs --matrix <wfkit.provider_matrix output>: the six provider cells must be real receipts (W45)')
+        matrix = json.loads((self.matrix_dir / 'matrix.json').read_text(encoding='utf-8'))
+        if {'commit': matrix['commit'], 'wheel_sha256': matrix['wheel_sha256']} != self.identity('current'):
+            raise LedgerError('the provider matrix was run on another build than this bundle')
+        target = self.out / 'provider-matrix'; target.mkdir()
+        items = []
+        for item in matrix['items']:
+            src = self.matrix_dir / item['original']['path']
+            dst = target / Path(item['original']['path']).name; dst.write_bytes(src.read_bytes())
+            if hashlib.sha256(dst.read_bytes()).hexdigest() != item['original']['sha256']: raise LedgerError('matrix receipt hash changed: ' + item['id'])
+            items.append({'id': item['id'], 'original': {'path': dst.relative_to(self.out).as_posix(), 'sha256': item['original']['sha256']}, 'supplements': []})
+        rows = [{k: v for k, v in row.items() if k not in ('receipt',)} for row in matrix['rows']]
+        from wfkit import provider_evidence
+        states = provider_evidence.evaluate(rows, items, release_check.Receipts(self.out, False), self.identity('current'), self.identity('current'), None)
+        eligible = sorted(k for k, st in states.items() if st['status'] == 'usable')
+        bundle = {'artifacts': {'final': self.identity('current'), 'pilot': self.identity('current')}, 'providers': rows, 'comparison': {'items': items},
+                  'source': {'matrix': str(self.matrix_dir / 'matrix.json'), 'at': matrix['at'], 'task': 'W45'}}
+        notes = {'provider_states': states, 'subset': eligible, 'p1_count': len(eligible), 'p1_label': 'full' if len(eligible) == 6 else 'subset'}
+        return bundle, notes
+
     def point_notes(self):
         path = NOTES_DIR / f'{self.release}.md'
         if not path.exists(): raise LedgerError('release notes missing: ' + str(path))
         text = path.read_text(encoding='utf-8')
+        extra = getattr(self, 'provider_notes', None) or {}
         return self.receipt('notes', markdown=text, notes_path=str(path.relative_to(self.repo)), notes_sha256=sha(path), real_checks=[],
-                            gate_decision=self.gate_decision)
+                            gate_decision=self.gate_decision, **extra)
 
     # -- the drill, with the preservation rows taken at the right moments ------------------------------------------------------------------
     def install(self, name, fresh=False):
@@ -387,10 +437,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('release', choices=RELEASES); parser.add_argument('--out', required=True)
     parser.add_argument('--gate', help='decision.json of the development snapshot gate this bundle cites')
+    parser.add_argument('--matrix', help='RP only: output dir of wfkit.provider_matrix (the real W45 six-cell matrix)')
     args = parser.parse_args(argv)
     gate = json.loads(Path(args.gate).read_text(encoding='utf-8')) if args.gate else None
     try:
-        verdict = Producer(args.release, args.out, gate=gate).execute()
+        verdict = Producer(args.release, args.out, gate=gate, matrix=args.matrix).execute()
         print(json.dumps({'release': args.release, 'decision': verdict['decision'], 'conditions': verdict['conditions'],
                           'reasons': verdict['reasons'], 'out': args.out}, ensure_ascii=False))
         return 0 if verdict['decision'] == 'pass' else 2

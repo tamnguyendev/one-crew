@@ -1,12 +1,12 @@
 # RX2 — release notes (development, chưa giao)
 
-Commit: `635c037`. Bản giao trước gần nhất theo chương trình: R04 — **chưa có bản giao thật nào được ghi nhận** (release_check không suy ra từ d3120c6).
+Commit: `ceb46c6`. Bản giao trước gần nhất theo chương trình: R04 — **chưa có bản giao thật nào được ghi nhận** (release_check không suy ra từ d3120c6).
 
 ## Usable outcomes
 
 Những gì bản dựng này làm được, theo task của release (rút gọn từ 04; trạng thái lấy từ registry):
 
-- **W39** — Adapter kiểm cho đầu ra dữ liệu (schema, đối soát, mẫu) và vận hành (pre/postcondition, receipt, reconcile); danh tính artifact không phải … _(testcase: T14b partial)_
+- **W39** — Adapter kiểm cho đầu ra dữ liệu (schema, đối soát, mẫu) và vận hành (pre/postcondition, receipt, reconcile); danh tính artifact không phải … _(testcase: T14b complete)_
 
 ## Limits
 
@@ -29,14 +29,21 @@ Những gì bản dựng này làm được, theo task của release (rút gọn
 
 ## Evidence status
 
-- Registry RX2: complete 0, partial 2, blocked 0 (`python -m wfkit.development_gate list`).
-- Gate development trên một wheel: đang chạy trên 0d296fe.
-- Bundle T54 (W40-RX2, `python -m wfkit.release_check bundle.json`): **chưa có** — thiếu bản giao trước thật, kịch bản đầu-cuối theo release, artifact đóng băng, lịch sử biên nhận đã giao. Fixture bundle (`--allow-simulated`) chỉ chứng minh luật của validator.
+- Registry RX2: complete 1, partial 1, blocked 0 (`python -m wfkit.development_gate list`).
+- Gate development trên một wheel: snapshot ceb46c6: 195/195 kiểm hiện thực đạt (1 541 test, 0 skip), snapshot nguyên vẹn; decision refused chỉ vì acceptance partial/blocked (chưa release nào đủ điều kiện giao).
+- Bundle T54 thật (`wfkit.release_bundle`, kết quả `release_check`: **refused**; bundle `C:\Users\NUC\AppData\Local\Temp\wf-bundles-ceb46c6\RX2\bundle.json`):
+  - INPUTS — lịch sử cổng giao của bản trước: không đạt — previous delivered gate history missing
+  - T54.1 — kịch bản chạy từ bản cài: đạt (biên nhận thật)
+  - T54.2 — nâng cấp giữ ID/ngân sách/evidence/attempt: đạt (biên nhận thật)
+  - T54.3 — lớp sự kiện, S/G/C bản cũ: đạt (biên nhận thật)
+  - T54.4 — rollback từ chối/cho phép, roll-forward: đạt (biên nhận thật)
+  - T54.5 — ghi chú bốn trạng thái: đạt (biên nhận thật)
+  - Bản trước trong bundle là d3120c6 (baseline mà `compat scan` mô hình), KHÔNG phải bản đã giao: chưa có release nào của chương trình được giao, nên điều kiện INPUTS chỉ có thể đạt sau khi chủ sở hữu giao một release (điều kiện ngoài).
 - Không ghi "đã giao", "Codex đã review" hay "chủ sở hữu đã nghiệm thu".
 
 Bốn trạng thái bằng chứng (định dạng của `release_check` T54.5, mỗi dòng một trạng thái):
 
 Code: present
-Fixture checks: pending
+Fixture checks: passed
 Real checks: not-run
 Acceptance: not-requested

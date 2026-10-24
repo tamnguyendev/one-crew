@@ -12,7 +12,7 @@ def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(); ap.add_argument('gate_out'); ap.add_argument('package'); ap.add_argument('--bundles'); ap.add_argument('--previous-wheel')
+    ap = argparse.ArgumentParser(); ap.add_argument('gate_out'); ap.add_argument('package'); ap.add_argument('--bundles'); ap.add_argument('--previous-wheel'); ap.add_argument('--matrix', help='W45 provider matrix dir (matrix.json/matrix.md/receipts)')
     a = ap.parse_args(argv)
     gate_out, pkg = Path(a.gate_out), Path(a.package)
     if pkg.exists(): sys.exit('package dir must be new: ' + str(pkg))
@@ -25,7 +25,7 @@ def main(argv=None):
     (pkg / 'wheel').mkdir(parents=True); shutil.copy2(wheel_src, pkg / 'wheel' / wheel_src.name)
     previous = None
     if a.previous_wheel:
-        p = Path(a.previous_wheel); shutil.copy2(p, pkg / 'wheel' / ('previous-' + p.name)); previous = {'file': 'wheel/previous-' + p.name, 'sha256': sha(p)}
+        p = Path(a.previous_wheel); (pkg / 'wheel' / 'previous').mkdir(); shutil.copy2(p, pkg / 'wheel' / 'previous' / p.name); previous = {'file': 'wheel/previous/' + p.name, 'sha256': sha(p), 'commit': 'd3120c6 (baseline the compat scanner models; NOT a delivered build)'}
     (pkg / 'gate').mkdir();
     for name in ('decision.json', 'snapshot.json', 'gate-run.log'):
         if (gate_out / name).exists(): shutil.copy2(gate_out / name, pkg / 'gate' / name)
@@ -50,6 +50,11 @@ def main(argv=None):
             if (src / 'receipts').exists(): shutil.copytree(src / 'receipts', dst / 'receipts')
             v = json.load(open(src / 'release-check.json', encoding='utf-8'))
             bundles[rel] = {'decision': v['decision'], 'conditions': v['conditions'], 'reasons': v['reasons']}
+    matrix = None
+    if a.matrix:
+        src = Path(a.matrix); shutil.copytree(src, pkg / 'provider-matrix', ignore=shutil.ignore_patterns('cells'))
+        m = json.load(open(src / 'matrix.json', encoding='utf-8'))
+        matrix = {'usable': m['usable'], 'p1': m['p1'], 'rows': {r['id']: r['status'] for r in m['rows']}, 'at': m['at']}
     audit = json.load(open(R / 'docs' / 'wf' / 'audit' / 'audit-92.json', encoding='utf-8'))
     checks = decision.get('implementation_checks', {})
     manifest = {'schema': 1, 'kind': 'development-handover-package', 'built_at': snapshot.get('prepared_at'), 'commit': commit, 'version': version,
@@ -57,7 +62,7 @@ def main(argv=None):
                 'gate': {'decision': decision.get('decision'), 'release_delivery': decision.get('release_delivery'), 'owner_acceptance': decision.get('owner_acceptance'),
                          'implementation_checks': checks, 'snapshot_intact': decision.get('snapshot', {}).get('intact'),
                          'problem_kinds': sorted({p.get('kind') for p in decision.get('problems', [])})},
-                'bundles': bundles, 'tasks_92': audit['counts'], 'tasks_92_commit': audit['commit'],
+                'bundles': bundles, 'provider_matrix': matrix, 'tasks_92': audit['counts'], 'tasks_92_commit': audit['commit'],
                 'claims': {'delivered': False, 'codex_reviewed': False, 'owner_accepted': False}}
     (pkg / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding='utf-8')
     counts = audit['counts']
@@ -73,6 +78,7 @@ def main(argv=None):
 | Gate development (snapshot) | **{decision.get('decision')}** — kiểm hiện thực: {checks.get('receipted', '?')}/{checks.get('expected', '?')} biên nhận, {len(checks.get('failed', []))} hỏng; snapshot nguyên vẹn: {decision.get('snapshot', {}).get('intact')} |
 | 92 task | Done {counts.get('Done')} · Partial {counts.get('Partial')} · Blocked {counts.get('Blocked')} (docs/AUDIT-92.md) |
 | Bundle T54 | {len(bundles)} release (bundles/<R>/release-check.json) — INPUTS luôn không đạt vì chưa có release nào được giao (điều kiện ngoài) |
+| Ma trận provider (W45) | {('dùng được ' + str(matrix['p1']['count']) + '/6, P1.0 ' + matrix['p1']['label'] + ' — provider-matrix/matrix.md') if matrix else 'chưa chạy'} |
 
 ## Cài vào venv sạch, NGOÀI checkout
 
