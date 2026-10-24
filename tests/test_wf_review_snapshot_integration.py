@@ -20,6 +20,7 @@ from tests.test_wf_engine import node
 
 B_CANDIDATE = 'b candidate' + chr(10)
 A_CANDIDATE = 'candidate' + chr(10)
+A2_CANDIDATE = 'candidate two' + chr(10)
 LATER = 'later change in the project' + chr(10)
 
 
@@ -49,7 +50,7 @@ class ReviewSnapshotIntegrationTests(CandidateReviewerFixture):
         self.production_checker = CandidateChecker(self.ledger, 'P1')
 
     def milestones(self):
-        check = [sys.executable, '-c', 'from pathlib import Path; assert Path("a.txt").read_text()=="candidate\\n"; print("candidate tested")']
+        check = [sys.executable, '-c', 'from pathlib import Path; assert Path("a.txt").read_text().startswith("candidate"); print("candidate tested")']
         return [milestone('M1', argv=check), dict(reviewer_milestone(criteria=CRITERIA), id='M2')]
 
     def definition(self):
@@ -61,6 +62,7 @@ class ReviewSnapshotIntegrationTests(CandidateReviewerFixture):
 
     def factory(self, control, provider):
         """One fake worker for both nodes: the file it writes follows the node named in the prompt (no provider call)."""
+        case = self
         class Worker:
             def capability(self): return {'provider': provider, 'mode': 'fixture-tools-disabled'}
             def run(self, attempt, prompt, schema, profile):
@@ -68,7 +70,7 @@ class ReviewSnapshotIntegrationTests(CandidateReviewerFixture):
                 control.launched(attempt['id'], attempt['generation'], {'fixture': True})
                 control.finish(attempt['id'], attempt['generation'], {'exit_code': 0})
             def result(self, attempt):
-                path, content = ('b.txt', B_CANDIDATE) if self.node == 'X' else ('a.txt', A_CANDIDATE)
+                path, content = ('b.txt', B_CANDIDATE) if self.node == 'X' else ('a.txt', getattr(case, 'a_content', A_CANDIDATE))
                 return {'summary': 'producer ' + self.node, 'files': [{'path': path, 'content': content}], 'backlog': []}, []
         return Worker()
 
@@ -112,3 +114,27 @@ class ReviewSnapshotIntegrationTests(CandidateReviewerFixture):
         self.assertEqual(after['nodes']['X']['state'], 'produced', seen.get('x'))                      # independent work went on
         self.assertEqual(self.store.context(after['nodes']['X']['artifact'])['b.txt'], B_CANDIDATE)
         self.assertEqual((self.root / 'a.txt').read_text(), LATER)                                      # the project was never touched by the review
+        # [E3] [E6]: a new candidate A2 of C needs a NEW review, whose diff is A2's (the A1 review is not reused for it)
+        definition = self.definition()
+        for item in definition: item['executor'] = dict(self.producer)
+        definition[0]['goal'] = 'Produce evidence for O1, second cut'
+        self.revise(definition, reason='Split work inside the approved scope, second cut')
+        self.a_content = A2_CANDIDATE
+        prompts = []
+        def second(prompt, config, env, scratch, limit):
+            prompts.append(prompt)
+            return answer(row('R1')), {}, None, False, b'fixture'
+        with patch('onecrew.artifact_provider_core.make_worker', side_effect=self.factory):
+            self.step_cli('C')                                                                          # C produced again (A2)
+            a2 = self.engine.state(self.ledger, 'P1')['nodes']['C']['artifact']
+            self.assertNotEqual(a2, a1)
+            with patch.object(reviewer, 'call', side_effect=second):
+                again = self.engine.verify(self.ledger, 'P1', 'C', self.production_checker)
+        self.assertEqual(again['result'], 'pass', again)
+        self.assertEqual(len(prompts), 1)                                                               # [E3] A2 needed its own review call
+        wrapper2 = json.loads(self.store.read_blob({r['id']: r for r in again['observed']['checks']}['M2']['evidence']))
+        proof2 = json.loads(self.store.read_blob(wrapper2['reviewer_receipt']))
+        self.assertNotEqual(proof2['artifact_sha'], proof['artifact_sha']); self.assertEqual(proof2['artifact_sha'], again['observed']['candidate_tree'])
+        diff2 = self.store.read_blob(proof2['diff']).decode('utf-8')
+        self.assertIn('+candidate two', diff2); self.assertNotIn('later change', diff2)                   # [E6] the diff is A2's
+        self.assertIn('candidate two', prompts[0])

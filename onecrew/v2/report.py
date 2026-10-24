@@ -565,7 +565,8 @@ def _finding_limits(f):
         return ['Finding còn mở: không đọc được sổ finding: ' + f['finding_error']]
     if not namespaces.has_capability(f['state'], 'finding-register'):
         return [FINDINGS_NOTE] + _hold_lines(f) + _blocker_lines(f)
-    return ([f'Finding còn mở: {r["id"]} · {r["severity"]} · mốc {r["node"]} · {r["head"]} · biên nhận {r["source"]["receipt"]}' for r in rows]
+    return ([f'Finding còn mở: {r["id"]} · {r["severity"]} · mốc {r["node"]} · tiêu chí {r.get("criterion") or NO_DATA} · artifact {_short(r.get("artifact_sha") or "")} · '
+             f'{r["head"]} · biên nhận {r["source"]["receipt"]}' for r in rows]
             or ['Finding còn mở: 0 theo sổ finding của root.']) + _hold_lines(f) + _blocker_lines(f)
 CHECKER = {'command': 'lệnh tự chạy trên artifact, bạn không phải làm gì', 'reviewer': 'một reviewer (model khác) đọc diff và trả lời tiêu chí',
            'owner-manual': 'bạn tự thử rồi ghi kết quả (verdict của chủ sở hữu)'}

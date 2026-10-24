@@ -77,8 +77,7 @@ def record(ledger, name, incident, *, text, path, line, revision, test, symbol=N
         raise LedgerError('The lesson symbol does not exist at the pinned revision.')
     with ledger.transaction() as conn:
         state, selector = incidents._root(ledger, conn, name)
-        if state['status'] in ('accepted', 'stopped_with_report'):
-            raise LedgerError('Record a repair lesson before the root ends.')
+        _still_open(state)
         evidence = incidents._event(ledger, conn, state['task_id'], incident, incidents.KIND)
         body = evidence['payload']
         verified, result, _, _ = incidents._receipt(ledger, conn, state, selector, body.get('verified_receipt'), latest=True)
@@ -111,8 +110,19 @@ def record(ledger, name, incident, *, text, path, line, revision, test, symbol=N
     return dict(result, recorded=True)
 
 
+ENDED = ('accepted', 'stopped_with_report', 'closed')
+
+
+def _still_open(state):
+    """T52b [E14]: a lesson (project or general candidate) is written while the root is still open, never after it ended."""
+    if state['status'] in ENDED:
+        raise LedgerError('Record a repair lesson before the root ends.')
+
+
 def propose_general(ledger, name, lesson, *, text, conditions):
     """Explicitly generalised, conditional candidate; never automatic promotion."""
+    with ledger.transaction() as conn:
+        _still_open(incidents._root(ledger, conn, name)[0])
     original = _latest(ledger, name).get(lesson)
     if original is None or original['scope'] != 'project' or original['status'] == 'withdrawn':
         raise LedgerError('A live project lesson is required as the source.')

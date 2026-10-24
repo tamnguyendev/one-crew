@@ -136,7 +136,8 @@ def _private_reasons(ledger, texts):
     except LedgerError:
         files = set()
     words = set(re.findall(r'[\w./\\-]+', joined.replace('\\', '/')))
-    leaked = sorted(w for w in words if w in files)
+    words |= {w.strip('.,;:!?()') for w in words}                      # "service.py." at the end of a sentence is still the file name
+    leaked = sorted(w for w in words if w and w in files)
     if leaked: reasons.append('it names files of the project: ' + ', '.join(leaked[:3]))
     return reasons
 
