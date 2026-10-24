@@ -3646,7 +3646,8 @@
        "status": "partial",
        "checks": [
         "check.managed_executor",
-        "check.node_actions_cli"
+        "check.node_actions_cli",
+        "check.t08b_no_exactly_once"
        ],
        "gaps": [
         {
@@ -3782,6 +3783,14 @@
      ],
      "installed": false,
      "scope": "Real reviewer verifier on the candidate snapshot with a fixture CLI answer; no real model."
+    },
+    "check.t08b_no_exactly_once": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t08b_no_exactly_once"
+     ],
+     "installed": false,
+     "scope": "Criteria grep for exactly-once claims over the run/intent code, states and a release record; fixture run markers."
     }
    },
    "acceptance": {
@@ -3873,7 +3882,8 @@
      "status": "partial",
      "checks": [
       "check.managed_executor",
-      "check.node_actions_cli"
+      "check.node_actions_cli",
+      "check.t08b_no_exactly_once"
      ],
      "gaps": [
       {
