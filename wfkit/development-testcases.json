@@ -219,7 +219,8 @@
       "T39": {
        "status": "complete",
        "checks": [
-        "check.program_transition"
+        "check.program_transition",
+        "check.snapshot_gate"
        ],
        "evidence_matrix": {
         "E1": [
@@ -304,6 +305,14 @@
      ],
      "installed": false,
      "scope": "T39 transition-mode program run on the existing v2 supervisor: simulated owner terminal, fixture kit-guard through the pinned bootstrap, sample Codex result, stub reviewer. Not a real Codex review or real external session."
+    },
+    "check.snapshot_gate": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_snapshot_gate"
+     ],
+     "installed": false,
+     "scope": "Codex P2: the gate runs on a clean detached snapshot of one commit; moved/dirty snapshot or changed external source refuses."
     }
    },
    "acceptance": {
@@ -409,7 +418,8 @@
     "T39": {
      "status": "complete",
      "checks": [
-      "check.program_transition"
+      "check.program_transition",
+      "check.snapshot_gate"
      ],
      "evidence_matrix": {
       "E1": [
@@ -950,7 +960,8 @@
        "status": "partial",
        "checks": [
         "check.estimates",
-        "check.t36b_additional_u2"
+        "check.t36b_additional_u2",
+        "check.t36b_cli"
        ],
        "gaps": [
         {
@@ -1014,7 +1025,8 @@
        "status": "partial",
        "checks": [
         "check.exceptions",
-        "check.estimates"
+        "check.estimates",
+        "check.t43c_quiet"
        ],
        "gaps": [
         {
@@ -1117,6 +1129,22 @@
      ],
      "installed": false,
      "scope": "Criteria grep of the notification modules and the v1 desktop core path with a fixture launcher."
+    },
+    "check.t36b_cli": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t36b_cli"
+     ],
+     "installed": false,
+     "scope": "Codex P1 W32a: real CLI carries nodes/still_running; refusals before any write; failed hold is a failure; resolve grants nothing."
+    },
+    "check.t43c_quiet": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t43c_quiet"
+     ],
+     "installed": false,
+     "scope": "Six quiet hours produce no notice; no heartbeat; transport states only."
     }
    },
    "acceptance": {
@@ -1183,7 +1211,8 @@
      "status": "partial",
      "checks": [
       "check.estimates",
-      "check.t36b_additional_u2"
+      "check.t36b_additional_u2",
+      "check.t36b_cli"
      ],
      "gaps": [
       {
@@ -1247,7 +1276,8 @@
      "status": "partial",
      "checks": [
       "check.exceptions",
-      "check.estimates"
+      "check.estimates",
+      "check.t43c_quiet"
      ],
      "gaps": [
       {
@@ -1510,7 +1540,8 @@
        "status": "partial",
        "checks": [
         "check.r04a_authority",
-        "check.engine"
+        "check.engine",
+        "check.t20_reply_guard"
        ],
        "gaps": [
         {
@@ -1535,27 +1566,34 @@
        "status": "complete",
        "checks": [
         "check.engine",
-        "check.test_integrity"
+        "check.test_integrity",
+        "check.t19_counterexamples"
        ],
        "gaps": [],
        "evidence_matrix": {
         "E1": [
          "tests.test_wf_test_integrity.TestIntegrityTests.test_a_loosened_assert_makes_the_gate_red_as_u1",
-         "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red"
+         "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red",
+         "tests.test_wf_t19_counterexamples.CounterexampleTests.test_a_skip_decorator_on_the_test_is_a_weakening",
+         "tests.test_wf_t19_counterexamples.CounterexampleTests.test_b_skipping_the_whole_class_is_a_weakening",
+         "tests.test_wf_t19_counterexamples.CounterexampleTests.test_c_a_test_that_is_no_longer_discovered_is_removed"
         ],
         "E2": [
-         "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request"
+         "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
+         "tests.test_wf_t19_counterexamples.CounterexampleTests.test_valid_additions_reformat_and_moves_still_pass"
         ],
         "E3": [
          "tests.test_wf_test_integrity.TestIntegrityTests.test_a_loosened_assert_makes_the_gate_red_as_u1",
-         "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red"
+         "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red",
+         "tests.test_wf_t19_counterexamples.CounterexampleTests.test_d_a_weakened_helper_with_an_unchanged_test_body_is_not_a_pass"
         ],
         "E4": [
          "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
-         "tests.test_wf_test_integrity.TestIntegrityTests.test_unchanged_suite_records_nothing_extra"
+         "tests.test_wf_test_integrity.TestIntegrityTests.test_unchanged_suite_records_nothing_extra",
+         "tests.test_wf_t19_counterexamples.CounterexampleTests.test_valid_additions_reformat_and_moves_still_pass"
         ]
        },
-       "scope": "A temporary Git project with its own small test file; the worker is the test editing the file (interface only). Nothing asks the owner."
+       "scope": "A temporary Git project with its own small test file; the worker is the test editing the file (interface only). Nothing asks the owner. Codex P1 round: decorators, class skips, discovery and support code are compared; unproven is inconclusive, never a pass. Python test files by name only."
       },
       "T21": {
        "status": "complete",
@@ -1601,7 +1639,8 @@
        "status": "partial",
        "checks": [
         "check.engine",
-        "check.r04a_authority"
+        "check.r04a_authority",
+        "check.t37_child_acceptance"
        ],
        "gaps": [
         {
@@ -1782,6 +1821,30 @@
      ],
      "installed": false,
      "scope": "Temporary Git project with its own test file; the milestone command runs it."
+    },
+    "check.t19_counterexamples": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t19_counterexamples"
+     ],
+     "installed": false,
+     "scope": "Codex P1 W05 counterexamples on the real verdict path: skip decorator, class skip, discovery loss, weakened helper; valid additions still pass."
+    },
+    "check.t37_child_acceptance": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t37_child_acceptance"
+     ],
+     "installed": false,
+     "scope": "Internal acceptance of children with Q12 records; AI acceptance of the root refused; step 3 not run (O4 unanswered)."
+    },
+    "check.t20_reply_guard": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t20_reply_guard"
+     ],
+     "installed": false,
+     "scope": "A reply attributed to the user is refused in an AI session (API and CLI); T20 is gated historically by R00, its E5 regression lives here."
     }
    },
    "acceptance": {
@@ -1831,7 +1894,8 @@
      "status": "partial",
      "checks": [
       "check.r04a_authority",
-      "check.engine"
+      "check.engine",
+      "check.t20_reply_guard"
      ],
      "gaps": [
       {
@@ -1856,27 +1920,34 @@
      "status": "complete",
      "checks": [
       "check.engine",
-      "check.test_integrity"
+      "check.test_integrity",
+      "check.t19_counterexamples"
      ],
      "gaps": [],
      "evidence_matrix": {
       "E1": [
        "tests.test_wf_test_integrity.TestIntegrityTests.test_a_loosened_assert_makes_the_gate_red_as_u1",
-       "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red"
+       "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red",
+       "tests.test_wf_t19_counterexamples.CounterexampleTests.test_a_skip_decorator_on_the_test_is_a_weakening",
+       "tests.test_wf_t19_counterexamples.CounterexampleTests.test_b_skipping_the_whole_class_is_a_weakening",
+       "tests.test_wf_t19_counterexamples.CounterexampleTests.test_c_a_test_that_is_no_longer_discovered_is_removed"
       ],
       "E2": [
-       "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request"
+       "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
+       "tests.test_wf_t19_counterexamples.CounterexampleTests.test_valid_additions_reformat_and_moves_still_pass"
       ],
       "E3": [
        "tests.test_wf_test_integrity.TestIntegrityTests.test_a_loosened_assert_makes_the_gate_red_as_u1",
-       "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red"
+       "tests.test_wf_test_integrity.TestIntegrityTests.test_b_a_deleted_test_makes_the_gate_red",
+       "tests.test_wf_t19_counterexamples.CounterexampleTests.test_d_a_weakened_helper_with_an_unchanged_test_body_is_not_a_pass"
       ],
       "E4": [
        "tests.test_wf_test_integrity.TestIntegrityTests.test_c_an_added_test_is_accepted_with_provenance_and_no_request",
-       "tests.test_wf_test_integrity.TestIntegrityTests.test_unchanged_suite_records_nothing_extra"
+       "tests.test_wf_test_integrity.TestIntegrityTests.test_unchanged_suite_records_nothing_extra",
+       "tests.test_wf_t19_counterexamples.CounterexampleTests.test_valid_additions_reformat_and_moves_still_pass"
       ]
      },
-     "scope": "A temporary Git project with its own small test file; the worker is the test editing the file (interface only). Nothing asks the owner."
+     "scope": "A temporary Git project with its own small test file; the worker is the test editing the file (interface only). Nothing asks the owner. Codex P1 round: decorators, class skips, discovery and support code are compared; unproven is inconclusive, never a pass. Python test files by name only."
     },
     "T21": {
      "status": "complete",
@@ -1922,7 +1993,8 @@
      "status": "partial",
      "checks": [
       "check.engine",
-      "check.r04a_authority"
+      "check.r04a_authority",
+      "check.t37_child_acceptance"
      ],
      "gaps": [
       {
@@ -2460,17 +2532,24 @@
         "check.node_actions_cli",
         "check.installed_node_actions",
         "check.metered_verifier",
-        "check.t08a_reconcile"
+        "check.t08a_reconcile",
+        "check.t08a_faults"
        ],
        "gaps": [],
        "evidence_matrix": {
         "E2": [
          "tests.test_wf_t08a_reconcile.ReconcileTests.test_b_killed_during_x_is_held_not_rerun_until_a_recorded_release",
          "tests.test_wf_t08a_reconcile.ReconcileTests.test_c_x_finished_before_the_receipt_is_completed_from_its_marker_without_a_second_run",
-         "tests.test_wf_t08a_reconcile.ReconcileTests.test_a_a_run_that_never_dispatched_and_one_that_raised_let_a_new_run_start"
+         "tests.test_wf_t08a_reconcile.ReconcileTests.test_a_a_run_that_never_dispatched_and_one_that_raised_let_a_new_run_start",
+         "tests.test_wf_t08a_faults.FaultTests.test_i_crash_between_reconciled_unknown_and_hold_keeps_the_hold",
+         "tests.test_wf_t08a_faults.FaultTests.test_ii_crash_after_receipt_issued_before_verdict_recorded_completes_without_a_second_run",
+         "tests.test_wf_t08a_faults.FaultTests.test_iv_a_new_approved_revision_does_not_forget_the_unknown_run"
         ],
         "E4": [
-         "tests.test_wf_t08a_reconcile.ReconcileTests.test_b_killed_during_x_is_held_not_rerun_until_a_recorded_release"
+         "tests.test_wf_t08a_reconcile.ReconcileTests.test_b_killed_during_x_is_held_not_rerun_until_a_recorded_release",
+         "tests.test_wf_t08a_faults.FaultTests.test_i_crash_between_reconciled_unknown_and_hold_keeps_the_hold",
+         "tests.test_wf_t08a_faults.FaultTests.test_iii_reconcile_twice_writes_nothing_twice",
+         "tests.test_wf_t08a_faults.FaultTests.test_v_only_a_recorded_release_lets_x_run_again_and_it_is_counted"
         ]
        },
        "scope": "X is a fixture command counted by its marker file; (b) is a real process kill, (c) is staged with the run markers and a fabricated abandoned run. Exactly-once is not claimed; T08b (R08) covers the managed intents."
@@ -2732,6 +2811,14 @@
      ],
      "installed": false,
      "scope": "The existing v1 register P6 tests, unchanged, run by the gate for T28 [E1] (slow)."
+    },
+    "check.t08a_faults": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t08a_faults"
+     ],
+     "installed": false,
+     "scope": "Codex P1 W37a fault injection at every write boundary of the reconcile; X counted by a marker file."
     }
    },
    "acceptance": {
@@ -2907,17 +2994,24 @@
       "check.node_actions_cli",
       "check.installed_node_actions",
       "check.metered_verifier",
-      "check.t08a_reconcile"
+      "check.t08a_reconcile",
+      "check.t08a_faults"
      ],
      "gaps": [],
      "evidence_matrix": {
       "E2": [
        "tests.test_wf_t08a_reconcile.ReconcileTests.test_b_killed_during_x_is_held_not_rerun_until_a_recorded_release",
        "tests.test_wf_t08a_reconcile.ReconcileTests.test_c_x_finished_before_the_receipt_is_completed_from_its_marker_without_a_second_run",
-       "tests.test_wf_t08a_reconcile.ReconcileTests.test_a_a_run_that_never_dispatched_and_one_that_raised_let_a_new_run_start"
+       "tests.test_wf_t08a_reconcile.ReconcileTests.test_a_a_run_that_never_dispatched_and_one_that_raised_let_a_new_run_start",
+       "tests.test_wf_t08a_faults.FaultTests.test_i_crash_between_reconciled_unknown_and_hold_keeps_the_hold",
+       "tests.test_wf_t08a_faults.FaultTests.test_ii_crash_after_receipt_issued_before_verdict_recorded_completes_without_a_second_run",
+       "tests.test_wf_t08a_faults.FaultTests.test_iv_a_new_approved_revision_does_not_forget_the_unknown_run"
       ],
       "E4": [
-       "tests.test_wf_t08a_reconcile.ReconcileTests.test_b_killed_during_x_is_held_not_rerun_until_a_recorded_release"
+       "tests.test_wf_t08a_reconcile.ReconcileTests.test_b_killed_during_x_is_held_not_rerun_until_a_recorded_release",
+       "tests.test_wf_t08a_faults.FaultTests.test_i_crash_between_reconciled_unknown_and_hold_keeps_the_hold",
+       "tests.test_wf_t08a_faults.FaultTests.test_iii_reconcile_twice_writes_nothing_twice",
+       "tests.test_wf_t08a_faults.FaultTests.test_v_only_a_recorded_release_lets_x_run_again_and_it_is_counted"
       ]
      },
      "scope": "X is a fixture command counted by its marker file; (b) is a real process kill, (c) is staged with the run markers and a fabricated abandoned run. Exactly-once is not claimed; T08b (R08) covers the managed intents."
