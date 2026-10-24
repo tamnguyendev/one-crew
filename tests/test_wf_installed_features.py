@@ -8,6 +8,10 @@ from onecrew.v2 import boundary
 
 
 class InstalledFeaturesTests(unittest.TestCase):
+    def setUp(self):
+        from tests.wf_env import owner_terminal
+        owner_terminal(self)        # installed scenarios include owner verbs: the owner's own terminal, not an AI session
+
     @classmethod
     def setUpClass(cls):
         cls.runs = wh._runs()

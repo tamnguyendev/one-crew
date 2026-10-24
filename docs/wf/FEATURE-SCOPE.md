@@ -6,18 +6,18 @@ Sinh từ `docs/wf/sources/04-TASKS.vi.md` (sha256 c1d8f8ae40cd) và `wfkit/deve
 
 | Task | Kết quả (rút gọn từ 04) | Testcase | Trạng thái registry | Kiểm hiện có | Khoảng trống |
 |---|---|---|---|---|---|
-| WK0 | Làm trong bước trình, trước khi duyệt (03 §6). Khung kit của chương trình: kit-guard (manifest sha256, chỉ … | T38a | R00 gate PASS 24/10 (CG-R00) |  |  |
-| WK0 | Làm trong bước trình, trước khi duyệt (03 §6). Khung kit của chương trình: kit-guard (manifest sha256, chỉ … | T39 | cổng R00: không đăng ký |  | T39: không có bộ kiểm |
+| WK0 | Làm trong bước trình, trước khi duyệt (03 §6). Khung kit của chương trình: kit-guard (manifest sha256, chỉ … | T38a | cổng R00 (wfkit/gate.py R00) |  |  |
+| WK0 | Làm trong bước trình, trước khi duyệt (03 §6). Khung kit của chương trình: kit-guard (manifest sha256, chỉ … | T39 | cổng R00 (wfkit/gate.py R00) | test_wf_program_transition |  |
 | WK00 | Bộ kiểm R00: T09a, T13a, T13b, T20, T33a, T45a, T48a, T49a, T49b | — | — | — | bộ kiểm (WK*) / khảo sát: không có T-case riêng |
-| W03 | Bản ghi quyết định (chủ thể thật, căn cứ, bằng chứng, phạm vi, hiệu lực); `interventions` vào wheel; từ chối … | T20 | R00 gate PASS 24/10 (CG-R00) | test_wf_decisions |  |
-| W03 | Bản ghi quyết định (chủ thể thật, căn cứ, bằng chứng, phạm vi, hiệu lực); `interventions` vào wheel; từ chối … | T16a | cổng R00: không đăng ký |  | T39: không có bộ kiểm |
-| W11a | Sổ loại sự kiện trên anchor bản cũ thấy (00 §6.1): chỉ ghi lớp 0 (giữ mọi trường cũ, cùng kiểu) hay lớp A lên … | T13a | R00 gate PASS 24/10 (CG-R00) | test_wf_events |  |
-| W12a | Kiểm tên plan trước khi ghi (từ chối `:`, ký tự đường dẫn, dạng ổ đĩa, đường dẫn tuyệt đối) ở mọi đường tạo; … | T48a | R00 gate PASS 24/10 (CG-R00) | test_wf_plan_names |  |
-| W46a | Lệnh chỉ đọc `compat scan` trong wheel: mỗi root anchor `plan:` có ba tính chất (giữ nguyên, bản cũ đọc được, … | T49a | R00 gate PASS 24/10 (CG-R00) | test_wf_compat_scan |  |
-| W27a | Lỗi provider của cố vấn có kiểu (không dùng được, quá giờ, sai schema): verdict `inconclusive` kèm lý do, … | T09a | R00 gate PASS 24/10 (CG-R00) | test_wf_advisor_errors |  |
-| W40 | Khung đóng gói và kiểm bản cài, dùng lại cho mọi release: module cần thiết vào wheel (hoặc tách module mới để … | T33a | R00 gate PASS 24/10 (CG-R00) | test_wf_packaging |  |
-| W41 | Khung diễn tập nâng cấp, rollback và roll-forward trên bản sao sổ, dùng lại cho mọi release; ở R00 là 2.1 → … | T13b | R00 gate PASS 24/10 (CG-R00) | test_wf_rollback |  |
-| W41 | Khung diễn tập nâng cấp, rollback và roll-forward trên bản sao sổ, dùng lại cho mọi release; ở R00 là 2.1 → … | T49b | R00 gate PASS 24/10 (CG-R00) | test_wf_rollback |  |
+| W03 | Bản ghi quyết định (chủ thể thật, căn cứ, bằng chứng, phạm vi, hiệu lực); `interventions` vào wheel; từ chối … | T20 | cổng R00 (wfkit/gate.py R00) | test_wf_decisions |  |
+| W03 | Bản ghi quyết định (chủ thể thật, căn cứ, bằng chứng, phạm vi, hiệu lực); `interventions` vào wheel; từ chối … | T16a | partial | r04a_authority, engine | acceptance-audit |
+| W11a | Sổ loại sự kiện trên anchor bản cũ thấy (00 §6.1): chỉ ghi lớp 0 (giữ mọi trường cũ, cùng kiểu) hay lớp A lên … | T13a | cổng R00 (wfkit/gate.py R00) | test_wf_events |  |
+| W12a | Kiểm tên plan trước khi ghi (từ chối `:`, ký tự đường dẫn, dạng ổ đĩa, đường dẫn tuyệt đối) ở mọi đường tạo; … | T48a | cổng R00 (wfkit/gate.py R00) | test_wf_plan_names |  |
+| W46a | Lệnh chỉ đọc `compat scan` trong wheel: mỗi root anchor `plan:` có ba tính chất (giữ nguyên, bản cũ đọc được, … | T49a | cổng R00 (wfkit/gate.py R00) | test_wf_compat_scan |  |
+| W27a | Lỗi provider của cố vấn có kiểu (không dùng được, quá giờ, sai schema): verdict `inconclusive` kèm lý do, … | T09a | cổng R00 (wfkit/gate.py R00) | test_wf_advisor_errors |  |
+| W40 | Khung đóng gói và kiểm bản cài, dùng lại cho mọi release: module cần thiết vào wheel (hoặc tách module mới để … | T33a | cổng R00 (wfkit/gate.py R00) | test_wf_packaging |  |
+| W41 | Khung diễn tập nâng cấp, rollback và roll-forward trên bản sao sổ, dùng lại cho mọi release; ở R00 là 2.1 → … | T13b | cổng R00 (wfkit/gate.py R00) | test_wf_rollback |  |
+| W41 | Khung diễn tập nâng cấp, rollback và roll-forward trên bản sao sổ, dùng lại cho mọi release; ở R00 là 2.1 → … | T49b | cổng R00 (wfkit/gate.py R00) | test_wf_rollback |  |
 
 ## R01
 

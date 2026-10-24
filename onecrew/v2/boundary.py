@@ -65,6 +65,12 @@ def classify(name, info, ctx):
         return ('frozen', '') if top in ctx['stdlib_names'] else ('VIOLATION', 'frozen module outside stdlib')
     if top in ctx['stdlib_names']:
         if f is None:
+            # a dotted name under a stdlib top with no file was made in memory by that stdlib module itself (typing.io / typing.re on
+            # 3.12); it is stdlib when its parent is a verified stdlib module loaded from a marker file. Nothing on disk can forge it.
+            parent = name.rpartition('.')[0]
+            parent_info = (ctx.get('all_modules') or {}).get(parent)
+            if '.' in name and parent_info is not None and classify(parent, parent_info, ctx)[0] in ('stdlib', 'frozen', 'built-in'):
+                return 'stdlib', ''
             return 'VIOLATION', 'stdlib module with no source'
         if '.' not in name and ctx['ref'].get(name) and norm(ctx['ref'][name]) != f:
             return 'VIOLATION', f'stdlib shadowed: {info.get("file")} != {ctx["ref"][name]}'
@@ -78,4 +84,5 @@ def classify(name, info, ctx):
 
 def violations(modules, ctx):
     """[(name, reason)] for every module in `modules` (a dict name -> info) that is not in a valid group."""
+    ctx = dict(ctx, all_modules=modules)
     return [(name, why) for name in sorted(modules) for group, why in [classify(name, modules[name], ctx)] if group == 'VIOLATION']

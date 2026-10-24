@@ -177,7 +177,11 @@ def milestone_views(contract, state, revision, ledger=None, artifact=None, conn=
         if ledger is not None or artifact is not None:
             candidate = mine[-1] if passed else (_inherited(ledger, state, revision, m, contract) if not mine and carries else None)
             if candidate is not None and now() is not None:
-                how = covers(ledger, candidate['artifact_sha'], now(), m['verifier']['type'], neutral)
+                from .verifiers import artifact as identities
+                if m['verifier']['type'] == 'owner-manual' and ledger is not None and not identities.is_git(ledger.project):
+                    how = 'same'        # without Git the owner's artifact is an opaque document hash; a snapshot identity cannot contradict it
+                else:
+                    how = covers(ledger, candidate['artifact_sha'], now(), m['verifier']['type'], neutral)
                 if ledger is not None and m['verifier']['type'] != 'owner-manual':
                     from . import verification_evidence
                     binding = verification_evidence.receipt_assessment(ledger, contract, m, revision,

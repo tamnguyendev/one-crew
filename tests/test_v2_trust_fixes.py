@@ -930,14 +930,15 @@ class TreeIdsFromReceipts(ReviewerBase):
         self.assertIn('+two', text)                                              # the diff starts from the approval, as if the pass had recorded no tree
 
     def test_an_approval_whose_base_is_not_a_tree_gives_an_inconclusive_receipt_with_the_reason(self):
-        with patch.object(plans, '_base_tracked', return_value='--output=whatever'): self.start()
-        self.commit('a.txt', 'one\ntwo\n')
-        with self.assertRaises(LedgerError) as caught: verdict.diff(self.ledger, 'P1', 'M1')
-        self.assertIn('tree id', str(caught.exception))
-        verdict.run(self.ledger, 'P1', 'M1', self.root)
-        receipt = self.last()
-        self.assertEqual((receipt['result'], receipt['calls'], self.prompts, receipt['base_source']), ('inconclusive', 0, [], 'none'))
-        self.assertIn('tree id', receipt['error'])
+        # W09/T31: approval pins the base trees it names, so a base that is not a tree id is refused AT APPROVAL and nothing is recorded
+        with patch.object(plans, '_base_tracked', return_value='--output=whatever'):
+            plans.propose(self.ledger, 'P1', plan_json(milestones=[review_milestone()]), 'codex')
+            with self.assertRaises(LedgerError) as refused: plans.approve(self.ledger, 'P1', 'owner', 'said yes in chat')
+        self.assertIn('tree id', str(refused.exception)); self.assertNotIn('plan.approved', self.kinds())
+        self.assertEqual(self.prompts, [])                                       # nothing was sent to a reviewer either
+        # (a tracked_tree that is damaged AFTER approval is the previous test: the diff refuses it and the run is inconclusive)
+        plans.approve(self.ledger, 'P1', 'owner', 'said yes in chat')          # with the real base the same contract is approved
+        self.assertIn('plan.approved', self.kinds())
 
     def test_a_plan_approved_before_the_tracked_base_existed_gives_an_inconclusive_receipt_with_the_reason(self):
         """An old plan: no base_tracked, no base_artifact, and every commit is later than the approval, so the commit-before-approval guess finds nothing
