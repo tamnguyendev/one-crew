@@ -39,9 +39,22 @@ Lỗi có sẵn trong bản Codex (`2bfc223`) đã phân loại bằng cách ch�
 Lệnh: `python -m wfkit.development_gate run R01,R02,R03,R04,R05,R06,R07,R08,RP,RX1,RX2,KN,PL --out <thư mục mới trong OS temp> --doc-dir <workflow-chung>`
 trên commit `5e1309f`, manifest `wfkit/development-manifest.json`.
 
-GATE_RESULT_PLACEHOLDER
+Kết quả trên commit `b2cc754` (biên nhận: `C:\Users\NUC\AppData\Local\Temp\wf-dev-gate-20261024-b2cc754\`, log `D:\OneCrewRuns\wf-dev-logs\dev-gate-b2cc754.txt`):
 
-Cổng R00 lịch sử (`python wfkit/gate.py R00`): CG_R00_PLACEHOLDER
+- Wheel một lần: `onecrew-2.2.0.dev3`, sha256 `b7be2e1e557e6e1dc7a2323c49619cad3a1f10eef16a50b18bac9681020c01b4`, cây sạch; bản cài trong venv offline đạt, `control` từ checkout bị từ chối; các check bản cài ghi đúng hash wheel đã dùng.
+- 146 check chạy (71 module test, 10 check bản cài, phần còn lại là registry/lineage/finalgate), **1 074 test, 1 073 đạt, 1 fail, 0 skip**. Kit-guard development: OK (269 pin). Kit-guard lịch sử R00: lineage W12b hợp lệ (`namespace_lineage` validate OK), raw vẫn báo `test_wf_plan_names.py` drift như thiết kế. Bộ tự kiểm tài liệu 06 §7: khối mã `a2ef6c0a…`, không file nào trong thư mục tài liệu bị đổi.
+- **Quyết định gate: `refused`, không giao release.** Ba nhóm lý do:
+  1. Acceptance: 82 testcase `partial`, 10 `blocked` — theo chính sách registry, chưa chứng nhận ma trận acceptance đầy đủ thì không giao. Đây là trạng thái thật, không phải lỗi mới.
+  2. `R03/check.r03a_run_started`: 17/18, ca `test_e8_no_progress_events_or_notices` đỏ vì sổ có `estimate.baseline`. Lỗi **có sẵn trên `2bfc223`**: W32a ghi baseline ngay sau `plan.approved` (04 W32a, T36b), test R03a của Codex viết trước W32a và so toàn bộ loại sự kiện trong sổ thay vì các sự kiện do lần chạy ghi. Sửa đúng là một dòng ở test (cho phép `estimate.baseline` trong tập đã khai, hoặc so cửa sổ trước/sau lần chạy); file test đã ghim trong manifest development nên kit-guard từ chối sửa mà không có U1. Không sửa lén; để chủ sở hữu quyết (mục 5).
+  3. `R08/check.parallel_native`: 1/1 đạt nhưng registry (do Claude thêm ở `a0d378e`) ghi `installed: true` sai — test này chạy CLI công khai trên checkout với hai process cục bộ, không qua wheel. Sửa đúng là đổi cờ thành `false`; mục case đã ghim nên cũng cần U1 (mục 5).
+- Không có lỗi nào khác trong 71 module; không lệch wheel giữa các check bản cài.
+
+Cổng R00 lịch sử (`python wfkit/gate.py R00`, commit `b2cc754`, wheel `0c798e2b…94bbe`, biên nhận `D:\OneCrewRuns\wf-dev-logs\cg-r00-b2cc754\`):
+10/10 testcase đạt (T20 8/8, T13a 10/10, T49a 9/9, T48a 5/5, T09a 7/7, T33a 10/10, T13b 8/8, T49b 8/8, T45a 46/46, T38a PROBLEMS 0);
+bản cài đạt, chạy từ checkout bị từ chối. Quyết định cổng: **REFUSED** chỉ vì kit-guard lịch sử thấy `tests/test_wf_plan_names.py` khác
+pin R00 (lineage W12b/T48b của Codex, ghi ở `wfkit/namespace-lineage.json`; cổng lịch sử không đọc lineage, chỉ U1 của chủ sở hữu mở được).
+Trước sửa `plan.closed` (commit `5e1309f`) T13a còn 9/10: lỗi có sẵn từ `d473cd2`. Hai gate đều chạy từ shell không mang marker phiên AI
+(test có động từ owner trên sổ tạm; marker làm chúng bị từ chối đúng thiết kế W03/C11).
 
 ## 4. Giới hạn, blocker thật, không tuyên bố
 
@@ -55,7 +68,8 @@ Cổng R00 lịch sử (`python wfkit/gate.py R00`): CG_R00_PLACEHOLDER
 
 1. Cho phép chạy W45 (sáu ô provider × vai trò bằng CLI thật, có phí) hay chưa.
 2. Chọn việc thật cho PL-A/PL-B và nghiệm thu từng việc (ngoài development).
-3. U1 cho pin lịch sử nếu muốn R00 kit nhận thêm pin (hiện T39 nằm ở registry development, đủ dùng).
+3. Hai U1 nhỏ để gate development hết hai lý do từ chối kỹ thuật (mục 3): (a) `tests/test_wf_r03a_run_started.py` thêm `estimate.baseline` vào tập sự kiện cho phép của E8 (baseline ghi lúc duyệt theo W32a, không phải lúc chạy); (b) `wfkit/development-testcases.json` R08 `check.parallel_native` → `installed: false`. Hoặc chủ sở hữu cho phép đóng băng lại manifest development (các pin đều lập trong ngày 24/10, chưa có lần giao nào dựa vào). Lý do từ chối còn lại (acceptance partial/blocked) không sửa được bằng U1: cần chứng nhận ma trận từng testcase hoặc giữ nguyên là chưa giao.
+4. Pin lịch sử R00 cho `test_wf_plan_names.py` (lineage W12b) nếu muốn cổng R00 lịch sử tự PASS; hiện gate development đã đọc lineage.
 
 ## 6. Hướng dẫn cho Codex review tổng thể một lượt
 
