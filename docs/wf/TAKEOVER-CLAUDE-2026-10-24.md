@@ -15,10 +15,10 @@ Phạm vi theo testcase: [FEATURE-SCOPE.md](FEATURE-SCOPE.md). Release notes (de
 
 ## 0. Kết quả tóm tắt (đọc 5 dòng)
 
-- 92 task: **Done 57 · Partial 31 · Blocked 4** (lượt 1 sáng nay: 37 · 51 · 4). Tách nhóm: feature 46/14/0; bộ kiểm 11/6/0; phát hành 0/11/0; provider thật 0/0/1; pilot/nghiệm thu 0/0/3.
+- 92 task: **Done 58 · Partial 30 · Blocked 4** tại `bb177f0` (lượt 1 sáng nay: 37 · 51 · 4; trưa 57 · 31 · 4 trước khi hạ 3 P1 rồi sửa xong). Tách nhóm: feature 47/13/0; bộ kiểm 11/6/0; phát hành 0/11/0; provider thật 0/0/1; pilot/nghiệm thu 0/0/3.
 - 20 task feature chuyển Partial → Done trong lượt này, mỗi task có code nối vào đường dùng thật + test mới (36 test mới, 15 file) — chi tiết mục 2.
 - Registry development: 19 check mới, 9 testcase lên `complete` (15 complete tổng), manifest đóng băng lại ở `0d296fe` (307 pin; commit message ghi nhầm 310).
-- Gate development một wheel trên `0d296fe`: **đang chạy** (mục 3 sẽ ghi kết quả; trước đó gate `eae44ce` chạy lúc cây đang sửa nên 3 check đỏ là do cây dở — mục 3).
+- Gate cuối = gate SNAPSHOT trên `bb177f0` (worktree tách rời sạch, mục 3/7): **đang chạy**. Các gate trên cây làm việc (`b2cc754`, `eae44ce`, `0d296fe` bị dừng) chỉ còn là bằng chứng hồi quy có nhãn, không phải chứng nhận commit.
 - Còn lại thật sự: 11 task phát hành (cần bản giao trước thật — E), W45/W38b-d (provider/pilot — E), 14 feature Partial (7 là quyết định của chủ sở hữu hoặc mutant/kịch bản ở mức bộ kiểm — mục 5).
 
 ## 1. Commit của lượt này (sau `5e1309f`)
@@ -32,7 +32,14 @@ Phạm vi theo testcase: [FEATURE-SCOPE.md](FEATURE-SCOPE.md). Release notes (de
 | `602414f` | Registry: 18 check, 9 case complete với ma trận [E] | `development_gate list` |
 | `0d296fe` | T08 E6 grep (W37b) + manifest development thu hồi & đóng băng lại (307 pin) | kitguard.verify qua `layout()`: chỉ 7 pin `registry` lệch trước khi đóng băng lại, không file test nào |
 | `635c037` | Test đợt 5 (T37/W06, T43c/W24b, T20 E5/W03 — chưa đăng ký) + bảng 92 task + FEATURE-SCOPE | 3 module |
-| (này) | Release notes 11 release, báo cáo này, DEV-LOG, coverage, handoff | — |
+| `9aca8be` | Release notes 11 release, báo cáo (bản 2), DEV-LOG, coverage, handoff — **mốc Codex review** | — |
+| `5f8d7b6` | P1 W05: test_integrity decorator/lớp/discovery/support, unproven → inconclusive | t19_counterexamples 5 + T19/T21 14 |
+| `60658ec` | P1 W37a: reconciled(unknown) là hold, nguyên tử; hoàn tất từ receipt đã phát hành; hold theo mốc qua revision | t08a_faults 5 + reconcile 4 + E6 2; hồi quy verdict 11 module OK |
+| `50820d6` | P1 W32a: CLI truyền nodes/still_running, kiểm trước ghi, hold lỗi = lỗi | t36b_cli 4 + 29 láng giềng |
+| `bcc4d88` | P2: `development_gate snapshot --commit` (worktree sạch, fingerprint nguồn ngoài, intact) | snapshot_gate 3 + kit 8 |
+| `9107d61`, `165a190` | Registry +9 check (review + W03/W06/W24b + T08b(a) + T36a); manifest đóng băng lại (lệch trước: chỉ snapshot registry + development_gate.py) | kitguard.verify qua layout() |
+| `cafc5f2` | W37b điểm (a) kill thật trước dispatch → chạy đúng 1 lần; W32b kịch bản T36a | 1 + 3 test, managed 15 OK |
+| `10976ea`, `bb177f0` | Báo cáo §7 (5 finding), bảng 92 task tại 165a190 | — |
 
 ## 2. Chuyển trạng thái có bằng chứng (Partial → Done, theo loại nguyên nhân của bản audit)
 
@@ -68,7 +75,9 @@ chạy từ shell không mang marker phiên AI (`env -u CLAUDE_CODE_CHILD_SESSIO
 
 - `b2cc754` (sáng): 146 check, 1 074 test / 1 073 đạt / 0 skip; từ chối vì acceptance partial + E8 (đã U1) + cờ installed (đã U1).
 - `eae44ce` (trưa): 146/146 biên nhận; 3 check đỏ **vì gate đọc cây làm việc trong lúc Claude đang sửa dở** (`record()` chưa có `integrity`, `reconcile` chưa định nghĩa) — không phải lỗi mã đã commit; `r01_card` E7 đỏ vì flake giờ (mục 5). Biên nhận: `C:\Users\NUC\AppData\Local\Temp\wf-dev-gate-20261024-eae44ce\`.
-- `0d296fe` (tối): **đang chạy**, output `C:\Users\NUC\AppData\Local\Temp\wf-dev-gate-20261024-0d296fe\`, log `D:\OneCrewRuns\wf-dev-logs\dev-gate-0d296fe.txt`. Kết quả sẽ được ghi vào mục này khi xong (165 check, có hai module register v1 ~40 phút). Kỳ vọng: từ chối giao release vì còn partial/blocked (đúng thiết kế); mọi check phải xanh trừ `r01_card` nếu chạy trong khung giờ 10–19 UTC.
+- `0d296fe` (tối): chạy trên cây làm việc, **bị dừng ở 55/165 biên nhận** sau review Codex P2 (gate cuối phải chạy trên snapshot cố định). Biên nhận giữ nguyên nhãn.
+- `9107d61` (đêm, gate snapshot đầu tiên): dừng ở 10/165 vì không còn là commit cuối (W37b(a)/W32b vào sau).
+- **`bb177f0` (đêm, gate snapshot cuối)**: `python -m wfkit.development_gate snapshot R01,…,PL --commit bb177f0 --out <mới dưới OS temp> --doc-dir <workflow-chung>`; output `%TEMP%\wf-snapshot-gate-20261024-bb177f0\` (snapshot.json: commit, fingerprint doc-dir + interpreter; gate\decision.json; decision.json tổng có `snapshot.intact`), log `D:\OneCrewRuns\wf-dev-logs\snapshot-gate-bb177f0.txt`. **Đang chạy** (~3 h, 170 check kể cả hai module register v1). Kết quả PASS/FAIL/SKIP từng check được ghi vào mục này khi xong. Kỳ vọng: `refused` vì acceptance partial/blocked (đúng thiết kế), mọi implementation check xanh trừ `r01_card` E7 nếu chạy trong khung 10–19 UTC.
 
 Hồi quy đã chạy trên cây này (log `D:\OneCrewRuns\wf-dev-logs\`): `w48a-w50b-regress.txt` 258 test (5 F: 4 do wheel thiếu 2 module W05 → đã sửa pyproject, chạy lại `installed-regress-2.txt` 9/9; 1 r01_card flake), `w37a-regress.txt` 129 OK, `w21-regress.txt` 107 OK, các module mới chạy riêng (mục 1).
 Không chạy: toàn bộ `tests.test_v2_reviewer` (RealCliTests gọi provider thật); không provider trả phí; không sổ thật.
