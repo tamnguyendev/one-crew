@@ -185,6 +185,33 @@ def _new(ledger, value, name, revision, sha, milestone, criterion, claim, receip
     return entry, True
 
 
+def after_change(ledger, name):
+    """After the register changed and committed: re-export the active plan (external hooks withdraw writes) and ask running
+    managed attempts of held nodes to pause at their next safe point. Neither may undo the committed register change."""
+    from . import active_plan
+    managed = False
+    try:
+        with ledger.transaction() as conn:
+            root = plans.anchor_events(ledger, conn, name)
+            managed = namespaces.has_capability(root, 'sequential-engine')
+            seq = active_plan.register_seq(conn, root['task_id'])
+        if managed:
+            # the marker goes first: if the export below fails, the hot hook sees a register newer than the plan it has and refuses writes
+            active_plan._write(active_plan.holds_marker(ledger.project), {'anchor': root['selector'], 'register_seq': seq})
+    except (LedgerError, OSError, ValueError) as error:
+        import sys
+        print('OneCrew holds marker not written: ' + type(error).__name__ + ': ' + str(error)[:200], file=sys.stderr)
+    active_plan.export(ledger, name)
+    try:
+        if managed:
+            from . import managed_executor
+            return managed_executor.hold_for_findings(ledger, name)
+    except (LedgerError, OSError, ValueError) as error:
+        import sys
+        print('OneCrew managed hold pending: ' + type(error).__name__ + ': ' + str(error)[:200], file=sys.stderr)
+    return []
+
+
 def record_review(ledger, name, node, receipt, *, generation=1, severity='major', read=(), write=(), task_id=None, conn=None, revision=None):
     """Register failed criteria only; outside_criteria remain in the receipt.
 
@@ -206,8 +233,7 @@ def record_verification(ledger, name, node, receipt, *, generation=1, severity='
         with ledger.transaction(write=True) as connection:
             result=record_verification(ledger, name, node, receipt, generation=generation, severity=severity, read=read, write=write,
                                       task_id=task_id, conn=connection, revision=revision, reviewer_only=reviewer_only)
-        from . import active_plan
-        active_plan.export(ledger,name)
+        after_change(ledger, name)
         return result
     root, revision, sha, contract = _context(ledger, conn, name, task_id, revision)
     _require_capability(root)
@@ -277,8 +303,7 @@ def update(ledger, name, ident, *, reason, severity=None, read=None, write=None,
             target['severity'] = severity
         target['scope'] = _scope(target['scope']['read'] if read is None else read, target['scope']['write'] if write is None else write)
         _save(ledger, conn, root, name, revision, value, 'update', finding=ident, reason=reason)
-    from . import active_plan
-    active_plan.export(ledger,name)
+    after_change(ledger, name)
     return copy.deepcopy(target)
 
 
@@ -316,8 +341,7 @@ def resolve(ledger, name, ident, receipt, *, reason, artifact_sha, generation=1,
         except LedgerError as error:
             result_view = {'closed': [], 'refused': [str(error)]}
         _save(ledger, conn, root, name, revision, value, 'reject' if reject else 'resolve', finding=ident, **result_view)
-    from . import active_plan
-    active_plan.export(ledger,name)
+    after_change(ledger, name)
     return result_view
 
 

@@ -36,7 +36,11 @@ class RepairTasksTests(EngineFixture):
         after = self.engine.state(self.ledger, 'P1')
         self.assertEqual(after['nodes']['C']['generation'], self.before['nodes']['C']['generation'] + 1)
         self.assertEqual(after['nodes']['I']['generation'], self.before['nodes']['I']['generation'] + 1)
-        self.assertEqual(after['nodes']['B'], self.before['nodes']['B'])
+        # B is untouched by the repair: same generation, artifact, receipts and state. The only change is that the new internal
+        # revision is added to the revisions B's result stays valid for (a late result of an unchanged node is never discarded).
+        unchanged = {k: v for k, v in after['nodes']['B'].items() if k != 'valid_internal_revisions'}
+        self.assertEqual(unchanged, {k: v for k, v in self.before['nodes']['B'].items() if k != 'valid_internal_revisions'})
+        self.assertEqual(after['nodes']['B']['valid_internal_revisions'], self.before['nodes']['B']['valid_internal_revisions'] + [after['internal_revision']])
         self.assertEqual(after['nodes']['B']['state'], 'verified')
         configured = next(n for n in after['definition']['nodes'] if n['id'] == 'C')['checks']
         order = repair_tasks.verification_order(self.ledger, 'P1', 'C', configured)

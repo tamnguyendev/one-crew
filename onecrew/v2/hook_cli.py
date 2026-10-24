@@ -153,6 +153,23 @@ def rules_text(plan):
             f"`onecrew plan amend {plan.get('plan')} --file <revised plan.json> --reason \"<why>\" --author claude`; the owner approves it.")
 
 
+def holds_current(root, plan):
+    """The hot path reads only two small files. The register writer leaves `.onecrew/workflow-holds.json` {anchor, register_seq} before it
+    re-exports the plan; a marker newer than the plan's workflow_holds.register_seq means the exported holds are stale (the export failed or
+    has not happened yet), so the plan cannot say which paths are held: raise, and enforce mode blocks the call."""
+    holds = plan.get('workflow_holds')
+    if not isinstance(holds, dict): return
+    try:
+        marker = json.loads((Path(root) / '.onecrew' / 'workflow-holds.json').read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError):
+        return
+    if not isinstance(marker, dict) or marker.get('anchor') != plan.get('anchor'): return
+    newer, known = marker.get('register_seq'), holds.get('register_seq')
+    if isinstance(newer, int) and (not isinstance(known, int) or newer > known):
+        raise ValueError(f'the finding register changed (seq {newer}) after the active plan was exported (seq {known}); the held scope is unknown. '
+                         f'Run `onecrew hook export {plan.get("plan")}` to refresh it.')
+
+
 def judge_path(plan, root, target, action):
     """(rule, reason) when this plan forbids writing to `target`, else None."""
     rel = relative(target, root)
@@ -580,6 +597,7 @@ def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, re
         expires = plan.get('expires')
         if touched and expires and dt.datetime.fromisoformat(expires) < dt.datetime.now(dt.timezone.utc):
             raise ValueError('the active plan expired; the owner re-approves it (plan approve) to refresh it')
+        if touched: holds_current(root, plan)        # W18: a register newer than the exported holds fails closed, never open
         data = event.get('tool_input') if isinstance(event.get('tool_input'), dict) else {}
         verdict = None
         if plan.get('status') in ('stopped_with_report','closed') and touched:      # first in the chain and not tool-specific: edits and shell commands alike get this verdict

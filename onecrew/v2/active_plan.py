@@ -56,6 +56,20 @@ def project_file(project):
     return Path(project) / '.onecrew' / FILE
 
 
+HOLDS_FILE = 'workflow-holds.json'
+
+
+def holds_marker(project):
+    """A tiny marker the register writer leaves BEFORE re-exporting the active plan: {anchor, register_seq}. The hot hook compares
+    it with workflow_holds.register_seq of the exported plan and refuses writes while the export is behind the register."""
+    return Path(project) / '.onecrew' / HOLDS_FILE
+
+
+def register_seq(conn, task_id):
+    row = conn.execute("SELECT MAX(seq) FROM events WHERE task_id=? AND kind='finding.registered'", (task_id,)).fetchone()
+    return int(row[0] or 0)
+
+
 def policy(ledger):
     """Owner-chosen hook settings, kept in the state root so that a re-export keeps them: {"mode": "log"|"enforce"}."""
     try:
@@ -105,6 +119,7 @@ def build(ledger, name):
         if namespaces.has_capability(state, 'sequential-engine'):
             from . import finding_scope
             workflow_holds = finding_scope.write_scope(ledger, state['selector'], conn)
+            workflow_holds['register_seq'] = register_seq(conn, task_id)      # the register generation this export reflects
     questions = [r['id'] for r in ledger.requests(task_id, pending=True)]
     chosen = policy(ledger)
     root = Path(ledger.state_root).resolve()

@@ -6,6 +6,7 @@ Control attempts plus existing event/blob storage are the only durable journal.
 Pause waits for the current bounded operation; it never suspends a live process.
 """
 import json
+import time
 
 from ..common_executor import NativeExecutor
 from ..ledger import LedgerError, canonical, content_hash, text_field
@@ -50,6 +51,33 @@ def unresolved(ledger, selector, conn=None):
         pending.append({'attempt': attempt_id, 'node': prepared['node'], 'task': attempt['task_id'] if attempt else None,
                         'status': attempt['status'] if attempt else 'unknown', 'reason': 'managed result lacks a durable candidate; reconcile before replay'})
     return pending
+
+
+def hold_for_findings(ledger, selector, conn=None, *, reason=None):
+    """W18/W36 (T07b [E16], T15c [E7]): when an open finding holds a node whose managed attempt is still running, ask THAT
+    attempt to pause at its next safe point. Nothing is sent to an attempt without a managed history (a hook executor only
+    loses write permission through the exported active plan, T15c [E9]); a request already made is not repeated; the
+    acknowledgement itself still comes only from the real Supervisor safe point (_ack_pause). Returns the requests made."""
+    from . import engine
+    if conn is None:
+        with ledger.transaction() as connection:
+            view = engine.state(ledger, selector, connection)
+    else:
+        view = engine.state(ledger, selector, conn)
+    held = view.get('finding_blockers') or {}
+    requests = []
+    adapter = None
+    for active in view.get('active_nodes', []):
+        findings_ = held.get(active['node'])
+        if not findings_: continue
+        adapter = adapter or ManagedExecutor(ledger, initialize=False)
+        history = adapter._history(active['attempt'])
+        if not any(p['phase'] == 'prepared' for p in history): continue                 # not a managed attempt: no pause command exists for it
+        if any(p['phase'] in ('pause_requested', 'paused', 'stop_requested') for p in history): continue
+        text = reason or f'Open finding {", ".join(sorted(findings_))} holds node {active["node"]}'
+        adapter.pause_at_safe_point(active['attempt'], text)
+        requests.append({'node': active['node'], 'attempt': active['attempt'], 'findings': sorted(findings_), 'reason': text})
+    return requests
 
 
 class ManagedExecutor(executors.Executor):
@@ -152,12 +180,43 @@ class ManagedExecutor(executors.Executor):
             if recovered.get('candidate'):
                 return recovered['candidate']
             raise LedgerError('Managed intent already exists; ' + recovered['state'] + ', no process is replayed.')
-        candidate = self.native.start(ledger, control, task, node, attempt)
+        prepared = self.native.prepare(ledger, control, task, node, attempt)
+        # Durable launch intent (W37b crash point b): the base snapshot and the exact node are what a rebuild needs after a
+        # crash between the settled process and the candidate checkpoint. Written before the provider launch.
+        self._write(attempt['id'], 'dispatching', base=prepared['base'], node_definition=node,
+                    prompt_sha=content_hash(prepared['prompt']), profile=prepared['profile'])
+        started = time.monotonic()
+        prepared['worker'].run(attempt, prepared['prompt'], prepared['schema'], prepared['profile'])
         settled = control.attempt(attempt['id'])
         if not self._safe(settled):
             raise LedgerError('A managed candidate needs a successful, settled Supervisor process-tree receipt.')
+        candidate = self.native.finish(ledger, task, node, attempt, prepared, settled, elapsed=time.monotonic() - started)
         self._write(attempt['id'], 'candidate', candidate=candidate)
         self._ack_pause(attempt['id'])
+        return candidate
+
+    def _rebuild(self, attempt_id):
+        """W37b crash point (c): the process settled successfully and its launch intent is on record, but the controller died before
+        the candidate checkpoint. Rebuild the candidate from the durable evidence only: the recorded base snapshot, the recorded node,
+        and the worker's result read from the settled process outputs. No worker.run, no new charge. None when any piece is missing,
+        so the attempt stays `unknown` rather than being guessed."""
+        attempt = self.control.attempt(attempt_id)
+        if not self._safe(attempt): return None
+        history = self._history(attempt_id)
+        prepared = next((p for p in history if p['phase'] == 'prepared'), None)
+        intent = next((p for p in reversed(history) if p['phase'] == 'dispatching'), None)
+        if prepared is None or intent is None or not intent.get('base') or not isinstance(intent.get('node_definition'), dict): return None
+        node = intent['node_definition']
+        if content_hash(node) != prepared['node_sha'] or node.get('id') != prepared['node']: return None
+        if self.native is None: return None             # a state/recovery-only connection has no worker factory to read the result with
+        task = self.ledger.task(attempt['task_id'], full=True)
+        try:
+            context = self.native.rebuild_context(self.ledger, self.control, node, intent['base'])
+            seconds = self._process_result(attempt).get('seconds')
+            candidate = self.native.finish(self.ledger, task, node, attempt, context, attempt,
+                                           elapsed=seconds if isinstance(seconds, (int, float)) else 0, rebuilt_from='settled-process')
+        except (LedgerError, OSError, ValueError, KeyError, TypeError):
+            return None                                  # the durable outputs do not yield a candidate: the result stays unknown
         return candidate
 
     def pause_at_safe_point(self, attempt_id, reason='The branch is held'):
@@ -188,6 +247,11 @@ class ManagedExecutor(executors.Executor):
             state = 'pause_requested'
         elif candidate and self._safe(attempt):
             state = 'completed'
+        elif (attempt['status'] == 'settled' and proof.get('reason') is None and proof.get('tree_stopped') is True
+              and json.loads(attempt.get('identity') or '{}').get('job_contained') is True
+              and isinstance(proof.get('exit_code'), int) and not isinstance(proof.get('exit_code'), bool) and proof['exit_code'] != 0):
+            state = 'failed'          # the contained process itself ended with a non-zero exit: a KNOWN failure. An interrupted or
+                                      # timed-out supervisor (reason set) stays unknown: its effect may have happened.
         else:
             state = 'running' if attempt['status'] == 'running' else 'unknown'
         host = host_status_core.status(self.ledger.state_root)
@@ -217,8 +281,17 @@ class ManagedExecutor(executors.Executor):
             self._write(attempt_id, 'reconciled', previous=before, result=reconciled)
         self._ack_pause(attempt_id)
         result = self.state(attempt_id)
-        # A settled process without a saved candidate is still an ambiguous
-        # operation result. There is deliberately no worker.run call here.
-        if result['candidate'] is None and result['state'] not in ('paused', 'stopped', 'stop_requested', 'pause_requested'):
+        if result['candidate'] is None and result['state'] == 'unknown':
+            rebuilt = self._rebuild(attempt_id)          # durable evidence only; never a worker.run
+            if rebuilt is not None:
+                self._write(attempt_id, 'candidate', candidate=rebuilt, rebuilt_from='settled-process')
+                self._ack_pause(attempt_id)
+                result = self.state(attempt_id)
+                result['rebuilt_from'] = 'settled-process'
+        # A settled process without a saved candidate and without enough durable
+        # evidence is still an ambiguous operation result. There is deliberately no worker.run call here.
+        if result['candidate'] is None and result['state'] not in ('paused', 'stopped', 'stop_requested', 'pause_requested', 'failed'):
             result.update(state='unknown', text='operation result unknown; reconcile before any retry')
+        elif result['candidate'] is None and result['state'] == 'failed':
+            result['text'] = 'the managed process failed (known result); repair or replan, nothing to replay'
         return result

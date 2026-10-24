@@ -31,6 +31,16 @@ class NativeExecutor(executors.Executor):
         return self.start(ledger, control, task, node, attempt)
 
     def start(self, ledger, control, task, node, attempt):
+        prepared = self.prepare(ledger, control, task, node, attempt)
+        started = time.monotonic()
+        prepared['worker'].run(attempt, prepared['prompt'], prepared['schema'], prepared['profile'])
+        settled = control.attempt(attempt['id'])
+        if settled['status'] != 'settled': raise LedgerError('The existing provider worker did not settle its attempt.')
+        return self.finish(ledger, task, node, attempt, prepared, settled, elapsed=time.monotonic() - started)
+
+    def prepare(self, ledger, control, task, node, attempt):
+        """Everything before the provider launch: pin check, base snapshot, inherited inputs, prompt. A failure here is a known
+        not-started attempt. Returns the dispatch context; `base` is what a durable launch intent should record."""
         pin = node.get('executor')
         if not pin: raise LedgerError('A native node must pin its worker provider and model.')
         owned = ledger.task(task['id'], full=True)['handoff']['owned_execution']
@@ -74,10 +84,22 @@ class NativeExecutor(executors.Executor):
                 control.finish(attempt['id'], attempt['generation'], {'reason': 'native_preflight', 'error': str(error)}, not_started=True)
             raise
         profile = {'provider': pin['provider'], 'model': pin['model'], 'step_seconds': int(node['execution_cap_seconds'])}
-        started = time.monotonic()
-        worker.run(attempt, prompt, schema, profile)
-        settled = control.attempt(attempt['id'])
-        if settled['status'] != 'settled': raise LedgerError('The existing provider worker did not settle its attempt.')
+        return {'worker': worker, 'store': store, 'pin': pin, 'base': base, 'context': context, 'schema': schema, 'prompt': prompt, 'profile': profile}
+
+    def rebuild_context(self, ledger, control, node, base):
+        """The dispatch context again from a recorded launch intent (same base snapshot, same pin); no provider launch."""
+        pin = node.get('executor')
+        store = Snapshots(ledger.state_root)
+        worker = (self.worker_factory or providers.make_worker)(control, pin['provider'])
+        return {'worker': worker, 'store': store, 'pin': pin, 'base': base, 'context': store.context(base),
+                'schema': artifact_schema(node['write']) if node['write'] else REPORT_SCHEMA, 'prompt': None,
+                'profile': {'provider': pin['provider'], 'model': pin['model'], 'step_seconds': int(node['execution_cap_seconds'])}}
+
+    def finish(self, ledger, task, node, attempt, prepared, settled, *, elapsed, rebuilt_from=None):
+        """From the SETTLED process to the durable candidate: the worker's result is read from the durable outputs of that process
+        (never a second launch), scoped into the snapshot overlay, and sealed in a native-node-receipt. `rebuilt_from` marks a
+        candidate recovered after a crash between settlement and the candidate checkpoint."""
+        worker, store, pin, base, context, profile = (prepared[k] for k in ('worker', 'store', 'pin', 'base', 'context', 'profile'))
         value, usage = worker.result(settled)
         response = store.blob(canonical(value).encode('utf-8'))
         if node['write']:
@@ -106,13 +128,17 @@ class NativeExecutor(executors.Executor):
         body = {'kind': 'native-node-receipt', 'task': task['id'], 'attempt': attempt['id'], 'node': node['id'],
                 'role': pin['role'], 'provider': pin['provider'], 'model': pin['model'], 'profile': profile,
                 'base': base, 'artifact': artifact, 'inputs': node.get('input_artifacts', {}), 'response': response,
-                'usage': usage, 'elapsed_seconds': round(time.monotonic() - started, 6),
+                'usage': usage, 'elapsed_seconds': round(float(elapsed), 6),
                 'changed_paths': changed, 'content_sha': measured_hash, 'internal_model_call_cap': False,
-                'scope_enforced_by': 'shared workflow.artifacts + snapshots.overlay; no project apply'}
+                'scope_enforced_by': 'shared workflow.artifacts + snapshots.overlay; no project apply',
+                **({'rebuilt_from': rebuilt_from} if rebuilt_from else {})}
         receipt = store.blob(canonical(body).encode('utf-8'))
         binding = ledger.task(task['id'], full=True)['handoff']['plan_binding']
-        executors.observe(ledger, binding['selector'], self, attempt['id'], 'end', source='receipt', ref=receipt,
-                          measured={'seconds': body['elapsed_seconds']})
+        try:
+            executors.observe(ledger, binding['selector'], self, attempt['id'], 'end', source='receipt', ref=receipt,
+                              measured={'seconds': body['elapsed_seconds']})
+        except LedgerError:
+            if not rebuilt_from: raise          # on a rebuild the crashed run may already have observed this attempt's end; that record stands
         observation = {'kind': 'tool', 'action': 'run', 'args': {'node': node['id'], **pin},
              'result': {'changed_paths': changed, 'content_sha': measured_hash,
                         'exit_code': json.loads(settled['result']).get('exit_code')}, 'snapshot': measured_hash}
@@ -122,6 +148,9 @@ class NativeExecutor(executors.Executor):
             independent = bool(validated or node.get('input_artifacts'))
             if measured_hash == prior_hash or (prior_hash is None and not independent):
                 observation = {'kind': 'unknown', 'snapshot': measured_hash}
-        progress_track.observe(ledger, binding['selector'], node['id'], self, attempt['id'], 'native-output-' + attempt['id'], observation,
-            source='receipt', ref=receipt, command_cap_seconds=node['execution_cap_seconds'])
+        try:
+            progress_track.observe(ledger, binding['selector'], node['id'], self, attempt['id'], 'native-output-' + attempt['id'], observation,
+                source='receipt', ref=receipt, command_cap_seconds=node['execution_cap_seconds'])
+        except LedgerError:
+            if not rebuilt_from: raise          # same: the crashed run's own progress observation of this attempt is kept, not rewritten
         return {'artifact': artifact, 'receipt': receipt}

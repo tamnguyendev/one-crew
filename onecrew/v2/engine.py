@@ -201,8 +201,10 @@ def _input_blocks(view, nid):
         target = pending.pop()
         if target in seen: continue
         seen.add(target)
-        if (view.get('unknown_blockers', {}).get(target) or view.get('finding_blockers', {}).get(target)
-                or view.get('failed_blockers',{}).get(target)): return True
+        # A node's OWN failed verification is not an input block: the same generation may be checked again (T38c
+        # "superseded failure") or repaired. Its dependents, and any upstream failure, do block.
+        failed = [source for source in view.get('failed_blockers', {}).get(target, []) if not (target == nid and source == nid)]
+        if view.get('unknown_blockers', {}).get(target) or view.get('finding_blockers', {}).get(target) or failed: return True
         pending.extend(edge['node'] for edge in nodes.get(target, {}).get('depends', []))
     return False
 

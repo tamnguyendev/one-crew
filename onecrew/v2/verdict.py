@@ -136,6 +136,9 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
         import sys
         print('OneCrew learning pending: ' + type(error).__name__ + ': ' + str(error)[:200], file=sys.stderr)
     from . import active_plan; active_plan.export(ledger, name)  # L2: the hooks see the new milestone state
+    if body and namespaces.has_capability(state, 'finding-register'):
+        from . import findings
+        findings.after_change(ledger, name)                        # W36: a running managed attempt of a node a new finding holds is asked to pause
     out = plans.show(ledger, name, revision)         # the revision the verdict was about (the approved one while an amendment waits)
     if escalation: out['stopped'] = escalation
     if result != 'pass':

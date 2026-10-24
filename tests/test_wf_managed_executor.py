@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 from onecrew.ledger import LedgerError, content_hash
 from onecrew.process_core import Supervisor, native_python
@@ -188,6 +189,46 @@ class ManagedExecutorTests(ManagedFixture):
         with self.assertRaises(LedgerError): self.adapter.start(self.ledger, self.adapter.control, task, item, attempt)
         self.assertEqual(self.launches, [attempt['id']]); self.assertEqual(self.marker.read_text().splitlines(), ['operation completed'])
         self.assertEqual(self.adapter.control.attempt(attempt['id'])['result'], before['result'])
+
+    def test_crash_after_settled_process_before_candidate_checkpoint_rebuilds_from_durable_evidence_without_relaunch(self):
+        # Fault injection at (c) with the launch intent on record: the controller dies right before the candidate checkpoint.
+        task, item, attempt = self.fresh_reserved('settled-before-checkpoint')
+        real_write = self.adapter._write
+        def crash_at_checkpoint(attempt_id, phase, **facts):
+            if phase == 'candidate': raise RuntimeError('controller died before the candidate checkpoint')
+            return real_write(attempt_id, phase, **facts)
+        with patch.object(self.adapter, '_write', side_effect=crash_at_checkpoint):
+            with self.assertRaises(RuntimeError):
+                self.adapter.start(self.ledger, self.adapter.control, task, item, attempt)
+        self.assertEqual(self.launches, [attempt['id']]); self.assertEqual(self.marker.read_text().splitlines(), ['operation completed'])
+        phases = [p['phase'] for p in self.adapter._history(attempt['id'])]
+        self.assertEqual(phases, ['prepared', 'dispatching'])
+        charged = self.adapter.control.status(task['id'])['used_calls']
+        recovered = self.adapter.recover(attempt['id'])
+        self.assertEqual(recovered['state'], 'completed', recovered); self.assertEqual(recovered.get('rebuilt_from'), 'settled-process')
+        candidate = recovered['candidate']; self.assertIsNotNone(candidate)
+        self.assertEqual(self.store.context(candidate['artifact'])['a.txt'], 'isolated candidate\n')
+        receipt = json.loads(self.store.read_blob(candidate['receipt']))
+        self.assertEqual((receipt['kind'], receipt['attempt'], receipt['rebuilt_from']), ('native-node-receipt', attempt['id'], 'settled-process'))
+        self.assertEqual(self.launches, [attempt['id']], 'no second launch'); self.assertEqual(self.marker.read_text().splitlines(), ['operation completed'])
+        self.assertEqual(self.adapter.control.status(task['id'])['used_calls'], charged, 'no second charge')
+        self.assertEqual(managed_executor.unresolved(self.ledger, 'P1'), [])
+        # the saved rebuilt candidate now replays through start() like any saved candidate: still no process
+        self.assertEqual(self.adapter.start(self.ledger, self.adapter.control, task, item, attempt), candidate)
+        self.assertEqual(self.launches, [attempt['id']])
+
+    def test_settled_process_failure_is_a_known_failed_result_not_unknown(self):
+        task, item, attempt = self.fresh_reserved('process-fails')
+        self.delay = 'not-a-number'                     # the fixture operation raises before completing: exit code 1, no candidate
+        with self.assertRaisesRegex(LedgerError, 'successful, settled Supervisor'):
+            self.adapter.start(self.ledger, self.adapter.control, task, item, attempt)
+        self.assertFalse(self.marker.exists())
+        recovered = self.adapter.recover(attempt['id'])
+        self.assertEqual(recovered['state'], 'failed', recovered); self.assertIsNone(recovered['candidate'])
+        self.assertIn('known result', recovered['text'])
+        self.assertEqual(self.launches, [attempt['id']])
+        with self.assertRaises(LedgerError): self.adapter.start(self.ledger, self.adapter.control, task, item, attempt)
+        self.assertEqual(self.launches, [attempt['id']], 'a known failure is never replayed blindly')
 
     def test_hook_executor_never_receives_managed_pause_or_isolate(self):
         dispatcher = executors.Dispatcher()
