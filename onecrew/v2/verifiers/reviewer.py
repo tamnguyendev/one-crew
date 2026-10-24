@@ -22,6 +22,7 @@ from ...ledger import LedgerError, canonical, utcnow
 from ...independence import independence
 from ...snapshots import Snapshots
 from ..claude_cli import cli_argv  # noqa: F401  (one finder; tests replace reviewer.cli_argv)
+from .. import providers
 from . import command
 
 VERDICTS = ('pass', 'fail', 'inconclusive')
@@ -51,7 +52,8 @@ def check_independence(revision_event, config):
     """Before any call: the reviewer is not the author (qc_gate.independence raises on the same provider and model, or on a same-vendor author
     whose model is unknown). The weakest level over the authors is the one recorded."""
     rank = {'cross_vendor': 2, 'same_vendor_other_model': 1, 'unknown_author_vendor': 0}
-    results = [independence(name, None, model, config['provider'], config['model']) for name, model in authors(revision_event)]
+    if config['provider'] == 'claude': results = [independence(name, None, model, config['provider'], config['model']) for name, model in authors(revision_event)]
+    else: results = [providers.independence(name, model, config['provider'], config['model']) for name, model in authors(revision_event)]     # W43: judged by vendor
     if not results: raise LedgerError('The plan revision records no author, so independence cannot be shown.')
     return min(results, key=lambda r: rank[r['level']])
 
@@ -236,29 +238,23 @@ def expected_result(receipt):
 # ---- the call -----------------------------------------------------------------------------------------------------------
 
 def call(prompt, config, env, scratch, limit):
-    """One `claude -p` call: prompt on stdin, JSON on stdout, no tools, no session file, user settings only, an empty working directory (so no
-    project hook or CLAUDE.md is loaded). Returns (answer_text, usage, error, timed_out, raw_stdout)."""
+    """One read-only CLI call of the provider the config names (default claude): prompt in, JSON out, no tools, no session file, an empty working
+    directory (so no project hook or CLAUDE.md is loaded). Returns (answer_text, usage, error, timed_out, raw_stdout). Claude is `claude -p` as ever;
+    codex and kiro are built in providers.py. A usage limit is an error that starts `quota_exhausted:`; no other provider is tried."""
+    if config.get('provider', 'claude') != 'claude': return providers.call(config['provider'], prompt, config['model'], env, scratch, limit)
     argv = [*cli_argv(env), '-p', '--output-format', 'json', '--model', config['model'], '--tools', '', '--no-session-persistence',
             '--disable-slash-commands', '--setting-sources', 'user']
-    out, err, timed_out = b'', b'', False
-    try:
-        process = subprocess.Popen(argv, cwd=scratch, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   creationflags=0x08000000 if os.name == 'nt' else 0)
-        try:
-            out, err = process.communicate(prompt.encode('utf-8'), timeout=limit * 60)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            command._kill_tree(process)
-            out, err = process.communicate()
-    except OSError as problem:
-        return '', {}, f'{type(problem).__name__}: {problem}'[:300], False, b''
+    out, err, code, timed_out, os_error = providers.run_process(argv, prompt, scratch, env, limit)
+    if os_error: return '', {}, os_error, False, b''
     if timed_out: return '', {}, None, True, out
     try:
         body = json.loads(out.decode('utf-8', 'replace'))
     except ValueError:
-        return '', {}, 'CLI output is not JSON (exit %s): %s' % (process.returncode, (err or out).decode('utf-8', 'replace')[:200]), False, out
-    if not isinstance(body, dict) or body.get('is_error') or process.returncode or not isinstance(body.get('result'), str):
-        return '', {}, 'CLI reported an error (exit %s): %s' % (process.returncode, str(body.get('result') if isinstance(body, dict) else body)[:200]), False, out
+        return '', {}, 'CLI output is not JSON (exit %s): %s' % (code, (err or out).decode('utf-8', 'replace')[:200]), False, out
+    if not isinstance(body, dict) or body.get('is_error') or code or not isinstance(body.get('result'), str):
+        text = str(body.get('result') if isinstance(body, dict) else body)[:200]
+        quota = isinstance(body, dict) and body.get('is_error') and providers.is_quota(body.get('result'))
+        return '', {}, providers.quota_error('claude', text) if quota else 'CLI reported an error (exit %s): %s' % (code, text), False, out
     usage = {k: body.get(k) for k in ('usage', 'total_cost_usd', 'duration_ms', 'num_turns') if k in body}
     return body['result'][:MAX_ANSWER], usage, None, False, out
 
@@ -313,6 +309,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     except LedgerError:
         after = None                         # not the same as before: never a pass
     receipt = {'kind': 'reviewer-receipt', 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
+               'provider': config['provider'], 'model': config['model'], 'role': 'reviewer', 'provider_error': None if not calls else 'timeout' if timed_out else providers.error_kind(error) or ('invalid_response' if problems else None),
                'config': config, 'cwd': str(directory), 'started': started, 'seconds': round(time.monotonic() - begin, 2),
                'artifact_sha': before, 'artifact_sha_after': after, 'base_artifact': base, 'base_source': base_source, 'tracked_tree': tracked,
                'base_tracked': base_tracked, 'not_shown': hidden + unshown + binary, 'diff': store.blob(diff.encode('utf-8')), 'prompt': store.blob(prompt.encode('utf-8')) if prompt else None,

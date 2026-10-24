@@ -80,15 +80,27 @@ def _reviewer(config, name):
     narrow question the reviewer can answer with file:line, so a question that names no file or kind of change is refused here, at propose."""
     if not isinstance(config, dict) or set(config) - {'provider', 'model', 'criteria', 'max_minutes'} or {'provider', 'model', 'criteria'} - set(config):
         raise LedgerError(name + ': reviewer verifier takes provider, model, criteria and max_minutes.')
-    from ..independence import NATIVE_REVIEWERS
-    if config['provider'] not in NATIVE_REVIEWERS:
-        raise LedgerError(f'{name}.provider: one of {", ".join(NATIVE_REVIEWERS)} (other vendors are not adapted yet).')
+    from .providers import PROVIDERS
+    if config['provider'] not in PROVIDERS:
+        raise LedgerError(f'{name}.provider: one of {", ".join(PROVIDERS)} (each takes a model).')
     model = config['model']
     if not isinstance(model, str) or not MODEL.fullmatch(model): raise LedgerError(name + '.model: expected a model id such as claude-haiku-5-5.')
     criteria = _list(config['criteria'], name + '.criteria', 1, MAX_CRITERIA, lambda c: _criterion(c, name))
     if len({c['id'] for c in criteria}) != len(criteria): raise LedgerError(name + '.criteria: duplicate id.')
     return {'provider': config['provider'], 'model': model, 'criteria': criteria,
             'max_minutes': _int(config.get('max_minutes', 10), name + '.max_minutes', 1, REVIEWER_MAX_MINUTES)}
+
+
+FIELDS = FIELDS | {'advisor'}
+
+
+def _advisor(value):
+    """The advisor `plan advise` uses when no model is given on the command line: {provider, model}, the same providers and model ids as a reviewer."""
+    from .providers import PROVIDERS
+    if not isinstance(value, dict) or set(value) != {'provider', 'model'}: raise LedgerError('advisor: expected {"provider": ..., "model": ...}.')
+    if value['provider'] not in PROVIDERS: raise LedgerError(f'advisor.provider: one of {", ".join(PROVIDERS)} (each takes a model).')
+    if not isinstance(value['model'], str) or not MODEL.fullmatch(value['model']): raise LedgerError('advisor.model: expected a model id such as claude-haiku-5-5.')
+    return {'provider': value['provider'], 'model': value['model']}
 
 
 def _criterion(value, name):
@@ -135,6 +147,7 @@ def validate(value):
     stop = {k: _int(stop.get(k, STOP_DEFAULT[k]), 'stop.' + k, *STOP_RANGE[k]) for k in STOP_DEFAULT}
     if value.get('profile_version') is not None: raise LedgerError('profile_version must stay null in L1.')
     optional = _provenance(value)       # origin, decisions, presentation: only the ones given, so a contract without them stays byte-identical
+    if value.get('advisor') is not None: optional['advisor'] = _advisor(value['advisor'])      # W43: the provider and model of the advisor, when the contract pins them
     return {**optional, 'schema_version': SCHEMA_VERSION, 'title': text_field(value.get('title'), 'title', 200),
             'size': size, 'understanding': _understanding(value.get('understanding'), size),
             'options': _options(value.get('options'), size),

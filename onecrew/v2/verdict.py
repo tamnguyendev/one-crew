@@ -83,7 +83,8 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
             receipt = Snapshots(ledger.state_root).blob(receipt_bytes)
         body = _check_receipt(ledger, name, revision, sha, milestone, result, by, artifact_sha, receipt, state['issued'])
         base = {'plan': name, 'revision': revision, 'milestone': milestone_id, 'plan_sha': sha}
-        extra = ({'independence': body['independence']['level'], 'model': body['config']['model'], 'calls': body['calls']}
+        extra = ({'independence': body['independence']['level'], 'model': body['config']['model'], 'calls': body['calls'],
+                  'provider': body['config']['provider'], **({'provider_error': body['provider_error']} if body.get('provider_error') else {})}     # W43: who answered; a usage limit is named here
                  if body and body.get('kind') == 'reviewer-receipt' else {})
         plans.emit(ledger, conn, state['task_id'], 'verdict.recorded', dict(base, result=result, by=by, receipt=receipt,
                                                                             artifact_sha=artifact_sha, run=view['runs'] + 1,
