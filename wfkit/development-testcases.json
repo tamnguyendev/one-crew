@@ -3346,8 +3346,8 @@
      "modules": [
       "tests.test_wf_parallel_native"
      ],
-     "installed": true,
-     "scope": "Implementation regression; not a full T04d acceptance certificate."
+     "installed": false,
+     "scope": "Implementation regression on the checkout through the public managed batch CLI with two local supervised processes; not an installed-wheel check and not a full T04d acceptance certificate."
     }
    },
    "acceptance": {

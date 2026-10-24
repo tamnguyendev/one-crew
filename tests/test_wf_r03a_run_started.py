@@ -298,7 +298,8 @@ class FourEndsTests(RunFixture):
         self.plan_with(OK)
         verdict.run(self.ledger, 'P1', 'M1', self.root)
         allowed = {'task.submitted', 'plan.proposed', 'plan.approved', 'plan.step0_closed', 'precondition.recorded', 'verdict.run_started',
-                   'verdict.receipt_issued', 'verdict.recorded', 'milestone.passed'}
+                   'verdict.receipt_issued', 'verdict.recorded', 'milestone.passed',
+                   'estimate.baseline'}   # W32a/T36b: written once by plan.approved, before the run; not a progress event of the run (U1-20261024-E8)
         extra = set(self.kinds()) - allowed
         self.assertEqual(extra, set(), f'unexpected events around a run: {extra}')
         self.assertFalse([k for k in self.kinds() if 'progress' in k or k.startswith('notice')])
