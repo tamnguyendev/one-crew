@@ -1,0 +1,11 @@
+{
+ "W03": {"status": "DONE", "note": "KiroCrew wf/r00 28bcf48; `onecrew/v2/decisions.py`; tests/test_wf_decisions.py 8 OK (chạy lại c3ad00a)"},
+ "W11a": {"status": "DONE", "note": "fa35f8d; `onecrew/v2/compat.py`, guard plan.emit; tests/test_wf_events.py 10 OK"},
+ "W12a": {"status": "DONE", "note": "aa2c54d; plan.py valid_plan_name; tests/test_wf_plan_names.py 5 OK"},
+ "W46a": {"status": "DONE", "note": "43359ac; `onecrew compat scan`; tests/test_wf_compat_scan.py 9 OK"},
+ "W27a": {"status": "DONE", "note": "1cb048d; verifiers/advisor.py, step0.py; tests/test_wf_advisor_errors.py 7 OK"},
+ "W40": {"status": "DONE", "note": "05bdb76; v2/boundary.py, tests/wf_wheel.py; tests/test_wf_packaging.py 10 OK"},
+ "W41": {"status": "DONE", "note": "c3ad00a; tests/wf_rollback.py; tests/test_wf_rollback.py 8 OK"},
+ "WK0": {"status": "CHƯA", "note": "R00 dùng unittest trong tests/; chưa có kit-guard và lệnh cổng"},
+ "WK00": {"status": "CHƯA", "note": "chưa có lệnh cổng R00 (T45a chưa có test)"}
+}
