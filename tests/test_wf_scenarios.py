@@ -44,12 +44,18 @@ class ScenarioTests(unittest.TestCase):
                 observed = set().union(*(set(r['observed_events']) for r in receipts))
                 expected = set(INVENTORY[release]['kinds'])
                 self.assertEqual(expected - observed, set(), release + ': inventory kinds not written by the scenarios')
+                proven = {r.split()[0] for rc in receipts for r in rc['requirements']}          # the same reading as release_check.installed
+                self.assertEqual(set(INVENTORY[release]['tasks']) - proven, set(), release + ': release tasks without a behaviour scenario')
                 if not expected:
                     self.assertTrue(all(r['no_new_events'] for r in receipts), release + ': a release with no new kind must declare why')
 
     def test_counter_examples_the_framework_refuses(self):
         with self.assertRaisesRegex(ValueError, 'assertion'):
             sc.register('R01', 'bad-import-only', ['x'], ['proposal.checked'], 'import onecrew.v2.plan\n')
+        with self.assertRaisesRegex(ValueError, 'task id'):                  # "W17: text" or "W36/W18 text" would be read as no task by T54.1
+            sc.register('R01', 'bad-task-token', ['W47: proposal check'], ['proposal.checked'], 'check("x", True)\n')
+        with self.assertRaisesRegex(ValueError, 'task id'):
+            sc.register('R01', 'bad-task-token2', ['W36/W18 holds'], ['proposal.checked'], 'check("x", True)\n')
         with self.assertRaisesRegex(ValueError, 'expected event kinds'):
             sc.register('R01', 'bad-no-events', ['x'], [], 'check("a", True)\n')
         disabled = {'release': 'R01', 'id': 'ce-disabled-feature', 'requirements': ['counter-example'], 'expected_events': ['proposal.checked'], 'no_new_events': None,

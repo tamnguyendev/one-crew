@@ -6941,6 +6941,14 @@
      ],
      "installed": false,
      "scope": "WKPL / T45b-T45c: standalone PL-A / PL-B entry gates (wfkit.pilot_entry) over delivery receipts, build hash, monitored project, T14b, provider NL via the shared evaluator, interim report; one negative per condition; case K."
+    },
+    "check.legacy_continuation_tool": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_legacy_continuation_tool"
+     ],
+     "installed": false,
+     "scope": "Legacy-root continuation FROM the package (review a2476ab P1-D, directive 25/10): docs/wf/audit/tools/legacy_continuation.py (outside the pinned kit) installs the package previous wheel to create a plan: root with a pre-W05 approval, then the package wheel: inconclusive + owner route, AI session refused, foreign commit refused, owner records the baseline, the milestone passes, root identity unchanged, modules from the venv. This check tests its judge() (mandatory steps, negative reasons, encoding, incoherence, purity). The run on a real package is tests.test_wf_legacy_continuation_real (WF_PACKAGE; skips without one, so it is run on the built package, not in the gate)."
     }
    },
    "acceptance": {

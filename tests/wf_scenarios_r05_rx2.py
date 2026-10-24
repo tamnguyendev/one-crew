@@ -107,8 +107,9 @@ check('W26 a decision cites its evidence and is cached on the same inputs', defe
       json.loads(cli('plan', 'review-decision', 'P1', '--node', 'OptionalReview', '--artifact-sha', tree, '--not-ready', '--evidence', 'a.txt:1'))['cached'] is True)
 """
 sc.register('R05', 'r05-findings-holds-retained',
-            ['W17: a failed check registers a finding on the plan-ns root', 'W18: holds by read/write scope; independent nodes continue',
-             'W21: a late result is retained then released without a second call'],
+            ['W17 a failed check registers a finding on the plan-ns root', 'W18 holds by read/write scope; independent nodes continue',
+             'W21 a late result is retained then released without a second call',
+             'W26 the rule decision SKIP/DEFER/REVIEW/HOLD carries reason, evidence and a cache bound to the same inputs; an open finding turns SKIP into HOLD without a checker call'],
             ['finding.registered', 'node.result_retained', 'node.produced'], R05_FINDINGS)
 
 R05_HOLD_ANSWER = ENGINE + r'''
@@ -150,8 +151,8 @@ check('plan.closed + request.applied were written, nothing was accepted', ks.cou
 check('a closed root has nothing ready and the report says so', engine.ready(ledger, 'P1') == [] and 'ĐÃ ĐÓNG' in cli('plan', 'present', 'P1'))
 '''
 sc.register('R05', 'r05-hold-answer-resume-stop',
-            ['W36/W18: an out-of-grant action holds the dependency closure (node.held) and asks the owner',
-             'W30c: the typed continue answer resumes the exact generations once (node.resumed, request.applied); stop closes the root (plan.closed)',
+            ['W36 an out-of-grant action holds the dependency closure (node.held) and asks the owner', 'W18 an out-of-grant action holds the dependency closure (node.held) and asks the owner',
+             'W30c the typed continue answer resumes the exact generations once (node.resumed, request.applied); stop closes the root (plan.closed)',
              'C11: an AI session cannot answer for the owner'],
             ['node.held', 'node.resumed', 'request.applied', 'plan.closed'], R05_HOLD_ANSWER)
 
@@ -197,7 +198,7 @@ check('W20 the plan report shows the diagnosis of node A (red check, attempts, s
 check('two failed receipts produced exactly two recovery decisions', kinds_of().count('workflow.recovery_decided') == 2)
 '''
 sc.register('R05', 'r05-recovery-no-progress',
-            ['W19: prepared tests then a bounded repair of a genuinely failed node (CLI)', 'W20: the recovery decision per failed receipt: repair, then diagnose on no progress, no owner request, no budget reset'],
+            ['W19 prepared tests then a bounded repair of a genuinely failed node (CLI)', 'W20 the recovery decision per failed receipt: repair, then diagnose on no progress, no owner request, no budget reset'],
             ['workflow.recovery_decided'], R05_RECOVERY)
 
 R05_HANDOFF = ENGINE + r'''
@@ -275,7 +276,7 @@ refused2 = cli('plan', 'evidence-reuse', 'P1', '--milestone', 'M1', '--receipt',
 check('a receipt that is not the latest authentic passing one cannot be reused', 'authentic passing receipt' in refused2, refused2)
 '''
 sc.register('R05', 'r05-evidence-reuse',
-            ['W08: plan evidence-reuse records a scope.neutral basis for a docs-only change, once', 'a change outside scope.neutral and a forged receipt are refused'],
+            ['W08 plan evidence-reuse records a scope.neutral basis for a docs-only change, once', 'W08 a change outside scope.neutral and a forged receipt are refused'],
             ['evidence.reuse'], R05_REUSE)
 
 R05_LOST_RUN = r'''
@@ -326,7 +327,7 @@ shown = json.loads(cli('verdict', 'run', '--plan', 'P1', '--milestone', 'M1'))
 check('only the release let X run again, and the milestone now passes', shown['milestones'][0]['state'] == 'passed' and lines() == 2, (shown['milestones'][0], lines()))
 '''
 sc.register('R05', 'r05-lost-run-held-released',
-            ['W37a: a verifier run killed after dispatch is reconciled before any retry: unknown outcome -> held, X is not dispatched again',
+            ['W37a a verifier run killed after dispatch is reconciled before any retry: unknown outcome -> held, X is not dispatched again',
              'verdict release-run is the only way to a second run and records that exactly-once is not promised'],
             ['verdict.run_reconciled', 'verdict.run_held', 'verdict.run_released'], R05_LOST_RUN)
 
@@ -404,8 +405,8 @@ json.loads(cli('lesson', 'withdraw', 'R', lesson['lesson'], '--reason', 'the les
 check('a withdrawn lesson is no longer retrieved', not any(e.get('lesson') == lesson['lesson'] for e in context.retrieve(ledger, plan='R')['entries']))
 '''
 sc.register('R06', 'r06-incident-lesson-reviewer',
-            ['W49a: a real red check, an environment error kept apart, a refuted hypothesis, one incident from the verified repair',
-             'W49b: one project lesson before the root ends; CLI reads write nothing; forged evidence refused; general candidate only proposed'],
+            ['W49a a real red check, an environment error kept apart, a refuted hypothesis, one incident from the verified repair',
+             'W49b one project lesson before the root ends; CLI reads write nothing; forged evidence refused; general candidate only proposed'],
             ['learning.incident', 'learning.lesson'], R06_REVIEWER)
 
 R06_NATIVE = ENGINE + r'''
@@ -463,7 +464,7 @@ check('the CLI reads the same lesson', any(e.get('lesson') == entry['lesson'] fo
 check('both kinds are on the ledger once', kinds_of().count('learning.incident') == 1 and kinds_of().count('learning.lesson') == 1, kinds_of())
 '''
 sc.register('R06', 'r06-native-node-repair-lesson',
-            ['W49a/W49b on the common engine: a real failed command check, a bounded repair, the verified candidate writes one incident and one project lesson mid-root',
+            ['W49a on the common engine: a real failed command check, a bounded repair, the verified candidate writes one incident and one project lesson mid-root', 'W49b on the common engine: a real failed command check, a bounded repair, the verified candidate writes one incident and one project lesson mid-root',
              'the lesson is located at the candidate tree before any project apply'],
             ['learning.incident', 'learning.lesson'], R06_NATIVE)
 
@@ -510,8 +511,8 @@ except Exception as error:
 check('R07 an unknown provider name is refused', unknown_refused)
 '''
 sc.register('R07', 'r07-localize-map-image-fallback',
-            ['W50a: explicit issue map, pinned-revision lookup with hypothesis labels, source lines and tests, vague issue asks for data, read-only',
-             'W50b: an image is not opened when the provider declares no vision adapter; the reason is reported and the text lookup still answers'],
+            ['W50a explicit issue map, pinned-revision lookup with hypothesis labels, source lines and tests, vague issue asks for data, read-only',
+             'W50b an image is not opened when the provider declares no vision adapter; the reason is reported and the text lookup still answers'],
             [], R07_LOCALIZE, no_new_events='W50a/W50b add no event kind: issue lookup and image fallback are read paths over the existing ledger and evidence (04-TASKS W50a/W50b).')
 
 R07_VISION = r'''
@@ -548,7 +549,7 @@ check('R07 vision declared without an observer is refused, not guessed', refused
 check('R07 no lookup wrote to the ledger', ledger.events(task) == before)
 '''
 sc.register('R07', 'r07-image-capability-order',
-            ['W50b: the capability declaration is checked before the image is touched; a declared adapter reads it once and its text is labelled observed',
+            ['W50b the capability declaration is checked before the image is touched; a declared adapter reads it once and its text is labelled observed',
              'vision without an observer is refused; lookups are read-only'],
             [], R07_VISION, no_new_events='W50a/W50b add no event kind: issue lookup and image fallback are read paths over the existing ledger and evidence (04-TASKS W50a/W50b).')
 
@@ -626,8 +627,8 @@ check('the owner accepts the delivered two-slot result', plan.accept(ledger, 'P1
 check('the v1 job runtime was never loaded by the managed path', not any(n in sys.modules for n in ('onecrew.workflow', 'onecrew.control', 'onecrew.supervisor', 'onecrew.solution_gate')))
 '''
 sc.register('R08', 'r08-managed-parallel-batch',
-            ['W14b: the parallel engine runs two disjoint producers as two overlapping real managed processes, then the mandatory integration node',
-             'W15: one handoff applies the verified candidates; the root budget is charged per call and never reset; executor.managed journals every attempt'],
+            ['W14b the parallel engine runs two disjoint producers as two overlapping real managed processes, then the mandatory integration node',
+             'W15 one handoff applies the verified candidates; the root budget is charged per call and never reset; executor.managed journals every attempt'],
             ['executor.managed', 'workflow.handoff'], R08_BATCH)
 
 R08_MANAGED_COMMON = ENGINE + r'''
@@ -714,8 +715,8 @@ check('the released artifact is the candidate that was paused', released['artifa
 check('executor.managed journal shows the pause request and the single candidate', [p['phase'] for p in adapter._history(attempt)].count('candidate') == 1 and 'pause_requested' in [p['phase'] for p in adapter._history(attempt)])
 '''
 sc.register('R08', 'r08-pause-safe-point-release',
-            ['W36/W18: a finding opened while a managed node runs asks that attempt to pause; the pause is only claimed after the Supervisor safe point (CLI executor state)',
-             'W15/W36: after real passing evidence closes the finding, the retained candidate is released without another process'],
+            ['W36 a finding opened while a managed node runs asks that attempt to pause; the pause is only claimed after the Supervisor safe point (CLI executor state)', 'W18 a finding opened while a managed node runs asks that attempt to pause; the pause is only claimed after the Supervisor safe point (CLI executor state)',
+             'W15 after real passing evidence closes the finding, the retained candidate is released without another process', 'W36 after real passing evidence closes the finding, the retained candidate is released without another process'],
             ['executor.managed', 'finding.registered', 'node.result_retained'], R08_PAUSE)
 
 R08_STOP = R08_MANAGED_COMMON + r'''
@@ -743,7 +744,7 @@ refused = cli('executor', 'state', 'ATT-not-a-managed-attempt', expect=2)
 check('controls are refused for an attempt this project does not own', 'Unknown attempt' in refused, refused)
 '''
 sc.register('R08', 'r08-stop-is-not-a-safe-pause',
-            ['W15: a stop kills the real process tree, reports stopped (never paused), keeps no candidate, and recover does not relaunch',
+            ['W15 a stop kills the real process tree, reports stopped (never paused), keeps no candidate, and recover does not relaunch',
              'controls are refused for an unknown attempt'],
             ['executor.managed'], R08_STOP)
 
@@ -835,7 +836,7 @@ flat = lambda v: json.dumps(v, sort_keys=True).replace('claude-haiku-5-5', 'M').
 check('E1/E13 two contracts that differ only in provider and model fields are otherwise identical', flat(a) == flat(b))
 '''
 sc.register('RP', 'rp-lint-provider-fields',
-            ['W43/E17: contract lint (installed CLI) accepts claude, codex and kiro with a model for reviewer and advisor and refuses a fourth provider, a missing model, a flag-like model and extra advisor keys',
+            ['W43 E17 contract lint (installed CLI) accepts claude, codex and kiro with a model for reviewer and advisor and refuses a fourth provider, a missing model, a flag-like model and extra advisor keys',
              'E1/E13: changing provider is a change of the two fields only'],
             [], RP_LINT, no_new_events='W43 pins provider/model in the contract and reuses plan.advised / verdict.recorded (class 0); the real six cells are W45 evidence, not events.')
 
@@ -1027,7 +1028,7 @@ except LedgerError:
 check('an adapter cannot take the name of a core verifier', impostor_refused)
 '''
 sc.register('RX1', 'rx1-core-refuses-adapter-oversteps',
-            ['W22/T23: the installed core refuses an adapter that retries, closes a finding, accepts, spends beyond its grant, reads outside the project, runs ungranted commands, writes or forges its report',
+            ['W22 T23 the installed core refuses an adapter that retries, closes a finding, accepts, spends beyond its grant, reads outside the project, runs ungranted commands, writes or forges its report',
              'each refusal is one adapter.violation (class A) with adapter, act, rule and receipt; an overstepping run is inconclusive; an adapter inside its grant passes'],
             ['adapter.violation'], RX1_PROBE.replace('from onecrew.v2 import plan, verdict, compat', 'from onecrew.snapshots import Snapshots\nfrom onecrew.ledger import LedgerError\nfrom onecrew.v2 import plan, verdict, compat'))
 
@@ -1105,7 +1106,7 @@ check('the owner accepts the document root with the same verb as a code root', a
 check('no adapter.violation was written by the honest doc adapter in the whole lifecycle', 'adapter.violation' not in kinds_now())
 '''
 sc.register('RX1', 'rx1-doc-root-end-to-end',
-            ['W22/T14a: a document root runs the real doc adapter through the installed CLI: lint refusals, pass, link failure with an open finding, repair, missing source, restore, owner acceptance',
+            ['W22 T14a a document root runs the real doc adapter through the installed CLI: lint refusals, pass, link failure with an open finding, repair, missing source, restore, owner acceptance',
              'the doc adapter oversteps nothing: no adapter.violation in the lifecycle'],
             ['milestone.failed', 'milestone.passed'], RX1_DOC.replace('__FILES__', repr(_doc_fixture_files())))
 
@@ -1196,7 +1197,7 @@ ks = root_kinds()
 check('RX2 data: the owner then accepts with the same verb; the lifecycle is the common one (failed x5, passed, accepted)', accepted['status'] == 'accepted' and ks.count('milestone.failed') == 5 and 'milestone.passed' in ks and 'adapter.violation' not in ks, ks)
 '''
 sc.register('RX2', 'rx2-data-root-end-to-end',
-            ['W39/T14b: a data root (CSV schema, key, row count, reconcile, samples) passes, fails per defect with an open finding, repairs and is accepted from the installed build',
+            ['W39 T14b a data root (CSV schema, key, row count, reconcile, samples) passes, fails per defect with an open finding, repairs and is accepted from the installed build',
              'a path outside the project is refused before any run'],
             [], RX2_DATA, no_new_events='W39 data/ops adapters reuse the verdict lifecycle (verdict.receipt_issued / verdict.recorded / milestone.*) and add no kind.')
 
@@ -1234,6 +1235,6 @@ p2_kinds = root_kinds(); PLAN[0] = 'P1'; p1_kinds = root_kinds()
 check('RX2 ops: no adapter oversteps in the whole lifecycle of either root, and the first root failed exactly five times', 'adapter.violation' not in p1_kinds + p2_kinds and p1_kinds.count('milestone.failed') == 5, (p1_kinds, p2_kinds))
 '''
 sc.register('RX2', 'rx2-ops-root-end-to-end',
-            ['W39/T14b: an ops root passes with agreeing receipt, pre/post states and reconcile observation; each tampering fails its own check; an unknown-outcome operation is inconclusive and not retried',
+            ['W39 T14b an ops root passes with agreeing receipt, pre/post states and reconcile observation; each tampering fails its own check; an unknown-outcome operation is inconclusive and not retried',
              'no adapter violation across the lifecycle'],
             [], RX2_OPS, no_new_events='W39 data/ops adapters reuse the verdict lifecycle (verdict.receipt_issued / verdict.recorded / milestone.*) and add no kind.')

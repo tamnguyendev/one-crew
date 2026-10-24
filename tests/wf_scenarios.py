@@ -52,6 +52,12 @@ def register(release, id, requirements, expected_events, body, no_new_events=Non
     if not expected_events and not no_new_events: raise ValueError(id + ': declare expected event kinds, or no_new_events with the reason')
     if expected_events and no_new_events: raise ValueError(id + ': expected_events and no_new_events exclude each other')
     if not isinstance(body, str) or 'check(' not in body and 'must(' not in body: raise ValueError(id + ': the body must record at least one assertion')
+    # T54.1 reads the task a requirement proves as its FIRST whitespace token (release_check.installed). A DoD line without a task is allowed
+    # (the release's tasks must be covered across its scenarios), but a token that LOOKS like a task and is not one ("W17:", "W36/W18")
+    # would silently prove nothing — refused here, at declaration.
+    for t in (r.split()[0] for r in requirements):
+        if re.match(r'W\d', t) and not re.fullmatch(r'W\d+[a-z]?', t):
+            raise ValueError(id + ': a requirement names its task id as a clean first token followed by a space (W12b text), not ' + t)
     entries = SCENARIOS.setdefault(release, [])
     if any(e['id'] == id for e in entries): raise ValueError('duplicate scenario id ' + id)
     entries.append({'release': release, 'id': id, 'requirements': list(requirements), 'expected_events': sorted(set(expected_events or [])),

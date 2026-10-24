@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-SCN-TASKS",
+ "file": "tests/test_wf_scenarios.py",
+ "old_sha256": "7e8a68df35e15257d08e51f45cce53820dbc75b2d7a06a73d1802148a63d32c5",
+ "new_sha256": "22eea8d02d0c0ce91ee8160436b99c3b8518f31d73e3ddfc46462b62d9c1358d",
+ "reason": "Round 4 (bundles on c95f603 refused R05-R08 at T54.1: 'release tasks without a behaviour scenario'): the R05-RX2 scenario files wrote requirements as 'W17: text' / 'W36/W18: text' while release_check.installed reads the task as the first whitespace token, so the gate test passed where the validator refused. The gate test now applies the SAME reading (every inventory task must be proven by a scenario requirement's first token) and two counter-examples (register refuses 'W47: ...' and 'W36/W18 ...'). tests/wf_scenarios.register refuses task-looking tokens that are not task ids at declaration. No assertion removed; the validator is unchanged.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị sau review Codex a2476ab): 'Tôi ủy quyền bạn tự quyết các sửa đổi kỹ thuật cần thiết... Sửa code, adapter, CLI, validator, harness, test và fixture... Nếu cần bản ghi U1/lineage, tự xử lý đúng cơ chế và ghi \"quyết định theo ủy quyền\", không giả owner trực tiếp duyệt.' Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 4 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

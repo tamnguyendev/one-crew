@@ -104,6 +104,13 @@
    "commit": "a2476ab8cd32e2591d986e4d15256e5d3428f2be",
    "frozen_at": "2026-10-24T18:35:34Z",
    "pins": {
+    "tests/test_wf_legacy_continuation_tool.py": {
+     "added_at": "2026-10-24T20:13:53Z",
+     "commit": "685afcd7fb22995b97236969c539095d500bafee",
+     "kind": "file",
+     "path": "tests/test_wf_legacy_continuation_tool.py",
+     "sha256": "308bdfe99564a7d5afe3f4414311c22d28287af83f89512862f57a8f8f3a23fb"
+    },
     "tests/test_wf_package_check.py": {
      "added_at": "2026-10-24T18:35:33Z",
      "commit": "a2476ab8cd32e2591d986e4d15256e5d3428f2be",
@@ -146,6 +153,14 @@
      "release": "PL",
      "sha256": "9e69129a8223b18f3d93822972175aa8b833737c9bdc491f9dbf4d9819eacb38",
      "testcase": "check.finalgate"
+    },
+    "wfkit/development-testcases.json#PL/check.legacy_continuation_tool": {
+     "added_at": "2026-10-24T20:13:53Z",
+     "commit": "685afcd7fb22995b97236969c539095d500bafee",
+     "kind": "case",
+     "release": "PL",
+     "sha256": "a23bdac23624cd483fd2f7bea7422055937c504f5b8b3c0bdb61035fea671284",
+     "testcase": "check.legacy_continuation_tool"
     },
     "wfkit/development-testcases.json#PL/check.namespace_lineage_rules": {
      "added_at": "2026-10-24T18:35:33Z",
