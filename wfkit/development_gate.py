@@ -3,6 +3,7 @@
 python -m wfkit.development_gate list
 python -m wfkit.development_gate run R04,R05,KN --out <temporary output>
 python -m wfkit.development_gate freeze R04,R05,KN
+python -m wfkit.development_gate snapshot R01,...,PL --commit <sha> --out <temporary output>   (the final gate: one clean commit)
 
 Uses the original kit guard, wheel builder, installed-origin check and test
 runner. Separate development pins do not replace or waive historical pins.
@@ -200,11 +201,105 @@ def run(root, releases, out, only=None, doc_dir=None):
     return decision
 
 
+# ---- snapshot gate (Codex review 9aca8be, P2): one commit, one clean detached worktree, nothing else ----------------------------------
+#
+# `run` tests whatever is in the checkout it is started from and stamps HEAD on the receipts; started from a working tree that is being
+# edited, its receipts describe no single commit. `snapshot` prepares a detached worktree of exactly one commit, fingerprints the sources
+# outside the repository that the gate reads (the document folder of the doc self-check, the interpreter), runs `run` INSIDE that
+# worktree (so code, tests, helpers, registry, manifest and the wheel all come from the same commit) and refuses the result when the
+# snapshot moved during the run. Receipts of earlier working-tree runs keep their labels; they are not re-labelled as this.
+
+def fingerprint(directory):
+    """{relative path: sha256} of every file under `directory` (sorted); None when there is no such directory."""
+    base = Path(directory) if directory else None
+    if base is None or not base.is_dir(): return None
+    out = {}
+    for path in sorted(p for p in base.rglob('*') if p.is_file()):
+        out[path.relative_to(base).as_posix()] = kitguard.sha256_file(path)
+    return out
+
+
+def _status(tree):
+    status = gate._git(tree, 'status', '--porcelain', '--untracked-files=normal')
+    return None if status is None else [line for line in status.splitlines() if line.strip()]
+
+
+def prepare(repo, commit, out, doc_dir=None):
+    """A detached worktree of `commit` under `out`/snapshot, clean, plus the fingerprints the finish step compares against."""
+    out = Path(out).resolve()
+    if out.exists() or not out.is_relative_to(Path(tempfile.gettempdir()).resolve()):
+        raise ValueError('Output must be a NEW directory under OS temp.')
+    resolved = gate._git(repo, 'rev-parse', '--verify', '-q', '--end-of-options', str(commit) + '^{commit}')
+    if not resolved: raise ValueError(f'{commit!r} is not a commit of {repo}.')
+    out.mkdir(parents=True)
+    tree = out / 'snapshot'
+    r = subprocess.run(['git', '-C', str(repo), 'worktree', 'add', '--detach', str(tree), resolved], capture_output=True, text=True, encoding='utf-8', errors='replace')
+    if r.returncode != 0: raise ValueError('git worktree add failed: ' + (r.stderr or r.stdout).strip()[:300])
+    head, status = gate._git(tree, 'rev-parse', 'HEAD'), _status(tree)
+    if head != resolved or status: raise ValueError(f'snapshot is not clean at {resolved[:12]}: HEAD {head}, status {status}')
+    prepared = {'repo': str(Path(repo).resolve()), 'requested': str(commit), 'commit': resolved, 'tree': str(tree), 'out': str(out),
+                'doc_dir': str(Path(doc_dir).resolve()) if doc_dir else None, 'doc_fingerprint': fingerprint(doc_dir),
+                'python': {'path': sys.executable, 'sha256': kitguard.sha256_file(sys.executable) if os.path.isfile(sys.executable) else None,
+                           'version': sys.version.split()[0]},
+                'status_at_start': status, 'prepared_at': gate._now()}
+    gate._write(out / 'snapshot.json', prepared)
+    return prepared
+
+
+def intact(prepared, tree=None):
+    """What changed since prepare (empty list = intact): HEAD, the working tree of the snapshot, the document folder fingerprint."""
+    tree = Path(tree or prepared['tree'])
+    problems = []
+    head = gate._git(tree, 'rev-parse', 'HEAD')
+    if head != prepared['commit']: problems.append({'kind': 'snapshot-moved', 'detail': f'HEAD {head} is not the prepared commit {prepared["commit"]}'})
+    status = _status(tree)
+    if status is None or status: problems.append({'kind': 'snapshot-dirty', 'detail': 'the snapshot worktree changed during the run: ' + ', '.join(status or ['status unavailable'])[:300]})
+    if prepared.get('doc_dir') and fingerprint(prepared['doc_dir']) != prepared.get('doc_fingerprint'):
+        problems.append({'kind': 'external-source-changed', 'detail': 'the document folder the self-check reads changed during the run'})
+    return problems
+
+
+def finish(prepared, decision, problems):
+    """The decision of the snapshot run: the gate's own, refused when the snapshot did not stay intact. Nothing is re-labelled."""
+    decision = dict(decision or {'decision': 'refused', 'problems': [], 'error': 'the gate produced no decision'})
+    decision['snapshot'] = {k: prepared[k] for k in ('commit', 'requested', 'tree', 'doc_dir', 'python', 'prepared_at')}
+    decision['snapshot']['intact'] = not problems
+    if problems:
+        decision['decision'] = 'refused'; decision['release_delivery'] = False
+        decision['problems'] = list(decision.get('problems') or []) + problems
+    return decision
+
+
+def snapshot(commit, releases, out, doc_dir=None, keep=False, repo=None):
+    """Prepare the snapshot, run `run` inside it as a subprocess, check the snapshot stayed intact, write `out`/decision.json."""
+    repo = Path(repo or ROOT)
+    prepared = prepare(repo, commit, out, doc_dir)
+    out, tree = Path(prepared['out']), Path(prepared['tree'])
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(['.', 'tests']))
+    for marker in ('CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE'): env.pop(marker, None)     # owner verbs on disposable ledgers run from a plain shell
+    argv = [sys.executable, '-X', 'utf8', '-m', 'wfkit.development_gate', 'run', ','.join(releases), '--out', str(out / 'gate')]
+    if doc_dir: argv += ['--doc-dir', str(doc_dir)]
+    log = out / 'gate-run.log'
+    with open(log, 'w', encoding='utf-8') as handle:
+        code = subprocess.run(argv, cwd=str(tree), env=env, stdout=handle, stderr=subprocess.STDOUT).returncode
+    problems = intact(prepared)
+    decision = gate._read(out / 'gate' / 'decision.json') if (out / 'gate' / 'decision.json').exists() else None
+    result = finish(prepared, decision, problems)
+    result['snapshot']['gate_exit_code'] = code; result['snapshot']['log'] = str(log)
+    gate._write(out / 'decision.json', result)
+    if not keep:
+        subprocess.run(['git', '-C', str(repo), 'worktree', 'remove', '--force', str(tree)], capture_output=True)
+        subprocess.run(['git', '-C', str(repo), 'worktree', 'prune'], capture_output=True)
+    return result
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['list','freeze','run']); parser.add_argument('releases',nargs='?')
+    parser.add_argument('command',choices=['list','freeze','run','snapshot']); parser.add_argument('releases',nargs='?')
     parser.add_argument('--out'); parser.add_argument('--only')
     parser.add_argument('--doc-dir',default=gate.doccheck.DEFAULT_DOC_DIR)
+    parser.add_argument('--commit', help='snapshot: the commit to check (a clean detached worktree of it is created under --out)')
+    parser.add_argument('--keep', action='store_true', help='snapshot: keep the worktree after the run')
     args=parser.parse_args(argv)
     try:
         if args.command=='list':
@@ -212,6 +307,11 @@ def main(argv=None):
         releases=(args.releases or '').split(',')
         if args.command=='freeze':
             result=freeze(ROOT,releases); print(json.dumps(result)); return 0 if all(r['ok'] for r in result.values()) else 1
+        if args.command=='snapshot':
+            if not args.out or not args.commit: raise ValueError('--out and --commit are required for snapshot')
+            result=snapshot(args.commit,releases,args.out,args.doc_dir,keep=args.keep)
+            print(json.dumps({'decision':result['decision'],'snapshot':result['snapshot'],'receipt':str(Path(args.out)/'decision.json'),'owner_acceptance':False}))
+            return 0 if result.get('release_delivery') else 1
         if not args.out: raise ValueError('--out is required for run')
         result=run(ROOT,releases,args.out,args.only.split(',') if args.only else None,args.doc_dir)
         print(json.dumps({'decision':result['decision'],'receipt':str(Path(args.out)/'decision.json'),'owner_acceptance':False}))
