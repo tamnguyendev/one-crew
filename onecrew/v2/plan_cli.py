@@ -105,6 +105,8 @@ def _parser():
     p.add_argument('--plan', required=True)
     p = verdict.add_parser('status', help='Show verifier runs; records abandonment when a process was lost.')
     p.add_argument('--plan', required=True)
+    p = verdict.add_parser('release-run', help='W37a: release a run held with an unknown outcome so the milestone may be run again (an explicit, recorded decision).')
+    p.add_argument('--plan', required=True); p.add_argument('--run', required=True); p.add_argument('--reason', required=True)
     return parser
 
 
@@ -169,6 +171,7 @@ def _dispatch(ledger, args):
     if args.command == 'diff': return verdict.diff(ledger, args.plan, args.milestone)
     if args.command == 'artifact': return verdict.artifact(ledger, args.plan)
     if args.command == 'status': return verdict.status(ledger, args.plan)
+    if args.command == 'release-run': return verdict.release_run(ledger, args.plan, args.run, args.reason)
     data = args.receipt_file.read_bytes() if args.receipt_file else None
     return verdict.record(ledger, args.plan, args.milestone, args.result, args.by, args.receipt, args.artifact_sha, data, args.reference)
 

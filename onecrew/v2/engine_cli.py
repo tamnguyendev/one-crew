@@ -26,20 +26,23 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
     p = sub.add_parser('revise'); p.add_argument('plan'); p.add_argument('--file', type=Path, required=True)
     for verb in ('verify', 'accept-node'):
         p = sub.add_parser(verb); p.add_argument('plan'); p.add_argument('node')
+    p = sub.add_parser('review-optional', help='W26: run the rule-based decision (SKIP/DEFER/HOLD/REVIEW) for one sealed optional review of a produced node; '
+                                               'REVIEW calls the connected checker, the result is an observation and never the mandatory gate.')
+    p.add_argument('plan'); p.add_argument('node'); p.add_argument('review')
     node_actions_cli.register(sub)
     opts = parser.parse_args(args)
     try:
         if opts.command == 'step' and native_executor is _AUTO:
             from ..common_executor import NativeExecutor
             native_executor = NativeExecutor
-        if opts.command == 'verify' and checker is _AUTO:
+        if opts.command in ('verify', 'review-optional') and checker is _AUTO:
             from ..common_verification import CandidateChecker
             checker = CandidateChecker
         if opts.command == 'handoff' and handoff is _AUTO:
             from ..common_handoff import handoff as apply_candidate
             handoff = apply_candidate
         if ((opts.command == 'step' and native_executor is None)
-                or (opts.command == 'verify' and checker is None)
+                or (opts.command in ('verify', 'review-optional') and checker is None)
                 or (opts.command == 'handoff' and handoff is None)):
             raise LedgerError('This operation needs a connected native host adapter; the supplied host port is disabled.')
         project = opts.project.resolve()
@@ -62,6 +65,11 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
             result=engine.release_paused(ledger,opts.plan,opts.node,ManagedExecutor(ledger,initialize=False))
         elif opts.command == 'verify': result = engine.verify(ledger, opts.plan, opts.node, checker(ledger, opts.plan))
         elif opts.command == 'accept-node': result = engine.accept_node(ledger, opts.plan, opts.node)
+        elif opts.command == 'review-optional':
+            record = engine.state(ledger, opts.plan)['nodes'].get(opts.node)
+            if not record or not record.get('artifact'):
+                raise LedgerError('Optional review needs a produced node (no current artifact).')
+            result = engine.review_optional(ledger, opts.plan, opts.node, opts.review, checker(ledger, opts.plan), record['artifact'])
         else: result = handoff(ledger, opts.plan)
         print(json.dumps(result, ensure_ascii=False, indent=2)); return 0
     except (LedgerError, OSError, ValueError, KeyError, TypeError) as error:

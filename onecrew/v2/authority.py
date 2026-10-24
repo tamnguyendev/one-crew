@@ -383,11 +383,35 @@ def record(ledger, task_id, contract, action, result, *, name, revision_sha, com
         # This string is evidence only and is never parsed back into an action.
         summary = ('non-JSON action: ' + repr(action))[:500]
     scope = ','.join(result.get('nodes') or []) or str(result.get('kind'))
-    return decisions.record(ledger, task_id, subject={'component': component, 'model': 'rule'}, authority=grant_ref(name, contract, revision_sha),
-                            evidence=[{'action': summary}, {'grant': seal(contract), 'contract_revision': revision_sha}],
-                            basis=f"{result.get('q') or result.get('kind')}: {result['reason']}", scope=scope,
-                            validity={'outcome': 'in_authority' if result['in_authority'] else 'out_of_authority', 'class': result['class'],
-                                      'contract_revision': revision_sha}, key=key)
+    basis = f"{result.get('q') or result.get('kind')}: {result['reason']}"
+    decision = decisions.record(ledger, task_id, subject={'component': component, 'model': 'rule'}, authority=grant_ref(name, contract, revision_sha),
+                                evidence=[{'action': summary}, {'grant': seal(contract), 'contract_revision': revision_sha}],
+                                basis=basis, scope=scope,
+                                validity={'outcome': 'in_authority' if result['in_authority'] else 'out_of_authority', 'class': result['class'],
+                                          'contract_revision': revision_sha}, key=key)
+    _remember(ledger, task_id, name, basis, scope, result)
+    return decision
+
+
+def _remember(ledger, task_id, name, basis, scope, result):
+    """W48a: a decision is one of the four significant changes, so the context gets one entry (deduplicated by content), sourced by the
+    decision event itself. Written by code, no model. A context failure never undoes the decision record (context is data, not authority)."""
+    from . import context
+    from ..ledger import LedgerError
+    with ledger.transaction() as conn:
+        row = conn.execute("SELECT max(seq) AS seq FROM events WHERE task_id=? AND kind='decision.recorded'", (task_id,)).fetchone()
+    if not row or row['seq'] is None: return
+    outcome = 'in authority' if result['in_authority'] else f"out of authority ({result.get('class') or 'held'})"
+    text = f'Decision on {scope}: {basis} — {outcome}.'[:600]
+    with ledger.transaction() as conn:
+        # the same decision taken again (a new decision event, same subject) is one entry: deduplicated by subject, not by source
+        if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='context.entry' AND json_extract(payload,'$.kind')='decision' AND json_extract(payload,'$.text')=?",
+                        (task_id, text)).fetchone():
+            return
+    try:
+        context.observe(ledger, name, {'type': 'decision', 'text': text, 'source': {'type': 'event', 'id': row['seq']}})
+    except LedgerError:
+        pass
 
 
 def enforce(ledger, task_id, contract, action, *, name, revision_sha, ctx=None, perform=None, component='onecrew.authority', key=None):

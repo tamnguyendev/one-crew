@@ -109,10 +109,19 @@ def _gather(state_root, row, revision=None):
         events = [(e['kind'], e['created_at'], json.loads(e['payload']))
                   for e in conn.execute("SELECT kind, created_at, payload FROM events WHERE task_id=? AND kind NOT IN ('learning.outcome','control.intervention','context.entry','learning.incident','learning.lesson') ORDER BY seq", (row['id'],))]
         closed = set(step0.closed_events(conn, row['id']))
-        unknowns = []
+        unknowns, holds = [], []
         if namespaces.has_capability(state, 'sequential-engine'):
-            from . import runtime_unknowns
+            from . import runtime_unknowns, managed_executor
             unknowns = [u for u in runtime_unknowns.read(reader, row['request_key'], conn) if u['state'] == 'open']
+            try:
+                holds = managed_executor.hold_views(reader, row['request_key'], conn)          # W33a: how each held running node is held
+            except LedgerError as problem:
+                holds = [{'error': str(problem)}]
+            # W20 (T18a [E2]): the latest recovery decision per node that is not a plain repair is a blocker/diagnosis the owner must see
+            latest = {}
+            for event in conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='workflow.recovery_decided' ORDER BY seq", (row['id'],)):
+                p = json.loads(event['payload']); latest[p.get('node')] = dict(p, seq=event['seq'])
+            blockers = [p for p in latest.values() if p.get('disposition') in ('blocked', 'diagnose')]
     if revision is not None and revision not in state['revisions']:
         raise LedgerError(f'Plan {name} has no revision {revision}.')
     revision = revision or state['latest']
@@ -122,7 +131,35 @@ def _gather(state_root, row, revision=None):
         contract, error = None, str(problem)
     views = plans.milestone_views(contract, state, revision) if contract else []
     return {'name': name, 'row': row, 'state': state, 'events': events, 'closed': closed, 'revision': revision, 'contract': contract,
-            'error': error, 'views': views, 'requests': reader.requests(row['id']), 'state_root': Path(state_root).resolve(), 'runtime_unknowns': unknowns}
+            'error': error, 'views': views, 'requests': reader.requests(row['id']), 'state_root': Path(state_root).resolve(), 'runtime_unknowns': unknowns,
+            'holds': holds, 'recovery_blockers': blockers if namespaces.has_capability(state, 'sequential-engine') else []}
+
+
+def _blocker_lines(f):
+    """W20 (T18a [E2]): one line per node whose last recovery decision is a blocker or a diagnosis: the red checks, how many attempts
+    (their receipts), what was spent against the ceilings, and what the policy asks next. No request is created by reading this."""
+    lines = []
+    for p in f.get('recovery_blockers', []):
+        d = p.get('diagnosis') or {}
+        spent = d.get('spent') or {}
+        attempts = d.get('attempts') or []
+        receipts = ', '.join(_short(a.get('receipt') or '') for a in attempts[-3:]) or NO_DATA
+        cost = (f'{spent.get("used_calls")}/{spent.get("max_calls")} lời gọi' if spent.get('max_calls') is not None else 'chi phí: ' + NO_DATA)
+        word = 'Blocker' if p.get('disposition') == 'blocked' else 'Cần chẩn đoán'
+        lines.append(f'{word} node {p.get("node")}: ca đỏ {", ".join(d.get("failed_checks") or []) or NO_DATA} · {len(attempts)} lần thử ({receipts}) · '
+                     f'đã tiêu {cost}, hạn {spent.get("deadline") or NO_DATA} · tiếp: {d.get("next") or NO_DATA}')
+    return lines
+
+
+def _hold_lines(f):
+    """W33a (T15b [E3]): one line per running node an open finding holds, worded from the executor's declaration (hold_text), never "đã dừng"."""
+    lines = []
+    for hold in f.get('holds', []):
+        if 'error' in hold:
+            lines.append(f'Giữ node: không đọc được trạng thái giữ: {hold["error"]}'); continue
+        state = ' — đã xác nhận tại điểm an toàn' if hold.get('confirmed') else (' — đã gửi yêu cầu' if hold.get('requested') and hold['plan']['command'] else '')
+        lines.append(f'Giữ node {hold["node"]} (finding {", ".join(hold["findings"])}): {hold["text"]}{state}')
+    return lines
 
 
 def _lookup(state_root, name, revision=None, project_id=None):
@@ -455,6 +492,7 @@ def _report(f):
     lines += _forecast_lines(f)
     for unknown in f.get('runtime_unknowns', []):
         lines += _wrap(f'Chưa rõ {unknown["unknown"]}: {unknown["question"]}; giữ {", ".join(unknown["required_by"])}; chủ thể giải: {unknown["resolver"]}.', '', '  ')
+    for line in _hold_lines(f) + _blocker_lines(f): lines += _wrap(line, '', '  ')
     if state.get('workflow_version') is not None:
         lines += _wrap(f'Workflow: {state["workflow_version"]}; capabilities: {", ".join(state["capabilities"])}', '', '  ')
     sections = (_outputs, _milestones, _minutes, _blocks, _questions, _outside, _parked)
@@ -526,9 +564,9 @@ def _finding_limits(f):
     if f.get('finding_error'):
         return ['Finding còn mở: không đọc được sổ finding: ' + f['finding_error']]
     if not namespaces.has_capability(f['state'], 'finding-register'):
-        return [FINDINGS_NOTE]
+        return [FINDINGS_NOTE] + _hold_lines(f) + _blocker_lines(f)
     return ([f'Finding còn mở: {r["id"]} · {r["severity"]} · mốc {r["node"]} · {r["head"]} · biên nhận {r["source"]["receipt"]}' for r in rows]
-            or ['Finding còn mở: 0 theo sổ finding của root.'])
+            or ['Finding còn mở: 0 theo sổ finding của root.']) + _hold_lines(f) + _blocker_lines(f)
 CHECKER = {'command': 'lệnh tự chạy trên artifact, bạn không phải làm gì', 'reviewer': 'một reviewer (model khác) đọc diff và trả lời tiêu chí',
            'owner-manual': 'bạn tự thử rồi ghi kết quả (verdict của chủ sở hữu)'}
 

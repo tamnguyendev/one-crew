@@ -204,7 +204,12 @@ def _input_blocks(view, nid):
         # A node's OWN failed verification is not an input block: the same generation may be checked again (T38c
         # "superseded failure") or repaired. Its dependents, and any upstream failure, do block.
         failed = [source for source in view.get('failed_blockers', {}).get(target, []) if not (target == nid and source == nid)]
-        if view.get('unknown_blockers', {}).get(target) or view.get('finding_blockers', {}).get(target) or failed: return True
+        # A finding holds a node and (through affected_tasks) its dependents, so an upstream hold normally holds `nid` too. The one
+        # exception is W21/W19: a prepared repair releases the nodes it re-issues from that finding; an upstream node the same finding
+        # still holds (in scope, already verified, not re-issued) then no longer blocks them — otherwise the repair could never run.
+        own = set(view.get('finding_blockers', {}).get(nid, []))
+        findings_ = [f for f in view.get('finding_blockers', {}).get(target, []) if target == nid or f in own]
+        if view.get('unknown_blockers', {}).get(target) or findings_ or failed: return True
         pending.extend(edge['node'] for edge in nodes.get(target, {}).get('depends', []))
     return False
 
@@ -442,8 +447,25 @@ def verify(ledger, selector, nid, checker):
             _event(ledger, conn, current, nid, 'node.verification', result=body['result'], receipt=receipt)
         else:
             _retain(ledger, conn, view, nid, 'Root or node changed while checker ran', receipt=receipt)
+    if publish and body['result'] == 'pass':
+        # W48a: a verified node is a finished task; the context entry cites the published verifier receipt (code, no model).
+        from . import context
+        try:
+            context.observe(ledger, root['selector'], {'type': 'task_done', 'source': {'type': 'receipt', 'key': receipt},
+                            'text': f'Node {nid} (generation {view["nodes"][nid]["generation"]}, internal revision {view["internal_revision"]}) verified: '
+                                    f'{len(configured)} check(s) passed on artifact {artifact[:12]}.'})
+        except LedgerError:
+            pass
     if not publish:
         raise LedgerError('The root or node changed while its checker ran; evidence was retained without verification.')
+    if 'finding-register' in view['capabilities'] and body['result'] in ('pass', 'fail'):
+        # W21 (T11): a failed check of a node is a finding in the shared register, scoped by the node's dependency edges; the same node
+        # passing on a later generation closes them. The register, not the engine, owns the transition.
+        from . import findings
+        try:
+            body['findings'] = findings.record_node_verification(ledger, root['selector'], nid, receipt, definition=view['definition']['nodes'])
+        except LedgerError as error:
+            body['findings'] = {'error': str(error)}
     _forecast(ledger, state(ledger, root['selector']), 'verification-' + receipt[:32], 'Node verification recorded')
     if body['result'] == 'fail':
         from . import recovery_policy

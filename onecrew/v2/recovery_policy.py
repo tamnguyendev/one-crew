@@ -35,12 +35,22 @@ def assess(ledger, selector, failed_node):
         replanned=conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.signature')=?",
                               (root['task_id'],REPLAN,record['signature'])).fetchone()
         disposition='repair' if action=='repair' else 'blocked' if replanned else 'diagnose'
+        # T18a [E2]: the blocker carries its evidence - every failed verification of this node so far (the attempts) and what the root
+        # has spent against its sealed ceilings. Read from the ledger, never from the policy's own count.
+        attempts=[dict(json.loads(row['payload']),event=row['seq']) for row in conn.execute(
+            "SELECT seq,payload FROM events WHERE task_id=? AND kind='node.verification' AND json_extract(payload,'$.node')=? AND json_extract(payload,'$.result')='fail' ORDER BY seq",
+            (root['task_id'],failed_node))]
+        from .. import budget_core
+        shared=budget_core.group(conn,root['task_id']) or {}
+        spent={key:shared.get(key) for key in ('max_calls','used_calls','reserved_calls','remaining_calls','deadline')}
         value={'plan':root['name'],'revision':root['approved']['revision'],'contract_sha':sha,
                'node':failed_node,'source_receipt':receipt,'source_event':source_event,
                'signature':record['signature'],'policy_version':recovery_core.POLICY_VERSION,
                'action':action,'disposition':disposition,'record':record,
                'diagnosis':{'failed_checks':failed,'previous_failure_count':record['count']-1,
                             'current_artifact':view['nodes'][failed_node]['artifact'],
+                            'attempts':[{'event':a['event'],'generation':a.get('generation'),'internal_revision':a.get('internal_revision'),'receipt':a.get('receipt')} for a in attempts],
+                            'spent':spent,
                             'next':'Repair the failed checks first.' if disposition=='repair' else
                                    'Propose one materially different plan inside the unchanged grant.' if disposition=='diagnose' else
                                    'Retain a blocker with failed receipts; do not repeat the same repair.'},

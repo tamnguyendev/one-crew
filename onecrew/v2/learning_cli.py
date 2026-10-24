@@ -30,6 +30,10 @@ def _parser():
     issue = groups.add_parser('issue', help='Read-only, pinned issue lookup; suspects remain hypotheses.').add_subparsers(dest='command', required=True)
     p = issue.add_parser('localize'); p.add_argument('description'); p.add_argument('--name'); p.add_argument('--revision', default='HEAD')
     p.add_argument('--image', type=Path, help='Without a declared vision adapter the image is not opened.')
+    p.add_argument('--provider', choices=['claude', 'codex', 'kiro'], help='Whose capability declaration decides whether --image is read (W50b).')
+    p = issue.add_parser('evaluate', help='Held-out evaluation: top-1/3/5 and time to a candidate; the oracle file is read only after each lookup.')
+    p.add_argument('--cases', type=Path, required=True, help='JSON list of {id, description, revision} (no fixes, labels or lessons).')
+    p.add_argument('--oracle', type=Path, required=True, help='JSON object id -> {file, method}; kept apart from the cases.')
     p = issue.add_parser('map', help='Explicitly record a bounded incremental map using context.entry.')
     p.add_argument('name'); p.add_argument('--revision', default='HEAD')
     return parser
@@ -41,7 +45,20 @@ def _run(args):
     if args.group == 'issue':
         from . import localization
         if args.command == 'map': return localization.index_project(ledger, args.name, args.revision)
-        return localization.localize(ledger, args.description, name=args.name, revision=args.revision, image=args.image)
+        if args.command == 'evaluate':
+            cases = json.loads(args.cases.read_text(encoding='utf-8'))
+            oracle_path = args.oracle
+            def oracle(case_id):
+                return json.loads(oracle_path.read_text(encoding='utf-8'))[case_id]
+            return localization.evaluate(ledger, cases, oracle)
+        provider = None
+        if args.provider:
+            from . import providers
+            provider = providers.vision(args.provider)
+        result = localization.localize(ledger, args.description, name=args.name, revision=args.revision, image=args.image, provider=provider)
+        if provider and not result['image']['read'] and provider.get('reason') and args.image is not None:
+            result['image']['reason'] = f"{result['image']['reason']} ({provider['reason']})"
+        return result
     if args.group == 'incident':
         if args.command == 'list':
             return {'incidents': incidents.list_incidents(ledger, args.name), 'observations': incidents.observations(ledger, args.name)}

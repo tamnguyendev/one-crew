@@ -53,30 +53,46 @@ def unresolved(ledger, selector, conn=None):
     return pending
 
 
-def hold_for_findings(ledger, selector, conn=None, *, reason=None):
-    """W18/W36 (T07b [E16], T15c [E7]): when an open finding holds a node whose managed attempt is still running, ask THAT
-    attempt to pause at its next safe point. Nothing is sent to an attempt without a managed history (a hook executor only
-    loses write permission through the exported active plan, T15c [E9]); a request already made is not repeated; the
-    acknowledgement itself still comes only from the real Supervisor safe point (_ack_pause). Returns the requests made."""
+def hold_views(ledger, selector, conn=None):
+    """W33a (T15b [E1], [E3], [E4]): the record of HOW each running node that an open finding holds is held, read-only, from the executor's
+    declaration — `executors.hold_plan`: a managed attempt (one with an `executor.managed` history) can be asked to pause at a safe point, so
+    its state is at most "pause requested" until the Supervisor confirms; any other attempt (a hook session) only loses write permission,
+    and the words say so ("đã ngừng cấp quyền ghi"), never "đã dừng"/"paused". One row per held active node:
+    {node, attempt, findings, plan, text, requested (a pause was already asked), confirmed (the safe point acknowledged it)}."""
     from . import engine
     if conn is None:
         with ledger.transaction() as connection:
-            view = engine.state(ledger, selector, connection)
-    else:
-        view = engine.state(ledger, selector, conn)
+            return hold_views(ledger, selector, connection)
+    view = engine.state(ledger, selector, conn)
     held = view.get('finding_blockers') or {}
-    requests = []
-    adapter = None
+    rows, adapter = [], None
     for active in view.get('active_nodes', []):
         findings_ = held.get(active['node'])
         if not findings_: continue
         adapter = adapter or ManagedExecutor(ledger, initialize=False)
-        history = adapter._history(active['attempt'])
-        if not any(p['phase'] == 'prepared' for p in history): continue                 # not a managed attempt: no pause command exists for it
-        if any(p['phase'] in ('pause_requested', 'paused', 'stop_requested') for p in history): continue
-        text = reason or f'Open finding {", ".join(sorted(findings_))} holds node {active["node"]}'
-        adapter.pause_at_safe_point(active['attempt'], text)
-        requests.append({'node': active['node'], 'attempt': active['attempt'], 'findings': sorted(findings_), 'reason': text})
+        history = adapter._history(active['attempt'], conn)
+        managed = any(p['phase'] == 'prepared' for p in history)
+        plan = executors.hold_plan(ManagedExecutor.declaration if managed else executors.HookAdapter.declaration)
+        rows.append({'node': active['node'], 'attempt': active['attempt'], 'findings': sorted(findings_), 'plan': plan, 'text': executors.hold_text(plan),
+                     'requested': any(p['phase'] in ('pause_requested', 'paused', 'stop_requested') for p in history),
+                     'confirmed': any(p['phase'] == 'paused' for p in history)})
+    return rows
+
+
+def hold_for_findings(ledger, selector, conn=None, *, reason=None):
+    """W18/W36 (T07b [E16], T15c [E7]): when an open finding holds a node whose managed attempt is still running, ask THAT
+    attempt to pause at its next safe point. Nothing is sent to an attempt without a managed history (a hook executor only
+    loses write permission through the exported active plan, T15c [E9]; `hold_views` records that as the hold); a request
+    already made is not repeated; the acknowledgement itself still comes only from the real Supervisor safe point (_ack_pause).
+    Returns the requests made."""
+    requests = []
+    adapter = None
+    for row in hold_views(ledger, selector, conn):
+        if row['plan']['command'] != 'pause_at_safe_point' or row['requested']: continue   # declaration first: no pause command exists for a hook
+        adapter = adapter or ManagedExecutor(ledger, initialize=False)
+        text = reason or f'Open finding {", ".join(row["findings"])} holds node {row["node"]}'
+        adapter.pause_at_safe_point(row['attempt'], text)
+        requests.append({'node': row['node'], 'attempt': row['attempt'], 'findings': row['findings'], 'reason': text})
     return requests
 
 

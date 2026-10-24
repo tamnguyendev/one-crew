@@ -114,6 +114,8 @@ py-modules = [
     "onecrew.v2.test_preparation",
     "onecrew.v2.root_writer",
     "onecrew.v2.solution_link",
+    "onecrew.v2.acceptance_diff",
+    "onecrew.v2.test_integrity",
     "onecrew.v2.unknown_cli",
     "onecrew.v2.questions",
     "onecrew.v2.answer_effects",

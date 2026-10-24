@@ -283,3 +283,23 @@ def cli_identity(provider, env=None, prefix=None, timeout=VERSION_SECONDS):
         version = f'unavailable: {type(problem).__name__}'
     return {'provider': provider, 'argv': list(prefix), 'path': prefix[0], 'sha256': files.get(prefix[0]), 'files': files, 'version': version,
             **({'identity_errors': identity_errors} if identity_errors else {})}
+
+
+# ---- capabilities (W50b / TD19) -------------------------------------------------------------------------------------------
+
+# Declared image observers, by provider. Empty in the product: the three read-only CLI calls above are text-only and no vision path has been
+# verified against a real CLI, so `vision()` says so instead of claiming to read the image. An adapter is injected here (tests, or a later verified
+# adapter) — never inferred from the model name.
+VISION_ADAPTERS = {}
+
+
+def vision(provider):
+    """The capability declaration `localization.localize` consumes for `--provider`: name, capabilities, observe_image.
+
+    Without a declared adapter the capabilities are empty, so the image is never opened and the result says "không đọc ảnh"; the declaration
+    also carries the reason, for the report."""
+    if provider not in PROVIDERS:
+        raise LedgerError(f'provider {provider!r}: expected one of {", ".join(PROVIDERS)}.')
+    adapter = VISION_ADAPTERS.get(provider)
+    return {'name': provider, 'capabilities': ['vision'] if callable(adapter) else [], 'observe_image': adapter,
+            'reason': None if callable(adapter) else f'provider {provider} declares no vision adapter (text-only CLI call; not verified on a real CLI)'}

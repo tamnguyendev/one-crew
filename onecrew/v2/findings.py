@@ -98,17 +98,118 @@ def _signature(milestone, criterion):
     return content_hash(criteria.get(criterion, {'id': criterion})), content_hash(config)
 
 
-def _refresh(value, contract):
-    """Changed criteria/configs invalidate old findings; no semantic inheritance."""
+def _refresh(value, contract, definition=None):
+    """Changed criteria/configs invalidate old findings; no semantic inheritance. An internal-node finding (W21) is signed by the node's
+    checks in the internal definition: without the definition at hand it is left as it is, with it a changed/removed node makes it stale."""
     for item in value['findings']:
         if item['status'] != 'open':
             continue
         try:
-            signature = _signature(_milestone(contract, item['node']), item['criterion'])
+            if item.get('internal'):
+                if definition is None:
+                    continue
+                signature = _signature(_node_milestone(definition, item['node']), item['criterion'])
+            else:
+                signature = _signature(_milestone(contract, item['node']), item['criterion'])
         except LedgerError:
             signature = None
         if signature != (item['criterion_sha'], item['config_sha']):
-            item.update(status='stale', stale_reason='criterion or reviewer configuration changed')
+            item.update(status='stale', stale_reason='criterion or reviewer configuration changed' if not item.get('internal') else 'node checks or definition changed')
+
+
+# ---- W21: findings from the engine's node verification (an integration node that fails) ------------------------------------------------
+
+def _node_milestone(definition, nid):
+    """The register speaks in milestones; an internal node is presented as one whose criteria are its checks (signed by their content)."""
+    item = next((n for n in definition if n['id'] == nid), None)
+    if item is None:
+        raise LedgerError(f'Unknown internal node {nid}.')
+    return {'id': nid, 'internal': True, 'verifier': {'type': 'node-check', 'config': {'criteria': [dict(c) for c in item['checks']]}}}
+
+
+def _node_proof(ledger, conn, root, nid, receipt):
+    """A node receipt is evidence only when the engine published it: a `node.verification` event of this root points at it and agrees with it."""
+    try:
+        body = json.loads(Snapshots(ledger.state_root).read_blob(receipt))
+    except (OSError, ValueError) as error:
+        raise LedgerError('Finding evidence is not a valid receipt blob.') from error
+    if not isinstance(body, dict) or body.get('kind') != 'node-verifier-receipt' or body.get('root') != root['id'] or body.get('node') != nid:
+        raise LedgerError('Finding evidence is not a node verifier receipt of this root and node.')
+    row = conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='node.verification' AND json_extract(payload,'$.receipt')=? ORDER BY seq DESC LIMIT 1",
+                       (root['id'], receipt)).fetchone()
+    if row is None:
+        raise LedgerError('The node receipt has no published verification event on this root.')
+    event = json.loads(row['payload'])
+    if event.get('node') != nid or event.get('result') != body.get('result'):
+        raise LedgerError('The node receipt differs from its published verification.')
+    return body, body.get('result'), row['seq']
+
+
+def node_scope(definition, nid):
+    """The dependency scope of a node's finding (T11 [E1]): the nodes it depends on, and the paths they write / it reads."""
+    item = next((n for n in definition if n['id'] == nid), None)
+    if item is None:
+        raise LedgerError(f'Unknown internal node {nid}.')
+    by_id = {n['id']: n for n in definition}
+    deps = [edge['node'] for edge in item.get('depends', []) if edge.get('node') in by_id]
+    reads = set(item.get('read', []))
+    if reads:
+        # the integration node depends on every node (internal_plan._validate); the ones it integrates are those whose writes it reads
+        narrowed = [dep for dep in deps if reads & set(by_id[dep].get('write', []))]
+        deps = narrowed or deps
+    write = sorted({path for dep in deps for path in by_id[dep].get('write', [])})
+    read = sorted({path for dep in deps for path in by_id[dep].get('read', [])} | set(item.get('read', [])))
+    return {'nodes': sorted(deps), 'read': read, 'write': write}
+
+
+def record_node_verification(ledger, selector, nid, receipt, *, definition, severity='major', task_id=None, conn=None):
+    """W21 (T11 [E1]): a failed check of an engine node becomes a finding attached to that node, scoped by its dependency edges; a passing
+    receipt of the same node closes the internal findings whose check now passes. Nothing is written when there is nothing to open, merge or
+    close (a green node without findings leaves no event). Returns {'opened','merged','closed','scope'}."""
+    if conn is None:
+        with ledger.transaction(write=True) as connection:
+            result = record_node_verification(ledger, selector, nid, receipt, definition=definition, severity=severity, task_id=task_id, conn=connection)
+        if result['opened'] or result['merged'] or result['closed']:
+            after_change(ledger, selector)
+        return result
+    root, revision, sha, contract = _context(ledger, conn, selector, task_id)
+    _require_capability(root)
+    body, result, seq = _node_proof(ledger, conn, root, nid, receipt)
+    scope = node_scope(definition, nid)
+    processed = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.action')='node-verification' "
+                             "AND json_extract(payload,'$.receipt')=? LIMIT 1", (root['id'], KIND, receipt)).fetchone()
+    if processed:
+        previous = json.loads(processed['payload'])
+        return {'opened': [], 'merged': previous.get('opened', []) + previous.get('merged', []), 'closed': previous.get('closed', []), 'scope': scope}
+    value = _read(ledger, conn, root['id'])
+    _refresh(value, contract, definition)
+    milestone = _node_milestone(definition, nid)
+    rows = [r for r in (body.get('observed') or {}).get('checks', []) if isinstance(r, dict)]
+    opened, merged, closed = [], [], []
+    for row in rows:
+        if row.get('result') == 'fail':
+            claim = canonical({'criterion': row.get('id'), 'evidence': [row.get('evidence')] if row.get('evidence') else []})
+            item, fresh = _new(ledger, value, selector, revision, sha, milestone, row['id'], claim, receipt, body['artifact'], body.get('generation', 1),
+                               severity, scope['read'], scope['write'], seq)
+            if fresh:
+                item['internal'] = True
+                item['scope_nodes'] = scope['nodes']
+            (opened if fresh else merged).append(item['id'])
+    if result == 'pass':
+        for item in value['findings']:
+            if item['status'] == 'open' and item.get('internal') and item['node'] == nid and any(r.get('id') == item['criterion'] and r.get('result') == 'pass' for r in rows):
+                observed_seq = max(item['source']['verdict_seq'], item.get('last_observed', {}).get('verdict_seq', 0))
+                if seq <= observed_seq:
+                    continue
+                core.close_finding(value, item['id'], receipt, shown=[receipt], listed=[item['id']],
+                                   resolution={'receipt': receipt, 'artifact_sha': body['artifact'], 'candidate': body['artifact'], 'revision': revision,
+                                               'generation': body.get('generation', 1), 'reason': f'check {item["criterion"]} of node {nid} passes on a later generation',
+                                               'evidence': [receipt]}, status='resolved')
+                closed.append(item['id'])
+    if opened or merged or closed:
+        _save(ledger, conn, root, selector, revision, value, 'node-verification', receipt=receipt, node=nid, opened=opened, merged=merged, closed=closed,
+              scope_nodes=scope['nodes'])
+    return {'opened': opened, 'merged': merged, 'closed': closed, 'scope': scope}
 
 
 def _proof(ledger, conn, root, name, revision, sha, contract, node, receipt, generation, artifact_sha=None, latest=False):
@@ -319,13 +420,20 @@ def resolve(ledger, name, ident, receipt, *, reason, artifact_sha, generation=1,
         try:
             if target is None or target['status'] != 'open':
                 raise LedgerError(f'{ident} is not an open finding.')
-            body, result, verdict_seq = _proof(ledger, conn, root, name, revision, sha, contract, target['node'], receipt, generation, artifact_sha, latest=True)
+            if target.get('internal'):
+                body, result, verdict_seq = _node_proof(ledger, conn, root, target['node'], receipt)
+            else:
+                body, result, verdict_seq = _proof(ledger, conn, root, name, revision, sha, contract, target['node'], receipt, generation, artifact_sha, latest=True)
             observed_seq = max(target['source']['verdict_seq'], target.get('last_observed', {}).get('verdict_seq', 0))
             if verdict_seq <= observed_seq:
                 raise LedgerError('Resolution evidence predates the finding; verify it again.')
             if result != 'pass':
                 raise LedgerError('A finding closes only with passing verification evidence.')
-            if body.get('kind') == 'reviewer-receipt':
+            if target.get('internal'):
+                criterion = next((c for c in (body.get('observed') or {}).get('checks') or [] if c.get('id') == target['criterion']), None)
+                if criterion is None or criterion.get('result') != 'pass':
+                    raise LedgerError('The evidence does not pass this finding check.')
+            elif body.get('kind') == 'reviewer-receipt':
                 criterion = next((c for c in body.get('criteria') or [] if c.get('id') == target['criterion']), None)
                 if criterion is None or criterion.get('verdict') != 'pass':
                     raise LedgerError('The evidence does not pass this finding criterion.')

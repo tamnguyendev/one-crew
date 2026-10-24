@@ -161,3 +161,28 @@ def rebind_order(ledger, selector, nodes, *, expected_revision):
     for node in result:
         if node['id'] in affected: node['input'].append(PREFIX + blob)
     return result
+
+
+def rerun_order(ledger, selector, finding_id):
+    """W21 (T11 [E3], [E5]): what to run again after a repair for one open node finding: the failed check(s) of the node the finding is attached
+    to first, then every check of the nodes in the finding's dependency scope, in definition order — not the whole suite. Read-only."""
+    from . import findings
+    with ledger.transaction() as conn:
+        view = engine.state(ledger, selector, conn)
+        root = findings._context(ledger, conn, selector)[0]
+        value = findings._read(ledger, conn, root['id'])
+    item = next((f for f in value['findings'] if f['id'] == finding_id), None)
+    if item is None or not item.get('internal'):
+        raise LedgerError('rerun_order needs an internal-node finding of this root.')
+    definition = (view['definition'] or {}).get('nodes', [])
+    by_id = {n['id']: n for n in definition}
+    if item['node'] not in by_id:
+        raise LedgerError('The finding node is not in the current internal definition.')
+    failed_first = [item['criterion']] if item['criterion'] in {c['id'] for c in by_id[item['node']]['checks']} else []
+    scope_nodes = [n['id'] for n in definition if n['id'] in set(item.get('scope_nodes') or [])]
+    affected = [c['id'] for nid in scope_nodes for c in by_id[nid]['checks']]
+    rest = [c['id'] for c in by_id[item['node']]['checks'] if c['id'] not in failed_first]
+    everything = [c['id'] for n in definition for c in n['checks']]
+    ordered = failed_first + affected + rest
+    return {'finding': finding_id, 'node': item['node'], 'failed_first': failed_first, 'scope_nodes': scope_nodes, 'affected': affected,
+            'ordered': ordered, 'whole_suite': everything, 'smaller_than_suite': len(ordered) < len(everything)}
