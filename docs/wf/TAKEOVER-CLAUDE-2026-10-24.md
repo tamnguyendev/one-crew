@@ -4,14 +4,7 @@ Nhánh `codex/wf-development`, worktree `D:\TamNT\Workspace\11.OneCrew\wf-codex`
 được chốt nguyên trạng thành `2bfc223` (sao lưu: `D:\OneCrewRuns\wf-codex-handoff-backup-20261024`). Không reset, không ghi đè; sổ thật,
 worktree khác và job đang chạy không bị đụng. Không push, tag, publish; không approve/accept trên sổ thật; không gọi provider trả phí.
 
-Trạng thái (cập nhật lần 3, đêm 24/10, sau review Codex tại `9aca8be`): **CÒN VIỆC LOCAL CHƯA XONG** — Codex tìm 3 P1 (W05 test_integrity bỏ qua
-decorator/discovery; W32a CLI không truyền nodes và nuốt lỗi hold; W37a crash giữa reconcile và hold cho phép chạy lại X) và 2 P2 (gate phải chạy
-trên snapshot cố định; bảng 92 task/trạng thái). W05, W32a, W37a đã hạ về Partial; gate `0d296fe` bị dừng vì chạy trên cây làm việc (không phải
-gate cuối). Các phần cần provider thật, pilot thật, bản giao trước thật và nghiệm thu của chủ sở hữu vẫn CHƯA KIỂM CHỨNG/BLOCKED. Chưa có
-nghiệm thu sản phẩm; review Codex lượt 1 đã nhận, chưa có review lượt 2.
-
-Bảng 92 task: [audit/AUDIT-92.md](audit/AUDIT-92.md) (dữ liệu: `audit/audit-92.json`, cách chấm: `audit/overrides.json` đè lên 4 bản điền của agent).
-Phạm vi theo testcase: [FEATURE-SCOPE.md](FEATURE-SCOPE.md). Release notes (development, chưa giao): [release-notes/](release-notes/README.md).
+Trạng thái (cập nhật lần 4, đêm 24/10 ~22:45, lượt "hoàn thiện toàn bộ development"): **mọi việc local trong phạm vi đã giao đã làm xong hoặc ghi rõ phần còn thiếu**; mã cuối `ceb46c6`; gate snapshot cuối đang chạy trên `ceb46c6` (mục 8 ghi kết quả khi xong). Còn Partial 5 task bộ kiểm (thiếu test/ma trận, không phải điều kiện ngoài — mục 8.4) và Blocked 15 task cần điều kiện ngoài (bản giao trước thật, provider thật, pilot). Chưa có nghiệm thu sản phẩm; review Codex lượt 1 (`9aca8be`) đã xử lý xong, chưa có review lượt 2.
 
 ## 0. Kết quả tóm tắt (đọc 5 dòng)
 
@@ -117,3 +110,32 @@ Không chạy: toàn bộ `tests.test_v2_reviewer` (RealCliTests gọi provider 
 
 Manifest development thu hồi + đóng băng lại ở `9107d61` (321 pin). Lệch trước khi đóng băng lại (kitguard.verify qua `layout()`): 4 snapshot `registry`
 (R01/R03/R04/R05) + `wfkit/development_gate.py` (runner snapshot, `bcc4d88`); không file test pin nào.
+
+## 8. Lượt 2 đêm 24/10 — hoàn thiện development (chỉ thị "Tiếp tục OneCrew đến khi hoàn thiện toàn bộ")
+
+### 8.1 Kết quả 5 dòng
+
+- 92 task tại `ceb46c6`: **Done 72 · Partial 5 · Blocked 15** (feature 60/0/0; bộ kiểm 12/5/0; phát hành 0/0/11; provider thật 0/0/1; pilot/nghiệm thu 0/0/3). Bảng đầy đủ: `docs/wf/audit/AUDIT-92.md` (một nguồn: `overrides.json` + `tools/audit_merge.py`).
+- 13 feature Partial cuối → Done: W12a, W18, W36 theo quyết định B1–B3 của chủ sở hữu; W51 liveness lệnh dài (Supervisor → progress_track, một bộ đếm với v1); W23a ba trạng thái task; W39, W11a, W46a/b, W40, W41 (finding mở thật qua rollback), W37b (host guard + phản chứng E6), W01.
+- Khung phát hành chung `wfkit/release_bundle.py`: năm điều T54 chạy THẬT trên bản cài/bản sao sổ sinh và ghi thành bundle cho `release_check`; T54.1–T54.4 đạt trên biên nhận thật cho R01/R05/R08/RX1 (chạy thử), INPUTS bị từ chối đúng lý do ngoài (chưa có bản giao trước).
+- Registry: T07a, T18b, T07b, T30, T38b, T14b và 9 testcase R03/R04 lên `complete` theo ma trận [E]→test đã audit (đọc test, không suy); 16 check mới; manifest đóng băng lại 361 pin. Testcase nào còn thiếu E thì gap ghi đúng danh sách E.
+- Gói bàn giao: `docs/wf/audit/tools/build_package.py` + `verify_package.py` (cài venv sạch ngoài checkout từ wheel của gate, smoke qua `onecrew.exe`, kiểm module nạp từ venv, rollback/roll-forward trên bản sao sổ). Kết quả thật ghi ở 8.5 sau khi gate xong.
+
+### 8.2 Commit lượt 2 (sau `9fc9a00`)
+
+`bb177f0` (W05/W32a/W37a + snapshot gate, đã nêu mục 7) → `3fe7c7a` (W12a, W23a, W39, W01, U1 r01_card) → `e47bd65` (W18) → `0af3fd1` (W36 + W51) → `81f3c1d` (W11a/W46/W40 tests) → `9c49010` (W41 finding) → `07c8137` (registry 6 testcase complete, 11 check, U1 drill, tools) → `a398259` (release_bundle, installed adapters, provider matrix, package tools) → `ceb46c6` (registry R03/R04 audit, T55 cases, pilot_report, manifest 361 pin).
+
+### 8.3 Quyết định đã ghi theo ủy quyền (không phải chữ ký chủ sở hữu)
+
+- `wfkit/u1/U1-20261024-CARD.json` (hash sửa lại theo cách băm của kit-guard), `U1-20261024-DRILL-KIT.json`, `U1-20261024-DRILL-TEST.json` — mỗi bản ghi nêu lý do, bằng chứng, trích dẫn ủy quyền mục A của chỉ thị đêm 24/10.
+- Quyết định B1–B3 của chủ sở hữu (W12a/W12b, W18, W36) được áp đúng như đã chốt; không hỏi lại.
+
+### 8.4 Còn lại thật sự (không giấu)
+
+- **Partial 5 (bộ kiểm, loại C — thiếu test, không phải điều kiện ngoài):** WK03 (T12 E1/E3/E4/E6; T36b 9 E: restart, đồng hồ giả, cảnh báo 70%; T43b/T43c/T47a vài E; T41a E2, T35d E3 tái hiện đỏ), WK04a (T03 E1/E7, T19 E1 assert U1 cho ca xoá test, T37 chờ O4), WK04b (T49d N1–N7 trên S2 hai bản cài; ma trận T05/T25/T26/T32/T48b/T49c/T49d/T54d), WK05b (ma trận T04c/T16b/T16c/T17c/T18a/T43d/T47c), WKPL (T14c module, cổng vào T45b/T45c độc lập, phần báo cáo z1–z12).
+- **Blocked 15 (điều kiện ngoài, đủ 5 điều kiện mục G):** W40-R01…R08, RX1, RX2, RP — release_check INPUTS cần biên nhận cổng giao CG- của bản trước; chưa release nào được giao; phần cục bộ (bundle, ghi chú, drill) đã xong. W45 (CLI provider thật, có phí). W38b/c/d (pilot).
+- **Phát hiện cần quyết định (ghi lại, chưa sửa vì là ngữ nghĩa):** (1) root cũ do bản cũ duyệt không có artifact gốc → kiểm toàn vẹn test (W05) của bản mới không lập được → lệnh pass bị ghi `inconclusive` (mốc failed) sau nâng cấp — giới hạn tương thích, cần chủ sở hữu chọn (giữ như hiện tại hay coi "không có baseline" là pass có ghi chú); (2) T55 CK12/CK21/CK23: `finalgate.decide` từ chối thêm KQ4/KQ7 so với bảng; (3) `tests/test_control.py` có 1 skip theo môi trường (không có redirector) nên để ngoài gate, `tests/test_host.py` đăng ký thay (T30 E1); (4) O4 (T37 E3/E6) vẫn mở.
+
+### 8.5 Gate snapshot cuối, bundle, gói bàn giao
+
+(điền khi gate `ceb46c6` kết thúc)
