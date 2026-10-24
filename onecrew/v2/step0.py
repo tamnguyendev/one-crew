@@ -384,6 +384,15 @@ def step0_status(conn, task_id, revision):
             'preconditions': {'ok': run['ok'], 'phase': run['phase'], 'receipt': run['receipt']} if run else None}
 
 
+# ---- decision cards (W30a) ----------------------------------------------------------------------------------------------
+
+def present_decisions(ledger, name, choices, subject):
+    """Step 0 shows the owner only the important choices, in one card; technical choices inside the authority are decided and written as
+    HD-05 records, never asked (cards.present)."""
+    from . import cards
+    return cards.present(ledger, name, choices, subject)
+
+
 # ---- brainstorm table ---------------------------------------------------------------------------------------------------
 
 def _cut(text, width=112):

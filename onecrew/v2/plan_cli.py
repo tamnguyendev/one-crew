@@ -54,6 +54,10 @@ def _parser():
     p.add_argument('--confidence', required=True, choices=['high', 'medium', 'low'])
     p.add_argument('--by', choices=['poc', 'owner'], default='poc', help='poc: an AI may record it (the evidence file is the proof). owner: the owner own PoC; refused in an AI session.')
     p.add_argument('--poc-contract', type=Path, help='The PoC work contract, if it had one; refused when it can apply to the project.')
+    card = plan.add_parser('card', help='Decision cards (W30a).').add_subparsers(dest='action', required=True)
+    p = card.add_parser('present', help='Step 0 shows the owner only the important choices, in ONE card; technical choices inside the authority are decided and recorded (HD-05), not asked.')
+    p.add_argument('name'); p.add_argument('--file', required=True, type=Path, help='{"choices": [...]}: each choice has id, class, problem, options, recommendation, evidence, scope, decide_by.')
+    p.add_argument('--model', required=True, help='The model that decided the technical choices (recorded as the subject).'); p.add_argument('--component', default='step0')
     brainstorm = plan.add_parser('brainstorm', help='Options of the plan.').add_subparsers(dest='action', required=True)
     p = brainstorm.add_parser('table', help='Print the options as a table of at most 30 lines.'); p.add_argument('name')
     p = plan.add_parser('enforce', help='Owner only: require an approved plan before any job of this state root can run.')
@@ -98,6 +102,8 @@ def _dispatch(ledger, args):
         if args.command == 'poc':
             return step0.poc_record(ledger, args.name, args.unknown, args.answer, args.evidence, args.confidence,
                                     read_json(args.poc_contract) if args.poc_contract else None, args.by)
+        if args.command == 'card':
+            return step0.present_decisions(ledger, args.name, read_json(args.file).get('choices'), {'component': args.component, 'model': args.model})
         if args.command == 'brainstorm':
             with ledger.transaction() as conn:
                 state = plans.anchor_events(ledger, conn, args.name)
