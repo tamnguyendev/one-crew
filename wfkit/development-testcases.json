@@ -1626,7 +1626,8 @@
       "T36a": {
        "status": "partial",
        "checks": [
-        "check.task_caps"
+        "check.task_caps",
+        "check.t36a_scenario"
        ],
        "gaps": [
         {
@@ -1845,6 +1846,14 @@
      ],
      "installed": false,
      "scope": "A reply attributed to the user is refused in an AI session (API and CLI); T20 is gated historically by R00, its E5 regression lives here."
+    },
+    "check.t36a_scenario": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t36a_scenario"
+     ],
+     "installed": false,
+     "scope": "A/B/C scenario on the fixture engine with a fake clock: split rule, survey before implementation, indivisible reason+cap, waiting moves no deadline."
     }
    },
    "acceptance": {
@@ -1980,7 +1989,8 @@
     "T36a": {
      "status": "partial",
      "checks": [
-      "check.task_caps"
+      "check.task_caps",
+      "check.t36a_scenario"
      ],
      "gaps": [
       {
@@ -3741,7 +3751,8 @@
        "checks": [
         "check.managed_executor",
         "check.node_actions_cli",
-        "check.t08b_no_exactly_once"
+        "check.t08b_no_exactly_once",
+        "check.t08b_crash_before_dispatch"
        ],
        "gaps": [
         {
@@ -3885,6 +3896,14 @@
      ],
      "installed": false,
      "scope": "Criteria grep for exactly-once claims over the run/intent code, states and a release record; fixture run markers."
+    },
+    "check.t08b_crash_before_dispatch": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t08b_crash_before_dispatch"
+     ],
+     "installed": false,
+     "scope": "Real child-process death after the prepared intent and before dispatch; restart runs X once (marker file)."
     }
    },
    "acceptance": {
@@ -3977,7 +3996,8 @@
      "checks": [
       "check.managed_executor",
       "check.node_actions_cli",
-      "check.t08b_no_exactly_once"
+      "check.t08b_no_exactly_once",
+      "check.t08b_crash_before_dispatch"
      ],
      "gaps": [
       {
