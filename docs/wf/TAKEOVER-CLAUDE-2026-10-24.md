@@ -148,7 +148,7 @@ Manifest development thu hồi + đóng băng lại ở `9107d61` (321 pin). L�
 
 ## 9. Lượt 3 (25/10) — review Codex tại `a2476ab`: 4 P1 + 2 P2, sửa và kiểm lại
 
-Chỉ thị chủ sở hữu 25/10: sửa hết, hoàn tất phần local, chạy lại gate và kiểm chính gói trên snapshot cố định, không hỏi duyệt từng việc. Mã lượt 3: **`c95f603`** (manifest 393 pin; U1-20261025-RC-VALIDATOR / -RC-TESTS / -RB-TEST ghi theo ủy quyền cho ba file kit bị siết chặt).
+Chỉ thị chủ sở hữu 25/10: sửa hết, hoàn tất phần local, chạy lại gate và kiểm chính gói trên snapshot cố định, không hỏi duyệt từng việc. Mã lượt 3: **`c95f603`**; mã lượt 4 (9.4): **`6366137`**; mã lượt 4 (9.4): **`6366137`** (manifest 393 pin; U1-20261025-RC-VALIDATOR / -RC-TESTS / -RB-TEST ghi theo ủy quyền cho ba file kit bị siết chặt).
 
 ### 9.1 Sáu finding — nguyên nhân, sửa, phản chứng
 
@@ -167,6 +167,30 @@ Chỉ thị chủ sở hữu 25/10: sửa hết, hoàn tất phần local, chạ
 - Số 72/5/15 (23/10 23:00, ceb46c6 trước W45) và 73/5/14 (25/10 00:10, sau W45) là hai mốc lịch sử; mốc hiện hành ở 9.3.
 - Phát hiện giữ cho chủ sở hữu/Codex: T36b E4/E7/E17 (đổi sản phẩm), CK12/CK21/CK23 (bảng vs cổng), O4 (T37), `decision.hold/defer` chỉ là tên dự phòng.
 
-### 9.3 Gate snapshot `c95f603`, bundle, gói (kết quả thật)
+### 9.3 Gate snapshot `c95f603` (lượt 3) — kết quả thật
 
-(điền khi gate kết thúc)
+Gate `%TEMP%\wf-snapshot-gate-20261025-c95f603`: wheel sha256 `39578d4561859dda678c4cac318b9a19d0b83ac6c2bd0dc1f927d19348113b0d`; 212/212 check implementation đạt (212 lượt chạy suite, 1 710 lượt test cộng dồn, 0 skip, 146 module, 1 345 test id duy nhất); từ chối chỉ vì acceptance-partial 49 + acceptance-blocked 10 (đúng kỳ vọng: gate không tự nghiệm thu).
+
+Bundle trên `c95f603` (`%TEMP%\wf-bundles-c95f603`, đã bị thay): R01–R04 đạt T54.1–T54.4; **R05–R08 bị từ chối tại T54.1** "release tasks without a behaviour scenario"; RP/RX1/RX2 lỗi vì file kịch bản bị sửa giữa lúc chạy (lỗi quy trình của tôi, không phải sản phẩm). Nguyên nhân và sửa ở 9.4. Không có gói nào được dựng từ `c95f603`.
+
+### 9.4 Lượt 4 — từ chối bundle R05–R08, công cụ kiểm tiếp tục root cũ từ gói, gate `6366137`
+
+**Vì sao validator từ chối mà gate test lại đạt.** `release_check` T54.1 đọc task của một yêu cầu kịch bản là token đầu tiên (tách theo khoảng trắng). File kịch bản R05–RX2 viết `'W17: text'`, `'W36/W18: text'` nên token đọc được là `W17:` / `W36/W18:` — không trùng task nào trong inventory → "release tasks without a behaviour scenario". Gate test `tests/test_wf_scenarios.py` lúc đó chỉ kiểm thân kịch bản, không áp cùng cách đọc, nên đạt. Sửa (commit `20916f5`, U1-20261025-SCN-TASKS theo ủy quyền, manifest 395 pin, re-freeze `6366137`):
+- 25 chuỗi yêu cầu trong `tests/wf_scenarios_r05_rx2.py` viết lại đúng dạng `W17 text`; R05 bổ sung yêu cầu W26 vào kịch bản đã sẵn kiểm W26 (`r05-findings-holds-retained`).
+- Khung `tests/wf_scenarios.register` từ chối ngay lúc khai báo token trông như task id mà không phải (`W47:`, `W36/W18`).
+- Gate test áp CÙNG cách đọc của validator: mọi task trong inventory của release phải được chứng minh bởi token đầu của một yêu cầu; hai phản chứng (`['W47: proposal check']`, `['W36/W18 holds']` → ValueError). Validator **không đổi**.
+
+**Kiểm tiếp tục root cũ TỪ GÓI (P1-D, mục bắt buộc của chỉ thị).** `docs/wf/audit/tools/legacy_continuation.py` (ngoài kit pin) chạy bản cũ (`previous_wheel` trong manifest gói) trong venv riêng để tạo root `plan:` thật với dòng `plan.approved` trước W05 (không `at`, không `base_artifact`, 2000-01-01), rồi bản mới từ gói: `verdict run` → `inconclusive` + phân loại `insufficient` + lỗi "no approved baseline" + trang bàn giao chỉ đường `verdict baseline`, O1 không "đạt"; `verdict baseline` bị từ chối với `ONECREW_ACTOR=claude` và với commit không có trong repo (exit≠0, 0 sự kiện ghi); chủ sở hữu ghi → một `plan.baseline_recorded` có tree = `HEAD^{tree}`; chạy lại → `passed`; ghi lại không ghi đè; anchor/revision/approved không đổi; module nhập từ venv. `judge()` quyết từ 14 bước bắt buộc (negative phải fail đúng lý do, lỗi encoding bị từ chối, báo cáo tự nhận pass có lý do → incoherent). Kiểm: `tests/test_wf_legacy_continuation_tool.py` 6 (testcase PL `check.legacy_continuation_tool`, trong gate); `tests/test_wf_legacy_continuation_real.py` chạy trên gói đã dựng với `WF_PACKAGE` (không trong registry vì phải skip khi không có gói). Phản chứng trước: chạy trên gói cũ `wf-handover-ceb46c6` → refused tại `legacy_inconclusive_not_passed` (bản `ceb46c6` báo "The plan has no approval time or base artifact…", không chỉ đường).
+
+**Gate snapshot `6366137`** (`%TEMP%\wf-snapshot-gate-20261025-6366137`, log `D:\OneCrewRuns\wf-dev-logs\snapshot-gate-6366137.txt`): wheel sha256 `503f624f8912857f9fff2e51a725bcaa161c7c0c296dfade0ca271b7a4b31237`; **213/213 check implementation đạt**, 213 lượt chạy suite, 1 716 lượt test cộng dồn, 0 skip, 147 module, 1 351 test id duy nhất (`gate_numbers.py`); từ chối chỉ vì acceptance-partial 49 + acceptance-blocked 10 (không có check implementation nào thất bại; exit 1 của gate là "refused" theo thiết kế).
+
+**Bundle trên `6366137`** (`%TEMP%\wf-bundles-6366137`, ma trận W45 của `ceb46c6`): **11/11 bundle đạt T54.1–T54.4 trên biên nhận thật** (R05–R08 nay đạt T54.1 với kịch bản hành vi đúng token; RX1/RX2 đạt); T54.5 đạt 10/11, **RP T54.5 không đạt: "comparison missing"** = luật hiệu lực HL đúng thiết kế: ma trận W45 thuộc wheel `ceb46c6`, artifact mới chưa có so sánh → ghi `cần kiểm lại`, không chạy lại provider trả phí (ngoài quyền áp dụng), không đổi hash receipt cũ. INPUTS không đạt ở cả 11 ("previous delivered gate history missing": chưa release nào được giao; điều kiện ngoài). `simulated_receipts_used = false`. Release notes 12 file sinh lại từ gate + bundle (`docs/wf/release-notes/`).
+
+**Gói bàn giao `D:\OneCrewRuns\wf-handover-6366137`** (526 file; wheel `onecrew-2.2.0.dev3-py3-none-any.whl` sha256 `503f624f…b31237`, bản trước `ceb46c6`/d3120c6 trong `wheel/previous/`, `manifest.json`, `SHA256SUMS`, gate + receipts, 11 bundle, ma trận W45 của `ceb46c6`, bảng 92, release notes). Kiểm TỪ ARTIFACT, venv sạch ngoài checkout:
+- `verify_package.py` → `D:\OneCrewRuns\wf-verify-6366137`: **pass, 26/26 bước** (SHA256SUMS, hash wheel, venv, pip, smoke, verdict run, plan report, module từ venv, checkout không trên path; bản sao sổ có B1 → scan chặn, pip không chạy, cài đặt/sổ không đổi; bản sao sạch → gỡ bản mới, cài bản cũ, digest cũ đọc được, bản cũ không đọc `plan-ns:` root, sổ không đổi, cài lại bản mới = cùng build, roll-forward đọc lại, sổ không đổi).
+- `legacy_continuation.py` → `D:\OneCrewRuns\wf-legacy-6366137`: **pass, 14/14 bước bắt buộc** (root `plan:` thật do bản cũ tạo + duyệt trước W05 → bản mới: inconclusive/insufficient/"no approved baseline", trang bàn giao chỉ `verdict baseline`; AI bị từ chối exit 2, 0 sự kiện; commit lạ bị từ chối exit 2, 0 sự kiện; chủ sở hữu ghi 1 `plan.baseline_recorded` tree = HEAD; chạy lại → passed; ghi lại không thêm; anchor/revision/approved không đổi; module từ venv).
+- `WF_PACKAGE=<gói> python -m unittest tests.test_wf_legacy_continuation_real` → **OK (1 test, ~28 s)**.
+- Phát hiện khi kiểm thật (sửa trong lượt này, ngoài kit pin): lần chạy đầu `legacy_continuation.py` **refused** vì judge của tôi đoán sai câu từ chối (chờ "owner"/"not in") trong khi sản phẩm nói "an AI cannot approve or accept" và "git rev-parse --verify failed: … Needed a single revision" (đúng hành vi, exit 2, 0 sự kiện). Sửa needle theo đúng câu sản phẩm; bài test thật là cái bắt lỗi này. Ghi chú cho Codex: câu từ chối commit lạ của `verdict baseline` là lỗi git thô, nên nói rõ "commit không có trong repo" (không chặn).
+- Báo cáo kiểm được chép vào `<gói>/verification/` (không nằm trong SHA256SUMS, như gói trước).
+
+Không ghi: Codex đã review lượt 4, chủ sở hữu đã nghiệm thu, release đã giao — chưa xảy ra. Gate `decision = refused` vì acceptance partial/blocked là đúng thiết kế.

@@ -1,6 +1,6 @@
 # Bảng đối chiếu 92 task — development chương trình workflow chung
 
-Commit kiểm: `c95f603`. Nguồn task: `docs/wf/sources/04-TASKS.vi.md` (sha256 c1d8f8ae40cd); acceptance: `05-TESTCASES.vi.md`. Trạng thái: **Done** = đủ hành vi theo DoD của task, nối vào đường dùng, mọi [E] của phần DoD có test đạt trên commit kiểm; **Partial** = thiếu gì ghi ở cột "Thiếu"; **Blocked** = cần provider thật / pilot / điều kiện ngoài. Loại nguyên nhân: A thiếu code, B chưa nối đường dùng, C thiếu test/bằng chứng, D chỉ chưa cập nhật trạng thái, E điều kiện ngoài.
+Commit kiểm: `6366137`. Nguồn task: `docs/wf/sources/04-TASKS.vi.md` (sha256 c1d8f8ae40cd); acceptance: `05-TESTCASES.vi.md`. Trạng thái: **Done** = đủ hành vi theo DoD của task, nối vào đường dùng, mọi [E] của phần DoD có test đạt trên commit kiểm; **Partial** = thiếu gì ghi ở cột "Thiếu"; **Blocked** = cần provider thật / pilot / điều kiện ngoài. Loại nguyên nhân: A thiếu code, B chưa nối đường dùng, C thiếu test/bằng chứng, D chỉ chưa cập nhật trạng thái, E điều kiện ngoài.
 
 **Tổng: 92 task — Done 73, Partial 5, Blocked 14.**
 

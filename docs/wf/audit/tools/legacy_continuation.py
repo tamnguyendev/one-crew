@@ -24,7 +24,7 @@ from wfkit import package_check as pc  # noqa: E402
 REQUIRED = ('wheel_sha', 'venv', 'pip_install', 'old_venv_previous_wheel', 'legacy_root_by_old_build', 'legacy_root_built', 'legacy_inconclusive_not_passed', 'legacy_route_in_handover',
             'baseline_ai_refused', 'baseline_bad_commit_refused', 'baseline_owner_recorded', 'legacy_passed_after_baseline',
             'legacy_identity_unchanged', 'modules_from_venv')
-NEGATIVE = {'baseline_ai_refused': 'owner', 'baseline_bad_commit_refused': 'not in'}
+NEGATIVE = {'baseline_ai_refused': 'AI cannot approve', 'baseline_bad_commit_refused': 'rev-parse --verify failed'}   # the product's own refusal texts (real run on wf-handover-6366137, 25/10)
 BAD_TAIL = ('UnicodeEncodeError', 'UnicodeDecodeError', "can't encode", 'codec can')
 
 
