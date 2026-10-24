@@ -347,11 +347,15 @@ def amend(ledger, name, raw, reason, author, events=None, keep_content_author=Fa
         latest, sha_now = state['latest'], content_hash(contract)
         if state['revisions'][latest]['sha'] == sha_now: raise LedgerError('The amendment is identical to the current revision.')
         revision = latest + 1
-        from . import solution_link
+        from . import solution_link, acceptance_diff
         solution_link.validate_revision(ledger, conn, state['selector'], contract)
+        previous_contract = load(ledger, state, latest)[0]
+        diff = acceptance_diff.classify_contract(previous_contract, contract)        # W05/T21: recorded with the amendment; the owner still approves it
         sha = contracts.write_revision(ledger, state['selector'], revision, contract)
         emit(ledger, conn, state['task_id'], 'plan.amended', {'plan': state['name'], 'revision': revision, 'from_revision': latest, 'sha': sha,
                                                                'parent_sha': state['revisions'][latest]['sha'], 'reason': reason,
+                                                               'acceptance_diff': {'classification': diff['classification'], 'summary': diff['summary'],
+                                                                                   'changes': [{k: c[k] for k in ('path', 'kind', 'acceptance')} for c in diff['changes'][:20]]},
                                                                'author': author, 'title': contract['title'],
                                                                'content_author': (state['revisions'][latest].get('content_author') or state['revisions'][latest].get('author')) if keep_content_author else author})
         for kind, payload in (events(revision) if events else ()): emit(ledger, conn, state['task_id'], kind, payload)

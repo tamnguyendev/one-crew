@@ -184,6 +184,15 @@ def _validate(nodes, outputs):
     return result
 
 
+def _finish_initial(nodes, outputs):
+    """The first internal plan has no predecessor: only coverage of every approved output is judged (no checks to weaken yet)."""
+    covered = {item for node in nodes for item in node.get('acceptance', [])}
+    changes = [{'path': f'acceptance:{oid}', 'kind': 'removed_result', 'acceptance': True, 'why': 'no node proves this approved output'}
+               for oid in outputs if oid not in covered]
+    return {'acceptance_changed': bool(changes), 'classification': 'U1' if changes else 'routine', 'changes': changes,
+            'summary': '; '.join(c['path'] for c in changes) or 'initial plan covers every output'}
+
+
 def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None):
     reason = text_field(reason, 'internal revision reason', 1000)
     refs = estimates.evidence(evidence)
@@ -196,11 +205,14 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         ctx = ceilings(ledger, conn, state)
     outputs = contracts.output_ids(contract['output'])
     old_nodes = before['definition']['nodes'] if before['definition'] else []
-    old_checks, new_checks = _checks(old_nodes), _checks(nodes)
     acceptance = {item for node in nodes for item in node.get('acceptance', [])}
-    changed = acceptance != set(outputs) or any(new_checks.get(key) != check for key, check in old_checks.items())
-    if changed:
-        decide(ledger, state, contract, sha, {'kind': 'change_acceptance', 'nodes': [n.get('id') for n in nodes]}, ctx, 'onecrew.internal_plan')
+    # W05/T21: wording-only spec changes and added checks are routine; a dropped output/check, a changed threshold or any change this
+    # classifier cannot place is a change of acceptance (U1), decided through the same authority gate as before.
+    from . import acceptance_diff
+    diff = acceptance_diff.classify_nodes(old_nodes, nodes, outputs) if old_nodes else _finish_initial(nodes, outputs)
+    if diff['acceptance_changed'] or acceptance != set(outputs):
+        decide(ledger, state, contract, sha, {'kind': 'change_acceptance', 'nodes': [n.get('id') for n in nodes],
+                                              'changes': diff['changes'][:20], 'summary': diff['summary']}, ctx, 'onecrew.internal_plan')
     normalized = _validate(nodes, outputs)
     with ledger.transaction() as conn:
         _admit_revision(ledger,conn,state,before,normalized)
@@ -235,7 +247,9 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
             raise LedgerError('Remaining root budget/deadline changed before revision publication.')
         plans.emit(ledger, conn, again['task_id'], KIND, {'plan': state['name'], 'revision': state['approved']['revision'],
                    'internal_revision': revision, 'contract_sha': sha, 'definition': blob, 'definition_sha': definition_sha,
-                   'reason': reason, 'decision': decision, 'evidence': refs})
+                   'reason': reason, 'decision': decision, 'evidence': refs,
+                   'acceptance_diff': {'classification': diff['classification'], 'summary': diff['summary'],
+                                       'changes': [{k: c[k] for k in ('path', 'kind', 'acceptance')} for c in diff['changes'][:20]]}})
     estimates.observe_internal(ledger,state['selector'],reason=reason,evidence=refs)
     if namespaces.has_capability(state, 'finding-register'):
         from . import active_plan

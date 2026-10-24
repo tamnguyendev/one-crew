@@ -8,7 +8,7 @@ import os
 import re
 from pathlib import Path
 
-from ..ledger import LedgerError, key_field, text_field, utcnow
+from ..ledger import LedgerError, canonical, key_field, text_field, utcnow
 from ..snapshots import Snapshots
 from . import contract as contracts, namespaces, plan as plans
 from .verifiers import command, reviewer, port, artifact as artifacts
@@ -25,7 +25,7 @@ def _blob(ledger, key):
         raise LedgerError('Receipt is not a blob in this state root: ' + str(error)[:120]) from error
 
 
-def _check_receipt(ledger, name, revision, plan_sha, milestone, result, by, artifact, receipt, issued):
+def _check_receipt(ledger, name, revision, plan_sha, milestone, result, by, artifact, receipt, issued, integrity=None):
     verifier = milestone['verifier']['type']
     data = _blob(ledger, receipt)
     if verifier == 'owner-manual':
@@ -44,6 +44,8 @@ def _check_receipt(ledger, name, revision, plan_sha, milestone, result, by, arti
     if body.get('artifact_sha') != artifact:
         raise LedgerError(f'Artifact sha {artifact} does not match the one the receipt observed ({body.get("artifact_sha")}).')
     expected = _result(verifier, body)
+    if expected == 'pass' and integrity and integrity.get('weakened'):
+        expected = 'fail'                   # W05/T19: a green command on a weakened suite supports only a fail (U1), never a pass
     if result != expected: raise LedgerError(f'Receipt supports a {expected} verdict, not {result}.')
     # A well-formed receipt is not enough: it must be one that verdict.run issued. Anything hand-written is refused (F1).
     if (revision, milestone['id'], receipt) not in issued:
@@ -55,7 +57,7 @@ def _result(kind, receipt):
     return (command if kind == 'command' else reviewer if kind == 'reviewer' else port).expected_result(receipt)
 
 
-def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receipt_bytes=None, reference=None):
+def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receipt_bytes=None, reference=None, integrity=None):
     """receipt_bytes: a file to store as the receipt blob. Only owner-manual milestones take one. reference: where the owner said so
     (`onecrew owner record`); it is kept in the verdict event when given."""
     if result not in RESULTS: raise LedgerError('Result must be pass, fail or inconclusive.')
@@ -88,7 +90,7 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
             if milestone['verifier']['type'] != 'owner-manual':
                 raise LedgerError('A receipt file is accepted only for an owner-manual milestone; a command or reviewer milestone is verified by verdict run.')
             receipt = Snapshots(ledger.state_root).blob(receipt_bytes)
-        body = _check_receipt(ledger, state['name'], revision, sha, milestone, result, by, artifact_sha, receipt, state['issued'])
+        body = _check_receipt(ledger, state['name'], revision, sha, milestone, result, by, artifact_sha, receipt, state['issued'], integrity=integrity)
         if body and result == 'pass' and namespaces.has_capability(state, 'sequential-engine'):
             from . import verification_evidence
             verification_evidence.require_binding(body)
@@ -104,6 +106,10 @@ def record(ledger, name, milestone_id, result, by, receipt, artifact_sha, receip
                  if body and body.get('kind') == 'reviewer-receipt' else {})
         if body and (body.get('kind') == 'command-receipt' or port.known(milestone['verifier']['type'])):
             extra['calls'] = body.get('calls', 0)
+        if integrity and (integrity.get('weakened') or integrity.get('added') or integrity.get('error')):     # W05/T19
+            extra['test_integrity'] = {'weakened': integrity.get('weakened', [])[:20], 'added': integrity.get('added', [])[:20],
+                                       'receipt': integrity.get('receipt'), 'classification': integrity.get('classification'),
+                                       'base': integrity.get('base'), 'error': integrity.get('error')}
         plans.emit(ledger, conn, state['task_id'], 'verdict.recorded', dict(base, result=result, by=by, receipt=receipt,
                                                                             artifact_sha=artifact_sha, run=view['runs'] + 1,
                                                                             cwd=body.get('cwd') if body else None, **extra,
@@ -303,9 +309,11 @@ def run(ledger, name, milestone_id, directory=None):
     run_id = _begin_run(ledger, name, revision, milestone_id, kind, minutes)
     evidence_context = ({'evidence_context': {'selector': state['selector'], 'revision': revision, 'contract': contract}}
                         if namespaces.has_capability(state, 'sequential-engine') else {})
+    integrity = None
     try:
         if kind == 'command':
             blob, receipt = command.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
+            integrity = _test_integrity(ledger, directory, approved, receipt)          # W05/T19: a weakened test suite cannot make the milestone pass
         elif kind == 'reviewer':
             context = dict(evidence_context)
             if namespaces.has_capability(state, 'root-budget'):
@@ -329,7 +337,32 @@ def run(ledger, name, milestone_id, directory=None):
     except BaseException as error:
         _abandon_own(ledger, name, run_id, error)
         raise
-    return record(ledger, name, milestone_id, _result(kind, receipt), kind, blob, receipt['artifact_sha'])
+    result = _result(kind, receipt)
+    if integrity and integrity.get('weakened') and result == 'pass':
+        result = 'fail'                        # T19 [E1]/[E3]: the gate is red on a weakened suite, whatever the command printed
+    return record(ledger, name, milestone_id, result, kind, blob, receipt['artifact_sha'], integrity=integrity)
+
+
+def _test_integrity(ledger, directory, approved, receipt):
+    """T19: compare the test files of the approved base tree with the tree the command ran on. Returns the integrity record (stored as a
+    blob and named in the verdict event) or None outside Git / without a base. Added tests carry provenance; weakened ones are U1."""
+    from . import test_integrity
+    from .verifiers import artifact as identities
+    try:
+        if not identities.is_git(directory): return None
+        base, source = reviewer.base_tree(directory, approved)
+        current = receipt.get('artifact_sha')
+        if not (isinstance(base, str) and command.TREE_ID.fullmatch(base) and isinstance(current, str) and command.TREE_ID.fullmatch(current)):
+            return None
+        report = test_integrity.compare(directory, base, current)
+    except (LedgerError, OSError, ValueError) as error:
+        return {'error': str(error)[:300], 'weakened': [], 'added': []}
+    actor = os.environ.get('ONECREW_ACTOR') or 'unknown'
+    record_ = dict(report, base_source=source, provenance={'by': actor, 'receipt': None},
+                   classification='U1' if report['weakened'] else None)
+    if report['weakened'] or report['added']:
+        record_['receipt'] = Snapshots(ledger.state_root).blob(canonical(record_).encode('utf-8'))
+    return record_
 
 
 # ---- W44: the run itself (verdict.run_started / verdict.run_abandoned, both class A) ---------------------------------------------

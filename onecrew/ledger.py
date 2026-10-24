@@ -390,6 +390,9 @@ class Ledger:
         text_field(reference, 'reference')
         if decided_by not in (None, 'user', 'entry'):
             raise LedgerError('decided_by must be user or entry.')
+        if (decided_by == 'user' or (isinstance(by, str) and by in ('user', 'owner'))) and any(name in os.environ for name in ('CLAUDE_CODE_CHILD_SESSION',)):
+            # W03 (T20 E5): a reply that claims the user's decision cannot be recorded from inside an AI tool session; the owner answers in a terminal of their own
+            raise LedgerError('reply refused: a decision attributed to the user cannot be recorded from inside an AI tool session (CLAUDE_CODE_CHILD_SESSION is set).')
         if by is not None and (not isinstance(by, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,39}', by)):
             raise LedgerError('Invalid reply actor.')
         with self.transaction(write=True) as conn:
