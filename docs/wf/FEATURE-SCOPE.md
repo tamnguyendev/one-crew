@@ -49,16 +49,16 @@ Sinh từ `docs/wf/sources/04-TASKS.vi.md` (sha256 c1d8f8ae40cd) và `wfkit/deve
 | Task | Kết quả (rút gọn từ 04) | Testcase | Trạng thái registry | Kiểm hiện có | Khoảng trống |
 |---|---|---|---|---|---|
 | WK03 | Bộ kiểm R03: T12, T15b, T35d, T36b, T41a, T41b, T43a, T43b, T43c, T47a, T54c | — | — | — | bộ kiểm (WK*) / khảo sát: không có T-case riêng |
-| W44 | `verdict.run_started` (P1.1): ghi sự kiện bắt đầu chạy khi `verdict run` bắt đầu; Stop hook coi mốc đang chạy … | T41a | partial | r03a_run_started | acceptance-audit |
+| W44 | `verdict.run_started` (P1.1): ghi sự kiện bắt đầu chạy khi `verdict run` bắt đầu; Stop hook coi mốc đang chạy … | T41a | complete | r03a_run_started, t41_gaps |  |
 | W44 | `verdict.run_started` (P1.1): ghi sự kiện bắt đầu chạy khi `verdict run` bắt đầu; Stop hook coi mốc đang chạy … | T41b | complete | r03a_run_started |  |
 | W33a | Quan sát có nguồn: adapter khai capability (bắt đầu, dừng, pause tại điểm an toàn, cô lập, đo, recovery); ghi … | T15b | complete | hold_report, observation_integration, r03a_executors, shared_worker_ports |  |
-| W32a | Baseline ước lượng theo khoảng, ghi một lần ngay sau `plan.approved` bằng sự kiện `estimate.baseline` (lớp A; … | T36b | partial | estimates, r03a_executors, t36b_additional_u2, t36b_cli | acceptance-audit |
-| W23c | Số đo hiệu quả lấy từ sổ bằng hàm đánh giá v1 qua adapter (02, TD27): thời gian tới đầu ra, rework, quyết … | T35d | partial | r03a_metrics, t35d_handover_findings | acceptance-audit |
-| W24 | Ba trạng thái riêng `verified` / `accepted` / thông báo đã giao (HD-31); đúng một thông báo cho mỗi sự kiện … | T12 | partial | exceptions, installed_notifications | acceptance-audit |
+| W32a | Baseline ước lượng theo khoảng, ghi một lần ngay sau `plan.approved` bằng sự kiện `estimate.baseline` (lớp A; … | T36b | partial | estimates, r03a_executors, t36b_additional_u2, t36b_cli, t36b_gaps | acceptance-audit |
+| W23c | Số đo hiệu quả lấy từ sổ bằng hàm đánh giá v1 qua adapter (02, TD27): thời gian tới đầu ra, rework, quyết … | T35d | complete | r03a_metrics, t35_gaps, t35d_handover_findings |  |
+| W24 | Ba trạng thái riêng `verified` / `accepted` / thông báo đã giao (HD-31); đúng một thông báo cho mỗi sự kiện … | T12 | complete | exceptions, installed_notifications, t12_gaps |  |
 | W24 | Ba trạng thái riêng `verified` / `accepted` / thông báo đã giao (HD-31); đúng một thông báo cho mỗi sự kiện … | T43a | complete | exceptions, installed_notifications, t43a_channels |  |
-| W24b | Thông báo ngoại lệ (đổi có chủ đích so với W24 cũ), ghi bằng `notice.exception` (lớp A) để outbox v1 đọc từ … | T43c | partial | estimates, exceptions, t43c_quiet | acceptance-audit |
-| W30b | Câu trả lời được ghi đúng (A6, phần không đổi trạng thái): lệnh đọc và lệnh trả lời câu hỏi trong wheel (động … | T47a | partial | questions, t47a_answers | acceptance-audit |
-| W30b | Câu trả lời được ghi đúng (A6, phần không đổi trạng thái): lệnh đọc và lệnh trả lời câu hỏi trong wheel (động … | T43b | partial | exceptions, installed_notifications, questions | acceptance-audit |
+| W24b | Thông báo ngoại lệ (đổi có chủ đích so với W24 cũ), ghi bằng `notice.exception` (lớp A) để outbox v1 đọc từ … | T43c | complete | estimates, exceptions, t43_gaps, t43c_quiet |  |
+| W30b | Câu trả lời được ghi đúng (A6, phần không đổi trạng thái): lệnh đọc và lệnh trả lời câu hỏi trong wheel (động … | T47a | complete | questions, t47_gaps, t47a_answers |  |
+| W30b | Câu trả lời được ghi đúng (A6, phần không đổi trạng thái): lệnh đọc và lệnh trả lời câu hỏi trong wheel (động … | T43b | complete | exceptions, installed_notifications, questions, t43_gaps |  |
 | W40-R03 | Phát hành R03: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R03; `verdict.run_started`, … | T54c | partial | installed_notifications, upgrade_drill | release-evidence |
 
 ## R04
@@ -72,21 +72,21 @@ Sinh từ `docs/wf/sources/04-TASKS.vi.md` (sha256 c1d8f8ae40cd) và `wfkit/deve
 | W02 | Hợp đồng root có quyền cấp (ghi, lệnh, nhánh, sửa test, trần ngân sách/deadline, danh sách tự quyết); lint và … | T16a | complete | engine, r04a_authority, t20_reply_guard |  |
 | W02 | Hợp đồng root có quyền cấp (ghi, lệnh, nhánh, sửa test, trần ngân sách/deadline, danh sách tự quyết); lint và … | T37 | partial | engine, r04a_authority, t37_child_acceptance | acceptance-audit |
 | W04 | Revision kế hoạch nội bộ (`plan.revised`) tách khỏi revision hợp đồng; trong quyền thì không cần duyệt | T16a | complete | engine, r04a_authority, t20_reply_guard |  |
-| W04 | Revision kế hoạch nội bộ (`plan.revised`) tách khỏi revision hợp đồng; trong quyền thì không cần duyệt | T03 | partial | control_core, engine, metered_verifier, root_budget | acceptance-audit |
+| W04 | Revision kế hoạch nội bộ (`plan.revised`) tách khỏi revision hợp đồng; trong quyền thì không cần duyệt | T03 | complete | control_core, engine, metered_verifier, root_budget, t03_gaps |  |
 | W05 | Phân loại đổi acceptance (HD-04) và phát hiện làm yếu bộ kiểm qua hash/manifest | T21 | complete | acceptance_change, engine |  |
-| W05 | Phân loại đổi acceptance (HD-04) và phát hiện làm yếu bộ kiểm qua hash/manifest | T19 | partial | engine, t19_counterexamples, test_integrity | acceptance-audit |
+| W05 | Phân loại đổi acceptance (HD-04) và phát hiện làm yếu bộ kiểm qua hash/manifest | T19 | complete | engine, t19_counterexamples, t19_gaps, test_integrity |  |
 | W06 | Ba trạng thái node; dependency khai `requires`; hàm "đủ điều kiện chạy" theo trạng thái | T05 | partial | engine, failed_dependency | acceptance-audit |
 | W06 | Ba trạng thái node; dependency khai `requires`; hàm "đủ điều kiện chạy" theo trạng thái | T37 | partial | engine, r04a_authority, t37_child_acceptance | acceptance-audit |
-| W10 | Ngân sách và deadline không reset qua chia/retry/restart; đóng lỗ "khoá khác thì ngân sách mới" trong cùng … | T03 | partial | control_core, engine, metered_verifier, root_budget | acceptance-audit |
-| W10 | Ngân sách và deadline không reset qua chia/retry/restart; đóng lỗ "khoá khác thì ngân sách mới" trong cùng … | T32 | partial | root_writer, plan_binding, root_budget, control_core | acceptance-audit |
-| W11b | Version workflow và capability khai trong root; plan schema 2 giữ semantics | T25 | partial | namespace | acceptance-audit |
-| W12b | Một nguồn duyệt (SOL liên kết như solution revision); một writer mỗi root; không gian tên theo project (A8): … | T26 | partial | solution_link, installed_solution_link | acceptance-audit |
-| W12b | Một nguồn duyệt (SOL liên kết như solution revision); một writer mỗi root; không gian tên theo project (A8): … | T32 | partial | root_writer, plan_binding, root_budget, control_core | acceptance-audit |
-| W12b | Một nguồn duyệt (SOL liên kết như solution revision); một writer mỗi root; không gian tên theo project (A8): … | T48b | partial | namespace, plan_binding | acceptance-audit |
+| W10 | Ngân sách và deadline không reset qua chia/retry/restart; đóng lỗ "khoá khác thì ngân sách mới" trong cùng … | T03 | complete | control_core, engine, metered_verifier, root_budget, t03_gaps |  |
+| W10 | Ngân sách và deadline không reset qua chia/retry/restart; đóng lỗ "khoá khác thì ngân sách mới" trong cùng … | T32 | partial | control_core, namespace, plan_binding, root_budget, root_writer | acceptance-audit |
+| W11b | Version workflow và capability khai trong root; plan schema 2 giữ semantics | T25 | complete | events, namespace, v2_trust_fixes |  |
+| W12b | Một nguồn duyệt (SOL liên kết như solution revision); một writer mỗi root; không gian tên theo project (A8): … | T26 | partial | installed_solution_link, solution_link | acceptance-audit |
+| W12b | Một nguồn duyệt (SOL liên kết như solution revision); một writer mỗi root; không gian tên theo project (A8): … | T32 | partial | control_core, namespace, plan_binding, root_budget, root_writer | acceptance-audit |
+| W12b | Một nguồn duyệt (SOL liên kết như solution revision); một writer mỗi root; không gian tên theo project (A8): … | T48b | complete | namespace, plan_binding |  |
 | W46b | `compat scan` mở rộng cho anchor `plan-ns:` (đóng băng khi rollback), tên trùng, B1 (active plan trỏ root bản … | T49c | partial | namespace_compat | acceptance-audit |
 | W13 (S) | Câu trả lời: engine cho lát tuần tự R04 (mô hình node/cạnh/generation của delivery, `parallel.ready_batch` … | — | — | — | bộ kiểm (WK*) / khảo sát: không có T-case riêng |
 | W14a | Root chạy task tuần tự theo engine đã chọn, dependency theo trạng thái (HD-15), một slot. Lớp mỏng nối các … | T04a | complete | engine, engine_cli, installed_native, native_executor |  |
-| W14a | Root chạy task tuần tự theo engine đã chọn, dependency theo trạng thái (HD-15), một slot. Lớp mỏng nối các … | T16b | partial | candidate_handoff, native_executor, candidate_reviewer, observed_handoff | acceptance-audit |
+| W14a | Root chạy task tuần tự theo engine đã chọn, dependency theo trạng thái (HD-15), một slot. Lớp mỏng nối các … | T16b | partial | candidate_handoff, candidate_reviewer, native_executor, observed_handoff | acceptance-audit |
 | W14a | Root chạy task tuần tự theo engine đã chọn, dependency theo trạng thái (HD-15), một slot. Lớp mỏng nối các … | T17b | partial | findings_integration, retention_integration | acceptance-audit |
 | W31b | Unknown trong thực thi có `affected`, `required_by`, chủ thể giải; giữ cục bộ hoặc toàn cục trên engine tuần … | T02 | complete | installed_unknowns, runtime_unknowns |  |
 | W32b | Trường ước lượng (khoảng) cho task của kế hoạch nội bộ; trần mỗi task; luật chia (chia khi vượt trần; việc … | T36a | complete | t36a_scenario, task_caps |  |
@@ -102,23 +102,23 @@ Sinh từ `docs/wf/sources/04-TASKS.vi.md` (sha256 c1d8f8ae40cd) và `wfkit/deve
 | W07 | Biên nhận gắn thêm input, cấu hình, môi trường; stale nêu đúng thứ đổi | T06 | partial | evidence_binding, candidate_adapters, candidate_reuse_counter | acceptance-audit |
 | W08 | Căn cứ tái dùng evidence được ghi; căn cứ chỉ là `scope.neutral` đã khai hay căn cứ theo hành vi có bằng … | T22 | partial | evidence_binding, candidate_reuse_counter, handoff_reuse | acceptance-audit |
 | W09 | Retention: ref cục bộ giữ cây và blob mà evidence tham chiếu; không push; không tự xoá ref, chỉ chủ sở hữu … | T31 | partial | retention, retention_integration | acceptance-audit |
-| W16 | Node chuẩn bị test từ acceptance chạy trước implementation | T04c | partial | test_preparation | acceptance-audit |
+| W16 | Node chuẩn bị test từ acceptance chạy trước implementation | T04c | complete | test_preparation |  |
 | W17 | Finding register cho plan v2 (A3; phần "không thêm cổng" của đề xuất `DE-XUAT-LO3-A3-A5` không theo, vì HD-25 … | T28 | partial | findings, adapter_findings, register_v1_guard, register_v1_guard_p6 | acceptance-audit |
 | W17 | Finding register cho plan v2 (A3; phần "không thêm cổng" của đề xuất `DE-XUAT-LO3-A3-A5` không theo, vì HD-25 … | T07a | complete | findings, findings_integration, adapter_findings, finding_scope, repair_tasks, t04d_finding_holds_branch, t11_integration_finding, t07a_e14_request_holds |  |
 | W18 | Phạm vi ảnh hưởng theo dependency + phạm vi đọc/ghi; giữ nhánh (tuần tự: không chạy task bị ảnh hưởng; … | T07a | complete | findings, findings_integration, adapter_findings, finding_scope, repair_tasks, t04d_finding_holds_branch, t11_integration_finding, t07a_e14_request_holds |  |
 | W18 | Phạm vi ảnh hưởng theo dependency + phạm vi đọc/ghi; giữ nhánh (tuần tự: không chạy task bị ảnh hưởng; … | T15a | complete | finding_scope, hook_holds_generation |  |
 | W18 | Phạm vi ảnh hưởng theo dependency + phạm vi đọc/ghi; giữ nhánh (tuần tự: không chạy task bị ảnh hưởng; … | T17b | partial | findings_integration, retention_integration | acceptance-audit |
-| W18 | Phạm vi ảnh hưởng theo dependency + phạm vi đọc/ghi; giữ nhánh (tuần tự: không chạy task bị ảnh hưởng; … | T16b | partial | candidate_handoff, native_executor, candidate_reviewer, observed_handoff | acceptance-audit |
+| W18 | Phạm vi ảnh hưởng theo dependency + phạm vi đọc/ghi; giữ nhánh (tuần tự: không chạy task bị ảnh hưởng; … | T16b | partial | candidate_handoff, candidate_reviewer, native_executor, observed_handoff | acceptance-audit |
 | W19 | Repair task; chạy lại ca từng hỏng trước, rồi phần bị ảnh hưởng; vô hiệu hoá theo generation | T38c | partial | repair_tasks | acceptance-audit |
 | W19 | Repair task; chạy lại ca từng hỏng trước, rồi phần bị ảnh hưởng; vô hiệu hoá theo generation | T11 | complete | engine, candidate_handoff, candidate_reviewer, t11_integration_finding |  |
 | W19 | Repair task; chạy lại ca từng hỏng trước, rồi phần bị ảnh hưởng; vô hiệu hoá theo generation | T18a | partial | recovery_policy, t18a_blocker | acceptance-audit |
-| W19 | Repair task; chạy lại ca từng hỏng trước, rồi phần bị ảnh hưởng; vô hiệu hoá theo generation | T16b | partial | candidate_handoff, native_executor, candidate_reviewer, observed_handoff | acceptance-audit |
+| W19 | Repair task; chạy lại ca từng hỏng trước, rồi phần bị ảnh hưởng; vô hiệu hoá theo generation | T16b | partial | candidate_handoff, candidate_reviewer, native_executor, observed_handoff | acceptance-audit |
 | W51 | Không dừng nhầm việc đang tiến triển. Tách phần dùng chung của `progress.observe` (đếm lặp theo hash kết quả … | T18b | complete | progress, t18b_liveness |  |
 | W20 | Vòng sửa không tiến triển → tự chẩn đoán, replan trong quyền, hoặc blocker có bằng chứng | T18a | partial | recovery_policy, t18a_blocker | acceptance-audit |
 | W21 | Node tích hợp: unit xanh mà tích hợp đỏ thì root chưa `verified` | T11 | complete | engine, candidate_handoff, candidate_reviewer, t11_integration_finding |  |
 | W23d | Bàn giao theo finding: báo cáo và `plan present` liệt kê finding còn mở lấy từ register (W17), finding đã … | T24b | partial | findings_report | acceptance-audit |
 | W26 | Lớp quyết định theo quy tắc: `SKIP`/`DEFER`/`REVIEW`/`HOLD` có lý do, bằng chứng, phạm vi, hiệu lực; cache … | T29 | complete | review_dispatch, installed_review_dispatch, review_optional_cli |  |
-| W26 | Lớp quyết định theo quy tắc: `SKIP`/`DEFER`/`REVIEW`/`HOLD` có lý do, bằng chứng, phạm vi, hiệu lực; cache … | T16c | partial | review_policy, review_dispatch, review_optional_cli | acceptance-audit |
+| W26 | Lớp quyết định theo quy tắc: `SKIP`/`DEFER`/`REVIEW`/`HOLD` có lý do, bằng chứng, phạm vi, hiệu lực; cache … | T16c | partial | review_dispatch, review_optional_cli, review_policy, runtime_unknowns | acceptance-audit |
 | W30c | Áp câu trả lời thành trạng thái trên root `plan-ns:`: trả lời "dừng" đóng root có lý do (`plan.closed`, lớp … | T47c | partial | answer_effects | acceptance-audit |
 | W30c | Áp câu trả lời thành trạng thái trên root `plan-ns:`: trả lời "dừng" đóng root có lý do (`plan.closed`, lớp … | T43d | partial | answer_effects | acceptance-audit |
 | W37a | Reconcile tối thiểu trong vòng sửa tuần tự: lệnh có kết quả chưa rõ (crash sau dispatch, trước biên nhận) … | T08a | complete | node_actions_cli, installed_node_actions, metered_verifier, t08a_reconcile, t08a_faults |  |
@@ -129,8 +129,8 @@ Sinh từ `docs/wf/sources/04-TASKS.vi.md` (sha256 c1d8f8ae40cd) và `wfkit/deve
 | Task | Kết quả (rút gọn từ 04) | Testcase | Trạng thái registry | Kiểm hiện có | Khoảng trống |
 |---|---|---|---|---|---|
 | WK06 | Bộ kiểm R06: T52a, T52b, T54f | — | — | — | bộ kiểm (WK*) / khảo sát: không có T-case riêng |
-| W49a | Incident trong root: nối finding, các attempt, giả thuyết bị bác bỏ; phân biệt test đỏ có chủ đích, lỗi môi … | T52a | partial | r06_learning, node_learning, installed_node_learning | acceptance-audit |
-| W49b | Lesson sau khi sửa đã kiểm, trước khi root kết thúc: bản project giữ vị trí, revision, test; bản chung là ứng … | T52b | partial | r06_learning, r02_boundaries, installed_node_learning, t52b_lesson_limits | acceptance-audit |
+| W49a | Incident trong root: nối finding, các attempt, giả thuyết bị bác bỏ; phân biệt test đỏ có chủ đích, lỗi môi … | T52a | complete | installed_node_learning, node_learning, r06_learning |  |
+| W49b | Lesson sau khi sửa đã kiểm, trước khi root kết thúc: bản project giữ vị trí, revision, test; bản chung là ứng … | T52b | partial | installed_node_learning, r02_boundaries, r06_learning, t52b_lesson_limits | acceptance-audit |
 | W40-R06 | Phát hành R06: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R06; `learning.incident`, … | T54f | partial | installed_features, upgrade_drill | release-evidence |
 
 ## R07
@@ -138,8 +138,8 @@ Sinh từ `docs/wf/sources/04-TASKS.vi.md` (sha256 c1d8f8ae40cd) và `wfkit/deve
 | Task | Kết quả (rút gọn từ 04) | Testcase | Trạng thái registry | Kiểm hiện có | Khoảng trống |
 |---|---|---|---|---|---|
 | WK07 | Bộ kiểm R07: T53a, T53b, T54g | — | — | — | bộ kiểm (WK*) / khảo sát: không có T-case riêng |
-| W50a | Mô tả issue → nghi phạm: tìm chuỗi, route, symbol, thay đổi gần đây; bản đồ project tăng dần; lesson liên … | T53a | partial | r07_localization, installed_localization | acceptance-audit |
-| W50b | Ảnh issue: chỉ đọc ảnh khi provider khai capability vision; không có thì giữ luồng văn bản và không tuyên bố … | T53b | complete | r07_localization, installed_localization, issue_provider |  |
+| W50a | Mô tả issue → nghi phạm: tìm chuỗi, route, symbol, thay đổi gần đây; bản đồ project tăng dần; lesson liên … | T53a | partial | installed_localization, r07_localization | acceptance-audit |
+| W50b | Ảnh issue: chỉ đọc ảnh khi provider khai capability vision; không có thì giữ luồng văn bản và không tuyên bố … | T53b | complete | installed_localization, issue_provider, r07_localization |  |
 | W40-R07 | Phát hành R07: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R07 | T54g | partial | installed_localization, upgrade_drill | release-evidence |
 
 ## R08
@@ -148,11 +148,11 @@ Sinh từ `docs/wf/sources/04-TASKS.vi.md` (sha256 c1d8f8ae40cd) và `wfkit/deve
 |---|---|---|---|---|---|
 | WK08 | Bộ kiểm R08: T01, T04b, T04d, T07b, T08b, T15c, T30, T54h | — | — | — | bộ kiểm (WK*) / khảo sát: không có T-case riêng |
 | W14b | DAG song song: nhiều slot qua `ready_batch` sau khi một slot đã đúng (W14a); phần độc lập chạy tiếp khi một … | T04d | complete | parallel_engine, parallel_native, t04d_finding_holds_branch |  |
-| W15 | Review và test chạy trên snapshot cố định; code tiếp tục trên phiên bản khác | T04b | complete | parallel_engine, candidate_adapters, review_snapshot, review_snapshot_integration |  |
+| W15 | Review và test chạy trên snapshot cố định; code tiếp tục trên phiên bản khác | T04b | partial | candidate_adapters, parallel_engine, review_snapshot, review_snapshot_integration | acceptance-audit |
 | W15 | Review và test chạy trên snapshot cố định; code tiếp tục trên phiên bản khác | T01 | partial | parallel_engine, review_snapshot | acceptance-audit |
-| W33b | Interface executor đầy đủ: dừng, pause tại điểm an toàn, cô lập, recovery theo capability đã khai (W33a); … | T15c | complete | managed_executor, managed_hold |  |
+| W33b | Interface executor đầy đủ: dừng, pause tại điểm an toàn, cô lập, recovery theo capability đã khai (W33a); … | T15c | partial | managed_executor, managed_hold | acceptance-audit |
 | W36 | Generation; kết quả muộn hay trùng được ghi và bỏ qua; pause tại điểm an toàn cho worker được quản lý | T07b | complete | parallel_engine, managed_executor, managed_hold, engine_managed, findings, finding_scope, t04d_finding_holds_branch, t11_integration_finding, hook_holds_generation, t07b_e16_continuation |  |
-| W37b | Intent bền, idempotency, reconcile qua bốn điểm crash; khôi phục checkpoint khác tự khởi động sau reboot | T08b | partial | managed_executor, node_actions_cli, t08b_no_exactly_once, t08b_crash_before_dispatch | acceptance-audit |
+| W37b | Intent bền, idempotency, reconcile qua bốn điểm crash; khôi phục checkpoint khác tự khởi động sau reboot | T08b | complete | managed_executor, node_actions_cli, t08b_crash_before_dispatch, t08b_no_exactly_once |  |
 | W37b | Intent bền, idempotency, reconcile qua bốn điểm crash; khôi phục checkpoint khác tự khởi động sau reboot | T30 | complete | managed_executor, node_actions_cli, engine_managed, host_checkpoint, host_v1_guard, t08b_crash_before_dispatch, t30_counterexamples |  |
 | W40-R08 | Phát hành R08: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R08; tạm dừng mới (lớp B) chỉ … | T54h | partial | installed_native, upgrade_drill | release-evidence |
 
@@ -172,8 +172,8 @@ Sinh từ `docs/wf/sources/04-TASKS.vi.md` (sha256 c1d8f8ae40cd) và `wfkit/deve
 | Task | Kết quả (rút gọn từ 04) | Testcase | Trạng thái registry | Kiểm hiện có | Khoảng trống |
 |---|---|---|---|---|---|
 | WKX1 | Bộ kiểm RX1: T14a, T23, T54j | — | — | — | bộ kiểm (WK*) / khảo sát: không có T-case riêng |
-| W22 | Adapter kiểm cho đầu ra tài liệu dạng verifier của v2 (nguồn, cấu trúc, link/ID); lõi chặn adapter vượt … | T14a | partial | rx1_core, rx1_doc, candidate_adapters | acceptance-audit |
-| W22 | Adapter kiểm cho đầu ra tài liệu dạng verifier của v2 (nguồn, cấu trúc, link/ID); lõi chặn adapter vượt … | T23 | partial | rx1_core | acceptance-audit |
+| W22 | Adapter kiểm cho đầu ra tài liệu dạng verifier của v2 (nguồn, cấu trúc, link/ID); lõi chặn adapter vượt … | T14a | partial | candidate_adapters, rx1_core, rx1_doc | acceptance-audit |
+| W22 | Adapter kiểm cho đầu ra tài liệu dạng verifier của v2 (nguồn, cấu trúc, link/ID); lõi chặn adapter vượt … | T23 | complete | rx1_core |  |
 | W40-RX1 | Phát hành RX1: theo quy trình chung của T54 (khung W40, W41 ở R00) cho adapter tài liệu; diễn tập đầu-cuối … | T54j | partial | installed_adapters, installed_features, upgrade_drill | release-evidence |
 
 ## RX2

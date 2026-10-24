@@ -462,8 +462,11 @@ _RESULT = out
         if not self.matrix_dir or not (self.matrix_dir / 'matrix.json').exists():
             raise LedgerError('RP needs --matrix <wfkit.provider_matrix output>: the six provider cells must be real receipts (W45)')
         matrix = json.loads((self.matrix_dir / 'matrix.json').read_text(encoding='utf-8'))
-        if {'commit': matrix['commit'], 'wheel_sha256': matrix['wheel_sha256']} != self.identity('current'):
-            raise LedgerError('the provider matrix was run on another build than this bundle')
+        source = {'commit': matrix['commit'], 'wheel_sha256': matrix['wheel_sha256']}
+        # HL validity (03 §5.2, review a2476ab §9): a cell receipt is evidence of the build it ran on. When this bundle's artifact is another
+        # build, the receipts keep their own identity (never re-hashed), the source artifact is the matrix build, and the shared evaluator
+        # gives `recheck` for every pass without a comparison proving the cell's path unchanged — not `usable`. No paid provider is re-run here.
+        inherited = source == self.identity('current')
         target = self.out / 'provider-matrix'; target.mkdir()
         items = []
         for item in matrix['items']:
@@ -473,10 +476,16 @@ _RESULT = out
             items.append({'id': item['id'], 'original': {'path': dst.relative_to(self.out).as_posix(), 'sha256': item['original']['sha256']}, 'supplements': []})
         rows = [{k: v for k, v in row.items() if k not in ('receipt',)} for row in matrix['rows']]
         from wfkit import provider_evidence
-        states = provider_evidence.evaluate(rows, items, release_check.Receipts(self.out, False), self.identity('current'), self.identity('current'), None)
+        from wfkit.finalgate import evidence_status
+        reader = release_check.Receipts(self.out, False)
+        for row, item in zip(rows, items):                       # the status claimed for THIS artifact is what the shared rule gives, never the old label
+            row['status_on_matrix_build'] = row['status']
+            row['status'] = evidence_status(reader.read(item['original']), [], self.identity('current'), None, row['id'])['status']
+        states = provider_evidence.evaluate(rows, items, reader, source, self.identity('current'), None)
         eligible = sorted(k for k, st in states.items() if st['status'] == 'usable')
-        bundle = {'artifacts': {'final': self.identity('current'), 'pilot': self.identity('current')}, 'providers': rows, 'comparison': {'items': items},
-                  'source': {'matrix': str(self.matrix_dir / 'matrix.json'), 'at': matrix['at'], 'task': 'W45'}}
+        bundle = {'artifacts': {'final': self.identity('current'), 'pilot': source}, 'providers': rows, 'comparison': {'items': items},
+                  'source': {'matrix': str(self.matrix_dir / 'matrix.json'), 'at': matrix['at'], 'task': 'W45', 'same_build': inherited,
+                             'note': None if inherited else 'matrix receipts are evidence of build ' + source['commit'][:12] + '; for this build every passed cell is `recheck` until W45 runs on it (owner permission for that run)'}}
         notes = {'provider_states': states, 'subset': eligible, 'p1_count': len(eligible), 'p1_label': 'full' if len(eligible) == 6 else 'subset'}
         return bundle, notes
 
