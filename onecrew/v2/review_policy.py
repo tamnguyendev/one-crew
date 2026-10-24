@@ -28,7 +28,7 @@ def normalize(value):
     return {'depth': value['depth'], 'optional_reviews': sorted(rows)}
 
 
-def evaluate(policy, *, node, mandatory, ready=True, unknowns=(), evidence):
+def evaluate(policy, *, node, mandatory, ready=True, unknowns=(), findings=(), evidence):
     """Common pure rule; inputs are controller facts, never model verdict fields."""
     policy = normalize(policy)
     key_field(node)
@@ -36,9 +36,13 @@ def evaluate(policy, *, node, mandatory, ready=True, unknowns=(), evidence):
         raise LedgerError('Review readiness and mandatory status must be booleans.')
     if not isinstance(unknowns, (list, tuple)) or any(not isinstance(x, str) or not x for x in unknowns):
         raise LedgerError('Review unknowns must name the unresolved facts.')
+    if not isinstance(findings, (list, tuple)) or any(not isinstance(x, str) or not x for x in findings):
+        raise LedgerError('Review findings must name the unresolved findings.')
     if not mandatory and node not in policy['optional_reviews']:
         raise LedgerError('Review is not a contract milestone or an approved optional review.')
-    if unknowns:
+    if findings:
+        action, reason = 'HOLD', 'Unresolved findings: ' + ', '.join(findings)
+    elif unknowns:
         action, reason = 'HOLD', 'Unresolved prerequisite: ' + ', '.join(unknowns)
     elif not ready:
         action, reason = 'DEFER', 'Prerequisite evidence is not ready; keep the review queued.'
@@ -56,7 +60,7 @@ def evaluate(policy, *, node, mandatory, ready=True, unknowns=(), evidence):
     return {key: checked[key] for key in ('action', 'confidence', 'reason', 'evidence')}
 
 
-def decide(ledger, name, node, *, artifact_sha, ready=True, unknowns=(), evidence=(), required=False, input_state=None):
+def decide(ledger, name, node, *, artifact_sha, ready=True, unknowns=(), findings=(), evidence=(), required=False, input_state=None):
     """Read approved root, evaluate, and idempotently persist a W03 decision.
 
     Runtime-supplied unknowns add to the root's unknowns; they cannot erase them.
@@ -71,6 +75,8 @@ def decide(ledger, name, node, *, artifact_sha, ready=True, unknowns=(), evidenc
         raise LedgerError('Decision evidence must be references.')
     if not isinstance(unknowns, (tuple, list)) or not all(isinstance(x, str) and x for x in unknowns):
         raise LedgerError('Decision unknowns must be named.')
+    if not isinstance(findings, (tuple, list)) or not all(isinstance(x, str) and x for x in findings):
+        raise LedgerError('Decision findings must be named.')
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
         if state['status'] != 'approved':
@@ -84,12 +90,13 @@ def decide(ledger, name, node, *, artifact_sha, ready=True, unknowns=(), evidenc
         references = sorted(set(evidence) | {f'contract:{sha}', f'artifact:{artifact_sha}'})
         inputs = {'node': node, 'artifact_sha': artifact_sha, 'ready': ready,
                   'unknowns': sorted(unresolved), 'evidence': references, 'mandatory': mandatory}
+        if findings: inputs['findings'] = sorted(set(findings))
         if input_state is not None: inputs['engine'] = input_state
         cache_key = 'review-policy-' + content_hash({'revision': revision, 'sha': sha, 'policy': policy, 'input': inputs})
         stored = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='decision.recorded' AND json_extract(payload,'$.key')=? ORDER BY seq DESC LIMIT 1",
                               (state['task_id'], cache_key)).fetchone()
     verdict = evaluate(policy, node=node, mandatory=mandatory, ready=ready,
-                       unknowns=inputs['unknowns'], evidence=references)
+                       unknowns=inputs['unknowns'], findings=inputs.get('findings',()), evidence=references)
     validity = {'revision': revision, 'contract_sha': sha, 'artifact_sha': artifact_sha,
                 'input_sha': content_hash(inputs), 'policy_sha': content_hash(policy),
                 'action': verdict['action'], 'depth': policy['depth']}

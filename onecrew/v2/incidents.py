@@ -4,6 +4,7 @@ Observations use the existing context/receipt mechanism. A verified repair
 finalizes one neutral learning.incident, without completing a task or root.
 """
 import json
+import ast
 
 from .. import outcome_core
 from ..ledger import LedgerError, canonical, content_hash, key_field, text_field
@@ -35,6 +36,8 @@ def _receipt(ledger, conn, state, selector, receipt, latest=False):
         raise LedgerError('Attempt evidence is not a receipt blob.') from error
     if not isinstance(body, dict):
         raise LedgerError('Attempt evidence is not a receipt object.')
+    if body.get('kind') == 'node-verifier-receipt':
+        return _node_receipt(ledger, conn, state, receipt, body, latest=latest)
     revision, node = body.get('revision'), body.get('milestone')
     contract, sha = plans.load(ledger, state, revision)
     root = {'id': state['task_id'], 'request_key': selector}
@@ -56,6 +59,74 @@ def _receipt(ledger, conn, state, selector, receipt, latest=False):
     if run is None:
         raise LedgerError('Attempt evidence needs an authentic verifier run id.')
     return proof, result, seq, run['run_id']
+
+
+def _node_receipt(ledger, conn, state, receipt, body, *, latest=False):
+    """Adapt the engine's issued event and real candidate checker receipts."""
+    from . import engine
+    from .verifiers import command, port
+    store = Snapshots(ledger.state_root)
+    rows = conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='node.verification' AND json_extract(payload,'$.receipt')=? ORDER BY seq",
+                        (state['task_id'], receipt)).fetchall()
+    if not rows or body.get('root') != state['task_id']:
+        raise LedgerError('The node receipt has no authentic verification event on this root.')
+    event, seq = json.loads(rows[-1]['payload']), rows[-1]['seq']
+    if any(event.get(k) != body.get(k) for k in ('node', 'generation', 'result')):
+        raise LedgerError('The node receipt differs from its recorded verification.')
+    proposal = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='plan.revised' AND seq<? AND json_extract(payload,'$.internal_revision')=? ORDER BY seq DESC LIMIT 1",
+                            (state['task_id'], seq, body.get('internal_revision'))).fetchone()
+    if proposal is None:
+        raise LedgerError('No immutable internal definition supports this receipt.')
+    definition_event = json.loads(proposal['payload'])
+    definition = json.loads(store.read_blob(definition_event['definition']))
+    item = next((n for n in definition['nodes'] if n['id'] == body.get('node')), None)
+    if item is None or content_hash(item['checks']) != body.get('checks_sha'):
+        raise LedgerError('The receipt check configuration is not the immutable node definition.')
+    started = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='node.started' AND seq<? AND json_extract(payload,'$.node')=? AND json_extract(payload,'$.generation')=? AND json_extract(payload,'$.internal_revision')=? ORDER BY seq DESC LIMIT 1",
+                           (state['task_id'], seq, item['id'], body['generation'], body['internal_revision'])).fetchone()
+    if started is None:
+        raise LedgerError('Node evidence needs its actual engine attempt.')
+    attempt = json.loads(started['payload'])['attempt']
+    execution = conn.execute('SELECT status FROM attempts WHERE id=?', (attempt,)).fetchone()
+    if execution is None or execution['status'] != 'settled':
+        raise LedgerError('The node producer attempt has not settled.')
+    if latest:
+        view = engine.state(ledger, state['selector'], conn)
+        record = view['nodes'].get(item['id'], {})
+        valid_revisions = record.get('valid_internal_revisions', [view['internal_revision']])
+        if (body['internal_revision'] not in valid_revisions or record.get('generation') != body['generation']
+                or record.get('artifact') != body['artifact'] or record.get('verification_receipt') != receipt):
+            raise LedgerError('The node evidence is superseded by a later generation or verification.')
+    contract, sha = plans.load(ledger, state, definition_event['revision'])
+    observed = body.get('observed') or {}
+    supported, environment = [], bool(body.get('evidence_errors'))
+    for row in observed.get('checks', []):
+        if row.get('result') == 'blocked':
+            continue
+        try:
+            wrapper = json.loads(store.read_blob(row['evidence']))
+            kind = wrapper.get('kind')
+            if kind not in ('candidate-command-check', 'candidate-adapter-check'):
+                continue
+            ref = wrapper['command_receipt' if kind == 'candidate-command-check' else 'adapter_receipt']
+            proof = json.loads(store.read_blob(ref))
+            milestone = next((m for m in contract['milestones'] if m['id'] == row['id']), None)
+            if (milestone is None or wrapper.get('node') != item['id'] or wrapper.get('snapshot') != body['artifact']
+                    or wrapper.get('tree') != observed.get('candidate_tree')
+                    or proof.get('artifact_sha') != wrapper['tree'] or proof.get('artifact_sha_after') != wrapper['tree']
+                    or proof.get('revision') != definition_event['revision'] or proof.get('plan_sha') != sha
+                    or proof.get('milestone') != row['id']):
+                raise LedgerError('Candidate check evidence does not bind the recorded node artifact and contract.')
+            expected = command.expected_result(proof) if kind == 'candidate-command-check' else port.expected_result(proof)
+            if expected != row['result'] or (kind == 'candidate-command-check' and proof.get('argv') != milestone['verifier']['config']['argv']):
+                raise LedgerError('Candidate result differs from its actual configured verification.')
+            environment |= bool(proof.get('error') or proof.get('timed_out') or proof.get('provider_error'))
+            supported.append({'id': row['id'], 'result': row['result'], 'kind': kind, 'receipt': ref, 'body': proof,
+                              'config': milestone['verifier']['config']})
+        except (OSError, ValueError, KeyError, TypeError):
+            continue  # Unsupported injected checker evidence cannot become verified learning.
+    return dict(body, revision=definition_event['revision'], artifact_sha=body['artifact'], milestone=item['id'],
+                verified_tree=observed.get('candidate_tree'), supported_checks=supported, environment_error=environment), body['result'], seq, attempt
 
 
 def observe(ledger, name, finding, receipt, *, intentional_red=False, intent_event=None, refuted_hypotheses=()):
@@ -190,3 +261,119 @@ def after_verdict(ledger, name, node, receipt):
                                                   revision=revision, test=check, candidate=True)
         results.append(result)
     return results
+
+
+def observe_node(ledger, name, node, receipt):
+    """A native failure episode is distinct from a registered review finding."""
+    with ledger.transaction() as conn:
+        state, selector = _root(ledger, conn, name)
+        proof, result, seq, attempt = _receipt(ledger, conn, state, selector, receipt, latest=True)
+        if proof.get('kind') != 'node-verifier-receipt' or proof['node'] != node:
+            raise LedgerError('The node observation needs its authentic node receipt.')
+        if not namespaces.has_capability(state, 'sequential-engine'):
+            return None
+        intent = None
+        for row in conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='decision.recorded' AND seq<? ORDER BY seq DESC", (state['task_id'], seq)):
+            decision = json.loads(row['payload'])
+            validity = decision.get('validity') or {}
+            if (decision.get('scope') == 'acceptance-test-preparation' and isinstance(validity, dict)
+                    and validity.get('node') == node and validity.get('internal_revision') == proof['internal_revision']):
+                intent = row['seq']; break
+    actual = proof['supported_checks']
+    classification = ('intentional_red' if intent and result != 'pass' else
+                      'environment' if proof['environment_error'] else
+                      'verified' if result == 'pass' and actual and all(c['result'] == 'pass' for c in actual) else
+                      'product' if any(c['result'] == 'fail' for c in actual) else 'unknown')
+    prior = [o for o in observations(ledger, selector) if o.get('node') == node and o.get('checks_sha') == proof['checks_sha'] and o.get('episode')]
+    prior = sorted(prior, key=lambda o: o['verdict_event'])
+    if prior and prior[-1]['receipt'] == receipt:
+        return dict(prior[-1], recorded=False)
+    if classification == 'verified' and (not prior or prior[-1]['classification'] in ('verified', 'intentional_red')):
+        return None
+    if not prior or prior[-1]['classification'] in ('verified', 'intentional_red'):
+        episode = 'NEP-' + content_hash([state['task_id'], node, proof['checks_sha'], seq])[:28]
+    else:
+        episode = prior[-1]['episode']
+    value = {'kind': OBSERVATION, 'version': 1, 'root': state['task_id'], 'finding': None, 'episode': episode,
+             'node': node, 'checks_sha': proof['checks_sha'], 'attempt': attempt, 'receipt': receipt, 'verdict_event': seq,
+             'revision': proof['revision'], 'generation': proof['generation'], 'internal_revision': proof['internal_revision'],
+             'artifact': proof['artifact'], 'verified_tree': proof['verified_tree'], 'classification': classification,
+             'refuted_hypotheses': [], 'intent_event': intent}
+    blob = Snapshots(ledger.state_root).blob(canonical(value).encode())
+    entry = context.add(ledger, selector, kind='note', label='observed',
+                        text=f'Node {node} attempt {attempt}: {classification}; failure episode {episode}.',
+                        source={'type': 'receipt', 'key': blob}, key='incident-' + content_hash([episode, receipt])[:32])
+    return dict(value, recorded=entry['recorded'], context_event=entry['event'])
+
+
+def _node_location(ledger, proof):
+    """Only locate actual configured file inputs; do not infer a root cause."""
+    tree = proof.get('verified_tree')
+    if not tree:
+        return None
+    for check in proof['supported_checks']:
+        if check['result'] != 'pass':
+            continue
+        paths = []
+        if check['kind'] == 'candidate-adapter-check':
+            paths.append(check['config'].get('path'))
+        else:
+            argv = check['body'].get('argv', [])
+            paths += [p for p in argv[1:] if isinstance(p, str) and not p.startswith('-') and '\n' not in p]
+            if '-c' in argv:
+                try:
+                    parsed = ast.parse(argv[argv.index('-c') + 1])
+                    paths += [n.args[0].value for n in ast.walk(parsed) if isinstance(n, ast.Call) and n.args
+                              and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)
+                              and ((isinstance(n.func, ast.Name) and n.func.id in ('Path', 'open'))
+                                   or isinstance(n.func, ast.Attribute) and n.func.attr == 'Path')]
+                except (SyntaxError, IndexError):
+                    pass
+        for path in paths:
+            try:
+                path = context._path(path)
+                if context.file_at(ledger.project, tree, path).splitlines():
+                    return {'path': path, 'line': 1, 'revision': tree, 'test': 'check:' + check['id']}
+            except (LedgerError, OSError, TypeError):
+                continue
+    return None
+
+
+def after_node(ledger, name, node, receipt):
+    """Observe authentic native fail→repair→pass without inventing a finding."""
+    from . import lessons
+    observation = observe_node(ledger, name, node, receipt)
+    if observation is None or observation['classification'] != 'verified':
+        return {'observation': observation}
+    episode = observation['episode']
+    previous = next((i for i in list_incidents(ledger, name) if i.get('episode') == episode), None)
+    if previous:
+        incident = dict(previous, recorded=False)
+    else:
+        attempts = [o for o in observations(ledger, name) if o.get('episode') == episode]
+        if not any(o['classification'] == 'product' for o in attempts):
+            return {'observation': observation}  # An environment failure alone is not a product lesson.
+        with ledger.transaction(write=True) as conn:
+            state, selector = _root(ledger, conn, name)
+            proof, _, _, _ = _receipt(ledger, conn, state, selector, receipt, latest=True)
+            value = {'version': 1, 'task': state['task_id'], 'plan': state['name'], 'finding': None, 'episode': episode,
+                     'node': node, 'incident': 'INC-' + content_hash([state['task_id'], episode])[:24], 'attempts': attempts,
+                     'refuted_hypotheses': [], 'cause': None, 'verified_receipt': receipt, 'artifact': proof['artifact'],
+                     'verified_tree': proof['verified_tree'], 'revision': proof['revision'], 'automatic_injection': False}
+            value['id'] = outcome_core.outcome_id(value)
+            compat.check_write(KIND, value, selector)
+            event = outcome_core.append_learning(conn, ledger, state['task_id'], KIND, value)
+            if event is None:
+                event = conn.execute("SELECT seq FROM events WHERE task_id=? AND kind=? AND json_extract(payload,'$.id')=?",
+                                     (state['task_id'], KIND, value['id'])).fetchone()[0]
+        incident = dict(value, event=event, recorded=True)
+    with ledger.transaction() as conn:
+        state, selector = _root(ledger, conn, name)
+        proof, _, _, _ = _receipt(ledger, conn, state, selector, receipt, latest=True)
+    location = _node_location(ledger, proof)
+    result = {'observation': observation, 'incident': incident}
+    if location:
+        result['lesson'] = lessons.record(ledger, name, incident['event'],
+            text=f'Configured {location["test"]} passed on the repaired candidate input {location["path"]}. Failure episode {episode}; cause is not established.',
+            candidate=True, **location)
+    return result

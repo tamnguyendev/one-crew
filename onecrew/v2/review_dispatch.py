@@ -26,7 +26,8 @@ def _context(ledger, selector, node):
     facts = {'node': node, 'contract_sha': sha, 'internal_revision': view['internal_revision'], 'generation': record['generation'],
              'artifact': record['artifact'], 'inputs': record['inputs'], 'checks_sha': content_hash(item['checks']),
              'state': record['state'], 'phase': record['phase'],
-             'unknowns': sorted(view.get('unknown_blockers', {}).get(node, []))}
+             'unknowns': sorted(view.get('unknown_blockers', {}).get(node, [])),
+             'findings': sorted(view.get('finding_blockers', {}).get(node, []))}
     return root, contract, item, facts
 
 
@@ -34,7 +35,7 @@ def _decide(ledger, selector, review_id, facts, *, required):
     ready = facts['state'] in ('produced', 'verified', 'accepted') and facts['phase'] != 'held'
     unknowns = facts['unknowns'] + (['node-held:' + facts['node']] if facts['phase'] == 'held' else [])
     decision = review_policy.decide(ledger, selector, review_id, artifact_sha=facts['artifact'] or 'unproduced:' + facts['node'],
-        ready=ready, unknowns=unknowns, evidence=['engine-input:' + content_hash(facts)], required=required, input_state=facts)
+        ready=ready, unknowns=unknowns, findings=facts['findings'], evidence=['engine-input:' + content_hash(facts)], required=required, input_state=facts)
     action = decision.get('action')
     if action not in review_policy.ACTIONS or (required and action == 'SKIP'):
         raise LedgerError('A mandatory engine check cannot be skipped by a review decision.')

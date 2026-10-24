@@ -1,0 +1,4173 @@
+{
+ "version": 1,
+ "purpose": "Development checks only; supporting regressions do not confer source acceptance. No release or real-provider/pilot claim.",
+ "source": {
+  "path": "docs/wf/sources/05-TESTCASES.vi.md",
+  "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+  "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+ },
+ "baseline": {
+  "manifest": "wfkit/manifest.json",
+  "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+  "release": "R00",
+  "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+ },
+ "releases": {
+  "R01": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_v2_l1.py",
+    "tests/test_v2_l3.py",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_installed_features.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_plan_names.py",
+    "tests/test_wf_r01_card.py",
+    "tests/test_wf_r01_report.py",
+    "tests/test_wf_r01_step0_compat.py",
+    "tests/test_wf_r01_step0_proposal.py",
+    "tests/test_wf_r01_step0_survey.py",
+    "tests/test_wf_survey_worker.py",
+    "tests/test_wf_upgrade_drill.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_rollback.py",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py",
+    "wfkit/upgrade_drill.py"
+   ],
+   "testcases": {
+    "check.r01_report": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r01_report"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T42 acceptance certificate."
+    },
+    "check.r01_step0_survey": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r01_step0_survey"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T27 acceptance certificate."
+    },
+    "check.survey_worker": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_survey_worker"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T27 acceptance certificate."
+    },
+    "check.installed_features": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_features"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54a acceptance certificate."
+    },
+    "check.r01_step0_proposal": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r01_step0_proposal"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T50a acceptance certificate."
+    },
+    "check.r01_step0_compat": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r01_step0_compat"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T50a acceptance certificate."
+    },
+    "check.r01_card": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r01_card"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T50b acceptance certificate."
+    },
+    "check.upgrade_drill": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_upgrade_drill"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54a acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T24a": {
+       "status": "partial",
+       "checks": [
+        "check.r01_report"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T24a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T27": {
+       "status": "partial",
+       "checks": [
+        "check.r01_step0_survey",
+        "check.survey_worker"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T27 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T33b": {
+       "status": "partial",
+       "checks": [
+        "check.installed_features"
+       ],
+       "gaps": [
+        {
+         "kind": "release-evidence",
+         "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+        }
+       ]
+      },
+      "T38b": {
+       "status": "partial",
+       "checks": [
+        "check.r01_report"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T38b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T42": {
+       "status": "partial",
+       "checks": [
+        "check.r01_report"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T42 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T50a": {
+       "status": "partial",
+       "checks": [
+        "check.r01_step0_proposal",
+        "check.r01_step0_compat"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T50a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T50b": {
+       "status": "partial",
+       "checks": [
+        "check.r01_card"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T50b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T54a": {
+       "status": "partial",
+       "checks": [
+        "check.upgrade_drill",
+        "check.installed_features"
+       ],
+       "gaps": [
+        {
+         "kind": "release-evidence",
+         "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T24a": {
+     "status": "partial",
+     "checks": [
+      "check.r01_report"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T24a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T27": {
+     "status": "partial",
+     "checks": [
+      "check.r01_step0_survey",
+      "check.survey_worker"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T27 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T33b": {
+     "status": "partial",
+     "checks": [
+      "check.installed_features"
+     ],
+     "gaps": [
+      {
+       "kind": "release-evidence",
+       "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+      }
+     ]
+    },
+    "T38b": {
+     "status": "partial",
+     "checks": [
+      "check.r01_report"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T38b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T42": {
+     "status": "partial",
+     "checks": [
+      "check.r01_report"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T42 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T50a": {
+     "status": "partial",
+     "checks": [
+      "check.r01_step0_proposal",
+      "check.r01_step0_compat"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T50a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T50b": {
+     "status": "partial",
+     "checks": [
+      "check.r01_card"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T50b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T54a": {
+     "status": "partial",
+     "checks": [
+      "check.upgrade_drill",
+      "check.installed_features"
+     ],
+     "gaps": [
+      {
+       "kind": "release-evidence",
+       "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+      }
+     ]
+    }
+   }
+  },
+  "R02": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_conversations.py",
+    "tests/test_learning.py",
+    "tests/test_owned.py",
+    "tests/test_solution_gate.py",
+    "tests/test_v2_l1.py",
+    "tests/test_v2_l3.py",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_installed_features.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_plan_names.py",
+    "tests/test_wf_r02_boundaries.py",
+    "tests/test_wf_r02_context.py",
+    "tests/test_wf_r02_outcome.py",
+    "tests/test_wf_r02_resume.py",
+    "tests/test_wf_r02_retrieval.py",
+    "tests/test_wf_upgrade_drill.py",
+    "tests/test_workflow.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_r02.py",
+    "tests/wf_rollback.py",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py",
+    "wfkit/upgrade_drill.py"
+   ],
+   "testcases": {
+    "check.r02_outcome": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r02_outcome"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T35a acceptance certificate."
+    },
+    "check.r02_resume": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r02_resume"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T46a acceptance certificate."
+    },
+    "check.r02_context": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r02_context"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T51a acceptance certificate."
+    },
+    "check.r02_retrieval": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r02_retrieval"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T51b acceptance certificate."
+    },
+    "check.r02_boundaries": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r02_boundaries"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T51b acceptance certificate."
+    },
+    "check.upgrade_drill": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_upgrade_drill"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54b acceptance certificate."
+    },
+    "check.installed_features": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_features"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54b acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T35a": {
+       "status": "partial",
+       "checks": [
+        "check.r02_outcome"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T35a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T46a": {
+       "status": "partial",
+       "checks": [
+        "check.r02_resume"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T46a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T51a": {
+       "status": "partial",
+       "checks": [
+        "check.r02_context"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T51a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T51b": {
+       "status": "partial",
+       "checks": [
+        "check.r02_retrieval",
+        "check.r02_boundaries"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T51b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T54b": {
+       "status": "partial",
+       "checks": [
+        "check.upgrade_drill",
+        "check.installed_features"
+       ],
+       "gaps": [
+        {
+         "kind": "release-evidence",
+         "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T35a": {
+     "status": "partial",
+     "checks": [
+      "check.r02_outcome"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T35a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T46a": {
+     "status": "partial",
+     "checks": [
+      "check.r02_resume"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T46a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T51a": {
+     "status": "partial",
+     "checks": [
+      "check.r02_context"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T51a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T51b": {
+     "status": "partial",
+     "checks": [
+      "check.r02_retrieval",
+      "check.r02_boundaries"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T51b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T54b": {
+     "status": "partial",
+     "checks": [
+      "check.upgrade_drill",
+      "check.installed_features"
+     ],
+     "gaps": [
+      {
+       "kind": "release-evidence",
+       "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+      }
+     ]
+    }
+   }
+  },
+  "R03": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_conversations.py",
+    "tests/test_solution_gate.py",
+    "tests/test_v2_l1.py",
+    "tests/test_v2_l2.py",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_estimates.py",
+    "tests/test_wf_exceptions.py",
+    "tests/test_wf_installed_notifications.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_observation_integration.py",
+    "tests/test_wf_plan_names.py",
+    "tests/test_wf_questions.py",
+    "tests/test_wf_r03a_executors.py",
+    "tests/test_wf_r03a_metrics.py",
+    "tests/test_wf_r03a_run_started.py",
+    "tests/test_wf_upgrade_drill.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_rollback.py",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py",
+    "wfkit/upgrade_drill.py"
+   ],
+   "testcases": {
+    "check.exceptions": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_exceptions"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T43c acceptance certificate."
+    },
+    "check.installed_notifications": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_notifications"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54c acceptance certificate."
+    },
+    "check.r03a_executors": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r03a_executors"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T15b acceptance certificate."
+    },
+    "check.observation_integration": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_observation_integration"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T15b acceptance certificate."
+    },
+    "check.r03a_metrics": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r03a_metrics"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T35d acceptance certificate."
+    },
+    "check.estimates": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_estimates"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T43c acceptance certificate."
+    },
+    "check.r03a_run_started": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r03a_run_started"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T41b acceptance certificate."
+    },
+    "check.questions": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_questions"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T47a acceptance certificate."
+    },
+    "check.upgrade_drill": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_upgrade_drill"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54c acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T12": {
+       "status": "partial",
+       "checks": [
+        "check.exceptions",
+        "check.installed_notifications"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T12 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T15b": {
+       "status": "partial",
+       "checks": [
+        "check.r03a_executors",
+        "check.observation_integration"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T15b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T35d": {
+       "status": "partial",
+       "checks": [
+        "check.r03a_metrics"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T35d has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T36b": {
+       "status": "partial",
+       "checks": [
+        "check.estimates"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T36b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T41a": {
+       "status": "partial",
+       "checks": [
+        "check.r03a_run_started"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T41a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T41b": {
+       "status": "partial",
+       "checks": [
+        "check.r03a_run_started"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T41b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T43a": {
+       "status": "partial",
+       "checks": [
+        "check.exceptions",
+        "check.installed_notifications"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T43a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T43b": {
+       "status": "partial",
+       "checks": [
+        "check.questions",
+        "check.installed_notifications"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T43b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T43c": {
+       "status": "partial",
+       "checks": [
+        "check.exceptions",
+        "check.estimates"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T43c has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T47a": {
+       "status": "partial",
+       "checks": [
+        "check.questions"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T47a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T54c": {
+       "status": "partial",
+       "checks": [
+        "check.upgrade_drill",
+        "check.installed_notifications"
+       ],
+       "gaps": [
+        {
+         "kind": "release-evidence",
+         "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T12": {
+     "status": "partial",
+     "checks": [
+      "check.exceptions",
+      "check.installed_notifications"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T12 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T15b": {
+     "status": "partial",
+     "checks": [
+      "check.r03a_executors",
+      "check.observation_integration"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T15b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T35d": {
+     "status": "partial",
+     "checks": [
+      "check.r03a_metrics"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T35d has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T36b": {
+     "status": "partial",
+     "checks": [
+      "check.estimates"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T36b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T41a": {
+     "status": "partial",
+     "checks": [
+      "check.r03a_run_started"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T41a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T41b": {
+     "status": "partial",
+     "checks": [
+      "check.r03a_run_started"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T41b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T43a": {
+     "status": "partial",
+     "checks": [
+      "check.exceptions",
+      "check.installed_notifications"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T43a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T43b": {
+     "status": "partial",
+     "checks": [
+      "check.questions",
+      "check.installed_notifications"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T43b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T43c": {
+     "status": "partial",
+     "checks": [
+      "check.exceptions",
+      "check.estimates"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T43c has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T47a": {
+     "status": "partial",
+     "checks": [
+      "check.questions"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T47a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T54c": {
+     "status": "partial",
+     "checks": [
+      "check.upgrade_drill",
+      "check.installed_notifications"
+     ],
+     "gaps": [
+      {
+       "kind": "release-evidence",
+       "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+      }
+     ]
+    }
+   }
+  },
+  "R04": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_conversations.py",
+    "tests/test_solution_gate.py",
+    "tests/test_v2_l1.py",
+    "tests/test_v2_reviewer.py",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_engine.py",
+    "tests/test_wf_installed_features.py",
+    "tests/test_wf_installed_native.py",
+    "tests/test_wf_installed_solution_link.py",
+    "tests/test_wf_installed_unknowns.py",
+    "tests/test_wf_metered_verifier.py",
+    "tests/test_wf_namespace.py",
+    "tests/test_wf_namespace_compat.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_native_executor.py",
+    "tests/test_wf_plan_binding.py",
+    "tests/test_wf_plan_names.py",
+    "tests/test_wf_r04a_authority.py",
+    "tests/test_wf_root_budget.py",
+    "tests/test_wf_root_writer.py",
+    "tests/test_wf_runtime_unknowns.py",
+    "tests/test_wf_solution_link.py",
+    "tests/test_wf_task_caps.py",
+    "tests/test_wf_test_preparation.py",
+    "tests/test_wf_upgrade_drill.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_rollback.py",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py",
+    "wfkit/upgrade_drill.py"
+   ],
+   "testcases": {
+    "check.runtime_unknowns": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_runtime_unknowns"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T02 acceptance certificate."
+    },
+    "check.installed_unknowns": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_unknowns"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T02 acceptance certificate."
+    },
+    "check.root_budget": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_root_budget"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T32 acceptance certificate."
+    },
+    "check.engine": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_engine"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T05 acceptance certificate."
+    },
+    "check.native_executor": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_native_executor"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T04a acceptance certificate."
+    },
+    "check.installed_native": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_native"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54d acceptance certificate."
+    },
+    "check.r04a_authority": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r04a_authority"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T37 acceptance certificate."
+    },
+    "check.test_preparation": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_test_preparation"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T21 acceptance certificate."
+    },
+    "check.task_caps": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_task_caps"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T36a acceptance certificate."
+    },
+    "check.namespace": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T48b acceptance certificate."
+    },
+    "check.solution_link": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_solution_link"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T26 acceptance certificate."
+    },
+    "check.installed_solution_link": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_solution_link"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T26 acceptance certificate."
+    },
+    "check.root_writer": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_root_writer"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T32 acceptance certificate."
+    },
+    "check.plan_binding": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_plan_binding"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T48b acceptance certificate."
+    },
+    "check.namespace_compat": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_compat"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T49d acceptance certificate."
+    },
+    "check.upgrade_drill": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_upgrade_drill"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54d acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T02": {
+       "status": "partial",
+       "checks": [
+        "check.runtime_unknowns",
+        "check.installed_unknowns"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T02 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T03": {
+       "status": "partial",
+       "checks": [
+        "check.root_budget",
+        "check.metered_verifier"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T03 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T04a": {
+       "status": "partial",
+       "checks": [
+        "check.engine",
+        "check.native_executor",
+        "check.installed_native"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T16a": {
+       "status": "partial",
+       "checks": [
+        "check.r04a_authority",
+        "check.engine"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T16a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T17a": {
+       "status": "partial",
+       "checks": [
+        "check.r04a_authority"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T17a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T19": {
+       "status": "partial",
+       "checks": [
+        "check.engine"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T19 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T21": {
+       "status": "partial",
+       "checks": [
+        "check.engine"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T21 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T36a": {
+       "status": "partial",
+       "checks": [
+        "check.task_caps"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T36a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T37": {
+       "status": "partial",
+       "checks": [
+        "check.engine",
+        "check.r04a_authority"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T37 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T05": {
+       "status": "partial",
+       "checks": [
+        "check.engine"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T05 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T25": {
+       "status": "partial",
+       "checks": [
+        "check.namespace"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T25 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T26": {
+       "status": "partial",
+       "checks": [
+        "check.solution_link",
+        "check.installed_solution_link"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T26 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T32": {
+       "status": "partial",
+       "checks": [
+        "check.root_writer",
+        "check.plan_binding",
+        "check.root_budget"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T32 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T48b": {
+       "status": "partial",
+       "checks": [
+        "check.namespace",
+        "check.plan_binding"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T48b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T49c": {
+       "status": "partial",
+       "checks": [
+        "check.namespace_compat"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T49c has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T49d": {
+       "status": "partial",
+       "checks": [
+        "check.namespace_compat",
+        "check.upgrade_drill"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T49d has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T54d": {
+       "status": "partial",
+       "checks": [
+        "check.upgrade_drill",
+        "check.installed_native"
+       ],
+       "gaps": [
+        {
+         "kind": "release-evidence",
+         "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.metered_verifier": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_metered_verifier"
+     ],
+     "installed": false,
+     "scope": "Fake provider and actual local command share capped task budgets; no real provider certification."
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T02": {
+     "status": "partial",
+     "checks": [
+      "check.runtime_unknowns",
+      "check.installed_unknowns"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T02 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T03": {
+     "status": "partial",
+     "checks": [
+      "check.root_budget",
+      "check.metered_verifier"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T03 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T04a": {
+     "status": "partial",
+     "checks": [
+      "check.engine",
+      "check.native_executor",
+      "check.installed_native"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T16a": {
+     "status": "partial",
+     "checks": [
+      "check.r04a_authority",
+      "check.engine"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T16a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T17a": {
+     "status": "partial",
+     "checks": [
+      "check.r04a_authority"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T17a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T19": {
+     "status": "partial",
+     "checks": [
+      "check.engine"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T19 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T21": {
+     "status": "partial",
+     "checks": [
+      "check.engine"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T21 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T36a": {
+     "status": "partial",
+     "checks": [
+      "check.task_caps"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T36a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T37": {
+     "status": "partial",
+     "checks": [
+      "check.engine",
+      "check.r04a_authority"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T37 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T05": {
+     "status": "partial",
+     "checks": [
+      "check.engine"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T05 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T25": {
+     "status": "partial",
+     "checks": [
+      "check.namespace"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T25 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T26": {
+     "status": "partial",
+     "checks": [
+      "check.solution_link",
+      "check.installed_solution_link"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T26 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T32": {
+     "status": "partial",
+     "checks": [
+      "check.root_writer",
+      "check.plan_binding",
+      "check.root_budget"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T32 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T48b": {
+     "status": "partial",
+     "checks": [
+      "check.namespace",
+      "check.plan_binding"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T48b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T49c": {
+     "status": "partial",
+     "checks": [
+      "check.namespace_compat"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T49c has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T49d": {
+     "status": "partial",
+     "checks": [
+      "check.namespace_compat",
+      "check.upgrade_drill"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T49d has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T54d": {
+     "status": "partial",
+     "checks": [
+      "check.upgrade_drill",
+      "check.installed_native"
+     ],
+     "gaps": [
+      {
+       "kind": "release-evidence",
+       "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+      }
+     ]
+    }
+   }
+  },
+  "R05": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_v2_l1.py",
+    "tests/test_v2_reviewer.py",
+    "tests/test_wf_adapter_findings.py",
+    "tests/test_wf_answer_effects.py",
+    "tests/test_wf_candidate_adapters.py",
+    "tests/test_wf_candidate_handoff.py",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_engine.py",
+    "tests/test_wf_evidence_binding.py",
+    "tests/test_wf_finding_scope.py",
+    "tests/test_wf_findings.py",
+    "tests/test_wf_findings_integration.py",
+    "tests/test_wf_findings_report.py",
+    "tests/test_wf_installed_features.py",
+    "tests/test_wf_installed_native.py",
+    "tests/test_wf_installed_node_actions.py",
+    "tests/test_wf_installed_review_dispatch.py",
+    "tests/test_wf_metered_verifier.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_native_executor.py",
+    "tests/test_wf_node_actions_cli.py",
+    "tests/test_wf_plan_names.py",
+    "tests/test_wf_progress.py",
+    "tests/test_wf_recovery_policy.py",
+    "tests/test_wf_repair_tasks.py",
+    "tests/test_wf_retention.py",
+    "tests/test_wf_retention_integration.py",
+    "tests/test_wf_review_dispatch.py",
+    "tests/test_wf_review_policy.py",
+    "tests/test_wf_rx2_adapters.py",
+    "tests/test_wf_test_preparation.py",
+    "tests/test_wf_upgrade_drill.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_rollback.py",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py",
+    "wfkit/upgrade_drill.py"
+   ],
+   "testcases": {
+    "check.evidence_binding": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_evidence_binding"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T22 acceptance certificate."
+    },
+    "check.candidate_adapters": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_candidate_adapters"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T06 acceptance certificate."
+    },
+    "check.finding_scope": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_finding_scope"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T15a acceptance certificate."
+    },
+    "check.repair_tasks": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_repair_tasks"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T38c acceptance certificate."
+    },
+    "check.engine": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_engine"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T11 acceptance certificate."
+    },
+    "check.candidate_handoff": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_candidate_handoff"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T17c acceptance certificate."
+    },
+    "check.findings_integration": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_findings_integration"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T17b acceptance certificate."
+    },
+    "check.retention_integration": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_retention_integration"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T31 acceptance certificate."
+    },
+    "check.findings_report": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_findings_report"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T24b acceptance certificate."
+    },
+    "check.findings": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_findings"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T28 acceptance certificate."
+    },
+    "check.adapter_findings": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_adapter_findings"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T28 acceptance certificate."
+    },
+    "check.retention": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_retention"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T31 acceptance certificate."
+    },
+    "check.test_preparation": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_test_preparation"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T04c acceptance certificate."
+    },
+    "check.node_actions_cli": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_node_actions_cli"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T08a acceptance certificate."
+    },
+    "check.installed_node_actions": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_node_actions"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54e acceptance certificate."
+    },
+    "check.native_executor": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_native_executor"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T16b acceptance certificate."
+    },
+    "check.review_policy": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_review_policy"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T16c acceptance certificate."
+    },
+    "check.review_dispatch": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_review_dispatch"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T29 acceptance certificate."
+    },
+    "check.recovery_policy": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_recovery_policy"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T18a acceptance certificate."
+    },
+    "check.progress": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_progress"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T18b acceptance certificate."
+    },
+    "check.installed_review_dispatch": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_review_dispatch"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T29 acceptance certificate."
+    },
+    "check.answer_effects": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_answer_effects"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T47c acceptance certificate."
+    },
+    "check.upgrade_drill": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_upgrade_drill"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54e acceptance certificate."
+    },
+    "check.installed_native": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_native"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54e acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T06": {
+       "status": "partial",
+       "checks": [
+        "check.evidence_binding",
+        "check.candidate_adapters"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T06 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T07a": {
+       "status": "partial",
+       "checks": [
+        "check.finding_scope",
+        "check.repair_tasks"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T07a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T11": {
+       "status": "partial",
+       "checks": [
+        "check.engine",
+        "check.candidate_handoff"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T11 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T15a": {
+       "status": "partial",
+       "checks": [
+        "check.finding_scope"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T15a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T17b": {
+       "status": "partial",
+       "checks": [
+        "check.findings_integration",
+        "check.retention_integration"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T17b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T22": {
+       "status": "partial",
+       "checks": [
+        "check.evidence_binding"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T22 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T24b": {
+       "status": "partial",
+       "checks": [
+        "check.findings_report"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T24b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T28": {
+       "status": "partial",
+       "checks": [
+        "check.findings",
+        "check.adapter_findings"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T28 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T31": {
+       "status": "partial",
+       "checks": [
+        "check.retention",
+        "check.retention_integration"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T31 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T38c": {
+       "status": "partial",
+       "checks": [
+        "check.repair_tasks"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T38c has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T04c": {
+       "status": "partial",
+       "checks": [
+        "check.test_preparation"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04c has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T08a": {
+       "status": "partial",
+       "checks": [
+        "check.node_actions_cli",
+        "check.installed_node_actions",
+        "check.metered_verifier"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T08a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T16b": {
+       "status": "partial",
+       "checks": [
+        "check.candidate_handoff",
+        "check.native_executor"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T16b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T16c": {
+       "status": "partial",
+       "checks": [
+        "check.review_policy",
+        "check.review_dispatch"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T16c has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T17c": {
+       "status": "partial",
+       "checks": [
+        "check.candidate_handoff"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T17c has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T18a": {
+       "status": "partial",
+       "checks": [
+        "check.recovery_policy"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T18a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T18b": {
+       "status": "partial",
+       "checks": [
+        "check.progress"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T18b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T29": {
+       "status": "partial",
+       "checks": [
+        "check.review_dispatch",
+        "check.installed_review_dispatch"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T29 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T43d": {
+       "status": "partial",
+       "checks": [
+        "check.answer_effects"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T43d has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T47c": {
+       "status": "partial",
+       "checks": [
+        "check.answer_effects"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T47c has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T54e": {
+       "status": "partial",
+       "checks": [
+        "check.upgrade_drill",
+        "check.installed_native",
+        "check.installed_node_actions"
+       ],
+       "gaps": [
+        {
+         "kind": "release-evidence",
+         "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.metered_verifier": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_metered_verifier"
+     ],
+     "installed": false,
+     "scope": "Fake provider and actual local command share capped task budgets; no real provider certification."
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T06": {
+     "status": "partial",
+     "checks": [
+      "check.evidence_binding",
+      "check.candidate_adapters"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T06 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T07a": {
+     "status": "partial",
+     "checks": [
+      "check.finding_scope",
+      "check.repair_tasks"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T07a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T11": {
+     "status": "partial",
+     "checks": [
+      "check.engine",
+      "check.candidate_handoff"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T11 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T15a": {
+     "status": "partial",
+     "checks": [
+      "check.finding_scope"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T15a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T17b": {
+     "status": "partial",
+     "checks": [
+      "check.findings_integration",
+      "check.retention_integration"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T17b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T22": {
+     "status": "partial",
+     "checks": [
+      "check.evidence_binding"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T22 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T24b": {
+     "status": "partial",
+     "checks": [
+      "check.findings_report"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T24b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T28": {
+     "status": "partial",
+     "checks": [
+      "check.findings",
+      "check.adapter_findings"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T28 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T31": {
+     "status": "partial",
+     "checks": [
+      "check.retention",
+      "check.retention_integration"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T31 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T38c": {
+     "status": "partial",
+     "checks": [
+      "check.repair_tasks"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T38c has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T04c": {
+     "status": "partial",
+     "checks": [
+      "check.test_preparation"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04c has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T08a": {
+     "status": "partial",
+     "checks": [
+      "check.node_actions_cli",
+      "check.installed_node_actions",
+      "check.metered_verifier"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T08a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T16b": {
+     "status": "partial",
+     "checks": [
+      "check.candidate_handoff",
+      "check.native_executor"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T16b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T16c": {
+     "status": "partial",
+     "checks": [
+      "check.review_policy",
+      "check.review_dispatch"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T16c has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T17c": {
+     "status": "partial",
+     "checks": [
+      "check.candidate_handoff"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T17c has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T18a": {
+     "status": "partial",
+     "checks": [
+      "check.recovery_policy"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T18a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T18b": {
+     "status": "partial",
+     "checks": [
+      "check.progress"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T18b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T29": {
+     "status": "partial",
+     "checks": [
+      "check.review_dispatch",
+      "check.installed_review_dispatch"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T29 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T43d": {
+     "status": "partial",
+     "checks": [
+      "check.answer_effects"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T43d has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T47c": {
+     "status": "partial",
+     "checks": [
+      "check.answer_effects"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T47c has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T54e": {
+     "status": "partial",
+     "checks": [
+      "check.upgrade_drill",
+      "check.installed_native",
+      "check.installed_node_actions"
+     ],
+     "gaps": [
+      {
+       "kind": "release-evidence",
+       "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+      }
+     ]
+    }
+   }
+  },
+  "R06": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_conversations.py",
+    "tests/test_learning.py",
+    "tests/test_owned.py",
+    "tests/test_solution_gate.py",
+    "tests/test_v2_l1.py",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_installed_features.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_plan_names.py",
+    "tests/test_wf_r02_boundaries.py",
+    "tests/test_wf_r06_learning.py",
+    "tests/test_wf_upgrade_drill.py",
+    "tests/test_workflow.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_r02.py",
+    "tests/wf_rollback.py",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py",
+    "wfkit/upgrade_drill.py"
+   ],
+   "testcases": {
+    "check.r06_learning": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r06_learning"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T52b acceptance certificate."
+    },
+    "check.r02_boundaries": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r02_boundaries"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T52b acceptance certificate."
+    },
+    "check.upgrade_drill": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_upgrade_drill"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54f acceptance certificate."
+    },
+    "check.installed_features": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_features"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54f acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T52a": {
+       "status": "partial",
+       "checks": [
+        "check.r06_learning"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T52a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T52b": {
+       "status": "partial",
+       "checks": [
+        "check.r06_learning",
+        "check.r02_boundaries"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T52b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T54f": {
+       "status": "partial",
+       "checks": [
+        "check.upgrade_drill",
+        "check.installed_features"
+       ],
+       "gaps": [
+        {
+         "kind": "release-evidence",
+         "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T52a": {
+     "status": "partial",
+     "checks": [
+      "check.r06_learning"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T52a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T52b": {
+     "status": "partial",
+     "checks": [
+      "check.r06_learning",
+      "check.r02_boundaries"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T52b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T54f": {
+     "status": "partial",
+     "checks": [
+      "check.upgrade_drill",
+      "check.installed_features"
+     ],
+     "gaps": [
+      {
+       "kind": "release-evidence",
+       "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+      }
+     ]
+    }
+   }
+  },
+  "R07": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_v2_l1.py",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_installed_localization.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_plan_names.py",
+    "tests/test_wf_r07_localization.py",
+    "tests/test_wf_upgrade_drill.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_rollback.py",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py",
+    "wfkit/upgrade_drill.py"
+   ],
+   "testcases": {
+    "check.r07_localization": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r07_localization"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T53b acceptance certificate."
+    },
+    "check.installed_localization": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_localization"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54g acceptance certificate."
+    },
+    "check.upgrade_drill": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_upgrade_drill"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54g acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T53a": {
+       "status": "partial",
+       "checks": [
+        "check.r07_localization",
+        "check.installed_localization"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T53a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T53b": {
+       "status": "partial",
+       "checks": [
+        "check.r07_localization",
+        "check.installed_localization"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T53b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T54g": {
+       "status": "partial",
+       "checks": [
+        "check.upgrade_drill",
+        "check.installed_localization"
+       ],
+       "gaps": [
+        {
+         "kind": "release-evidence",
+         "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T53a": {
+     "status": "partial",
+     "checks": [
+      "check.r07_localization",
+      "check.installed_localization"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T53a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T53b": {
+     "status": "partial",
+     "checks": [
+      "check.r07_localization",
+      "check.installed_localization"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T53b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T54g": {
+     "status": "partial",
+     "checks": [
+      "check.upgrade_drill",
+      "check.installed_localization"
+     ],
+     "gaps": [
+      {
+       "kind": "release-evidence",
+       "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+      }
+     ]
+    }
+   }
+  },
+  "R08": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_v2_l1.py",
+    "tests/test_wf_candidate_adapters.py",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_engine.py",
+    "tests/test_wf_installed_features.py",
+    "tests/test_wf_installed_native.py",
+    "tests/test_wf_managed_executor.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_node_actions_cli.py",
+    "tests/test_wf_parallel_engine.py",
+    "tests/test_wf_plan_names.py",
+    "tests/test_wf_rx2_adapters.py",
+    "tests/test_wf_upgrade_drill.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_rollback.py",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py",
+    "wfkit/upgrade_drill.py"
+   ],
+   "testcases": {
+    "check.parallel_engine": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_parallel_engine"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T07b acceptance certificate."
+    },
+    "check.candidate_adapters": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_candidate_adapters"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T04b acceptance certificate."
+    },
+    "check.managed_executor": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_managed_executor"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T30 acceptance certificate."
+    },
+    "check.node_actions_cli": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_node_actions_cli"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T30 acceptance certificate."
+    },
+    "check.upgrade_drill": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_upgrade_drill"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54h acceptance certificate."
+    },
+    "check.installed_native": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_native"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54h acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T01": {
+       "status": "partial",
+       "checks": [
+        "check.parallel_engine"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T01 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T04b": {
+       "status": "partial",
+       "checks": [
+        "check.parallel_engine",
+        "check.candidate_adapters"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T04d": {
+       "status": "partial",
+       "checks": [
+        "check.parallel_engine"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04d has not been independently certified by this registry."
+        },
+        {
+         "kind": "final-artifact-rerun",
+         "detail": "Failed-produced-node advancement and unchanged-branch late-result regressions are repaired; full source matrix remains to be certified on the final artifact."
+        }
+       ]
+      },
+      "T07b": {
+       "status": "partial",
+       "checks": [
+        "check.parallel_engine",
+        "check.managed_executor"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T07b has not been independently certified by this registry."
+        },
+        {
+         "kind": "final-artifact-rerun",
+         "detail": "Failed-produced-node advancement and unchanged-branch late-result regressions are repaired; full source matrix remains to be certified on the final artifact."
+        }
+       ]
+      },
+      "T08b": {
+       "status": "partial",
+       "checks": [
+        "check.managed_executor",
+        "check.node_actions_cli"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T08b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T15c": {
+       "status": "partial",
+       "checks": [
+        "check.managed_executor"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T15c has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T30": {
+       "status": "partial",
+       "checks": [
+        "check.managed_executor",
+        "check.node_actions_cli"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T30 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T54h": {
+       "status": "partial",
+       "checks": [
+        "check.upgrade_drill",
+        "check.installed_native"
+       ],
+       "gaps": [
+        {
+         "kind": "release-evidence",
+         "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T01": {
+     "status": "partial",
+     "checks": [
+      "check.parallel_engine"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T01 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T04b": {
+     "status": "partial",
+     "checks": [
+      "check.parallel_engine",
+      "check.candidate_adapters"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T04d": {
+     "status": "partial",
+     "checks": [
+      "check.parallel_engine"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T04d has not been independently certified by this registry."
+      },
+      {
+       "kind": "final-artifact-rerun",
+       "detail": "Failed-produced-node advancement and unchanged-branch late-result regressions are repaired; full source matrix remains to be certified on the final artifact."
+      }
+     ]
+    },
+    "T07b": {
+     "status": "partial",
+     "checks": [
+      "check.parallel_engine",
+      "check.managed_executor"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T07b has not been independently certified by this registry."
+      },
+      {
+       "kind": "final-artifact-rerun",
+       "detail": "Failed-produced-node advancement and unchanged-branch late-result regressions are repaired; full source matrix remains to be certified on the final artifact."
+      }
+     ]
+    },
+    "T08b": {
+     "status": "partial",
+     "checks": [
+      "check.managed_executor",
+      "check.node_actions_cli"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T08b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T15c": {
+     "status": "partial",
+     "checks": [
+      "check.managed_executor"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T15c has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T30": {
+     "status": "partial",
+     "checks": [
+      "check.managed_executor",
+      "check.node_actions_cli"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T30 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T54h": {
+     "status": "partial",
+     "checks": [
+      "check.upgrade_drill",
+      "check.installed_native"
+     ],
+     "gaps": [
+      {
+       "kind": "release-evidence",
+       "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+      }
+     ]
+    }
+   }
+  },
+  "RP": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_conversations.py",
+    "tests/test_solution_gate.py",
+    "tests/test_v2_advisor.py",
+    "tests/test_v2_l1.py",
+    "tests/test_v2_l2.py",
+    "tests/test_v2_l3.py",
+    "tests/test_v2_reviewer.py",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_finalgate.py",
+    "tests/test_wf_metered_verifier.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_plan_names.py",
+    "tests/test_wf_release_check.py",
+    "tests/test_wf_rp_providers.py",
+    "tests/test_wf_upgrade_drill.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_rollback.py",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/finalgate.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py",
+    "wfkit/provider_evidence.py",
+    "wfkit/release_check.py",
+    "wfkit/upgrade_drill.py"
+   ],
+   "testcases": {
+    "check.rp_providers": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_rp_providers"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T40a acceptance certificate."
+    },
+    "check.release_check": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_release_check"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T54i acceptance certificate."
+    },
+    "check.finalgate": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_finalgate"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T40c acceptance certificate."
+    },
+    "check.upgrade_drill": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_upgrade_drill"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54i acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T40a": {
+       "status": "partial",
+       "checks": [
+        "check.rp_providers",
+        "check.metered_verifier"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T40a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T40b": {
+       "status": "blocked",
+       "checks": [],
+       "gaps": [
+        {
+         "kind": "external-provider",
+         "detail": "Six actual provider-role cells require authorized installed CLI identities, accounts and pinned artifact/model receipts; scripted providers are not substitutes."
+        }
+       ]
+      },
+      "T40c": {
+       "status": "partial",
+       "checks": [
+        "check.release_check",
+        "check.finalgate"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T40c has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T54i": {
+       "status": "partial",
+       "checks": [
+        "check.upgrade_drill",
+        "check.release_check"
+       ],
+       "gaps": [
+        {
+         "kind": "release-evidence",
+         "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.metered_verifier": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_metered_verifier"
+     ],
+     "installed": false,
+     "scope": "Fake provider and actual local command share capped task budgets; no real provider certification."
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T40a": {
+     "status": "partial",
+     "checks": [
+      "check.rp_providers",
+      "check.metered_verifier"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T40a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T40b": {
+     "status": "blocked",
+     "checks": [],
+     "gaps": [
+      {
+       "kind": "external-provider",
+       "detail": "Six actual provider-role cells require authorized installed CLI identities, accounts and pinned artifact/model receipts; scripted providers are not substitutes."
+      }
+     ]
+    },
+    "T40c": {
+     "status": "partial",
+     "checks": [
+      "check.release_check",
+      "check.finalgate"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T40c has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T54i": {
+     "status": "partial",
+     "checks": [
+      "check.upgrade_drill",
+      "check.release_check"
+     ],
+     "gaps": [
+      {
+       "kind": "release-evidence",
+       "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+      }
+     ]
+    }
+   }
+  },
+  "RX1": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_v2_l1.py",
+    "tests/test_wf_candidate_adapters.py",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_engine.py",
+    "tests/test_wf_installed_features.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_plan_names.py",
+    "tests/test_wf_rx1_core.py",
+    "tests/test_wf_rx1_doc.py",
+    "tests/test_wf_rx2_adapters.py",
+    "tests/test_wf_upgrade_drill.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_rollback.py",
+    "tests/wf_rx1_fixture/docs/design.md",
+    "tests/wf_rx1_fixture/docs/guide.md",
+    "tests/wf_rx1_fixture/img/diagram.png",
+    "tests/wf_rx1_fixture/sources/notes.txt",
+    "tests/wf_rx1_fixture/sources/spec.md",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py",
+    "wfkit/upgrade_drill.py"
+   ],
+   "testcases": {
+    "check.rx1_core": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_rx1_core"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T23 acceptance certificate."
+    },
+    "check.rx1_doc": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_rx1_doc"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T14a acceptance certificate."
+    },
+    "check.candidate_adapters": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_candidate_adapters"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T14a acceptance certificate."
+    },
+    "check.upgrade_drill": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_upgrade_drill"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54j acceptance certificate."
+    },
+    "check.installed_features": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_features"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54j acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T14a": {
+       "status": "partial",
+       "checks": [
+        "check.rx1_core",
+        "check.rx1_doc",
+        "check.candidate_adapters"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T14a has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T23": {
+       "status": "partial",
+       "checks": [
+        "check.rx1_core"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T23 has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T54j": {
+       "status": "partial",
+       "checks": [
+        "check.upgrade_drill",
+        "check.installed_features"
+       ],
+       "gaps": [
+        {
+         "kind": "release-evidence",
+         "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T14a": {
+     "status": "partial",
+     "checks": [
+      "check.rx1_core",
+      "check.rx1_doc",
+      "check.candidate_adapters"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T14a has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T23": {
+     "status": "partial",
+     "checks": [
+      "check.rx1_core"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T23 has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T54j": {
+     "status": "partial",
+     "checks": [
+      "check.upgrade_drill",
+      "check.installed_features"
+     ],
+     "gaps": [
+      {
+       "kind": "release-evidence",
+       "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+      }
+     ]
+    }
+   }
+  },
+  "RX2": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_v2_l1.py",
+    "tests/test_wf_candidate_adapters.py",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_engine.py",
+    "tests/test_wf_installed_features.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_plan_names.py",
+    "tests/test_wf_rx2_adapters.py",
+    "tests/test_wf_upgrade_drill.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_rollback.py",
+    "tests/wf_rx1_fixture/docs/design.md",
+    "tests/wf_rx1_fixture/docs/guide.md",
+    "tests/wf_rx1_fixture/img/diagram.png",
+    "tests/wf_rx1_fixture/sources/notes.txt",
+    "tests/wf_rx1_fixture/sources/spec.md",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py",
+    "wfkit/upgrade_drill.py"
+   ],
+   "testcases": {
+    "check.rx2_adapters": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_rx2_adapters"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T14b acceptance certificate."
+    },
+    "check.candidate_adapters": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_candidate_adapters"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T14b acceptance certificate."
+    },
+    "check.upgrade_drill": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_upgrade_drill"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54k acceptance certificate."
+    },
+    "check.installed_features": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_features"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T54k acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T14b": {
+       "status": "partial",
+       "checks": [
+        "check.rx2_adapters",
+        "check.candidate_adapters"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T14b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T54k": {
+       "status": "partial",
+       "checks": [
+        "check.upgrade_drill",
+        "check.installed_features"
+       ],
+       "gaps": [
+        {
+         "kind": "release-evidence",
+         "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T14b": {
+     "status": "partial",
+     "checks": [
+      "check.rx2_adapters",
+      "check.candidate_adapters"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T14b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T54k": {
+     "status": "partial",
+     "checks": [
+      "check.upgrade_drill",
+      "check.installed_features"
+     ],
+     "gaps": [
+      {
+       "kind": "release-evidence",
+       "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
+      }
+     ]
+    }
+   }
+  },
+  "KN": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_conversations.py",
+    "tests/test_learning.py",
+    "tests/test_owned.py",
+    "tests/test_solution_gate.py",
+    "tests/test_v2_l1.py",
+    "tests/test_v2_l3.py",
+    "tests/test_wf_answer_effects.py",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_engine.py",
+    "tests/test_wf_estimates.py",
+    "tests/test_wf_installed_common_consumers.py",
+    "tests/test_wf_installed_features.py",
+    "tests/test_wf_kn_estimates.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_plan_names.py",
+    "tests/test_wf_questions.py",
+    "tests/test_wf_r01_step0_survey.py",
+    "tests/test_wf_r02_boundaries.py",
+    "tests/test_wf_r02_resume.py",
+    "tests/test_wf_task_caps.py",
+    "tests/test_workflow.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_r02.py",
+    "tests/wf_rollback.py",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py"
+   ],
+   "testcases": {
+    "check.task_caps": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_task_caps"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T36c acceptance certificate."
+    },
+    "check.estimates": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_estimates"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T36c acceptance certificate."
+    },
+    "check.r02_resume": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r02_resume"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T46b acceptance certificate."
+    },
+    "check.installed_common_consumers": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_common_consumers"
+     ],
+     "installed": true,
+     "scope": "Implementation regression; not a full T46b acceptance certificate."
+    },
+    "check.questions": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_questions"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T47b acceptance certificate."
+    },
+    "check.answer_effects": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_answer_effects"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T47b acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T36c": {
+       "status": "complete",
+       "checks": [
+        "check.kn_estimates"
+       ],
+       "evidence_matrix": {
+        "E19": [
+         "tests.test_wf_kn_estimates.InternalEstimateTests.test_split_and_mandatory_task_preserve_baseline_and_do_not_double_count",
+         "tests.test_wf_kn_estimates.InternalEstimateTests.test_verified_node_is_not_added_back_by_unrelated_replan"
+        ],
+        "E20": [
+         "tests.test_wf_kn_estimates.InternalEstimateTests.test_split_and_mandatory_task_preserve_baseline_and_do_not_double_count",
+         "tests.test_wf_kn_estimates.InternalEstimateTests.test_late_forecast_callback_cannot_overwrite_newer_internal_revision"
+        ]
+       },
+       "scope": "Declared estimate intervals on disposable ledger; real plan/engine/Control integration. No calibrated ETA or provider quality claim.",
+       "gaps": []
+      },
+      "T46b": {
+       "status": "partial",
+       "checks": [
+        "check.r02_resume",
+        "check.r02_boundaries"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T46b has not been independently certified by this registry."
+        }
+       ]
+      },
+      "T47b": {
+       "status": "partial",
+       "checks": [
+        "check.questions",
+        "check.answer_effects"
+       ],
+       "gaps": [
+        {
+         "kind": "acceptance-audit",
+         "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T47b has not been independently certified by this registry."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.r02_boundaries": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r02_boundaries"
+     ],
+     "installed": false,
+     "scope": "Shared revision comparison regression only."
+    },
+    "check.kn_estimates": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_kn_estimates"
+     ],
+     "installed": false,
+     "scope": "T36c E19/E20 real internal-plan, ledger and engine integration on declared fixture intervals."
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T36c": {
+     "status": "complete",
+     "checks": [
+      "check.kn_estimates"
+     ],
+     "evidence_matrix": {
+      "E19": [
+       "tests.test_wf_kn_estimates.InternalEstimateTests.test_split_and_mandatory_task_preserve_baseline_and_do_not_double_count",
+       "tests.test_wf_kn_estimates.InternalEstimateTests.test_verified_node_is_not_added_back_by_unrelated_replan"
+      ],
+      "E20": [
+       "tests.test_wf_kn_estimates.InternalEstimateTests.test_split_and_mandatory_task_preserve_baseline_and_do_not_double_count",
+       "tests.test_wf_kn_estimates.InternalEstimateTests.test_late_forecast_callback_cannot_overwrite_newer_internal_revision"
+      ]
+     },
+     "scope": "Declared estimate intervals on disposable ledger; real plan/engine/Control integration. No calibrated ETA or provider quality claim.",
+     "gaps": []
+    },
+    "T46b": {
+     "status": "partial",
+     "checks": [
+      "check.r02_resume",
+      "check.r02_boundaries"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T46b has not been independently certified by this registry."
+      }
+     ]
+    },
+    "T47b": {
+     "status": "partial",
+     "checks": [
+      "check.questions",
+      "check.answer_effects"
+     ],
+     "gaps": [
+      {
+       "kind": "acceptance-audit",
+       "detail": "Supporting regression exists; the complete source expectation and counterexample matrix for T47b has not been independently certified by this registry."
+      }
+     ]
+    }
+   }
+  },
+  "PL": {
+   "kit_files": [
+    "docs/wf/sources/.gitattributes",
+    "docs/wf/sources/04-TASKS.vi.md",
+    "docs/wf/sources/05-TESTCASES.vi.md",
+    "tests/test_wf_development_kit.py",
+    "tests/test_wf_finalgate.py",
+    "tests/test_wf_namespace_lineage.py",
+    "tests/test_wf_plan_names.py",
+    "tests/wf_oldversion.py",
+    "tests/wf_rollback.py",
+    "tests/wf_wheel.py",
+    "wfkit/__init__.py",
+    "wfkit/development_gate.py",
+    "wfkit/doccheck.py",
+    "wfkit/finalgate.py",
+    "wfkit/gate.py",
+    "wfkit/kitguard.py",
+    "wfkit/manifest.json",
+    "wfkit/namespace-lineage.json",
+    "wfkit/namespace_lineage.py",
+    "wfkit/provider_evidence.py"
+   ],
+   "testcases": {
+    "check.finalgate": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_finalgate"
+     ],
+     "installed": false,
+     "scope": "Implementation regression; not a full T55a acceptance certificate."
+    },
+    "registry": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_development_kit"
+     ],
+     "installed": false,
+     "scope": "Registry fail-closed rules only.",
+     "acceptance_snapshot": {
+      "T14c": {
+       "status": "blocked",
+       "checks": [],
+       "gaps": [
+        {
+         "kind": "external-pilot",
+         "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+        }
+       ]
+      },
+      "T35b": {
+       "status": "blocked",
+       "checks": [],
+       "gaps": [
+        {
+         "kind": "external-pilot",
+         "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+        }
+       ]
+      },
+      "T35c": {
+       "status": "blocked",
+       "checks": [],
+       "gaps": [
+        {
+         "kind": "external-pilot",
+         "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+        }
+       ]
+      },
+      "T45b": {
+       "status": "blocked",
+       "checks": [
+        "check.finalgate"
+       ],
+       "gaps": [
+        {
+         "kind": "external-pilot",
+         "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+        }
+       ]
+      },
+      "T45c": {
+       "status": "blocked",
+       "checks": [
+        "check.finalgate"
+       ],
+       "gaps": [
+        {
+         "kind": "external-pilot",
+         "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+        }
+       ]
+      },
+      "T45d": {
+       "status": "blocked",
+       "checks": [
+        "check.finalgate"
+       ],
+       "gaps": [
+        {
+         "kind": "external-pilot",
+         "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+        }
+       ]
+      },
+      "T45e": {
+       "status": "blocked",
+       "checks": [
+        "check.finalgate"
+       ],
+       "gaps": [
+        {
+         "kind": "external-pilot",
+         "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+        }
+       ]
+      },
+      "T40d": {
+       "status": "blocked",
+       "checks": [
+        "check.finalgate"
+       ],
+       "gaps": [
+        {
+         "kind": "external-pilot",
+         "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+        }
+       ]
+      },
+      "T55a": {
+       "status": "blocked",
+       "checks": [
+        "check.finalgate"
+       ],
+       "gaps": [
+        {
+         "kind": "external-pilot",
+         "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+        }
+       ]
+      }
+     },
+     "baseline": {
+      "manifest": "wfkit/manifest.json",
+      "sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+      "release": "R00",
+      "policy": "Preserved historical pins; current drift is reported and never repinned or waived."
+     },
+     "source": {
+      "path": "docs/wf/sources/05-TESTCASES.vi.md",
+      "sha256": "0e208d2fb77c91e54824706fb43a50188869a3d6e4d856b75d1b191f2101ce3b",
+      "original_provenance": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung\\05-TESTCASES.vi.md"
+     }
+    },
+    "check.namespace_lineage_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_namespace_lineage"
+     ],
+     "installed": false,
+     "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    }
+   },
+   "acceptance": {
+    "T14c": {
+     "status": "blocked",
+     "checks": [],
+     "gaps": [
+      {
+       "kind": "external-pilot",
+       "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+      }
+     ]
+    },
+    "T35b": {
+     "status": "blocked",
+     "checks": [],
+     "gaps": [
+      {
+       "kind": "external-pilot",
+       "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+      }
+     ]
+    },
+    "T35c": {
+     "status": "blocked",
+     "checks": [],
+     "gaps": [
+      {
+       "kind": "external-pilot",
+       "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+      }
+     ]
+    },
+    "T45b": {
+     "status": "blocked",
+     "checks": [
+      "check.finalgate"
+     ],
+     "gaps": [
+      {
+       "kind": "external-pilot",
+       "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+      }
+     ]
+    },
+    "T45c": {
+     "status": "blocked",
+     "checks": [
+      "check.finalgate"
+     ],
+     "gaps": [
+      {
+       "kind": "external-pilot",
+       "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+      }
+     ]
+    },
+    "T45d": {
+     "status": "blocked",
+     "checks": [
+      "check.finalgate"
+     ],
+     "gaps": [
+      {
+       "kind": "external-pilot",
+       "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+      }
+     ]
+    },
+    "T45e": {
+     "status": "blocked",
+     "checks": [
+      "check.finalgate"
+     ],
+     "gaps": [
+      {
+       "kind": "external-pilot",
+       "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+      }
+     ]
+    },
+    "T40d": {
+     "status": "blocked",
+     "checks": [
+      "check.finalgate"
+     ],
+     "gaps": [
+      {
+       "kind": "external-pilot",
+       "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+      }
+     ]
+    },
+    "T55a": {
+     "status": "blocked",
+     "checks": [
+      "check.finalgate"
+     ],
+     "gaps": [
+      {
+       "kind": "external-pilot",
+       "detail": "Owner-selected real work and chronological delivery/provider/pilot evidence are absent. finalgate tests validate the decision rules only."
+      }
+     ]
+    }
+   }
+  }
+ }
+}

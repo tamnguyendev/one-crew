@@ -47,69 +47,33 @@ def home():
     return base
 
 
-class _Unreadable(OSError):
-    """A host file that exists but cannot be read right now (another process holds it open, an I/O error). It is neither
-    missing nor malformed, and nothing it describes may be dropped or decided on because of it."""
+from .host_status_core import _Unreadable, _load, _read, _read_patiently, _when
+from .host_status_core import lease as _shared_lease, served as _shared_served
 
 
-def _load(path):
-    """('ok', value) | ('missing', None) | ('corrupt', error) | ('unreadable', error).
-    P4-A (Codex deep review P3, reproduced with a real Windows lock): the former reader turned every OSError into None, and
-    the scan then moved a valid dispatch request that was only locked for a moment out of the queue for good."""
-    try: data = Path(path).read_bytes()
-    except FileNotFoundError: return 'missing', None
-    except OSError as error: return 'unreadable', error
-    try: return 'ok', json.loads(data.decode('utf-8'))
-    except ValueError as error: return 'corrupt', error  # includes UnicodeDecodeError
 
 
-def _read(path, default=None):
-    """Missing or malformed -> default. A file that exists but cannot be read now raises _Unreadable: callers decide later,
-    they never treat it as absent."""
-    status, value = _load(path)
-    if status == 'unreadable': raise _Unreadable(f'{Path(path).name} cannot be read right now: {value}')
-    return value if status == 'ok' else default
 
 
-def _read_patiently(path, default=None, attempts=4, pause=.05):
-    """For readers that must answer now (the lease seen by an entry): a few short retries, then _Unreadable."""
-    for attempt in range(attempts):
-        try: return _read(path, default)
-        except _Unreadable:
-            if attempt == attempts - 1: raise
-            time.sleep(pause * (attempt + 1))
 
 
 def _write(path, value):
     durable_write(Path(path), canonical(value).encode('utf-8'))
 
 
-def _when(text):
-    value = dt.datetime.fromisoformat(text)
-    return value if value.tzinfo else value.replace(tzinfo=dt.timezone.utc)
 
 
 # --- lease -----------------------------------------------------------------------------------------------------------
 
 def lease(base=None):
-    """The live host's lease, or None (missing, stale heartbeat or dead process)."""
     from .supervisor import probe
-    try: record = _read_patiently((base or home()) / 'lease.json')
-    except _Unreadable: return None  # cannot prove a live host right now; the entry says so instead of queueing blindly
-    if not record or record.get('stopped_at'): return None
-    try:
-        if (dt.datetime.now(dt.timezone.utc) - _when(record['heartbeat'])).total_seconds() > HEARTBEAT: return None
-    except (KeyError, ValueError): return None
-    return record if probe(record.get('identity')) == 'alive' else None
+    return _shared_lease(base or home(), probe_fn=probe)
 
 
 # --- entry side: dispatch ----------------------------------------------------------------------------------------------
 
 def served(state_root, base=None, record=None):
-    """True only when the live host itself reports scanning this state root: the entry's own copy of the registry
-    proves nothing if the entry's writes are invisible to the host."""
-    record = record or lease(base)
-    return bool(record) and str(Path(state_root).resolve()) in (record.get('roots_seen') or {})
+    return _shared_served(state_root, base, record, lease_fn=lease)
 
 
 def register(state_root, base=None):

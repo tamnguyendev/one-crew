@@ -7,6 +7,7 @@ reconciliation. This module never launches a provider or implements recovery.
 import copy
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import dependency_core
@@ -41,14 +42,15 @@ def state(ledger, selector, conn=None):
             updated = json.loads(store.read_blob(payload['definition']))
             if content_hash(updated) != payload['definition_sha']:
                 raise LedgerError('Internal definition hash mismatch.')
-            old = {item['id']: item for item in definition['nodes']} if definition else {}
-            changed = [item['id'] for item in updated['nodes'] if old.get(item['id']) != item or contract_sha != payload['contract_sha']]
-            affected = dependency_core.affected_tasks(ip.projection(updated['nodes']), changed) if changed else set()
+            affected=ip.affected_revision(definition['nodes'] if definition else [],updated['nodes'],
+                                          contract_changed=contract_sha!=payload['contract_sha'])
             fresh = _fresh(updated['nodes'])
             for nid, record in fresh.items():
+                record['valid_internal_revisions']=[payload['internal_revision']]
                 if nid in records:
                     if nid not in affected:
                         fresh[nid] = copy.deepcopy(records[nid])
+                        fresh[nid]['valid_internal_revisions']=list(dict.fromkeys(records[nid].get('valid_internal_revisions',[])+[payload['internal_revision']]))
                     else:
                         record['generation'] = records[nid]['generation'] + 1
                         record['early_runs'] = copy.deepcopy(records[nid]['early_runs'])
@@ -57,7 +59,7 @@ def state(ledger, selector, conn=None):
             continue
         nid = payload.get('node')
         if (nid not in records or payload.get('generation') != records[nid]['generation']
-                or payload.get('internal_revision') != internal_revision):
+                or payload.get('internal_revision') not in records[nid].get('valid_internal_revisions',[internal_revision])):
             continue
         record = records[nid]
         if event['kind'] == 'node.started':
@@ -68,6 +70,7 @@ def state(ledger, selector, conn=None):
             record.update(phase='complete', state='produced', artifact=payload['artifact'], receipt=payload['receipt'])
         elif event['kind'] == 'node.verification':
             record['verification_receipt'] = payload['receipt']
+            record['verification_result'] = payload['result']
             if payload['result'] == 'pass': record.update(phase='complete', state='verified')
         elif event['kind'] == 'node.accepted':
             record['state'] = 'accepted'
@@ -77,23 +80,37 @@ def state(ledger, selector, conn=None):
         elif event['kind'] == 'node.resumed':
             fresh = _fresh([next(item for item in definition['nodes'] if item['id'] == nid)])[nid]
             fresh.update(generation=record['generation'] + 1, early_runs=copy.deepcopy(record['early_runs']))
+            fresh['valid_internal_revisions']=[internal_revision]
             records[nid] = fresh
     approved = root['approved'] or {}
-    inflight = False
-    for record in records.values():
+    inflight, active_nodes = False, []
+    definitions={node['id']:node for node in definition['nodes']} if definition else {}
+    for nid,record in records.items():
         if record['attempt']:
             attempt = conn.execute('SELECT status FROM attempts WHERE id=?', (record['attempt'],)).fetchone()
-            if attempt and attempt['status'] != 'settled': inflight = True
-    from . import runtime_unknowns
+            if attempt and attempt['status'] != 'settled':
+                inflight = True
+                active_nodes.append({'node':nid,'attempt':record['attempt'],'write':definitions[nid]['write']})
+    from . import finding_scope, runtime_unknowns
+    failed_blockers={}
+    if definition:
+        failure_projection=ip.influence_projection(definition['nodes'])
+        for nid,record in records.items():
+            if record.get('verification_result')=='fail':
+                for target in dependency_core.affected_tasks(failure_projection,[nid]):
+                    failed_blockers.setdefault(target,[]).append(nid)
     return {'root': root['task_id'], 'selector': root['selector'], 'root_status': root['status'],
             'contract_revision': approved.get('revision'), 'contract_sha': approved.get('sha'),
             'definition_contract_revision': contract_revision, 'definition_contract_sha': contract_sha,
             'internal_revision': internal_revision, 'definition': definition, 'nodes': records, 'inflight': inflight,
-            'unknown_blockers': runtime_unknowns.blockers(ledger, root['selector'], conn)}
+            'active_nodes':active_nodes,'capabilities':list(root.get('capabilities',())),
+            'unknown_blockers': runtime_unknowns.blockers(ledger, root['selector'], conn),
+            'finding_blockers': finding_scope.blockers(ledger, root['selector'], definition['nodes'] if definition else [], conn),
+            'failed_blockers':failed_blockers}
 
 
 def _rank(record):
-    return 0 if record['phase'] == 'held' else STATES.get(record.get('state'), 0)
+    return 0 if record['phase'] == 'held' or record.get('verification_result')=='fail' else STATES.get(record.get('state'), 0)
 
 
 def _early_key(upstream, record):
@@ -101,8 +118,8 @@ def _early_key(upstream, record):
 
 
 def eligible(view, nid):
-    if view['root_status'] != 'approved' or _unknown_blocks(view, nid):
-        return {'ready': False, 'reason': 'Root is not approved or this node requires an unresolved fact'}
+    if view['root_status'] != 'approved' or _input_blocks(view, nid):
+        return {'ready': False, 'reason': 'Root is not approved or this node has an unresolved fact/finding'}
     if view['definition'] is None or nid not in view['nodes']:
         return {'ready': False, 'reason': 'No internal node ' + nid}
     record = view['nodes'][nid]
@@ -123,10 +140,21 @@ def eligible(view, nid):
     return {'ready': True, 'reason': 'Every dependency satisfies its declared state', 'early_dependencies': early}
 
 
-def _ready(view):
+def _slot_limit(view,slots):
+    if type(slots) is not int or slots not in (1,2): raise LedgerError('Common engine slots must be 1 or 2; advanced resource scheduling is separate.')
+    if slots==2 and 'parallel-engine' not in view.get('capabilities',()):
+        raise LedgerError('This root did not declare the parallel-engine capability.')
+    return slots
+
+
+def _ready(view,slots=1):
     # State requirements become the existing scheduler's dependency tokens. It
-    # alone chooses order and disjoint ownership; this adapter supplies one slot.
+    # alone chooses order and disjoint ownership; this adapter supplies slots.
+    _slot_limit(view,slots)
     tasks, done, blocked = [], [], {}
+    active=view.get('active_nodes',[])
+    available=max(0,slots-len(active))
+    owned={path for item in active for path in item['write']}
     if view['definition'] and view['root_status'] == 'approved':
         for node in view['definition']['nodes']:
             nid, record = node['id'], view['nodes'][node['id']]
@@ -134,14 +162,14 @@ def _ready(view):
             done.extend(nid + '@' + status for status, value in STATES.items() if rank >= value)
             if record['phase'] != 'pending': done.append(nid)
             dependencies = [edge['node'] + '@' + edge['requires'] for edge in node['depends']]
-            if not eligible(view, nid)['ready'] or view['inflight']:
+            if not eligible(view, nid)['ready'] or not available or owned & set(node['write']):
                 blocked[nid] = True
             tasks.append({'id': nid, 'owned': node['write'], 'depends_on': dependencies})
-    return dependency_core.ready_batch({'plan': {'tasks': tasks}, 'done': done, 'branch_errors': blocked})[:1]
+    return dependency_core.ready_batch({'plan': {'tasks': tasks}, 'done': done, 'branch_errors': blocked})[:available]
 
 
-def ready(ledger, selector):
-    return _ready(state(ledger, selector))
+def ready(ledger, selector, *, slots=1):
+    return _ready(state(ledger, selector),slots)
 
 
 def _event(ledger, conn, view, nid, kind, **payload):
@@ -152,29 +180,29 @@ def _event(ledger, conn, view, nid, kind, **payload):
 
 def _forecast(ledger, view, key, reason):
     if view['definition'] is None: return
-    nodes = [node for node in view['definition']['nodes'] if _rank(view['nodes'][node['id']]) < STATES['verified']]
-    estimates.reforecast(ledger, view['selector'], key, [sum(node['estimate_seconds'][i] for node in nodes) for i in (0, 1)],
-                        reason, ['internal-plan:' + str(view['internal_revision'])])
+    estimates.observe_internal(ledger,view['selector'],reason=reason,evidence=['internal-plan:'+str(view['internal_revision'])])
 
 
 def _publication_current(current, original, nid):
     return (current['root_status'] == 'approved'
             and current['contract_sha'] == original['contract_sha']
             and current['contract_revision'] == original['contract_revision']
-            and current['internal_revision'] == original['internal_revision']
             and nid in current['nodes']
-            and not _unknown_blocks(current, nid)
+            and original['internal_revision'] in current['nodes'][nid].get('valid_internal_revisions',[current['internal_revision']])
+            and next((node for node in current['definition']['nodes'] if node['id']==nid),None)==next((node for node in original['definition']['nodes'] if node['id']==nid),None)
+            and not _input_blocks(current, nid)
             and current['nodes'][nid]['generation'] == original['nodes'][nid]['generation'])
 
 
-def _unknown_blocks(view, nid):
+def _input_blocks(view, nid):
     pending, seen = [nid], set()
     nodes = {node['id']: node for node in (view['definition'] or {}).get('nodes', [])}
     while pending:
         target = pending.pop()
         if target in seen: continue
         seen.add(target)
-        if view.get('unknown_blockers', {}).get(target): return True
+        if (view.get('unknown_blockers', {}).get(target) or view.get('finding_blockers', {}).get(target)
+                or view.get('failed_blockers',{}).get(target)): return True
         pending.extend(edge['node'] for edge in nodes.get(target, {}).get('depends', []))
     return False
 
@@ -185,12 +213,13 @@ def _retain(ledger, conn, original, nid, reason, **evidence):
            contract_sha=original['contract_sha'], grants_delivery=False, **evidence)
 
 
-def publish_retained(ledger, selector):
+def publish_retained(ledger, selector, *, node=None):
     """A resolved fact can release a settled result without another model call."""
     with ledger.transaction(write=True) as conn:
         root, _, _ = ip.context(ledger, conn, selector, 'sequential-engine')
         view = state(ledger, root['selector'], conn)
         for nid, record in view['nodes'].items():
+            if node is not None and nid!=node: continue
             if record['phase'] != 'running' or not _publication_current(view, view, nid): continue
             progress = progress_track.read(ledger, root['selector'], nid)
             if progress and progress['checkpoint']['status'] in ('blocked', 'waiting'): continue
@@ -212,23 +241,30 @@ def publish_retained(ledger, selector):
     return None
 
 
-def step(ledger, selector, executor, *, control=None):
+def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
     from . import answer_effects
     answer_effects.reconcile(ledger, selector)
     control = control or getattr(executor, 'control', None)
     if (control is None or control.ledger.project_id != ledger.project_id
             or Path(control.ledger.state_root).resolve() != Path(ledger.state_root).resolve()):
         raise LedgerError('A connected executor Control for this project/state root is required.')
-    retained = publish_retained(ledger, selector)
+    if slots==2:
+        declaration=getattr(executor,'declaration',None)
+        if declaration is None or not declaration.supports('isolate'):
+            raise LedgerError('Parallel execution requires a declared isolate capability.')
+    retained = publish_retained(ledger, selector,node=_target)
     if retained: return retained
     with ledger.transaction() as conn:
         root, contract, sha = ip.context(ledger, conn, selector, 'sequential-engine')
         view = state(ledger, root['selector'], conn)
-        choices = _ready(view)
+        choices = _ready(view,slots)
         ctx = ip.ceilings(ledger, conn, root)
     if not choices: return {'state': 'waiting', 'internal_revision': view['internal_revision']}
     if view['definition_contract_sha'] != sha:
         raise LedgerError('Revise the internal plan against the current approved contract before dispatch.')
+    if _target is not None:
+        choices=[choice for choice in choices if choice['id']==_target]
+        if not choices:return {'node':_target,'state':'waiting','internal_revision':view['internal_revision']}
     nid = choices[0]['id']
     item = copy.deepcopy(next(node for node in view['definition']['nodes'] if node['id'] == nid))
     if getattr(executor, 'requires_pin', False) and 'executor' not in item:
@@ -248,8 +284,8 @@ def step(ledger, selector, executor, *, control=None):
 
     def reserve(conn, attempt):
         current = state(ledger, root['selector'], conn)
-        if (not _publication_current(current, view, nid) or current['inflight']
-                or not eligible(current, nid)['ready']):
+        if (not _publication_current(current, view, nid)
+                or nid not in {choice['id'] for choice in _ready(current,slots)}):
             raise LedgerError('The root slot or internal node changed before admission.')
         _event(ledger, conn, current, nid, 'node.started', attempt=attempt['id'], child=task['id'],
                early_dependencies=eligible(current, nid).get('early_dependencies', []), inputs=inputs)
@@ -267,6 +303,17 @@ def step(ledger, selector, executor, *, control=None):
                 or not isinstance(produced['artifact'], str) or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', produced['artifact'])):
             raise LedgerError('Executor must return artifact identity and durable receipt.')
         Snapshots(ledger.state_root).read_blob(produced['receipt'])
+        if callable(getattr(executor,'state',None)):
+            execution_state=executor.state(attempt['id'])
+            if execution_state['state'] in ('paused','pause_requested','stopped','stop_requested','unknown'):
+                with ledger.transaction(write=True) as conn:
+                    current=state(ledger,root['selector'],conn)
+                    if _publication_current(current,view,nid):
+                        _event(ledger,conn,current,nid,'node.held',reason=execution_state.get('text',execution_state['state']),
+                               classification='executor_'+execution_state['state'],candidate=produced)
+                    else:
+                        _retain(ledger,conn,view,nid,'Managed result held after root/input change',candidate=produced,attempt=attempt['id'])
+                return {'node':nid,'state':'held','executor_state':execution_state['state'],'candidate':produced}
         progress = progress_track.read(ledger, root['selector'], nid)
         progress_status = progress['checkpoint']['status'] if progress else 'unknown'
         if progress_status in ('blocked', 'waiting'):
@@ -298,6 +345,48 @@ def step(ledger, selector, executor, *, control=None):
         _event(ledger, conn, current, nid, 'node.produced', progress_status=progress_status, **produced)
     _forecast(ledger, state(ledger, root['selector']), f'node-{nid}-g{view["nodes"][nid]["generation"]}-produced', 'Node produced an artifact; verification remains separate')
     return {'node': nid, 'state': 'produced', **produced}
+
+
+def run_batch(ledger,selector,executor,*,slots=1,control=None):
+    """Run the existing scheduler's bounded batch through the same step port."""
+    view=state(ledger,selector)
+    choices=_ready(view,slots)
+    if slots==2:
+        declaration=getattr(executor,'declaration',None)
+        if declaration is None or not declaration.supports('isolate'):
+            raise LedgerError('Parallel execution requires a declared isolate capability.')
+    if not choices:return {'slots':slots,'results':[],'state':'waiting'}
+    def execute(choice):
+        try:return step(ledger,selector,executor,control=control,slots=slots,_target=choice['id'])
+        except LedgerError as error:return {'node':choice['id'],'state':'waiting','reason':str(error)}
+    with ThreadPoolExecutor(max_workers=slots) as pool:
+        futures=[pool.submit(execute,choice) for choice in choices]
+        results=[future.result() for future in futures]
+    return {'slots':slots,'results':results}
+
+
+def release_paused(ledger,selector,nid,executor):
+    """Adopt the same safe-point candidate after its original inputs are clear."""
+    with ledger.transaction(write=True) as conn:
+        root,_,sha=ip.context(ledger,conn,selector,'sequential-engine')
+        view=state(ledger,root['selector'],conn)
+        record=view['nodes'].get(nid)
+        if (not record or record['phase']!='held' or record.get('classification')!='executor_paused'
+                or not _publication_current(view,view,nid) or view['definition_contract_sha']!=sha):
+            raise LedgerError('Only the current safe-point paused candidate with clear prerequisites can be released.')
+        for source,binding in record['inputs'].items():
+            if any(binding[key]!=view['nodes'][source][key] for key in ('artifact','generation')):
+                raise LedgerError('Paused candidate inputs changed; reverify the new generation instead of reusing it.')
+        observed=executor.state(record['attempt'])
+        candidate=record.get('retained_candidate')
+        if (observed['state']!='paused' or not observed.get('safe_point_acknowledged')
+                or not candidate or observed.get('candidate')!=candidate):
+            raise LedgerError('A matching acknowledged safe-point candidate is required; unknown work is never replayed.')
+        body=json.loads(Snapshots(ledger.state_root).read_blob(candidate['receipt']))
+        if body.get('attempt')!=record['attempt'] or body.get('artifact')!=candidate['artifact']:
+            raise LedgerError('Paused candidate receipt does not bind the original attempt/artifact.')
+        _event(ledger,conn,view,nid,'node.produced',progress_status='unknown',reused_safe_candidate=True,**candidate)
+    return {'node':nid,'state':'produced','reused_safe_candidate':True,**candidate}
 
 
 def verify(ledger, selector, nid, checker):
@@ -363,6 +452,10 @@ def verify(ledger, selector, nid, checker):
             # authorize repair against its now-stale evidence.
             body['recovery'] = {'disposition': 'reconcile', 'reason': str(error),
                                 'grants_authority': False, 'creates_owner_request': False}
+    from . import incidents
+    try:body['learning']=incidents.after_node(ledger,root['selector'],nid,receipt)
+    except (OSError,ValueError) as error:
+        body['learning']={'status':'pending','reason':str(error),'changes_verification':False}
     return body
 
 
@@ -475,7 +568,7 @@ def resume_held(ledger, selector, *, request_id, request_revision, contract_sha,
 
 def verification_ready(ledger, selector):
     view = state(ledger, selector)
-    if (view['root_status'] != 'approved' or view['unknown_blockers'] or not view['definition'] or view['definition_contract_sha'] != view['contract_sha'] or
+    if (view['root_status'] != 'approved' or view['unknown_blockers'] or view['finding_blockers'] or view.get('failed_blockers') or not view['definition'] or view['definition_contract_sha'] != view['contract_sha'] or
             not any(node['integration'] for node in view['definition']['nodes'])):
         return False
     if not all(_rank(record) >= STATES['verified'] for record in view['nodes'].values()): return False
@@ -505,17 +598,10 @@ def root_ready(ledger, selector, artifact=None):
         if (proof.get('kind') != 'workflow-handoff-receipt' or proof.get('root') != view['root']
                 or proof.get('contract_sha') != view['contract_sha'] or proof.get('internal_revision') != view['internal_revision']
                 or proof.get('integration_artifact') != record['artifact'] or proof.get('generation') != record['generation']
-                or proof.get('node') != integration['id'] or proof.get('child') != record['child']
-                or proof.get('method') != 'v1-cas-apply' or not proof.get('apply_receipt')):
+                or proof.get('node') != integration['id'] or proof.get('child') != record['child']):
             return False
-        applied = json.loads(Snapshots(ledger.state_root).read_blob(proof['apply_receipt']))
-        if (applied.get('status') != 'verified' or applied.get('result', {}).get('candidate') != proof.get('delivered_artifact')
-                or not applied.get('result', {}).get('verified')):
-            return False
-        with ledger.transaction() as conn:
-            actual_action = conn.execute("SELECT 1 FROM actions WHERE task_id=? AND status='verified' AND receipt=?",
-                                         (record['child'], canonical(applied))).fetchone()
-        if actual_action is None: return False
+        from ..common_handoff import receipt_valid
+        if not receipt_valid(ledger,proof,record): return False
         from .verifiers import command
         observed = command.artifact_sha(ledger.project)
         return proof.get('delivered_artifact') == observed and (artifact is None or artifact == observed)

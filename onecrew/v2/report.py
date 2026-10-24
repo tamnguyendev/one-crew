@@ -785,8 +785,11 @@ def _forecast_lines(f):
         return 'chưa có dữ liệu' if value is None else f'{value[0] / 3600:g}–{value[1] / 3600:g} giờ'
     def elapsed(value):
         return 'chưa đo được' if value == 'unknown' else f'{value / 3600:g} giờ'
-    lines = [f'Ước lượng ban đầu: {span(out["baseline"]["execution_seconds"])}; còn lại: {span(out["remaining_seconds"])} (chưa hiệu chỉnh).',
+    lines = [f'Ước lượng công thực thi ban đầu: {span(out["baseline"]["execution_seconds"])}; công còn lại: {span(out["remaining_seconds"])} (chưa hiệu chỉnh).',
              f'Thực thi: {elapsed(out["execution_seconds"])}; chờ: {elapsed(out["waiting_seconds"])}; deadline: {out["deadline"] or "chưa đặt"}.']
+    if out.get('wall_clock_remaining_seconds') is None:
+        lines.append('Thời điểm hoàn thành dự kiến: chưa xác định; tổng công không phải thời gian lịch khi chạy song song hoặc chờ.')
+    if out.get('remaining_reason'): lines.append(out['remaining_reason'])
     if out['history']:
         last = out['history'][-1]
         lines += _wrap('Lý do đổi ước lượng: ' + last['reason'], '', '  ')

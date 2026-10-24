@@ -6,6 +6,7 @@ artifact (a Git tree hash of the working tree) to the exit code and output. verd
 well formed, is refused.
 """
 import codecs
+import datetime as dt
 import json
 import os
 import re
@@ -217,7 +218,7 @@ def expected_result(receipt):
     return 'pass' if receipt['exit_code'] == 0 else 'fail'
 
 
-def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None, *, effective_environment=None):
+def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None, *, effective_environment=None, deadline=None):
     """Execute the milestone's command; returns (receipt_blob, receipt)."""
     argv, limit = milestone['verifier']['config']['argv'], milestone['verifier']['config']['max_minutes']
     directory = Path(directory).resolve()
@@ -226,12 +227,12 @@ def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context
     scratch = tempfile.mkdtemp(prefix='ocv-')
     try:
         return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context,
-                    effective_environment=effective_environment)
+                    effective_environment=effective_environment, deadline=deadline)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context=None, *, effective_environment=None):
+def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context=None, *, effective_environment=None, deadline=None):
     workspace = _checkout(directory, before, scratch)
     # S1: children are always UTF-8, so a Vietnamese path or message cannot turn a pass into an encoding failure.
     env = verifier_env(directory) if effective_environment is None else dict(effective_environment)
@@ -239,6 +240,10 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
     binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before, env) if evidence_context else None
     started, error, timed_out, code, out, err = utcnow(), None, False, None, b'', b''
     begin = time.monotonic()
+    if deadline is not None:
+        left = (dt.datetime.fromisoformat(deadline) - dt.datetime.now(dt.timezone.utc)).total_seconds()
+        if left <= 0: raise LedgerError('The original root deadline elapsed before verifier command dispatch.')
+        limit = min(limit, left / 60)
     try:
         process = subprocess.Popen(argv, cwd=str(workspace), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, creationflags=0x08000000 if os.name == 'nt' else 0)

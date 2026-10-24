@@ -14,7 +14,8 @@ A survey ends in exactly one of two ways, and never in neither:
   blocked  - a blocker WITH evidence (the cap was reached, the scope was violated, nothing was found, the worker failed); the unknown stays
              open and the run log is the evidence.
 
-The worker is passed in (`run(..., worker)`): a fake in tests (only the interface and the ending rules are proved), a real executor later. The
+The worker is passed in (`run(..., worker)`); survey_worker supplies the provider-pinned read-only CLI consumer. Tests use explicit providers
+without certifying a real provider's behavior. The
 cap and the scope are enforced on every operation of the context given to the worker; a worker that never uses the context cannot be
 interrupted here, so its result is checked after the fact (an answer that arrives past the cap is discarded; a change made to the project
 behind the context is detected and blocks the survey). Containing a real process is the executor's job (OS containment, a later release).

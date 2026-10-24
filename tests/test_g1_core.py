@@ -23,7 +23,7 @@ V1_ONLY = ('delivery', 'android', 'solution_', 'native_', 'owned', 'notification
            'work_tools', 'worker_tools', 'workspace_worker', 'workflow', 'consultations', 'conversation', 'review_evidence', 'eval_',
            'jev', 'keeper', 'monitor', 'node_change', 'dart_scan', 'sandbox_gate', 'contain', 'qc_gate', 'budget_policy', 'learning',
            'goal_budget', 'cli')
-SHARED_CORES = {'onecrew.notification_core', 'onecrew.desktop_core', 'onecrew.desktop_window_core'}
+SHARED_CORES = {'onecrew.notification_core', 'onecrew.desktop_core', 'onecrew.desktop_window_core', 'onecrew.host_status_core'}
 
 
 def pyproject():

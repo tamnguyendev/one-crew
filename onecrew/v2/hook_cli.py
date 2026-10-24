@@ -164,6 +164,9 @@ def judge_path(plan, root, target, action):
         if target == item or item in target.parents:
             return 'protected', f'{target} is protected: the ledger, plans/ and hook files are the owner\'s, not the AI\'s. {action}'
     if rel is not None:
+        holds=plan.get('workflow_holds') or {}
+        if any(under(rel,path) for path in holds.get('paths',[])):
+            return 'finding_scope', f'{rel} is held by unresolved findings {", ".join(holds.get("findings",[]))}; write permission is withdrawn for this scope. The session is not stopped.'
         for goal in plan.get('non_goals', []):
             if path_like(goal) and under(rel, goal):
                 return 'non_goal', f'{rel} matches non_goal "{goal}". {rules_text(plan)}'
@@ -513,7 +516,7 @@ def state_copy(state_root, root):
 
 def tampered(project_plan, copy_plan):
     """True when the project copy says something other than the state-root copy about what is allowed."""
-    return any(project_plan.get(k) != copy_plan.get(k) for k in ('plan', 'revision', 'plan_sha', 'mode', 'owned', 'non_goals', 'bash_deny', 'protected', 'scratch'))
+    return any(project_plan.get(k) != copy_plan.get(k) for k in ('plan', 'revision', 'plan_sha', 'mode', 'owned', 'non_goals', 'bash_deny', 'protected', 'scratch','workflow_holds'))
 
 
 def governing(args, event):
@@ -550,7 +553,7 @@ def check(args):
     event, bad_input = read_stdin()
     governed = [(govern(project_copy, project_root, copy), role) for project_copy, project_root, copy, role in locate_all(args, event)]
     # a path the hook cannot resolve (`$PWD/x`) is judged by the session's plan; when the session has no enforce plan of its own, the plan of the cwd judges it
-    watched = any(plan is not None and role == SESSION and plan.get('mode') == 'enforce' and plan.get('status') in ('approved', 'stopped_with_report')
+    watched = any(plan is not None and role == SESSION and plan.get('mode') == 'enforce' and plan.get('status') in ('approved', 'stopped_with_report','closed')
                   for (plan, _, _, _), role in governed)
     code = 0
     for (plan, root, bad_plan, source), role in governed:
@@ -572,15 +575,15 @@ def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, re
         base = event.get('cwd') or root
         touched = not limited or touches_repo(plan, root, event, base)
         if bad_input or (bad_plan and touched): raise ValueError(bad_input or bad_plan)
-        if plan.get('status') not in ('approved', 'stopped_with_report'):
+        if plan.get('status') not in ('approved', 'stopped_with_report','closed'):
             return 0
         expires = plan.get('expires')
         if touched and expires and dt.datetime.fromisoformat(expires) < dt.datetime.now(dt.timezone.utc):
             raise ValueError('the active plan expired; the owner re-approves it (plan approve) to refresh it')
         data = event.get('tool_input') if isinstance(event.get('tool_input'), dict) else {}
         verdict = None
-        if plan.get('status') == 'stopped_with_report' and touched:      # first in the chain and not tool-specific: edits and shell commands alike get this verdict
-            verdict = ('stopped', f"Plan {plan.get('plan')} is stopped_with_report: the owner decides the next step; nothing further is changed. "
+        if plan.get('status') in ('stopped_with_report','closed') and touched:      # first in the chain and not tool-specific: edits and shell commands alike get this verdict
+            verdict = ('stopped', f"Plan {plan.get('plan')} is {plan['status']}: the owner decides the next step; nothing further is changed. "
                                   f"Every shell command and every edit is refused; read the evidence with Read, Grep and Glob.")
         elif tool in EDIT_TOOLS:
             raw = next((data[k] for k in PATH_KEYS if isinstance(data.get(k), str) and data[k]), None)

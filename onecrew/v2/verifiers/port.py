@@ -20,6 +20,7 @@ ships, selected by name from the registry; the contract cannot load a module by 
 outside it: the checkout fingerprint before and after, the artifact before and after, and the receipt rules of verdict.record.
 """
 import copy
+import datetime as dt
 import hashlib
 import importlib
 import os
@@ -306,7 +307,7 @@ def _checks(report, box):
     return clean, findings, unverified
 
 
-def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None):
+def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context=None, *, deadline=None):
     """Run the milestone's adapter on a clean checkout of the artifact; returns (receipt_blob, receipt)."""
     adapter = get(milestone['verifier']['type'])
     directory = Path(directory).resolve()
@@ -314,18 +315,23 @@ def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context
     scratch = tempfile.mkdtemp(prefix='ocv-')
     try:
         workspace, before, proof = artifact.capture(ledger, directory, scratch)
-        return _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before, scratch, workspace, proof, evidence_context)
+        return _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before, scratch, workspace, proof, evidence_context, deadline=deadline)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before, scratch, workspace, proof, evidence_context=None):
+def _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before, scratch, workspace, proof, evidence_context=None, *, deadline=None):
     config = milestone['verifier']['config']
     own = {k: v for k, v in config.items() if k != 'authority'}
     from .. import verification_evidence
     binding = verification_evidence.for_receipt(ledger, evidence_context, milestone, before) if evidence_context else None
     top = Path(scratch) / 'src'
-    box = Port(workspace, config['authority'], adapter.NAME)
+    granted = copy.deepcopy(config['authority'])
+    if deadline is not None:
+        left = (dt.datetime.fromisoformat(deadline) - dt.datetime.now(dt.timezone.utc)).total_seconds()
+        if left <= 0: raise LedgerError('The original root deadline elapsed before verifier adapter dispatch.')
+        granted['max_minutes'] = min(granted['max_minutes'], left / 60)
+    box = Port(workspace, granted, adapter.NAME)
     first = _fingerprint(top)
     started, begin, error, timed_out, report = utcnow(), time.monotonic(), None, False, None
     try:

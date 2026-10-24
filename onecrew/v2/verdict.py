@@ -288,20 +288,32 @@ def run(ledger, name, milestone_id, directory=None):
     directory = _directory(ledger, milestone, directory)
     level = reviewer.check_independence(written, config) if kind == 'reviewer' else None
     minutes = config.get('max_minutes') or config['authority']['max_minutes']
+    bounded = {}
+    if namespaces.has_capability(state, 'root-budget'):
+        from . import internal_plan
+        with ledger.transaction() as conn:
+            remaining = internal_plan.ceilings(ledger, conn, state)
+        if remaining['remaining_seconds'] <= 0:
+            raise LedgerError('The original root deadline is exhausted; no verifier starts.')
+        minutes = min(minutes, remaining['remaining_seconds'] / 60)
+        bounded = {'deadline': remaining['deadline']}
     run_id = _begin_run(ledger, name, revision, milestone_id, kind, minutes)
     evidence_context = ({'evidence_context': {'selector': state['selector'], 'revision': revision, 'contract': contract}}
                         if namespaces.has_capability(state, 'sequential-engine') else {})
     try:
         if kind == 'command':
-            blob, receipt = command.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context)
+            blob, receipt = command.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
         elif kind == 'reviewer':
             context = dict(evidence_context)
+            if namespaces.has_capability(state, 'root-budget'):
+                from .metered_verifier import ProviderCall
+                context['call_port'] = ProviderCall(ledger, state['selector'], 'milestone:' + milestone_id)
             if namespaces.has_capability(state, 'finding-register'):
                 from . import findings
                 context['open_findings'] = findings.reviewer_context(ledger, name, milestone_id, task_id=state['task_id'])
             blob, receipt = reviewer.run(ledger, state['name'], revision, sha, milestone, directory, level, approved, previous, **context)
         else:
-            blob, receipt = port.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context)
+            blob, receipt = port.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
             port.record_violations(ledger, name, revision, milestone_id, blob, receipt)
         with ledger.transaction(write=True) as conn:
             current = plans.anchor_events(ledger, conn, name)

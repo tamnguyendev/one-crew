@@ -5,7 +5,7 @@ import math
 import argparse
 from pathlib import Path
 
-from ..ledger import LedgerError, key_field, text_field, utcnow
+from ..ledger import LedgerError, content_hash, key_field, text_field, utcnow
 from . import plan
 
 KINDS = ('estimate.baseline', 'estimate.eta', 'work.additional')
@@ -19,13 +19,16 @@ def interval(value, optional=False):
     return list(value)
 
 
-def evidence(value):
+def normalize_evidence(value):
     if not isinstance(value, list) or not 1 <= len(value) <= 20:
         raise LedgerError('An estimate change requires 1..20 evidence references.')
     for ref in value:
         text_field(ref, 'evidence', 500)
         if not ref.strip(): raise LedgerError('An evidence reference cannot be empty.')
     return list(value)
+
+
+evidence = normalize_evidence  # Existing callers use this shared validation API.
 
 
 def normalize(value):
@@ -112,15 +115,97 @@ def additional(ledger, selector, key, category, reason, acceptance, seconds, ref
             execution_seconds=span, evidence=refs, plan=state['name'], revision=state['approved']['revision'],
             disposition={'mandatory': 'forecast', 'optional': 'backlog', 'outside_authority': 'U2'}[category],
             grants_execution=False))
+    internal = observe_internal(ledger, selector, reason=reason, evidence=refs)
+    if internal is None:
+        from .exceptions import observe
+        observe(ledger, selector)
+    return result
+
+
+def _internal_projection(ledger, conn, selector, rows):
+    """Use the engine's actual completion/generation rules, never a second DAG."""
+    from . import namespaces
+    root = plan.anchor_events(ledger, conn, selector)
+    if not namespaces.has_capability(root, 'sequential-engine'): return None
+    from . import engine, internal_plan, runtime_unknowns
+    view = engine.state(ledger, selector, conn)
+    if view['definition'] is None: return None
+    revision = internal_plan.current(ledger, selector, conn)
+    unknowns = [row for row in runtime_unknowns.read(ledger, selector, conn)
+                if row['state'] == 'open' and row['blocks_estimate']]
+    unknown_nodes = []
+    remaining = [0, 0]
+    basis_nodes = []
+    for node in view['definition']['nodes']:
+        record = view['nodes'][node['id']]
+        unfinished = engine._rank(record) < engine.STATES['verified']
+        span = interval(node.get('estimate_seconds'), optional=True)
+        basis_nodes.append({'node':node['id'], 'generation':record['generation'], 'state':record['state'],
+                            'phase':record['phase'], 'verification_result':record.get('verification_result'),
+                            'artifact':record.get('artifact'), 'estimate_seconds':span, 'unfinished':unfinished})
+        if unfinished:
+            if span is None: unknown_nodes.append(node['id'])
+            else: remaining = [a+b for a,b in zip(remaining,span)]
+    # An explicit source reference means the mandatory work now lives in the
+    # internal decomposition. It is counted there once, including after replan.
+    additions = [row for row in rows if row.get('estimate_type') == 'additional' and row['category'] == 'mandatory']
+    incorporated = {key for row in rows if row.get('source') == 'internal_plan'
+                    for key in row.get('incorporated_additions', [])}
+    refs = revision.get('evidence', [])
+    incorporated.update(row['key'] for row in additions if 'work.additional:'+row['key'] in refs)
+    unincorporated = [row for row in additions if row['key'] not in incorporated]
+    extra = [sum(row['execution_seconds'][index] for row in unincorporated) for index in (0,1)]
+    stale = view['definition_contract_sha'] != view['contract_sha'] or view['definition_contract_revision'] != view['contract_revision']
+    missing = bool(unknowns or unknown_nodes or stale)
+    total = None if missing else [a+b for a,b in zip(remaining,extra)]
+    basis = {'contract_sha':view['contract_sha'], 'contract_revision':view['contract_revision'],
+             'definition_sha':revision.get('definition_sha'), 'internal_revision':view['internal_revision'],
+             'nodes':basis_nodes, 'unknowns':[{'id':row['unknown'],'event':row['event']} for row in unknowns],
+             'unknown_nodes':unknown_nodes, 'stale_definition':stale,
+             'mandatory_additions':[{'key':row['key'],'event':row['event']} for row in additions],
+             'incorporated_additions':sorted(incorporated)}
+    return {'basis':basis, 'basis_sha':content_hash(basis), 'remaining_seconds':total,
+            'node_work_seconds':None if missing else remaining, 'unincorporated_additional_seconds':extra,
+            'incorporated_additions':sorted(incorporated), 'revision_event':revision['event'],
+            'remaining_kind':'execution_work', 'wall_clock_remaining_seconds':None,
+            'wall_clock_reason':'Task effort is not an elapsed-time forecast; waits and parallel scheduling are not estimated.',
+            'unknown_reason':'Unresolved estimate input or stale approved definition.' if missing else None}
+
+
+def observe_internal(ledger, selector, *, reason, evidence):
+    """Snapshot the current remaining execution work under the ledger write lock.
+
+    The approved baseline is never changed. Duplicate observations reuse their
+    basis. Read-only views never invent a new ETA when state has changed without
+    a matching observation. Call after publishing a revision or node transition.
+    """
+    reason = text_field(reason, 'reason', 1000)
+    if not reason.strip(): raise LedgerError('An internal forecast requires a reason.')
+    refs = normalize_evidence(evidence)
+    with ledger.transaction(write=True) as conn:
+        state = plan.anchor_events(ledger, conn, selector)
+        if state['status'] != 'approved': return None
+        rows = _events(conn, state['task_id'])
+        projection = _internal_projection(ledger, conn, selector, rows)
+        if projection is None: return None
+        previous = next((row for row in reversed(rows) if row.get('estimate_type') == 'eta'), None)
+        if previous and previous.get('source') == 'internal_plan' and previous.get('basis_sha') == projection['basis_sha']:
+            return previous
+        key = 'internal-' + content_hash({'basis':projection['basis_sha'], 'after':previous['event'] if previous else None})
+        value = dict(projection, key=key, estimate_type='eta', source='internal_plan',
+                     plan=state['name'], revision=state['approved']['revision'], reason=reason,
+                     evidence=[f'event:{projection["revision_event"]}',*refs], calibrated=False)
+        _append(ledger, conn, state, 'estimate.eta', value)
     from .exceptions import observe
     observe(ledger, selector)
-    return result
+    return value
 
 
 def read(ledger, selector):
     with ledger.transaction() as conn:
         state = plan.anchor_events(ledger, conn, selector)
         rows = _events(conn, state['task_id'])
+        internal = _internal_projection(ledger, conn, selector, rows)
     baseline = next((p for p in rows if p.get('estimate_type') == 'baseline'), None)
     forecasts = [p for p in rows if p.get('estimate_type') == 'eta']
     additions = [p for p in rows if p.get('estimate_type') == 'additional']
@@ -131,6 +216,10 @@ def read(ledger, selector):
         for p in additions:
             if p['category'] == 'mandatory' and p['event'] > last['event']:
                 remaining = [a + b for a, b in zip(remaining, p['execution_seconds'])]
+    basis_current = True
+    if internal is not None:
+        basis_current = bool(last and last.get('source') == 'internal_plan' and last.get('basis_sha') == internal['basis_sha'])
+        if not basis_current: remaining = None
     from .executors import summary, UNKNOWN, NOT_MEASURED
     attempts = summary(ledger, selector)['attempts']
     def measured(field):
@@ -140,6 +229,10 @@ def read(ledger, selector):
             'remaining_seconds': remaining, 'execution_seconds': measured('elapsed_seconds'),
             'waiting_seconds': measured('wait_seconds'), 'deadline': baseline.get('deadline') if baseline else None,
             'calibrated': False, 'measurement_sources': attempts,
+            'remaining_kind': 'execution_work', 'internal_basis_current':basis_current,
+            'remaining_reason':None if basis_current else 'Internal state changed; a sourced forecast observation is required.',
+            'wall_clock_remaining_seconds':None,
+            'wall_clock_reason':internal['wall_clock_reason'] if internal else 'Elapsed-time forecast is not calibrated.',
             'outside_authority': [p['key'] for p in additions if p['category'] == 'outside_authority']}
 
 

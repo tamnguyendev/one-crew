@@ -204,8 +204,11 @@ def record_verification(ledger, name, node, receipt, *, generation=1, severity='
     """
     if conn is None:
         with ledger.transaction(write=True) as connection:
-            return record_verification(ledger, name, node, receipt, generation=generation, severity=severity, read=read, write=write,
-                                       task_id=task_id, conn=connection, revision=revision, reviewer_only=reviewer_only)
+            result=record_verification(ledger, name, node, receipt, generation=generation, severity=severity, read=read, write=write,
+                                      task_id=task_id, conn=connection, revision=revision, reviewer_only=reviewer_only)
+        from . import active_plan
+        active_plan.export(ledger,name)
+        return result
     root, revision, sha, contract = _context(ledger, conn, name, task_id, revision)
     _require_capability(root)
     body, result, verdict_seq = _proof(ledger, conn, root, name, revision, sha, contract, node, receipt, generation)
@@ -274,6 +277,8 @@ def update(ledger, name, ident, *, reason, severity=None, read=None, write=None,
             target['severity'] = severity
         target['scope'] = _scope(target['scope']['read'] if read is None else read, target['scope']['write'] if write is None else write)
         _save(ledger, conn, root, name, revision, value, 'update', finding=ident, reason=reason)
+    from . import active_plan
+    active_plan.export(ledger,name)
     return copy.deepcopy(target)
 
 
@@ -311,6 +316,8 @@ def resolve(ledger, name, ident, receipt, *, reason, artifact_sha, generation=1,
         except LedgerError as error:
             result_view = {'closed': [], 'refused': [str(error)]}
         _save(ledger, conn, root, name, revision, value, 'reject' if reject else 'resolve', finding=ident, **result_view)
+    from . import active_plan
+    active_plan.export(ledger,name)
     return result_view
 
 

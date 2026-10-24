@@ -10,12 +10,55 @@ from pathlib import Path
 from .common_verification import CandidateChecker, candidate_tree, snapshot_candidate
 from .control_core import Control, migrate
 from .git_candidate_core import GitCandidate
-from .ledger import LedgerError, canonical
+from .ledger import LedgerError, canonical, content_hash
 from .locking_core import task_lock
 from .project_apply_core import apply as apply_project
 from .snapshots import Snapshots
 from .v2 import authority, engine, internal_plan as ip, plan as plans, retention
 from .v2.verifiers import command
+
+
+def receipt_valid(ledger, proof, record):
+    """Validate the durable Control evidence, including a real no-write observation."""
+    method = proof.get('method')
+    key = 'apply_receipt' if method == 'v1-cas-apply' else 'observation_receipt' if method == 'observed-existing-tree' else None
+    if key is None or not proof.get(key): return False
+    receipt = json.loads(Snapshots(ledger.state_root).read_blob(proof[key]))
+    result = receipt.get('result', {})
+    if (receipt.get('status') != 'verified' or not result.get('verified')
+            or result.get('candidate') != proof.get('delivered_artifact')):
+        return False
+    with ledger.transaction() as conn:
+        action = conn.execute("SELECT payload FROM actions WHERE task_id=? AND status='verified' AND receipt=?",
+                              (record['child'], canonical(receipt))).fetchone()
+    if action is None: return False
+    if method == 'observed-existing-tree':
+        payload = json.loads(action['payload'])
+        return (payload.get('kind') == 'observe_verified_tree' and result.get('no_project_write') is True
+                and payload.get('candidate') == proof['delivered_artifact']
+                and payload.get('verification_receipt') == record['verification_receipt']
+                and payload.get('checks_sha') == content_hash(proof['checks'])
+                and result.get('checks_sha') == payload.get('checks_sha'))
+    return True
+
+
+def _observe_existing(ledger, control, record, tree, checked, fence):
+    payload = {'kind': 'observe_verified_tree', 'candidate': tree,
+               'verification_receipt': record['verification_receipt'], 'checks_sha': content_hash(checked)}
+    action = control.propose_action(record['child'], 'wf-observe-' + content_hash(payload)[:32], payload)
+    def observe(value):
+        fence()
+        return dict(value, verified=command.artifact_sha(ledger.project) == tree, no_project_write=True)
+    if action['status'] == 'proposed':
+        control.authorize_action(action['id'], action['revision']); action['status'] = 'authorized'
+    if action['status'] in ('unknown', 'executing'):
+        receipt = control.reconcile_action(action['id'], action['revision'], observe)
+    elif action['status'] == 'verified':
+        receipt = json.loads(action['receipt'])
+    else:
+        receipt = control.execute_action(action['id'], observe)
+    if receipt.get('status') != 'verified': raise LedgerError('Existing artifact observation is unconfirmed; reconcile before handoff.')
+    return receipt
 
 
 def handoff(ledger, selector, *, control=None):
@@ -40,8 +83,12 @@ def handoff(ledger, selector, *, control=None):
     declared = {path for node in view['definition']['nodes'] for path in node['write']}
     if not set(changed) <= declared:
         raise LedgerError('Candidate includes changes outside its internal write provenance.')
-    action = {'kind': 'apply', 'paths': changed or sorted(declared), 'nodes': [nid]}
-    ip.decide(ledger, root, contract, sha, action, ctx, 'onecrew.common_handoff')
+    if changed:
+        action = {'kind': 'apply', 'paths': changed, 'nodes': [nid]}
+        ip.decide(ledger, root, contract, sha, action, ctx, 'onecrew.common_handoff')
+    else:
+        ip.decide(ledger, root, contract, sha, {'kind': 'decision', 'q': 'Q9', 'nodes': [nid],
+                  'evidence': [record['verification_receipt']], 'artifact_matches': True}, ctx, 'onecrew.common_handoff')
 
     def fence():
         with ledger.transaction() as conn:
@@ -58,7 +105,8 @@ def handoff(ledger, selector, *, control=None):
         fence()
         if engine.root_ready(ledger, root['selector'], tree):
             return {'state': 'delivered', 'artifact': tree, 'idempotent': True}
-        checked = CandidateChecker(ledger, root['selector'])(item, record['artifact'])
+        checked = CandidateChecker(ledger, root['selector'])(item, record['artifact'],
+                                                            previous_receipt=record['verification_receipt'])
         if checked['candidate_tree'] != tree or any(row['result'] != 'pass' for row in checked['checks']):
             raise LedgerError('The actual final candidate failed its approved root checks; project unchanged.')
         fence()
@@ -77,7 +125,7 @@ def handoff(ledger, selector, *, control=None):
                 receipt = apply_project(ledger, control, record['child'], Path(ledger.project), materialized,
                     manifest['head'], tree, files, {}, ledger.state_root / 'workflow-rollback' / root['task_id'], guard=fence)
         else:
-            raise LedgerError('No file changes require a project apply; no synthetic apply receipt is issued.')
+            receipt = _observe_existing(ledger, control, record, tree, checked, fence)
         fence()
         delivered = command.artifact_sha(ledger.project)
         if delivered != tree: raise LedgerError('Applied project differs from the verified candidate; no handoff was published.')
@@ -85,7 +133,8 @@ def handoff(ledger, selector, *, control=None):
         proof = {'kind': 'workflow-handoff-receipt', 'root': root['task_id'], 'contract_sha': sha,
                  'contract_revision': view['contract_revision'], 'internal_revision': view['internal_revision'],
                  'node': nid, 'generation': record['generation'], 'integration_artifact': record['artifact'],
-                 'delivered_artifact': delivered, 'method': 'v1-cas-apply', 'apply_receipt': ref,
+                 'delivered_artifact': delivered, 'method': 'v1-cas-apply' if changed else 'observed-existing-tree',
+                 'apply_receipt' if changed else 'observation_receipt': ref,
                  'child': record['child'], 'checks': checked, 'grants_root_acceptance': False}
         proof_ref = store.blob(canonical(proof).encode())
         with ledger.transaction(write=True) as conn:

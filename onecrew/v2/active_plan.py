@@ -100,11 +100,17 @@ def build(ledger, name):
         unanswered = sorted(m for (r, m), seq in state['issued_seq'].items() if r == revision and seq > later.get(m, 0))
         from . import verdict
         running = sorted({r.get('milestone') for r in verdict.live_runs(conn, task_id, revision)})
+        workflow_holds = None
+        from . import namespaces
+        if namespaces.has_capability(state, 'sequential-engine'):
+            from . import finding_scope
+            workflow_holds = finding_scope.write_scope(ledger, state['selector'], conn)
     questions = [r['id'] for r in ledger.requests(task_id, pending=True)]
     chosen = policy(ledger)
     root = Path(ledger.state_root).resolve()
     now = dt.datetime.now(dt.timezone.utc)
     return {'schema_version': 1, 'plan': state['name'], 'anchor': state['selector'],
+            **({'workflow_holds': workflow_holds} if workflow_holds is not None else {}),
             **{key: state[key] for key in ('workflow_version', 'capabilities') if key in state},
             'revision': revision, 'plan_sha': sha, 'status': status,
             'pending_revision': latest if latest != revision else None, 'anchor_task': task_id,

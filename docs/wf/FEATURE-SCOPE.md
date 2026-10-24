@@ -1,5 +1,7 @@
 # FEATURE-SCOPE — chương trình workflow chung (dev)
 
+Lưu ý trên nhánh `codex/wf-development`: bảng sinh bên dưới là snapshot đầu kỳ, chưa phản ánh các đợt tích hợp Codex. Trạng thái implementation và bằng chứng mới nằm trong [proposal-coverage.md](../proposal-coverage.md), mục WF và các checkpoint; bảng này vẫn giữ nguyên để đối chiếu phạm vi đã chốt.
+
 Nguồn sự thật: `outputs/onecrew-as-qc/workflow-chung/04-TASKS.vi.md` (task, kết quả, dependency, testcase) và `05-TESTCASES.vi.md` (acceptance). Hash nguồn khi sinh: 03 99410bcc4923, 04 c1d8f8ae40cd, 05 0e208d2fb77c. File này chỉ thêm cột trạng thái dev; sinh lại bằng `gen_scope.py`, không sửa tay phần bảng.
 
 Trạng thái: `DONE` = đủ hành vi, nối vào đường dùng, test đạt trên revision tích hợp ghi ở cột; `TÍCH HỢP` = agent xong, chờ ghép/kiểm lại; `ĐANG LÀM` (owner); `CHƯA`; `CHƯA KIỂM CHỨNG` = cần provider/tài khoản/thiết bị bên ngoài; `NGOÀI DEV` = dùng thật/nghiệm thu, ngoài nhiệm vụ development.

@@ -259,7 +259,7 @@ def call(prompt, config, env, scratch, limit):
     return body['result'][:MAX_ANSWER], usage, None, False, out
 
 
-def run(ledger, name, revision, plan_sha, milestone, directory, independence_result, approved, previous=None, open_findings=None, evidence_context=None):
+def run(ledger, name, revision, plan_sha, milestone, directory, independence_result, approved, previous=None, open_findings=None, evidence_context=None, call_port=None):
     """Review the milestone: returns (receipt_blob, receipt). The caller has already checked independence (before this call, so a refusal costs nothing)."""
     config = milestone['verifier']['config']
     directory = Path(directory).resolve()
@@ -308,7 +308,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
             scratch = tempfile.mkdtemp(prefix='ocr-')
             try:
                 calls = 1
-                answer, usage, error, timed_out, raw = call(prompt, config, env, scratch, config['max_minutes'])
+                answer, usage, error, timed_out, raw = (call_port or call)(prompt, config, env, scratch, config['max_minutes'])
             finally:
                 shutil.rmtree(scratch, ignore_errors=True)
     rows, outside, problems = parse_answer(answer, config['criteria']) if answer else (

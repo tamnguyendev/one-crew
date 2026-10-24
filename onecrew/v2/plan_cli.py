@@ -74,6 +74,7 @@ def _parser():
     survey = plan.add_parser('survey', help='Bounded read-only discovery for a scoped unknown.').add_subparsers(dest='action', required=True)
     p = survey.add_parser('open'); p.add_argument('name'); p.add_argument('unknown'); p.add_argument('--file', required=True, type=Path)
     p = survey.add_parser('show'); p.add_argument('name')
+    p = survey.add_parser('run'); p.add_argument('name'); p.add_argument('survey'); p.add_argument('--file', required=True, type=Path)
     brainstorm = plan.add_parser('brainstorm', help='Options of the plan.').add_subparsers(dest='action', required=True)
     p = brainstorm.add_parser('table', help='Print the options as a table of at most 30 lines.'); p.add_argument('name')
     p = plan.add_parser('enforce', help='Owner only: require an approved plan before any job of this state root can run.')
@@ -149,6 +150,9 @@ def _dispatch(ledger, args):
             return out
         if args.command == 'survey':
             from . import survey
+            if args.action == 'run':
+                from . import survey_worker
+                return survey_worker.run(ledger, args.name, args.survey, read_json(args.file))
             return survey.show(ledger, args.name) if args.action == 'show' else survey.open_survey(ledger, args.name, args.unknown, read_json(args.file))
         if args.command == 'card':
             return step0.present_decisions(ledger, args.name, read_json(args.file).get('choices'), {'component': args.component, 'model': args.model})

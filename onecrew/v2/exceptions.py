@@ -28,7 +28,10 @@ def _time(value=None):
 
 def _eta(forecast):
     return {'remaining_seconds': forecast.get('remaining_seconds'), 'calibrated': False,
-            'waiting_seconds': forecast.get('waiting_seconds', 'unknown')}
+            'waiting_seconds': forecast.get('waiting_seconds', 'unknown'),
+            'remaining_kind':forecast.get('remaining_kind','execution_work'),
+            'wall_clock_remaining_seconds':forecast.get('wall_clock_remaining_seconds'),
+            'wall_clock_reason':forecast.get('wall_clock_reason','Elapsed-time forecast is unknown.')}
 
 
 def _requests(conn, task):

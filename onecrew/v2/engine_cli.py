@@ -21,6 +21,8 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
     sub = parser.add_subparsers(dest='command', required=True)
     for verb in ('state', 'ready', 'step', 'handoff'):
         sub.add_parser(verb).add_argument('plan')
+    p=sub.add_parser('batch');p.add_argument('plan');p.add_argument('--slots',type=int,choices=(1,2),default=2)
+    p=sub.add_parser('resume-paused');p.add_argument('plan');p.add_argument('node')
     p = sub.add_parser('revise'); p.add_argument('plan'); p.add_argument('--file', type=Path, required=True)
     for verb in ('verify', 'accept-node'):
         p = sub.add_parser(verb); p.add_argument('plan'); p.add_argument('node')
@@ -52,6 +54,12 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
                 raise LedgerError('Internal revision file takes nodes, reason, evidence and optional expected_revision.')
             result = internal_plan.revise(ledger, opts.plan, **body)
         elif opts.command == 'step': result = engine.step(ledger, opts.plan, native_executor(ledger))
+        elif opts.command == 'batch':
+            from .managed_executor import ManagedExecutor
+            result=engine.run_batch(ledger,opts.plan,ManagedExecutor(ledger),slots=opts.slots)
+        elif opts.command == 'resume-paused':
+            from .managed_executor import ManagedExecutor
+            result=engine.release_paused(ledger,opts.plan,opts.node,ManagedExecutor(ledger,initialize=False))
         elif opts.command == 'verify': result = engine.verify(ledger, opts.plan, opts.node, checker(ledger, opts.plan))
         elif opts.command == 'accept-node': result = engine.accept_node(ledger, opts.plan, opts.node)
         else: result = handoff(ledger, opts.plan)

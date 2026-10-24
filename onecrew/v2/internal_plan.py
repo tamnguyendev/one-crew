@@ -43,6 +43,40 @@ def projection(nodes):
                        'depends_on': [edge['node'] for edge in node['depends']]} for node in nodes]}
 
 
+def influence_projection(nodes):
+    """Represent input readers as directed dependencies, never reverse writes."""
+    return {'tasks':[{'id':node['id'],'owned':list(node['write']),
+        'depends_on':sorted(set([edge['node'] for edge in node['depends']]+
+            [writer['id'] for writer in nodes if writer['id']!=node['id'] and set(writer['write']) & set(node['read'])]))}
+        for node in nodes]}
+
+
+def affected_revision(previous,updated,*,contract_changed=False):
+    old={node['id']:node for node in previous}
+    known={node['id'] for node in updated}
+    removed={path for nid,node in old.items() if nid not in known for path in node['write']}
+    changed=[node['id'] for node in updated if contract_changed or old.get(node['id'])!=node
+             or removed & set(node['read']+node['write'])]
+    if not changed:return set()
+    graph=influence_projection(updated)
+    from .. import dependency_core
+    return dependency_core.affected_tasks(graph,changed)
+
+
+def _admit_revision(ledger,conn,state,before,nodes):
+    affected=affected_revision(before['definition']['nodes'] if before['definition'] else [],nodes,
+                               contract_changed=before.get('contract_sha') not in (None,state['approved']['sha']))
+    parallel=namespaces.has_capability(state,'parallel-engine')
+    active=conn.execute("SELECT json_extract(e.payload,'$.node') AS node FROM events e JOIN attempts a ON a.id=json_extract(e.payload,'$.attempt') WHERE e.task_id=? AND e.kind='node.started' AND a.status!='settled'",(state['task_id'],)).fetchall() if conn.execute("SELECT 1 FROM sqlite_master WHERE name='attempts'").fetchone() else []
+    known={node['id'] for node in nodes}
+    if any(not parallel or row['node'] in affected or row['node'] not in known for row in active):
+        raise LedgerError('Reconcile the affected active workflow attempt before revising the plan.')
+    from . import managed_executor
+    pending=managed_executor.unresolved(ledger,state['selector'],conn)
+    if any(not parallel or item['node'] in affected or item['node'] not in known for item in pending):
+        raise LedgerError('Reconcile the unknown managed operation result before revising; a new generation cannot replay it.')
+
+
 def ceilings(ledger, conn, state):
     shared = budget_core.group(conn, state['task_id'])
     if shared is None:
@@ -160,9 +194,6 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         state, contract, sha = context(ledger, conn, selector)
         before = current(ledger, state['selector'], conn)
         ctx = ceilings(ledger, conn, state)
-        # Reuse Control's attempt state: never rewrite a live/ambiguous execution.
-        active = conn.execute("SELECT 1 FROM events e JOIN attempts a ON a.id=json_extract(e.payload,'$.attempt') WHERE e.task_id=? AND e.kind='node.started' AND a.status!='settled' LIMIT 1", (state['task_id'],)).fetchone() if conn.execute("SELECT 1 FROM sqlite_master WHERE name='attempts'").fetchone() else None
-        if active: raise LedgerError('Reconcile the active workflow attempt before revising the plan.')
     outputs = contracts.output_ids(contract['output'])
     old_nodes = before['definition']['nodes'] if before['definition'] else []
     old_checks, new_checks = _checks(old_nodes), _checks(nodes)
@@ -171,6 +202,8 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
     if changed:
         decide(ledger, state, contract, sha, {'kind': 'change_acceptance', 'nodes': [n.get('id') for n in nodes]}, ctx, 'onecrew.internal_plan')
     normalized = _validate(nodes, outputs)
+    with ledger.transaction() as conn:
+        _admit_revision(ledger,conn,state,before,normalized)
     if any(node['execution_cap_seconds'] > ctx['remaining_seconds'] for node in normalized):
         raise LedgerError('A task execution cap exceeds the remaining root deadline; replanning cannot extend it.')
     paths = sorted({path for node in normalized for path in node['write']})
@@ -195,9 +228,7 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         runtime_unknowns.validate_revision(ledger, state['selector'], normalized, conn)
         if current_sha != sha or current(ledger, state['selector'], conn)['internal_revision'] != before['internal_revision']:
             raise LedgerError('The root or internal plan changed before revision publication.')
-        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='attempts'").fetchone():
-            active = conn.execute("SELECT 1 FROM events e JOIN attempts a ON a.id=json_extract(e.payload,'$.attempt') WHERE e.task_id=? AND e.kind='node.started' AND a.status!='settled' LIMIT 1", (state['task_id'],)).fetchone()
-            if active: raise LedgerError('Reconcile the active workflow attempt before publishing a revision.')
+        _admit_revision(ledger,conn,again,before,normalized)
         remaining = ceilings(ledger, conn, again)
         if (action['cost']['calls'] > remaining['remaining_calls'] or action['cost']['seconds'] > remaining['remaining_seconds']
                 or any(node['execution_cap_seconds'] > remaining['remaining_seconds'] for node in normalized)):
@@ -205,6 +236,8 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         plans.emit(ledger, conn, again['task_id'], KIND, {'plan': state['name'], 'revision': state['approved']['revision'],
                    'internal_revision': revision, 'contract_sha': sha, 'definition': blob, 'definition_sha': definition_sha,
                    'reason': reason, 'decision': decision, 'evidence': refs})
-    estimates.reforecast(ledger, state['selector'], f'internal-r{revision}',
-                        [sum(n['estimate_seconds'][i] for n in normalized) for i in (0, 1)], reason, refs)
+    estimates.observe_internal(ledger,state['selector'],reason=reason,evidence=refs)
+    if namespaces.has_capability(state, 'finding-register'):
+        from . import active_plan
+        active_plan.export(ledger, state['selector'])
     return current(ledger, state['selector'])

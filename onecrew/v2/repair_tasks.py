@@ -31,11 +31,13 @@ def _source(ledger, conn, view, failed_node, receipt=None):
     item = next(n for n in view['definition']['nodes'] if n['id'] == failed_node)
     event_body = json.loads(event['payload'])
     expected = {'kind': 'node-verifier-receipt', 'root': view['root'], 'node': failed_node,
-                'internal_revision': view['internal_revision'], 'generation': record['generation'],
+                'generation': record['generation'],
                 'artifact': record['artifact'], 'checks_sha': content_hash(item['checks'])}
     if (any(body.get(k) != v for k, v in expected.items())
             or event_body.get('node') != failed_node or event_body.get('generation') != record['generation']
-            or event_body.get('internal_revision') != view['internal_revision'] or body.get('evidence_errors')):
+            or event_body.get('internal_revision') not in record.get('valid_internal_revisions',[view['internal_revision']])
+            or body.get('internal_revision') not in record.get('valid_internal_revisions',[view['internal_revision']])
+            or body.get('evidence_errors')):
         raise LedgerError('The failed verification is stale or lacks valid check evidence.')
     observed = body.get('observed') or {}
     if observed.get('artifact') != record['artifact']:
@@ -67,8 +69,7 @@ def prepare(ledger, selector, target, failed_node, *, reason, evidence, receipt=
         source, seq, failed = _source(ledger, conn, view, failed_node, receipt)
         # The shared v1 closure includes declared readers by adapting ownership
         # data. There is deliberately no second transitive traversal here.
-        scope = {'tasks': [{'id': n['id'], 'owned': sorted(set(n['read'] + n['write'])),
-                            'depends_on': [e['node'] for e in n['depends']]} for n in nodes]}
+        scope=ip.influence_projection(nodes)
         affected = dependency_core.affected_tasks(scope, [target])
         if failed_node not in affected:
             raise LedgerError('The chosen owner is outside the failed node dependency/read/write scope.')
@@ -107,7 +108,7 @@ def verification_order(ledger, selector, nid, configured_checks):
         return result
     value = json.loads(Snapshots(ledger.state_root).read_blob(markers[-1]))
     if (value.get('kind') != KIND or value.get('root') != view['root'] or value.get('contract_sha') != view['contract_sha']
-            or value.get('internal_revision') != view['internal_revision']
+            or value.get('internal_revision') not in view['nodes'][nid].get('valid_internal_revisions',[view['internal_revision']])
             or value.get('generations', {}).get(nid) != view['nodes'][nid]['generation']
             or value.get('checks_sha', {}).get(nid) != content_hash(item['checks'])):
         raise LedgerError('The repair plan no longer binds this node generation/check configuration.')
@@ -147,7 +148,7 @@ def rebind_order(ledger, selector, nodes, *, expected_revision):
     known = {node['id'] for node in result}
     recipients &= known
     changed = [node['id'] for node in result if node['id'] in recipients or before.get(node['id']) != node]
-    affected = dependency_core.affected_tasks(ip.projection(result), changed)
+    affected = dependency_core.affected_tasks(ip.influence_projection(result), changed)
     failed = list(dict.fromkeys(cid for value in carried.values() for cid in value['failed_checks']))
     latest = list(carried.values())[-1]
     value = dict(latest, internal_revision=expected_revision + 1,

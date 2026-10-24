@@ -25,11 +25,12 @@ CLASS_0 = (
     'hook.stop_blocked', 'request.created', 'request.revised', 'request.deferred', 'request.answered',
 )
 CLASS_A = (
+    'executor.managed',
     'review.observed',
     'evidence.reuse',
     'adapter.violation',
     'executor.observed',
-    'survey.opened', 'survey.finished', 'survey.denied',
+    'survey.opened', 'survey.finished', 'survey.denied', 'survey.worker_started',
     'learning.outcome', 'control.intervention', 'verdict.run_started', 'verdict.run_abandoned', 'context.entry',
     'estimate.baseline', 'estimate.eta', 'work.additional', 'notice.exception', 'learning.incident', 'learning.lesson',
     'decision.recorded',                              # W03: the decision record is a neutral addition

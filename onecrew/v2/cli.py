@@ -20,12 +20,14 @@ OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enfo
                   '  issue      localize / map (pinned file and method hypotheses)\n'
                   '  unknown    list / open / resolve (scoped execution questions)\n'
                   '  engine     revise / state / ready / step / verify / handoff (common workflow)\n'
+                  '  engine     batch / resume-paused (explicit parallel capability and managed safe points)\n'
                   '  engine     prepare-tests / repair / diagnose / replan (bounded in-grant work)\n'
                   '  question   list / show / answer (owner-only answers)\n'
                   '  estimate   show / update / additional (sourced ranges)\n'
                   '  notifications pull / ack (plan notices; delivery never answers or accepts)\n'
                   '  desktop    enable / disable / status / show / retry (shared local outbox)\n'
-                  '  executor   list / observe / summary (declared capabilities and observed runs)\n')
+                  '  executor   list / observe / summary (declared capabilities and observed runs)\n'
+                  '  executor   state / pause / stop / recover / isolate (managed attempts)\n')
 
 
 def help_lines():
@@ -60,6 +62,9 @@ def route(args, index):
         from .findings import main as findings_main
         return findings_main(args[:index] + args[index + 1:])
     if args[index] == 'executor':
+        from . import managed_cli
+        if len(args) > index + 1 and args[index + 1] in managed_cli.COMMANDS:
+            return managed_cli.main(args)
         from .executors import main as executor_main
         return executor_main(args)
     if args[index] in ('outcome', 'continue', 'context'):

@@ -17,6 +17,16 @@ KIND = 'learning.lesson'
 KEY_PREFIX = 'lesson-'
 
 
+def _revision(ledger, revision):
+    try:
+        return context.resolve_revision(ledger.project, revision), 'commit'
+    except LedgerError:
+        tree = command._git(ledger.project, 'rev-parse', '--verify', '--end-of-options', str(revision) + '^{tree}')
+        if not command.TREE_ID.fullmatch(tree or ''):
+            raise LedgerError('The lesson revision is not a commit or retained artifact tree.')
+        return tree, 'tree'
+
+
 def _history(ledger, name):
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
@@ -59,14 +69,7 @@ def record(ledger, name, incident, *, text, path, line, revision, test, symbol=N
         raise LedgerError('A lesson location needs a positive line.')
     if type(candidate) is not bool:
         raise LedgerError('candidate must be a boolean.')
-    try:
-        commit = context.resolve_revision(ledger.project, revision)
-        revision_kind = 'commit'
-    except LedgerError:
-        commit = command._git(ledger.project, 'rev-parse', '--verify', '--end-of-options', str(revision) + '^{tree}')
-        if not command.TREE_ID.fullmatch(commit or ''):
-            raise LedgerError('The lesson revision is not a commit or retained artifact tree.')
-        revision_kind = 'tree'
+    commit, revision_kind = _revision(ledger, revision)
     source_text = context.file_at(ledger.project, commit, path)
     if line > len(source_text.splitlines()):
         raise LedgerError('The lesson location does not exist at the pinned revision.')
@@ -81,12 +84,14 @@ def record(ledger, name, incident, *, text, path, line, revision, test, symbol=N
         verified, result, _, _ = incidents._receipt(ledger, conn, state, selector, body.get('verified_receipt'), latest=True)
         if result != 'pass':
             raise LedgerError('A lesson requires passing repair verification.')
-        checks = ({'reviewer:' + c['id'] for c in verified.get('criteria', []) if c.get('verdict') == 'pass'}
+        checks = ({'check:' + c['id'] for c in verified['supported_checks'] if c['result'] == 'pass'}
+                  if verified.get('kind') == 'node-verifier-receipt' else
+                  {'reviewer:' + c['id'] for c in verified.get('criteria', []) if c.get('verdict') == 'pass'}
                   if verified.get('kind') == 'reviewer-receipt' else set(verified.get('argv') or []))
         if test not in checks:
             raise LedgerError('The named test/check was not verified by this receipt.')
         tree = command._git(ledger.project, 'rev-parse', commit + '^{tree}')
-        if tree != verified['artifact_sha']:
+        if tree != (verified.get('verified_tree') or verified['artifact_sha']):
             raise LedgerError('The lesson revision is not the artifact the repair verified.')
     logical = content_hash([state['task_id'], incident, 'project'])[:32]
     existing = _latest(ledger, selector).get(logical)
@@ -195,7 +200,7 @@ def refine_context(ledger, entries, revision=None):
         changed = None
         if lesson['scope'] == 'project':
             try:
-                current = context.resolve_revision(ledger.project, revision or 'HEAD')
+                current, _ = _revision(ledger, revision or 'HEAD')
                 blob = command._git(ledger.project, 'rev-parse', current + ':' + lesson['location']['path'])
                 if blob != lesson['file_blob']:
                     changed = f'file changed since revision {lesson["location"]["revision"][:12]}; recheck at {current[:12]}'

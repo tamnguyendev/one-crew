@@ -24,13 +24,15 @@ class GitCandidate:
             raise LedgerError('Git review-branch operation failed: ' + result.stderr.decode('utf-8', errors='replace')[:400])
         return result.stdout if result.returncode == 0 else None
 
-    def tree(self, manifest, parent, index):
+    def tree(self, manifest, parent, index, *, filters=False):
+        """Legacy snapshots keep raw bytes; installed delivery opts into Git clean semantics."""
         self.git('read-tree', parent, index=index)
         for path, item in manifest['files'].items():
             if item['working'] is None:
                 self.git('update-index', '--force-remove', '--', path, index=index)
             else:
-                blob = self.git('hash-object', '--no-filters', '-w', '--stdin', stdin=self.store.read_blob(item['working'])).decode().strip()
+                conversion = '--path=' + path if filters else '--no-filters'
+                blob = self.git('hash-object', conversion, '-w', '--stdin', stdin=self.store.read_blob(item['working'])).decode().strip()
                 mode = next((r['mode'] for r in item['index'] if r['stage'] == 0), '100644')
                 self.git('update-index', '--add', '--cacheinfo', mode, blob, path, index=index)
         return self.git('write-tree', index=index).decode().strip()
