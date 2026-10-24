@@ -66,3 +66,4 @@ File dùng chung giữa nhánh (sửa nhỏ, cộng thêm, agent chính gộp): 
 ## Checkpoint
 
 - 24/10 ~09:40: `wf/dev@c3ad00a` = R00. FEATURE-SCOPE sinh từ 04 (hash 04 c1d8f8ae40cd).
+- 24/10 tối (Claude, tiếp quản và hoàn thành): 20 task feature Partial → Done với code nối đường dùng + 36 test mới (W48a, W50b, W33a, W37a, W21, W26, W20, W05, W14b, W15, W23d, W49b, W32a, W30b, W24, W24b, W06, W03, W17, W44); registry +19 check, 9 case complete; manifest development đóng băng lại ở `0d296fe` (307 pin); bảng 92 task: Done 57 · Partial 31 · Blocked 4 (`docs/wf/audit/AUDIT-92.md`); release notes 11 release (`docs/wf/release-notes/`); gate development trên `0d296fe` đang chạy. Chi tiết và quyết định cần chủ sở hữu: `docs/wf/TAKEOVER-CLAUDE-2026-10-24.md` §5.

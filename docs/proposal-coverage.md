@@ -1055,3 +1055,20 @@ Cycle 2: isolated USERPROFILE/temp storage and short scratch paths; expected-fai
 Cycle 3: code `d24cc52`, harness identical on each side. Final historical run `1db6e59f95374f5ca9bfed8ff4f9f785`, release-before `517c537c2c3f4164a8d4684d4a4a0b5f`, after `a3220f670ef448f79fa9aea5f439fd67`. Runtime after: 20/20 case-trials; release before: 12/20 with 8 unavailable; historical before: 2 errors + 2 assertion failures + 16 unavailable. Not a product autonomy rate. Four completed task records: 2 with known assistance, 2 unknown; physical verification is entry evidence. Final 120 tests pass (39.662s), six JSON digests and both comparison recomputations verified. Failed preliminary harness runs retained separately, excluded from final comparisons. No product dispatch, no model calls, no live ADB/server, no push.
 
 WF preservation note: the long pre-extraction v1 run had 113/114 passes; existing P6 tight prompt-cap assertion failed before extraction (824 vs1000 minimum page). The finding-register 26-before/26-after subset passed. This unrelated baseline failure is retained, not hidden or scored as a pass.
+
+## Workflow chung — development takeover, 24/10/2026 (Claude, after Codex)
+
+Branch `codex/wf-development`, worktree `wf-codex`. Source of status: `wfkit/development-testcases.json` (acceptance per testcase) and the
+92-task table `docs/wf/audit/AUDIT-92.md` (per task: implementation file:line, tests/receipts, what is missing, cause class A–E).
+
+| Group | Done | Partial | Blocked | Note |
+|---|---|---|---|---|
+| Feature tasks | 46 | 14 | 0 | 20 moved Partial → Done this round with code on the real use path + tests (see TAKEOVER §2) |
+| Kit tasks (WK*) | 11 | 6 | 0 | Partial = counterexamples/scenarios at kit level still missing |
+| Release tasks (W40-Rnn) | 0 | 11 | 0 | T54 bundles need a real previous delivery; release notes generated (`docs/wf/release-notes/`) |
+| Real provider (W45) | 0 | 0 | 1 | paid provider CLIs not authorised; validator exists |
+| Pilot / acceptance (W38b–d) | 0 | 0 | 3 | real jobs and owner acceptance outside development |
+
+Verification: development gate on one wheel (`python -m wfkit.development_gate run …`), last complete run `b2cc754` 1 074/1 073 tests;
+run on `0d296fe` in progress at the time of writing (results in `docs/wf/TAKEOVER-CLAUDE-2026-10-24.md` §3). Not run: real provider calls,
+`tests.test_v2_reviewer` RealCliTests, any real ledger. No Codex review and no owner acceptance has happened.
