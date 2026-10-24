@@ -8,8 +8,8 @@ Trạng thái: `DONE` = đủ hành vi, nối vào đường dùng, test đạt 
 
 | ID | Kết quả bắt buộc (rút gọn từ 04) | Phụ thuộc | Testcase | Trạng thái | Code / test / bằng chứng |
 |---|---|---|---|---|---|
-| WK0 | Làm trong bước trình, trước khi duyệt (03 §6). Khung kit của chương trình: kit-guard (manifest sha256, chỉ thêm sau khi đóng băng, … | — | T38a, T39 | CHƯA | R00 dùng unittest trong tests/; chưa có kit-guard và lệnh cổng |
-| WK00 | Bộ kiểm R00: T09a, T13a, T13b, T20, T33a, T45a, T48a, T49a, T49b | WK0 | — | CHƯA | chưa có lệnh cổng R00 (T45a chưa có test) |
+| WK0 | Làm trong bước trình, trước khi duyệt (03 §6). Khung kit của chương trình: kit-guard (manifest sha256, chỉ thêm sau khi đóng băng, … | — | T38a, T39 | TÍCH HỢP | wf/kit merge 43403f6: wfkit/kitguard.py, gate.py, doccheck.py; tests/test_wf_kit.py 46 OK; đang chỉnh kit-guard theo loại pin (test/helper/doc); T39 chưa làm |
+| WK00 | Bộ kiểm R00: T09a, T13a, T13b, T20, T33a, T45a, T48a, T49a, T49b | WK0 | — | DONE | wfkit/gate.py R00 PASS trên d467546: 9 testcase, 26 pin, T38a PROBLEMS 0 và 150/150; biên nhận D:/OneCrewRuns/wf-dev-logs/cg-r00/ |
 | W03 | Bản ghi quyết định (chủ thể thật, căn cứ, bằng chứng, phạm vi, hiệu lực); `interventions` vào wheel; từ chối `by=owner` trong phiên AI | WK00 | T20; kiểm chung: T16a | DONE | KiroCrew wf/r00 28bcf48; `onecrew/v2/decisions.py`; tests/test_wf_decisions.py 8 OK (chạy lại c3ad00a) |
 | W11a | Sổ loại sự kiện trên anchor bản cũ thấy (00 §6.1): chỉ ghi lớp 0 (giữ mọi trường cũ, cùng kiểu) hay lớp A lên anchor `plan:`, không dùng … | WK00 | T13a | DONE | fa35f8d; `onecrew/v2/compat.py`, guard plan.emit; tests/test_wf_events.py 10 OK |
 | W12a | Kiểm tên plan trước khi ghi (từ chối `:`, ký tự đường dẫn, dạng ổ đĩa, đường dẫn tuyệt đối) ở mọi đường tạo; hai project cùng state root mà … | WK00 | T48a | DONE | aa2c54d; plan.py valid_plan_name; tests/test_wf_plan_names.py 5 OK |
