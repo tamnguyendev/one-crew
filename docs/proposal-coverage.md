@@ -10,13 +10,18 @@ ledger approval, acceptance, deployment, provider switch or old-job restart is p
 
 | ID | Requirement | Implementation evidence | Test evidence | Status | Remaining |
 |---|---|---|---|---|---|
+| W23c core extraction | Reuse the v1 evidence classifications in the wheel | `evaluation_core`, imported by v1 `eval_observe` and `eval_scorecard`; exact function-body extraction | Five scorecard tests before and after; shared-function identity tests | Complete | W23c runtime report and installation validation tracked separately |
 | W30a, W47 | Shared decision cards and sufficient proposals | Reused `e1b906b`, `5ecc038` as `ed91471`, `a9e54a5` | R01 card/proposal/compat tests in integration run | Partial | Recheck combined artifact and installed wheel; other R01 features remain |
 | W09/T31 | Keep Git evidence through GC; owner-scoped cleanup | `v2/retention.py`, approval/receipt/verdict/accept wiring, CLI and hook | 10 real-Git unit tests; 14 integration tests; missing-pin wiring mutant rejected | Partial | Final namespace-aware regression and wheel; opaque manual artifact hashes remain blob evidence, historical refs are not backfilled |
 | W17 | One finding lifecycle shared with v1 | `finding_core`, v1 `review_evidence`, v2 `findings` | 16 register cases plus v1 preservation tests | Partial | Automatic runtime registration/context and namespaced acceptance gate integration in progress |
-| W38d/T45d/T55 | Compute KQ1–KQ7 from evidence and actual wheel changes | `wfkit/finalgate.py`, shared `dependency_core` extracted from v1 amendment | 42 pinned-fixture validator tests; source receipt tampering, changed dependency closure and false real-evidence labels refused | Partial | v1 amendment regression and artifact packaging check pending; no real pilot claim |
-| W02 | Enforce root authority and reuse v1 authority fields | Reused committed `baf85c2` implementation; hardening `v2/authority.py` | Review reproduced traversal, missing write scope and Q4 permission bypass; counterexamples being repaired | Partial | Revised gate/enforce regression |
+| W38d/T45d/T55 | Compute KQ1–KQ7 from evidence and actual wheel changes | `wfkit/finalgate.py`, shared `dependency_core` extracted from v1 amendment; commit `53e07f1` | 42 pinned-fixture validator tests, 2 focused identity regressions, 5 v1 amendment tests | Partial | Full release/pilot bundles remain to be produced; no real pilot claim |
+| W02 | Enforce root authority and reuse v1 authority fields | Reused `baf85c2` and hardened in `038a0b3` | 20 authority tests including actual gate/enforce counterexamples; installed module boundary passes | Complete | Root writer/budget/plan engine is separate work, not implied by this grant check |
 | W11b/W12b | Explicit capabilities, per-project namespaces, legacy selectors | Namespace implementation in progress | T25/T48b tests in progress | Partial | One-writer and solution linkage are separate unfinished W12b portions |
-| RP identity | An unreadable CLI executable cannot be claimed verified | `providers.cli_identity`: explicit missing hash and identity_errors | Execution-alias error regression; finalgate rejects incomplete CLI identity | Partial | Targeted Windows run pending |
+| RP identity | An unreadable CLI executable cannot be claimed verified | `providers.cli_identity`: explicit missing hash and identity_errors; `230089a` | 2 targeted Windows identity tests; finalgate rejects incomplete CLI identity | Complete | No real provider capability claimed |
+| W26 | Rule-based optional review decisions | `review_policy`, approved optional policy, shared `routing.validate_decision`, CLI | 11 tests: four outcomes, mandatory milestone, cache input/revision/artifact, race, no request/model call | Partial | Engine consumer remains; this API alone does not execute, skip a mandatory gate, or grant authority |
+| W23a/W23d | Present/handover by acceptance, open findings visible | Stable hash snapshot from Claude R01 report, namespace and register integration | Open finding remains visible after generic pass; explicit resolution clears it; 10 namespace/export regressions green | Partial | Repair-first installed report tests running; final combined wheel pending |
+| W31a | Bounded discovery with scoped unknowns | Reuse Claude survey snapshot, shared step0; hardening in progress | Source and new adversarial tests in progress | Partial | No live model invocation or OS process containment claimed |
+| W46b | Namespace-aware rollback diagnostics | `compat_scan` / `compat_cli` work in progress | T49c/d actual old-CLI tests in progress | Partial | No real rollback is performed |
 | WF remainder | All other agreed feature IDs | Existing source inventory in FEATURE-SCOPE; concurrent source branches are not evidence of completion here | No combined final-artifact evidence yet | Missing | Continue development/integration; do not call this roadmap complete |
 | PL-A/PL-B real pilot | Actual user jobs and final human acceptance | Development tooling only | Simulated fixtures explicitly labeled | Blocked | Requires actual selected jobs and owner acceptance, outside this development run |
 | RD/RR/RL/Digital Twin | Deferred roadmap programs | Existing roadmap boundary | Not in WF development scope | Not applicable | No opportunistic expansion |
@@ -27,6 +32,14 @@ parent integrates shared files and runs cross-module/installed-package checks.
 Three agents maximum in this session. Test providers are fakes; model names in
 fixture receipts are not evidence of real provider support. Original v1 and active
 Claude worktrees remain unchanged.
+
+Combined package checkpoint: 39 G1/routing/install-boundary tests passed, including
+an offline temporary venv and actual installed CLI. These describe that tested
+snapshot, not future edits. The first long quiet mixed-source test batch was
+cancelled while implementation changed; it is not counted as a pass. Later tests
+use verbose output and bounded diagnostic tracebacks. Namespace changes intentionally
+update fresh-root fixture paths; historical R00 duplicate-name refusal is still
+tested using unmodified `d3120c6`, not removed or weakened.
 
 ## Windows completion/blocker window — 2026-10-10
 

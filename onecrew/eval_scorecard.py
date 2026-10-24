@@ -1,5 +1,6 @@
 """Three separate scorecard axes over recorded evidence. Never one merged number or a dispatch."""
 import collections
+from .evaluation_core import CONTINUATION, DECISIONS, HANDOFF, RUNTIME, UNRECORDED, assistance_level, classified, completion_level, decisions, outcome, role
 import re
 
 from .eval_observe import label, observe
@@ -9,13 +10,8 @@ REPLAY = 'known-case fixture replay; not task completion'
 CHANGES = {'regressed', 'capability_added', 'recovered', 'inconclusive', 'unchanged'}
 # Relaying a user's answer is a legitimate decision and submitting/starting is the handoff itself;
 # OneCrew's own processes are not the entry. Every other mutating command is entry assistance.
-DECISIONS = {'reply', 'answer', 'defer'}
-HANDOFF = {'submit', 'start'}
-RUNTIME = {'onecrew', 'keeper'}
 # Runner starts by these initiators are OneCrew's own continuation: keeper/reply restart the root and the
 # root coordinator starts its children as 'onecrew'. Any other launcher, 'unknown' included, is the entry.
-CONTINUATION = {'keeper', 'reply', 'onecrew'}
-UNRECORDED = 'unrecorded'
 ROLES = ('entry', 'decision', 'handoff', 'runtime')
 OUTCOMES = ('autonomous_complete', 'assisted_complete', 'partial_complete', 'correct_block', 'incomplete', 'unknown')
 COMPLETION_LEVELS = ('complete', 'partial', 'blocked', 'incomplete', 'unknown')
@@ -31,14 +27,8 @@ LIMITS = ['Axes are separate: no combined score, rate or ranking is derived from
           'No reasons, prompts, reports or private values are exported.']
 
 
-def role(intervention):
-    words = set(re.split(r'[^a-z]+', intervention['command'].lower()))
-    return ('runtime' if intervention['actor'] in RUNTIME else 'decision' if words & DECISIONS
-            else 'handoff' if words & HANDOFF else 'entry')
 
 
-def classified(counts):
-    return any(k not in ('unclassified', 'other') for k in counts or {})
 
 
 def runtime_axis(comparison):
@@ -56,65 +46,12 @@ def runtime_axis(comparison):
             'by_after_status':dict(collections.Counter(r['after'] for r in rows))}
 
 
-def decisions(m):
-    """Answered decisions by source. A count without per-answer provenance is all 'unknown'."""
-    by = m.get('decisions_by_source')
-    if isinstance(by, dict) and sum(by.values()) == (m.get('decisions_answered') or 0): return by
-    return {'user': 0, 'relayed': 0, 'entry': 0, 'unknown': m.get('decisions_answered') or 0}
 
 
-def assistance_level(t):
-    """Who carried the work, from positive evidence only; independent of how far the work got.
-
-    The user's own decision is not assistance. An entry deciding under delegation, or carrying the user's
-    answer for them, is; an answer whose decider or sender cannot be shown keeps the level unknown."""
-    m = t['metrics']
-    entry = [i for i in m['interventions'] or [] if role(i) == 'entry']
-    restarts, children = (set(m[k] or ()) for k in ('coordinator_restarts_by_initiator', 'child_starts_by_initiator'))
-    decided = decisions(m)
-    assisted = [code for code, hit in (('entry_intervention', bool(entry)), ('entry_restart', bool(restarts-CONTINUATION-{UNRECORDED})),
-                ('entry_child_start', bool(children-CONTINUATION-{UNRECORDED})), ('entry_plan', m['plan_provenance'] == 'entry'),
-                ('entry_decision', decided['entry'] > 0), ('entry_relayed_decision', decided['relayed'] > 0),
-                ('runtime_changed', (m['runtime_revisions'] or 0) > 1), ('assistance_recorded', t['assistance'] == 'recorded')) if hit]
-    if assisted: return 'assisted', assisted
-    missing = [code for code, hit in (('plan_provenance_unknown', m['plan_provenance'] != 'onecrew'),
-               ('runtime_trace_missing', m['runtime_revisions'] is None),
-               ('intervention_trace_missing', m['interventions'] is None),
-               ('start_initiator_missing', UNRECORDED in restarts | children),
-               ('decision_provenance_unknown', decided['unknown'] > 0)) if hit]
-    return ('unknown', missing) if missing else ('autonomous', [])
 
 
-def completion_level(t):
-    """How much of the declared work is verified, independent of who helped."""
-    m, phase, d = t['metrics'], t['phase'], t.get('delivery')
-    if phase == 'completed':
-        gaps = [] if t.get('verification') == 'passed' else ['verification_'+str(t.get('verification'))]
-        if isinstance(d, dict):
-            criteria, nodes = d.get('criteria') or {}, d.get('nodes') or {}
-            gaps += [code for code, hit in (('technical_not_verified', d.get('technical_verified') is not True),
-                     ('criteria_not_run', any(v == 'not_run' for v in criteria.values())),
-                     ('criteria_not_passed', any(v not in ('passed', 'not_run') for v in criteria.values())),
-                     ('nodes_skipped', any(v.get('skipped') for v in nodes.values())),
-                     ('nodes_not_passed', any(v.get('phase') != 'passed' for v in nodes.values()))) if hit]
-        return ('partial', gaps) if gaps else ('complete', [])
-    if phase in ('blocked', 'waiting'):
-        if not m['pending_escalations']: return 'incomplete', ['no_pending_escalation']
-        if not (classified(m['pending_escalations']) and classified(m['failure_classes'])): return 'incomplete', ['no_classified_failure']
-        return 'blocked', []
-    return ('unknown', ['no_checkpoint']) if phase == 'unknown' else ('incomplete', [])
 
 
-def outcome(t):
-    """Class plus reason codes; both levels stay visible in completion()."""
-    level, gaps = completion_level(t)
-    helped, reasons = assistance_level(t)
-    if level == 'complete':
-        if helped == 'autonomous': return 'autonomous_complete', []
-        return ('assisted_complete', reasons) if helped == 'assisted' else ('unknown', reasons)
-    if level == 'partial': return 'partial_complete', gaps
-    if level == 'blocked': return 'correct_block', []
-    return level, gaps
 
 
 def completion(t):
