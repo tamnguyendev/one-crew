@@ -7,7 +7,7 @@ Sinh từ `docs/wf/sources/04-TASKS.vi.md` (sha256 c1d8f8ae40cd) và `wfkit/deve
 | Task | Kết quả (rút gọn từ 04) | Testcase | Trạng thái registry | Kiểm hiện có | Khoảng trống |
 |---|---|---|---|---|---|
 | WK0 | Làm trong bước trình, trước khi duyệt (03 §6). Khung kit của chương trình: kit-guard (manifest sha256, chỉ … | T38a | cổng R00 (wfkit/gate.py R00) |  |  |
-| WK0 | Làm trong bước trình, trước khi duyệt (03 §6). Khung kit của chương trình: kit-guard (manifest sha256, chỉ … | T39 | cổng R00 (wfkit/gate.py R00) | test_wf_program_transition |  |
+| WK0 | Làm trong bước trình, trước khi duyệt (03 §6). Khung kit của chương trình: kit-guard (manifest sha256, chỉ … | T39 | complete | program_transition |  |
 | WK00 | Bộ kiểm R00: T09a, T13a, T13b, T20, T33a, T45a, T48a, T49a, T49b | — | — | — | bộ kiểm (WK*) / khảo sát: không có T-case riêng |
 | W03 | Bản ghi quyết định (chủ thể thật, căn cứ, bằng chứng, phạm vi, hiệu lực); `interventions` vào wheel; từ chối … | T20 | cổng R00 (wfkit/gate.py R00) | test_wf_decisions |  |
 | W03 | Bản ghi quyết định (chủ thể thật, căn cứ, bằng chứng, phạm vi, hiệu lực); `interventions` vào wheel; từ chối … | T16a | partial | r04a_authority, engine | acceptance-audit |

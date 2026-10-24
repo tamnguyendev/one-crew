@@ -10,76 +10,19 @@
     "wfkit/doccheck.py",
     "tests/wf_wheel.py",
     "tests/wf_oldversion.py",
-    "tests/wf_rollback.py",
-    "wfkit/program_contract.py",
-    "wfkit/owner_actions.py",
-    "tests/wf_env.py"
+    "tests/wf_rollback.py"
    ],
    "testcases": {
-    "T20": {
-     "kind": "unittest",
-     "modules": [
-      "tests.test_wf_decisions"
-     ]
-    },
-    "T13a": {
-     "kind": "unittest",
-     "modules": [
-      "tests.test_wf_events"
-     ]
-    },
-    "T49a": {
-     "kind": "unittest",
-     "modules": [
-      "tests.test_wf_compat_scan"
-     ]
-    },
-    "T48a": {
-     "kind": "unittest",
-     "modules": [
-      "tests.test_wf_plan_names"
-     ]
-    },
-    "T09a": {
-     "kind": "unittest",
-     "modules": [
-      "tests.test_wf_advisor_errors"
-     ]
-    },
-    "T33a": {
-     "kind": "unittest",
-     "modules": [
-      "tests.test_wf_packaging"
-     ]
-    },
-    "T13b": {
-     "kind": "unittest",
-     "modules": [
-      "tests.test_wf_rollback"
-     ]
-    },
-    "T49b": {
-     "kind": "unittest",
-     "modules": [
-      "tests.test_wf_rollback"
-     ]
-    },
-    "T45a": {
-     "kind": "unittest",
-     "modules": [
-      "tests.test_wf_kit"
-     ]
-    },
-    "T38a": {
-     "kind": "doccheck"
-    },
-    "T39": {
-     "kind": "unittest",
-     "modules": [
-      "tests.test_wf_program_transition"
-     ],
-     "scope": "Transition-mode program run on the existing v2 supervisor with a simulated owner terminal, fixture kit-guard and sample Codex result; counts owner actions from the ledger (03 §2.4). Not a real Codex review or real session."
-    }
+    "T20": {"kind": "unittest", "modules": ["tests.test_wf_decisions"]},
+    "T13a": {"kind": "unittest", "modules": ["tests.test_wf_events"]},
+    "T49a": {"kind": "unittest", "modules": ["tests.test_wf_compat_scan"]},
+    "T48a": {"kind": "unittest", "modules": ["tests.test_wf_plan_names"]},
+    "T09a": {"kind": "unittest", "modules": ["tests.test_wf_advisor_errors"]},
+    "T33a": {"kind": "unittest", "modules": ["tests.test_wf_packaging"]},
+    "T13b": {"kind": "unittest", "modules": ["tests.test_wf_rollback"]},
+    "T49b": {"kind": "unittest", "modules": ["tests.test_wf_rollback"]},
+    "T45a": {"kind": "unittest", "modules": ["tests.test_wf_kit"]},
+    "T38a": {"kind": "doccheck"}
    }
   }
  }

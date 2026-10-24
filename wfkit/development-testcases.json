@@ -215,6 +215,66 @@
          "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
         }
        ]
+      },
+      "T39": {
+       "status": "complete",
+       "checks": [
+        "check.program_transition"
+       ],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ],
+        "E2": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ],
+        "E3": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ],
+        "E4": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ],
+        "E5": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ],
+        "E6": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions",
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_a_second_approval_is_more_than_the_two_routine_decisions"
+        ],
+        "E7": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ],
+        "E8": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ],
+        "E9": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ],
+        "E10": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ],
+        "E11": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions",
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_reviewer_copy_of_m5_is_inconclusive_over_the_diff_cap_and_blocks_accept"
+        ],
+        "E12": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_reviewer_copy_of_m5_is_inconclusive_over_the_diff_cap_and_blocks_accept"
+        ],
+        "E13": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ],
+        "E14": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ],
+        "E15": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ],
+        "E16": [
+         "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+        ]
+       },
+       "scope": "Owner terminal simulated (interface/rights of each verb), kit-guard fixture, Codex result sample file; the count reads the ledger and a sample chat log. No real Codex review, no real external session.",
+       "gaps": []
       }
      },
      "baseline": {
@@ -236,6 +296,14 @@
      ],
      "installed": false,
      "scope": "Exact dual-history rule self-test; actual old and installed new executions run once separately by development_gate."
+    },
+    "check.program_transition": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_program_transition"
+     ],
+     "installed": false,
+     "scope": "T39 transition-mode program run on the existing v2 supervisor: simulated owner terminal, fixture kit-guard through the pinned bootstrap, sample Codex result, stub reviewer. Not a real Codex review or real external session."
     }
    },
    "acceptance": {
@@ -337,6 +405,66 @@
        "detail": "Actual installed generated-fixture drill is available. Still requires this release's nearest delivered predecessor, release-specific end-to-end scenario, frozen artifact, full T54 notes/provider/publication criteria and delivered receipt history. No previous delivery is inferred from d3120c6."
       }
      ]
+    },
+    "T39": {
+     "status": "complete",
+     "checks": [
+      "check.program_transition"
+     ],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ],
+      "E2": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ],
+      "E3": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ],
+      "E4": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ],
+      "E5": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ],
+      "E6": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions",
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_a_second_approval_is_more_than_the_two_routine_decisions"
+      ],
+      "E7": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ],
+      "E8": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ],
+      "E9": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ],
+      "E10": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ],
+      "E11": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions",
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_reviewer_copy_of_m5_is_inconclusive_over_the_diff_cap_and_blocks_accept"
+      ],
+      "E12": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_reviewer_copy_of_m5_is_inconclusive_over_the_diff_cap_and_blocks_accept"
+      ],
+      "E13": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ],
+      "E14": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ],
+      "E15": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ],
+      "E16": [
+       "tests.test_wf_program_transition.ProgramTransitionTests.test_program_runs_through_its_milestones_with_exactly_the_routine_owner_actions"
+      ]
+     },
+     "scope": "Owner terminal simulated (interface/rights of each verb), kit-guard fixture, Codex result sample file; the count reads the ledger and a sample chat log. No real Codex review, no real external session.",
+     "gaps": []
     }
    }
   },
