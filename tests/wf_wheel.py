@@ -27,8 +27,41 @@ def _b64(data):
     return base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b'=').decode()
 
 
+def _log_used(whl):
+    """WF_WHEEL_USED_LOG (set by wfkit/gate.py): append the sha256 of the wheel this run actually used, so the receipt can prove it."""
+    log = os.environ.get('WF_WHEEL_USED_LOG')
+    if log:
+        with open(log, 'a', encoding='utf-8') as f:
+            f.write(hashlib.sha256(Path(whl).read_bytes()).hexdigest() + chr(10))
+
+
+def _reuse_wheel(src, into):
+    """WF_WHEEL: use the wheel the release gate already built (same bytes, same hash) instead of building another one."""
+    src = Path(src)
+    if not src.is_file():
+        raise RuntimeError(f'WF_WHEEL {src} is not a file')
+    digest = hashlib.sha256(src.read_bytes()).hexdigest()
+    expected = os.environ.get('WF_WHEEL_SHA256')
+    if expected and expected != digest:
+        raise RuntimeError(f'WF_WHEEL {src} has sha256 {digest}, the gate said {expected}')
+    m = re.match(r'onecrew-(.+)-py3-none-any\.whl$', src.name)
+    if not m:
+        raise RuntimeError(f'WF_WHEEL {src.name} is not onecrew-<version>-py3-none-any.whl')
+    pj = (REPO / 'pyproject.toml').read_text(encoding='utf-8')
+    modules = re.findall(r'"([\w.]+)"', re.search(r'py-modules\s*=\s*\[(.*?)\]', pj, re.S).group(1))
+    packages = re.findall(r'"([\w.]+)"', re.search(r'^\s*packages\s*=\s*\[(.*?)\]', pj, re.M | re.S).group(1))
+    dst = Path(into) / src.name
+    if dst.resolve() != src.resolve():
+        dst.write_bytes(src.read_bytes())
+    _log_used(dst)
+    return dst, m.group(1), (set(modules), set(packages))
+
+
 def build_wheel(into):
-    """Build onecrew-<version>-py3-none-any.whl from REPO's pyproject into `into`. Returns (wheel_path, version, (modules, packages))."""
+    """Build onecrew-<version>-py3-none-any.whl from REPO's pyproject into `into`. Returns (wheel_path, version, (modules, packages)).
+    When WF_WHEEL names a prebuilt wheel (the release gate sets it) that exact file is reused; otherwise the behaviour is unchanged."""
+    if os.environ.get('WF_WHEEL'):
+        return _reuse_wheel(os.environ['WF_WHEEL'], into)
     pj = (REPO / 'pyproject.toml').read_text(encoding='utf-8')
     version = re.search(r'version = "([^"]+)"', pj).group(1)
     modules = re.findall(r'"([\w.]+)"', re.search(r'py-modules\s*=\s*\[(.*?)\]', pj, re.S).group(1))
@@ -59,6 +92,7 @@ def build_wheel(into):
             w.writerow([arc, h, sz])
         w.writerow([f'{di}/RECORD', '', ''])
         z.writestr(f'{di}/RECORD', rec.getvalue())
+    _log_used(whl)
     return whl, version, (set(modules), set(packages))
 
 
