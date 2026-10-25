@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R7-KIT-1",
+ "file": "tests/test_wf_development_kit.py",
+ "old_sha256": "b18495d7ca2dd4f03122a5c7d57cabb2523017b4492892b01a5f36fc1d56e564",
+ "new_sha256": "b49e7c96c803e7c0498a7d550886654b39fb211f7f583c4748b745ddab7dbf2f",
+ "reason": "Round 7: test_acceptance_snapshot_is_pinned_and_not_silently_changed mutated T24a to 'complete' to force the case-pinned mismatch; T24a became complete in this round (audited matrix), so the mutation was a no-op and the loader failed later on a different rule. The fixture now flips whatever the real status is, so the test keeps proving the same rule (snapshot mismatch refused) for any registry state. No assertion weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 7 25/10 'Tiếp tục OneCrew theo cách làm song song... Tôi ủy quyền bạn tự chia task, phân agent/model, chọn phương án kỹ thuật, sửa code/test, tích hợp và đóng gói trong phạm vi đã giao. Không hỏi tôi duyệt từng việc' — cùng phạm vi ủy quyền lượt 5): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 7 integration commit on codex/wf-development (branches wf/r7-a, wf/r7-b, wf/r7-c1, wf/r7-c2)",
+ "at": "2026-10-25"
+}

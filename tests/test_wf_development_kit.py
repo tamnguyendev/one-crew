@@ -45,7 +45,8 @@ class DevelopmentRegistryTests(unittest.TestCase):
             source=root/config['source']['path']; source.parent.mkdir(parents=True)
             source.write_bytes((dev.ROOT/config['source']['path']).read_bytes())
             config['releases']={'R01':config['releases']['R01']}
-            config['releases']['R01']['acceptance']['T24a']['status']='complete'
+            case = config['releases']['R01']['acceptance']['T24a']           # flip whatever the real status is: the snapshot must then mismatch
+            case['status'] = 'partial' if case['status'] == 'complete' else 'complete'
             (root/dev.CONFIG).write_text(json.dumps(config),encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'case-pinned'): dev.load(root)
 

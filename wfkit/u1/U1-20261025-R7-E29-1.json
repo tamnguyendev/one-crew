@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R7-E29-1",
+ "file": "tests/test_wf_findings.py",
+ "old_sha256": "4e55b0aacf4ac98e18c03bf7430d5393dc3d86b39540fc6862450806d5625e47",
+ "new_sha256": "09dfb455d280f1a5a1efca39a52d40b7dd29c6db89ca849ce81cd2eb4e0148a6",
+ "reason": "Round 7 (T35c [E29]: the SKIP -> finding link had no product record; node == scope equality was coincidence). findings.link_skip writes the relation as a decision.recorded through decisions.record (existing guards), refused unless same root, revision, contract sha and artifact as the SKIP record, opened after it, naming the skipped review; a finding already attributed to another SKIP is refused; the same link twice is recorded once; validation and write are ONE write transaction (decisions.record conn=, round-5 atomicity rule — structural test + barrier race, red before: [(False, False)] != [(True, True)]). findings.skip_view re-validates each link; pilot_tools.skip_leak_of returns count + SKIP record id + finding id per link. 9 SkipLinkTests on a temp ledger through the real review_policy.decide (red on 734acdc: no attribute link_skip). Also T16b E6: findings.hold_decided records the Q8 HD-05 decision through internal_plan.self_decided after the register change commits. Synthetic only; no pilot claimed.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 7 25/10 'Tiếp tục OneCrew theo cách làm song song... Tôi ủy quyền bạn tự chia task, phân agent/model, chọn phương án kỹ thuật, sửa code/test, tích hợp và đóng gói trong phạm vi đã giao. Không hỏi tôi duyệt từng việc' — cùng phạm vi ủy quyền lượt 5): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 7 integration commit on codex/wf-development (branches wf/r7-a, wf/r7-b, wf/r7-c1, wf/r7-c2)",
+ "at": "2026-10-25"
+}
