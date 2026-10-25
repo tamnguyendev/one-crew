@@ -61,7 +61,7 @@ Scope: the last two local evidence ids of R04/T49d. No pinned file, no registry/
 
 - `tests.test_wf_r7_t49d_e5.RollbackScript` — 5 OK (before 22:40, no venv).
 - `tests.test_wf_r7_t49d_e16` — 6 OK.
-- `tests.test_wf_r7_t49d_e5.InstalledVenv` — not yet run (machine window opens 22:40; one venv process). Until it is green, E5 stays partial in r7-c1-matrix.json (venv package-list sub-point).
+- `tests.test_wf_r7_t49d_e5.InstalledVenv` — 2 OK in 118.6 s (run alone at 22:40, after the gate window; one wheel + one venv in setUpClass). Every refused case: exit 3, exact message, `pip list` + onecrew RECORD hash before == after; N5 allowed through guard_swap.
 - Script messages observed on S2: N1 `refused: B1`, N2 `refused: B3`, N3 `refused: B2, B3`, N4 `refused: B1, B3`, N7 `refused: B2`
   (each exit 3); N5 `allowed: 0 block conditions on ledger <sha>` (exit 0).
 
