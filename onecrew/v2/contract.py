@@ -431,10 +431,15 @@ def write_revision(ledger, name, revision, contract):
 
 
 def read_revision(ledger, name, revision, expect_sha=None):
+    from . import namespaces
     path = revision_path(ledger, name, revision)
     try:
         document = json.loads(path.read_bytes().decode('utf-8-sig'))
     except (OSError, ValueError) as error:
+        if str(name).startswith(namespaces.LEGACY) and isinstance(error, FileNotFoundError):
+            note = namespaces.legacy_location(ledger, namespaces.parse(name)[0])[1]
+            if note:      # R7-E: a `plan:` root read in its own project's directory names that project, never another project's file
+                raise LedgerError(f'Plan {name} of project {ledger.project_id} revision {revision} is unreadable: {path} is missing; {note}.') from error
         raise LedgerError(f'Plan {name} revision {revision} is unreadable: {error}') from error
     contract = document.get('contract')
     sha = content_hash(contract) if isinstance(contract, dict) else None

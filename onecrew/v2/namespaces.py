@@ -45,17 +45,66 @@ def selector(ledger, value):
     return row['request_key'] if row else NAMESPACED + name
 
 
+def _file_sha(path):
+    """content_sha of a revision file when the file is well formed and its contract hashes to it, else None (read-only)."""
+    import json
+    from ..ledger import content_hash
+    try:
+        document = json.loads(path.read_bytes().decode('utf-8-sig'))
+    except (OSError, ValueError):
+        return None
+    contract = document.get('contract') if isinstance(document, dict) else None
+    sha = content_hash(contract) if isinstance(contract, dict) else None
+    return sha if sha is not None and sha == document.get('content_sha') else None
+
+
+def legacy_location(ledger, name):
+    """Where the files of THIS project's `plan:<name>` root live (R7-E, T49d E7 / DUPk).
+
+    The old version wrote every `plan:` root to the shared plans/<name>/. A `plan:` root whose files were written in the per-project layout
+    plans/<project_id>/<name>/ (EV-J: "root đường dẫn mới mang anchor cũ") must read its OWN files, never another project's same-named root:
+    - the shared directory belongs to the earliest `plan:<name>` anchor of the whole ledger (the old version refused a second one across
+      projects); a `plan:` root of another project that is not that owner reads plans/<its project_id>/<name>/;
+    - the owner reads the shared directory, unless its revision 1 there does not hash to the ledger's revision-1 sha while the per-project
+      file does (and no `plan-ns:<name>` root of this project owns that directory).
+    Returns (directory, note): note is None on the shared path, else why the per-project path was taken (for error messages)."""
+    root = Path(ledger.state_root) / 'plans'
+    shared, own = root / name, root / ledger.project_id / name
+    with ledger.transaction() as conn:
+        if conn is None:
+            return shared, None
+        rows = conn.execute('SELECT id, project_id, project_path FROM tasks WHERE request_key=? ORDER BY created_at, id', (LEGACY + name,)).fetchall()
+        mine = next((r for r in rows if r['project_id'] == ledger.project_id), None)
+        if mine is None or rows[0]['id'] == mine['id']:
+            if mine is None:
+                return shared, None
+            first = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='plan.proposed' ORDER BY seq LIMIT 1", (mine['id'],)).fetchone()
+            peer = conn.execute('SELECT 1 FROM tasks WHERE project_id=? AND request_key=?', (ledger.project_id, NAMESPACED + name)).fetchone()
+            import json
+            want = (json.loads(first['payload']) if first else {}).get('sha')
+            if peer is None and want and _file_sha(shared / 'v1.json') != want and _file_sha(own / 'v1.json') == want:
+                return own, f'revision 1 under plans/{name}/ does not match the ledger hash; plans/{ledger.project_id}/{name}/ does'
+            return shared, None
+        if conn.execute('SELECT 1 FROM tasks WHERE project_id=? AND request_key=?', (ledger.project_id, NAMESPACED + name)).fetchone():
+            raise LedgerError(f'Plan {LEGACY + name} of project {ledger.project_id}: plans/{name}/ belongs to project {rows[0]["project_id"]} and '
+                              f'plans/{ledger.project_id}/{name}/ belongs to {NAMESPACED + name} of this project; this root has no directory of its own.')
+        return own, f'plans/{name}/ belongs to {LEGACY + name} of project {rows[0]["project_id"]} ({rows[0]["project_path"]}), which is not read'
+
+
 def plan_dir(ledger, value):
     chosen = selector(ledger, value)
     name, _ = parse(chosen)
     root = Path(ledger.state_root) / 'plans'
-    return root / name if chosen.startswith(LEGACY) else root / ledger.project_id / name
+    return legacy_location(ledger, name)[0] if chosen.startswith(LEGACY) else root / ledger.project_id / name
 
 
 def active_file(ledger, value):
     chosen = selector(ledger, value)
     if chosen.startswith(LEGACY):
-        return plan_dir(ledger, chosen) / 'active-plan.json'
+        name, _ = parse(chosen)
+        directory, note = legacy_location(ledger, name)
+        if note is None:
+            return directory / 'active-plan.json'
     return Path(ledger.state_root) / 'plans' / ledger.project_id / 'active-plan.json'
 
 

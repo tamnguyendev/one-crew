@@ -218,11 +218,6 @@ class T49dRollbackRollForward(base.NamespaceCompatTests):
             if spent(state, self.ids[label]) != want: problems.append(f'{label}: spent {spent(state, self.ids[label])} != {want}')
         for label, (index, anchor) in LABELS.items():
             reading = self.new_reading(state, label)
-            if label == 'DUPk':
-                # DUPk (plan:dup whose file sits at plans/<P3>/dup/) is NOT readable by the current code even before any rollback (hash
-                # check against P1's plans/dup/v1.json): see docs/wf/r7-c1-matrix.json, T49d E7 uncovered. Here: the reading must not change.
-                if reading != rolled['readings'][label]: problems.append(f'DUPk: the new code reads it differently after the roll-forward: {reading}')
-                continue
             if 'error' in reading: problems.append(f'{label}: the new code cannot read it: {reading["error"]}'); continue
             if reading['id'] != self.ids[label]: problems.append(f'{label}: id changed')
             was = rolled['readings'][label]
@@ -255,7 +250,12 @@ class T49dRollbackRollForward(base.NamespaceCompatTests):
         r1 = plan.show(Ledger(self.projects[0], rolled['state']), 'plan:r1')
         self.assertEqual(r1['latest_revision'], 2)                                        # the revision R1 got during the rollback is kept
         self.assertEqual(spent(rolled['state'], self.ids['R1'])[0], rolled['spent_before']['R1'][0] + 1)
-        for label in ('R2', 'R3', 'R4', 'DUPa', 'DUPb'):
+        # R7-E: DUPk (plan:dup whose files sit at plans/<P3>/dup/) is read by the new code from its OWN project's files, before and after
+        # the rollback (tests.test_wf_r7_dupk); it was 'revision 1 does not match the recorded hash' at c9b1e97.
+        for when, reading in (('before', rolled['readings']['DUPk']), ('after', self.new_reading(rolled['state'], 'DUPk'))):
+            self.assertNotIn('error', reading, when)
+            self.assertEqual((reading['id'], reading['status']), (self.ids['DUPk'], 'accepted'), when)
+        for label in ('R2', 'R3', 'R4', 'DUPa', 'DUPb', 'DUPk'):
             index, anchor = LABELS[label]
             want = 2 if label == 'DUPa' else 1
             self.assertEqual(plan.show(Ledger(self.projects[index], rolled['state']), anchor)['latest_revision'], want, label)

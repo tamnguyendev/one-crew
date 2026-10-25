@@ -362,6 +362,21 @@
      "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e6_accepted_r4_and_dupk_refuse_amend_and_p1_dup_changes_only_by_dupa",
      "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e6_propose_dup_from_p2_refused_and_propose_r2_creates_a_new_legacy_root"
     ],
+    "E7": [
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e7_roll_forward_keeps_ids_revisions_evidence_and_budget",
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e7_roll_forward_continues_r3",
+     "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e7_plan_show_r2_in_p2_names_both_anchors_and_explicit_anchors_work",
+     "tests.test_wf_r7_dupk.DupkReadable.test_counter_pre_fix_rule_reads_p1_file_and_fails_with_the_hash_text",
+     "tests.test_wf_r7_dupk.DupkReadable.test_dupk_show_reads_p3_files_and_the_hash_matches",
+     "tests.test_wf_r7_dupk.DupkReadable.test_dupa_still_reads_the_shared_path_exactly_as_before",
+     "tests.test_wf_r7_dupk.DupkReadable.test_digest_shows_dupk_with_real_milestones",
+     "tests.test_wf_r7_dupk.DupkReadable.test_dupk_verdict_runs_and_is_accepted_on_its_own_files",
+     "tests.test_wf_r7_dupk.DupkReadable.test_dupk_amend_writes_only_its_own_directory_and_active_file",
+     "tests.test_wf_r7_dupk.DupkReadable.test_reads_other_root_warning_for_dupa_stays_a_warning",
+     "tests.test_wf_r7_dupk.DupkReadable.test_mutant_per_project_file_absent_fails_naming_the_project_not_p1_file",
+     "tests.test_wf_r7_dupk.DupkReadable.test_mutant_identical_content_in_p1_does_not_make_p1_file_dupk",
+     "tests.test_wf_r7_dupk.DupkReadable.test_legacy_root_with_a_namespaced_peer_in_its_project_and_no_directory_is_refused"
+    ],
     "E12": [
      "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e7_roll_forward_keeps_ids_revisions_evidence_and_budget",
      "tests.test_wf_r7_t49d.T49dRollbackRollForward.test_e12_counter_a_roll_forward_that_resets_spent_budget_is_red",
@@ -374,13 +389,13 @@
    },
    "uncovered": {
     "E5": "Needs the installed drill. The evidence is the rollback SCRIPT's exit code and message per N1-N4/N7 and the package list of the new venv before/after. No per-state rollback script with an exit code exists (the gate is tests/wf_rollback.rollback_drill and wfkit/upgrade_drill.guard_swap, functions returning dicts; `python -m wfkit.upgrade_drill` runs only its own generated fixture), and building wheels/venvs is forbidden in this round's machine window. Supporting only: tests.test_wf_namespace_compat.NamespaceCompatTests.test_n1_to_n7_gate_branches (remaining block set and ran=False per case on the gate function).",
-    "E7": "Real gap found, not fixed (needs a decision). The current code cannot read DUPk (anchor plan:dup of P3, file at plans/<P3>/dup/) even BEFORE any rollback: `plan show` refuses with 'revision 1 does not match the recorded hash' (it reads P1's plans/dup/v1.json) and `plan digest` shows it as 'mốc ?/?'. So 'mọi root đọc được bằng bản mới' does not hold for DUPk. The rest of E7 is proven by tests.test_wf_r7_t49d: test_e7_roll_forward_keeps_ids_revisions_evidence_and_budget (rows and files kept; only R1, DUPa and the new plan:r2 grew; budget = before + the run the old version recorded for R1; R1's revision 2 read), test_e7_roll_forward_continues_r3, test_e7_plan_show_r2_in_p2_names_both_anchors_and_explicit_anchors_work. DUPk is asserted only as 'read the same way before and after'. Rollback/roll-forward there is the archived d3120c6 code against the checkout, not an installation swap.",
     "E16": "No rollback report with per-root lines exists to check. The gate returns the scan itself, and the only rollback receipt is wfkit.upgrade_drill's receipt.json, written by the installed drill on its own generated fixture (not S2, no lost/read-OK/diagnosed-by-old labels). A report produced by a real installed rollback on S2, plus a report-check script for it, are missing (product/kit gap); the installed run is also forbidden in this window."
    },
-   "scope": "S2 of tests.test_wf_namespace_compat (seven roots, three projects) with the unmodified archive of d3120c6 as the old code: N5 and N6 scan 0 with the receipt hash equal to the ledger at rollback start; after N5 the old code continues R1, answers No plan named for R2/R3/DUPb, refuses amend on accepted R4/DUPk (P1's plans/dup/ changes only through the DUPa amend), refuses propose dup and creates plan:r2 from P2; roll-forward by the checkout keeps every row and file. No installation swap (E5) and no rollback report (E16).",
-   "new_modules": ["tests/test_wf_r7_t49d.py"],
+   "scope": "S2 of tests.test_wf_namespace_compat (seven roots, three projects) with the unmodified archive of d3120c6 as the old code: N5 and N6 scan 0 with the receipt hash equal to the ledger at rollback start; after N5 the old code continues R1, answers No plan named for R2/R3/DUPb, refuses amend on accepted R4/DUPk (P1's plans/dup/ changes only through the DUPa amend), refuses propose dup and creates plan:r2 from P2; roll-forward by the checkout keeps every row and file. No installation swap (E5) and no rollback report (E16). Round 7 E: DUPk is read, verdict-run, accepted and amended by the new code on plans/<P3>/dup/ (tests.test_wf_r7_dupk).",
+   "e7_fix": "Round 7 branch E (wf/r7-e) fixed the gap C1 recorded under uncovered.E7 ('revision 1 does not match the recorded hash' on DUPk; 'mốc ?/?' in plan digest): namespaces.legacy_location maps a `plan:` anchor to its OWN project's files. The shared plans/<name>/ belongs to the earliest plan:<name> anchor of the ledger (DUPa, unchanged); another project's plan:<name> (DUPk) reads plans/<its project_id>/<name>/ and never another project's file, even a same-hash one. test_e7_roll_forward_keeps_ids_revisions_evidence_and_budget now requires DUPk readable (accepted, own id) before and after the rollback instead of 'read the same way'. See docs/wf/r7-e-notes.md.",
+   "new_modules": ["tests/test_wf_r7_t49d.py", "tests/test_wf_r7_dupk.py"],
    "changed_pinned_files": [],
-   "product_fixes": []
+   "product_fixes": ["onecrew/v2/namespaces.py (legacy_location; plan_dir and active_file use it)", "onecrew/v2/contract.py (read_revision: a missing per-project file names the project)"]
   }
  ]
 }
