@@ -358,6 +358,24 @@ def decide(bundle, root='.', allow_simulated=False):
             shown = set(text.splitlines())
             lacking = [line.split(':', 2)[0][2:] + ':' + line.split(':', 2)[1] for line in render(states) if line not in shown]
             require(not lacking, 'RP matrix rendering lacks the status/reason line of: ' + ', '.join(lacking))
+            # T40c [E30] (round 8 H): the contract's provider/model decisions before the subset and after the provider verdict, recorded with
+            # their hash and pin provenance, are identical to each other and to the delivered rows; the notes state it with the hash.
+            from wfkit import provider_evidence as pe
+            recorded = provider_bundle.get('decisions')
+            require(isinstance(recorded, dict) and isinstance(recorded.get('before'), dict) and isinstance(recorded.get('after'), dict),
+                    'RP: E30 evidence missing: the contract decisions before/after the RP delivery decision (provider_bundle.decisions.before/after)')
+            before, after = pe.verify_decisions(recorded['before'], 'before'), pe.verify_decisions(recorded['after'], 'after')
+            changed = pe.decision_changes(before, after)
+            require(not changed, 'RP: contract decisions changed between before and after the delivery decision (' + pe.DECISION_CHANGED + '): '
+                    + '; '.join(changed))
+            sources = {evidence.read(item['original']).get('pins_source') for item in provider_bundle['comparison']['items']}
+            require(sources == {after['pins_source']}, 'RP: the recorded pins_source is not the one the cell receipts name: '
+                    + repr(after['pins_source']) + ' vs ' + ', '.join(sorted(map(repr, sources))))
+            delivered = pe.decision_changes(after, pe.decisions(provider_bundle['providers'], after['pins_source']))
+            require(not delivered, 'RP: the delivered provider rows differ from the recorded contract decisions (' + pe.DECISION_CHANGED + '): '
+                    + '; '.join(delivered))
+            require(pe.decisions_line(after) in shown, 'RP notes: the line "quyết định hợp đồng trước/sau: không đổi" with the decision hash '
+                    + after['sha256'] + ' is missing')
             require(row['p1_count'] == len(eligible) and row['p1_label'] == 'subset', 'release cannot claim program P1.0 full')
     check('T54.5', notes)
     proves = 'validator rules only; no release or pilot execution' if fixture else 'supplied T54 observations validated; not owner acceptance'

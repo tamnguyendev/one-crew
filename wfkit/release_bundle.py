@@ -47,7 +47,7 @@ from onecrew.v2 import compat
 from tests import wf_oldversion as old
 from tests import wf_rollback as rollback
 from tests import wf_wheel as wheel
-from wfkit import release_check
+from wfkit import provider_evidence, release_check
 from wfkit import gate_history as history
 from wfkit.upgrade_drill import Drill, ROOT, sha, build_source
 from tests import wf_scenarios as scenarios
@@ -353,6 +353,11 @@ class Producer(Drill):
         (self.out / 'bundle.json').write_text(json.dumps(bundle, ensure_ascii=False, indent=1), encoding='utf-8')
         verdict = release_check.decide(bundle, self.out, allow_simulated=False)
         verdict['drill_receipt'] = str(self.out / 'receipt.json'); verdict['bundle'] = str(self.out / 'bundle.json')
+        if self.release == 'RP':                                  # T40c [E30]: the decisions once more after the verdict; a change refuses
+            verdict['contract_decisions'] = self.decisions_after_verdict()
+            if not verdict['contract_decisions']['unchanged']:
+                verdict['decision'] = 'refused'; verdict['conditions']['T54.5'] = False
+                verdict['reasons'].append({'code': 'T54.5', 'detail': 'RP: ' + provider_evidence.DECISION_CHANGED + ' after the release-check verdict'})
         (self.out / 'release-check.json').write_text(json.dumps(verdict, ensure_ascii=False, indent=1), encoding='utf-8')
         return verdict
 
@@ -621,6 +626,10 @@ _RESULT = out
             raise LedgerError('RP needs --matrix <wfkit.provider_matrix output>: the six provider cells must be real receipts (W45)')
         matrix = json.loads((self.matrix_dir / 'matrix.json').read_text(encoding='utf-8'))
         source = {'commit': matrix['commit'], 'wheel_sha256': matrix['wheel_sha256']}
+        # T40c [E30] (round 8 H): the contract's provider/model decisions BEFORE the subset is computed: the pins of the matrix rows (the one pin
+        # source, wfkit.provider_matrix.pins) with the provenance the cell receipts record (`pins_source`; program kit while the contract is not approved).
+        self.pins_source = self.matrix_pins_source(matrix)
+        before = provider_evidence.decisions(matrix['rows'], self.pins_source)
         # HL validity (03 §5.2, review a2476ab §9): a cell receipt is evidence of the build it ran on. When this bundle's artifact is another
         # build, the receipts keep their own identity (never re-hashed), the source artifact is the matrix build, and the shared evaluator
         # gives `recheck` for every pass without a comparison proving the cell's path unchanged — not `usable`. No paid provider is re-run here.
@@ -633,7 +642,6 @@ _RESULT = out
             if hashlib.sha256(dst.read_bytes()).hexdigest() != item['original']['sha256']: raise LedgerError('matrix receipt hash changed: ' + item['id'])
             items.append({'id': item['id'], 'original': {'path': dst.relative_to(self.out).as_posix(), 'sha256': item['original']['sha256']}, 'supplements': []})
         rows = [{k: v for k, v in row.items() if k not in ('receipt',)} for row in matrix['rows']]
-        from wfkit import provider_evidence
         from wfkit.finalgate import evidence_status
         reader = release_check.Receipts(self.out, False)
         for row, item in zip(rows, items):                       # the status claimed for THIS artifact is what the shared rule gives, never the old label
@@ -641,15 +649,37 @@ _RESULT = out
             row['status'] = evidence_status(reader.read(item['original']), [], self.identity('current'), None, row['id'])['status']
         states = provider_evidence.evaluate(rows, items, reader, source, self.identity('current'), None)
         eligible = sorted(k for k, st in states.items() if st['status'] == 'usable')
+        # [E30] AFTER the provider verdict and the subset: the same record from the rows this bundle delivers; any change stops the producer.
+        after = provider_evidence.decisions(rows, self.pins_source)
+        changed = provider_evidence.decision_changes(before, after)
+        if changed: raise LedgerError('RP: ' + provider_evidence.DECISION_CHANGED + ' during the delivery decision: ' + '; '.join(changed))
+        self.decisions_before = before
+        (target / 'decisions.json').write_text(json.dumps({'before': before, 'after': after}, ensure_ascii=False, indent=1), encoding='utf-8')
         bundle = {'artifacts': {'final': self.identity('current'), 'pilot': source}, 'providers': rows, 'comparison': {'items': items},
+                  'decisions': {'before': before, 'after': after},
                   'source': {'matrix': str(self.matrix_dir / 'matrix.json'), 'at': matrix['at'], 'task': 'W45', 'same_build': inherited,
                              'note': None if inherited else 'matrix receipts are evidence of build ' + source['commit'][:12] + '; for this build every passed cell is `recheck` until W45 runs on it (owner permission for that run)'}}
         # T40c [E29]: the matrix file delivered with RP renders every cell (usable: validity + origin hash; other: status + reason).
-        rendered = chr(10).join(provider_evidence.render(states)) + chr(10)
+        rendered = chr(10).join(provider_evidence.render(states) + [provider_evidence.decisions_line(after)]) + chr(10)
         (target / 'cells.md').write_text(rendered, encoding='utf-8')
         notes = {'provider_states': states, 'subset': eligible, 'p1_count': len(eligible), 'p1_label': 'full' if len(eligible) == 6 else 'subset',
                  'matrix_markdown': rendered}
         return bundle, notes
+
+    def matrix_pins_source(self, matrix):
+        """The provenance of the pins, as every cell receipt of the matrix records it (one value, never invented here)."""
+        sources = {json.loads((self.matrix_dir / item['original']['path']).read_text(encoding='utf-8')).get('pins_source') for item in matrix['items']}
+        if len(sources) != 1 or not all(isinstance(v, str) and v.strip() for v in sources):
+            raise LedgerError('RP: E30 evidence missing: the matrix receipts do not name one pins_source: ' + ', '.join(sorted(map(repr, sources))))
+        return sources.pop()
+
+    def decisions_after_verdict(self):
+        """[E30] once more AFTER the RP release-check verdict: the matrix pins re-read from the matrix output compared with the record taken
+        before the subset (written into release-check.json)."""
+        matrix = json.loads((self.matrix_dir / 'matrix.json').read_text(encoding='utf-8'))
+        again = provider_evidence.decisions(matrix['rows'], self.matrix_pins_source(matrix))
+        return {'before_sha256': self.decisions_before['sha256'], 'after_verdict_sha256': again['sha256'],
+                'unchanged': not provider_evidence.decision_changes(self.decisions_before, again)}
 
     def point_notes(self):
         path = NOTES_DIR / f'{self.release}.md'
