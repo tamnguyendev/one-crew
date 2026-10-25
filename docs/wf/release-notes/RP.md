@@ -33,13 +33,13 @@ Những gì bản dựng này làm được, theo task của release (rút gọn
 
 - Registry RP: complete 1, partial 2, blocked 1 (`python -m wfkit.development_gate list`).
 - Gate development trên một wheel: gate 6366137: 213/213 check implementation đạt, 0 skip (1 716 lượt test cộng dồn, 1 351 test id); refused chỉ vì acceptance-partial 49 + acceptance-blocked 10.
-- Bundle T54 thật (`wfkit.release_bundle`, kết quả `release_check`: **refused**; bundle `C:\Users\NUC\AppData\Local\Temp\wf-bundles-6366137\RP\bundle.json`):
+- Bundle T54 thật (`wfkit.release_bundle`, kết quả `release_check`: **refused**; bundle `C:\Users\NUC\AppData\Local\Temp\wf-bundles-6366137-rp\RP\bundle.json`):
   - INPUTS — lịch sử cổng giao của bản trước: không đạt — previous delivered gate history missing
   - T54.1 — kịch bản chạy từ bản cài: đạt (biên nhận thật)
   - T54.2 — nâng cấp giữ ID/ngân sách/evidence/attempt: đạt (biên nhận thật)
   - T54.3 — lớp sự kiện, S/G/C bản cũ: đạt (biên nhận thật)
   - T54.4 — rollback từ chối/cho phép, roll-forward: đạt (biên nhận thật)
-  - T54.5 — ghi chú bốn trạng thái: không đạt — comparison missing
+  - T54.5 — ghi chú bốn trạng thái: đạt (biên nhận thật)
   - Bản trước trong bundle là d3120c6 (baseline mà `compat scan` mô hình), KHÔNG phải bản đã giao: chưa có release nào của chương trình được giao, nên điều kiện INPUTS chỉ có thể đạt sau khi chủ sở hữu giao một release (điều kiện ngoài).
 - Không ghi "đã giao", "Codex đã review" hay "chủ sở hữu đã nghiệm thu".
 
