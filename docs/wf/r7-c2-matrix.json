@@ -265,7 +265,7 @@
   {
    "release": "RP",
    "case": "T40c",
-   "proposed_status": "partial",
+   "proposed_status": "complete",
    "evidence_matrix": {
     "E34": [
      "tests.test_wf_r7_t40c.T40cSubsetTests.test_e34_x7_codex_reviewer_pass_on_another_build_without_inheritance_is_refused_naming_the_cell"
@@ -297,6 +297,13 @@
      "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_an_unusable_cell_without_its_reason_is_refused_naming_the_cell"
     ],
     "E30": [
+     "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_valid_case_k_passes_and_the_notes_carry_the_unchanged_decisions_line_with_the_hash",
+     "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_kiro_pins_changed_between_before_and_after_are_refused_naming_kiro",
+     "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_bundle_without_the_before_after_decision_record_is_refused",
+     "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_a_record_whose_hash_or_provenance_disagrees_is_refused",
+     "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_the_delivered_rows_must_equal_the_recorded_decisions",
+     "tests.test_wf_r7_t40c.T40cProducerDecisionTests.test_e30_the_producer_records_before_and_after_and_the_notes_line",
+     "tests.test_wf_r7_t40c.T40cProducerDecisionTests.test_e30_a_pin_changed_during_the_rp_decision_stops_the_producer_naming_the_cell",
      "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_e35_case_k_four_cell_subset_is_delivered_with_kiro_unverified_and_pins_unchanged",
      "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_every_cell_that_is_not_usable_carries_its_status_and_reason",
      "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_the_notes_render_each_cell_with_its_status_and_reason_and_a_dropped_reason_is_refused"
@@ -306,14 +313,14 @@
      "tests.test_wf_r7_t40c.T40cSubsetTests.test_e33_x6_refusal_says_the_subset_contains_a_cell_not_passed_and_names_it"
     ]
    },
-   "uncovered": {
-    "E30": "Four-cell subset, kiro \"chưa dùng được: thiếu tài khoản\" in the rendered notes, RP pass and unchanged provider/model pins are proven; \"decisions của hợp đồng trước/sau: không đổi\" is not observable locally: the RP bundle carries no contract."
-   },
+   "uncovered": {},
    "scope": "Simulated receipts on the fixture bundle of tests.test_wf_release_check (validator rules only; no provider called). E37-E39 go through the same shared evaluator (wfkit.provider_evidence.evaluate / finalgate.evidence_status) at CG-KET in the T55 cases, which also pin the published T40c set to the eligible set (KQ7).",
    "new_modules": [
     "tests/test_wf_r7_t40c.py"
    ],
    "changed_pinned_files": [
+    "tests/test_wf_r7_t40c.py",
+    "tests/test_wf_release_check.py",
     "wfkit/finalgate.py",
     "wfkit/provider_evidence.py",
     "wfkit/release_check.py"
@@ -328,6 +335,11 @@
      "file:line": "wfkit/finalgate.py:152-184; wfkit/provider_evidence.py:42-56; wfkit/release_check.py:340-360; wfkit/release_bundle.py:647-652",
      "what": "Round 7 D: every non-usable cell state carries its reason; provider_evidence.render gives one line per cell (usable: validity + origin hash; other: status + reason); RP notes must carry matrix_markdown with every line; x6 refused as \"subset chứa ô chưa đạt\" naming the cell and status. Pinned files: repin needed.",
      "counter-example test": "tests.test_wf_r7_t40c.T40cSubsetTests.test_e33_x6_refusal_says_the_subset_contains_a_cell_not_passed_and_names_it"
+    },
+    {
+     "file:line": "wfkit/provider_evidence.py:61-107; wfkit/release_check.py:361-378; wfkit/release_bundle.py:356-361,629-684",
+     "what": "Round 8 H [E30]: the RP bundle records the contract provider/model decisions per cell (kiro pins included) with the receipts' pins_source (program kit, contract not yet approved) and a sha256, before the subset and after the provider verdict (provider_bundle.decisions + provider-matrix/decisions.json; once more after the release-check verdict in release-check.json); the RP check refuses a missing record (\"E30 evidence missing\"), a hash/provenance mismatch, any before/after or delivered-row change naming the cell (\"quyết định hợp đồng trước/sau đã đổi\"), and requires the notes line \"quyết định hợp đồng trước/sau: không đổi (sha256 …)\". Pinned files: repin needed. Notes: docs/wf/r8-h-notes.md.",
+     "counter-example test": "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_kiro_pins_changed_between_before_and_after_are_refused_naming_kiro"
     }
    ]
   },

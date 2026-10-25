@@ -197,15 +197,18 @@ class ReleaseCheckTests(unittest.TestCase):
                      'cli_sha256':'e'*64,'cli_files':{'fixture.exe':'e'*64},'status':'usable' if usable else 'unverified'}
                 rows.append(row)
                 original=self.receipt(kind='behavior',item=key,provider=provider,role=role,model=row['model'],vendor=row['vendor'],
-                    result='pass' if usable else 'blocked',reason='fixture account absent',
+                    result='pass' if usable else 'blocked',reason='fixture account absent',pins_source='fixture program kit',
                     cli_identity={'provider':provider,'path':'fixture.exe','argv':['fixture.exe'],'sha256':'e'*64,
                                   'files':row['cli_files'],'version':'fixture-1'})
                 items.append({'id':key,'original':original,'supplements':[]})
-        self.bundle['provider_bundle']={'artifacts':{'pilot':self.current,'final':self.current},'providers':rows,'comparison':{'items':items}}
+        from wfkit.provider_evidence import decisions, decisions_line, render   # round 8 H (T40c [E30]): decisions before/after + notes line
+        record=decisions(rows,'fixture program kit')
+        self.bundle['provider_bundle']={'artifacts':{'pilot':self.current,'final':self.current},'providers':rows,'comparison':{'items':items},
+                                        'decisions':{'before':record,'after':record}}
         states=check.providers(rows,items,check.Receipts(self.root,True),self.current,self.current)
-        from wfkit.provider_evidence import render       # round 7 D (T40c [E29]): the notes carry the rendered per-cell lines
+        # round 7 D (T40c [E29]): the notes carry the rendered per-cell lines
         self.change('notes',lambda r:r.update(provider_states=states,subset=['codex:advisor'],p1_count=1,p1_label='subset',
-                                              matrix_markdown=chr(10).join(render(states))))
+                                              matrix_markdown=chr(10).join(render(states)+[decisions_line(record)])))
         self.assertEqual(self.result()['decision'],'pass',self.result())
         self.change('notes',lambda r:r.update(subset=['codex:advisor','kiro:reviewer']))
         self.refused('T54.5')
