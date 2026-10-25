@@ -26,7 +26,7 @@ class CandidateFixture(EngineFixture):
         selected = self.milestones(); self.check_ids = [row['id'] for row in selected]
         value = plan_json(milestones=selected, authority={
             'edit': True, 'commands': True, 'apply_to_project': True, 'unconfined_commands': True,
-            'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q9', 'Q12']})
+            'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']})
         self.root_view = plans.propose(self.ledger, 'P1', value, 'codex', workflow=True, capabilities=self.engine_caps)
         plans.approve(self.ledger, 'P1', 'owner', 'fixture approved command and apply')
         os.environ['ONECREW_ACTOR'] = 'codex'

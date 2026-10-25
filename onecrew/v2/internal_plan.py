@@ -94,22 +94,40 @@ def decide(ledger, state, contract, sha, action, ctx, component, key=None):
     return decision
 
 
+NO_GRANT, DELEGATED, NOT_DELEGATED = 'no_workflow_grant', 'delegated', 'not_delegated'
+
+
 def self_decided(ledger, selector, q, nodes, component, *, key, **facts):
-    """T16b [E6]: the HD-05 record of a class OneCrew decides without a separate call site of its own (Q5 repair, Q8 finding hold,
-    Q10 outcome), through the same decide() as Q1/Q2/Q4/Q9 (authority.decide -> authority.record -> decisions.record). The grant is
-    the root's APPROVED revision (an ended root keeps it, so Q10 can be recorded after plan.closed). `key` makes the record idempotent
-    for the same subject. Returns the record, or None when the root does not delegate `q` in `self_decide` (a root with no workflow
-    grant: nothing is recorded and the caller's behaviour is unchanged); out of authority raises, like decide()."""
+    """T16b [E6] / round 8 G: the authority verdict of a class OneCrew acts on without a call site of its own (Q5 repair, Q8 finding hold,
+    Q10 outcome), through the same authority.decide/record as Q1/Q2/Q4/Q9. The grant is the root's APPROVED revision (an ended root keeps
+    it, so Q10 can be recorded after plan.closed). `key` makes the record idempotent for the same subject.
+
+    Returns {'delegation', 'decision', 'result', 'action', 'ctx'} and never decides FOR the caller what to do next - the three classes differ (r8-g notes):
+      * NO_GRANT (no approved revision, or a root whose contract has no `authority` field - a legacy/schema-2 root, authority.effective
+        'declared' False): nothing is recorded, the caller keeps its pre-T16b behaviour (compatibility, unchanged);
+      * DELEGATED (`q` in grant.self_decide): the HD-05 record through decide(); a delegated class that is still out of authority (e.g. the
+        repair ceiling, U2) raises like decide();
+      * NOT_DELEGATED (a declared workflow grant that does not list `q`): the U3 out-of-authority verdict is RECORDED (authority.record, the
+        same HD-05 record) and returned, not raised: Q5 must then hold and ask instead of repairing, Q8 keeps its safety hold, Q10 keeps
+        its evidence. The old `None` that let every caller go on is gone."""
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, selector)
-        if not state or not state.get('approved'): return None
+        if not state or not state.get('approved'): return {'delegation': NO_GRANT, 'decision': None, 'result': None}
         contract, sha = plans.load(ledger, state, state['approved']['revision'])
-        if q not in authority.effective(contract)['self_decide']: return None
+        grant = authority.effective(contract)
+        if not grant['declared']: return {'delegation': NO_GRANT, 'decision': None, 'result': None}
         try:
             ctx = ceilings(ledger, conn, state)
         except LedgerError:
             ctx = {}
-    return decide(ledger, state, contract, sha, dict(facts, kind='decision', q=q, nodes=sorted(nodes)), ctx, component, key=key)
+    action = dict(facts, kind='decision', q=q, nodes=sorted(nodes))
+    if q in grant['self_decide']:
+        return {'delegation': DELEGATED, 'decision': decide(ledger, state, contract, sha, action, ctx, component, key=key),
+                'result': {'in_authority': True, 'class': None, 'q': q}, 'action': action, 'ctx': ctx}
+    result = authority.decide(contract, action, ctx)                      # U3: '<q> is not delegated to OneCrew by this root'
+    decision = authority.record(ledger, state['task_id'], contract, action, result, name=state['selector'],
+                                revision_sha=sha, component=component, key=key)
+    return {'delegation': NOT_DELEGATED, 'decision': decision, 'result': result, 'action': action, 'ctx': ctx}
 
 
 def _checks(nodes):

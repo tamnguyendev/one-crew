@@ -18,7 +18,7 @@ class ParallelFixture(EngineFixture):
         Fixture.setUp(self)
         self.engine,self.ip=engine,internal_plan
         self.engine_caps=['namespaced-storage','root-budget','internal-plan','sequential-engine','parallel-engine']
-        raw=plan_json(scope={'owned':['a.txt','b.txt']},authority={'edit':True,'commands':True,'self_decide':['Q1','Q2','Q3','Q4','Q9','Q12']})
+        raw=plan_json(scope={'owned':['a.txt','b.txt']},authority={'edit':True,'commands':True,'self_decide':['Q1','Q2','Q3','Q4','Q5','Q9','Q12']})
         self.root_view=plan.propose(self.ledger,'P1',raw,'codex',workflow=True,capabilities=self.engine_caps)
         plan.approve(self.ledger,'P1','owner','bounded temporary parallel fixture')
         os.environ['ONECREW_ACTOR']='codex'

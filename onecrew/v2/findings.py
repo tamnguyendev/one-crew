@@ -315,18 +315,26 @@ def after_change(ledger, name):
     return []
 
 
+REOPEN = 'the finding closes through the register only: resolve on a passing receipt or reject with evidence (HD-25)'
+
+
 def hold_decided(ledger, name, opened, receipt, definition=None):
-    """T16b [E6]: Q8 - the newly opened findings hold exactly their affected scope (finding_scope.blockers, the engine's own
-    projection) - leaves its HD-05 record through internal_plan.self_decided (the one decide()). Written after the register change has
-    committed; like after_change, a failure here never undoes that change, it is reported on stderr. None when the root does not delegate
-    Q8 or nothing is held."""
+    """T16b [E6] / round 8 G: Q8 - the newly opened findings hold exactly their affected scope (finding_scope.blockers, the engine's own
+    projection). The hold is the SAFE default (HD-25: the affected branch takes no new work) and it is in force before this runs: it is a
+    projection of the committed register, never skipped for lack of delegation. What needs authority is the opposite move - continuing
+    despite a finding - and OneCrew has no such move: the branch reopens only when the register closes the finding (REOPEN), and
+    engine.resume_held refuses while it is open. So this only RECORDS, through internal_plan.self_decided (the one decide()):
+    delegated -> the HD-05 record; a workflow grant that does not delegate Q8 -> the U3 out-of-authority record of the same safety hold
+    (scope, reopen condition), no request card (a `continue` card could not reopen a finding-held branch); a root with no workflow
+    grant -> nothing new, as before. Written after the register change has committed; like after_change, a failure here never undoes
+    that change, it is reported on stderr. Returns the self_decided verdict, or None when nothing is held."""
     from . import finding_scope, internal_plan
     try:
         nodes = definition if definition is not None else ((internal_plan.current(ledger, name).get('definition') or {}).get('nodes') or [])
         held = sorted(nid for nid, ids in finding_scope.blockers(ledger, name, nodes).items() if set(ids) & set(opened))
         if not held: return None
         return internal_plan.self_decided(ledger, name, 'Q8', held, 'onecrew.findings', key='q8-hold-' + receipt[:48],
-                                          findings=sorted(opened), evidence=[receipt])
+                                          findings=sorted(opened), evidence=[receipt], hold='safety', reopen=REOPEN)
     except (LedgerError, OSError, ValueError) as error:
         import sys
         print('OneCrew Q8 hold decision not recorded: ' + type(error).__name__ + ': ' + str(error)[:200], file=sys.stderr)

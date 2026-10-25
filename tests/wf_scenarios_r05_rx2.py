@@ -15,7 +15,7 @@ from onecrew.control_core import Control, migrate
 from onecrew.snapshots import Snapshots
 from onecrew.v2 import plan, engine, internal_plan, questions, findings, verdict
 from onecrew.v2.verifiers import command as vcommand
-SELF_DECIDE = ['Q1', 'Q2', 'Q3', 'Q4', 'Q8', 'Q9', 'Q12']
+SELF_DECIDE = ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q8', 'Q9', 'Q12']
 def node(nid, dependencies=(), integration=False, write=('a.txt',), read=('a.txt',), checks=None):
     return {'id': nid, 'goal': 'Produce evidence for O1', 'input': [], 'output': ['Evidence for O1'], 'acceptance': ['O1'],
             'depends': [{'node': up, 'requires': 'verified'} for up in dependencies], 'read': list(read), 'write': list(write), 'resources': [],

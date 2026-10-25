@@ -15,7 +15,7 @@ class InstalledNodeActionsTests(installed_fixture.InstalledFeaturesTests):
     def test_installed_preparation_then_failed_first_bounded_repair(self):
         value = plan_json(scope={'owned': ['a.txt', 'b.txt']}, authority={
             'edit': True, 'commands': True, 'edit_tests': True,
-            'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q9', 'Q12']})
+            'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']})
         definition = [node('A'), node('I', ['A'], integration=True, write=())]
         self.check_body('''
 import contextlib, io, json, os, subprocess, tempfile
