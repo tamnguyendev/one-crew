@@ -1,9 +1,11 @@
 """The budget reads shared by the ledger and v2 (core): the current grant of a task, the shared goal / delivery budget it belongs to.
 Moved here from budget.py, goal_budget.py and delivery_store.py so that the core imports no v1 module; those modules import these
 names back, so there is one source. Only reads live here: extensions (budget.extend / remove_deadline) and goal budgets
-(goal_budget.create) stay v1."""
+(goal_budget.create) stay v1. watch_policy (the effort-warning thresholds of a versioned intake policy) moved here from budget_policy.py
+for the same reason: v1 effort_watch/owned and the v2 root warning (v2.estimates.warn_budget) use this one implementation."""
 import datetime as dt
 import json
+import math
 
 from .ledger import LedgerError, content_hash
 
@@ -192,3 +194,13 @@ def cancellation_status(task_id, execution, budget):
     if execution['cancel_requested'] and goal and goal['owner_task_id'] == task_id:
         return 'cancelling' if goal['active_attempts'] else 'cancelled'
     return execution['status']
+
+
+def watch_policy(policy, calls, seconds):
+    """The call/second thresholds at which the effort warning fires: ceil(limit x warning_fraction) of a version-2 policy (task_intake.POLICY);
+    any other policy keeps the old fixed 20 calls / 600 seconds."""
+    if not policy or policy.get('version') != 2:
+        return {'calls': 20, 'seconds': 600}
+    return {'version': 2, 'fraction': policy['warning_fraction'],
+            'calls': max(1, math.ceil(calls * policy['warning_fraction'])),
+            'seconds': max(1, math.ceil(seconds * policy['warning_fraction']))}

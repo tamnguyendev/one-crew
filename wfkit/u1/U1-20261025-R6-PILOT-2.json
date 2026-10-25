@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R6-PILOT-2",
+ "file": "tests/test_wf_pilot_tools.py",
+ "old_sha256": "23b362784a6172666eb060bcacb3d16910ab11fd58456ef43bff259403ebb7db",
+ "new_sha256": "2bc2da0c468c63ee6ff2ff59817d003d0ea9d88f391c3dac9b2a1c08e7356d9b",
+ "reason": "Round 6 (Codex P2): the aggregate (T35c, PL-B) generator exists on the same pipeline as the interim report; check_report gains identity rules (duplicate job, wrong scope/artifact, contradiction, forged figure, synthetic claiming real) and the stricter target-status rule (đạt needs 10/10 data); the fixture report carries provenance and figures_sha256. Strictly stronger.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 5 sau xác nhận Codex 3 P1 + 2 P2): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 5 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

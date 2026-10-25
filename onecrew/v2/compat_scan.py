@@ -341,7 +341,7 @@ def scan(state_root):
             if state_root.exists() and (not state_root.is_dir() or any(state_root.iterdir())):
                 raise LedgerError('Ledger is absent but state-root data exists; cannot diagnose this as a fresh empty ledger.')
             return {'state_root': str(state_root), 'old_version': OLD_REVISION, 'ledger_sha': None, 'roots': [],
-                    'blocking': {'read': 0, 'continue': 0, 'total': 0}, 'misread_cells': [], 'read_only': True,
+                    'blocking': {'read': 0, 'continue': 0, 'total': 0}, 'misread_cells': [], 'warnings': [], 'read_only': True,
                     'inputs_sha': content_hash({}), 'input_hashes': {}}
         before = _ledger_sha(state_root)
         anchors = report._anchors(state_root)
@@ -373,6 +373,7 @@ def scan(state_root):
         'roots': roots,
         'blocking': {'read': len(read_blocks), 'continue': len(continue_blocks), 'total': len(read_blocks) + len(continue_blocks)},
         'misread_cells': misread,
+        'warnings': [dict(cell, message=_warning_text(cell)) for cell in misread],      # not blockers: see _old_report_misreads
         'read_only': True,
         'inputs_sha': content_hash(inputs), 'input_hashes': inputs,
     }
@@ -385,27 +386,44 @@ def _old_report_misreads(rows, roots):
     """The d3120c6 `plan report <name>` ignores --project: report._lookup takes every `plan:<name>` anchor of the WHOLE state root
     (`LIKE 'plan:%'`, ordered created_at, id; `plan-ns:` never matches) and renders the LAST one. So for a `plan-ns:` root whose
     project has no newer legacy peer, the old report is not refused: it prints the report of another project's `plan:` root under
-    this name. That cell is a blocking risk of its own kind (đọc nhầm root khác), neither 'refused' nor 'readable'. `plan show`,
-    `amend` and `verdict run` resolve inside the project and are unchanged."""
+    this name. The same lookup misreads a LEGACY `plan:` root too when a newer `plan:<name>` of another project exists (S2: DUPa's
+    report from P1 prints DUPk of P3). That cell is labelled reads_other_root (đọc nhầm root khác), neither 'refused' nor 'readable'.
+    `plan show`, `amend` and `verdict run` resolve inside the project and are unchanged.
+
+    Decided 25/10 round 6 under delegated authority: reads_other_root is a WARNING, not a rollback blocker, and is not counted in
+    `blocking.total`. Sources: 00 §6.1 / 05 T49 "Hai loại điều kiện chặn" — chặn đọc = "bản cũ không đọc được lịch sử của root (crash)",
+    chặn tiếp tục = "bản cũ đọc được nhưng sẽ tiếp tục sai (trạng thái sai, bỏ qua intent, ghi sang chỗ khác)"; the blocker set is B1–B4
+    ("Rollback chỉ chạy khi không còn điều kiện chặn B1–B4"); the report misread writes nothing and continues nothing (plans/ hash unchanged
+    on the real old binary), so it is neither. T49c [E21] pins "DUPb chỉ được bảo toàn, 'tên trùng, không chặn'" and T49d N5/N6 require the
+    rollback to succeed with DUPb still open. It is surfaced instead: `warnings` in the report, a WARNING line in `compat scan`'s table,
+    and the scan JSON that the rollback drill embeds in its receipt (wfkit/upgrade_drill: rejected/allowed.scan)."""
     by_id = {r['id']: root for r, root in zip(rows, roots)}
+    outcomes = {r['id']: by_id[r['id']]['commands']['plan report'] for r in rows}      # before any cell is rewritten
     found = []
     for row, root in zip(rows, roots):
-        if not row['request_key'].startswith(namespaces.NAMESPACED):
-            continue
         name = root['name']
-        legacy = [r for r in rows if r['request_key'] == namespaces.LEGACY + name]
-        if not legacy or legacy[-1]['project_id'] == row['project_id']:
-            continue                       # no legacy root (refused) or this project's own legacy peer (legacy_peer text)
+        legacy = [r for r in rows if r['request_key'] == namespaces.LEGACY + name]     # rows are ordered created_at, id like the old lookup
+        if row['request_key'].startswith(namespaces.NAMESPACED):
+            if not legacy or legacy[-1]['project_id'] == row['project_id']:
+                continue                   # no legacy root (refused) or this project's own legacy peer (legacy_peer text)
+        elif not legacy or legacy[-1]['id'] == row['id']:
+            continue                       # this legacy root is the one the old lookup renders
         target = legacy[-1]
-        outcome = by_id[target['id']]['commands']['plan report']
+        outcome = outcomes[target['id']]
         root['commands']['plan report'] = (f'{READS_OTHER_ROOT} (đọc nhầm root khác): {outcome}; shows plan:{name} of project '
                                            f'{target["project_id"]} ({target["project_path"]}); this root is not read')
-        risk = {'command': 'plan report', 'label': READS_OTHER_ROOT, 'blocking': True,
+        risk = {'command': 'plan report', 'label': READS_OTHER_ROOT, 'blocking': False, 'severity': 'warning',
                 'reads': {'anchor': target['request_key'], 'project_id': target['project_id'], 'project_path': target['project_path']},
                 'why': f'old `plan report {name}` resolves the bare name across projects and shows another project\'s root'}
         root.setdefault('command_risks', []).append(risk)
         found.append({'anchor': root['anchor'], 'project_id': root['project_id'], **risk})
     return found
+
+
+def _warning_text(cell):
+    reads = cell['reads']
+    return (f"old `{cell['command']}` for {cell['anchor']} (project {cell['project_id']}) shows {reads['anchor']} of project "
+            f"{reads['project_id']} ({reads['project_path']}) instead: reads another root (not a rollback blocker; writes nothing)")
 
 
 def _ledger_sha(state_root):

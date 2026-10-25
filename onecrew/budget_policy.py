@@ -1,17 +1,9 @@
 """Versioned intake defaults and evidence-only budget advice; no grant mutations."""
 import datetime as dt
-import math
 
+from .budget_core import watch_policy  # noqa: F401  (the warning thresholds are core: v1 effort_watch/owned and v2 estimates share one)
 from .ledger import canonical
 from .task_intake import DEFAULT_CALLS, DEFAULT_SECONDS, POLICY, recommend as core_recommend  # noqa: F401  (the intake defaults and advice are core)
-
-
-def watch_policy(policy, calls, seconds):
-    if not policy or policy.get('version') != 2:
-        return {'calls': 20, 'seconds': 600}
-    return {'version': 2, 'fraction': policy['warning_fraction'],
-            'calls': max(1, math.ceil(calls * policy['warning_fraction'])),
-            'seconds': max(1, math.ceil(seconds * policy['warning_fraction']))}
 
 
 def recommend(ledger, goal, mode, provider, model):

@@ -107,7 +107,13 @@ def guard(ledger, conn, task, *, effect=False, action_id=None):
 def check_approval(ledger, conn, state, contract):
     """T26 E4 at approval: a plan-ns root whose scope.owned overlaps the write scope of a live writer of ANOTHER approved root is not
     approved (a second approval source for that work); the refusal names the existing root. Legacy plan: roots keep their behaviour;
-    with no live writer the approval stands (the writer guard above still serialises later writers)."""
+    with no live writer the approval stands (the writer guard above still serialises later writers).
+
+    Decided 25/10 round 6 under delegated authority (T26 [E4] reading): "cùng việc" is the SOL-linked work — 05 T26 Tiền điều kiện "cùng một việc
+    có SOL v1 đã duyệt", Fixture "một SOL v1 đã duyệt, và một root v2 cho cùng việc"; 00 HD-07 "v1 và v2 không là hai nguồn duyệt độc lập cho cùng
+    việc". The second approval for that work is refused by solution_link.validate_revision at propose, amend and approve (naming the existing
+    root); tests/test_wf_t26_e4_one_source. Scope overlap alone is not the same work (T32 [E3]: several roots are legitimate), so this
+    live-writer check stays as defence (T32 [E4]) and is not widened to every overlapping scope."""
     from . import namespaces
     if not state['selector'].startswith(namespaces.NAMESPACED): return
     owned = list(contract['scope']['owned'])

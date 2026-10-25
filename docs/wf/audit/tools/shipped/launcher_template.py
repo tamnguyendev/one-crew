@@ -103,10 +103,11 @@ def main(argv=None):
             _write_origin(work, rec)
         print(json.dumps({'result': 'self-check-ok', **rec}, ensure_ascii=False, indent=1))
         return 0
+    # P1-3: the run is bound to the verifier this launcher just verified; the package judged must pin exactly these verify/ files.
     if TOOL == 'legacy_continuation':
-        code = legacy_core.main([str(pkg), str(work)])
+        code = legacy_core.main([str(pkg), str(work)], verifier_files=files)
     else:
-        code = package_check.main([str(pkg), str(work)])
+        code = package_check.main([str(pkg), str(work)], verifier_files=files)
     rec = origin_record(files)
     _write_origin(work, rec)
     if rec['foreign']:

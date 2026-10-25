@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R6-COMPAT-1",
+ "file": "tests/test_wf_w46b_evidence.py",
+ "old_sha256": "5f67b9399622ddd9632eac04ebf6c20d960cbcce42644b97cb23e1b43812817d",
+ "new_sha256": "ed31a19397a504513dd22e489c463defb3ee67524c96800051b034daa886281e",
+ "reason": "Round 6 (T49c decided under delegated authority; 00 §6.1 / 05 T49 block definitions, E21 'tên trùng, không chặn', T49d N5/N6): reads_other_root is a WARNING (severity warning, printed by compat scan and in the drill receipt), not counted in blocking.total; the prediction now also covers the legacy DUPa cell, confirmed on the real d3120c6 binary. Test added; nothing weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 5 sau xác nhận Codex 3 P1 + 2 P2): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 5 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

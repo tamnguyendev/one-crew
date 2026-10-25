@@ -700,6 +700,89 @@ except Exception as error: accepted = str(error)
 check('the owner accepts the delivered artifact', accepted == 'accepted', str(accepted))
 ''')
 
+# Codex round 6 P1-1: executors.observe runs warn_budget on EVERY native node end, so the installed build must carry the warning path's whole
+# import closure (budget_core.watch_policy + task_intake.POLICY); before the fix the wheel raised "No module named 'onecrew.budget_policy'" here.
+sc.register('R04', 'r04-budget-warning-on-installed-engine', ['W06', 'T36b E17 the 70% budget warning fires on the installed build from a native node end',
+            'one notice.exception budget_warning, no request, no budget or deadline change', 'the node still goes produced, verified, handoff'],
+            ['executor.observed', 'notice.exception', 'node.produced', 'node.verification', 'node.accepted'], HELP + ENGINE + r'''
+import contextlib, io
+from unittest.mock import patch
+from onecrew.budget_core import group
+from onecrew.process_core import Supervisor, native_python
+from onecrew.subscription import environment
+from onecrew.task_intake import POLICY
+from onecrew.v2 import executors
+from onecrew.v2.cli import main
+value = engine_root()
+value['budget'] = {'max_calls': 100, 'time': 2}            # 120 s of execution; the warning threshold is ceil(120 x warning_fraction)
+code, text = propose_caps('P1', value); must('proposed', code == 0, text)
+code, text = approve('P1'); must('approved', code == 0, text)
+threshold = -(-120 * POLICY['warning_fraction'] // 1)
+must('the shipped intake policy is version 2 with a 70% warning fraction', POLICY['version'] == 2 and POLICY['warning_fraction'] == 0.7, str(POLICY)[:200])
+def warnings():
+    return [v for _, v in events('P1', 'notice.exception') if v.get('category') == 'budget_warning']
+# An earlier managed attempt measured just under the threshold: nothing fires yet.
+earlier = executors.Declaration('scenario-managed', 'managed', ('measure',), ('time',))
+executors.observe(ledger, 'P1', earlier, 'pre-1', 'start', source='executor_clock', ref='clock:pre-1:start', at='2026-10-25T08:00:00+07:00')
+out = executors.observe(ledger, 'P1', earlier, 'pre-1', 'end', source='executor_clock', ref='clock:pre-1:end', at='2026-10-25T08:01:23+07:00',
+                        measured={'seconds': threshold - 1.0})
+check('an observation below the threshold writes no warning', out['written'] is True and out['budget_warnings'] == [] and warnings() == [], str(out.get('budget_warnings')))
+os.environ['ONECREW_ACTOR'] = 'codex'
+pin = {'role': 'worker', 'provider': 'codex', 'model': 'fixture-model'}
+nodes = [dict(node('A'), executor=pin), dict(node('I', ['A'], integration=True, write=()), executor=pin)]
+def factory(control, provider):
+    class Worker:
+        def capability(self): return {'provider': provider, 'mode': 'local-process-no-provider'}
+        def run(self, attempt, prompt, schema, profile):
+            directory = ledger.state_root / 'worker-io' / attempt['id']; directory.mkdir(parents=True)
+            paths = schema['properties'].get('files', {}).get('items', {}).get('properties', {}).get('path', {}).get('enum', [])
+            answer = {'summary': 'isolated producer', 'files': [{'path': p, 'content': 'candidate\n'} for p in paths], 'backlog': []} if paths else {'summary': 'integration report', 'evidence': []}
+            script = 'import pathlib,sys,time\ntime.sleep(1.5)\npathlib.Path("answer.json").write_text(sys.argv[1])\n'    # > 1 s: the end crosses the threshold
+            return Supervisor(control).run(attempt, [native_python(), '-c', script, json.dumps(answer)], cwd=directory, timeout=60, env=environment())
+        def result(self, attempt): return json.loads((ledger.state_root / 'worker-io' / attempt['id'] / 'answer.json').read_text()), []
+    return Worker()
+def jcmd(*args):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out): code = main(['--project', str(root), '--state-root', str(state), *args])
+    try: return code, json.loads(out.getvalue())
+    except ValueError: return code, out.getvalue()
+code, out = jcmd('engine', 'revise', 'plan-ns:P1', '--file', str(dump('nodes.json', {'nodes': nodes, 'reason': 'Bounded explicit nodes', 'evidence': ['a.txt:1']})))
+must('the node plan is published', code == 0, str(out)[-300:])
+with ledger.transaction() as conn: before = group(conn, anchor('P1'))
+requests_before = ledger.requests(anchor('P1'))
+with patch('onecrew.artifact_provider_core.make_worker', side_effect=factory):
+    code, step = jcmd('engine', 'step', 'plan-ns:P1')
+    must('the producer node ran on the installed executor and is produced (not held on an import error)', code == 0 and step.get('node') == 'A' and step.get('state') == 'produced', str(step)[:400])
+    native = [v for _, v in events('P1', 'executor.observed') if v['executor'] == 'common-native-artifact' and v['what'] == 'end']
+    check('the native node end was observed with its measured seconds', len(native) == 1 and native[0]['measured']['seconds'] >= 1.0, str(native)[:300])
+    found = warnings()
+    check('exactly one budget warning, on the execution-seconds axis, written by that observation', len(found) == 1 and found[0]['axis'] == 'execution_seconds'
+          and found[0]['what_changed']['threshold'] == threshold and found[0]['what_changed']['used'] >= threshold and found[0]['what_changed']['limit'] == 120, str(found)[:500])
+    w = found[0] if found else {}
+    check('the warning is in authority: no request, grants nothing, asks nothing', (w.get('grants_authority'), w.get('user_action'), w.get('request')) == (False, None, None)
+          and ledger.requests(anchor('P1')) == requests_before, str(w)[:300])
+    check('the warning names the shipped policy and carries reason and evidence', w.get('policy') == {'source': 'onecrew.task_intake.POLICY', 'version': 2, 'fraction': 0.7}
+          and bool(w.get('reason', '').strip()) and any(e.startswith('executor.observed:common-native-artifact:') for e in w.get('evidence', [])), str(w)[:400])
+    code, ver = jcmd('engine', 'verify', 'plan-ns:P1', 'A')
+    check('the produced node is verified by the approved check', code == 0 and len(events('P1', 'node.verification')) == 1, str(ver)[:300])
+    code, acc = jcmd('engine', 'accept-node', 'plan-ns:P1', 'A')
+    check('the verified node is accepted inside the delegated authority', code == 0 and len(events('P1', 'node.accepted')) == 1, str(acc)[:300])
+    code, step = jcmd('engine', 'step', 'plan-ns:P1')
+    check('the integration node runs after it, its end observed again above the threshold', code == 0 and step.get('node') == 'I', str(step)[:300])
+    check('a later observation above the same threshold writes no second warning', len(warnings()) == 1, str(warnings())[:300])
+    code, ver = jcmd('engine', 'verify', 'plan-ns:P1', 'I'); check('the integration node is verified', code == 0, str(ver)[:300])
+    code, acc = jcmd('engine', 'accept-node', 'plan-ns:P1', 'I'); check('the integration node is accepted', code == 0, str(acc)[:300])
+    code, delivered = jcmd('engine', 'handoff', 'plan-ns:P1')
+    check('the handoff returns the artifact of the verified integration and the candidate reaches the project', code == 0 and bool(delivered.get('artifact'))
+          and (root / 'a.txt').read_text() == 'candidate\n', str(delivered)[:300])
+with ledger.transaction() as conn: after = group(conn, anchor('P1'))
+check('the warning changed neither the budget nor the deadline', (after['max_calls'], after['deadline']) == (before['max_calls'], before['deadline']), str((before, after))[:400])
+check('still no request for the owner after the handoff', ledger.requests(anchor('P1')) == requests_before)
+import onecrew
+check('the build that ran is the installed one, without the v1 policy module', 'site-packages' in onecrew.__file__ and 'onecrew.budget_policy' not in sys.modules, onecrew.__file__)
+os.environ.pop('ONECREW_ACTOR', None)
+''')
+
 sc.register('R04', 'r04-root-budget-is-not-reset', ['W10', 'one budget and one deadline for the root across children, retries and new approvals', 'budget.group is sealed at approval'],
             ['budget.group'], HELP + r'''
 from onecrew import budget_core

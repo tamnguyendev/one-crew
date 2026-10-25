@@ -34,7 +34,22 @@ def finish(metric, kind, n):
                          else {'no_data': pr.NO_NOTES})
     if kind == 'aggregate' and metric['id'] in pr.TARGETS:
         metric['target'] = pr.TARGETS[metric['id']]
-        metric['target_status'] = 'đạt' if sum(pr.values(metric).values()) == 0 else 'không đạt'
+        total = sum(pr.values(metric).values())
+        metric['target_status'] = pr.target_status(metric['target'], total, k, n) or 'không đạt'
+    if kind == 'aggregate':
+        metric['computed_from'] = [{'job': j, 'ledger': 'L1', 'root': f'plan:{j.lower()}'} for j in sorted(pr.values(metric))]
+        metric['missing'] = sorted(set(metric['cells']) - set(pr.values(metric)))
+
+
+def identify(r):
+    """W38c identity of the fixture aggregate: provenance, one detail row per job, then the figures digest (last)."""
+    roots = [f'plan:{j.lower()}' for j in r['jobs']]
+    r['provenance'] = {'kind': 'synthetic', 'generator': 'test fixture',
+                       'ledgers': [{'id': 'L1', 'state_root': 'FIXTURE-STATE-ROOT', 'commit': 'c' * 40, 'wheel_sha256': H,
+                                    'synthetic': True, 'roots': roots, 'excluded': []}]}
+    r['jobs_detail'] = [{'job': j, 'ledger': 'L1', 'root': f'plan:{j.lower()}', 'status': 'accepted', 'wheel_sha256': H} for j in r['jobs']]
+    r['figures_sha256'] = pr.figures_digest(r)
+    return r
 
 
 def build(kind):
@@ -86,7 +101,7 @@ def build(kind):
     r['continuation_trial'] = {'job': 'J4', 'tool': 'kiro', 'package_sha256': H, 'coordinator_model': 'claude-fable-5',
                                'grader': {'identity': 'agent-codex', 'model': 'gpt-5.5'}, 'result': 'đạt',
                                'answers': [{'question': q, 'correct': True} for q in pr.QUESTIONS]}
-    return r
+    return identify(r)
 
 
 def comparison(r, name):
@@ -111,6 +126,10 @@ def render(r):
         out.append('Baseline: {} chỉ số đủ 10/10 ({}), {} thiếu ({}), {} không có ({})'.format(
             len(groups['đủ']), ', '.join(groups['đủ']), len(groups['thiếu']), ', '.join(groups['thiếu']),
             len(groups['không có']), ', '.join(groups['không có'])))
+        if 'provenance' in r:
+            out.append(f'Nguồn dữ liệu: {pr.SYNTHETIC_LINE}.')
+            for led in r['provenance']['ledgers']:
+                out.append(f'Sổ {led["id"]}: state root {led["state_root"]}; commit {led["commit"]}; wheel sha256 {led["wheel_sha256"]}.')
     else:
         out.append('# Báo cáo giữa kỳ PL-A (fixture)')
     out.append('## Chỉ số')
@@ -253,6 +272,7 @@ class AggregateT35c(Base):
             finish(m, 'aggregate', 10)
         r['owner_notes_missing'] = {}
         r['tiers']['tier1']['comparisons'] = [comparison(r, n) for n in pr.TIER1]
+        identify(r)                                                          # a legitimate regeneration refreshes the figures digest
         self.assertEqual(pr.check_report(r, render(r))['result'], 'pass')  # all 10/10 is fine on its own
         r['tiers']['tier3']['conclusion'] = 'giảm 30% thời gian tới đầu ra'
         self.refused(r, 'E12 kết luận giảm khi chưa có nhóm so sánh')

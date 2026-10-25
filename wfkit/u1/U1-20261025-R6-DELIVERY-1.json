@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R6-DELIVERY-1",
+ "file": "tests/test_wf_delivery_gate.py",
+ "old_sha256": "4c0869c2ba98ea3875db73496b1a525ef2667637d0debea2fe7f51b2a7c82225",
+ "new_sha256": "af038ca2c71083ef960244ab0aa4c7595bd58c7448489986cb20175ebaee6421",
+ "reason": "Round 6 (Codex P1-2 at c18c46e): one classification of snapshot problem kinds (GLOBAL_PROBLEMS / RELEASE_PROBLEMS / problem_scope) lives in wfkit/development_gate.py and the snapshot gate refuses to write an unclassified kind; delivery_gate is fail-closed on every global problem, unknown kind, missing field or contradiction, while another release's acceptance gap does not block. Tests: 10 global kinds × releases, combinations, malformed/contradictory snapshots, CLI subprocess, receipt → gate_history → release_check chain.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 5 sau xác nhận Codex 3 P1 + 2 P2): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 5 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

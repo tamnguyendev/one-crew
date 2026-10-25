@@ -25,7 +25,7 @@ class DeletedTestIsU1(Fixture):
         self.git('add', '.'); self.git('commit', '-qm', 'tests')
         value = plan_json(milestones=[milestone(argv=[sys.executable, 'tests/test_x.py'])], scope={'owned': ['a.txt', 'tests/test_x.py']})
         value['understanding']['target']['paths'] = ['a.txt', 'tests/test_x.py']
-        plans.propose(self.ledger, 'P1', value, 'codex')
+        plans.propose(self.ledger, 'P1', value, 'codex', workflow=True)      # W11b/T25 [E4] (round 6): T19 is a workflow-root rule
         plans.approve(self.ledger, 'P1', 'owner', 'fixture')
         os.environ['ONECREW_ACTOR'] = 'codex'
         (self.root / 'tests' / 'test_x.py').write_text(DELETED)

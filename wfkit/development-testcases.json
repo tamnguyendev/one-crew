@@ -1191,6 +1191,14 @@
      "installed": false,
      "scope": "T36b E4/E7/E15/E17 time semantics: execution = attempt minus the union of its waits, waiting reported separately, unknown stays unknown and not-measured stays not-measured, wall-clock time to the deadline from an injected clock, and the 70% budget warning as one notice that is never a request."
     },
+    "check.installed_budget_warning": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_installed_budget_warning"
+     ],
+     "installed": true,
+     "scope": "Round 6 (Codex P1-1): from a freshly built wheel installed in a clean venv outside the checkout (-I, no PYTHONPATH): the 70% budget warning fires once as a notice.exception budget_warning with no request, a node reaches produced → verified → accepted → handoff, every onecrew module loads from site-packages, onecrew.budget_policy is never loaded."
+    },
     "registry": {
      "kind": "unittest",
      "modules": [
@@ -2396,6 +2404,22 @@
      "installed": false,
      "scope": "W03 / T20 audit counter-examples: an AI tool session cannot write the owner's decision through decisions.record, card present, solution approve (CLI and MCP), skills.decide or interventions.record, while a terminal still records; T20 is gated historically by R00 and has no row in this registry."
     },
+    "check.w11b_schema2_integrity": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_w11b_schema2_integrity"
+     ],
+     "installed": false,
+     "scope": "Round 6 (W11b, decided under delegated authority from 00 §6 / 05 T25 [E4] / T13b): T19 test-integrity applies only to workflow roots (verdict.integrity_applies); a schema-2 root with a loosened assert or deleted test keeps the OLD verdict (command result), a workflow root stays fail/U1; a mutant without the gate turns the schema-2 root red."
+    },
+    "check.t26_e4_one_source": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_t26_e4_one_source"
+     ],
+     "installed": false,
+     "scope": "Round 6 (T26 E4, \"cùng việc\" = the SOL-linked work per 05 T26 fixture and 00 HD-07): a second root for the same SOL (same or successor revision, link added by amend, pre-existing root linked later) is refused naming plan-ns:P1; authority sources for the work stay 1."
+    },
     "registry": {
      "kind": "unittest",
      "modules": [
@@ -2723,7 +2747,8 @@
         "check.events",
         "check.namespace",
         "check.v2_trust_fixes",
-        "check.w05_acceptance_change"
+        "check.w05_acceptance_change",
+        "check.w11b_schema2_integrity"
        ],
        "gaps": [],
        "evidence_matrix": {
@@ -2741,25 +2766,22 @@
         "E4": [
          "tests.test_wf_namespace.NamespaceTests.test_legacy_schema2_item_change_stays_amend_and_old_reader_still_reads_it",
          "tests.test_wf_namespace.NamespaceTests.test_new_schema2_item_change_still_requires_amend_and_new_approval",
-         "tests.test_v2_trust_fixes.ReportReadsTheSharedView.test_an_accepted_plan_is_read_from_its_acceptance_record_not_from_todays_rules"
+         "tests.test_v2_trust_fixes.ReportReadsTheSharedView.test_an_accepted_plan_is_read_from_its_acceptance_record_not_from_todays_rules",
+         "tests.test_wf_w11b_schema2_integrity.Schema2IntegrityTests"
         ]
        },
        "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T25 is single-part: E1-E4. E1: a real v2.2 root created by the archived d3120c6 CLI gets an item change. The test asserts plan.amended and status proposed at revision 2 with approved_revision 1 (re-approval needed); the same holds for a new schema-2 root. E2: a workflow root has workflow_version 1 and a non-empty capability list. E3: the archived CLI's show/report/verdict on the new namespaced roo"
       },
       "T26": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.installed_solution_link",
         "check.solution_link",
+        "check.t26_e4_one_source",
         "check.w12b_cross_root_writer"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "E4 enforced under the live-writer reading (second approval refused only while another root's writer is live; linked-SOL second root refused by solution_link); the literal reading — refuse ANY overlapping approved root — would break existing pinned fixtures that approve several roots owning a.txt; owner decision needed on which reading E4 means (report item 7)"
-        }
-       ],
-       "evidence_matrix_partial": {
+       "gaps": [],
+       "evidence_matrix": {
         "E1": [
          "tests.test_wf_solution_link.SolutionLinkTests.test_source_ref_change_needs_current_root_revision_approval_and_new_handoff",
          "tests.test_wf_installed_solution_link.InstalledSolutionLinkTests.test_installed_cli_linked_root_is_the_only_handoff_authority"
@@ -2774,11 +2796,13 @@
          "tests.test_wf_installed_solution_link.InstalledSolutionLinkTests.test_installed_cli_linked_root_is_the_only_handoff_authority"
         ],
         "E4": [
+         "tests.test_wf_t26_e4_one_source.OneAuthoritySourceTests",
          "tests.test_wf_audit_w12b_writer.CrossRootWriterTests.test_t26_e4_second_approval_overlapping_a_root_with_a_live_writer_is_refused_naming_it",
          "tests.test_wf_audit_w12b_writer.CrossRootWriterTests.test_t26_e4_overlapping_approval_without_a_live_writer_and_disjoint_approval_are_allowed",
          "tests.test_wf_audit_w12b_writer.CrossRootWriterTests.test_t26_e4_legacy_plan_root_approval_is_unchanged"
         ]
-       }
+       },
+       "scope": "Re-judged round 6, 25/10, by delegated authority: E4 read as the SOL-linked work (05 T26 fixture, 00 HD-07) — solution_link refuses the second root at propose/amend/approve naming the first; the live-writer refusal at approval stays as the T32 E4 defence."
       },
       "T32": {
        "status": "complete",
@@ -3248,7 +3272,8 @@
       "check.events",
       "check.namespace",
       "check.v2_trust_fixes",
-      "check.w05_acceptance_change"
+      "check.w05_acceptance_change",
+      "check.w11b_schema2_integrity"
      ],
      "gaps": [],
      "evidence_matrix": {
@@ -3266,25 +3291,22 @@
       "E4": [
        "tests.test_wf_namespace.NamespaceTests.test_legacy_schema2_item_change_stays_amend_and_old_reader_still_reads_it",
        "tests.test_wf_namespace.NamespaceTests.test_new_schema2_item_change_still_requires_amend_and_new_approval",
-       "tests.test_v2_trust_fixes.ReportReadsTheSharedView.test_an_accepted_plan_is_read_from_its_acceptance_record_not_from_todays_rules"
+       "tests.test_v2_trust_fixes.ReportReadsTheSharedView.test_an_accepted_plan_is_read_from_its_acceptance_record_not_from_todays_rules",
+       "tests.test_wf_w11b_schema2_integrity.Schema2IntegrityTests"
       ]
      },
      "scope": "Per-E matrix audited 25/10 against the registered modules (read-only audit of the tests). T25 is single-part: E1-E4. E1: a real v2.2 root created by the archived d3120c6 CLI gets an item change. The test asserts plan.amended and status proposed at revision 2 with approved_revision 1 (re-approval needed); the same holds for a new schema-2 root. E2: a workflow root has workflow_version 1 and a non-empty capability list. E3: the archived CLI's show/report/verdict on the new namespaced roo"
     },
     "T26": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.installed_solution_link",
       "check.solution_link",
+      "check.t26_e4_one_source",
       "check.w12b_cross_root_writer"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "E4 enforced under the live-writer reading (second approval refused only while another root's writer is live; linked-SOL second root refused by solution_link); the literal reading — refuse ANY overlapping approved root — would break existing pinned fixtures that approve several roots owning a.txt; owner decision needed on which reading E4 means (report item 7)"
-      }
-     ],
-     "evidence_matrix_partial": {
+     "gaps": [],
+     "evidence_matrix": {
       "E1": [
        "tests.test_wf_solution_link.SolutionLinkTests.test_source_ref_change_needs_current_root_revision_approval_and_new_handoff",
        "tests.test_wf_installed_solution_link.InstalledSolutionLinkTests.test_installed_cli_linked_root_is_the_only_handoff_authority"
@@ -3299,11 +3321,13 @@
        "tests.test_wf_installed_solution_link.InstalledSolutionLinkTests.test_installed_cli_linked_root_is_the_only_handoff_authority"
       ],
       "E4": [
+       "tests.test_wf_t26_e4_one_source.OneAuthoritySourceTests",
        "tests.test_wf_audit_w12b_writer.CrossRootWriterTests.test_t26_e4_second_approval_overlapping_a_root_with_a_live_writer_is_refused_naming_it",
        "tests.test_wf_audit_w12b_writer.CrossRootWriterTests.test_t26_e4_overlapping_approval_without_a_live_writer_and_disjoint_approval_are_allowed",
        "tests.test_wf_audit_w12b_writer.CrossRootWriterTests.test_t26_e4_legacy_plan_root_approval_is_unchanged"
       ]
-     }
+     },
+     "scope": "Re-judged round 6, 25/10, by delegated authority: E4 read as the SOL-linked work (05 T26 fixture, 00 HD-07) — solution_link refuses the second root at propose/amend/approve naming the first; the live-writer refusal at approval stays as the T32 E4 defence."
     },
     "T32": {
      "status": "complete",
@@ -7319,6 +7343,14 @@
      ],
      "installed": false,
      "scope": "Pilot tools: report/refusal rules of the pilot helper commands (for example refusing to skip an affected job) on temporary state; skip-free regression, not a pilot result."
+    },
+    "check.wheel_closure": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_g1_core"
+     ],
+     "installed": false,
+     "scope": "Round 6 (Codex P1-1 at c18c46e: wheel 2.2.0.dev4 lacked onecrew.budget_policy): the wheel module allow-list, its import closure (lazy imports included), metadata and the single source of the budget-warning thresholds (budget_core.watch_policy re-exported by v1 budget_policy) are gated, so a v1-only import cannot slip into the shipped core again."
     },
     "registry": {
      "kind": "unittest",

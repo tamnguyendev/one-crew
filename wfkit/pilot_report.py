@@ -1,9 +1,9 @@
 """Read-only checker for the two pilot reports (kit task WKPL; T35b and T35c).
 
 Run ``python -m wfkit.pilot_report report.json report.md``. Nothing is written,
-no ledger is opened, no provider or pilot job runs. No pilot has run and no
-report generator exists yet: this module proves the report RULES on fixture
-reports only. The result always carries ``owner_acceptance: False`` and
+no ledger is opened, no provider or pilot job runs. The generator of both kinds
+is ``wfkit.pilot_tools report``; no real pilot has run, so these RULES are proven
+on fixture and synthetic reports only. The result always carries ``owner_acceptance: False`` and
 ``pilot_evidence: False``: a report (whatever it says, "nghiệm thu" included)
 is never owner acceptance nor evidence that a real pilot happened.
 
@@ -69,9 +69,26 @@ Readings (narrowest, from 05 T35 and 00 §9.1–§9.3):
   conclusion, or a line citing 20/10 that claims a time reduction.
 * E20–E24, E29, E30, E38 as structural/consistency checks on their sections.
   E23: owner minutes never ``derived_from`` wait time or event gaps.
+* Target status (E20–E22, E29, E30): "đạt" only when every job has data and the
+  total is 0; a positive total is "không đạt"; a zero total over fewer than N
+  jobs is "không có dữ liệu" (a missing sample never passes a target).
+* Tier 1 with k = 0: the comparison carries ``no_data`` and no pilot count/rate.
+* Identity of an aggregate (W38c, round 6 P2; rules prefixed "ID"):
+  ``provenance`` {kind synthetic|real, generator, ledgers: [{id, state_root, commit,
+  wheel_sha256, synthetic, roots, excluded: [{root, reason}]}]}; ``jobs_detail``
+  one row per job {job, ledger, root, status, wheel_sha256, ...} or {job, skipped};
+  each metric lists ``computed_from`` [{job, ledger, root}] (exactly the jobs with a
+  value) and ``missing`` (the others: still in the denominator); the summary equals
+  the sum of its cells; ``figures_sha256`` = figures_digest(report). Refused: a
+  duplicate job row or root, a root outside the ledgers named, an unaccounted plan
+  root of a pilot ledger (wrong scope), a job wheel that differs from its ledger
+  (wrong artifact), a job status that differs from its outcome row (contradiction),
+  a skipped job with a value, a figure changed after generation, and a synthetic
+  source claiming a real pilot, pilot evidence or acceptance.
 y1/y2 belong to T45e (script kiểm đối chiếu), not T35, and are not checked here.
 """
 import argparse
+import hashlib
 import json
 import re
 from datetime import datetime
@@ -100,6 +117,25 @@ NO_NOTES = 'thiếu ghi chép của chủ sở hữu'
 NO_REDUCTION = 'chưa kết luận giảm'
 AC5 = 'AC5 — năng lực đo: '
 BASELINE_RE = re.compile(r'^Baseline: (\d+) chỉ số đủ 10/10 \(([^)]*)\), (\d+) thiếu \(([^)]*)\), (\d+) không có \(([^)]*)\)$')
+NO_DATA_TARGET = 'không có dữ liệu'
+SYNTHETIC_LINE = 'dữ liệu tổng hợp (synthetic), không phải pilot thật'
+SHA256_RE = re.compile(r'[0-9a-f]{64}')
+COMMIT_RE = re.compile(r'(?:[0-9a-f]{40}|[0-9a-f]{64})')
+
+
+def figures_digest(report):
+    """sha256 of the report's own content (everything but this digest). The generator writes it; the checker recomputes it."""
+    body = {k: v for k, v in report.items() if k != 'figures_sha256'}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8')).hexdigest()
+
+
+def target_status(target, total, k, n):
+    """Status of a metric against its target: a missing sample never makes "đạt"."""
+    if total > 0 and target == 0:
+        return 'không đạt'
+    if k < n and total == 0:
+        return NO_DATA_TARGET
+    return 'đạt' if total == 0 else None                       # '≈0' with a positive total: the report states it
 
 
 def require(ok, message):
@@ -216,8 +252,10 @@ class Checker:
         if self.kind == 'aggregate' and mid in TARGETS:
             require(m.get('target') == TARGETS[mid], f'{self.target_eid(mid)} {mid}: target must be {TARGETS[mid]}')
             total = sum(values(m).values())
-            want_status = ('đạt' if total == 0 else 'không đạt') if TARGETS[mid] == 0 else m.get('target_status')
-            require(m.get('target_status') in ('đạt', 'không đạt') and m['target_status'] == want_status,
+            want_status = target_status(TARGETS[mid], total, k, self.n)
+            if want_status is None:
+                want_status = m.get('target_status') if m.get('target_status') in ('đạt', 'không đạt') else 'không đạt'
+            require(m.get('target_status') in ('đạt', 'không đạt', NO_DATA_TARGET) and m['target_status'] == want_status,
                     f'{self.target_eid(mid)} {mid}: status vs target must be {want_status!r}')
 
     @staticmethod
@@ -381,9 +419,14 @@ class Checker:
             if all(ms):
                 k = min(m['k'] for m in ms)
                 total = sum(sum(values(m).values()) for m in ms)
-                require(c.get('pilot_jobs') == k and c.get('pilot_count') == total,
-                        f'E6 tier 1 {name}: pilot count/denominator must be {total} trên {k} việc')
-                require(k and abs(c.get('pilot_per_job', -1) - total / k) < 0.01, f'E6 tier 1 {name}: per-job pilot rate wrong')
+                if k:
+                    require(c.get('pilot_jobs') == k and c.get('pilot_count') == total,
+                            f'E6 tier 1 {name}: pilot count/denominator must be {total} trên {k} việc')
+                    require(number(c.get('pilot_per_job')) and abs(c['pilot_per_job'] - total / k) < 0.01, f'E6 tier 1 {name}: per-job pilot rate wrong')
+                else:
+                    require(c.get('pilot_jobs') == 0 and c.get('pilot_count') is None and c.get('pilot_per_job') is None
+                            and isinstance(c.get('no_data'), str) and c['no_data'],
+                            f'E35 tier 1 {name}: 0 việc có dữ liệu phải ghi "không có dữ liệu", không ghi số')
         for line in self.lines:
             low = line.lower()
             if '20/10' in low and re.search(r'phút|thời gian|giờ', low) and re.search(r'giảm|nhanh|tiết kiệm|ít hơn', low) and 'không' not in low:
@@ -485,6 +528,99 @@ class Checker:
         all_ok = all(a.get('correct') is True for a in answers)
         require(c.get('result') == ('đạt' if all_ok else 'không đạt'), 'E27 "đạt" only when all five answers are correct')
 
+    # --- aggregate identity (W38c): provenance, scope, artifact, denominators, figures ---------------------
+    def identity(self):
+        r = self.report
+        p = r.get('provenance')
+        require(isinstance(p, dict) and p.get('kind') in ('synthetic', 'real') and isinstance(p.get('generator'), str) and p['generator'],
+                'ID provenance missing: kind (synthetic|real) and generator required')
+        ledgers = p.get('ledgers')
+        require(isinstance(ledgers, list) and ledgers and all(isinstance(x, dict) for x in ledgers), 'ID provenance: ledgers (state roots) missing')
+        by = {}
+        for led in ledgers:
+            require(isinstance(led.get('id'), str) and led['id'] and isinstance(led.get('state_root'), str) and led['state_root']
+                    and COMMIT_RE.fullmatch(str(led.get('commit'))) and SHA256_RE.fullmatch(str(led.get('wheel_sha256')))
+                    and type(led.get('synthetic')) is bool and isinstance(led.get('roots'), list),
+                    f'ID ledger {led.get("id")}: state root, commit, wheel sha256, synthetic flag and roots required')
+            require(led['id'] not in by, f'ID sổ trùng: {led["id"]}')
+            by[led['id']] = led
+            if not any(led['id'] in line and led['state_root'] in line and led['wheel_sha256'] in line for line in self.lines):
+                self.add(f'ID ledger {led["id"]}: rendered provenance line (state root, wheel sha256) missing')
+        if r.get('pilot_evidence'):
+            self.add('INPUT: a report is never pilot evidence by itself')
+        if any(led['synthetic'] for led in ledgers) or p['kind'] == 'synthetic':
+            if p['kind'] == 'real' or r.get('simulated') is not True:
+                self.add('ID dữ liệu synthetic không chứng minh pilot thật: provenance hay simulated ghi "real"')
+            if r.get('pilot_evidence') or r.get('owner_acceptance'):
+                self.add('ID báo cáo synthetic ghi bằng chứng pilot hay nghiệm thu')
+            if not any(SYNTHETIC_LINE in line for line in self.lines):
+                self.add(f'ID dòng "{SYNTHETIC_LINE}" missing')
+            for line in self.lines:
+                low = line.lower()
+                if ('pilot thật' in low or 'nghiệm thu' in low) and 'không' not in low:
+                    self.add(f'ID báo cáo synthetic tự nhận pilot thật hay nghiệm thu: {line.strip()[:80]}')
+        detail = r.get('jobs_detail')
+        require(isinstance(detail, list) and all(isinstance(d, dict) for d in detail), 'ID jobs_detail missing')
+        names = [d.get('job') for d in detail]
+        twice = sorted({j for j in names if names.count(j) > 1})
+        if twice:
+            self.add(f'ID dòng việc trùng: {", ".join(map(str, twice))}')
+        require(set(names) == set(self.jobs), 'ID jobs_detail needs one row per job')
+        outcome_by = {row.get('job'): row for row in (r.get('outcomes') or {}).get('roots', []) if isinstance(row, dict)}
+        where, roots_seen = {}, {}
+        for d in detail:
+            job = d['job']
+            if 'skipped' in d:
+                require(isinstance(d['skipped'], str) and d['skipped'].strip(), f'ID {job}: a skipped job needs its reason')
+                for mid, m in sorted(self.metrics.items()):
+                    if 'value' in (m.get('cells') or {}).get(job, {}):
+                        self.add(f'ID việc bị bỏ {job} có số ở {mid}')
+                continue
+            led = by.get(d.get('ledger'))
+            if led is None:
+                self.add(f'ID sai phạm vi: {job} ở sổ {d.get("ledger")} không có trong provenance')
+                continue
+            key = (led['id'], d.get('root'))
+            if d.get('root') not in led['roots']:
+                self.add(f'ID sai phạm vi: root {d.get("root")} của {job} không thuộc sổ {led["id"]}')
+            if key in roots_seen:
+                self.add(f'ID dòng việc trùng: {roots_seen[key]} và {job} cùng root {key[0]}/{key[1]}')
+            roots_seen[key] = job
+            where[job] = key
+            if d.get('wheel_sha256') != led['wheel_sha256']:
+                self.add(f'ID sai artifact: {job} ghi wheel {d.get("wheel_sha256")}, sổ {led["id"]} ghi {led["wheel_sha256"]}')
+            o = outcome_by.get(job)
+            if o is not None and (o.get('root') != d.get('root') or o.get('final_outcome') != d.get('status') or o.get('ledger', led['id']) != led['id']):
+                self.add(f'ID dữ liệu mâu thuẫn: {job} có kết cục {d.get("status")} ở {key[0]}/{key[1]}, dòng outcome ghi '
+                         f'{o.get("final_outcome")} ở {o.get("ledger")}/{o.get("root")}')
+        for led in ledgers:
+            excluded = led.get('excluded', [])
+            require(isinstance(excluded, list) and all(isinstance(x, dict) and x.get('root') and isinstance(x.get('reason'), str)
+                    and x['reason'].strip() for x in excluded), f'ID ledger {led["id"]}: excluded roots need a reason')
+            accounted = {k[1] for k in roots_seen if k[0] == led['id']} | {x['root'] for x in excluded}
+            outside = sorted(set(led['roots']) - accounted)
+            if outside:
+                self.add(f'ID root ngoài phạm vi pilot ở sổ {led["id"]}: {", ".join(outside)} (không là việc pilot, không có lý do loại)')
+        for mid, m in sorted(self.metrics.items()):
+            cells = m.get('cells') if isinstance(m.get('cells'), dict) else {}
+            have = sorted(j for j, c in cells.items() if isinstance(c, dict) and 'value' in c)
+            cf = m.get('computed_from')
+            if not (isinstance(cf, list) and all(isinstance(x, dict) for x in cf) and sorted(x.get('job') for x in cf) == have):
+                self.add(f'ID {mid}: computed_from must list exactly the jobs with a value ({", ".join(have) or "none"})')
+            else:
+                for x in cf:
+                    if where.get(x['job']) != (x.get('ledger'), x.get('root')):
+                        self.add(f'ID {mid}: computed_from {x["job"]} names {x.get("ledger")}/{x.get("root")}, the job row says {where.get(x["job"])}')
+            if not (isinstance(m.get('missing'), list) and sorted(m['missing']) == sorted(set(cells) - set(have))):
+                self.add(f'ID {mid}: missing must list every job without data (they stay in the denominator)')
+            s = m.get('summary')
+            if isinstance(s, dict) and 'value' in s and have and number(s['value']):
+                total = sum(cells[j]['value'] for j in have if number(cells[j]['value']))
+                if abs(s['value'] - total) > 0.011:
+                    self.add(f'ID số liệu giả: {mid} tổng {s["value"]} khác tổng các ô {round(total, 2)}')
+        if r.get('figures_sha256') != figures_digest(r):
+            self.add('ID figures_sha256 không khớp nội dung báo cáo (số liệu bị sửa sau khi sinh)')
+
     def run(self):
         try:
             self.top()
@@ -501,7 +637,7 @@ class Checker:
                 self.check(fn)
         else:
             for fn in (self.blanket_baseline, self.tiers, self.false_pass, self.decisions, self.skip_leak,
-                       self.manual_fixes, self.providers, self.continuation):
+                       self.manual_fixes, self.providers, self.continuation, self.identity):
                 self.check(fn)
             self.check(self.header)
 

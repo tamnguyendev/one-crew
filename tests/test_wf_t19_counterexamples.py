@@ -35,7 +35,7 @@ class CounterexampleTests(Fixture):
         argv = [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_*.py']
         value = plan_json(milestones=[milestone(argv=argv)], scope={'owned': ['a.txt', 'tests/test_x.py', 'tests/test_y.py', 'helpers/']})
         value['understanding']['target']['paths'] = ['a.txt', 'tests/test_x.py']
-        plans.propose(self.ledger, 'P1', value, 'codex')
+        plans.propose(self.ledger, 'P1', value, 'codex', workflow=True)      # W11b/T25 [E4] (round 6): T19 is a workflow-root rule
         plans.approve(self.ledger, 'P1', 'owner', 'fixture')
         import os
         os.environ['ONECREW_ACTOR'] = 'codex'

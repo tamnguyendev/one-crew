@@ -153,7 +153,9 @@ class ReadmeTests(unittest.TestCase):
         (gate / 'decision.json').write_text(json.dumps({'decision': 'pass', 'implementation_checks': {}, 'snapshot': {'intact': True}}))
         (gate / 'snapshot.json').write_text(json.dumps({'prepared_at': 'now'}))
         pkg = tmp / 'built pkg'
-        build_package.main([str(gate), str(pkg)])
+        with self.assertRaises(SystemExit):                       # P1-3: the kind (scope) must be declared explicitly
+            build_package.main([str(gate), str(tmp / 'undeclared pkg')])
+        build_package.main([str(gate), str(pkg), '--first-release'])
         readme = (pkg / 'README.md').read_text(encoding='utf-8')
         self.assertNotIn('docs/wf/audit/tools/', readme)
         self.assertIn('python verify/verify_package.py', readme)
@@ -169,6 +171,44 @@ class ReadmeTests(unittest.TestCase):
             self.assertTrue((pkg / 'verify' / (name + '.py')).is_file())
         r = launcher(pkg, '--self-check-only', cwd=tmp)
         self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(manifest['kind'], 'first-release-handover-package')
+        self.assertIn('`first-release-handover-package`', readme)                  # P1-3: kind, its meaning, scope refusal, long-path note
+        self.assertIn('thoát mã 5', readme)
+        self.assertIn('TỪ CHỐI báo cáo có phạm vi', readme)
+        self.assertIn('MAX_PATH', readme)
+        self.assertIsNone(manifest['previous_wheel'])
+
+
+class LauncherBindingTests(unittest.TestCase):
+    """Codex P1-3: the launcher passes the verifier it verified; the run records the package identity from the manifest-derived scope."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix='wf verify bind '))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_5_unverifiable_manifest_refused_before_running_with_identity_recorded(self):
+        pkg, verifier = make_package(self.tmp)                   # manifest has a verifier but no kind and no wheel
+        cwd = self.tmp / 'new cwd'
+        cwd.mkdir()
+        for tool, report_name in (('verify_package', 'verify-report.json'), ('legacy_continuation', 'legacy-continuation-report.json')):
+            work = cwd / ('work ' + tool)
+            r = subprocess.run([sys.executable, str(pkg / 'verify' / (tool + '.py')), str(pkg), str(work)], capture_output=True, text=True,
+                               encoding='utf-8', cwd=str(cwd), env=clean_env())
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            rep = json.loads((work / 'verification' / report_name).read_text(encoding='utf-8'))
+            self.assertEqual(rep['result'], 'refused')
+            self.assertEqual(rep['steps'], [])                    # nothing ran: no venv, no install
+            self.assertEqual(rep['package_identity']['verifier_files'], verifier['files'])
+            self.assertTrue(any('not a package kind' in x for x in rep['judge']['reasons']), rep['judge'])
+            self.assertFalse((work / 'venv').exists())
+
+    def test_6_launcher_verifier_bound_to_the_judged_package(self):
+        pkg, verifier = make_package(self.tmp)
+        spec = importlib.util.spec_from_file_location('shipped_pc_under_test', pkg / 'verify' / 'package_check.py')
+        pc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pc)
+        self.assertFalse(any('not the verifier' in x for x in pc.package_scope(pkg, verifier['files'])['reasons']))
+        self.assertTrue(any('not the verifier' in x for x in pc.package_scope(pkg, {'verify/package_check.py': '0' * 64})['reasons']))
 
 
 if __name__ == '__main__':

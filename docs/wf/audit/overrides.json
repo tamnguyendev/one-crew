@@ -841,22 +841,22 @@
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
  "W11b": {
-  "status": "Partial",
-  "classes": [
-   "D"
-  ],
+  "status": "Done",
+  "classes": [],
   "implementation": [
    "onecrew/v2/namespaces.py:workflow_metadata/check_workflow/has_capability",
    "onecrew/v2/plan.py:propose",
-   "onecrew/v2/report.py"
+   "onecrew/v2/report.py",
+   "onecrew/v2/verdict.py integrity_applies(state): T19 test-integrity chỉ áp cho root workflow (có workflow_version); root schema-2 giữ verdict cũ (kết quả lệnh). Quyết định theo ủy quyền lượt 6, nguồn: 00 §6 'plan schema 2 giữ nguyên nghĩa', 05 T25 [E4] cấm 'Root schema 2 bị đối xử theo luật mới', T13b 'root cũ chạy theo semantics cũ'"
   ],
   "tests": [
    "tests.test_wf_namespace.NamespaceTests.test_workflow_roots_declare_only_implemented_version_and_capability",
    "tests.test_wf_namespace.NamespaceTests.test_legacy_schema2_item_change_stays_amend_and_old_reader_still_reads_it",
-   "tests.test_wf_events.OldVersionComparatorTests.test_e11_class_A_events_keep_S_G_C"
+   "tests.test_wf_events.OldVersionComparatorTests.test_e11_class_A_events_keep_S_G_C",
+   "tests/test_wf_w11b_schema2_integrity.py (4: root schema-2 nới assert/xóa test → verdict cũ, không integrity record; root workflow → fail/U1; mutant bỏ gate → đỏ)"
   ],
-  "missing": "Cần quyết định chủ sở hữu/thiết kế: luật T19 test-integrity hiện áp cho cả root schema-2 không workflow (verdict.run → _test_integrity không gate theo workflow_version); hoặc gate theo workflow root, hoặc ghi vào 00/T25 là ngoại lệ có chủ đích. Không sửa đơn phương vì đổi acceptance.",
-  "next": "Quyết định của chủ sở hữu (mục 7 báo cáo).",
+  "missing": "",
+  "next": "Hệ quả: root plan: cũ trên bản mới không còn 'inconclusive chờ baseline' (P1-D lượt 3) — `verdict baseline` vẫn tồn tại nhưng không đổi verdict schema-2; công cụ kiểm tiếp tục root cũ và bundle đã cập nhật theo.",
   "evidence": [
    "R04-check.namespace.json, R04-check.events.json, R04-check.v2_trust_fixes.json"
   ],
@@ -897,9 +897,10 @@
   "tests": [
    "tests.test_wf_compat_scan",
    "tests.test_wf_t49_counterexamples",
-   "tests/test_wf_w46b_evidence.py (6: E13, E21, E22 mọi ô trên binary d3120c6 thật)"
+   "tests/test_wf_w46b_evidence.py (6: E13, E21, E22 mọi ô trên binary d3120c6 thật)",
+   "tests/test_wf_w46b_evidence.py test_round6_dupa_legacy_report_reads_dupk_and_is_a_warning_not_a_blocker (binary cũ thật)"
   ],
-  "missing": "Quyết định chủ sở hữu: reads_other_root có tính vào blocking.total (chặn rollback) không — E21/test_s2 ghim DUPb không chặn. Ô DUPa (root legacy) cũng đọc nhầm, chưa đổi dự đoán.",
+  "missing": "Quyết định theo ủy quyền lượt 6 (00 §6.1/05 T49 định nghĩa block đọc/tiếp tục; E21 'tên trùng, không chặn'; T49d N5/N6): reads_other_root là CẢNH BÁO (severity warning, in trong bảng compat scan và receipt drill), không tính blocking.total; dự đoán áp cả root legacy DUPa (xác nhận trên binary d3120c6 thật). Lệch với bảng lệnh T49 ghi DUPa `plan report` 'thoát 0 [chạy]' — scan theo hành vi thật (E22); bảng cần ghi chú (docs ngoài phạm vi code).",
   "next": "Mục 7 báo cáo.",
   "evidence": [
    "R04-check.namespace_compat.json"
@@ -2071,9 +2072,8 @@
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
  "W38c": {
-  "status": "Partial",
+  "status": "Blocked",
   "classes": [
-   "A",
    "E"
   ],
   "implementation": [
@@ -2081,17 +2081,17 @@
    "wfkit/pilot_report.py",
    "wfkit/finalgate.py:decide (KQ3/KQ6)",
    "wfkit/provider_evidence.py:evaluate",
-   "wfkit/pilot_tools.py report (kind interim); kind aggregate (T35c) từ chối vì chưa có đầu vào PL-B"
+   "wfkit/pilot_tools.py report --kind aggregate + verify (T35c, PL-B): 21 metric có nguồn/mẫu số đủ 10 job, skip records, bảng provider fail, continuation trial, quyết định U1–U4 đọc từ request thật, provenance synthetic|real, figures_sha256; wfkit/pilot_report.py check_report thêm luật identity (trùng job, sai scope/artifact, mâu thuẫn, số giả, synthetic tự nhận real)"
   ],
   "tests": [
    "tests.test_wf_t45_entry_gates",
    "tests.test_wf_t14c_kit",
    "tests.test_wf_pilot_report",
    "tests.test_wf_finalgate",
-   "tests/test_wf_pilot_tools.py"
+   "tests/test_wf_pilot_tools.py AggregateGeneratorTests.test_aggregate (11 sub-test gồm CLI)"
   ],
-  "missing": "Generator tổng hợp T35c chưa viết (cần đầu vào PL-B: skip records, bảng provider fail, continuation trial, quyết định U1–U4) + 10 job thật.",
-  "next": "Sau PL-A.",
+  "missing": "Công cụ local HOÀN TẤT trên fixture synthetic. Ngoài: chạy trên 10 job PL-B thật (state root, DO-10-VIEC.csv, chat/decision log, wheel thật), continuation trial thật, T14c job data/ops, nghiệm thu. Ghi chú: E29 'finding liên kết' cần bản ghi liên kết sản phẩm chưa có; đọc chặt E32 (job dừng/skip → AC5 không đạt) ghi để Codex/chủ sở hữu xác nhận.",
+  "next": "Pilot thật.",
   "evidence": [
    "PL-check.t45_entry_gates, PL-check.t14c_kit, PL-check.pilot_report, PL-check.finalgate (rules only)"
   ],

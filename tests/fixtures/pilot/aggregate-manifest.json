@@ -1,0 +1,52 @@
+{
+  "_note": "SYNTHETIC fixture for tests.test_wf_pilot_tools (W38c, T35c). Not pilot data. project/state_root/wheel/package_sha256 are filled in by the test on its temporary ledgers.",
+  "schema": 1,
+  "kind": "aggregate",
+  "synthetic": true,
+  "ledgers": [
+    {"id": "L1", "commit": "cccccccccccccccccccccccccccccccccccccccc", "synthetic": true},
+    {"id": "L2", "commit": "dddddddddddddddddddddddddddddddddddddddd", "synthetic": true}
+  ],
+  "jobs": [
+    {"id": "J1", "ledger": "L1", "root": "P1", "type": "code", "final_outcome": "accepted"},
+    {"id": "J2", "ledger": "L1", "root": "P2", "type": "docs", "final_outcome": "accepted"},
+    {"id": "J3", "ledger": "L1", "root": "P3", "type": "code", "final_outcome": "accepted"},
+    {"id": "J4", "ledger": "L1", "root": "P4", "type": "data", "final_outcome": "accepted"},
+    {"id": "J5", "ledger": "L1", "root": "P5", "type": "ops", "final_outcome": "accepted"},
+    {"id": "J6", "ledger": "L1", "root": "P6", "type": "code", "final_outcome": "accepted"},
+    {"id": "J7", "ledger": "L2", "root": "Q7", "type": "docs", "final_outcome": "accepted"},
+    {"id": "J8", "ledger": "L2", "root": "Q8", "type": "code", "final_outcome": "accepted"},
+    {"id": "J9", "ledger": "L2", "root": "Q9", "type": "data", "final_outcome": "accepted"},
+    {"id": "J10", "ledger": "L2", "root": "Q10", "type": "ops", "final_outcome": "accepted"}
+  ],
+  "excluded": [
+    {"ledger": "L2", "root": "X1", "reason": "root thử cài đặt của người điều phối, không phải việc pilot (synthetic)"}
+  ],
+  "chat_log": {
+    "J1": {"decision": 2}, "J2": {"decision": 4}, "J3": {"decision": 4}, "J4": {"decision": 2}, "J5": {"decision": 4},
+    "J6": {"decision": 2}, "J7": {"decision": 3}, "J8": {"decision": 3}, "J9": {"decision": 2}, "J10": {"decision": 2}
+  },
+  "observations": {
+    "owner_minutes": {"J1": 3, "J2": 5, "J3": 9, "J4": 2, "J5": 4, "J7": 3, "J8": 6, "J9": 2, "J10": 3},
+    "owner_retries": {"J1": 0, "J2": 1, "J3": 2, "J4": 0, "J5": 0, "J6": 0, "J7": 1, "J8": 0, "J9": 0, "J10": 0},
+    "owner_keystrokes": {"J1": 2, "J2": 4, "J3": 4, "J4": 2, "J5": 4, "J6": 2, "J7": 2, "J8": 3, "J9": 2, "J10": 2},
+    "actual_actions": {"J1": 3, "J2": 5, "J3": 7, "J4": 3, "J5": 6, "J6": 2, "J7": 3, "J8": 4},
+    "amend_authoring_error": {"J3": 0},
+    "amend_requirement_change": {"J3": 1},
+    "amend_emergent": {"J3": 0},
+    "missed_wait_1h_owner": {"J1": 0, "J2": 0, "J3": 0, "J4": 0, "J5": 0, "J6": 0, "J7": 0, "J8": 1}
+  },
+  "decision_log": [
+    {"at": "2026-10-24T13:07:00+00:00", "job": "J5", "before": "milestone M1 pending", "after": "receipt re-issued", "reason": "synthetic: the coordinator re-issued a lost receipt"}
+  ],
+  "continuation_trial": {
+    "job": "J10", "tool": "kiro", "package_sha256": "@PACKAGE@",
+    "answers": [
+      {"question": "bước kế", "correct": true}, {"question": "việc của chủ sở hữu", "correct": true},
+      {"question": "việc không được làm", "correct": true}, {"question": "mốc thiếu", "correct": true},
+      {"question": "câu hỏi mở", "correct": true}
+    ],
+    "grader": {"identity": "agent-codex", "model": "gpt-5.5"},
+    "coordinator_model": "claude-opus-5-5"
+  }
+}

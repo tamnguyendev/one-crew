@@ -4,6 +4,7 @@ Kept OUT of the gate registry on purpose (the snapshot gate forbids skipped test
 """
 import copy
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,7 +25,10 @@ class RealPackageTests(unittest.TestCase):
             lines = []
             report = pc.run(PACKAGE, work, out=lines.append)
             self.assertTrue((work / 'verification' / 'verify-report.json').exists())
-            verdict = pc.judge(report)
+            scope = pc.package_scope(PACKAGE)                      # P1-3: the scope from the manifest + artifact
+            self.assertEqual(scope['reasons'], [])
+            self.assertEqual(report['package_identity'], pc.identity(scope))
+            verdict = pc.judge(report, scope)
             self.assertEqual(verdict, {'result': 'pass', 'reasons': []}, '\n'.join(lines[-6:]))
             self.assertEqual(report['result'], 'pass')
             self.assertEqual(report['judge'], verdict)
@@ -44,10 +48,15 @@ class RealPackageTests(unittest.TestCase):
             # forging the saved report must be caught by the validator
             forged = copy.deepcopy(report)
             get(forged, 'help')['ok'] = False
-            self.assertEqual(pc.judge(forged)['result'], 'refused')
+            self.assertEqual(pc.judge(forged, scope)['result'], 'refused')
             forged = copy.deepcopy(report)
             get(forged, 'verdict_run').update(mandatory=False, ok=False, exit=99)      # Codex P1-1 bypass 1
-            self.assertEqual(pc.judge(forged)['result'], 'refused')
+            self.assertEqual(pc.judge(forged, scope)['result'], 'refused')
+            forged = copy.deepcopy(report)                                        # Codex P1-3 bypass: flag flipped + rollback removed
+            forged['previous_wheel_present'] = False
+            forged['steps'] = [s for s in forged['steps'] if s['id'] not in pc.ROLLBACK_REQUIRED]
+            forged.pop('rollback', None)
+            self.assertEqual(pc.judge(forged, scope)['result'], 'refused')
         finally:
             shutil.rmtree(base, ignore_errors=True)
 

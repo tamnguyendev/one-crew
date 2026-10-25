@@ -1,7 +1,7 @@
 # The development handover package (directive I, 24/10): one folder with the wheel + sha256, the commit/snapshot identity, the gate decision and
 # receipts, the T54 bundles' verdicts, the 92-task table, release notes, and a README that says how to install into a clean venv OUTSIDE the
 # checkout, smoke-test, and roll back. Nothing here claims delivery, Codex review or owner acceptance.
-#   python docs/wf/audit/tools/build_package.py <snapshot-gate out dir> <package dir (new)> [--bundles bundles.json] [--previous-wheel path]
+#   python docs/wf/audit/tools/build_package.py <snapshot-gate out dir> <package dir (new)> [--bundles bundles.json] (--previous-wheel path | --first-release)
 import argparse, hashlib, json, os, shutil, sys
 from pathlib import Path
 
@@ -18,7 +18,12 @@ def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 def main(argv=None):
     ap = argparse.ArgumentParser(); ap.add_argument('gate_out'); ap.add_argument('package'); ap.add_argument('--bundles'); ap.add_argument('--previous-wheel'); ap.add_argument('--matrix', help='W45 provider matrix dir (matrix.json/matrix.md/receipts)')
+    ap.add_argument('--first-release', action='store_true', help='declare a first-release package (kind first-release-handover-package): no previous wheel, rollback not evaluated')
     a = ap.parse_args(argv)
+    # P1-3: the manifest KIND declares the verification scope; it is chosen here explicitly, never inferred from a missing flag.
+    if bool(a.previous_wheel) == bool(a.first_release):
+        sys.exit('give exactly one of --previous-wheel (rollback drill mandatory) or --first-release (no previous wheel exists)')
+    kind = 'first-release-handover-package' if a.first_release else 'development-handover-package'
     gate_out, pkg = Path(a.gate_out), Path(a.package)
     if pkg.exists(): sys.exit('package dir must be new: ' + str(pkg))
     build = json.load(open(gate_out / 'gate' / 'build.json', encoding='utf-8'))
@@ -65,7 +70,7 @@ def main(argv=None):
     verifier = verify_kit.build_verify_dir(pkg)   # the verification tool + its dependencies, hash-pinned in manifest.json and SHA256SUMS
     audit = json.load(open(R / 'docs' / 'wf' / 'audit' / 'audit-92.json', encoding='utf-8'))
     checks = decision.get('implementation_checks', {})
-    manifest = {'schema': 1, 'kind': 'development-handover-package', 'built_at': snapshot.get('prepared_at'), 'commit': commit, 'version': version,
+    manifest = {'schema': 1, 'kind': kind, 'built_at': snapshot.get('prepared_at'), 'commit': commit, 'version': version,
                 'wheel': {'file': 'wheel/' + wheel_src.name, 'sha256': wheel_sha}, 'previous_wheel': previous,
                 'gate': {'decision': decision.get('decision'), 'release_delivery': decision.get('release_delivery'), 'owner_acceptance': decision.get('owner_acceptance'),
                          'implementation_checks': checks, 'snapshot_intact': decision.get('snapshot', {}).get('intact'),
@@ -74,6 +79,10 @@ def main(argv=None):
                 'claims': {'delivered': False, 'codex_reviewed': False, 'owner_accepted': False}}
     (pkg / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding='utf-8')
     counts = audit['counts']
+    kind_text = ('Gói phát hành ĐẦU TIÊN: không có wheel bản trước, chỉ chạy các bước kiểm cơ bản (không diễn tập rollback); '
+                 '`legacy_continuation.py` KHÔNG áp dụng và thoát mã 5 (not-applicable — không phải pass).' if kind == 'first-release-handover-package' else
+                 'Gói có wheel bản trước được ghim (`manifest.json` → `previous_wheel`, sha256): diễn tập rollback/roll-forward là BẮT BUỘC; '
+                 'thiếu wheel bản trước hoặc sha256 lệch là bị từ chối.')
     readme = f"""# Gói bàn giao development — OneCrew workflow chung — commit `{commit[:12]}`
 
 **Đây là gói development: chưa giao, chưa Codex review, chưa nghiệm thu.** Mọi số liệu lấy từ biên nhận trong gói.
@@ -114,6 +123,13 @@ trống); đường dẫn có dấu cách được hỗ trợ (đặt trong ngo�
 `verify_package.py` tạo venv ngoài checkout, cài wheel từ gói, kiểm hash, chạy một root code (propose → approve → `verdict run`) bằng lệnh `onecrew` của venv trên project
 git tạm + sổ tạm, kiểm mọi module `onecrew.*` nạp từ venv (không từ checkout), rồi diễn tập rollback/roll-forward trên BẢN SAO sổ nếu gói có wheel bản trước.
 Kết quả ghi `verification/verify-report.json` trong thư mục làm việc.
+
+**Loại gói (`manifest.json` → `kind`): `{kind}`.** {kind_text}
+Phạm vi kiểm (bước nào bắt buộc) do `manifest.json` + file trong gói quyết định, không do báo cáo: verifier TỪ CHỐI báo cáo có phạm vi hoặc danh tính
+(đường dẫn gói, loại gói, sha256 của manifest / wheel / wheel bản trước, hash file verifier) không khớp `manifest.json`.
+
+Lưu ý Windows (đã gặp thực tế, chưa sửa): chọn thư mục làm việc có đường dẫn NGẮN (vd. `D:/OneCrewRuns/<tên ngắn>`). Đường dẫn ref bằng chứng
+`.git/refs/onecrew/evidence/<64 ký tự>/<40 ký tự>` trong project tạm có thể vượt MAX_PATH (260 ký tự) và bước smoke hỏng với `cannot lock ref`.
 
 ## Quay lại bản trước
 

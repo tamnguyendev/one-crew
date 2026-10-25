@@ -10,8 +10,10 @@ import unittest
 from pathlib import Path
 
 from onecrew.ledger import LedgerError
-from wfkit import delivery_gate, gate_history, release_bundle, release_check
+from wfkit import delivery_gate, development_gate, gate_history, release_bundle, release_check
 from test_wf_delivery_gate import R00_DIR, SNAPSHOT, REVIEW, bundle_verdict
+
+SNAPSHOT_C18 = Path(tempfile.gettempdir()) / 'wf-snapshot-gate-20261025-c18c46e' / 'decision.json'
 
 
 @unittest.skipUnless((R00_DIR / 'decision.json').exists(), 'the real R00 gate output is not on this machine')
@@ -62,6 +64,28 @@ class RealSnapshotTests(unittest.TestCase):
                 result = delivery_gate.decide(release, snap, verdict, {**REVIEW, 'commit': snap['commit']})
                 self.assertEqual(result['decision'], 'refused')
                 self.assertTrue({r['code'] for r in result['reasons']} & {'acceptance-partial', 'acceptance-blocked'}, result['reasons'])
+                self.assertNotIn('problem-unknown', {r['code'] for r in result['reasons']})
+                self.assertNotIn('snapshot-contradictory', {r['code'] for r in result['reasons']})
+
+    @unittest.skipUnless(SNAPSHOT_C18.exists(), 'the c18c46e snapshot gate decision is not on this machine')
+    def test_the_real_c18c46e_snapshot_refuses_every_gate_and_names_its_global_problems(self):
+        """Codex round 6 P1-2 on the real refused snapshot: every global problem it records (implementation failures in particular) is
+        named in EVERY release's delivery gate, with the failing check ids, whatever that release's own acceptance is."""
+        snap = json.loads(SNAPSHOT_C18.read_text(encoding='utf-8'))
+        self.assertEqual(snap['decision'], 'refused')
+        global_kinds = {p['kind'] for p in snap['problems'] if development_gate.problem_scope(p) == 'global'}
+        failed = [f['check'] for p in snap['problems'] if p.get('kind') == 'implementation-checks' for f in p.get('failures', [])]
+        for release in release_check.PARTS:
+            with self.subTest(release):
+                verdict = {**bundle_verdict(release), 'commit': snap['commit'], 'wheel_sha256': snap['wheel_sha256']}
+                result = delivery_gate.decide(release, snap, verdict, {**REVIEW, 'commit': snap['commit']})
+                codes = {r['code'] for r in result['reasons']}
+                self.assertEqual(result['decision'], 'refused'); self.assertFalse(gate_history.is_passing_delivery_gate(result))
+                self.assertLessEqual(global_kinds, codes, result['reasons'])
+                self.assertNotIn('problem-unknown', codes); self.assertNotIn('snapshot-contradictory', codes, result['reasons'])
+                detail = ' '.join(r['detail'] for r in result['reasons'] if r['code'] == 'implementation-checks')
+                for check in failed: self.assertIn(check, detail)
+                if failed: self.assertIn('implementation', codes)
 
 
 if __name__ == '__main__':

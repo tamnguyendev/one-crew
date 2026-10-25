@@ -28,6 +28,32 @@ CONFIG = 'wfkit/development-testcases.json'
 MANIFEST = 'wfkit/development-manifest.json'
 STATES = {'partial', 'blocked', 'missing', 'complete'}
 
+# Scope of every problem kind this gate writes (Codex round 6 P1-2). The ONE classification; wfkit.delivery_gate imports it.
+#   GLOBAL  - about the build, the kit, the install, the document self-check, the run selection or the snapshot itself: it blocks the delivery
+#             gate of EVERY release judged on this snapshot.
+#   RELEASE - one testcase of one release is not complete (acceptance-<status>, with release + testcase): it blocks only that release (03 s4).
+# Any other kind, or a release problem without release/testcase, is unclassified: consumers must refuse, never treat it as clean.
+SNAPSHOT_PROBLEMS = frozenset({'snapshot-moved', 'snapshot-dirty', 'external-source-changed'})     # written by intact()/finish()
+GLOBAL_PROBLEMS = frozenset({'dirty-build', 'missing-build', 'kit-guard', 'document-selfcheck', 'installed-origin', 'implementation-checks',
+                             'selected-only'}) | SNAPSHOT_PROBLEMS
+RELEASE_PROBLEMS = frozenset('acceptance-' + state for state in STATES - {'complete'})
+
+
+def problem_scope(problem):
+    """'global' | 'release' | None (unknown or malformed: refuse)."""
+    if not isinstance(problem, dict): return None
+    kind = problem.get('kind')
+    if kind in GLOBAL_PROBLEMS: return 'global'
+    if kind in RELEASE_PROBLEMS and isinstance(problem.get('release'), str) and isinstance(problem.get('testcase'), str): return 'release'
+    return None
+
+
+def _classified(problems):
+    """Every problem this gate writes must be classified; an unclassified one is a defect of the gate, not a pass."""
+    unknown = [p for p in problems if problem_scope(p) is None]
+    if unknown: raise ValueError('unclassified snapshot-gate problem kinds: ' + ', '.join(sorted({str(p.get('kind') if isinstance(p, dict) else p) for p in unknown})))
+    return problems
+
 
 @contextlib.contextmanager
 def layout():
@@ -143,6 +169,7 @@ def decide(config, releases, build, receipts, install, guards, only=None, docume
         for case, criterion in acceptance[release].items():
             if criterion['status'] != 'complete':
                 problems.append({'kind':'acceptance-'+criterion['status'],'release':release,'testcase':case,'gaps':criterion['gaps']})
+    _classified(problems)
     return {'decision':'refused' if problems else 'pass', 'release_delivery':not problems,
             'owner_acceptance':False, 'pilot_passed':False, 'releases':releases,
             'implementation_checks':{'expected':len(checks),'receipted':len(receipts),'failed':failed},
@@ -266,7 +293,7 @@ def finish(prepared, decision, problems):
     decision['snapshot']['intact'] = not problems
     if problems:
         decision['decision'] = 'refused'; decision['release_delivery'] = False
-        decision['problems'] = list(decision.get('problems') or []) + problems
+        decision['problems'] = list(decision.get('problems') or []) + _classified(problems)
     return decision
 
 

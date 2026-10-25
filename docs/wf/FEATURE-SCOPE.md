@@ -79,8 +79,8 @@ Sinh từ `docs/wf/sources/04-TASKS.vi.md` (sha256 c1d8f8ae40cd) và `wfkit/deve
 | W06 | Ba trạng thái node; dependency khai `requires`; hàm "đủ điều kiện chạy" theo trạng thái | T37 | partial | engine, r04a_authority, t37_child_acceptance | acceptance-audit |
 | W10 | Ngân sách và deadline không reset qua chia/retry/restart; đóng lỗ "khoá khác thì ngân sách mới" trong cùng … | T03 | complete | control_core, engine, metered_verifier, root_budget, t03_gaps, w10_allocation |  |
 | W10 | Ngân sách và deadline không reset qua chia/retry/restart; đóng lỗ "khoá khác thì ngân sách mới" trong cùng … | T32 | complete | control_core, namespace, plan_binding, root_budget, root_writer, w12b_cross_root_writer |  |
-| W11b | Version workflow và capability khai trong root; plan schema 2 giữ semantics | T25 | complete | events, namespace, v2_trust_fixes, w05_acceptance_change |  |
-| W12b | Một nguồn duyệt (SOL liên kết như solution revision); một writer mỗi root; không gian tên theo project (A8): … | T26 | partial | installed_solution_link, solution_link, w12b_cross_root_writer | acceptance-audit |
+| W11b | Version workflow và capability khai trong root; plan schema 2 giữ semantics | T25 | complete | events, namespace, v2_trust_fixes, w05_acceptance_change, w11b_schema2_integrity |  |
+| W12b | Một nguồn duyệt (SOL liên kết như solution revision); một writer mỗi root; không gian tên theo project (A8): … | T26 | complete | installed_solution_link, solution_link, t26_e4_one_source, w12b_cross_root_writer |  |
 | W12b | Một nguồn duyệt (SOL liên kết như solution revision); một writer mỗi root; không gian tên theo project (A8): … | T32 | complete | control_core, namespace, plan_binding, root_budget, root_writer, w12b_cross_root_writer |  |
 | W12b | Một nguồn duyệt (SOL liên kết như solution revision); một writer mỗi root; không gian tên theo project (A8): … | T48b | complete | namespace, plan_binding |  |
 | W46b | `compat scan` mở rộng cho anchor `plan-ns:` (đóng băng khi rollback), tên trùng, B1 (active plan trỏ root bản … | T49c | complete | namespace_compat, w46b_t49c_evidence |  |

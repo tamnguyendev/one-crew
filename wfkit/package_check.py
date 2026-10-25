@@ -10,6 +10,12 @@ Two halves:
                  each step's `ok` means in terms of its recorded facts (_POSITIVE) and every negative expectation (NEGATIVE_EXPECT) are
                  fixed here; each mandatory `ok` is recomputed from the facts and a report that demotes, duplicates, re-specifies or
                  contradicts them is refused.
+                 P1-3 (round 6): the SCOPE of mandatory steps is the package's, never the report's. `judge(report, scope)` takes the scope
+                 `package_scope(pkg)` derives from the manifest + the on-disk artifact (manifest kind -> PACKAGE_KINDS; a rollback kind needs
+                 manifest.previous_wheel whose file is present with the pinned sha256 -> ROLLBACK_REQUIRED mandatory; the first-release kind
+                 declares no previous wheel -> BASE scope only). The report's `previous_wheel_present` is an observation that must AGREE; the
+                 report's `package_identity` (package path, kind, manifest/wheel/previous-wheel sha256, verifier file hashes) must equal the
+                 scope's; rollback steps or facts under a BASE scope are a contradiction. Any disagreement or an unverifiable manifest is refused.
   run(pkg, work) the runner: clean venv outside the checkout, wheel installed after a hash check, one code root through the venv console
                  script, every onecrew module loaded from the venv, then the rollback drill on TWO ledger copies: `state-blocked` (the scan
                  reports a block, so rollback must be REFUSED with zero pip install/uninstall) and `state-clear` (0 blocks, rollback allowed,
@@ -37,6 +43,124 @@ ROLLBACK_REQUIRED = ('blocked_copy_built', 'blocked_scan', 'blocked_refused_no_p
                      'clear_scan', 'clear_uninstall_current', 'clear_install_previous', 'clear_old_digest', 'clear_old_cannot_read_plan_ns',
                      'clear_old_copy_unchanged', 'clear_uninstall_previous', 'clear_reinstall_current', 'clear_same_build_restored',
                      'clear_roll_forward_reads', 'clear_roll_forward_copy_unchanged')
+
+
+# Package kinds this verifier evaluates, and the scope each one declares (P1-3). The kind is written by the package builder into the manifest;
+# a report flag can never choose the scope.
+PACKAGE_KINDS = {
+    'development-handover-package': 'rollback',        # carries the previous wheel: the rollback drill is mandatory
+    'first-release-handover-package': 'base',          # first release (build_package --first-release): no earlier build exists to roll back to
+}
+IDENTITY_KEYS = ('package', 'kind', 'manifest_sha256', 'wheel_sha256', 'previous_wheel_sha256', 'verifier_files')
+
+
+def _norm_path(p):
+    return os.path.normcase(os.path.abspath(str(p)))
+
+
+def _verified_file(pkg, entry, label, reasons):
+    """-> the pinned sha256 when entry = {'file','sha256'} names a file inside pkg whose bytes hash to it; else None (+ a reason)."""
+    if not isinstance(entry, dict) or not isinstance(entry.get('file'), str) or not isinstance(entry.get('sha256'), str) or not entry['sha256']:
+        reasons.append(f'manifest {label} entry is not {{file, sha256}}: {entry!r}')
+        return None
+    rel = Path(entry['file'])
+    p = pkg / rel
+    if rel.is_absolute() or '..' in rel.parts:
+        reasons.append(f'manifest {label} file is outside the package: {entry["file"]}')
+        return None
+    if not p.is_file():
+        reasons.append(f'{label} file missing from the package: {entry["file"]}')
+        return None
+    if sha(p) != entry['sha256']:
+        reasons.append(f'{label} file bytes do not match the manifest sha256: {entry["file"]}')
+        return None
+    return entry['sha256']
+
+
+def package_scope(pkg, expected_verifier=None):
+    """-> the evaluation scope, derived ONLY from <pkg>/manifest.json and the files on disk (P1-3). Never from a report.
+
+    {'package', 'kind', 'rollback': True|False|None, 'manifest_sha256', 'wheel_sha256', 'previous_wheel_sha256', 'verifier_files', 'reasons'}.
+    `reasons` non-empty == unverifiable: judge refuses. The verifier binding is required only when the manifest declares `verifier`
+    (packages built before the shipped verifier, e.g. wf-handover-6366137, have none: verifier_files is then None and must be None in the
+    report too). `expected_verifier` = the verify/ files a shipped launcher has already checked; the manifest must pin exactly those."""
+    pkg = Path(pkg).resolve()
+    reasons = []
+    scope = {'package': _norm_path(pkg), 'kind': None, 'rollback': None, 'manifest_sha256': None, 'wheel_sha256': None,
+             'previous_wheel_sha256': None, 'verifier_files': None, 'reasons': reasons}
+    try:
+        raw = (pkg / 'manifest.json').read_bytes()
+        manifest = json.loads(raw.decode('utf-8'))
+        if not isinstance(manifest, dict):
+            raise ValueError('manifest is not a JSON object')
+    except Exception as e:
+        reasons.append(f'manifest missing or unreadable: {type(e).__name__}: {e}')
+        return scope
+    scope['manifest_sha256'] = hashlib.sha256(raw).hexdigest()
+    kind = scope['kind'] = manifest.get('kind')
+    mode = PACKAGE_KINDS.get(kind) if isinstance(kind, str) else None
+    if mode is None:
+        reasons.append(f'manifest kind {kind!r} is not a package kind this verifier evaluates ({", ".join(sorted(PACKAGE_KINDS))})')
+    scope['wheel_sha256'] = _verified_file(pkg, manifest.get('wheel'), 'wheel', reasons)
+    prev = manifest.get('previous_wheel')
+    if mode == 'rollback':
+        scope['rollback'] = True
+        if not prev:
+            reasons.append(f'manifest kind {kind!r} requires a previous wheel but manifest.previous_wheel is empty')
+        else:
+            scope['previous_wheel_sha256'] = _verified_file(pkg, prev, 'previous wheel', reasons)
+    elif mode == 'base':
+        scope['rollback'] = False
+        if prev is not None:
+            reasons.append(f'manifest kind {kind!r} declares no previous wheel but manifest.previous_wheel is set (contradiction)')
+    if 'verifier' in manifest:
+        v = manifest['verifier']
+        files = v.get('files') if isinstance(v, dict) else None
+        if not isinstance(files, dict) or not files:
+            reasons.append('manifest.verifier declares no files')
+        else:
+            for rel, want in sorted(files.items()):
+                p = pkg / rel
+                if not isinstance(want, str) or '..' in Path(rel).parts or Path(rel).parts[:1] != ('verify',) or not p.is_file() or sha(p) != want:
+                    reasons.append(f'verifier file missing, outside verify/ or modified: {rel}')
+            scope['verifier_files'] = dict(files)
+    if expected_verifier is not None and scope['verifier_files'] != dict(expected_verifier):
+        reasons.append('the verifier that ran is not the verifier this package manifest pins (manifest.verifier.files differ)')
+    return scope
+
+
+def identity(scope):
+    """The package identity the runner records in its report (copied from the derived scope)."""
+    return {k: json.loads(json.dumps(scope.get(k))) for k in IDENTITY_KEYS}
+
+
+def check_binding(report, scope):
+    """-> (reasons, rollback). Shared by every package judge: the scope must be a verified package scope, the report's recorded
+    package identity must equal it, and the report's previous_wheel_present observation must agree with the manifest-derived scope."""
+    if not isinstance(scope, dict) or not isinstance(scope.get('reasons'), list):
+        return ['no verified package scope (manifest missing or unverifiable): judge needs package_scope(pkg)'], None
+    if scope['reasons']:
+        return [f'package scope unverifiable: {x}' for x in scope['reasons']], None
+    rollback = scope.get('rollback')
+    if not isinstance(rollback, bool):
+        return ['package scope does not say whether a previous wheel is mandatory'], None
+    reasons = []
+    present = report.get('previous_wheel_present')
+    if not isinstance(present, bool):
+        reasons.append('report does not say whether the package carries a previous wheel (previous_wheel_present)')
+    elif present != rollback:
+        reasons.append(f'previous_wheel_present misdeclared: the report says {present}, the package manifest says {rollback}')
+    rid = report.get('package_identity')
+    if not isinstance(rid, dict):
+        reasons.append('report records no package identity (package_identity)')
+    else:
+        for k in IDENTITY_KEYS:
+            got, want = rid.get(k, _MISSING), scope.get(k)
+            if k == 'package' and isinstance(got, str):
+                got = _norm_path(got)
+            if got is _MISSING or got != want:
+                reasons.append(f'package identity differs from the manifest: {k} (report {"<missing>" if got is _MISSING else got!r}, manifest {want!r})')
+    return reasons, rollback
 
 
 def rollback_decision(blocking_total):
@@ -153,24 +277,26 @@ def _negative(sid, s, text, reasons):
     return ok
 
 
-def judge(report):
+def judge(report, scope):
     """-> {'result': 'pass'|'refused', 'reasons': [...]} (+ 'optional': [...] only when a step outside the oracle failed).
 
-    Pure. The mandatory steps, their pass/fail semantics and the negative expectations are this module's (BASE_REQUIRED, ROLLBACK_REQUIRED,
-    _POSITIVE, NEGATIVE_EXPECT); the report cannot add, drop, demote or redefine them. Each mandatory step's `ok` is RECOMPUTED from its
-    recorded facts and must agree with the recorded `ok` in both directions. Refused: a missing required step, a duplicate step id, a
-    required step demoted to mandatory=False, a replaced expectation, a missing fact, a forbidden marker in a mandatory tail. Steps outside
-    the oracle never decide; their failures are listed under 'optional'. The report's own `result` is only compared (incoherent if it differs)."""
+    Pure. `scope` = package_scope(pkg): the manifest-derived scope (P1-3); without a verified scope the report is refused. The mandatory
+    steps are BASE_REQUIRED, plus ROLLBACK_REQUIRED when the SCOPE says the package carries a previous wheel; their pass/fail semantics and
+    the negative expectations are this module's (_POSITIVE, NEGATIVE_EXPECT); the report cannot add, drop, demote or redefine them. Each
+    mandatory step's `ok` is RECOMPUTED from its recorded facts and must agree with the recorded `ok` in both directions. Refused: a scope
+    or package identity that differs from the report's, a misdeclared previous_wheel_present, rollback steps/facts under a BASE scope, a
+    missing required step, a duplicate step id, a required step demoted to mandatory=False, a replaced expectation, a missing fact, a
+    forbidden marker in a mandatory tail. Steps outside the oracle never decide; their failures are listed under 'optional'. The report's
+    own `result` (and anything else it says about itself) is only compared (incoherent if it differs)."""
     reasons, optional = [], []
     steps = report.get('steps')
+    bound, rollback = check_binding(report, scope)
+    reasons += bound
+    if rollback is None:
+        return {'result': 'refused', 'reasons': reasons}
     if not isinstance(steps, list) or not steps:
-        return {'result': 'refused', 'reasons': ['report has no steps']}
-    present = report.get('previous_wheel_present')
-    required = list(BASE_REQUIRED)
-    if present is True:
-        required += list(ROLLBACK_REQUIRED)
-    elif present is not False:
-        reasons.append('report does not say whether the package carries a previous wheel (previous_wheel_present)')
+        return {'result': 'refused', 'reasons': reasons + ['report has no steps']}
+    required = list(BASE_REQUIRED) + (list(ROLLBACK_REQUIRED) if rollback else [])
     by_id, dups = {}, []
     for s in steps:
         if not isinstance(s, dict):
@@ -186,10 +312,18 @@ def judge(report):
     for rid in required:
         if rid not in by_id:
             reasons.append(f'expected step missing: {rid}')
-    if present is False:
+    if not rollback:
         extra = [i for i in ROLLBACK_REQUIRED if i in by_id]
         if extra:
-            reasons.append(f'rollback steps recorded although previous_wheel_present is false: {", ".join(extra)}')
+            reasons.append(f'rollback steps recorded although the package manifest declares no previous wheel: {", ".join(extra)}')
+        rb = report.get('rollback')
+        if rb is not None and (not isinstance(rb, dict) or set(rb) - {'skipped'}):
+            reasons.append('rollback facts recorded although the package manifest declares no previous wheel (contradiction)')
+    # the recorded wheel identities in the steps are the manifest's (a step about another wheel proves nothing about this package)
+    if 'wheel_sha' in by_id and by_id['wheel_sha'].get('sha256') != scope['wheel_sha256']:
+        reasons.append('step "wheel_sha" checked a different wheel than the package manifest pins')
+    if rollback and 'clear_install_previous' in by_id and by_id['clear_install_previous'].get('sha256') != scope['previous_wheel_sha256']:
+        reasons.append('step "clear_install_previous" installed a different previous wheel than the package manifest pins')
     for sid, s in by_id.items():
         if sid not in required:
             if sid not in ROLLBACK_REQUIRED and s.get('ok') is not True:
@@ -221,7 +355,7 @@ def judge(report):
             reasons.append(f'step "{sid}" records no boolean ok')
         elif recorded != computed:
             reasons.append(f'step "{sid}": recorded ok={recorded} disagrees with the recorded facts (ok={computed})')
-    reasons += _judge_rollback(report.get('rollback'), present)
+    reasons += _judge_rollback(report.get('rollback'), rollback)
     result = 'refused' if reasons else 'pass'
     claimed = report.get('result')
     if claimed in ('pass', 'refused') and claimed != result:
@@ -328,14 +462,17 @@ class Abort(Exception):
     pass
 
 
-def run(pkg, work, out=print):
+def run(pkg, work, out=print, expected_verifier=None):
+    """`expected_verifier`: the verify/ files a shipped launcher already checked (bound into the scope; None from a checkout)."""
     pkg, work = Path(pkg).resolve(), Path(work).resolve()
     if work.exists():
         raise SystemExit('work dir must be new')
     if work.is_relative_to(CHECKOUT):
         raise SystemExit('work dir must be OUTSIDE the checkout')
     work.mkdir(parents=True)
-    report = {'package': str(pkg), 'work': str(work), 'steps': [], 'result': None, 'previous_wheel_present': None}
+    scope = package_scope(pkg, expected_verifier)          # P1-3: the scope comes from the manifest + artifact, before anything runs
+    report = {'package': str(pkg), 'work': str(work), 'package_identity': identity(scope), 'steps': [], 'result': None,
+              'previous_wheel_present': None}
     runner = Runner()
 
     def tails(code=None, so='', se=''):
@@ -350,11 +487,14 @@ def run(pkg, work, out=print):
         if not ok:
             raise Abort(name)
 
-    try:
-        _verify(pkg, work, report, runner, step, tails, out)
-    except Abort as stop:
-        out(f'ABORT after failed step: {stop}')
-    j = judge(report)
+    if scope['reasons']:
+        out('REFUSED before running: the package manifest/artifact is unverifiable: ' + '; '.join(scope['reasons']))
+    else:
+        try:
+            _verify(pkg, work, report, runner, step, tails, out)
+        except Abort as stop:
+            out(f'ABORT after failed step: {stop}')
+    j = judge(report, scope)
     report['result'], report['judge'] = j['result'], j
     (work / 'verification').mkdir(exist_ok=True)
     (work / 'verification' / 'verify-report.json').write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding='utf-8')
@@ -524,8 +664,9 @@ print('built')
                    'installed_before': fp_before, 'installed_after': fp_after, 'copy_before': copy_before, 'copy_after': copy_after}
 
 
-def main(argv=None):
+def main(argv=None, verifier_files=None):
+    """`verifier_files`: passed by the shipped launcher (the verify/ files it verified against this manifest)."""
     argv = list(sys.argv[1:] if argv is None else argv)
     if len(argv) != 2:
         sys.exit('usage: verify_package.py <package dir> <work dir (new, outside the checkout)>')
-    return 0 if run(argv[0], argv[1])['result'] == 'pass' else 1
+    return 0 if run(argv[0], argv[1], expected_verifier=verifier_files)['result'] == 'pass' else 1

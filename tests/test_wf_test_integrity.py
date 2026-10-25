@@ -21,6 +21,8 @@ TEST_FILE = '\n'.join([
 
 
 class TestIntegrityTests(Fixture):
+    WORKFLOW = True       # W11b/T25 [E4] (round 6): T19 is a workflow-root rule; a schema-2 root keeps the old verdict (tests/test_wf_w11b_schema2_integrity)
+
     def setUp(self):
         super().setUp()
         (self.root / 'tests').mkdir()
@@ -30,7 +32,7 @@ class TestIntegrityTests(Fixture):
         argv = [sys.executable, 'tests/test_x.py']
         value = plan_json(milestones=[milestone(argv=argv)], scope={'owned': ['a.txt', 'tests/test_x.py']})
         value['understanding']['target']['paths'] = ['a.txt', 'tests/test_x.py']
-        plans.propose(self.ledger, 'P1', value, 'codex')
+        plans.propose(self.ledger, 'P1', value, 'codex', workflow=self.WORKFLOW)
         plans.approve(self.ledger, 'P1', 'owner', 'fixture')
         os.environ['ONECREW_ACTOR'] = 'codex'
 

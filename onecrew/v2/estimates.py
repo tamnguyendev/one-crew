@@ -339,14 +339,15 @@ WARNING = 'budget_warning'
 def warn_budget(ledger, selector):
     """One in-authority notice when the measured use of the root's approved budget crosses the agreed warning fraction.
 
-    The policy is v1's (task_intake.POLICY warning_fraction, thresholds from budget_policy.watch_policy). v1's effort_watch itself is not
+    The policy is v1's (task_intake.POLICY warning_fraction, thresholds from budget_core.watch_policy, the one implementation v1's
+    budget_policy re-exports). v1's effort_watch itself is not
     reused: it runs on v1 job checkpoints/Control and turns the warning into a `job.effort_warning` REQUEST, which T36b [E17] forbids while
     the work is within authority. Here the warning is a `notice.exception` event (category budget_warning, grants_authority False,
     user_action None, request None) with reason, evidence and what changed - no request, no approval, no budget or deadline change.
     Axes: execution seconds (waits excluded, [E4]) against budget.time, and executor-measured calls against budget.max_calls. Unknown or
     not-measured attempts add nothing (the known sum is a lower bound, flagged; nothing is guessed). One notice per axis/revision/threshold:
     a later observation above the same threshold writes nothing, and nothing is written periodically."""
-    from ..budget_policy import watch_policy
+    from ..budget_core import watch_policy
     from ..task_intake import POLICY
     from .executors import summary
     written = []

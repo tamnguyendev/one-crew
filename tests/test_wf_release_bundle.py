@@ -83,16 +83,18 @@ class ReleaseBundleTests(unittest.TestCase):
         self.assertTrue(all(c['compare']['S'] and c['compare']['G'] and c['compare']['C'] for c in events['comparisons']))
         self.assertIn('verdict.run_started', {e['kind'] for e in legacy})                                        # class A written by the current code on the legacy anchor
         self.assertTrue({'verdict.run_started', 'verdict.receipt_issued', 'verdict.recorded'} <= set(events['observed_kinds']))
-        # known limit, recorded: the legacy root was approved by the OLD build without a base artifact, so the new build's test-integrity check
-        # cannot be established and the passing command is `inconclusive` -> the milestone is `failed`, with the reason in the receipt
-        # P1-D: the legacy root approved by the OLD build (fixture approval, no base artifact, no commit before it) CONTINUES through the owner-recorded
-        # baseline route: first verdict inconclusive with the no-baseline reason, baseline recorded from the sample project's first commit, second
-        # verdict passed. Nothing is passed by default.
-        route = events['baseline_route']
-        self.assertIsNotNone(route, 'the fixture approval has no baseline: the route must have been exercised')
-        self.assertEqual(route['first_verdict'], 'inconclusive'); self.assertIn('no approved baseline', route['reason'])
-        self.assertEqual(route['second_verdict'], 'passed'); self.assertEqual(events['legacy_milestone'], 'passed')
-        self.assertTrue(route['baseline']['tree'])
+        # T25 [E4] / T13b: the legacy `plan:` root of the old build runs under the OLD semantics on the new wheel -- M1 passed from the command
+        # result, test integrity not applied (workflow roots only), no integrity record, no baseline step, no baseline event
+        semantics = events['legacy_semantics']
+        self.assertFalse(semantics['integrity_applies']); self.assertFalse(semantics['test_integrity_recorded'])
+        self.assertEqual(semantics['verdict'], 'pass'); self.assertEqual(semantics['milestone'], 'passed'); self.assertEqual(events['legacy_milestone'], 'passed')
+        self.assertNotIn('baseline_route', events)
+        self.assertNotIn('plan.baseline_recorded', {e['kind'] for e in legacy})
+        self.assertNotIn('inconclusive', {e['payload'].get('result') for e in legacy if e['kind'] == 'verdict.recorded'})
+        # and the OLD build still reads and continues the root afterwards (its own verdict run of M1, then plan show)
+        cont = events['old_build_continues']
+        self.assertTrue(cont['ok'], cont); self.assertTrue(cont['counts_m1_passed'])
+        self.assertEqual(cont['read_after']['S']['exit'], 0); self.assertFalse(cont['read_after']['read_blocked'])
         # T54.3 is judged against the validator's inventory, not the producer's choice
         from wfkit import release_check
         table = release_check.inventory('R01')

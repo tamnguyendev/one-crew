@@ -75,6 +75,11 @@ def _print_table(report):
     print(f"ledger sha: {report['ledger_sha']}")
     print(f"old version: {report['old_version']}")
     print(f"blocking conditions: {b['total']} (read {b['read']}, continue {b['continue']})")
+    warnings = report.get('warnings') or []
+    # T49c round 6: a cell where the old build reads ANOTHER root is not a B1-B4 blocker, but the operator must see it before rollback.
+    print(f"warnings (not blocking): {len(warnings)}")
+    for w in warnings:
+        print('  WARNING ' + compat_scan.READS_OTHER_ROOT + ': ' + w['message'])
     for r in report['roots']:
         props = r['properties']
         flags = ('readable' if props['old_readable'] else 'NOT-readable') + ', ' + ('continuable' if props['old_continuable'] else 'NOT-continuable')
@@ -82,6 +87,8 @@ def _print_table(report):
               + (' [preserved-only]' if r['preserved_only'] else ''))
         for blk in r['blocks']:
             print(f"      {blk['id']} ({blk['type']}): {blk['why']}  | released by: {blk['released_by']}")
+        for risk in r.get('command_risks', []):
+            print(f"      WARNING {risk['label']}: old `{risk['command']}` shows {risk['reads']['anchor']} of project {risk['reads']['project_id']}")
         if r.get('duplicate_note'):
             print('      duplicates: ' + r['duplicate_note'])
 

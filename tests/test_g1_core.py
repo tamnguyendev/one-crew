@@ -199,7 +199,7 @@ class DefaultModelTests(unittest.TestCase):
 class PackagingTests(unittest.TestCase):
     def test_metadata(self):
         text = pyproject()
-        self.assertRegex(text, r'(?m)^version = "2\.2\.0\.dev3"$')
+        self.assertRegex(text, r'(?m)^version = "2\.2\.0\.dev\d+"$')     # a dev build; each handover bumps the number (dev5 = round 6)
         self.assertRegex(text, r'(?m)^name = "onecrew"$')
         self.assertRegex(text, r'(?m)^onecrew = "onecrew\.v2\.cli:main"$')
         self.assertRegex(text, r'(?m)^dependencies = \[\]$')
@@ -302,6 +302,19 @@ class AnchorTests(unittest.TestCase):
         for name in names: self.assertIs(getattr(budget, name), getattr(budget_core, name), name)
         for name in ('group', 'cancellation_status'): self.assertIs(getattr(goal_budget, name), getattr(budget_core, name), name)
         for name in ('installed', 'root_id', 'shared'): self.assertIs(getattr(delivery_store, name), getattr(budget_core, name), name)
+
+    def test_the_budget_warning_thresholds_have_one_source(self):
+        """Codex round 6 P1-1: watch_policy lives in the shipped budget_core; v1's budget_policy re-exports that same function and v2's
+        warning path imports it from the core, never from the v1-only module."""
+        from onecrew import budget_core
+        self.assertIn('def watch_policy', (ROOT / 'onecrew' / 'budget_core.py').read_text(encoding='utf-8'))
+        self.assertNotIn('def watch_policy', (ROOT / 'onecrew' / 'budget_policy.py').read_text(encoding='utf-8'))
+        self.assertEqual([t for t, _ in imports('onecrew.v2.estimates') if t.startswith('onecrew.budget_policy')], [])
+        try:
+            from onecrew import budget_policy
+        except ImportError:
+            self.skipTest('v1 is not in this install')
+        self.assertIs(budget_policy.watch_policy, budget_core.watch_policy)
 
     def test_the_reviewer_independence_has_one_source(self):
         from onecrew import independence

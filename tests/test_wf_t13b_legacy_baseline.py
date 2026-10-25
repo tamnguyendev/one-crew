@@ -81,18 +81,19 @@ class LegacyBaselineTests(unittest.TestCase):
         self.assertEqual(state['verdicts'][-1]['result'], 'pass')
         self.assertNotIn('test_integrity', state['verdicts'][-1], 'nothing weakened, nothing insufficient: no integrity record is needed')
 
-    def test_b_no_commit_before_the_approval_is_inconclusive_until_the_owner_records_a_baseline_with_evidence(self):
+    def test_b_a_schema2_legacy_root_keeps_the_old_verdict_rule_and_a_recorded_baseline_changes_nothing(self):
+        """W11b / T25 [E4] (round 6, decided 25/10 under delegated authority): a schema-2 legacy root runs under the OLD verdict rule — the
+        command's result only, no T19 integrity check — so with no commit before its approval it PASSES without any baseline. `verdict
+        baseline` still refuses an AI session, a commit outside the repo and an empty reference, records once for the owner (class A, not
+        rewritten to another tree, idempotent for the same tree), moves nothing else, and does not change the schema-2 verdict."""
         ledger, anchor = self.legacy_root('l2', '2020-01-01T00:00:00+00:00')    # before every commit of the project
         shown = verdict.run(ledger, 'plan:l2', 'M1', self.proj)
-        self.assertEqual(shown['milestones'][0]['state'], 'failed')
+        self.assertEqual(shown['milestones'][0]['state'], 'passed')                                     # old rule: the command passed
         with ledger.transaction() as conn:
             state = plans.anchor_events(ledger, conn, 'plan:l2')
+        self.assertNotIn('workflow_version', state)
         last = state['verdicts'][-1]
-        self.assertEqual(last['result'], 'inconclusive'); self.assertEqual(last['test_integrity']['classification'], 'insufficient')
-        self.assertIn('no approved baseline', last['test_integrity']['error'])
-        page = report.render_handover(ledger.state_root, 'l2', project_id=ledger.project_id)
-        self.assertIn('verdict baseline', page); self.assertIn('chưa có baseline', page)              # the route, in the owner's report
-        self.assertNotIn(' đạt ', [l for l in page.splitlines() if l.strip().startswith('O1 ')][0])        # never pass by default
+        self.assertEqual(last['result'], 'pass'); self.assertNotIn('test_integrity', last)               # no T19 record on schema 2
         commit = self.git('rev-parse', 'HEAD')
         os.environ['CLAUDE_CODE_CHILD_SESSION'] = '1'
         try:
@@ -105,13 +106,16 @@ class LegacyBaselineTests(unittest.TestCase):
         with self.assertRaises(LedgerError):
             verdict.record_baseline(ledger, 'plan:l2', commit, 'owner', '   ', self.proj)              # a reference is required
         before = self.rows(anchor)
+        view_before = plans.show(ledger, 'plan:l2')['milestones']
         recorded = verdict.record_baseline(ledger, 'plan:l2', commit, 'owner', 'decided in the owner terminal, fixture', self.proj)
         self.assertEqual(recorded['tree'], self.git('rev-parse', commit + '^{tree}'))
         self.assertEqual(compat.event_class(plans.BASELINE_KIND), 'A')
         after = self.rows(anchor)
         self.assertEqual(before['attempts'], after['attempts']); self.assertEqual(before['executions'], after['executions'])   # (d) nothing else moved
-        shown = verdict.run(ledger, 'plan:l2', 'M1', self.proj)
-        self.assertEqual(shown['milestones'][0]['state'], 'passed')
+        with ledger.transaction() as conn:
+            again = plans.anchor_events(ledger, conn, 'plan:l2')
+        self.assertEqual(again['verdicts'], state['verdicts'])                                          # the schema-2 verdict is unchanged
+        self.assertEqual(plans.show(ledger, 'plan:l2')['milestones'], view_before)
         # the recorded baseline is not rewritten to another tree; recording the same tree again is idempotent
         (self.proj / 'b.txt').write_text('x\n'); self.git('add', 'b.txt'); self.git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'more')
         with self.assertRaisesRegex(LedgerError, 'not rewritten'):

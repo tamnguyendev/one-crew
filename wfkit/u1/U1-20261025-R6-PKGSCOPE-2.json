@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R6-PKGSCOPE-2",
+ "file": "tests/test_wf_package_oracle.py",
+ "old_sha256": "a5b7ea391cdd114bac6f605a98a392e9ce0ffb07a8374e2c3d57a90d2c0f5478",
+ "new_sha256": "f720b979ac999681c28a5d62d115c457ea87086186fe05d3398b50edb30a9bf9",
+ "reason": "Round 6 (Codex P1-3 at c18c46e): the mandatory scope of the package check is derived from the verified manifest/artifact (package_scope: kind, previous wheel present with pinned sha, verifier files), never from the report; judge(report, scope) binds package/kind/manifest/wheel/previous/verifier identities. Test builders supply the scope; new counter-examples (flag flipped + rollback steps removed, contradictory rollback facts, swapped identities, missing manifest) refused; round-5 bypasses still refused. Legacy-continuation judge: same scope rule, and its steps follow the W11b decision (legacy plan: root runs under OLD semantics → passed, no inconclusive/baseline route). No assertion weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 5 sau xác nhận Codex 3 P1 + 2 P2): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 5 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

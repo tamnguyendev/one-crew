@@ -131,7 +131,7 @@ class FaultTests(t08a.ReconcileTests):
 
     def test_vii_interrupt_after_x_before_its_receipt_is_held_not_rerun(self):
         self.plan_with(self.x(then_sleep=False))
-        with patch.object(verdict, '_test_integrity', side_effect=KeyboardInterrupt()):
+        with patch.object(verdict, 'integrity_applies', return_value=True), patch.object(verdict, '_test_integrity', side_effect=KeyboardInterrupt()):   # W11b round 6: the injection point is a workflow-root step
             with self.assertRaises(KeyboardInterrupt):
                 verdict.run(self.ledger, 'P1', 'M1', self.root)                       # X ran; interrupted before the receipt marker
         self.assertEqual(self.lines(), 1)

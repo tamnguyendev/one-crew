@@ -332,7 +332,8 @@ def run(ledger, name, milestone_id, directory=None):
         if kind == 'command':
             blob, receipt = command.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
             phase = 'after_verifier'
-            integrity = _test_integrity(ledger, directory, approved, receipt)          # W05/T19: a weakened test suite cannot make the milestone pass
+            if integrity_applies(state):                                               # W11b/T25 [E4]: schema-2 roots keep the old rule
+                integrity = _test_integrity(ledger, directory, approved, receipt)      # W05/T19: a weakened test suite cannot make the milestone pass
         elif kind == 'reviewer':
             context = dict(evidence_context)
             if namespaces.has_capability(state, 'root-budget'):
@@ -542,7 +543,8 @@ def _record_issued(ledger, name, revision, milestone_id, run):
     if integrity is None and run.get('kind') == 'command':
         with ledger.transaction() as conn:
             state = plans.anchor_events(ledger, conn, name)
-        integrity = _test_integrity(ledger, Path(issued.get('cwd') or marker.get('cwd') or ledger.project), state['approved'], body)
+        if integrity_applies(state):                                     # W11b/T25 [E4]
+            integrity = _test_integrity(ledger, Path(issued.get('cwd') or marker.get('cwd') or ledger.project), state['approved'], body)
     shown = record(ledger, name, milestone_id, integrity_result(_result(run.get('kind'), body), integrity), run.get('kind'), blob, body['artifact_sha'], integrity=integrity)
     _unmark(ledger, run['run_id'])
     return shown
@@ -627,6 +629,15 @@ def record_baseline(ledger, name, from_commit, by, reference, directory=None):
                    'source': 'owner-recorded baseline (plan approved by a build without base artifact)', 'actor': os.environ.get('ONECREW_ACTOR') or 'owner-terminal'}
         plans.emit(ledger, conn, state['task_id'], plans.BASELINE_KIND, payload)
     return payload
+
+
+def integrity_applies(state):
+    """W11b/T25 [E4] — decided 25/10 round 6 under delegated authority. The T19 test-integrity rule (W05, a new R04 capability) applies only
+    to a WORKFLOW root (workflow_version declared by its original proposal). A schema-2 root (plain `plan propose`/`approve`, created before
+    or after the upgrade) keeps the old verdict rule: the command's own result. Sources: 04-TASKS W11b "plan schema 2 giữ semantics", its
+    not-done condition "Root schema 2 bị áp luật mới"; 05 T25 [E4] (forbidden) "Root schema 2 bị đối xử theo luật mới"; 00 §6 "plan schema 2
+    (v2.1/v2.2) giữ nguyên nghĩa: item và mốc là điều khoản hợp đồng"; 05 T13b "root cũ chạy theo semantics cũ"."""
+    return state.get('workflow_version') == namespaces.WORKFLOW_VERSION
 
 
 def _test_integrity(ledger, directory, approved, receipt):

@@ -28,8 +28,11 @@ def report_violations(report, old_says_unreadable, old_reads_other=()):
         cell = root['commands'].get(command, '') if root else ''
         if not cell.startswith(compat_scan.READS_OTHER_ROOT):
             bad.append(f'{anchor} {command}: old binary reads another root, scan says {cell!r}')
-        elif not any(r['command'] == command and r['blocking'] for r in root.get('command_risks', [])):
-            bad.append(f'{anchor} {command}: reads_other_root not recorded as a blocking risk')
+        elif not any(r['command'] == command and r['label'] == compat_scan.READS_OTHER_ROOT and not r['blocking']
+                     for r in root.get('command_risks', [])):
+            bad.append(f'{anchor} {command}: reads_other_root not recorded as a (non-blocking) warning risk')
+        elif not any(w['anchor'] == anchor and w['project_id'] == project_id and w['command'] == command for w in report.get('warnings', [])):
+            bad.append(f'{anchor} {command}: reads_other_root not surfaced in the report warnings')
     for root in report['roots']:
         key = (root['anchor'], root['project_id'])
         if key in old_says_unreadable:
@@ -100,7 +103,7 @@ class T49cEvidence(base.NamespaceCompatTests):
         if predicted.startswith(compat_scan.READS_OTHER_ROOT):
             # The old binary answers about the OTHER root the scan names (its project), neither refused nor about this root.
             risk = next(r for r in row.get('command_risks', []) if r['command'] == command)
-            self.assertTrue(risk['blocking'], text)
+            self.assertFalse(risk['blocking'], text)                 # round 6: a warning, not a B1-B4 blocker
             self.assertEqual(code == 0, predicted.split(': ', 1)[1].startswith('exit 0'), text)
             self.assertIn(str(risk['reads']['project_path']).lower(), out.lower(), text)
             self.assertNotIn(str(self.projects[1 if label in ('R2', 'DUPb') else 0]).lower(), out.lower(), text)
@@ -135,7 +138,7 @@ class T49cEvidence(base.NamespaceCompatTests):
 
     def test_t49c_e22_dupb_report_reads_dupk_and_a_refused_prediction_goes_red(self):
         """W46b / T49c E22: the old `plan report dup` from P2 does not refuse: it exits 0 with the partial report of DUPk (P3's legacy
-        plan:dup). The scan labels the cell reads_other_root (blocking risk, reads P3's plan:dup); a scan that predicts 'refused, No plan
+        plan:dup). The scan labels the cell reads_other_root (a non-blocking warning, reads P3's plan:dup); a scan that predicts 'refused, No plan
         named' (the d3120c6-blind prediction) or a plain 'exit 0' readable cell for it is caught."""
         row = self.root(compat_scan.scan(self.copy()), 'DUPb')
         cell = row['commands']['plan report']
@@ -143,7 +146,7 @@ class T49cEvidence(base.NamespaceCompatTests):
         self.assertNotIn('refused', cell)
         self.assertNotIn('lost', cell.lower())
         self.assertEqual([(r['label'], r['blocking'], r['reads']['anchor'], r['reads']['project_id']) for r in row['command_risks']],
-                         [('reads_other_root', True, 'plan:dup', self.pids[2])])
+                         [('reads_other_root', False, 'plan:dup', self.pids[2])])
         self.assertEqual(row['blocks'], [])                       # E21 unchanged: not a B3 write hazard
         self.check_cell('DUPb', 'plan report')
         with self.assertRaises(AssertionError):           # counter-example: the old scan's refusal is red against the old binary
@@ -155,11 +158,48 @@ class T49cEvidence(base.NamespaceCompatTests):
         self.assertEqual(report_violations(compat_scan.scan(self.copy()), set(), other), [])
 
     def reads_other(self):
-        """Cells where the real old binary shows another project's root: `plan report dup` from P2 prints P3's report."""
-        code, out, before, after, state = self.ask_old('DUPb', 'plan report')
-        self.assertEqual(code, 0, out)
-        self.assertIn(str(self.projects[2]).lower(), out.lower())
-        return {('plan-ns:dup', self.pids[1], 'plan report')}
+        """Cells where the real old binary shows another project's root: `plan report dup` from P2 (DUPb) and from P1 (DUPa, legacy)
+        both print P3's report (DUPk, the last plan:dup of the state root)."""
+        found = set()
+        for label, index, anchor in (('DUPb', 1, 'plan-ns:dup'), ('DUPa', 0, 'plan:dup')):
+            code, out, before, after, state = self.ask_old(label, 'plan report')
+            self.assertEqual(code, 0, out)
+            self.assertIn(str(self.projects[2]).lower(), out.lower())
+            self.assertEqual(before, after)
+            found.add((anchor, self.pids[index], 'plan report'))
+        return found
+
+    def test_round6_dupa_legacy_report_reads_dupk_and_is_a_warning_not_a_blocker(self):
+        """T49c round 6 (decided 25/10 under delegated authority; source: 00 §6.1 / 05 T49 two block types, B1-B4; T49c [E21] "DUPb ...
+        tên trùng, không chặn"; T49d N5/N6 succeed): the real old `plan report dup` from P1 shows DUPk (P3) — the scan predicts
+        reads_other_root for the legacy DUPa cell as well; DUPa stays readable/continuable for show/amend/verdict (E21); the misreads are
+        warnings in the report and the CLI table, and blocking.total stays the B1+B2+B3 of S2 (= 3)."""
+        report = compat_scan.scan(self.copy())
+        row = self.root(report, 'DUPa')
+        self.assertTrue(row['commands']['plan report'].startswith(compat_scan.READS_OTHER_ROOT), row['commands']['plan report'])
+        self.assertTrue(row['properties']['old_readable'] and row['properties']['old_continuable'])
+        self.assertEqual(row['blocks'], [])
+        self.assertEqual([(r['label'], r['blocking'], r['reads']['anchor'], r['reads']['project_id']) for r in row['command_risks']],
+                         [('reads_other_root', False, 'plan:dup', self.pids[2])])
+        self.check_cell('DUPa', 'plan report')                                    # real old binary
+        for other in ('plan show', 'plan amend', 'verdict run'):                  # the cells of DUPa that resolve inside P1 are unchanged
+            self.assertFalse(row['commands'][other].startswith(compat_scan.READS_OTHER_ROOT))
+        self.assertEqual(report['blocking']['total'], 3)
+        self.assertEqual(sorted(b['id'] for r in report['roots'] for b in r['blocks']), ['B1', 'B2', 'B3'])
+        self.assertEqual(sorted((w['anchor'], w['project_id']) for w in report['warnings']),
+                         sorted([('plan-ns:dup', self.pids[1]), ('plan:dup', self.pids[0])]))
+        self.assertTrue(self.root(report, 'DUPk')['commands']['plan report'].startswith('exit 0'))   # DUPk is what the lookup renders
+        # counter-example: the earlier plain 'exit 0' (readable) cell for DUPa fails the report check against the real old binary
+        self.assertTrue(report_violations(self.patched_report('DUPa', 'plan report', 'exit 0'), set(), self.reads_other()))
+        import contextlib, io
+        from onecrew.v2 import compat_cli
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(compat_cli.main(['--state-root', str(self.copy()), 'compat', 'scan']), 0)
+        table = out.getvalue()
+        self.assertIn('blocking conditions: 3', table)
+        self.assertIn('warnings (not blocking): 2', table)
+        self.assertEqual(table.count('WARNING reads_other_root: '), 4, table)       # 2 summary lines + 2 per-root lines
 
     def patched_report(self, label, command, value):
         report = json.loads(json.dumps(compat_scan.scan(self.copy())))

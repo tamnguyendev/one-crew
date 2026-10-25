@@ -461,19 +461,16 @@ ledger = Ledger({str(self.project)!r}, {str(work)!r})
 with ledger.transaction() as conn:
     task = plan.anchor_events(ledger, conn, 'plan:legacy')['task_id']
     before = [r[0] for r in conn.execute('SELECT seq FROM events WHERE task_id=? ORDER BY seq', (task,))]
-shown = verdict.run(ledger, 'plan:legacy', 'M1', {str(self.project)!r})
-route = None
+# T25 [E4] / T13b: a legacy `plan:` root of the old build runs under the OLD semantics on the new wheel -- the verdict is the command's own
+# result, the T19 test-integrity rule applies only to workflow roots (verdict.integrity_applies), so no baseline and no integrity record
 with ledger.transaction() as conn:
-    first_verdict = plan.anchor_events(ledger, conn, 'plan:legacy')['verdicts'][-1]
-if first_verdict.get('result') == 'inconclusive' and 'no approved baseline' in str((first_verdict.get('test_integrity') or {{}}).get('error') or ''):
-    # the fixture approval (old harness) carries no time that any commit precedes: the P1-D route -- the owner records the baseline from the
-    # commit the root was approved against (here the project's first commit), then the milestone is checked again against it
-    import subprocess as _sp
-    first_commit = _sp.run(['git', '-C', {str(self.project)!r}, 'rev-list', '--max-parents=0', 'HEAD'], capture_output=True, text=True).stdout.split()[0]
-    recorded = verdict.record_baseline(ledger, 'plan:legacy', first_commit, 'owner', 'bundle drill: fixture approval predates every commit; baseline = first commit of the sample project', {str(self.project)!r})
-    shown = verdict.run(ledger, 'plan:legacy', 'M1', {str(self.project)!r})
-    route = {{'first_verdict': first_verdict.get('result'), 'reason': (first_verdict.get('test_integrity') or {{}}).get('error'), 'baseline': recorded,
-             'second_verdict': shown['milestones'][0]['state']}}
+    state = plan.anchor_events(ledger, conn, 'plan:legacy')
+integrity_applies = verdict.integrity_applies(state) if hasattr(verdict, 'integrity_applies') else None   # None: this build predates the rule
+shown = verdict.run(ledger, 'plan:legacy', 'M1', {str(self.project)!r})
+with ledger.transaction() as conn:
+    last_verdict = plan.anchor_events(ledger, conn, 'plan:legacy')['verdicts'][-1]
+legacy_semantics = {{'integrity_applies': integrity_applies, 'verdict': last_verdict.get('result'), 'milestone': shown['milestones'][0]['state'],
+                    'test_integrity_recorded': last_verdict.get('test_integrity') is not None}}
 with ledger.transaction() as conn:
     passed = conn.execute("SELECT seq FROM events WHERE task_id=? AND kind='milestone.passed'", (task,)).fetchone()
 if passed:
@@ -497,10 +494,18 @@ for name in ('future', 'findings'):
                 ns.append({{'seq': r['seq'], 'kind': r['kind'], 'payload': json.loads(r['payload'] or '{{}}'), 'anchor': root['selector'], 'class': compat.event_class(r['kind'])}})
     except Exception as error:   # noqa: BLE001
         ns.append({{'root': name, 'error': str(error)[:200]}})
-_RESULT = {{'written': written, 'namespaced': [e for e in ns if 'kind' in e], 'milestone': shown['milestones'][0]['state'], 'baseline_route': route,
+_RESULT = {{'written': written, 'namespaced': [e for e in ns if 'kind' in e], 'milestone': shown['milestones'][0]['state'], 'legacy_semantics': legacy_semantics,
            'verdict_result': recorded.get('result'), 'integrity_classification': integrity.get('classification'), 'integrity_error': integrity.get('error')}}
 ''')
         reading_after = old.read(binary, self.project, rollback.copy_ledger(work, self.out / 'events-after'), 'legacy')
+        # the OLD build still reads AND continues the root the new wheel wrote on (a copy): it counts the new build's M1 verdict as its own pass
+        # (its `verdict run M1` answers "already passed", its digest shows the milestone done and the next step), no owner verb is used
+        continued = rollback.copy_ledger(work, self.out / 'events-old-continues')
+        run_code, run_out = binary.run(self.project, continued, 'verdict', 'run', '--plan', 'legacy', '--milestone', 'M1')
+        after_continue = old.read(binary, self.project, continued, 'legacy')
+        counts_pass = (run_code == 0 or 'already passed' in run_out) and 'mốc 1/1' in after_continue['H']['digest']
+        old_continues = {'verdict_run_exit': run_code, 'verdict_run_tail': run_out[-300:], 'read_after': after_continue, 'counts_m1_passed': counts_pass,
+                         'ok': counts_pass and not reading_after['read_blocked'] and not after_continue['read_blocked']}
         # T54.3 (review a2476ab P1): the inventory is the validator's (wfkit/release_events.json); the observed kinds come from the installed behaviour
         # scenarios of this release plus what the current code wrote on the legacy anchor; each inventory kind is carried with a REAL sample event
         table = release_check.inventory(self.release)
@@ -539,16 +544,16 @@ _RESULT = {{'kind': {kind!r}, 'class': compat.event_class({kind!r}), 'payload': 
             comparisons.append({'kind': kind, 'before': before_probe, 'after': after_probe, 'compare': old.compare(before_probe, after_probe), 'probe': 'sample event with the scenario payload on a legacy anchor copy'})
             probes[kind] = str(probe_state)
         self.event_log = result
-        # Known limit (recorded, not hidden): a legacy root approved by the OLD build has no approval base artifact, so the W05 test-integrity
-        # check of the new build cannot be established and a passing command is recorded `inconclusive` (milestone `failed`), never `passed`.
-        # The events written (verdict.run_started, receipt_issued, recorded, learning.outcome, estimate.eta …) and the old binary's S/G/C are
-        # what T54.3 judges; the milestone state is reported as observed, with the integrity reason.
+        # The legacy root keeps the old semantics (T25 [E4]): its verdict is the command's result, no integrity record, no baseline. The events
+        # written (verdict.run_started, receipt_issued, recorded, …) and the old binary's S/G/C before/after are what T54.3 judges; the milestone
+        # state, the semantics observation and the old build's continuation are reported as observed. (The former `verdict baseline` route and
+        # its negative probes are gone: a legacy root needs no baseline, so they no longer belong to this bundle; they stay with W05/T19.)
         extra = {}
         if not table['kinds']:
             extra = {'none_reason': table['none_reason'], 'regression_scenarios': [r['scenario'] for r in getattr(self, 'scenario_receipts', []) if r['result'] == 'pass']}
         return self.receipt('events', old_artifact=self.identity('previous'), old_binary='git archive ' + self.baseline + ' (unmodified)',
                             expected_kinds=list(table['kinds']), observed_kinds=sorted(observed), inventory_tasks=table['tasks'],
-                            new_events=new_events, comparisons=comparisons, probes=probes, legacy_milestone=result['milestone'], baseline_route=result.get('baseline_route'),
+                            new_events=new_events, comparisons=comparisons, probes=probes, legacy_milestone=result['milestone'], legacy_semantics=result['legacy_semantics'], old_build_continues=old_continues,
                             legacy_verdict={'result': result['verdict_result'], 'test_integrity': result['integrity_classification'], 'reason': result['integrity_error']},
                             class_b_on_legacy_anchor=[e['kind'] for e in result['written'] if e['class'] == 'B'], **extra)
 

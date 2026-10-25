@@ -2,15 +2,19 @@
 #   python docs/wf/audit/tools/legacy_continuation.py <package dir> <work dir (new, outside the checkout)>
 #
 # What it proves on the installed wheel of the package, in a clean venv outside the checkout, on a throw-away ledger:
-#   1. a root approved in the OLD shape (approval row without `at` and without `base_artifact`, ledger time before every commit of the
-#      project) is NOT passed by default: the command verdict is `inconclusive`, the milestone is not passed, and the owner's handover
-#      page names the route (`onecrew verdict baseline ...`);
-#   2. an AI session cannot record the baseline (ONECREW_ACTOR=claude is refused); a commit that is not in the repository is refused;
-#   3. the OWNER records the baseline with a reference; the same milestone then passes; recording again is idempotent;
-#   4. nothing else about the root changed: ID, revision, the approval rows, the earlier inconclusive verdict stay as they were;
+#   1. a root created by the OLD build (the package's previous wheel) and approved in the OLD shape (approval row without `at` and without
+#      `base_artifact`) continues on the NEW wheel under its OLD semantics (decision 25/10 round 6, verdict.integrity_applies: T19 test
+#      integrity applies to workflow roots only; 00 §6 "plan schema 2 giữ nguyên nghĩa", 05 T25 [E4], T13b "root cũ chạy theo semantics cũ"):
+#      `verdict run` judges the command result alone -> M1 `passed`, no integrity record, never `inconclusive`;
+#   2. the owner's handover page shows O1 as achieved and does NOT name a baseline route as required;
+#   3. `verdict baseline` still guards itself: an AI session (ONECREW_ACTOR=claude) and a commit not in the repository are refused, writing
+#      nothing; the OWNER records it once with a reference and M1 stays passed with its one verdict; recording again adds nothing;
+#   4. nothing else about the root changed: ID, revision, approval rows; the OLD build still reads the root afterwards;
 #   5. every onecrew module came from the venv (no checkout shadowing).
 # The verdict comes from `judge()` (mandatory steps + negative reasons + encoding-clean tails); the report's own `result` is never trusted,
 # and each mandatory step's `ok` is recomputed from its recorded facts (ORACLE): the report supplies observations, never the oracle.
+# Codex P1-3: the scope is the package's: judge(report, scope) with scope = package_scope(pkg) (manifest kind + previous wheel verified on disk);
+# the report's package identity and previous_wheel_present must agree with it. A declared first-release package is 'not-applicable' (exit 5).
 # This tool is deliberately OUTSIDE the pinned kit (wfkit/package_check.py is frozen in the snapshot gate); it reuses the kit's sha/Runner.
 import json
 import os
@@ -28,9 +32,10 @@ else:
     sys.path.insert(0, str(CHECKOUT))
     from wfkit import package_check as pc  # noqa: E402
 
-REQUIRED = ('wheel_sha', 'venv', 'pip_install', 'old_venv_previous_wheel', 'legacy_root_by_old_build', 'legacy_root_built', 'legacy_inconclusive_not_passed', 'legacy_route_in_handover',
-            'baseline_ai_refused', 'baseline_bad_commit_refused', 'baseline_owner_recorded', 'legacy_passed_after_baseline',
-            'legacy_identity_unchanged', 'modules_from_venv')
+REQUIRED = ('wheel_sha', 'venv', 'pip_install', 'old_venv_previous_wheel', 'legacy_root_by_old_build', 'legacy_root_built',
+            'legacy_passed_old_semantics', 'legacy_handover_no_baseline_required',
+            'baseline_ai_refused', 'baseline_bad_commit_refused', 'baseline_owner_recorded', 'baseline_leaves_verdict_unchanged',
+            'legacy_identity_unchanged', 'old_build_reads_after', 'modules_from_venv')
 NEGATIVE = {'baseline_ai_refused': 'AI cannot approve', 'baseline_bad_commit_refused': 'rev-parse --verify failed'}   # the product's own refusal texts (real run on wf-handover-6366137, 25/10)
 BAD_TAIL = ('UnicodeEncodeError', 'UnicodeDecodeError', "can't encode", 'codec can')
 
@@ -65,11 +70,13 @@ def _negative_ok(f):
     return isinstance(code, int) and code != 0 and f('events_added') == 0 and f('baselines') == 0
 
 
-def _inconclusive(f):
-    integ = f('integrity')
-    integ = integ if isinstance(integ, dict) else {}
-    return (f('result') == 'inconclusive' and f('m1') != 'passed' and integ.get('classification') == 'insufficient'
-            and 'no approved baseline' in str(integ.get('error', '')))
+def _old_semantics(f):
+    """The schema-2 root is judged by the command result alone: pass, M1 passed, NO integrity record (T19 is for workflow roots only)."""
+    return _exit0(f) and f('result') == 'pass' and f('m1') == 'passed' and f('integrity') is None
+
+
+def _o1_achieved(line):
+    return isinstance(line, str) and line.strip().startswith('O1 ') and 'đạt' in line and 'chưa' not in line and 'cần kiểm lại' not in line
 
 
 def _owner_recorded(f):
@@ -78,11 +85,14 @@ def _owner_recorded(f):
     return (_exit0(f) and f('baselines') == 1 and _same(first.get('tree'), f('tree')) and _same(first.get('from_commit'), f('head')))
 
 
+def _verdict_unchanged(f):
+    """After the owner's baseline (and a second, idempotent recording): M1 still passed, still exactly the one `pass` verdict, one baseline."""
+    return _exit0(f) and f('m1') == 'passed' and f('verdicts') == ['pass'] and f('baselines') == 1
+
+
 def _identity(f):
-    verdicts = f('verdicts')
-    return (_exit0(f) and _same(f('anchor'), f('anchor_built'), f('anchor_counted_before'))
-            and f('revision') == f('revision_built') == 1 and f('approved_rows') == f('approved_rows_built') == 1
-            and isinstance(verdicts, list) and verdicts[:1] == ['inconclusive'] and verdicts[-1:] == ['pass'] and f('baselines') == 1)
+    return (_same(f('anchor'), f('anchor_built'), f('anchor_counted_before'))
+            and f('revision') == f('revision_built') == 1 and f('approved_rows') == f('approved_rows_built') == 1)
 
 
 def _previous(f):
@@ -97,27 +107,43 @@ ORACLE = {
     'old_venv_previous_wheel': _previous,
     'legacy_root_by_old_build': _exit0,
     'legacy_root_built': lambda f: _exit0(f) and f('observation') is True,
-    'legacy_inconclusive_not_passed': _inconclusive,
-    'legacy_route_in_handover': lambda f: f('route_in_page') is True and isinstance(f('o1_line'), str) and ' đạt ' not in f('o1_line'),
+    'legacy_passed_old_semantics': _old_semantics,
+    'legacy_handover_no_baseline_required': lambda f: f('baseline_in_page') is False and _o1_achieved(f('o1_line')),
     'baseline_ai_refused': _negative_ok,
     'baseline_bad_commit_refused': _negative_ok,
     'baseline_owner_recorded': _owner_recorded,
-    'legacy_passed_after_baseline': lambda f: f('m1') == 'passed' and f('result') == 'pass',
+    'baseline_leaves_verdict_unchanged': _verdict_unchanged,
     'legacy_identity_unchanged': _identity,
+    'old_build_reads_after': lambda f: _exit0(f) and f('needles') == {'legacy': True},
     'modules_from_venv': lambda f: isinstance(f('modules'), int) and f('modules') > 5 and f('outside') == {},
 }
 assert set(ORACLE) == set(REQUIRED) and set(NEGATIVE) <= set(REQUIRED)
 
 
-def judge(report):
-    """-> {'result': 'pass'|'refused', 'reasons': [...]}. Pure. Mandatory steps and their meaning are REQUIRED/ORACLE/NEGATIVE (this module's);
-    each mandatory `ok` is recomputed from the step's recorded facts and must agree with the recorded `ok`. Refused: a missing, demoted
-    (mandatory != True) or duplicated required step, a step without id, a missing fact, a negative step that did not fail for the expected
-    reason, an encoding error in any tail. The report's own `result` is only compared."""
+def judge(report, scope):
+    """-> {'result': 'pass'|'refused'|'not-applicable', 'reasons': [...]}. Pure. `scope` = pc.package_scope(pkg) (Codex P1-3): the SCOPE comes
+    from the manifest + artifact, never from the report. The legacy root can only be built by the package's previous wheel, so REQUIRED is
+    mandatory exactly when the scope says the package carries one; a package of a declared no-previous kind (first release) is
+    'not-applicable' (never 'pass') and any step recorded for it is a contradiction (refused). The report's package identity and its
+    previous_wheel_present observation must agree with the scope (pc.check_binding). Mandatory steps and their meaning are
+    REQUIRED/ORACLE/NEGATIVE (this module's); each mandatory `ok` is recomputed from the step's recorded facts and must agree with the
+    recorded `ok`. Refused: a missing, demoted (mandatory != True) or duplicated required step, a step without id, a missing fact, a negative
+    step that did not fail for the expected reason, an encoding error in any tail, a step about another wheel than the manifest pins.
+    The report's own `result` is only compared."""
     steps = report.get('steps')
+    reasons, rollback = pc.check_binding(report, scope)
+    if rollback is None:
+        return {'result': 'refused', 'reasons': reasons}
+    if rollback is False:
+        if isinstance(steps, list) and steps:
+            reasons.append('legacy continuation steps recorded although the package manifest declares no previous wheel (contradiction)')
+        if report.get('result') == 'pass':
+            reasons.append('report claims pass for a package without a previous wheel: incoherent')
+        return {'result': 'refused', 'reasons': reasons} if reasons else {
+            'result': 'not-applicable', 'reasons': [f'package kind {scope.get("kind")!r} declares no previous wheel: no old build can create a legacy root']}
     if not isinstance(steps, list) or not steps:
-        return {'result': 'refused', 'reasons': ['report has no steps']}
-    by_id, reasons = {}, []
+        return {'result': 'refused', 'reasons': reasons + ['report has no steps']}
+    by_id = {}
     for s in steps:
         if not isinstance(s, dict):
             reasons.append('malformed step entry')
@@ -157,6 +183,11 @@ def judge(report):
             reasons.append(f'step {rid} records no boolean ok')
         elif s['ok'] != computed:
             reasons.append(f'step {rid}: recorded ok={s["ok"]} disagrees with the recorded facts (ok={computed})')
+    w, p = by_id.get('wheel_sha'), by_id.get('old_venv_previous_wheel')
+    if w is not None and w.get('sha256') != scope['wheel_sha256']:
+        reasons.append('step wheel_sha checked a different wheel than the package manifest pins')
+    if p is not None and (p.get('previous') if isinstance(p.get('previous'), dict) else {}).get('sha256') != scope['previous_wheel_sha256']:
+        reasons.append('step old_venv_previous_wheel installed a different previous wheel than the package manifest pins')
     for s in steps:
         if not isinstance(s, dict):
             continue
@@ -173,14 +204,16 @@ class Abort(Exception):
     pass
 
 
-def run(pkg, work, out=print):
+def run(pkg, work, out=print, expected_verifier=None):
     pkg, work = Path(pkg).resolve(), Path(work).resolve()
     if work.exists():
         raise SystemExit('work dir must be new')
     if work.is_relative_to(CHECKOUT):
         raise SystemExit('work dir must be OUTSIDE the checkout')
     work.mkdir(parents=True)
-    report = {'tool': 'legacy_continuation', 'package': str(pkg), 'work': str(work), 'steps': [], 'result': None}
+    scope = pc.package_scope(pkg, expected_verifier)        # P1-3: scope from the manifest + artifact, before anything runs
+    report = {'tool': 'legacy_continuation', 'package': str(pkg), 'work': str(work), 'package_identity': pc.identity(scope), 'steps': [],
+              'result': None, 'previous_wheel_present': None}
     runner = pc.Runner()
 
     def tails(code=None, so='', se='', **more):
@@ -196,11 +229,19 @@ def run(pkg, work, out=print):
         if not ok:
             raise Abort(name)
 
-    try:
-        _steps(pkg, work, report, runner, step, tails)
-    except Abort as stop:
-        out(f'ABORT after failed step: {stop}')
-    j = judge(report)
+    if scope['reasons']:
+        out('REFUSED before running: the package manifest/artifact is unverifiable: ' + '; '.join(scope['reasons']))
+    else:
+        try:
+            manifest = json.loads((pkg / 'manifest.json').read_text(encoding='utf-8'))
+            report['previous_wheel_present'] = bool(manifest.get('previous_wheel'))      # observation; judge compares it with the scope
+            if report['previous_wheel_present']:
+                _steps(pkg, work, report, runner, step, tails)
+            else:
+                out('package carries no previous wheel: legacy continuation is not applicable (no old build can create a legacy root)')
+        except Abort as stop:
+            out(f'ABORT after failed step: {stop}')
+    j = judge(report, scope)
     report['result'], report['judge'] = j['result'], j
     (work / 'verification').mkdir(exist_ok=True)
     path = work / 'verification' / 'legacy-continuation-report.json'
@@ -298,7 +339,7 @@ first = verdict_run()
 page = report.render_handover(STATE, 'legacy', project_id=ledger.project_id)
 mods = {n: getattr(m, '__file__', None) for n, m in sys.modules.items() if n == 'onecrew' or n.startswith('onecrew.')}
 emit({'anchor': a, 'revision': st['latest'], 'approved_rows': sum(1 for k, _ in events() if k == 'plan.approved'), 'kinds': [k for k, _ in events()],
-      'first': first, 'route_in_page': ('verdict baseline' in page) and ('baseline' in page), 'o1_line': next((l for l in page.splitlines() if l.strip().startswith('O1 ')), ''),
+      'first': first, 'baseline_in_page': 'baseline' in page, 'o1_line': next((l for l in page.splitlines() if l.strip().startswith('O1 ')), ''),
       'modules': mods})
 '''
     code, so, se = runner.run([py, '-I', '-c', body_a, str(work / 'contract.json')], cwd=str(work))
@@ -307,11 +348,10 @@ emit({'anchor': a, 'revision': st['latest'], 'approved_rows': sum(1 for k, _ in 
          observation=line is not None, **tails(code, so, se))
     a = json.loads(line[2:])
     first = a['first']
-    step('legacy_inconclusive_not_passed', 'first verdict is inconclusive (insufficient integrity, no approved baseline) and M1 is NOT passed',
-         first['result'] == 'inconclusive' and first['m1'] != 'passed' and (first.get('integrity') or {}).get('classification') == 'insufficient'
-         and 'no approved baseline' in str((first.get('integrity') or {}).get('error', '')), **first)
-    step('legacy_route_in_handover', 'handover page names the owner route (`onecrew verdict baseline`) and does not mark O1 as achieved',
-         a['route_in_page'] and ' đạt ' not in a['o1_line'], o1_line=a['o1_line'], route_in_page=a['route_in_page'] is True)
+    step('legacy_passed_old_semantics', 'new wheel: verdict run judges the schema-2 root by the command result (M1 passed, no integrity record, not inconclusive)',
+         _old_semantics(_Facts(first)), **first)
+    step('legacy_handover_no_baseline_required', 'handover page shows O1 achieved and names no baseline route',
+         a['baseline_in_page'] is False and _o1_achieved(a['o1_line']), o1_line=a['o1_line'], baseline_in_page=a['baseline_in_page'])
 
     def baseline(commit, reference, extra_env=None):
         env = dict(runner.env)
@@ -324,7 +364,8 @@ emit({'anchor': a, 'revision': st['latest'], 'approved_rows': sum(1 for k, _ in 
     body_count = common + '''
 ev = events()
 emit({'n': len(ev), 'baselines': [p for k, p in ev if k == 'plan.baseline_recorded'], 'approved_rows': sum(1 for k, _ in ev if k == 'plan.approved'),
-      'anchor': anchor(), 'revision': state_of()['latest'], 'verdicts': [v.get('result') for v in state_of()['verdicts']]})
+      'anchor': anchor(), 'revision': state_of()['latest'], 'verdicts': [v.get('result') for v in state_of()['verdicts']],
+      'm1': plan.show(ledger, 'plan:legacy')['milestones'][0]['state']})
 '''
 
     def count():
@@ -348,34 +389,30 @@ emit({'n': len(ev), 'baselines': [p for k, p in ev if k == 'plan.baseline_record
     step('baseline_owner_recorded', 'the owner records the baseline from a real commit with a reference (one plan.baseline_recorded, tree of that commit)',
          code == 0 and len(after['baselines']) == 1 and after['baselines'][0].get('tree') == tree and after['baselines'][0].get('from_commit') == head,
          recorded=after['baselines'][:1], baselines=len(after['baselines']), tree=tree, head=head, **tails(code, so, se))
-    body_run = common + '''
-emit(verdict_run())
-'''
-    code, so, se = runner.run([py, '-I', '-c', body_run], cwd=str(work))
-    line = next((l for l in so.splitlines() if l.startswith('@@')), None)
-    if code != 0 or line is None:
-        raise Abort('second verdict run failed: ' + (so + se)[-300:])
-    second = json.loads(line[2:])
-    step('legacy_passed_after_baseline', 'the same milestone passes once the baseline is recorded', second['m1'] == 'passed' and second['result'] == 'pass', **second)
     code, so, se = baseline(head, 'recorded again (idempotent)')
     final = count()
-    step('legacy_identity_unchanged', 'root ID, revision and approval rows unchanged; the earlier inconclusive verdict is kept; recording again adds nothing',
-         final['anchor'] == a['anchor'] == before['anchor'] and final['revision'] == a['revision'] == 1 and final['approved_rows'] == a['approved_rows'] == 1
-         and final['verdicts'][:1] == ['inconclusive'] and final['verdicts'][-1] == 'pass' and len(final['baselines']) == 1 and code == 0,
-         anchor=final['anchor'], revision=final['revision'], verdicts=final['verdicts'], baselines=len(final['baselines']),
-         approved_rows=final['approved_rows'], anchor_built=a['anchor'], anchor_counted_before=before['anchor'], revision_built=a['revision'],
-         approved_rows_built=a['approved_rows'], **tails(code, so, se))
+    step('baseline_leaves_verdict_unchanged', 'after the baseline (recorded twice): M1 still passed with its one verdict; one baseline only',
+         code == 0 and final['m1'] == 'passed' and final['verdicts'] == ['pass'] and len(final['baselines']) == 1,
+         m1=final['m1'], verdicts=final['verdicts'], baselines=len(final['baselines']), **tails(code, so, se))
+    step('legacy_identity_unchanged', 'root ID, revision and approval rows unchanged',
+         final['anchor'] == a['anchor'] == before['anchor'] and final['revision'] == a['revision'] == 1 and final['approved_rows'] == a['approved_rows'] == 1,
+         anchor=final['anchor'], revision=final['revision'], approved_rows=final['approved_rows'], anchor_built=a['anchor'],
+         anchor_counted_before=before['anchor'], revision_built=a['revision'], approved_rows_built=a['approved_rows'])
+    code, so, se = runner.run([old_exe, '--project', str(project), '--state-root', str(state), 'plan', 'show', 'legacy'])
+    step('old_build_reads_after', 'the OLD build still reads the root after the new build ran it (plan show legacy)', code == 0 and 'legacy' in so,
+         needles={'legacy': 'legacy' in so}, **tails(code, so, se))
     outside = {n: p for n, p in a['modules'].items() if p and not Path(p).resolve().is_relative_to(venv.resolve())}
     step('modules_from_venv', 'every onecrew module loaded from the venv, none from a checkout', not outside and len(a['modules']) > 5, modules=len(a['modules']), outside=outside)
 
 
-def main(argv=None):
+def main(argv=None, verifier_files=None):
+    """Exit 0 = pass, 1 = refused, 5 = not applicable (the package kind declares no previous wheel; not a pass)."""
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) != 2:
         print(__doc__ or 'usage: legacy_continuation.py <package dir> <work dir>')
         return 2
-    rep = run(argv[0], argv[1])
-    return 0 if rep['result'] == 'pass' else 1
+    rep = run(argv[0], argv[1], expected_verifier=verifier_files)
+    return {'pass': 0, 'not-applicable': 5}.get(rep['result'], 1)
 
 
 if __name__ == '__main__':

@@ -20,13 +20,19 @@ class RealPackageTests(unittest.TestCase):
         try:
             lines = []
             report = lc.run(PACKAGE, base / 'work', out=lines.append)
-            self.assertEqual(lc.judge(report), {'result': 'pass', 'reasons': []}, chr(10).join(lines[-8:]))
-            self.assertEqual(get(report, 'legacy_inconclusive_not_passed')['result'], 'inconclusive')
+            scope = lc.pc.package_scope(PACKAGE)                   # P1-3: the scope from the manifest + artifact
+            self.assertEqual(report['package_identity'], lc.pc.identity(scope))
+            self.assertEqual(lc.judge(report, scope), {'result': 'pass', 'reasons': []}, chr(10).join(lines[-8:]))
+            first = get(report, 'legacy_passed_old_semantics')                 # decision 25/10 round 6: old root, old semantics
+            self.assertEqual((first['result'], first['m1'], first['integrity']), ('pass', 'passed', None))
             self.assertNotEqual(get(report, 'baseline_ai_refused')['exit'], 0)
             self.assertNotEqual(get(report, 'baseline_bad_commit_refused')['exit'], 0)
-            self.assertEqual(get(report, 'legacy_passed_after_baseline')['m1'], 'passed')
-            forged = copy.deepcopy(report); get(forged, 'legacy_passed_after_baseline')['ok'] = False
-            self.assertEqual(lc.judge(forged)['result'], 'refused')
+            self.assertEqual(get(report, 'baseline_leaves_verdict_unchanged')['verdicts'], ['pass'])
+            self.assertEqual(get(report, 'old_build_reads_after')['exit'], 0)
+            forged = copy.deepcopy(report); get(forged, 'legacy_passed_old_semantics')['ok'] = False
+            self.assertEqual(lc.judge(forged, scope)['result'], 'refused')
+            forged = copy.deepcopy(report); forged['previous_wheel_present'] = False; forged['steps'] = []
+            self.assertEqual(lc.judge(forged, scope)['result'], 'refused')
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
