@@ -453,6 +453,134 @@ def resolve(ledger, name, ident, receipt, *, reason, artifact_sha, generation=1,
     return result_view
 
 
+# ---- E29 (T35c): "finding F was missed by SKIP decision S" ------------------------------------------------------------------------------
+# No new store: the SKIP is the HD-20 decision record review_policy.decide wrote (decision.recorded, subject review_policy/rules,
+# validity.action SKIP), the finding is this register's entry, and the link itself is one more decision.recorded on the same root
+# (subject finding_skip_link/rules) written through decisions.record, so the W03 guards (no owner signature from an AI session, the
+# root's approved grant) apply unchanged. A SKIP covers exactly (root, approved revision + contract sha, artifact, optional review id):
+# a finding is attributable to it only when it is on the same root, the same revision and contract sha, the same artifact (the defect
+# was in what was skipped), was opened after the SKIP, and the link names that review. Nothing is attributed automatically.
+
+SKIP_LINK = 'finding_skip_link'
+
+
+def _skip_records(conn, task_id):
+    """HD-20 SKIP records of review_policy on this root: {key: {id, seq, review, revision, contract_sha, artifact_sha}}."""
+    out = {}
+    for row in conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='decision.recorded' ORDER BY seq", (task_id,)):
+        p = json.loads(row['payload'])
+        v = p.get('validity') if isinstance(p.get('validity'), dict) else {}
+        if p.get('subject') == {'component': 'review_policy', 'model': 'rules'} and v.get('action') == 'SKIP' and p.get('key'):
+            out.setdefault(p['key'], {'id': p['key'], 'seq': row['seq'], 'review': p.get('scope'), 'revision': v.get('revision'),
+                                      'contract_sha': v.get('contract_sha'), 'artifact_sha': v.get('artifact_sha')})
+    return out
+
+
+def _opened_seq(conn, task_id, ident):
+    for row in conn.execute('SELECT seq,payload FROM events WHERE task_id=? AND kind=? ORDER BY seq', (task_id, KIND)):
+        if ident in (json.loads(row['payload']).get('opened') or []):
+            return row['seq']
+    return None
+
+
+def _link_problem(skip, finding, opened_seq, review):
+    """Why `finding` cannot be attributed to `skip` (None when it can)."""
+    if skip is None:
+        return 'no review_policy SKIP (HD-20) record with this id on this root'
+    if finding is None:
+        return 'no finding with this id in the register of this root'
+    if review != skip['review']:
+        return f'the SKIP covered optional review {skip["review"]}, not {review}'
+    if (finding.get('revision'), finding.get('plan_sha')) != (skip['revision'], skip['contract_sha']):
+        return f'the finding is on revision {finding.get("revision")}, the SKIP applied to revision {skip["revision"]} (another contract)'
+    if finding.get('artifact_sha') != skip['artifact_sha']:
+        return 'the finding is on another artifact than the one the SKIP applied to'
+    if opened_seq is None or opened_seq <= skip['seq']:
+        return 'the finding was not opened after the SKIP'
+    return None
+
+
+def link_skip(ledger, name, ident, skip_record, *, review, reason, by=None, task_id=None):
+    """Record that finding `ident` is a defect the skipped optional review `review` (SKIP record `skip_record`) should have caught.
+    Refuses (LedgerError, nothing written) when the finding is outside what the SKIP covered or is already attributed to another SKIP;
+    the same link twice is recorded once. Returns {'link': {...}, 'duplicate': bool}."""
+    from . import decisions
+    text_field(reason, 'skip link reason', 2000)
+    with ledger.transaction() as conn:
+        root = resolve_root(ledger, name, task_id, conn)
+        _require_capability(root)
+        state = plans.anchor_events(ledger, conn, name)
+        if state['task_id'] != root['id']:
+            raise LedgerError(f'Plan {name} does not resolve to the root of this finding register.')
+        approved = state['approved']
+        if not approved:
+            raise LedgerError('A skip link needs the root approved grant it rests on.')
+        skip = _skip_records(conn, root['id']).get(skip_record)
+        finding = next((f for f in _read(ledger, conn, root['id'])['findings'] if f['id'] == ident), None)
+        problem = _link_problem(skip, finding, _opened_seq(conn, root['id'], ident), review)
+        if problem:
+            raise LedgerError(f'Finding {ident} is not linked to SKIP {skip_record}: {problem}.')
+        for other in skip_view_links(conn, root['id']):
+            if other['finding'] == ident and other['skip_record'] != skip_record:
+                raise LedgerError(f'Finding {ident} is already attributed to SKIP {other["skip_record"]}; a defect is counted once.')
+    link = {'link': 'missed_by_skip', 'finding': ident, 'skip_record': skip_record, 'review': review, 'root': root['id'],
+            'revision': skip['revision'], 'contract_sha': skip['contract_sha'], 'artifact_sha': skip['artifact_sha']}
+    key = 'skip-link-' + content_hash({'root': root['id'], 'finding': ident, 'skip': skip_record})
+    before = None
+    with ledger.transaction() as conn:
+        before = conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='decision.recorded' AND json_extract(payload,'$.key')=?",
+                              (root['id'], key)).fetchone()
+    decisions.record(ledger, root['id'], subject={'component': SKIP_LINK, 'model': 'rules'},
+                     authority={'grant_id': 'approved-contract:' + approved['sha'], 'revision': str(approved['revision'])},
+                     evidence=[f'finding:{ident}', f'skip-record:{skip_record}', f'receipt:{finding["source"]["receipt"]}',
+                               f'artifact:{skip["artifact_sha"]}', f'contract:{skip["contract_sha"]}'],
+                     basis=reason, scope=review, validity=link, by=by, key=key)
+    return {'link': link, 'duplicate': before is not None}
+
+
+def skip_view_links(conn, task_id):
+    """The link decisions recorded on this root, as written (not yet re-validated)."""
+    out = []
+    for row in conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='decision.recorded' ORDER BY seq", (task_id,)):
+        p = json.loads(row['payload'])
+        v = p.get('validity')
+        if (p.get('subject') or {}).get('component') == SKIP_LINK and isinstance(v, dict):
+            out.append(dict(v, record=p.get('key'), seq=row['seq']))
+    return out
+
+
+def skip_view(ledger, name):
+    """Read path of E29: the SKIP (HD-20) records of a root and the recorded skip links, each re-validated against the SKIP record and
+    the finding register (a link whose SKIP record or finding does not hold is listed under 'invalid', never counted).
+    Returns {'skip_records': {key: record}, 'links': [{finding, skip_record, review, root, revision, artifact_sha, record}], 'invalid': [...]}."""
+    with ledger.transaction() as conn:
+        state = plans.anchor_events(ledger, conn, name)
+        task = state['task_id']
+        skips = _skip_records(conn, task)
+        recorded = skip_view_links(conn, task)
+        register = _read(ledger, conn, task)['findings'] if namespaces.has_capability(state, 'finding-register') else None
+        opened = {r['finding']: _opened_seq(conn, task, r['finding']) for r in recorded}
+    links, invalid, seen = [], [], set()
+    for r in recorded:
+        if register is None:
+            invalid.append({'record': r['record'], 'reason': 'this root has no finding register'})
+            continue
+        skip = skips.get(r.get('skip_record'))
+        finding = next((f for f in register if f['id'] == r.get('finding')), None)
+        problem = _link_problem(skip, finding, opened.get(r.get('finding')), r.get('review'))
+        if problem is None and (r.get('root'), r.get('revision'), r.get('artifact_sha')) != (task, skip['revision'], skip['artifact_sha']):
+            problem = 'the link names another root, revision or artifact than its SKIP record'
+        if problem is None and r['finding'] in seen:
+            problem = 'the finding is already counted under another link'
+        if problem:
+            invalid.append({'record': r['record'], 'reason': problem})
+            continue
+        seen.add(r['finding'])
+        links.append({'finding': r['finding'], 'skip_record': r['skip_record'], 'review': r['review'], 'root': task,
+                      'revision': skip['revision'], 'artifact_sha': skip['artifact_sha'], 'record': r['record']})
+    return {'skip_records': skips, 'links': links, 'invalid': invalid}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='onecrew findings')
     parser.add_argument('--project', type=Path, default=Path.cwd())

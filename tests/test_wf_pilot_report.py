@@ -41,13 +41,17 @@ def finish(metric, kind, n):
         metric['missing'] = sorted(set(metric['cells']) - set(pr.values(metric)))
 
 
+SKIPS = {'J2': ['HD20-1'], 'J5': ['HD20-2']}          # the two SKIP (HD-20) records of the fixture aggregate
+
+
 def identify(r):
     """W38c identity of the fixture aggregate: provenance, one detail row per job, then the figures digest (last)."""
     roots = [f'plan:{j.lower()}' for j in r['jobs']]
     r['provenance'] = {'kind': 'synthetic', 'generator': 'test fixture',
                        'ledgers': [{'id': 'L1', 'state_root': 'FIXTURE-STATE-ROOT', 'commit': 'c' * 40, 'wheel_sha256': H,
                                     'synthetic': True, 'roots': roots, 'excluded': []}]}
-    r['jobs_detail'] = [{'job': j, 'ledger': 'L1', 'root': f'plan:{j.lower()}', 'status': 'accepted', 'wheel_sha256': H} for j in r['jobs']]
+    r['jobs_detail'] = [{'job': j, 'ledger': 'L1', 'root': f'plan:{j.lower()}', 'status': 'accepted', 'wheel_sha256': H,
+                         'skip_records': SKIPS.get(j, [])} for j in r['jobs']]
     r['figures_sha256'] = pr.figures_digest(r)
     return r
 
@@ -93,7 +97,8 @@ def build(kind):
     r['owner_decisions'] = {'actions': actions, 'per_job': per_job,
                             'mismatches': [{'job': 'J3', 'at': '2026-11-12T15:00:00+07:00', 'ledger': 'accept', 'chat': 'không thấy', 'reason': 'chat cắt'}],
                             'ac1': {'max_per_job': 2, 'outside_u1_u4': 0, 'status': 'đạt'}}
-    r['skip_leak'] = {'skip_count': 2, 'links': []}
+    r['skip_leak'] = {'skip_count': 2, 'links': [], 'invalid_links': [], 'source': 'decision.recorded: review_policy SKIP (HD-20) x finding_skip_link',
+                      'target': 0}
     next(m for m in metrics if m['id'] == 'false_pass')['skip_leak_part'] = 0
     r['manual_fixes'] = {'decision_log_rows': [], 'interventions': 0}
     r['providers'] = [{'provider': 'codex', 'calls': 12, 'failures': 1, 'reasons': {'hạn mức': 1}, 'inconclusive_receipts': 1},
@@ -106,11 +111,16 @@ def build(kind):
 
 def comparison(r, name):
     base, parts = pr.TIER1[name]
-    ms = [next(m for m in r['metrics'] if m['id'] == p) for p in parts]
-    k = min(m['k'] for m in ms)
-    total = sum(sum(pr.values(m).values()) for m in ms)
+    # fixture input in the round-7 shape: one job set per composite (the jobs with a value for every part)
+    cells = {p: next(m for m in r['metrics'] if m['id'] == p)['cells'] for p in parts}
+    frm = sorted(j for j in r['jobs'] if all('value' in cells[p][j] for p in parts))
+    per_job = {j: sum(cells[p][j]['value'] for p in parts) for j in frm}
+    missing = {p: sorted(j for j in r['jobs'] if 'value' not in cells[p][j]) for p in parts}
+    k, total = len(frm), sum(per_job.values())
     return {'metric': name, 'baseline_count': base, 'baseline_jobs': 11, 'baseline_per_job': round(base / 11, 3),
-            'pilot_count': total, 'pilot_jobs': k, 'pilot_per_job': round(total / k, 3), 'source': 'DO-DIEU-KIEN-DUNG-V2-20261020 (00 §9.2)'}
+            'pilot_count': total, 'pilot_jobs': k, 'pilot_per_job': round(total / k, 3), 'source': 'DO-DIEU-KIEN-DUNG-V2-20261020 (00 §9.2)',
+            'parts': list(parts), 'computed_from': frm, 'per_job': per_job, 'missing': {p: v for p, v in missing.items() if v},
+            'pilot_denominator': len(r['jobs']), 'complete': k == len(r['jobs'])}
 
 
 def render(r):
@@ -150,7 +160,9 @@ def render(r):
         return '\n'.join(out) + '\n'
     out.append('## Tầng 1 — so với số đếm 20/10')
     for c in r['tiers']['tier1']['comparisons']:
-        out.append(f'- {c["metric"]}: 20/10: {c["baseline_count"]} trên 11 việc; pilot {c["pilot_count"]} trên {c["pilot_jobs"]} việc')
+        out.append(f'- {c["metric"]}: 20/10: {c["baseline_count"]} trên 11 việc; pilot {c["pilot_count"]} trên {c["pilot_jobs"]} việc; '
+                   f'tính từ {c["pilot_jobs"]}/{c["pilot_denominator"]} việc'
+                   + ('' if c['complete'] else '; so sánh một phần, thiếu ' + '; '.join(f'{p}: {", ".join(v)}' for p, v in c['missing'].items())))
     out.append('Giới hạn: ' + '; '.join(r['tiers']['tier1']['limits']) + '. Không suy ra thời gian từ số đếm 20/10.')
     out.append('## Tầng 2 — pilot')
     out.append(f'Kết luận tầng 2: {r["tiers"]["tier2"]["conclusion"]}')
@@ -160,6 +172,9 @@ def render(r):
     out.append('AC1: tối đa 2 quyết định mỗi việc, 0 ngoài U1–U4: ' + r['owner_decisions']['ac1']['status'])
     for p in r['providers']:
         out.append(f'Provider {p["provider"]}: {p["failures"]}/{p["calls"]} lần không chạy được')
+    sk = r['skip_leak']
+    out.append(f'SKIP (HD-20): {sk["skip_count"]} bản ghi; lỗi lọt qua nối được: {len(sk["links"])}/{sk["skip_count"]} SKIP; mục tiêu 0; nguồn {sk["source"]}'
+               + ''.join(f'; {x.get("job")}: finding {x["finding"]} <- SKIP {x["skip_record"]}' for x in sk['links']))
     return '\n'.join(out) + '\n'
 
 
@@ -334,6 +349,22 @@ class AggregateT35c(Base):
         r = build('aggregate')
         r['skip_leak']['links'] = [{'finding': 'F-3', 'skip_record': 'HD20-1'}]
         self.refused(r, 'E29 skip leak count differs from the linked findings')
+
+    def test_e29_link_must_name_a_skip_record_of_its_job_once_and_be_rendered(self):  # round 7 F4
+        r = build('aggregate')
+        cell = metric(r, 'skip_leak')['cells']
+        cell['J2'] = {'value': 1}
+        finish(metric(r, 'skip_leak'), 'aggregate', 10)
+        r['skip_leak']['links'] = [{'job': 'J2', 'finding': 'RF1', 'skip_record': 'HD20-1'}]
+        next(m for m in r['metrics'] if m['id'] == 'false_pass')['skip_leak_part'] = 1
+        identify(r)
+        self.assertEqual(pr.check_report(r, render(r))['problems'], [])
+        bad = json.loads(json.dumps(r)); bad['skip_leak']['links'][0]['skip_record'] = 'HD20-2'        # J5's SKIP, not J2's
+        self.refused(identify(bad), 'E29 link RF1: SKIP record HD20-2 is not a SKIP record of job J2')
+        bad = json.loads(json.dumps(r)); bad['skip_leak']['links'].append(dict(bad['skip_leak']['links'][0]))
+        self.refused(identify(bad), 'E29 lỗi lọt qua SKIP bị đếm hai lần: J2 RF1')
+        text = render(r).replace('; J2: finding RF1 <- SKIP HD20-1', '')
+        self.refused(r, 'E29 the SKIP line must show', text)
 
     def test_e30_manual_fixes_zero_with_log_rows_refused(self):
         r = build('aggregate')

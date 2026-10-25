@@ -537,8 +537,30 @@ class AggregateGeneratorTests(r03.ThreeRoots):
             code, out, err = run('report', '--kind', 'interim', '--manifest', str(tmp / 'manifest.json'), '--out-dir', str(tmp / 'x'))
             self.assertEqual(code, 2, out + err)
 
+    def case_tier1_composite_uses_one_job_set(self):
+        # round 7 F3 (Codex P2) on the real generator: J3 (P3) is the only root with an amend, its causes observed 0/1/0; every other job
+        # had no amend in its ledger (cell 0). Full data: 0+1+0 = 1 amend over all ten jobs.
+        amend = lambda r: next(c for c in r['tiers']['tier1']['comparisons'] if c['metric'] == 'amend_total')
+        report, text = self.generate()
+        c = amend(report)
+        self.assertEqual((c['pilot_count'], c['pilot_jobs'], c['complete'], c['missing']), (1, 10, True, {}))
+        # Codex's case: delete J3's amend_authoring_error observation; J3 still has amend_requirement_change 1. J3 leaves the composite
+        # entirely: the nine others have 0 amends -> 0 over 9 jobs (the old generator wrote 1 over 9).
+        m = self.manifest()
+        del m['observations']['amend_authoring_error']['J3']
+        report, text = self.generate(m)
+        c = amend(report)
+        self.assertEqual((c['pilot_count'], c['pilot_jobs'], c['pilot_per_job'], c['complete']), (0, 9, 0.0, False))
+        self.assertEqual(c['computed_from'], ['J1', 'J10', 'J2', 'J4', 'J5', 'J6', 'J7', 'J8', 'J9'])
+        self.assertEqual(c['missing'], {'amend_authoring_error': ['J3']})
+        line = next(l for l in text.splitlines() if l.startswith('- amend_total:'))
+        self.assertIn('pilot 0 trên 9 việc', line)
+        self.assertIn('so sánh một phần, thiếu amend_authoring_error: J3', line)
+        res = pr.check_report(report, text)
+        self.assertEqual(res['result'], 'pass', res['problems'])
+
     def test_aggregate(self):
-        order = ['round_trip_accepted_deterministic_synthetic', 'figures_come_from_the_ledgers_with_their_sources',
+        order = ['round_trip_accepted_deterministic_synthetic', 'figures_come_from_the_ledgers_with_their_sources', 'tier1_composite_uses_one_job_set',
                  'job_without_metrics_stays_in_the_denominator', 'stopped_root_is_reported_not_dropped', 'duplicate_job_rows_refused',
                  'contradictory_data_refused', 'wrong_artifact_refused', 'wrong_scope_refused', 'forged_figure_refused',
                  'synthetic_claiming_real_refused', 'cli_entry']
