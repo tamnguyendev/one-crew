@@ -644,7 +644,11 @@ _RESULT = out
         bundle = {'artifacts': {'final': self.identity('current'), 'pilot': source}, 'providers': rows, 'comparison': {'items': items},
                   'source': {'matrix': str(self.matrix_dir / 'matrix.json'), 'at': matrix['at'], 'task': 'W45', 'same_build': inherited,
                              'note': None if inherited else 'matrix receipts are evidence of build ' + source['commit'][:12] + '; for this build every passed cell is `recheck` until W45 runs on it (owner permission for that run)'}}
-        notes = {'provider_states': states, 'subset': eligible, 'p1_count': len(eligible), 'p1_label': 'full' if len(eligible) == 6 else 'subset'}
+        # T40c [E29]: the matrix file delivered with RP renders every cell (usable: validity + origin hash; other: status + reason).
+        rendered = chr(10).join(provider_evidence.render(states)) + chr(10)
+        (target / 'cells.md').write_text(rendered, encoding='utf-8')
+        notes = {'provider_states': states, 'subset': eligible, 'p1_count': len(eligible), 'p1_label': 'full' if len(eligible) == 6 else 'subset',
+                 'matrix_markdown': rendered}
         return bundle, notes
 
     def point_notes(self):

@@ -149,6 +149,12 @@ def _record_found(ledger, name, found):
         if any(p.get('plan') == name and p.get('plan_revision') == found['revision'] and p.get('end') == found['end'] and p.get('id') != data['id'] for p in same_key):
             return dict(key, recorded=False, reason='already_recorded_for_this_end')
         event = outcome_core.append_outcome(conn, ledger, data['task'], data)        # the v1 merge rule
+    if event is not None:
+        # T16b [E6]: Q10 (an outcome changes nothing) leaves its HD-05 record through internal_plan's one decide(); only on a root
+        # that delegates Q10, so a root without a workflow grant records exactly what it did before.
+        from . import internal_plan
+        internal_plan.self_decided(ledger, found['_task']['request_key'], 'Q10', [], 'onecrew.outcome', key='q10-outcome-' + str(event),
+                                   outcome=data['id'], end=found['end'], plan_revision=found['revision'], evidence=['learning.outcome:' + str(event)])
     return dict(key, recorded=event is not None, event=event, id=data['id'], phase=data['phase'])
 
 

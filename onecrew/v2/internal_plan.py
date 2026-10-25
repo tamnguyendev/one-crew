@@ -85,13 +85,31 @@ def ceilings(ledger, conn, state):
             'remaining_seconds': max(0, (dt.datetime.fromisoformat(shared['deadline']) - dt.datetime.fromisoformat(utcnow())).total_seconds())}
 
 
-def decide(ledger, state, contract, sha, action, ctx, component):
+def decide(ledger, state, contract, sha, action, ctx, component, key=None):
     result = authority.decide(contract, action, ctx)
     decision = authority.record(ledger, state['task_id'], contract, action, result, name=state['selector'],
-                                revision_sha=sha, component=component)
+                                revision_sha=sha, component=component, key=key)
     if not result['in_authority']:
         raise LedgerError(str(result['class'] or 'held') + ': ' + result['reason'])
     return decision
+
+
+def self_decided(ledger, selector, q, nodes, component, *, key, **facts):
+    """T16b [E6]: the HD-05 record of a class OneCrew decides without a separate call site of its own (Q5 repair, Q8 finding hold,
+    Q10 outcome), through the same decide() as Q1/Q2/Q4/Q9 (authority.decide -> authority.record -> decisions.record). The grant is
+    the root's APPROVED revision (an ended root keeps it, so Q10 can be recorded after plan.closed). `key` makes the record idempotent
+    for the same subject. Returns the record, or None when the root does not delegate `q` in `self_decide` (a root with no workflow
+    grant: nothing is recorded and the caller's behaviour is unchanged); out of authority raises, like decide()."""
+    with ledger.transaction() as conn:
+        state = plans.anchor_events(ledger, conn, selector)
+        if not state or not state.get('approved'): return None
+        contract, sha = plans.load(ledger, state, state['approved']['revision'])
+        if q not in authority.effective(contract)['self_decide']: return None
+        try:
+            ctx = ceilings(ledger, conn, state)
+        except LedgerError:
+            ctx = {}
+    return decide(ledger, state, contract, sha, dict(facts, kind='decision', q=q, nodes=sorted(nodes)), ctx, component, key=key)
 
 
 def _checks(nodes):
