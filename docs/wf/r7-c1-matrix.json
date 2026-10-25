@@ -385,17 +385,34 @@
     "E17": [
      "tests.test_wf_namespace_compat.NamespaceCompatTests.test_n1_to_n7_gate_branches",
      "tests.test_wf_upgrade_drill.UpgradeDrillTests.test_stale_scan_is_rejected_before_any_install_swap"
+    ],
+    "E16": [
+     "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_real_report_one_line_per_root_and_the_check_passes",
+     "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_real_report_labels_agree_with_the_archived_old_binary",
+     "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_read_ok_for_a_root_the_scan_keeps_preserved_only",
+     "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_root_missing",
+     "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_diagnosed_by_old_for_a_root_the_old_binary_reads_fine",
+     "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_lost_for_a_root_whose_data_is_kept"
     ]
    },
    "uncovered": {
-    "E5": "Needs the installed drill. The evidence is the rollback SCRIPT's exit code and message per N1-N4/N7 and the package list of the new venv before/after. No per-state rollback script with an exit code exists (the gate is tests/wf_rollback.rollback_drill and wfkit/upgrade_drill.guard_swap, functions returning dicts; `python -m wfkit.upgrade_drill` runs only its own generated fixture), and building wheels/venvs is forbidden in this round's machine window. Supporting only: tests.test_wf_namespace_compat.NamespaceCompatTests.test_n1_to_n7_gate_branches (remaining block set and ran=False per case on the gate function).",
-    "E16": "No rollback report with per-root lines exists to check. The gate returns the scan itself, and the only rollback receipt is wfkit.upgrade_drill's receipt.json, written by the installed drill on its own generated fixture (not S2, no lost/read-OK/diagnosed-by-old labels). A report produced by a real installed rollback on S2, plus a report-check script for it, are missing (product/kit gap); the installed run is also forbidden in this window."
+    "E5": "Round 7 F: exit code + message per N1-N4/N7 proven by the rollback script (python -m wfkit.rollback_cli) on S2: tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_refused_cases_exit_3_and_name_the_exact_remaining_block_set, tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_n5_allowed_exit_0, tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_n4_pause_and_stopped_with_report_release_neither_b1_nor_b3, tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_counter_a_script_whose_gate_skips_b2_goes_red_at_n3_and_n7, tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_unreadable_state_is_an_error_never_a_permission. Remaining: the venv package-list sub-point; tests.test_wf_r7_t49d_e5.InstalledVenv.test_e5_installed_refusals_leave_the_new_venv_package_list_unchanged, tests.test_wf_r7_t49d_e5.InstalledVenv.test_e5_installed_n5_allowed exist but were not run green in this window (see docs/wf/r7-f-notes.md)."
    },
-   "scope": "S2 of tests.test_wf_namespace_compat (seven roots, three projects) with the unmodified archive of d3120c6 as the old code: N5 and N6 scan 0 with the receipt hash equal to the ledger at rollback start; after N5 the old code continues R1, answers No plan named for R2/R3/DUPb, refuses amend on accepted R4/DUPk (P1's plans/dup/ changes only through the DUPa amend), refuses propose dup and creates plan:r2 from P2; roll-forward by the checkout keeps every row and file. No installation swap (E5) and no rollback report (E16). Round 7 E: DUPk is read, verdict-run, accepted and amended by the new code on plans/<P3>/dup/ (tests.test_wf_r7_dupk).",
+   "scope": "S2 of tests.test_wf_namespace_compat (seven roots, three projects) with the unmodified archive of d3120c6 as the old code: N5 and N6 scan 0 with the receipt hash equal to the ledger at rollback start; after N5 the old code continues R1, answers No plan named for R2/R3/DUPb, refuses amend on accepted R4/DUPk (P1's plans/dup/ changes only through the DUPa amend), refuses propose dup and creates plan:r2 from P2; roll-forward by the checkout keeps every row and file. No installation swap (E5) and no rollback report (E16). Round 7 E: DUPk is read, verdict-run, accepted and amended by the new code on plans/<P3>/dup/ (tests.test_wf_r7_dupk). Round 7 F: rollback script wfkit/rollback_cli.py (exit 0/3/2, message names the remaining block set; calls rollback_drill or guard_swap, no second rule) and per-root rollback report + wfkit/rollback_report_check.py (labels from compat_scan old_readable; \"mất\" / \"đã chẩn đoán bởi bản cũ\" refused, 05 T49 E13 and 00 §6.1). See docs/wf/r7-f-notes.md.",
    "e7_fix": "Round 7 branch E (wf/r7-e) fixed the gap C1 recorded under uncovered.E7 ('revision 1 does not match the recorded hash' on DUPk; 'mốc ?/?' in plan digest): namespaces.legacy_location maps a `plan:` anchor to its OWN project's files. The shared plans/<name>/ belongs to the earliest plan:<name> anchor of the ledger (DUPa, unchanged); another project's plan:<name> (DUPk) reads plans/<its project_id>/<name>/ and never another project's file, even a same-hash one. test_e7_roll_forward_keeps_ids_revisions_evidence_and_budget now requires DUPk readable (accepted, own id) before and after the rollback instead of 'read the same way'. See docs/wf/r7-e-notes.md.",
-   "new_modules": ["tests/test_wf_r7_t49d.py", "tests/test_wf_r7_dupk.py"],
+   "new_modules": [
+    "tests/test_wf_r7_t49d.py",
+    "tests/test_wf_r7_dupk.py",
+    "wfkit/rollback_cli.py",
+    "wfkit/rollback_report_check.py",
+    "tests/test_wf_r7_t49d_e5.py",
+    "tests/test_wf_r7_t49d_e16.py"
+   ],
    "changed_pinned_files": [],
-   "product_fixes": ["onecrew/v2/namespaces.py (legacy_location; plan_dir and active_file use it)", "onecrew/v2/contract.py (read_revision: a missing per-project file names the project)"]
+   "product_fixes": [
+    "onecrew/v2/namespaces.py (legacy_location; plan_dir and active_file use it)",
+    "onecrew/v2/contract.py (read_revision: a missing per-project file names the project)"
+   ]
   }
  ]
 }
