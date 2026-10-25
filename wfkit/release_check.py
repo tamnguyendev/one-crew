@@ -35,6 +35,13 @@ SECTIONS = ('Usable outcomes', 'Limits', 'Install', 'Rollback', 'Evidence status
 BOOTSTRAP_KEYS = {'baseline', 'reason'}
 BASELINE_KEYS = {'commit', 'wheel_sha256', 'role', 'delivered', 'accepted'}
 INVENTORY_PATH = Path(__file__).resolve().parent / 'release_events.json'
+CONDITIONS = tuple(f'T54.{i}' for i in range(1, 6))
+
+
+def condition_codes(bootstrap):
+    """The mandatory conditions of a T54 verdict, in order: the prerequisite rule of its branch, then T54.1 ... T54.5. decide() writes exactly
+    these and judge_verdict() requires exactly these, so the two cannot drift."""
+    return ('INPUTS(bootstrap)' if bootstrap else 'INPUTS', *CONDITIONS)
 
 
 def inventory(release):
@@ -337,13 +344,71 @@ def decide(bundle, root='.', allow_simulated=False):
     proves = 'validator rules only; no release or pilot execution' if fixture else 'supplied T54 observations validated; not owner acceptance'
     first = bootstrap and inputs_code not in errors
     result.update({'decision': 'refused' if errors else 'pass',
-        'conditions': {code: code not in errors for code in (inputs_code, *(f'T54.{i}' for i in range(1, 6)))},
+        'conditions': {code: code not in errors for code in condition_codes(bootstrap)},
         'reasons': [{'code': code, 'detail': detail} for code, detail in errors.items()],
         'simulated_receipts_used': fixture, 'first_release': first,
         'proves': proves + ('; first release: the previous build is a compat baseline, never delivered or accepted' if first else '')})
     if first:
         result['first_release_baseline'] = dict(bundle['first_release']['baseline'])
     return result
+
+
+SIMULATED = 'the T54 verdict used simulated (fixture) receipts; a delivery gate needs a real bundle'
+
+
+def judge_verdict(result, release):
+    """Re-judge a RECORDED decide() result for a consumer that must not trust its `decision` field (wfkit.delivery_gate, Codex round 7 P1).
+    Returns the list of problems; empty means the verdict is a complete, self-consistent PASS of `release` on a real bundle. Refuses:
+    a missing/false/non-bool/unknown condition of the branch the verdict's own fields name, both or neither INPUTS rule, any failure reason,
+    a decision that contradicts its conditions or reasons (pass with a false condition or a reason, refused with nothing failing), a
+    first_release flag or baseline that disagrees with the INPUTS(bootstrap) branch (decide: first_release is true exactly when that
+    condition held, and only then is the baseline recorded, shaped like the bundle's), owner acceptance, simulated receipts, or another
+    release/testcase. It judges the record, not the evidence behind it: running decide() on the bundle remains the way to verify that."""
+    if not isinstance(result, dict): return ['the T54 verdict is not an object']
+    problems = []
+    def bad(text): problems.append(text)
+    decision, conditions, reasons = result.get('decision'), result.get('conditions'), result.get('reasons')
+    if decision not in ('pass', 'refused'): bad(f'the T54 verdict decision is {decision!r}, not pass or refused')
+    if not (isinstance(reasons, list) and all(isinstance(r, dict) and isinstance(r.get('code'), str) for r in reasons)):
+        bad('the T54 verdict reasons are not a list of {code, detail}'); reasons = []
+    if release not in PARTS or result.get('release') != release: bad(f"the T54 verdict is for release {result.get('release')!r}, not {release}")
+    elif result.get('testcase') != PARTS[release]: bad(f"the T54 verdict testcase {result.get('testcase')!r} is not {PARTS[release]} of {release}")
+    if result.get('owner_acceptance') is not False: bad('the T54 verdict does not record owner_acceptance false (a release check never accepts)')
+    if result.get('simulated_receipts_used') is not False:
+        bad(SIMULATED if result.get('simulated_receipts_used') is True else 'the T54 verdict does not record simulated_receipts_used')
+    failing = set()
+    if not isinstance(conditions, dict) or not conditions:
+        bad('the T54 verdict has no conditions (INPUTS/INPUTS(bootstrap), T54.1 ... T54.5 are mandatory)'); conditions = None
+    else:
+        branches = [code for code in ('INPUTS', 'INPUTS(bootstrap)') if code in conditions]
+        if len(branches) != 1: bad('the T54 verdict must name exactly one of INPUTS / INPUTS(bootstrap), it names ' + (', '.join(branches) or 'neither'))
+        bootstrap = branches == ['INPUTS(bootstrap)']
+        expected = condition_codes(bootstrap)
+        for code in expected:
+            if code not in conditions: bad(f'mandatory condition {code} missing'); failing.add(code)
+            elif conditions[code] is not True:
+                failing.add(code)
+                bad(f'condition {code} is {conditions[code]!r}' + ('' if conditions[code] is False else ' (not a boolean)'))
+        for code in sorted(set(conditions) - set(expected) - set(branches)): bad(f'unknown condition {code} in the T54 verdict')
+        first, baseline = result.get('first_release'), result.get('first_release_baseline')
+        if not isinstance(first, bool): bad(f'first_release is {first!r}, not a boolean')
+        elif first is not (bootstrap and conditions.get('INPUTS(bootstrap)') is True):
+            bad(f"first_release {first} contradicts the prerequisite branch {'INPUTS(bootstrap)' if bootstrap else 'INPUTS'} = {conditions.get(expected[0])!r}")
+        if first is True:
+            try:
+                require(isinstance(baseline, dict) and set(baseline) == BASELINE_KEYS, 'keys')
+                identity(baseline); digest(baseline['wheel_sha256'], 'baseline')
+                require(baseline['role'] == 'compat-baseline' and baseline['delivered'] is False and baseline['accepted'] is False, 'labels')
+            except (ValueError, TypeError, KeyError) as error:
+                bad(f'first_release_baseline is not a pinned, never delivered/accepted compat baseline ({error})')
+        elif 'first_release_baseline' in result: bad('first_release_baseline recorded without a first release (ordinary INPUTS branch)')
+    for row in reasons:
+        if conditions is None or row['code'] not in conditions: bad(f"failure reason {row['code']}: {str(row.get('detail'))[:200]}")
+        elif conditions[row['code']] is True: bad(f"failure reason {row['code']} recorded while condition {row['code']} holds: {str(row.get('detail'))[:200]}")
+    if decision == 'pass' and (failing or reasons): bad('the T54 verdict decision pass contradicts its failed conditions or reasons')
+    if decision == 'refused':
+        bad('the T54 verdict decision is refused' + ('' if failing or reasons else ' although every condition holds and no reason is recorded (contradictory)'))
+    return problems
 
 
 ORDINARY_REFUSED = 'INPUTS luôn không đạt vì chưa có release nào được giao (điều kiện ngoài)'

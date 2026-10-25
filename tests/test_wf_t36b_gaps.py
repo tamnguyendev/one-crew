@@ -6,15 +6,17 @@ the `at`/`until` times given to executors.observe (the module's time injection);
 "Restart of the coordinating process" = a NEW Python process opening the same state root (subprocess) and reading it back.
 """
 import json
+import tempfile
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+from unittest import mock
 
 from onecrew.ledger import Ledger
 from onecrew.v2 import estimates, executors, plan, report
-from tests.test_v2_l1 import Fixture
+from tests.test_v2_l1 import Fixture, plan_json
 from tests import wf_oldversion as ov
 
 REPO = Path(__file__).resolve().parents[1]
@@ -110,18 +112,14 @@ class T36bGaps(Fixture):
         self.assertFalse(baseline_kept(mutant))
 
     # ---- [E18]: neither page calls the range calibrated nor states a probability ---------------------------------------------------
+    def estimate_fixture(self, name='P1', value=None):
+        self.approved(name, value, estimate={'execution_seconds': BASELINE, 'evidence': ['fixture:task decomposition'], 'deadline': DEADLINE})
+        estimates.reforecast(self.ledger, name, 'm1-done', [18000, 25200], 'M1 completed with receipt', ['receipt:m1'])
+        estimates.additional(self.ledger, name, 'migration', 'mandatory', 'missing migration for A2', ['O1'], [3600, 7200], ['evidence:migration'])
+
     def test_e18_present_and_report_never_claim_calibration_p85_or_probability(self):
-        self.start()
-        estimates.reforecast(self.ledger, 'P1', 'm1-done', [18000, 25200], 'M1 completed with receipt', ['receipt:m1'])
-        estimates.additional(self.ledger, 'P1', 'migration', 'mandatory', 'missing migration for A2', ['O1'], [3600, 7200], ['evidence:migration'])
-        for render in (report.render_present, report.render_report):
-            text = render(self.ledger.state_root, 'P1')
-            self.assertIn('6–8 giờ', text)                                               # the range is on the page (the grep has a subject)
-            lowered = text.casefold()
-            for banned in ('đã hiệu chỉnh', 'p85', 'p90', 'p50', 'xác suất', 'probability', 'calibrated eta'):
-                self.assertNotIn(banned, lowered, (render.__name__, banned))
-            self.assertIsNone(re.search(r'\d+\s*%\s*(khả năng|xác suất|chance|probab)', lowered))
-            self.assertIn('chưa hiệu chỉnh', text)                                       # the only use of the word: "not calibrated"
+        self.estimate_fixture()
+        no_estimate_claim(self, self.ledger.state_root, 'P1')
         self.assertFalse(estimates.read(self.ledger, 'P1')['calibrated'])
 
     # ---- [E21]: work.additional on the anchor is class A for the old version (S, G, C identical); one baseline per revision ----------
@@ -146,3 +144,72 @@ class T36bGaps(Fixture):
         self.assertEqual(after['S']['status'], 'approved')
         contract = plan.load(self.ledger, state)[0]                                       # the baseline is an event, not a contract field
         self.assertFalse({'estimate', 'estimates', 'eta', 'baseline'} & set(contract))
+
+
+BANNED = ('đã hiệu chỉnh', 'p85', 'p90', 'p50', 'xác suất', 'probability', 'calibrated eta')
+PERCENT_CLAIM = re.compile(r'\d+\s*%\s*(khả năng|xác suất|chance|probab)')
+CAUGHT = r"unexpectedly found in|is not None"                               # the banned-word or percent-claim assertion fired
+
+
+def no_estimate_claim(test, state_root, name):
+    """[E18] on BOTH pages. The estimate content is report.forecast_lines (the block render_present and render_report embed, checked to be
+    on the page verbatim): no banned calibration/percentile/probability word at all. The rest of the page is checked the same way after
+    masking only the plan's identifiers as the heading prints them (project path, title, plan name, task id, revision sha): a path such
+    as .../Temp/tmp90_k9lpz/project is metadata, not an estimate claim (gate 734acdc false failure)."""
+    estimate = report.forecast_lines(state_root, name)
+    block = '\n'.join(estimate)
+    test.assertIn('6–8 giờ', block)                                                    # the range is in the estimate (the grep has a subject)
+    test.assertIn('chưa hiệu chỉnh', block)                                            # the only use of the word: "not calibrated"
+    for render in (report.render_present, report.render_report):
+        text = render(state_root, name)
+        test.assertIn(block, text, render.__name__)                                    # the checked estimate is the one on the page
+        for label, content in (('estimate', block), ('page', mask(text, identifiers(state_root, name)))):
+            lowered = content.casefold()
+            for banned in BANNED:
+                test.assertNotIn(banned, lowered, (render.__name__, label, banned))
+            test.assertIsNone(PERCENT_CLAIM.search(lowered), (render.__name__, label))
+
+
+def identifiers(state_root, name):
+    f = report._lookup(state_root, name)                                               # the values the page heading prints
+    return (f['row']['project_path'], (f['contract'] or {}).get('title'), f['name'], f['row']['request_key'], f['state']['task_id'],
+            *(r['sha'] for r in f['state']['revisions'].values()))
+
+
+def mask(text, values):
+    for value in sorted({str(v) for v in values if v}, key=len, reverse=True): text = text.replace(value, '<id>')
+    return text
+
+
+class T36bIdentifierPaths(Fixture):
+    """Gate 734acdc false failure (R03/check.t36b_gaps): the temp project path was .../Temp/tmp90_k9lpz/project and 'p90' matched it. Here the
+    path, the title and the plan name deliberately contain P90/P85; the estimate check must pass on them and still catch a real claim."""
+    NAME, TITLE = 'P90-p85', 'Kiểm P85 và P90 mẫu'
+
+    def setUp(self):
+        real = tempfile.TemporaryDirectory
+        with mock.patch.object(tempfile, 'TemporaryDirectory', lambda *a, **k: real(*a, **{'prefix': 'tmp90_P85_', **k})):
+            super().setUp()
+        T36bGaps.estimate_fixture(self, self.NAME, plan_json(title=self.TITLE))
+
+    def test_e18_identifiers_with_p90_p85_are_not_estimate_claims(self):
+        self.assertIn('p90_p85_', str(self.root).casefold())
+        text = report.render_present(self.ledger.state_root, self.NAME)
+        self.assertIn('p90', text.casefold()); self.assertIn(self.TITLE, text)         # the identifiers are really on the page
+        no_estimate_claim(self, self.ledger.state_root, self.NAME)
+
+    def test_e18_a_real_claim_in_the_estimate_or_elsewhere_on_the_page_is_caught(self):
+        real = report._forecast_lines
+        claims = {'P90 percentile': lambda f: real(f) + ['P90: 9 giờ.'],
+                  'calibrated range': lambda f: [line.replace('(chưa hiệu chỉnh)', '(chưa hiệu chỉnh; nay đã hiệu chỉnh)') for line in real(f)],
+                  'probability': lambda f: real(f) + ['Xác suất xong trước deadline: cao.'],
+                  'percent chance': lambda f: real(f) + ['80% khả năng xong đúng hạn.'],
+                  'p85 lower case': lambda f: real(f) + ['công còn lại p85 = 8 giờ']}
+        for label, fake in claims.items():
+            with self.subTest(label), mock.patch.object(report, '_forecast_lines', fake):
+                with self.assertRaisesRegex(AssertionError, CAUGHT): no_estimate_claim(self, self.ledger.state_root, self.NAME)
+        # a claim outside the forecast block (another section of the page) is caught by the masked page check
+        risk = report._present_risk
+        with mock.patch.object(report, '_present_risk', lambda f: risk(f) + ['  ước lượng P90 đã hiệu chỉnh: 7 giờ']):
+            with self.assertRaisesRegex(AssertionError, CAUGHT): no_estimate_claim(self, self.ledger.state_root, self.NAME)
+        no_estimate_claim(self, self.ledger.state_root, self.NAME)           # unpatched: passes

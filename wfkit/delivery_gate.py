@@ -10,7 +10,9 @@ acceptance and never records one. It judges, on ONE build identity (commit + whe
     problem (kit-guard, installed-origin, document-selfcheck, dirty/missing build, selected-only, implementation-checks, snapshot moved)
     refuses every release; another release's acceptance problem does not block this one (03 section 4) but is cross-checked; an
     unclassified problem, a missing field or contradictory information refuses (fail-closed, never defaulted to clean);
-  - packaging (W40-Rnn): the release's T54 bundle verdict (wfkit.release_check) passed on this same build, by INPUTS or INPUTS(bootstrap);
+  - packaging (W40-Rnn): the release's T54 bundle verdict (wfkit.release_check) passed on this same build, by INPUTS or INPUTS(bootstrap):
+    re-judged with release_check.judge_verdict (every mandatory condition of its branch true, no failure reason, no contradiction, real
+    receipts), never taken from its `decision` field alone (Codex round 7 P1);
   - independent review: a review record by a model other than the author's, on this commit, with result pass.
 The other section 4 items that this producer does not judge are listed in `not_judged`; the receipt says so instead of claiming them.
 The receipt has the shape of wfkit.gate's CG-R00 decision ({gate, release, decision, commit, wheel_sha256, at}) so that
@@ -97,6 +99,15 @@ def _read_snapshot(release, snapshot, why):
     return {'snapshot': snap, 'checks': checks, 'acceptance': acceptance.get(release), 'own': own}, others
 
 
+def _inputs(bundle):
+    """release_check.inputs_summary of a verdict that may be malformed (it is reported as such by judge_verdict, never crashes the gate)."""
+    if not isinstance(bundle, dict): return {'code': None, 'first_release': False}
+    reasons = bundle.get('reasons')
+    return release_check.inputs_summary({**bundle, 'conditions': bundle.get('conditions') if isinstance(bundle.get('conditions'), dict) else {},
+                                         'reasons': [r for r in reasons if isinstance(r, dict)] if isinstance(reasons, list) else [],
+                                         'first_release_baseline': bundle.get('first_release_baseline') if isinstance(bundle.get('first_release_baseline'), dict) else {}})
+
+
 def decide(release, snapshot, bundle, review=None, sources=None):
     reasons = []
 
@@ -122,11 +133,12 @@ def decide(release, snapshot, bundle, review=None, sources=None):
     checks = fields['checks']
     if not (isinstance(checks.get('expected'), int) and checks.get('expected') > 0 and checks.get('receipted') == checks.get('expected') and checks.get('failed') == []):
         why('implementation', f"implementation checks {checks.get('receipted')}/{checks.get('expected')} receipted, failed {checks.get('failed')}")
-    inputs = release_check.inputs_summary(bundle or {})
-    if not isinstance(bundle, dict) or bundle.get('decision') != 'pass':
-        why('packaging', 'the T54 bundle verdict did not pass: ' + '; '.join(f"{r.get('code')}: {r.get('detail')}" for r in (bundle or {}).get('reasons', []))[:400])
-    elif bundle.get('release') != release or {'commit': bundle.get('commit'), 'wheel_sha256': bundle.get('wheel_sha256')} != ident:
+    # packaging (Codex round 7 P1): never trust the verdict's own `decision`; re-judge the recorded verdict with release_check's rule
+    packaging = release_check.judge_verdict(bundle, release)
+    for problem in packaging: why('packaging', problem[:400])
+    if not isinstance(bundle, dict) or bundle.get('release') != release or {'commit': bundle.get('commit'), 'wheel_sha256': bundle.get('wheel_sha256')} != ident:
         why('packaging', 'the T54 bundle verdict is for another release or build')
+    inputs = _inputs(bundle)
     if not isinstance(review, dict):
         why('independent-review', 'no independent review record (agent of another model than the author, on the release diff)')
     else:
@@ -137,7 +149,7 @@ def decide(release, snapshot, bundle, review=None, sources=None):
         if 'wheel_sha256' in review and review['wheel_sha256'] != ident.get('wheel_sha256'): why('independent-review', 'the review is for another wheel')
     return {'gate': 'CG-' + str(release), 'release': release, 'decision': 'refused' if reasons else 'pass', 'reasons': reasons, **ident,
             'other_release_problems': others,
-            'inputs_rule': inputs['code'], 'first_release': inputs['first_release'], 'not_judged': NOT_JUDGED,
+            'inputs_rule': inputs['code'], 'first_release': inputs['first_release'] and not packaging, 'not_judged': NOT_JUDGED,
             'owner_acceptance': False, 'delivered': False, 'sources': sources or {}, 'simulated': False,
             'provenance': {'kind': 'real', 'source': 'wfkit.delivery_gate decide'},
             'rule': '03 section 4: each delivery gate is run by the AI and needs no owner', 'at': _now()}

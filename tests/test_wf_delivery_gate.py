@@ -1,7 +1,8 @@
 """Delivery-gate receipt chain (92-task audit, W40-R01...RX2): (1) wfkit.gate writes CG-<release> receipts that wfkit.release_check accepts as
 gate_history; a real old decision is only turned into history by derivation with provenance, never rewritten; (2) wfkit.delivery_gate runs
 CG-Rnn from the development registry's acceptance, AI-run without the owner (03 section 4), refused while any part is partial/blocked;
-(3) the producer uses the latest PASSING CG- receipt as previous build when gate history is given (the normal rule)."""
+(3) the producer uses the latest PASSING CG- receipt as previous build when gate history is given (the normal rule); (4) round 7 P1: the gate
+re-judges the T54 verdict with release_check's own rule (judge_verdict) instead of trusting its `decision` field."""
 import copy
 import json
 import os
@@ -24,7 +25,7 @@ SNAPSHOT = Path(tempfile.gettempdir()) / 'wf-snapshot-gate-20261025-6366137' / '
 
 def load_tests(loader, tests, pattern):          # do not re-run the imported ReleaseCheckTests here
     suite = unittest.TestSuite()
-    for case in (GateReceiptRoundTripTests, DeliveryGateTests, ProducerHistoryTests):
+    for case in (GateReceiptRoundTripTests, DeliveryGateTests, PackagingVerdictTests, ProducerHistoryTests):
         own = sorted(n for n in vars(case) if n.startswith('test_'))      # only the tests this module defines (not the inherited fixture's)
         suite.addTests(case(n) for n in own)
     return suite
@@ -75,6 +76,62 @@ class GateReceiptRoundTripTests(ReleaseCheckTests):
                     self.refused('INPUTS')
 
 
+    # -- round 7 P1: a T54 verdict produced by release_check itself is judged by the same shared rule ---------------------------------------
+    def gate_on(self, verdict):
+        """delivery_gate.decide on a release_check result of this fixture, with snapshot/review on the fixture's current build."""
+        ident = identity(self.current)
+        snap = snapshot(); snap.update(ident); snap['snapshot']['commit'] = ident['commit']
+        return delivery_gate.decide('R01', snap, verdict, {**REVIEW, 'commit': ident['commit']})
+
+    def packaging(self, result):
+        return ' | '.join(r['detail'] for r in result['reasons'] if r['code'] == 'packaging')
+
+    def test_r7_a_release_check_output_is_accepted_by_the_shape_rule_and_only_the_fixture_mode_refuses_it(self):
+        simulated = ['the T54 verdict used simulated (fixture) receipts; a delivery gate needs a real bundle']
+        verdict = self.result(); self.assertEqual(verdict['decision'], 'pass', verdict)
+        self.assertEqual(release_check.judge_verdict(verdict, 'R01'), simulated)
+        self.bootstrap(); verdict = self.result(); self.assertEqual(verdict['decision'], 'pass', verdict)
+        self.assertEqual(release_check.judge_verdict(verdict, 'R01'), simulated)
+        result = self.gate_on(verdict)
+        self.assertEqual(result['decision'], 'refused'); self.assertEqual({r['code'] for r in result['reasons']}, {'packaging'}, result['reasons'])
+
+    def test_r7_b_a_failed_installed_scenario_relabelled_pass_is_refused(self):
+        def failing(r): r['scenarios'][0].update(result='refused', reasons=['installed scenario failed'])
+        self.change('installed', failing)
+        verdict = self.result(); self.assertEqual(verdict['decision'], 'refused'); self.assertFalse(verdict['conditions']['T54.1'])
+        for label, forged in (('decision pass', {**verdict, 'decision': 'pass'}), ('decision pass, reasons dropped', {**verdict, 'decision': 'pass', 'reasons': []}),
+                              ('conditions deleted', {**{k: v for k, v in verdict.items() if k != 'conditions'}, 'decision': 'pass', 'reasons': []}),
+                              ('as produced', verdict)):
+            with self.subTest(label):
+                result = self.gate_on(forged); self.assertEqual(result['decision'], 'refused')
+                self.assertFalse(gate_history.is_passing_delivery_gate(result))
+                self.assertRegex(self.packaging(result), r'T54\.1|conditions', result['reasons'])
+
+    def test_r7_c_first_release_claim_with_gate_history_is_refused_on_the_inputs_bootstrap_branch(self):
+        history = self.bundle['gate_history']; self.bootstrap(); self.bundle['gate_history'] = history
+        verdict = self.result(); self.assertFalse(verdict['conditions']['INPUTS(bootstrap)'])
+        forged = {**verdict, 'decision': 'pass', 'reasons': [], 'conditions': {**verdict['conditions'], 'INPUTS(bootstrap)': True}}
+        for label, value in (('as produced', verdict), ('relabelled: decision pass, condition true', forged)):
+            with self.subTest(label):
+                result = self.gate_on(value); self.assertEqual(result['decision'], 'refused')
+                self.assertIn('INPUTS(bootstrap)', self.packaging(result), result['reasons'])
+
+    def test_r7_d_cli_receipt_of_a_forged_verdict_is_not_history_and_the_next_release_check_refuses_it(self):
+        """Chain: delivery_gate CLI on Codex's repro (pass + T54.1 False + failure reason) -> gate_history.select_previous -> release_check."""
+        ident = identity(self.previous)
+        snap = snapshot(); snap.update(ident); snap['snapshot']['commit'] = ident['commit']
+        forged = {**bundle_verdict(), **ident, 'conditions': {**bundle_verdict()['conditions'], 'T54.1': False},
+                  'reasons': [{'code': 'T54.1', 'detail': 'installed scenario failed'}]}
+        with tempfile.TemporaryDirectory(prefix='wf-cg-r7-') as tmp:
+            code, receipt = run_cli(tmp, 'R01', snap, forged, {**REVIEW, 'commit': ident['commit']})
+            self.assertEqual((code, receipt['decision']), (1, 'refused'), receipt['reasons'])
+            self.assertIn('packaging', {r['code'] for r in receipt['reasons']})
+            receipt['at'] = '2026-10-24T11:00:00Z'
+            path = Path(tmp) / 'history.json'; path.write_text(json.dumps(receipt), encoding='utf-8')
+            with self.assertRaises(LedgerError): gate_history.select_previous([path])
+        self.bundle['gate_history'] = [self.ref(receipt)]; self.refused('INPUTS')
+
+
 COMMIT, WHEEL = 'b' * 40, '5' * 64
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -113,10 +170,19 @@ def snapshot(release='R01', statuses=('complete', 'complete'), others=None, prob
             'acceptance': acceptance, 'problems': problems}
 
 
+BASELINE = {'commit': 'a' * 40, 'wheel_sha256': '4' * 64, 'role': 'compat-baseline', 'delivered': False, 'accepted': False}
+
+
 def bundle_verdict(release='R01', first_release=True):
+    """A PASSING wfkit.release_check result of a real-mode bundle, with every field release_check.decide writes (Codex round 7 P1: the gate
+    re-judges this shape, so the fixture must carry it all)."""
     code = 'INPUTS(bootstrap)' if first_release else 'INPUTS'
-    return {'decision': 'pass', 'release': release, 'commit': COMMIT, 'wheel_sha256': WHEEL, 'first_release': first_release,
-            'conditions': {code: True, **{f'T54.{i}': True for i in range(1, 6)}}, 'reasons': []}
+    verdict = {'decision': 'pass', 'release': release, 'testcase': release_check.PARTS.get(release), 'commit': COMMIT, 'wheel_sha256': WHEEL,
+               'first_release': first_release, 'owner_acceptance': False, 'simulated_receipts_used': False,
+               'conditions': {code: True, **{f'T54.{i}': True for i in range(1, 6)}}, 'reasons': [],
+               'proves': 'supplied T54 observations validated; not owner acceptance'}
+    if first_release: verdict['first_release_baseline'] = dict(BASELINE)
+    return verdict
 
 
 REVIEW = {'result': 'pass', 'reviewer_model': 'gpt-5-codex', 'author_model': 'claude-opus', 'commit': COMMIT}
@@ -262,6 +328,109 @@ class DeliveryGateTests(unittest.TestCase):
                 result = delivery_gate.decide(release, snap, verdict, review)
                 self.assertEqual(result['decision'], 'refused'); self.assertIn(code, {r['code'] for r in result['reasons']})
                 self.assertFalse(result['owner_acceptance']); self.assertFalse(gate_history.is_passing_delivery_gate(result))
+
+class PackagingVerdictTests(unittest.TestCase):
+    """Codex round 7 P1 (734acdc): the gate trusted bundle['decision']. It must re-judge the T54 verdict with release_check.judge_verdict:
+    every mandatory condition of the branch the verdict's own fields name, no failure reason, no contradiction."""
+    def judge(self, verdict, release='R01'):
+        return delivery_gate.decide(release, snapshot(release), verdict, REVIEW)
+
+    def assertPackagingRefused(self, verdict, text=None, release='R01'):
+        result = self.judge(verdict, release)
+        self.assertEqual(result['decision'], 'refused', result['reasons']); self.assertFalse(gate_history.is_passing_delivery_gate(result))
+        details = ' | '.join(r['detail'] for r in result['reasons'] if r['code'] == 'packaging')
+        self.assertTrue(details, result['reasons'])
+        if text: self.assertIn(text, details)
+        return result
+
+    def test_valid_verdicts_of_both_branches_and_every_release_pass(self):
+        for release in release_check.PARTS:
+            for first in (True, False):
+                with self.subTest(release=release, first=first):
+                    result = self.judge(bundle_verdict(release, first), release)
+                    self.assertEqual(result['decision'], 'pass', result['reasons'])
+                    self.assertEqual(result['inputs_rule'], 'INPUTS(bootstrap)' if first else 'INPUTS'); self.assertEqual(result['first_release'], first)
+
+    def test_codex_repro_decision_pass_with_a_false_condition_is_refused(self):
+        for first in (True, False):
+            for code in bundle_verdict(first_release=first)['conditions']:
+                with self.subTest(first=first, condition=code):
+                    verdict = bundle_verdict(first_release=first); verdict['conditions'][code] = False
+                    verdict['reasons'] = [{'code': code, 'detail': 'installed scenario failed'}]
+                    self.assertPackagingRefused(verdict, code)
+                    verdict['reasons'] = []                      # the failure reason dropped as well: the false condition alone refuses
+                    self.assertPackagingRefused(verdict, code)
+
+    def test_codex_repro_conditions_missing_entirely_is_refused(self):
+        for label in ('deleted', 'empty', 'a list', 'null'):
+            with self.subTest(label):
+                verdict = bundle_verdict()
+                if label == 'deleted': del verdict['conditions']
+                else: verdict['conditions'] = {'empty': {}, 'a list': ['T54.1'], 'null': None}[label]
+                self.assertPackagingRefused(verdict, 'conditions')
+
+    def test_each_missing_condition_key_is_refused(self):
+        for first in (True, False):
+            for code in bundle_verdict(first_release=first)['conditions']:
+                with self.subTest(first=first, missing=code):
+                    verdict = bundle_verdict(first_release=first); del verdict['conditions'][code]
+                    self.assertPackagingRefused(verdict, code)
+
+    def test_a_failure_reason_with_decision_pass_is_refused(self):
+        for code in ('T54.1', 'T54.3', 'INPUTS(bootstrap)', 'INPUT', 'mystery'):
+            with self.subTest(code):
+                verdict = bundle_verdict(); verdict['reasons'] = [{'code': code, 'detail': 'installed scenario failed'}]
+                self.assertPackagingRefused(verdict, code)
+        verdict = bundle_verdict(); verdict['reasons'] = 'installed scenario failed'
+        self.assertPackagingRefused(verdict, 'reasons')
+
+    def test_a_refused_verdict_stays_refused_even_when_every_condition_holds(self):
+        for reasons in ([], [{'code': 'T54.2', 'detail': 'x'}]):
+            with self.subTest(reasons=reasons):
+                self.assertPackagingRefused({**bundle_verdict(), 'decision': 'refused', 'reasons': reasons}, 'decision')
+        for decision in (None, 'maybe', True):
+            with self.subTest(decision=decision): self.assertPackagingRefused({**bundle_verdict(), 'decision': decision}, 'decision')
+
+    def test_the_inputs_branch_is_read_from_the_verdict_fields(self):
+        both = bundle_verdict(); both['conditions']['INPUTS'] = True
+        ordinary_claims_first = bundle_verdict(first_release=False); ordinary_claims_first['first_release'] = True
+        ordinary_claims_first['first_release_baseline'] = dict(BASELINE)
+        bootstrap_not_first = bundle_verdict(); bootstrap_not_first['first_release'] = False; del bootstrap_not_first['first_release_baseline']
+        no_baseline = bundle_verdict(); del no_baseline['first_release_baseline']
+        stray_baseline = bundle_verdict(first_release=False); stray_baseline['first_release_baseline'] = dict(BASELINE)
+        cases = {'both INPUTS conditions': (both, 'INPUTS'), 'ordinary INPUTS claiming first release': (ordinary_claims_first, 'first_release'),
+                 'bootstrap held but first_release false': (bootstrap_not_first, 'first_release'), 'first release without its baseline': (no_baseline, 'baseline'),
+                 'ordinary INPUTS with a baseline': (stray_baseline, 'baseline'), 'first_release not a bool': ({**bundle_verdict(), 'first_release': 'yes'}, 'first_release')}
+        for over in ({'delivered': True}, {'accepted': True}, {'role': 'delivered-release'}, {'extra': 1}):
+            verdict = bundle_verdict(); verdict['first_release_baseline'].update(over); cases['baseline ' + str(over)] = (verdict, 'baseline')
+        verdict = bundle_verdict(); verdict['first_release_baseline']['wheel_sha256'] = 'nothex'; cases['baseline identity malformed'] = (verdict, 'baseline')
+        for label, (verdict, text) in cases.items():
+            with self.subTest(label): self.assertPackagingRefused(verdict, text)
+
+    def test_other_malformed_or_contradictory_verdicts_are_refused(self):
+        def over(**values): return {**bundle_verdict(), **values}
+        def without(key): return {k: v for k, v in bundle_verdict().items() if k != key}
+        truthy = bundle_verdict(); truthy['conditions']['T54.2'] = 'yes'
+        extra = bundle_verdict(); extra['conditions']['T54.6'] = True
+        cases = {'not an object': (None, 'object'), 'a list': ([bundle_verdict()], 'object'), 'non-bool condition': (truthy, 'T54.2'),
+                 'unknown condition': (extra, 'T54.6'), 'owner acceptance claimed': (over(owner_acceptance=True), 'owner'),
+                 'owner acceptance missing': (without('owner_acceptance'), 'owner'),
+                 'simulated receipts': (over(simulated_receipts_used=True), 'simulated'), 'simulated flag missing': (without('simulated_receipts_used'), 'simulated'),
+                 'testcase of another release': (over(testcase='T54b'), 'testcase'), 'release missing': (over(release=None), 'release')}
+        for label, (verdict, text) in cases.items():
+            with self.subTest(label): self.assertPackagingRefused(verdict, text)
+
+    def test_identity_checks_are_kept(self):
+        self.assertPackagingRefused({**bundle_verdict(), 'commit': 'c' * 40}, 'another release or build')
+        self.assertPackagingRefused(bundle_verdict('R02'), 'another release or build')
+
+    def test_the_cli_refuses_a_verdict_without_conditions(self):
+        verdict = bundle_verdict(); del verdict['conditions']
+        with tempfile.TemporaryDirectory(prefix='wf-cg-r7c-') as tmp:
+            code, receipt = run_cli(tmp, 'R01', snapshot(others={'R02': ('partial',)}), verdict, REVIEW)
+        self.assertEqual((code, receipt['decision']), (1, 'refused'), receipt['reasons'])
+        self.assertEqual({r['code'] for r in receipt['reasons']}, {'packaging'}); self.assertFalse(gate_history.is_passing_delivery_gate(receipt))
+
 
 class ProducerHistoryTests(unittest.TestCase):
     @classmethod
