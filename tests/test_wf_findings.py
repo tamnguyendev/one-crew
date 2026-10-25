@@ -7,12 +7,13 @@ import contextlib
 import copy
 import io
 import json
+import os
 from unittest.mock import patch
 
 from onecrew import finding_core, review_evidence
 from onecrew.ledger import LedgerError, canonical
 from onecrew.snapshots import Snapshots
-from onecrew.v2 import contract as contracts, findings, plan as plans
+from onecrew.v2 import contract as contracts, findings, plan as plans, review_policy
 from tests.test_v2_l1 import Fixture, plan_json
 
 
@@ -231,3 +232,169 @@ class V1SharedRegisterTests(Fixture):
             review_evidence.record_round(state, {'resolved': ['RF1:0: test passed']}, shown=[0], round_no=2)
             self.assertEqual(close.call_count, 1)
         self.assertEqual(state['review_register']['findings'][0]['status'], 'resolved')
+
+
+class SkipLinkTests(Fixture):
+    """Round 7 F4 (T35c [E29]): "finding F was missed by SKIP decision S" as a product record, on a temporary ledger.
+
+    The optional review R-opt is SKIPped through the real review_policy.decide (the HD-20 record); the defect is a finding opened through
+    record_review; the link is written by findings.link_skip (a decision.recorded through decisions.record) and read back by
+    findings.skip_view; the measure is wfkit.pilot_tools.skip_leak_of / aggregate_facts (what the aggregate report uses). Synthetic only.
+    """
+    REASON = 'R-opt checks the required line of a.txt, which R1 later found missing'
+
+    def setUp(self):
+        super().setUp()
+        self.store = Snapshots(self.ledger.state_root)
+        self.artifact = self.tree()
+        self.task = self.root_on('P1')
+        self.skip = self.decide('P1')
+        self.assertEqual(self.skip['action'], 'SKIP')
+        self.key = self.skip['record']['key']
+        self.assertEqual(findings.record_review(self.ledger, 'P1', 'M1', self.receipt('P1'), read=['a.txt'])['opened'], ['RF1'])
+
+    def root_on(self, name):
+        value = dict(contract(), review_policy={'depth': 'light', 'optional_reviews': ['R-opt']})
+        plans.propose(self.ledger, name, value, 'claude', workflow=True)
+        plans.approve(self.ledger, name, 'owner', 'synthetic: owner said yes')
+        with self.ledger.transaction() as conn:
+            return plans.derive(self.ledger, conn, name)['task_id']
+
+    def decide(self, name, note='synthetic: optional review skipped'):
+        return review_policy.decide(self.ledger, name, 'R-opt', artifact_sha=self.artifact, evidence=(note,))
+
+    def receipt(self, name, *, revision=1, artifact=None, note='required line absent'):
+        value, sha = contracts.read_revision(self.ledger, name, revision)
+        artifact = artifact or self.artifact
+        body = {'kind': 'reviewer-receipt', 'plan': name, 'revision': revision, 'plan_sha': sha, 'milestone': 'M1', 'generation': 1,
+                'config': value['milestones'][0]['verifier']['config'], 'artifact_sha': artifact, 'artifact_sha_after': artifact,
+                'criteria': [{'id': 'R1', 'verdict': 'fail', 'evidence': [{'file': 'a.txt', 'line': 1, 'note': note}]},
+                             {'id': 'R2', 'verdict': 'pass', 'evidence': []}],
+                'outside_criteria': [], 'problems': [], 'error': None, 'timed_out': False, 'calls': 1}
+        blob = self.store.blob(canonical(body).encode('utf-8'))
+        with self.ledger.transaction(write=True) as conn:
+            task = plans.derive(self.ledger, conn, name)['task_id']
+            base = {'plan': name, 'revision': revision, 'milestone': 'M1', 'receipt': blob, 'generation': 1}
+            plans.emit(self.ledger, conn, task, 'verdict.receipt_issued', base)
+            plans.emit(self.ledger, conn, task, 'verdict.recorded', dict(base, result='fail', artifact_sha=artifact))
+        return blob
+
+    def link(self, ident='RF1', key=None, name='P1', review='R-opt', **kw):
+        return findings.link_skip(self.ledger, name, ident, key or self.key, review=review, reason=self.REASON, **kw)
+
+    def measure(self, name='P1'):
+        from wfkit import pilot_tools
+        return pilot_tools.skip_leak_of(self.ledger, name)
+
+    def link_events(self, name='P1'):
+        return [p for k, p in self.events(name) if k == 'decision.recorded' and p['subject']['component'] == findings.SKIP_LINK]
+
+    def test_measure_reads_the_link_record_and_points_at_the_skip_and_finding_ids(self):
+        before = self.measure()
+        self.assertEqual((before['skip_records'], before['skip_links'], before['skip_leak']['value']), ([self.key], [], 0))  # never automatic
+        out = self.link()
+        self.assertFalse(out['duplicate'])
+        got = self.measure()
+        self.assertEqual(got['skip_leak']['value'], 1)
+        self.assertEqual([(x['finding'], x['skip_record']) for x in got['skip_links']], [('RF1', self.key)])
+        self.assertEqual((got['skip_links'][0]['root'], got['skip_links'][0]['revision'], got['skip_links'][0]['artifact_sha']),
+                         (self.task, 1, self.artifact))
+        self.assertEqual(got['skip_records'], [self.key])                                  # the denominator: one SKIP in this root
+        stored = self.link_events()
+        self.assertEqual(len(stored), 1)
+        self.assertEqual((stored[0]['validity']['finding'], stored[0]['validity']['skip_record'], stored[0]['scope']), ('RF1', self.key, 'R-opt'))
+        self.assertIn(f'skip-record:{self.key}', stored[0]['evidence'])
+        # the same measure inside the aggregate pipeline (aggregate_facts on the measured root)
+        from onecrew.v2 import metrics
+        from wfkit import pilot_tools
+        root = next(r for r in metrics.measure_all(self.ledger)['roots'] if 'P1' in (r['plan'], r['selector']))
+        facts = pilot_tools.aggregate_facts(self.ledger, root)
+        self.assertEqual((facts['skip_leak']['value'], facts['skip_records']), (1, [self.key]))
+        self.assertEqual([(x['finding'], x['skip_record']) for x in facts['skip_links']], [('RF1', self.key)])
+
+    def test_counter_example_a_measure_that_does_not_read_the_hd20_record_goes_red(self):
+        self.link()
+        with patch.object(findings, '_skip_records', return_value={}):                     # the HD-20 reader patched away
+            got = self.measure()
+        self.assertNotEqual(got['skip_leak']['value'], 1)
+        self.assertEqual(got['skip_links'], [])
+        self.assertIn('no review_policy SKIP (HD-20) record', got['skip_links_invalid'][0]['reason'])
+        # a link record written past link_skip that names a REVIEW decision (not a SKIP) is never counted
+        review = review_policy.decide(self.ledger, 'P1', 'M1', artifact_sha=self.artifact, evidence=('synthetic: mandatory',))
+        self.assertEqual(review['action'], 'REVIEW')
+        from onecrew.v2 import decisions
+        with self.ledger.transaction() as conn:
+            sha = plans.derive(self.ledger, conn, 'P1')['approved']['sha']
+        forged = {'link': 'missed_by_skip', 'finding': 'RF1', 'skip_record': review['record']['key'], 'review': 'M1', 'root': self.task,
+                  'revision': 1, 'contract_sha': sha, 'artifact_sha': self.artifact}
+        decisions.record(self.ledger, self.task, subject={'component': findings.SKIP_LINK, 'model': 'rules'},
+                         authority={'grant_id': 'approved-contract:' + sha, 'revision': '1'}, evidence=['synthetic: forged link'],
+                         basis='forged past link_skip', scope='M1', validity=forged, key='skip-link-forged')
+        got = self.measure()
+        self.assertEqual([(x['finding'], x['skip_record']) for x in got['skip_links']], [('RF1', self.key)])
+        self.assertEqual(got['skip_leak']['value'], 1)
+        self.assertEqual([x['record'] for x in got['skip_links_invalid']], ['skip-link-forged'])
+
+    def test_wrong_root_is_not_linked(self):
+        self.root_on('P2')
+        self.assertEqual(findings.record_review(self.ledger, 'P2', 'M1', self.receipt('P2'), read=['a.txt'])['opened'], ['RF1'])
+        with self.assertRaisesRegex(LedgerError, 'no review_policy SKIP \\(HD-20\\) record with this id on this root'):
+            self.link(name='P2')                                                       # P1's SKIP, P2's finding RF1
+        self.assertEqual(self.measure('P2')['skip_leak']['value'], 0)
+        self.assertEqual(self.link_events('P2'), [])
+
+    def test_wrong_revision_is_not_linked(self):
+        value, _ = contracts.read_revision(self.ledger, 'P1', 1)
+        plans.amend(self.ledger, 'P1', dict(value, title='Sample, again'), 'synthetic: second revision', 'claude')
+        plans.approve(self.ledger, 'P1', 'owner', 'synthetic: owner said yes again')
+        opened = findings.record_review(self.ledger, 'P1', 'M1', self.receipt('P1', revision=2, note='second line absent'), read=['a.txt'])['opened']
+        self.assertEqual(opened, ['RF2'])
+        with self.assertRaisesRegex(LedgerError, 'revision 2, the SKIP applied to revision 1'):
+            self.link('RF2')
+        self.assertEqual(self.link_events(), [])
+
+    def test_wrong_artifact_is_not_linked(self):
+        opened = findings.record_review(self.ledger, 'P1', 'M1', self.receipt('P1', artifact='e' * 40, note='other tree'), read=['a.txt'])['opened']
+        self.assertEqual(opened, ['RF2'])
+        with self.assertRaisesRegex(LedgerError, 'another artifact than the one the SKIP applied to'):
+            self.link('RF2')
+        self.assertEqual(self.link_events(), [])
+
+    def test_unrelated_finding_is_not_linked(self):
+        # RF1 was opened BEFORE this later SKIP; and R-opt is the only review the SKIP covered; and RF9 does not exist
+        later = self.decide('P1', note='synthetic: a later SKIP of the same review')
+        self.assertNotEqual(later['record']['key'], self.key)
+        with self.assertRaisesRegex(LedgerError, 'not opened after the SKIP'):
+            self.link(key=later['record']['key'])
+        with self.assertRaisesRegex(LedgerError, 'the SKIP covered optional review R-opt, not M1'):
+            self.link(review='M1')
+        with self.assertRaisesRegex(LedgerError, 'no finding with this id'):
+            self.link('RF9')
+        self.assertEqual(self.link_events(), [])
+        self.assertEqual(self.measure()['skip_leak']['value'], 0)
+
+    def test_duplicate_link_is_recorded_once_and_a_second_skip_is_refused(self):
+        self.link()
+        self.assertTrue(self.link()['duplicate'])
+        self.assertEqual(len(self.link_events()), 1)
+        later = self.decide('P1', note='synthetic: a later SKIP of the same review')
+        opened = findings.record_review(self.ledger, 'P1', 'M1', self.receipt('P1', note='third line absent'), read=['a.txt'])['opened']
+        self.assertEqual(opened, ['RF2'])
+        self.link('RF2', key=later['record']['key'])
+        with self.assertRaisesRegex(LedgerError, 'already attributed to SKIP'):
+            self.link('RF2')                                                           # RF2 came after both SKIPs: counted once
+        got = self.measure()
+        self.assertEqual(got['skip_leak']['value'], 2)
+        self.assertEqual(sorted((x['finding'], x['skip_record']) for x in got['skip_links']),
+                         sorted([('RF1', self.key), ('RF2', later['record']['key'])]))
+        self.assertEqual(len(got['skip_records']), 2)
+
+    def test_ai_session_cannot_sign_the_link_as_the_owner(self):
+        with patch.dict(os.environ, {'CLAUDE_CODE_CHILD_SESSION': '1'}):
+            with self.assertRaisesRegex(LedgerError, 'refused: this process runs inside an AI tool session'):
+                self.link(by='owner')
+            self.assertEqual(self.link_events(), [])
+            self.link()
+        stored = self.link_events()
+        self.assertEqual(len(stored), 1)
+        self.assertNotIn(stored[0]['actor'], ('owner', 'user'))

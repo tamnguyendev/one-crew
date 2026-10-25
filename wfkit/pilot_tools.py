@@ -11,7 +11,7 @@ Run ``python -m wfkit.pilot_tools <command> ...``:
   ``report --kind aggregate`` -- W38c (T35c, PL-B, ten jobs): the same pipeline (measure_all, outcome rows, the interim cell mapping for
   group B/C, check_report) over one or more pilot ledgers named in the manifest, plus the PL-B sections read from the ledgers by code:
   owner decisions by kind (root approval, acceptance, U1-U4 from the request's class, other), SKIP records (HD-20 decision records of
-  review_policy) and the late defects linked to them, provider calls/failures (verdict events with a provider error), hook noise and
+  review_policy) and the findings recorded as missed by them (findings.link_skip records, read back through findings.skip_view), provider calls/failures (verdict events with a provider error), hook noise and
   wrong-scope blocks, notices with nothing for the owner to do, owner waits missed for more than 60 minutes. A job skipped with a
   reason stays in the denominator (every cell "không có dữ liệu"). Every figure lists the job/ledger/root it was computed from; every
   plan root of a pilot ledger is a job or excluded with a reason. Writes ``aggregate-report.json`` + ``aggregate-report.md``.
@@ -446,25 +446,12 @@ def aggregate_facts(ledger, root, desktop_records=()):
                  if e['kind'] == 'finding.registered' and _when(e['at']) > _when(verified)]
     source = 'verdict.recorded' + ('+finding.registered' if capability else '')
     out['false_pass'] = {'value': len(late), 'derived_from': source}
-    # SKIP leak (E29): HD-20 SKIP records of review_policy, and the late defects linked to the skipped review
-    skips = {}
-    for e in events:
-        p = e['p']
-        if e['kind'] == 'decision.recorded' and (p.get('subject') or {}).get('component') == 'review_policy' and (p.get('validity') or {}).get('action') == 'SKIP':
-            skips.setdefault(p.get('key') or f'decision@{e["seq"]}', {'seq': e['seq'], 'scope': p.get('scope')})
-    links = []
-    unlinked = 0
-    for skip_id, skip in sorted(skips.items()):
-        after = [d for d in late if d['seq'] > skip['seq']]
-        linked = [r for r in rows if r.get('node') == skip['scope']] if capability else []
-        links += [{'finding': r.get('id'), 'skip_record': skip_id} for r in linked]
-        unlinked += max(0, len(after) - len(linked))
-    out['skip_records'] = sorted(skips)
-    out['skip_links'] = links
-    if unlinked:
-        out['skip_leak'] = {'no_data': f'{unlinked} lỗi tìm thấy sau SKIP chưa nối được với bản ghi SKIP (HD-20) bằng mã'}
-    else:
-        out['skip_leak'] = {'value': len(links), 'derived_from': 'decision.recorded(review_policy SKIP)+' + source}
+    # SKIP leak (E29): read from the recorded links (findings.link_skip), each re-validated against its HD-20 SKIP record
+    defects = [d for d in late if d['kind'] == 'verdict']
+    if capability and verified:
+        defects += [{'seq': e['seq'], 'kind': 'finding', 'id': fid} for e in events
+                    if e['kind'] == 'finding.registered' and _when(e['at']) > _when(verified) for fid in (e['p'].get('opened') or [])]
+    out.update(skip_leak_of(ledger, root['selector'], defects))
     # hooks: the spool must be imported (onecrew hook sync) before the ledger can be the source
     spool = Path(ledger.project) / '.onecrew' / 'violations.jsonl'
     imported = {e['p'].get('spool_id') for e in events if e['kind'].startswith('hook.')}
@@ -529,6 +516,27 @@ def aggregate_facts(ledger, root, desktop_records=()):
     return out
 
 
+def skip_leak_of(ledger, selector, late=()):
+    """E29 measure of one root: the defects recorded as missed by a SKIP. Reads the HD-20 SKIP records of review_policy and the
+    finding->SKIP link records through onecrew.v2.findings.skip_view (a link is counted only when its SKIP record and its finding hold).
+    `late` = defects found after verification ({seq, kind, id}); one that came after a SKIP and is not linked leaves the figure unknown
+    (it may or may not be a leak: nothing is attributed automatically, and nothing is assumed to be 0).
+    Returns {'skip_records': [id], 'skip_links': [{finding, skip_record, ...}], 'skip_links_invalid': [...], 'skip_leak': cell}."""
+    from onecrew.v2 import findings
+    view = findings.skip_view(ledger, selector)
+    links = view['links']
+    linked = {link['finding'] for link in links}
+    first = min((s['seq'] for s in view['skip_records'].values()), default=None)
+    unattributed = sorted(d['id'] for d in late if first is not None and d['seq'] > first and d['id'] not in linked)
+    out = {'skip_records': sorted(view['skip_records']), 'skip_links': links, 'skip_links_invalid': view['invalid']}
+    if unattributed:
+        out['skip_leak'] = {'no_data': f'{len(unattributed)} lỗi tìm thấy sau SKIP chưa nối được với bản ghi SKIP (HD-20) bằng mã: '
+                                       + ', '.join(unattributed)}
+    else:
+        out['skip_leak'] = {'value': len(links), 'derived_from': 'decision.recorded(review_policy SKIP) x decision.recorded(finding_skip_link)'}
+    return out
+
+
 def aggregate_cell(root, job, mid, obs, facts, decision_log):
     if mid in ('false_pass', 'skip_leak', 'noise_stop_hook', 'wrong_scope_block', 'noise_notifications', 'missed_wait_1h'):
         return dict(facts[mid])
@@ -573,13 +581,19 @@ def build_aggregate(ledgers, jobs, measured, facts, outcomes, manifest, chat, ob
         by['false_pass']['skip_leak_part'] = sl['summary']['value']
     comparisons = []
     for name, (base, parts) in pr.TIER1.items():
-        ms = [by[p] for p in parts]
-        k = min(m['k'] for m in ms)
-        total = clean(sum(sum(pr.values(m).values()) for m in ms))
+        # Composite rule (round 7 F3): numerator, denominator and computed_from come from ONE job set, the jobs with a value for every
+        # part. A job missing any part is out of the composite entirely (its other parts are not counted, a missing cell is never 0) and
+        # is listed per part under 'missing'; an observed 0 is a value and counts. Fewer than AGG_N jobs = a partial comparison.
+        cells = {p: by[p]['cells'] for p in parts}
+        frm = sorted(j for j in ids if all('value' in cells[p][j] for p in parts))
+        per_job = {j: clean(sum(cells[p][j]['value'] for p in parts)) for j in frm}
+        missing = {p: sorted(j for j in ids if 'value' not in cells[p][j]) for p in parts}
+        k, total = len(frm), clean(sum(per_job.values()))
         c = {'metric': name, 'baseline_count': base, 'baseline_jobs': 11, 'baseline_per_job': round(base / 11, 3), 'source': BASELINE_SOURCE,
-             'computed_from': sorted(set.intersection(*[set(pr.values(m)) for m in ms])) if ms else []}
+             'parts': list(parts), 'computed_from': frm, 'per_job': per_job, 'missing': {p: v for p, v in missing.items() if v},
+             'pilot_denominator': AGG_N, 'complete': k == AGG_N}
         c.update({'pilot_count': total, 'pilot_jobs': k, 'pilot_per_job': round(total / k, 3)} if k else
-                 {'pilot_count': None, 'pilot_jobs': 0, 'pilot_per_job': None, 'no_data': 'không việc nào có dữ liệu cho chỉ số này'})
+                 {'pilot_count': None, 'pilot_jobs': 0, 'pilot_per_job': None, 'no_data': 'không việc nào có dữ liệu cho mọi phần của chỉ số này'})
         comparisons.append(c)
     actions, per_job, mismatches = [], {}, []
     for j in ran:
@@ -597,7 +611,8 @@ def build_aggregate(ledgers, jobs, measured, facts, outcomes, manifest, chat, ob
     for j in ids:
         per_job.setdefault(j, dict.fromkeys(pr.KINDS, 0))
     ok = all(sum(c.values()) <= 2 and c['other'] == 0 for c in per_job.values())
-    links = [link for j in ran for link in facts[j]['skip_links']]
+    links = [dict(link, job=j) for j in ran for link in facts[j]['skip_links']]
+    invalid_links = [dict(x, job=j) for j in ran for x in facts[j].get('skip_links_invalid', [])]
     interventions = sum(facts[j]['interventions'] for j in ran)
     rows_log = [dict(r) for r in log] if log is not None else []
     manual = {'decision_log_rows': rows_log, 'interventions': interventions}
@@ -651,7 +666,8 @@ def build_aggregate(ledgers, jobs, measured, facts, outcomes, manifest, chat, ob
                         'tier3': {'conclusion': pr.NO_REDUCTION, 'comparison_group': None}},
               'owner_decisions': {'actions': actions, 'mismatches': mismatches, 'per_job': per_job,
                                   'ac1': {'max_per_job': 2, 'outside_u1_u4': 0, 'status': 'đạt' if ok else 'không đạt'}},
-              'skip_leak': {'skip_count': sum(len(facts[j]['skip_records']) for j in ran), 'links': links},
+              'skip_leak': {'skip_count': sum(len(facts[j]['skip_records']) for j in ran), 'links': links, 'invalid_links': invalid_links,
+                             'source': 'decision.recorded: review_policy SKIP (HD-20) x finding_skip_link', 'target': 0},
               'manual_fixes': manual, 'providers': [providers[n] for n in sorted(providers)], 'continuation_trial': continuation,
               'skipped_jobs': [{'job': j, 'reason': by_job[j]['skipped']} for j in ids if j not in ran],
               'jobs_detail': detail,
@@ -711,8 +727,11 @@ def render_aggregate(r):
     out.append('Root thiếu outcome: ' + (', '.join(missing) if missing else 'rỗng'))
     out.append('## Tầng 1 — so với số đếm 20/10')
     for c in r['tiers']['tier1']['comparisons']:
-        pilot = (f'pilot {c["pilot_count"]} trên {c["pilot_jobs"]} việc ({c["pilot_per_job"]} mỗi việc)' if c['pilot_jobs']
+        pilot = (f'pilot {c["pilot_count"]} trên {c["pilot_jobs"]} việc ({c["pilot_per_job"]} mỗi việc); '
+                 f'tính từ {c["pilot_jobs"]}/{c["pilot_denominator"]} việc: {", ".join(c["computed_from"])}' if c['pilot_jobs']
                  else f'pilot: không có dữ liệu ({c["no_data"]})')
+        if not c['complete']:
+            pilot += '; so sánh một phần, thiếu ' + '; '.join(f'{p}: {", ".join(js)}' for p, js in c['missing'].items())
         out.append(f'- {c["metric"]}: 20/10: {c["baseline_count"]} trên {c["baseline_jobs"]} việc ({c["baseline_per_job"]} mỗi việc); {pilot}')
     out.append('Giới hạn: ' + '; '.join(r['tiers']['tier1']['limits']) + '. Không suy ra thời gian từ số đếm 20/10.')
     out.append('## Tầng 2 — pilot')
@@ -726,7 +745,10 @@ def render_aggregate(r):
     for mm in r['owner_decisions']['mismatches']:
         out.append(f'- lệch {mm["job"]}: sổ {mm["ledger"]}, chat {mm["chat"]}: {mm["reason"]}')
     out.append('## SKIP, sửa tay, provider, gói tiếp tục')
-    out.append(f'SKIP (HD-20): {r["skip_leak"]["skip_count"]} bản ghi; lỗi lọt qua nối được: {len(r["skip_leak"]["links"])}')
+    sk = r['skip_leak']
+    out.append(f'SKIP (HD-20): {sk["skip_count"]} bản ghi; lỗi lọt qua nối được: {len(sk["links"])}/{sk["skip_count"]} SKIP; mục tiêu {sk["target"]}; '
+               f'nguồn {sk["source"]}' + ''.join(f'; {x["job"]}: finding {x["finding"]} <- SKIP {x["skip_record"]}' for x in sk['links'])
+               + ''.join(f'; không tính {x["job"]} {x["record"]}: {x["reason"]}' for x in sk['invalid_links']))
     mf = r['manual_fixes']
     out.append(f'Sửa tay trạng thái sổ: nhật ký quyết định {len(mf["decision_log_rows"])} dòng; control.intervention {mf["interventions"]}'
                + (f'; lệch: {mf["mismatch_reason"]}' if 'mismatch_reason' in mf else ''))

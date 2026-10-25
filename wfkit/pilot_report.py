@@ -26,11 +26,19 @@ Input = a JSON document plus its rendered Markdown text. JSON schema (schema=1):
   ``desktop_window`` {event_id, emitted_at, shown_at, delivery_status}.
 * aggregate only: ``tiers`` {tier1: {comparisons: [{metric, baseline_count,
   baseline_jobs, baseline_per_job, pilot_count, pilot_jobs, pilot_per_job,
-  source}], limits: [str]}, tier2: {metrics: [ids], conclusion},
+  source, parts, computed_from: [job], per_job: {job: sum of parts}, missing:
+  {part: [job]}, pilot_denominator, complete}], limits: [str]} (a composite is
+  counted over ONE job set: the jobs with a value for every part; a job missing a
+  part is out of numerator and denominator and named on the line, which then says
+  "so sánh một phần"), tier2: {metrics: [ids], conclusion},
   tier3: {conclusion, comparison_group}}; ``owner_decisions`` {actions: [{job, at,
   verb, kind, sources}], mismatches: [{job, at, ledger, chat, reason}],
   per_job: {job: {kind: count}}, ac1: {max_per_job, outside_u1_u4, status}};
-  ``skip_leak`` {skip_count, links: [{finding, skip_record}]};
+  ``skip_leak`` {skip_count, links: [{job, finding, skip_record, ...}], invalid_links,
+  source, target 0} (links read from the finding_skip_link decision records, each
+  re-validated against its HD-20 SKIP record; a link names a SKIP record of its own
+  job, a defect counts once, and the "SKIP (HD-20):" line shows count/SKIP, target,
+  source and every "finding F <- SKIP S");
   ``manual_fixes`` {decision_log_rows: [{at, job, before, after, reason}],
   interventions, [mismatch_reason]}; ``providers`` [{provider, calls, failures,
   reasons: {"hạn mức": n, "lỗi công cụ": n}, inconclusive_receipts}];
@@ -416,17 +424,42 @@ class Checker:
                     f'E6 tier 1 {name}: baseline must be {base} trên 11 việc with source')
             require(abs(c.get('baseline_per_job', -1) - base / 11) < 0.01, f'E6 tier 1 {name}: per-job baseline rate wrong')
             ms = [self.metrics.get(p) for p in parts]
-            if all(ms):
-                k = min(m['k'] for m in ms)
-                total = sum(sum(values(m).values()) for m in ms)
-                if k:
-                    require(c.get('pilot_jobs') == k and c.get('pilot_count') == total,
-                            f'E6 tier 1 {name}: pilot count/denominator must be {total} trên {k} việc')
-                    require(number(c.get('pilot_per_job')) and abs(c['pilot_per_job'] - total / k) < 0.01, f'E6 tier 1 {name}: per-job pilot rate wrong')
-                else:
-                    require(c.get('pilot_jobs') == 0 and c.get('pilot_count') is None and c.get('pilot_per_job') is None
-                            and isinstance(c.get('no_data'), str) and c['no_data'],
-                            f'E35 tier 1 {name}: 0 việc có dữ liệu phải ghi "không có dữ liệu", không ghi số')
+            require(all(ms), f'E6 tier 1 {name}: part metric missing ({", ".join(p for p, m in zip(parts, ms) if not m)})')
+            # One job set (round 7 F3), recomputed here from the parts' per-job cells, not from the comparison's own numbers: the jobs
+            # with a value for EVERY part; a job missing a part is out of numerator and denominator alike and is listed per part.
+            cells = {p: m.get('cells') or {} for p, m in zip(parts, ms)}
+            have = lambda p, j: isinstance(cells[p].get(j), dict) and 'value' in cells[p][j] and number(cells[p][j]['value'])
+            frm = sorted(j for j in self.jobs if all(have(p, j) for p in parts))
+            sums = {j: sum(cells[p][j]['value'] for p in parts) for j in frm}
+            missing = {p: sorted(j for j in self.jobs if not have(p, j)) for p in parts}
+            missing = {p: js for p, js in missing.items() if js}
+            k, total = len(frm), sum(sums.values())
+            require(isinstance(c.get('computed_from'), list) and sorted(c['computed_from']) == frm,
+                    f'E6 tier 1 {name}: computed_from must be exactly the jobs with every part ({", ".join(frm) or "none"})')
+            per_job = c.get('per_job')
+            require(isinstance(per_job, dict) and sorted(per_job) == frm and all(number(per_job[j]) and abs(per_job[j] - sums[j]) < 0.011 for j in frm),
+                    f'E6 tier 1 {name}: per_job must hold, for each job of computed_from, the sum of its part cells')
+            require(c.get('missing') == missing, f'E6 tier 1 {name}: missing must list, per part, every job without data ({missing})')
+            require(c.get('pilot_denominator') == self.n and c.get('complete') is (k == self.n),
+                    f'E6 tier 1 {name}: pilot_denominator must be {self.n} and complete {k == self.n} ({k}/{self.n} jobs have every part)')
+            line = next((l for l in self.lines if l.startswith(f'- {name}:')), None)
+            require(line is not None, f'E6 tier 1 {name}: rendered line missing')
+            if k:
+                require(c.get('pilot_jobs') == k and number(c.get('pilot_count')) and abs(c['pilot_count'] - total) < 0.011,
+                        f'E6 tier 1 {name}: pilot count/denominator must be {round(total, 2)} trên {k} việc (one job set)')
+                require(number(c.get('pilot_per_job')) and abs(c['pilot_per_job'] - total / k) < 0.01, f'E6 tier 1 {name}: per-job pilot rate wrong')
+                require(f'pilot {c["pilot_count"]} trên {k} việc' in line and f'tính từ {k}/{self.n} việc' in line,
+                        f'E6 tier 1 {name}: rendered line must show the pilot count over {k} việc and "tính từ {k}/{self.n} việc"')
+            else:
+                require(c.get('pilot_jobs') == 0 and c.get('pilot_count') is None and c.get('pilot_per_job') is None
+                        and isinstance(c.get('no_data'), str) and c['no_data'],
+                        f'E35 tier 1 {name}: 0 việc có dữ liệu phải ghi "không có dữ liệu", không ghi số')
+                require('không có dữ liệu' in line, f'E35 tier 1 {name}: rendered line must say "không có dữ liệu"')
+            if k < self.n:
+                require('so sánh một phần' in line and all(re.search(rf'\b{re.escape(j)}\b', line) for js in missing.values() for j in js),
+                        f'E6 tier 1 {name}: {k}/{self.n} jobs: the line must say "so sánh một phần" and name the missing jobs')
+            else:
+                require('một phần' not in line, f'E6 tier 1 {name}: a full comparison must not be called partial')
         for line in self.lines:
             low = line.lower()
             if '20/10' in low and re.search(r'phút|thời gian|giờ', low) and re.search(r'giảm|nhanh|tiết kiệm|ít hơn', low) and 'không' not in low:
@@ -490,6 +523,30 @@ class Checker:
             require(sum(values(m).values()) == len(s['links']), 'E29 skip leak count differs from the linked findings')
             line = self.metric_line('skip_leak') or ''
             require(f'{len(s["links"])}/{s["skip_count"]} SKIP' in line, 'E29 line must show count/SKIP denominator')
+
+    def skip_link_records(self):
+        s, m = self.report.get('skip_leak'), self.metrics.get('skip_leak')
+        require(isinstance(s, dict) and isinstance(s.get('links'), list), 'E29 skip_leak section missing')
+        # round 7 F4: each link names its job and the SKIP record of THAT job (jobs_detail.skip_records), a defect counts once,
+        # and the rendered SKIP line carries count/denominator, target 0, source and both IDs of every link
+        skips = {d.get('job'): set(d.get('skip_records') or []) for d in self.report.get('jobs_detail', []) if isinstance(d, dict)}
+        require(sum(len(v) for v in skips.values()) == s['skip_count'], 'E29 skip_count must be the SKIP records of the jobs (jobs_detail)')
+        seen = set()
+        for link in s['links']:
+            require(link.get('skip_record') in skips.get(link.get('job'), set()),
+                    f'E29 link {link.get("finding")}: SKIP record {link.get("skip_record")} is not a SKIP record of job {link.get("job")}')
+            key = (link.get('job'), link.get('finding'))
+            require(key not in seen, f'E29 lỗi lọt qua SKIP bị đếm hai lần: {key[0]} {key[1]}')
+            seen.add(key)
+        require(s.get('target') == 0 and isinstance(s.get('source'), str) and s['source'], 'E29 skip_leak needs its source and target 0')
+        line = next((l for l in self.lines if l.startswith('SKIP (HD-20):')), '')
+        require(f'{len(s["links"])}/{s["skip_count"]} SKIP' in line and 'mục tiêu 0' in line and s['source'] in line
+                and all(f'finding {x["finding"]} <- SKIP {x["skip_record"]}' in line for x in s['links']),
+                'E29 the SKIP line must show count/SKIP denominator, target 0, source and each finding <- SKIP record')
+        if m:
+            for job, v in values(m).items():
+                mine = sum(1 for x in s['links'] if x.get('job') == job)
+                require(v == mine, f'E29 {job}: skip_leak cell {v} differs from its {mine} linked finding(s)')
 
     def manual_fixes(self):
         s, m = self.report.get('manual_fixes'), self.metrics.get('ledger_manual_fixes')
@@ -636,7 +693,7 @@ class Checker:
             for fn in (self.no_baseline_text, self.ledger_columns, self.desktop_window):
                 self.check(fn)
         else:
-            for fn in (self.blanket_baseline, self.tiers, self.false_pass, self.decisions, self.skip_leak,
+            for fn in (self.blanket_baseline, self.tiers, self.false_pass, self.decisions, self.skip_leak, self.skip_link_records,
                        self.manual_fixes, self.providers, self.continuation, self.identity):
                 self.check(fn)
             self.check(self.header)
