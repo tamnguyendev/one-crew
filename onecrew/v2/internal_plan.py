@@ -172,6 +172,15 @@ def _validate(nodes, outputs):
                         or type(advance['limit']) is not int or not 1 <= advance['limit'] <= 100 or advance['discard_on_failure'] is not True):
                     raise LedgerError('Advance needs a finite limit and discard_on_failure=true on a produced edge.')
         known.add(node['id'])
+    # W14b: across nodes, one file must be spelled one way. owned_match is case-folded, so 'a.txt' and 'A.txt' are the same grant and the
+    # same Windows file; spelled differently they would pass as two disjoint writers.
+    from ..dependency_core import owned_key
+    spelled = {}
+    for node in result:
+        for path in node['write']:
+            other = spelled.setdefault(owned_key(path), (path, node['id']))
+            if other[0] != path:
+                raise LedgerError(f'Write paths {other[0]!r} (node {other[1]}) and {path!r} (node {node["id"]}) are case-colliding spellings of one file; use one spelling.')
     if set().union(*(set(node['acceptance']) for node in result)) != set(outputs):
         raise LedgerError('U1: the internal plan must preserve every approved output.')
     integrations = [node for node in result if node['integration']]
@@ -214,6 +223,11 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         decide(ledger, state, contract, sha, {'kind': 'change_acceptance', 'nodes': [n.get('id') for n in nodes],
                                               'changes': diff['changes'][:20], 'summary': diff['summary']}, ctx, 'onecrew.internal_plan')
     normalized = _validate(nodes, outputs)
+    if old_nodes:
+        # W19 (T38c): a node whose generation this revision moves cannot keep a repair marker bound to its old generation.
+        from . import repair_tasks
+        moved = affected_revision(old_nodes, normalized, contract_changed=before.get('contract_sha') not in (None, state['approved']['sha']))
+        normalized = repair_tasks.rebind_revised(ledger, state['selector'], old_nodes, normalized, moved, expected_revision=before['internal_revision'])
     with ledger.transaction() as conn:
         _admit_revision(ledger,conn,state,before,normalized)
     if any(node['execution_cap_seconds'] > ctx['remaining_seconds'] for node in normalized):

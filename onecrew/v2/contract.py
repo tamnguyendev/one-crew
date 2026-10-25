@@ -404,11 +404,26 @@ def revision_path(ledger, name, revision):
     return plan_dir(ledger, name) / f'v{revision}.json'
 
 
+def require_unknown_scope(contract, previous=None):
+    """W31a: an open unknown of a new (plan-ns) root is recorded WITH what it affects and what waits for it, at the moment it is proposed.
+    Only writes of new revisions check this; reading an old revision (read_revision) never does, so old ledgers still load. An open unknown
+    that the previous revision already carried unchanged (a root proposed before this rule) is left as it was."""
+    before = {u.get('id'): u for u in ((previous or {}).get('understanding') or {}).get('unknowns') or []}
+    for unknown in (contract.get('understanding') or {}).get('unknowns') or []:
+        if before.get(unknown.get('id')) == unknown: continue
+        if unknown.get('status') == 'open' and not (unknown.get('affected') and unknown.get('required_by')):
+            raise LedgerError(f'unknown {unknown.get("id")}: an open unknown is proposed with affected (what its answer changes) and required_by '
+                              f'({", ".join(UNKNOWN_REQUIRED_BY)} or milestone:<id>).')
+
+
 def write_revision(ledger, name, revision, contract):
-    """Write-once: an existing revision is never replaced."""
+    """Write-once: an existing revision is never replaced. A revision of a plan-ns root must scope its open unknowns (require_unknown_scope)."""
+    from . import namespaces
+    if str(name).startswith(namespaces.NAMESPACED):
+        previous = read_revision(ledger, name, revision - 1)[0] if revision > 1 and revision_path(ledger, name, revision - 1).exists() else None
+        require_unknown_scope(contract, previous)
     path = revision_path(ledger, name, revision)
     path.parent.mkdir(parents=True, exist_ok=True)
-    from . import namespaces
     document = {'plan': namespaces.parse(name)[0], 'revision': revision, 'content_sha': content_hash(contract), 'contract': contract}
     with path.open('xb') as stream:
         stream.write(json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True).encode('utf-8'))

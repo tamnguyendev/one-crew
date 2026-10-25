@@ -10,6 +10,12 @@ installed/upgrade/events/rollback/notes to SHA-pinned JSON receipts. Every recei
 uses finalgate.Evidence provenance and artifact identity. Notes contain actual
 Markdown. Optional provider_bundle reuses finalgate's wheel comparison and the
 shared provider evaluator; it is required for RP, without PL-B prerequisites.
+
+First delivery (bootstrap): a bundle with `first_release: {baseline: {commit, wheel_sha256, role: 'compat-baseline', delivered: false,
+accepted: false}, reason}` and EMPTY gate_history is judged under the separate condition INPUTS(bootstrap): the baseline must equal
+artifacts.previous and the build the upgrade/events/rollback drills ran; live files and delivery order are checked as usual. Any
+gate_history refuses the claim ("not a first release"); without the field the ordinary INPUTS rule applies unchanged. The result
+carries first_release true only when INPUTS(bootstrap) holds; owner_acceptance stays false.
 """
 import argparse
 import json
@@ -26,6 +32,8 @@ from wfkit.provider_evidence import evaluate as providers
 PARTS = {**{f'R{i:02}': f'T54{chr(96+i)}' for i in range(1, 9)}, 'RP': 'T54i', 'RX1': 'T54j', 'RX2': 'T54k'}
 CHECKS = ('installed', 'upgrade', 'events', 'rollback', 'notes')
 SECTIONS = ('Usable outcomes', 'Limits', 'Install', 'Rollback', 'Evidence status')
+BOOTSTRAP_KEYS = {'baseline', 'reason'}
+BASELINE_KEYS = {'commit', 'wheel_sha256', 'role', 'delivered', 'accepted'}
 INVENTORY_PATH = Path(__file__).resolve().parent / 'release_events.json'
 
 
@@ -164,13 +172,7 @@ def decide(bundle, root='.', allow_simulated=False):
             receipts[name] = value
         return receipts[name]
 
-    def prerequisites():
-        history = [evidence.read(ref) for ref in bundle['gate_history']]
-        require(history, 'previous delivered gate history missing')
-        require(all(h.get('decision', h.get('result')) == 'pass' and h.get('gate', '').startswith('CG-') for h in history), 'history has no passing delivery gate')
-        latest = max(history, key=lambda r: timestamp(r['at']))
-        require(identity(latest) == identity(previous), 'rollback build is not the latest recorded passing delivery artifact')
-        require(timestamp(latest['at']) <= timestamp(receipt('installed')['at']), 'upgrade predates previous delivery gate')
+    def live_and_deliveries():
         monitored = bundle['monitored_files']
         require(isinstance(monitored, list) and monitored, 'live state/monitor inventory missing')
         for row in monitored:
@@ -179,7 +181,48 @@ def decide(bundle, root='.', allow_simulated=False):
         for delivery in bundle.get('deliveries', []):
             require(identity(delivery) == identity(current), 'delivery names a different build')
             require(all(timestamp(delivery['at']) >= timestamp(receipt(name)['at']) for name in CHECKS), 'release delivered before its T54 evidence completed')
-    check('INPUTS', prerequisites)
+
+    def prerequisites():
+        history = [evidence.read(ref) for ref in bundle['gate_history']]
+        require(history, 'previous delivered gate history missing')
+        require(all(h.get('decision', h.get('result')) == 'pass' and h.get('gate', '').startswith('CG-') for h in history), 'history has no passing delivery gate')
+        latest = max(history, key=lambda r: timestamp(r['at']))
+        require(identity(latest) == identity(previous), 'rollback build is not the latest recorded passing delivery artifact')
+        require(timestamp(latest['at']) <= timestamp(receipt('installed')['at']), 'upgrade predates previous delivery gate')
+        live_and_deliveries()
+
+    def first_release():
+        """FIRST delivery (bootstrap): no release was ever delivered, so no CG- history can exist. The previous build is a compat baseline the
+        bundle pins explicitly, never labelled delivered/accepted, and that every drill of this bundle demonstrably ran. Judged under its own
+        condition INPUTS(bootstrap); it can never satisfy the ordinary INPUTS of an upgrade."""
+        claim = bundle['first_release']
+        require(isinstance(claim, dict) and set(claim) == BOOTSTRAP_KEYS, 'first_release must be exactly {baseline, reason}')
+        require(isinstance(claim['reason'], str) and claim['reason'].strip(), 'first_release needs the reason no delivered build exists')
+        baseline = claim['baseline']
+        require(isinstance(baseline, dict) and set(baseline) == BASELINE_KEYS, 'first_release baseline must be exactly ' + ', '.join(sorted(BASELINE_KEYS)))
+        require(baseline['role'] == 'compat-baseline', 'first_release baseline role must be compat-baseline')
+        require(baseline['delivered'] is False and baseline['accepted'] is False, 'a first-release baseline is never delivered or accepted')
+        history = bundle.get('gate_history', [])
+        require(isinstance(history, list), 'gate_history must be a list')
+        if history:
+            rows = [evidence.read(ref) for ref in history]
+            passing = any(h.get('decision', h.get('result')) == 'pass' and str(h.get('gate', '')).startswith('CG-') for h in rows)
+            require(False, 'not a first release: the bundle carries gate_history' + (' with a passing delivery gate' if passing else '') + '; judge it by the normal rule')
+        require(identity(baseline) == identity(previous), 'first_release baseline is not the previous artifact')
+        # the baseline is the build the drills actually ran, read from this bundle's own receipts
+        upgrade, events, rollback = receipt('upgrade'), receipt('events'), receipt('rollback')
+        require(identity(upgrade['from']) == identity(baseline), 'upgrade drill did not start from the pinned baseline')
+        require(identity(events['old_artifact']) == identity(baseline), 'event comparator did not run the pinned baseline')
+        for branch in ('rejected', 'allowed'):
+            require(rollback[branch]['scan']['old_version'] == baseline['commit'], 'compat scanner modelled another version than the pinned baseline')
+        old_run = evidence.read(rollback['allowed']['old_run'])
+        require(identity(old_run) == identity(baseline), 'rollback old run did not install the pinned baseline wheel')
+        install_observation(old_run, previous, archives[0], sandbox)
+        live_and_deliveries()
+
+    bootstrap = 'first_release' in bundle
+    inputs_code = 'INPUTS(bootstrap)' if bootstrap else 'INPUTS'
+    check(inputs_code, first_release if bootstrap else prerequisites)
 
     def installed():
         row = receipt('installed'); install_observation(row, current, archives[1], sandbox)
@@ -291,12 +334,53 @@ def decide(bundle, root='.', allow_simulated=False):
             require(row['provider_states'] == states and strings(row['subset'], 'RP subset') == eligible, 'RP notes disagree with shared provider evidence')
             require(row['p1_count'] == len(eligible) and row['p1_label'] == 'subset', 'release cannot claim program P1.0 full')
     check('T54.5', notes)
+    proves = 'validator rules only; no release or pilot execution' if fixture else 'supplied T54 observations validated; not owner acceptance'
+    first = bootstrap and inputs_code not in errors
     result.update({'decision': 'refused' if errors else 'pass',
-        'conditions': {code: code not in errors for code in ('INPUTS', *(f'T54.{i}' for i in range(1, 6)))},
+        'conditions': {code: code not in errors for code in (inputs_code, *(f'T54.{i}' for i in range(1, 6)))},
         'reasons': [{'code': code, 'detail': detail} for code, detail in errors.items()],
-        'simulated_receipts_used': fixture,
-        'proves': 'validator rules only; no release or pilot execution' if fixture else 'supplied T54 observations validated; not owner acceptance'})
+        'simulated_receipts_used': fixture, 'first_release': first,
+        'proves': proves + ('; first release: the previous build is a compat baseline, never delivered or accepted' if first else '')})
+    if first:
+        result['first_release_baseline'] = dict(bundle['first_release']['baseline'])
     return result
+
+
+ORDINARY_REFUSED = 'INPUTS luôn không đạt vì chưa có release nào được giao (điều kiện ngoài)'
+
+
+def inputs_summary(result):
+    """Which prerequisite rule a release_check result was judged by: the ordinary INPUTS (delivered gate history) or INPUTS(bootstrap)
+    (first delivery against a pinned compat baseline), whether it held, and the reason when it did not. For consumers (notes, package)."""
+    conditions = result.get('conditions') or {}
+    code = 'INPUTS(bootstrap)' if 'INPUTS(bootstrap)' in conditions else 'INPUTS'
+    baseline = result.get('first_release_baseline') or {}
+    return {'code': code, 'ok': conditions.get(code), 'first_release': result.get('first_release') is True,
+            'baseline_commit': baseline.get('commit'), 'baseline_wheel_sha256': baseline.get('wheel_sha256'),
+            'detail': next((r['detail'] for r in result.get('reasons', []) if r.get('code') == code), '')}
+
+
+def inputs_sentence(results):
+    """One Vietnamese sentence computed from {release: release_check result}: never the hard-coded claim that INPUTS always fails."""
+    if not results: return 'chưa có bundle T54'
+    rows = {rel: inputs_summary(v) for rel, v in results.items()}
+    boot = sorted(rel for rel, s in rows.items() if s['code'] == 'INPUTS(bootstrap)' and s['ok'] and s['first_release'])
+    ordinary_ok = sorted(rel for rel, s in rows.items() if s['code'] == 'INPUTS' and s['ok'])
+    refused = sorted(rel for rel, s in rows.items() if rel not in boot and rel not in ordinary_ok)
+    parts = []
+    if boot:
+        commits = sorted({rows[rel]['baseline_commit'][:7] for rel in boot if rows[rel]['baseline_commit']})
+        parts.append(f"bản giao đầu tiên: INPUTS(bootstrap) với baseline {', '.join(commits)} ghim, chưa giao/chưa nghiệm thu"
+                     + ('' if len(boot) == len(rows) else ' (' + ', '.join(boot) + ')'))
+    if ordinary_ok:
+        parts.append('INPUTS đạt theo lịch sử cổng giao của bản trước (' + ', '.join(ordinary_ok) + ')')
+    if refused:
+        ordinary_missing = all(rows[rel]['code'] == 'INPUTS' and rows[rel]['detail'] == 'previous delivered gate history missing' for rel in refused)
+        if ordinary_missing and len(refused) == len(rows):
+            parts.append(ORDINARY_REFUSED)
+        else:
+            parts.append('không đạt: ' + '; '.join(f"{rel} {rows[rel]['code']} — {rows[rel]['detail'] or 'không rõ'}" for rel in refused))
+    return '; '.join(parts)
 
 
 def main(argv=None):

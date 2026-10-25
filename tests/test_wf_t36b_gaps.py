@@ -54,10 +54,26 @@ class T36bGaps(Fixture):
 
     # ---- [E4] / [E7]: execution, waiting and deadline are separate after a 2-hour owner wait (fake clock) ---------------------------
     def test_e4_e7_two_hour_owner_wait_is_waiting_not_execution_and_deadline_is_unchanged(self):
+        """The wait lies INSIDE the attempt (Codex P2-1): 08:00-11:00 with an owner wait 08:30-10:30 executes 1 hour."""
+        self.start()
+        self.observe('m1', 'start', '2026-10-25T08:00:00+07:00')
+        self.observe('m1', 'wait', '2026-10-25T08:30:00+07:00', until='2026-10-25T10:30:00+07:00')   # R waits for the owner 2 hours
+        self.observe('m1', 'end', '2026-10-25T11:00:00+07:00')                          # milestone 1 executes 1 hour of its 3 elapsed
+        attempt = executors.summary(self.ledger, 'P1')['attempts'][0]
+        self.assertEqual((attempt['elapsed_seconds'], attempt['execution_seconds'], attempt['wait_seconds']), (10800, 3600, 7200))
+        self.check_one_hour_two_hours()
+        out = estimates.read(self.ledger, 'P1', now='2026-10-25T11:00:00+07:00')
+        self.assertEqual(out['wall_clock_remaining_seconds'], 7 * 3600)                 # [E4] the wait still consumed calendar time to D
+        self.assertEqual(out['wall_clock_kind'], 'time_to_deadline')
+
+    def test_e4_e7_owner_wait_after_the_attempt_is_waiting_not_execution(self):
         self.start()
         self.observe('m1', 'start', '2026-10-25T08:00:00+07:00')
         self.observe('m1', 'end', '2026-10-25T09:00:00+07:00')                          # milestone 1 executes 1 hour
         self.observe('m1', 'wait', '2026-10-25T09:00:00+07:00', until='2026-10-25T11:00:00+07:00')   # R waits for the owner 2 hours
+        self.check_one_hour_two_hours()
+
+    def check_one_hour_two_hours(self):
         out = estimates.read(self.ledger, 'P1')
         self.assertEqual(out['execution_seconds'], 3600)                                 # [E7] the 2 h wait is NOT execution
         self.assertEqual(out['waiting_seconds'], 7200)                                   # [E4] the wait is its own figure

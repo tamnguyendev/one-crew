@@ -266,7 +266,9 @@ class FourEndsTests(RunFixture):
         self.assertEqual(verdict.status(self.ledger, 'P1', now=started + dt.timedelta(seconds=20), alive=lambda pid: False)['checking'], ['M1'])
         self.assertEqual(verdict.status(self.ledger, 'P1', now=started + dt.timedelta(hours=1), alive=lambda pid: False)['checking'], [])
 
-    # a run that raises between its start and its receipt is closed by the run itself
+    # a run that raises between its start and its receipt is closed by the run itself.
+    # Changed for T08a (directive 25/10): the raise is inside the verifier call, i.e. AFTER the `dispatched` marker, so X's outcome is
+    # unknown. The old expectation (the milestone simply runs again) encoded the unsafe re-run; now the run is held until a recorded release.
     def test_a_run_that_raises_closes_itself(self):
         self.plan_with(OK)
         with patch.object(command, 'run', side_effect=LedgerError('git exploded')):
@@ -276,7 +278,13 @@ class FourEndsTests(RunFixture):
         self.assertEqual([a['reason'] for a in abandoned], ['error'])
         self.assertIn('git exploded', abandoned[0]['detail'])
         self.assertEqual(verdict.status(self.ledger, 'P1')['checking'], [])
-        self.assertEqual(verdict.run(self.ledger, 'P1', 'M1', self.root)['milestones'][0]['state'], 'passed')             # and the milestone can run again
+        with self.assertRaises(LedgerError) as held:
+            verdict.run(self.ledger, 'P1', 'M1', self.root)                                       # held, not run again by itself
+        self.assertIn('unknown outcome', str(held.exception))
+        run_id = self.payloads('verdict.run_started')[0]['run_id']
+        self.assertEqual(verdict.status(self.ledger, 'P1')['held'], [run_id])
+        verdict.release_run(self.ledger, 'P1', run_id, 'checked: the patched verifier never started the command')
+        self.assertEqual(verdict.run(self.ledger, 'P1', 'M1', self.root)['milestones'][0]['state'], 'passed')             # after the release it runs again
 
     # one live run per milestone: a second one is refused while the first lives, a dead one is closed first and does not refuse
     def test_only_one_live_run_per_milestone(self):

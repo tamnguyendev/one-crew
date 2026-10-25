@@ -127,8 +127,9 @@ class Server:
             self.note(result['id'],name,{'runner':runner.get('status')},key='submit')
             return dict(result,runner=runner)
         if name=='reply':
-            result=self.ledger.reply(args['request'],args['revision'],args['choice'],self.source,args['reference'],
-                                     decided_by=args.get('decided_by'),by=self.actor())
+            from .v2.answer_effects import reply_and_apply  # P1-2: reply + mandatory workflow effect in one transaction
+            result=reply_and_apply(self.ledger,args['request'],args['revision'],args['choice'],source=self.source,reference=args['reference'],
+                                   decided_by=args.get('decided_by'),by=self.actor())
             from .keeper import after_reply
             try: task=self.ledger.request(args['request'])['task_id']
             except (ValueError,OSError): return result  # the answer is recorded; evidence is best-effort

@@ -122,3 +122,30 @@ class ParallelEngineTests(ParallelFixture):
         self.assertEqual(view['nodes']['B']['artifact'],result['artifact'])
         self.verify('B')
         with self.ledger.transaction() as conn:self.assertEqual(group(conn,self.root_view['anchor_task'])['used_calls'],2)
+
+
+class CaseFoldedOwnershipTests(ParallelFixture):
+    """W14b (audit, T49d): write scopes are compared with authority.owned_match's rule (case-folded, '\\' as '/'), so 'a.txt' and 'A.txt' are
+    one file on Windows: never two writers at once, and a plan that splits them across nodes is refused."""
+
+    def test_ready_batch_treats_case_colliding_owned_paths_as_one(self):
+        tasks=[{'id':'A','owned':['a.txt'],'depends_on':[]},{'id':'B','owned':['A.txt'],'depends_on':[]},{'id':'C','owned':['sub\\C.txt'],'depends_on':[]},
+               {'id':'D','owned':['SUB/c.txt'],'depends_on':[]}]
+        self.assertEqual([t['id'] for t in dependency_core.ready_batch({'plan':{'tasks':tasks[:2]},'done':[]})],['A'])
+        self.assertEqual([t['id'] for t in dependency_core.ready_batch({'plan':{'tasks':tasks[2:]},'done':[]})],['C'])
+        self.assertEqual([t['id'] for t in dependency_core.ready_batch({'plan':{'tasks':[tasks[0],tasks[2]]},'done':[]})],['A','C'])
+
+    def test_internal_plan_refuses_case_colliding_writes_across_nodes(self):
+        with self.assertRaisesRegex(LedgerError,'case'):
+            self.revise([node('A'),node('B',write=('A.txt',)),node('I',['A','B'],integration=True,write=())])
+        self.assertIsNone(internal_plan.current(self.ledger,'P1')['definition'])
+
+    def test_engine_ready_folds_case_against_ready_and_active_writers(self):
+        self.revise([node('A'),node('B',write=('b.txt',)),node('I',['A','B'],integration=True,write=())])
+        view=engine.state(self.ledger,'P1')
+        self.assertEqual([t['id'] for t in engine._ready(view,2)],['A','B'])
+        view['definition']['nodes'][1]['write']=['A.txt']          # a definition admitted before the cross-node check
+        self.assertEqual([t['id'] for t in engine._ready(view,2)],['A'])
+        view=engine.state(self.ledger,'P1')
+        view['active_nodes']=[{'node':'X','attempt':'x','write':['A.TXT']}]
+        self.assertEqual([t['id'] for t in engine._ready(view,2)],['B'])

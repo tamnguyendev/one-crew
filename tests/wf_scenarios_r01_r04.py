@@ -130,8 +130,12 @@ check('a finished survey is not run again', survey.run(ledger, 'P1', opened2['id
 sc.register('R01', 'r01-decision-card', ['W30a', 'decisions are recorded, not asked, inside the authority', 'one card, six fields, no second card'],
             ['decision.recorded'], HELP + r'''
 put('x/y.py', 'x = 1\n' * 3)
-code, text = propose('P1', base())
+code, text = propose('P1', base(authority={'edit': True}))
 must('plan proposed', code == 0, text)
+code, text = approve('P1'); must('root approved (its grant is what a technical choice must cite, W30a)', code == 0, text)
+from onecrew.v2 import authority as _auth, plan as _plan
+with ledger.transaction() as conn: _st = _plan.derive(ledger, conn, 'P1')
+GRANT = _auth.grant_ref(_st['selector'], _plan.load(ledger, _st, _st['approved']['revision'])[0], _st['approved']['sha'])
 def option(oid, label): return {'id': oid, 'label': label}
 def biz(**extra):
     return dict({'id': 'B1', 'class': 'business', 'problem': 'Keep or delete the old CSV export once the report is removed?',
@@ -140,7 +144,7 @@ def biz(**extra):
 def tech(cid, **extra):
     return dict({'id': cid, 'class': 'technical', 'problem': 'Which helper style for ' + cid + '?', 'options': [option('a', 'Inline helper'), option('b', 'Shared module')],
                  'recommendation': 'a', 'evidence': ['x/y.py:2'], 'scope': 'plan P1: code style', 'decide_by': 'before_start',
-                 'authority': {'grant_id': 'G-01', 'revision': 'rev-1'}}, **extra)
+                 'authority': GRANT}, **extra)
 task = anchor('P1')
 code, out = jrun('plan', 'card', 'present', 'P1', '--file', str(dump('c1.json', {'choices': [biz(), tech('T1'), tech('T2', recommendation='b')]})), '--model', 'claude-sonnet-5-5')
 must('the card is presented through the console script', code == 0 and isinstance(out, dict), str(out)[-300:])

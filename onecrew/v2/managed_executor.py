@@ -41,9 +41,18 @@ def unresolved(ledger, selector, conn=None):
         value = json.loads(row['payload'])
         histories.setdefault(value['attempt'], []).append(value)
     pending = []
+    started = _root_starts(conn, root['task_id'])
     for attempt_id, history in histories.items():
         prepared = next((p for p in history if p['phase'] == 'prepared'), None)
-        if prepared is None or any(p['phase'] == 'candidate' for p in history):
+        if prepared is None:
+            continue
+        if any(p['phase'] == 'candidate' for p in history):
+            # W37b (crash point d): a saved candidate of an attempt the engine started for a node is resolved only once the engine
+            # published, held or retained it. Until then a replan must not re-issue the node (the candidate is adopted, not redone).
+            start = started.get(attempt_id)
+            if start is not None and not _adopted(conn, root['task_id'], attempt_id, start):
+                pending.append({'attempt': attempt_id, 'node': prepared['node'], 'task': start.get('child'), 'status': 'candidate_unpublished',
+                                'reason': 'managed candidate saved but not published by the engine; step adopts it before any replan'})
             continue
         attempt = conn.execute('SELECT status,charged,task_id FROM attempts WHERE id=?', (attempt_id,)).fetchone()
         if attempt and attempt['status'] == 'settled' and not attempt['charged']:
@@ -51,6 +60,54 @@ def unresolved(ledger, selector, conn=None):
         pending.append({'attempt': attempt_id, 'node': prepared['node'], 'task': attempt['task_id'] if attempt else None,
                         'status': attempt['status'] if attempt else 'unknown', 'reason': 'managed result lacks a durable candidate; reconcile before replay'})
     return pending
+
+
+ADOPTING = ('node.produced', 'node.held', 'node.result_retained')
+
+
+def _root_starts(conn, root_task):
+    """attempt id -> the root's node.started payload (with its seq) for every node attempt the engine started."""
+    out = {}
+    for row in conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='node.started' ORDER BY seq", (root_task,)):
+        payload = json.loads(row['payload'])
+        out[payload.get('attempt')] = dict(payload, seq=row['seq'])
+    return out
+
+
+def _adopted(conn, root_task, attempt_id, start):
+    """Did the engine settle what this node attempt produced: a node.produced/node.held of the same node and generation after its start,
+    or a node.result_retained naming the attempt?"""
+    marks = ','.join('?' for _ in ADOPTING)
+    for row in conn.execute(f'SELECT kind,payload FROM events WHERE task_id=? AND seq>? AND kind IN ({marks}) ORDER BY seq',
+                            (root_task, start['seq'], *ADOPTING)):
+        payload = json.loads(row['payload'])
+        if row['kind'] == 'node.result_retained':
+            if payload.get('attempt') == attempt_id: return True
+        elif payload.get('node') == start.get('node') and payload.get('generation') == start.get('generation'):
+            return True
+    return False
+
+
+def adoptable(ledger, conn, root_task):
+    """W37b (crash point d): the node attempts whose managed candidate checkpoint is saved and bound but that the engine never adopted.
+    One row per attempt: {attempt, node, generation, internal_revision, candidate, phases, start}. Read-only."""
+    adapter = None
+    rows = []
+    for attempt_id, start in _root_starts(conn, root_task).items():
+        if not attempt_id or _adopted(conn, root_task, attempt_id, start): continue
+        status = conn.execute('SELECT status FROM attempts WHERE id=?', (attempt_id,)).fetchone()
+        if status is None or status['status'] != 'settled': continue
+        adapter = adapter or ManagedExecutor(ledger, initialize=False)
+        history = adapter._history(attempt_id, conn)
+        if not any(p['phase'] == 'candidate' for p in history): continue
+        try:
+            candidate = adapter._candidate(history)
+        except (LedgerError, OSError, ValueError, KeyError):
+            continue                                                  # not bound to this attempt: never adopted
+        rows.append({'attempt': attempt_id, 'node': start.get('node'), 'generation': start.get('generation'),
+                     'internal_revision': start.get('internal_revision'), 'candidate': candidate,
+                     'phases': [p['phase'] for p in history], 'start': start})
+    return rows
 
 
 def hold_views(ledger, selector, conn=None):

@@ -83,6 +83,19 @@ def implicit_workflow(ledger, conn, request_key):
     return capture(ledger, conn, state['selector'])
 
 
+def allocated(ledger, conn, state, exclude=None):
+    """W10: calls already granted to the other jobs of a root without root-budget (budget_core.plan_allocation). The old unbound
+    same-name job counts only while the bare name resolves to this very root (an ambiguous name is refused at its own gate)."""
+    from ..budget_core import plan_allocation
+    same = None
+    try:
+        row = namespaces.resolve(ledger, conn, state['name'])
+        if row is not None and row['id'] == state['task_id']: same = state['name']
+    except LedgerError:
+        pass
+    return plan_allocation(conn, state['task_id'], ledger.project_id, same_name=same, exclude=exclude)
+
+
 def first_approval_at(ledger, conn, binding):
     row = conn.execute("SELECT payload,created_at FROM events WHERE task_id=? AND kind='plan.approved' ORDER BY seq LIMIT 1", (binding['root_task_id'],)).fetchone()
     if row is None:

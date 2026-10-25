@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R5-ENGINE-5",
+ "file": "tests/test_wf_r03a_run_started.py",
+ "old_sha256": "8e0fef17a0def3de2bf883ee8eb61dc408384a2f23883caf6961afd27bf11fee",
+ "new_sha256": "e16a5e771d4b85e58d65074fa2b2f3d1fde02f66643c75d5d670b66a4a2cbd4b",
+ "reason": "Round 5 (audit 92: W37a/W37b/W36/W19/W14b/W05): counter-example tests added for crash-(d) adoption of a saved candidate, case-folded write scopes, revise-after-repair, raise/interrupt after X. test_wf_r03a_run_started 'a run that raises closes itself' raised AFTER the dispatch marker and so encoded an unsafe re-run of an effect of unknown outcome; it now expects held + release (T08a, directive 25/10). test_wf_t03_gaps' split now carries T's check forward because dropping a removed node's checks is U1 (W05). No assertion weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 5 sau xác nhận Codex 3 P1 + 2 P2): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 5 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

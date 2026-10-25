@@ -16,6 +16,20 @@ AI_SESSION_MARKERS = ('CLAUDE_CODE_CHILD_SESSION',)   # same marker v2 ownership
 
 def in_ai_session():
     return any(name in os.environ for name in AI_SESSION_MARKERS)
+
+
+def owner_claim(value):
+    """W03: does a name (actor, source, subject component) claim the owner's authority - owner, user or human, alone or as a word of it
+    ('user-chat', 'Owner ')? The same word set _mapped reads as the user."""
+    tokens = set(re.split(r'[^a-z0-9]+', value.strip().lower())) if isinstance(value, str) else set()
+    return bool(tokens & {'owner', 'user', 'human'})
+
+
+def refuse_owner_claim(value, what):
+    """W03: refuse `what` when `value` claims the owner and this process runs inside an AI tool session (Ledger.reply's rule)."""
+    if owner_claim(value) and in_ai_session():
+        raise LedgerError(f'{what} refused: a decision attributed to the owner ({value}) cannot be recorded from inside an AI tool session '
+                          '(CLAUDE_CODE_CHILD_SESSION is set).')
 OTHER_ENTRIES = ('kiro', 'cursor', 'copilot', 'gemini', 'windsurf')
 SUFFIXES = ('.py', '.md', '.cjs', '.json')
 PACKAGE = Path(__file__).resolve().parent

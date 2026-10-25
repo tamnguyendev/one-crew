@@ -4,7 +4,8 @@ A decision written to the ledger carries a REAL subject (the component and model
 (a grant id and the revision that granted it), the evidence it is based on (non-empty), its scope and its validity. An AI
 session can never sign a decision as the owner: `by=owner` from inside an AI tool session is refused and nothing is written,
 exactly as plan.approve/accept are (ownership.refuse_in_ai_session, the CLAUDE_CODE_CHILD_SESSION marker). An AI writes under
-its own actor.
+its own actor. From an AI session the subject may not be the owner/human either, and on a plan root the authority must be the root's
+approved grant (resolve_grant); a task that is not a plan root has no grant model to resolve against.
 
 `decision.recorded` is a class-A (neutral) event in the compatibility ledger (00 §6.1): the old version does not read it, its
 S/G/C are unchanged, so it is safe to write on a `plan:` anchor. This module is in the wheel; it imports only shipped modules
@@ -41,6 +42,33 @@ def _authority(authority):
     return {'grant_id': grant_id, 'revision': revision}
 
 
+def owner_subject(subject):
+    """W03: a subject that claims the owner (component owner/user, or model human)."""
+    from ..interventions import owner_claim
+    return owner_claim(subject.get('component')) or str(subject.get('model', '')).strip().casefold() == 'human'
+
+
+def resolve_grant(ledger, task_id, authority):
+    """W03/W30a: does `authority` {grant_id, revision} name the APPROVED grant of the plan root `task_id`?
+    Returns (resolved, reason, contract): resolved None when the task is not a plan root (no grant model to resolve against);
+    True when it is the approved revision's grant (authority.grant_ref, or the review-policy form approved-contract:<sha>); else False."""
+    from . import authority as grants, namespaces, plan as plans
+    with ledger.transaction() as conn:
+        row = conn.execute('SELECT request_key FROM tasks WHERE id=?', (task_id,)).fetchone() if conn is not None else None
+        key = row['request_key'] if row else ''
+        if not key.startswith((namespaces.LEGACY, namespaces.NAMESPACED)): return None, 'not a plan root', None
+        state = plans.derive(ledger, conn, key)
+    approved = state and state['approved']
+    if not approved: return False, f'plan {state["name"] if state else key} has no approved grant yet', None
+    contract, _ = plans.load(ledger, state, approved['revision'])
+    known = [grants.grant_ref(state['selector'], contract, approved['sha']),
+             {'grant_id': 'approved-contract:' + approved['sha'], 'revision': str(approved['revision'])}]
+    if {'grant_id': authority.get('grant_id'), 'revision': authority.get('revision')} not in known:
+        return False, (f'grant {authority.get("grant_id")}@{authority.get("revision")} is not the approved grant of plan {state["name"]} '
+                       f'({known[0]["grant_id"]}@{known[0]["revision"][:12]})'), contract
+    return True, 'the approved grant of the root', contract
+
+
 def _evidence(evidence):
     if not isinstance(evidence, list) or not evidence:
         raise LedgerError('decision evidence: a non-empty list of evidence references.')
@@ -66,8 +94,13 @@ def record(ledger, task_id, *, subject, authority, evidence, basis, scope=None, 
     if by == 'owner':
         refuse_in_ai_session('recording a decision as the owner')   # C11: refuses inside an AI tool session, before any write
     subject, authority, evidence = _subject(subject), _authority(authority), _evidence(evidence)
+    if owner_subject(subject):                                   # W03: the subject is evidence of who decided; an AI cannot name the owner
+        refuse_in_ai_session('recording a decision with the owner/human as its subject')
     if not (isinstance(basis, str) and basis.strip()):
         raise LedgerError('decision basis: why the decision was made (the reasoning), non-empty.')
+    if in_ai_session():                                          # W03: an AI session cites only the root's real approved grant
+        resolved, why, _ = resolve_grant(ledger, task_id, authority)
+        if resolved is False: raise LedgerError(f'decision refused: {why}; an AI tool session records a decision only on the approved grant it rests on.')
     payload = {'actor': _actor(by), 'subject': subject, 'authority': authority, 'evidence': evidence,
                'basis': basis.strip()[:2000], 'scope': (scope or None) and str(scope)[:500],
                'validity': validity if isinstance(validity, (dict, str)) else None}

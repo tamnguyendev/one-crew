@@ -94,6 +94,51 @@ class RepairTasksTests(EngineFixture):
         with self.assertRaises(LedgerError):
             repair_tasks.verification_order(self.ledger, 'P1', 'C', ['F1'])
 
+    def focused(self, calls):
+        def repaired(item, artifact):
+            ranked = repair_tasks.verification_order(self.ledger, 'P1', item['id'], item['checks'])
+            rows = []
+            for cid in ranked['ordered']:
+                calls.append(cid)
+                rows.append({'id': cid, 'result': 'pass', 'evidence': self.store.blob(('repair check ' + cid).encode())})
+            return {'artifact': artifact, 'checks': rows}
+        return repaired
+
+    # W19 (audit, T38c): a revise after the repair moves C's generation; the repair marker must follow it (or be dropped), never strand C
+    def test_revise_after_repair_rebinds_the_order_and_the_node_stays_verifiable(self):
+        self.prepare_failure()
+        repair_tasks.prepare(self.ledger, 'P1', 'C', 'C', reason='Fix the actual F1 failure', evidence=[self.old_receipt])
+        repaired_gen = self.engine.state(self.ledger, 'P1')['nodes']['C']['generation']
+        nodes = copy.deepcopy(self.engine.state(self.ledger, 'P1')['definition']['nodes'])
+        next(n for n in nodes if n['id'] == 'C')['goal'] += ' (reworded after the repair)'
+        self.revise(nodes, reason='Reword C after its repair')
+        after = self.engine.state(self.ledger, 'P1')
+        self.assertEqual(after['nodes']['C']['generation'], repaired_gen + 1)
+        self.assertEqual(after['nodes']['B']['state'], 'verified')                     # the independent node keeps its result
+        configured = next(n for n in after['definition']['nodes'] if n['id'] == 'C')['checks']
+        order = repair_tasks.verification_order(self.ledger, 'P1', 'C', configured)
+        self.assertEqual(order['ordered'], ['F1', 'A1', 'A2']); self.assertEqual(order['failed_first'], ['F1'])   # unchanged checks: focus kept
+        self.assertEqual(order['source_receipt'], self.old_receipt)
+        self.step()
+        calls = []
+        self.verify('C', self.focused(calls))
+        self.assertEqual(calls, ['F1', 'A1', 'A2'])
+        self.assertEqual(self.engine.state(self.ledger, 'P1')['nodes']['C']['state'], 'verified')
+
+    def test_revise_that_changes_the_repaired_checks_falls_back_to_the_full_configured_order(self):
+        self.prepare_failure()
+        repair_tasks.prepare(self.ledger, 'P1', 'C', 'C', reason='Fix the actual F1 failure', evidence=[self.old_receipt])
+        nodes = copy.deepcopy(self.engine.state(self.ledger, 'P1')['definition']['nodes'])
+        target = next(n for n in nodes if n['id'] == 'C')
+        target['checks'].append({'id': 'A3', 'spec': 'Mandatory A3 added after the repair'})
+        self.revise(nodes, reason='Prepare one more check for C')
+        configured = next(n for n in self.engine.state(self.ledger, 'P1')['definition']['nodes'] if n['id'] == 'C')['checks']
+        order = repair_tasks.verification_order(self.ledger, 'P1', 'C', configured)
+        self.assertEqual(order['ordered'], ['A1', 'F1', 'A2', 'A3']); self.assertIsNone(order['repair_receipt'])
+        self.step()
+        self.verify('C', self.focused([]))
+        self.assertEqual(self.engine.state(self.ledger, 'P1')['nodes']['C']['state'], 'verified')
+
     def test_old_generation_green_cannot_publish_after_repair_reissues_owner(self):
         self.prepare_failure()
         def late(item, artifact):

@@ -167,6 +167,12 @@ def show_solution(ledger,sid):
 def decide(ledger,sid,revision,choice,source,reference):
     if choice not in ('approve','request_changes'):raise LedgerError('Invalid solution decision.')
     clean(source,'source',100);clean(reference,'actual user reference',1000)
+    # W03: approved() reads any 'approve' row as the user's approval, so an AI tool session can record no approval, and no decision
+    # under an owner-like source; it may still ask for changes under its own name. Same marker as Ledger.reply.
+    from .interventions import in_ai_session,refuse_owner_claim
+    refuse_owner_claim(source,'solution decision')
+    if choice=='approve' and in_ai_session():
+        raise LedgerError('solution approval refused: the user\'s approval cannot be recorded from inside an AI tool session (CLAUDE_CODE_CHILD_SESSION is set).')
     with ledger.transaction(write=True) as conn:
         sol=_solution(ledger,conn,sid,revision);row=_row(ledger,conn,sol['conversation'])
         if row['current_solution']!=sid:raise LedgerError('Cannot decide an outdated solution.')

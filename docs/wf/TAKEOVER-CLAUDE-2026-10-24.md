@@ -196,3 +196,36 @@ Bundle trên `c95f603` (`%TEMP%\wf-bundles-c95f603`, đã bị thay): R01–R04 
 - Báo cáo kiểm được chép vào `<gói>/verification/` (không nằm trong SHA256SUMS, như gói trước).
 
 Không ghi: Codex đã review lượt 4, chủ sở hữu đã nghiệm thu, release đã giao — chưa xảy ra. Gate `decision = refused` vì acceptance partial/blocked là đúng thiết kế.
+
+## 10. Lượt 5 (25/10) — Codex xác nhận 3 P1 + 2 P2; đối chiếu lại 92 task; sửa 21 lỗi hành vi
+
+Chỉ thị chủ sở hữu 25/10 (sau review Codex gói `wf-handover-6366137`): sửa đủ 3 P1 + 2 P2, khép phần local của 92 task, bootstrap bản giao đầu tiên, snapshot mới và kiểm từ artifact; không hỏi duyệt từng việc. Mã lượt 5: **`__COMMIT5__`** (wheel `2.2.0.dev4`, phân biệt với mọi wheel trước). Mọi bản ghi U1 lượt này ghi "theo ủy quyền" (`wfkit/u1/U1-20261025-R5-*.json`).
+
+### 10.1 Năm finding Codex — nguyên nhân, sửa, phản chứng trước → sau
+
+| # | Finding | Nguyên nhân | Sửa | Phản chứng trước → sau |
+|---|---|---|---|---|
+| P1-1 | `package_check.judge` nhận báo cáo sai thành PASS (hạ `mandatory`, đổi `expect`) | oracle đọc từ báo cáo | Oracle là hằng của module: bước bắt buộc, luật `ok` từng bước TÍNH LẠI từ quan sát đã ghi, kỳ vọng negative cố định; báo cáo chỉ cung cấp quan sát; từ chối hạ bước, trùng id, thiếu fact, `ok` lệch fact, đổi expect, exit 0 ở negative. Cùng luật cho judge của `legacy_continuation.py` | `tests/test_wf_package_oracle.py` 15 + `test_wf_package_check` 12 + `test_wf_legacy_continuation_tool` 12: bypass 1, bypass 2 và 9 biến thể pass trên judge cũ → refused; gói thật 6366137 vẫn pass |
+| P1-2 | Trả lời và hiệu lực không nguyên tử | `ledger.reply` commit riêng rồi `answer_effects.apply` | `Ledger.reply(conn=)`/`_reply`; `answer_effects.reply_and_apply` một transaction cho reply + hiệu lực bắt buộc; export/outcome sau commit; MỌI entry (question answer, `request reply`, MCP) đi qua cùng helper; `reconcile` chỉ sửa dữ liệu bản cũ | `tests/test_wf_answer_atomicity.py` 18: crash trong hiệu lực → request vẫn pending, 0 sự kiện; crash sau commit → cả hai đã commit; retry một lần; trùng/cũ/xung đột; provenance; stop + continue; bất biến answered⇒applied trên mọi route (6 ca fail trên code cũ) |
+| P1-3 | Bảng 92 khẳng định Done quá bằng chứng (73/5/14; 60/60 feature) | trạng thái cũ, "module xanh" = Done | Đối chiếu lại đủ 92 ID (5 agent Opus + đầu mối), phát hiện **21 lỗi hành vi** (xem 10.2), sửa hết trừ W11b (quyết định chủ sở hữu); bổ sung bằng chứng đúng loại cho 11 task thiếu [E]; `audit_merge.py` in NĂM MỨC riêng (task Done / acceptance complete / gate / gói / owner acceptance) từ một nguồn | Trước đối chiếu 73/5/14 → sau đối chiếu, trước sửa **30/61/1** → sau sửa **__T92__**; bảng đầy đủ `docs/wf/audit/AUDIT-92.md` |
+| P2-1 | Thời gian chờ tính vào thực thi; thiếu thời gian tới deadline | `executors.summary` không trừ wait; `wall_clock_remaining_seconds` luôn None | Ngữ nghĩa cố định: thực thi = (end−start) − hợp các wait cắt trong attempt (gộp chồng/lặp, unknown lan truyền, không đoán); chờ = hợp wait; `read(now=)` → time-to-deadline riêng (`wall_clock_kind`, `deadline_passed`, không clamp); cảnh báo 70% ngân sách = một `notice.exception budget_warning` trong quyền, không request, không lặp | `tests/test_wf_t36b_time.py` 10 (ca Codex 08–12/09–11 → 2 h/2 h) + e4_e7 chờ trong attempt; E4/E7/E15/E17(70%) có test; E17 phần "ETA trễ" chưa có test riêng |
+| P2-2 | Gói thiếu công cụ kiểm mà README gọi | verify_package ở checkout, wfkit không trong wheel | Thư mục `verify/` giao trong gói (package_check.py, legacy_core.py, hai launcher stdlib), ghim hash trong `manifest.verifier` + SHA256SUMS; launcher TỰ KIỂM hash trước, nạp module chỉ từ `verify/`, ghi `verifier-origin.json`; README chỉ gọi file có trong gói, cwd bất kỳ, có khoảng trắng | `tests/test_wf_package_verifier_shipped.py` 9: sửa 1 byte / xóa file / sai manifest / file lạ → refused, không tạo venv; chạy từ cwd mới có khoảng trắng, env sạch → origin toàn bộ dưới `verify/` |
+
+### 10.2 Đối chiếu 92 task: 21 lỗi hành vi tìm thấy và sửa (mỗi lỗi có phản chứng fail-trước)
+
+W32a, W30c (hai finding Codex); W24b notice lặp theo hash evidence → key theo lần vượt baseline + gộp; W03 phiên AI ghi được quyết định/duyệt dưới danh owner → từ chối ở decisions/conversations/skills/cards; W12a key `plan:` không kiểm tên, `NUL`, `x.` → kiểm trước mọi ghi, anchor + revision một transaction; W41 `guard_swap` không đọc block của scan bản cài → từ chối; W47 requirement không gắn với plan → hash-bound; W30a lựa chọn "technical" với grant bịa → phải resolve grant thật; W31a unknown mở không có affected/required_by → bắt buộc trên plan-ns; W23b 200 outcome v2 đẩy lịch sử v1 → cửa sổ theo phân vùng; W02 root workflow không có `authority` cho job con ghi ngoài scope → chấm theo effective; W05 tách node bỏ check / module helper yếu / đổi cwd-provider = routine → U1/insufficient; W10 3×100 call dưới một duyệt 100 → tổng hạn mức ≤ duyệt; W12b hai root một writer sống trên cùng file → từ chối; W19 marker sửa cũ kẹt node → rebind khi revise; W37a reconcile tin lý do 'error' → marker trước, dispatched không receipt = held; W14b `a.txt`/`A.txt` chạy song song → case-fold; W36+W37b candidate đã lưu trước node.produced bị bỏ, chạy lại tính phí 2 → engine adopt; W20 không có blocker khi chạm trần → blocker spent==ceiling + authority_basis; W46b (từ bằng chứng mới) compat scan dự đoán "refused" cho `plan report` của bản cũ trên tên trùng trong khi bản cũ in report của root project khác → nhãn `reads_other_root`. **W11b** (luật T19 áp cho root schema-2) không sửa: đổi acceptance, cần chủ sở hữu.
+
+Bộ kiểm WK01–WKN: trước ghi Done chỉ vì "module xanh" dù để lọt các lỗi trên → Partial C cho tới khi acceptance của release tương ứng complete; các phản chứng mới đã nằm trong kit.
+
+### 10.3 Bản giao đầu tiên (INPUTS) — kết luận có bằng chứng
+
+Không có lịch sử giao thật: receipt gate R00 duy nhất đạt (`cg-r00`) thuộc build d467546 (wheel `0981dbd0…`), khác bản trước của bundle (d3120c6, scanner chỉ mô hình d3120c6) và không có trường `gate`. Vì vậy: (1) đường bootstrap tường minh trong `release_check` — trường `first_release.baseline` (commit, wheel sha, role compat-baseline, delivered=false, accepted=false), điều kiện riêng **`INPUTS(bootstrap)`**, từ chối khi có bất kỳ `gate_history`, khi baseline khác `artifacts.previous`, khi receipt drill không chứng minh đã chạy đúng baseline, khi baseline ghi delivered/accepted; luật INPUTS thường không đổi; `owner_acceptance` luôn false; (2) baseline d3120c6 ghim một lần tại `D:\OneCrewRuns\wf-baseline-d3120c6\` (wheel + sidecar; kiểm từng file bằng git blob) và producer dùng lại qua `--baseline-wheel`; (3) `gate.decide` ghi `gate: CG-<release>` + provenance để một gate đạt đọc được làm lịch sử; `wfkit/delivery_gate.py` = cổng CG-Rnn cho R01+ theo 03 §4 ("mỗi cổng giao do AI chạy, không cần chủ sở hữu"), **refused** trên snapshot này vì acceptance còn partial và chưa có bản ghi review độc lập; `wfkit/gate_history.py derive` chỉ tạo receipt lịch sử khi chứng minh được identity trên đĩa. 38 + 11 test.
+
+### 10.4 Gate snapshot `__COMMIT5__`, bundle, gói, kiểm từ artifact
+
+__GATE5__
+
+### 10.5 Không ghi
+
+Codex đã review lượt 5, chủ sở hữu đã nghiệm thu, release đã giao, W45 6/6: chưa xảy ra. Gate `refused` vì acceptance partial/blocked là đúng thiết kế.
+

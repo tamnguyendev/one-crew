@@ -24,6 +24,12 @@ def work(nid, acceptance, write=('a.txt',)):
     return item
 
 
+def carry(nodes):
+    """W05: a split keeps the approved check of the node it replaces (a check of a removed node must reappear, else U1)."""
+    nodes[0]['checks'].append(copy.deepcopy(node('T')['checks'][0]))
+    return nodes
+
+
 def integration(upstream):
     item = node('I', upstream, integration=True, write=()); item['acceptance'] = ['O1', 'O2']
     return item
@@ -50,7 +56,7 @@ class SplitKeepsAcceptance(EngineFixture):
         return [p for k, p in self.events() if k == 'plan.revised']
 
     def test_e1_split_records_old_to_new_acceptance_mapping_in_plan_revised(self):
-        split = [work('T1', ['O1']), work('T2', ['O2'], write=('b.txt',)), integration(['T1', 'T2'])]
+        split = carry([work('T1', ['O1']), work('T2', ['O2'], write=('b.txt',)), integration(['T1', 'T2'])])
         self.revise(split, reason='Split T into T1 and T2 inside the approved scope')
         events = self.revised()
         self.assertEqual(len(events), 2)                                                 # one plan.revised per split
@@ -86,6 +92,6 @@ class SplitKeepsAcceptance(EngineFixture):
 
     def test_e7_counter_example_the_lossless_variant_of_the_same_split_is_accepted(self):
         """Same split shape with O2 kept: accepted. Shows the refusal above is caused by the lost item, not by the shape."""
-        kept = [work('T1', ['O1']), work('T2', ['O1', 'O2'], write=('b.txt',)), integration(['T1', 'T2'])]
+        kept = carry([work('T1', ['O1']), work('T2', ['O1', 'O2'], write=('b.txt',)), integration(['T1', 'T2'])])
         shown = self.revise(kept, reason='Split that keeps O2')
         self.assertEqual(shown['internal_revision'], 2)

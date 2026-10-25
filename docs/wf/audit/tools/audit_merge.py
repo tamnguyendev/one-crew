@@ -25,13 +25,27 @@ for t in base['tasks']:
 counts = Counter(r['status'] for r in rows)
 by_cat = {c: Counter(r['status'] for r in rows if r['category'] == c) for c in ('feature', 'bộ kiểm', 'phát hành', 'provider thật', 'pilot/nghiệm thu')}
 head = sys.argv[1] if len(sys.argv) > 1 else 'HEAD'
+gate_dir = sys.argv[2] if len(sys.argv) > 2 else None          # snapshot-gate out dir (decision.json) for the "five levels" block
+package = sys.argv[3] if len(sys.argv) > 3 else None           # handover package path, if built
+reg = json.load(open(os.path.join(R, 'wfkit', 'development-testcases.json'), encoding='utf-8'))
+acc = Counter(c['status'] for rel in reg['releases'].values() for c in rel.get('acceptance', {}).values())
+gate_line = 'chưa chạy'
+if gate_dir and os.path.exists(os.path.join(gate_dir, 'decision.json')):
+    g = json.load(open(os.path.join(gate_dir, 'decision.json'), encoding='utf-8')); ic = g.get('implementation_checks', {})
+    gate_line = f"`{g.get('decision')}` — check implementation có biên nhận {ic.get('receipted')}/{ic.get('expected')}, hỏng {len(ic.get('failed', []))}; vấn đề: {dict(Counter(p['kind'] for p in g.get('problems', [])))} (gate `refused` vì acceptance partial/blocked là đúng thiết kế, không phải lỗi mã)"
+levels = ['## Năm mức riêng, mức dưới không suy ra mức trên', '',
+          f'1. **Task Done (DoD của task)**: {counts.get("Done", 0)}/{len(rows)}.',
+          f'2. **Acceptance `complete` trong registry (ma trận [E] đủ)**: {acc.get("complete", 0)}/{sum(acc.values())} testcase (partial {acc.get("partial", 0)}, blocked {acc.get("blocked", 0)}).',
+          f'3. **Gate snapshot**: {gate_line}.',
+          f'4. **Bản test đã đóng gói**: {("`" + package + "` (kiểm từ artifact, xem verification/)") if package else "chưa dựng cho commit này"}.',
+          '5. **Owner acceptance / release đã giao / Codex đã review bản này**: 0 — chưa xảy ra.', '']
 out = ['# Bảng đối chiếu 92 task — development chương trình workflow chung', '',
        f'Commit kiểm: `{head}`. Nguồn task: `docs/wf/sources/04-TASKS.vi.md` (sha256 {base["source_04_sha256_12"]}); acceptance: `05-TESTCASES.vi.md`. '
        f'Trạng thái: **Done** = đủ hành vi theo DoD của task, nối vào đường dùng, mọi [E] của phần DoD có test đạt trên commit kiểm; **Partial** = thiếu gì ghi ở cột "Thiếu"; '
        f'**Blocked** = cần provider thật / pilot / điều kiện ngoài. Loại nguyên nhân: A thiếu code, B chưa nối đường dùng, C thiếu test/bằng chứng, D chỉ chưa cập nhật trạng thái, E điều kiện ngoài.', '',
        f'**Tổng: {len(rows)} task — Done {counts.get("Done", 0)}, Partial {counts.get("Partial", 0)}, Blocked {counts.get("Blocked", 0)}'
        + (f', chưa chấm {counts.get("?", 0)}' if counts.get('?') else '') + '.**', '',
-       '| Nhóm | Done | Partial | Blocked |', '|---|---|---|---|']
+       *levels, '| Nhóm | Done | Partial | Blocked |', '|---|---|---|---|']
 for c, cnt in by_cat.items():
     out.append(f'| {c} | {cnt.get("Done", 0)} | {cnt.get("Partial", 0)} | {cnt.get("Blocked", 0)} |')
 out += ['', '| ID | Release | Testcase (vai trò) | Trạng thái | Loại | Implementation (file:line) | Test / bằng chứng | Thiếu | Việc tiếp |', '|---|---|---|---|---|---|---|---|---|']

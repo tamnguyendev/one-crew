@@ -113,3 +113,73 @@ class FaultTests(t08a.ReconcileTests):
         self.assertEqual(self.lines(), 1)
         released = self.payloads('verdict.run_released')[0]
         self.assertEqual(released['run_id'], 'r-u'); self.assertTrue(released['reason'])
+
+    # W37a (audit): an exception raised by the run itself AFTER X ran is closed as reason 'error'; reconcile must look at the markers first.
+    def test_vi_raise_at_receipt_issued_completes_from_the_marker_without_a_second_run(self):
+        self.plan_with(self.x(then_sleep=False))
+        with crash_on('verdict.receipt_issued'):
+            with self.assertRaises(Crash):
+                verdict.run(self.ledger, 'P1', 'M1', self.root)                       # X ran, receipt marker written, the announce failed
+        self.assertEqual(self.lines(), 1)
+        self.assertEqual([a['reason'] for a in self.payloads('verdict.run_abandoned')], ['error'])
+        shown = verdict.run(self.ledger, 'P1', 'M1', self.root)                       # restart
+        self.assertEqual(shown['milestones'][0]['state'], 'passed')
+        self.assertEqual(self.lines(), 1)                                             # X did not run again
+        self.assertEqual(len(self.payloads('verdict.run_started')), 1)
+        self.assertEqual([p['determination'] for p in self.payloads('verdict.run_reconciled')], ['completed'])
+        self.assertEqual(len(self.payloads('verdict.recorded')), 1)
+
+    def test_vii_interrupt_after_x_before_its_receipt_is_held_not_rerun(self):
+        self.plan_with(self.x(then_sleep=False))
+        with patch.object(verdict, '_test_integrity', side_effect=KeyboardInterrupt()):
+            with self.assertRaises(KeyboardInterrupt):
+                verdict.run(self.ledger, 'P1', 'M1', self.root)                       # X ran; interrupted before the receipt marker
+        self.assertEqual(self.lines(), 1)
+        for _ in range(2):
+            with self.assertRaises(LedgerError) as held:                              # restart: unknown outcome -> held
+                verdict.run(self.ledger, 'P1', 'M1', self.root)
+            self.assertIn('unknown outcome', str(held.exception))
+        self.assertEqual(self.lines(), 1)
+        self.assertEqual(len(self.payloads('verdict.run_started')), 1)
+        self.assertEqual([p['determination'] for p in self.payloads('verdict.run_reconciled')], ['unknown'])
+        run_id = self.payloads('verdict.run_started')[0]['run_id']
+        self.assertEqual(verdict.status(self.ledger, 'P1')['held'], [run_id])
+
+    def test_ix_ledger_error_after_x_ran_is_held_until_a_recorded_release(self):
+        from onecrew.v2.verifiers import command
+        original = command.run
+        def after_sha_fails(*args, **kwargs):
+            original(*args, **kwargs)                                                 # X ran (its effect is on disk) ...
+            raise LedgerError('git rev-parse failed on the after-sha')                # ... then the verifier raised a LedgerError
+        self.plan_with(self.x(then_sleep=False))
+        with patch.object(command, 'run', side_effect=after_sha_fails):
+            with self.assertRaises(LedgerError):
+                verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.assertEqual(self.lines(), 1)
+        with self.assertRaises(LedgerError) as held:
+            verdict.run(self.ledger, 'P1', 'M1', self.root)                           # restart: unknown outcome -> held, no second X
+        self.assertIn('unknown outcome', str(held.exception))
+        self.assertEqual(self.lines(), 1)
+        self.assertEqual(len(self.payloads('verdict.run_started')), 1)
+        self.assertEqual([p['determination'] for p in self.payloads('verdict.run_reconciled')], ['unknown'])
+        run_id = self.payloads('verdict.run_started')[0]['run_id']
+        verdict.release_run(self.ledger, 'P1', run_id, 'checked: one marker line, a second run is acceptable')
+        self.assertEqual(verdict.run(self.ledger, 'P1', 'M1', self.root)['milestones'][0]['state'], 'passed')
+        self.assertEqual(self.lines(), 2)                                             # only the recorded release let X run again
+
+    def test_viii_interrupt_during_x_is_held_not_rerun(self):
+        from onecrew.v2.verifiers import command
+        original = command.run
+        def interrupted(*args, **kwargs):
+            original(*args, **kwargs)                                                 # X ran (its effect is on disk) ...
+            raise KeyboardInterrupt()                                                 # ... and the process was interrupted inside the verifier
+        self.plan_with(self.x(then_sleep=False))
+        with patch.object(command, 'run', side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.assertEqual(self.lines(), 1)
+        with self.assertRaises(LedgerError) as held:
+            verdict.run(self.ledger, 'P1', 'M1', self.root)
+        self.assertIn('unknown outcome', str(held.exception))
+        self.assertEqual(self.lines(), 1)
+        self.assertEqual(len(self.payloads('verdict.run_started')), 1)

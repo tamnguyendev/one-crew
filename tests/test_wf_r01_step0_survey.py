@@ -33,6 +33,12 @@ def scoped_plan(**unknown):
     return value
 
 
+def unscoped_plan():
+    value = step0_json(size='S', unknowns=['U1'])
+    for key in ('affected', 'required_by'): value['understanding']['unknowns'][0].pop(key, None)
+    return value
+
+
 def tree_hash(root):
     digest = hashlib.sha256()
     for path in sorted(p for p in root.rglob('*') if p.is_file() and '.git' not in p.parts):
@@ -62,10 +68,11 @@ class SurveyTests(Step0):
         unknown = view['contract']['understanding']['unknowns'][0]
         self.assertEqual((unknown['affected'], unknown['required_by']), (['O1'], 'option_choice'))
         for half in ({'affected': ['O1']}, {'required_by': 'option_choice'}, {'affected': [], 'required_by': 'option_choice'}, {'affected': ['O1'], 'required_by': 'someday'}):
-            value = step0_json(size='S', unknowns=['U1']); value['understanding']['unknowns'][0].update(half)
+            value = unscoped_plan(); value['understanding']['unknowns'][0].update(half)
             with self.assertRaises(LedgerError): plans.propose(self.ledger, 'P9', value, 'claude')
-        plain = step0_json(size='S', unknowns=['U1'])                                     # a plan without the scope stays as it was
-        self.assertNotIn('affected', plans.propose(self.ledger, 'P8', plain, 'claude')['contract']['understanding']['unknowns'][0])
+        with self.assertRaises(LedgerError) as caught:                                    # W31a: an open unknown without the scope is refused at proposal
+            plans.propose(self.ledger, 'P8', unscoped_plan(), 'claude')
+        self.assertIn('required_by', str(caught.exception))
 
     # ---- a survey without a cap, an end condition or a read-only scope is refused, and nothing is written ----
     def test_a_survey_needs_a_cap_an_end_condition_and_a_read_only_scope(self):
@@ -78,8 +85,8 @@ class SurveyTests(Step0):
         self.assertNotIn('survey.opened', self.kinds('P1'))
 
     def test_a_survey_is_opened_only_for_a_scoped_open_unknown(self):
-        self.propose('P2', step0_json(size='S', unknowns=['U1']))                          # the unknown has no affected / required_by
-        with self.assertRaises(LedgerError) as caught: survey.open_survey(self.ledger, 'P2', 'U1', SPEC)
+        with self.assertRaises(LedgerError): self.propose('P2', unscoped_plan())             # W31a: the unscoped unknown is refused at proposal
+        with self.assertRaises(LedgerError) as caught: survey._scoped_unknown({'id': 'U1', 'question': 'q', 'status': 'open'})   # a legacy one at survey open
         self.assertIn('affected', str(caught.exception))
         with self.assertRaises(LedgerError): survey.open_survey(self.ledger, 'P1', 'U7', SPEC)
         opened = self.opened()

@@ -41,6 +41,7 @@ class ReleaseBundleTests(unittest.TestCase):
         self.assertFalse(conditions['INPUTS'])
         self.assertIn('previous delivered gate history missing', {r['detail'] for r in self.verdict['reasons'] if r['code'] == 'INPUTS'})
         self.assertEqual(self.bundle['gate_history'], []); self.assertEqual(self.bundle['mode'], 'real')
+        self.assertNotIn('first_release', self.bundle); self.assertFalse(self.verdict['first_release'])    # bootstrap only when asked
         self.assertEqual([b['condition'] for b in self.bundle['blockers']], ['INPUTS'])
         self.assertFalse(self.verdict['owner_acceptance'])
         self.assertNotIn('simulated_receipts_used', {k for k, v in self.verdict.items() if v is True})
@@ -134,3 +135,23 @@ class ReleaseBundleTests(unittest.TestCase):
         verdict = release_check.decide(borrowed, self.out, allow_simulated=False)
         self.assertFalse(verdict['conditions']['INPUTS'])
         self.assertTrue(verdict['conditions']['T54.1'])                              # the real points are unaffected by the forged history
+
+
+class FirstReleaseFieldTests(unittest.TestCase):
+    """Directive section 6 (vii): the producer writes the first-release (bootstrap) claim ONLY when explicitly asked, and never labels the
+    baseline delivered or accepted."""
+    previous = {'commit': 'd3120c65baa846a84f5c177e117d9d93fd77f2a0', 'wheel_sha256': '4c5b81fe8b5f1301c426601d1e0eca481d3e0ce602fd60252502d768a7b469a1'}
+
+    def test_default_keeps_the_external_inputs_blocker_and_writes_no_claim(self):
+        fields, blockers = release_bundle.prerequisite_fields(False, self.previous)
+        self.assertEqual(fields, {}); self.assertEqual([b['condition'] for b in blockers], ['INPUTS'])
+        self.assertFalse(release_bundle.parser().parse_args(['R01', '--out', 'x']).first_release)
+        import inspect
+        self.assertIs(inspect.signature(release_bundle.Producer).parameters['first_release'].default, False)
+
+    def test_asked_writes_the_pinned_compat_baseline_never_delivered_or_accepted(self):
+        fields, blockers = release_bundle.prerequisite_fields(True, self.previous)
+        self.assertEqual(fields['first_release']['baseline'], {**self.previous, 'role': 'compat-baseline', 'delivered': False, 'accepted': False})
+        self.assertTrue(fields['first_release']['reason'])
+        self.assertEqual([b['condition'] for b in blockers], ['INPUTS(bootstrap)'])
+        self.assertTrue(release_bundle.parser().parse_args(['R01', '--out', 'x', '--first-release']).first_release)

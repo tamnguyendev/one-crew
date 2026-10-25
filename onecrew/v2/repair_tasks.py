@@ -163,6 +163,52 @@ def rebind_order(ledger, selector, nodes, *, expected_revision):
     return result
 
 
+def rebind_revised(ledger, selector, old_nodes, nodes, affected, *, expected_revision):
+    """W19 (audit, T38c): called by internal_plan.revise for the nodes whose generation the revision moves. A node that still carries the
+    repair marker of the current definition would keep a marker bound to its old generation, so it could never be verified or repaired
+    again. For each such node: when its checks are unchanged and the marker still binds its current generation, the marker is rebound to
+    the new internal revision/generation (same source receipt, failed checks and released findings: the focused order is kept); otherwise
+    it is dropped and the node is verified in its full configured order. A marker the proposal itself introduced (prepare, rebind_order)
+    is left as it is. Nothing here changes a check, a budget or a recovery counter."""
+    before = {n['id']: n for n in old_nodes}
+    marked = [n for n in nodes if n['id'] in affected and n['id'] in before
+              and any(isinstance(v, str) and v.startswith(PREFIX) for v in n['input'])]
+    carried = []
+    for node in marked:
+        refs = [v[len(PREFIX):] for v in node['input'] if isinstance(v, str) and v.startswith(PREFIX)]
+        old_refs = [v[len(PREFIX):] for v in before[node['id']]['input'] if isinstance(v, str) and v.startswith(PREFIX)]
+        if old_refs and refs[-1] == old_refs[-1]: carried.append(node)
+    if not carried: return nodes
+    with ledger.transaction() as conn:
+        view = engine.state(ledger, selector, conn)
+    if view['internal_revision'] != expected_revision:
+        raise LedgerError('The internal plan changed before repair-order rebinding.')
+    result = copy.deepcopy(nodes)
+    by_id = {n['id']: n for n in result}
+    rebound = {}
+    for node in carried:
+        target, old = by_id[node['id']], before[node['id']]
+        ref = [v[len(PREFIX):] for v in target['input'] if v.startswith(PREFIX)][-1]
+        target['input'] = [v for v in target['input'] if not (isinstance(v, str) and v.startswith(PREFIX))]
+        if content_hash(old['checks']) != content_hash(target['checks']):
+            continue                                                        # the check configuration changed: full configured order
+        try:
+            verification_order(ledger, selector, node['id'], old['checks'])  # the marker binds the current generation and checks
+            value = json.loads(Snapshots(ledger.state_root).read_blob(ref))
+        except (LedgerError, OSError, ValueError):
+            continue                                                        # already stale or unreadable: full configured order
+        if value.get('contract_sha') != view['contract_sha']:
+            continue
+        if ref not in rebound:
+            rebound[ref] = Snapshots(ledger.state_root).blob(canonical(dict(
+                value, internal_revision=expected_revision + 1,
+                generations=dict(value.get('generations', {}), **{nid: (view['nodes'][nid]['generation'] + 1 if nid in view['nodes'] else 0) for nid in sorted(affected)}),
+                checks_sha=dict(value.get('checks_sha', {}), **{n['id']: content_hash(n['checks']) for n in result if n['id'] in affected}),
+                rebound_from=ref, rebinds_order_only=True, resets_recovery_counters=False)).encode())
+        target['input'].append(PREFIX + rebound[ref])
+    return result
+
+
 def rerun_order(ledger, selector, finding_id):
     """W21 (T11 [E3], [E5]): what to run again after a repair for one open node finding: the failed check(s) of the node the finding is attached
     to first, then every check of the nodes in the finding's dependency scope, in definition order — not the whole suite. Read-only."""

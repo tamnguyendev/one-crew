@@ -1,4 +1,4 @@
-"""W30b: read v1 request cards and record owner replies without applying state."""
+"""W30b: read v1 request cards and record owner replies (with the mandatory workflow effect in the same transaction, P1-2)."""
 import argparse
 import json
 from pathlib import Path
@@ -24,19 +24,19 @@ def show(ledger, request_id):
 
 
 def answer(ledger, request_id, revision, choice, reference):
+    """Record the owner's reply and, for a workflow root, its mandatory effect in ONE write transaction (P1-2).
+
+    Uses answer_effects.reply_and_apply (the same path as `request reply` and the MCP reply): v1 `reply` verifies request
+    revision, choice, provenance and replay conflicts, and the effect (plan.closed / node.resumed + request.applied) is
+    written into the same transaction, so a crash leaves either nothing or both.
+    A legacy/default root gets the reply only (apply returns applied=False and writes nothing). The active plan export
+    and outcome note run after commit; their failure is reported in `post_commit_errors`, never half-applies state."""
     plan.require_owner('owner', 'Answering a plan question')
     text_field(reference, 'reference', 500)
-    row = show(ledger, request_id)
-    # v1 atomically verifies request revision, choice and replay conflicts.
-    receipt = ledger.reply(request_id, revision, choice, source='owner-terminal',
-                           reference=reference, decided_by='user', by='user')
+    show(ledger, request_id)                     # refuses a request that is not a plan question
     from . import answer_effects
-    effect = answer_effects.apply(ledger, request_id)
-    with ledger.transaction() as conn:
-        task = ledger._task(conn, row['task_id'])
-    from . import active_plan
-    active_plan.export(ledger, task['request_key'])
-    return dict(receipt, controller_effect=effect) if effect.get('applied') else receipt
+    return answer_effects.reply_and_apply(ledger, request_id, revision, choice, source='owner-terminal', reference=reference,
+                                          decided_by='user', by='user', export=True)
 
 
 def main(argv):

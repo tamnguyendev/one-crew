@@ -181,9 +181,12 @@ def decide(release, config, build, receipts, install, kit, *, allow_simulated=Fa
             why('run-from-checkout', 'the control run from the checkout was not refused, so the origin check cannot tell install from checkout')
         if install.get('wheel_sha256') not in (None, ref):
             why('wheel-hash', f"the installed wheel is {install.get('wheel_sha256')}, the gate built {ref}")
-    return {'release': release, 'decision': 'refused' if reasons else 'pass', 'reasons': reasons, 'commit': build.get('commit'),
+    # 'gate' is the delivery-gate id (CG-<release>) that wfkit.release_check's gate_history rule requires; commit + wheel_sha256 are the
+    # finalgate.identity fields of the build this gate judged.
+    return {'gate': 'CG-' + str(release), 'release': release, 'decision': 'refused' if reasons else 'pass', 'reasons': reasons, 'commit': build.get('commit'),
             'wheel_sha256': ref, 'u1_used': kit.get('u1_used') or [], 'manifest_sha256': kit.get('manifest_sha256'),
-            'simulated_receipts_used': simulated,
+            'simulated_receipts_used': simulated, 'simulated': simulated,
+            'provenance': {'kind': 'fixture' if simulated else 'real', 'source': 'wfkit.gate decide (release delivery gate)'},
             'proves': 'the gate rule only (simulated receipts)' if simulated else 'the release gate on real receipts of this build',
             'installed_modules': (install or {}).get('loaded', {}), 'at': _now()}
 

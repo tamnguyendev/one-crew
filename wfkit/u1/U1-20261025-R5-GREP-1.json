@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R5-GREP-1",
+ "file": "tests/test_wf_rx1_core.py",
+ "old_sha256": "2bc7a0db72d4f35d58139bbe5db746dbaccc74bbcdc63b24dc3d8dd7b86fd592",
+ "new_sha256": "93b9d08e5b00fda169bcbeb4a5b5c7baffb7ec79e919166343a85260306ccb0e",
+ "reason": "Round 5 (audit W22/W39, T14a E3/E8, T14b E9): the core scans now enumerate every module under onecrew/v2 (+ common_verification) instead of a hand-picked list, with counter-examples that a branch in ANY scanned module turns the scan red. Strictly stronger.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 5 sau xác nhận Codex 3 P1 + 2 P2): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 5 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

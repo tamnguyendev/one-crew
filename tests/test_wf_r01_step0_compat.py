@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 
 from onecrew.ledger import Ledger
-from onecrew.v2 import cards, compat, plan as plans, step0
+from onecrew.v2 import cards, compat, decisions, plan as plans, step0
 import tests.wf_oldversion as ov
 
 REPO = str(Path(__file__).resolve().parents[1])
@@ -88,6 +88,11 @@ class OldVersionReadsStep0EventsTests(unittest.TestCase):
                     'recommendation': 'a', 'evidence': ['a.txt:1'], 'scope': 'plan r1', 'decide_by': 'before_start',
                     'authority': {'grant_id': 'G-01', 'revision': 'rev-1'}}]
         out = cards.present(ledger, 'r1', choices, {'component': 'step0', 'model': 'claude-sonnet-5-5'})
+        # W30a: G-01 is not this legacy root's approved grant (and the root declares no authority), so T1 joins the card; the HD-05
+        # record itself is still written here, from a terminal, to show the old version does not read it
+        self.assertEqual(out['escalated'], ['T1'])
+        decisions.record(ledger, self.task, subject={'component': 'step0', 'model': 'claude-sonnet-5-5'}, authority={'grant_id': 'G-01', 'revision': 'rev-1'},
+                         evidence=[{'ref': 'a.txt:1'}], basis='helper style inside the grant', scope='plan r1')
         self.assertTrue(out['request']); kinds = ov.kinds_on(state, self.task)
         self.assertIn('request.created', kinds); self.assertIn('decision.recorded', kinds)
         self.assert_same_for_old(state)

@@ -57,15 +57,31 @@ def classify_nodes(old_nodes, new_nodes, output_ids):
     old_checks = {(n['id'], c['id']): c.get('spec', '') for n in old_nodes for c in n.get('checks', [])}
     new_checks = {(n['id'], c['id']): c.get('spec', '') for n in new_nodes for c in n.get('checks', [])}
     new_ids = {n['id'] for n in new_nodes}
+    matched = set()
+    # Checks are compared across the whole plan (W05): a check of a removed, renamed or split node must reappear somewhere — under the
+    # same check id (moved) with an equal/wording-only spec, or under any id with an equal/wording-only spec — else it was dropped (U1).
     for key, spec in sorted(old_checks.items()):
         node, cid = key
-        if key not in new_checks:
-            if node in new_ids:
-                changes.append({'path': f'{node}.checks.{cid}', 'kind': 'removed_check', 'acceptance': True, 'why': 'a check of a kept node was dropped'})
+        if key in new_checks:
+            matched.add(key)
+            item = _text_change(f'{node}.checks.{cid}.spec', spec, new_checks[key], what='check spec')
+            if item: changes.append(item)
+    for key, spec in sorted(old_checks.items()):
+        node, cid = key
+        if key in new_checks: continue
+        free = [k for k in sorted(new_checks) if k not in matched]
+        equal = [k for k in free if classify_text(spec, new_checks[k]) in ('same', 'wording')]
+        moved = [k for k in free if k[1] == cid]
+        target = next((k for k in equal if k[1] == cid), None) or (equal[0] if equal else None) or (moved[0] if moved else None)
+        if target is None:
+            why = 'a check of a kept node was dropped' if node in new_ids else 'a check of a removed or renamed node did not reappear in the plan'
+            changes.append({'path': f'{node}.checks.{cid}', 'kind': 'removed_check', 'acceptance': True, 'why': why})
             continue
-        item = _text_change(f'{node}.checks.{cid}.spec', spec, new_checks[key], what='check spec')
-        if item: changes.append(item)
-    for key in sorted(set(new_checks) - set(old_checks)):
+        matched.add(target)
+        item = _text_change(f'{node}.checks.{cid}.spec->{target[0]}.checks.{target[1]}.spec', spec, new_checks[target], what='moved check spec')
+        changes.append(item or {'path': f'{node}.checks.{cid}->{target[0]}.checks.{target[1]}', 'kind': 'moved_check', 'acceptance': False,
+                                'why': 'the check moved to another node with the same spec'})
+    for key in sorted(set(new_checks) - matched):
         changes.append({'path': f'{key[0]}.checks.{key[1]}', 'kind': 'added_check', 'acceptance': False, 'why': 'a check was added (more verification, not less)'})
     return _finish(changes)
 
@@ -100,6 +116,11 @@ def classify_contract(before, after):
         oc, nc = m.get('verifier', {}).get('config') or {}, n.get('verifier', {}).get('config') or {}
         if oc.get('argv') != nc.get('argv') and 'argv' in oc:
             changes.append({'path': f'milestones.{mid}.argv', 'kind': 'obligation', 'acceptance': True, 'why': 'the approved command changed'})
+        if (oc.get('cwd') or '.') != (nc.get('cwd') or '.') and ('argv' in oc or 'argv' in nc):
+            changes.append({'path': f'milestones.{mid}.cwd', 'kind': 'obligation', 'acceptance': True, 'why': 'the directory the approved command runs in changed'})
+        for key in ('provider', 'model'):
+            if oc.get(key) != nc.get(key) and (key in oc or key in nc):
+                changes.append({'path': f'milestones.{mid}.{key}', 'kind': 'obligation', 'acceptance': True, 'why': f'the approved reviewer {key} changed'})
         old_cr = {c['id']: c.get('question', '') for c in oc.get('criteria') or []}
         new_cr = {c['id']: c.get('question', '') for c in nc.get('criteria') or []}
         for cid, q in old_cr.items():

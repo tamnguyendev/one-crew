@@ -874,22 +874,28 @@ def _forecast_lines(f):
         out = estimates.read(_Reader(f['state_root'], row['project_id'], row['project_path']), row['request_key'])
     except (LedgerError, OSError, ValueError) as error:
         return ['Ước lượng: không đọc được dữ liệu (' + str(error) + ').']
-    if not out['baseline']: return []
+    warnings = [w for item in out.get('budget_warnings', [])
+                for w in _wrap('Cảnh báo 70% ngân sách (trong quyền, không cần bạn làm gì): ' + item['reason'] +
+                               ' Bằng chứng: ' + ', '.join(item['evidence']), '', '  ')]
+    if not out['baseline']: return warnings
     def span(value):
         return 'chưa có dữ liệu' if value is None else f'{value[0] / 3600:g}–{value[1] / 3600:g} giờ'
     def elapsed(value):
         return 'chưa đo được' if value == 'unknown' else f'{value / 3600:g} giờ'
     lines = [f'Ước lượng công thực thi ban đầu: {span(out["baseline"]["execution_seconds"])}; công còn lại: {span(out["remaining_seconds"])} (chưa hiệu chỉnh).',
              f'Thực thi: {elapsed(out["execution_seconds"])}; chờ: {elapsed(out["waiting_seconds"])}; deadline: {out["deadline"] or "chưa đặt"}.']
-    if out.get('wall_clock_remaining_seconds') is None:
-        lines.append('Thời điểm hoàn thành dự kiến: chưa xác định; tổng công không phải thời gian lịch khi chạy song song hoặc chờ.')
+    left = out.get('wall_clock_remaining_seconds')
+    if left is not None:
+        lines.append((f'Đã quá deadline {-left / 3600:.1f} giờ' if out.get('deadline_passed') else f'Còn {left / 3600:.1f} giờ lịch tới deadline') +
+                     ' (thời gian lịch, đã gồm thời gian chờ; không phải công còn lại, không phải ETA).')
+    lines.append('Thời điểm hoàn thành dự kiến: chưa xác định; tổng công không phải thời gian lịch khi chạy song song hoặc chờ.')
     if out.get('remaining_reason'): lines.append(out['remaining_reason'])
     if out['history']:
         last = out['history'][-1]
         lines += _wrap('Lý do đổi ước lượng: ' + last['reason'], '', '  ')
     for item in out['additional']:
         lines += _wrap(f'Phát sinh {item["key"]} ({item["category"]}, {item["disposition"]}): {item["reason"]}', '', '  ')
-    return lines
+    return lines + warnings
 
 
 # ---- the only write: --out --------------------------------------------------------------------------------------------

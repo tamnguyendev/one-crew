@@ -6,6 +6,10 @@ Two halves:
                  claims `pass` while a mandatory step is ok=false (or a rollback fact is wrong) is REFUSED as incoherent. A deliberate negative
                  test is modelled as an expectation (exit codes + the reason text it must show); failing for a DIFFERENT reason (encoding
                  error, missing exe, traceback) is a failure, never a pass.
+                 P1-1: the ORACLE is this module's, never the report's. Which steps are mandatory (BASE_REQUIRED/ROLLBACK_REQUIRED), what
+                 each step's `ok` means in terms of its recorded facts (_POSITIVE) and every negative expectation (NEGATIVE_EXPECT) are
+                 fixed here; each mandatory `ok` is recomputed from the facts and a report that demotes, duplicates, re-specifies or
+                 contradicts them is refused.
   run(pkg, work) the runner: clean venv outside the checkout, wheel installed after a hash check, one code root through the venv console
                  script, every onecrew module loaded from the venv, then the rollback drill on TWO ledger copies: `state-blocked` (the scan
                  reports a block, so rollback must be REFUSED with zero pip install/uninstall) and `state-clear` (0 blocks, rollback allowed,
@@ -44,58 +48,189 @@ def _text(step):
     return '\n'.join(str(step.get(k, '')) for k in TAIL_KEYS)
 
 
+# ---------------------------------------------------------------------------------------------------------------------------------
+# The oracle (Codex P1-1). It belongs to the evaluator: which steps are mandatory, what each step's `ok` means in terms of its recorded
+# facts, and the expectation of every negative test. The report supplies observations (exit codes, tails, facts) only; its `mandatory`,
+# `expect` and `ok` are compared with the oracle and a disagreement is refused, never obeyed.
+
+_MISSING = object()
+
+
+class _Facts:
+    """Reads the recorded facts of one step; remembers which are missing (a missing fact cannot be recomputed, so it is refused)."""
+
+    def __init__(self, step, rollback):
+        self.step, self.rollback, self.missing = step, rollback if isinstance(rollback, dict) else {}, []
+
+    def __call__(self, key):
+        v = self.step.get(key, _MISSING)
+        if v is _MISSING:
+            self.missing.append(key)
+            return None
+        return v
+
+    def rb(self, branch, key):
+        b = self.rollback.get(branch)
+        v = b.get(key, _MISSING) if isinstance(b, dict) else _MISSING
+        if v is _MISSING:
+            self.missing.append(f'rollback.{branch}.{key}')
+            return None
+        return v
+
+    def needle(self, word):
+        n = self.step.get('needles')
+        if not isinstance(n, dict) or not isinstance(n.get(word), bool):
+            self.missing.append(f'needles.{word}')
+            return None
+        return n[word]
+
+
+def _exit0(f):
+    return f('exit') == 0
+
+
+def _total(f):
+    b = f('blocking')
+    return b.get('total') if isinstance(b, dict) and isinstance(b.get('total'), int) else None
+
+
+def _same(*vals):
+    return all(isinstance(v, str) and v for v in vals) and len(set(vals)) == 1
+
+
+# id -> f(facts) -> bool: the recomputed `ok`. Each check reads only recorded facts (the step's fields or the report's rollback block).
+_POSITIVE = {
+    'sha256sums': lambda f: isinstance(f('files'), int) and f('files') > 0 and f('bad') == [],
+    'wheel_sha': lambda f: _same(f('sha256'), f('actual_sha256')),
+    'venv': _exit0,
+    'pip_install': _exit0,
+    'help': lambda f: _exit0(f) and f.needle('plan') is True,
+    'smoke_body': lambda f: _exit0(f) and f('observation') is True,
+    'verdict_run': lambda f: _exit0(f) and f('m1') == 'passed',
+    'plan_report': lambda f: f('rendered') is True,
+    'modules_from_venv': lambda f: isinstance(f('modules'), int) and f('modules') > 5 and f('outside') == {},
+    'checkout_not_on_path': lambda f: f('on_path') == [],
+    'blocked_copy_built': lambda f: _exit0(f) and f.needle('built') is True,
+    'blocked_scan': lambda f: _exit0(f) and isinstance(_total(f), int) and _total(f) > 0 and _total(f) == f.rb('blocked', 'scan_total'),
+    'blocked_refused_no_pip': lambda f: (f('pip_invocations') == 0 and f.rb('blocked', 'pip_invocations') == 0
+                                         and f.rb('blocked', 'decision') == 'refused'),
+    'blocked_installed_unchanged': lambda f: _same(f('installed'), f.rb('blocked', 'installed_before'), f.rb('blocked', 'installed_after')),
+    'blocked_copy_unchanged': lambda f: _same(f('tree_sha'), f.rb('blocked', 'copy_before'), f.rb('blocked', 'copy_after')),
+    'clear_scan': lambda f: _exit0(f) and _total(f) == 0 and f.rb('clear', 'scan_total') == 0,
+    'clear_uninstall_current': _exit0,
+    'clear_install_previous': lambda f: _exit0(f) and _same(f('sha256'), f('actual_sha256')),
+    'clear_old_digest': lambda f: _exit0(f) and f.needle('smoke') is False,
+    'clear_old_copy_unchanged': lambda f: _same(f('tree_sha'), f('copy_before'), f.rb('clear', 'copy_before')),
+    'clear_uninstall_previous': _exit0,
+    'clear_reinstall_current': _exit0,
+    'clear_same_build_restored': lambda f: _same(f('installed'), f.rb('clear', 'installed_before'), f.rb('clear', 'installed_after')),
+    'clear_roll_forward_reads': lambda f: _exit0(f) and f.needle('smoke') is True,
+    'clear_roll_forward_copy_unchanged': lambda f: _same(f('tree_sha'), f.rb('clear', 'copy_before'), f.rb('clear', 'copy_after')),
+}
+# Negative tests: the step must fail, with one of these exits, BECAUSE of one of these reasons. The runner records this same expectation.
+NEGATIVE_EXPECT = {
+    'clear_old_cannot_read_plan_ns': {'exits': [1, 2], 'reason_any': ['No plan named']},
+}
+assert set(_POSITIVE) | set(NEGATIVE_EXPECT) == set(BASE_REQUIRED + ROLLBACK_REQUIRED) and not set(_POSITIVE) & set(NEGATIVE_EXPECT)
+
+
+def _negative(sid, s, text, reasons):
+    """-> recomputed ok of a negative step, from the oracle's expectation only."""
+    want = NEGATIVE_EXPECT[sid]
+    if s.get('kind') != 'negative':
+        reasons.append(f'negative test "{sid}" is not recorded as negative (kind={s.get("kind")!r})')
+    if 'expect' not in s:
+        reasons.append(f'negative test "{sid}" has no recorded expectation (the oracle expects {want})')
+    elif s['expect'] != want:
+        reasons.append(f'negative test "{sid}": expectation replaced by the report ({s["expect"]}; the oracle expects {want})')
+    ok = True
+    if s.get('exit') not in want['exits']:
+        reasons.append(f'negative test "{sid}" exited {s.get("exit")}, expected one of {want["exits"]}')
+        ok = False
+    if not any(m in text for m in want['reason_any']):
+        reasons.append(f'negative test "{sid}" failed for a different reason (none of {want["reason_any"]} in its output)')
+        ok = False
+    return ok
+
+
 def judge(report):
-    """-> {'result': 'pass'|'refused', 'reasons': [...]}. Derived from mandatory steps only; the report's own `result` is only compared."""
-    reasons = []
+    """-> {'result': 'pass'|'refused', 'reasons': [...]} (+ 'optional': [...] only when a step outside the oracle failed).
+
+    Pure. The mandatory steps, their pass/fail semantics and the negative expectations are this module's (BASE_REQUIRED, ROLLBACK_REQUIRED,
+    _POSITIVE, NEGATIVE_EXPECT); the report cannot add, drop, demote or redefine them. Each mandatory step's `ok` is RECOMPUTED from its
+    recorded facts and must agree with the recorded `ok` in both directions. Refused: a missing required step, a duplicate step id, a
+    required step demoted to mandatory=False, a replaced expectation, a missing fact, a forbidden marker in a mandatory tail. Steps outside
+    the oracle never decide; their failures are listed under 'optional'. The report's own `result` is only compared (incoherent if it differs)."""
+    reasons, optional = [], []
     steps = report.get('steps')
     if not isinstance(steps, list) or not steps:
         return {'result': 'refused', 'reasons': ['report has no steps']}
-    by_id = {}
-    for s in steps:
-        if isinstance(s, dict) and s.get('id'):
-            by_id.setdefault(s['id'], s)
+    present = report.get('previous_wheel_present')
     required = list(BASE_REQUIRED)
-    if report.get('previous_wheel_present') is True:
+    if present is True:
         required += list(ROLLBACK_REQUIRED)
-    elif report.get('previous_wheel_present') is not False:
+    elif present is not False:
         reasons.append('report does not say whether the package carries a previous wheel (previous_wheel_present)')
-    required += [i for i in (report.get('expected_steps') or []) if i not in required]
-    for rid in required:
-        if rid not in by_id:
-            reasons.append(f'expected step missing: {rid}')
+    by_id, dups = {}, []
     for s in steps:
         if not isinstance(s, dict):
             reasons.append('malformed step entry')
-            continue
-        name = s.get('step') or s.get('id') or '?'
-        mandatory = s.get('mandatory', True) is not False       # a step without the flag is mandatory
-        if not mandatory:
+        elif not isinstance(s.get('id'), str) or not s['id']:
+            reasons.append(f'step without id: "{s.get("step", "?")}"')
+        elif s['id'] in by_id:
+            if s['id'] not in dups:
+                dups.append(s['id'])
+                reasons.append(f'duplicate step id (ambiguous): {s["id"]}')
+        else:
+            by_id[s['id']] = s
+    for rid in required:
+        if rid not in by_id:
+            reasons.append(f'expected step missing: {rid}')
+    if present is False:
+        extra = [i for i in ROLLBACK_REQUIRED if i in by_id]
+        if extra:
+            reasons.append(f'rollback steps recorded although previous_wheel_present is false: {", ".join(extra)}')
+    for sid, s in by_id.items():
+        if sid not in required:
+            if sid not in ROLLBACK_REQUIRED and s.get('ok') is not True:
+                optional.append(f'optional step failed (not deciding): {sid}')
             continue
         text = _text(s)
+        if s.get('mandatory', True) is not True:
+            reasons.append(f'mandatory step demoted: {sid} (the report says mandatory={s.get("mandatory")!r}; the oracle requires it)')
         for marker in FORBIDDEN_MARKERS:
             if marker in text:
-                reasons.append(f'step "{name}" shows "{marker}" in its output')
+                reasons.append(f'step "{sid}" shows "{marker}" in its output')
                 break
-        if s.get('ok') is not True:
-            reasons.append(f'mandatory step failed: {name}')
-        expect = s.get('expect')
-        if s.get('kind') == 'negative':
-            if not isinstance(expect, dict) or not expect.get('exits') or not expect.get('reason_any'):
-                reasons.append(f'negative test "{name}" has no expectation (exits + reason_any)')
-            else:
-                if s.get('exit') not in expect['exits']:
-                    reasons.append(f'negative test "{name}" exited {s.get("exit")}, expected one of {expect["exits"]}')
-                if not any(m in text for m in expect['reason_any']):
-                    reasons.append(f'negative test "{name}" failed for a different reason (none of {expect["reason_any"]} in its output)')
-        elif 'exit' in s and s['exit'] != 0:
-            reasons.append(f'unexpected nonzero exit {s["exit"]} in step "{name}"')
-    reasons += _judge_rollback(report.get('rollback'), report.get('previous_wheel_present'))
+        if sid in NEGATIVE_EXPECT:
+            computed = _negative(sid, s, text, reasons)
+        else:
+            if s.get('kind') == 'negative' or 'expect' in s:
+                reasons.append(f'step "{sid}" carries a negative expectation the oracle does not hold')
+            facts = _Facts(s, report.get('rollback'))
+            computed = bool(_POSITIVE[sid](facts))
+            if facts.missing:
+                reasons.append(f'fact missing for step "{sid}": {", ".join(dict.fromkeys(facts.missing))}')
+                continue
+            if 'exit' in s and s['exit'] != 0:
+                reasons.append(f'unexpected nonzero exit {s["exit"]} in step "{sid}"')
+        if not computed:
+            reasons.append(f'mandatory step failed: {sid}')
+        recorded = s.get('ok')
+        if not isinstance(recorded, bool):
+            reasons.append(f'step "{sid}" records no boolean ok')
+        elif recorded != computed:
+            reasons.append(f'step "{sid}": recorded ok={recorded} disagrees with the recorded facts (ok={computed})')
+    reasons += _judge_rollback(report.get('rollback'), present)
     result = 'refused' if reasons else 'pass'
     claimed = report.get('result')
     if claimed in ('pass', 'refused') and claimed != result:
         reasons.append(f'incoherent report: it claims "{claimed}" but the recorded facts give "{result}"')
         result = 'refused'
-    return {'result': result, 'reasons': reasons}
+    out = {'result': result, 'reasons': reasons}
+    if optional:
+        out['optional'] = optional
+    return out
 
 
 def _judge_rollback(rb, present):
@@ -233,7 +368,8 @@ def _verify(pkg, work, report, runner, step, tails, out):
     bad = [f for f, h in sums.items() if not (pkg / f).exists() or sha(pkg / f) != h]
     step('sha256sums', 'SHA256SUMS: every listed file present and unchanged', not bad, files=len(sums), bad=bad[:5])
     wheel = pkg / manifest['wheel']['file']
-    step('wheel_sha', 'wheel sha256 == manifest', sha(wheel) == manifest['wheel']['sha256'], sha256=manifest['wheel']['sha256'])
+    actual = sha(wheel)
+    step('wheel_sha', 'wheel sha256 == manifest', actual == manifest['wheel']['sha256'], sha256=manifest['wheel']['sha256'], actual_sha256=actual)
     venv = work / 'venv'
     code, so, se = runner.run([sys.executable, '-m', 'venv', venv])
     step('venv', 'venv created outside the checkout', code == 0 and not venv.resolve().is_relative_to(CHECKOUT), path=str(venv), **tails(code, so, se))
@@ -244,7 +380,7 @@ def _verify(pkg, work, report, runner, step, tails, out):
     code, so, se = runner.run(pip_cur)
     step('pip_install', 'pip install --no-index from the package wheel', code == 0, **tails(code, so, se))
     code, so, se = runner.run([exe, '--help'])
-    step('help', 'onecrew --help from the venv console script', code == 0 and 'plan' in so, **tails(code, so, se))
+    step('help', 'onecrew --help from the venv console script', code == 0 and 'plan' in so, needles={'plan': 'plan' in so}, **tails(code, so, se))
 
     project, state = work / 'project', work / 'state'
     project.mkdir()
@@ -279,16 +415,16 @@ print('@@' + json.dumps({{'verdict_exit': done.returncode, 'tail': (done.stdout 
 '''
     code, so, se = runner.run([py, '-I', '-c', body], cwd=str(work))
     line = next((l for l in so.splitlines() if l.startswith('@@')), None)
-    step('smoke_body', 'smoke body ran', code == 0 and line is not None, **tails(code, so, se))
+    step('smoke_body', 'smoke body ran', code == 0 and line is not None, observation=line is not None, **tails(code, so, se))
     obs = json.loads(line[2:])
     step('verdict_run', 'verdict run through the venv console script passed M1', obs['verdict_exit'] == 0 and obs['m1'] == 'passed',
          m1=obs['m1'], tail=obs['tail'], exit=obs['verdict_exit'])
-    step('plan_report', 'plan report renders', obs['report_ok'])
+    step('plan_report', 'plan report renders', obs['report_ok'], rendered=obs['report_ok'] is True)
     outside = {n: p for n, p in obs['modules'].items() if p and not Path(p).resolve().is_relative_to(venv.resolve())}
     step('modules_from_venv', 'every onecrew module loaded from the venv, none from a checkout', not outside and len(obs['modules']) > 5,
          modules=len(obs['modules']), outside=outside)
-    step('checkout_not_on_path', 'checkout is not on sys.path', not any(Path(p).resolve().is_relative_to(CHECKOUT) for p in obs['sys_path'] if p),
-         sys_path=obs['sys_path'][:6])
+    on_path = [p for p in obs['sys_path'] if p and Path(p).resolve().is_relative_to(CHECKOUT)]
+    step('checkout_not_on_path', 'checkout is not on sys.path', not on_path, sys_path=obs['sys_path'][:6], on_path=on_path)
 
     prev = manifest.get('previous_wheel')
     report['previous_wheel_present'] = bool(prev)
@@ -328,7 +464,8 @@ plan.approve(ledger, 'blocked-open', 'owner', 'package verify: an approved, unac
 print('built')
 '''
     code, so, se = runner.run([py, '-I', '-c', body], cwd=str(work))
-    step('blocked_copy_built', 'state-blocked: approved, unaccepted root added with the installed build', code == 0 and 'built' in so, **tails(code, so, se))
+    step('blocked_copy_built', 'state-blocked: approved, unaccepted root added with the installed build', code == 0 and 'built' in so,
+         needles={'built': 'built' in so}, **tails(code, so, se))
 
     # ---- refused branch (blocked copy) ----
     code, so, se, scan = _scan(runner, exe, project, blocked_dir)
@@ -358,18 +495,21 @@ print('built')
     step('clear_uninstall_current', 'uninstall current', code == 0, **tails(code, so, se))
     prev_wheel = pkg / prev['file']
     code, so, se = runner.run([py, '-m', 'pip', 'install', '--no-index', '--no-build-isolation', prev_wheel])
-    step('clear_install_previous', 'install previous wheel from the package', code == 0 and sha(prev_wheel) == prev['sha256'], **tails(code, so, se))
+    prev_actual = sha(prev_wheel)
+    step('clear_install_previous', 'install previous wheel from the package', code == 0 and prev_actual == prev['sha256'],
+         sha256=prev['sha256'], actual_sha256=prev_actual, **tails(code, so, se))
     # The previous build predates plan namespaces: `plan digest` lists only legacy roots, so it exits 0 and the namespaced root is NOT listed.
     code, so, se = runner.run([exe, '--project', project, '--state-root', clear_dir, 'plan', 'digest'])
     step('clear_old_digest', 'previous build: plan digest exits 0 (legacy roots only; the namespaced smoke root is not listed)',
-         code == 0 and 'smoke' not in so, **tails(code, so, se))
+         code == 0 and 'smoke' not in so, needles={'smoke': 'smoke' in so}, **tails(code, so, se))
     # Deliberate negative test: the previous build cannot read the plan-ns root. It must fail BECAUSE no such plan exists for it.
     code, so, se = runner.run([exe, '--project', project, '--state-root', clear_dir, 'plan', 'show', 'smoke'])
-    expect = {'exits': [1, 2], 'reason_any': ['No plan named']}
+    expect = json.loads(json.dumps(NEGATIVE_EXPECT['clear_old_cannot_read_plan_ns']))      # the oracle's expectation, recorded as is
     ok = code in expect['exits'] and any(m in so + se for m in expect['reason_any']) and not any(m in so + se for m in FORBIDDEN_MARKERS)
     step('clear_old_cannot_read_plan_ns', 'previous build cannot read the plan-ns root (plan show smoke refused: No plan named)', ok,
          kind='negative', expect=expect, **tails(code, so, se))
-    step('clear_old_copy_unchanged', 'previous build changed nothing in state-clear', tree_sha(clear_dir) == copy_before)
+    old_copy = tree_sha(clear_dir)
+    step('clear_old_copy_unchanged', 'previous build changed nothing in state-clear', old_copy == copy_before, tree_sha=old_copy, copy_before=copy_before)
     code, so, se = runner.run([py, '-m', 'pip', 'uninstall', '--yes', 'onecrew'])
     step('clear_uninstall_previous', 'uninstall previous', code == 0, **tails(code, so, se))
     code, so, se = runner.run(pip_cur)
@@ -377,9 +517,9 @@ print('built')
     fp_after = installed_fingerprint(venv)
     step('clear_same_build_restored', 'roll-forward restored the identical installed build', fp_after == fp_before, installed=fp_after)
     code, so, se = runner.run([exe, '--project', project, '--state-root', clear_dir, 'plan', 'show', 'smoke'])
-    step('clear_roll_forward_reads', 'roll-forward reads the root again', code == 0 and 'smoke' in so, **tails(code, so, se))
+    step('clear_roll_forward_reads', 'roll-forward reads the root again', code == 0 and 'smoke' in so, needles={'smoke': 'smoke' in so}, **tails(code, so, se))
     copy_after = tree_sha(clear_dir)
-    step('clear_roll_forward_copy_unchanged', 'roll-forward changed nothing in state-clear', copy_after == copy_before)
+    step('clear_roll_forward_copy_unchanged', 'roll-forward changed nothing in state-clear', copy_after == copy_before, tree_sha=copy_after)
     rb['clear'] = {'copy': str(clear_dir), 'scan_total': total, 'decision': decision, 'pip_invocations': runner.pip_invocations - pips_before,
                    'installed_before': fp_before, 'installed_after': fp_after, 'copy_before': copy_before, 'copy_after': copy_after}
 

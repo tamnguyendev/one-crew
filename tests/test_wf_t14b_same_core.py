@@ -63,11 +63,42 @@ class SameCoreTests(Fixture):
             self.assertEqual(results[name][2], code[2], name)                                         # the same handover page
         self.assertEqual(code[0][:3], ['task.submitted', 'plan.proposed', 'plan.approved'])
 
+    SPECIAL = re.compile(r"""(?:==|!=)\s*['"](?:data|ops)['"]|['"](?:data|ops)['"]\s*(?:==|!=)|\bin\s*[\(\[\{][^)\]}]*['"](?:data|ops)['"]""")
+
+    @staticmethod
+    def core_modules():
+        """W39 / T14b E9: every module of onecrew/v2 (verifiers/ included, except the three shipped adapters that own their kind) and
+        onecrew/common_verification.py, enumerated from disk; the former 8-file hand list is a subset."""
+        base = ROOT / 'onecrew'
+        mods = [p for p in sorted((base / 'v2').rglob('*.py')) if not (p.parent.name == 'verifiers' and p.name in ('data.py', 'ops.py', 'doc.py'))]
+        return mods + [base / 'common_verification.py']
+
     def test_e9_no_data_or_ops_special_case_in_the_core(self):
-        core = ['onecrew/v2/plan.py', 'onecrew/v2/verdict.py', 'onecrew/v2/engine.py', 'onecrew/v2/authority.py', 'onecrew/v2/report.py',
-                'onecrew/v2/findings.py', 'onecrew/v2/internal_plan.py', 'onecrew/v2/estimates.py']
-        special = re.compile(r"""(==|!=|in\s*\()\s*['"](data|ops)['"]""")
-        hits = {rel: [m.group(0) for m in special.finditer((ROOT / rel).read_text(encoding='utf-8'))] for rel in core}
+        mods = self.core_modules()
+        rels = {p.relative_to(ROOT).as_posix() for p in mods}
+        for must in ('onecrew/v2/plan.py', 'onecrew/v2/verdict.py', 'onecrew/v2/engine.py', 'onecrew/v2/authority.py', 'onecrew/v2/report.py',
+                     'onecrew/v2/findings.py', 'onecrew/v2/internal_plan.py', 'onecrew/v2/estimates.py', 'onecrew/v2/namespaces.py',
+                     'onecrew/v2/contract.py', 'onecrew/v2/step0.py', 'onecrew/v2/gate.py', 'onecrew/common_verification.py',
+                     'onecrew/v2/verifiers/port.py', 'onecrew/v2/verifiers/artifact.py'):
+            self.assertIn(must, rels)
+        self.assertGreaterEqual(len(rels), 70)
+        self.assertNotIn('onecrew/v2/verifiers/data.py', rels)
+        hits = {p.relative_to(ROOT).as_posix(): [m.group(0) for m in self.SPECIAL.finditer(p.read_text(encoding='utf-8'))] for p in mods}
         self.assertEqual({k: v for k, v in hits.items() if v}, {}, 'the core must not branch on the kind of work')
         from onecrew.v2.verifiers import port
         self.assertTrue(port.known('data') and port.known('ops'), 'the only dispatch by kind is the verifier port registry')
+
+    def test_e9_counter_example_a_data_or_ops_branch_in_any_scanned_module_is_found(self):
+        """W39 / T14b E9 counter-example: one injected `kind == 'data'` / `in ('ops', ...)` line in namespaces.py, step0.py,
+        gate.py, contract.py or common_verification.py (modules the old 8-file list omitted) is reported by the same criteria."""
+        wanted = {'namespaces.py', 'step0.py', 'gate.py', 'contract.py', 'common_verification.py'}
+        checked = 0
+        for path in self.core_modules():
+            if path.name not in wanted:
+                continue
+            lines = path.read_text(encoding='utf-8').splitlines()
+            self.assertFalse(any(self.SPECIAL.search(line) for line in lines), path.name)
+            for injected in ("    if kind == 'data':", "    elif work in ('ops', 'doc'):", "    if 'ops' != item_type:"):
+                self.assertTrue(self.SPECIAL.search(injected), injected)
+            checked += 1
+        self.assertEqual(checked, len(wanted))

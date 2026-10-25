@@ -19,10 +19,16 @@ NEEDS_V1 = 'This install submits audit tasks only; the other job modes need the 
 
 
 def outcomes(ledger, limit=50):
+    """The newest `limit` v1 outcomes of the project, newest first, plus (W23b) the newest `limit` outcomes of v2 plan anchors.
+
+    Each partition has its own window, so v2 roots' outcomes stay readable here but can never push a v1 outcome out of the v1 window."""
     if type(limit) is not int or not 1<=limit<=200: raise LedgerError('limit must be 1-200.')
+    window = ("SELECT * FROM (SELECT e.seq,e.payload FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.project_id=? "
+              "AND e.kind='learning.outcome' AND {} (t.request_key LIKE 'plan:%' OR t.request_key LIKE 'plan-ns:%') ORDER BY e.seq DESC LIMIT ?)")
     with ledger.transaction() as conn:
         if conn is None: return []
-        rows=conn.execute("SELECT e.seq,e.payload FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.project_id=? AND e.kind='learning.outcome' ORDER BY e.seq DESC LIMIT ?",(ledger.project_id,limit)).fetchall()
+        rows=conn.execute(window.format('NOT')+' UNION ALL '+window.format('')+' ORDER BY seq DESC',
+                          (ledger.project_id,limit,ledger.project_id,limit)).fetchall()
     return [{'event':r['seq'],**json.loads(r['payload'])} for r in rows]
 
 
@@ -31,7 +37,9 @@ def recommend(ledger, goal, mode, provider, model, history=None):
     # Exact goal, same project/mode/provider/model. Similar wording alone is not
     # sufficient evidence to reduce a grant. Latest outcome wins per task.
     latest = {}
-    for row in (history or outcomes)(ledger, 200): latest.setdefault(row['task'], row)
+    # W23b: a v2 root's outcome (source 'v2-plan', mode 'plan') is never a v1 goal's history.
+    for row in (history or outcomes)(ledger, 200):
+        if row.get('source') != 'v2-plan': latest.setdefault(row['task'], row)
     matching = [r for r in latest.values() if r.get('spec_revision') == content_hash(goal)
                 and (r.get('mode'), r.get('provider'), r.get('model')) == (mode, provider, model)]
     good = [r for r in matching if r['phase'] == 'completed'
@@ -90,7 +98,9 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
            max_calls=None, max_seconds=None, image=None, branch=None, remote=None, android_build=None, native_change=None,
            solution_id=None, solution_revision=None, contract=None, qc=None,
            plan_selector=None, plan_revision=None,
-           _delivery_parent=None, _delivery_node=None, _delivery_generation=0, _delivery_scope=None, extension=None):
+           _delivery_parent=None, _delivery_node=None, _delivery_generation=0, _delivery_scope=None, extension=None, _then=None):
+    # `_then(conn, task_id)`: internal (plan.propose). Runs inside the same write transaction as the task row, also on an idempotent
+    # replay, so a refusal there rolls the row back; it is not part of the sealed payload.
     calls_default, seconds_default = max_calls is None, max_seconds is None
     ext = extension or Audit
     if mode == 'work':
@@ -102,6 +112,8 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
     if _delivery_scope is not None and (_delivery_scope != 'tests' or not _delivery_parent):
         raise LedgerError('Only a delivery coordinator may narrow a child to a tests-only repair.')
     key_field(request_key)
+    from .v2.plan import valid_plan_key
+    valid_plan_key(request_key)          # audit W12a: a plan:/plan-ns: key is a plan name; refused before any write
     if plan_revision is not None and (type(plan_revision) is not int or plan_revision < 1):
         raise LedgerError('plan_revision must be a positive integer.')
     # Idempotent replay retains the original choice after operator preferences change.
@@ -194,13 +206,23 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
         if old:
             if old['revision'] != revision:
                 raise LedgerError('Submission key already has a different goal, authority or budget.')
+            if _then is not None: _then(conn, old['id'])
             return ledger._task_view(conn,old)
         if root_binding is not None:
-            plan_binding.validate(ledger, conn, root_binding)
+            bound_state = plan_binding.validate(ledger, conn, root_binding)
             from .budget_core import ensure_plan_group
             plan_budget = ensure_plan_group(ledger, conn, root_binding['selector'])
             if plan_budget and (max_calls > plan_budget['max_calls'] or max_seconds > (dt.datetime.fromisoformat(plan_budget['deadline']) - dt.datetime.fromisoformat(plan_binding.first_approval_at(ledger, conn, root_binding))).total_seconds()):
                 raise LedgerError('Child grant exceeds the shared workflow root budget.')
+            if plan_budget is None:
+                # W10: a root without root-budget has no shared counter; its bound jobs together get at most its one approved budget.
+                from .v2 import plan as plans
+                approved_calls = plans.load(ledger, bound_state)[0]['budget']['max_calls']
+                others = plan_binding.allocated(ledger, conn, bound_state)
+                if max_calls + others > approved_calls:
+                    raise LedgerError(f'Job grant refused: {max_calls} calls plus the {others} already granted to other jobs of root '
+                                      f'{root_binding["selector"]} exceed its approved budget of {approved_calls} calls; a new job key is not '
+                                      'a new budget (amend the plan and have the owner approve it).')
         else:
             plan_budget = None
         binding = ext.solution_binding(ledger,conn,mode,solution_id,solution_revision,_delivery_parent)
@@ -220,4 +242,5 @@ def submit(ledger, goal, request_key, *, mode='audit', provider=None, model=None
             ext.link_child(conn,task_id,_delivery_parent,_delivery_node,_delivery_generation)
         ledger._event(conn,task_id,'task.submitted',{'revision':revision,'request_key':request_key,'mode':'owned_execution',
                                                   **({'plan_binding': root_binding} if root_binding is not None else {})})
+        if _then is not None: _then(conn, task_id)
         return ledger._task_view(conn,ledger._task(conn,task_id))

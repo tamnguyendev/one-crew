@@ -8,6 +8,8 @@ Per approved test (a `test*` function or method of a Python test file that the u
   * anything else in the file changed (imports, helpers, fixtures, setUp, class bases, module code) while approved tests remain
     -> INSUFFICIENT (support_changed): the tests may now check less and this analysis cannot prove they do not; a file that does not
     parse, or a test file in another language, is INSUFFICIENT too (unparsed / unanalysed).
+  * a changed Python file under a test path that is not itself discoverable (a shared helper, fixture module or conftest the approved
+    tests import) -> INSUFFICIENT (support_changed), the same rule as changed support code inside a test file.
 A new test function is accepted with provenance; a pure reformat (same AST) or a move inside the discovery pattern changes nothing.
 Weakened is U1 (HD-04/HD-39); insufficient means "not established", never silently intact. Pure Git reads: nothing is written.
 
@@ -103,6 +105,15 @@ def compare(directory, base_tree, current_tree):
         files.append({'status': status, 'path': new_path, 'from': old_path})
         if not (old_path.endswith('.py') or new_path.endswith('.py')):
             insufficient.append({'file': new_path, 'kind': 'unanalysed', 'detail': 'a test file in another language changed; not analysed'})
+            continue
+        if not _discoverable(old_path) and not _discoverable(new_path):
+            # W05: a shared helper/fixture/conftest under the test directory is support code of the approved tests that import it; its
+            # change cannot be proven harmless here (same rule as a changed support hash inside a test file). A pure reformat is no change.
+            old_tree = analyse(_blob(top, base_tree, old_path) or '') if status != 'A' else None
+            new_tree = analyse(_blob(top, current_tree, new_path) or '') if status != 'D' else None
+            if old_tree is not None and old_tree == new_tree: continue
+            insufficient.append({'file': new_path, 'kind': 'support_changed',
+                                 'detail': 'a helper module under the test directory changed; the tests that use it are not proven intact'})
             continue
         before = analyse(_blob(top, base_tree, old_path) or '') if status != 'A' and _discoverable(old_path) else {'tests': {}, 'classes': {}, 'support': None}
         after = analyse(_blob(top, current_tree, new_path) or '') if status != 'D' and _discoverable(new_path) else {'tests': {}, 'classes': {}, 'support': None}

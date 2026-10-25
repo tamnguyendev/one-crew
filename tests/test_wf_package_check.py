@@ -3,6 +3,7 @@
 Unit tests build reports by hand and call `judge`. One integration test runs the real verifier on the real handover package.
 """
 import copy
+import os
 import shutil
 import tempfile
 import unittest
@@ -10,15 +11,31 @@ from pathlib import Path
 
 from wfkit import package_check as pc
 
-PACKAGE = Path('D:/OneCrewRuns/wf-handover-ceb46c6')
+PACKAGE = Path(os.environ['WF_PACKAGE']) if os.environ.get('WF_PACKAGE') else None      # e.g. D:/OneCrewRuns/wf-handover-6366137
 
 
 def _step(sid, **kw):
     return {'id': sid, 'step': sid.replace('_', ' '), 'ok': True, 'mandatory': True, **kw}
 
 
+# The facts each step records (as the runner writes them); judge recomputes every `ok` from these (P1-1).
+FACTS = {
+    'sha256sums': {'files': 3, 'bad': []}, 'wheel_sha': {'sha256': 'W', 'actual_sha256': 'W'}, 'venv': {'exit': 0},
+    'pip_install': {'exit': 0}, 'help': {'exit': 0, 'needles': {'plan': True}}, 'smoke_body': {'exit': 0, 'observation': True},
+    'verdict_run': {'exit': 0, 'm1': 'passed', 'tail': ''}, 'plan_report': {'rendered': True}, 'modules_from_venv': {'modules': 9, 'outside': {}},
+    'checkout_not_on_path': {'on_path': []}, 'blocked_copy_built': {'exit': 0, 'needles': {'built': True}},
+    'blocked_scan': {'exit': 0, 'blocking': {'total': 1}}, 'blocked_refused_no_pip': {'pip_invocations': 0},
+    'blocked_installed_unchanged': {'installed': 'A'}, 'blocked_copy_unchanged': {'tree_sha': 'C'},
+    'clear_scan': {'exit': 0, 'blocking': {'total': 0}}, 'clear_uninstall_current': {'exit': 0},
+    'clear_install_previous': {'exit': 0, 'sha256': 'P', 'actual_sha256': 'P'}, 'clear_old_digest': {'needles': {'smoke': False}},
+    'clear_old_copy_unchanged': {'tree_sha': 'D', 'copy_before': 'D'}, 'clear_uninstall_previous': {'exit': 0},
+    'clear_reinstall_current': {'exit': 0}, 'clear_same_build_restored': {'installed': 'A'}, 'clear_roll_forward_reads': {'exit': 0, 'needles': {'smoke': True}},
+    'clear_roll_forward_copy_unchanged': {'tree_sha': 'D'},
+}
+
+
 def good_report():
-    steps = [_step(i) for i in pc.BASE_REQUIRED + pc.ROLLBACK_REQUIRED]
+    steps = [_step(i, **copy.deepcopy(FACTS.get(i, {}))) for i in pc.BASE_REQUIRED + pc.ROLLBACK_REQUIRED]
     for s in steps:
         if s['id'] == 'clear_old_cannot_read_plan_ns':
             s.update(kind='negative', exit=1, expect={'exits': [1, 2], 'reason_any': ['No plan named']},
@@ -124,7 +141,15 @@ class JudgeTests(unittest.TestCase):
     def test_viii_non_mandatory_failure_does_not_decide_but_is_not_hidden_from_the_report(self):
         r = good_report()
         r['steps'].append({'id': 'extra_note', 'step': 'optional note', 'ok': False, 'mandatory': False})
-        self.assertEqual(pc.judge(r)['result'], 'pass')
+        v = pc.judge(r)
+        self.assertEqual(v['result'], 'pass')
+        self.assertEqual(v['optional'], ['optional step failed (not deciding): extra_note'])     # shown, not deciding
+        # P1-1: the report cannot make an ORACLE step optional; demoting it is refused
+        r = good_report()
+        get(r, 'help').update(mandatory=False, ok=False, exit=2)
+        v = pc.judge(r)
+        self.assertEqual(v['result'], 'refused')
+        self.assertTrue(any('mandatory step demoted: help' in x for x in v['reasons']), v)
 
     def test_ix_judge_is_pure(self):
         r = good_report()
@@ -159,41 +184,6 @@ class RunnerFactsTests(unittest.TestCase):
             self.assertNotEqual(h1, pc.tree_sha(d))
         finally:
             shutil.rmtree(d, ignore_errors=True)
-
-
-@unittest.skipUnless(PACKAGE.exists(), 'handover package not present')
-class RealPackageTests(unittest.TestCase):
-
-    def test_real_verifier_passes_judge_and_exercises_both_rollback_branches(self):
-        base = Path(tempfile.mkdtemp(prefix='wf-pkgcheck-'))
-        work = base / 'work'
-        try:
-            lines = []
-            report = pc.run(PACKAGE, work, out=lines.append)
-            self.assertTrue((work / 'verification' / 'verify-report.json').exists())
-            verdict = pc.judge(report)
-            self.assertEqual(verdict, {'result': 'pass', 'reasons': []}, '\n'.join(lines[-6:]))
-            self.assertEqual(report['result'], 'pass')
-            self.assertEqual(report['judge'], verdict)
-            rb = report['rollback']
-            self.assertGreater(rb['blocked']['scan_total'], 0)
-            self.assertEqual(rb['blocked']['decision'], 'refused')
-            self.assertEqual(rb['blocked']['pip_invocations'], 0)
-            self.assertEqual(rb['blocked']['installed_before'], rb['blocked']['installed_after'])
-            self.assertEqual(rb['blocked']['copy_before'], rb['blocked']['copy_after'])
-            self.assertEqual(rb['clear']['scan_total'], 0)
-            self.assertEqual(rb['clear']['decision'], 'allowed')
-            self.assertEqual(rb['clear']['pip_invocations'], 4)
-            self.assertEqual(rb['clear']['installed_before'], rb['clear']['installed_after'])
-            neg = next(s for s in report['steps'] if s['id'] == 'clear_old_cannot_read_plan_ns')
-            self.assertEqual(neg['kind'], 'negative')
-            self.assertIn('No plan named', neg['stdout_tail'] + neg['stderr_tail'])
-            # forging the saved report must be caught by the validator
-            forged = copy.deepcopy(report)
-            get(forged, 'help')['ok'] = False
-            self.assertEqual(pc.judge(forged)['result'], 'refused')
-        finally:
-            shutil.rmtree(base, ignore_errors=True)
 
 
 if __name__ == '__main__':

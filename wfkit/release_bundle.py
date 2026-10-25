@@ -15,12 +15,26 @@ What it cannot supply, and says so: `gate_history` (receipts of a PASSING delive
 has been delivered, so the previous build is the scanner-supported baseline d3120c6 and `release_check` refuses the INPUTS condition
 ('previous delivered gate history missing'); T54.1–T54.5 are still judged on the real receipts. The bundle is evidence for the
 development handover, not a delivery, and never owner acceptance.
+
+Only when explicitly asked (`--first-release`, Producer(first_release=True)) the bundle carries the first-delivery claim
+`first_release: {baseline: {commit, wheel_sha256 of the previous artifact, role: 'compat-baseline', delivered: false, accepted: false}, reason}`
+and `release_check` judges it under its own condition INPUTS(bootstrap) (the baseline must be the build every drill ran). It is never
+written by default, and the baseline is never called delivered or accepted.
+
+Stable baseline pin (`--baseline-wheel <path>`, Producer(baseline_wheel=...)): the drills REUSE one stored baseline wheel instead of rebuilding
+it (the hand-built wheel is not byte-reproducible, so each rebuild had a new sha256). The stored wheel is verified first
+(`verify_baseline_wheel`): onecrew-<version>-py3-none-any.whl whose METADATA names that version, a sidecar `<wheel>.json` whose commit is the
+baseline and whose sha256 is the file's, and every packaged module equal to the baseline commit's git blob (modulo the CRLF git archive writes under core.autocrlf).
+`build_baseline_wheel` writes such a wheel + sidecar once
+(python -c "from wfkit import release_bundle as b; b.build_baseline_wheel('D:/OneCrewRuns/wf-baseline-d3120c6')").
+Without --baseline-wheel the behaviour is unchanged (the baseline is rebuilt).
 """
 import argparse
 import datetime as _dt
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -34,6 +48,7 @@ from tests import wf_oldversion as old
 from tests import wf_rollback as rollback
 from tests import wf_wheel as wheel
 from wfkit import release_check
+from wfkit import gate_history as history
 from wfkit.upgrade_drill import Drill, ROOT, sha, build_source
 from tests import wf_scenarios as scenarios
 
@@ -95,13 +110,100 @@ def preservation_rows(state, ids=None):
         conn.close()
 
 
+INPUTS_BLOCKER = {'condition': 'INPUTS', 'kind': 'external', 'detail': 'No release of this program has been delivered (no passing CG- gate receipt of a '
+                  'previous build exists). The previous build used here is the scanner-supported baseline d3120c6, not a delivered build. '
+                  'Only the owner\'s delivery of an earlier release can supply gate_history.'}
+FIRST_RELEASE_REASON = ('No release of this program has been delivered, so no passing CG- delivery gate of a previous build exists. The previous '
+                        'artifact is the compat baseline the scanner models and the drills install; it is not delivered and not accepted.')
+
+
+
+SIDECAR_KEYS = {'commit', 'sha256', 'version', 'built_at', 'source'}
+
+
+def git(repo, *args):
+    return subprocess.check_output(['git', '-C', str(repo), *args], stderr=subprocess.PIPE)
+
+
+def verify_baseline_wheel(path, baseline_commit, repo=ROOT):
+    """The stored baseline wheel is the build of `baseline_commit`: name/METADATA version agree, the sidecar names this commit and these bytes,
+    and every packaged file equals the commit's git blob (so a wheel of another commit is refused even with a forged sidecar)."""
+    path = Path(path)
+    if not path.is_file(): raise LedgerError('baseline wheel missing: ' + str(path))
+    m = re.fullmatch(r'onecrew-(.+)-py3-none-any\.whl', path.name)
+    if not m: raise LedgerError('baseline wheel name is not onecrew-<version>-py3-none-any.whl: ' + path.name)
+    version, digest = m.group(1), sha(path)
+    sidecar_path = path.with_name(path.name + '.json')
+    if not sidecar_path.is_file(): raise LedgerError('baseline wheel has no sidecar ' + sidecar_path.name)
+    sidecar = json.loads(sidecar_path.read_text(encoding='utf-8'))
+    if not isinstance(sidecar, dict) or set(sidecar) != SIDECAR_KEYS: raise LedgerError('baseline sidecar must be exactly ' + ', '.join(sorted(SIDECAR_KEYS)))
+    if sidecar['commit'] != baseline_commit: raise LedgerError('baseline sidecar names commit ' + str(sidecar['commit']) + ', the baseline is ' + baseline_commit)
+    if sidecar['sha256'] != digest: raise LedgerError('baseline wheel bytes differ from its sidecar sha256')
+    if sidecar['version'] != version: raise LedgerError('baseline sidecar version differs from the wheel name')
+    history.wheel_matches_commit(path, baseline_commit, repo)            # every packaged file is the commit's git blob
+    pyproject = git(repo, 'show', baseline_commit + ':pyproject.toml').decode('utf-8')
+    modules = re.findall(r'"([\w.]+)"', re.search(r'py-modules\s*=\s*\[(.*?)\]', pyproject, re.S).group(1))
+    with zipfile.ZipFile(path) as archive:
+        names = [i.filename for i in archive.infolist() if not i.is_dir()]
+    missing = [mod for mod in modules if mod.replace('.', '/') + '.py' not in names]
+    if missing: raise LedgerError('baseline wheel lacks modules of ' + baseline_commit[:12] + ': ' + ', '.join(missing[:5]))
+    return {'wheel': str(path), 'wheel_sha256': digest, 'commit': baseline_commit, 'sidecar': str(sidecar_path)}
+
+
+def build_baseline_wheel(target, repo=ROOT, baseline='d3120c6'):
+    """Build the baseline wheel ONCE with the drill's own builder (git archive of the commit -> tests.wf_wheel.build_wheel) into `target`, with
+    its sidecar. Refuses to overwrite a stored wheel: the point is one stable pin."""
+    import tempfile
+    commit = git(repo, 'rev-parse', baseline).decode().strip()
+    target = Path(target); target.mkdir(parents=True, exist_ok=True)
+    if any(target.glob('onecrew-*.whl')): raise LedgerError('a baseline wheel is already stored in ' + str(target) + '; verify it, do not rebuild')
+    with tempfile.TemporaryDirectory(prefix='wf-baseline-') as scratch:
+        archived = old.archive(commit, repo, scratch)
+        with build_source(archived):
+            path, version, _ = wheel.build_wheel(target)
+    head = git(repo, 'rev-parse', 'HEAD').decode().strip()
+    sidecar = {'commit': commit, 'sha256': sha(path), 'version': version, 'built_at': now(),
+               'source': 'release_bundle baseline builder at ' + head}
+    Path(str(path) + '.json').write_text(json.dumps(sidecar, ensure_ascii=False, indent=1), encoding='utf-8')
+    return verify_baseline_wheel(path, commit, repo)
+
+
+def prerequisite_fields(first_release, previous):
+    """The INPUTS part of a bundle: by default nothing is claimed and the external blocker is recorded; only when explicitly asked, the
+    first-release claim pins the previous artifact as a compat baseline (never delivered, never accepted)."""
+    if first_release is not True:
+        return {}, [dict(INPUTS_BLOCKER)]
+    baseline = {'commit': previous['commit'], 'wheel_sha256': previous['wheel_sha256'], 'role': 'compat-baseline', 'delivered': False, 'accepted': False}
+    return ({'first_release': {'baseline': baseline, 'reason': FIRST_RELEASE_REASON}},
+            [{'condition': 'INPUTS(bootstrap)', 'kind': 'first-release', 'detail': 'First delivery: judged against the pinned compat baseline '
+              + previous['commit'][:12] + '; it is not a delivered build and gives no delivery or owner acceptance.'}])
+
+
 class Producer(Drill):
     """The W41 drill plus the four other T54 points, written as release_check receipts."""
 
-    def __init__(self, release, out, repo=ROOT, baseline='d3120c6', gate=None, adapters=None, matrix=None):
+    def __init__(self, release, out, repo=ROOT, baseline='d3120c6', gate=None, adapters=None, matrix=None, first_release=False, baseline_wheel=None, gate_history=None):
         if release not in RELEASES: raise LedgerError('unsupported release ' + str(release))
+        if gate_history and first_release is True: raise LedgerError('a bundle with delivery gate history is not a first release')
         super().__init__(out, repo, baseline)
+        self.history_paths = [Path(p) for p in gate_history or []]
+        if self.history_paths:
+            # the NORMAL rule: the previous build is the latest PASSING CG- delivery gate, not a chosen baseline. Its wheel bytes must be at hand
+            # (the receipt's `wheel`, else --baseline-wheel) with that sha256 and the commit's blobs.
+            latest, _ = history.select_previous(self.history_paths)
+            if latest['commit'] != self.baseline:
+                raise LedgerError('the latest passing delivery gate is ' + latest['commit'][:12] + '; the compatibility scanner models only '
+                                  + self.baseline[:12] + ', so this upgrade cannot be drilled from it yet')
+            wheel_path = Path(latest.get('wheel') or baseline_wheel or '')
+            if not wheel_path.is_file() or sha(wheel_path) != latest['wheel_sha256']:
+                raise LedgerError('the wheel of the latest delivered build (sha256 ' + latest['wheel_sha256'][:12] + ') is not at hand')
+            history.wheel_matches_commit(wheel_path, latest['commit'], self.repo)
+            self.baseline_pin = {'wheel': str(wheel_path), 'wheel_sha256': latest['wheel_sha256'], 'commit': latest['commit'], 'from_history': True}
+        else:
+            # stable pin: verified BEFORE any drill step; None keeps the old behaviour (rebuild the baseline)
+            self.baseline_pin = verify_baseline_wheel(baseline_wheel, self.baseline, self.repo) if baseline_wheel else None
         self.release, self.gate_decision, self.adapters = release, gate, adapters
+        self.first_release = first_release is True                          # bootstrap claim only when explicitly asked
         self.matrix_dir = Path(matrix) if matrix else None               # RP: the W45 real matrix (wfkit.provider_matrix output) for T54i [E7]
         # The CURRENT artifact is the gate's own wheel when a gate is cited: same bytes, same sha256, identified by the gate's commit (the snapshot
         # worktree of that commit built it). Without a gate the drill builds a wheel from this checkout and names HEAD.
@@ -123,6 +225,8 @@ class Producer(Drill):
         return result
 
     def build(self):
+        if self.baseline_pin:
+            return self._build_pinned()
         if self.gate_build:
             saved = {k: os.environ.get(k) for k in ('WF_WHEEL', 'WF_WHEEL_SHA256')}
             os.environ['WF_WHEEL'] = self.gate_build['wheel']; os.environ['WF_WHEEL_SHA256'] = self.gate_build['wheel_sha256']
@@ -139,13 +243,50 @@ class Producer(Drill):
             super().build()
         self.archived = old.archive(self.baseline, self.repo, self.out / 'old-archive')     # the comparator runs the UNMODIFIED old tree
 
+    def _build_pinned(self):
+        """Drill.build with the PREVIOUS wheel reused from the verified stored pin (same bytes, same sha256) instead of rebuilt; the current
+        wheel follows the same rule as before (the gate's wheel when a gate is cited, else built from this checkout)."""
+        archived = old.archive(self.baseline, self.repo, self.out)
+        keys = ('WF_WHEEL', 'WF_WHEEL_SHA256')
+        saved = {k: os.environ.get(k) for k in keys}
+        try:
+            for name, repo, commit, pin in [('previous', archived, self.baseline, (self.baseline_pin['wheel'], self.baseline_pin['wheel_sha256'])),
+                                            ('current', self.repo, self.git('rev-parse', 'HEAD'),
+                                             (self.gate_build['wheel'], self.gate_build['wheel_sha256']) if self.gate_build else None)]:
+                for k, v in saved.items():
+                    if v is None: os.environ.pop(k, None)
+                    else: os.environ[k] = v
+                if pin: os.environ['WF_WHEEL'], os.environ['WF_WHEEL_SHA256'] = pin
+                folder = self.out / name; folder.mkdir()
+                with build_source(repo, use_gate_wheel=pin is not None or name == 'current'):
+                    path, _, spec = wheel.build_wheel(folder)
+                self.artifacts[name] = {'wheel': str(path), 'wheel_sha256': sha(path), 'commit': commit,
+                                        'source_dirty': self.git('status', '--porcelain').splitlines() if name == 'current' else [],
+                                        'source': str(repo), 'modules': sorted(spec[0]), 'packages': sorted(spec[1])}
+        finally:
+            for k, v in saved.items():
+                if v is None: os.environ.pop(k, None)
+                else: os.environ[k] = v
+        if self.artifacts['previous']['wheel_sha256'] != self.baseline_pin['wheel_sha256']: raise LedgerError('the drill did not reuse the pinned baseline wheel')
+        self.artifacts['previous']['pinned_from'] = self.baseline_pin['wheel']
+        if self.gate_build:
+            if self.artifacts['current']['wheel_sha256'] != self.gate_build['wheel_sha256']: raise LedgerError('the drill did not reuse the gate wheel')
+            self.artifacts['current']['commit'] = self.gate_build['commit']
+            self.artifacts['current']['built_by'] = 'development snapshot gate ' + self.gate_build['commit'][:12]
+        runtime = self.out / 'runtime'; runtime.mkdir()
+        self.python = wheel.make_venv(runtime)
+        self.install('previous', fresh=True)
+        self.archived = old.archive(self.baseline, self.repo, self.out / 'old-archive')     # the comparator runs the UNMODIFIED old tree
+
     def artifact(self, name):
         art = self.artifacts[name]
         rel = Path('wheels') / name / Path(art['wheel']).name
         target = self.out / rel
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(art['wheel'], target)
-        return {'commit': art['commit'], 'wheel_sha256': art['wheel_sha256'], 'wheel': rel.as_posix()}
+        row = {'commit': art['commit'], 'wheel_sha256': art['wheel_sha256'], 'wheel': rel.as_posix()}
+        if art.get('pinned_from'): row['pinned_from'] = art['pinned_from']
+        return row
 
     def identity(self, name='current'):
         return {'commit': self.artifacts[name]['commit'], 'wheel_sha256': self.artifacts[name]['wheel_sha256']}
@@ -204,14 +345,26 @@ class Producer(Drill):
         if self.release == 'RP':
             bundle['provider_bundle'], self.provider_notes = self.provider_bundle()
         bundle['checks']['notes'] = self.point_notes()
-        bundle['blockers'] = [{'condition': 'INPUTS', 'kind': 'external', 'detail': 'No release of this program has been delivered (no passing CG- gate receipt of a '
-                              'previous build exists). The previous build used here is the scanner-supported baseline d3120c6, not a delivered build. '
-                              'Only the owner\'s delivery of an earlier release can supply gate_history.'}]
+        if self.history_paths:
+            bundle['gate_history'] = self.history_refs(); bundle['blockers'] = []          # judged by the ordinary INPUTS rule
+        else:
+            fields, bundle['blockers'] = prerequisite_fields(self.first_release, self.identity('previous'))
+            bundle.update(fields)
         (self.out / 'bundle.json').write_text(json.dumps(bundle, ensure_ascii=False, indent=1), encoding='utf-8')
         verdict = release_check.decide(bundle, self.out, allow_simulated=False)
         verdict['drill_receipt'] = str(self.out / 'receipt.json'); verdict['bundle'] = str(self.out / 'bundle.json')
         (self.out / 'release-check.json').write_text(json.dumps(verdict, ensure_ascii=False, indent=1), encoding='utf-8')
         return verdict
+
+    def history_refs(self):
+        """The CG- receipts copied byte-for-byte into the bundle (release_check reads them by relative path + sha256)."""
+        refs, folder = [], self.out / 'history'
+        folder.mkdir(exist_ok=True)
+        for i, path in enumerate(self.history_paths):
+            raw = path.read_bytes(); target = folder / f'{i:02}-{path.name}'
+            target.write_bytes(raw)
+            refs.append({'path': target.relative_to(self.out).as_posix(), 'sha256': hashlib.sha256(raw).hexdigest(), 'source': str(path)})
+        return refs
 
     def _sites_of(self, label):
         rec = next(r for r in self.records if r['label'] == label)
@@ -504,15 +657,24 @@ _RESULT = out
             self._after_upgrade_rows = preservation_rows(self.state)
 
 
+def parser():
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument('release', choices=RELEASES); result.add_argument('--out', required=True)
+    result.add_argument('--gate', help='decision.json of the development snapshot gate this bundle cites')
+    result.add_argument('--matrix', help='RP only: output dir of wfkit.provider_matrix (the real W45 six-cell matrix)')
+    result.add_argument('--gate-history', action='append', help='a CG- delivery gate receipt (repeatable): the latest PASSING one is the previous build (normal rule)')
+    result.add_argument('--baseline-wheel', help='reuse this stored, verified baseline wheel (sidecar <wheel>.json) instead of rebuilding the baseline')
+    result.add_argument('--first-release', action='store_true',
+                        help='claim the FIRST delivery: pin the previous artifact as a compat baseline (never delivered/accepted); judged as INPUTS(bootstrap)')
+    return result
+
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('release', choices=RELEASES); parser.add_argument('--out', required=True)
-    parser.add_argument('--gate', help='decision.json of the development snapshot gate this bundle cites')
-    parser.add_argument('--matrix', help='RP only: output dir of wfkit.provider_matrix (the real W45 six-cell matrix)')
-    args = parser.parse_args(argv)
+    args = parser().parse_args(argv)
     gate = json.loads(Path(args.gate).read_text(encoding='utf-8')) if args.gate else None
     try:
-        verdict = Producer(args.release, args.out, gate=gate, matrix=args.matrix).execute()
+        verdict = Producer(args.release, args.out, gate=gate, matrix=args.matrix, first_release=args.first_release, baseline_wheel=args.baseline_wheel,
+                           gate_history=args.gate_history).execute()
         print(json.dumps({'release': args.release, 'decision': verdict['decision'], 'conditions': verdict['conditions'],
                           'reasons': verdict['reasons'], 'out': args.out}, ensure_ascii=False))
         return 0 if verdict['decision'] == 'pass' else 2

@@ -280,6 +280,7 @@ import re as _re
 _PLAN_NAME = _re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$')
 _FORBIDDEN = {':': "a colon (it is the anchor-key separator plan:<name>)", '/': 'a path separator', chr(92): 'a path separator',
               '..': 'a parent-directory reference'}
+_DEVICE = _re.compile(r'(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?', _re.I)     # the rule authority._scope_path applies to path parts
 
 
 def valid_plan_name(name):
@@ -296,9 +297,22 @@ def valid_plan_name(name):
     from pathlib import PurePath, PureWindowsPath
     if PurePath(name).is_absolute() or PureWindowsPath(name).is_absolute() or name.startswith(('/', chr(92))):
         raise LedgerError(f'plan name {name!r} is refused: it is an absolute or rooted path.')
+    if name.endswith(('.', ' ')):                            # Windows drops it: 'x.' would land in plans/<pid>/x (audit W12a c)
+        raise LedgerError(f'plan name {name!r} is refused: it ends with a dot or a space, which Windows drops from a path.')
+    if _DEVICE.fullmatch(name):                              # 'NUL' would write the anchor, then fail to create plans/<pid>/NUL/
+        raise LedgerError(f'plan name {name!r} is refused: it is a reserved Windows device name (CON, PRN, AUX, NUL, COM1-9, LPT1-9).')
     if not _PLAN_NAME.match(name):
         raise LedgerError(f'plan name {name!r} is refused: use 1-100 chars of letters, digits, _, . or - (starting with a letter or digit).')
     return name
+
+
+def valid_plan_key(request_key):
+    """A request key that names a plan anchor (plan:<name> / plan-ns:<name>) carries a plan name: the same check, before any write.
+    Other keys keep the v1 key rule only (they may contain ':' without naming a plan)."""
+    for prefix in (namespaces.NAMESPACED, ANCHOR):
+        if isinstance(request_key, str) and request_key.startswith(prefix):
+            valid_plan_name(request_key[len(prefix):])
+    return request_key
 
 
 # W12a -> W12b: the R00 cross-project refusal (`refuse_duplicate_name`) was superseded at R04 by per-project namespaces (`plan-ns:`,
@@ -306,9 +320,9 @@ def valid_plan_name(name):
 # sharing a path. The R00 behaviour stays executable at the lineage's old commit; the current code keeps only the name validation above.
 
 
-def _anchor(ledger, name, title):
+def _anchor(ledger, name, title, then=None):
     from ..task_intake import submit
-    return submit(ledger, f'Plan {name}: {title}'[:2000], namespaces.NAMESPACED + name, mode='audit')['id']
+    return submit(ledger, f'Plan {name}: {title}'[:2000], namespaces.NAMESPACED + name, mode='audit', _then=then)['id']
 
 
 def propose(ledger, name, raw, author, workflow=False, capabilities=None):
@@ -320,13 +334,20 @@ def propose(ledger, name, raw, author, workflow=False, capabilities=None):
     selector = namespaces.NAMESPACED + name
     from . import solution_link
     solution_link.prepare(ledger, selector, contract)
+    contracts.require_unknown_scope(contract)   # W31a: the write-time rule of a plan-ns revision, checked before anything is written
     if contracts.revision_path(ledger, selector, 1).exists(): raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
-    task_id = _anchor(ledger, name, contract['title'])
-    sha = contracts.write_revision(ledger, selector, 1, contract)
-    with ledger.transaction(write=True) as conn:
+    sha = content_hash(contract)                # what write_revision records as content_sha
+
+    def first_revision(conn, task_id):
+        # One write transaction with the anchor row (task_intake.submit `_then`): a refusal here rolls the anchor back. The file is
+        # written last, so a refused event write leaves no file either.
         if derive(ledger, conn, selector)['latest']: raise LedgerError(f'Plan {name} already exists; change it with plan amend.')
         emit(ledger, conn, task_id, 'plan.proposed', {'plan': name, 'revision': 1, 'sha': sha, 'author': author, 'content_author': author, 'title': contract['title'], **metadata})
         solution_link.record(ledger, conn, task_id, selector, 1, sha, contract)
+        if contracts.write_revision(ledger, selector, 1, contract) != sha:
+            raise LedgerError(f'Plan {name}: the written revision does not hash to the proposed contract.')
+
+    _anchor(ledger, name, contract['title'], then=first_revision)
     return show(ledger, selector)
 
 
@@ -402,6 +423,9 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
         if choose is not None and choose != approved.get('chosen'):
             raise LedgerError(f'The choice was made once ({approved.get("chosen")}); changing it needs plan amend (a change request).')
         return show(ledger, name)
+    from . import root_writer
+    with ledger.transaction() as conn:                       # T26 E4: refused before step 0 runs (repeated at the write below)
+        root_writer.check_approval(ledger, conn, state, contract)
     should = {i['id'] for i in contract['items'] if i['tier'] == 'should'}
     ticked = sorted(set(tick))
     if set(ticked) - should: raise LedgerError('Only should items can be ticked: ' + ','.join(sorted(set(ticked) - should)))
@@ -412,6 +436,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
         if state['latest'] != revision or state['revisions'][revision]['sha'] != sha:
             raise LedgerError('The plan changed while step 0 was being checked; run approve again.')
         if state['status'] == 'closed': raise LedgerError('The root was closed while step 0 was being checked.')
+        root_writer.check_approval(ledger, conn, state, contract)     # a writer that went live meanwhile; nothing is recorded
         if verdict['results']: step0.record_run(ledger, conn, state['task_id'], name, revision, sha, verdict, 'approve')
         if verdict['ok']:
             solution_link.validate_root(ledger, conn, state, contract, sha, revision)

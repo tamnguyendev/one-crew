@@ -2,12 +2,26 @@
 from .ledger import LedgerError
 
 
+def owned_key(path):
+    """W14b: the identity of an owned path for overlap, by the rule of v2 authority.owned_match (scope paths compared lexically,
+    '\\' as '/', a leading './' and trailing '/' dropped, case-folded): 'a.txt' and 'A.txt' are one file on Windows."""
+    value = str(path).replace('\\', '/')
+    while value.startswith('./'): value = value[2:]
+    return value.rstrip('/').casefold()
+
+
+def owned_overlap(first, second):
+    """Do two owned-path lists share a file (case-folded; a path also covers what lies under it, as a directory prefix does in owned_match)?"""
+    a, b = {owned_key(p) for p in first}, {owned_key(p) for p in second}
+    return bool(a & b) or any(x.startswith(y + '/') or y.startswith(x + '/') for x in a for y in b)
+
+
 def ready_batch(state):
     ready = [r for r in state['plan']['tasks'] if r['id'] not in state['done'] and r['id'] not in state.get('branch_errors', {}) and set(r['depends_on']) <= set(state['done'])]
     if len(ready) < 2:
         return ready[:1]
     first = ready[0]
-    second = next((r for r in ready[1:] if not set(r['owned']) & set(first['owned'])), None)
+    second = next((r for r in ready[1:] if not owned_overlap(r['owned'], first['owned'])), None)
     return [first, second] if second else [first]
 
 

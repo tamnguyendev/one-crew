@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R5-ANSWER-1",
+ "file": "tests/test_wf_answer_effects.py",
+ "old_sha256": "586898b4137630dfb6a6c4958578032723789e1d01f0d6dc96faf1f723953a83",
+ "new_sha256": "917836764948a1daee37091664c01051e2a96cda72c3bdfcecd449862c925bd8",
+ "reason": "Round 5 (Codex P1-2): reply and mandatory effect commit in one transaction on every entry route. Every test now ends with the invariant check (no answered request of a workflow root without its applied effect); the reconcile test states that it models a PREVIOUS build (reply alone, then reconcile) and checks the helper flags that state before repair. No assertion weakened; atomicity counter-examples live in tests.test_wf_answer_atomicity.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 5 sau xác nhận Codex 3 P1 + 2 P2): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 5 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

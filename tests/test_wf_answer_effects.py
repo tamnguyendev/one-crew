@@ -3,11 +3,19 @@ from onecrew.ledger import LedgerError
 from onecrew.v2 import answer_effects, namespaces, outcome, plan, questions, report, verdict
 from tests.test_v2_l1 import Fixture, plan_json, milestone, BAD
 from tests.test_wf_engine import EngineFixture, node
+from tests.test_wf_answer_atomicity import assert_no_answered_without_effect
 from unittest.mock import patch
 import os
 
 
 class AnswerEffectTests(Fixture):
+    def tearDown(self):
+        # P1-2 invariant, after every test: no committed owner answer of a workflow root lacks its mandatory effect
+        for name in ('P1', 'plan:Legacy'):
+            with self.ledger.transaction() as conn:
+                state = plan.derive(self.ledger, conn, name) if conn else None
+            if state: assert_no_answered_without_effect(self.ledger, state['task_id'])
+
     def test_actual_old_root_remains_stopped_and_readable_by_old_cli(self):
         import json
         from pathlib import Path
@@ -64,11 +72,16 @@ class AnswerEffectTests(Fixture):
         with self.assertRaises(LedgerError): verdict.run(self.ledger, 'P1', 'M1')
 
     def test_recorded_but_unapplied_reply_reconciles_without_answering_again(self):
+        # Premise: this models data left by a PREVIOUS build, whose questions.answer committed the reply and the effect in two
+        # transactions and crashed between them. It is seeded with the old two-step path (reply alone); the current
+        # questions.answer cannot produce it (tests.test_wf_answer_atomicity). reconcile/apply without conn repairs it.
         req = self.stopped()
         self.ledger.reply(req['id'], req['revision'], 'stop', source='owner-terminal',
                           reference='stop after crash', decided_by='user', by='user')
         self.assertEqual(plan.show(self.ledger, 'P1')['status'], 'stopped_with_report')
-        applied = answer_effects.apply(self.ledger, req['id'])
+        with self.assertRaisesRegex(AssertionError, 'mandatory effect'):
+            assert_no_answered_without_effect(self.ledger, req['task_id'])
+        applied = answer_effects.reconcile(self.ledger, 'P1')[0]
         self.assertTrue(applied['applied'])
         self.assertEqual(plan.show(self.ledger, 'P1')['status'], 'closed')
         self.assertEqual(self.kinds().count('request.answered'), 1)
@@ -81,6 +94,9 @@ class AnswerEffectTests(Fixture):
 
 
 class WorkflowAnswerTests(EngineFixture):
+    def tearDown(self):
+        assert_no_answered_without_effect(self.ledger, plan.show(self.ledger, 'P1')['anchor_task'])
+
     def test_root_command_pass_cannot_bypass_internal_delivery_handoff(self):
         verdict.run(self.ledger,'P1','M1')
         artifact=verdict.artifact(self.ledger,'P1')['artifact_sha']

@@ -157,6 +157,20 @@ def _plan_group(conn, task_id):
     return result
 
 
+def plan_allocation(conn, root_task_id, project_id, *, same_name=None, exclude=None):
+    """W10: calls granted (current limits, extensions included) to the jobs charged to an approved root WITHOUT the root-budget
+    capability: jobs sealed to it by plan binding, plus the old unbound job keyed by the plan name (`same_name`, given only when that
+    name resolves to this root). Such a root keeps its old semantics (no budget.group, no shared runtime counter); this sum is what
+    lets a new job key never be a new budget. The anchor and `exclude` are not counted."""
+    rows = conn.execute("SELECT t.* FROM tasks t WHERE t.project_id=? AND t.id!=? AND ("
+                        "json_extract(t.payload,'$.plan_binding.root_task_id')=? OR EXISTS (SELECT 1 FROM events e WHERE e.task_id=t.id "
+                        "AND e.kind='task.submitted' AND json_extract(e.payload,'$.plan_binding.root_task_id')=?) OR "
+                        "(? IS NOT NULL AND t.request_key=? AND json_extract(t.payload,'$.plan_binding') IS NULL AND NOT EXISTS (SELECT 1 FROM events e "
+                        "WHERE e.task_id=t.id AND e.kind='task.submitted' AND json_extract(e.payload,'$.plan_binding') IS NOT NULL)))",
+                        (project_id, root_task_id, root_task_id, root_task_id, same_name, same_name)).fetchall()
+    return sum(local_current(conn, row)['limits']['max_calls'] for row in rows if row['id'] != exclude)
+
+
 def group(conn, task_id):
     existing, root = _existing_group(conn, task_id), _plan_group(conn, task_id)
     if existing is None:

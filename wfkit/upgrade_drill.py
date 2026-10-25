@@ -49,11 +49,22 @@ def snapshot(state):
 
 
 def guard_swap(state, expected_scan):
-    """Reuse the existing rollback harness, adding a fresh ledger/input fence."""
+    """Reuse the existing rollback harness, adding a fresh ledger/input fence.
+
+    `expected_scan` is the installed build's `compat scan --json` report: it decides too (W41). The swap is
+    allowed only when BOTH the checkout scan and that report show zero blocks on the same fenced ledger."""
+    total = (expected_scan.get('blocking') or {}).get('total') if isinstance(expected_scan, dict) else None
+    if type(total) is not int or total < 0:
+        raise LedgerError('The installed compat scan report has no blocking total; refuse installation swap.')
     current = rollback.rollback_drill(state)
     if not current['ran']: return current
     if any(current['scan'].get(key) != expected_scan.get(key) for key in ('ledger_sha','inputs_sha','old_version')):
         raise LedgerError('State or compatibility inputs changed after scan; refuse installation swap.')
+    if total > 0:
+        blocks = [b for root in expected_scan.get('roots', []) for b in root.get('blocks', [])]
+        return {'ran': False, 'reason': 'installed_scan_blocked', 'blocks': blocks,
+                'conditions': sorted({b.get('id') for b in blocks if b.get('id')}), 'scan': expected_scan,
+                'checkout_scan': current['scan']}
     return current
 
 

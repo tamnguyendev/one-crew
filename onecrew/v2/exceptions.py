@@ -48,6 +48,14 @@ def _notices(conn, task):
             conn.execute('SELECT seq,payload,created_at FROM events WHERE task_id=? AND kind=? ORDER BY seq', (task, KIND))]
 
 
+def _exceedance(notice):
+    """W24b: the baseline exceedance a baseline notice reports (category + baseline event), or None.
+
+    Older notices carry no `exceedance` field; their first evidence is the baseline event."""
+    if notice.get('category') != 'baseline' or 'baseline_upper_exceeded' not in notice.get('triggers', []): return None
+    return notice.get('exceedance') or 'baseline_upper:' + notice['evidence'][0].removeprefix('event:')
+
+
 def _previous_upper(forecast):
     """Remaining range immediately before the newest forecast/additional event."""
     history = forecast['history']
@@ -106,7 +114,9 @@ def observe(ledger, selector, now=None):
                     source = linked[-1] if linked else last
                     cause = 'additional:' + source['key'] if source in additions else content_hash(sorted(source['evidence']))
                     evidence = [f'event:{baseline["event"]}', f'event:{last["event"]}'] + source['evidence']
+                    exceedance = f'baseline_upper:{baseline["event"]}' if 'baseline_upper_exceeded' in reasons else None
                     candidates.append({'category': 'baseline', 'cause': cause, 'reason': source['reason'],
+                        **({'exceedance': exceedance} if exceedance else {}),
                         'evidence': evidence, 'acceptance': source.get('acceptance', []),
                         'threshold_seconds': threshold, 'baseline_upper_seconds': baseline_high,
                         'total_upper_lower_bound_seconds': projected, 'triggers': reasons,
@@ -128,17 +138,28 @@ def observe(ledger, selector, now=None):
                     'reason': question['reason'], 'evidence': [f'request:{request["id"]}:{request["revision"]}'],
                     'request': request['id'], 'request_revision': request['revision'],
                     'user_action': question['question'], 'still_running': question['action']['parameters'].get('still_running', [])})
-        old = {(p.get('category'), p.get('cause')) for p in _notices(conn, state['task_id'])}
+        notices = _notices(conn, state['task_id'])
+        old = {(p.get('category'), p.get('cause')) for p in notices}
         recorded = []
         for candidate in candidates:
             key = (candidate['category'], candidate['cause'])
             if key in old: continue
+            if candidate.get('exceedance'):
+                # W24b: one exceedance of the baseline is one cause, whatever evidence each reforecast or
+                # internal ETA carries. It is notified again only when the relative-change policy is crossed
+                # again against the LAST notified value (and by a cause not already notified).
+                prior = [p for p in notices if _exceedance(p) == candidate['exceedance']]
+                if prior:
+                    notified = prior[-1].get('total_upper_lower_bound_seconds')
+                    limit = notified * (1 + baseline['policy']['relative_change']) if notified is not None else None
+                    if limit is None or candidate['total_upper_lower_bound_seconds'] <= limit: continue
             if not candidate['reason'].strip() or not candidate['evidence']:
                 raise LedgerError('An exception requires a nonempty reason and evidence.')
             value = dict(candidate, version=1, plan=state['name'], revision=(state['approved'] or {}).get('revision', state['latest']),
                          occurred_at=clock.isoformat(), eta=_eta(forecast), grants_authority=False)
             plan.emit(ledger, conn, state['task_id'], KIND, value)
             old.add(key)
+            notices.append(value)
             recorded.append(value)
         return recorded
 
@@ -214,11 +235,19 @@ def message(conn, row):
             return None
         category, cause = 'question', request['id'] + ':' + revision
     else:
-        if payload.get('version') != 1 or payload.get('category') not in ('baseline', 'deadline', 'blocker'):
+        if payload.get('version') != 1 or payload.get('category') not in ('baseline', 'deadline', 'blocker', estimates.WARNING):
             return None
         category, cause = payload['category'], payload['cause']
-        same = [p for p in _notices(conn, anchor['id']) if p.get('category') == category and p.get('cause') == cause]
+        notices = _notices(conn, anchor['id'])
+        same = [p for p in notices if p.get('category') == category and p.get('cause') == cause]
         if not same or row['seq'] != same[0]['event']: return None
+        exceedance = _exceedance(payload)
+        if exceedance:
+            # W24b: a newer notice of the same exceedance supersedes an undelivered older card; the
+            # newest is shown with the time the exceedance was first notified.
+            chain = [p for p in notices if _exceedance(p) == exceedance]
+            if row['seq'] != chain[-1]['event']: return None
+            payload = dict(payload, occurred_at=chain[0].get('occurred_at') or chain[0]['event_at'])
         if category == 'blocker':
             found = conn.execute('SELECT * FROM requests WHERE id=? AND task_id=?', (payload.get('request'), anchor['id'])).fetchone()
             request = dict(found, question=json.loads(found['payload'])) if found else None

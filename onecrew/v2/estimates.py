@@ -258,11 +258,51 @@ def observe_internal(ledger, selector, *, reason, evidence):
     return value
 
 
-def read(ledger, selector):
+def _clock(now):
+    """The injected clock (tests pass an ISO string); default: this machine's UTC time."""
+    value = now or utcnow()
+    try:
+        parsed = value if isinstance(value, dt.datetime) else dt.datetime.fromisoformat(value)
+        if parsed.tzinfo is None: raise ValueError('timezone required')
+        return parsed
+    except (TypeError, ValueError) as error:
+        raise LedgerError('now: an ISO time with timezone.') from error
+
+
+def _wall_clock(deadline, now):
+    """Time to the deadline (T36b [E4]): deadline - now, in calendar seconds. Waiting has already consumed this time, so it counts toward the
+    deadline; it is NOT remaining execution work and NOT a completion ETA (nothing here is calibrated). After the deadline the figure is
+    negative and `deadline_passed` is True: it is never clamped. The deadline itself is only read, never moved."""
+    if not deadline:
+        return {'wall_clock_remaining_seconds': None, 'deadline_passed': None, 'wall_clock_kind': 'time_to_deadline',
+                'wall_clock_reason': 'No deadline was approved; there is no time-to-deadline figure.'}
+    remaining = (dt.datetime.fromisoformat(deadline) - _clock(now)).total_seconds()
+    return {'wall_clock_remaining_seconds': remaining, 'deadline_passed': remaining < 0, 'wall_clock_kind': 'time_to_deadline',
+            'wall_clock_reason': 'Calendar time from now to the approved deadline (waiting included); not remaining execution work, not an ETA.'}
+
+
+def _measured(attempts):
+    """Execution = sum of each attempt's execution (waits inside it already excluded); waiting = union of all observed waits.
+    Either is 'unknown' as soon as one input is unknown or not measured: never a partial sum shown as the total, never 0."""
+    from .executors import UNKNOWN, waits_seconds
+    values = [a.get('execution_seconds', UNKNOWN) for a in attempts]
+    execution = sum(values) if values and all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in values) else UNKNOWN
+    waits = [w for a in attempts for w in a.get('waits', [])]
+    return execution, waits_seconds(waits)
+
+
+def _warnings(conn, task):
+    rows = [dict(json.loads(r['payload']), event=r['seq']) for r in conn.execute(
+        "SELECT seq,payload FROM events WHERE task_id=? AND kind='notice.exception' ORDER BY seq", (task,))]
+    return [p for p in rows if p.get('category') == WARNING]
+
+
+def read(ledger, selector, now=None):
     with ledger.transaction() as conn:
         state = plan.anchor_events(ledger, conn, selector)
         rows = _events(conn, state['task_id'])
         internal = _internal_projection(ledger, conn, selector, rows)
+        warnings = _warnings(conn, state['task_id'])
     baseline = next((p for p in rows if p.get('estimate_type') == 'baseline'), None)
     forecasts = [p for p in rows if p.get('estimate_type') == 'eta']
     additions = [p for p in rows if p.get('estimate_type') == 'additional']
@@ -277,20 +317,71 @@ def read(ledger, selector):
     if internal is not None:
         basis_current = bool(last and last.get('source') == 'internal_plan' and last.get('basis_sha') == internal['basis_sha'])
         if not basis_current: remaining = None
-    from .executors import summary, UNKNOWN, NOT_MEASURED
+    from .executors import summary
     attempts = summary(ledger, selector)['attempts']
-    def measured(field):
-        values = [a.get(field, UNKNOWN) for a in attempts]
-        return sum(values) if values and all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in values) else UNKNOWN
-    return {'plan': state['name'], 'baseline': baseline, 'history': forecasts, 'additional': additions,
-            'remaining_seconds': remaining, 'execution_seconds': measured('elapsed_seconds'),
-            'waiting_seconds': measured('wait_seconds'), 'deadline': baseline.get('deadline') if baseline else None,
-            'calibrated': False, 'measurement_sources': attempts,
-            'remaining_kind': 'execution_work', 'internal_basis_current':basis_current,
-            'remaining_reason':None if basis_current else 'Internal state changed; a sourced forecast observation is required.',
-            'wall_clock_remaining_seconds':None,
-            'wall_clock_reason':internal['wall_clock_reason'] if internal else 'Elapsed-time forecast is not calibrated.',
-            'outside_authority': [p['key'] for p in additions if p['category'] == 'outside_authority']}
+    execution, waiting = _measured(attempts)
+    deadline = baseline.get('deadline') if baseline else None
+    return dict({'plan': state['name'], 'baseline': baseline, 'history': forecasts, 'additional': additions,
+                 'remaining_seconds': remaining, 'execution_seconds': execution,
+                 'waiting_seconds': waiting, 'deadline': deadline,
+                 'calibrated': False, 'measurement_sources': attempts,
+                 'remaining_kind': 'execution_work', 'internal_basis_current': basis_current,
+                 'remaining_reason': None if basis_current else 'Internal state changed; a sourced forecast observation is required.',
+                 'budget_warnings': warnings,
+                 'outside_authority': [p['key'] for p in additions if p['category'] == 'outside_authority']}, **_wall_clock(deadline, now))
+
+
+# ---- T36b [E17]: the 70% budget warning of a v2 root ------------------------------------------------------------------------------
+
+WARNING = 'budget_warning'
+
+
+def warn_budget(ledger, selector):
+    """One in-authority notice when the measured use of the root's approved budget crosses the agreed warning fraction.
+
+    The policy is v1's (task_intake.POLICY warning_fraction, thresholds from budget_policy.watch_policy). v1's effort_watch itself is not
+    reused: it runs on v1 job checkpoints/Control and turns the warning into a `job.effort_warning` REQUEST, which T36b [E17] forbids while
+    the work is within authority. Here the warning is a `notice.exception` event (category budget_warning, grants_authority False,
+    user_action None, request None) with reason, evidence and what changed - no request, no approval, no budget or deadline change.
+    Axes: execution seconds (waits excluded, [E4]) against budget.time, and executor-measured calls against budget.max_calls. Unknown or
+    not-measured attempts add nothing (the known sum is a lower bound, flagged; nothing is guessed). One notice per axis/revision/threshold:
+    a later observation above the same threshold writes nothing, and nothing is written periodically."""
+    from ..budget_policy import watch_policy
+    from ..task_intake import POLICY
+    from .executors import summary
+    written = []
+    with ledger.transaction(write=True) as conn:
+        state = plan.anchor_events(ledger, conn, selector)
+        if not state['approved'] or state['status'] in ('accepted', 'closed'): return written
+        revision = state['approved']['revision']
+        budget = (plan.load(ledger, state, revision)[0] or {}).get('budget') or {}
+        limits = {'execution_seconds': budget['time'] * 60 if budget.get('time') else None, 'calls': budget.get('max_calls')}
+        policy = watch_policy(POLICY, limits['calls'] or 1, limits['execution_seconds'] or 1)
+        thresholds = {'execution_seconds': policy['seconds'], 'calls': policy['calls']}
+        attempts = summary(ledger, selector)['attempts']
+        old = {p.get('cause') for p in _warnings(conn, state['task_id'])}
+        for axis in ('execution_seconds', 'calls'):
+            if not limits[axis]: continue
+            known = [a for a in attempts if type(a.get(axis)) in (int, float)]
+            used = sum(a[axis] for a in known)
+            cause = f'{axis}:r{revision}:{thresholds[axis]}'
+            if used < thresholds[axis] or cause in old: continue
+            if axis == 'execution_seconds':
+                what, figure = 'thời gian thực thi (không tính thời gian chờ)', f'{used / 3600:g}/{limits[axis] / 3600:g} giờ'
+            else:
+                what, figure = 'lần gọi', f'{used:g}/{limits[axis]} lần gọi'
+            value = {'version': 1, 'category': WARNING, 'cause': cause, 'axis': axis, 'plan': state['name'], 'revision': revision,
+                     'reason': f'Đã dùng {policy["fraction"]:.0%} ngân sách {what}: {figure}. Vẫn trong quyền đã duyệt; OneCrew tiếp tục.',
+                     'evidence': ([f'contract:{state["name"]}@r{revision}:budget', f'approval:{state["approved"]["sha"]}']
+                                  + [f'executor.observed:{a["executor"]}:{a["attempt"]}' for a in known if a[axis]])[:20],
+                     'what_changed': {'used': used, 'limit': limits[axis], 'threshold': thresholds[axis],
+                                      'used_is_lower_bound': len(known) != len(attempts)},
+                     'policy': {'source': 'onecrew.task_intake.POLICY', 'version': POLICY['version'], 'fraction': policy['fraction']},
+                     'occurred_at': utcnow(), 'grants_authority': False, 'user_action': None, 'request': None}
+            plan.emit(ledger, conn, state['task_id'], 'notice.exception', value)
+            old.add(cause)
+            written.append(value)
+    return written
 
 
 def main(argv):

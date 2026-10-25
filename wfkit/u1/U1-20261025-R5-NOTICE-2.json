@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R5-NOTICE-2",
+ "file": "tests/test_wf_t36b_gaps.py",
+ "old_sha256": "a168e7b4f8cc2fc8a964eda67887d1c8dd70509a8f742edfef330cfd5960e8b9",
+ "new_sha256": "934b9bad768b202e2a7be63c3cd9c7bd331bb3663a23414a1b8df7a305b0df66",
+ "reason": "Round 5 (Codex P2-1, audit W24b): the e4_e7 test now places the owner wait INSIDE the attempt (the Codex case) and keeps the after-attempt scenario as its own test; quiet-notice tests add the baseline-exceedance dedupe and the budget_warning card. No assertion weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 5 sau xác nhận Codex 3 P1 + 2 P2): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 5 commit on codex/wf-development",
+ "at": "2026-10-25"
+}

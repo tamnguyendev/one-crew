@@ -1,5 +1,5 @@
 # Run the T54 bundle producer for every release (W40-R01 … W40-RX2) and write an index release -> release-check.json for the release-notes
-# generator and the package builder.   python docs/wf/audit/tools/run_bundles.py <out root (new, under OS temp)> [--gate decision.json] [--only R05,R08]
+# generator and the package builder.   python docs/wf/audit/tools/run_bundles.py <out root (new, under OS temp)> [--gate decision.json] [--only R05,R08] [--first-release] [--baseline-wheel stored.whl] [--gate-history CG-receipt.json ...]
 import argparse, json, os, subprocess, sys, tempfile
 from pathlib import Path
 
@@ -8,7 +8,10 @@ RELEASES = ['R01', 'R02', 'R03', 'R04', 'R05', 'R06', 'R07', 'R08', 'RP', 'RX1',
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument('out'); ap.add_argument('--gate'); ap.add_argument('--only'); ap.add_argument('--matrix', help='W45 matrix dir (RP)'); a = ap.parse_args()
+    ap = argparse.ArgumentParser(); ap.add_argument('out'); ap.add_argument('--gate'); ap.add_argument('--only'); ap.add_argument('--matrix', help='W45 matrix dir (RP)')
+    ap.add_argument('--baseline-wheel', help='stored baseline wheel (with sidecar) every producer reuses instead of rebuilding d3120c6')
+    ap.add_argument('--gate-history', action='append', help='CG- delivery gate receipt (repeatable) passed to every producer: the normal INPUTS rule')
+    ap.add_argument('--first-release', action='store_true', help='pass --first-release to every producer (first delivery; judged as INPUTS(bootstrap))'); a = ap.parse_args()
     out = Path(a.out).resolve()
     if not out.is_relative_to(Path(tempfile.gettempdir()).resolve()): sys.exit('out must be under the OS temp dir (the producer refuses anything else)')
     out.mkdir(parents=True, exist_ok=True)
@@ -17,7 +20,7 @@ def main():
     index, summary = {}, {}
     for rel in (a.only.split(',') if a.only else RELEASES):
         target = out / rel
-        cmd = [sys.executable, '-X', 'utf8', '-m', 'wfkit.release_bundle', rel, '--out', str(target)] + (['--gate', a.gate] if a.gate else []) + (['--matrix', a.matrix] if a.matrix and rel == 'RP' else [])
+        cmd = [sys.executable, '-X', 'utf8', '-m', 'wfkit.release_bundle', rel, '--out', str(target)] + (['--gate', a.gate] if a.gate else []) + (['--matrix', a.matrix] if a.matrix and rel == 'RP' else []) + (['--first-release'] if a.first_release else []) + (['--baseline-wheel', str(Path(a.baseline_wheel).resolve())] if a.baseline_wheel else []) + [x for h in (a.gate_history or []) for x in ('--gate-history', str(Path(h).resolve()))]
         done = subprocess.run(cmd, cwd=str(R), env=env, capture_output=True, text=True, encoding='utf-8', errors='replace')
         line = next((l for l in done.stdout.splitlines() if l.startswith('{')), None)
         result = json.loads(line) if line else {'decision': 'error', 'reason': (done.stdout + done.stderr)[-600:]}

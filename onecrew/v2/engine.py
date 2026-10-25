@@ -157,7 +157,7 @@ def _ready(view,slots=1):
     tasks, done, blocked = [], [], {}
     active=view.get('active_nodes',[])
     available=max(0,slots-len(active))
-    owned={path for item in active for path in item['write']}
+    owned=[path for item in active for path in item['write']]      # W14b: compared case-folded (dependency_core.owned_overlap)
     if view['definition'] and view['root_status'] == 'approved':
         for node in view['definition']['nodes']:
             nid, record = node['id'], view['nodes'][node['id']]
@@ -165,7 +165,7 @@ def _ready(view,slots=1):
             done.extend(nid + '@' + status for status, value in STATES.items() if rank >= value)
             if record['phase'] != 'pending': done.append(nid)
             dependencies = [edge['node'] + '@' + edge['requires'] for edge in node['depends']]
-            if not eligible(view, nid)['ready'] or not available or owned & set(node['write']):
+            if not eligible(view, nid)['ready'] or not available or dependency_core.owned_overlap(owned, node['write']):
                 blocked[nid] = True
             tasks.append({'id': nid, 'owned': node['write'], 'depends_on': dependencies})
     return dependency_core.ready_batch({'plan': {'tasks': tasks}, 'done': done, 'branch_errors': blocked})[:available]
@@ -257,7 +257,72 @@ def publish_retained(ledger, selector, *, node=None):
                 pin_evidence(ledger, root['selector'], candidate['artifact'])
                 _event(ledger, conn, view, nid, 'node.produced', progress_status='unknown', retained_event=row['seq'], **candidate)
                 return {'node': nid, 'state': 'produced', 'released_retained': True, **candidate}
+    return adopt_managed(ledger, selector, node=node)
+
+
+def adopt_managed(ledger, selector, *, node=None):
+    """W37b/W36 (crash point d): the controller died after ManagedExecutor saved the `candidate` checkpoint and before the engine published
+    it, so the node stays `running` on a settled attempt and nothing would ever run it again. On restart the engine adopts that saved, bound
+    candidate exactly as `step` would have: published as node.produced (same attempt, no new process, no new charge), held when a pause was
+    asked, continued when it is partial, retained when its inputs are held — or, when the node's generation has moved since, recorded as
+    node.result_retained under the attempt's original identities (never published into the new generation). One adoption per call."""
+    from . import managed_executor
+    with ledger.transaction() as conn:
+        root, _, _ = ip.context(ledger, conn, selector, 'sequential-engine')
+        rows = [r for r in managed_executor.adoptable(ledger, conn, root['task_id']) if node is None or r['node'] == node]
+    if not rows: return None
+    adapter = managed_executor.ManagedExecutor(ledger, initialize=False)
+    for row in rows:
+        if 'pause_requested' in row['phases'] and 'paused' not in row['phases']:
+            adapter._ack_pause(row['attempt'])          # the acknowledgement the crashed controller did not reach (the real safe point check)
+    with ledger.transaction(write=True) as conn:
+        root, _, _ = ip.context(ledger, conn, selector, 'sequential-engine')
+        view = state(ledger, root['selector'], conn)
+        for row in managed_executor.adoptable(ledger, conn, root['task_id']):
+            if node is not None and row['node'] != node: continue
+            return _adopt(ledger, conn, root, view, row)
     return None
+
+
+def _adopt(ledger, conn, root, view, row):
+    nid, attempt_id, candidate = row['node'], row['attempt'], row['candidate']
+    record = view['nodes'].get(nid)
+    if (record is None or record['phase'] != 'running' or record['attempt'] != attempt_id or record['generation'] != row['generation']
+            or row['internal_revision'] not in record.get('valid_internal_revisions', [view['internal_revision']])):
+        plans.emit(ledger, conn, view['root'], 'node.result_retained', {
+            'plan': namespaces.parse(view['selector'])[0], 'revision': view['contract_revision'], 'internal_revision': row['internal_revision'],
+            'node': nid, 'generation': row['generation'], 'attempt': attempt_id, 'candidate': candidate, 'contract_sha': view['contract_sha'],
+            'grants_delivery': False, 'adopted_after_crash': True,
+            'reason': 'Managed candidate saved before the controller was lost; the node generation moved since, so it is retained, not published'})
+        return {'node': nid, 'state': 'retained', 'attempt': attempt_id, 'adopted_after_crash': True, **candidate}
+    phases = set(row['phases'])
+    held = 'paused' if 'paused' in phases else 'stop_requested' if 'stop_requested' in phases else 'pause_requested' if 'pause_requested' in phases else None
+    if held:
+        _event(ledger, conn, view, nid, 'node.held', reason='Managed candidate adopted after a crash; the attempt was asked to ' + held.replace('_', ' '),
+               classification='executor_' + held, candidate=candidate, adopted_after_crash=True)
+        return {'node': nid, 'state': 'held', 'executor_state': held, 'candidate': candidate, 'adopted_after_crash': True}
+    try:
+        body = json.loads(Snapshots(ledger.state_root).read_blob(candidate['receipt']))
+    except ValueError:
+        body = {}
+    if not _publication_current(view, view, nid):
+        _retain(ledger, conn, view, nid, 'Managed candidate adopted after a crash while its inputs are held', candidate=candidate, attempt=attempt_id)
+        return {'node': nid, 'state': 'retained', 'adopted_after_crash': True, **candidate}
+    if isinstance(body, dict) and body.get('partial') is True:
+        _retain(ledger, conn, view, nid, 'Partial candidate: work remains after the safe point', candidate=candidate, attempt=attempt_id)
+        _continue(ledger, conn, view, nid, candidate, attempt_id, body.get('continuation'))
+        return {'node': nid, 'state': 'continuing', 'generation': record['generation'] + 1, 'resume_artifact': candidate['artifact'],
+                'continues_attempt': attempt_id, 'adopted_after_crash': True}
+    progress = progress_track.read(ledger, root['selector'], nid)
+    progress_status = progress['checkpoint']['status'] if progress else 'unknown'
+    if progress_status in ('blocked', 'waiting'):
+        _event(ledger, conn, view, nid, 'node.held', reason=progress['checkpoint']['reason'], classification='progress_' + progress_status,
+               candidate=candidate, adopted_after_crash=True)
+        return {'node': nid, 'state': 'held' if progress_status == 'blocked' else 'waiting', 'progress': progress_status, 'adopted_after_crash': True}
+    from .retention import pin_evidence
+    pin_evidence(ledger, root['selector'], candidate['artifact'])
+    _event(ledger, conn, view, nid, 'node.produced', progress_status=progress_status, adopted_attempt=attempt_id, adopted_after_crash=True, **candidate)
+    return {'node': nid, 'state': 'produced', 'adopted_after_crash': True, **candidate}
 
 
 def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
@@ -375,6 +440,11 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
         return {'node': nid, 'state': 'held', 'reason': str(error)}
     with ledger.transaction(write=True) as conn:
         current = state(ledger, root['selector'], conn)
+        mine = current['nodes'].get(nid) or {}
+        if (mine.get('attempt') == attempt['id'] and mine.get('generation') == view['nodes'][nid]['generation']
+                and mine.get('phase') != 'running'):
+            # W37b: the saved candidate of this attempt was already adopted (adopt_managed) — never published twice
+            return {'node': nid, 'state': mine.get('state') or mine.get('phase'), 'already_adopted': True, **produced}
         if not _publication_current(current, view, nid) or current['nodes'][nid]['attempt'] != attempt['id']:
             _retain(ledger, conn, view, nid, 'Root changed before artifact publication', candidate=produced, attempt=attempt['id'])
             return {'node': nid, 'state': 'retained', 'reason': 'Root changed; candidate delivery is refused', **produced}
@@ -387,6 +457,12 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
 
 def run_batch(ledger,selector,executor,*,slots=1,control=None):
     """Run the existing scheduler's bounded batch through the same step port."""
+    adopted=[]
+    for _ in range(201):                        # W37b: candidates saved before a lost controller are adopted first (bounded: one per node)
+        result=adopt_managed(ledger,selector)
+        if not result:break
+        adopted.append(result)
+    if adopted:return {'slots':slots,'results':adopted,'state':'adopted'}
     view=state(ledger,selector)
     choices=_ready(view,slots)
     if slots==2:

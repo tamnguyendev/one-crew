@@ -9,7 +9,8 @@
 #   3. the OWNER records the baseline with a reference; the same milestone then passes; recording again is idempotent;
 #   4. nothing else about the root changed: ID, revision, the approval rows, the earlier inconclusive verdict stay as they were;
 #   5. every onecrew module came from the venv (no checkout shadowing).
-# The verdict comes from `judge()` (mandatory steps + negative reasons + encoding-clean tails); the report's own `result` is never trusted.
+# The verdict comes from `judge()` (mandatory steps + negative reasons + encoding-clean tails); the report's own `result` is never trusted,
+# and each mandatory step's `ok` is recomputed from its recorded facts (ORACLE): the report supplies observations, never the oracle.
 # This tool is deliberately OUTSIDE the pinned kit (wfkit/package_check.py is frozen in the snapshot gate); it reuses the kit's sha/Runner.
 import json
 import os
@@ -17,9 +18,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-CHECKOUT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(CHECKOUT))
-from wfkit import package_check as pc  # noqa: E402
+_HERE = Path(__file__).resolve().parent
+if (_HERE / 'package_check.py').is_file():   # shipped in a handover package (verify/legacy_core.py): the sibling copy, never a checkout
+    CHECKOUT = _HERE.parent                  # = the package folder; the work dir must be outside it
+    sys.path.insert(0, str(_HERE))
+    import package_check as pc  # noqa: E402
+else:
+    CHECKOUT = Path(__file__).resolve().parents[4]
+    sys.path.insert(0, str(CHECKOUT))
+    from wfkit import package_check as pc  # noqa: E402
 
 REQUIRED = ('wheel_sha', 'venv', 'pip_install', 'old_venv_previous_wheel', 'legacy_root_by_old_build', 'legacy_root_built', 'legacy_inconclusive_not_passed', 'legacy_route_in_handover',
             'baseline_ai_refused', 'baseline_bad_commit_refused', 'baseline_owner_recorded', 'legacy_passed_after_baseline',
@@ -27,36 +34,132 @@ REQUIRED = ('wheel_sha', 'venv', 'pip_install', 'old_venv_previous_wheel', 'lega
 NEGATIVE = {'baseline_ai_refused': 'AI cannot approve', 'baseline_bad_commit_refused': 'rev-parse --verify failed'}   # the product's own refusal texts (real run on wf-handover-6366137, 25/10)
 BAD_TAIL = ('UnicodeEncodeError', 'UnicodeDecodeError', "can't encode", 'codec can')
 
+# The oracle (Codex P1-1 principle): which steps are mandatory (REQUIRED) and what each step's `ok` means in terms of its recorded facts
+# are fixed HERE. The report supplies observations only; its `mandatory` and `ok` are compared with the oracle and refused when they differ.
+_MISSING = object()
+
+
+class _Facts:
+    def __init__(self, step):
+        self.step, self.missing = step, []
+
+    def __call__(self, key):
+        v = self.step.get(key, _MISSING)
+        if v is _MISSING:
+            self.missing.append(key)
+            return None
+        return v
+
+
+def _exit0(f):
+    return f('exit') == 0
+
+
+def _same(*vals):
+    return all(isinstance(v, (str, int)) and not isinstance(v, bool) and v != '' for v in vals) and len(set(vals)) == 1
+
+
+def _negative_ok(f):
+    """A negative step: the command failed, wrote no event and recorded no baseline (the reason text is checked against the tails)."""
+    code = f('exit')
+    return isinstance(code, int) and code != 0 and f('events_added') == 0 and f('baselines') == 0
+
+
+def _inconclusive(f):
+    integ = f('integrity')
+    integ = integ if isinstance(integ, dict) else {}
+    return (f('result') == 'inconclusive' and f('m1') != 'passed' and integ.get('classification') == 'insufficient'
+            and 'no approved baseline' in str(integ.get('error', '')))
+
+
+def _owner_recorded(f):
+    rec = f('recorded')
+    first = rec[0] if isinstance(rec, list) and len(rec) == 1 and isinstance(rec[0], dict) else {}
+    return (_exit0(f) and f('baselines') == 1 and _same(first.get('tree'), f('tree')) and _same(first.get('from_commit'), f('head')))
+
+
+def _identity(f):
+    verdicts = f('verdicts')
+    return (_exit0(f) and _same(f('anchor'), f('anchor_built'), f('anchor_counted_before'))
+            and f('revision') == f('revision_built') == 1 and f('approved_rows') == f('approved_rows_built') == 1
+            and isinstance(verdicts, list) and verdicts[:1] == ['inconclusive'] and verdicts[-1:] == ['pass'] and f('baselines') == 1)
+
+
+def _previous(f):
+    prev = f('previous')
+    return (_exit0(f) and f('venv_exit') == 0 and isinstance(prev, dict) and _same(prev.get('sha256'), f('previous_actual_sha256')))
+
+
+ORACLE = {
+    'wheel_sha': lambda f: _same(f('sha256'), f('actual_sha256')),
+    'venv': _exit0,
+    'pip_install': _exit0,
+    'old_venv_previous_wheel': _previous,
+    'legacy_root_by_old_build': _exit0,
+    'legacy_root_built': lambda f: _exit0(f) and f('observation') is True,
+    'legacy_inconclusive_not_passed': _inconclusive,
+    'legacy_route_in_handover': lambda f: f('route_in_page') is True and isinstance(f('o1_line'), str) and ' đạt ' not in f('o1_line'),
+    'baseline_ai_refused': _negative_ok,
+    'baseline_bad_commit_refused': _negative_ok,
+    'baseline_owner_recorded': _owner_recorded,
+    'legacy_passed_after_baseline': lambda f: f('m1') == 'passed' and f('result') == 'pass',
+    'legacy_identity_unchanged': _identity,
+    'modules_from_venv': lambda f: isinstance(f('modules'), int) and f('modules') > 5 and f('outside') == {},
+}
+assert set(ORACLE) == set(REQUIRED) and set(NEGATIVE) <= set(REQUIRED)
+
 
 def judge(report):
-    """-> {'result': 'pass'|'refused', 'reasons': [...]} from the mandatory steps only."""
+    """-> {'result': 'pass'|'refused', 'reasons': [...]}. Pure. Mandatory steps and their meaning are REQUIRED/ORACLE/NEGATIVE (this module's);
+    each mandatory `ok` is recomputed from the step's recorded facts and must agree with the recorded `ok`. Refused: a missing, demoted
+    (mandatory != True) or duplicated required step, a step without id, a missing fact, a negative step that did not fail for the expected
+    reason, an encoding error in any tail. The report's own `result` is only compared."""
     steps = report.get('steps')
     if not isinstance(steps, list) or not steps:
         return {'result': 'refused', 'reasons': ['report has no steps']}
     by_id, reasons = {}, []
     for s in steps:
+        if not isinstance(s, dict):
+            reasons.append('malformed step entry')
+            continue
         if not s.get('id'):
             reasons.append('step without id: ' + str(s.get('step')))
             continue
         if s['id'] in by_id:
-            reasons.append('duplicate step id: ' + s['id'])
+            reasons.append('duplicate step id (ambiguous): ' + s['id'])
+            continue
         by_id[s['id']] = s
     for rid in REQUIRED:
         s = by_id.get(rid)
         if s is None:
             reasons.append('mandatory step missing: ' + rid)
-        elif not s.get('ok'):
-            reasons.append('mandatory step failed: ' + rid)
-    for rid, needle in NEGATIVE.items():
-        s = by_id.get(rid)
-        if s and s.get('ok'):
+            continue
+        if s.get('mandatory', True) is not True:
+            reasons.append(f'mandatory step demoted: {rid} (the report says mandatory={s.get("mandatory")!r}; the oracle requires it)')
+        f = _Facts(s)
+        computed = bool(ORACLE[rid](f))
+        if f.missing:
+            reasons.append(f'fact missing for step {rid}: {", ".join(dict.fromkeys(f.missing))}')
+            continue
+        if rid in NEGATIVE:
+            if s.get('kind') != 'negative':
+                reasons.append(f'negative step {rid} is not recorded as negative')
             if s.get('exit') in (None, 0):
                 reasons.append(f'negative step {rid} did not fail the command')
-            if needle not in (s.get('stdout_tail', '') + s.get('stderr_tail', '')):
-                reasons.append(f'negative step {rid} failed for another reason than expected ({needle!r})')
-            if s.get('events_added') not in (0, None):
+            if NEGATIVE[rid] not in (str(s.get('stdout_tail', '')) + str(s.get('stderr_tail', ''))):
+                reasons.append(f'negative step {rid} failed for another reason than expected ({NEGATIVE[rid]!r})')
+                computed = False
+            if s.get('events_added') != 0:
                 reasons.append(f'negative step {rid} wrote events')
+        if not computed:
+            reasons.append('mandatory step failed: ' + rid)
+        if not isinstance(s.get('ok'), bool):
+            reasons.append(f'step {rid} records no boolean ok')
+        elif s['ok'] != computed:
+            reasons.append(f'step {rid}: recorded ok={s["ok"]} disagrees with the recorded facts (ok={computed})')
     for s in steps:
+        if not isinstance(s, dict):
+            continue
         text = ' '.join(str(s.get(k, '')) for k in pc.TAIL_KEYS)
         if any(b in text for b in BAD_TAIL):
             reasons.append('encoding error in step output: ' + str(s.get('id')))
@@ -109,7 +212,8 @@ def run(pkg, work, out=print):
 def _steps(pkg, work, report, runner, step, tails):
     manifest = json.loads((pkg / 'manifest.json').read_text(encoding='utf-8'))
     wheel = pkg / manifest['wheel']['file']
-    step('wheel_sha', 'wheel sha256 == manifest', pc.sha(wheel) == manifest['wheel']['sha256'], sha256=manifest['wheel']['sha256'])
+    actual = pc.sha(wheel)
+    step('wheel_sha', 'wheel sha256 == manifest', actual == manifest['wheel']['sha256'], sha256=manifest['wheel']['sha256'], actual_sha256=actual)
     venv = work / 'venv'
     code, so, se = runner.run([sys.executable, '-m', 'venv', venv])
     step('venv', 'venv created outside the checkout', code == 0 and not venv.resolve().is_relative_to(CHECKOUT), path=str(venv), **tails(code, so, se))
@@ -145,12 +249,14 @@ def _steps(pkg, work, report, runner, step, tails):
     code, so, se = runner.run([sys.executable, '-m', 'venv', old_venv])
     old_py = old_venv / ('Scripts' if win else 'bin') / ('python.exe' if win else 'python')
     old_exe = old_py.with_name('onecrew' + ('.exe' if win else ''))
-    ok = bool(prev) and code == 0 and pc.sha(pkg / prev['file']) == prev['sha256']
+    venv_exit = code
+    prev_actual = pc.sha(pkg / prev['file']) if prev and (pkg / prev['file']).is_file() else None
+    ok = bool(prev) and code == 0 and prev_actual == prev['sha256']
     if ok:
         code, so, se = runner.run([old_py, '-m', 'pip', 'install', '--no-index', '--no-build-isolation', pkg / prev['file']])
         ok = code == 0
     step('old_venv_previous_wheel', 'previous wheel of the package (sha256 == manifest) installed in a second venv', ok,
-         previous=prev, **tails(code, so, se))
+         previous=prev, venv_exit=venv_exit, previous_actual_sha256=prev_actual, **tails(code, so, se))
     code, so, se = runner.run([old_exe, '--project', str(project), '--state-root', str(state), 'plan', 'propose', 'legacy', '--file', str(work / 'contract.json'),
                                '--author', 'old-build-fixture'])
     step('legacy_root_by_old_build', 'the OLD build proposed the root (legacy `plan:` namespace)', code == 0, **tails(code, so, se))
@@ -197,14 +303,15 @@ emit({'anchor': a, 'revision': st['latest'], 'approved_rows': sum(1 for k, _ in 
 '''
     code, so, se = runner.run([py, '-I', '-c', body_a, str(work / 'contract.json')], cwd=str(work))
     line = next((l for l in so.splitlines() if l.startswith('@@')), None)
-    step('legacy_root_built', 'legacy root (old approval shape, approval before every commit) built on the installed wheel', code == 0 and line is not None, **tails(code, so, se))
+    step('legacy_root_built', 'legacy root (old approval shape, approval before every commit) built on the installed wheel', code == 0 and line is not None,
+         observation=line is not None, **tails(code, so, se))
     a = json.loads(line[2:])
     first = a['first']
     step('legacy_inconclusive_not_passed', 'first verdict is inconclusive (insufficient integrity, no approved baseline) and M1 is NOT passed',
          first['result'] == 'inconclusive' and first['m1'] != 'passed' and (first.get('integrity') or {}).get('classification') == 'insufficient'
          and 'no approved baseline' in str((first.get('integrity') or {}).get('error', '')), **first)
     step('legacy_route_in_handover', 'handover page names the owner route (`onecrew verdict baseline`) and does not mark O1 as achieved',
-         a['route_in_page'] and ' đạt ' not in a['o1_line'], o1_line=a['o1_line'])
+         a['route_in_page'] and ' đạt ' not in a['o1_line'], o1_line=a['o1_line'], route_in_page=a['route_in_page'] is True)
 
     def baseline(commit, reference, extra_env=None):
         env = dict(runner.env)
@@ -231,16 +338,16 @@ emit({'n': len(ev), 'baselines': [p for k, p in ev if k == 'plan.baseline_record
     code, so, se = baseline(head, 'AI tries', {'ONECREW_ACTOR': 'claude'})
     after = count()
     step('baseline_ai_refused', 'an AI session (ONECREW_ACTOR=claude) cannot record the baseline', code != 0 and after['n'] == before['n'] and not after['baselines'],
-         kind='negative', events_added=after['n'] - before['n'], **tails(code, so, se))
+         kind='negative', events_added=after['n'] - before['n'], baselines=len(after['baselines']), **tails(code, so, se))
     code, so, se = baseline('deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', 'owner with a commit that is not in the repo')
     after = count()
     step('baseline_bad_commit_refused', 'a commit that is not in the repository is refused', code != 0 and after['n'] == before['n'] and not after['baselines'],
-         kind='negative', events_added=after['n'] - before['n'], **tails(code, so, se))
+         kind='negative', events_added=after['n'] - before['n'], baselines=len(after['baselines']), **tails(code, so, se))
     code, so, se = baseline(head, 'legacy continuation check on a throw-away ledger (not an owner action)')
     after = count()
     step('baseline_owner_recorded', 'the owner records the baseline from a real commit with a reference (one plan.baseline_recorded, tree of that commit)',
          code == 0 and len(after['baselines']) == 1 and after['baselines'][0].get('tree') == tree and after['baselines'][0].get('from_commit') == head,
-         recorded=after['baselines'][:1], **tails(code, so, se))
+         recorded=after['baselines'][:1], baselines=len(after['baselines']), tree=tree, head=head, **tails(code, so, se))
     body_run = common + '''
 emit(verdict_run())
 '''
@@ -255,7 +362,9 @@ emit(verdict_run())
     step('legacy_identity_unchanged', 'root ID, revision and approval rows unchanged; the earlier inconclusive verdict is kept; recording again adds nothing',
          final['anchor'] == a['anchor'] == before['anchor'] and final['revision'] == a['revision'] == 1 and final['approved_rows'] == a['approved_rows'] == 1
          and final['verdicts'][:1] == ['inconclusive'] and final['verdicts'][-1] == 'pass' and len(final['baselines']) == 1 and code == 0,
-         anchor=final['anchor'], revision=final['revision'], verdicts=final['verdicts'], baselines=len(final['baselines']), **tails(code, so, se))
+         anchor=final['anchor'], revision=final['revision'], verdicts=final['verdicts'], baselines=len(final['baselines']),
+         approved_rows=final['approved_rows'], anchor_built=a['anchor'], anchor_counted_before=before['anchor'], revision_built=a['revision'],
+         approved_rows_built=a['approved_rows'], **tails(code, so, se))
     outside = {n: p for n, p in a['modules'].items() if p and not Path(p).resolve().is_relative_to(venv.resolve())}
     step('modules_from_venv', 'every onecrew module loaded from the venv, none from a checkout', not outside and len(a['modules']) > 5, modules=len(a['modules']), outside=outside)
 

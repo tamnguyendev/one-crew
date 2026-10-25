@@ -404,24 +404,46 @@ def step0_status(conn, task_id, revision):
 
 # ---- the proposal check (W47) ---------------------------------------------------------------------------------------------
 
+def _proposal_checks(conn, task_id):
+    return [json.loads(row['payload']) for row in conn.execute('SELECT payload FROM events WHERE task_id=? AND kind=? ORDER BY seq', (task_id, 'proposal.checked'))]
+
+
 def latest_proposal_check(conn, task_id, revision):
-    """The latest `proposal.checked` payload recorded for this revision, or None (no check was run: nothing holds the approval)."""
+    """The latest `proposal.checked` payload recorded for this revision. None only when the plan never had a proposal check (nothing
+    holds the approval). W47: when an earlier revision's check was destructive (delete/hide changes or destructive semantics in the
+    request) and this revision has no check of its own, the revision stays held until it is checked."""
+    checks = _proposal_checks(conn, task_id)
     found = None
-    for row in conn.execute('SELECT payload FROM events WHERE task_id=? AND kind=? ORDER BY seq', (task_id, 'proposal.checked')):
-        payload = json.loads(row['payload'])
+    for payload in checks:
         if payload.get('revision') == revision: found = payload
+    if found is None and any(p.get('destructive', True) for p in checks if p.get('revision') != revision):
+        return {'result': 'unchecked', 'ok': False, 'revision': revision,
+                'reasons': [{'code': 'proposal_unchecked', 'text': 'an earlier revision had a destructive proposal check; this revision has none'}]}
     return found
+
+
+def _destructive(requirement, result):
+    return (any(a.get('semantic') for a in requirement['acceptance'])
+            or any(row.get('kind') in ('delete', 'hide') for row in result['table']))
 
 
 def review_proposal(ledger, name, requirement, proposal):
     """Check the step-0 proposal against the request (proposal.check: no model, no process) and record the result as a neutral
     `proposal.checked` event on the plan. A refused or survey-first result holds approval of that revision until a later check passes.
+    W47: the request is bound to the plan by the hash of the first check recorded on it; a later check with a different request is
+    refused as 'requirement changed' (recorded, so the hold stays) - the caller cannot drop an acceptance to make a proposal pass.
     Writes no request to the owner."""
     from . import plan as plans, proposal as proposals, survey
     result = proposals.check(ledger, requirement, proposal)
+    requirement_sha = content_hash(proposals.validate_requirement(requirement))
     body = {'requirement': requirement, 'proposal': proposal}
     with ledger.transaction(write=True) as conn:
         state = plans.anchor_events(ledger, conn, name)
+        bound = next((p.get('requirement_sha') for p in _proposal_checks(conn, state['task_id']) if p.get('requirement_sha')), None)
+        if bound is not None and bound != requirement_sha:
+            result = dict(result, ok=False, result='refused', survey_required=[],
+                          reasons=[('requirement_changed', 'the request differs from the one the first proposal check of this plan was held to '
+                                                           f'({bound[:12]}); the request is the owner\'s and cannot be changed by the check file.')] + list(result['reasons']))
         for unknown in result['unknowns']:
             if unknown['id'] in result['survey_required']:
                 survey.open_in(ledger, conn, state, unknown, unknown.get('survey'))
@@ -429,7 +451,8 @@ def review_proposal(ledger, name, requirement, proposal):
                    {'plan': name, 'revision': state['latest'], 'result': result['result'], 'ok': result['ok'],
                     'reasons': [{'code': c, 'text': t} for c, t in result['reasons']], 'table': result['table'], 'backlog': result['backlog'],
                     'preferred': result['preferred'], 'unknowns': result['unknowns'], 'survey_required': result['survey_required'],
-                    'extras': result['extras'], 'owner_requests': 0, 'input_sha': content_hash(body)})
+                    'extras': result['extras'], 'owner_requests': 0, 'input_sha': content_hash(body),
+                    'requirement_sha': bound or requirement_sha, 'destructive': _destructive(proposals.validate_requirement(requirement), result)})
     return result
 
 

@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from onecrew.ledger import LedgerError
-from onecrew.v2 import cards, contract as contracts, plan as plans
+from onecrew.v2 import authority, cards, contract as contracts, plan as plans
 from tests.test_v2_l3 import Step0, step0_json
 
 SUBJECT = {'component': 'step0', 'model': 'claude-sonnet-5-5'}
@@ -39,8 +39,15 @@ def technical(cid, **extra):
 class CardTests(Step0):
     def setUp(self):
         super().setUp()
-        self.propose('P1', step0_json(size='S'))
+        # W30a: a technical choice is decided silently only on the APPROVED root's own grant, so the fixture approves a root that
+        # declares an authority and the technical choices cite its grant (AUTH, a made-up grant, is replaced by it in present()).
+        self.propose('P1', step0_json(size='S', authority={'edit': True}))
+        plans.approve(self.ledger, 'P1', 'owner', 'said yes')
         self.task = self.anchor()
+        with self.ledger.transaction() as conn:
+            state = plans.derive(self.ledger, conn, 'P1')
+        contract, _ = plans.load(self.ledger, state, state['approved']['revision'])
+        self.grant = authority.grant_ref(state['selector'], contract, state['approved']['sha'])
 
     def anchor(self):
         with self.ledger.transaction() as conn:
@@ -53,7 +60,10 @@ class CardTests(Step0):
         return [p for k, p in self.events('P1') if k == 'decision.recorded']
 
     def present(self, choices, **kw):
-        return cards.present(self.ledger, 'P1', choices, SUBJECT, **kw)
+        return cards.present(self.ledger, 'P1', self.real(choices), SUBJECT, **kw)
+
+    def real(self, choices):
+        return [dict(c, authority=self.grant) if c.get('authority') == AUTH else c for c in choices]
 
     # [E7] only the business choice is shown, in exactly one card with all six fields; two technical choices are decided and recorded (HD-05)
     def test_e7_one_card_with_six_fields_and_two_technical_choices_recorded(self):
@@ -70,7 +80,7 @@ class CardTests(Step0):
         records = self.decisions()
         self.assertEqual(len(records), 2)                                       # HD-05 record per technical choice
         for record in records:
-            self.assertEqual(record['subject'], SUBJECT); self.assertEqual(record['authority'], AUTH)
+            self.assertEqual(record['subject'], SUBJECT); self.assertEqual(record['authority'], self.grant)
             self.assertTrue(record['evidence']); self.assertNotEqual(record['actor'], 'owner')
         self.assertEqual({d['choice']: d['chosen'] for d in out['decisions']}, {'T1': 'a', 'T2': 'b'})
 
@@ -141,7 +151,7 @@ class CardTests(Step0):
 
     def test_cli_presents_the_card(self):
         path = self.root.parent / 'choices.json'
-        path.write_text(json.dumps({'choices': [csv_choice(), technical('T1')]}), encoding='utf-8')
+        path.write_text(json.dumps({'choices': self.real([csv_choice(), technical('T1')])}), encoding='utf-8')
         code, out = self.cli('plan', 'card', 'present', 'P1', '--file', str(path), '--model', 'claude-sonnet-5-5')
         self.assertEqual(code, 0, out)
         body = json.loads(out); self.assertEqual(body['request']['id'], self.cards_on_plan()[0]['id']); self.assertEqual(len(body['decisions']), 1)

@@ -75,8 +75,9 @@ def execute(args):
         return {'requests': ledger.requests(args.task, args.pending)}
     if args.command == 'reply':
         from .interventions import actor, note
-        receipt = ledger.reply(args.id, args.revision, args.choice, args.source, args.reference,
-                               decided_by=args.decided_by, by=actor())
+        from .v2.answer_effects import reply_and_apply   # P1-2: reply + mandatory workflow effect in one transaction
+        receipt = reply_and_apply(ledger, args.id, args.revision, args.choice, source=args.source, reference=args.reference,
+                                  decided_by=args.decided_by, by=actor())
         from .keeper import after_reply
         try:
             task = ledger.request(args.id)['task_id']

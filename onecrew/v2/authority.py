@@ -9,7 +9,8 @@ Q1-Q12 and U1-U4 are constants of this module (00 §2.2/§2.3): the contract can
 
 Where it bites:
   * `child_reason` runs at the gate (gate.require_plan): the sealed authority and paths of a job dispatched under the root must be inside
-    the grant. A root without an `authority` field behaves as before (no check).
+    the grant. A schema-2/legacy root without an `authority` field behaves as before (no check); a workflow root without one is judged
+    by effective() (edit inside scope.owned only).
   * `decide` / `enforce` run when OneCrew itself acts: in authority -> go on, with a HD-05 record (decisions.record); otherwise the
     action is classified U1-U4, nothing is performed, and the record says so. Neither creates a request for the user.
 Both tests go through `covers`, the one subset test (the v1 delivery planner shares `within`).
@@ -192,9 +193,11 @@ def child_wanted(task):
     return wanted, perms
 
 
-def child_reason(contract, task):
-    """Why the job is not inside the root's grant, or None. A root with no `authority` field imposes nothing (legacy)."""
-    if not contract.get('authority'): return None
+def child_reason(contract, task, workflow=False):
+    """Why the job is not inside the root's grant, or None. A schema-2/legacy root with no `authority` field imposes nothing (legacy);
+    a workflow root (`workflow` True: its proposal declared workflow_version) without one is judged by effective(), the same grant
+    decide() uses: edit inside scope.owned and no other right (audit W02)."""
+    if not contract.get('authority') and not workflow: return None
     grant = effective(contract)
     try:
         wanted, perms = child_wanted(task)

@@ -341,7 +341,7 @@ def scan(state_root):
             if state_root.exists() and (not state_root.is_dir() or any(state_root.iterdir())):
                 raise LedgerError('Ledger is absent but state-root data exists; cannot diagnose this as a fresh empty ledger.')
             return {'state_root': str(state_root), 'old_version': OLD_REVISION, 'ledger_sha': None, 'roots': [],
-                    'blocking': {'read': 0, 'continue': 0, 'total': 0}, 'read_only': True,
+                    'blocking': {'read': 0, 'continue': 0, 'total': 0}, 'misread_cells': [], 'read_only': True,
                     'inputs_sha': content_hash({}), 'input_hashes': {}}
         before = _ledger_sha(state_root)
         anchors = report._anchors(state_root)
@@ -365,15 +365,47 @@ def scan(state_root):
     if read_blocks:
         for root in roots:
             root['commands']['plan digest'] = 'exit 1, KeyError/TypeError (whole state root has a B4 read block)'
+    misread = _old_report_misreads(rows, roots)
     return {
         'state_root': str(Path(state_root).resolve()),
         'old_version': OLD_REVISION,
         'ledger_sha': before,
         'roots': roots,
         'blocking': {'read': len(read_blocks), 'continue': len(continue_blocks), 'total': len(read_blocks) + len(continue_blocks)},
+        'misread_cells': misread,
         'read_only': True,
         'inputs_sha': content_hash(inputs), 'input_hashes': inputs,
     }
+
+
+READS_OTHER_ROOT = 'reads_other_root'
+
+
+def _old_report_misreads(rows, roots):
+    """The d3120c6 `plan report <name>` ignores --project: report._lookup takes every `plan:<name>` anchor of the WHOLE state root
+    (`LIKE 'plan:%'`, ordered created_at, id; `plan-ns:` never matches) and renders the LAST one. So for a `plan-ns:` root whose
+    project has no newer legacy peer, the old report is not refused: it prints the report of another project's `plan:` root under
+    this name. That cell is a blocking risk of its own kind (đọc nhầm root khác), neither 'refused' nor 'readable'. `plan show`,
+    `amend` and `verdict run` resolve inside the project and are unchanged."""
+    by_id = {r['id']: root for r, root in zip(rows, roots)}
+    found = []
+    for row, root in zip(rows, roots):
+        if not row['request_key'].startswith(namespaces.NAMESPACED):
+            continue
+        name = root['name']
+        legacy = [r for r in rows if r['request_key'] == namespaces.LEGACY + name]
+        if not legacy or legacy[-1]['project_id'] == row['project_id']:
+            continue                       # no legacy root (refused) or this project's own legacy peer (legacy_peer text)
+        target = legacy[-1]
+        outcome = by_id[target['id']]['commands']['plan report']
+        root['commands']['plan report'] = (f'{READS_OTHER_ROOT} (đọc nhầm root khác): {outcome}; shows plan:{name} of project '
+                                           f'{target["project_id"]} ({target["project_path"]}); this root is not read')
+        risk = {'command': 'plan report', 'label': READS_OTHER_ROOT, 'blocking': True,
+                'reads': {'anchor': target['request_key'], 'project_id': target['project_id'], 'project_path': target['project_path']},
+                'why': f'old `plan report {name}` resolves the bare name across projects and shows another project\'s root'}
+        root.setdefault('command_risks', []).append(risk)
+        found.append({'anchor': root['anchor'], 'project_id': root['project_id'], **risk})
+    return found
 
 
 def _ledger_sha(state_root):

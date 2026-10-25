@@ -321,13 +321,50 @@ class OneCoreTests(Fixture):
         self.assertEqual({n: c['milestones'][0]['verifier']['type'] for n, c in views.items()}, {'CODE': 'command', 'DOC': 'doc'})
 
     # ---- [E3] [E7] [E8] reading the core code --------------------------------------------------------------------------
+    ADAPTERS = {'doc.py', 'data.py', 'ops.py'}          # the shipped adapters themselves are the only code allowed to know their own kind
+
     def core_files(self):
-        return {name: (REPO / 'onecrew' / 'v2' / (name + '.py')) for name in CORE} | {'port': REPO / 'onecrew' / 'v2' / 'verifiers' / 'port.py'}
+        """W22 / T14a E3, E8: EVERY module that can be on the exercised path, enumerated from disk, not hand-picked: all of onecrew/v2
+        (including verifiers/ except the three shipped adapters) plus onecrew/common_verification.py. The key is the posix path from onecrew/;
+        the port registry keeps the key 'port'. A new module is covered the moment it exists."""
+        base = REPO / 'onecrew'
+        found = {}
+        for path in sorted((base / 'v2').rglob('*.py')):
+            if path.parent.name == 'verifiers' and path.name in self.ADAPTERS:
+                continue
+            found[path.relative_to(base).as_posix()] = path
+        found['common_verification.py'] = base / 'common_verification.py'
+        found['port'] = found.pop('v2/verifiers/port.py')
+        return found
+
+    def test_e3_e8_the_core_scan_covers_every_module_and_not_just_the_old_hand_list(self):
+        """W22 / T14a E3, E8: the scanned set is the whole of onecrew/v2 (minus the three adapters) and common_verification.py; in particular
+        it contains namespaces.py, engine.py, step0.py, common_verification.py and every name of the former hand-picked CORE tuple."""
+        files = self.core_files()
+        on_disk = {p.name for p in (REPO / 'onecrew' / 'v2').rglob('*.py') if p.name not in self.ADAPTERS or p.parent.name != 'verifiers'}
+        self.assertEqual({p.name for p in files.values()} - {'common_verification.py'}, on_disk)
+        for must in ('v2/namespaces.py', 'v2/engine.py', 'v2/step0.py', 'v2/gate.py', 'common_verification.py', 'port'):
+            self.assertIn(must, files)
+        self.assertTrue({'v2/' + name + '.py' for name in CORE} <= set(files))
+        self.assertGreaterEqual(len(files), 70)
+        self.assertNotIn('v2/verifiers/doc.py', files)
+
+    KIND_BRANCH = re.compile(r'''task_type\s*[=!]=|task_type\s+in\b|kind_of_work|work_kind|\b(?:kind|type|adapter|name)\s*(?:==|!=|in)\s*\(?\s*['"]doc['"]|['"]doc['"]\s*(?:==|!=)''')
 
     def test_e3_e8_the_core_has_no_branch_on_the_kind_of_work_or_the_project(self):
-        pattern = re.compile(r'''task_type\s*[=!]=|task_type\s+in\b|kind_of_work|work_kind|\b(?:kind|type|adapter|name)\s*(?:==|!=|in)\s*\(?\s*['"]doc['"]|['"]doc['"]\s*(?:==|!=)''')
-        hits = {name: [n for n, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1) if pattern.search(line)] for name, path in self.core_files().items()}
+        hits = {name: [n for n, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1) if self.KIND_BRANCH.search(line)] for name, path in self.core_files().items()}
         self.assertEqual({k: v for k, v in hits.items() if v}, {})
+
+    def test_e3_e8_counter_example_a_kind_branch_in_any_scanned_module_turns_the_scan_red(self):
+        """W22 / T14a E3, E8 counter-example: the same criteria applied to a copy of namespaces.py, common_verification.py and engine.py
+        with one added `if task_type == 'doc'` / `kind == 'doc'` line report exactly that line, so a branch in those modules cannot pass."""
+        for key in ('v2/namespaces.py', 'common_verification.py', 'v2/engine.py'):
+            for injected in ("    if task_type == 'code':", "    if kind == 'doc':", "    if name != \"doc\":"):
+                with self.subTest(module=key, injected=injected):
+                    lines = self.core_files()[key].read_text(encoding='utf-8').splitlines()
+                    self.assertEqual([n for n, line in enumerate(lines, 1) if self.KIND_BRANCH.search(line)], [])
+                    mutated = lines + [injected]
+                    self.assertEqual([n for n, line in enumerate(mutated, 1) if self.KIND_BRANCH.search(line)], [len(mutated)])
 
     def test_e3_the_name_of_a_shipped_adapter_is_in_the_one_table_and_in_no_condition_of_the_core(self):
         self.assertEqual(port.BUILTIN, ('doc', 'data', 'ops'))

@@ -325,10 +325,13 @@ def run(ledger, name, milestone_id, directory=None):
     evidence_context = ({'evidence_context': {'selector': state['selector'], 'revision': revision, 'contract': contract}}
                         if namespaces.has_capability(state, 'sequential-engine') else {})
     integrity = None
+    phase = 'before_dispatch'                                         # W37a: where an exception was raised, kept in the abandonment
     try:
         _mark(ledger, run_id, 'dispatched', {'plan': name, 'revision': revision, 'milestone': milestone_id, 'kind': kind, 'at': utcnow()})
+        phase = 'verifier'
         if kind == 'command':
             blob, receipt = command.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
+            phase = 'after_verifier'
             integrity = _test_integrity(ledger, directory, approved, receipt)          # W05/T19: a weakened test suite cannot make the milestone pass
         elif kind == 'reviewer':
             context = dict(evidence_context)
@@ -342,7 +345,9 @@ def run(ledger, name, milestone_id, directory=None):
         else:
             blob, receipt = port.run(ledger, state['name'], revision, sha, milestone, directory, **evidence_context, **bounded)
             port.record_violations(ledger, name, revision, milestone_id, blob, receipt)
+        phase = 'after_verifier'
         _mark(ledger, run_id, 'receipt', {'blob': blob, 'receipt': receipt, 'integrity': integrity, 'cwd': str(directory)})   # the effect is known from here on
+        phase = 'receipt'
         with ledger.transaction(write=True) as conn:
             current = plans.anchor_events(ledger, conn, name)
             again = plans.resolve(ledger, current)
@@ -352,7 +357,7 @@ def run(ledger, name, milestone_id, directory=None):
             plans.emit(ledger, conn, current['task_id'], 'verdict.receipt_issued',
                        {'plan': current['name'], 'revision': revision, 'milestone': milestone_id, 'receipt': blob, 'cwd': str(directory), 'run_id': run_id})
     except BaseException as error:
-        _abandon_own(ledger, name, run_id, error)
+        _abandon_own(ledger, name, run_id, error, phase)
         raise
     result = integrity_result(_result(kind, receipt), integrity)      # T19 [E1]/[E3]: red on a weakened suite, not green on an unproven one
     shown = record(ledger, name, milestone_id, result, kind, blob, receipt['artifact_sha'], integrity=integrity)
@@ -369,7 +374,10 @@ def run(ledger, name, milestone_id, directory=None):
 #   receipt marker present  -> X finished: the receipt is issued and recorded from the marker, nothing runs again (determination 'completed');
 #   dispatched only         -> the outcome is unknown: `verdict.run_held`, the run is reported, and NO new dispatch happens until someone
 #                              releases it with `verdict release-run --reason` (verdict.run_released; the decision is recorded, never implied);
-#   no marker               -> X never started ('not_dispatched'); a run the process itself closed with reason 'error' is a known outcome too.
+#   no marker               -> X never started ('not_dispatched').
+# The markers are read first, whatever closed the run: a run the process itself closed with reason 'error' is a known outcome ('raised') only
+# when the error provably came before the dispatch marker was written; any error after it (of any type: a failed announce, an interrupt, a
+# LedgerError inside the verifier) completes from its receipt marker or is held like a lost process.
 # Exactly-once is not promised: a release lets X run a second time, and the record says so.
 
 RUNS_DIR = 'verdict-runs'
@@ -451,7 +459,8 @@ def reconcile(ledger, name, revision, milestone_id):
       * a receipt issued but its verdict not recorded           -> record it from that receipt (no second X); returns the state;
       * an abandoned run with a receipt marker                  -> issue + record the old run's receipt (no second X); returns the state;
       * an abandoned run with only the `dispatched` marker      -> ONE write: `run_reconciled(unknown)` (which IS the hold) + `run_held`; raise;
-      * an abandoned run with no marker, or closed by its own error -> `run_reconciled(not_dispatched|raised)`; a new run may start.
+      * an abandoned run with no marker, or closed by its own error before the dispatch marker (_refused_before_x) -> `run_reconciled(not_dispatched|raised)`;
+        a new run may start. The receipt marker is consulted before the abandonment reason (W37a).
     Returns None when a new run may start. Idempotent: a second call writes nothing new."""
     reap(ledger, name)
     with ledger.transaction() as conn:
@@ -474,25 +483,37 @@ def reconcile(ledger, name, revision, milestone_id):
             continue
         reason = run['abandoned'].get('reason')
         receipt_marker, dispatched = _marker(ledger, run['run_id'], 'receipt'), _marker(ledger, run['run_id'], 'dispatched')
-        if reason == 'error' or dispatched is None:
-            _emit_reconciled(ledger, name, run, 'raised' if reason == 'error' else 'not_dispatched', 'a new run may start')
-            _unmark(ledger, run['run_id'])
-            continue
+        # W37a: the markers decide first. An 'error' abandonment says only that the run's own process raised, not where: an error after X
+        # (an announce that failed, an interrupt) must not let X run again.
         if receipt_marker is not None:
             shown = _complete_from_marker(ledger, name, revision, milestone_id, run, receipt_marker)
             if shown is not None: return shown
+            continue
+        if dispatched is None or (reason == 'error' and _refused_before_x(run['abandoned'])):
+            _emit_reconciled(ledger, name, run, 'raised' if reason == 'error' else 'not_dispatched', 'a new run may start')
+            _unmark(ledger, run['run_id'])
             continue
         with ledger.transaction(write=True) as conn:                     # the unknown determination and the hold are one write
             current = plans.anchor_events(ledger, conn, name)
             hold = {'plan': name, 'revision': run.get('revision'), 'milestone': milestone_id, 'run_id': run['run_id'], 'kind': run.get('kind'),
                     'dispatched_at': dispatched.get('at'), 'abandoned_reason': reason,
-                    'reason': 'The verifier was dispatched and its process was lost before any receipt: its effect (files it wrote, a model call) is unknown. '
+                    'reason': ('The verifier was dispatched and the run raised ' + str(run['abandoned'].get('error_type') or 'an error') + ' (phase '
+                               + str(run['abandoned'].get('phase') or 'unknown') + ') before any receipt'
+                               if reason == 'error' else 'The verifier was dispatched and its process was lost before any receipt')
+                              + ': its effect (files it wrote, a model call) is unknown. '
                               'It is not run again by itself; release it with `verdict release-run` after checking.'}
             plans.emit(ledger, conn, current['task_id'], 'verdict.run_reconciled',
                        dict(_reconciled_payload(name, run, 'unknown', 'X was dispatched and no receipt exists; held, not run again'), dispatched_at=dispatched.get('at')))
             plans.emit(ledger, conn, current['task_id'], 'verdict.run_held', hold)
         raise LedgerError(_held_message(run, hold))
     return None
+
+
+def _refused_before_x(abandoned):
+    """W37a (T08a, directive 25/10): an 'error' abandonment is a known outcome only when the error provably came before the dispatch marker
+    was written. Any error after it — whatever its type, a LedgerError included (git failing on the after-sha happens after X ran) — leaves
+    X's outcome unknown, and so does an abandonment written by a version that kept no phase: the run is held until `verdict release-run`."""
+    return abandoned.get('phase') == 'before_dispatch'
 
 
 def held_runs_of(events):
@@ -724,11 +745,11 @@ def live_runs(conn, task_id, revision=None, now=None, alive=None):
     return [r for r in run_records(conn, task_id) if _open(r) and (revision is None or r.get('revision') == revision) and lost_reason(r, now, alive) is None]
 
 
-def _abandon(ledger, conn, task_id, run, reason, detail):
+def _abandon(ledger, conn, task_id, run, reason, detail, extra=None):
     plans.emit(ledger, conn, task_id, 'verdict.run_abandoned',
                {'plan': run.get('plan'), 'revision': run.get('revision'), 'milestone': run.get('milestone'), 'run_id': run.get('run_id'),
                 'pid': run.get('pid'), 'host': run.get('host'), 'kind': run.get('kind'), 'started': run.get('started'),
-                'reason': reason, 'detail': detail[:300], 'detected_at': utcnow()})
+                'reason': reason, 'detail': detail[:300], 'detected_at': utcnow(), **(extra or {})})
 
 
 def reap(ledger, name, now=None, alive=None):
@@ -770,13 +791,17 @@ def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes):
     return run_id
 
 
-def _abandon_own(ledger, name, run_id, error):
-    """The run raised before it had a receipt: close it. Never raises (the original error is what the caller needs to see)."""
+def _abandon_own(ledger, name, run_id, error, phase=None):
+    """The run raised before its receipt was announced: close it. Never raises (the original error is what the caller needs to see).
+    W37a: the abandonment names the phase the error was raised in and its type, so reconcile can tell a verifier's own refusal from an
+    interruption around X (an 'error' abandonment is not by itself a known outcome)."""
     try:
         with ledger.transaction(write=True) as conn:
             state = plans.anchor_events(ledger, conn, name)
             run = next((r for r in run_records(conn, state['task_id']) if r.get('run_id') == run_id), None)
-            if run is not None and _open(run): _abandon(ledger, conn, state['task_id'], run, 'error', f'{type(error).__name__}: {error}')
+            if run is not None and _open(run):
+                _abandon(ledger, conn, state['task_id'], run, 'error', f'{type(error).__name__}: {error}',
+                         {'phase': phase, 'error_type': type(error).__name__})
     except Exception:                                               # noqa: BLE001
         pass
 

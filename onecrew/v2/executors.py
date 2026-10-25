@@ -189,7 +189,9 @@ def observe(ledger, name, executor, attempt, what, *, source, ref, at=None, unti
             old = json.loads(row['payload'])
             if all(old.get(k) == v for k, v in payload.items()): return dict(old, written=False)
         plans.emit(ledger, conn, state['task_id'], KIND, dict(payload, received_at=utcnow()))
-    return dict(payload, written=True)
+    from . import estimates
+    warnings = estimates.warn_budget(ledger, name)       # T36b [E17]: an in-authority notice at 70% of the approved budget, never a request
+    return dict(payload, written=True, budget_warnings=warnings)
 
 
 def _verifier_attempts(conn, task_id):
@@ -214,9 +216,60 @@ def _seconds(start, end):
         return None
 
 
+def _interval(wait):
+    """(start, end) datetimes of a wait, or None when either end is unknown."""
+    if wait['at'] == UNKNOWN or wait['until'] == UNKNOWN: return None
+    return dt.datetime.fromisoformat(wait['at']), dt.datetime.fromisoformat(wait['until'])
+
+
+def union_seconds(intervals):
+    """Length of the union of (start, end) intervals: overlapping or duplicate intervals count once."""
+    total, current = 0.0, None
+    for start, end in sorted(intervals):
+        if current and start <= current[1]:
+            current = (current[0], max(current[1], end))
+        else:
+            if current: total += (current[1] - current[0]).total_seconds()
+            current = (start, end)
+    if current: total += (current[1] - current[0]).total_seconds()
+    return total
+
+
+def waits_seconds(waits):
+    """Waiting time = union of the waits; UNKNOWN when none was observed or any wait is open or unplaced (never 0, never guessed)."""
+    spans = [_interval(w) for w in waits]
+    return UNKNOWN if not waits or None in spans else union_seconds(spans)
+
+
+def _execution(item):
+    """Execution of one attempt (T36b [E4]/[E7], Codex P2-1):
+      * not_measured when the adapter does not measure time;
+      * the adapter's own `measured.seconds` (its execution clock, which does not run while it waits) when it reported one;
+      * else (end - start) minus the union of the attempt's waits clipped to [start, end]. A wait wholly outside the attempt is waiting,
+        not subtracted. A wait with an unknown start, or an unknown end while it began before the attempt ended, makes execution unknown;
+        an unknown start/end of the attempt keeps it unknown. Returns (value, source)."""
+    if 'time' not in item['measures']: return NOT_MEASURED, 'not_measured'
+    if item['seconds']: return item['seconds'][-1], 'adapter_measured'
+    known = isinstance(item['start'], dict) and isinstance(item['end'], dict) and UNKNOWN not in (item['start']['at'], item['end']['at'])
+    if not known: return UNKNOWN, 'unknown'
+    start, end = dt.datetime.fromisoformat(item['start']['at']), dt.datetime.fromisoformat(item['end']['at'])
+    clipped = []
+    for w in item['waits'].values():
+        if w['at'] == UNKNOWN: return UNKNOWN, 'unknown'
+        begin = dt.datetime.fromisoformat(w['at'])
+        if w['until'] == UNKNOWN:
+            if begin >= end: continue                                      # opened after the attempt ended: cannot overlap it
+            return UNKNOWN, 'unknown'
+        low, high = max(begin, start), min(dt.datetime.fromisoformat(w['until']), end)
+        if low < high: clipped.append((low, high))
+    return (end - start).total_seconds() - union_seconds(clipped), 'start_end_minus_waits'
+
+
 def summary(ledger, name):
     """Per executor and attempt: when it started and ended (with the source and the moment OneCrew received it), its waits, and what is measured.
-    A datum that was not observed is `unknown`; a quantity the adapter does not measure is `not_measured`; neither is ever 0."""
+    A datum that was not observed is `unknown`; a quantity the adapter does not measure is `not_measured`; neither is ever 0.
+    `elapsed_seconds` is the attempt's span (end - start, or the adapter's own measurement); `execution_seconds` excludes its waits (see
+    `_execution`); `wait_seconds` is the union of its waits (the same wait ref observed again counts once, overlapping waits count once)."""
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
         rows = [json.loads(r['payload']) for r in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind=? ORDER BY seq", (state['task_id'], KIND))]
@@ -237,15 +290,17 @@ def summary(ledger, name):
         times_known = isinstance(item['start'], dict) and isinstance(item['end'], dict) and UNKNOWN not in (item['start']['at'], item['end']['at'])
         item['elapsed_seconds'] = NOT_MEASURED if 'time' not in measures else (item['seconds'][-1] if item['seconds'] else (_seconds(item['start']['at'], item['end']['at']) if times_known else UNKNOWN))
         item['calls'] = NOT_MEASURED if 'calls' not in measures else (sum(item['calls']) if item['calls'] else UNKNOWN)
+        item['execution_seconds'], item['execution_source'] = _execution(item)
         item.pop('seconds')
         item['waits'] = list(item['waits'].values())
-        item['wait_seconds'] = (UNKNOWN if not item['waits'] or any(w['until'] == UNKNOWN or w['at'] == UNKNOWN for w in item['waits'])
-                                else sum(_seconds(w['at'], w['until']) for w in item['waits']))
+        item['wait_seconds'] = waits_seconds(item['waits'])
         out.append(item)
     for item in derived:
         known = isinstance(item['end'], dict) and item['end']['at']
+        elapsed = _seconds(item['start']['at'], item['end']['at']) if known else UNKNOWN
+        elapsed = UNKNOWN if elapsed is None else elapsed
         out.append(dict(item, kind='verifier', capabilities=sorted(CommandVerifier.declaration.capabilities), measures=['time'], waits=[], wait_seconds=UNKNOWN, calls=NOT_MEASURED,
-                        elapsed_seconds=_seconds(item['start']['at'], item['end']['at']) if known else UNKNOWN))
+                        elapsed_seconds=elapsed, execution_seconds=elapsed, execution_source='ledger_event' if elapsed != UNKNOWN else 'unknown'))
     return {'plan': name, 'attempts': out}
 
 
@@ -261,14 +316,16 @@ def _point(value, lang):
 
 def render(report, lang='vi'):
     """The attempts as plain text lines. A figure that was not observed prints as 'không rõ'; one the adapter does not measure prints 'không đo'."""
-    labels = {'vi': ('bắt đầu', 'kết thúc', 'chờ', 'thời gian chạy', 'call'), 'en': ('start', 'end', 'wait', 'elapsed', 'calls')}[lang]
+    labels = {'vi': ('bắt đầu', 'kết thúc', 'chờ', 'thời gian chạy', 'call', 'thực thi (trừ chờ)'), 'en': ('start', 'end', 'wait', 'elapsed', 'calls', 'execution (waits excluded)')}[lang]
     lines = []
     for a in report['attempts']:
         elapsed = _word(a['elapsed_seconds'], lang) if isinstance(a['elapsed_seconds'], str) else f"{a['elapsed_seconds']:.0f}s"
+        execution = a.get('execution_seconds', UNKNOWN)
+        execution = _word(execution, lang) if isinstance(execution, str) else f"{execution:.0f}s"
         calls = _word(a['calls'], lang) if isinstance(a['calls'], str) else str(a['calls'])
         waits = '; '.join(f"{w['reason']} {w['at']} -> {w['until']}" for w in a['waits']) or '-'
         lines.append(f"- {a['executor']} · {a['attempt']} · {labels[0]}: {_point(a['start'], lang)} · {labels[1]}: {_point(a['end'], lang)} · "
-                     f"{labels[2]}: {waits} · {labels[3]}: {elapsed} · {labels[4]}: {calls}")
+                     f"{labels[2]}: {waits} · {labels[3]}: {elapsed} · {labels[5]}: {execution} · {labels[4]}: {calls}")
     return '\n'.join(lines) if lines else ('không có quan sát' if lang == 'vi' else 'no observations')
 
 

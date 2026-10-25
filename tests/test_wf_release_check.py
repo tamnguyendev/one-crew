@@ -254,6 +254,80 @@ class ReleaseCheckTests(unittest.TestCase):
         self.change('events',lambda r:r.update(none_reason='whatever')); self.refused('T54.3')
         self.bundle=copy.deepcopy(original); self.retarget('R07'); self.change('events',lambda r:r.update(regression_scenarios=['not-run'])); self.refused('T54.3')
 
+    # -- first delivery (bootstrap) path: directive section 6 ------------------------------------------------------------------------------
+    def bootstrap(self, **over):
+        """An ordinary bundle turned into a FIRST release: no gate history, and the previous build pinned as the compat baseline (never delivered)."""
+        self.bundle['gate_history'] = []
+        baseline = {**identity(self.previous), 'role': 'compat-baseline', 'delivered': False, 'accepted': False}
+        baseline.update(over)
+        self.bundle['first_release'] = {'baseline': baseline, 'reason': 'no release of this program has been delivered'}
+
+    def inputs_reasons(self, result):
+        return [r['detail'] for r in result['reasons'] if r['code'] in ('INPUTS', 'INPUTS(bootstrap)')]
+
+    def test_bootstrap_i_pinned_baseline_passes_inputs_via_the_bootstrap_condition_only(self):
+        self.bootstrap(); result = self.result()
+        self.assertEqual(result['decision'], 'pass', result)
+        self.assertTrue(result['conditions']['INPUTS(bootstrap)'], result)
+        self.assertNotIn('INPUTS', result['conditions'])                 # never reported as an ordinary delivered-history INPUTS
+        self.assertTrue(result['first_release'])
+        self.assertEqual(result['first_release_baseline'], {**identity(self.previous), 'role': 'compat-baseline', 'delivered': False, 'accepted': False})
+        self.assertFalse(result['owner_acceptance'])
+        self.assertIn('first release', result['proves'])
+
+    def test_bootstrap_ii_baseline_identity_differs_from_previous_artifact_is_refused(self):
+        original = copy.deepcopy(self.bundle)
+        for over in ({'commit': 'c' * 40}, {'wheel_sha256': 'e' * 64}):
+            with self.subTest(over):
+                self.bundle = copy.deepcopy(original); self.bootstrap(**over)
+                self.refused('INPUTS(bootstrap)')
+                self.assertIn('baseline is not the previous artifact', ' '.join(self.inputs_reasons(self.result())))
+
+    def test_bootstrap_iii_baseline_not_the_build_the_drills_ran_is_refused(self):
+        original = copy.deepcopy(self.bundle); other = identity(self.wheel('other', 'c' * 40))
+        mutations = {'upgrade from another build': ('upgrade', lambda r: r.update(**{'from': other})),
+                     'event comparator on another build': ('events', lambda r: r.update(old_artifact=other)),
+                     'scanner modelled another version': ('rollback', lambda r: r['allowed']['scan'].update(old_version='c' * 40)),
+                     'old run installed another wheel': ('rollback', lambda r: r['allowed'].update(old_run=self.installed(self.current, 'old', '2026-10-24T11:58:00Z')))}
+        for label, (name, fn) in mutations.items():
+            with self.subTest(label):
+                self.bundle = copy.deepcopy(original); self.bootstrap(); self.change(name, fn)
+                self.refused('INPUTS(bootstrap)')
+
+    def test_bootstrap_iv_a_bundle_with_gate_history_is_not_a_first_release(self):
+        history = self.bundle['gate_history']; self.bootstrap(); self.bundle['gate_history'] = history     # passing CG-R00 of the previous build
+        self.refused('INPUTS(bootstrap)')
+        self.assertIn('not a first release', ' '.join(self.inputs_reasons(self.result())))
+        self.assertFalse(self.result().get('first_release'))
+        # and the ordinary bundle with that history is still judged by the normal rule
+        del self.bundle['first_release']; result = self.result()
+        self.assertEqual(result['decision'], 'pass', result); self.assertTrue(result['conditions']['INPUTS'])
+        self.assertNotIn('INPUTS(bootstrap)', result['conditions']); self.assertFalse(result['first_release'])
+
+    def test_bootstrap_v_ordinary_bundle_without_history_keeps_the_old_refusal(self):
+        self.bundle['gate_history'] = []; result = self.result()
+        self.assertEqual(result['decision'], 'refused')
+        self.assertFalse(result['conditions']['INPUTS']); self.assertNotIn('INPUTS(bootstrap)', result['conditions'])
+        self.assertEqual([r['detail'] for r in result['reasons'] if r['code'] == 'INPUTS'], ['previous delivered gate history missing'])
+        self.assertFalse(result['first_release'])
+
+    def test_bootstrap_vi_baseline_labelled_delivered_or_accepted_or_malformed_is_refused(self):
+        original = copy.deepcopy(self.bundle)
+        for over in ({'delivered': True}, {'accepted': True}, {'delivered': 0}, {'role': 'delivered-release'}, {'owner_acceptance': True}):
+            with self.subTest(over):
+                self.bundle = copy.deepcopy(original); self.bootstrap(**over); self.refused('INPUTS(bootstrap)')
+        for value in (None, {}, {'baseline': None}, True):
+            with self.subTest(value):
+                self.bundle = copy.deepcopy(original); self.bundle['gate_history'] = []; self.bundle['first_release'] = value
+                self.refused('INPUTS(bootstrap)')
+
+    def test_bootstrap_still_needs_monitored_files_and_delivery_order(self):
+        original = copy.deepcopy(self.bundle)
+        self.bootstrap(); self.bundle['monitored_files'][0]['after'] = 'e' * 64; self.refused('INPUTS(bootstrap)')
+        self.bundle = copy.deepcopy(original); self.bootstrap(); self.bundle['monitored_files'] = []; self.refused('INPUTS(bootstrap)')
+        self.bundle = copy.deepcopy(original); self.bootstrap(); self.bundle['deliveries'] = [{**identity(self.current), 'at': '2026-10-24T11:00:01Z'}]
+        self.refused('INPUTS(bootstrap)')
+
     def test_cli_empty_bundle_is_structured_refusal(self):
         path=self.root/'empty.json'; path.write_text('{}')
         result=subprocess.run([sys.executable,'-m','wfkit.release_check',str(path)],capture_output=True,text=True)

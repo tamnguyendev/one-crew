@@ -53,6 +53,20 @@ def _over_budget(conn, task, budget):
     return None
 
 
+def _over_allocation(ledger, conn, task, state, budget, calls=None):
+    """W10: under a root without root-budget, the jobs charged to it (plan bindings and the old same-name job) are together granted at
+    most the one approved call budget, so a new job key is not a new budget. A root-budget root is held by its shared counter instead."""
+    from . import namespaces, plan_binding
+    from ..budget_core import local_current
+    if namespaces.has_capability(state, 'root-budget'): return None
+    if calls is None: calls = local_current(conn, task)['limits']['max_calls']
+    others = plan_binding.allocated(ledger, conn, state, exclude=task['id'])
+    if calls + others > budget['max_calls']:
+        return (f'the job allows {calls} calls and the other jobs of root {state["selector"]} are granted {others}, which exceeds the '
+                f'approved plan budget of {budget["max_calls"]} calls (a new job key is not a new budget)')
+    return None
+
+
 def check_extension(ledger, conn, task, max_calls, seconds):
     """C7: with the gate on, budget.extend / remove_deadline may not take the job past the budget of its approved plan.
     `seconds` None means "no time limit"."""
@@ -66,6 +80,9 @@ def check_extension(ledger, conn, task, max_calls, seconds):
         raise LedgerError(f'Budget not extended (v2): {max_calls} calls exceeds the approved plan budget of {budget["max_calls"]}; amend the plan and have the owner approve it.')
     if seconds is None or seconds > budget['time'] * 60:
         raise LedgerError(f'Budget not extended (v2): {"no time limit" if seconds is None else str(int(seconds)) + " seconds"} exceeds the approved plan budget of {budget["time"]} minutes; amend the plan and have the owner approve it.')
+    shared = _over_allocation(ledger, conn, task, state, budget, calls=max_calls)
+    if shared:
+        raise LedgerError(f'Budget not extended (v2): {shared}; amend the plan and have the owner approve it.')
 
 
 def require_plan(ledger, conn, task):
@@ -82,8 +99,10 @@ def require_plan(ledger, conn, task):
             contract, _ = plan.load(ledger, state)  # the file must still hash to what the owner approved
             reason = _over_budget(conn, task, contract['budget'])
             if reason is None:
+                reason = _over_allocation(ledger, conn, task, state, contract['budget'])
+            if reason is None:
                 from . import authority          # W02: the job's sealed authority and paths must be inside the root's grant
-                reason = authority.child_reason(contract, task)
+                reason = authority.child_reason(contract, task, workflow=state.get('workflow_version') is not None)
             if reason is None: return
     except LedgerError as error:
         reason = str(error)

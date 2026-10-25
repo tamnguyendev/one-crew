@@ -10,7 +10,9 @@ vocabulary for the same question:
 
 Step 0 shows only the IMPORTANT choices, merged into ONE card. A technical choice that sits inside a granted authority is decided and
 written as an HD-05 decision record (`decisions.record`, W03): it is never asked. A technical choice with no authority is not "inside
-the authority", so it joins the card instead of being decided silently. The same decision never gets a second card: asking again with
+the authority", so it joins the card instead of being decided silently; nor is one whose authority does not resolve to the root's
+APPROVED grant (decisions.resolve_grant: made up, stale, an unapproved root, or a root with no `authority` field). The subject may not
+be the owner/human from an AI session (W03). The same decision never gets a second card: asking again with
 the same content returns the card, with changed content revises it (one card), and a card that overlaps an existing one is refused.
 
 Answering a card (and what the answer changes) is W30b (R03); this module only builds, validates and presents it.
@@ -172,12 +174,22 @@ def present(ledger, name, choices, subject):
     if not isinstance(choices, list) or not choices: raise LedgerError('choices: expected a non-empty list.')
     parsed = [validate_choice(c, ledger) for c in choices]
     if len({c['id'] for c in parsed}) != len(parsed): raise LedgerError('choices: duplicate id.')
-    decided = [c for c in parsed if c['class'] == 'technical' and c.get('authority')]
-    important = [c for c in parsed if c not in decided]
-    escalated = [c['id'] for c in important if c['class'] == 'technical']
+    subject = decisions._subject(subject)
+    if decisions.owner_subject(subject):                          # W03: refused before the card or any decision is written
+        from .ownership import refuse_in_ai_session
+        refuse_in_ai_session('presenting decisions with the owner/human as their subject')
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
     task_id = state['task_id']
+    # W30a: a technical choice is decided silently only when its authority IS the root's approved grant and that root declares an
+    # `authority` field (a root without one delegates nothing); any other grant - made up, stale, of an unapproved root - goes on the card.
+    def inside(choice):
+        if choice['class'] != 'technical' or not choice.get('authority'): return False
+        resolved, _, contract = decisions.resolve_grant(ledger, task_id, choice['authority'])
+        return resolved is True and bool((contract or {}).get('authority'))
+    decided = [c for c in parsed if inside(c)]
+    important = [c for c in parsed if c not in decided]
+    escalated = [c['id'] for c in important if c['class'] == 'technical']
     card = request_key = existing = None
     if important:
         card = validate_card(build_card(important), ledger)
