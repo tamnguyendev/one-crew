@@ -867,6 +867,12 @@ def render_present(state_root, name, revision=None, project_id=None):
     return '\n'.join(lines) + '\n'
 
 
+def forecast_lines(state_root, name, revision=None, project_id=None):
+    """The estimate/forecast block exactly as render_present and render_report embed it (they call the same _forecast_lines): the lines
+    that carry estimate semantics, apart from identifiers and metadata, for checks that must judge the estimate wording only."""
+    return _forecast_lines(_lookup(state_root, name, revision, project_id))
+
+
 def _forecast_lines(f):
     from . import estimates
     try:
