@@ -1,0 +1,541 @@
+{
+ "branch": "wf/r7-c2",
+ "base": "734acdc",
+ "date": "2026-10-25",
+ "note": "Proposed statuses for the registry owner; wfkit/development-testcases.json, development-manifest.json and wfkit/u1 are not edited by this branch. \"complete\" only when every E id of the case has a proving test.",
+ "cases": [
+  {
+   "release": "R05",
+   "case": "T06",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E1": [
+     "tests.test_wf_evidence_binding.BindingPolicyTests.test_each_changed_dimension_is_named_and_original_checks_are_retained",
+     "tests.test_wf_evidence_binding.BoundReceiptTests.test_actual_run_binds_inputs_configuration_environment_and_readonly_stale_reasons",
+     "tests.test_wf_evidence_binding.NonGitBoundReceiptTests.test_real_doc_snapshot_binding_and_new_unretained_input_are_readonly"
+    ],
+    "E2": [
+     "tests.test_wf_evidence_binding.BindingPolicyTests.test_artifact_change_outside_inputs_is_not_implicitly_neutral",
+     "tests.test_wf_evidence_binding.BoundReceiptTests.test_outside_input_unrelated_path_and_forged_receipt_cannot_reuse",
+     "tests.test_wf_r7_t06.T06CounterExampleTests.test_e2_outside_input_change_without_basis_is_stale_and_the_keep_valid_mutant_is_red"
+    ],
+    "E3": [
+     "tests.test_wf_r7_t06.T06CounterExampleTests.test_e3_interface_change_invalidates_ev1_and_a_receipt_not_bound_to_inputs_is_red",
+     "tests.test_wf_evidence_binding.BoundReceiptTests.test_actual_run_binds_inputs_configuration_environment_and_readonly_stale_reasons"
+    ],
+    "E4": [
+     "tests.test_wf_r7_t06.T06CounterExampleTests.test_e4_each_reason_names_what_changed_and_a_generic_reason_is_red",
+     "tests.test_wf_evidence_binding.BindingPolicyTests.test_each_changed_dimension_is_named_and_original_checks_are_retained"
+    ]
+   },
+   "scope": "Real bind/assess/receipt_assessment of onecrew.v2.verification_evidence on temporary ledgers and Git plus pure decisions; each counter-example of the testcase (keep-valid outside inputs, receipt not bound to inputs, generic reason) is a mutant of the product function that turns the predicate red. Engine re-check scheduling is not claimed (T06 does not prove it).",
+   "new_modules": [
+    "tests/test_wf_r7_t06.py"
+   ],
+   "uncovered": {},
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R05",
+   "case": "T16b",
+   "proposed_status": "partial",
+   "evidence_matrix": {
+    "E5": [
+     "tests.test_wf_r7_t16b.T16bRootRunTests.test_e5_e7_e12_one_root_run_over_q1_q2_q3_q4_q5_q8_q9_q10_creates_no_request_and_keeps_the_contract"
+    ],
+    "E7": [
+     "tests.test_wf_r7_t16b.T16bRootRunTests.test_e5_e7_e12_one_root_run_over_q1_q2_q3_q4_q5_q8_q9_q10_creates_no_request_and_keeps_the_contract",
+     "tests.test_wf_engine.EngineTests.test_internal_revision_preserves_contract_acceptance_budget_and_decision_provenance"
+    ],
+    "E12": [
+     "tests.test_wf_r7_t16b.T16bRootRunTests.test_e5_e7_e12_one_root_run_over_q1_q2_q3_q4_q5_q8_q9_q10_creates_no_request_and_keeps_the_contract"
+    ]
+   },
+   "uncovered": {
+    "E6": "Product gap. In the one root run only Q1 (internal_plan.revise), Q2/Q9 (engine) and Q4 (test_preparation) leave a decision.recorded with a OneCrew subject and the HD-05 fields (asserted by tests.test_wf_r7_t16b.T16bRootRunTests.test_e6_recorded_classes_carry_hd05_fields_and_a_onecrew_subject). Q5 (repair_tasks.prepare / recovery_policy.authorize_repair: only the Q1 record of the revise), Q8 (finding hold: engine finding_blockers / node.held, no decision.recorded) and Q10 (outcome.record writes learning.outcome only) have no HD-05 record. Q3 cannot be noted in a task commit: the worker is the engine fixture and makes no commit."
+   },
+   "scope": "One root on one temporary ledger and Git repo: split (Q1), test preparation (Q4), engine choice (Q2), fixture worker inside its write scope (Q3), integration red opens a finding that holds C, D, I (Q8), repair (Q5), verified (Q9), simulated owner stop then outcome (Q10). Worker/checkers are the engine fixtures (interface only). The request table of the whole ledger stays empty, the contract stays approved at revision 1 with unchanged bytes and no plan.proposed/amended/approved, while the internal revision goes 2 -> 3 -> 4.",
+   "new_modules": [
+    "tests/test_wf_r7_t16b.py"
+   ],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R05",
+   "case": "T17b",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E2": [
+     "tests.test_wf_r7_t17b.T17bHeldBranchTests.test_e2_e3_e8_b1_held_for_u2_and_b2_finishes_inside_the_hold_without_a_hold_event",
+     "tests.test_wf_engine.EngineTests.test_u2_holds_actual_dependency_closure_while_independent_node_runs"
+    ],
+    "E3": [
+     "tests.test_wf_r7_t17b.T17bHeldBranchTests.test_e2_e3_e8_b1_held_for_u2_and_b2_finishes_inside_the_hold_without_a_hold_event"
+    ],
+    "E8": [
+     "tests.test_wf_r7_t17b.T17bHeldBranchTests.test_e2_e3_e8_b1_held_for_u2_and_b2_finishes_inside_the_hold_without_a_hold_event",
+     "tests.test_wf_engine.EngineTests.test_u2_holds_actual_dependency_closure_while_independent_node_runs"
+    ]
+   },
+   "scope": "Real engine on a temporary ledger: B1 (node A) asks to write outside scope; its node.held event carries classification U2 and a reason; B2 (node B) is produced and verified after that event while A is still held and not resumed; B2 has no node.held. Worker/checker are engine fixtures. Registry note: the cited checks findings_integration/retention_integration do not exercise T17b.",
+   "new_modules": [
+    "tests/test_wf_r7_t17b.py"
+   ],
+   "uncovered": {},
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R05",
+   "case": "T17c",
+   "proposed_status": "partial",
+   "evidence_matrix": {
+    "E5": [
+     "tests.test_wf_r7_t17c.T17cOneCardTests.test_e5_after_continue_the_request_is_closed_and_b1_runs_next",
+     "tests.test_wf_answer_effects.WorkflowAnswerTests.test_continue_resumes_exact_held_generations_inside_original_grant_once",
+     "tests.test_wf_answer_effects.WorkflowAnswerTests.test_stop_closes_root_and_keeps_held_work_unaccepted"
+    ],
+    "E9": [
+     "tests.test_wf_r7_t17c.T17cOneCardTests.test_e4_e9_one_card_for_b1_with_problem_options_recommendation_and_scope"
+    ]
+   },
+   "uncovered": {
+    "E4": "Count = 1 (also when B1 asks again) and the fields problem, options, recommendation, scope are proven by tests.test_wf_r7_t17c.T17cOneCardTests.test_e4_e9_one_card_for_b1_with_problem_options_recommendation_and_scope. Product gap: the workflow-hold request built by onecrew/v2/engine.py request_action (lines 653-665) carries no evidence pointer and no decide-by moment, the two remaining card fields (cards.CARD_FIELDS evidence, decide_by). engine.py is R04 engine area: not fixed by this branch."
+   },
+   "scope": "Real engine, request table and questions.answer on a temporary ledger; owner terminal simulated (interface only). After continue the request is no longer pending, holds the continue answer and request.applied, and the next step is B1. Registry note: cited checks candidate_handoff/handoff_reuse/observed_handoff contain no card/answer test.",
+   "new_modules": [
+    "tests/test_wf_r7_t17c.py"
+   ],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R05",
+   "case": "T22",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E1": [
+     "tests.test_wf_evidence_binding.BindingPolicyTests.test_artifact_change_outside_inputs_is_not_implicitly_neutral"
+    ],
+    "E2": [
+     "tests.test_wf_evidence_binding.BindingPolicyTests.test_artifact_change_outside_inputs_is_not_implicitly_neutral",
+     "tests.test_wf_evidence_binding.BindingPolicyTests.test_each_changed_dimension_is_named_and_original_checks_are_retained",
+     "tests.test_wf_evidence_binding.BoundReceiptTests.test_outside_input_unrelated_path_and_forged_receipt_cannot_reuse"
+    ],
+    "E3": [
+     "tests.test_wf_r7_t22.T22CounterExampleTests.test_e3_every_reuse_has_a_recorded_basis_and_the_reuse_when_not_an_input_mutant_is_red_at_b",
+     "tests.test_wf_evidence_binding.BoundReceiptTests.test_outside_input_unrelated_path_and_forged_receipt_cannot_reuse",
+     "tests.test_wf_evidence_binding.BoundReceiptTests.test_reuse_record_is_visible_in_same_transaction_and_rolls_back_atomically"
+    ],
+    "E4": [
+     "tests.test_wf_evidence_binding.BindingPolicyTests.test_neutral_reuse_requires_declared_matching_paths_and_record",
+     "tests.test_wf_evidence_binding.BoundReceiptTests.test_neutral_basis_is_persisted_idempotently_and_never_changes_original_receipt"
+    ],
+    "E5": [
+     "tests.test_wf_evidence_binding.BindingPolicyTests.test_artifact_change_outside_inputs_is_not_implicitly_neutral",
+     "tests.test_wf_r7_t22.T22CounterExampleTests.test_e6_no_reuse_on_path_only_or_evidence_free_behavioral_basis_and_the_path_only_mutant_is_red_at_a"
+    ],
+    "E6": [
+     "tests.test_wf_r7_t22.T22CounterExampleTests.test_e6_no_reuse_on_path_only_or_evidence_free_behavioral_basis_and_the_path_only_mutant_is_red_at_a"
+    ]
+   },
+   "scope": "Pure W08 decisions on the five fixture artifacts (a)-(e) plus the real persisted evidence.reuse record on a temporary ledger; the two counter-examples (reuse when not an input, accept a path-only basis) are mutants of assess that turn the predicates red at (b) and (a). Behavioral-neutrality evaluation does not exist (any behavioral basis rechecks); engine re-check scheduling is not claimed.",
+   "new_modules": [
+    "tests/test_wf_r7_t22.py"
+   ],
+   "uncovered": {},
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R05",
+   "case": "T24b",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E4": [
+     "tests.test_wf_r7_t24b.T24bHandoverFindingsTests.test_e4_handover_lists_exactly_the_open_register_finding_and_not_the_closed_one",
+     "tests.test_wf_findings_report.FindingsReportTests.test_green_verdict_does_not_hide_unresolved_finding_in_handover"
+    ]
+   },
+   "scope": "Real reviewer verifier and register on a temporary ledger, scripted provider: F1 open and F2 closed with its receipt; the handover open-finding section is exactly {F1} with ID, criterion and artifact; the counter-example (report._open_findings returns nothing: the report does not read the register) turns the check red.",
+   "new_modules": [
+    "tests/test_wf_r7_t24b.py"
+   ],
+   "uncovered": {},
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R05",
+   "case": "T28",
+   "proposed_status": "partial",
+   "evidence_matrix": {
+    "E2": [
+     "tests.test_wf_findings.FindingTests.test_t28_code_change_and_generic_accept_do_not_close_or_call_closure",
+     "tests.test_wf_r7_t28.T28ClosureWiringTests.test_e4_closure_goes_through_the_register_transition_only_at_c"
+    ],
+    "E3": [
+     "tests.test_wf_findings.FindingTests.test_t28_pass_evidence_closes_via_common_register_and_survives_restart",
+     "tests.test_wf_r7_t28.T28ClosureWiringTests.test_e4_closure_goes_through_the_register_transition_only_at_c"
+    ],
+    "E4": [
+     "tests.test_wf_r7_t28.T28ClosureWiringTests.test_e4_closure_goes_through_the_register_transition_only_at_c",
+     "tests.test_wf_findings.FindingTests.test_t28_pass_evidence_closes_via_common_register_and_survives_restart",
+     "tests.test_wf_findings.V1SharedRegisterTests.test_v1_and_v2_use_same_dedup_and_closure_core"
+    ],
+    "E5": [
+     "tests.test_wf_findings.FindingTests.test_t28_code_change_and_generic_accept_do_not_close_or_call_closure",
+     "tests.test_wf_r7_t28.T28ClosureWiringTests.test_e4_closure_goes_through_the_register_transition_only_at_c"
+    ],
+    "E6": [
+     "tests.test_wf_r7_t28.T28ClosureWiringTests.test_e6_wrong_wiring_closing_without_the_register_turns_the_check_red"
+    ]
+   },
+   "uncovered": {
+    "E1": "The after-split side is the gate check.register_v1_guard / check.register_v1_guard_p6 (tests.test_review_lifecycle, tests.test_review_p6; both files unchanged since 1b4f4c6^, the commit before onecrew/finding_core.py was extracted). The before-split run on 1b4f4c6^ (same list, same results) was not executed in round 7 (machine constraint: no checkout or suite runs), so the before/after comparison the evidence asks for is not recorded."
+   },
+   "scope": "Real register and injected reviewer receipts on a temporary ledger; one run of (a) commit, (b) reviewer generic pass + plan accept, (c) passing re-check: finding_core.close_finding is called 0 times at (a)/(b) and at least once at (c), F ends resolved with evidence and artifact; the wrong-wiring mutant (v2 marks F closed itself) closes F with 0 register calls and turns the integration check red.",
+   "new_modules": [
+    "tests/test_wf_r7_t28.py"
+   ],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R05",
+   "case": "T31",
+   "proposed_status": "complete",
+   "evidence_matrix": {
+    "E1": [
+     "tests.test_wf_retention.RetentionTests.test_e1_e2_orphan_trees_and_blobs_survive_gc_and_process_restart",
+     "tests.test_wf_retention_integration.RetentionIntegrationTests.test_command_run_issuance_record_accept_and_receipt_survive_gc_and_restart",
+     "tests.test_wf_retention_integration.RetentionIntegrationTests.test_approval_base_artifact_and_tracked_tree_survive_gc_and_restart",
+     "tests.test_wf_retention_integration.RetentionIntegrationTests.test_reviewer_receipt_pins_distinct_artifact_and_tracked_trees_without_provider_call",
+     "tests.test_wf_retention_integration.RetentionIntegrationTests.test_owner_manual_tree_is_retained_through_acceptance"
+    ],
+    "E2": [
+     "tests.test_wf_retention.RetentionTests.test_e1_e2_orphan_trees_and_blobs_survive_gc_and_process_restart",
+     "tests.test_wf_retention_integration.RetentionIntegrationTests.test_command_run_issuance_record_accept_and_receipt_survive_gc_and_restart",
+     "tests.test_wf_retention_integration.RetentionIntegrationTests.test_approval_base_artifact_and_tracked_tree_survive_gc_and_restart"
+    ],
+    "E3": [
+     "tests.test_wf_retention.RetentionTests.test_e3_counterexample_unpinned_orphan_is_really_pruned"
+    ],
+    "E4": [
+     "tests.test_wf_retention.RetentionTests.test_e4_pins_are_local_no_push_is_invoked_and_bare_remote_stays_empty"
+    ],
+    "E5": [
+     "tests.test_wf_retention.RetentionTests.test_e5_repin_and_restarts_never_delete_refs",
+     "tests.test_wf_retention.RetentionTests.test_e5_owner_cleanup_only_removes_exact_plan_and_state_root",
+     "tests.test_wf_retention.RetentionTests.test_e5_cleanup_refuses_ai_actor_and_ai_session_without_mutation",
+     "tests.test_wf_retention.RetentionTests.test_e5_cleanup_does_not_remove_another_worktrees_pins_in_shared_git_store",
+     "tests.test_wf_retention_integration.RetentionIntegrationTests.test_retention_cli_lists_and_owner_cleanup_refuses_ai_actor_and_session",
+     "tests.test_wf_r7_t31.T31RetentionRefTests.test_e5_only_the_owner_cleanup_verb_can_delete_evidence_refs"
+    ],
+    "E6": [
+     "tests.test_wf_retention_integration.RetentionIntegrationTests.test_hook_blocks_push_of_retention_refs_with_specific_reason",
+     "tests.test_wf_r7_t31.T31RetentionRefTests.test_e6_hook_blocks_push_of_refs_onecrew_and_the_hook_without_the_rule_is_red"
+    ]
+   },
+   "scope": "Temporary repositories, real git gc --prune=now, a real process restart and a bare fake remote. E5 adds a structural scan of the shipped package (only retention.cleanup deletes refs under refs/onecrew/evidence/, only plan_cli calls it, and that verb is on the AI-session deny list); E6 runs the real hook judge, with the hook without the push rule as the counter-example. A real remote is not claimed.",
+   "new_modules": [
+    "tests/test_wf_r7_t31.py"
+   ],
+   "uncovered": {},
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "RP",
+   "case": "T40c",
+   "proposed_status": "partial",
+   "evidence_matrix": {
+    "E34": [
+     "tests.test_wf_r7_t40c.T40cSubsetTests.test_e34_x7_codex_reviewer_pass_on_another_build_without_inheritance_is_refused_naming_the_cell"
+    ],
+    "E35": [
+     "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_e35_case_k_four_cell_subset_is_delivered_with_kiro_unverified_and_pins_unchanged",
+     "tests.test_wf_release_check.ReleaseCheckTests.test_rp_uses_shared_matrix_rule_without_requiring_future_pilot_reviewer"
+    ],
+    "E37": [
+     "tests.test_wf_t55_cases.T55CaseTests.test_c2_required_independent_reviewer_missing_on_b",
+     "tests.test_wf_t55_cases.T55CaseTests.test_c4_no_inheritance_comparison_missing",
+     "tests.test_wf_t55_cases.T55CaseTests.test_c1_partial_valid_kiro_unverified_does_not_block",
+     "tests.test_wf_t55_cases.T55CaseTests.test_z5_no_inheritance_without_valid_comparison"
+    ],
+    "E38": [
+     "tests.test_wf_t55_cases.T55CaseTests.test_c1_partial_valid_kiro_unverified_does_not_block",
+     "tests.test_wf_t55_cases.T55CaseTests.test_c3_valid_inheritance_all_six",
+     "tests.test_wf_t55_cases.T55CaseTests.test_z6_t40d_and_t40c_t54i_cannot_disagree"
+    ],
+    "E39": [
+     "tests.test_wf_t55_cases.T55CaseTests.test_c1_partial_valid_kiro_unverified_does_not_block",
+     "tests.test_wf_t55_cases.T55CaseTests.test_z7_blocked_attempt_is_not_a_pass",
+     "tests.test_wf_t55_cases.T55CaseTests.test_c2_required_independent_reviewer_missing_on_b"
+    ]
+   },
+   "uncovered": {
+    "E29": "Subset = the usable cells, each with origin hash and validity (direct, or inherited + comparison id), and the gate passing with >= 1 cell are proven (tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_e35_case_k_four_cell_subset_is_delivered_with_kiro_unverified_and_pins_unchanged). Product gap: the RP notes check (wfkit/release_check.py:331-335) compares the structured provider_states/subset only, so the reason of each non-usable cell is neither carried by the shared state (finalgate.evidence_status returns the status only) nor required.",
+    "E30": "Case K: four-cell subset, kiro unverified, RP delivered, provider/model rows unchanged are proven; the notes wording \"chưa dùng được: thiếu tài khoản\" is not checked (same gap as E29) and the RP bundle carries no contract, so \"decisions of the contract unchanged\" is not observable locally.",
+    "E33": "x6 is refused in three forms (tests.test_wf_r7_t40c.T40cSubsetTests.test_e33_x6_a_kiro_reviewer_claimed_usable_against_the_matrix_is_refused). Product gap: when only the notes subset lies, the refusal is \"RP notes disagree with shared provider evidence\" (wfkit/release_check.py:334): it neither says \"subset contains a not-passed cell\" nor names the cell. release_check.py belongs to another branch: not fixed."
+   },
+   "scope": "Simulated receipts on the fixture bundle of tests.test_wf_release_check (validator rules only; no provider called). E37-E39 go through the same shared evaluator (wfkit.provider_evidence.evaluate / finalgate.evidence_status) at CG-KET in the T55 cases, which also pin the published T40c set to the eligible set (KQ7).",
+   "new_modules": [
+    "tests/test_wf_r7_t40c.py"
+   ],
+   "changed_pinned_files": [
+    "wfkit/provider_evidence.py"
+   ],
+   "product_fixes": [
+    {
+     "file:line": "wfkit/provider_evidence.py:31",
+     "what": "The x7 refusal (\"<cell>: original hash changed\") now also says the evidence is not valid for the delivered build and gives both wheel hashes and the missing inheritance comparison (substring \"original hash changed\" kept for tests.test_wf_provider_matrix). File is pinned in wfkit/development-manifest.json: repin needed.",
+     "counter-example test": "tests.test_wf_r7_t40c.T40cSubsetTests.test_e34_x7_codex_reviewer_pass_on_another_build_without_inheritance_is_refused_naming_the_cell"
+    }
+   ]
+  },
+  {
+   "release": "PL",
+   "case": "T35b",
+   "proposed_status": "blocked",
+   "evidence_matrix": {
+    "E7": [
+     "tests.test_wf_pilot_report.InterimT35b.test_good_interim_passes",
+     "tests.test_wf_pilot_report.InterimT35b.test_e7_baseline_word_refused",
+     "tests.test_wf_pilot_report.InterimT35b.test_e7_missing_fields_refused"
+    ],
+    "E25": [
+     "tests.test_wf_pilot_report.InterimT35b.test_good_interim_passes",
+     "tests.test_wf_pilot_report.InterimT35b.test_e25_unlisted_missing_outcome_refused"
+    ],
+    "E26": [
+     "tests.test_wf_pilot_report.InterimT35b.test_good_interim_passes",
+     "tests.test_wf_pilot_report.InterimT35b.test_e26_hand_filled_and_mismatch_refused"
+    ],
+    "E28": [
+     "tests.test_wf_pilot_report.InterimT35b.test_good_interim_passes",
+     "tests.test_wf_pilot_report.InterimT35b.test_e28_desktop_window_required"
+    ]
+   },
+   "uncovered": {
+    "E7": "EXTERNAL: the interim report values come from a real PL-A pilot ledger (3 jobs) that has not run; only the checker rule is local.",
+    "E25": "EXTERNAL: learning.outcome rows of the real PL-A roots in the pilot state root.",
+    "E26": "EXTERNAL: the three ledger columns generated from the real pilot ledger and matched with the real chat log (command and ledger hash recorded).",
+    "E28": "EXTERNAL: one real Windows window shown through the v1 desktop channel during PL-A."
+   },
+   "scope": "Every local checker rule of the T35b interim report (wfkit.pilot_report) has a refusing counter-example on fixture reports; the report, its data and the real notification are external (PL-A has not run). Nothing changed for T35b in round 7.",
+   "new_modules": [],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "PL",
+   "case": "T35c",
+   "proposed_status": "blocked",
+   "evidence_matrix": {
+    "E6": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_good_aggregate_passes",
+     "tests.test_wf_pilot_report.AggregateT35c.test_e6_tiers_and_labels_required"
+    ],
+    "E11": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e11_time_conclusion_from_2010_refused"
+    ],
+    "E12": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_m5_reduction_without_comparison_group_refused"
+    ],
+    "E20": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e20_noise_lines_target_zero",
+     "tests.test_wf_pilot_report.AggregateT35c.test_good_aggregate_passes",
+     "tests.test_wf_pilot_report.AggregateT35c.test_m3_missing_cell_as_zero_refused",
+     "tests.test_wf_r7_t35bc.T35cCheckerRuleTests.test_e20_stop_hook_noise_baseline_is_81_on_eleven_jobs"
+    ],
+    "E21": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e21_amend_causes_and_tier1_total",
+     "tests.test_wf_r7_t35bc.T35cCheckerRuleTests.test_e21_amend_targets_and_tier1_total_baseline"
+    ],
+    "E22": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e22_false_pass_separates_skip_leak",
+     "tests.test_wf_r7_t35bc.T35cCheckerRuleTests.test_e22_false_pass_baseline_is_two_on_eleven_jobs"
+    ],
+    "E23": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e23_minutes_from_wait_time_refused",
+     "tests.test_wf_r7_t35bc.T35cCheckerRuleTests.test_e23_owner_minutes_from_an_event_gap_is_refused",
+     "tests.test_wf_pilot_report.AggregateT35c.test_good_aggregate_passes"
+    ],
+    "E24": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e24_double_counted_action_refused"
+    ],
+    "E27": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e27_grader_same_model_refused"
+    ],
+    "E29": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e29_skip_leak_links"
+    ],
+    "E30": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e30_manual_fixes_zero_with_log_rows_refused"
+    ],
+    "E31": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e31_pl_b_missing_outcome_refused"
+    ],
+    "E32": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e32_group_a_short_not_pass"
+    ],
+    "E33": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e33_partial_b_c_does_not_block"
+    ],
+    "E34": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e34_header_must_match_table"
+    ],
+    "E35": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_m1_zero_minutes_refused",
+     "tests.test_wf_pilot_report.AggregateT35c.test_m3_missing_cell_as_zero_refused"
+    ],
+    "E36": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_m2_partial_labelled_baseline_refused"
+    ],
+    "E37": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_m4_blanket_baseline_refused"
+    ],
+    "E38": [
+     "tests.test_wf_pilot_report.AggregateT35c.test_e38_provider_failures_match_receipts"
+    ]
+   },
+   "uncovered": {
+    "ALL": "EXTERNAL for every E id: the aggregate report is built from the real PL-B pilot ledger (10 jobs), DO-10-VIEC.csv, chat log and owner notes, which do not exist; only the checker rules are local.",
+    "E27": "EXTERNAL also: a fresh session given only the continuation pack of an open pilot job, graded by an independent grader; locally only the grader-independence rule is checked.",
+    "E29": "EXTERNAL also: the pilot-ledger part. The local SKIP-leak link/aggregate logic belongs to another branch: mapped, not audited or changed.",
+    "note": "z1-z12 are the T55 evaluator counter-examples (tests.test_wf_t55_cases test_z1..test_z12), not T35 checker rules; the T35 checker counter-examples are m1-m5 and the named breaks above."
+   },
+   "scope": "Every local checker rule of the T35c aggregate report has a refusing counter-example on fixture reports (m1-m5 plus named breaks; round 7 adds event-gap minutes, amend targets, false-pass and Stop-hook baselines). Aggregate-metric computation and SKIP-link logic are out of this branch.",
+   "new_modules": [
+    "tests/test_wf_r7_t35bc.py"
+   ],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "R00 (wfkit/testcases.json)",
+   "case": "T45a",
+   "proposed_status": "blocked",
+   "evidence_matrix": {
+    "E5": [
+     "tests.test_wf_kit.GateRuleTests.test_install_origin_failure_is_refused",
+     "tests.test_wf_kit.GateRuleTests.test_judge_origin_installed_vs_checkout_paths",
+     "tests.test_wf_kit.InstallOriginRealTests.test_scenario_run_from_the_checkout_is_refused",
+     "tests.test_wf_kit.InstallOriginRealTests.test_check_install_gives_ok_and_a_refused_control"
+    ],
+    "E7": [
+     "tests.test_wf_kit.GateRuleTests.test_install_origin_failure_is_refused"
+    ]
+   },
+   "uncovered": {
+    "E5": "EXTERNAL part: \"the pilot start command is refused when sys.path holds the checkout\" - no local pilot-start verb inspects sys.path. Locally the delivery gate CG-R00 refuses a run whose onecrew modules load from the checkout (and refuses when its checkout control is not refused), and the PL entry gates accept only passing delivery-gate receipts; the real pilot start is external."
+   },
+   "scope": "Delivery-gate origin rule (wfkit.gate.judge_origin/decide) on recorded module paths and on a real venv control run (InstallOriginRealTests: heavy, not re-run in round 7). The R00 entry of wfkit/testcases.json is not changed.",
+   "new_modules": [],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "PL",
+   "case": "T45d",
+   "proposed_status": "blocked",
+   "evidence_matrix": {
+    "E8": [
+     "tests.test_wf_finalgate.FinalGateTests.test_kq4_entry_refused",
+     "tests.test_wf_finalgate.FinalGateTests.test_kq4_late_entry_for_each_phase",
+     "tests.test_wf_t55_cases.T55CaseTests.test_ck13_pilot_started_despite_refused_entry",
+     "tests.test_wf_t55_cases.T55CaseTests.test_ck15_entry_passed_after_start",
+     "tests.test_wf_t55_cases.T55CaseTests.test_ck25_pla_entry_passed_after_start"
+    ],
+    "E11": [
+     "tests.test_wf_finalgate.FinalGateTests.test_kq1_missing_gate",
+     "tests.test_wf_finalgate.FinalGateTests.test_kq1_wrong_artifact",
+     "tests.test_wf_finalgate.FinalGateTests.test_kq1_not_pass",
+     "tests.test_wf_finalgate.FinalGateTests.test_kq2_missing_comparison",
+     "tests.test_wf_finalgate.FinalGateTests.test_kq1_missing_doccheck_command",
+     "tests.test_wf_finalgate.FinalGateTests.test_existing_gate_and_doccheck_receipt_fields",
+     "tests.test_wf_t55_cases.T55CaseTests.test_ck1_all_conditions_pass"
+    ],
+    "E12": [
+     "tests.test_wf_finalgate.FinalGateTests.test_kq4_release_wrong_hash_and_late_release",
+     "tests.test_wf_t55_cases.T55CaseTests.test_ck16_pilot_ran_on_other_hash_than_delivery_gate"
+    ],
+    "E13": [
+     "tests.test_wf_r7_t45d.T45dHookConfigU2Tests.test_e13_u2_must_be_the_owners_name_the_path_and_cover_the_exact_change",
+     "tests.test_wf_finalgate.FinalGateTests.test_kq5_hook_changed_without_u2",
+     "tests.test_wf_finalgate.FinalGateTests.test_kq5_valid_prior_u2_and_late_u2",
+     "tests.test_wf_t55_cases.T55CaseTests.test_ck17_hook_changed_without_u2"
+    ],
+    "E15": [
+     "tests.test_wf_finalgate.FinalGateTests.test_kq6_missing_provider_matrix",
+     "tests.test_wf_finalgate.FinalGateTests.test_n0_partial_optional_unverified_passes_retains_hash",
+     "tests.test_wf_t55_cases.T55CaseTests.test_ck2_partial_optional_unverified_passes",
+     "tests.test_wf_t55_cases.T55CaseTests.test_c2_required_independent_reviewer_missing_on_b",
+     "tests.test_wf_t55_cases.T55CaseTests.test_ck18_missing_independent_reviewer",
+     "tests.test_wf_t55_cases.T55CaseTests.test_c1_partial_valid_kiro_unverified_does_not_block",
+     "tests.test_wf_t55_cases.T55CaseTests.test_c4_no_inheritance_comparison_missing"
+    ]
+   },
+   "uncovered": {
+    "E13": "Product gap (wfkit/finalgate.py:285-298, KQ5): one before/after hash per monitored file over the whole program, not per pilot phase (a change made in PL-A and reverted before the end passes; no phase-boundary hash is required), and the U2 receipt is not cross-checked against the AC1 count of the pilot report. Not fixed: the bundle schema is shared with pilot_tools and finalgate fixtures of other branches.",
+    "ALL": "EXTERNAL: owner-selected real work and chronological delivery/provider/pilot receipts on the final artifact; the finalgate tests prove the decision rules only.",
+    "note": "T55 named cases: CK12, CK21, CK23 differ from the table (decide() adds KQ4/KQ7), already recorded in tests/test_wf_t55_cases.py; z1-z12 assert only the forbidden result on the real evaluator, no mutant-evaluator detector exists. No named case lacks a test."
+   },
+   "scope": "CG-KET decision rules (wfkit.finalgate) on fixture bundles and the T55 named cases; round 7 adds the KQ5 U2 identity/coverage counter-examples (owner actor, kind, path, result, exact before/after pair).",
+   "new_modules": [
+    "tests/test_wf_r7_t45d.py"
+   ],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  },
+  {
+   "release": "PL",
+   "case": "T45e",
+   "proposed_status": "blocked",
+   "evidence_matrix": {
+    "E17": [
+     "tests.test_wf_pilot_tools.RerunPlanTests.test_refuses_missing_analysis_and_missing_supplement_and_changed_hash",
+     "tests.test_wf_finalgate.FinalGateTests.test_kq2_original_hash_rewritten",
+     "tests.test_wf_t55_cases.T55CaseTests.test_z4_inherited_evidence_never_carries_hash_b"
+    ],
+    "E18": [
+     "tests.test_wf_pilot_tools.RerunPlanTests.test_good_plan_reruns_exactly_the_affected_jobs",
+     "tests.test_wf_pilot_tools.SupplementRunTests.test_runs_the_check_and_writes_receipts_readable_by_finalgate",
+     "tests.test_wf_pilot_tools.SupplementRunTests.test_failing_and_unstartable_checks_are_recorded_not_passed",
+     "tests.test_wf_finalgate.FinalGateTests.test_kq6_blocked_does_not_create_pass_or_erase_inheritance"
+    ],
+    "E21": [
+     "tests.test_wf_pilot_tools.RerunPlanTests.test_file_outside_the_map_affects_every_item_so_rerunning_all_is_allowed",
+     "tests.test_wf_finalgate.FinalGateTests.test_kq2_unknown_file_affects_every_item"
+    ],
+    "E23": [
+     "tests.test_wf_pilot_tools.RerunPlanTests.test_refuses_missing_analysis_and_missing_supplement_and_changed_hash"
+    ],
+    "E24": [
+     "tests.test_wf_pilot_tools.RerunPlanTests.test_refuses_missing_analysis_and_missing_supplement_and_changed_hash",
+     "tests.test_wf_pilot_tools.RerunPlanTests.test_refuses_skipping_an_affected_job"
+    ],
+    "E25": [
+     "tests.test_wf_pilot_tools.RerunPlanTests.test_refuses_the_whole_pilot"
+    ],
+    "E26": [
+     "tests.test_wf_t55_cases.T55CaseTests.test_c5_no_inheritance_wrong_hash_pair",
+     "tests.test_wf_t55_cases.T55CaseTests.test_c6_no_inheritance_dependency_changed"
+    ]
+   },
+   "uncovered": {
+    "E19": "No local rule checks the acceptance-report lines on B (\"chỉ bộ kiểm, chưa có việc thật trên B\", \"chưa dùng thật\", \"không có dữ liệu\").",
+    "E20": "No local rule labels the pilot-checker rerun on the final artifact as \"kiểm báo cáo\" without a behaviour column.",
+    "E27": "finalgate.compare yields the changed files and the affected set from the pinned map, but no local rule checks a per-item flag/basis/hash-pair output or that the three record kinds sit in separate files and never edit a kind-1 record.",
+    "ALL": "EXTERNAL: the A->B comparison on two real builds and the copy of the real PL-B pilot ledger."
+   },
+   "scope": "Rerun-plan and supplement checkers (wfkit.pilot_tools; tests owned by another branch, only mapped here) and the CG-KET comparison rules on fixture wheels; nothing changed for T45e in round 7.",
+   "new_modules": [],
+   "changed_pinned_files": [],
+   "product_fixes": []
+  }
+ ]
+}
