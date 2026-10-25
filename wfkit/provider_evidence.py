@@ -28,7 +28,9 @@ def evaluate(rows, items, evidence, source, target, comparison=None):
                 require(isinstance(cli.get('files'), dict) and cli['files'].get(cli['path']) == cli['sha256'] and all(isinstance(v, str) and re.fullmatch(r'[0-9a-f]{64}', v) for v in cli['files'].values()), f'{key}: CLI file hashes incomplete')
                 require(isinstance(row.get('cli_files'), dict) and cli['files'] == row['cli_files'], f'{key}: CLI prefix-file hashes differ from pin')
                 require(isinstance(cli.get('version'), str) and cli['version'].strip() and not cli['version'].startswith('unavailable:'), f'{key}: CLI version unavailable')
-        require(identity(original) == identity(source), f'{key}: original hash changed')
+        require(identity(original) == identity(source),
+                f"{key}: original hash changed: evidence not valid for the delivered build (receipt {identity(original).get('wheel_sha256')}, "
+                f"matrix build {identity(source).get('wheel_sha256')}; no valid inheritance comparison)")
         require(all(identity(r) == identity(target) for r in attempts), f'{key}: rerun on wrong artifact')
         states[key] = evidence_status(original, attempts, target, comparison, key)
         require(row['status'] == states[key]['status'], f'{key}: reported status differs from evidence')
