@@ -1,12 +1,12 @@
 # RX1 — release notes (development, chưa giao)
 
-Commit: `6366137`. Bản giao trước gần nhất theo chương trình: R00 (song song M1) — **chưa có bản giao thật nào được ghi nhận** (release_check không suy ra từ d3120c6).
+Commit: `4b1b7b1`. Bản giao trước gần nhất theo chương trình: R00 (song song M1) — **chưa có bản giao thật nào được ghi nhận** (release_check không suy ra từ d3120c6).
 
 ## Usable outcomes
 
 Những gì bản dựng này làm được, theo task của release (rút gọn từ 04; trạng thái lấy từ registry):
 
-- **W22** — Adapter kiểm cho đầu ra tài liệu dạng verifier của v2 (nguồn, cấu trúc, link/ID); lõi chặn adapter vượt quyền; không cần engine của R04 _(testcase: T14a partial, T23 complete)_
+- **W22** — Adapter kiểm cho đầu ra tài liệu dạng verifier của v2 (nguồn, cấu trúc, link/ID); lõi chặn adapter vượt quyền; không cần engine của R04 _(testcase: T14a complete, T23 complete)_
 
 ## Limits
 
@@ -29,16 +29,17 @@ Những gì bản dựng này làm được, theo task của release (rút gọn
 
 ## Evidence status
 
-- Registry RX1: complete 1, partial 2, blocked 0 (`python -m wfkit.development_gate list`).
-- Gate development trên một wheel: gate 6366137: 213/213 check implementation đạt, 0 skip (1 716 lượt test cộng dồn, 1 351 test id); refused chỉ vì acceptance-partial 49 + acceptance-blocked 10.
-- Bundle T54 thật (`wfkit.release_bundle`, kết quả `release_check`: **refused**; bundle `C:\Users\NUC\AppData\Local\Temp\wf-bundles-6366137\RX1\bundle.json`):
-  - INPUTS — lịch sử cổng giao của bản trước: không đạt — previous delivered gate history missing
+- Registry RX1: complete 2, partial 1, blocked 0 (`python -m wfkit.development_gate list`).
+- Gate development trên một wheel: 268/268 check có biên nhận, 0 đỏ, 0 skip; snapshot nguyên vẹn; refused chỉ vì acceptance 14 partial / 10 blocked.
+- Bundle T54 thật (`wfkit.release_bundle`, kết quả `release_check`: **pass**; bundle `C:\Users\NUC\AppData\Local\Temp\wf-bundles-4b1b7b1\RX1\bundle.json`):
+  - INPUTS(bootstrap) — bản giao đầu tiên, baseline compat ghim: đạt (biên nhận thật)
   - T54.1 — kịch bản chạy từ bản cài: đạt (biên nhận thật)
   - T54.2 — nâng cấp giữ ID/ngân sách/evidence/attempt: đạt (biên nhận thật)
   - T54.3 — lớp sự kiện, S/G/C bản cũ: đạt (biên nhận thật)
   - T54.4 — rollback từ chối/cho phép, roll-forward: đạt (biên nhận thật)
   - T54.5 — ghi chú bốn trạng thái: đạt (biên nhận thật)
-  - Bản trước trong bundle là d3120c6 (baseline mà `compat scan` mô hình), KHÔNG phải bản đã giao: chưa có release nào của chương trình được giao, nên điều kiện INPUTS chỉ có thể đạt sau khi chủ sở hữu giao một release (điều kiện ngoài).
+  - Quy tắc INPUTS đã áp dụng: `INPUTS(bootstrap)`; first_release: true.
+  - Bản giao đầu tiên: bản trước là baseline d3120c6 ghim (wheel sha256 `530189bf90d8b440bc523e0d38f0f86bab4e0cf6df3a06b5d569b241e44e5f72`), baseline mà `compat scan` mô hình và các diễn tập đã cài — KHÔNG phải bản đã giao, chưa nghiệm thu; INPUTS(bootstrap) không phải lịch sử cổng giao.
 - Không ghi "đã giao", "Codex đã review" hay "chủ sở hữu đã nghiệm thu".
 
 Bốn trạng thái bằng chứng (định dạng của `release_check` T54.5, mỗi dòng một trạng thái):

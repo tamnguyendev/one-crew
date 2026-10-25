@@ -213,12 +213,12 @@
    "check.upgrade_drill",
    "check.release_bundle"
   ],
-  "missing": "Build the per-E matrix for T24a, T27, T42, T50a, T50b; add the counterexamples the kit missed: proposal re-checked against a weakened requirement (W47), a 'technical' choice with a made-up grant (W30a), an open unknown without affected/required_by (W31a)",
-  "next": "Fill marked Done because every testcase has a green module - that is the over-claim. 5 of 8 testcases have no certified E-matrix and the kit let three behaviour defects through (W47, W30a, W31a).",
+  "missing": "T24a, T27, T42, T50a, T50b complete (ma trận E lượt 7; W47/W30a/W31a phản chứng từ lượt 5). Còn T33b (root đạt verified/accepted trên bản cài cần verb chủ sở hữu ở terminal thật — ngoài) và T54a (release-evidence, bundle).",
+  "next": "Chủ sở hữu chạy verb nghiệm thu trên bản cài (T33b); bundle R01 trên artifact cuối (T54a).",
   "evidence": [
    "R01-*.json receipts on 6366137 (19, all pass); registry: T38b complete, T24a/T27/T42/T50a/T50b partial (no E-matrix), T33b/T54a release-evidence"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 8, 26/10/2026 (registry dev8)"
  },
  "W47": {
   "status": "Done",
@@ -354,12 +354,12 @@
    "check.installed_features",
    "check.upgrade_drill"
   ],
-  "missing": "E-matrix for T35a, T46a, T51b; counterexample for T35a E39 with >200 v2 outcomes in the project (W23b defect: v1 recommend/skills windows shrink)",
-  "next": "Kit's T35a E39 test uses a handful of outcomes, so it misses the 200-row window defect in v1 consumers (W23b).",
+  "missing": "Mọi testcase kit của R02 đã complete trong registry sau audit ma trận E lượt 7 (module tests/test_wf_r7_*). Còn T54b (release-evidence: năm điều T54 đo trên artifact thật bằng bundle, ngoài gate; E12 chưa áp vì chưa có lần giao).",
+  "next": "Chạy bundle R02 trên artifact cuối; T54b giữ release-evidence cho tới lần giao đầu (INPUTS(bootstrap), baseline d3120c6).",
   "evidence": [
    "R02-*.json receipts on 6366137 (10, pass); registry T51a complete; T35a/T46a/T51b partial (no E-matrix); T54b release-evidence"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 7, 25/10/2026 (registry e61b2c2)"
  },
  "W23b": {
   "status": "Done",
@@ -468,12 +468,12 @@
    "check.installed_notifications",
    "check.upgrade_drill"
   ],
-  "missing": "Tests for T36b E4/E7/E15/E17 (fake clock with a 2 h owner wait inside an attempt; wall-clock remaining; 70% warning) - red until W32a is fixed (in flight); add a T43c counterexample: repeated reforecasts above baseline with different evidence must give one notice per cause (W24b defect)",
-  "next": "T43c is 'complete' in the registry yet the W24b same-cause repeat defect passes the kit.",
+  "missing": "Mọi testcase kit của R03 đã complete trong registry (các mục ghi ở lượt trước — Tests for T36b E4/E7/E15/E17 (fake clock with a 2 h owner wait inside an attempt; wall-clock remaining; 70% warning) - r… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54c (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao.",
+  "next": "Chạy bundle R03 trên artifact cuối; T54c giữ partial/release-evidence cho tới khi có lần giao đầu (INPUTS(bootstrap) với baseline d3120c6 ghim).",
   "evidence": [
    "R03-*.json receipts on 6366137 (25, pass); registry T36b partial (E4, E7, E15, E17 uncovered); T54c release-evidence"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 7, 25/10/2026 (đối chiếu registry 734acdc)"
  },
  "W44": {
   "status": "Done",
@@ -679,12 +679,12 @@
    "check.t36a_scenario",
    "check.t37_child_acceptance"
   ],
-  "missing": "Add counterexamples the kit missed although T17a/T19/T21/T03 are 'complete': root approved without an authority field admits an out-of-scope write (W02); weakened helper module imported by a test (W05); split that drops checks / threshold cut on a renamed node / cwd or reviewer provider change classified routine (W05); several bound jobs each getting the full budget on a root without root-budget (W10). external: T37 E3/E6 wait for owner decision O4",
-  "next": "Previously Partial for T37 only; the real gap is larger: four behaviour defects in R04a features pass a kit whose testcases are all 'complete'.",
+  "missing": "T02, T03, T04a, T16a, T17a, T19, T21, T36a complete (W02/W05 phản chứng lượt 5). Còn T37 E3/E6: bước 3 chỉ chạy khi O4 = 'có' — quyết định chủ sở hữu.",
+  "next": "O4.",
   "evidence": [
    "R04-*.json receipts on 6366137 (33, pass); registry all complete except T37 (E3/E6 need O4)"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 8, 26/10/2026 (registry dev8)"
  },
  "WK04b": {
   "status": "Partial",
@@ -705,12 +705,12 @@
    "check.namespace_compat",
    "check.upgrade_drill"
   ],
-  "missing": "Write the uncovered E tests listed in registry gaps; T26 E4/T32 E4 tests will be red until W12b's cross-root writer defect is fixed",
-  "next": "Unchanged verdict.",
+  "missing": "T26, T49c, T49d (E5/E16 lượt 7: rollback_cli + báo cáo rollback), T05, T25, T32, T48b complete. Còn T37 (O4) và T54d (release-evidence).",
+  "next": "E5/E16 là việc local còn lại của R04 (script rollback theo trạng thái + báo cáo rollback theo root) — chưa làm lượt 7.",
   "evidence": [
    "R04-*.json receipts on 6366137; registry T05 (E1,E2,E4-E6), T26 (E4), T32 (E4), T49c (E13,E21,E22), T49d (E5-E7,E12,E16) uncovered"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 8, 26/10/2026 (registry dev8)"
  },
  "W01 (S)": {
   "status": "Done",
@@ -1026,12 +1026,12 @@
    "check.findings_report",
    "check.register_v1_guard*"
   ],
-  "missing": "E-matrix for T06, T17b, T22, T24b, T28, T31, T38c; counterexample for T38c: a later internal revise of a repaired node must not leave it unverifiable (W19 marker defect)",
-  "next": "Fill said Done D ('every testcase has a module'); 7 of 10 testcases are uncertified and the kit misses the W19 defect.",
+  "missing": "T06, T17b, T22, T24b, T31 complete; T28 partial chỉ còn E1 (so hai suite v1 register trước/sau tách finding_core trên 1b4f4c6^ — bằng chứng chạy tay lượt 7 tại D:\\OneCrewRuns\\wf-dev-logs\t28-e1-before-split, chưa thành test gate). Còn T54e (release-evidence).",
+  "next": "Ghi E1 vào registry khi có bằng chứng; bundle R05.",
   "evidence": [
    "R05-*.json receipts on 6366137 (43, pass); registry T07a/T11/T15a complete; T06, T17b, T22, T24b, T28, T31, T38c partial (no E-matrix)"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 8, 26/10/2026 (registry dev8)"
  },
  "WK05b": {
   "status": "Partial",
@@ -1052,12 +1052,12 @@
    "check.t18b_liveness",
    "check.test_preparation"
   ],
-  "missing": "Write the uncovered E tests; add a T08a counterexample: exception after X ran (receipt marker present) must not re-run X (W37a defect - T08a is 'complete' yet misses it); T43d/T47c atomicity tests (W30c, in flight)",
-  "next": "Unchanged verdict; the kit gap is larger than listed (W37a).",
+  "missing": "T16b complete (lượt 8: Q5 không giao → U3 + hold + card, không repair; Q8 giữ an toàn ghi U3; Q10 bằng chứng proposal-only — phản chứng qua caller thật), T17c, T43d/T47c, T08a complete. Còn T54e (release-evidence).",
+  "next": "Bundle R05 trên artifact cuối.",
   "evidence": [
    "R05-*.json receipts on 6366137; registry T16b (E5-E7,E12), T16c (E9), T17c (E4,E5,E9), T18a (E1,E3,E6,E8), T43d (E7,E13), T47c (E4,E6) uncovered"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 8, 26/10/2026 (registry dev8)"
  },
  "W07": {
   "status": "Done",
@@ -1430,12 +1430,12 @@
    "check.t52b_lesson_limits",
    "check.upgrade_drill"
   ],
-  "missing": "Tests for T52b E7 (withdrawal reason), E11, E12",
-  "next": "Fill said Done D; T52b has uncovered E.",
+  "missing": "Mọi testcase kit của R06 đã complete trong registry (các mục ghi ở lượt trước — Tests for T52b E7 (withdrawal reason), E11, E12… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54f (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao.",
+  "next": "Chạy bundle R06 trên artifact cuối; T54f giữ partial/release-evidence cho tới khi có lần giao đầu (INPUTS(bootstrap) với baseline d3120c6 ghim).",
   "evidence": [
    "R06-*.json receipts on 6366137 (9, pass); registry T52a complete; T52b E7, E11, E12 uncovered; T54f release-evidence"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 7, 25/10/2026 (đối chiếu registry 734acdc)"
  },
  "W49a": {
   "status": "Done",
@@ -1525,12 +1525,12 @@
    "check.issue_provider",
    "check.upgrade_drill"
   ],
-  "missing": "T53a: assert symbol_present at the pin for EVERY suspect (not only the two expected), and an E8 test",
-  "next": "Fill said Done D; T53a has uncovered E.",
+  "missing": "Mọi testcase kit của R07 đã complete trong registry (các mục ghi ở lượt trước — T53a: assert symbol_present at the pin for EVERY suspect (not only the two expected), and an E8 test… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54g (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao.",
+  "next": "Chạy bundle R07 trên artifact cuối; T54g giữ partial/release-evidence cho tới khi có lần giao đầu (INPUTS(bootstrap) với baseline d3120c6 ghim).",
   "evidence": [
    "R07-*.json receipts on 6366137 (6, pass); registry T53b complete; T53a E2, E7, E8 uncovered"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 7, 25/10/2026 (đối chiếu registry 734acdc)"
  },
  "W50a": {
   "status": "Done",
@@ -1618,12 +1618,12 @@
    "check.t08b_*",
    "check.t30_counterexamples"
   ],
-  "missing": "T01 fixture (rule decision + review in flight while revision changes); T04b E6; T15c E8; counterexamples the kit missed: case-variant write scopes run concurrently (W14b), crash after managed candidate before node.produced on the ENGINE path (W37b/W36 - T08b/T30 are 'complete')",
-  "next": "Fill said Done D.",
+  "missing": "Mọi testcase kit của R08 đã complete trong registry (các mục ghi ở lượt trước — T01 fixture (rule decision + review in flight while revision changes); T04b E6; T15c E8; counterexamples the kit missed:… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54h (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao.",
+  "next": "Chạy bundle R08 trên artifact cuối; T54h giữ partial/release-evidence cho tới khi có lần giao đầu (INPUTS(bootstrap) với baseline d3120c6 ghim).",
   "evidence": [
    "R08-*.json receipts on 6366137 (24, pass); registry T01 (E1-E5), T04b (E6), T15c (E8) uncovered"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 7, 25/10/2026 (đối chiếu registry 734acdc)"
  },
  "W14b": {
   "status": "Done",
@@ -1784,12 +1784,12 @@
    "check.candidate_reviewer",
    "check.metered_verifier"
   ],
-  "missing": "E-matrix for T40c (subset rule in release notes); T40b real-CLI parts stay external",
-  "next": "Fill said Done; T40c uncertified.",
+  "missing": "T40a, T40c complete (E30 lượt 8: bundle RP ghi quyết định hợp đồng trước/sau, hash, nguồn pin). T40b blocked ngoài (CLI codex chưa cài; pin từ program kit vì hợp đồng chưa duyệt). T54i release-evidence.",
+  "next": "W45: cài codex CLI + chạy lại 2 ô; quyết định pin/hợp đồng — chủ sở hữu.",
   "evidence": [
    "RP-*.json receipts on 6366137 (9, pass); registry T40a complete; T40c partial (no E-matrix); T40b real-CLI E10/E11/E18/E27 external (W45)"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 8, 26/10/2026 (registry dev8)"
  },
  "W43": {
   "status": "Done",
@@ -1872,12 +1872,12 @@
    "check.installed_adapters",
    "check.upgrade_drill"
   ],
-  "missing": "T14a E3/E8: run the no-kind-branch grep over every module on the exercised path (namespaces.py etc.), not a hand-picked CORE tuple, with a counterexample",
-  "next": "Fill said Done D.",
+  "missing": "Mọi testcase kit của RX1 đã complete trong registry (các mục ghi ở lượt trước — T14a E3/E8: run the no-kind-branch grep over every module on the exercised path (namespaces.py etc.), not a hand-picked … — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54j (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao.",
+  "next": "Chạy bundle RX1 trên artifact cuối; T54j giữ partial/release-evidence cho tới khi có lần giao đầu (INPUTS(bootstrap) với baseline d3120c6 ghim).",
   "evidence": [
    "RX1-*.json receipts on 6366137 (8, pass); registry T23 complete; T14a E3/E8 uncovered"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 7, 25/10/2026 (đối chiếu registry 734acdc)"
  },
  "W22": {
   "status": "Done",
@@ -1943,12 +1943,12 @@
    "check.installed_adapters",
    "check.upgrade_drill"
   ],
-  "missing": "T14b E9 grep covers only 8 files: extend to the whole exercised path with a counterexample (same as WKX1)",
-  "next": "T14b is 'complete' but its E9 counterexample check only scans 8 files.",
+  "missing": "Mọi testcase kit của RX2 đã complete trong registry (các mục ghi ở lượt trước — T14b E9 grep covers only 8 files: extend to the whole exercised path with a counterexample (same as WKX1)… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54k (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao.",
+  "next": "Chạy bundle RX2 trên artifact cuối; T54k giữ partial/release-evidence cho tới khi có lần giao đầu (INPUTS(bootstrap) với baseline d3120c6 ghim).",
   "evidence": [
    "RX2-*.json receipts on 6366137 (8, pass); registry T14b complete; T54k release-evidence"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 7, 25/10/2026 (đối chiếu registry 734acdc)"
  },
  "W39": {
   "status": "Done",
@@ -1997,7 +1997,7 @@
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
  "WKN": {
-  "status": "Partial",
+  "status": "Done",
   "classes": [
    "C"
   ],
@@ -2015,12 +2015,13 @@
    "check.answer_effects",
    "check.r02_boundaries"
   ],
-  "missing": "T46b E2 (call counter of the W23a diff function while building the P2 pack + 'pack copies its own diff' mutant); T47b E10 (AI session builds the pack, then tries to answer; requests/events unchanged)",
-  "next": "Fill said Done D.",
+  "missing": "",
+  "next": "",
   "evidence": [
-   "KN-*.json receipts on 6366137 (10, pass); registry T36c complete; T46b E2, T47b E10 uncovered"
+   "KN-*.json receipts on 6366137 (10, pass); registry T36c complete; T46b E2, T47b E10 uncovered",
+   "registry KN: T36c, T46b, T47b complete (ma trận E; tests/test_wf_r7_t46b.py, tests/test_wf_r7_t47b.py)"
   ],
-  "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
+  "judged_at": "audit lượt 7, 25/10/2026 (registry e61b2c2)"
  },
  "WKPL": {
   "status": "Partial",
