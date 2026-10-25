@@ -333,7 +333,7 @@
        "gaps": [
         {
          "kind": "release-evidence",
-         "detail": "E2/E9: a code root (propose, approve, verdict run, report) runs end to end from the installed build through the venv console script with the module boundary check (check.installed_r00_scenarios; the R01 bundle installed receipt). Not yet: the root reaching `verified`/accepted on the installed build needs the owner verb on a real terminal (not run in development), and the release-specific R01 scenario is the common one plus plan present."
+         "detail": "E2/E9: a code root (propose, approve, verdict run, report, plan present) runs end to end from the INSTALLED build through the venv console script with the module boundary check (check.installed_r00_scenarios; the R01 bundle installed receipt). The owner verbs (approve/accept) ARE exercised on a temporary ledger by the installed scenarios and by tests.test_wf_r7_t47b (owner terminal path) — that is a test of the verb, never owner acceptance. What remains is the real thing: the owner running the acceptance verb on the delivered build from their own terminal (U-verb, outside development); no test can stand in for it. Status partial until that happens; it is not a code gap."
         }
        ]
       },
@@ -640,7 +640,7 @@
      "gaps": [
       {
        "kind": "release-evidence",
-       "detail": "E2/E9: a code root (propose, approve, verdict run, report) runs end to end from the installed build through the venv console script with the module boundary check (check.installed_r00_scenarios; the R01 bundle installed receipt). Not yet: the root reaching `verified`/accepted on the installed build needs the owner verb on a real terminal (not run in development), and the release-specific R01 scenario is the common one plus plan present."
+       "detail": "E2/E9: a code root (propose, approve, verdict run, report, plan present) runs end to end from the INSTALLED build through the venv console script with the module boundary check (check.installed_r00_scenarios; the R01 bundle installed receipt). The owner verbs (approve/accept) ARE exercised on a temporary ledger by the installed scenarios and by tests.test_wf_r7_t47b (owner terminal path) — that is a test of the verb, never owner acceptance. What remains is the real thing: the owner running the acceptance verb on the delivered build from their own terminal (U-verb, outside development); no test can stand in for it. Status partial until that happens; it is not a code gap."
       }
      ]
     },
@@ -2938,6 +2938,14 @@
      "installed": false,
      "scope": "Round 7 acceptance audit of R04/T49d: S2 of tests.test_wf_namespace_compat (seven roots, three projects) with the unmodified archive of d3120c6 as the old code: N5 and N6 scan 0 with the receipt hash equal to the ledger at rollback start; after N5 the old code continues R1, answers No plan named for R2/R3/DUPb, refuses amend on accepted R4/DUPk (P1's plans/dup/ changes only through the DUPa amend), refuses propose dup and creates plan"
     },
+    "check.r8_authority_q5q8q10": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r8_authority_q5q8q10"
+     ],
+     "installed": false,
+     "scope": "Round 8: a workflow root whose grant does not delegate Q5 gets U3 + hold + one owner card and NO repair; Q8 safety hold always happens (U3 record when not delegated); Q10 outcome always recorded as evidence/proposal-only; roots without a workflow grant unchanged. Real callers on a temp ledger."
+    },
     "registry": {
      "kind": "unittest",
      "modules": [
@@ -3205,7 +3213,8 @@
        "checks": [
         "check.engine",
         "check.r04a_authority",
-        "check.t37_child_acceptance"
+        "check.t37_child_acceptance",
+        "check.r8_authority_q5q8q10"
        ],
        "gaps": [
         {
@@ -3774,7 +3783,8 @@
      "checks": [
       "check.engine",
       "check.r04a_authority",
-      "check.t37_child_acceptance"
+      "check.t37_child_acceptance",
+      "check.r8_authority_q5q8q10"
      ],
      "gaps": [
       {
@@ -4546,6 +4556,14 @@
      "installed": false,
      "scope": "Round 7 acceptance audit of R05/T31: Temporary repositories, real git gc --prune=now, a real process restart and a bare fake remote. E5 adds a structural scan of the shipped package (only retention.cleanup deletes refs under refs/onecrew/evidence/, only plan_cli calls it, and that verb is on the AI-session deny list); E6 runs the real hook judge, with the hook without the push rule as the counter-example. A real remote is not claimed"
     },
+    "check.r8_authority_q5q8q10": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r8_authority_q5q8q10"
+     ],
+     "installed": false,
+     "scope": "Round 8: a workflow root whose grant does not delegate Q5 gets U3 + hold + one owner card and NO repair; Q8 safety hold always happens (U3 record when not delegated); Q10 outcome always recorded as evidence/proposal-only; roots without a workflow grant unchanged. Real callers on a temp ledger."
+    },
     "registry": {
      "kind": "unittest",
      "modules": [
@@ -4776,6 +4794,10 @@
        ],
        "gaps": [
         {
+         "kind": "manual-evidence",
+         "detail": "E2-E6 covered (tests.test_wf_findings, tests.test_wf_r7_t28). E1 (the two v1 register suites tests.test_review_lifecycle + tests.test_review_p6 run on the commit BEFORE finding_core.py was split out, same list and results as after): proven by a manual run on 25/10/2026 22:21-22:47 — 114 tests on 54b802c (= 1b4f4c6^, git archive) and 114 tests on e61b2c2, identical test list (diff empty), both OK; logs and README in D:/OneCrewRuns/wf-dev-logs/t28-e1-before-split. The after-split side runs in every gate as R05/check.register_v1_guard + check.register_v1_guard_p6. E1 stays outside the gate (about 50 minutes per run), so the case is partial-by-construction, not for lack of a test."
+        },
+        {
          "kind": "acceptance-audit",
          "detail": "Audited round 7, 25/10: covered E2, E3, E4, E5, E6; UNCOVERED E1: The after-split side is the gate check.register_v1_guard / check.register_v1_guard_p6 (tests.test_review_lifecycle, tests.test_review_p6; both files unchanged since 1b4f4c6^, the commit before onecrew/finding_core.py was extracted). The before-split run on 1b4f4c6^ (same list, same results) was not executed in round 7 (machine constraint: no checkout or suite runs), so the before/after comparison the evidence asks for is not recorded."
         }
@@ -4919,7 +4941,8 @@
         "check.candidate_reviewer",
         "check.native_executor",
         "check.observed_handoff",
-        "check.r7_t16b"
+        "check.r7_t16b",
+        "check.r8_authority_q5q8q10"
        ],
        "evidence_matrix": {
         "E5": [
@@ -5403,6 +5426,10 @@
      ],
      "gaps": [
       {
+       "kind": "manual-evidence",
+       "detail": "E2-E6 covered (tests.test_wf_findings, tests.test_wf_r7_t28). E1 (the two v1 register suites tests.test_review_lifecycle + tests.test_review_p6 run on the commit BEFORE finding_core.py was split out, same list and results as after): proven by a manual run on 25/10/2026 22:21-22:47 — 114 tests on 54b802c (= 1b4f4c6^, git archive) and 114 tests on e61b2c2, identical test list (diff empty), both OK; logs and README in D:/OneCrewRuns/wf-dev-logs/t28-e1-before-split. The after-split side runs in every gate as R05/check.register_v1_guard + check.register_v1_guard_p6. E1 stays outside the gate (about 50 minutes per run), so the case is partial-by-construction, not for lack of a test."
+      },
+      {
        "kind": "acceptance-audit",
        "detail": "Audited round 7, 25/10: covered E2, E3, E4, E5, E6; UNCOVERED E1: The after-split side is the gate check.register_v1_guard / check.register_v1_guard_p6 (tests.test_review_lifecycle, tests.test_review_p6; both files unchanged since 1b4f4c6^, the commit before onecrew/finding_core.py was extracted). The before-split run on 1b4f4c6^ (same list, same results) was not executed in round 7 (machine constraint: no checkout or suite runs), so the before/after comparison the evidence asks for is not recorded."
       }
@@ -5546,7 +5573,8 @@
       "check.candidate_reviewer",
       "check.native_executor",
       "check.observed_handoff",
-      "check.r7_t16b"
+      "check.r7_t16b",
+      "check.r8_authority_q5q8q10"
      ],
      "evidence_matrix": {
       "E5": [
@@ -7299,19 +7327,13 @@
        }
       },
       "T40c": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.release_check",
         "check.finalgate",
         "check.r7_t40c"
        ],
-       "gaps": [
-        {
-         "kind": "acceptance-audit",
-         "detail": "Audited round 7, 25/10: covered E29, E30, E33, E34, E35, E37, E38, E39; UNCOVERED E30: Four-cell subset, kiro \"chưa dùng được: thiếu tài khoản\" in the rendered notes, RP pass and unchanged provider/model pins are proven; \"decisions của hợp đồng trước/sau: không đổi\" is not observable locally: the RP bundle carries no contract."
-        }
-       ],
-       "evidence_matrix_partial": {
+       "evidence_matrix": {
         "E34": [
          "tests.test_wf_r7_t40c.T40cSubsetTests.test_e34_x7_codex_reviewer_pass_on_another_build_without_inheritance_is_refused_naming_the_cell"
         ],
@@ -7342,6 +7364,13 @@
          "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_an_unusable_cell_without_its_reason_is_refused_naming_the_cell"
         ],
         "E30": [
+         "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_valid_case_k_passes_and_the_notes_carry_the_unchanged_decisions_line_with_the_hash",
+         "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_kiro_pins_changed_between_before_and_after_are_refused_naming_kiro",
+         "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_bundle_without_the_before_after_decision_record_is_refused",
+         "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_a_record_whose_hash_or_provenance_disagrees_is_refused",
+         "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_the_delivered_rows_must_equal_the_recorded_decisions",
+         "tests.test_wf_r7_t40c.T40cProducerDecisionTests.test_e30_the_producer_records_before_and_after_and_the_notes_line",
+         "tests.test_wf_r7_t40c.T40cProducerDecisionTests.test_e30_a_pin_changed_during_the_rp_decision_stops_the_producer_naming_the_cell",
          "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_e35_case_k_four_cell_subset_is_delivered_with_kiro_unverified_and_pins_unchanged",
          "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_every_cell_that_is_not_usable_carries_its_status_and_reason",
          "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_the_notes_render_each_cell_with_its_status_and_reason_and_a_dropped_reason_is_refused"
@@ -7350,7 +7379,8 @@
          "tests.test_wf_r7_t40c.T40cSubsetTests.test_e33_x6_a_kiro_reviewer_claimed_usable_against_the_matrix_is_refused",
          "tests.test_wf_r7_t40c.T40cSubsetTests.test_e33_x6_refusal_says_the_subset_contains_a_cell_not_passed_and_names_it"
         ]
-       }
+       },
+       "scope": "Simulated receipts on the fixture bundle of tests.test_wf_release_check (validator rules only; no provider called). E37-E39 go through the same shared evaluator (wfkit.provider_evidence.evaluate / finalgate.evidence_status) at CG-KET in the T55 cases, which also pin the published T40c set to the eligible set (KQ7)."
       },
       "T54i": {
        "status": "partial",
@@ -7493,19 +7523,13 @@
      }
     },
     "T40c": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.release_check",
       "check.finalgate",
       "check.r7_t40c"
      ],
-     "gaps": [
-      {
-       "kind": "acceptance-audit",
-       "detail": "Audited round 7, 25/10: covered E29, E30, E33, E34, E35, E37, E38, E39; UNCOVERED E30: Four-cell subset, kiro \"chưa dùng được: thiếu tài khoản\" in the rendered notes, RP pass and unchanged provider/model pins are proven; \"decisions của hợp đồng trước/sau: không đổi\" is not observable locally: the RP bundle carries no contract."
-      }
-     ],
-     "evidence_matrix_partial": {
+     "evidence_matrix": {
       "E34": [
        "tests.test_wf_r7_t40c.T40cSubsetTests.test_e34_x7_codex_reviewer_pass_on_another_build_without_inheritance_is_refused_naming_the_cell"
       ],
@@ -7536,6 +7560,13 @@
        "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_an_unusable_cell_without_its_reason_is_refused_naming_the_cell"
       ],
       "E30": [
+       "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_valid_case_k_passes_and_the_notes_carry_the_unchanged_decisions_line_with_the_hash",
+       "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_kiro_pins_changed_between_before_and_after_are_refused_naming_kiro",
+       "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_bundle_without_the_before_after_decision_record_is_refused",
+       "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_a_record_whose_hash_or_provenance_disagrees_is_refused",
+       "tests.test_wf_r7_t40c.T40cContractDecisionTests.test_e30_the_delivered_rows_must_equal_the_recorded_decisions",
+       "tests.test_wf_r7_t40c.T40cProducerDecisionTests.test_e30_the_producer_records_before_and_after_and_the_notes_line",
+       "tests.test_wf_r7_t40c.T40cProducerDecisionTests.test_e30_a_pin_changed_during_the_rp_decision_stops_the_producer_naming_the_cell",
        "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_e35_case_k_four_cell_subset_is_delivered_with_kiro_unverified_and_pins_unchanged",
        "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_every_cell_that_is_not_usable_carries_its_status_and_reason",
        "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_the_notes_render_each_cell_with_its_status_and_reason_and_a_dropped_reason_is_refused"
@@ -7544,7 +7575,8 @@
        "tests.test_wf_r7_t40c.T40cSubsetTests.test_e33_x6_a_kiro_reviewer_claimed_usable_against_the_matrix_is_refused",
        "tests.test_wf_r7_t40c.T40cSubsetTests.test_e33_x6_refusal_says_the_subset_contains_a_cell_not_passed_and_names_it"
       ]
-     }
+     },
+     "scope": "Simulated receipts on the fixture bundle of tests.test_wf_release_check (validator rules only; no provider called). E37-E39 go through the same shared evaluator (wfkit.provider_evidence.evaluate / finalgate.evidence_status) at CG-KET in the T55 cases, which also pin the published T40c set to the eligible set (KQ7)."
     },
     "T54i": {
      "status": "partial",

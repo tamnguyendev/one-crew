@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R8-E30-1",
+ "file": "wfkit/provider_evidence.py",
+ "old_sha256": "79170327e978b4be7958d3de12342f773774f0ecf095e7048fad2f82c88dd040",
+ "new_sha256": "09d20814e47402f5b7c79a4e12c4a2c4533165ed23b870b928e32e191de37b44",
+ "reason": "Round 8 (night directive 25/10: 'Khép T40c/E30: bundle phải có bằng chứng đủ để so quyết định hợp đồng trước/sau'). provider_evidence.decisions() records provider/role/model/vendor of the six cells + pins_source (verbatim from the W45 receipts: program kit, contract not yet approved) + sha256; the RP Producer takes it BEFORE the subset and AFTER the shared-evaluator verdict, stops naming the cell if they differ, writes provider_bundle.decisions and provider-matrix/decisions.json, and the notes line 'quyết định hợp đồng trước/sau: không đổi (sha256 …; nguồn pin: …)'; release_check T54.5 refuses a missing before/after record, a hash not matching its content, any changed cell (naming cell, field, both values), a pins_source different from the receipts, delivered rows different from the record, notes without the line. RP fixture of test_wf_release_check raised to the stricter rule only (no assertion changed). Red on ae8a67f: 'pass' != 'refused' (x5), LedgerError not raised, KeyError 'decisions'. The two tests that read the REAL W45 matrix live in unregistered tests/test_wf_r7_t40c_real.py (may skip; registered tests never skip).",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị đêm 25/10 (lượt 8) 'Tiếp tục tự quyết trong quyền đã giao, không chờ tôi trả lời trong đêm... Đây là việc kỹ thuật trong phạm vi đã giao' — cùng phạm vi ủy quyền lượt 5/7): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 8 integration commit on codex/wf-development (branches wf/r8-g, wf/r8-h)",
+ "at": "2026-10-26"
+}
