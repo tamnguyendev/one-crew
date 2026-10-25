@@ -42,10 +42,10 @@ def _sha(path):
 
 def _detail(problem):
     if problem.get('kind') == 'implementation-checks':
-        text = 'failed implementation checks: ' + '; '.join(f"{f.get('check')}: {f.get('reason')}" if isinstance(f, dict) else str(f) for f in problem.get('failures') or [])
-    else:
-        text = str(problem.get('detail') or problem.get('error') or problem)
-    return text[:600]
+        # every failed check is NAMED in the reason (a cut list would hide a failure); only each reason text is shortened
+        return 'failed implementation checks: ' + '; '.join(f"{f.get('check')}: {str(f.get('reason'))[:160]}" if isinstance(f, dict) else str(f)[:200]
+                                                            for f in problem.get('failures') or [])
+    return str(problem.get('detail') or problem.get('error') or problem)[:600]
 
 
 def _read_snapshot(release, snapshot, why):
