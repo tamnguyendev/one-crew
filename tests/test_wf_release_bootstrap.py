@@ -52,10 +52,23 @@ class BaselinePinTests(unittest.TestCase):
 
     def test_two_producer_builds_with_the_same_pin_have_the_same_previous_identity(self):
         identities = []
+        # gate 73be6ee (25/10): the reused PREVIOUS wheel must not be recorded in the gate's used-log as a wheel this check consumed
+        used_log = self.root / 'used.log'; saved = os.environ.get('WF_WHEEL_USED_LOG'); os.environ['WF_WHEEL_USED_LOG'] = str(used_log)
+        def restore():
+            if saved is None: os.environ.pop('WF_WHEEL_USED_LOG', None)
+            else:
+                os.environ['WF_WHEEL_USED_LOG'] = saved
+                if used_log.is_file():
+                    with open(saved, 'a', encoding='utf-8') as f: f.write(used_log.read_text(encoding='utf-8'))
+        self.addCleanup(restore)
         for i in range(2):
             producer = release_bundle.Producer('R01', Path(tempfile.gettempdir()) / f'wf-pin-run-{os.getpid()}-{i}', baseline_wheel=self.pin['wheel'])
             self.addCleanup(shutil.rmtree, producer.out, True)
+            before = used_log.read_text(encoding='utf-8') if used_log.is_file() else ''
             producer.build()
+            recorded = set(used_log.read_text(encoding='utf-8')[len(before):].split()) if used_log.is_file() else set()
+            self.assertNotIn(self.pin['wheel_sha256'], recorded, 'the pinned baseline (rollback target) was recorded as the consumed wheel')
+            self.assertLessEqual(recorded, {producer.artifact('current')['wheel_sha256']}, recorded)
             identities.append(producer.identity('previous'))
             self.assertEqual(producer.artifact('previous')['wheel_sha256'], self.pin['wheel_sha256'])
             self.assertEqual(producer.artifact('previous')['pinned_from'], self.pin['wheel'])

@@ -14,12 +14,15 @@ class SameScopeSerialTests(EngineFixture):
         super().setUp()
         self.revise([node('N1', write=('a.txt',)), node('N2', write=('a.txt',)), node('I', ['N1', 'N2'], integration=True, write=())])
         self.spans = {}
+        self.bodies = 0                                            # executor bodies STARTED (not only finished): E8 counts starts
         self.guard = threading.Lock()
         self.inside = threading.Event()
 
     def slow(self, delay):
         def run(ledger, control, task, item, attempt):
             start = time.monotonic()
+            with self.guard:
+                self.bodies += 1
             self.inside.set()
             time.sleep(delay)
             result = self.execute(ledger, control, task, item, attempt)
@@ -92,6 +95,7 @@ class SameScopeSerialTests(EngineFixture):
                 self.assertTrue(other_call.get('already_adopted') or other_call['state'] in ('waiting', 'refused', 'held'), results)
                 self.assertNotEqual(other_call.get('node'), 'N2' if ran[0]['node'] == 'N1' else 'N1', results)
         self.assertEqual(len(self.spans), 1, self.spans)
+        self.assertEqual(self.bodies, 1, 'a second executor body started for the same attempt (gate 73be6ee, 25/10)')
         self.assertEqual(list(self.spans), [ran[0]['node']])
         self.assertEqual([k for k in self.intervals() if k != ran[0]['node']], [], 'the other same-scope node must not have started')
         winner = ran[0]['node']
@@ -112,3 +116,46 @@ class SameScopeSerialTests(EngineFixture):
         with self.assertRaisesRegex(LedgerError, 'isolate'):
             self.engine.step(self.ledger, 'P1', self.slow(0), control=self.control, slots=2)
         self.assertEqual(self.intervals(), {})
+
+
+class OneBodyPerAttemptTests(EngineFixture):
+    def test_t15c_e8_an_attempt_admitted_by_another_caller_is_never_dispatched_again(self):
+        """W33b / T15c E8 counter-example (deterministic replay of the gate failure on 73be6ee, 25/10/2026): caller A admits N1
+        (reserve + node.started) and is inside its executor body; caller B read the node as ready BEFORE A's commit (simulated by a stale
+        _ready), so Control.reserve — idempotent per key — hands B A's RUNNING attempt. B must not run a second executor body for it.
+        The old engine dispatched it: B's body started, Control refused its launch and the node ended `held` — two bodies, one attempt."""
+        from unittest.mock import patch
+        self.revise([node('N1', write=('a.txt',)), node('N2', write=('a.txt',)), node('I', ['N1', 'N2'], integration=True, write=())])
+        inside, release, bodies, outcome = threading.Event(), threading.Event(), [], {}
+
+        def caller_a(ledger, control, task, item, attempt):
+            bodies.append(('A', item['id'], attempt['id']))
+            control.launched(attempt['id'], attempt['generation'], {'fixture': True})      # A is RUNNING its one body
+            inside.set(); self.assertTrue(release.wait(60))
+            artifact = self.store.blob(b'artifact-N1'); receipt = self.store.blob(b'executor-N1')
+            control.finish(attempt['id'], attempt['generation'], {'fixture': True, 'artifact': artifact})
+            return {'artifact': artifact, 'receipt': receipt}
+
+        def caller_b(ledger, control, task, item, attempt):
+            bodies.append(('B', item['id'], attempt['id']))
+            return self.execute(ledger, control, task, item, attempt)
+        thread = threading.Thread(target=lambda: outcome.setdefault('A', self.step(caller_a)))
+        thread.start()
+        self.assertTrue(inside.wait(30), 'caller A never started its body')
+        attempt_a = bodies[0][2]
+        self.assertEqual(self.control.attempt(attempt_a)['status'], 'running')
+        stale = [{'id': 'N1'}]
+        with patch.object(self.engine, '_ready', lambda view, slots: stale):     # B's read happened before A's node.started committed
+            result = self.step(caller_b)
+        release.set(); thread.join(60)
+        self.assertEqual([b[0] for b in bodies], ['A'], 'caller B ran an executor body for an attempt it did not admit: ' + repr(bodies))
+        self.assertEqual(result['state'], 'waiting', result)
+        self.assertEqual(result['attempt'], attempt_a)
+        self.assertIn('another caller', result['reason'])
+        self.assertEqual(outcome['A']['state'], 'produced', outcome)
+        self.assertEqual(self.control.attempt(attempt_a)['status'], 'settled')
+        task = self.root_view['anchor_task']
+        kinds = [e['kind'] for e in self.ledger.events(task) if e['kind'].startswith('node.')]
+        self.assertEqual(kinds.count('node.started'), 1, kinds)
+        self.assertEqual(kinds.count('node.produced'), 1, kinds)
+        self.assertNotIn('node.held', kinds)

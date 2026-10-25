@@ -69,11 +69,16 @@ def guard_swap(state, expected_scan):
 
 
 @contextlib.contextmanager
-def build_source(repo, use_gate_wheel=False):
+def build_source(repo, use_gate_wheel=False, record_used=None):
+    """Point the wheel builder at `repo`. use_gate_wheel keeps WF_WHEEL/WF_WHEEL_SHA256 (reuse a prebuilt wheel); record_used (default:
+    same as use_gate_wheel) keeps WF_WHEEL_USED_LOG. A comparator/previous/baseline wheel is built with record_used=False: the gate's
+    used-log proves which wheel the check CONSUMED as the build under test, and a rollback target is not that wheel."""
     original = wheel.REPO; saved = {key:os.environ.get(key) for key in ('WF_WHEEL','WF_WHEEL_SHA256','WF_WHEEL_USED_LOG')}
     wheel.REPO = Path(repo)
+    if record_used is None: record_used = use_gate_wheel
     if not use_gate_wheel:
-        for key in saved: os.environ.pop(key,None)
+        for key in ('WF_WHEEL','WF_WHEEL_SHA256'): os.environ.pop(key,None)
+    if not record_used: os.environ.pop('WF_WHEEL_USED_LOG',None)
     try: yield
     finally:
         wheel.REPO = original

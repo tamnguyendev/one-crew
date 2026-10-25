@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261025-R6B-ONEBODY-1",
+ "file": "tests/test_wf_w33b_evidence.py",
+ "old_sha256": "bb1e0a6a1a6eabffea5701b9a98107728df2c3baae4d7a282ad751c42f4daff0",
+ "new_sha256": "ffd2d8cebf8c7076f191aacf605ecbd9d8d750e3018168d1dd9b6e79685ec43e",
+ "reason": "Round 6b (snapshot gate on 73be6ee, R08/check.w33b_t15c_evidence FAILED 25/10: two steps released together ended with no `produced` result — the second caller received the first caller's RUNNING attempt from the idempotent Control.reserve and started a second executor body for it; evidence D:/OneCrewRuns/wf-dev-logs/evidence-73be6ee). Engine fix: step never dispatches an attempt this call did not admit (returns waiting). Test strengthened: executor body STARTS are counted and must be exactly one; new deterministic counter-example OneBodyPerAttemptTests replays the gate ordering through a Control proxy and is red on the old engine. No assertion weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 25/10/2026 (chỉ thị lượt 6 sau xác nhận Codex 3 P1 + 1 P2 trên c18c46e, cùng phạm vi ủy quyền lượt 5): 'Tôi ủy quyền bạn tự quyết và thực hiện các thay đổi local cần thiết: sửa code, bổ sung test/phản chứng, điều chỉnh cách triển khai, cập nhật hợp đồng/roadmap/bộ kiểm cho nhất quán... Không hỏi tôi duyệt từng task'. Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 6b commit on codex/wf-development (follow-up of 73be6ee)",
+ "at": "2026-10-25"
+}

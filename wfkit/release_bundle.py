@@ -258,7 +258,7 @@ class Producer(Drill):
                     else: os.environ[k] = v
                 if pin: os.environ['WF_WHEEL'], os.environ['WF_WHEEL_SHA256'] = pin
                 folder = self.out / name; folder.mkdir()
-                with build_source(repo, use_gate_wheel=pin is not None or name == 'current'):
+                with build_source(repo, use_gate_wheel=pin is not None or name == 'current', record_used=name == 'current'):
                     path, _, spec = wheel.build_wheel(folder)
                 self.artifacts[name] = {'wheel': str(path), 'wheel_sha256': sha(path), 'commit': commit,
                                         'source_dirty': self.git('status', '--porcelain').splitlines() if name == 'current' else [],

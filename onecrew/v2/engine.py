@@ -368,6 +368,8 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
                   **({key: pin[key] for key in ('provider', 'model')} if pin else {}))
     execution = control.configure(task['id'], task['revision'], {'mode': 'common-workflow-node', 'node': nid})
 
+    admitted = []
+
     def reserve(conn, attempt):
         current = state(ledger, root['selector'], conn)
         if (not _publication_current(current, view, nid)
@@ -375,8 +377,15 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
             raise LedgerError('The root slot or internal node changed before admission.')
         _event(ledger, conn, current, nid, 'node.started', attempt=attempt['id'], child=task['id'],
                early_dependencies=eligible(current, nid).get('early_dependencies', []), inputs=inputs)
+        admitted.append(attempt['id'])
 
     attempt = control.reserve(task['id'], execution['revision'], 'node-run', {'unit': 'task:' + nid, 'stage': nid}, on_reserved=reserve)
+    if attempt['id'] not in admitted:
+        # T15c E8 / T08a: Control.reserve is idempotent per key, so a concurrent caller that read the node as ready before this node's
+        # node.started was committed receives the attempt ANOTHER caller admitted (possibly already running). It must never be dispatched
+        # a second time: one attempt has exactly one executor body; the owner of the attempt (or reconciliation) settles it.
+        return {'node': nid, 'state': 'waiting', 'attempt': attempt['id'], 'attempt_status': attempt['status'],
+                'reason': 'Attempt already admitted by another caller; one executor body per attempt, reconcile instead of re-running.'}
     try:
         if hasattr(executor, 'declaration'):
             produced = executors.Dispatcher().send(executor, 'start', ledger, control, task, item, attempt)
