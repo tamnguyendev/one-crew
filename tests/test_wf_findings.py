@@ -389,6 +389,45 @@ class SkipLinkTests(Fixture):
                          sorted([('RF1', self.key), ('RF2', later['record']['key'])]))
         self.assertEqual(len(got['skip_records']), 2)
 
+    def test_validation_and_write_of_a_link_are_one_transaction(self):
+        """Round 7 (integration): link_skip validates and records in ONE write transaction (the round-5 atomicity rule), so a concurrent
+        second attribution of the same finding cannot pass validation on a stale read. Structural check + a barrier race."""
+        import threading
+        from unittest.mock import patch
+        from onecrew.v2 import decisions
+        seen = []
+        real = decisions.record
+
+        def spy(ledger, task_id, **kw):
+            seen.append((kw.get('conn') is not None, bool(getattr(kw.get('conn'), 'in_transaction', False))))
+            return real(ledger, task_id, **kw)
+        with patch.object(decisions, 'record', spy):
+            self.link()
+        self.assertEqual(seen, [(True, True)], 'the link record must be written on the open validating transaction')
+        later = self.decide('P1', note='synthetic: a later SKIP of the same review')
+        opened = findings.record_review(self.ledger, 'P1', 'M1', self.receipt('P1', note='third line absent'), read=['a.txt'])['opened']
+        self.assertEqual(opened, ['RF2'])
+        barrier = threading.Barrier(2)
+        results = []
+
+        def attempt(key):
+            barrier.wait(30)
+            try:
+                self.link('RF2', key=key)
+                results.append(('ok', key))
+            except LedgerError as error:
+                results.append(('refused', str(error)))
+        threads = [threading.Thread(target=attempt, args=(k,)) for k in (self.key, later['record']['key'])]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(60)
+        self.assertEqual(sorted(r[0] for r in results), ['ok', 'refused'], results)
+        self.assertIn('already attributed to SKIP', [r for r in results if r[0] == 'refused'][0][1])
+        rf2 = [e for e in self.link_events() if e['validity']['finding'] == 'RF2']
+        self.assertEqual(len(rf2), 1, 'RF2 attributed to two SKIPs: the race got through')
+        self.assertEqual(self.measure()['skip_leak']['value'], 2)
+
     def test_ai_session_cannot_sign_the_link_as_the_owner(self):
         with patch.dict(os.environ, {'CLAUDE_CODE_CHILD_SESSION': '1'}):
             with self.assertRaisesRegex(LedgerError, 'refused: this process runs inside an AI tool session'):

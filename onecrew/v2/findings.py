@@ -506,7 +506,9 @@ def link_skip(ledger, name, ident, skip_record, *, review, reason, by=None, task
     the same link twice is recorded once. Returns {'link': {...}, 'duplicate': bool}."""
     from . import decisions
     text_field(reason, 'skip link reason', 2000)
-    with ledger.transaction() as conn:
+    # ONE write transaction: the checks below (SKIP record, finding, 'already attributed') and the record commit together, so two
+    # concurrent links of the same finding to different SKIPs cannot both pass validation on a stale read (round-5 atomicity rule).
+    with ledger.transaction(write=True) as conn:
         root = resolve_root(ledger, name, task_id, conn)
         _require_capability(root)
         state = plans.anchor_events(ledger, conn, name)
@@ -523,18 +525,16 @@ def link_skip(ledger, name, ident, skip_record, *, review, reason, by=None, task
         for other in skip_view_links(conn, root['id']):
             if other['finding'] == ident and other['skip_record'] != skip_record:
                 raise LedgerError(f'Finding {ident} is already attributed to SKIP {other["skip_record"]}; a defect is counted once.')
-    link = {'link': 'missed_by_skip', 'finding': ident, 'skip_record': skip_record, 'review': review, 'root': root['id'],
-            'revision': skip['revision'], 'contract_sha': skip['contract_sha'], 'artifact_sha': skip['artifact_sha']}
-    key = 'skip-link-' + content_hash({'root': root['id'], 'finding': ident, 'skip': skip_record})
-    before = None
-    with ledger.transaction() as conn:
+        link = {'link': 'missed_by_skip', 'finding': ident, 'skip_record': skip_record, 'review': review, 'root': root['id'],
+                'revision': skip['revision'], 'contract_sha': skip['contract_sha'], 'artifact_sha': skip['artifact_sha']}
+        key = 'skip-link-' + content_hash({'root': root['id'], 'finding': ident, 'skip': skip_record})
         before = conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='decision.recorded' AND json_extract(payload,'$.key')=?",
                               (root['id'], key)).fetchone()
-    decisions.record(ledger, root['id'], subject={'component': SKIP_LINK, 'model': 'rules'},
-                     authority={'grant_id': 'approved-contract:' + approved['sha'], 'revision': str(approved['revision'])},
-                     evidence=[f'finding:{ident}', f'skip-record:{skip_record}', f'receipt:{finding["source"]["receipt"]}',
-                               f'artifact:{skip["artifact_sha"]}', f'contract:{skip["contract_sha"]}'],
-                     basis=reason, scope=review, validity=link, by=by, key=key)
+        decisions.record(ledger, root['id'], subject={'component': SKIP_LINK, 'model': 'rules'},
+                         authority={'grant_id': 'approved-contract:' + approved['sha'], 'revision': str(approved['revision'])},
+                         evidence=[f'finding:{ident}', f'skip-record:{skip_record}', f'receipt:{finding["source"]["receipt"]}',
+                                   f'artifact:{skip["artifact_sha"]}', f'contract:{skip["contract_sha"]}'],
+                         basis=reason, scope=review, validity=link, by=by, key=key, conn=conn)
     return {'link': link, 'duplicate': before is not None}
 
 

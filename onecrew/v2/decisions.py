@@ -87,8 +87,10 @@ def _actor(by):
     return 'unknown' if who in OWNER_ACTORS and in_ai_session() else who
 
 
-def record(ledger, task_id, *, subject, authority, evidence, basis, scope=None, validity=None, by=None, key=None):
-    """Append one `decision.recorded` event. Refuses `by=owner` from an AI session (writes nothing). Returns the stored payload."""
+def record(ledger, task_id, *, subject, authority, evidence, basis, scope=None, validity=None, by=None, key=None, conn=None):
+    """Append one `decision.recorded` event. Refuses `by=owner` from an AI session (writes nothing). Returns the stored payload.
+    `conn`: an OPEN write transaction of `ledger` - the caller's validation and this write then commit together (one transaction), the
+    rule every entry route follows since the round-5 atomicity fix; without it the record opens its own write transaction."""
     if by not in (None, 'owner'):
         raise LedgerError('decision by: only "owner" (the owner, from their own terminal) or omitted (the AI writes under its own name).')
     if by == 'owner':
@@ -110,7 +112,7 @@ def record(ledger, task_id, *, subject, authority, evidence, basis, scope=None, 
         payload['key'] = key
     if len(canonical(payload)) > MAX_JSON:
         raise LedgerError('decision record is too large; trim the evidence or basis.')
-    with ledger.transaction(write=True) as conn:
+    def write(conn):
         ledger._task(conn, task_id)
         if key is not None:
             import json
@@ -119,4 +121,10 @@ def record(ledger, task_id, *, subject, authority, evidence, basis, scope=None, 
             if old:
                 return json.loads(old['payload'])
         ledger._event(conn, task_id, KIND, dict(payload, at=utcnow()))
-    return payload
+        return payload
+    if conn is not None:
+        if not getattr(conn, 'in_transaction', False):
+            raise LedgerError('decision record: conn must be an open write transaction (validate and write together).')
+        return write(conn)
+    with ledger.transaction(write=True) as conn:
+        return write(conn)
