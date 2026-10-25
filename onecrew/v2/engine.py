@@ -645,29 +645,40 @@ def request_action(ledger, selector, nid, action):
     result = authority.decide(contract, action, ctx)
     decision = authority.record(ledger, root['task_id'], contract, action, result, name=root['selector'], revision_sha=sha, component='onecrew.engine')
     if not result['in_authority']:
-        affected = dependency_core.affected_tasks(ip.projection(view['definition']['nodes']), [nid])
-        with ledger.transaction(write=True) as conn:
-            current = state(ledger, root['selector'], conn)
-            for target in sorted(affected):
-                _event(ledger, conn, current, target, 'node.held', reason=result['reason'], classification=result['class'])
-        if result['class'] in ('U1', 'U2', 'U3', 'U4'):
-            parameters = {'plan': root['selector'], 'root': root['task_id'], 'contract_revision': root['approved']['revision'],
-                          'contract_sha': sha, 'internal_revision': view['internal_revision'], 'node': nid,
-                          'generation': view['nodes'][nid]['generation'], 'affected': sorted(affected),
-                          'generations': {target: view['nodes'][target]['generation'] for target in sorted(affected)},
-                          'reason_class': result['class'], 'requested_action': action}
-            parameters['key'] = 'wfhold-' + content_hash(parameters)[:48]
-            question = {'schema_version': 1,
-                'question': 'Node ' + nid + ' needs a decision outside its current delegated action.',
-                'reason': result['reason'], 'impact': 'Only ' + ', '.join(sorted(affected)) + ' is held; independent nodes may continue.',
-                'options': [{'id': 'continue', 'label': 'Continue the affected work strictly inside the existing grant'},
-                            {'id': 'stop', 'label': 'Close this root and retain its evidence'}],
-                'recommendation': 'continue'}
-            card, deadline = _hold_card(ledger, root, view, nid, sorted(affected), action, result, decision, ctx, question)
-            parameters.update(card=card, decide_by_deadline=deadline)
-            ledger.create_request(root['task_id'], parameters['key'],
-                                  dict(question, action={'type': 'v2.workflow_hold', 'parameters': parameters}))
+        hold_out_of_authority(ledger, root, sha, view, ctx, nid, action, result, decision)
     return result
+
+
+def hold_out_of_authority(ledger, root, sha, view, ctx, nid, action, result, decision, affected=None):
+    """The one hold for an action OneCrew may not take by itself (request_action, and since round 8 G the Q5 repair of a root that does not
+    delegate Q5): `affected` (default: nid and its dependents) is held at its current generation, and a U1-U4 class gets ONE
+    `v2.workflow_hold` decision card for the owner (HD-08). The action is NOT performed here or by the answer: an owner `continue`
+    (answer_effects -> resume_held) resumes the held nodes inside the existing grant (grants_authority False,
+    original_unauthorized_action_executed False). Returns the request view, or None for a hold without a U class."""
+    if affected is None:
+        affected = dependency_core.affected_tasks(ip.projection(view['definition']['nodes']), [nid])
+    with ledger.transaction(write=True) as conn:
+        current = state(ledger, root['selector'], conn)
+        for target in sorted(affected):
+            _event(ledger, conn, current, target, 'node.held', reason=result['reason'], classification=result['class'])
+    if result['class'] not in ('U1', 'U2', 'U3', 'U4'):
+        return None
+    parameters = {'plan': root['selector'], 'root': root['task_id'], 'contract_revision': root['approved']['revision'],
+                  'contract_sha': sha, 'internal_revision': view['internal_revision'], 'node': nid,
+                  'generation': view['nodes'][nid]['generation'], 'affected': sorted(affected),
+                  'generations': {target: view['nodes'][target]['generation'] for target in sorted(affected)},
+                  'reason_class': result['class'], 'requested_action': action}
+    parameters['key'] = 'wfhold-' + content_hash(parameters)[:48]
+    question = {'schema_version': 1,
+        'question': 'Node ' + nid + ' needs a decision outside its current delegated action.',
+        'reason': result['reason'], 'impact': 'Only ' + ', '.join(sorted(affected)) + ' is held; independent nodes may continue.',
+        'options': [{'id': 'continue', 'label': 'Continue the affected work strictly inside the existing grant'},
+                    {'id': 'stop', 'label': 'Close this root and retain its evidence'}],
+        'recommendation': 'continue'}
+    card, deadline = _hold_card(ledger, root, view, nid, sorted(affected), action, result, decision, ctx, question)
+    parameters.update(card=card, decide_by_deadline=deadline)
+    return ledger.create_request(root['task_id'], parameters['key'],
+                                 dict(question, action={'type': 'v2.workflow_hold', 'parameters': parameters}))
 
 
 def _hold_card(ledger, root, view, nid, affected, action, result, decision, ctx, question):

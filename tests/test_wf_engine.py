@@ -32,7 +32,7 @@ class EngineFixture(Fixture):
         self.ip, self.engine = internal_plan, engine
         self.engine_caps = ['namespaced-storage', 'root-budget', 'internal-plan', 'sequential-engine']
         value = plan_json(scope={'owned': ['a.txt', 'b.txt']}, authority={
-            'edit': True, 'commands': True, 'edit_tests': True, 'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q9', 'Q12']})
+            'edit': True, 'commands': True, 'edit_tests': True, 'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']})   # round 8 G: Q5 delegated, the fixtures repair
         self.root_view = plans.propose(self.ledger, 'P1', value, 'codex', workflow=True, capabilities=self.engine_caps)
         plans.approve(self.ledger, 'P1', 'owner', 'fixture engine approval')
         os.environ['ONECREW_ACTOR'] = 'codex'

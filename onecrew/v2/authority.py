@@ -366,7 +366,8 @@ def decide(contract, action, ctx=None):
         q = action.get('q')
         if q not in Q_IDS: return _res(False, 'U3', kind, 'unknown decision ' + str(q), q)
         if q not in grant['self_decide']:
-            return _res(False, 'U3', kind, f'{q} is not delegated to OneCrew by this root (self_decide)', q)
+            return _res(False, 'U3', kind, f'{q} is not delegated to OneCrew by this root (self_decide)', q,
+                        nodes=list(action.get('nodes') or []))       # the record's scope names the nodes it is about (round 8 G)
         ok, cls, reason = _q_check(grant, action, ctx, q)
         return _res(ok, cls, kind, reason, q, nodes=list(action.get('nodes') or []))
     handler = _HANDLERS.get(kind)

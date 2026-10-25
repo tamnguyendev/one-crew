@@ -22,7 +22,7 @@ class IntegrationFindingTests(EngineFixture):
         Fixture.setUp(self)
         self.engine, self.ip = engine, internal_plan
         raw = plan_json(milestones=[milestone()], scope={'owned': ['a.txt', 'b.txt', 'x.txt']},
-                        authority={'edit': True, 'commands': True, 'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q8', 'Q9', 'Q12']})
+                        authority={'edit': True, 'commands': True, 'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q8', 'Q9', 'Q12']})
         caps = ['namespaced-storage', 'finding-register', 'root-budget', 'internal-plan', 'sequential-engine']
         self.root_view = plan.propose(self.ledger, 'P1', raw, 'codex', workflow=True, capabilities=caps)
         plan.approve(self.ledger, 'P1', 'owner', 'temporary fixture grant')

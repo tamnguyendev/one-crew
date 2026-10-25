@@ -9,7 +9,7 @@ import json
 
 from .. import dependency_core
 from ..ledger import LedgerError, canonical, content_hash, key_field, text_field
-from ..snapshots import Snapshots
+from ..snapshots import Snapshots, bytes_hash
 from . import engine, estimates, internal_plan as ip
 
 PREFIX = 'repair-evidence:'
@@ -79,12 +79,23 @@ def prepare(ledger, selector, target, failed_node, *, reason, evidence, receipt=
                  'generations': {nid: view['nodes'][nid]['generation'] + 1 for nid in affected},
                  'checks_sha': {n['id']: content_hash(n['checks']) for n in nodes if n['id'] in affected},
                  'reason': reason, 'evidence': estimates.evidence(evidence)}
-    blob = Snapshots(ledger.state_root).blob(canonical(value).encode())
+    data = canonical(value).encode()
+    blob = bytes_hash(data)                  # the receipt id, known before anything is written
     from . import recovery_policy
     recovery_policy.authorize_repair(ledger, root['selector'], failed_node)
-    # T16b [E6]: Q5 (repair inside the ceilings) leaves its HD-05 record, through the one decide() of internal_plan.
-    ip.self_decided(ledger, root['selector'], 'Q5', affected, 'onecrew.repair_tasks', key='q5-repair-' + blob[:48],
-                    target=target, failed_node=failed_node, failed_checks=failed, evidence=[source, blob])
+    # T16b [E6] / round 8 G: Q5 (repair inside the ceilings) is an ACTION that changes the plan. Delegated -> its HD-05 record, then the
+    # repair. A workflow grant that does not delegate Q5 -> the U3 verdict is recorded, nothing of the repair is written (no receipt blob,
+    # no plan.revised), the affected nodes are held and the owner gets the one v2.workflow_hold card (engine.hold_out_of_authority, the
+    # path of request_action); recovery continues only through that answered request. A root with no workflow grant: as before.
+    verdict = ip.self_decided(ledger, root['selector'], 'Q5', affected, 'onecrew.repair_tasks', key='q5-repair-' + blob[:48],
+                              target=target, failed_node=failed_node, failed_checks=failed, evidence=[source, blob])
+    if verdict['delegation'] == ip.NOT_DELEGATED:
+        result = verdict['result']
+        request = engine.hold_out_of_authority(ledger, root, sha, view, verdict['ctx'], failed_node, verdict['action'], result,
+                                               verdict['decision'], affected=sorted(affected))
+        raise LedgerError(str(result['class']) + ': ' + result['reason'] + '; the repair was not created, '
+                          + ', '.join(sorted(affected)) + ' is held for the owner (request ' + request['id'] + ').')
+    Snapshots(ledger.state_root).blob(data)
     for node in nodes:
         if node['id'] in affected:
             node['input'] = [i for i in node['input'] if not i.startswith(PREFIX)] + [PREFIX + blob]

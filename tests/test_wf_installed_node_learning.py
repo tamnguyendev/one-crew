@@ -32,7 +32,7 @@ class InstalledNodeLearning(unittest.TestCase):
             item['checks'] = [{'id': 'M1', 'spec': 'Preserve both rows under the approved real command.'}]
             item['executor'] = {'role': 'worker', 'provider': 'codex', 'model': 'fixture-model'}
         contract = plan_json(authority={'edit': True, 'commands': True, 'unconfined_commands': True,
-                            'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q9', 'Q12']})
+                            'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']})
         body = '''
 import json, os, subprocess, sys, tempfile
 from pathlib import Path
