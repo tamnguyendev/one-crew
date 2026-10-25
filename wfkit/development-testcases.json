@@ -2922,6 +2922,22 @@
      "installed": false,
      "scope": "Round 7 acceptance audit of R04/T49d: S2 of tests.test_wf_namespace_compat (seven roots, three projects) with the unmodified archive of d3120c6 as the old code: N5 and N6 scan 0 with the receipt hash equal to the ledger at rollback start; after N5 the old code continues R1, answers No plan named for R2/R3/DUPb, refuses amend on accepted R4/DUPk (P1's plans/dup/ changes only through the DUPa amend), refuses propose dup and creates plan"
     },
+    "check.r7_t49d_e5": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r7_t49d_e5"
+     ],
+     "installed": false,
+     "scope": "Round 7 acceptance audit of R04/T49d: S2 of tests.test_wf_namespace_compat (seven roots, three projects) with the unmodified archive of d3120c6 as the old code: N5 and N6 scan 0 with the receipt hash equal to the ledger at rollback start; after N5 the old code continues R1, answers No plan named for R2/R3/DUPb, refuses amend on accepted R4/DUPk (P1's plans/dup/ changes only through the DUPa amend), refuses propose dup and creates plan"
+    },
+    "check.r7_t49d_e16": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r7_t49d_e16"
+     ],
+     "installed": false,
+     "scope": "Round 7 acceptance audit of R04/T49d: S2 of tests.test_wf_namespace_compat (seven roots, three projects) with the unmodified archive of d3120c6 as the old code: N5 and N6 scan 0 with the receipt hash equal to the ledger at rollback start; after N5 the old code continues R1, answers No plan named for R2/R3/DUPb, refuses amend on accepted R4/DUPk (P1's plans/dup/ changes only through the DUPa amend), refuses propose dup and creates plan"
+    },
     "registry": {
      "kind": "unittest",
      "modules": [
@@ -3414,12 +3430,14 @@
         "check.namespace_compat",
         "check.upgrade_drill",
         "check.r7_t49d",
-        "check.r7_dupk"
+        "check.r7_dupk",
+        "check.r7_t49d_e5",
+        "check.r7_t49d_e16"
        ],
        "gaps": [
         {
          "kind": "acceptance-audit",
-         "detail": "Audited round 7, 25/10: covered E12, E17, E6, E7; UNCOVERED E16: No rollback report with per-root lines exists to check. The gate returns the scan itself, and the only rollback receipt is wfkit.upgrade_drill's receipt.json, written by the installed drill on its own generated fixture (not S2, no lost/read-OK/diagnosed-by-old labels). A report produced by a real installed rollback on S2, plus a report-check script for it, are missing (product/kit gap); the installed run is also forbidden in this window.; E5: Needs the installed drill. The evidence is the rollback SCRIPT's exit code and message per N1-N4/N7 and the package list of the new venv before/after. No per-state rollback script with an exit code exists (the gate is tests/wf_rollback.rollback_drill and wfkit/upgrade_drill.guard_swap, functions returning dicts; `python -m wfkit.upgrade_drill` runs only its own generated fixture), and building wheels/venvs is forbidden in this round's machine window. Supporting only: tests.test_wf_namespace_compat.NamespaceCompatTests.test_n1_to_n7_gate_branches (remaining block set and ran=False per case on the gate function)."
+         "detail": "Audited round 7, 25/10: covered E12, E16, E17, E5, E6, E7; UNCOVERED "
         }
        ],
        "evidence_matrix_partial": {
@@ -3454,6 +3472,23 @@
         "E17": [
          "tests.test_wf_namespace_compat.NamespaceCompatTests.test_n1_to_n7_gate_branches",
          "tests.test_wf_upgrade_drill.UpgradeDrillTests.test_stale_scan_is_rejected_before_any_install_swap"
+        ],
+        "E16": [
+         "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_real_report_one_line_per_root_and_the_check_passes",
+         "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_real_report_labels_agree_with_the_archived_old_binary",
+         "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_read_ok_for_a_root_the_scan_keeps_preserved_only",
+         "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_root_missing",
+         "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_diagnosed_by_old_for_a_root_the_old_binary_reads_fine",
+         "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_lost_for_a_root_whose_data_is_kept"
+        ],
+        "E5": [
+         "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_refused_cases_exit_3_and_name_the_exact_remaining_block_set",
+         "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_n5_allowed_exit_0",
+         "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_n4_pause_and_stopped_with_report_release_neither_b1_nor_b3",
+         "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_counter_a_script_whose_gate_skips_b2_goes_red_at_n3_and_n7",
+         "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_unreadable_state_is_an_error_never_a_permission",
+         "tests.test_wf_r7_t49d_e5.InstalledVenv.test_e5_installed_refusals_leave_the_new_venv_package_list_unchanged",
+         "tests.test_wf_r7_t49d_e5.InstalledVenv.test_e5_installed_n5_allowed"
         ]
        }
       },
@@ -3969,12 +4004,14 @@
       "check.namespace_compat",
       "check.upgrade_drill",
       "check.r7_t49d",
-      "check.r7_dupk"
+      "check.r7_dupk",
+      "check.r7_t49d_e5",
+      "check.r7_t49d_e16"
      ],
      "gaps": [
       {
        "kind": "acceptance-audit",
-       "detail": "Audited round 7, 25/10: covered E12, E17, E6, E7; UNCOVERED E16: No rollback report with per-root lines exists to check. The gate returns the scan itself, and the only rollback receipt is wfkit.upgrade_drill's receipt.json, written by the installed drill on its own generated fixture (not S2, no lost/read-OK/diagnosed-by-old labels). A report produced by a real installed rollback on S2, plus a report-check script for it, are missing (product/kit gap); the installed run is also forbidden in this window.; E5: Needs the installed drill. The evidence is the rollback SCRIPT's exit code and message per N1-N4/N7 and the package list of the new venv before/after. No per-state rollback script with an exit code exists (the gate is tests/wf_rollback.rollback_drill and wfkit/upgrade_drill.guard_swap, functions returning dicts; `python -m wfkit.upgrade_drill` runs only its own generated fixture), and building wheels/venvs is forbidden in this round's machine window. Supporting only: tests.test_wf_namespace_compat.NamespaceCompatTests.test_n1_to_n7_gate_branches (remaining block set and ran=False per case on the gate function)."
+       "detail": "Audited round 7, 25/10: covered E12, E16, E17, E5, E6, E7; UNCOVERED "
       }
      ],
      "evidence_matrix_partial": {
@@ -4009,6 +4046,23 @@
       "E17": [
        "tests.test_wf_namespace_compat.NamespaceCompatTests.test_n1_to_n7_gate_branches",
        "tests.test_wf_upgrade_drill.UpgradeDrillTests.test_stale_scan_is_rejected_before_any_install_swap"
+      ],
+      "E16": [
+       "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_real_report_one_line_per_root_and_the_check_passes",
+       "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_real_report_labels_agree_with_the_archived_old_binary",
+       "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_read_ok_for_a_root_the_scan_keeps_preserved_only",
+       "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_root_missing",
+       "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_diagnosed_by_old_for_a_root_the_old_binary_reads_fine",
+       "tests.test_wf_r7_t49d_e16.RollbackReport.test_e16_wrong_sample_lost_for_a_root_whose_data_is_kept"
+      ],
+      "E5": [
+       "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_refused_cases_exit_3_and_name_the_exact_remaining_block_set",
+       "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_n5_allowed_exit_0",
+       "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_n4_pause_and_stopped_with_report_release_neither_b1_nor_b3",
+       "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_counter_a_script_whose_gate_skips_b2_goes_red_at_n3_and_n7",
+       "tests.test_wf_r7_t49d_e5.RollbackScript.test_e5_unreadable_state_is_an_error_never_a_permission",
+       "tests.test_wf_r7_t49d_e5.InstalledVenv.test_e5_installed_refusals_leave_the_new_venv_package_list_unchanged",
+       "tests.test_wf_r7_t49d_e5.InstalledVenv.test_e5_installed_n5_allowed"
       ]
      }
     },
