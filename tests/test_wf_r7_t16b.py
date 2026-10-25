@@ -8,8 +8,11 @@ written (Q10).
 
 [E5]/[E12]: the request count of the whole ledger is 0 before and after the run, and the root contract stays approved at revision 1
 with unchanged bytes (no `plan.proposed`/`plan.amended` after approval). [E7]: the internal plan revision rises after the split and
-after the repair while the contract revision and hash do not change. [E6] is only partly provable: Q1, Q2, Q4, Q9 leave HD-05
-records with a OneCrew subject; Q5, Q8 and Q10 leave no decision record in the product (recorded as uncovered, not asserted here).
+after the repair while the contract revision and hash do not change. [E6] (round 7 D): every class Q1, Q2, Q4, Q5 (repair_tasks.prepare),
+Q8 (the finding hold, findings.record_node_verification) and Q9, Q10 (outcome.record) leaves an HD-05 record with a OneCrew subject,
+written by the one implementation internal_plan.decide -> authority.record -> decisions.record. Q3 needs no ledger record: the testcase
+puts it in the task's artifact/commit, and here the worker is the engine fixture (interface only) whose produced artifact and receipt
+(node.produced) are that record; asserting a Git commit of a fixture worker would test the fixture, not the product.
 """
 import os
 
@@ -111,19 +114,32 @@ class T16bRootRunTests(EngineFixture):
         self.assertNotEqual(shown['status'], 'proposed')
 
     def test_e6_recorded_classes_carry_hd05_fields_and_a_onecrew_subject(self):
-        self.run_root()
+        run = self.run_root()
         decisions = [p for k, p in self.events() if k == 'decision.recorded']
         by_class = {}
         for decision in decisions:
             by_class.setdefault(decision['basis'].split(':', 1)[0], []).append(decision)
-        for q in ('Q1', 'Q2', 'Q4', 'Q9'):
+        self.assertEqual(self.all_requests(), 0)                    # [E5]: recording them asked nothing
+        for q in ('Q1', 'Q2', 'Q4', 'Q5', 'Q8', 'Q9', 'Q10'):
             with self.subTest(q=q):
-                self.assertIn(q, by_class)
+                self.assertIn(q, by_class, f'{q}: no HD-05 decision record in the root run')
                 for decision in by_class[q]:
                     self.assertTrue(all(decision.get(f) for f in HD05), decision)
                     self.assertTrue(decision['subject']['component'].startswith('onecrew.'), decision['subject'])
                     self.assertNotIn(decision['actor'], ('owner', 'user'))
                     self.assertEqual(decision['validity']['outcome'], 'in_authority')
+        repair, hold, outcome_ = by_class['Q5'][0], by_class['Q8'][0], by_class['Q10'][0]
+        self.assertEqual(repair['subject']['component'], 'onecrew.repair_tasks')
+        self.assertEqual(set(repair['scope'].split(',')), set(run['repair']['affected_nodes']))
+        self.assertEqual(hold['subject']['component'], 'onecrew.findings')
+        self.assertEqual(set(hold['scope'].split(',')), {'C', 'D', 'I'})
+        self.assertIn(run['finding']['id'], hold['evidence'][0]['action'])
+        self.assertEqual(outcome_['subject']['component'], 'onecrew.outcome')
+        self.assertIn(run['outcome']['id'], outcome_['evidence'][0]['action'])
+        # Q3 is not a ledger decision: the worker's choice lives in its task artifact; each produced node carries artifact + receipt.
+        produced = [p for k, p in self.events() if k == 'node.produced']
+        self.assertLessEqual({'P', 'C', 'D'}, {p['node'] for p in produced})
+        self.assertTrue(all(p.get('artifact') and p.get('receipt') for p in produced), produced)
         for decision in decisions:                               # no record in the run is signed by the owner
             self.assertNotIn(decision['actor'], ('owner', 'user'))
 

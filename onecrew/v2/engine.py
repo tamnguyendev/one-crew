@@ -643,7 +643,7 @@ def request_action(ledger, selector, nid, action):
     if nid not in view['nodes']: raise LedgerError('Unknown internal node.')
     action = dict(action, nodes=[nid])
     result = authority.decide(contract, action, ctx)
-    authority.record(ledger, root['task_id'], contract, action, result, name=root['selector'], revision_sha=sha, component='onecrew.engine')
+    decision = authority.record(ledger, root['task_id'], contract, action, result, name=root['selector'], revision_sha=sha, component='onecrew.engine')
     if not result['in_authority']:
         affected = dependency_core.affected_tasks(ip.projection(view['definition']['nodes']), [nid])
         with ledger.transaction(write=True) as conn:
@@ -657,13 +657,58 @@ def request_action(ledger, selector, nid, action):
                           'generations': {target: view['nodes'][target]['generation'] for target in sorted(affected)},
                           'reason_class': result['class'], 'requested_action': action}
             parameters['key'] = 'wfhold-' + content_hash(parameters)[:48]
-            ledger.create_request(root['task_id'], parameters['key'], {'schema_version': 1,
+            question = {'schema_version': 1,
                 'question': 'Node ' + nid + ' needs a decision outside its current delegated action.',
                 'reason': result['reason'], 'impact': 'Only ' + ', '.join(sorted(affected)) + ' is held; independent nodes may continue.',
                 'options': [{'id': 'continue', 'label': 'Continue the affected work strictly inside the existing grant'},
                             {'id': 'stop', 'label': 'Close this root and retain its evidence'}],
-                'recommendation': 'continue', 'action': {'type': 'v2.workflow_hold', 'parameters': parameters}})
+                'recommendation': 'continue'}
+            card, deadline = _hold_card(ledger, root, view, nid, sorted(affected), action, result, decision, ctx, question)
+            parameters.update(card=card, decide_by_deadline=deadline)
+            ledger.create_request(root['task_id'], parameters['key'],
+                                  dict(question, action={'type': 'v2.workflow_hold', 'parameters': parameters}))
     return result
+
+
+def _hold_card(ledger, root, view, nid, affected, action, result, decision, ctx, question):
+    """T17c [E4] (HD-08): the hold request is ONE decision card in the cards.CARD_FIELDS shape - problem, options, recommendation,
+    evidence, scope, decide_by - plus the decide-by deadline. Evidence: a content-addressed blob naming what produced the hold (the
+    requested action, its HD-05 decision record, the first node.held event of each held node at this generation, the node's attempt,
+    artifact and receipts), followed by the node's own receipt blobs. Every value is stable for the same hold, so asking again yields
+    byte-identical content (the same request). The deadline is the root's sealed deadline (budget_core, via ip.ceilings) minus the
+    upper execution estimate of the held nodes; it is never later than the root deadline and never invented."""
+    from . import cards
+    import datetime as dt
+    with ledger.transaction() as conn:
+        held = {}
+        for target in affected:
+            row = conn.execute("SELECT min(seq) AS seq FROM events WHERE task_id=? AND kind='node.held' AND json_extract(payload,'$.node')=? "
+                               "AND json_extract(payload,'$.generation')=? AND json_extract(payload,'$.internal_revision')=?",
+                               (root['task_id'], target, view['nodes'][target]['generation'], view['internal_revision'])).fetchone()
+            if row and row['seq'] is not None: held[target] = row['seq']
+    record = view['nodes'][nid]
+    receipts = [record[k] for k in ('receipt', 'verification_receipt') if isinstance(record.get(k), str) and re.fullmatch(r'[0-9a-f]{64}', record[k])]
+    store = Snapshots(ledger.state_root)
+    blob = store.blob(canonical({'kind': 'workflow-hold-evidence', 'root': root['task_id'], 'plan': root['selector'], 'node': nid,
+        'generation': record['generation'], 'internal_revision': view['internal_revision'], 'contract_sha': view['contract_sha'],
+        'reason_class': result['class'], 'reason': result['reason'], 'requested_action': action, 'decision': decision,
+        'hold_events': held, 'affected': affected, 'attempt': record.get('attempt'), 'artifact': record.get('artifact'),
+        'retained_candidate': record.get('retained_candidate'), 'receipts': receipts}).encode())
+    nodes = {item['id']: item for item in view['definition']['nodes']}
+    reserved = sum(nodes[target]['estimate_seconds'][1] for target in affected if target in nodes)
+    root_deadline = ctx.get('deadline')
+    if root_deadline:
+        at = (dt.datetime.fromisoformat(root_deadline) - dt.timedelta(seconds=reserved)).isoformat()
+        basis = ('root deadline (sealed budget) minus the upper execution estimate of the held nodes ' + ', '.join(affected)
+                 + f' ({reserved} s); after it the held work cannot finish inside the approved deadline')
+    else:
+        at, basis = None, 'the root has no approved deadline; decide before ' + nid + ' resumes'
+    deadline = {'at': at, 'root_deadline': root_deadline, 'reserved_execution_seconds': reserved, 'basis': basis}
+    card = cards.validate_card({'problem': question['question'], 'options': question['options'],
+        'recommendation': [question['recommendation']], 'evidence': [blob, *receipts],
+        'scope': (question['impact'] + ' Reason ' + str(result['class']) + ': ' + result['reason'])[:300],
+        'decide_by': 'milestone:' + nid, 'parts': [{'id': nid}]}, ledger)
+    return card, deadline
 
 
 def resume_held(ledger, selector, *, request_id, request_revision, contract_sha, generations, conn=None):

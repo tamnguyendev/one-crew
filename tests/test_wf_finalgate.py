@@ -298,11 +298,17 @@ class FinalGateTests(unittest.TestCase):
         self.assert_refused('KQ5')
 
     def test_kq5_valid_prior_u2_and_late_u2(self):
+        # Round 7 D (T45d [E13]): a changed row carries its per-phase hashes and the change's segment; the U2 is counted in AC1.
         row = self.bundle['monitored_files'][0]
-        row.update(after_sha256='f' * 64, changed_at='2026-10-24T13:00:00Z')
-        row['authorization'] = self.receipt(self.a, kind='U2', actor='owner', path=row['path'], before_sha256=row['before_sha256'], after_sha256=row['after_sha256'])
+        row.update(after_sha256='f' * 64, phases={'PL-A': {'before_sha256': 'e' * 64, 'after_sha256': 'e' * 64},
+                                                  'PL-B': {'before_sha256': 'e' * 64, 'after_sha256': 'f' * 64}},
+                   changes={'PL-B': {'changed_at': '2026-10-23T13:30:00Z'}})
+        u2 = row['changes']['PL-B']['authorization'] = self.receipt(self.a, kind='U2', actor='owner', path=row['path'], before_sha256=row['before_sha256'],
+                                                                    after_sha256=row['after_sha256'], at='2026-10-23T13:10:00Z')
+        self.edit(self.bundle['phases']['PL-B']['completion']['T35c'], owner_decisions={'actions': [{'job': 'J1', 'at': '2026-10-23T13:10:00Z',
+            'verb': 'request reply', 'kind': 'U2', 'sources': ['ledger'], 'authorization': u2['sha256']}], 'per_job': {'J1': {'U2': 1}}})
         self.assertEqual('pass', self.run_gate()['decision'])
-        self.edit(row['authorization'], at='2026-10-24T14:00:00Z')
+        self.edit(row['changes']['PL-B']['authorization'], at='2026-10-23T13:40:00Z')
         self.assert_refused('KQ5')
 
     def test_kq6_independence_uses_model_vendor_not_cli_brand(self):

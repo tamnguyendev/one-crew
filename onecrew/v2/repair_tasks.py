@@ -82,6 +82,9 @@ def prepare(ledger, selector, target, failed_node, *, reason, evidence, receipt=
     blob = Snapshots(ledger.state_root).blob(canonical(value).encode())
     from . import recovery_policy
     recovery_policy.authorize_repair(ledger, root['selector'], failed_node)
+    # T16b [E6]: Q5 (repair inside the ceilings) leaves its HD-05 record, through the one decide() of internal_plan.
+    ip.self_decided(ledger, root['selector'], 'Q5', affected, 'onecrew.repair_tasks', key='q5-repair-' + blob[:48],
+                    target=target, failed_node=failed_node, failed_checks=failed, evidence=[source, blob])
     for node in nodes:
         if node['id'] in affected:
             node['input'] = [i for i in node['input'] if not i.startswith(PREFIX)] + [PREFIX + blob]

@@ -203,7 +203,9 @@ class ReleaseCheckTests(unittest.TestCase):
                 items.append({'id':key,'original':original,'supplements':[]})
         self.bundle['provider_bundle']={'artifacts':{'pilot':self.current,'final':self.current},'providers':rows,'comparison':{'items':items}}
         states=check.providers(rows,items,check.Receipts(self.root,True),self.current,self.current)
-        self.change('notes',lambda r:r.update(provider_states=states,subset=['codex:advisor'],p1_count=1,p1_label='subset'))
+        from wfkit.provider_evidence import render       # round 7 D (T40c [E29]): the notes carry the rendered per-cell lines
+        self.change('notes',lambda r:r.update(provider_states=states,subset=['codex:advisor'],p1_count=1,p1_label='subset',
+                                              matrix_markdown=chr(10).join(render(states))))
         self.assertEqual(self.result()['decision'],'pass',self.result())
         self.change('notes',lambda r:r.update(subset=['codex:advisor','kiro:reviewer']))
         self.refused('T54.5')

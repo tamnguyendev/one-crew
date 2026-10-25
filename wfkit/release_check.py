@@ -338,7 +338,26 @@ def decide(bundle, root='.', allow_simulated=False):
             states = providers(provider_bundle['providers'], provider_bundle['comparison']['items'], evidence, source, current, comparison)
             eligible = {key for key, state in states.items() if state['status'] == 'usable'}
             require(eligible, 'RP subset is empty')
-            require(row['provider_states'] == states and strings(row['subset'], 'RP subset') == eligible, 'RP notes disagree with shared provider evidence')
+            subset = strings(row['subset'], 'RP subset')
+            # T40c [E33] (x6): name each cell of the subset that has not passed for the delivered build, with its status.
+            bad = sorted(set(subset) - eligible)
+            require(not bad, 'RP subset contains a cell that has not passed (subset chứa ô chưa đạt): '
+                    + ', '.join(f"{key} ({(states.get(key) or {}).get('status', 'not a matrix cell')})" for key in bad))
+            claimed = row['provider_states']
+            require(isinstance(claimed, dict), 'RP notes provider_states missing')
+            # T40c [E29]: a cell that is not usable carries its status and reason, in the notes as in the shared state.
+            silent = sorted(key for key, state in claimed.items() if not isinstance(state, dict) or state.get('status') != 'usable'
+                            and not (isinstance(state.get('reason'), str) and state['reason'].strip()))
+            require(not silent, 'RP notes: a cell that is not usable must carry its status and reason: ' + ', '.join(silent))
+            differ = sorted(key for key in set(claimed) | set(states) if claimed.get(key) != states.get(key))
+            require(not differ and set(subset) == eligible, 'RP notes disagree with shared provider evidence: '
+                    + ', '.join(differ or sorted(eligible - set(subset))))
+            from wfkit.provider_evidence import render
+            text = row.get('matrix_markdown')
+            require(isinstance(text, str), 'RP notes: the rendered provider matrix (matrix_markdown) is missing')
+            shown = set(text.splitlines())
+            lacking = [line.split(':', 2)[0][2:] + ':' + line.split(':', 2)[1] for line in render(states) if line not in shown]
+            require(not lacking, 'RP matrix rendering lacks the status/reason line of: ' + ', '.join(lacking))
             require(row['p1_count'] == len(eligible) and row['p1_label'] == 'subset', 'release cannot claim program P1.0 full')
     check('T54.5', notes)
     proves = 'validator rules only; no release or pilot execution' if fixture else 'supplied T54 observations validated; not owner acceptance'

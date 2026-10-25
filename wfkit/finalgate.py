@@ -157,18 +157,94 @@ def evidence_status(original, attempts, target, comparison=None, item=None):
         require(receipt.get('result') in ('pass', 'fail', 'blocked'), 'invalid behavior result')
         if receipt['result'] == 'blocked':
             require(isinstance(receipt.get('reason'), str) and receipt['reason'], 'blocked evidence needs reason')
+    # T40c [E29]: every state that is not `usable` carries its `reason` (why the cell is not usable for the target build).
     relevant = sorted((r for r in [original] + attempts if identity(r) == identity(target)), key=lambda r: timestamp(r['at']))
     definitive = [r for r in relevant if r['result'] != 'blocked']
     if definitive:
         chosen = definitive[-1]
         if chosen['result'] == 'pass':
             return {'status': 'usable', 'validity': 'direct', 'evidence': identity(chosen)}
-        return {'status': 'failed'}
+        return {'status': 'failed', 'reason': _receipt_reason(chosen, 'the check failed on build ' + identity(chosen)['wheel_sha256'])}
     if original['result'] == 'pass':
         if comparison and identity(original) == comparison['source'] and identity(target) == comparison['target'] and item not in comparison['affected']:
             return {'status': 'usable', 'validity': 'inherited', 'comparison_id': comparison['id'], 'evidence': identity(original)}
-        return {'status': 'recheck'}
-    return {'status': 'unverified' if original['result'] == 'blocked' else 'failed'}
+        why = ('no inheritance comparison' if not comparison
+               else f"comparison {comparison.get('id')} marks this cell affected" if item in (comparison.get('affected') or [])
+               else f"comparison {comparison.get('id')} does not cover this build pair")
+        return {'status': 'recheck', 'reason': f"passed on build {identity(original)['wheel_sha256']}, not on the target build "
+                                                f"{identity(target)['wheel_sha256']}; {why}"}
+    if original['result'] == 'blocked':
+        return {'status': 'unverified', 'reason': original['reason']}
+    return {'status': 'failed', 'reason': _receipt_reason(original, 'the original receipt failed on build ' + identity(original)['wheel_sha256'])}
+
+
+def _receipt_reason(receipt, default):
+    reason = receipt.get('reason')
+    return reason.strip() if isinstance(reason, str) and reason.strip() else default
+
+
+HOOK_SEGMENTS = (('PL-A', 'PL-A', 'PL-A'), ('between', 'PL-A', 'PL-B'), ('PL-B', 'PL-B', 'PL-B'))
+
+
+def _hook_changes(row, phases, ev):
+    """T45d [E13] (KQ5): one monitored row checked PER PHASE. Its `phases` hold the before/after hash of PL-A and PL-B and join the
+    program pair; each segment whose hash moved (inside PL-A, between the phases, inside PL-B) needs its own `changes[segment]` with the
+    change time inside the segment's window and an owner U2 covering exactly that path and pair, granted before the change. Returns the
+    (segment, path, U2 reference, U2 receipt) of every authorised change."""
+    path, per, changes = row['path'], row['phases'], row.get('changes') or {}
+    require(isinstance(changes, dict) and set(changes) <= {s for s, _, _ in HOOK_SEGMENTS}, f'{path}: unknown hook/config change segment')
+    for name in ('PL-A', 'PL-B'):
+        for key in ('before_sha256', 'after_sha256'):
+            require(isinstance(per[name], dict) and isinstance(per[name].get(key), str) and re.fullmatch(r'[0-9a-f]{64}', per[name][key]),
+                    f'{path}: {name} hook/config hash missing')
+    require(per['PL-A']['before_sha256'] == row['before_sha256'] and per['PL-B']['after_sha256'] == row['after_sha256'],
+            f'{path}: per-phase hashes do not join the program before/after')
+    pairs = {'PL-A': (per['PL-A']['before_sha256'], per['PL-A']['after_sha256']),
+             'between': (per['PL-A']['after_sha256'], per['PL-B']['before_sha256']),
+             'PL-B': (per['PL-B']['before_sha256'], per['PL-B']['after_sha256'])}
+    used = []
+    for segment, first, last in HOOK_SEGMENTS:
+        before, after = pairs[segment]
+        label = 'between PL-A and PL-B' if segment == 'between' else segment
+        if before == after:
+            require(segment not in changes, f'{path}: {label}: a change is recorded but the hashes did not move')
+            continue
+        change = changes.get(segment)
+        require(isinstance(change, dict) and change.get('authorization'), f'{path}: {label}: hook/config changed without U2')
+        u2 = ev.read(change['authorization'])
+        require(u2.get('kind') == 'U2' and u2.get('actor') == 'owner' and u2.get('path') == path and u2.get('result') == 'pass',
+                f'{path}: {label}: hook/config changed without U2')
+        require(u2.get('before_sha256') == before and u2.get('after_sha256') == after, f'{path}: {label}: U2 does not cover this change')
+        at = timestamp(change.get('changed_at'))
+        low = phases[first]['completed_at' if segment == 'between' else 'started_at']
+        high = phases[last]['started_at' if segment == 'between' else 'completed_at']
+        require(low and high and timestamp(low) <= at <= timestamp(high), f'{path}: {segment}: change time outside the phase window')
+        require(timestamp(u2['at']) <= at, f'{path}: {label}: U2 granted after hook change')
+        used.append((segment, path, change['authorization'], u2))
+    return used
+
+
+def _ac1_counts(used, phases, ev):
+    """T45d [E13]/T45b [E10]: every U2 that authorises a hook/config change is an owner decision counted in AC1: the pilot report on the
+    PL-B T35c completion receipt (`owner_decisions`, the wfkit.pilot_report schema) has exactly one U2 action naming that U2 receipt
+    (`authorization` = its sha256) and the job's AC1 table counts it. One U2 authorises one change, so it is never counted twice."""
+    if not used: return
+    seen = {}
+    for segment, path, ref, _ in used:
+        require(ref['sha256'] not in seen, f'{path}: {segment}: one U2 authorises one change (already used for {seen.get(ref["sha256"])})')
+        seen[ref['sha256']] = f'{path} {segment}'
+    report = ev.read(phases['PL-B']['completion']['T35c'])
+    decisions = report.get('owner_decisions')
+    require(isinstance(decisions, dict) and isinstance(decisions.get('actions'), list), 'AC1 owner decisions missing from the T35c pilot report')
+    actions = [a for a in decisions['actions'] if isinstance(a, dict) and a.get('kind') == 'U2']
+    table = decisions.get('per_job') or {}
+    for segment, path, ref, _ in used:
+        mine = [a for a in actions if a.get('authorization') == ref['sha256']]
+        require(mine, f'{path}: {segment}: U2 not counted in AC1')
+        require(len(mine) == 1, f'{path}: {segment}: U2 counted {len(mine)} times in AC1')
+        job = mine[0].get('job')
+        counted = (table.get(job) or {}).get('U2', 0) if isinstance(table.get(job, {}), dict) else 0
+        require(counted == sum(1 for a in actions if a.get('job') == job), f'AC1 table of {job} does not count its U2')
 
 
 def provider_capability(rows, states, author_vendor, pinned=()):
@@ -285,17 +361,21 @@ def decide(bundle, root='.', allow_simulated=False):
     def hooks_check():
         rows = bundle['monitored_files']
         require(isinstance(rows, list) and bool(rows), 'monitored hook/config inventory missing')
-        names = set()
+        names, used = set(), []
         for row in rows:
             require(row.get('path') and row['path'] not in names, 'hook path missing/duplicate')
             names.add(row['path'])
             for key in ('before_sha256', 'after_sha256'):
                 require(isinstance(row.get(key), str) and re.fullmatch(r'[0-9a-f]{64}', row[key]), 'hook/config hash missing')
-            if row['before_sha256'] != row['after_sha256']:
-                u2 = ev.read(row['authorization'])
-                require(u2.get('kind') == 'U2' and u2.get('actor') == 'owner' and u2.get('path') == row['path'] and u2.get('result') == 'pass', 'hook/config changed without U2')
-                require(u2.get('before_sha256') == row['before_sha256'] and u2.get('after_sha256') == row['after_sha256'], 'U2 does not cover this change')
-                require(timestamp(u2['at']) <= timestamp(row['changed_at']), 'U2 granted after hook change')
+            if 'phases' not in row and not any(k in row for k in ('changes', 'authorization', 'changed_at')):
+                # An unchanged row keeps the two-hash format; a changed row without per-phase hashes cannot be located.
+                require(row['before_sha256'] == row['after_sha256'], f"{row['path']}: per-phase hook/config hashes missing: "
+                        'a change must be located inside PL-A, between the phases or inside PL-B')
+                continue
+            require(isinstance(row.get('phases'), dict) and set(row['phases']) == {'PL-A', 'PL-B'},
+                    f"{row['path']}: per-phase hook/config hashes missing: before/after for PL-A and PL-B")
+            used.extend(_hook_changes(row, bundle['phases'], ev))
+        _ac1_counts(used, bundle['phases'], ev)
     check('KQ5', hooks_check)
     states, provider_rows = {}, []
     def providers_check():

@@ -39,7 +39,7 @@
   {
    "release": "R05",
    "case": "T16b",
-   "proposed_status": "partial",
+   "proposed_status": "complete",
    "evidence_matrix": {
     "E5": [
      "tests.test_wf_r7_t16b.T16bRootRunTests.test_e5_e7_e12_one_root_run_over_q1_q2_q3_q4_q5_q8_q9_q10_creates_no_request_and_keeps_the_contract"
@@ -50,17 +50,24 @@
     ],
     "E12": [
      "tests.test_wf_r7_t16b.T16bRootRunTests.test_e5_e7_e12_one_root_run_over_q1_q2_q3_q4_q5_q8_q9_q10_creates_no_request_and_keeps_the_contract"
+    ],
+    "E6": [
+     "tests.test_wf_r7_t16b.T16bRootRunTests.test_e6_recorded_classes_carry_hd05_fields_and_a_onecrew_subject"
     ]
    },
-   "uncovered": {
-    "E6": "Product gap. In the one root run only Q1 (internal_plan.revise), Q2/Q9 (engine) and Q4 (test_preparation) leave a decision.recorded with a OneCrew subject and the HD-05 fields (asserted by tests.test_wf_r7_t16b.T16bRootRunTests.test_e6_recorded_classes_carry_hd05_fields_and_a_onecrew_subject). Q5 (repair_tasks.prepare / recovery_policy.authorize_repair: only the Q1 record of the revise), Q8 (finding hold: engine finding_blockers / node.held, no decision.recorded) and Q10 (outcome.record writes learning.outcome only) have no HD-05 record. Q3 cannot be noted in a task commit: the worker is the engine fixture and makes no commit."
-   },
+   "uncovered": {},
    "scope": "One root on one temporary ledger and Git repo: split (Q1), test preparation (Q4), engine choice (Q2), fixture worker inside its write scope (Q3), integration red opens a finding that holds C, D, I (Q8), repair (Q5), verified (Q9), simulated owner stop then outcome (Q10). Worker/checkers are the engine fixtures (interface only). The request table of the whole ledger stays empty, the contract stays approved at revision 1 with unchanged bytes and no plan.proposed/amended/approved, while the internal revision goes 2 -> 3 -> 4.",
    "new_modules": [
     "tests/test_wf_r7_t16b.py"
    ],
    "changed_pinned_files": [],
-   "product_fixes": []
+   "product_fixes": [
+    {
+     "file:line": "onecrew/v2/internal_plan.py:97 (self_decided); repair_tasks.py:86 (Q5); findings.py:318 (Q8 hold_decided); outcome.py:156 (Q10)",
+     "what": "Round 7 D: Q5, Q8, Q10 write their HD-05 record through the same internal_plan.decide as Q1/Q2/Q4/Q9 (only on roots that delegate the class). Q3 stays in the task artifact (node.produced artifact + receipt), asserted at the interface.",
+     "counter-example test": "tests.test_wf_r7_t16b.T16bRootRunTests.test_e6_recorded_classes_carry_hd05_fields_and_a_onecrew_subject"
+    }
+   ]
   },
   {
    "release": "R05",
@@ -90,7 +97,7 @@
   {
    "release": "R05",
    "case": "T17c",
-   "proposed_status": "partial",
+   "proposed_status": "complete",
    "evidence_matrix": {
     "E5": [
      "tests.test_wf_r7_t17c.T17cOneCardTests.test_e5_after_continue_the_request_is_closed_and_b1_runs_next",
@@ -99,17 +106,25 @@
     ],
     "E9": [
      "tests.test_wf_r7_t17c.T17cOneCardTests.test_e4_e9_one_card_for_b1_with_problem_options_recommendation_and_scope"
+    ],
+    "E4": [
+     "tests.test_wf_r7_t17c.T17cOneCardTests.test_e4_e9_one_card_for_b1_with_problem_options_recommendation_and_scope",
+     "tests.test_wf_r7_t17c.T17cOneCardTests.test_e4_the_one_hold_card_carries_evidence_scope_and_a_decide_by_deadline_inside_the_root_deadline"
     ]
    },
-   "uncovered": {
-    "E4": "Count = 1 (also when B1 asks again) and the fields problem, options, recommendation, scope are proven by tests.test_wf_r7_t17c.T17cOneCardTests.test_e4_e9_one_card_for_b1_with_problem_options_recommendation_and_scope. Product gap: the workflow-hold request built by onecrew/v2/engine.py request_action (lines 653-665) carries no evidence pointer and no decide-by moment, the two remaining card fields (cards.CARD_FIELDS evidence, decide_by). engine.py is R04 engine area: not fixed by this branch."
-   },
+   "uncovered": {},
    "scope": "Real engine, request table and questions.answer on a temporary ledger; owner terminal simulated (interface only). After continue the request is no longer pending, holds the continue answer and request.applied, and the next step is B1. Registry note: cited checks candidate_handoff/handoff_reuse/observed_handoff contain no card/answer test.",
    "new_modules": [
     "tests/test_wf_r7_t17c.py"
    ],
    "changed_pinned_files": [],
-   "product_fixes": []
+   "product_fixes": [
+    {
+     "file:line": "onecrew/v2/engine.py:666 (request_action), engine.py:673 (_hold_card)",
+     "what": "Round 7 D: the v2.workflow_hold request carries parameters.card (cards.validate_card: problem, options, recommendation, resolving evidence, scope, decide_by milestone:<node>) and decide_by_deadline (root sealed deadline minus the held nodes upper estimate, never later than the root deadline).",
+     "counter-example test": "tests.test_wf_r7_t17c.T17cOneCardTests.test_e4_the_one_hold_card_carries_evidence_scope_and_a_decide_by_deadline_inside_the_root_deadline"
+    }
+   ]
   },
   {
    "release": "R05",
@@ -274,25 +289,45 @@
      "tests.test_wf_t55_cases.T55CaseTests.test_c1_partial_valid_kiro_unverified_does_not_block",
      "tests.test_wf_t55_cases.T55CaseTests.test_z7_blocked_attempt_is_not_a_pass",
      "tests.test_wf_t55_cases.T55CaseTests.test_c2_required_independent_reviewer_missing_on_b"
+    ],
+    "E29": [
+     "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_e35_case_k_four_cell_subset_is_delivered_with_kiro_unverified_and_pins_unchanged",
+     "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_every_cell_that_is_not_usable_carries_its_status_and_reason",
+     "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_the_notes_render_each_cell_with_its_status_and_reason_and_a_dropped_reason_is_refused",
+     "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_an_unusable_cell_without_its_reason_is_refused_naming_the_cell"
+    ],
+    "E30": [
+     "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_e35_case_k_four_cell_subset_is_delivered_with_kiro_unverified_and_pins_unchanged",
+     "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_every_cell_that_is_not_usable_carries_its_status_and_reason",
+     "tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_the_notes_render_each_cell_with_its_status_and_reason_and_a_dropped_reason_is_refused"
+    ],
+    "E33": [
+     "tests.test_wf_r7_t40c.T40cSubsetTests.test_e33_x6_a_kiro_reviewer_claimed_usable_against_the_matrix_is_refused",
+     "tests.test_wf_r7_t40c.T40cSubsetTests.test_e33_x6_refusal_says_the_subset_contains_a_cell_not_passed_and_names_it"
     ]
    },
    "uncovered": {
-    "E29": "Subset = the usable cells, each with origin hash and validity (direct, or inherited + comparison id), and the gate passing with >= 1 cell are proven (tests.test_wf_r7_t40c.T40cSubsetTests.test_e29_e30_e35_case_k_four_cell_subset_is_delivered_with_kiro_unverified_and_pins_unchanged). Product gap: the RP notes check (wfkit/release_check.py:331-335) compares the structured provider_states/subset only, so the reason of each non-usable cell is neither carried by the shared state (finalgate.evidence_status returns the status only) nor required.",
-    "E30": "Case K: four-cell subset, kiro unverified, RP delivered, provider/model rows unchanged are proven; the notes wording \"chưa dùng được: thiếu tài khoản\" is not checked (same gap as E29) and the RP bundle carries no contract, so \"decisions of the contract unchanged\" is not observable locally.",
-    "E33": "x6 is refused in three forms (tests.test_wf_r7_t40c.T40cSubsetTests.test_e33_x6_a_kiro_reviewer_claimed_usable_against_the_matrix_is_refused). Product gap: when only the notes subset lies, the refusal is \"RP notes disagree with shared provider evidence\" (wfkit/release_check.py:334): it neither says \"subset contains a not-passed cell\" nor names the cell. release_check.py belongs to another branch: not fixed."
+    "E30": "Four-cell subset, kiro \"chưa dùng được: thiếu tài khoản\" in the rendered notes, RP pass and unchanged provider/model pins are proven; \"decisions của hợp đồng trước/sau: không đổi\" is not observable locally: the RP bundle carries no contract."
    },
    "scope": "Simulated receipts on the fixture bundle of tests.test_wf_release_check (validator rules only; no provider called). E37-E39 go through the same shared evaluator (wfkit.provider_evidence.evaluate / finalgate.evidence_status) at CG-KET in the T55 cases, which also pin the published T40c set to the eligible set (KQ7).",
    "new_modules": [
     "tests/test_wf_r7_t40c.py"
    ],
    "changed_pinned_files": [
-    "wfkit/provider_evidence.py"
+    "wfkit/finalgate.py",
+    "wfkit/provider_evidence.py",
+    "wfkit/release_check.py"
    ],
    "product_fixes": [
     {
      "file:line": "wfkit/provider_evidence.py:31",
      "what": "The x7 refusal (\"<cell>: original hash changed\") now also says the evidence is not valid for the delivered build and gives both wheel hashes and the missing inheritance comparison (substring \"original hash changed\" kept for tests.test_wf_provider_matrix). File is pinned in wfkit/development-manifest.json: repin needed.",
      "counter-example test": "tests.test_wf_r7_t40c.T40cSubsetTests.test_e34_x7_codex_reviewer_pass_on_another_build_without_inheritance_is_refused_naming_the_cell"
+    },
+    {
+     "file:line": "wfkit/finalgate.py:152-184; wfkit/provider_evidence.py:42-56; wfkit/release_check.py:340-360; wfkit/release_bundle.py:647-652",
+     "what": "Round 7 D: every non-usable cell state carries its reason; provider_evidence.render gives one line per cell (usable: validity + origin hash; other: status + reason); RP notes must carry matrix_markdown with every line; x6 refused as \"subset chứa ô chưa đạt\" naming the cell and status. Pinned files: repin needed.",
+     "counter-example test": "tests.test_wf_r7_t40c.T40cSubsetTests.test_e33_x6_refusal_says_the_subset_contains_a_cell_not_passed_and_names_it"
     }
    ]
   },
@@ -465,6 +500,13 @@
     ],
     "E13": [
      "tests.test_wf_r7_t45d.T45dHookConfigU2Tests.test_e13_u2_must_be_the_owners_name_the_path_and_cover_the_exact_change",
+     "tests.test_wf_r7_t45d.T45dHookConfigU2Tests.test_e13_a_change_without_per_phase_hashes_is_refused",
+     "tests.test_wf_r7_t45d.T45dHookConfigU2Tests.test_e13_a_change_in_pl_a_reverted_before_the_end_is_refused_without_u2",
+     "tests.test_wf_r7_t45d.T45dHookConfigU2Tests.test_e13_a_change_between_the_phases_needs_its_own_u2",
+     "tests.test_wf_r7_t45d.T45dHookConfigU2Tests.test_e13_phase_hashes_must_join_the_program_pair",
+     "tests.test_wf_r7_t45d.T45dHookConfigU2Tests.test_e13_the_change_must_lie_in_its_phase_window",
+     "tests.test_wf_r7_t45d.T45dHookConfigU2Tests.test_e13_e10_u2_is_counted_once_in_ac1",
+     "tests.test_wf_r7_t45d.T45dHookConfigU2Tests.test_e13_one_u2_cannot_authorise_two_changes",
      "tests.test_wf_finalgate.FinalGateTests.test_kq5_hook_changed_without_u2",
      "tests.test_wf_finalgate.FinalGateTests.test_kq5_valid_prior_u2_and_late_u2",
      "tests.test_wf_t55_cases.T55CaseTests.test_ck17_hook_changed_without_u2"
@@ -480,7 +522,6 @@
     ]
    },
    "uncovered": {
-    "E13": "Product gap (wfkit/finalgate.py:285-298, KQ5): one before/after hash per monitored file over the whole program, not per pilot phase (a change made in PL-A and reverted before the end passes; no phase-boundary hash is required), and the U2 receipt is not cross-checked against the AC1 count of the pilot report. Not fixed: the bundle schema is shared with pilot_tools and finalgate fixtures of other branches.",
     "ALL": "EXTERNAL: owner-selected real work and chronological delivery/provider/pilot receipts on the final artifact; the finalgate tests prove the decision rules only.",
     "note": "T55 named cases: CK12, CK21, CK23 differ from the table (decide() adds KQ4/KQ7), already recorded in tests/test_wf_t55_cases.py; z1-z12 assert only the forbidden result on the real evaluator, no mutant-evaluator detector exists. No named case lacks a test."
    },
@@ -488,8 +529,16 @@
    "new_modules": [
     "tests/test_wf_r7_t45d.py"
    ],
-   "changed_pinned_files": [],
-   "product_fixes": []
+   "changed_pinned_files": [
+    "wfkit/finalgate.py"
+   ],
+   "product_fixes": [
+    {
+     "file:line": "wfkit/finalgate.py:186-248 (_hook_changes, _ac1_counts), finalgate.py:361 (hooks_check)",
+     "what": "Round 7 D: KQ5 checks hook/config hashes per phase (PL-A, between, PL-B; a changed row without per-phase hashes is refused, unchanged rows keep the two-hash format) and each authorising U2 must be counted exactly once in AC1 of the T35c pilot report (owner_decisions). Local rule proven; status stays blocked only for ALL (external real pilot receipts).",
+     "counter-example test": "tests.test_wf_r7_t45d.T45dHookConfigU2Tests.test_e13_a_change_in_pl_a_reverted_before_the_end_is_refused_without_u2"
+    }
+   ]
   },
   {
    "release": "PL",
