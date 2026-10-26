@@ -19,7 +19,7 @@ Mốc đầu vào: hotfix R9 aa466ce, snapshot dev9 da96db8 (gate đang chạy),
 Worker không có công cụ đọc theo phần (2.4). Trong 2.2: đầu mối tạo slice đúng dòng của nguồn (không sửa) tại `docs/onecrew-review/slices/<file>.L<a>-L<b><ext>` + INDEX.md; node mới đọc slice, tham chiếu phải ghi ĐƯỜNG DẪN GỐC + số dòng gốc (đã nêu offset trong goal) để máy kiểm tham chiếu giải được trên cây ứng viên.
 
 ## Kết quả
-(điền theo bằng chứng thật)
+Xem `BAO-CAO-R10-2026-10-26.vi.md` (trạng thái một dòng, §6, §8) và mục gate/gói bên dưới.
 
 ## Phát hiện trong lúc chạy
 - `tests.test_g1_core.test_the_model_id_is_written_in_one_module_only` (đăng ký, release R0x) đỏ từ commit 3284941 vì TAKEOVER §13.4 ghi literal model id → gate da96db8 sẽ đỏ check này (ghi đúng, không sửa gate đang chạy). Sửa tài liệu cho dev10 (thay literal bằng mô tả). Agent C cũng báo 3 test closure đỏ vì module mới `output_refs.py` của agent B chưa vào `py-modules` → sẽ nối khi tích hợp.
@@ -37,3 +37,6 @@ Worker không có công cụ đọc theo phần (2.4). Trong 2.2: đầu mối t
 
 ## Gói dev10 abb570a — kiểm từ artifact (16:30–16:45)
 Bundles 10/11 pass (`--first-release`; R06 chạy lại vì "live state or monitor changed"; RP refused: không có W45 cho wheel này). Gói `D:\OneCrewRuns\wf-handover-abb570a` (632 file). **verify_package: refused** ở `clear_old_digest` — bản trước (dev8) liệt kê root plan-ns `smoke approved` nhưng oracle kỳ vọng "không liệt kê" (giả định bản trước chưa có namespace, đúng với dev3, sai với dev8); các bước còn lại 18 OK. **legacy_continuation: refused** ở `legacy_root_built` — script inline `anchor()` nhận `None` (dev8 ghi anchor/khóa khác dev3). Hai lỗi thuộc BỘ KIỂM trong gói, không phải wheel; giao agent D sửa red-first → cần snapshot dev11 + gate + gói mới.
+
+## Gate 73d6c77 (dev11, 17:04–18:53) + gói
+`%TEMP%\wf-snapshot-gate-20261026-73d6c77`, log `D:\OneCrewRuns\wf-dev-logs\snapshot-gate-73d6c77.txt`, wheel sha256 `448e8984fc26997b7e4932de5025f9d49c03fc014da1980a97899b1beedef9be`: **272/272 check đạt**, 2.208 test / 2.208 pass / 0 skip, intact; decision `refused` chỉ vì document-selfcheck (Codex docs) + acceptance partial 14 / blocked 10. Bundles 10/11 pass một lần (RP refused: thiếu W45). Gói `D:\OneCrewRuns\wf-handover-73d6c77` (632 file). **verify_package PASS (26 bước)**, **legacy_continuation PASS (16 bước)** từ bản sao trong gói (`D:\OneCrewRuns\wf v\73d6c77`). audit_merge 73d6c77: 92 ID Done 62 · Partial 26 · Blocked 4, 0 đổi.
