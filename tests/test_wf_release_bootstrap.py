@@ -130,7 +130,9 @@ class ConsumerTests(unittest.TestCase):
     def test_build_package_no_longer_hard_codes_the_inputs_sentence(self):
         text = (ROOT / 'docs' / 'wf' / 'audit' / 'tools' / 'build_package.py').read_text(encoding='utf-8')
         self.assertNotIn('INPUTS luôn không đạt vì chưa có release nào được giao', text)
-        self.assertIn('inputs_sentence(bundles)', text); self.assertIn("'first_release'", text)
+        # behaviour, not form (R11): the INPUTS sentence is computed by release_check.inputs_sentence from the bundle results that were
+        # actually produced, whatever the local variable is called
+        self.assertRegex(text, r'inputs_sentence\((produced_results|bundles)\)'); self.assertIn("'first_release'", text)
         self.assertIn('verify_kit.build_verify_dir(pkg)', text)                     # the verify/ shipping logic is kept
 
     def test_release_notes_render_which_inputs_rule_applied_into_an_override_dir(self):
