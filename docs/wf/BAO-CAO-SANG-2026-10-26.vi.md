@@ -97,11 +97,11 @@ Phân biệt: task Done ≠ acceptance complete ≠ gate pass ≠ package verifi
 1. **Duyệt hai plan bài thử SDK** (verb owner, chạy từ terminal của anh, không phải trong phiên AI). Mỗi plan: bản 1, sha ghi trong `plan present`. Lệnh (PowerShell/cmd, một dòng mỗi lệnh):
 
 ```bash
-"D:\OneCrewRuns\sdk-trial\venv dev8\Scripts\onecrew.exe" --project D:\OneCrewRuns\sdk-trial\vn-sign-sdk --state-root D:\TamNT\Workspace\t.OneCrew\state-v2-real plan approve sdk-trial-vn-sign-sdk-20261026 --revision 1 --by owner --reference "chat Claude Code 26/10: duyệt bài thử SDK"
+"D:\OneCrewRuns\sdk-trial\venv dev8\Scripts\onecrew.exe" --project D:\OneCrewRuns\sdk-trial\vn-sign-sdk --state-root D:\TamNT\Workspace\11.OneCrew\state-v2-real plan approve sdk-trial-vn-sign-sdk-20261026 --revision 1 --by owner --reference "chat Claude Code 26/10: duyệt bài thử SDK"
 ```
 
 ```bash
-"D:\OneCrewRuns\sdk-trial\venv dev8\Scripts\onecrew.exe" --project D:\OneCrewRuns\sdk-trial\vn-sign-sample --state-root D:\TamNT\Workspace\t.OneCrew\state-v2-real plan approve sdk-trial-vn-sign-sample-20261026 --revision 1 --by owner --reference "chat Claude Code 26/10: duyệt bài thử SDK"
+"D:\OneCrewRuns\sdk-trial\venv dev8\Scripts\onecrew.exe" --project D:\OneCrewRuns\sdk-trial\vn-sign-sample --state-root D:\TamNT\Workspace\11.OneCrew\state-v2-real plan approve sdk-trial-vn-sign-sample-20261026 --revision 1 --by owner --reference "chat Claude Code 26/10: duyệt bài thử SDK"
 ```
 
    Sau đó bảo tôi (hoặc anh gõ) `… engine step sdk-trial-vn-sign-sdk-20261026` lặp tới khi mốc đạt; worker provider `claude` (codex CLI không có trên máy), reviewer `claude-opus-5-5`. Nếu anh muốn đổi nguồn (review bản local dirty thay vì clone sạch) thì không duyệt và nói rõ.
