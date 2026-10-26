@@ -14,9 +14,9 @@ Revision 5 đã có runtime recipe Android, giới hạn lặp/repair, kiểm ev
 
 **Đã chạy được workflow tổng quát với Codex, Kiro và Claude:** spec-to-plan, snapshot giữ dirty bytes, tối đa hai worker, inbox theo nhánh, controller nền, review/sửa từng phần, thay đổi yêu cầu và gia hạn hữu hạn. Test chức năng trong Docker, ghép target local và kiểm tương thích bộ commit đa repo đã có evidence thật. Có ngân sách chung và hủy toàn nhóm đã duyệt. Entry connectors có xác thực, điều phối đa repo tự động, routing tự động và soak tám giờ còn chưa hoàn tất. Đây là các năng lực nền của revision 2; trạng thái hiện hành nằm trong coverage revision 3.
 
-## Bản test workflow chung (2.2.0.dev9, nhánh `codex/wf-development`)
+## Bản test workflow chung (2.2.0.dev13, nhánh `codex/wf-development`)
 
-Đây là bản **development**, chưa Codex review, chưa nghiệm thu, chưa giao. Trạng thái và số liệu: [docs/wf/BAO-CAO-SANG-2026-10-26.vi.md](docs/wf/BAO-CAO-SANG-2026-10-26.vi.md) (bản dựng `4b1b7b1`, 2.2.0.dev8), 92 task: [docs/wf/audit/AUDIT-92.md](docs/wf/audit/AUDIT-92.md), release notes: [docs/wf/release-notes/](docs/wf/release-notes/README.md).
+Đây là bản **development**, chưa Codex review, chưa nghiệm thu, chưa giao. Trạng thái và số liệu: [docs/wf/BAO-CAO-SANG-2026-10-27.vi.md](docs/wf/BAO-CAO-SANG-2026-10-27.vi.md) (gói `D:\OneCrewRuns\wf-handover-572fd18`, commit `572fd18`, 2.2.0.dev13; bản trước: [BAO-CAO-SANG-2026-10-26](docs/wf/BAO-CAO-SANG-2026-10-26.vi.md) cho `4b1b7b1`), 92 task: [docs/wf/audit/AUDIT-92.md](docs/wf/audit/AUDIT-92.md), release notes: [docs/wf/release-notes/](docs/wf/release-notes/README.md).
 
 Dựng wheel từ checkout sạch và thử trong venv mới (PowerShell 5.1, dán nguyên khối; không đụng sổ thật):
 
@@ -32,7 +32,7 @@ $venv = Join-Path $env:TEMP "onecrew venv"
 
 Console script `onecrew` tự ép stdout/stderr sang UTF-8 (`onecrew/console.py`), nên không cần `PYTHONUTF8=1` với wheel dựng từ nhánh này; wheel dev8/dev9 đã dựng trước đó vẫn cần `$env:PYTHONUTF8 = "1"` khi in tiếng Việt.
 
-**Ma trận provider thật (W45) — đúng phạm vi của nó:** chỉ chạy một lần trên wheel `6366137` (25/10): claude reviewer/cố vấn đạt, kiro reviewer/cố vấn đạt, codex 0/2 vì CLI không có → 4/6 (subset), chỉ chứng minh ô chạy được, không phải chất lượng review. **Chưa có ma trận hay so sánh cho wheel hiện hành** (dev8 `4b1b7b1`, dev9 `da96db8`); bundle RP ở `4b1b7b1` bị từ chối T54.5 "comparison missing" (trạng thái "cần kiểm lại"). Mọi test tự động dùng CLI giả.
+**Ma trận provider thật (W45) — đúng phạm vi của nó:** chỉ chạy một lần trên wheel `6366137` (25/10): claude reviewer/cố vấn đạt, kiro reviewer/cố vấn đạt, codex 0/2 vì CLI không có → 4/6 (subset), chỉ chứng minh ô chạy được, không phải chất lượng review. **Chưa có ma trận hay so sánh cho wheel hiện hành** (dev8 `4b1b7b1` … dev13 `572fd18`); bundle RP ở các bản này bị từ chối T54.5 "comparison missing" (trạng thái "cần kiểm lại"). Mọi test tự động dùng CLI giả.
 
 ## Tài liệu hiện hành
 
