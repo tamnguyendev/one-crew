@@ -12,7 +12,7 @@
 | Wheel sha256 | `c3692aa11d71d6e81b5ad2aaf6f57ddcb22679fc5ae0beba5b12d09c940e2929` (`wheel/onecrew-2.2.0.dev8-py3-none-any.whl`; wheel bản trước ghim `wheel/previous/onecrew-2.2.0.dev3-py3-none-any.whl`, baseline d3120c6) |
 | Gate snapshot | `refused` theo thiết kế vì acceptance 14 partial / 10 blocked; **kiểm hiện thực 268/268 biên nhận, 0 đỏ, 0 skip**, 2 143 lượt test, 1 756 test id, snapshot nguyên vẹn (`gate/decision.json`; chạy 00:50–03:25 26/10) |
 | Bundle T54 (11 release) | **10/11 pass** T54.1–T54.5 + INPUTS(bootstrap) (R01–R08, RX1, RX2); **RP refused T54.5 "comparison missing"**: ma trận W45 là của wheel 6366137, chưa chạy lại trên wheel này (provider trả phí, ngoài quyền) → ô provider ghi "cần kiểm lại". R05/R07 chạy lại một lần vì task OneCrew khác ghi vào sổ thật trong lần 1 (mục 5). `bundles/<R>/release-check.json` |
-| Kiểm gói từ artifact | **PASS** — `verify/verify_package.py` 26/26 bước (venv sạch cài wheel từ gói, hash khớp SHA256SUMS, root code propose → approve → `verdict run` M1 qua console script của venv, mọi module `onecrew.*` nạp từ venv, rollback bị từ chối đúng trên bản sao có blocker — 0 lệnh pip, bản cài không đổi; roll-forward giữ dữ liệu; bản cũ đọc root cũ, không đọc root `plan-ns:`), `verify/legacy_continuation.py` 15/15 (root schema 2 cũ chạy theo semantics cũ trên wheel mới, baseline ghi một lần, commit không có bị từ chối); cả hai exit 0, chạy bằng `python -I` từ `D:\OneCrewRuns\wf v` (không PYTHONPATH, đường dẫn có dấu cách), `verifier-origin.json` xác nhận module nạp từ `verify/` của gói. Test thật `tests.test_wf_package_check_real` + `test_wf_legacy_continuation_real` với WF_PACKAGE: 2 OK. Báo cáo: `D:\OneCrewRuns\wf-handover-4b1b7b1erification\` |
+| Kiểm gói từ artifact | **PASS** — `verify/verify_package.py` 26/26 bước (venv sạch cài wheel từ gói, hash khớp SHA256SUMS, root code propose → approve → `verdict run` M1 qua console script của venv, mọi module `onecrew.*` nạp từ venv, rollback bị từ chối đúng trên bản sao có blocker — 0 lệnh pip, bản cài không đổi; roll-forward giữ dữ liệu; bản cũ đọc root cũ, không đọc root `plan-ns:`), `verify/legacy_continuation.py` 15/15 (root schema 2 cũ chạy theo semantics cũ trên wheel mới, baseline ghi một lần, commit không có bị từ chối); cả hai exit 0, chạy bằng `python -I` từ `D:\OneCrewRuns\wf v` (không PYTHONPATH, đường dẫn có dấu cách), `verifier-origin.json` xác nhận module nạp từ `verify/` của gói. Test thật `tests.test_wf_package_check_real` + `test_wf_legacy_continuation_real` với WF_PACKAGE: 2 OK. Báo cáo: `D:\OneCrewRuns\wf-handover-4b1b7b1\verification\` |
 
 Bản này là **bản test development**: chưa Codex review, chưa nghiệm thu, chưa giao. Mọi số liệu lấy từ biên nhận trong gói.
 
@@ -75,9 +75,9 @@ Phân biệt: task Done ≠ acceptance complete ≠ gate pass ≠ package verifi
 
 | Mục | Giá trị |
 |---|---|
-| Runtime | venv `D:\OneCrewRuns\sdk-trialenv dev8` cài từ wheel `c3692aa…` (cùng bytes gói); chỉ nhóm v2 (`plan/engine/...`) — nhóm `job` v1 không có trong bản cài (`owned` không trong wheel) nên hợp đồng v1 `job --mode work` không dùng được từ artifact; dùng workflow chung v2 |
-| Plan 1 | `sdk-trial-vn-sign-sdk-20261026` — TASK-c7ebc86471a2438caa4590b8cbf0d9f5, bản 1 sha `ea675cb6…`, **proposed** (lint clean, `--workflow`); project clone sạch `D:\OneCrewRuns\sdk-trialn-sign-sdk` @ bef6476 |
-| Plan 2 | `sdk-trial-vn-sign-sample-20261026` — TASK-2197a8c7fd194096bf9b541f57337cce, bản 1 sha `b1b8bb8b…`, **proposed**; clone sạch `…n-sign-sample` @ 9344983 |
+| Runtime | venv `D:\OneCrewRuns\sdk-trial\venv dev8` cài từ wheel `c3692aa…` (cùng bytes gói); chỉ nhóm v2 (`plan/engine/...`) — nhóm `job` v1 không có trong bản cài (`owned` không trong wheel) nên hợp đồng v1 `job --mode work` không dùng được từ artifact; dùng workflow chung v2 |
+| Plan 1 | `sdk-trial-vn-sign-sdk-20261026` — TASK-c7ebc86471a2438caa4590b8cbf0d9f5, bản 1 sha `ea675cb6…`, **proposed** (lint clean, `--workflow`); project clone sạch `D:\OneCrewRuns\sdk-trial\vn-sign-sdk` @ bef6476 |
+| Plan 2 | `sdk-trial-vn-sign-sample-20261026` — TASK-2197a8c7fd194096bf9b541f57337cce, bản 1 sha `b1b8bb8b…`, **proposed**; clone sạch `…\vn-sign-sample` @ 9344983 |
 | Provider/model | worker `claude` (preference mặc định codex/gpt-6-luna nhưng codex CLI chưa cài — không cài thêm), reviewer M2 `claude-opus-5-5`, M1 verifier lệnh (kiểm hai báo cáo có đủ mục và mọi file:dòng tồn tại) |
 | Repo cập nhật được | không repo local nào: signsdk dirty + 10 stash + phân kỳ 105/165; vn-sign-sample conflict UU/UD; vn-sign-sdk remote force-push → dùng checkout riêng (clone) cho cả hai remote; local giữ nguyên |
 | hms_signature_sign | khảo sát đầu mối: không có trong file tracked/lịch sử; biến thể chỉ trong snapshot IDE không tracked — plan yêu cầu OneCrew tìm biến thể và báo phạm vi, không suy đoán |
@@ -97,11 +97,11 @@ Phân biệt: task Done ≠ acceptance complete ≠ gate pass ≠ package verifi
 1. **Duyệt hai plan bài thử SDK** (verb owner, chạy từ terminal của anh, không phải trong phiên AI). Mỗi plan: bản 1, sha ghi trong `plan present`. Lệnh (PowerShell/cmd, một dòng mỗi lệnh):
 
 ```bash
-"D:\OneCrewRuns\sdk-trialenv dev8\Scripts\onecrew.exe" --project D:\OneCrewRuns\sdk-trialn-sign-sdk --state-root D:\TamNT\Workspace	.OneCrew\state-v2-real plan approve sdk-trial-vn-sign-sdk-20261026 --revision 1 --by owner --reference "chat Claude Code 26/10: duyệt bài thử SDK"
+"D:\OneCrewRuns\sdk-trial\venv dev8\Scripts\onecrew.exe" --project D:\OneCrewRuns\sdk-trial\vn-sign-sdk --state-root D:\TamNT\Workspace\t.OneCrew\state-v2-real plan approve sdk-trial-vn-sign-sdk-20261026 --revision 1 --by owner --reference "chat Claude Code 26/10: duyệt bài thử SDK"
 ```
 
 ```bash
-"D:\OneCrewRuns\sdk-trialenv dev8\Scripts\onecrew.exe" --project D:\OneCrewRuns\sdk-trialn-sign-sample --state-root D:\TamNT\Workspace	.OneCrew\state-v2-real plan approve sdk-trial-vn-sign-sample-20261026 --revision 1 --by owner --reference "chat Claude Code 26/10: duyệt bài thử SDK"
+"D:\OneCrewRuns\sdk-trial\venv dev8\Scripts\onecrew.exe" --project D:\OneCrewRuns\sdk-trial\vn-sign-sample --state-root D:\TamNT\Workspace\t.OneCrew\state-v2-real plan approve sdk-trial-vn-sign-sample-20261026 --revision 1 --by owner --reference "chat Claude Code 26/10: duyệt bài thử SDK"
 ```
 
    Sau đó bảo tôi (hoặc anh gõ) `… engine step sdk-trial-vn-sign-sdk-20261026` lặp tới khi mốc đạt; worker provider `claude` (codex CLI không có trên máy), reviewer `claude-opus-5-5`. Nếu anh muốn đổi nguồn (review bản local dirty thay vì clone sạch) thì không duyệt và nói rõ.
