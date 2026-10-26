@@ -26,6 +26,7 @@ Every child runs with a UTF-8 environment; stdout/stderr tails are recorded; an 
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -44,6 +45,33 @@ ROLLBACK_REQUIRED = ('blocked_copy_built', 'blocked_scan', 'blocked_refused_no_p
                      'clear_old_copy_unchanged', 'clear_uninstall_previous', 'clear_reinstall_current', 'clear_same_build_restored',
                      'clear_roll_forward_reads', 'clear_roll_forward_copy_unchanged')
 
+# Which previous build can read a `plan-ns:` root is a property of THAT build, not an assumption (round 10). Defined here, once: the first
+# 2.2.0 dev version whose reader lists/shows namespaced roots is dev4. The dev3 wheel the earlier packages carried is the compat baseline
+# (d3120c6, "NOT a delivered build") and predates namespaces; dev8 and later read them. The version comes from the previous wheel's file name
+# in the manifest; the scope records the derived capability (identity key `previous_reads_plan_ns`), so the judge binds to the manifest.
+PLAN_NS_FIRST_READER = ((2, 2, 0), 4)            # (release tuple, first dev number); a final release of that tuple or later also reads them
+STEP_PREVIOUS_CANNOT_READ = 'clear_old_cannot_read_plan_ns'      # previous build predates namespaces: the root is invisible to it (negative)
+STEP_PREVIOUS_READS = 'clear_old_reads_plan_ns'                  # previous build has namespaces: it reads the root (positive)
+ROLLBACK_REQUIRED_NS = tuple(STEP_PREVIOUS_READS if i == STEP_PREVIOUS_CANNOT_READ else i for i in ROLLBACK_REQUIRED)
+_ROLLBACK_ANY = tuple(dict.fromkeys(ROLLBACK_REQUIRED + ROLLBACK_REQUIRED_NS))
+_WHEEL_VERSION = re.compile(r'^onecrew-(\d+)\.(\d+)\.(\d+)(?:\.dev(\d+))?-')
+
+
+def previous_reads_plan_ns(wheel_file):
+    """-> True/False: does the build in this wheel file read `plan-ns:` roots? None when the version cannot be read from the file name."""
+    m = _WHEEL_VERSION.match(Path(str(wheel_file or '')).name)
+    if not m:
+        return None
+    rel, dev = (int(m.group(1)), int(m.group(2)), int(m.group(3))), m.group(4)
+    first_rel, first_dev = PLAN_NS_FIRST_READER
+    if rel != first_rel:
+        return rel > first_rel
+    return dev is None or int(dev) >= first_dev
+
+
+def required_steps(rollback, previous_ns=False):
+    return list(BASE_REQUIRED) + ((list(ROLLBACK_REQUIRED_NS) if previous_ns else list(ROLLBACK_REQUIRED)) if rollback else [])
+
 
 # Package kinds this verifier evaluates, and the scope each one declares (P1-3). The kind is written by the package builder into the manifest;
 # a report flag can never choose the scope.
@@ -51,7 +79,7 @@ PACKAGE_KINDS = {
     'development-handover-package': 'rollback',        # carries the previous wheel: the rollback drill is mandatory
     'first-release-handover-package': 'base',          # first release (build_package --first-release): no earlier build exists to roll back to
 }
-IDENTITY_KEYS = ('package', 'kind', 'manifest_sha256', 'wheel_sha256', 'previous_wheel_sha256', 'verifier_files')
+IDENTITY_KEYS = ('package', 'kind', 'manifest_sha256', 'wheel_sha256', 'previous_wheel_sha256', 'previous_reads_plan_ns', 'verifier_files')
 
 
 def _norm_path(p):
@@ -87,7 +115,7 @@ def package_scope(pkg, expected_verifier=None):
     pkg = Path(pkg).resolve()
     reasons = []
     scope = {'package': _norm_path(pkg), 'kind': None, 'rollback': None, 'manifest_sha256': None, 'wheel_sha256': None,
-             'previous_wheel_sha256': None, 'verifier_files': None, 'reasons': reasons}
+             'previous_wheel_sha256': None, 'previous_reads_plan_ns': None, 'verifier_files': None, 'reasons': reasons}
     try:
         raw = (pkg / 'manifest.json').read_bytes()
         manifest = json.loads(raw.decode('utf-8'))
@@ -109,6 +137,9 @@ def package_scope(pkg, expected_verifier=None):
             reasons.append(f'manifest kind {kind!r} requires a previous wheel but manifest.previous_wheel is empty')
         else:
             scope['previous_wheel_sha256'] = _verified_file(pkg, prev, 'previous wheel', reasons)
+            scope['previous_reads_plan_ns'] = previous_reads_plan_ns(prev.get('file') if isinstance(prev, dict) else None)
+            if scope['previous_reads_plan_ns'] is None:
+                reasons.append('previous wheel file name carries no readable version (onecrew-X.Y.Z[.devN]-...): its plan-ns capability is unknown')
     elif mode == 'base':
         scope['rollback'] = False
         if prev is not None:
@@ -183,8 +214,9 @@ _MISSING = object()
 class _Facts:
     """Reads the recorded facts of one step; remembers which are missing (a missing fact cannot be recomputed, so it is refused)."""
 
-    def __init__(self, step, rollback):
+    def __init__(self, step, rollback, previous_ns=False):
         self.step, self.rollback, self.missing = step, rollback if isinstance(rollback, dict) else {}, []
+        self.previous_ns = previous_ns
 
     def __call__(self, key):
         v = self.step.get(key, _MISSING)
@@ -243,7 +275,8 @@ _POSITIVE = {
     'clear_scan': lambda f: _exit0(f) and _total(f) == 0 and f.rb('clear', 'scan_total') == 0,
     'clear_uninstall_current': _exit0,
     'clear_install_previous': lambda f: _exit0(f) and _same(f('sha256'), f('actual_sha256')),
-    'clear_old_digest': lambda f: _exit0(f) and f.needle('smoke') is False,
+    'clear_old_digest': lambda f: _exit0(f) and f.needle('smoke') is f.previous_ns,      # listed iff the previous build has namespaces
+    STEP_PREVIOUS_READS: lambda f: _exit0(f) and f.needle('smoke') is True and f.previous_ns is True,
     'clear_old_copy_unchanged': lambda f: _same(f('tree_sha'), f('copy_before'), f.rb('clear', 'copy_before')),
     'clear_uninstall_previous': _exit0,
     'clear_reinstall_current': _exit0,
@@ -253,9 +286,9 @@ _POSITIVE = {
 }
 # Negative tests: the step must fail, with one of these exits, BECAUSE of one of these reasons. The runner records this same expectation.
 NEGATIVE_EXPECT = {
-    'clear_old_cannot_read_plan_ns': {'exits': [1, 2], 'reason_any': ['No plan named']},
+    STEP_PREVIOUS_CANNOT_READ: {'exits': [1, 2], 'reason_any': ['No plan named']},
 }
-assert set(_POSITIVE) | set(NEGATIVE_EXPECT) == set(BASE_REQUIRED + ROLLBACK_REQUIRED) and not set(_POSITIVE) & set(NEGATIVE_EXPECT)
+assert set(_POSITIVE) | set(NEGATIVE_EXPECT) == set(BASE_REQUIRED) | set(_ROLLBACK_ANY) and not set(_POSITIVE) & set(NEGATIVE_EXPECT)
 
 
 def _negative(sid, s, text, reasons):
@@ -296,7 +329,8 @@ def judge(report, scope):
         return {'result': 'refused', 'reasons': reasons}
     if not isinstance(steps, list) or not steps:
         return {'result': 'refused', 'reasons': reasons + ['report has no steps']}
-    required = list(BASE_REQUIRED) + (list(ROLLBACK_REQUIRED) if rollback else [])
+    previous_ns = bool(rollback and scope.get('previous_reads_plan_ns') is True)      # a hand-built scope without it = the legacy previous build
+    required = required_steps(rollback, previous_ns)
     by_id, dups = {}, []
     for s in steps:
         if not isinstance(s, dict):
@@ -313,7 +347,7 @@ def judge(report, scope):
         if rid not in by_id:
             reasons.append(f'expected step missing: {rid}')
     if not rollback:
-        extra = [i for i in ROLLBACK_REQUIRED if i in by_id]
+        extra = [i for i in _ROLLBACK_ANY if i in by_id]
         if extra:
             reasons.append(f'rollback steps recorded although the package manifest declares no previous wheel: {", ".join(extra)}')
         rb = report.get('rollback')
@@ -324,9 +358,14 @@ def judge(report, scope):
         reasons.append('step "wheel_sha" checked a different wheel than the package manifest pins')
     if rollback and 'clear_install_previous' in by_id and by_id['clear_install_previous'].get('sha256') != scope['previous_wheel_sha256']:
         reasons.append('step "clear_install_previous" installed a different previous wheel than the package manifest pins')
+    if rollback:
+        other = STEP_PREVIOUS_CANNOT_READ if previous_ns else STEP_PREVIOUS_READS
+        if other in by_id:
+            reasons.append(f'step "{other}" belongs to the other previous-build capability (the manifest says the previous build '
+                           f'{"reads" if previous_ns else "predates"} plan-ns roots)')
     for sid, s in by_id.items():
         if sid not in required:
-            if sid not in ROLLBACK_REQUIRED and s.get('ok') is not True:
+            if sid not in _ROLLBACK_ANY and s.get('ok') is not True:
                 optional.append(f'optional step failed (not deciding): {sid}')
             continue
         text = _text(s)
@@ -341,7 +380,7 @@ def judge(report, scope):
         else:
             if s.get('kind') == 'negative' or 'expect' in s:
                 reasons.append(f'step "{sid}" carries a negative expectation the oracle does not hold')
-            facts = _Facts(s, report.get('rollback'))
+            facts = _Facts(s, report.get('rollback'), previous_ns)
             computed = bool(_POSITIVE[sid](facts))
             if facts.missing:
                 reasons.append(f'fact missing for step "{sid}": {", ".join(dict.fromkeys(facts.missing))}')
@@ -638,16 +677,26 @@ print('built')
     prev_actual = sha(prev_wheel)
     step('clear_install_previous', 'install previous wheel from the package', code == 0 and prev_actual == prev['sha256'],
          sha256=prev['sha256'], actual_sha256=prev_actual, **tails(code, so, se))
-    # The previous build predates plan namespaces: `plan digest` lists only legacy roots, so it exits 0 and the namespaced root is NOT listed.
+    # What the previous build can see depends on THAT build (manifest-derived: previous_reads_plan_ns), not on an assumption.
+    reads_ns = previous_reads_plan_ns(prev.get('file'))
+    report['previous_reads_plan_ns'] = reads_ns          # the branch taken, beside the identity the judge binds to the manifest
     code, so, se = runner.run([exe, '--project', project, '--state-root', clear_dir, 'plan', 'digest'])
-    step('clear_old_digest', 'previous build: plan digest exits 0 (legacy roots only; the namespaced smoke root is not listed)',
-         code == 0 and 'smoke' not in so, needles={'smoke': 'smoke' in so}, **tails(code, so, se))
-    # Deliberate negative test: the previous build cannot read the plan-ns root. It must fail BECAUSE no such plan exists for it.
-    code, so, se = runner.run([exe, '--project', project, '--state-root', clear_dir, 'plan', 'show', 'smoke'])
-    expect = json.loads(json.dumps(NEGATIVE_EXPECT['clear_old_cannot_read_plan_ns']))      # the oracle's expectation, recorded as is
-    ok = code in expect['exits'] and any(m in so + se for m in expect['reason_any']) and not any(m in so + se for m in FORBIDDEN_MARKERS)
-    step('clear_old_cannot_read_plan_ns', 'previous build cannot read the plan-ns root (plan show smoke refused: No plan named)', ok,
-         kind='negative', expect=expect, **tails(code, so, se))
+    if reads_ns:
+        step('clear_old_digest', 'previous build (has plan namespaces): plan digest exits 0 and lists the namespaced smoke root',
+             code == 0 and 'smoke' in so, needles={'smoke': 'smoke' in so}, **tails(code, so, se))
+        code, so, se = runner.run([exe, '--project', project, '--state-root', clear_dir, 'plan', 'show', 'smoke'])
+        step(STEP_PREVIOUS_READS, 'previous build (has plan namespaces) reads the plan-ns root: plan show smoke exits 0 and names it',
+             code == 0 and 'smoke' in so, needles={'smoke': 'smoke' in so}, **tails(code, so, se))
+    else:
+        # The previous build predates plan namespaces: `plan digest` lists only legacy roots, so it exits 0 and the namespaced root is NOT listed.
+        step('clear_old_digest', 'previous build: plan digest exits 0 (legacy roots only; the namespaced smoke root is not listed)',
+             code == 0 and 'smoke' not in so, needles={'smoke': 'smoke' in so}, **tails(code, so, se))
+        # Deliberate negative test: the previous build cannot read the plan-ns root. It must fail BECAUSE no such plan exists for it.
+        code, so, se = runner.run([exe, '--project', project, '--state-root', clear_dir, 'plan', 'show', 'smoke'])
+        expect = json.loads(json.dumps(NEGATIVE_EXPECT[STEP_PREVIOUS_CANNOT_READ]))      # the oracle's expectation, recorded as is
+        ok = code in expect['exits'] and any(m in so + se for m in expect['reason_any']) and not any(m in so + se for m in FORBIDDEN_MARKERS)
+        step(STEP_PREVIOUS_CANNOT_READ, 'previous build cannot read the plan-ns root (plan show smoke refused: No plan named)', ok,
+             kind='negative', expect=expect, **tails(code, so, se))
     old_copy = tree_sha(clear_dir)
     step('clear_old_copy_unchanged', 'previous build changed nothing in state-clear', old_copy == copy_before, tree_sha=old_copy, copy_before=copy_before)
     code, so, se = runner.run([py, '-m', 'pip', 'uninstall', '--yes', 'onecrew'])

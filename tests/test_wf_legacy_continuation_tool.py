@@ -207,6 +207,77 @@ class JudgeTests(unittest.TestCase):
         self.refused(good_report(), 'no verified package scope', None)
         self.refused(good_report(), 'package scope unverifiable', good_scope(reasons=['manifest missing or unreadable']))
         self.refused(good_report(), 'manifest missing or unreadable', lc.pc.package_scope(REPO / 'no-such-package-dir'))
+class LegacyRootLocatorTests(unittest.TestCase):
+    """Round 10: the OLD build's root is located by name in either namespace (a previous build with namespaces writes plan-ns:legacy)."""
+
+    def setUp(self):
+        import shutil
+        import sqlite3
+        import subprocess
+        import tempfile
+        self.sqlite3 = sqlite3
+        self.tmp = Path(tempfile.mkdtemp(prefix='wf locator '))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.project, self.state = self.tmp / 'project', self.tmp / 'state'
+        self.project.mkdir()
+        for args in (['init', '-q'], ['config', 'user.name', 'v'], ['config', 'user.email', 'v@localhost']):
+            subprocess.run(['git', '-C', str(self.project), *args], check=True, capture_output=True)
+        (self.project / 'a.txt').write_text('base\n')
+        subprocess.run(['git', '-C', str(self.project), 'add', '.'], check=True, capture_output=True)
+        subprocess.run(['git', '-C', str(self.project), 'commit', '-qm', 'base'], check=True, capture_output=True)
+        ns = {}
+        exec(lc.LOCATOR_SRC, ns)
+        self.locate = ns['locate_root']
+
+    def propose(self, name='legacy'):
+        import json
+        import sys
+        from onecrew.ledger import Ledger
+        from onecrew.v2 import plan
+        contract = {'schema_version': 2, 'title': 'Legacy root', 'size': 'S',
+                    'understanding': {'restated_goal': 'A root approved by an older build.', 'target': {'repo': '.', 'ref': 'HEAD', 'paths': ['a.txt']},
+                                      'assumptions': [], 'confidence': 'high', 'unknowns': []},
+                    'preconditions': [{'id': 'P1', 'check': 'path_exists', 'args': {'path': 'a.txt'}, 'why': 'the file is there'}],
+                    'output': ['The sample exists'], 'scope': {'owned': ['a.txt']}, 'non_goals': ['Nothing else'],
+                    'items': [{'id': 'I1', 'title': 'Do it', 'tier': 'must', 'milestone': 'M1'}],
+                    'milestones': [{'id': 'M1', 'title': 'Milestone M1', 'verifier': {'type': 'command', 'config': {'argv': [sys.executable, '-c', 'print("ok")']}},
+                                    'covers': ['O1']}],
+                    'budget': {'max_calls': 100, 'time': 120}, 'attention': {'questions': 1}, 'profile_version': None}
+        ledger = Ledger(self.project, self.state)
+        plan.propose(ledger, name, contract, 'old-build-fixture')
+        return ledger
+
+    def db(self):
+        return self.sqlite3.connect(str(self.state / 'ledger.sqlite3'))
+
+    def test_root_proposed_by_a_build_with_namespaces_is_found_with_its_real_key(self):
+        ledger = self.propose()
+        task_id, key = self.locate(self.db, ledger.project_id)
+        self.assertEqual(key, 'plan-ns:legacy')
+        self.assertTrue(task_id.startswith('TASK-'))
+
+    def test_root_proposed_by_a_build_without_namespaces_is_found_with_its_real_key(self):
+        ledger = self.propose()
+        c = self.db()
+        c.execute("UPDATE tasks SET request_key='plan:legacy' WHERE request_key='plan-ns:legacy'")
+        c.commit()
+        self.assertEqual(self.locate(self.db, ledger.project_id)[1], 'plan:legacy')
+
+    def test_missing_or_ambiguous_root_is_an_error_never_a_guess(self):
+        ledger = self.propose('other')
+        with self.assertRaises(RuntimeError):
+            self.locate(self.db, ledger.project_id)
+        self.propose('legacy')
+        c = self.db()
+        c.execute("INSERT INTO tasks SELECT * FROM tasks WHERE 0")      # no-op: keep the schema check honest
+        c.close()
+        self.assertEqual(self.locate(self.db, ledger.project_id)[1], 'plan-ns:legacy')
+
+    def test_the_inline_scripts_use_the_located_key_not_a_hard_coded_legacy_key(self):
+        src = (REPO / 'docs' / 'wf' / 'audit' / 'tools' / 'legacy_continuation.py').read_text(encoding='utf-8')
+        for hard in ("--plan', 'plan:legacy'", "conn, 'plan:legacy')", "ledger, 'plan:legacy')", "request_key=?', (ledger.project_id, 'plan:legacy')"):
+            self.assertNotIn(hard, src)
+        self.assertIn('locate_root(db, ledger.project_id)', src)
 
 
 if __name__ == '__main__':

@@ -197,8 +197,8 @@ class ScopeFromManifestTests(unittest.TestCase):
         m = {'schema': 1, 'kind': kind or ('development-handover-package' if previous else 'first-release-handover-package'),
              'wheel': {'file': 'wheel/cur.whl', 'sha256': pc.sha(pkg / 'wheel' / 'cur.whl')}, 'previous_wheel': None}
         if previous:
-            (pkg / 'wheel' / 'previous' / 'prev.whl').write_bytes(b'previous wheel')
-            m['previous_wheel'] = {'file': 'wheel/previous/prev.whl', 'sha256': pc.sha(pkg / 'wheel' / 'previous' / 'prev.whl')}
+            (pkg / 'wheel' / 'previous' / 'onecrew-2.2.0.dev3-py3-none-any.whl').write_bytes(b'previous wheel')
+            m['previous_wheel'] = {'file': 'wheel/previous/onecrew-2.2.0.dev3-py3-none-any.whl', 'sha256': pc.sha(pkg / 'wheel' / 'previous' / 'onecrew-2.2.0.dev3-py3-none-any.whl')}
         if verifier:
             (pkg / 'verify').mkdir()
             (pkg / 'verify' / 'package_check.py').write_text('# v', encoding='utf-8')
@@ -267,7 +267,7 @@ class ScopeFromManifestTests(unittest.TestCase):
         self.refused(r, None, 'no verified package scope')
         self.refused(r, pc.package_scope(self.tmp / 'nothing-here'), 'manifest missing or unreadable')
         pkg, m = self.make_pkg()
-        (pkg / 'wheel' / 'previous' / 'prev.whl').write_bytes(b'swapped previous wheel')
+        (pkg / 'wheel' / 'previous' / 'onecrew-2.2.0.dev3-py3-none-any.whl').write_bytes(b'swapped previous wheel')
         self.refused(r, pc.package_scope(pkg), 'previous wheel file bytes do not match')
         pkg, m = self.make_pkg('pkg3')
         (pkg / 'wheel' / 'cur.whl').unlink()
@@ -318,6 +318,106 @@ class RunnerFactsTests(unittest.TestCase):
             self.assertNotEqual(h1, pc.tree_sha(d))
         finally:
             shutil.rmtree(d, ignore_errors=True)
+
+
+class PreviousBuildCapabilityTests(unittest.TestCase):
+    """Round 10: the plan-ns expectation follows the PREVIOUS build's own capability (dev3 baseline: no; dev8 and later: yes)."""
+
+    def ns_scope(self):
+        return good_scope(previous_reads_plan_ns=True)
+
+    def ns_report(self, scope=None):
+        scope = scope or self.ns_scope()
+        r = good_report()
+        r['steps'] = [s for s in r['steps'] if s['id'] != 'clear_old_cannot_read_plan_ns']
+        get(r, 'clear_old_digest').update(needles={'smoke': True}, stdout_tail='{"plans": [{"name": "smoke"}]}')
+        i = [s['id'] for s in r['steps']].index('clear_old_digest') + 1
+        r['steps'].insert(i, _step('clear_old_reads_plan_ns', exit=0, needles={'smoke': True}, stdout_tail='smoke', stderr_tail=''))
+        r['package_identity'] = pc.identity(scope)
+        return r
+
+    def test_version_to_capability(self):
+        f = pc.previous_reads_plan_ns
+        self.assertIs(f('wheel/previous/onecrew-2.2.0.dev3-py3-none-any.whl'), False)
+        self.assertIs(f('onecrew-2.2.0.dev0-py3-none-any.whl'), False)
+        self.assertIs(f('onecrew-2.1.9-py3-none-any.whl'), False)
+        self.assertIs(f('wheel/previous/onecrew-2.2.0.dev4-py3-none-any.whl'), True)
+        self.assertIs(f('wheel/previous/onecrew-2.2.0.dev8-py3-none-any.whl'), True)
+        self.assertIs(f('onecrew-2.2.0-py3-none-any.whl'), True)
+        self.assertIs(f('onecrew-2.3.0.dev1-py3-none-any.whl'), True)
+        self.assertIsNone(f('wheel/previous/previous.whl'))
+        self.assertIsNone(f(None))
+
+    def test_required_steps_follow_the_capability(self):
+        legacy, ns = pc.required_steps(True, False), pc.required_steps(True, True)
+        self.assertIn('clear_old_cannot_read_plan_ns', legacy)
+        self.assertNotIn('clear_old_reads_plan_ns', legacy)
+        self.assertIn('clear_old_reads_plan_ns', ns)
+        self.assertNotIn('clear_old_cannot_read_plan_ns', ns)
+        self.assertEqual(len(legacy), len(ns))
+        self.assertEqual(pc.required_steps(False, True), list(pc.BASE_REQUIRED))
+
+    def test_previous_with_namespaces_passes_when_it_reads_the_root(self):
+        self.assertEqual(judge(self.ns_report(), self.ns_scope()), {'result': 'pass', 'reasons': []})
+
+    def test_previous_with_namespaces_not_listing_the_root_is_refused(self):
+        r = self.ns_report()
+        get(r, 'clear_old_digest').update(needles={'smoke': False}, ok=False)
+        v = judge(r, self.ns_scope())
+        self.assertEqual(v['result'], 'refused')
+        self.assertTrue(any('mandatory step failed: clear_old_digest' in x for x in v['reasons']), v)
+        r = self.ns_report()
+        get(r, 'clear_old_reads_plan_ns').update(exit=1, ok=False)
+        self.assertEqual(judge(r, self.ns_scope())['result'], 'refused')
+
+    def test_legacy_report_is_refused_under_a_namespaced_previous_scope(self):
+        v = judge(good_report(), self.ns_scope())          # the dev3-shaped report (negative step, smoke not listed) against a dev8 previous
+        self.assertEqual(v['result'], 'refused')
+        self.assertTrue(any('expected step missing: clear_old_reads_plan_ns' in x for x in v['reasons']), v)
+        self.assertTrue(any('belongs to the other previous-build capability' in x for x in v['reasons']), v)
+
+    def test_namespaced_report_is_refused_under_a_legacy_previous_scope(self):
+        legacy = good_scope(previous_reads_plan_ns=False)
+        r = self.ns_report()
+        r['package_identity'] = pc.identity(legacy)
+        v = judge(r, legacy)
+        self.assertEqual(v['result'], 'refused')
+        self.assertTrue(any('expected step missing: clear_old_cannot_read_plan_ns' in x for x in v['reasons']), v)
+
+    def test_capability_is_part_of_the_bound_identity(self):
+        r = good_report()                                   # identity recorded for a legacy previous
+        r['package_identity']['previous_reads_plan_ns'] = False
+        v = judge(r, self.ns_scope())
+        self.assertTrue(any('package identity differs from the manifest: previous_reads_plan_ns' in x for x in v['reasons']), v)
+        r = self.ns_report()
+        r['package_identity']['previous_reads_plan_ns'] = False      # the report cannot choose the weaker (legacy) oracle
+        self.assertEqual(judge(r, self.ns_scope())['result'], 'refused')
+
+    def test_package_scope_derives_the_capability_from_the_manifest_wheel_name(self):
+        import hashlib
+        for name, want in (('onecrew-2.2.0.dev3-py3-none-any.whl', False), ('onecrew-2.2.0.dev8-py3-none-any.whl', True)):
+            d = Path(tempfile.mkdtemp())
+            try:
+                (d / 'wheel' / 'previous').mkdir(parents=True)
+                ent = {}
+                for rel, data in (('wheel/onecrew-2.2.0.dev10-py3-none-any.whl', b'cur'), (f'wheel/previous/{name}', b'prev')):
+                    (d / rel).write_bytes(data)
+                    ent[rel] = {'file': rel, 'sha256': hashlib.sha256(data).hexdigest()}
+                (d / 'manifest.json').write_text(json.dumps({
+                    'kind': 'development-handover-package', 'wheel': ent['wheel/onecrew-2.2.0.dev10-py3-none-any.whl'],
+                    'previous_wheel': ent[f'wheel/previous/{name}']}), encoding='utf-8')
+                sc = pc.package_scope(d)
+                self.assertEqual(sc['reasons'], [])
+                self.assertIs(sc['previous_reads_plan_ns'], want)
+                self.assertIs(pc.identity(sc)['previous_reads_plan_ns'], want)
+                # an unreadable version is an unverifiable scope, never a silent legacy fallback
+                m = json.loads((d / 'manifest.json').read_text(encoding='utf-8'))
+                shutil.copy(d / m['previous_wheel']['file'], d / 'wheel' / 'previous' / 'prev.whl')
+                m['previous_wheel']['file'] = 'wheel/previous/prev.whl'
+                (d / 'manifest.json').write_text(json.dumps(m), encoding='utf-8')
+                self.assertTrue(any('no readable version' in x for x in pc.package_scope(d)['reasons']))
+            finally:
+                shutil.rmtree(d, ignore_errors=True)
 
 
 if __name__ == '__main__':

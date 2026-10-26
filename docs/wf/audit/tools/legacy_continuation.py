@@ -250,6 +250,21 @@ def run(pkg, work, out=print, expected_verifier=None):
     return report
 
 
+# Round 10: WHICH key the OLD build wrote depends on that build. A build that predates namespaces writes `plan:legacy`; one that has them
+# (dev8 and later) writes `plan-ns:legacy`. The inline scripts therefore locate the root the OLD build proposed by its name in either
+# namespace (exactly one row; none or several is an error) and use that real key everywhere (selector, verdict run/baseline). Nothing about
+# what the step proves changes: the approval row the fixture adds is OLD-shaped (no `at`, no `base_artifact`) on a root whose original
+# proposal declares no workflow, so integrity_applies() is False and the old verdict rule holds.
+LOCATOR_SRC = """
+def locate_root(db, project_id, name='legacy'):
+    keys = ('plan:' + name, 'plan-ns:' + name)
+    rows = db().execute('SELECT id, request_key FROM tasks WHERE project_id=? AND request_key IN (?,?) ORDER BY created_at, id', (project_id, *keys)).fetchall()
+    if len(rows) != 1:
+        raise RuntimeError('expected exactly one root named %r in either namespace, found %r' % (name, [r[1] for r in rows]))
+    return rows[0][0], rows[0][1]
+"""
+
+
 def _steps(pkg, work, report, runner, step, tails):
     manifest = json.loads((pkg / 'manifest.json').read_text(encoding='utf-8'))
     wheel = pkg / manifest['wheel']['file']
@@ -300,8 +315,8 @@ def _steps(pkg, work, report, runner, step, tails):
          previous=prev, venv_exit=venv_exit, previous_actual_sha256=prev_actual, **tails(code, so, se))
     code, so, se = runner.run([old_exe, '--project', str(project), '--state-root', str(state), 'plan', 'propose', 'legacy', '--file', str(work / 'contract.json'),
                                '--author', 'old-build-fixture'])
-    step('legacy_root_by_old_build', 'the OLD build proposed the root (legacy `plan:` namespace)', code == 0, **tails(code, so, se))
-    common = f'''
+    step('legacy_root_by_old_build', 'the OLD build proposed the root (named legacy; `plan:` or `plan-ns:` key as that build writes it)', code == 0, **tails(code, so, se))
+    common = LOCATOR_SRC + f'''
 import json, os, sys, sqlite3, subprocess
 for key in ('ONECREW_ACTOR', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION'): os.environ.pop(key, None)
 from pathlib import Path
@@ -310,24 +325,24 @@ from onecrew.v2 import plan, report
 PROJECT, STATE, EXE = Path({str(project)!r}), Path({str(state)!r}), {str(exe)!r}
 ledger = Ledger(PROJECT, STATE)
 def db(): return sqlite3.connect(str(STATE / 'ledger.sqlite3'))
-def anchor():
-    return db().execute('SELECT id FROM tasks WHERE project_id=? AND request_key=?', (ledger.project_id, 'plan:legacy')).fetchone()[0]
+def root(): return locate_root(db, ledger.project_id)
+def anchor(): return root()[0]
+KEY = root()[1]                                                 # the key the OLD build really wrote: 'plan:legacy' or 'plan-ns:legacy'
 def events():
     return [(r[0], json.loads(r[1])) for r in db().execute('SELECT kind, payload FROM events WHERE task_id=? ORDER BY seq', (anchor(),))]
 def state_of():
     with ledger.transaction() as conn:
-        return plan.anchor_events(ledger, conn, 'plan:legacy')
+        return plan.anchor_events(ledger, conn, KEY)
 def verdict_run():
-    done = subprocess.run([EXE, '--project', str(PROJECT), '--state-root', str(STATE), 'verdict', 'run', '--plan', 'plan:legacy', '--milestone', 'M1'],
+    done = subprocess.run([EXE, '--project', str(PROJECT), '--state-root', str(STATE), 'verdict', 'run', '--plan', KEY, '--milestone', 'M1'],
                           capture_output=True, text=True, encoding='utf-8', errors='replace', env={{**os.environ, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'}})
     st = state_of(); last = st['verdicts'][-1] if st['verdicts'] else {{}}
-    return {{'exit': done.returncode, 'tail': (done.stdout + done.stderr)[-300:], 'm1': plan.show(ledger, 'plan:legacy')['milestones'][0]['state'],
+    return {{'exit': done.returncode, 'tail': (done.stdout + done.stderr)[-300:], 'm1': plan.show(ledger, KEY)['milestones'][0]['state'],
             'result': last.get('result'), 'integrity': last.get('test_integrity')}}
 def emit(obj): print('@@' + json.dumps(obj))
 '''
     body_a = common + '''
-a = anchor()                                                    # created by the old build above; must be the legacy namespace
-assert 'plan:legacy' in [r[0] for r in db().execute('SELECT request_key FROM tasks WHERE id=?', (a,))], 'not a legacy root'
+a = anchor()                                                    # created by the old build above (located in either namespace)
 proposed = next(p for k, p in events() if k == 'plan.proposed')
 c = db()
 c.execute('INSERT INTO events(task_id, kind, payload, created_at) VALUES (?,?,?,?)', (a, 'plan.approved',
@@ -338,15 +353,18 @@ st = state_of()
 first = verdict_run()
 page = report.render_handover(STATE, 'legacy', project_id=ledger.project_id)
 mods = {n: getattr(m, '__file__', None) for n, m in sys.modules.items() if n == 'onecrew' or n.startswith('onecrew.')}
-emit({'anchor': a, 'revision': st['latest'], 'approved_rows': sum(1 for k, _ in events() if k == 'plan.approved'), 'kinds': [k for k, _ in events()],
+emit({'anchor': a, 'request_key': KEY, 'revision': st['latest'], 'approved_rows': sum(1 for k, _ in events() if k == 'plan.approved'), 'kinds': [k for k, _ in events()],
       'first': first, 'baseline_in_page': 'baseline' in page, 'o1_line': next((l for l in page.splitlines() if l.strip().startswith('O1 ')), ''),
       'modules': mods})
 '''
     code, so, se = runner.run([py, '-I', '-c', body_a, str(work / 'contract.json')], cwd=str(work))
     line = next((l for l in so.splitlines() if l.startswith('@@')), None)
+    a = json.loads(line[2:]) if line is not None else {}
     step('legacy_root_built', 'legacy root (old approval shape, approval before every commit) built on the installed wheel', code == 0 and line is not None,
-         observation=line is not None, **tails(code, so, se))
-    a = json.loads(line[2:])
+         observation=line is not None, request_key=a.get('request_key'), previous_wheel=(prev or {}).get('file'),
+         shape_produced_by='approval row without at/base_artifact inserted by this verifier on a root proposed by the previous wheel', **tails(code, so, se))
+    if line is None:
+        raise Abort('legacy root could not be built: ' + (so + se)[-300:])
     first = a['first']
     step('legacy_passed_old_semantics', 'new wheel: verdict run judges the schema-2 root by the command result (M1 passed, no integrity record, not inconclusive)',
          _old_semantics(_Facts(first)), **first)
@@ -356,7 +374,7 @@ emit({'anchor': a, 'revision': st['latest'], 'approved_rows': sum(1 for k, _ in 
     def baseline(commit, reference, extra_env=None):
         env = dict(runner.env)
         env.update(extra_env or {})
-        r = subprocess.run([str(exe), '--project', str(project), '--state-root', str(state), 'verdict', 'baseline', '--plan', 'plan:legacy',
+        r = subprocess.run([str(exe), '--project', str(project), '--state-root', str(state), 'verdict', 'baseline', '--plan', a['request_key'],
                             '--from-commit', commit, '--by', 'owner', '--reference', reference],
                            capture_output=True, text=True, encoding='utf-8', errors='replace', env=env)
         return r.returncode, r.stdout, r.stderr
@@ -365,7 +383,7 @@ emit({'anchor': a, 'revision': st['latest'], 'approved_rows': sum(1 for k, _ in 
 ev = events()
 emit({'n': len(ev), 'baselines': [p for k, p in ev if k == 'plan.baseline_recorded'], 'approved_rows': sum(1 for k, _ in ev if k == 'plan.approved'),
       'anchor': anchor(), 'revision': state_of()['latest'], 'verdicts': [v.get('result') for v in state_of()['verdicts']],
-      'm1': plan.show(ledger, 'plan:legacy')['milestones'][0]['state']})
+      'm1': plan.show(ledger, KEY)['milestones'][0]['state']})
 '''
 
     def count():

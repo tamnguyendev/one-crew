@@ -31,3 +31,9 @@ Worker không có công cụ đọc theo phần (2.4). Trong 2.2: đầu mối t
 - K-LINK: `00-THIET-KE-WORKFLOW-CHUNG.vi.md:469` anchor không có `../ROADMAP.vi.md#2-hiện-trạng-và-giới-hạn-xác-minh` (ROADMAP 26/10 đổi tiêu đề §2).
 - K-OWNER ×3: ROADMAP.vi.md:46, :345 (và 1 dòng nữa) ghi thao tác của chủ sở hữu không gắn U1–U4/duyệt/nghiệm thu.
 → Gate dev10 sẽ vẫn bị refused ở document-selfcheck cho tới khi Codex sửa ROADMAP/00; đầu mối không tự sửa tài liệu Codex quản lý (E ngoài). Log: `D:\OneCrewRuns\wf-dev-logs\doccheck-r10.txt`.
+
+## Gate abb570a (dev10, 14:26–16:06)
+`%TEMP%\wf-snapshot-gate-20261026-abb570a`, log `D:\OneCrewRuns\wf-dev-logs\snapshot-gate-abb570a.txt`, wheel sha256 `78f0c73e109159066e148551dbd83af9eccfbadba3d3a6fbae211dacd48ed0f5`: **272/272 check implementation đạt** (3 check R10 mới), 2.196 lượt test, 2.196 pass, 0 skip, intact; decision `refused` chỉ vì document-selfcheck (T38a: 4 vấn đề trong ROADMAP/00 do Codex quản lý) và acceptance partial 14 / blocked 10 (như dev8). Thời gian 1 h 40 (sau loại trừ Defender).
+
+## Gói dev10 abb570a — kiểm từ artifact (16:30–16:45)
+Bundles 10/11 pass (`--first-release`; R06 chạy lại vì "live state or monitor changed"; RP refused: không có W45 cho wheel này). Gói `D:\OneCrewRuns\wf-handover-abb570a` (632 file). **verify_package: refused** ở `clear_old_digest` — bản trước (dev8) liệt kê root plan-ns `smoke approved` nhưng oracle kỳ vọng "không liệt kê" (giả định bản trước chưa có namespace, đúng với dev3, sai với dev8); các bước còn lại 18 OK. **legacy_continuation: refused** ở `legacy_root_built` — script inline `anchor()` nhận `None` (dev8 ghi anchor/khóa khác dev3). Hai lỗi thuộc BỘ KIỂM trong gói, không phải wheel; giao agent D sửa red-first → cần snapshot dev11 + gate + gói mới.

@@ -42,9 +42,15 @@ class RealPackageTests(unittest.TestCase):
             self.assertEqual(rb['clear']['decision'], 'allowed')
             self.assertEqual(rb['clear']['pip_invocations'], 4)
             self.assertEqual(rb['clear']['installed_before'], rb['clear']['installed_after'])
-            neg = next(s for s in report['steps'] if s['id'] == 'clear_old_cannot_read_plan_ns')
-            self.assertEqual(neg['kind'], 'negative')
-            self.assertIn('No plan named', neg['stdout_tail'] + neg['stderr_tail'])
+            self.assertIsInstance(scope['previous_reads_plan_ns'], bool)          # derived from the manifest's previous wheel
+            if scope['previous_reads_plan_ns']:                                    # e.g. dev8: the previous build reads the plan-ns root
+                self.assertFalse(any(s['id'] == 'clear_old_cannot_read_plan_ns' for s in report['steps']))
+                self.assertTrue(get(report, 'clear_old_digest')['needles']['smoke'])
+                self.assertTrue(get(report, 'clear_old_reads_plan_ns')['needles']['smoke'])
+            else:                                                                  # e.g. the dev3 baseline: it cannot see it
+                neg = next(s for s in report['steps'] if s['id'] == 'clear_old_cannot_read_plan_ns')
+                self.assertEqual(neg['kind'], 'negative')
+                self.assertIn('No plan named', neg['stdout_tail'] + neg['stderr_tail'])
             # forging the saved report must be caught by the validator
             forged = copy.deepcopy(report)
             get(forged, 'help')['ok'] = False
@@ -54,7 +60,7 @@ class RealPackageTests(unittest.TestCase):
             self.assertEqual(pc.judge(forged, scope)['result'], 'refused')
             forged = copy.deepcopy(report)                                        # Codex P1-3 bypass: flag flipped + rollback removed
             forged['previous_wheel_present'] = False
-            forged['steps'] = [s for s in forged['steps'] if s['id'] not in pc.ROLLBACK_REQUIRED]
+            forged['steps'] = [s for s in forged['steps'] if s['id'] not in pc._ROLLBACK_ANY]
             forged.pop('rollback', None)
             self.assertEqual(pc.judge(forged, scope)['result'], 'refused')
         finally:

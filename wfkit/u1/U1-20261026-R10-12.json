@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-12",
+ "file": "wfkit/package_check.py",
+ "old_sha256": "d9fb8499a53e242ea5b02a843df0323380fc13cea0d865c25087e3c30ec9cc4b",
+ "new_sha256": "bc0f88ad6bfed13013e8a0b50fd9d4523919a267ea7af1cf9b4fa7e8197fa190",
+ "reason": "R10-D: oracle rollback theo NĂNG LỰC bản trước đọc từ manifest (PLAN_NS_FIRST_READER=(2.2.0,dev4)): bản trước có plan-ns → clear_old_digest kỳ vọng root được liệt kê + bước dương clear_old_reads_plan_ns; bản trước chưa có → giữ nguyên nhánh cũ; identity ghi previous_reads_plan_ns, judge từ chối report nhánh sai/thiếu bước. Red: 11 test đỏ trên HEAD. Thật: dev8→dev10 pass, dev3→dev8 pass.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, chỉ thị lượt 10 của Codex (ủy quyền một lần; không hỏi duyệt từng việc). Quyết định kỹ thuật theo ủy quyền.",
+ "applied_by": "claude (entry) + agent D (claude-sonnet), round 10",
+ "at": "2026-10-26"
+}
