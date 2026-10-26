@@ -2964,6 +2964,14 @@
      "installed": false,
      "scope": "Round 10 (A) from the real SDK trial: D6 a node finding stays repairable across a valid internal revise (the failed receipt of the open finding binds the repair on the new generation; a pass closes it with the newer receipt; a wording-only check change keeps it open, a real change makes it stale; old/other-node receipts never close it; restart and a second failure keep it repairable); D7 a consumer/integration node receives only its producers' declared write outputs (once) plus their artifact/receipt provenance, the final prompt size is recorded (prompt_chars) and an over-cap prompt is held before any launch with the size per producer; D8 the revise ceiling counts only new/moved/unfinished nodes, verified unchanged nodes cost nothing more, spend is never refunded, unknown attempts and stale revisions are refused as before."
     },
+    "check.r11_d8_deadline": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r11_d8_deadline"
+     ],
+     "installed": false,
+     "scope": "Round 11 (Codex finding C): engine revise checks execution caps against the remaining root deadline only for the nodes that still have to run (the same set _to_come counts), both at decision time and again inside the publication transaction (a recount that moves a node from reused to counted refuses the revise); verified nodes with reused evidence do not block the remaining work; pending, generation-changed, dependency-changed and integration nodes stay checked; the deadline is never extended, nothing is refunded, no budget is reset."
+    },
     "registry": {
      "kind": "unittest",
      "modules": [
@@ -4599,6 +4607,15 @@
      ],
      "installed": false,
      "scope": "Round 8: a workflow root whose grant does not delegate Q5 gets U3 + hold + one owner card and NO repair; Q8 safety hold always happens (U3 record when not delegated); Q10 outcome always recorded as evidence/proposal-only; roots without a workflow grant unchanged. Real callers on a temp ledger."
+    },
+    "check.r11_output_guard_refs": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r11_output_guard",
+      "tests.test_wf_r11_output_refs"
+     ],
+     "installed": false,
+     "scope": "Round 11 (Codex review 26/10, findings A/B) through the real engine.step + artifact API + engine.verify with CandidateChecker: a node's write scope is a permission, not a list of files that must exist — a deletion (content null) or an intentionally empty file inside the scope passes; a REQUIRED output (a write path named in the node/contract output) must exist, must not be declared deleted and must have content unless the artifact itself declared it empty; a change outside the write scope that bypasses the API fails the guard. References: an extensionless citation (Dockerfile, Makefile, LICENSE, a tree file, a tree-anchored path) is a reference and fails when it does not resolve; URLs, host:port, times, ratios, image tags, Windows drive paths and ordinary prose are neither references nor offenders (controls). Structural only; never semantic review."
     },
     "registry": {
      "kind": "unittest",
@@ -8469,6 +8486,14 @@
      ],
      "installed": false,
      "scope": "Round 7 acceptance audit of PL/T45d: CG-KET decision rules (wfkit.finalgate) on fixture bundles and the T55 named cases; round 7 adds the KQ5 U2 identity/coverage counter-examples (owner actor, kind, path, result, exact before/after pair)."
+    },
+    "check.r11_build_package": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r11_build_package"
+     ],
+     "installed": false,
+     "scope": "Round 11 (Codex finding D): the package builder refuses an audit-92 of another commit before writing anything, records the previous wheel's provenance from evidence (previous package manifest / sidecar / wheel METADATA; sha or version mismatch refuses), keeps every bundle result including refused ones (11 entries with decisions), refuses bundles/receipts/snapshot of another commit or wheel, and the package verifier's identity step refuses a mixed package; the previous-wheel oracle branch (reads plan-ns or not) follows the pinned previous wheel's real METADATA."
     },
     "registry": {
      "kind": "unittest",

@@ -38,10 +38,12 @@ class OutputRefsFixture(Fixture):
         migrate(self.ledger); self.control = Control(self.ledger)
         self.checker = CandidateChecker(self.ledger, 'P1')
 
-    def verify_reports(self, written, declared=None):
-        """The node C declares `declared` (default: the files it writes) and produces `written` {path: text}."""
+    def verify_reports(self, written, declared=None, output=None):
+        """The node C may write `declared` (default: the files it writes), names `output` as its deliverables (default: the fixture's
+        prose output, which names no path) and produces `written` {path: text}."""
         declared = list(written) if declared is None else declared
         nodes = [node('C', write=declared), node('I', ['C'], integration=True, write=())]
+        if output is not None: nodes[0]['output'] = list(output)
         for item in nodes: item['checks'] = [{'id': c, 'spec': 'The exact approved root command ' + c} for c in self.check_ids]
         self.ip.revise(self.ledger, 'P1', nodes, reason='Split work inside the approved scope', evidence=['a.txt:1'])
         def execute(ledger, control, task, item, attempt):
@@ -79,14 +81,20 @@ class OutputRefsThroughCandidateCheckerTests(OutputRefsFixture):
                 if number: self.setUp()
                 self.assertOutFails(self.verify_reports({'docs/rep/K03.md': 'Look at ' + text + '.\n'}), text, 'bare basename')
 
-    def test_d_declared_output_missing_from_the_candidate(self):
+    def test_d_required_output_missing_from_the_candidate(self):
+        # R11: `write` is permission; the node's `output` naming the skeleton makes it a required deliverable
         both = ['docs/rep/K03.md', 'docs/rep/skeleton-1.md']
-        result = self.verify_reports({'docs/rep/K03.md': 'ok a.cs:1\n'}, declared=both)
-        out = self.assertOutFails(result, 'docs/rep/skeleton-1.md')
+        result = self.verify_reports({'docs/rep/K03.md': 'ok a.cs:1\n'}, declared=both, output=['Report docs/rep/K03.md and docs/rep/skeleton-1.md'])
+        out = self.assertOutFails(result, 'docs/rep/skeleton-1.md', 'required output missing')
         self.assertEqual(out['missing'], ['docs/rep/skeleton-1.md'])
 
-    def test_d2_declared_output_that_is_empty(self):
-        self.assertOutFails(self.verify_reports({'docs/rep/K03.md': ''}), 'docs/rep/K03.md')
+    def test_d2_required_output_that_is_empty_without_the_artifact_declaring_it(self):
+        # R11: an empty file is valid only when the artifact declares it; here the required report is empty in the source and untouched
+        (self.root / 'docs' / 'rep').mkdir(parents=True); (self.root / 'docs' / 'rep' / 'K03.md').write_bytes(b'')
+        result = self.verify_reports({'docs/rep/skeleton-1.md': 'ok a.cs:1\n'}, declared=['docs/rep/K03.md', 'docs/rep/skeleton-1.md'],
+                                     output=['The report docs/rep/K03.md'])
+        out = self.assertOutFails(result, 'docs/rep/K03.md', 'required output empty')
+        self.assertEqual(out['empty_required'], ['docs/rep/K03.md'])
 
     def test_e_wrong_part_while_the_two_skeleton_files_are_correct(self):
         good = 'Cites a.cs:1 and src/Foo.cs:2-3 and README.md:3.\n'

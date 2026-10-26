@@ -7,6 +7,21 @@ R = Path(os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__))
 RELEASES = ['R01', 'R02', 'R03', 'R04', 'R05', 'R06', 'R07', 'R08', 'RP', 'RX1', 'RX2']
 
 
+def keep_result(target, rel, result, done):
+    """-> the path that goes in the index for this release. A produced bundle is its release-check.json; a release the producer refused or that failed
+    (no release-check.json, e.g. RP without --matrix) is NOT dropped: its decision and reason are written to <target>/bundle-result.json (round 11 D)."""
+    check = target / 'release-check.json'
+    if check.exists():
+        return check
+    target.mkdir(parents=True, exist_ok=True)
+    reason = result.get('reason') or (done.stderr or done.stdout or '')[-600:] or 'the producer wrote no release-check.json'
+    path = target / 'bundle-result.json'
+    path.write_text(json.dumps({'release': rel, 'decision': result.get('decision') if result.get('decision') in ('refused', 'blocked') else 'error', 'produced': False,
+                                'conditions': result.get('conditions') or {}, 'reasons': result.get('reasons') or [{'code': 'PRODUCER', 'detail': reason}], 'reason': reason,
+                                'producer_exit': done.returncode}, ensure_ascii=False, indent=1), encoding='utf-8')
+    return path
+
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('out'); ap.add_argument('--gate'); ap.add_argument('--only'); ap.add_argument('--matrix', help='W45 matrix dir (RP)')
     ap.add_argument('--baseline-wheel', help='stored baseline wheel (with sidecar) every producer reuses instead of rebuilding d3120c6')
@@ -25,7 +40,7 @@ def main():
         line = next((l for l in done.stdout.splitlines() if l.startswith('{')), None)
         result = json.loads(line) if line else {'decision': 'error', 'reason': (done.stdout + done.stderr)[-600:]}
         summary[rel] = {k: result.get(k) for k in ('decision', 'conditions', 'reasons', 'reason')}
-        if (target / 'release-check.json').exists(): index[rel] = str(target / 'release-check.json')
+        index[rel] = str(keep_result(target, rel, result, done))
         print(rel, result.get('decision'), result.get('conditions') or result.get('reason', '')[:300], flush=True)
     (out / 'bundles-index.json').write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding='utf-8')
     (out / 'bundles-summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding='utf-8')

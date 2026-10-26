@@ -155,7 +155,10 @@ class ReadmeTests(unittest.TestCase):
         pkg = tmp / 'built pkg'
         with self.assertRaises(SystemExit):                       # P1-3: the kind (scope) must be declared explicitly
             build_package.main([str(gate), str(tmp / 'undeclared pkg')])
-        build_package.main([str(gate), str(pkg), '--first-release'])
+        audit = tmp / 'audit' / 'audit-92.json'              # round 11 D: the 92-task table must be of the gate commit, so the fixture supplies one
+        audit.parent.mkdir()
+        audit.write_text(json.dumps({'commit': 'a' * 7, 'counts': {}, 'rows': []}), encoding='utf-8')
+        build_package.main([str(gate), str(pkg), '--first-release', '--audit', str(audit)])
         readme = (pkg / 'README.md').read_text(encoding='utf-8')
         self.assertNotIn('docs/wf/audit/tools/', readme)
         self.assertIn('python verify/verify_package.py', readme)

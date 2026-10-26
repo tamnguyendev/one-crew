@@ -8,6 +8,7 @@ import os
 import shutil
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from wfkit import package_check as pc
@@ -418,6 +419,148 @@ class PreviousBuildCapabilityTests(unittest.TestCase):
                 self.assertTrue(any('no readable version' in x for x in pc.package_scope(d)['reasons']))
             finally:
                 shutil.rmtree(d, ignore_errors=True)
+
+
+# ---- Round 11 D: package identity is one commit/one wheel; the previous build's capability comes from the pinned wheel itself ----
+FULL = '73d6c770875a1947aac68bb1268e085f5a675556'
+OTHER = 'abb570a1b2c3d4e5f60718293a4b5c6d7e8f9012'
+
+
+def make_wheel(path, version):
+    """A minimal real wheel: a zip whose METADATA declares `version`."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, 'w') as z:
+        z.writestr(f'onecrew-{version}.dist-info/METADATA', f'Metadata-Version: 2.1\nName: onecrew\nVersion: {version}\n\nbody\n')
+        z.writestr('onecrew/__init__.py', '')
+    return path
+
+
+def write_json(path, obj):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(obj), encoding='utf-8')
+
+
+class PackageIdentityStepTests(unittest.TestCase):
+    """The mandatory identity step: manifest.commit/wheel against the 92-task table, bundles, gate build and receipts shipped in the package."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix='wf ident '))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.pkg = self.tmp / 'pkg'
+        cur = make_wheel(self.pkg / 'wheel' / 'onecrew-2.2.0.dev11-py3-none-any.whl', '2.2.0.dev11')
+        prev = make_wheel(self.pkg / 'wheel' / 'previous' / 'onecrew-2.2.0.dev8-py3-none-any.whl', '2.2.0.dev8')
+        self.wsha = pc.sha(cur)
+        m = {'schema': 1, 'kind': 'development-handover-package', 'commit': FULL, 'version': '2.2.0.dev11',
+             'wheel': {'file': 'wheel/' + cur.name, 'sha256': self.wsha},
+             'previous_wheel': {'file': 'wheel/previous/' + prev.name, 'sha256': pc.sha(prev)},
+             'tasks_92_commit': FULL[:7],
+             'bundles': {'R01': {'decision': 'pass', 'produced': True, 'commit': FULL, 'wheel_sha256': self.wsha},
+                         'RP': {'decision': 'refused', 'produced': False}}}
+        write_json(self.pkg / 'manifest.json', m)
+        write_json(self.pkg / 'docs' / 'audit-92.json', {'commit': FULL[:7], 'counts': {}})
+        (self.pkg / 'docs' / 'AUDIT-92.md').write_text(f'Commit kiểm: `{FULL[:7]}`. Nguồn\n', encoding='utf-8')
+        write_json(self.pkg / 'gate' / 'gate-build.json', {'commit': FULL, 'wheel_sha256': self.wsha})
+        write_json(self.pkg / 'gate' / 'receipts' / 'KN-a.json', {'check': 'KN/a', 'commit': FULL})
+        write_json(self.pkg / 'bundles' / 'R01' / 'release-check.json', {'decision': 'pass', 'commit': FULL, 'wheel_sha256': self.wsha})
+        write_json(self.pkg / 'bundles' / 'RP' / 'bundle-result.json', {'decision': 'refused', 'reason': 'RP needs --matrix'})
+
+    def manifest(self):
+        return json.loads((self.pkg / 'manifest.json').read_text(encoding='utf-8'))
+
+    def reasons(self):
+        return pc.package_scope(self.pkg)['reasons']
+
+    def assert_mixed(self, text):
+        r = self.reasons()
+        self.assertTrue(any('package mixes builds' in x and text in x for x in r), r)
+
+    def test_consistent_package_has_no_identity_problem(self):
+        self.assertEqual(self.reasons(), [])
+
+    def test_tasks_92_commit_of_another_commit_is_refused(self):
+        m = self.manifest()
+        m['tasks_92_commit'] = 'abb570a'
+        write_json(self.pkg / 'manifest.json', m)
+        self.assert_mixed('manifest.tasks_92_commit')
+
+    def test_audit_table_docs_of_another_commit_are_refused(self):
+        write_json(self.pkg / 'docs' / 'audit-92.json', {'commit': 'abb570a'})
+        self.assert_mixed('docs/audit-92.json')
+        write_json(self.pkg / 'docs' / 'audit-92.json', {'commit': FULL[:7]})
+        (self.pkg / 'docs' / 'AUDIT-92.md').write_text('Commit kiểm: `abb570a`.\n', encoding='utf-8')
+        self.assert_mixed('AUDIT-92.md')
+
+    def test_head_or_non_hex_audit_commit_is_refused(self):
+        m = self.manifest()
+        m['tasks_92_commit'] = 'HEAD'
+        write_json(self.pkg / 'manifest.json', m)
+        self.assert_mixed('manifest.tasks_92_commit')
+
+    def test_bundle_of_another_wheel_or_commit_is_refused(self):
+        write_json(self.pkg / 'bundles' / 'R01' / 'release-check.json', {'decision': 'pass', 'commit': FULL, 'wheel_sha256': 'f' * 64})
+        self.assert_mixed('bundles/R01/release-check.json wheel_sha256')
+        write_json(self.pkg / 'bundles' / 'R01' / 'release-check.json', {'decision': 'pass', 'commit': OTHER, 'wheel_sha256': self.wsha})
+        self.assert_mixed('bundles/R01/release-check.json commit')
+        m = self.manifest()
+        m['bundles']['R01']['wheel_sha256'] = 'e' * 64
+        write_json(self.pkg / 'manifest.json', m)
+        self.assert_mixed('manifest.bundles[R01] wheel_sha256')
+
+    def test_bundle_decision_in_manifest_must_match_the_shipped_result(self):
+        m = self.manifest()
+        m['bundles']['R01']['decision'] = 'refused'
+        write_json(self.pkg / 'manifest.json', m)
+        self.assertTrue(any('bundle R01: manifest decision' in x for x in self.reasons()), self.reasons())
+
+    def test_receipt_or_gate_build_of_another_commit_is_refused(self):
+        write_json(self.pkg / 'gate' / 'receipts' / 'KN-a.json', {'check': 'KN/a', 'commit': OTHER})
+        self.assert_mixed('gate/receipts/KN-a.json')
+        write_json(self.pkg / 'gate' / 'receipts' / 'KN-a.json', {'commit': FULL})
+        write_json(self.pkg / 'gate' / 'gate-build.json', {'commit': FULL, 'wheel_sha256': '0' * 64})
+        self.assert_mixed('gate/gate-build.json wheel_sha256')
+
+    def test_judge_refuses_a_mixed_package_scope(self):
+        m = self.manifest()
+        m['tasks_92_commit'] = 'abb570a'
+        write_json(self.pkg / 'manifest.json', m)
+        v = pc.judge(good_report(), pc.package_scope(self.pkg))
+        self.assertEqual(v['result'], 'refused')
+        self.assertTrue(any('package mixes builds' in x for x in v['reasons']), v)
+
+
+class PreviousWheelIsWhatItClaimsTests(unittest.TestCase):
+    """Round 10/11: both oracle branches stay, chosen from the PINNED previous wheel (METADATA when it is a real wheel), never assumed."""
+
+    def pkg_with_previous(self, name, version_in_metadata):
+        d = Path(tempfile.mkdtemp(prefix='wf prevcap '))
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        cur = make_wheel(d / 'wheel' / 'onecrew-2.2.0.dev11-py3-none-any.whl', '2.2.0.dev11')
+        prev = make_wheel(d / 'wheel' / 'previous' / name, version_in_metadata)
+        write_json(d / 'manifest.json', {'kind': 'development-handover-package', 'wheel': {'file': 'wheel/' + cur.name, 'sha256': pc.sha(cur)},
+                                         'previous_wheel': {'file': 'wheel/previous/' + name, 'sha256': pc.sha(prev)}})
+        return d
+
+    def test_both_branches_from_real_pinned_wheels(self):
+        for name, ver, want in (('onecrew-2.2.0.dev3-py3-none-any.whl', '2.2.0.dev3', False), ('onecrew-2.2.0.dev8-py3-none-any.whl', '2.2.0.dev8', True)):
+            sc = pc.package_scope(self.pkg_with_previous(name, ver))
+            self.assertEqual(sc['reasons'], [])
+            self.assertIs(sc['previous_reads_plan_ns'], want)
+            steps = pc.required_steps(True, sc['previous_reads_plan_ns'])
+            self.assertEqual(steps.count('clear_old_reads_plan_ns'), 1 if want else 0)
+            self.assertEqual(steps.count('clear_old_cannot_read_plan_ns'), 0 if want else 1)
+
+    def test_file_name_claiming_a_newer_build_than_the_wheel_is_refused(self):
+        # a dev3 wheel renamed dev8 must not select the namespaced oracle
+        sc = pc.package_scope(self.pkg_with_previous('onecrew-2.2.0.dev8-py3-none-any.whl', '2.2.0.dev3'))
+        self.assertTrue(any('METADATA' in x and '2.2.0.dev3' in x for x in sc['reasons']), sc['reasons'])
+        self.assertIsNone(sc['previous_reads_plan_ns'])
+
+    def test_manifest_declared_previous_version_must_agree(self):
+        d = self.pkg_with_previous('onecrew-2.2.0.dev8-py3-none-any.whl', '2.2.0.dev8')
+        m = json.loads((d / 'manifest.json').read_text(encoding='utf-8'))
+        m['previous_wheel']['version'] = '2.2.0.dev3'
+        write_json(d / 'manifest.json', m)
+        self.assertTrue(any('declares version' in x for x in pc.package_scope(d)['reasons']))
 
 
 if __name__ == '__main__':

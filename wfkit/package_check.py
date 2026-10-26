@@ -30,6 +30,7 @@ import re
 import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 CHECKOUT = Path(__file__).resolve().parents[1]
@@ -67,6 +68,97 @@ def previous_reads_plan_ns(wheel_file):
     if rel != first_rel:
         return rel > first_rel
     return dev is None or int(dev) >= first_dev
+
+
+def wheel_metadata_version(wheel_path):
+    """-> the `Version:` the wheel's own METADATA declares, or None when the file is not a readable wheel (round 11: the previous build's
+    capability comes from what the pinned wheel IS, not only from what its file name says)."""
+    try:
+        with zipfile.ZipFile(wheel_path) as z:
+            name = next((n for n in z.namelist() if n.count('/') == 1 and n.endswith('.dist-info/METADATA')), None)
+            if name is None:
+                return None
+            for line in z.read(name).decode('utf-8', 'replace').splitlines():
+                if line.startswith('Version:'):
+                    return line.split(':', 1)[1].strip() or None
+                if not line.strip():
+                    break
+    except (OSError, zipfile.BadZipFile, KeyError):
+        pass
+    return None
+
+
+def commit_matches(a, b):
+    """Two commit ids name the same commit: both hex, at least 7 characters, one a prefix of the other (short sha vs full sha)."""
+    ok = lambda x: isinstance(x, str) and len(x) >= 7 and re.fullmatch(r'[0-9a-f]+', x) is not None
+    return ok(a) and ok(b) and (a.startswith(b) or b.startswith(a))
+
+
+def _json_file(path):
+    try:
+        v = json.loads(Path(path).read_text(encoding='utf-8'))
+        return v if isinstance(v, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def identity_problems(pkg, manifest):
+    """-> [reason, ...]: everything in the package that names a commit or a wheel digest must agree with manifest.commit / manifest.wheel
+    (round 11 D: a package assembled from a later snapshot's audit table, another build's bundles or another commit's receipts is mixed).
+    Checked when present: tasks_92_commit, docs/audit-92.json, docs/AUDIT-92.md, gate/gate-build.json, gate/snapshot.json, gate/receipts/*.json,
+    manifest.bundles[*] and bundles/<R>/release-check.json (commit + wheel sha256 + decision). A package with nothing comparable has no problems."""
+    pkg = Path(pkg)
+    out = []
+    commit = manifest.get('commit')
+    wheel = manifest.get('wheel')
+    wsha = wheel.get('sha256') if isinstance(wheel, dict) else None
+    seen = []                     # (label, kind, value) every statement found in the package
+    if 'tasks_92_commit' in manifest:
+        seen.append(('manifest.tasks_92_commit', 'commit', manifest.get('tasks_92_commit')))
+    audit = _json_file(pkg / 'docs' / 'audit-92.json')
+    if audit is not None:
+        seen.append(('docs/audit-92.json commit', 'commit', audit.get('commit')))
+    md = pkg / 'docs' / 'AUDIT-92.md'
+    if md.is_file():
+        m = re.search(r'Commit kiểm: `([^`]*)`', md.read_text(encoding='utf-8', errors='replace'))
+        seen.append(('docs/AUDIT-92.md "Commit kiểm"', 'commit', m.group(1) if m else None))
+    gb = _json_file(pkg / 'gate' / 'gate-build.json')
+    if gb is not None:
+        seen.append(('gate/gate-build.json commit', 'commit', gb.get('commit')))
+        seen.append(('gate/gate-build.json wheel_sha256', 'sha', gb.get('wheel_sha256')))
+    sn = _json_file(pkg / 'gate' / 'snapshot.json')
+    if sn is not None and 'commit' in sn:
+        seen.append(('gate/snapshot.json commit', 'commit', sn.get('commit')))
+    rdir = pkg / 'gate' / 'receipts'
+    if rdir.is_dir():
+        for f in sorted(rdir.glob('*.json')):
+            r = _json_file(f)
+            if r is not None and 'commit' in r:
+                seen.append((f'gate/receipts/{f.name} commit', 'commit', r.get('commit')))
+    bundles = manifest.get('bundles')
+    for rel, ent in sorted(bundles.items()) if isinstance(bundles, dict) else []:
+        if not isinstance(ent, dict):
+            out.append(f'manifest.bundles[{rel}] is not an object')
+            continue
+        if ent.get('produced', True) is not False:
+            if 'commit' in ent:
+                seen.append((f'manifest.bundles[{rel}] commit', 'commit', ent.get('commit')))
+            if 'wheel_sha256' in ent:
+                seen.append((f'manifest.bundles[{rel}] wheel_sha256', 'sha', ent.get('wheel_sha256')))
+        disk = _json_file(pkg / 'bundles' / rel / 'release-check.json')
+        if disk is not None:
+            seen.append((f'bundles/{rel}/release-check.json commit', 'commit', disk.get('commit')))
+            seen.append((f'bundles/{rel}/release-check.json wheel_sha256', 'sha', disk.get('wheel_sha256')))
+            if 'decision' in ent and disk.get('decision') != ent.get('decision'):
+                out.append(f'bundle {rel}: manifest decision {ent.get("decision")!r} differs from bundles/{rel}/release-check.json {disk.get("decision")!r}')
+        elif (pkg / 'bundles').is_dir() and not (pkg / 'bundles' / rel).is_dir():
+            out.append(f'bundle {rel} is in the manifest but missing from bundles/')
+    for label, kind, value in seen:
+        want = commit if kind == 'commit' else wsha
+        good = commit_matches(value, want) if kind == 'commit' else (isinstance(value, str) and isinstance(want, str) and value == want)
+        if not good:
+            out.append(f'package mixes builds: {label} is {value!r}, the manifest {"commit" if kind == "commit" else "wheel sha256"} is {want!r}')
+    return out
 
 
 def required_steps(rollback, previous_ns=False):
@@ -140,10 +232,23 @@ def package_scope(pkg, expected_verifier=None):
             scope['previous_reads_plan_ns'] = previous_reads_plan_ns(prev.get('file') if isinstance(prev, dict) else None)
             if scope['previous_reads_plan_ns'] is None:
                 reasons.append('previous wheel file name carries no readable version (onecrew-X.Y.Z[.devN]-...): its plan-ns capability is unknown')
+            elif scope['previous_wheel_sha256'] is not None:
+                # the branch follows what the pinned wheel IS: its METADATA version (when it is a real wheel) and the manifest's declared
+                # version must both agree with the file name, otherwise the name was chosen to pick the weaker/other oracle
+                meta = wheel_metadata_version(pkg / prev['file'])
+                if meta is not None:
+                    by_meta = previous_reads_plan_ns(f'onecrew-{meta}-x.whl')
+                    if by_meta is None or by_meta != scope['previous_reads_plan_ns'] or not Path(prev['file']).name.startswith(f'onecrew-{meta}-'):
+                        reasons.append(f'previous wheel METADATA version {meta} disagrees with its file name {Path(prev["file"]).name}: the plan-ns capability cannot be derived')
+                        scope['previous_reads_plan_ns'] = None
+                declared = prev.get('version')
+                if declared is not None and not Path(prev['file']).name.startswith(f'onecrew-{declared}-'):
+                    reasons.append(f'manifest previous_wheel declares version {declared} but the pinned file is {Path(prev["file"]).name}')
     elif mode == 'base':
         scope['rollback'] = False
         if prev is not None:
             reasons.append(f'manifest kind {kind!r} declares no previous wheel but manifest.previous_wheel is set (contradiction)')
+    reasons.extend(identity_problems(pkg, manifest))         # round 11 D: one commit, one wheel across table / bundles / gate / receipts
     if 'verifier' in manifest:
         v = manifest['verifier']
         files = v.get('files') if isinstance(v, dict) else None

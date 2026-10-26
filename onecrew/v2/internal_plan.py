@@ -238,7 +238,7 @@ def _finish_initial(nodes, outputs):
             'summary': '; '.join(c['path'] for c in changes) or 'initial plan covers every output'}
 
 
-def _to_come(ledger, state, old_nodes, nodes, before):
+def _to_come(ledger, state, old_nodes, nodes, before, conn=None):
     """R10 D8: which nodes of a revision still cost calls/time, for the Q1 ceiling check. Counted: every node that is new or whose
     generation this revision moves (definition, dependency, input or contract change: affected_revision, the projector's own rule), and
     every node not finished with valid evidence - pending, produced but not verified, held, running/unknown, failed - so the mandatory
@@ -249,7 +249,7 @@ def _to_come(ledger, state, old_nodes, nodes, before):
     if not old_nodes: return set(ids), set()
     from . import engine
     moved = affected_revision(old_nodes, nodes, contract_changed=before.get('contract_sha') not in (None, state['approved']['sha']))
-    records = engine.state(ledger, state['selector'])['nodes']
+    records = engine.state(ledger, state['selector'], conn)['nodes']
     by_id = {n['id']: n for n in nodes}
     reused = set()
     for nid in ids:
@@ -264,6 +264,13 @@ def _to_come(ledger, state, old_nodes, nodes, before):
             continue
         reused.add(nid)
     return set(ids) - reused, reused
+
+
+def _beyond_deadline(nodes, counted, remaining_seconds):
+    """R11 finding C: the execution-cap deadline check over the same to-come set `_to_come` counts. A node reused with valid evidence
+    does not run again, so its cap cannot block the remaining work; every counted node (new, moved, pending/failed/unknown, integration
+    not verified) must fit what is left of the sealed root deadline. Never extends the deadline. Returns the offending node ids."""
+    return sorted(node['id'] for node in nodes if node['id'] in counted and node['execution_cap_seconds'] > remaining_seconds)
 
 
 def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None):
@@ -294,7 +301,8 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         normalized = repair_tasks.rebind_revised(ledger, state['selector'], old_nodes, normalized, moved, expected_revision=before['internal_revision'])
     with ledger.transaction() as conn:
         _admit_revision(ledger,conn,state,before,normalized)
-    if any(node['execution_cap_seconds'] > ctx['remaining_seconds'] for node in normalized):
+    counted, reused = _to_come(ledger, state, old_nodes, normalized, before)
+    if _beyond_deadline(normalized, counted, ctx['remaining_seconds']):
         raise LedgerError('A task execution cap exceeds the remaining root deadline; replanning cannot extend it.')
     paths = sorted({path for node in normalized for path in node['write']})
     if paths:
@@ -307,7 +315,6 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         return before
     if expected_revision is not None and expected_revision != before['internal_revision']:
         raise LedgerError('Stale internal plan revision.')
-    counted, reused = _to_come(ledger, state, old_nodes, normalized, before)
     action = {'kind': 'decision', 'q': 'Q1', 'nodes': [n['id'] for n in normalized], 'acceptance_changed': False,
               'cost': {'calls': sum(n['budget_calls'] for n in normalized if n['id'] in counted),
                        'seconds': sum(n['estimate_seconds'][1] for n in normalized if n['id'] in counted)}}
@@ -322,8 +329,10 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
             raise LedgerError('The root or internal plan changed before revision publication.')
         _admit_revision(ledger,conn,again,before,normalized)
         remaining = ceilings(ledger, conn, again)
-        if (action['cost']['calls'] > remaining['remaining_calls'] or action['cost']['seconds'] > remaining['remaining_seconds']
-                or any(node['execution_cap_seconds'] > remaining['remaining_seconds'] for node in normalized)):
+        # The to-come set is recomputed under the publishing lock: a node invalidated after the decision is not published as reused.
+        if (_to_come(ledger, again, old_nodes, normalized, before, conn) != (counted, reused)
+                or action['cost']['calls'] > remaining['remaining_calls'] or action['cost']['seconds'] > remaining['remaining_seconds']
+                or _beyond_deadline(normalized, counted, remaining['remaining_seconds'])):
             raise LedgerError('Remaining root budget/deadline changed before revision publication.')
         plans.emit(ledger, conn, again['task_id'], KIND, {'plan': state['name'], 'revision': state['approved']['revision'],
                    'internal_revision': revision, 'contract_sha': sha, 'definition': blob, 'definition_sha': definition_sha,

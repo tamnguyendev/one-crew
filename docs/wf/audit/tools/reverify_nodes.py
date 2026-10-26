@@ -43,7 +43,7 @@ def stored_receipt(store, receipt):
             'has_output_check': 'output_check' in (body.get('observed') or {})}
 
 
-def inspect(ledger, store, view, item, mode, checker):
+def inspect(ledger, store, view, item, mode, checker, contract=None):
     nid = item['id']; record = view['nodes'][nid]; artifact = record.get('artifact')
     row = {'node': nid, 'state_before': str(record['state']) + '/' + str(record.get('phase')), 'artifact': artifact, 'writes': item['write'],
            'previous_receipt': stored_receipt(store, record.get('verification_receipt')), 'new_receipt': None, 'out': None, 'milestones': None}
@@ -60,7 +60,8 @@ def inspect(ledger, store, view, item, mode, checker):
             tree = cv.candidate_tree(ledger, manifest)
             with tempfile.TemporaryDirectory(prefix='oc-reverify-') as temp:
                 checkout = cv.materialized_tree(ledger, tree, temp)
-                row['out'] = cv.output_check(checkout, item['write'])
+                # R11: the same declared-output expectations CandidateChecker builds (write permission vs required outputs)
+                row['out'] = cv.output_check(checkout, item['write'], cv.output_expectations(store, manifest, item, contract), store)
             row['new_receipt'] = {'tree': tree, 'note': 'read-only structural check; no receipt written'}
     except Exception as error:   # keep the inventory complete: a node that cannot be rebuilt is a row, not a crash
         row['error'] = type(error).__name__ + ': ' + str(error)[:300]
@@ -97,10 +98,10 @@ def main(argv=None):
     ledger = Ledger(args.project, args.state_root)
     store = Snapshots(ledger.state_root)
     with ledger.transaction() as conn:
-        root, _contract, _sha = ip.context(ledger, conn, args.plan, 'sequential-engine')
+        root, contract, _sha = ip.context(ledger, conn, args.plan, 'sequential-engine')
         view = engine.state(ledger, root['selector'], conn)
     checker = cv.CandidateChecker(ledger, root['selector']) if args.mode == 'full' else None
-    rows = [inspect(ledger, store, view, item, args.mode, checker) for item in view['definition']['nodes']]
+    rows = [inspect(ledger, store, view, item, args.mode, checker, contract) for item in view['definition']['nodes']]
     out_dir = Path(args.out or ('reverify-' + args.plan)); out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / 'inventory.json').write_text(json.dumps({'plan': args.plan, 'root': root['selector'], 'mode': args.mode, 'nodes': rows}, indent=1, sort_keys=True), encoding='utf-8')
     (out_dir / 'inventory.md').write_text(markdown(args.plan, args.mode, rows), encoding='utf-8')

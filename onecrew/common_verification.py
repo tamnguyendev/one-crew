@@ -7,8 +7,24 @@ candidate. A reviewer milestone is judged for independence against the proposal
 authors AND the actual producing child models before any call, and its provider
 call goes through the metered root budget. Owner-manual checks are refused here:
 they need the owner.
+
+Declared outputs (R11, Codex round 11 finding A). A node's `write` list is a PERMISSION, not a list of files that must exist: the
+artifact v1 protocol lets a worker write content, an empty file (`content: ""`) or delete a file (`content: null`) inside it. The
+structural output guard (`output_expectations` + `output_check`) therefore judges every write path by what the candidate artifact
+DECLARED, relative to the source capture at the root of its snapshot chain (so resumed and inherited content counts as declared):
+  * declared content or empty  -> the path must exist in the candidate tree with exactly that content (an empty file is valid);
+  * declared deleted (null)    -> the path must be absent;
+  * not declared (unchanged)   -> no obligation; a write path the worker left alone is permission it did not use.
+A REQUIRED output is a write path that the approved definition names as a deliverable: it appears verbatim, as a whole path token, in
+the node's own `output` list or in a contract `output` criterion of the node's `acceptance` ids. A required output must exist, must
+not be declared deleted, and must have content unless the artifact itself declared it empty. Nothing else is inferred.
+Outside the write scope nothing may change: the artifact API already refuses it (`artifact_core.artifacts`, `Snapshots.overlay`), and
+the guard re-checks a non-integration candidate against its immediate parent snapshot so a manifest that bypassed the API fails too
+(an integration candidate carries producer outputs; `snapshot_candidate` judges that). Text reports present in the write scope are
+then scanned for source references (v2/verifiers/output_refs.py).
 """
 import copy
+import re
 import json
 import os
 import datetime as dt
@@ -92,33 +108,92 @@ def materialized_tree(ledger, tree, temp):
     return checkout
 
 
-def output_check(checkout, outputs):
-    """R10: the node's declared outputs exist in the candidate with content, and every source reference in a written text report resolves
-    against the candidate tree (grammar and limits: v2/verifiers/output_refs.py). Structural only; it never judges whether a finding is true.
-    `checkout` is the materialized candidate; paths are relative to it."""
+def _names_path(text, path):
+    """`path` appears in `text` as a whole path token (not inside a longer path or name; a sentence-final '.' is allowed)."""
+    return re.search(r'(?<![\w./\\-])' + re.escape(path) + r'(?![\w/\\-]|\.\w)', text) is not None
+
+
+def required_outputs(item, contract=None):
+    """R11: the write paths the approved definition names as deliverables (module docstring)."""
+    texts = list(item.get('output') or [])
+    if contract is not None:
+        texts += [text for oid, text in zip(contracts.output_ids(contract['output']), contract['output']) if oid in item['acceptance']]
+    return [path for path in item['write'] if any(_names_path(text, path) for text in texts)]
+
+
+def output_expectations(store, manifest, item, contract=None):
+    """R11: what the candidate artifact declared for each write path, the required outputs, and the paths changed outside the write
+    scope. `manifest` is the loaded candidate snapshot (its parent chain ends at the project capture)."""
+    files, write = manifest['files'], list(item['write'])
+    parent = store.load(manifest['parent'])['files'] if manifest.get('parent') else files
+    origin, chain, seen = parent, manifest.get('parent'), set()
+    while chain:
+        if chain in seen or len(seen) >= 64: raise LedgerError('Candidate snapshot chain is cyclic or too deep.')
+        seen.add(chain)
+        loaded = store.load(chain)
+        origin, chain = loaded['files'], loaded.get('parent')
+    declared, blobs = {}, {}
+    for path in write:
+        want = files[path]['working'] if path in files else None
+        before = origin[path]['working'] if path in origin else None
+        if path not in files or want == before:
+            declared[path] = 'unchanged'
+        elif want is None:
+            declared[path] = 'deleted'
+        else:
+            declared[path] = 'empty' if not store.read_blob(want) else 'content'
+        if path in files and want is not None: blobs[path] = want
+    outside = [] if item['integration'] else sorted(
+        path for path, row in files.items() if path not in write and (path not in parent or parent[path]['working'] != row['working']))
+    return {'write': write, 'required': required_outputs(item, contract), 'declared': declared, 'blobs': blobs, 'outside': outside}
+
+
+def output_check(checkout, outputs, expected, store):
+    """R10/R11: the node's outputs are what its artifact declared (rule: module docstring), and every source reference in a text
+    report of the write scope resolves against the candidate tree (grammar and limits: v2/verifiers/output_refs.py). Structural only;
+    it never judges whether a finding is true. `checkout` is the materialized candidate; paths are relative to it; `expected` comes
+    from `output_expectations` for the same candidate."""
     root = Path(checkout)
-    missing = [path for path in outputs if not (root / path).is_file() or (root / path).stat().st_size == 0]
     listing = command._git(root, 'ls-files', '-s', '-z').split('\0')
     def counter(path):
         def lines():
             data = (root / path).read_bytes()
             return data.count(b'\n') + (1 if data and not data.endswith(b'\n') else 0)
         return lines
-    tree_files = {}
+    tree_files, oids = {}, {}
     for row in listing:
         meta, _, path = row.partition('\t')
-        if path and not meta.startswith('160000'): tree_files[path] = counter(path)
+        if path and not meta.startswith('160000'):
+            tree_files[path] = counter(path); oids[path] = meta.split()[1]
+    declared, required = expected['declared'], expected['required']
+    present = {path for path in outputs if path in tree_files and (root / path).is_file()}
+    missing = [path for path in outputs if path not in present and (path in required or declared.get(path) in ('content', 'empty'))]
+    deleted = [path for path in required if declared.get(path) == 'deleted']
+    empty = [path for path in required if path in present and (root / path).stat().st_size == 0 and declared.get(path) != 'empty']
+    still = [path for path in outputs if declared.get(path) == 'deleted' and path in present]
+    differs = []
+    for path, blob in expected['blobs'].items():
+        if path in present and declared.get(path) != 'unchanged':
+            # the same clean conversion GitCandidate used to seal the tree (filters=True), so CRLF settings cannot change the answer
+            if command._git(root, 'hash-object', '--path=' + path, '--stdin', input=store.read_blob(blob)) != oids[path]: differs.append(path)
     refs, reports = [], []
     for path in outputs:
-        if path in missing or not output_refs.is_text_report(path): continue
+        if path not in present or not output_refs.is_text_report(path): continue
         reports.append(path)
         refs.extend(output_refs.scan((root / path).read_bytes().decode('utf-8', 'replace')))
     judged = output_refs.check(tree_files, refs, outputs)
     reasons = []
-    if missing: reasons.append('declared output missing or empty: ' + ', '.join(missing[:5]))
+    for label, paths in (('required output missing', [p for p in missing if p in required]),
+                         ('declared output missing', [p for p in missing if p not in required]), ('required output deleted', deleted), ('required output empty (the artifact did not declare it empty)', empty),
+                         ('declared deletion still present', still), ('output content differs from the artifact', differs),
+                         ('changed outside the write scope', expected['outside'])):
+        if paths: reasons.append(label + ': ' + ', '.join(paths[:5]))
     if judged['result'] == 'fail': reasons.append(f"{judged['offender_count']} unresolved reference(s): " + '; '.join(judged['offenders']))
     return {'id': 'OUT', 'result': 'fail' if reasons else 'pass', 'outputs': list(outputs), 'reports': reports, 'missing': missing,
-            'counts': judged['counts'], 'reasons': judged['reasons'], 'offenders': judged['offenders'], 'offender_count': judged['offender_count'], 'reason': ' | '.join(reasons)}
+            'required': list(required), 'declared': dict(declared), 'deleted_required': deleted, 'empty_required': empty,
+            'still_present': still, 'content_differs': differs, 'outside_scope': list(expected['outside']),
+            'counts': judged['counts'], 'reasons': judged['reasons'], 'offenders': judged['offenders'], 'offender_count': judged['offender_count'],
+            'ignored': judged['ignored'], 'reason': ' | '.join(reasons)}
 
 
 def producer_pins(ledger, view, item):
@@ -319,7 +394,7 @@ class CandidateChecker:
             commit = command._git(checkout, '-c', 'user.name=OneCrew', '-c', 'user.email=onecrew@localhost',
                                   'commit-tree', tree, input=b'OneCrew candidate verification\n')
             command._git(checkout, 'update-ref', 'HEAD', commit)
-            out = output_check(checkout, item['write'])
+            out = output_check(checkout, item['write'], output_expectations(store, manifest, item, contract), store)
             out['evidence'] = store.blob(canonical(dict(out, kind='candidate-output-check', node=nid, snapshot=artifact, tree=tree)).encode())
             if out['result'] != 'pass':
                 # A failed structural check fails the node like a failed milestone; the milestones are not run on a candidate that already fails.

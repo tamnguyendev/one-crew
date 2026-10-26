@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261027-DOCCHECK-OWNERNEG",
+ "file": "doc:wf-doc-check",
+ "old_sha256": "a2ef6c0a26970915d062cfe9ea318a51d8d36154de2be7d79ab4b9c1c2839f9f",
+ "new_sha256": "482bf8a38d77ea5b518b8eb87d36583c790950269c495cc324221238fc5e136d",
+ "reason": "Codex round 11 finding E: K-OWNER flagged three sentences that NEGATE a per-task approval (ROADMAP 46 and 345, HANDOFF 46: 'khong hoi duyet tung task', 'khong them cong xin duyet tung task', 'khong them luot duyet cho tung task/commit/test'). The rule now strips only a narrow negated clause (OWNER_NEGATED: 'khong' + hoi|them|can + at most two words + duyet|nghiem thu, optionally 'cho' + 'tung|moi X') before matching, so the rest of the line is still judged; the commit noun is added to two 'duyet tung X' patterns; the 'duyet mot lan' whitelist no longer covers 'mot lan ma ...'. Added 3 controls (the negated sentences) and 5 counterexamples (CX-OWNER6-10: 'Moi task phai duoc chu so huu duyet', 'Can duyet tung commit', 'Chu so huu nghiem thu tung task', near-miss 'Khong chi duyet mot lan ma duyet tung task', negation mixed with a real requirement), all caught. No check removed or loosened beyond the narrow negated clause. Self-check: PROBLEMS 0, counterexamples 155/155, controls 18/18 (was 150/150 and 15/15).",
+ "authorized_by": "Chủ sở hữu, một ngoại lệ tối thiểu một lần cho finding E của Codex round 11 (26/10/2026), do điều phối viên (coordinator) chuyển trong yêu cầu giao việc: cho phép sửa các tài liệu do Codex quản lý và bộ tự kiểm đúng cho finding này. Quyết định kỹ thuật theo ủy quyền đó; không phải chữ ký trực tiếp của chủ sở hữu cho từng dòng.",
+ "applied_by": "claude (Sonnet 5.5 sub-agent), uncommitted in codex/wf-development checkout; coordinator commits",
+ "at": "2026-10-27"
+}
