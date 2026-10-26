@@ -35,7 +35,7 @@ cd "D:/OneCrewRuns/wf v"
 python -I verify_package.py D:/OneCrewRuns/wf-handover-4b1b7b1 "D:/OneCrewRuns/wf v/thu-cua-anh"
 ```
 
-(thay `verify_package.py` bằng `D:/OneCrewRuns/wf-handover-4b1b7b1/verify/verify_package.py`; thư mục làm việc phải MỚI). Tiếp tục root cũ trên bản sao sổ: `python -I D:/OneCrewRuns/wf-handover-4b1b7b1/verify/legacy_continuation.py D:/OneCrewRuns/wf-handover-4b1b7b1 "D:/OneCrewRuns/wf v/lc-cua-anh"`. Kết quả của đêm nay cho hai lệnh này: mục 1 (dòng Kiểm gói từ artifact) và `D:\OneCrewRuns\wf vb1b7b1\`.
+(thay `verify_package.py` bằng `D:/OneCrewRuns/wf-handover-4b1b7b1/verify/verify_package.py`; thư mục làm việc phải MỚI). Tiếp tục root cũ trên bản sao sổ: `python -I D:/OneCrewRuns/wf-handover-4b1b7b1/verify/legacy_continuation.py D:/OneCrewRuns/wf-handover-4b1b7b1 "D:/OneCrewRuns/wf v/lc-cua-anh"`. Kết quả của đêm nay cho hai lệnh này: mục 1 (dòng Kiểm gói từ artifact) và `D:\OneCrewRuns\wf v\4b1b7b1\`.
 
 ## 3. Finding đã khép đêm nay (lượt 7 + 8)
 
@@ -90,7 +90,7 @@ Phân biệt: task Done ≠ acceptance complete ≠ gate pass ≠ package verifi
 - Pilot thật PL-A/PL-B, T14c, nghiệm thu U3/U4: chưa có; công cụ local (generator, checker, liên kết SKIP) đã kiểm trên fixture synthetic.
 - Gate `ae8a67f` bị dừng 23:47 (interrupted/partial, 137/266) — chỉ là bằng chứng regression của snapshot đó.
 - Windows MAX_PATH: dùng thư mục làm việc ngắn khi kiểm gói.
-- Bundle lần 1 trên 4b1b7b1: R05 và R07 refused `INPUTS(bootstrap): live state or monitor changed` vì một task OneCrew KHÁC (`ux-review-3`, TASK-4dfecc…, cwd `D:\OneCrewRuns\cts-portpplutter_vimes`, phiên khác) ghi verdict vào sổ thật lúc 03:38–03:44 trong lúc hai bundle đo "sổ thật không đổi" — không phải lỗi sản phẩm; chạy lại đúng hai bundle đó trên cùng wheel gate (kết quả ở mục 1). Sổ thật không bị bản này chạm.
+- Bundle lần 1 trên 4b1b7b1: R05 và R07 refused `INPUTS(bootstrap): live state or monitor changed` vì một task OneCrew KHÁC (`ux-review-3`, TASK-4dfecc…, cwd `D:\OneCrewRuns\cts-port\app\flutter_vimes`, phiên khác) ghi verdict vào sổ thật lúc 03:38–03:44 trong lúc hai bundle đo "sổ thật không đổi" — không phải lỗi sản phẩm; chạy lại đúng hai bundle đó trên cùng wheel gate (kết quả ở mục 1). Sổ thật không bị bản này chạm.
 
 ## 6. Quyết định thực sự cần anh
 
