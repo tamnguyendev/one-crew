@@ -20,3 +20,9 @@ Nguồn lỗi: `docs/wf/SDK-TRIAL-2026-10-26.vi.md` §3, bằng chứng `D:\OneC
 
 ## Kết quả
 (điền khi có kết quả thật)
+
+## Phát hiện thêm khi chạy lại trên dev9 (10:38–10:50)
+- D1–D4 đã hết: `engine verify` chạy được trên cả hai repo (biên nhận node-verifier-receipt), lệnh M1 thực thi trong checkout.
+- M1 fail đúng thiết kế: worker ghi `publish.yml:32` (tên file cụt) → "file:dong khong ton tai". Sửa chỉ dẫn node (đường dẫn đầy đủ y như khoá trong source).
+- **D6 (mới, runtime):** sau khi verify fail mở finding RF1, một `engine revise` làm đổi thế hệ node đã xoá `verification_receipt` → `engine repair` từ chối ("Repair requires the latest node verification receipt"), `findings resolve` cần biên nhận pass mới hơn nhưng mọi node bị RF1 chặn → kẹt. Lối ra dùng được: đổi dấu câu/hoa thường trong spec check của node (wording-only, không phải U1) để register đánh dấu finding stale. Cần sửa: repair/resolve phải chấp nhận biên nhận fail cuối cùng của thế hệ trước, hoặc revise sau fail phải tự chuyển finding sang stale/superseded.
+- Deadline root không nới theo revision 4 (budget.group giữ `source_approval` rev 1): sdk đến 12:55, sample đến 11:55; estimate phải ép xuống [30,200]/[30,150].
