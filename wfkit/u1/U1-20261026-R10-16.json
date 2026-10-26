@@ -2,7 +2,7 @@
  "id": "U1-20261026-R10-16",
  "file": "tests/test_wf_legacy_continuation_tool.py",
  "old_sha256": "b27b726d0f385e91a786ea78834653a764a310a53729db249231314b3615a12d",
- "new_sha256": "f7775080e76806429d6bccca2d14e684a827a8fd060e60bb24ba3b688365532f",
+ "new_sha256": "5d63de3c7d8c23a0db8f0c91fad9f436403c4a1be6702c8c548665d560606706",
  "reason": "R10-D: thêm LegacyRootLocatorTests (4 test: root plan-ns:legacy và plan:legacy đều tìm được, thiếu/trùng = lỗi, script inline không còn hard-code plan:legacy). Không đổi test cũ.",
  "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, chỉ thị lượt 10 của Codex (ủy quyền một lần). Quyết định kỹ thuật theo ủy quyền.",
  "applied_by": "claude (entry) + agent D (claude-sonnet), round 10",
