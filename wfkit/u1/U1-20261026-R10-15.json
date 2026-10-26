@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-15",
+ "file": "tests/test_wf_package_check.py",
+ "old_sha256": "7d0a4a429539991e9ce1927d25b2ebbbd59f7d960fa92911f61f17a5d1578260",
+ "new_sha256": "4c0724d69efd5791c7a2194d9316cd55f9e0b95617d6643b5e34ebce82f2f76b",
+ "reason": "R10-D: thêm PreviousBuildCapabilityTests (8 test: ánh xạ version→năng lực, bộ bước theo nhánh, pass/refuse với bản trước có plan-ns, report nhánh dev3 bị từ chối dưới scope dev8 và ngược lại, identity binding); fixture đổi tên prev.whl thành tên wheel thật onecrew-2.2.0.dev3-… để parser đọc version. Không bỏ/nới assertion cũ.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, chỉ thị lượt 10 của Codex (ủy quyền một lần). Quyết định kỹ thuật theo ủy quyền.",
+ "applied_by": "claude (entry) + agent D (claude-sonnet), round 10",
+ "at": "2026-10-26"
+}
