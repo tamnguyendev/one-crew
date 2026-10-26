@@ -4556,6 +4556,15 @@
      "installed": false,
      "scope": "Round 7 acceptance audit of R05/T31: Temporary repositories, real git gc --prune=now, a real process restart and a bare fake remote. E5 adds a structural scan of the shipped package (only retention.cleanup deletes refs under refs/onecrew/evidence/, only plan_cli calls it, and that verb is on the AI-session deny list); E6 runs the real hook judge, with the hook without the push rule as the counter-example. A real remote is not claimed"
     },
+    "check.r9_candidate_fidelity_resume": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r9_candidate_tree_fidelity",
+      "tests.test_wf_r9_resume_empty_files"
+     ],
+     "installed": false,
+     "scope": "Round 9 hotfix from the real SDK trial: the sealed candidate tree is compared with its checkout without the executable bit, ignore rules (project or global) or gitlinks changing the answer, while a changed file is still refused; a resumed attempt answering files: [] completes the partial candidate, a fresh attempt answering files: [] stays refused."
+    },
     "check.r8_authority_q5q8q10": {
      "kind": "unittest",
      "modules": [

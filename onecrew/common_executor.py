@@ -135,7 +135,13 @@ class NativeExecutor(executors.Executor):
         response = store.blob(canonical(value).encode('utf-8'))
         continuation, value = continuation_of(value)           # W36: a declared remainder makes this a PARTIAL candidate
         if node['write']:
-            changes = artifacts(value, node['write'])
+            resume = node.get('resume_artifact')
+            # R9: a resumed attempt that answers files: [] (and no continuation) says the partial candidate is complete
+            nothing_more = bool(resume) and continuation is None and isinstance(value, dict) and value.get('files') == []
+            changes = artifacts(value, node['write'], allow_empty=nothing_more)
+            if nothing_more:
+                kept = store.load(resume)['files']
+                changes = {path: (store.read_blob(row['working']) if row['working'] else None) for path, row in kept.items() if path in node['write']}
             artifact = store.overlay(base, changes, node['write'])
             after = store.context(artifact)
             changed = sorted(path for path in node['write'] if context.get(path) != after.get(path))

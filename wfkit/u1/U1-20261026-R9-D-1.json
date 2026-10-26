@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R9-D-1",
+ "file": "onecrew/common_verification.py",
+ "old_sha256": "e16440c31ec76dac894c9333fdb4543be6f8be685131cbf54ba5fe16d0d4b592",
+ "new_sha256": "afde5b73046a93ec496817e1c943f0d827cf89bb73384df8e2e44740e489b37a",
+ "reason": "D1–D3 (bài thử SDK 26/10, docs/wf/SDK-TRIAL-2026-10-26.vi.md §3): materialized_tree() thay `git add -A` của repo mới bằng read-tree cây niêm phong + add -u --force trên các path thường có mặt, core.filemode=false, core.excludesFile=NUL; gitlink giữ nguyên; file thường thiếu trong checkout → từ chối cùng thông điệp. Red: 4 case (a–d) LedgerError differs; (f) LedgerError not raised. Guard (e) file đổi nội dung vẫn bị từ chối.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~09:50: 'Làm hợp đồng hotfix OneCrew cho D1–D4 trên wf-codex, qua gate, rồi chạy lại bài thử SDK trên wheel mới.' Quyết định kỹ thuật theo ủy quyền; không phải chữ ký trực tiếp của chủ sở hữu cho từng dòng.",
+ "applied_by": "claude (entry) + Sonnet implementation agent, round 9 on codex/wf-development",
+ "at": "2026-10-26"
+}

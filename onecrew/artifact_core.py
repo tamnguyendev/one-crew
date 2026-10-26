@@ -36,14 +36,14 @@ def continuation_of(value):
     return {'remaining': text_field(continuation['remaining'], 'continuation.remaining', 2000)}, {k: v for k, v in value.items() if k != 'continuation'}
 
 
-def artifacts(value, owned):
+def artifacts(value, owned, allow_empty=False):
     exact_fields(value, ('summary', 'files', 'backlog'), 'Artifacts')
     text_field(value['summary'], 'output summary')
     if not isinstance(value['backlog'], list) or len(value['backlog']) > 10:
         raise LedgerError('Invalid backlog.')
     for item in value['backlog']:
         text_field(item, 'backlog item')
-    if not isinstance(value['files'], list) or not 1 <= len(value['files']) <= len(owned):
+    if not isinstance(value['files'], list) or not (0 if allow_empty else 1) <= len(value['files']) <= len(owned):
         raise LedgerError('Invalid artifact file list.')
     result = {}
     for item in value['files']:

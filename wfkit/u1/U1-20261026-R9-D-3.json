@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R9-D-3",
+ "file": "onecrew/artifact_core.py",
+ "old_sha256": "13c58699c0a17198c0577e87b6747bcc14ae5aeebbc94a4d9e04dbd6b62bb96f",
+ "new_sha256": "3b36a5b41a0756d0481985774c2ea05ccaad8918d2bec6b9e5521c8775a60222",
+ "reason": "D4: artifacts(value, owned, allow_empty=False) — chỉ caller resume mới nới 0 file; mặc định không đổi.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~09:50: 'Làm hợp đồng hotfix OneCrew cho D1–D4 trên wf-codex, qua gate, rồi chạy lại bài thử SDK trên wheel mới.' Quyết định kỹ thuật theo ủy quyền; không phải chữ ký trực tiếp của chủ sở hữu cho từng dòng.",
+ "applied_by": "claude (entry) + Sonnet implementation agent, round 9 on codex/wf-development",
+ "at": "2026-10-26"
+}

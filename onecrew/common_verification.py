@@ -10,6 +10,7 @@ they need the owner.
 """
 import copy
 import json
+import os
 import datetime as dt
 import tempfile
 import time
@@ -54,6 +55,38 @@ def candidate_tree(ledger, manifest):
     adapter = GitCandidate(ledger, store)
     with tempfile.TemporaryDirectory(prefix='oc-candidate-') as temp:
         return adapter.tree(manifest, manifest['head'], Path(temp) / 'index', filters=True)
+
+
+def materialized_tree(ledger, tree, temp):
+    """Check the sealed tree out into `temp`, make it a repository and prove the files are the tree; returns the checkout root."""
+    checkout = command._checkout(ledger.project, tree, temp)
+    command._git(checkout, 'init', '-q')
+    # The original first-approval trees must be real objects in this
+    # disposable review repository. Git writes stay in its own object DB.
+    objects = Path(command._git(ledger.project, 'rev-parse', '--git-path', 'objects'))
+    if not objects.is_absolute(): objects = command.toplevel(ledger.project) / objects
+    # bytes, not text mode: on Windows write_text would end the line with CR LF and git would look for "objects\r"
+    (checkout / '.git' / 'objects' / 'info' / 'alternates').write_bytes((str(objects.resolve()).replace('\\', '/') + '\n').encode('utf-8'))
+    source_git = GitCandidate(ledger, Snapshots(ledger.state_root))
+    for key in ('core.autocrlf', 'core.eol'):
+        value = source_git.git('config', '--get', key, allow_failure=True)
+        if value: command._git(checkout, 'config', key, value.decode().strip())
+    # Not `add -A` of a fresh repository: that drops the executable bit on Windows, honours ignore files (the project's and the machine's global
+    # one) for files the tree tracks, and records a gitlink that checkout-index cannot materialize as deleted. The index starts as the sealed tree;
+    # only the content of the files that really exist in the checkout is refreshed, so a changed file still changes the tree.
+    quiet = ('-c', 'core.filemode=false', '-c', 'core.excludesFile=' + os.devnull)
+    command._git(checkout, *quiet, 'read-tree', tree)
+    present = []
+    for row in command._git(checkout, *quiet, 'ls-files', '-s', '-z').split('\0'):
+        meta, _, path = row.partition('\t')
+        if not path or meta.startswith('160000'): continue
+        if not os.path.lexists(checkout / path): raise LedgerError('Materialized candidate differs from the sealed Git tree.')
+        present.append(path)
+    if present:
+        command._git(checkout, *quiet, 'add', '-u', '--force', '--pathspec-from-file=-', '--pathspec-file-nul', input='\0'.join(present).encode('utf-8'))
+    actual = command._git(checkout, *quiet, 'write-tree')
+    if actual != tree: raise LedgerError('Materialized candidate differs from the sealed Git tree.')
+    return checkout
 
 
 def producer_pins(ledger, view, item):
@@ -248,21 +281,7 @@ class CandidateChecker:
             return reused
         rows = []
         with tempfile.TemporaryDirectory(prefix='oc-node-check-') as temp:
-            checkout = command._checkout(ledger.project, tree, temp)
-            command._git(checkout, 'init', '-q')
-            # The original first-approval trees must be real objects in this
-            # disposable review repository. Git writes stay in its own object DB.
-            objects = Path(command._git(ledger.project, 'rev-parse', '--git-path', 'objects'))
-            if not objects.is_absolute(): objects = command.toplevel(ledger.project) / objects
-            # bytes, not text mode: on Windows write_text would end the line with CR LF and git would look for "objects\r"
-            (checkout / '.git' / 'objects' / 'info' / 'alternates').write_bytes((str(objects.resolve()).replace('\\', '/') + '\n').encode('utf-8'))
-            source_git = GitCandidate(ledger, store)
-            for key in ('core.autocrlf', 'core.eol'):
-                value = source_git.git('config', '--get', key, allow_failure=True)
-                if value: command._git(checkout, 'config', key, value.decode().strip())
-            command._git(checkout, 'add', '-A')
-            actual = command._git(checkout, 'write-tree')
-            if actual != tree: raise LedgerError('Materialized candidate differs from the sealed Git tree.')
+            checkout = materialized_tree(ledger, tree, temp)
             commit = command._git(checkout, '-c', 'user.name=OneCrew', '-c', 'user.email=onecrew@localhost',
                                   'commit-tree', tree, input=b'OneCrew candidate verification\n')
             command._git(checkout, 'update-ref', 'HEAD', commit)

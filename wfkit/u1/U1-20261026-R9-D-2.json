@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R9-D-2",
+ "file": "onecrew/common_executor.py",
+ "old_sha256": "01e001b9615876ae5c479cbcdb652db8187c611e179e33611460261866d75ac2",
+ "new_sha256": "9f3ba5027d499fbca6a5914312bfc6b60039e2b42bb3a5dc0ecea110c2b6c0ed",
+ "reason": "D4: lượt resume (resume_artifact) trả files: [] không continuation = ứng viên một phần đã đủ → produced với file của resume artifact (chỉ trong write scope). Lượt không resume trả rỗng vẫn held \"Invalid artifact file list.\". Red: state held / Invalid artifact file list trên ATT thật ATT-db737f9c….",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~09:50: 'Làm hợp đồng hotfix OneCrew cho D1–D4 trên wf-codex, qua gate, rồi chạy lại bài thử SDK trên wheel mới.' Quyết định kỹ thuật theo ủy quyền; không phải chữ ký trực tiếp của chủ sở hữu cho từng dòng.",
+ "applied_by": "claude (entry) + Sonnet implementation agent, round 9 on codex/wf-development",
+ "at": "2026-10-26"
+}
