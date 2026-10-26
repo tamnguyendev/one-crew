@@ -1,12 +1,12 @@
 [project]
 name = "onecrew"
-version = "2.2.0.dev9"
+version = "2.2.0.dev10"
 description = "OneCrew v2: an AI work contract (approved plan, independent verdicts, human acceptance)"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.scripts]
-onecrew = "onecrew.v2.cli:main"
+onecrew = "onecrew.console:main"
 
 [build-system]
 requires = ["setuptools>=61"]
@@ -19,6 +19,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["onecrew.templates"]          # only the data package (owner-rules templates); the modules below bring their own packages in
 py-modules = [
+    "onecrew.console",
     "onecrew.admission_core",
     "onecrew.artifact_core",
     "onecrew.artifact_provider_core",
@@ -88,6 +89,7 @@ py-modules = [
     "onecrew.v2.verifiers.doc",
     "onecrew.v2.verifiers.data",
     "onecrew.v2.verifiers.ops",
+    "onecrew.v2.verifiers.output_refs",
     "onecrew.v2.verifiers.artifact",
     "onecrew.v2.executors",
     "onecrew.v2.managed_executor",

@@ -281,7 +281,7 @@
    "outcome": "Bộ kiểm R01: T24a, T27, T33b, T38b, T42, T50a, T50b, T54a",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/development-testcases.json#releases.R01",
@@ -299,10 +299,12 @@
     "check.upgrade_drill",
     "check.release_bundle"
    ],
-   "missing": "T24a, T27, T42, T50a, T50b complete (ma trận E lượt 7; W47/W30a/W31a phản chứng từ lượt 5). Còn T33b (root đạt verified/accepted trên bản cài cần verb chủ sở hữu ở terminal thật — ngoài) và T54a (release-evidence, bundle).",
-   "next": "Chủ sở hữu chạy verb nghiệm thu trên bản cài (T33b); bundle R01 trên artifact cuối (T54a).",
+   "missing": "T24a, T27, T42, T50a, T50b complete (ma trận E lượt 7; W47/W30a/W31a phản chứng từ lượt 5). Còn T33b (root đạt verified/accepted trên bản cài cần verb chủ sở hữu ở terminal thật — ngoài) và T54a (release-evidence, bundle). Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R01 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54a giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+   "next": "Chủ sở hữu chạy verb nghiệm thu trên bản cài (T33b, E); bundle R01 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54a giữ partial.",
    "evidence": [
-    "R01-*.json receipts on 6366137 (19, all pass); registry: T38b complete, T24a/T27/T42/T50a/T50b partial (no E-matrix), T33b/T54a release-evidence"
+    "R01-*.json receipts on 6366137 (19, all pass)",
+    "registry 4b1b7b1 R01: acceptance complete 7/9, partial [T33b, T54a], blocked []",
+    "bundle R01 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
    ]
   },
   {
@@ -429,7 +431,7 @@
    "outcome": "Phát hành R01: module mới vào wheel, kịch bản R01 chạy từ bản cài với kiểm ranh giới module của T33a; diễn tập nâng cấp R00 → R01 và rollback trên bản sao sổ bằ",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/release_bundle.py:Producer",
@@ -447,10 +449,11 @@
     "tests/test_wf_delivery_gate.py (8)",
     "tests/test_wf_release_check.py bootstrap i–vii"
    ],
-   "missing": "Cổng CG-R01 còn refused: 7 testcase R01 partial + chưa có bản ghi review độc lập (model khác). Bundle R01 đạt INPUTS(bootstrap) với baseline d3120c6 ghim.",
+   "missing": "Cổng CG-R01 còn refused: 7 testcase R01 partial + chưa có bản ghi review độc lập (model khác). Bundle R01 đạt INPUTS(bootstrap) với baseline d3120c6 ghim. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R01 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E).",
    "next": "Acceptance R01 complete + review độc lập.",
    "evidence": [
-    "handover 6366137 bundles/R01/release-check.json: decision refused, T54.1-T54.5 true, INPUTS false ('previous delivered gate history missing'); T54a partial, T33b partial (verified/accepted on installed build needs an owner verb: E)"
+    "package 4b1b7b1 bundles/R01/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
+    "registry 4b1b7b1 R01: acceptance complete 7/9, partial [T33b, T54a], blocked []"
    ]
   },
   {
@@ -461,7 +464,7 @@
    "outcome": "Bộ kiểm R02: T35a, T46a, T51a, T51b, T54b",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/development-testcases.json#releases.R02",
@@ -477,10 +480,12 @@
     "check.installed_features",
     "check.upgrade_drill"
    ],
-   "missing": "Mọi testcase kit của R02 đã complete trong registry sau audit ma trận E lượt 7 (module tests/test_wf_r7_*). Còn T54b (release-evidence: năm điều T54 đo trên artifact thật bằng bundle, ngoài gate; E12 chưa áp vì chưa có lần giao).",
-   "next": "Chạy bundle R02 trên artifact cuối; T54b giữ release-evidence cho tới lần giao đầu (INPUTS(bootstrap), baseline d3120c6).",
+   "missing": "Mọi testcase kit của R02 đã complete trong registry sau audit ma trận E lượt 7 (module tests/test_wf_r7_*). Còn T54b (release-evidence: năm điều T54 đo trên artifact thật bằng bundle, ngoài gate; E12 chưa áp vì chưa có lần giao). Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R02 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54b giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+   "next": "Bundle R02 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54b giữ partial cho tới bản ghi review độc lập + lần giao đầu (E).",
    "evidence": [
-    "R02-*.json receipts on 6366137 (10, pass); registry T51a complete; T35a/T46a/T51b partial (no E-matrix); T54b release-evidence"
+    "R02-*.json receipts on 6366137 (10, pass)",
+    "registry 4b1b7b1 R02: acceptance complete 4/5, partial [T54b], blocked []",
+    "bundle R02 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
    ]
   },
   {
@@ -576,7 +581,7 @@
    "outcome": "Phát hành R02: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R02; lớp A mới (`learning.outcome`, `control.intervention`) được chứng minh trên",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/release_bundle.py:Producer",
@@ -590,10 +595,11 @@
     "tests.test_wf_release_check",
     "tests.test_wf_upgrade_drill"
    ],
-   "missing": "Cổng CG-R02 refused: acceptance R02 còn partial; bundle đạt T54.1–T54.5 + INPUTS(bootstrap).",
+   "missing": "Cổng CG-R02 refused: acceptance R02 còn partial; bundle đạt T54.1–T54.5 + INPUTS(bootstrap). Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R02 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E).",
    "next": "Acceptance R02 complete + review độc lập.",
    "evidence": [
-    "handover 6366137 bundles/R02/release-check.json: decision refused, T54.1-T54.5 true, INPUTS false ('previous delivered gate history missing'); T54b partial"
+    "package 4b1b7b1 bundles/R02/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
+    "registry 4b1b7b1 R02: acceptance complete 4/5, partial [T54b], blocked []"
    ]
   },
   {
@@ -604,7 +610,7 @@
    "outcome": "Bộ kiểm R03: T12, T15b, T35d, T36b, T41a, T41b, T43a, T43b, T43c, T47a, T54c",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/development-testcases.json#releases.R03",
@@ -620,10 +626,12 @@
     "check.installed_notifications",
     "check.upgrade_drill"
    ],
-   "missing": "Mọi testcase kit của R03 đã complete trong registry (các mục ghi ở lượt trước — Tests for T36b E4/E7/E15/E17 (fake clock with a 2 h owner wait inside an attempt; wall-clock remaining; 70% warning) - r… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54c (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao.",
-   "next": "Chạy bundle R03 trên artifact cuối; T54c giữ partial/release-evidence cho tới khi có lần giao đầu (INPUTS(bootstrap) với baseline d3120c6 ghim).",
+   "missing": "Mọi testcase kit của R03 đã complete trong registry (các mục ghi ở lượt trước — Tests for T36b E4/E7/E15/E17 (fake clock with a 2 h owner wait inside an attempt; wall-clock remaining; 70% warning) - r… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54c (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R03 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54c giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+   "next": "Bundle R03 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54c giữ partial cho tới bản ghi review độc lập + lần giao đầu (E).",
    "evidence": [
-    "R03-*.json receipts on 6366137 (25, pass); registry T36b partial (E4, E7, E15, E17 uncovered); T54c release-evidence"
+    "R03-*.json receipts on 6366137 (25, pass)",
+    "registry 4b1b7b1 R03: acceptance complete 10/11, partial [T54c], blocked []",
+    "bundle R03 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
    ]
   },
   {
@@ -693,7 +701,9 @@
    },
    "outcome": "Baseline ước lượng theo khoảng, ghi một lần ngay sau `plan.approved` bằng sự kiện `estimate.baseline` (lớp A; hợp đồng v2 không có trường ước lượng, `v2:contrac",
    "status": "Done",
-   "classes": [],
+   "classes": [
+    "D"
+   ],
    "implementation": [
     "onecrew/v2/estimates.py:ensure_baseline/reforecast/additional/read",
     "onecrew/v2/plan.py:approve",
@@ -712,7 +722,7 @@
     "tests/test_wf_t36b_time.py (10: P2-1 08–12 chờ 09–11 → thực thi 2 h/chờ 2 h; chờ chồng/lặp; until unknown → unknown; wall-clock; E17 70%)",
     "tests/test_wf_t36b_gaps.py e4_e7 chờ TRONG attempt + sau attempt"
    ],
-   "missing": "E17 phần 'ETA trễ' chưa có test riêng (notice baseline/deadline đã không tạo request); cảnh báo 70% chỉ hiện ở plan present/report và card desktop.",
+   "missing": "none (E17 'ETA trễ': ETA vượt cận trên baseline không tạo request — tests.test_wf_exceptions.test_approved_upper_bound_same_cause_dedup_and_six_hours_quiet; ghi chú cũ \"chưa có test riêng\" là loại D, sửa lượt 10). Cảnh báo 70% hiện ở plan present/report và card desktop theo thiết kế.",
    "next": "Biên nhận gate snapshot lượt 5.",
    "evidence": [
     "R03-check.estimates, R03-check.t36b_additional_u2, R03-check.t36b_cli, R03-check.t36b_gaps, R03-check.r03a_executors (T36b registry: partial, E4/E7/E17/E15 uncovered)"
@@ -841,7 +851,7 @@
    "outcome": "Phát hành R03: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R03; `verdict.run_started`, `verdict.run_abandoned` chứng minh lớp A trên bản cà",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/release_bundle.py:Producer",
@@ -855,10 +865,11 @@
     "tests.test_wf_release_check",
     "tests.test_wf_upgrade_drill"
    ],
-   "missing": "Cổng CG-R03 refused: acceptance R03 còn partial (T36b, T54c).",
+   "missing": "Cổng CG-R03 refused: acceptance R03 còn partial (T36b, T54c). Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R03 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E).",
    "next": "Acceptance R03 complete + review độc lập.",
    "evidence": [
-    "handover 6366137 bundles/R03/release-check.json: decision refused, T54.1-T54.5 true, INPUTS false ('previous delivered gate history missing'); T54c partial"
+    "package 4b1b7b1 bundles/R03/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
+    "registry 4b1b7b1 R03: acceptance complete 10/11, partial [T54c], blocked []"
    ]
   },
   {
@@ -889,7 +900,9 @@
    "missing": "T02, T03, T04a, T16a, T17a, T19, T21, T36a complete (W02/W05 phản chứng lượt 5). Còn T37 E3/E6: bước 3 chỉ chạy khi O4 = 'có' — quyết định chủ sở hữu.",
    "next": "O4.",
    "evidence": [
-    "R04-*.json receipts on 6366137 (33, pass); registry all complete except T37 (E3/E6 need O4)"
+    "R04-*.json receipts on 6366137 (33, pass)",
+    "registry 4b1b7b1 R04: acceptance complete 15/17, partial [T37, T54d], blocked []",
+    "bundle R04 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
    ]
   },
   {
@@ -900,7 +913,7 @@
    "outcome": "Bộ kiểm R04, nhóm trạng thái và tương thích: T05, T25, T26, T32, T48b, T49c, T49d, T54d",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/development-testcases.json#releases.R04",
@@ -916,10 +929,12 @@
     "check.namespace_compat",
     "check.upgrade_drill"
    ],
-   "missing": "T26, T49c, T49d (E5/E16 lượt 7: rollback_cli + báo cáo rollback), T05, T25, T32, T48b complete. Còn T37 (O4) và T54d (release-evidence).",
-   "next": "E5/E16 là việc local còn lại của R04 (script rollback theo trạng thái + báo cáo rollback theo root) — chưa làm lượt 7.",
+   "missing": "T26, T49c, T49d (E5/E16 lượt 7: rollback_cli + báo cáo rollback), T05, T25, T32, T48b complete. Còn T37 (O4) và T54d (release-evidence). Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R04 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54d giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+   "next": "E5/E16 đã làm lượt 7 (rollback_cli + báo cáo rollback); còn T37 (O4, E) và T54d (review độc lập + lần giao đầu, E). bundle R04 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt).",
    "evidence": [
-    "R04-*.json receipts on 6366137; registry T05 (E1,E2,E4-E6), T26 (E4), T32 (E4), T49c (E13,E21,E22), T49d (E5-E7,E12,E16) uncovered"
+    "R04-*.json receipts on 6366137",
+    "registry 4b1b7b1 R04: acceptance complete 15/17, partial [T37, T54d], blocked []",
+    "bundle R04 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
    ]
   },
   {
@@ -1288,7 +1303,7 @@
    "outcome": "Phát hành R04: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R04; root mới mang anchor `plan-ns:`, nên diễn tập rollback xử lý B1, B3, đóng b",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/release_bundle.py:Producer",
@@ -1302,10 +1317,11 @@
     "tests.test_wf_release_check",
     "tests.test_wf_upgrade_drill"
    ],
-   "missing": "Cổng CG-R04 refused: acceptance R04 còn partial.",
+   "missing": "Cổng CG-R04 refused: acceptance R04 còn partial. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R04 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E).",
    "next": "Acceptance R04 complete + review độc lập.",
    "evidence": [
-    "handover 6366137 bundles/R04/release-check.json: decision refused, T54.1-T54.5 true, INPUTS false ('previous delivered gate history missing'); T54d partial, T49d partial (E5-E7,E12,E16 uncovered)"
+    "package 4b1b7b1 bundles/R04/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
+    "registry 4b1b7b1 R04: acceptance complete 15/17, partial [T37, T54d], blocked []"
    ]
   },
   {
@@ -1316,7 +1332,8 @@
    "outcome": "Bộ kiểm R05, nhóm evidence và finding: T06, T07a, T11, T15a, T17b, T22, T24b, T28, T31, T38c",
    "status": "Partial",
    "classes": [
-    "C"
+    "C",
+    "E"
    ],
    "implementation": [
     "wfkit/development-testcases.json#releases.R05",
@@ -1332,10 +1349,12 @@
     "check.findings_report",
     "check.register_v1_guard*"
    ],
-   "missing": "T06, T17b, T22, T24b, T31 complete; T28 partial chỉ còn E1 (so hai suite v1 register trước/sau tách finding_core trên 1b4f4c6^ — bằng chứng chạy tay lượt 7 tại D:\\OneCrewRuns\\wf-dev-logs\t28-e1-before-split, chưa thành test gate). Còn T54e (release-evidence).",
-   "next": "Ghi E1 vào registry khi có bằng chứng; bundle R05.",
+   "missing": "T06, T17b, T22, T24b, T31 complete; T28 partial chỉ còn E1 (so hai suite v1 register trước/sau tách finding_core trên 1b4f4c6^ — bằng chứng chạy tay lượt 7 tại D:\\OneCrewRuns\\wf-dev-logs\\t28-e1-before-split, chưa thành test gate). Còn T54e (release-evidence). Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54e giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+   "next": "E1 của T28 đã ghi vào registry là manual-evidence gap (chạy tay 25/10: 114 test trước và sau tách finding_core, danh sách giống nhau); chưa thành check gate (≈50 phút/lần) — loại C, không phải thiếu code. bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt).",
    "evidence": [
-    "R05-*.json receipts on 6366137 (43, pass); registry T07a/T11/T15a complete; T06, T17b, T22, T24b, T28, T31, T38c partial (no E-matrix)"
+    "R05-*.json receipts on 6366137 (43, pass)",
+    "registry 4b1b7b1 R05: acceptance complete 19/21, partial [T28, T54e], blocked []",
+    "bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
    ]
   },
   {
@@ -1346,7 +1365,7 @@
    "outcome": "Bộ kiểm R05, nhóm vòng sửa, quyết định, tích hợp: T04c, T08a, T16b, T16c, T17c, T18a, T18b, T29, T43d, T47c, T54e",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/development-testcases.json#releases.R05",
@@ -1362,10 +1381,12 @@
     "check.t18b_liveness",
     "check.test_preparation"
    ],
-   "missing": "T16b complete (lượt 8: Q5 không giao → U3 + hold + card, không repair; Q8 giữ an toàn ghi U3; Q10 bằng chứng proposal-only — phản chứng qua caller thật), T17c, T43d/T47c, T08a complete. Còn T54e (release-evidence).",
-   "next": "Bundle R05 trên artifact cuối.",
+   "missing": "T16b complete (lượt 8: Q5 không giao → U3 + hold + card, không repair; Q8 giữ an toàn ghi U3; Q10 bằng chứng proposal-only — phản chứng qua caller thật), T17c, T43d/T47c, T08a complete. Còn T54e (release-evidence). Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54e giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+   "next": "Bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt) (R05 chạy lại một lần vì task OneCrew khác ghi vào sổ thật); T54e giữ partial tới review + giao (E).",
    "evidence": [
-    "R05-*.json receipts on 6366137; registry T16b (E5-E7,E12), T16c (E9), T17c (E4,E5,E9), T18a (E1,E3,E6,E8), T43d (E7,E13), T47c (E4,E6) uncovered"
+    "R05-*.json receipts on 6366137",
+    "registry 4b1b7b1 R05: acceptance complete 19/21, partial [T28, T54e], blocked []",
+    "bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
    ]
   },
   {
@@ -1393,7 +1414,7 @@
     "tests.test_wf_evidence_binding.BindingPolicyTests.test_artifact_change_outside_inputs_is_not_implicitly_neutral",
     "tests.test_wf_evidence_binding.BoundReceiptTests.test_actual_run_binds_inputs_configuration_environment_and_readonly_stale_reasons"
    ],
-   "missing": "Registry T06: partial -> complete with evidence_matrix E1..E4.",
+   "missing": "none (registry T06: complete ở R05 — đã áp dụng; ghi chú cũ \"partial -> complete\" là loại D, sửa lượt 10).",
    "next": "Ran w07_env.py: verifier_env keeps TERM/SHELL, so the same work checked from Git Bash and re-assessed from PowerShell is stale with reason 'checker environment changed: variables' (the variable is not named; safe direction, but may refuse an owner `plan accept` run from another shell). Binding only exists on sequential-engine roots (evidence_context is passed only with that capability); legacy plans keep unbound receipts by design. Environment = interpreter/platform + hashed env vars, not tool versions on PATH.",
    "evidence": [
     "R05-check.evidence_binding (pass), R05-check.candidate_adapters, R05-check.candidate_reuse_counter"
@@ -1423,7 +1444,7 @@
     "tests.test_wf_evidence_binding.BoundReceiptTests.test_neutral_basis_is_persisted_idempotently_and_never_changes_original_receipt",
     "tests.test_wf_evidence_binding.BoundReceiptTests.test_outside_input_unrelated_path_and_forged_receipt_cannot_reuse"
    ],
-   "missing": "Registry T22: partial -> complete with evidence_matrix E1..E6.",
+   "missing": "none (registry T22: complete ở R05 — đã áp dụng; ghi chú cũ \"partial -> complete\" là loại D, sửa lượt 10).",
    "next": "Read assess(): path and behavioural bases always recheck (no behavioural evaluator exists, consistent with T22 'không chứng minh'); scope.neutral reuse requires every changed path to match, command verifier, no submodule, and an evidence.reuse event before the milestone counts as passed. On non-engine plans plan.covers() still carries neutral diffs without an evidence.reuse record (legacy path, unbound receipts) - outside the opt-in workflow.",
    "evidence": [
     "R05-check.evidence_binding (pass), R05-check.candidate_reuse_counter, R05-check.handoff_reuse"
@@ -1456,7 +1477,7 @@
     "tests.test_wf_retention.RetentionTests.test_e5_owner_cleanup_only_removes_exact_plan_and_state_root",
     "tests.test_wf_retention_integration.*.test_hook_blocks_push_of_retention_refs_with_specific_reason"
    ],
-   "missing": "Registry T31: partial -> complete with evidence_matrix.",
+   "missing": "none (registry T31: complete ở R05 — đã áp dụng; ghi chú cũ \"partial -> complete\" là loại D, sửa lượt 10).",
    "next": "Hook: the block comes from the generic 're:git ... push' deny rule; refs/onecrew only adds a note to the message. The hook message does not echo the command, so the test's assertIn('refs/onecrew') goes red if the note is removed and returncode goes red if the push rule is removed: the E6 counterexample works (the rows.txt remark that it stays green is wrong). Push is blocked only for sessions under an enforce plan, as T31 scopes it.",
    "evidence": [
     "R05-check.retention (pass), R05-check.retention_integration (pass)"
@@ -1515,7 +1536,7 @@
     "tests.test_review_lifecycle (v1 guard)",
     "tests.test_review_p6 (v1 guard)"
    ],
-   "missing": "Registry T28: partial -> complete with evidence_matrix (E1 = register_v1_guard receipts on 6366137).",
+   "missing": "none cho DoD của W17 (đường đóng finding). Acceptance T28 trong registry là partial-by-construction: E2-E6 complete, E1 là bằng chứng chạy tay 25/10 (114/114 trước và sau tách finding_core) chưa thành check gate — ghi chú cũ \"T28 partial -> complete\" là loại D, sửa lượt 10; phần còn lại tính ở WK05a (loại C).",
    "next": "Read all closure paths: only core.close_finding closes (resolve with an authentic passing receipt later than the finding, or an engine pass of the same internal check). _refresh marks open findings 'stale' (not closed) when the criterion/config - or, for internal findings, any node check - changes; a stale finding stops holding its scope, but acceptance still needs the re-verified integration, so no acceptance bypass.",
    "evidence": [
     "R05-check.findings, R05-check.register_v1_guard, R05-check.register_v1_guard_p6, R05-check.adapter_findings (all pass)"
@@ -1549,7 +1570,7 @@
     "tests.test_wf_finding_scope.FindingScopeTests.test_exported_external_hook_withdraws_only_affected_writes_without_opening_ledger",
     "tests.test_wf_engine.EngineTests.test_u2_holds_actual_dependency_closure_while_independent_node_runs"
    ],
-   "missing": "Registry T17b: partial -> complete citing tests.test_wf_engine...test_u2_holds_actual_dependency_closure_while_independent_node_runs (it currently cites findings_integration/retention_integration).",
+   "missing": "none (registry T17b: complete ở R05 — đã áp dụng; ghi chú cũ \"partial -> complete\" là loại D, sửa lượt 10).",
    "next": "Ran w18_probe.py on the real engine (finding-register root A,B,D,I): A red -> finding RF1 holds A,D,I only; plus a scoped U2 on A -> request_blockers A,D,I; engine.ready=['B'], B stepped and verified while A held. No whole-root hold. Without the finding-register capability scoped requests hold nothing (request_action's node.held still holds the U2 branch).",
    "evidence": [
     "R05-check.t07a_e14_request_holds, R05-check.finding_scope, R05-check.hook_holds_generation, R05-check.engine (all pass)"
@@ -1801,7 +1822,7 @@
    "outcome": "Phát hành R05: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R05; sự kiện lớp B (`HOLD`, `DEFER`, intent) chỉ trên root `plan-ns:`; roll-forw",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/release_bundle.py:Producer",
@@ -1815,10 +1836,11 @@
     "tests.test_wf_release_check",
     "tests.test_wf_upgrade_drill"
    ],
-   "missing": "Cổng CG-R05 refused: acceptance R05 còn partial.",
+   "missing": "Cổng CG-R05 refused: acceptance R05 còn partial. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E).",
    "next": "Acceptance R05 complete + review độc lập.",
    "evidence": [
-    "handover 6366137 bundles/R05/release-check.json: decision refused, T54.1-T54.5 true, INPUTS false ('previous delivered gate history missing'); T54e partial"
+    "package 4b1b7b1 bundles/R05/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
+    "registry 4b1b7b1 R05: acceptance complete 19/21, partial [T28, T54e], blocked []"
    ]
   },
   {
@@ -1829,7 +1851,7 @@
    "outcome": "Bộ kiểm R06: T52a, T52b, T54f",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/development-testcases.json#releases.R06",
@@ -1843,10 +1865,12 @@
     "check.t52b_lesson_limits",
     "check.upgrade_drill"
    ],
-   "missing": "Mọi testcase kit của R06 đã complete trong registry (các mục ghi ở lượt trước — Tests for T52b E7 (withdrawal reason), E11, E12… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54f (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao.",
-   "next": "Chạy bundle R06 trên artifact cuối; T54f giữ partial/release-evidence cho tới khi có lần giao đầu (INPUTS(bootstrap) với baseline d3120c6 ghim).",
+   "missing": "Mọi testcase kit của R06 đã complete trong registry (các mục ghi ở lượt trước — Tests for T52b E7 (withdrawal reason), E11, E12… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54f (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R06 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54f giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+   "next": "Bundle R06 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54f giữ partial cho tới bản ghi review độc lập + lần giao đầu (E).",
    "evidence": [
-    "R06-*.json receipts on 6366137 (9, pass); registry T52a complete; T52b E7, E11, E12 uncovered; T54f release-evidence"
+    "R06-*.json receipts on 6366137 (9, pass)",
+    "registry 4b1b7b1 R06: acceptance complete 2/3, partial [T54f], blocked []",
+    "bundle R06 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
    ]
   },
   {
@@ -1920,7 +1944,7 @@
    "outcome": "Phát hành R06: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R06; `learning.incident`, `learning.lesson` của root v2 chứng minh lớp A với bản",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/release_bundle.py:Producer",
@@ -1934,10 +1958,11 @@
     "tests.test_wf_release_check",
     "tests.test_wf_upgrade_drill"
    ],
-   "missing": "Cổng CG-R06 refused: acceptance R06 còn partial.",
+   "missing": "Cổng CG-R06 refused: acceptance R06 còn partial. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R06 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E).",
    "next": "Acceptance R06 complete + review độc lập.",
    "evidence": [
-    "handover 6366137 bundles/R06/release-check.json: decision refused, T54.1-T54.5 true, INPUTS false ('previous delivered gate history missing'); T54f partial"
+    "package 4b1b7b1 bundles/R06/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
+    "registry 4b1b7b1 R06: acceptance complete 2/3, partial [T54f], blocked []"
    ]
   },
   {
@@ -1948,7 +1973,7 @@
    "outcome": "Bộ kiểm R07: T53a, T53b, T54g",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/development-testcases.json#releases.R07",
@@ -1960,10 +1985,12 @@
     "check.issue_provider",
     "check.upgrade_drill"
    ],
-   "missing": "Mọi testcase kit của R07 đã complete trong registry (các mục ghi ở lượt trước — T53a: assert symbol_present at the pin for EVERY suspect (not only the two expected), and an E8 test… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54g (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao.",
-   "next": "Chạy bundle R07 trên artifact cuối; T54g giữ partial/release-evidence cho tới khi có lần giao đầu (INPUTS(bootstrap) với baseline d3120c6 ghim).",
+   "missing": "Mọi testcase kit của R07 đã complete trong registry (các mục ghi ở lượt trước — T53a: assert symbol_present at the pin for EVERY suspect (not only the two expected), and an E8 test… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54g (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R07 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54g giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+   "next": "Bundle R07 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54g giữ partial cho tới bản ghi review độc lập + lần giao đầu (E).",
    "evidence": [
-    "R07-*.json receipts on 6366137 (6, pass); registry T53b complete; T53a E2, E7, E8 uncovered"
+    "R07-*.json receipts on 6366137 (6, pass)",
+    "registry 4b1b7b1 R07: acceptance complete 2/3, partial [T54g], blocked []",
+    "bundle R07 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
    ]
   },
   {
@@ -2031,7 +2058,7 @@
    "outcome": "Phát hành R07: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R07",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/release_bundle.py:Producer",
@@ -2045,10 +2072,11 @@
     "tests.test_wf_release_check",
     "tests.test_wf_upgrade_drill"
    ],
-   "missing": "Cổng CG-R07 refused: acceptance R07 còn partial.",
+   "missing": "Cổng CG-R07 refused: acceptance R07 còn partial. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R07 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E).",
    "next": "Acceptance R07 complete + review độc lập.",
    "evidence": [
-    "handover 6366137 bundles/R07/release-check.json: decision refused, T54.1-T54.5 true, INPUTS false ('previous delivered gate history missing'); T54g partial"
+    "package 4b1b7b1 bundles/R07/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
+    "registry 4b1b7b1 R07: acceptance complete 2/3, partial [T54g], blocked []"
    ]
   },
   {
@@ -2059,7 +2087,7 @@
    "outcome": "Bộ kiểm R08: T01, T04b, T04d, T07b, T08b, T15c, T30, T54h",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/development-testcases.json#releases.R08",
@@ -2075,10 +2103,12 @@
     "check.t08b_*",
     "check.t30_counterexamples"
    ],
-   "missing": "Mọi testcase kit của R08 đã complete trong registry (các mục ghi ở lượt trước — T01 fixture (rule decision + review in flight while revision changes); T04b E6; T15c E8; counterexamples the kit missed:… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54h (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao.",
-   "next": "Chạy bundle R08 trên artifact cuối; T54h giữ partial/release-evidence cho tới khi có lần giao đầu (INPUTS(bootstrap) với baseline d3120c6 ghim).",
+   "missing": "Mọi testcase kit của R08 đã complete trong registry (các mục ghi ở lượt trước — T01 fixture (rule decision + review in flight while revision changes); T04b E6; T15c E8; counterexamples the kit missed:… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54h (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R08 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54h giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+   "next": "Bundle R08 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54h giữ partial cho tới bản ghi review độc lập + lần giao đầu (E).",
    "evidence": [
-    "R08-*.json receipts on 6366137 (24, pass); registry T01 (E1-E5), T04b (E6), T15c (E8) uncovered"
+    "R08-*.json receipts on 6366137 (24, pass)",
+    "registry 4b1b7b1 R08: acceptance complete 7/8, partial [T54h], blocked []",
+    "bundle R08 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
    ]
   },
   {
@@ -2150,7 +2180,9 @@
    },
    "outcome": "Interface executor đầy đủ: dừng, pause tại điểm an toàn, cô lập, recovery theo capability đã khai (W33a); adapter Windows (supervisor) và adapter hook (Claude C",
    "status": "Done",
-   "classes": [],
+   "classes": [
+    "D"
+   ],
    "implementation": [
     "onecrew/v2/executors.py:Dispatcher.send/hold_plan/HookAdapter",
     "onecrew/v2/managed_executor.py:ManagedExecutor/hold_for_findings/hold_views",
@@ -2164,7 +2196,7 @@
     "tests.test_wf_engine_managed",
     "tests/test_wf_w33b_evidence.py T15c E8 (3)"
    ],
-   "missing": "Ghi nhận một lần race 'held' khi hai step đồng thời (không tái hiện 9 lần sau) — cần xem thêm, ngoài E8.",
+   "missing": "none (một lần race 'held' khi hai step đồng thời đã sửa lượt 6b: step không dispatch attempt mình không admit — tests.test_wf_w33b_evidence test_t15c_e8_an_attempt_admitted_by_another_caller_is_never_dispatched_again; ghi chú cũ \"cần xem thêm\" là loại D, sửa lượt 10).",
    "next": "",
    "evidence": [
     "R08-check.managed_executor, R08-check.managed_hold, R08-check.engine_managed"
@@ -2240,7 +2272,7 @@
    "outcome": "Phát hành R08: theo quy trình chung của T54 (khung W40, W41 ở R00) cho phần của R08; tạm dừng mới (lớp B) chỉ trên root `plan-ns:`",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/release_bundle.py:Producer",
@@ -2254,10 +2286,11 @@
     "tests.test_wf_release_check",
     "tests.test_wf_upgrade_drill"
    ],
-   "missing": "Cổng CG-R08 refused: acceptance R08 còn partial.",
+   "missing": "Cổng CG-R08 refused: acceptance R08 còn partial. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R08 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E).",
    "next": "Acceptance R08 complete + review độc lập.",
    "evidence": [
-    "handover 6366137 bundles/R08/release-check.json: decision refused, T54.1-T54.5 true, INPUTS false ('previous delivered gate history missing'); T54h partial"
+    "package 4b1b7b1 bundles/R08/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
+    "registry 4b1b7b1 R08: acceptance complete 7/8, partial [T54h], blocked []"
    ]
   },
   {
@@ -2283,10 +2316,12 @@
     "check.candidate_reviewer",
     "check.metered_verifier"
    ],
-   "missing": "T40a, T40c complete (E30 lượt 8: bundle RP ghi quyết định hợp đồng trước/sau, hash, nguồn pin). T40b blocked ngoài (CLI codex chưa cài; pin từ program kit vì hợp đồng chưa duyệt). T54i release-evidence.",
-   "next": "W45: cài codex CLI + chạy lại 2 ô; quyết định pin/hợp đồng — chủ sở hữu.",
+   "missing": "T40a, T40c complete (E30 lượt 8: bundle RP ghi quyết định hợp đồng trước/sau, hash, nguồn pin). T40b blocked ngoài (CLI codex chưa cài; pin từ program kit vì hợp đồng chưa duyệt). T54i release-evidence. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle RP trên artifact 4b1b7b1: refused (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4 đạt; không đạt: T54.5); T54i giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+   "next": "Bundle RP trên artifact 4b1b7b1: refused (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4 đạt; không đạt: T54.5): T54.5 thiếu so sánh ma trận W45 — ma trận duy nhất là của wheel 6366137 (4/6; codex thiếu CLI), không có cho wheel hiện hành. W45: cài codex CLI + chạy lại ô codex và ma trận trên wheel hiện hành (provider trả phí, E); quyết định pin/hợp đồng — chủ sở hữu.",
    "evidence": [
-    "RP-*.json receipts on 6366137 (9, pass); registry T40a complete; T40c partial (no E-matrix); T40b real-CLI E10/E11/E18/E27 external (W45)"
+    "RP-*.json receipts on 6366137 (9, pass)",
+    "registry 4b1b7b1 RP: acceptance complete 2/4, partial [T54i], blocked [T40b]",
+    "bundle RP trên artifact 4b1b7b1: refused (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4 đạt; không đạt: T54.5)"
    ]
   },
   {
@@ -2368,10 +2403,11 @@
     "tests.test_wf_release_check",
     "tests.test_wf_upgrade_drill"
    ],
-   "missing": "Cổng CG-RP refused: T40b blocked (W45 codex CLI, pin từ kit vì hợp đồng chưa duyệt).",
-   "next": "Quyết định chủ sở hữu về pin/hợp đồng + codex CLI.",
+   "missing": "Cổng CG-RP refused: T40b blocked (W45 codex CLI, pin từ kit vì hợp đồng chưa duyệt). Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle RP trên artifact 4b1b7b1: refused (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4 đạt; không đạt: T54.5); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E).",
+   "next": "Quyết định chủ sở hữu về pin/hợp đồng + codex CLI; chạy ma trận W45 trên wheel hiện hành để có so sánh cho T54.5 (provider trả phí, E).",
    "evidence": [
-    "handover 6366137 bundles/RP/release-check.json: decision refused, T54.1-T54.5 true, INPUTS false ('previous delivered gate history missing'); T54i partial, T40c partial (no E-matrix)"
+    "package 4b1b7b1 bundles/RP/release-check.json: refused; T54.5 comparison missing (ma trận W45 thuộc wheel 6366137, không có so sánh cho wheel hiện hành) — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
+    "registry 4b1b7b1 RP: acceptance complete 2/4, partial [T54i], blocked [T40b]"
    ]
   },
   {
@@ -2382,7 +2418,7 @@
    "outcome": "Bộ kiểm RX1: T14a, T23, T54j",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/development-testcases.json#releases.RX1",
@@ -2395,10 +2431,12 @@
     "check.installed_adapters",
     "check.upgrade_drill"
    ],
-   "missing": "Mọi testcase kit của RX1 đã complete trong registry (các mục ghi ở lượt trước — T14a E3/E8: run the no-kind-branch grep over every module on the exercised path (namespaces.py etc.), not a hand-picked … — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54j (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao.",
-   "next": "Chạy bundle RX1 trên artifact cuối; T54j giữ partial/release-evidence cho tới khi có lần giao đầu (INPUTS(bootstrap) với baseline d3120c6 ghim).",
+   "missing": "Mọi testcase kit của RX1 đã complete trong registry (các mục ghi ở lượt trước — T14a E3/E8: run the no-kind-branch grep over every module on the exercised path (namespaces.py etc.), not a hand-picked … — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54j (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle RX1 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54j giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+   "next": "Bundle RX1 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54j giữ partial cho tới bản ghi review độc lập + lần giao đầu (E).",
    "evidence": [
-    "RX1-*.json receipts on 6366137 (8, pass); registry T23 complete; T14a E3/E8 uncovered"
+    "RX1-*.json receipts on 6366137 (8, pass)",
+    "registry 4b1b7b1 RX1: acceptance complete 2/3, partial [T54j], blocked []",
+    "bundle RX1 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
    ]
   },
   {
@@ -2442,7 +2480,7 @@
    "outcome": "Phát hành RX1: theo quy trình chung của T54 (khung W40, W41 ở R00) cho adapter tài liệu; diễn tập đầu-cuối một root tài liệu trên bản cài (phần tài liệu của P-0",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/release_bundle.py:Producer",
@@ -2456,10 +2494,11 @@
     "tests.test_wf_release_check",
     "tests.test_wf_upgrade_drill"
    ],
-   "missing": "Cổng CG-RX1 refused: acceptance RX1 còn partial.",
+   "missing": "Cổng CG-RX1 refused: acceptance RX1 còn partial. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle RX1 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E).",
    "next": "Acceptance RX1 complete + review độc lập.",
    "evidence": [
-    "handover 6366137 bundles/RX1/release-check.json: decision refused, T54.1-T54.5 true, INPUTS false ('previous delivered gate history missing'); T54j partial"
+    "package 4b1b7b1 bundles/RX1/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
+    "registry 4b1b7b1 RX1: acceptance complete 2/3, partial [T54j], blocked []"
    ]
   },
   {
@@ -2470,7 +2509,7 @@
    "outcome": "Bộ kiểm RX2: T14b, T54k",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/development-testcases.json#releases.RX2",
@@ -2483,10 +2522,12 @@
     "check.installed_adapters",
     "check.upgrade_drill"
    ],
-   "missing": "Mọi testcase kit của RX2 đã complete trong registry (các mục ghi ở lượt trước — T14b E9 grep covers only 8 files: extend to the whole exercised path with a counterexample (same as WKX1)… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54k (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao.",
-   "next": "Chạy bundle RX2 trên artifact cuối; T54k giữ partial/release-evidence cho tới khi có lần giao đầu (INPUTS(bootstrap) với baseline d3120c6 ghim).",
+   "missing": "Mọi testcase kit của RX2 đã complete trong registry (các mục ghi ở lượt trước — T14b E9 grep covers only 8 files: extend to the whole exercised path with a counterexample (same as WKX1)… — đã được khép ở lượt 5/6, xem registry evidence_matrix). Còn T54k (release-evidence): năm điều T54 đo trên artifact thật bằng bundle (wfkit.release_bundle), nằm ngoài gate; E12 (nhật ký giao) chưa áp vì chưa có lần giao. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle RX2 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54k giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+   "next": "Bundle RX2 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54k giữ partial cho tới bản ghi review độc lập + lần giao đầu (E).",
    "evidence": [
-    "RX2-*.json receipts on 6366137 (8, pass); registry T14b complete; T54k release-evidence"
+    "RX2-*.json receipts on 6366137 (8, pass)",
+    "registry 4b1b7b1 RX2: acceptance complete 1/2, partial [T54k], blocked []",
+    "bundle RX2 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
    ]
   },
   {
@@ -2527,7 +2568,7 @@
    "outcome": "Phát hành RX2: theo quy trình chung của T54 (khung W40, W41 ở R00) cho adapter dữ liệu và vận hành; artifact ngoài Git có định danh",
    "status": "Partial",
    "classes": [
-    "C"
+    "E"
    ],
    "implementation": [
     "wfkit/release_bundle.py:Producer",
@@ -2541,10 +2582,11 @@
     "tests.test_wf_release_check",
     "tests.test_wf_upgrade_drill"
    ],
-   "missing": "Cổng CG-RX2 refused: acceptance RX2 còn partial (T54k).",
+   "missing": "Cổng CG-RX2 refused: acceptance RX2 còn partial (T54k). Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle RX2 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E).",
    "next": "Acceptance RX2 complete + review độc lập.",
    "evidence": [
-    "handover 6366137 bundles/RX2/release-check.json: decision refused, T54.1-T54.5 true, INPUTS false ('previous delivered gate history missing'); T54k partial"
+    "package 4b1b7b1 bundles/RX2/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
+    "registry 4b1b7b1 RX2: acceptance complete 1/2, partial [T54k], blocked []"
    ]
   },
   {

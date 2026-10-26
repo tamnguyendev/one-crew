@@ -201,7 +201,7 @@ class PackagingTests(unittest.TestCase):
         text = pyproject()
         self.assertRegex(text, r'(?m)^version = "2\.2\.0\.dev\d+"$')     # a dev build; each handover bumps the number (dev5 = round 6)
         self.assertRegex(text, r'(?m)^name = "onecrew"$')
-        self.assertRegex(text, r'(?m)^onecrew = "onecrew\.v2\.cli:main"$')
+        self.assertRegex(text, r'(?m)^onecrew = "onecrew\.console:main"$')
         self.assertRegex(text, r'(?m)^dependencies = \[\]$')
         self.assertRegex(text, r'(?m)^requires-python = ">=3\.10"$')
         self.assertNotIn('onecrew.cli:main', text)          # the full v1 router is not what an installed `onecrew` runs

@@ -20,22 +20,37 @@ Bản này là **bản test development**: chưa Codex review, chưa nghiệm th
 
 Kiểm hash rồi cài vào venv sạch ngoài checkout (đường dẫn có dấu cách được hỗ trợ):
 
-```bash
-cd D:/OneCrewRuns/wf-handover-4b1b7b1
-sha256sum wheel/onecrew-2.2.0.dev8-py3-none-any.whl
-python -m venv "D:/OneCrewRuns/venv wf 4b1b7b1"
-"D:/OneCrewRuns/venv wf 4b1b7b1/Scripts/python" -m pip install --no-index --no-build-isolation "wheel/onecrew-2.2.0.dev8-py3-none-any.whl"
-"D:/OneCrewRuns/venv wf 4b1b7b1/Scripts/onecrew" --help
+PowerShell 5.1 (dán nguyên khối; đường dẫn có dấu cách đã bọc `& "..."`; `python` trần trên máy này có thể là stub Windows Store nên dùng đường dẫn đầy đủ):
+
+```powershell
+$py   = "C:\Users\NUC\AppData\Local\Programs\Python\Python313\python.exe"
+$pkg  = "D:\OneCrewRuns\wf-handover-4b1b7b1"
+$venv = "D:\OneCrewRuns\venv wf 4b1b7b1"
+$whl  = "$pkg\wheel\onecrew-2.2.0.dev8-py3-none-any.whl"
+Get-FileHash -Algorithm SHA256 $whl
+& $py -m venv $venv
+& "$venv\Scripts\python.exe" -m pip install --no-index --no-build-isolation $whl
+$env:PYTHONUTF8 = "1"
+& "$venv\Scripts\onecrew.exe" --help
 ```
+
+Dòng `$env:PYTHONUTF8 = "1"` chỉ cần cho wheel dev8/dev9 đã dựng: console script của chúng chưa ép UTF-8 nên in tiếng Việt qua cp1252 sẽ lỗi `UnicodeEncodeError` (đã sửa ở lượt 10 trong mã nguồn, `onecrew/console.py`; wheel dựng từ nhánh này không cần dòng đó). `Get-FileHash` phải ra `C3692AA11D71D6E8…` (so với dòng Wheel sha256 ở mục 1).
 
 Kịch bản thử ngắn trên sổ TẠM (không chạm `state-v2-real`): verifier của gói tự tạo venv, cài wheel, chạy một root code (propose → approve → `verdict run` → `plan present`) trên project git tạm + sổ tạm, kiểm mọi module nạp từ venv, rồi diễn tập rollback/roll-forward trên BẢN SAO sổ; chạy từ thư mục trống bất kỳ, không PYTHONPATH:
 
-```bash
-cd "D:/OneCrewRuns/wf v"
-python -I verify_package.py D:/OneCrewRuns/wf-handover-4b1b7b1 "D:/OneCrewRuns/wf v/thu-cua-anh"
+```powershell
+$py  = "C:\Users\NUC\AppData\Local\Programs\Python\Python313\python.exe"
+$pkg = "D:\OneCrewRuns\wf-handover-4b1b7b1"
+Set-Location "D:\OneCrewRuns\wf v"
+& $py -I "$pkg\verify\verify_package.py" $pkg "D:\OneCrewRuns\wf v\thu-cua-anh"
 ```
 
-(thay `verify_package.py` bằng `D:/OneCrewRuns/wf-handover-4b1b7b1/verify/verify_package.py`; thư mục làm việc phải MỚI). Tiếp tục root cũ trên bản sao sổ: `python -I D:/OneCrewRuns/wf-handover-4b1b7b1/verify/legacy_continuation.py D:/OneCrewRuns/wf-handover-4b1b7b1 "D:/OneCrewRuns/wf v/lc-cua-anh"`. Kết quả của đêm nay cho hai lệnh này: mục 1 (dòng Kiểm gói từ artifact) và `D:\OneCrewRuns\wf v\4b1b7b1\`.
+(thư mục làm việc `thu-cua-anh` phải MỚI, chưa tồn tại). Tiếp tục root cũ trên bản sao sổ:
+
+```powershell
+& $py -I "$pkg\verify\legacy_continuation.py" $pkg "D:\OneCrewRuns\wf v\lc-cua-anh"
+```
+ Kết quả của đêm nay cho hai lệnh này: mục 1 (dòng Kiểm gói từ artifact) và `D:\OneCrewRuns\wf v\4b1b7b1\`.
 
 ## 3. Finding đã khép đêm nay (lượt 7 + 8)
 
@@ -66,7 +81,7 @@ Bảng 92 task trên commit `4b1b7b1` (`docs/wf/audit/AUDIT-92.md`, một nguồ
 | Provider thật (1) | 0 | 0 | 1 | W45: codex CLI chưa cài, pin từ program kit vì hợp đồng chưa duyệt |
 | Pilot/nghiệm thu (3) | 0 | 0 | 3 | W38b/c/d: pilot thật, nghiệm thu U3/U4 |
 
-Phân loại nguyên nhân còn lại: **A thiếu code: 0 · B chưa nối đường dùng: 0 · C thiếu test/bằng chứng local: 0** (T28 E1 có bằng chứng chạy tay, chưa thể là check gate) · **D trạng thái cũ: 0** (6 dòng WK ghi chú cũ đã cập nhật lượt 7) · **E điều kiện ngoài: toàn bộ 30 dòng còn lại** (bundle trên artifact → sẽ có sau bước bundle của bản này; review độc lập; O4; W45; pilot; verb nghiệm thu).
+Phân loại nguyên nhân của 30 dòng còn lại (`audit-92.json`, sau rà lượt 10): **A thiếu code: 0 · B chưa nối đường dùng: 0 · C thiếu test/bằng chứng local: 5 dòng** (WK05a: T28 E1 chỉ có bằng chứng chạy tay 114/114 trước–sau tách, chưa thành check gate; WKP và W40-RP: không có so sánh ma trận W45 cho wheel hiện hành; WK04a, WKPL: phần bằng chứng pilot/O4 đi kèm điều kiện ngoài) · **D trạng thái cũ: 0 trong 30 dòng còn lại** (lượt 10 sửa ghi chú cũ của 31 dòng: 7 dòng Done (W32a, W33b, W07, W08, W09, W17, W18) và 24 dòng WK/W40 mà bundle đã chạy nhưng ghi chú vẫn nói "chạy bundle"; chi tiết `docs/wf/r10-c-notes.md`) · **E điều kiện ngoài: 30 dòng** (review độc lập, nghiệm thu, bản giao đầu, O4, W45 trả phí/codex CLI, pilot thật, verb nghiệm thu thật). Bundle T54 trên artifact `4b1b7b1` đã có cho cả 11 release (10 pass, RP refused T54.5), nên T54a–k còn partial vì thiếu review độc lập + lần giao đầu, không phải vì chưa đo.
 Partial: WK01, W40-R01, WK02, W40-R02, WK03, W40-R03, WK04a, WK04b, W06, W40-R04, WK05a, WK05b, W40-R05, WK06, W40-R06, WK07, W40-R07, WK08, W40-R08, WKP, W40-RP, WKX1, W40-RX1, WKX2, W40-RX2, WKPL. Blocked: W45, W38b, W38c, W38d.
 
 Phân biệt: task Done ≠ acceptance complete ≠ gate pass ≠ package verified ≠ pilot/owner acceptance. Registry acceptance: 74 complete / 14 partial / 10 blocked (trước đêm: 55/33/10). 14 partial = 11 T54a–k (đo bằng bundle trên artifact, ngoài gate), T33b (verb nghiệm thu thật), T37 (O4), T28 (E1 bằng chứng chạy tay 114/114 trước–sau tách). 10 blocked = T40b (W45 ngoài) + 9 case PL (pilot thật).
@@ -78,7 +93,7 @@ Phân biệt: task Done ≠ acceptance complete ≠ gate pass ≠ package verifi
 | Runtime | venv `D:\OneCrewRuns\sdk-trial\venv dev8` cài từ wheel `c3692aa…` (cùng bytes gói); chỉ nhóm v2 (`plan/engine/...`) — nhóm `job` v1 không có trong bản cài (`owned` không trong wheel) nên hợp đồng v1 `job --mode work` không dùng được từ artifact; dùng workflow chung v2 |
 | Plan 1 | `sdk-trial-vn-sign-sdk-20261026` — TASK-c7ebc86471a2438caa4590b8cbf0d9f5, bản 1 sha `ea675cb6…`, **proposed** (lint clean, `--workflow`); project clone sạch `D:\OneCrewRuns\sdk-trial\vn-sign-sdk` @ bef6476 |
 | Plan 2 | `sdk-trial-vn-sign-sample-20261026` — TASK-2197a8c7fd194096bf9b541f57337cce, bản 1 sha `b1b8bb8b…`, **proposed**; clone sạch `…\vn-sign-sample` @ 9344983 |
-| Provider/model | worker `claude` (preference mặc định codex/gpt-6-luna nhưng codex CLI chưa cài — không cài thêm), reviewer M2 `claude-opus-5-5`, M1 verifier lệnh (kiểm hai báo cáo có đủ mục và mọi file:dòng tồn tại) |
+| Provider/model | worker `claude` (preference mặc định codex/gpt-6-luna nhưng codex CLI chưa cài — không cài thêm), reviewer M2 (model review đã ghim trong plan), M1 verifier lệnh (kiểm hai báo cáo có đủ mục và mọi file:dòng tồn tại) |
 | Repo cập nhật được | không repo local nào: signsdk dirty + 10 stash + phân kỳ 105/165; vn-sign-sample conflict UU/UD; vn-sign-sdk remote force-push → dùng checkout riêng (clone) cho cả hai remote; local giữ nguyên |
 | hms_signature_sign | khảo sát đầu mối: không có trong file tracked/lịch sử; biến thể chỉ trong snapshot IDE không tracked — plan yêu cầu OneCrew tìm biến thể và báo phạm vi, không suy đoán |
 | Trạng thái thật | **chưa chạy**: chờ verb approve của anh (mục 6); runner engine không tự tiếp tục sau khi chat kết thúc (cần `engine step` hoặc OneCrew host) |
@@ -86,7 +101,7 @@ Phân biệt: task Done ≠ acceptance complete ≠ gate pass ≠ package verifi
 
 ## 5. Giới hạn thực tế và điều kiện ngoài
 
-- W45: ma trận provider là của wheel 6366137 (4/6 dùng được, codex thiếu CLI); chưa chạy lại trên wheel mới vì là provider trả phí ngoài quyền → trạng thái "cần kiểm lại" trong bundle RP.
+- W45: ma trận provider duy nhất chạy thật là của wheel 6366137 (chạy 25/10 02:22Z; 4/6 dùng được, codex thiếu CLI; trước đó cùng kết quả ở ceb46c6); KHÔNG có ma trận hay so sánh cho wheel dev8 (4b1b7b1) cũng như dev9 (da96db8); chưa chạy lại vì là provider trả phí ngoài quyền → trạng thái "cần kiểm lại" trong bundle RP.
 - Pilot thật PL-A/PL-B, T14c, nghiệm thu U3/U4: chưa có; công cụ local (generator, checker, liên kết SKIP) đã kiểm trên fixture synthetic.
 - Gate `ae8a67f` bị dừng 23:47 (interrupted/partial, 137/266) — chỉ là bằng chứng regression của snapshot đó.
 - Windows MAX_PATH: dùng thư mục làm việc ngắn khi kiểm gói.
@@ -96,19 +111,21 @@ Phân biệt: task Done ≠ acceptance complete ≠ gate pass ≠ package verifi
 
 1. **Duyệt hai plan bài thử SDK** (verb owner, chạy từ terminal của anh, không phải trong phiên AI). Mỗi plan: bản 1, sha ghi trong `plan present`. Lệnh (PowerShell/cmd, một dòng mỗi lệnh):
 
-```bash
-"D:\OneCrewRuns\sdk-trial\venv dev8\Scripts\onecrew.exe" --project D:\OneCrewRuns\sdk-trial\vn-sign-sdk --state-root D:\TamNT\Workspace\11.OneCrew\state-v2-real plan approve sdk-trial-vn-sign-sdk-20261026 --revision 1 --by owner --reference "chat Claude Code 26/10: duyệt bài thử SDK"
+```powershell
+$env:PYTHONUTF8 = "1"
+& "D:\OneCrewRuns\sdk-trial\venv dev8\Scripts\onecrew.exe" --project "D:\OneCrewRuns\sdk-trial\vn-sign-sdk" --state-root "D:\TamNT\Workspace\11.OneCrew\state-v2-real" plan approve sdk-trial-vn-sign-sdk-20261026 --revision 1 --by owner --reference "chat Claude Code 26/10: duyệt bài thử SDK"
 ```
 
-```bash
-"D:\OneCrewRuns\sdk-trial\venv dev8\Scripts\onecrew.exe" --project D:\OneCrewRuns\sdk-trial\vn-sign-sample --state-root D:\TamNT\Workspace\11.OneCrew\state-v2-real plan approve sdk-trial-vn-sign-sample-20261026 --revision 1 --by owner --reference "chat Claude Code 26/10: duyệt bài thử SDK"
+```powershell
+$env:PYTHONUTF8 = "1"
+& "D:\OneCrewRuns\sdk-trial\venv dev8\Scripts\onecrew.exe" --project "D:\OneCrewRuns\sdk-trial\vn-sign-sample" --state-root "D:\TamNT\Workspace\11.OneCrew\state-v2-real" plan approve sdk-trial-vn-sign-sample-20261026 --revision 1 --by owner --reference "chat Claude Code 26/10: duyệt bài thử SDK"
 ```
 
-   Sau đó bảo tôi (hoặc anh gõ) `… engine step sdk-trial-vn-sign-sdk-20261026` lặp tới khi mốc đạt; worker provider `claude` (codex CLI không có trên máy), reviewer `claude-opus-5-5`. Nếu anh muốn đổi nguồn (review bản local dirty thay vì clone sạch) thì không duyệt và nói rõ.
+   Sau đó bảo tôi (hoặc anh gõ) `… engine step sdk-trial-vn-sign-sdk-20261026` lặp tới khi mốc đạt; worker provider `claude` (codex CLI không có trên máy), reviewer là model review đã ghim trong plan. Nếu anh muốn đổi nguồn (review bản local dirty thay vì clone sạch) thì không duyệt và nói rõ.
 2. **O4 (T37)**: bước 3 chỉ chạy khi anh trả lời 'có' — chưa trả lời, W06/T37 giữ partial.
 3. **W45**: cài codex CLI + chạy lại hai ô codex và cả ma trận trên wheel dev8 (provider trả phí) — hay chấp nhận "cần kiểm lại" cho bản test này.
 4. **Q5/Q8/Q10 trên root không ủy quyền**: đã sửa theo luật authority (U3 + hold + card, không repair); Codex đã chạy 23 test đạt. Không cần quyết định thêm, chỉ cần anh biết hành vi mới.
-5. **Lỗi mới ghi nhận, chưa sửa**: console script `onecrew` trên Windows cp1252 crash khi in tiếng Việt (`plan lint` UnicodeEncodeError) — cần `PYTHONUTF8=1` hoặc sửa entry point ép UTF-8 (lượt sau; không ảnh hưởng gate vì gate chạy `-X utf8`).
+5. **Lỗi console cp1252 — đã sửa trong mã nguồn (lượt 10), chưa nằm trong wheel dev8/dev9 đã cài**: console script `onecrew` trên Windows cp1252 crash khi in tiếng Việt (`--help` với `ONECREW_LANG=vi`, `plan lint`) vì không có `PYTHONUTF8=1`. Entry point mới `onecrew.console:main` ép stdout/stderr sang UTF-8 (`errors=replace`); test `tests.test_wf_r10_console_utf8`. Với wheel dev8/dev9 đang dùng, đặt `$env:PYTHONUTF8 = "1"` trong PowerShell (đã có trong các lệnh trên).
 
 ## 7. Không ghi
 

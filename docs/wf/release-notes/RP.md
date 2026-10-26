@@ -12,10 +12,10 @@ Những gì bản dựng này làm được, theo task của release (rút gọn
 ## Limits
 
 - Trạng thái `partial` = có kiểm hồi quy nhưng ma trận acceptance đầy đủ của testcase chưa được chứng nhận riêng; `blocked` = cần provider thật, pilot hay chủ sở hữu.
-- Mọi test provider dùng CLI giả; không lời gọi provider trả phí nào được thực hiện trong development. Dạng lệnh thật của codex/kiro CHƯA KIỂM CHỨNG (W45/T40b).
+- Mọi test tự động dùng CLI giả; development không gọi provider trả phí. Ma trận provider thật W45 đã chạy MỘT lần trên wheel `6366137` (claude 2/2 và kiro 2/2 ô đạt, codex 0/2 vì CLI không có → subset 4/6; chỉ chứng minh ô chạy được, không phải chất lượng review). Đó KHÔNG phải wheel của bản dựng này: chưa có ma trận hay so sánh cho wheel hiện hành, lệnh thật của codex CHƯA KIỂM CHỨNG (W45/T40b).
 - Không hứa exactly-once cho tác động ngoài; không hoàn tác tác động ngoài đã xảy ra (HD-26).
 - Chưa có nghiệm thu của chủ sở hữu; không có pilot thật (PL-A/PL-B).
-- Sáu ô provider × vai trò chỉ có bằng CLI giả; bundle RP cần provider_bundle thật (PV1/PV2).
+- Sáu ô provider × vai trò: 4/6 đã chạy CLI thật trên wheel `6366137` (không phải wheel này), 2 ô codex chưa; so sánh ma trận với wheel hiện hành chưa có nên bundle RP của bản này ghi T54.5 "comparison missing" (cần kiểm lại), provider_bundle thật PV1/PV2 chưa có.
 
 ## Install
 

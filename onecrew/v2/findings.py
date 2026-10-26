@@ -113,8 +113,29 @@ def _refresh(value, contract, definition=None):
                 signature = _signature(_milestone(contract, item['node']), item['criterion'])
         except LedgerError:
             signature = None
+        if signature is not None and signature != (item['criterion_sha'], item['config_sha']) and item.get('internal'):
+            current = _wording_only(item, definition)
+            if current is not None:
+                # R10 D6: a wording-only change of this finding's own check (acceptance_diff 'same'/'wording') keeps it OPEN, rebound to
+                # the current signature; origin, fail receipt, generation and closing condition stay. A real check change (changed,
+                # threshold, removed) - or a finding without its recorded check (opened before round 10) - is made stale, as before.
+                item.setdefault('wording_rebound_from', {'criterion_sha': item['criterion_sha'], 'config_sha': item['config_sha'], 'check': item['check']})
+                item.update(criterion_sha=signature[0], config_sha=signature[1], check=current)
+                continue
         if signature != (item['criterion_sha'], item['config_sha']):
             item.update(status='stale', stale_reason='criterion or reviewer configuration changed' if not item.get('internal') else 'node checks or definition changed')
+
+
+def _wording_only(item, definition):
+    """The current check of an internal finding when its recorded check still exists with the same or a reworded spec
+    (acceptance_diff.classify_text 'same'/'wording'); None otherwise."""
+    from .acceptance_diff import classify_text
+    before = item.get('check')
+    node = next((n for n in definition if n['id'] == item['node']), None)
+    if not isinstance(before, dict) or node is None: return None
+    after = next((c for c in node.get('checks', []) if isinstance(c, dict) and c.get('id') == item['criterion']), None)
+    if after is None or classify_text(before.get('spec', ''), after.get('spec', '')) not in ('same', 'wording'): return None
+    return dict(after)
 
 
 # ---- W21: findings from the engine's node verification (an integration node that fails) ------------------------------------------------
@@ -196,6 +217,8 @@ def record_node_verification(ledger, selector, nid, receipt, *, definition, seve
             if fresh:
                 item['internal'] = True
                 item['scope_nodes'] = scope['nodes']
+                # R10 D6: the check as it was when the finding opened (a later wording-only revise keeps the finding open)
+                item['check'] = next((dict(c) for c in milestone['verifier']['config']['criteria'] if c['id'] == row['id']), None)
             (opened if fresh else merged).append(item['id'])
     if result == 'pass':
         for item in value['findings']:

@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-1",
+ "file": "onecrew/common_verification.py",
+ "old_sha256": "afde5b73046a93ec496817e1c943f0d827cf89bb73384df8e2e44740e489b37a",
+ "new_sha256": "b3d97690847da0a2fa8353c2e11eae278532df071d75e7ed90a8bb3d481636eb",
+ "reason": "R10-B: CandidateChecker chạy output_check (output khai báo phải tồn tại; mọi tham chiếu file:dòng trong output văn bản phải giải được trên cây ứng viên: đường dẫn đầy đủ, dòng trong phạm vi; tên file cụt/format lạ = fail, không PASS); OUT fail → milestone đầu fail, các milestone còn lại blocked, không chạy lệnh; _reuse từ chối biên nhận cũ thiếu output_check đạt; materialized_tree từ chối file thừa ngoài cây niêm phong (ls-files -o, kể cả bị ignore). Red: (a)–(f) pass→fail qua CandidateChecker thật; file thừa LedgerError not raised.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, dán chỉ thị lượt 10 của Codex: 'Tôi ủy quyền một lần cho công việc này. Tự chia task, sửa code/test/cấu hình, chạy kiểm chứng và xử lý lỗi trong phạm vi đã giao; không hỏi tôi duyệt từng việc.' Quyết định kỹ thuật theo ủy quyền; không phải chữ ký trực tiếp cho từng dòng.",
+ "applied_by": "claude (entry) + agents A (claude-opus), B/C (claude-sonnet), round 10 on codex/wf-development",
+ "at": "2026-10-26"
+}

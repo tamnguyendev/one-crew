@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-9",
+ "file": "onecrew/__main__.py",
+ "old_sha256": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d",
+ "new_sha256": "ab343e0ba64b0ec09993df021678d8b879985b9b206541251d8075749ba0221a",
+ "reason": "R10-C: cùng xử lý UTF-8 cho `python -m onecrew`.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, dán chỉ thị lượt 10 của Codex: 'Tôi ủy quyền một lần cho công việc này. Tự chia task, sửa code/test/cấu hình, chạy kiểm chứng và xử lý lỗi trong phạm vi đã giao; không hỏi tôi duyệt từng việc.' Quyết định kỹ thuật theo ủy quyền; không phải chữ ký trực tiếp cho từng dòng.",
+ "applied_by": "claude (entry) + agents A (claude-opus), B/C (claude-sonnet), round 10 on codex/wf-development",
+ "at": "2026-10-26"
+}

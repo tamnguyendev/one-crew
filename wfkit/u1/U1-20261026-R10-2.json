@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-2",
+ "file": "onecrew/v2/verifiers/output_refs.py",
+ "old_sha256": null,
+ "new_sha256": "5a4955088915a99e7fc9678f220649e0424fb0a3978c658fecf995c416d1d3ab",
+ "reason": "R10-B: module mới — grammar chặt cho tham chiếu nguồn (path:line, path:a-b, danh sách phẩy, en-dash; URL/output path bỏ qua; fenced text/log bỏ qua), scan()/check() thuần, reasons: bare_basename/no_such_file/line_outside_file/unverifiable. Chỉ kiểm cấu trúc, không phải bằng chứng nghiệp vụ.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, dán chỉ thị lượt 10 của Codex: 'Tôi ủy quyền một lần cho công việc này. Tự chia task, sửa code/test/cấu hình, chạy kiểm chứng và xử lý lỗi trong phạm vi đã giao; không hỏi tôi duyệt từng việc.' Quyết định kỹ thuật theo ủy quyền; không phải chữ ký trực tiếp cho từng dòng.",
+ "applied_by": "claude (entry) + agents A (claude-opus), B/C (claude-sonnet), round 10 on codex/wf-development",
+ "at": "2026-10-26"
+}

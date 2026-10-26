@@ -20,7 +20,7 @@ from .git_candidate_core import GitCandidate
 from .ledger import LedgerError, canonical, content_hash
 from .snapshots import Snapshots
 from .v2 import authority, contract as contracts, engine, internal_plan as ip, retention, verification_evidence
-from .v2.verifiers import command, port, reviewer
+from .v2.verifiers import command, output_refs, port, reviewer
 
 
 def snapshot_candidate(ledger, view, nid, artifact):
@@ -84,9 +84,41 @@ def materialized_tree(ledger, tree, temp):
         present.append(path)
     if present:
         command._git(checkout, *quiet, 'add', '-u', '--force', '--pathspec-from-file=-', '--pathspec-file-nul', input='\0'.join(present).encode('utf-8'))
+    # R10: a file the sealed tree does not contain is a difference too. `add -u` never sees untracked files, so list them with no ignore rules at all.
+    extra = [row for row in command._git(checkout, *quiet, 'ls-files', '-o', '-z').split('\0') if row]
+    if extra: raise LedgerError('Materialized candidate differs from the sealed Git tree.')
     actual = command._git(checkout, *quiet, 'write-tree')
     if actual != tree: raise LedgerError('Materialized candidate differs from the sealed Git tree.')
     return checkout
+
+
+def output_check(checkout, outputs):
+    """R10: the node's declared outputs exist in the candidate with content, and every source reference in a written text report resolves
+    against the candidate tree (grammar and limits: v2/verifiers/output_refs.py). Structural only; it never judges whether a finding is true.
+    `checkout` is the materialized candidate; paths are relative to it."""
+    root = Path(checkout)
+    missing = [path for path in outputs if not (root / path).is_file() or (root / path).stat().st_size == 0]
+    listing = command._git(root, 'ls-files', '-s', '-z').split('\0')
+    def counter(path):
+        def lines():
+            data = (root / path).read_bytes()
+            return data.count(b'\n') + (1 if data and not data.endswith(b'\n') else 0)
+        return lines
+    tree_files = {}
+    for row in listing:
+        meta, _, path = row.partition('\t')
+        if path and not meta.startswith('160000'): tree_files[path] = counter(path)
+    refs, reports = [], []
+    for path in outputs:
+        if path in missing or not output_refs.is_text_report(path): continue
+        reports.append(path)
+        refs.extend(output_refs.scan((root / path).read_bytes().decode('utf-8', 'replace')))
+    judged = output_refs.check(tree_files, refs, outputs)
+    reasons = []
+    if missing: reasons.append('declared output missing or empty: ' + ', '.join(missing[:5]))
+    if judged['result'] == 'fail': reasons.append(f"{judged['offender_count']} unresolved reference(s): " + '; '.join(judged['offenders']))
+    return {'id': 'OUT', 'result': 'fail' if reasons else 'pass', 'outputs': list(outputs), 'reports': reports, 'missing': missing,
+            'counts': judged['counts'], 'reasons': judged['reasons'], 'offenders': judged['offenders'], 'offender_count': judged['offender_count'], 'reason': ' | '.join(reasons)}
 
 
 def producer_pins(ledger, view, item):
@@ -185,6 +217,8 @@ def _reuse(ledger, view, item, artifact, previous_receipt, tree, binding, plan_s
         if (observed.get('artifact') != artifact or observed.get('candidate_tree') != tree or len(rows) != len(ids)
                 or {r['id'] for r in rows} != set(ids) or any(r['result'] != 'pass' for r in rows)):
             return None
+        if not isinstance(observed.get('output_check'), dict) or observed['output_check'].get('result') != 'pass':
+            return None   # R10: a receipt without the declared-output / reference check cannot stand in for it
         observed_binding = observed.get('evidence_binding')
         if observed_binding is None or observed_binding.get('revision') != view['contract_revision']:
             return None
@@ -285,6 +319,20 @@ class CandidateChecker:
             commit = command._git(checkout, '-c', 'user.name=OneCrew', '-c', 'user.email=onecrew@localhost',
                                   'commit-tree', tree, input=b'OneCrew candidate verification\n')
             command._git(checkout, 'update-ref', 'HEAD', commit)
+            out = output_check(checkout, item['write'])
+            out['evidence'] = store.blob(canonical(dict(out, kind='candidate-output-check', node=nid, snapshot=artifact, tree=tree)).encode())
+            if out['result'] != 'pass':
+                # A failed structural check fails the node like a failed milestone; the milestones are not run on a candidate that already fails.
+                # The first one carries the failure so the engine receipt stays {one row per configured check}; the others are blocked.
+                for number, milestone in enumerate(selected):
+                    if number == 0:
+                        rows.append({'id': milestone['id'], 'result': 'fail', 'evidence': out['evidence']})
+                    else:
+                        blocked = store.blob(canonical({'kind': 'candidate-command-check-blocked', 'node': nid, 'snapshot': artifact, 'milestone': milestone['id'],
+                                                        'prerequisite': {'id': 'OUT', 'result': 'fail', 'evidence': out['evidence']}, 'executed': False}).encode())
+                        rows.append({'id': milestone['id'], 'result': 'blocked', 'evidence': blocked})
+                return {'artifact': artifact, 'checks': rows, 'candidate_tree': tree, 'evidence_binding': binding,
+                        'repair_order': order, 'output_check': out}
             source = checkout / contract['understanding']['target']['repo']
             blocked_by = None
             for milestone in selected:
@@ -329,4 +377,4 @@ class CandidateChecker:
                 if milestone['id'] in order['failed_first'] and result != 'pass':
                     blocked_by = {'id': milestone['id'], 'result': result, 'evidence': evidence}
         return {'artifact': artifact, 'checks': rows, 'candidate_tree': tree, 'evidence_binding': binding,
-                'repair_order': order}
+                'repair_order': order, 'output_check': out}

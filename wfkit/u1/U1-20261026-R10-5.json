@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-5",
+ "file": "onecrew/v2/finding_scope.py",
+ "old_sha256": "f66ab03cc249bf176b8b6781ffe813c79bebba303257af2a79b466b26bf86298",
+ "new_sha256": "60340c67fcc5806e0c041f9ca37a76765ac69b59f3751eb97b73ceb630b00270",
+ "reason": "R10-A D6: _release_repairs khớp cả biên nhận last_observed của finding.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, dán chỉ thị lượt 10 của Codex: 'Tôi ủy quyền một lần cho công việc này. Tự chia task, sửa code/test/cấu hình, chạy kiểm chứng và xử lý lỗi trong phạm vi đã giao; không hỏi tôi duyệt từng việc.' Quyết định kỹ thuật theo ủy quyền; không phải chữ ký trực tiếp cho từng dòng.",
+ "applied_by": "claude (entry) + agents A (claude-opus), B/C (claude-sonnet), round 10 on codex/wf-development",
+ "at": "2026-10-26"
+}

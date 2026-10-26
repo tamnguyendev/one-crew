@@ -1011,6 +1011,14 @@
      "installed": false,
      "scope": "Round 7 acceptance audit of R02/T51b: Two projects on one temporary state root (P1 repo at c1/c2 renaming svc.export, P2 with a private and a generalised entry, a command-shaped entry); retrieval and the resume pack as the simulated new session (interface/permission only), no model. Counter-examples: no symbol check, the project filter removed from the source of context.retrieve (compiled mutant), an instruction built by pasting entry"
     },
+    "check.r10_console_utf8": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r10_console_utf8"
+     ],
+     "installed": false,
+     "scope": "Round 10 (C): the console script entry onecrew.console:main (and python -m onecrew) forces UTF-8 on stdout/stderr, so Vietnamese output no longer raises UnicodeEncodeError when the process encoding is cp1252 (PYTHONUTF8=0, PYTHONIOENCODING=cp1252); real subprocesses; the output under PYTHONUTF8=1 is byte-identical; pyproject points the script at the wrapper and ships the module."
+    },
     "registry": {
      "kind": "unittest",
      "modules": [
@@ -2946,6 +2954,16 @@
      "installed": false,
      "scope": "Round 8: a workflow root whose grant does not delegate Q5 gets U3 + hold + one owner card and NO repair; Q8 safety hold always happens (U3 record when not delegated); Q10 outcome always recorded as evidence/proposal-only; roots without a workflow grant unchanged. Real callers on a temp ledger."
     },
+    "check.r10_engine_d6d7d8": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r10_d6_finding_repair",
+      "tests.test_wf_r10_d7_integration_context",
+      "tests.test_wf_r10_d8_revise_ceiling"
+     ],
+     "installed": false,
+     "scope": "Round 10 (A) from the real SDK trial: D6 a node finding stays repairable across a valid internal revise (the failed receipt of the open finding binds the repair on the new generation; a pass closes it with the newer receipt; a wording-only check change keeps it open, a real change makes it stale; old/other-node receipts never close it; restart and a second failure keep it repairable); D7 a consumer/integration node receives only its producers' declared write outputs (once) plus their artifact/receipt provenance, the final prompt size is recorded (prompt_chars) and an over-cap prompt is held before any launch with the size per producer; D8 the revise ceiling counts only new/moved/unfinished nodes, verified unchanged nodes cost nothing more, spend is never refunded, unknown attempts and stale revisions are refused as before."
+    },
     "registry": {
      "kind": "unittest",
      "modules": [
@@ -4555,6 +4573,15 @@
      ],
      "installed": false,
      "scope": "Round 7 acceptance audit of R05/T31: Temporary repositories, real git gc --prune=now, a real process restart and a bare fake remote. E5 adds a structural scan of the shipped package (only retention.cleanup deletes refs under refs/onecrew/evidence/, only plan_cli calls it, and that verb is on the AI-session deny list); E6 runs the real hook judge, with the hook without the push rule as the counter-example. A real remote is not claimed"
+    },
+    "check.r10_output_refs": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r10_output_refs",
+      "tests.test_wf_r10_tree_extra_file"
+     ],
+     "installed": false,
+     "scope": "Round 10 hotfix from the real SDK trial: through the real CandidateChecker a node's declared outputs must exist with content in the candidate and every path:line reference in a written .md/.txt/.rst report must resolve against the candidate tree (wrong file, line 0/negative/beyond EOF, bare or duplicate basename, a wrong part beside correct skeleton files and a malformed reference all fail; full-path references in range, URLs, output-path mentions and fenced text blocks pass); the check is structural only and never evidence that a finding is true. An extra file in the checkout that the sealed tree does not contain makes materialized_tree refuse."
     },
     "check.r9_candidate_fidelity_resume": {
      "kind": "unittest",

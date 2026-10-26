@@ -16,10 +16,61 @@ PREFIX = 'repair-evidence:'
 KIND = 'node-repair-plan'
 
 
+def _carried(ledger, conn, view, failed_node, record):
+    """R10 D6: the failed receipt of an OPEN internal finding on `failed_node` whose generation a valid internal revision has moved since.
+
+    `internal_plan.revise` gives a changed node a fresh generation without `verification_receipt`; the finding still holds the node, so
+    without this the node could never be repaired nor the finding closed (deadlock). The old failure stays evidence only while its binding
+    holds: it is the LATEST node.verification of this node (nothing verified it since), it failed on an older generation of the same
+    contract revision, it is the source/last observation of a finding the register still keeps OPEN under the current definition (the
+    existing `findings._refresh` change policy: a real check change makes it stale and this returns None) and its failed checks are still
+    configured. Returns (receipt, event seq, failed checks) or None. Read-only."""
+    row = conn.execute("SELECT seq,payload FROM events WHERE task_id=? AND kind='node.verification' AND json_extract(payload,'$.node')=? "
+                       "ORDER BY seq DESC LIMIT 1", (view['root'], failed_node)).fetchone()
+    if row is None: return None
+    event = json.loads(row['payload'])
+    if (event.get('result') != 'fail' or type(event.get('generation')) is not int or event['generation'] >= record['generation']
+            or event.get('revision') != view['contract_revision'] or 'finding-register' not in view.get('capabilities', ())):
+        return None
+    from . import findings
+    register_root, _, _, contract = findings._context(ledger, conn, view['selector'])
+    value = findings._read(ledger, conn, register_root['id'])
+    findings._refresh(value, contract, view['definition']['nodes'])
+    if not any(f['status'] == 'open' and f.get('internal') and f['node'] == failed_node
+               and event['receipt'] in (f['source']['receipt'], (f.get('last_observed') or {}).get('receipt')) for f in value['findings']):
+        return None
+    store = Snapshots(ledger.state_root)
+    item = next(n for n in view['definition']['nodes'] if n['id'] == failed_node)
+    for marker in [i[len(PREFIX):] for i in item['input'] if isinstance(i, str) and i.startswith(PREFIX)]:
+        try:
+            issued = json.loads(store.read_blob(marker))
+        except (LedgerError, OSError, ValueError):
+            continue
+        if event['receipt'] == issued.get('source_receipt') or event['receipt'] in (issued.get('source_receipts') or []):
+            return None                     # a repair for this very failure is already issued: verify its generation, never repair twice
+    body = json.loads(store.read_blob(event['receipt']))
+    observed = body.get('observed') or {}
+    if (body.get('kind') != 'node-verifier-receipt' or body.get('root') != view['root'] or body.get('node') != failed_node
+            or body.get('generation') != event['generation'] or body.get('result') != 'fail' or body.get('evidence_errors')
+            or observed.get('artifact') != body.get('artifact')):
+        raise LedgerError('The failed verification of the finding lacks valid check evidence.')
+    configured = {c['id'] for c in item['checks']}
+    failed = [r['id'] for r in observed.get('checks', []) if isinstance(r, dict) and r.get('result') == 'fail']
+    if not failed or not set(failed) <= configured:
+        raise LedgerError('The failed checks of the finding are no longer configured; verify the node again.')
+    return event['receipt'], row['seq'], list(dict.fromkeys(failed))
+
+
 def _source(ledger, conn, view, failed_node, receipt=None):
     if failed_node not in view['nodes']:
         raise LedgerError('Unknown failed node.')
     record = view['nodes'][failed_node]
+    if record.get('verification_receipt') is None:
+        carried = _carried(ledger, conn, view, failed_node, record)
+        if carried is not None:
+            if receipt is not None and receipt != carried[0]:
+                raise LedgerError('Repair requires the latest node verification receipt.')
+            return carried
     receipt = receipt or record.get('verification_receipt')
     if not receipt or receipt != record.get('verification_receipt'):
         raise LedgerError('Repair requires the latest node verification receipt.')

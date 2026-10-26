@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261026-R10-3",
+ "file": "onecrew/v2/repair_tasks.py",
+ "old_sha256": "8cf884e736096bf54a03a705e44f0e8d0e64a844c57e797ffcddb5993778679c",
+ "new_sha256": "511e3582f35a143cf24820ac80171a5ff13445ce32adf2686eaf9084e2f72bee",
+ "reason": "R10-A D6: _carried — node không còn biên nhận ở thế hệ hiện tại vẫn repair được từ biên nhận fail cuối (cùng revision hợp đồng, finding nội bộ còn mở trỏ biên nhận đó, check còn cấu hình, chưa có repair cho biên nhận đó). Red: Repair requires the latest node verification receipt (a,d,f); vòng repair thứ hai deadlock (g).",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 26/10/2026 ~13:30, dán chỉ thị lượt 10 của Codex: 'Tôi ủy quyền một lần cho công việc này. Tự chia task, sửa code/test/cấu hình, chạy kiểm chứng và xử lý lỗi trong phạm vi đã giao; không hỏi tôi duyệt từng việc.' Quyết định kỹ thuật theo ủy quyền; không phải chữ ký trực tiếp cho từng dòng.",
+ "applied_by": "claude (entry) + agents A (claude-opus), B/C (claude-sonnet), round 10 on codex/wf-development",
+ "at": "2026-10-26"
+}

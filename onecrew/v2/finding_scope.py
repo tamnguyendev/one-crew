@@ -43,6 +43,10 @@ def _release_repairs(ledger, held, open_findings, nodes):
     from ..snapshots import Snapshots
     from .repair_tasks import PREFIX, KIND as REPAIR_KIND
     by_receipt = {f['source']['receipt']: f['id'] for f in open_findings if f.get('internal') and f.get('status') == 'open'}
+    # R10 D6: a second repair binds the finding's latest failed observation (merged on the repaired generation), not its first report;
+    # without this the re-issued node stays held by the same finding and the repair can never run (deadlock).
+    by_receipt.update({f['last_observed']['receipt']: f['id'] for f in open_findings
+                       if f.get('internal') and f.get('status') == 'open' and (f.get('last_observed') or {}).get('receipt')})
     if not by_receipt: return
     store = Snapshots(ledger.state_root)
     for node in nodes:

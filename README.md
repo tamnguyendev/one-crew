@@ -14,6 +14,26 @@ Revision 5 đã có runtime recipe Android, giới hạn lặp/repair, kiểm ev
 
 **Đã chạy được workflow tổng quát với Codex, Kiro và Claude:** spec-to-plan, snapshot giữ dirty bytes, tối đa hai worker, inbox theo nhánh, controller nền, review/sửa từng phần, thay đổi yêu cầu và gia hạn hữu hạn. Test chức năng trong Docker, ghép target local và kiểm tương thích bộ commit đa repo đã có evidence thật. Có ngân sách chung và hủy toàn nhóm đã duyệt. Entry connectors có xác thực, điều phối đa repo tự động, routing tự động và soak tám giờ còn chưa hoàn tất. Đây là các năng lực nền của revision 2; trạng thái hiện hành nằm trong coverage revision 3.
 
+## Bản test workflow chung (2.2.0.dev9, nhánh `codex/wf-development`)
+
+Đây là bản **development**, chưa Codex review, chưa nghiệm thu, chưa giao. Trạng thái và số liệu: [docs/wf/BAO-CAO-SANG-2026-10-26.vi.md](docs/wf/BAO-CAO-SANG-2026-10-26.vi.md) (bản dựng `4b1b7b1`, 2.2.0.dev8), 92 task: [docs/wf/audit/AUDIT-92.md](docs/wf/audit/AUDIT-92.md), release notes: [docs/wf/release-notes/](docs/wf/release-notes/README.md).
+
+Dựng wheel từ checkout sạch và thử trong venv mới (PowerShell 5.1, dán nguyên khối; không đụng sổ thật):
+
+```powershell
+$py  = "C:\Users\NUC\AppData\Local\Programs\Python\Python313\python.exe"
+$out = Join-Path $env:TEMP "onecrew-wheel"
+$venv = Join-Path $env:TEMP "onecrew venv"
+& $py -m pip wheel . --no-deps -w $out
+& $py -m venv $venv
+& "$venv\Scripts\python.exe" -m pip install (Get-ChildItem "$out\onecrew-*.whl").FullName
+& "$venv\Scripts\onecrew.exe" --help
+```
+
+Console script `onecrew` tự ép stdout/stderr sang UTF-8 (`onecrew/console.py`), nên không cần `PYTHONUTF8=1` với wheel dựng từ nhánh này; wheel dev8/dev9 đã dựng trước đó vẫn cần `$env:PYTHONUTF8 = "1"` khi in tiếng Việt.
+
+**Ma trận provider thật (W45) — đúng phạm vi của nó:** chỉ chạy một lần trên wheel `6366137` (25/10): claude reviewer/cố vấn đạt, kiro reviewer/cố vấn đạt, codex 0/2 vì CLI không có → 4/6 (subset), chỉ chứng minh ô chạy được, không phải chất lượng review. **Chưa có ma trận hay so sánh cho wheel hiện hành** (dev8 `4b1b7b1`, dev9 `da96db8`); bundle RP ở `4b1b7b1` bị từ chối T54.5 "comparison missing" (trạng thái "cần kiểm lại"). Mọi test tự động dùng CLI giả.
+
 ## Tài liệu hiện hành
 
 Revision 6 bổ sung [skill từ history và model preference/JEV](docs/skills-routing.vi.md). `skills list/review/approve/reject` quản lý candidate từ quy trình lặp; task đơn lẻ không tự tạo skill dùng chung. Trạng thái từng phần ở coverage.

@@ -238,6 +238,34 @@ def _finish_initial(nodes, outputs):
             'summary': '; '.join(c['path'] for c in changes) or 'initial plan covers every output'}
 
 
+def _to_come(ledger, state, old_nodes, nodes, before):
+    """R10 D8: which nodes of a revision still cost calls/time, for the Q1 ceiling check. Counted: every node that is new or whose
+    generation this revision moves (definition, dependency, input or contract change: affected_revision, the projector's own rule), and
+    every node not finished with valid evidence - pending, produced but not verified, held, running/unknown, failed - so the mandatory
+    integration node counts until it is verified. Reused (0 more): an unmoved node verified/accepted on its current generation whose
+    recorded inputs still match its producers. The remaining calls/seconds it is compared with are the sealed root group after used and
+    reserved spend (budget_core), so nothing already spent is given back. Returns (counted, reused) node-id sets. Read-only."""
+    ids = [n['id'] for n in nodes]
+    if not old_nodes: return set(ids), set()
+    from . import engine
+    moved = affected_revision(old_nodes, nodes, contract_changed=before.get('contract_sha') not in (None, state['approved']['sha']))
+    records = engine.state(ledger, state['selector'])['nodes']
+    by_id = {n['id']: n for n in nodes}
+    reused = set()
+    for nid in ids:
+        record = records.get(nid)
+        if (nid in moved or record is None or record.get('state') not in ('verified', 'accepted') or record.get('phase') == 'held'
+                or record.get('verification_result') == 'fail'):
+            continue
+        inputs = record.get('inputs') or {}
+        if set(inputs) != {edge['node'] for edge in by_id[nid]['depends']} or any(
+                source not in records or any(inputs[source].get(key) != records[source].get(key) for key in ('artifact', 'generation'))
+                for source in inputs):
+            continue
+        reused.add(nid)
+    return set(ids) - reused, reused
+
+
 def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None):
     reason = text_field(reason, 'internal revision reason', 1000)
     refs = estimates.evidence(evidence)
@@ -279,8 +307,10 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         return before
     if expected_revision is not None and expected_revision != before['internal_revision']:
         raise LedgerError('Stale internal plan revision.')
+    counted, reused = _to_come(ledger, state, old_nodes, normalized, before)
     action = {'kind': 'decision', 'q': 'Q1', 'nodes': [n['id'] for n in normalized], 'acceptance_changed': False,
-              'cost': {'calls': sum(n['budget_calls'] for n in normalized), 'seconds': sum(n['estimate_seconds'][1] for n in normalized)}}
+              'cost': {'calls': sum(n['budget_calls'] for n in normalized if n['id'] in counted),
+                       'seconds': sum(n['estimate_seconds'][1] for n in normalized if n['id'] in counted)}}
     decision = decide(ledger, state, contract, sha, action, ctx, 'onecrew.internal_plan')
     blob = Snapshots(ledger.state_root).blob(canonical(definition).encode('utf-8'))
     revision = before['internal_revision'] + 1
@@ -298,6 +328,7 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         plans.emit(ledger, conn, again['task_id'], KIND, {'plan': state['name'], 'revision': state['approved']['revision'],
                    'internal_revision': revision, 'contract_sha': sha, 'definition': blob, 'definition_sha': definition_sha,
                    'reason': reason, 'decision': decision, 'evidence': refs,
+                   'cost': dict(action['cost'], counted=sorted(counted), reused=sorted(reused)),
                    'acceptance_diff': {'classification': diff['classification'], 'summary': diff['summary'],
                                        'changes': [{k: c[k] for k in ('path', 'kind', 'acceptance')} for c in diff['changes'][:20]]}})
     estimates.observe_internal(ledger,state['selector'],reason=reason,evidence=refs)
