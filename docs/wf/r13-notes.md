@@ -69,3 +69,8 @@ Runtime Python 3.12 của Codex (`C:/Users/NUC/.cache/codex-runtimes/codex-prima
 - Gói `D:\OneCrewRuns\wf-handover-b71cea4` (665 file, wheel `300de300…a6a57781b`, bản trước dev14 f71ba51): verify 26/26, legacy 15/15, phản chứng wheel cuối 12/12 (P1-S, P1-H, P2-B, P2-C, P2-D, đối chứng), PowerShell 10/10, kiểm chéo 665/665 SHA256SUMS + 284/284 receipt + 10/10 bundle khớp commit+wheel, `package_scope` trong gói reasons=[].
 - Drill tương thích trên wheel dev16 (dữ liệu trước R13 tạo lại 21:45): 4/4 bộ trùng kết quả chạy từ checkout, dữ liệu giữ nguyên (`D:\OneCrewRuns\wf v\compat-r13b-wheel-b71cea4\results-wheel\`).
 - Báo cáo: `docs/wf/BAO-CAO-R13-2026-10-27.vi.md`.
+
+### Đính chính 28/10 (review Codex trên dev16) và lượt 13c
+- "phản chứng wheel cuối 12/12" ở trên là kiểm runtime wheel với fixture phụ thuộc checkout (harness nối `onecrew.__path__` tới checkout: 7 module runtime đang kiểm từ wheel, 11 module hỗ trợ và `tests/` từ checkout), không phải kiểm độc lập khỏi checkout. Kiểm độc lập là `verify_package` / `legacy_continuation` chạy từ gói.
+- "4/4 bộ trùng kết quả" là bốn drill trùng kết quả, không phải bốn bộ giao được: A handoff bị từ chối, B giao được sau re-issue integration, X và dev9 hết hạn bị chặn (`docs/wf/r13b-compat.md` §0).
+- P2-C chưa khép cho sai kiểu container: `notes.real_checks` là object/null thì cả nhánh bị bỏ qua và verifier gói dev16 vẫn đạt. Sửa ở dev17 `b522c24`; báo cáo `docs/wf/BAO-CAO-R13C-2026-10-28.vi.md`.
