@@ -189,6 +189,11 @@ def receipt_problems(rdir, commit, wsha, decision=None, registry=None, label='ga
 # gate_history, comparison.items[*].original). A receipt on disk that no declaration reaches is refused for a produced bundle. Every
 # reference is judged on its own against the file's bytes (round 13b): two references to one file with different sha256 can never
 # both hold, and the one that does not match is named; a malformed reference is refused for a produced bundle, never skipped.
+# Round 13c (Codex review 28/10 on dev16): every container the chain reads has a fixed JSON type (lists: gate_history, comparison.items,
+# deliveries, notes.real_checks, installed.scenarios / adapter_runs; objects: comparison and its items, deliveries[*], rollback.rejected /
+# allowed and their scan, notes.gate_decision (null allowed) and its snapshot; manifest.bundles in identity_problems). PRESENT with another
+# type it is refused naming the file and the field, for every bundle, produced or refused; it is never read as if it were empty (an object
+# real_checks used to skip the whole branch and the package passed). An absent field and an empty list/object are valid.
 # Roles (the receipt writer, wfkit/release_bundle.Producer.receipt(artifact=...), fixes them):
 #   current  : installed (+ scenarios[*], adapter_runs[*]), upgrade (+ `to`), events, rollback, notes (+ gate_decision), rollback-forward-run
 #   previous : rollback-old-run (rollback.allowed.old_run), upgrade.from, events.old_artifact, rollback.{allowed,rejected}.scan.old_version (commit)
@@ -206,6 +211,11 @@ _HEX64 = re.compile(r'[0-9a-f]{64}')
 
 def _is_ref(x):
     return isinstance(x, dict) and isinstance(x.get('path'), str) and isinstance(x.get('sha256'), str) and bool(_HEX64.fullmatch(x['sha256']))
+
+
+def _brief(v, n=160):
+    r = repr(v)
+    return r if len(r) <= n else r[:n - 1] + '…'
 
 
 def _same_build(a, b):
@@ -281,6 +291,17 @@ def bundle_receipt_problems(bdir, rel, commit, wsha, produced=True, previous_whe
         if name:
             declared.setdefault(p.as_posix(), name)
 
+    def shaped(holder, key, kind, where, nullable=False):
+        # Round 13c: `holder[key]` as `kind` (list or dict). Absent -> empty; null -> empty when `nullable`; any other type -> refused
+        # naming `where`, then empty, so the caller never mistakes a wrong container for "nothing to check". The holder's own type is
+        # judged at its own site.
+        if not isinstance(holder, dict) or key not in holder or (nullable and holder[key] is None):
+            return kind()
+        if isinstance(holder[key], kind):
+            return holder[key]
+        out.append(f'{where} is not a {"list" if kind is list else "JSON object"}: {_brief(holder[key])}')
+        return kind()
+
     if bj is not None:
         checks = bj.get('checks')
         if not isinstance(checks, dict):
@@ -293,18 +314,22 @@ def bundle_receipt_problems(bdir, rel, commit, wsha, produced=True, previous_whe
                 out.append(f'{label}/bundle.json declares no {name} receipt')
         for name in sorted(set(checks) - set(_BUNDLE_CHECKS)):
             add_ref(checks[name], f'checks.{name}', None)
-        for i, ref in enumerate(bj.get('gate_history') or []):
+        for i, ref in enumerate(shaped(bj, 'gate_history', list, f'{label}/bundle.json gate_history')):
             add_ref(ref, f'gate_history[{i}]', None)
-        comp = bj.get('comparison')
-        for i, item in enumerate((comp.get('items') or []) if isinstance(comp, dict) else []):
-            if isinstance(item, dict):
-                add_ref(item.get('original'), f'comparison.items[{i}].original', None)
-        for i, d in enumerate(bj.get('deliveries') or []):
-            if isinstance(d, dict):
-                for k, n in (('commit', 'commit'), ('wheel_sha256', 'wheel sha256')):
-                    v = d.get(k)
-                    if not (commit_matches(v, commit) if k == 'commit' else (isinstance(v, str) and v == wsha)):
-                        out.append(f'{label}/bundle.json deliveries[{i}] {n} is {v!r}, the manifest {n} is {commit if k == "commit" else wsha!r}')
+        comp = shaped(bj, 'comparison', dict, f'{label}/bundle.json comparison')
+        for i, item in enumerate(shaped(comp, 'items', list, f'{label}/bundle.json comparison.items')):
+            if not isinstance(item, dict):
+                out.append(f'{label}/bundle.json comparison.items[{i}] is not a JSON object: {_brief(item)}')
+                continue
+            add_ref(item.get('original'), f'comparison.items[{i}].original', None)
+        for i, d in enumerate(shaped(bj, 'deliveries', list, f'{label}/bundle.json deliveries')):
+            if not isinstance(d, dict):
+                out.append(f'{label}/bundle.json deliveries[{i}] is not a JSON object: {_brief(d)}')
+                continue
+            for k, n in (('commit', 'commit'), ('wheel_sha256', 'wheel sha256')):
+                v = d.get(k)
+                if not (commit_matches(v, commit) if k == 'commit' else (isinstance(v, str) and v == wsha)):
+                    out.append(f'{label}/bundle.json deliveries[{i}] {n} is {v!r}, the manifest {n} is {commit if k == "commit" else wsha!r}')
     bodies = {}
     hashes = {}                                    # path -> sha256 of the bytes on disk (None = missing); computed once per file
 
@@ -346,8 +371,8 @@ def bundle_receipt_problems(bdir, rel, commit, wsha, produced=True, previous_whe
                 else:
                     roles.setdefault(p.as_posix(), role)
                     load(p.as_posix(), ref['sha256'], f'{label}/{path} {key}')
-        elif declared.get(path) == 'notes' and isinstance(body.get('real_checks'), list):
-            for i, ref in enumerate(body['real_checks']):
+        elif declared.get(path) == 'notes':
+            for i, ref in enumerate(shaped(body, 'real_checks', list, f'{label}/{path} real_checks')):
                 where = f'{label}/{path} real_checks[{i}]'
                 if not _is_ref(ref):               # round 13b: a reference that cannot be checked is refused, not skipped
                     if produced:
@@ -403,7 +428,7 @@ def bundle_receipt_problems(bdir, rel, commit, wsha, produced=True, previous_whe
         judge_id(path, body, role)
         if name == 'installed':
             for key in ('scenarios', 'adapter_runs'):
-                for i, row in enumerate(body[key] if isinstance(body.get(key), list) else []):
+                for i, row in enumerate(shaped(body, key, list, f'{label}/{path} {key}')):
                     judge_id(path, row, 'current', f'{key}[{i}]')
         elif name == 'upgrade':
             judge_id(path, body.get('from'), 'previous', 'from')
@@ -412,16 +437,17 @@ def bundle_receipt_problems(bdir, rel, commit, wsha, produced=True, previous_whe
             judge_id(path, body.get('old_artifact'), 'previous', 'old_artifact')
         elif name == 'rollback':
             for br in ('rejected', 'allowed'):
-                scan = body[br].get('scan') if isinstance(body.get(br), dict) else None
-                v = scan.get('old_version') if isinstance(scan, dict) else None
+                scan = shaped(shaped(body, br, dict, f'{label}/{path} {br}'), 'scan', dict, f'{label}/{path} {br}.scan')
+                v = scan.get('old_version')
                 if prev is not None and isinstance(v, str) and not commit_matches(v, prev['commit']):
                     out.append(f'{label}/{path} {br}.scan.old_version: {v!r} is not the previous build commit {prev["commit"]!r} (bundle.json artifacts.previous)')
-        elif name == 'notes' and isinstance(body.get('gate_decision'), dict):
-            gd = body['gate_decision']
+        elif name == 'notes':
+            gd = shaped(body, 'gate_decision', dict, f'{label}/{path} gate_decision', nullable=True)      # null: produced without a gate decision
             if 'commit' in gd or 'wheel_sha256' in gd:
                 judge_id(path, gd, 'current', 'gate_decision')
-            if isinstance(gd.get('snapshot'), dict) and 'commit' in gd['snapshot'] and not commit_matches(gd['snapshot']['commit'], commit):
-                out.append(f'{label}/{path} gate_decision.snapshot: commit {gd["snapshot"]["commit"]!r} is not the current build commit {commit!r} (the manifest)')
+            snap = shaped(gd, 'snapshot', dict, f'{label}/{path} gate_decision.snapshot')
+            if 'commit' in snap and not commit_matches(snap['commit'], commit):
+                out.append(f'{label}/{path} gate_decision.snapshot: commit {snap["commit"]!r} is not the current build commit {commit!r} (the manifest)')
     if prev is None and len({(c, s) for _, c, s in prev_seen}) > 1:      # no pin: the previous-build statements must at least agree
         out.append(f'{label}: the previous-build statements of its receipts contradict each other: ' + '; '.join(f'{w} {c[:12]}/{s[:12]}' for w, c, s in prev_seen))
     return out
@@ -432,7 +458,8 @@ def identity_problems(pkg, manifest):
     (round 11 D: a package assembled from a later snapshot's audit table, another build's bundles or another commit's receipts is mixed).
     Checked when present: tasks_92_commit, docs/audit-92.json, docs/AUDIT-92.md, gate/gate-build.json, gate/snapshot.json, gate/receipts/*.json,
     manifest.bundles[*], bundles/<R>/release-check.json (commit + wheel sha256 + decision) and, round 13 P2-B, bundles/<R>/bundle.json with every receipt
-    under bundles/<R>/receipts/ (bundle_receipt_problems: judged by role against the current or the pinned previous build). A package with nothing comparable has no problems."""
+    under bundles/<R>/receipts/ (bundle_receipt_problems: judged by role against the current or the pinned previous build). A package with nothing comparable has no problems.
+    Round 13c: manifest.bundles, when present and not null, must be a JSON object (a list/string/number is refused, never read as no bundles)."""
     pkg = Path(pkg)
     out = []
     commit = manifest.get('commit')
@@ -467,6 +494,8 @@ def identity_problems(pkg, manifest):
     if rdir.is_dir() or (decision is not None and isinstance(decision.get('implementation_checks'), dict)):
         out.extend(receipt_problems(rdir, commit, wsha, decision, registry))           # round 12 P2-D: commit AND wheel of every receipt, none skipped
     bundles = manifest.get('bundles')
+    if bundles is not None and not isinstance(bundles, dict):          # round 13c: a wrong container is never read as "no bundles"
+        out.append(f'manifest.bundles is not a JSON object: {_brief(bundles)}')
     for rel, ent in sorted(bundles.items()) if isinstance(bundles, dict) else []:
         if not isinstance(ent, dict):
             out.append(f'manifest.bundles[{rel}] is not an object')

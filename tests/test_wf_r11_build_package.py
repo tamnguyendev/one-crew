@@ -3,11 +3,14 @@
 build_package.py refuses mixed inputs (audit table of another commit, bundles of another wheel/commit, receipts of another commit), takes the
 previous wheel's provenance from evidence (never a hard-coded string), and keeps EVERY bundle result, refused ones included.
 run_bundles.py keeps a refused/blocked release in its index instead of dropping it.
+Round 13c: the package carries every docs/wf document its own documents cite (round report, compatibility guide), or names the
+ones the checkout lacks in its README; --doc ships a round report.
 """
 import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -255,6 +258,73 @@ class PreviousWheelProvenanceTests(BuildPackageBase):
         with self.assertRaises(SystemExit) as cm:
             self.build()
         self.assertIn('evidence', str(cm.exception))
+
+
+class HandoverDocumentsTests(BuildPackageBase):
+    """Round 13c (Codex review 28/10 on dev16): the round report and the compatibility guide the package's own documents cite
+    (docs/wf/r13b-compat.md in AUDIT-92.md, ...) stayed in the author's checkout. Invariant: every `docs/wf/...` document a shipped document
+    cites is in the package (flat in docs/ by file name) or, when the checkout itself lacks it, named as missing in the README; a --doc report
+    is shipped and named in the README; one file name never stands for two different files; nothing is written when the inputs are refused."""
+
+    DOC_REF = re.compile(r'(?<![\w/.-])(docs/wf/[\w./-]+?\.(?:md|json))')
+
+    def cited(self, pkg):
+        out = set()
+        for p in [pkg / 'README.md'] + sorted((pkg / 'docs').rglob('*.md')):
+            out |= set(self.DOC_REF.findall(p.read_text(encoding='utf-8')))
+        return out
+
+    def doc(self, name, text):
+        p = self.tmp / 'docs-in' / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding='utf-8')
+        return p
+
+    def docs_section(self, pkg):
+        readme = (pkg / 'README.md').read_text(encoding='utf-8')
+        self.assertIn('## Tài liệu kèm gói', readme)
+        return readme.split('## Tài liệu kèm gói', 1)[1].split('\n## ', 1)[0]
+
+    def test_every_cited_document_is_shipped_or_named_missing(self):
+        pkg = self.build()
+        names = {p.name for p in (pkg / 'docs').rglob('*') if p.is_file()}
+        section = self.docs_section(pkg)
+        cited = self.cited(pkg)
+        self.assertTrue(cited)
+        for ref in sorted(cited):
+            with self.subTest(ref=ref):
+                self.assertTrue(Path(ref).name in names or f'`{ref}`' in section, ref)
+
+    def test_round_report_and_what_it_cites_are_shipped_and_named(self):
+        report = self.doc('BAO-CAO-TEST.vi.md', 'Hướng dẫn: `docs/wf/r13b-compat.md`; ghi chú `docs/wf/r13-notes.md`.\n')
+        pkg = self.build('--doc', str(report))
+        self.assertEqual((pkg / 'docs' / 'BAO-CAO-TEST.vi.md').read_bytes(), report.read_bytes())
+        for name in ('r13b-compat.md', 'r13-notes.md'):
+            self.assertEqual((pkg / 'docs' / name).read_bytes(), (ROOT / 'docs' / 'wf' / name).read_bytes())
+        self.assertIn('`docs/BAO-CAO-TEST.vi.md`', self.docs_section(pkg))
+        sums = (pkg / 'SHA256SUMS').read_text(encoding='utf-8')
+        for name in ('BAO-CAO-TEST.vi.md', 'r13b-compat.md', 'r13-notes.md'):
+            self.assertIn('docs/' + name, sums)
+        self.assertEqual(build_package.package_check.package_scope(pkg)['reasons'], [])
+
+    def test_a_cited_document_the_checkout_lacks_is_named_in_the_readme(self):
+        report = self.doc('BAO-CAO-TEST.vi.md', 'Xem `docs/wf/khong-co-file-nay.md`.\n')
+        pkg = self.build('--doc', str(report))
+        self.assertIn('`docs/wf/khong-co-file-nay.md`', self.docs_section(pkg))
+        self.assertFalse((pkg / 'docs' / 'khong-co-file-nay.md').exists())
+
+    def test_two_files_with_one_name_refuse_the_build(self):
+        report = self.doc('DEV-LOG.md', 'không phải DEV-LOG của checkout\n')
+        with self.assertRaises(SystemExit) as cm:
+            self.build('--doc', str(report))
+        self.assertIn('DEV-LOG.md', str(cm.exception))
+        self.assertFalse((self.tmp / 'pkg').exists())
+
+    def test_a_missing_doc_option_file_refuses_the_build(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.build('--doc', str(self.tmp / 'khong-co.md'))
+        self.assertIn('khong-co.md', str(cm.exception))
+        self.assertFalse((self.tmp / 'pkg').exists())
 
 
 class RunBundlesKeepsRefusalTests(unittest.TestCase):

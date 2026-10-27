@@ -10,6 +10,8 @@ BEFORE the build (build_package.check_one_build) against the producer's output d
   (d) previous-build receipts carry the PREVIOUS identity: correct for their role -> pass; the CURRENT wheel where the previous is expected, or the
       previous where the current is expected -> refused (role mismatch); a previous identity that is not the one the bundle pins -> refused
   (e) a bundle the producer refused (produced:false) stays in the package, with whatever receipts it has; it still passes identity
+  (f) round 13c: a container the chain reads (notes real_checks, bundle.json gate_history / comparison / deliveries, ...) PRESENT with
+      another type is refused naming the file and field, never skipped as if empty; absent fields and [] stay valid
 """
 import copy
 import json
@@ -611,6 +613,198 @@ class ContradictoryReferenceThroughTheShippedVerifierTests(ThroughTheShippedVeri
         self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn('real_checks[0]', r.stdout + r.stderr)
         self.assertFalse((work / 'venv').exists())
+
+
+class ContainerShapeTests(BundleCopyBase):
+    """Round 13c (Codex review 28/10 on dev16 b71cea4, P2): bundle_receipt_problems followed notes.real_checks only when it was a list, so an
+    OBJECT (or null, a string, a number) skipped the whole branch. Codex reproduced it on a copy of the dev16 package (real_checks =
+    {path: receipts/events.json, sha256: 'a'*64}, the notes hash re-pinned in bundle.json and SHA256SUMS): package_scope reasons=[] and the
+    shipped verify_package exit 0, result=pass. The same skip existed for the other containers the chain reads (bundle.json gate_history /
+    comparison / comparison.items / deliveries, installed scenarios / adapter_runs, notes gate_decision(.snapshot), rollback rejected /
+    allowed(.scan), manifest.bundles). Invariant: a field the chain reads, PRESENT with another type, is refused naming the file and the field,
+    for every bundle (produced or refused); an absent field and an empty list are valid; consistent references keep passing."""
+
+    bj, put_bj, good = ContradictoryReferenceTests.bj, ContradictoryReferenceTests.put_bj, ContradictoryReferenceTests.good
+    NOT_A_LIST = ({}, None, '', 'receipts/events.json', 0, 5, True, 1.5)
+
+    def only(self, *needles):
+        """Exactly one reason, naming every needle: the message points at the wrong file/field and invents nothing else."""
+        r = self.reasons()
+        self.assertEqual(len(r), 1, r)
+        for n in needles:
+            self.assertIn(n, r[0])
+
+    def keep(self):
+        return {p: p.read_bytes() for p in self.bdir.rglob('*') if p.is_file()}
+
+    def restore(self, kept):
+        for p, b in kept.items():
+            p.write_bytes(b)
+        self.rewrite_sums()
+
+    def each(self, kept, case, fn):
+        """One case as a subTest; the bundle is restored whatever the outcome, so a failing case never leaks into the next one."""
+        with self.subTest(**case):
+            try:
+                fn()
+            finally:
+                self.restore(kept)
+
+    def test_codex_case_real_checks_object_with_checksums_rewritten_is_refused(self):
+        self.edit('notes.json', lambda d: d.update(real_checks={'path': 'receipts/events.json', 'sha256': 'a' * 64}))
+        self.assertEqual(r12.sums_step_bad(self.pkg), [])
+        self.only('bundles/R01/receipts/notes.json real_checks is not a list', "'receipts/events.json'")
+
+    def test_every_non_list_real_checks_is_refused_naming_the_field(self):
+        kept = self.keep()
+        for value in (self.good(),) + self.NOT_A_LIST:          # a well-formed, TRUE reference as an object is still not the list the schema reads
+            def case(value=value):
+                self.edit('notes.json', lambda d: d.update(real_checks=value))
+                self.only('bundles/R01/receipts/notes.json real_checks is not a list')
+            self.each(kept, {'real_checks': value}, case)
+        self.assertEqual(self.reasons(), [])
+
+    def test_valid_real_checks_pass(self):
+        kept = self.keep()
+        for i, fn in enumerate((lambda d: d.update(real_checks=[]),                    # what the producer writes
+                                lambda d: d.pop('real_checks', None),                  # receipts written without the field
+                                lambda d: d.update(real_checks=[self.good(), self.good(), self.good('installed.json')]))):
+            def case(fn=fn):
+                self.edit('notes.json', fn)
+                self.assertEqual(self.reasons(), [])
+            self.each(kept, {'case': i}, case)
+
+    def test_bundle_json_containers_of_another_type_are_refused_naming_the_field(self):
+        ref = self.good()
+        sites = (('gate_history', lambda bj, v: bj.update(gate_history=v), (ref, {}, None, '', 'receipts/events.json', 0, 5), 'is not a list'),
+                 ('comparison', lambda bj, v: bj.update(comparison=v), ([{'original': ref}], 'x', None, 3), 'is not a JSON object'),
+                 ('comparison.items', lambda bj, v: bj.update(comparison={'items': v}), ({'original': ref}, 'x', None), 'is not a list'),
+                 ('comparison.items[0]', lambda bj, v: bj.update(comparison={'items': [v]}), ('receipts/events.json', None, [ref]), 'is not a JSON object'),
+                 ('deliveries', lambda bj, v: bj.update(deliveries=v), ({'commit': OTHER, 'wheel_sha256': BAD_WHEEL}, None, 'x', 3), 'is not a list'),
+                 ('deliveries[0]', lambda bj, v: bj.update(deliveries=[v]), ('x', None, [FULL]), 'is not a JSON object'))
+        kept = self.keep()
+        for site, place, values, kind in sites:
+            for v in values:
+                def case(place=place, v=v, site=site, kind=kind):
+                    bj = self.bj()
+                    place(bj, v)
+                    self.put_bj(bj)
+                    self.only(f'bundles/R01/bundle.json {site} {kind}')
+                self.each(kept, {'site': site, 'value': v}, case)
+        self.assertEqual(self.reasons(), [])
+
+    def test_valid_bundle_json_containers_pass(self):
+        kept = self.keep()
+        for i, fn in enumerate((lambda bj: bj.update(comparison={'items': []}), lambda bj: bj.update(comparison={}),
+                                lambda bj: bj.update(gate_history=[self.good()], deliveries=[{'commit': FULL, 'wheel_sha256': self.wsha}]))):
+            def case(fn=fn):
+                bj = self.bj()
+                fn(bj)
+                self.put_bj(bj)
+                self.assertEqual(self.reasons(), [])
+            self.each(kept, {'case': i}, case)
+
+    def test_receipt_containers_of_another_type_are_refused_naming_the_field(self):
+        cur = {'commit': FULL, 'wheel_sha256': self.wsha}
+        cases = (('installed.json', 'scenarios', lambda d, v: d.update(scenarios=v), (dict(cur), None, 'x', 2), 'is not a list'),
+                 ('installed.json', 'adapter_runs', lambda d, v: d.update(adapter_runs=v), (dict(cur), 'x'), 'is not a list'),
+                 ('notes.json', 'gate_decision', lambda d, v: d.update(gate_decision=v), ([dict(cur)], 'x', 1), 'is not a JSON object'),
+                 ('notes.json', 'gate_decision.snapshot', lambda d, v: d['gate_decision'].update(snapshot=v), ('x', [{'commit': FULL}], None), 'is not a JSON object'),
+                 ('rollback.json', 'rejected', lambda d, v: d.update(rejected=v), ('x', None, []), 'is not a JSON object'),
+                 ('rollback.json', 'rejected.scan', lambda d, v: d['rejected'].update(scan=v), ('x', None, [OTHER]), 'is not a JSON object'),
+                 ('rollback.json', 'allowed.scan', lambda d, v: d['allowed'].update(scan=v), ('x', [OTHER]), 'is not a JSON object'))
+        kept = self.keep()
+        for name, field, place, values, kind in cases:
+            for v in values:
+                def case(name=name, field=field, place=place, v=v, kind=kind):
+                    self.edit(name, lambda d: place(d, v))
+                    self.only(f'bundles/R01/receipts/{name} {field} {kind}')
+                self.each(kept, {'file': name, 'field': field, 'value': v}, case)
+        self.assertEqual(self.reasons(), [])
+
+    def test_rollback_allowed_of_another_type_is_refused(self):
+        self.edit('rollback.json', lambda d: d.update(allowed='old run'), pin=False)
+        bj = self.bj()
+        bj['checks']['rollback']['sha256'] = sha(self.bdir / 'receipts' / 'rollback.json')
+        self.put_bj(bj)
+        self.refused('bundles/R01/receipts/rollback.json allowed is not a JSON object')
+
+    def test_valid_receipt_containers_pass(self):
+        kept = self.keep()
+        for i, (name, fn) in enumerate((('notes.json', lambda d: d.update(gate_decision=None)),         # a bundle produced without a gate decision
+                                        ('installed.json', lambda d: d.update(adapter_runs=[])),
+                                        ('installed.json', lambda d: d.pop('scenarios')))):
+            def case(name=name, fn=fn):
+                self.edit(name, fn)
+                self.assertEqual(self.reasons(), [])
+            self.each(kept, {'case': i}, case)
+
+    def test_refused_bundle_containers_are_judged_as_written(self):
+        rp = self.pkg / 'bundles' / 'RP'
+        r11.bundle_evidence(rp, 'RP', FULL, self.wsha)
+        self.rewrite_sums()
+        self.assertEqual(self.reasons(), [])
+        d = read(rp / 'receipts' / 'notes.json')
+        d['real_checks'] = {'path': 'receipts/events.json', 'sha256': 'a' * 64}
+        dump(rp / 'receipts' / 'notes.json', d)
+        repin(rp)
+        self.rewrite_sums()
+        self.only('bundles/RP/receipts/notes.json real_checks is not a list')
+        self.assertIs(read(rp / 'bundle-result.json').get('produced'), False)
+
+    def test_manifest_bundles_of_another_type_is_refused(self):
+        raw = (self.pkg / 'manifest.json').read_bytes()
+        m = json.loads(raw)
+        try:
+            for v in ([m['bundles']], 'R01', 3):
+                with self.subTest(bundles=v):
+                    jwrite(self.pkg / 'manifest.json', dict(m, bundles=v))
+                    self.rewrite_sums()
+                    self.assert_refused('manifest.bundles is not a JSON object')
+        finally:
+            (self.pkg / 'manifest.json').write_bytes(raw)
+            self.rewrite_sums()
+        self.assertEqual(self.reasons(), [])
+
+
+class ContainerShapeBeforeBuildTests(r11.BuildPackageBase):
+    """The same shapes are refused by build_package.check_one_build before anything is written; the producer's own [] builds."""
+
+    def test_real_checks_object_refuses_the_build_and_an_empty_list_builds(self):
+        rdir = self.bdir / 'R01' / 'receipts'
+        d = read(rdir / 'notes.json')
+        d['real_checks'] = {'path': 'receipts/events.json', 'sha256': 'a' * 64}
+        dump(rdir / 'notes.json', d)
+        repin(self.bdir / 'R01')
+        with self.assertRaises(SystemExit) as cm:
+            self.build()
+        self.assertIn('bundles/R01/receipts/notes.json real_checks is not a list', str(cm.exception))
+        self.assertFalse((self.tmp / 'pkg').exists())
+        d['real_checks'] = []
+        dump(rdir / 'notes.json', d)
+        repin(self.bdir / 'R01')
+        pkg = self.build()
+        self.assertEqual(pc.package_scope(pkg)['reasons'], [])
+
+    def test_gate_history_object_refuses_the_build(self):
+        bj = read(self.bdir / 'R01' / 'bundle.json')
+        bj['gate_history'] = {}
+        jwrite(self.bdir / 'R01' / 'bundle.json', bj)
+        with self.assertRaises(SystemExit) as cm:
+            self.build()
+        self.assertIn('bundles/R01/bundle.json gate_history is not a list', str(cm.exception))
+
+
+class ContainerShapeThroughTheShippedVerifierTests(BundleCopyBase):
+    run_launcher = ThroughTheShippedVerifierTests.run_launcher
+
+    def test_verify_package_refuses_the_real_checks_object_before_running_anything(self):
+        self.edit('notes.json', lambda d: d.update(real_checks={'path': 'receipts/events.json', 'sha256': 'a' * 64}))
+        r, work = self.run_launcher('verify_package')
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('bundles/R01/receipts/notes.json real_checks is not a list', r.stdout + r.stderr)
+        self.assertFalse((work / 'venv').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

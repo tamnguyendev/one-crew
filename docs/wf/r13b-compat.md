@@ -2,6 +2,21 @@
 
 Phạm vi: chỉ kiểm và ghi bằng chứng; không sửa runtime, không migration, không tính năng phục hồi mới. Không gọi model (executor giả), không đụng sổ thật, không sửa dữ liệu cũ (mọi thao tác trên bản sao). Code chạy: checkout `5b1fd7a` (2.2.0.dev15), `onecrew/` sạch lúc chạy, Python 3.13.15. **Chưa chạy trên wheel dev15** (chưa có wheel); lệnh chạy lại trên wheel ở §4.
 
+## 0. Đọc nhanh: 5 mức, theo từng bộ dữ liệu (thêm 28/10/2026)
+Năm mức là năm kết quả khác nhau; đạt mức trước không suy ra mức sau. Kết quả dưới đây giống nhau khi chạy từ checkout (27/10) và trên wheel dev16 cài từ gói (27/10 21:50).
+
+| Mức | A: root đang chạy | B: root xong | X: hết hạn | dev9 SDK: hết hạn, có node held |
+|---|---|---|---|---|
+| 1. Đọc sổ | Có | Có | Có | Có |
+| 2. Bảo toàn artifact, sửa chưa commit | Có | Có | Có | Có |
+| 3. Tiếp tục task (attempt mới) | Có: D, E, F, I chạy attempt mới và verify pass | Có: chỉ re-issue node integration I | **Không**: hết hạn chặn trước khi có attempt | **Không**: hết hạn, node còn lại held |
+| 4. Xác thực attempt cũ | Không: unverifiable | Không: unverifiable | Không có attempt | Không: 55/55 unverifiable |
+| 5. Handoff / giao kết quả | **Không**: từ chối vì b.txt sửa chưa commit nằm trong vùng đọc | **Có**: `delivered` sau re-issue integration | Không | Không |
+
+"Drill exit 0" và "4/4 trùng kết quả" nghĩa là kịch bản chạy hết và mỗi bước cho đúng kết quả mong đợi, kể cả các từ chối. Không có nghĩa là bốn bộ đều giao được. Không tự hợp thức hoá attempt cũ, không gia hạn root: gia hạn là quyết định của chủ sở hữu.
+
+Mức độc lập của drill: chạy trên wheel thì toàn bộ `onecrew` nạp từ venv (`python -I`), không dùng checkout; harness `D:\OneCrewRuns\wf-dev-tools\compat` nằm ngoài cả checkout lẫn gói; executor giả, không gọi model hay provider thật.
+
 ## 1. Kết luận
 - Không thấy lỗi hồi quy code. R13 làm đúng thiết kế: attempt/candidate trước R13 **đọc được, giữ nguyên, nhưng không bao giờ được xác thực**: kết quả là `candidate provenance unverifiable: no engine-recorded source capture for this attempt (node.started written before R13)` → fail, không phải pass. Receipt R12 không được tái dùng.
 - Làm tiếp được bằng **attempt mới** trên root còn hạn: attempt mới có capture (`node.started.source`) và verify pass. **Không làm tiếp được chính attempt cũ**: candidate cũ verify lại vẫn fail, node đã verified thì engine từ chối verify lại, step nhắm node cũ trả `waiting` (không chạy lại).
@@ -20,7 +35,7 @@ Ghi chú X: step đã ghi `decision.recorded` (Q2) + `context.entry` trước kh
 
 ## 3. Legacy-continuation đã ship chứng minh gì / không
 `verify/legacy_continuation.py` (15 bước, chạy từ gói): root **schema-2 kiểu cũ (không phải workflow)** do wheel cũ tạo chạy tiếp trên wheel mới theo nghĩa cũ (`verdict run` → M1 passed, không integrity), trang bàn giao O1, guard `verdict baseline` (AI bị từ chối, commit lạ bị từ chối, owner ghi một lần), danh tính root không đổi, bản cũ đọc lại được, module từ venv.
-**Không** phủ: root workflow (sequential-engine), `node.started.source`, attempt/partial/repair/handoff, candidate trước R13. Phần đó = drill này (từ checkout, chưa từ gói) + `tests/test_wf_r13b_compat.py`.
+**Không** phủ: root workflow (sequential-engine), `node.started.source`, attempt/partial/repair/handoff, candidate trước R13. Phần đó = drill này (từ checkout; [thêm 28/10] đã lặp lại trên wheel dev16 cài từ gói, xem cuối §4) + `tests/test_wf_r13b_compat.py`.
 
 ## 4. Lệnh, script, kết quả
 Script: `D:\OneCrewRuns\wf-dev-tools\compat\` — `compat_common.py` (executor giả = cách NativeExecutor.prepare dựng base), `gen_dev14.py`, `run_dev15.py`, `read_dev14.py`, `run_all.sh`, `show.py`, `mutant_fallback.py`.
@@ -38,7 +53,7 @@ Lưu ý thời hạn: root A/B hết hạn 27/10 13:54Z/13:55Z (120 phút sau kh
 Test: `tests/test_wf_r13b_compat.py` — 5 test, OK (≈40 s), không skip, không dữ liệu ngoài. Mô phỏng engine trước R13 bằng `_source_capture → (None, None)` (payload không có capture, không có lỗi capture — như dev14) và verdict dev14 bằng event `node.verification` luật R12. Đỏ thử: `mutant_fallback.py` (verifier lấy capture mới của project khi thiếu capture) → 3/5 fail.
 
 ### Lặp lại trên wheel cuối dev16 (27/10 21:50)
-Dữ liệu trước R13 tạo mới bằng wheel dev14 vào `D:\OneCrewRuns\wf v\compat-r13b-wheel-b71cea4\` (dev14-orig + pristine; dev9 copy từ dev9-pristine), venv mới cài `onecrew-2.2.0.dev16` từ gói `wf-handover-b71cea4` (`onecrew` nạp từ venv), chạy bằng `run_all_d.sh installed <venv-dev16 python> results-wheel <drill dir>`. A, B, X, dev9: exit 0; kết quả từng bước trùng lần chạy từ checkout (0 khác biệt); mọi dòng sổ và file state bản pristine giữ nguyên; project SDK gốc không đổi; dev14 đọc lại A/B/X sau drill exit 0.
+Dữ liệu trước R13 tạo mới bằng wheel dev14 vào `D:\OneCrewRuns\wf v\compat-r13b-wheel-b71cea4\` (dev14-orig + pristine; dev9 copy từ dev9-pristine), venv mới cài `onecrew-2.2.0.dev16` từ gói `wf-handover-b71cea4` (`onecrew` nạp từ venv), chạy bằng `run_all_d.sh installed <venv-dev16 python> results-wheel <drill dir>`. A, B, X, dev9: exit 0 (drill chạy hết, gồm các từ chối mong đợi; mức giao được theo §0); kết quả từng bước trùng lần chạy từ checkout (0 khác biệt); mọi dòng sổ và file state bản pristine giữ nguyên; project SDK gốc không đổi; dev14 đọc lại A/B/X sau drill exit 0.
 
 ## 5. Hướng dẫn tương thích cho beta (và giới hạn)
 1. **Attempt/candidate cũ**: đọc được, giữ nguyên, không sửa. Kiểm theo R13 = *unverifiable* (fail), **không phải pass**; không có cách hợp lệ làm nó pass (không tái dùng receipt R12, không chọn baseline khác). Kiểm hàng loạt: `docs/wf/audit/tools/reverify_nodes.py <state> <project> <plan> --mode out` trên **bản sao**.

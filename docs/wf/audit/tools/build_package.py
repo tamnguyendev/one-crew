@@ -1,7 +1,7 @@
 # The development handover package (directive I, 24/10): one folder with the wheel + sha256, the commit/snapshot identity, the gate decision and
 # receipts, the T54 bundles' verdicts, the 92-task table, release notes, and a README that says how to install into a clean venv OUTSIDE the
 # checkout, smoke-test, and roll back. Nothing here claims delivery, Codex review or owner acceptance.
-#   python docs/wf/audit/tools/build_package.py <snapshot-gate out dir> <package dir (new)> [--bundles bundles.json] [--audit audit-92.json] (--previous-wheel path [--previous-evidence manifest.json|sidecar.json] | --first-release)
+#   python docs/wf/audit/tools/build_package.py <snapshot-gate out dir> <package dir (new)> [--bundles bundles.json] [--audit audit-92.json] (--previous-wheel path [--previous-evidence manifest.json|sidecar.json] | --first-release) [--doc report.md ...]
 # Round 11 D: the package is ONE commit/ONE wheel. The 92-task table, every produced bundle, the gate snapshot and every gate receipt must name the gate's commit
 # (short-sha prefix match) and the bundles the gate's wheel sha256, else the build is refused before anything is written. The previous wheel's provenance is read
 # from evidence (the previous package's manifest.json, a wheel sidecar, or the wheel's own METADATA), never written by hand. Every bundle result is kept, refused ones included.
@@ -70,6 +70,48 @@ def previous_provenance(wheel_path, evidence=None):
     return {'file': 'wheel/previous/' + p.name, 'sha256': digest, 'commit': found.get('commit'), 'version': version, 'source': found['source']}
 
 
+BASE_DOCS = ('docs/wf/FEATURE-SCOPE.md', 'docs/wf/TAKEOVER-CLAUDE-2026-10-24.md', 'docs/wf/DEV-LOG.md', 'docs/wf/R00-DONE.md')
+_DOC_REF = re.compile(r'(?<![\w/.-])(docs/wf/[\w./-]+?\.(?:md|json))')
+_SHIPPED_ELSEWHERE = {'AUDIT-92.md', 'audit-92.json', 'development-testcases.json', 'development-manifest.json'}
+
+
+def handover_docs(audit_path, extra=()):
+    """Round 13c (Codex review 28/10 on dev16): the package carries the documents its own documents cite, so its reader never needs the author's
+    checkout to find the round report or the compatibility guide (dev16 shipped AUDIT-92.md citing docs/wf/r13b-compat.md without it).
+    Shipped: BASE_DOCS + every --doc file + every `docs/wf/...md|json` those, AUDIT-92.md or the release notes cite, transitively, that exists in
+    the checkout; all flat in docs/ by file name (the release notes keep docs/release-notes/, the 92-task table and the registry their own copies).
+    -> ({file name: source path}, [cited documents the checkout does not have], [--doc file names]). A --doc file that does not exist, or two
+    different files under one name (a citation must resolve to one file), refuse the build before anything is written."""
+    files, missing, seen = {}, [], set()
+    extras = []
+    for x in extra:
+        src = Path(x) if Path(x).is_absolute() else Path.cwd() / x
+        if not src.is_file():
+            sys.exit(f'--doc {x}: no such file')
+        extras.append(src)
+    ship = [R / rel for rel in BASE_DOCS if (R / rel).is_file()] + extras
+    scan = [(s, True) for s in ship] + [(audit_path.with_name('AUDIT-92.md'), False)] + [(s, False) for s in sorted((R / 'docs' / 'wf' / 'release-notes').glob('*.md'))]
+    while scan:
+        src, shipped = scan.pop(0)
+        key = (src.resolve(), shipped)
+        if key in seen or not src.is_file():
+            continue
+        seen.add(key)
+        if shipped:
+            other = files.get(src.name)
+            if other is not None and other.resolve() != src.resolve() and other.read_bytes() != src.read_bytes():
+                sys.exit(f'two different documents would be shipped as docs/{src.name}: {other} and {src}')
+            files.setdefault(src.name, src)
+        for rel in _DOC_REF.findall(src.read_text(encoding='utf-8', errors='replace')):
+            if rel.startswith('docs/wf/release-notes/') or Path(rel).name in _SHIPPED_ELSEWHERE:
+                continue
+            if (R / rel).is_file():
+                scan.append((R / rel, True))
+            elif rel not in missing:
+                missing.append(rel)
+    return files, sorted(missing), [s.name for s in extras]
+
+
 def check_one_build(gate_out, build, decision, audit_path, bundle_results, problems, bundle_dirs=None, previous=None):
     """Every input that names a commit or a wheel digest must name the gate's. Appends to `problems`.
     Round 13 P2-B: `bundle_dirs` = {release: the producer's output dir}; every produced bundle's evidence chain (bundle.json + receipts/*.json) is judged by the
@@ -115,6 +157,7 @@ def main(argv=None):
     ap.add_argument('--audit', help='audit-92.json of THIS commit (default: docs/wf/audit/audit-92.json of the checkout); AUDIT-92.md is read beside it')
     ap.add_argument('--previous-evidence', help='manifest.json of the previous package, or a wheel sidecar json, naming the previous wheel (default: <wheel>.json, then the manifest.json two levels above the wheel)')
     ap.add_argument('--first-release', action='store_true', help='declare a first-release package (kind first-release-handover-package): no previous wheel, rollback not evaluated')
+    ap.add_argument('--doc', action='append', default=[], help='a round report (or other document) to ship in docs/ and name in the README; repeatable. The documents it cites are shipped too')
     a = ap.parse_args(argv)
     # P1-3: the manifest KIND declares the verification scope; it is chosen here explicitly, never inferred from a missing flag.
     if bool(a.previous_wheel) == bool(a.first_release):
@@ -135,6 +178,7 @@ def main(argv=None):
     previous = previous_provenance(a.previous_wheel, a.previous_evidence) if a.previous_wheel else None       # evidence first: a refusal leaves nothing behind
     check_one_build(gate_out, build, decision, audit_path, bundle_results, problems, bundle_dirs={rel: Path(path).parent for rel, path in index.items()}, previous=previous)
     if problems: sys.exit('refusing to build a package from inputs of different builds:\n  ' + '\n  '.join(problems))
+    doc_files, doc_missing, doc_reports = handover_docs(audit_path, a.doc)       # round 13c: refusals here leave nothing behind either
     (pkg / 'wheel').mkdir(parents=True); shutil.copy2(wheel_src, pkg / 'wheel' / wheel_src.name)
     if a.previous_wheel:
         p = Path(a.previous_wheel); (pkg / 'wheel' / 'previous').mkdir(); shutil.copy2(p, pkg / 'wheel' / 'previous' / p.name)
@@ -148,10 +192,10 @@ def main(argv=None):
     (pkg / 'docs').mkdir()
     for src in (audit_path.with_name('AUDIT-92.md'), audit_path):
         if src.exists(): shutil.copy2(src, pkg / 'docs' / src.name)
-    for rel in ('docs/wf/FEATURE-SCOPE.md', 'docs/wf/TAKEOVER-CLAUDE-2026-10-24.md',
-                'docs/wf/DEV-LOG.md', 'docs/wf/R00-DONE.md', 'wfkit/development-testcases.json', 'wfkit/development-manifest.json'):
+    for rel in ('wfkit/development-testcases.json', 'wfkit/development-manifest.json'):
         if (R / rel).exists(): shutil.copy2(R / rel, pkg / 'docs' / Path(rel).name)
     shutil.copytree(R / 'docs' / 'wf' / 'release-notes', pkg / 'docs' / 'release-notes')
+    for name, src in sorted(doc_files.items()): shutil.copy2(src, pkg / 'docs' / name)
     bundles = {}
     if a.bundles:
         (pkg / 'bundles').mkdir()
@@ -217,6 +261,12 @@ def main(argv=None):
 
 Release bị từ chối/chặn vẫn nằm trong gói (`bundles/<R>/bundle-result.json`): thiếu bằng chứng không bị giấu.
 
+## Tài liệu kèm gói
+
+Báo cáo của vòng này: {', '.join(f'`docs/{n}`' for n in doc_reports) or 'không kèm (`--doc` không được dùng khi dựng gói)'}. Mọi tài liệu `docs/wf/...` mà các tài liệu trong gói dẫn tới đều có trong `docs/` theo tên file ({len(doc_files)} tài liệu; ghi chú phát hành ở `docs/release-notes/`, bảng 92 task ở `docs/AUDIT-92.md`); {('được dẫn nhưng KHÔNG có trong checkout khi dựng gói: ' + ', '.join(f'`{m}`' for m in doc_missing)) if doc_missing else 'không có tài liệu nào được dẫn mà thiếu'}.
+Đường dẫn mã nguồn trong tài liệu (`wfkit/…`, `onecrew/…`, `tests/…`, kèm số dòng) là mã tại commit `{commit[:12]}`: muốn mở cần checkout commit đó; gói chỉ chứa wheel dựng từ nó.
+Gói không tự chứng nhận: kết quả kiểm gói của tác giả nằm ngoài gói (báo cáo vòng cập nhật sau khi kiểm); tự chạy lại bằng các lệnh bên dưới.
+
 ## Cài vào venv sạch, NGOÀI checkout
 
 ```bash
@@ -234,6 +284,7 @@ python verify/verify_package.py <thư mục gói này> <thư mục làm việc M
 python verify/legacy_continuation.py <thư mục gói này> <thư mục làm việc MỚI khác>
 ```
 
+Đây là phép kiểm độc lập khỏi checkout của gói; bằng chứng khác trong báo cáo vòng tự ghi nguồn (checkout, wheel cài đặt kèm fixture từ checkout, provider thật).
 Chỉ cần Python 3.11+ của hệ thống và chính gói này: không cần checkout, không cần PYTHONPATH, chạy từ thư mục nào cũng được (kể cả thư mục mới
 trống); đường dẫn có dấu cách được hỗ trợ (đặt trong ngoặc kép). Mỗi launcher TỰ KIỂM trước: băm các file trong `verify/` và so với `manifest.json`
 (`verifier.files`) và `SHA256SUMS` — thiếu/sửa một file là dừng với mã thoát khác 0 và nêu rõ file nào, chưa tạo venv. Thêm `--self-check-only`

@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261028-R13C-REG-2",
+ "file": "wfkit/development-testcases.json#PL/check.r13_bundle_receipts",
+ "old_sha256": "dc55b71b6d6106eaf11722f79eb30fb1af54635fcc1c72b7b8710593bf7d17a5",
+ "new_sha256": "1679c8af5693776b6b4c4e45d8129c92f6711f9c4d138aea449df07ef9fb1aad",
+ "reason": "R13c: scope text of PL check.r13_bundle_receipts (container types judged, never read as empty) and PL check.r11_build_package (handover documents) extended; same modules, no check added or removed, no oracle lowered.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 28/10/2026 ~00:00, chỉ thị hoàn thiện beta 2.2 sau review Codex trên dev16 (dán nguyên văn): \"Tôi ủy quyền bạn tự phân tích, chọn giải pháp, chia việc, sửa code/test/tài liệu liên quan, commit local, đóng gói và kiểm chứng trong phạm vi này. Không dừng hỏi tôi duyệt từng task, phương án kỹ thuật, test hoặc commit.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 13c, integration commit on codex/wf-development",
+ "at": "2026-10-28"
+}
