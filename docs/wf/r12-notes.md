@@ -34,3 +34,10 @@ Phạm vi 2.2; tái dùng artifact protocol v1, snapshot, scope, engine, budget,
 | D | Sonnet | P2-D + mục 7 (test release_bootstrap theo hành vi) | wfkit/package_check.py, docs/wf/audit/tools/build_package.py, tests/test_wf_r12_package_identity.py, tests/test_wf_release_bootstrap.py, tests/test_wf_package_check.py |
 | P | Sonnet | WKPL loại C: T45e E19/E20/E27 quy tắc local + nối pipeline | wfkit/finalgate.py, wfkit/pilot_report.py, wfkit/pilot_tools.py, tests/test_wf_r12_pl_local_rules.py |
 | Đầu mối | Fable | 92 task (T28 E1/WK05a, C+E), SDK reverify bằng verifier cuối, registry/U1/manifest, tích hợp, snapshot dev14, gate, bundles, audit, gói, verify/legacy, PowerShell, báo cáo | registry, u1, pyproject, docs |
+
+## Gate f71ba51 (dev14, 27/10 11:45–15:00)
+`%TEMP%\wf-snapshot-gate-20261027-f71ba51`, log `D:\OneCrewRuns\wf-dev-logs\snapshot-gate-f71ba51.txt`, wheel sha256 `0fdb3217871e2d1e2e95ddff8a4a51419d546bf0df2b0ee003782a6d8247035f`: **280/280 check đạt** (275 + 5 check R12: R05 r12_output_contract_chain, r12_output_refs_dotfiles, r12_t28_e1_evidence; PL r12_package_identity, r12_pl_local_rules), 2.368 lượt test, 0 skip, document-selfcheck pass, intact; `refused` chỉ vì acceptance partial 13 (T28 → complete) / blocked 10. Chậm hơn gate trước (~3h15) vì KiroCrew backend chạy song song từ 13:03 (không thuộc phiên này).
+Hồi quy nhắm đích trước commit: 42 module OK, 0 skip (`D:\OneCrewRuns\wf-dev-logs\r12-regression.txt`).
+
+## Gói f71ba51 — kết quả cuối (15:05–15:25)
+Bundles 10/11 (RP refused thiếu W45, giữ trong gói). `refresh_92_evidence` + `audit_merge f71ba51`: 62/26/4, 0 đổi trạng thái, 0 check trích dẫn thiếu receipt, không còn dòng loại C. Gói `D:\OneCrewRuns\wf-handover-f71ba51` (657 file; previous wheel dev13, provenance từ manifest gói dev13). verify_package 26/26, legacy_continuation 15/15 từ verifier trong gói (`D:\OneCrewRuns\wf v\f71ba51`); kiểm chéo toàn bộ khớp, 280/280 receipt khớp commit + wheel, bước identity của gói (mã R12) reasons=[]. PowerShell 10/10 (`D:\OneCrewRuns\ps-check f71ba51`). Báo cáo: `BAO-CAO-R12-2026-10-27.vi.md`.

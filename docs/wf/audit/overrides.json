@@ -16,7 +16,7 @@
   "missing": "",
   "next": "T38a has no development-registry entry (R00 kit only, receipted in CG-R00 d467546); kit-guard is used by gate.py and development_gate.py on the real path.",
   "evidence": [
-   "snapshot gate 6366137: gate-kitguard.json ok=true; gate-document-selfcheck.json exit 0, block a2ef6c0a, counterexamples 150/150 caught, controls 15/15; R01-check.program_transition, R01-check.snapshot_gate (T39 complete, E1-E16 matrix)"
+   "snapshot f71ba51: gate R00 receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R00: acceptance complete 0/0, partial [], blocked []; bundle R00 on f71ba51: n/a"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -35,7 +35,8 @@
   "missing": "none for the kit; (optional) re-run CG-R00 on the current build so W40-* can name it as gate history",
   "next": "Kit is complete and has passed once on a real build. The R00 modules themselves have no receipt on 6366137 (not in the development registry) - that is evidence of the R00 W-tasks, not of the kit.",
   "evidence": [
-   "CG-R00 decision PASS on d467546 (D:/OneCrewRuns/wf-dev-logs/cg-r00/decision.json, 2026-10-24T03:17Z, wheel 0981dbd0..., 10 testcases, no U1, no simulated); refused at b2cc754/5e1309f (kit-guard pin tests/test_wf_plan_names.py, later handled by namespace-lineage); not re-run on 6366137"
+   "CG-R00 decision PASS on d467546 (D:/OneCrewRuns/wf-dev-logs/cg-r00/decision.json, 2026-10-24T03:17Z, wheel 0981dbd0..., 10 testcases, no U1, no simulated); refused at b2cc754/5e1309f (kit-guard pin tests/test_wf_plan_names.py, later handled by namespace-lineage); not re-run on 6366137",
+   "snapshot f71ba51: gate R00 receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R00: acceptance complete 0/0, partial [], blocked []; bundle R00 on f71ba51: n/a"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -60,7 +61,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R04-check.t20_reply_guard (test_wf_decisions has no receipt on 6366137)"
+   "R04-check.t20_reply_guard (test_wf_decisions has no receipt on 6366137)",
+   "snapshot f71ba51: gate R00 receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R00: acceptance complete 0/0, partial [], blocked []; bundle R00 on f71ba51: n/a"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -80,7 +82,8 @@
   "missing": "none (register T13a in a current registry; R00 is frozen history)",
   "next": "Read compat.py/plan.emit; only decisions.record bypasses emit (class A, harmless). T13a is not in development-testcases.json (R00 frozen).",
   "evidence": [
-   "R01-check.t13a_emitted_kinds, R04-check.events"
+   "R01-check.t13a_emitted_kinds, R04-check.events",
+   "snapshot f71ba51: gate R00 receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R00: acceptance complete 0/0, partial [], blocked []; bundle R00 on f71ba51: n/a"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -104,7 +107,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R01-check.installed_r00_scenarios (test_wf_plan_names has no receipt on 6366137)"
+   "R01-check.installed_r00_scenarios (test_wf_plan_names has no receipt on 6366137)",
+   "snapshot f71ba51: gate R00 receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R00: acceptance complete 0/0, partial [], blocked []; bundle R00 on f71ba51: n/a"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -125,7 +129,8 @@
   "missing": "none (optional: report an anchor with an invalid name as an unreadable root instead of failing the whole scan)",
   "next": "Read scan code (mode=ro reader, B4 not released by accepted). Observed: one anchor 'plan:..' made via task_intake makes the whole scan raise (refuses, never reports success) - root cause filed under W12a. test_wf_compat_scan could not run in the export (needs git archive of ee46539).",
   "evidence": [
-   "R01-check.t49_counterexamples, R01-check.installed_r00_scenarios (test_wf_compat_scan has no receipt on 6366137)"
+   "R01-check.t49_counterexamples, R01-check.installed_r00_scenarios (test_wf_compat_scan has no receipt on 6366137)",
+   "snapshot f71ba51: gate R00 receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R00: acceptance complete 0/0, partial [], blocked []; bundle R00 on f71ba51: n/a"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -144,7 +149,8 @@
   "missing": "none (receipt the check in a current registry)",
   "next": "Ran tests.test_wf_advisor_errors on tree: 7/7 OK. Read the step0 provenance branch: provider_error skips advice_missing.",
   "evidence": [
-   "none (test_wf_advisor_errors not receipted on 6366137)"
+   "none (test_wf_advisor_errors not receipted on 6366137)",
+   "snapshot f71ba51: gate R00 receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R00: acceptance complete 0/0, partial [], blocked []; bundle R00 on f71ba51: n/a"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -166,7 +172,8 @@
   "missing": "",
   "next": "Read boundary.py/wf_wheel.py: markers from `python -I -S`, base_exempt only for clean-venv base packages. Not re-run (wheel build is heavy).",
   "evidence": [
-   "R01-check.installed_r00_scenarios, R01-check.scenarios, R01-check.release_bundle"
+   "R01-check.installed_r00_scenarios, R01-check.scenarios, R01-check.release_bundle",
+   "snapshot f71ba51: gate R00 receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R00: acceptance complete 0/0, partial [], blocked []; bundle R00 on f71ba51: n/a"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -188,7 +195,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R01..RX2-check.upgrade_drill, R01-check.legacy_baseline"
+   "R01..RX2-check.upgrade_drill, R01-check.legacy_baseline",
+   "snapshot f71ba51: gate R00 receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R00: acceptance complete 0/0, partial [], blocked []; bundle R00 on f71ba51: n/a"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -218,7 +226,8 @@
   "evidence": [
    "R01-*.json receipts on 6366137 (19, all pass)",
    "registry 4b1b7b1 R01: acceptance complete 7/9, partial [T33b, T54a], blocked []",
-   "bundle R01 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
+   "bundle R01 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)",
+   "snapshot f71ba51: gate R01 receipts 28 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R01: acceptance complete 7/9, partial ['T33b', 'T54a'], blocked []; bundle R01 on f71ba51: pass; cited checks on f71ba51: check.r01_report:1, check.r01_step0_survey:1, check.survey_worker:1, check.r01_step0_proposal:1, check.r01_step0_compat:1, check.r01_card:1, check.t38b_task_states:1, check.installed_features:5, check.upgrade_drill:11, check.release_bundle:1"
   ],
   "judged_at": "audit lượt 8, 26/10/2026 (registry dev8)"
  },
@@ -239,7 +248,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R01-check.r01_step0_proposal, R01-check.r01_step0_compat"
+   "R01-check.r01_step0_proposal, R01-check.r01_step0_compat",
+   "snapshot f71ba51: gate R01 receipts 28 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R01: acceptance complete 7/9, partial ['T33b', 'T54a'], blocked []; bundle R01 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -261,7 +271,8 @@
   "missing": "none (registry T42/T24a still partial: acceptance-audit only)",
   "next": "Read _acceptance: 'đạt' only when every covering milestone is passed in the plan-show state AND its receipt blob is readable; no milestone -> 'chưa có'; open finding -> 'cần kiểm lại'. No defect found; inherited ('kế thừa') passes count as đạt by design.",
   "evidence": [
-   "R01-check.r01_report, R01-check.t38b_task_states"
+   "R01-check.r01_report, R01-check.t38b_task_states",
+   "snapshot f71ba51: gate R01 receipts 28 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R01: acceptance complete 7/9, partial ['T33b', 'T54a'], blocked []; bundle R01 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -282,7 +293,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R01-check.r01_card"
+   "R01-check.r01_card",
+   "snapshot f71ba51: gate R01 receipts 28 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R01: acceptance complete 7/9, partial ['T33b', 'T54a'], blocked []; bundle R01 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -305,7 +317,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R01-check.r01_step0_survey, R01-check.survey_worker"
+   "R01-check.r01_step0_survey, R01-check.survey_worker",
+   "snapshot f71ba51: gate R01 receipts 28 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R01: acceptance complete 7/9, partial ['T33b', 'T54a'], blocked []; bundle R01 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -334,7 +347,8 @@
   "next": "Acceptance R01 complete + review độc lập.",
   "evidence": [
    "package 4b1b7b1 bundles/R01/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
-   "registry 4b1b7b1 R01: acceptance complete 7/9, partial [T33b, T54a], blocked []"
+   "registry 4b1b7b1 R01: acceptance complete 7/9, partial [T33b, T54a], blocked []",
+   "snapshot f71ba51: gate R01 receipts 28 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R01: acceptance complete 7/9, partial ['T33b', 'T54a'], blocked []; bundle R01 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -362,7 +376,8 @@
   "evidence": [
    "R02-*.json receipts on 6366137 (10, pass)",
    "registry 4b1b7b1 R02: acceptance complete 4/5, partial [T54b], blocked []",
-   "bundle R02 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
+   "bundle R02 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)",
+   "snapshot f71ba51: gate R02 receipts 15 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R02: acceptance complete 4/5, partial ['T54b'], blocked []; bundle R02 on f71ba51: pass; cited checks on f71ba51: check.r02_outcome:1, check.r02_resume:2, check.r02_context:1, check.context_wiring:1, check.r02_retrieval:1, check.r02_boundaries:3, check.installed_features:5, check.upgrade_drill:11"
   ],
   "judged_at": "audit lượt 7, 25/10/2026 (registry e61b2c2)"
  },
@@ -385,7 +400,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R02-check.r02_outcome, R02-check.r02_resume, KN-check.r02_resume"
+   "R02-check.r02_outcome, R02-check.r02_resume, KN-check.r02_resume",
+   "snapshot f71ba51: gate R02 receipts 15 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R02: acceptance complete 4/5, partial ['T54b'], blocked []; bundle R02 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -404,7 +420,8 @@
   "missing": "",
   "next": "Read add(): source required and resolved (event in this project / blob / file:line@rev / symbol), content-hash dedupe; observe() drops non-significant ops. Caveat: `context add` lets the caller pick label 'verified' freely (not a DoD clause).",
   "evidence": [
-   "R02-check.r02_context, R02-check.context_wiring"
+   "R02-check.r02_context, R02-check.context_wiring",
+   "snapshot f71ba51: gate R02 receipts 15 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R02: acceptance complete 4/5, partial ['T54b'], blocked []; bundle R02 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -426,7 +443,8 @@
   "missing": "none (registry T51b partial: acceptance-audit only)",
   "next": "Read retrieve(): project entries need row project_id == entry project == caller; general only with conditions and an event/receipt source; nothing feeds entries into contract/authority (is_instruction False). _private_reasons checks paths/filenames only, not other private words (generalisation quality is out of T51b scope).",
   "evidence": [
-   "R02-check.r02_retrieval, R02-check.r02_boundaries"
+   "R02-check.r02_retrieval, R02-check.r02_boundaries",
+   "snapshot f71ba51: gate R02 receipts 15 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R02: acceptance complete 4/5, partial ['T54b'], blocked []; bundle R02 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -451,7 +469,8 @@
   "next": "Acceptance R02 complete + review độc lập.",
   "evidence": [
    "package 4b1b7b1 bundles/R02/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
-   "registry 4b1b7b1 R02: acceptance complete 4/5, partial [T54b], blocked []"
+   "registry 4b1b7b1 R02: acceptance complete 4/5, partial [T54b], blocked []",
+   "snapshot f71ba51: gate R02 receipts 15 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R02: acceptance complete 4/5, partial ['T54b'], blocked []; bundle R02 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -479,7 +498,8 @@
   "evidence": [
    "R03-*.json receipts on 6366137 (25, pass)",
    "registry 4b1b7b1 R03: acceptance complete 10/11, partial [T54c], blocked []",
-   "bundle R03 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
+   "bundle R03 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)",
+   "snapshot f71ba51: gate R03 receipts 27 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R03: acceptance complete 10/11, partial ['T54c'], blocked []; bundle R03 on f71ba51: pass; cited checks on f71ba51: check.estimates:2, check.t36b_*:4, check.exceptions:1, check.t43c_quiet:1, check.r03a_*:3, check.questions:2, check.installed_notifications:1, check.upgrade_drill:11"
   ],
   "judged_at": "audit lượt 7, 25/10/2026 (đối chiếu registry 734acdc)"
  },
@@ -503,7 +523,8 @@
   "missing": "",
   "next": "Read code: pid reuse on the same host, or a run from another host, is bounded by the per-run deadline (max_minutes+120s; root-budget runs use the reduced minutes and the reviewer ProviderCall is bounded by the same remaining time), so 'checking' cannot hang forever. reap is called by verdict status, verdict run and the Stop hook (refreshed). The Stop hook only logs (no block/remind) while live_runs is non-empty. Ran tests.test_wf_r03a_run_started on the frozen tree: 15/16 OK; 1 error only because the frozen export is not a git repo (E9 old-version archive ee46539), which is environmental. Residual, not a defect: if refreshed() cannot read the ledger, the hook falls back to the exported file, whose run_in_progress may be stale.",
   "evidence": [
-   "R03-check.r03a_run_started, R03-check.t41_gaps"
+   "R03-check.r03a_run_started, R03-check.t41_gaps",
+   "snapshot f71ba51: gate R03 receipts 27 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R03: acceptance complete 10/11, partial ['T54c'], blocked []; bundle R03 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -524,7 +545,8 @@
   "missing": "",
   "next": "Checked the 'Không done khi' clause in code: HookAdapter declares nothing; observe refuses measured calls/seconds for an executor without the measure capability (the executor observe CLI has no --measured at all); hold_plan never returns 'paused' (revoke_write, or pause_requested 'chưa xác nhận'); Dispatcher refuses undeclared commands. Minor labelling quirk (not a DoD breach): summary() gives derived reviewer runs ('receipt-verifier') the command-verifier capabilities ['measure']/['time'] although that executor has no declaration; calls stay not_measured.",
   "evidence": [
-   "R03-check.hold_report, R03-check.r03a_executors, R03-check.observation_integration, R03-check.shared_worker_ports"
+   "R03-check.hold_report, R03-check.r03a_executors, R03-check.observation_integration, R03-check.shared_worker_ports",
+   "snapshot f71ba51: gate R03 receipts 27 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R03: acceptance complete 10/11, partial ['T54c'], blocked []; bundle R03 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -554,7 +576,8 @@
   "missing": "none (E17 'ETA trễ': ETA vượt cận trên baseline không tạo request — tests.test_wf_exceptions.test_approved_upper_bound_same_cause_dedup_and_six_hours_quiet; ghi chú cũ \"chưa có test riêng\" là loại D, sửa lượt 10). Cảnh báo 70% hiện ở plan present/report và card desktop theo thiết kế.",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R03-check.estimates, R03-check.t36b_additional_u2, R03-check.t36b_cli, R03-check.t36b_gaps, R03-check.r03a_executors (T36b registry: partial, E4/E7/E17/E15 uncovered)"
+   "R03-check.estimates, R03-check.t36b_additional_u2, R03-check.t36b_cli, R03-check.t36b_gaps, R03-check.r03a_executors (T36b registry: partial, E4/E7/E17/E15 uncovered)",
+   "snapshot f71ba51: gate R03 receipts 27 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R03: acceptance complete 10/11, partial ['T54c'], blocked []; bundle R03 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -575,7 +598,8 @@
   "missing": "",
   "next": "Verified the 'không done khi' clause: metrics imports onecrew.evaluation_core by name and calls signals/decision_source/role/completion_level/assistance_level/outcome through _Calls; v1 eval_scorecard and eval_observe import the same module, so it is not a copy. Registry T35d is now complete with its matrix, so the audit row's D note is stale. Minor: rework.repair_rounds counts inconclusive verdicts (timeouts) as repair rounds.",
   "evidence": [
-   "R03-check.r03a_metrics, R03-check.t35_gaps, R03-check.t35d_handover_findings"
+   "R03-check.r03a_metrics, R03-check.t35_gaps, R03-check.t35d_handover_findings",
+   "snapshot f71ba51: gate R03 receipts 27 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R03: acceptance complete 10/11, partial ['T54c'], blocked []; bundle R03 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -597,7 +621,8 @@
   "missing": "",
   "next": "Ran work/G2/w24.py: amending an approved root gives exactly one 'approval' snapshot targeting plan present; a stop gives exactly one 'stopped' snapshot (the v2.plan_stopped request card is suppressed while stopped), with no second notice. Identity = hash(task, category, cause), so v1 dedupe holds. The verified notice carries delivery_is_not_acceptance and user_attention_verified=False. There is no heartbeat code in v2.",
   "evidence": [
-   "R03-check.exceptions, R03-check.installed_notifications, R03-check.t43a_channels, R03-check.t12_gaps"
+   "R03-check.exceptions, R03-check.installed_notifications, R03-check.t43a_channels, R03-check.t12_gaps",
+   "snapshot f71ba51: gate R03 receipts 27 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R03: acceptance complete 10/11, partial ['T54c'], blocked []; bundle R03 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -618,7 +643,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R03-check.exceptions, R03-check.t43c_quiet, R03-check.t43_gaps, R03-check.estimates"
+   "R03-check.exceptions, R03-check.t43c_quiet, R03-check.t43_gaps, R03-check.estimates",
+   "snapshot f71ba51: gate R03 receipts 27 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R03: acceptance complete 10/11, partial ['T54c'], blocked []; bundle R03 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -641,7 +667,8 @@
   "missing": "",
   "next": "Ran work/G2/w30c.py: questions.show + list_for_plan + render_present wrote 0 events, so reading is not an answer; CLI show/list use ReadOnlyLedger; answer requires require_owner (refuses an AI session or ONECREW_ACTOR). answer_effects.apply returns legacy_root for plan: anchors, so no plan.closed/request.applied is written there (old-root test with the real d3120c6 build).",
   "evidence": [
-   "R03-check.questions, R03-check.t47a_answers, R03-check.t47_gaps"
+   "R03-check.questions, R03-check.t47a_answers, R03-check.t47_gaps",
+   "snapshot f71ba51: gate R03 receipts 27 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R03: acceptance complete 10/11, partial ['T54c'], blocked []; bundle R03 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -666,7 +693,8 @@
   "next": "Acceptance R03 complete + review độc lập.",
   "evidence": [
    "package 4b1b7b1 bundles/R03/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
-   "registry 4b1b7b1 R03: acceptance complete 10/11, partial [T54c], blocked []"
+   "registry 4b1b7b1 R03: acceptance complete 10/11, partial [T54c], blocked []",
+   "snapshot f71ba51: gate R03 receipts 27 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R03: acceptance complete 10/11, partial ['T54c'], blocked []; bundle R03 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -694,7 +722,8 @@
   "evidence": [
    "R04-*.json receipts on 6366137 (33, pass)",
    "registry 4b1b7b1 R04: acceptance complete 15/17, partial [T37, T54d], blocked []",
-   "bundle R04 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
+   "bundle R04 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass; cited checks on f71ba51: check.r04a_authority:1, check.engine:2, check.acceptance_change:1, check.test_integrity:1, check.t19_counterexamples:1, check.root_budget:1, check.t36a_scenario:1, check.t37_child_acceptance:1"
   ],
   "judged_at": "audit lượt 8, 26/10/2026 (registry dev8)"
  },
@@ -722,7 +751,8 @@
   "evidence": [
    "R04-*.json receipts on 6366137",
    "registry 4b1b7b1 R04: acceptance complete 15/17, partial [T37, T54d], blocked []",
-   "bundle R04 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
+   "bundle R04 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass; cited checks on f71ba51: check.engine:2, check.failed_dependency:1, check.namespace:1, check.solution_link:1, check.root_writer:1, check.plan_binding:1, check.namespace_compat:1, check.upgrade_drill:11"
   ],
   "judged_at": "audit lượt 8, 26/10/2026 (registry dev8)"
  },
@@ -736,7 +766,9 @@
   "tests": [],
   "missing": "",
   "next": "",
-  "evidence": [],
+  "evidence": [
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
+  ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
  "W02": {
@@ -758,7 +790,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R04-check.r04a_authority.json"
+   "R04-check.r04a_authority.json",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -780,7 +813,8 @@
   "missing": "none (the split that silently drops a node check is reported under W05)",
   "next": "Split creates no request (probe w05e2e.py: requests []); Q1 outside self_decide -> U3 LedgerError, no request. Registry T16a/T03 complete. Caveat: T03 E7 only guards output ids, not node checks (see W05 defect 1).",
   "evidence": [
-   "R04-check.engine.json, R04-check.t03_gaps.json"
+   "R04-check.engine.json, R04-check.t03_gaps.json",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -805,7 +839,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R04-check.acceptance_change.json, R04-check.test_integrity.json, R04-check.t19_counterexamples.json, R04-check.t19_gaps.json"
+   "R04-check.acceptance_change.json, R04-check.test_integrity.json, R04-check.t19_counterexamples.json, R04-check.t19_gaps.json",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -827,7 +862,8 @@
   "missing": "T05 đã đủ bằng chứng; T37 E3/E6 chờ quyết định O4 của chủ sở hữu.",
   "next": "O4.",
   "evidence": [
-   "R04-check.engine.json, R04-check.failed_dependency.json, R04-check.t37_child_acceptance.json"
+   "R04-check.engine.json, R04-check.failed_dependency.json, R04-check.t37_child_acceptance.json",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -850,7 +886,8 @@
   "missing": "Chỉ chia sẻ số call; giây/deadline vẫn theo từng job với root không root-budget (theo thiết kế cũ).",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R04-check.root_budget.json, R04-check.control_core.json, R04-check.plan_binding.json"
+   "R04-check.root_budget.json, R04-check.control_core.json, R04-check.plan_binding.json",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -872,7 +909,8 @@
   "missing": "",
   "next": "Hệ quả: root plan: cũ trên bản mới không còn 'inconclusive chờ baseline' (P1-D lượt 3) — `verdict baseline` vẫn tồn tại nhưng không đổi verdict schema-2; công cụ kiểm tiếp tục root cũ và bundle đã cập nhật theo.",
   "evidence": [
-   "R04-check.namespace.json, R04-check.events.json, R04-check.v2_trust_fixes.json"
+   "R04-check.namespace.json, R04-check.events.json, R04-check.v2_trust_fixes.json",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -897,7 +935,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R04-check.namespace.json, R04-check.solution_link.json, R04-check.installed_solution_link.json, R04-check.root_writer.json, R04-check.plan_binding.json"
+   "R04-check.namespace.json, R04-check.solution_link.json, R04-check.installed_solution_link.json, R04-check.root_writer.json, R04-check.plan_binding.json",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -917,7 +956,8 @@
   "missing": "Quyết định theo ủy quyền lượt 6 (00 §6.1/05 T49 định nghĩa block đọc/tiếp tục; E21 'tên trùng, không chặn'; T49d N5/N6): reads_other_root là CẢNH BÁO (severity warning, in trong bảng compat scan và receipt drill), không tính blocking.total; dự đoán áp cả root legacy DUPa (xác nhận trên binary d3120c6 thật). Lệch với bảng lệnh T49 ghi DUPa `plan report` 'thoát 0 [chạy]' — scan theo hành vi thật (E22); bảng cần ghi chú (docs ngoài phạm vi code).",
   "next": "Mục 7 báo cáo.",
   "evidence": [
-   "R04-check.namespace_compat.json"
+   "R04-check.namespace_compat.json",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -931,7 +971,9 @@
   "tests": [],
   "missing": "",
   "next": "",
-  "evidence": [],
+  "evidence": [
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
+  ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
  "W14a": {
@@ -953,7 +995,8 @@
   "missing": "",
   "next": "Read engine.py: selection only via dependency_core.ready_batch (eligible() only sets branch_errors), slots=1 default, Control.reserve with on_reserved fence; no queue/scheduler or domain rule. The ready_batch spy (>=3 calls) goes red on an engine that does not call it. T16b/T17b are R05 shared checks, not DoD.",
   "evidence": [
-   "R04-check.engine.json, R04-check.engine_cli.json, R04-check.native_executor.json, R04-check.installed_native.json"
+   "R04-check.engine.json, R04-check.engine_cli.json, R04-check.native_executor.json, R04-check.installed_native.json",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -974,7 +1017,8 @@
   "missing": "",
   "next": "Grepped every unknown_blockers use: per-node _input_blocks (node and its dependents) only; root-level only in verification_ready (final verification, correct). blockers() keys by required_by, so a local unknown never holds the root. Registry T02 complete E1-E6.",
   "evidence": [
-   "R04-check.runtime_unknowns.json, R04-check.installed_unknowns.json"
+   "R04-check.runtime_unknowns.json, R04-check.installed_unknowns.json",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -993,7 +1037,8 @@
   "missing": "",
   "next": "Every writer of plan.revised goes through internal_plan.revise -> _validate (repair_tasks, recovery_policy, test_preparation, engine_cli): cap > 7200 without indivisible{reason >= 20 chars, finite cap_seconds == cap} refused; estimate upper > cap refused; cap > remaining deadline refused. T36a E1,E2,E3,E5,E6,E8 in registry; E4/E7 belong to T36b.",
   "evidence": [
-   "R04-check.t36a_scenario.json, R04-check.task_caps.json, KN-check.task_caps.json"
+   "R04-check.t36a_scenario.json, R04-check.task_caps.json, KN-check.task_caps.json",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1018,7 +1063,8 @@
   "next": "Acceptance R04 complete + review độc lập.",
   "evidence": [
    "package 4b1b7b1 bundles/R04/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
-   "registry 4b1b7b1 R04: acceptance complete 15/17, partial [T37, T54d], blocked []"
+   "registry 4b1b7b1 R04: acceptance complete 15/17, partial [T37, T54d], blocked []",
+   "snapshot f71ba51: gate R04 receipts 49 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R04: acceptance complete 15/17, partial ['T37', 'T54d'], blocked []; bundle R04 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1047,7 +1093,8 @@
   "evidence": [
    "R05-*.json receipts on 6366137 (43, pass)",
    "registry 4b1b7b1 R05: acceptance complete 19/21, partial [T28, T54e], blocked []",
-   "bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
+   "bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass; cited checks on f71ba51: check.evidence_binding:1, check.candidate_*:8, check.findings*:4, check.finding_scope:2, check.repair_tasks:1, check.retention*:2, check.findings_report:1, check.register_v1_guard*:2, check.r12_t28_e1_evidence:1"
   ],
   "judged_at": "audit lượt 8, 26/10/2026 (registry dev8)"
  },
@@ -1075,7 +1122,8 @@
   "evidence": [
    "R05-*.json receipts on 6366137",
    "registry 4b1b7b1 R05: acceptance complete 19/21, partial [T28, T54e], blocked []",
-   "bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
+   "bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass; cited checks on f71ba51: check.answer_effects:2, check.recovery_policy:1, check.t18a_blocker:1, check.review_*:5, check.t08a_*:2, check.progress:1, check.t18b_liveness:1, check.test_preparation:2"
   ],
   "judged_at": "audit lượt 8, 26/10/2026 (registry dev8)"
  },
@@ -1100,7 +1148,8 @@
   "missing": "none (registry T06: complete ở R05 — đã áp dụng; ghi chú cũ \"partial -> complete\" là loại D, sửa lượt 10).",
   "next": "Ran w07_env.py: verifier_env keeps TERM/SHELL, so the same work checked from Git Bash and re-assessed from PowerShell is stale with reason 'checker environment changed: variables' (the variable is not named; safe direction, but may refuse an owner `plan accept` run from another shell). Binding only exists on sequential-engine roots (evidence_context is passed only with that capability); legacy plans keep unbound receipts by design. Environment = interpreter/platform + hashed env vars, not tool versions on PATH.",
   "evidence": [
-   "R05-check.evidence_binding (pass), R05-check.candidate_adapters, R05-check.candidate_reuse_counter"
+   "R05-check.evidence_binding (pass), R05-check.candidate_adapters, R05-check.candidate_reuse_counter",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1124,7 +1173,8 @@
   "missing": "none (registry T22: complete ở R05 — đã áp dụng; ghi chú cũ \"partial -> complete\" là loại D, sửa lượt 10).",
   "next": "Read assess(): path and behavioural bases always recheck (no behavioural evaluator exists, consistent with T22 'không chứng minh'); scope.neutral reuse requires every changed path to match, command verifier, no submodule, and an evidence.reuse event before the milestone counts as passed. On non-engine plans plan.covers() still carries neutral diffs without an evidence.reuse record (legacy path, unbound receipts) - outside the opt-in workflow.",
   "evidence": [
-   "R05-check.evidence_binding (pass), R05-check.candidate_reuse_counter, R05-check.handoff_reuse"
+   "R05-check.evidence_binding (pass), R05-check.candidate_reuse_counter, R05-check.handoff_reuse",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1151,7 +1201,8 @@
   "missing": "none (registry T31: complete ở R05 — đã áp dụng; ghi chú cũ \"partial -> complete\" là loại D, sửa lượt 10).",
   "next": "Hook: the block comes from the generic 're:git ... push' deny rule; refs/onecrew only adds a note to the message. The hook message does not echo the command, so the test's assertIn('refs/onecrew') goes red if the note is removed and returncode goes red if the push rule is removed: the E6 counterexample works (the rows.txt remark that it stays green is wrong). Push is blocked only for sessions under an enforce plan, as T31 scopes it.",
   "evidence": [
-   "R05-check.retention (pass), R05-check.retention_integration (pass)"
+   "R05-check.retention (pass), R05-check.retention_integration (pass)",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1171,7 +1222,8 @@
   "missing": "",
   "next": "Preparation node has depends=[]; implementation and integration depend on its 'verified'. Registry T04c already complete with E1/E7 matrix (taskinfo 'D' is stale). Preparation is added by the entry ('prepare-tests'), not generated automatically - matches 'điều phối'. Caveat (see W19): prepare() calls ip.revise, so used after a repair it wedges the repaired node (repair-evidence marker generation mismatch).",
   "evidence": [
-   "R05-check.test_preparation (pass), R05-check.node_actions_cli"
+   "R05-check.test_preparation (pass), R05-check.node_actions_cli",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1197,7 +1249,8 @@
   "missing": "none cho DoD của W17 (đường đóng finding). Acceptance T28 trong registry là partial-by-construction: E2-E6 complete, E1 là bằng chứng chạy tay 25/10 (114/114 trước và sau tách finding_core) chưa thành check gate — ghi chú cũ \"T28 partial -> complete\" là loại D, sửa lượt 10; phần còn lại tính ở WK05a (loại C).",
   "next": "Read all closure paths: only core.close_finding closes (resolve with an authentic passing receipt later than the finding, or an engine pass of the same internal check). _refresh marks open findings 'stale' (not closed) when the criterion/config - or, for internal findings, any node check - changes; a stale finding stops holding its scope, but acceptance still needs the re-verified integration, so no acceptance bypass.",
   "evidence": [
-   "R05-check.findings, R05-check.register_v1_guard, R05-check.register_v1_guard_p6, R05-check.adapter_findings (all pass)"
+   "R05-check.findings, R05-check.register_v1_guard, R05-check.register_v1_guard_p6, R05-check.adapter_findings (all pass)",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1222,7 +1275,8 @@
   "missing": "none (registry T17b: complete ở R05 — đã áp dụng; ghi chú cũ \"partial -> complete\" là loại D, sửa lượt 10).",
   "next": "Ran w18_probe.py on the real engine (finding-register root A,B,D,I): A red -> finding RF1 holds A,D,I only; plus a scoped U2 on A -> request_blockers A,D,I; engine.ready=['B'], B stepped and verified while A held. No whole-root hold. Without the finding-register capability scoped requests hold nothing (request_action's node.held still holds the U2 branch).",
   "evidence": [
-   "R05-check.t07a_e14_request_holds, R05-check.finding_scope, R05-check.hook_holds_generation, R05-check.engine (all pass)"
+   "R05-check.t07a_e14_request_holds, R05-check.finding_scope, R05-check.hook_holds_generation, R05-check.engine (all pass)",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1244,7 +1298,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R05-check.repair_tasks (pass)"
+   "R05-check.repair_tasks (pass)",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1271,7 +1326,8 @@
   "missing": "",
   "next": "Read the code: progress_core has no v1 worker imports; v1 progress.observe imports observe_counters/prepare_evidence from it (one source, not a copy). Command liveness only reaches 'blocked' at elapsed>=cap; silence beyond the window stays 'unknown'; the hook records and never kills. Registry T18b complete with matrix.",
   "evidence": [
-   "R05-check.progress (pass), R05-check.t18b_liveness (pass)"
+   "R05-check.progress (pass), R05-check.t18b_liveness (pass)",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1294,7 +1350,8 @@
   "missing": "Với deadline, 'spent' ghi thời điểm deadline, không phải số giây.",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R05-check.t18a_blocker (pass), R05-check.recovery_policy (pass)"
+   "R05-check.t18a_blocker (pass), R05-check.recovery_policy (pass)",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1316,7 +1373,8 @@
   "missing": "",
   "next": "Read verification_ready: it requires every node rank>=verified and no failed_blockers/finding_blockers/unknowns; a red verification after a pass sets rank 0 and failed_blockers, so root_ready and plan accept refuse. Registry T11 complete. Caveat: E5 'smaller than suite' holds for the fixture checker; the real CandidateChecker reruns every root milestone at the integration node (see W19 note).",
   "evidence": [
-   "R05-check.t11_integration_finding (pass), R05-check.engine (pass)"
+   "R05-check.t11_integration_finding (pass), R05-check.engine (pass)",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1336,7 +1394,8 @@
   "missing": "none (registry: set T24b complete with evidence_matrix E4 -> test_wf_t35d_handover_findings; the check sits in R03 although W23d/T24b is R05)",
   "next": "Read code: the report reads list_findings(open_only=True) from the register. The test opens F1/F2 through a real engine fixture, closes F2 with a passing receipt and asserts that only F1 is listed, with ID/criterion/artifact; a page that does not read the register goes red. Design note, not a defect: a finding made 'stale' by a changed criterion is neither listed as open nor closed with evidence.",
   "evidence": [
-   "R03-check.t35d_handover_findings, R05-check.findings_report"
+   "R03-check.t35d_handover_findings, R05-check.findings_report",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1359,7 +1418,8 @@
   "missing": "",
   "next": "",
   "evidence": [
-   "R05-check.review_dispatch, R05-check.review_optional_cli, R05-check.review_policy, R05-check.installed_review_dispatch, R05-check.runtime_unknowns (T16c registry: partial, E9 uncovered)"
+   "R05-check.review_dispatch, R05-check.review_optional_cli, R05-check.review_policy, R05-check.installed_review_dispatch, R05-check.runtime_unknowns (T16c registry: partial, E9 uncovered)",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1382,7 +1442,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R05-check.answer_effects (T47c/T43d registry: partial; E4, E6, E7, E13 uncovered)"
+   "R05-check.answer_effects (T47c/T43d registry: partial; E4, E6, E7, E13 uncovered)",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1405,7 +1466,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R05-check.t08a_reconcile (pass), R05-check.t08a_faults (pass)"
+   "R05-check.t08a_reconcile (pass), R05-check.t08a_faults (pass)",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1430,7 +1492,8 @@
   "next": "Acceptance R05 complete + review độc lập.",
   "evidence": [
    "package 4b1b7b1 bundles/R05/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
-   "registry 4b1b7b1 R05: acceptance complete 19/21, partial [T28, T54e], blocked []"
+   "registry 4b1b7b1 R05: acceptance complete 19/21, partial [T28, T54e], blocked []",
+   "snapshot f71ba51: gate R05 receipts 61 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R05: acceptance complete 20/21, partial ['T54e'], blocked []; bundle R05 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1456,7 +1519,8 @@
   "evidence": [
    "R06-*.json receipts on 6366137 (9, pass)",
    "registry 4b1b7b1 R06: acceptance complete 2/3, partial [T54f], blocked []",
-   "bundle R06 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
+   "bundle R06 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)",
+   "snapshot f71ba51: gate R06 receipts 10 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R06: acceptance complete 2/3, partial ['T54f'], blocked []; bundle R06 on f71ba51: pass; cited checks on f71ba51: check.r06_learning:1, check.node_learning:1, check.installed_node_learning:1, check.r02_boundaries:3, check.t52b_lesson_limits:1, check.upgrade_drill:11"
   ],
   "judged_at": "audit lượt 7, 25/10/2026 (đối chiếu registry 734acdc)"
  },
@@ -1482,7 +1546,8 @@
   "missing": "none (registry T52a already complete)",
   "next": "Read incidents.py fully. Incident id = hash(task, finding) or per node failure episode; environment class only from typed receipt error/timed_out/provider_error (reviewer error -> inconclusive -> environment); an env-only node episode never becomes an incident; after a verified pass a later failure opens a new episode (correct). A command failing nonzero because an env var is missing is classed product - inherent; the fixture uses a typed provider error. No defect found.",
   "evidence": [
-   "R06-check.r06_learning, R06-check.installed_node_learning, R06-check.r02_boundaries"
+   "R06-check.r06_learning, R06-check.installed_node_learning, R06-check.r02_boundaries",
+   "snapshot f71ba51: gate R06 receipts 10 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R06: acceptance complete 2/3, partial ['T54f'], blocked []; bundle R06 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1505,7 +1570,8 @@
   "missing": "",
   "next": "",
   "evidence": [
-   "R06-check.r06_learning, R06-check.t52b_lesson_limits, R06-check.installed_node_learning"
+   "R06-check.r06_learning, R06-check.t52b_lesson_limits, R06-check.installed_node_learning",
+   "snapshot f71ba51: gate R06 receipts 10 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R06: acceptance complete 2/3, partial ['T54f'], blocked []; bundle R06 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1530,7 +1596,8 @@
   "next": "Acceptance R06 complete + review độc lập.",
   "evidence": [
    "package 4b1b7b1 bundles/R06/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
-   "registry 4b1b7b1 R06: acceptance complete 2/3, partial [T54f], blocked []"
+   "registry 4b1b7b1 R06: acceptance complete 2/3, partial [T54f], blocked []",
+   "snapshot f71ba51: gate R06 receipts 10 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R06: acceptance complete 2/3, partial ['T54f'], blocked []; bundle R06 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1554,7 +1621,8 @@
   "evidence": [
    "R07-*.json receipts on 6366137 (6, pass)",
    "registry 4b1b7b1 R07: acceptance complete 2/3, partial [T54g], blocked []",
-   "bundle R07 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
+   "bundle R07 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)",
+   "snapshot f71ba51: gate R07 receipts 7 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R07: acceptance complete 2/3, partial ['T54g'], blocked []; bundle R07 on f71ba51: pass; cited checks on f71ba51: check.r07_localization:1, check.installed_localization:1, check.issue_provider:1, check.upgrade_drill:11"
   ],
   "judged_at": "audit lượt 7, 25/10/2026 (đối chiếu registry 734acdc)"
  },
@@ -1577,7 +1645,8 @@
   "missing": "",
   "next": "",
   "evidence": [
-   "R07-check.r07_localization, R07-check.installed_localization"
+   "R07-check.r07_localization, R07-check.installed_localization",
+   "snapshot f71ba51: gate R07 receipts 7 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R07: acceptance complete 2/3, partial ['T54g'], blocked []; bundle R07 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1597,7 +1666,8 @@
   "missing": "none for the DoD (a real vision adapter is outside T53b: real-provider vision quality is not claimed)",
   "next": "Capability is checked before the image is opened; no product provider declares vision, so the CLI always reports \"không đọc ảnh ... no vision adapter\". E10 is covered by a fix-commit read counter in the r07 test. Time measured is time-to-candidate (verified_root_cause_seconds None), stated as a limitation. No defect found.",
   "evidence": [
-   "R07-check.issue_provider, R07-check.r07_localization"
+   "R07-check.issue_provider, R07-check.r07_localization",
+   "snapshot f71ba51: gate R07 receipts 7 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R07: acceptance complete 2/3, partial ['T54g'], blocked []; bundle R07 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1622,7 +1692,8 @@
   "next": "Acceptance R07 complete + review độc lập.",
   "evidence": [
    "package 4b1b7b1 bundles/R07/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
-   "registry 4b1b7b1 R07: acceptance complete 2/3, partial [T54g], blocked []"
+   "registry 4b1b7b1 R07: acceptance complete 2/3, partial [T54g], blocked []",
+   "snapshot f71ba51: gate R07 receipts 7 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R07: acceptance complete 2/3, partial ['T54g'], blocked []; bundle R07 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1650,7 +1721,8 @@
   "evidence": [
    "R08-*.json receipts on 6366137 (24, pass)",
    "registry 4b1b7b1 R08: acceptance complete 7/8, partial [T54h], blocked []",
-   "bundle R08 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
+   "bundle R08 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)",
+   "snapshot f71ba51: gate R08 receipts 26 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R08: acceptance complete 7/8, partial ['T54h'], blocked []; bundle R08 on f71ba51: pass; cited checks on f71ba51: check.parallel_engine:1, check.review_snapshot*:2, check.managed_executor:1, check.managed_hold:1, check.engine_managed:1, check.host_checkpoint:1, check.t08b_*:2, check.t30_counterexamples:1"
   ],
   "judged_at": "audit lượt 7, 25/10/2026 (đối chiếu registry 734acdc)"
  },
@@ -1673,7 +1745,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R08-check.parallel_engine, R08-check.parallel_native, R08-check.t04d_finding_holds_branch"
+   "R08-check.parallel_engine, R08-check.parallel_native, R08-check.t04d_finding_holds_branch",
+   "snapshot f71ba51: gate R08 receipts 26 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R08: acceptance complete 7/8, partial ['T54h'], blocked []; bundle R08 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1697,7 +1770,8 @@
   "missing": "",
   "next": "",
   "evidence": [
-   "R08-check.review_snapshot, R08-check.review_snapshot_integration, R08-check.candidate_adapters, R08-check.parallel_engine"
+   "R08-check.review_snapshot, R08-check.review_snapshot_integration, R08-check.candidate_adapters, R08-check.parallel_engine",
+   "snapshot f71ba51: gate R08 receipts 26 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R08: acceptance complete 7/8, partial ['T54h'], blocked []; bundle R08 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1722,7 +1796,8 @@
   "missing": "none (một lần race 'held' khi hai step đồng thời đã sửa lượt 6b: step không dispatch attempt mình không admit — tests.test_wf_w33b_evidence test_t15c_e8_an_attempt_admitted_by_another_caller_is_never_dispatched_again; ghi chú cũ \"cần xem thêm\" là loại D, sửa lượt 10).",
   "next": "",
   "evidence": [
-   "R08-check.managed_executor, R08-check.managed_hold, R08-check.engine_managed"
+   "R08-check.managed_executor, R08-check.managed_hold, R08-check.engine_managed",
+   "snapshot f71ba51: gate R08 receipts 26 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R08: acceptance complete 7/8, partial ['T54h'], blocked []; bundle R08 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1745,7 +1820,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R08-check.t07b_e16_continuation, R08-check.managed_hold, R08-check.engine_managed"
+   "R08-check.t07b_e16_continuation, R08-check.managed_hold, R08-check.engine_managed",
+   "snapshot f71ba51: gate R08 receipts 26 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R08: acceptance complete 7/8, partial ['T54h'], blocked []; bundle R08 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1769,7 +1845,8 @@
   "missing": "",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
-   "R08-check.t08b_crash_before_dispatch, R08-check.managed_executor, R08-check.t30_counterexamples, R08-check.host_checkpoint, R08-check.host_v1_guard, R08-check.t08b_no_exactly_once"
+   "R08-check.t08b_crash_before_dispatch, R08-check.managed_executor, R08-check.t30_counterexamples, R08-check.host_checkpoint, R08-check.host_v1_guard, R08-check.t08b_no_exactly_once",
+   "snapshot f71ba51: gate R08 receipts 26 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R08: acceptance complete 7/8, partial ['T54h'], blocked []; bundle R08 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1794,7 +1871,8 @@
   "next": "Acceptance R08 complete + review độc lập.",
   "evidence": [
    "package 4b1b7b1 bundles/R08/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
-   "registry 4b1b7b1 R08: acceptance complete 7/8, partial [T54h], blocked []"
+   "registry 4b1b7b1 R08: acceptance complete 7/8, partial [T54h], blocked []",
+   "snapshot f71ba51: gate R08 receipts 26 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R08: acceptance complete 7/8, partial ['T54h'], blocked []; bundle R08 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1820,7 +1898,8 @@
   "evidence": [
    "RP-*.json receipts on 6366137 (9, pass)",
    "registry 4b1b7b1 RP: acceptance complete 2/4, partial [T54i], blocked [T40b]",
-   "bundle RP trên artifact 4b1b7b1: refused (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4 đạt; không đạt: T54.5)"
+   "bundle RP trên artifact 4b1b7b1: refused (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4 đạt; không đạt: T54.5)",
+   "snapshot f71ba51: gate RP receipts 10 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 RP: acceptance complete 2/4, partial ['T54i'], blocked ['T40b']; bundle RP on f71ba51: refused (no bundle: RP needs --matrix <wfkit.provider_matrix output>: the six pr); cited checks on f71ba51: check.rp_providers:1, check.provider_matrix:1, check.release_check:1, check.finalgate:2, check.candidate_reviewer:2, check.metered_verifier:3"
   ],
   "judged_at": "audit lượt 8, 26/10/2026 (registry dev8)"
  },
@@ -1840,7 +1919,8 @@
   "missing": "",
   "next": "Read the providers.py quota paths, the reviewer.run receipt (provider, model, provider_error) and advisor.advise: quota -> quota_exhausted -> inconclusive, the next provider is never tried. advisor --provider is an explicit user flag, not an automatic switch. Live codex/kiro argv belongs to W45, not this DoD.",
   "evidence": [
-   "RP-check.rp_providers"
+   "RP-check.rp_providers",
+   "snapshot f71ba51: gate RP receipts 10 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 RP: acceptance complete 2/4, partial ['T54i'], blocked ['T40b']; bundle RP on f71ba51: refused (no bundle: RP needs --matrix <wfkit.provider_matrix output>: the six pr)"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1860,7 +1940,8 @@
   "missing": "external: pins must come from the approved program contract (receipts say pins_source = program kit, contract not yet approved) - owner approval; codex CLI not installed (its cells honestly chưa kiểm chứng, which is allowed)",
   "next": "Checked the 6366137 re-run: 6 rows; commit 63661376fa70 + wheel sha256 503f624f... in every receipt; simulated=false; real CLI sha256/version for claude (2.1.286) and kiro (2.34.0); codex rows status unverified / result blocked \"CLI not found\", not counted; P1.0 written as \"subset\" 4/6. Nothing fake is counted. Only DoD clause not met: pins from the program contract.",
   "evidence": [
-   "RP-check.provider_matrix (kit rules only); the real run is outside the gate: D:/OneCrewRuns/wf-w45-matrix-6366137"
+   "RP-check.provider_matrix (kit rules only); the real run is outside the gate: D:/OneCrewRuns/wf-w45-matrix-6366137",
+   "snapshot f71ba51: gate RP receipts 10 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 RP: acceptance complete 2/4, partial ['T54i'], blocked ['T40b']; bundle RP on f71ba51: refused (no bundle: RP needs --matrix <wfkit.provider_matrix output>: the six pr)"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -1885,7 +1966,8 @@
   "next": "Quyết định chủ sở hữu về pin/hợp đồng + codex CLI; chạy ma trận W45 trên wheel hiện hành để có so sánh cho T54.5 (provider trả phí, E).",
   "evidence": [
    "package 4b1b7b1 bundles/RP/release-check.json: refused; T54.5 comparison missing (ma trận W45 thuộc wheel 6366137, không có so sánh cho wheel hiện hành) — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
-   "registry 4b1b7b1 RP: acceptance complete 2/4, partial [T54i], blocked [T40b]"
+   "registry 4b1b7b1 RP: acceptance complete 2/4, partial [T54i], blocked [T40b]",
+   "snapshot f71ba51: gate RP receipts 10 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 RP: acceptance complete 2/4, partial ['T54i'], blocked ['T40b']; bundle RP on f71ba51: refused (no bundle: RP needs --matrix <wfkit.provider_matrix output>: the six pr)"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1910,7 +1992,8 @@
   "evidence": [
    "RX1-*.json receipts on 6366137 (8, pass)",
    "registry 4b1b7b1 RX1: acceptance complete 2/3, partial [T54j], blocked []",
-   "bundle RX1 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
+   "bundle RX1 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)",
+   "snapshot f71ba51: gate RX1 receipts 8 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 RX1: acceptance complete 2/3, partial ['T54j'], blocked []; bundle RX1 on f71ba51: pass; cited checks on f71ba51: check.rx1_core:1, check.rx1_doc:1, check.candidate_adapters:4, check.installed_adapters:2, check.upgrade_drill:11"
   ],
   "judged_at": "audit lượt 7, 25/10/2026 (đối chiếu registry 734acdc)"
  },
@@ -1934,7 +2017,8 @@
   "missing": "",
   "next": "",
   "evidence": [
-   "RX1-check.rx1_core, RX1-check.rx1_doc, RX1-check.installed_adapters, RX1-check.candidate_adapters"
+   "RX1-check.rx1_core, RX1-check.rx1_doc, RX1-check.installed_adapters, RX1-check.candidate_adapters",
+   "snapshot f71ba51: gate RX1 receipts 8 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 RX1: acceptance complete 2/3, partial ['T54j'], blocked []; bundle RX1 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1959,7 +2043,8 @@
   "next": "Acceptance RX1 complete + review độc lập.",
   "evidence": [
    "package 4b1b7b1 bundles/RX1/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
-   "registry 4b1b7b1 RX1: acceptance complete 2/3, partial [T54j], blocked []"
+   "registry 4b1b7b1 RX1: acceptance complete 2/3, partial [T54j], blocked []",
+   "snapshot f71ba51: gate RX1 receipts 8 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 RX1: acceptance complete 2/3, partial ['T54j'], blocked []; bundle RX1 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -1984,7 +2069,8 @@
   "evidence": [
    "RX2-*.json receipts on 6366137 (8, pass)",
    "registry 4b1b7b1 RX2: acceptance complete 1/2, partial [T54k], blocked []",
-   "bundle RX2 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)"
+   "bundle RX2 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt)",
+   "snapshot f71ba51: gate RX2 receipts 8 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 RX2: acceptance complete 1/2, partial ['T54k'], blocked []; bundle RX2 on f71ba51: pass; cited checks on f71ba51: check.rx2_adapters:1, check.t14b_same_core:1, check.candidate_adapters:4, check.installed_adapters:2, check.upgrade_drill:11"
   ],
   "judged_at": "audit lượt 7, 25/10/2026 (đối chiếu registry 734acdc)"
  },
@@ -2006,7 +2092,8 @@
   "missing": "",
   "next": "",
   "evidence": [
-   "RX2-check.t14b_same_core, RX2-check.rx2_adapters, RX2-check.installed_adapters, RX2-check.candidate_adapters"
+   "RX2-check.t14b_same_core, RX2-check.rx2_adapters, RX2-check.installed_adapters, RX2-check.candidate_adapters",
+   "snapshot f71ba51: gate RX2 receipts 8 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 RX2: acceptance complete 1/2, partial ['T54k'], blocked []; bundle RX2 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -2031,7 +2118,8 @@
   "next": "Acceptance RX2 complete + review độc lập.",
   "evidence": [
    "package 4b1b7b1 bundles/RX2/release-check.json: pass — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
-   "registry 4b1b7b1 RX2: acceptance complete 1/2, partial [T54k], blocked []"
+   "registry 4b1b7b1 RX2: acceptance complete 1/2, partial [T54k], blocked []",
+   "snapshot f71ba51: gate RX2 receipts 8 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 RX2: acceptance complete 1/2, partial ['T54k'], blocked []; bundle RX2 on f71ba51: pass"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -2056,7 +2144,8 @@
   "next": "Lượt 12 (27/10, review Codex trên 572fd18): nhãn C bỏ — dòng Done không có mục thiếu; T36c/T46b/T47b complete trong registry với ma trận E.",
   "evidence": [
    "KN-*.json receipts on 6366137 (10, pass); registry T36c complete; T46b E2, T47b E10 uncovered",
-   "registry KN: T36c, T46b, T47b complete (ma trận E; tests/test_wf_r7_t46b.py, tests/test_wf_r7_t47b.py)"
+   "registry KN: T36c, T46b, T47b complete (ma trận E; tests/test_wf_r7_t46b.py, tests/test_wf_r7_t47b.py)",
+   "snapshot f71ba51: gate KN receipts 12 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 KN: acceptance complete 3/3, partial [], blocked []; bundle KN on f71ba51: n/a; cited checks on f71ba51: check.kn_estimates:1, check.task_caps:2, check.estimates:2, check.r02_resume:2, check.installed_common_consumers:1, check.questions:2, check.answer_effects:2, check.r02_boundaries:3"
   ],
   "judged_at": "audit lượt 7, 25/10/2026 (registry e61b2c2)"
  },
@@ -2080,7 +2169,8 @@
   "missing": "Lượt 12 (27/10, review Codex trên 572fd18): T45e E19/E20/E27 có quy tắc local thật (`PL/check.r12_pl_local_rules`, 30 test: dòng nghiệm thu trên B với đúng từ trạng thái, hàng kiểm lại gắn 'kiểm báo cáo' không cột hành vi, bản ghi so sánh có cờ/căn cứ/cặp hash và ba loại bản ghi ở ba file, không sửa bản ghi loại 1) và được nối vào finalgate.decide / pilot_report.check_report / pilot_tools verify. Còn lại đều ngoài (E): T45d/T45e/T45a cần việc thật do chủ sở hữu chọn (U3), so sánh A->B trên hai bản dựng thật, bản sao sổ pilot PL-B thật; quyết định chủ sở hữu về CK12/CK21/CK23 lệch bảng.",
   "next": "Pilot thật + quyết định CK12/CK21/CK23 — chủ sở hữu (E). Không còn phần C.",
   "evidence": [
-   "PL-*.json receipts on 6366137 (9, pass); registry PL testcases blocked (external pilot)"
+   "PL-*.json receipts on 6366137 (9, pass); registry PL testcases blocked (external pilot)",
+   "snapshot f71ba51: gate PL receipts 19 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 PL: acceptance complete 0/9, partial [], blocked ['T14c', 'T35b', 'T35c', 'T40d', 'T45b', 'T45c', 'T45d', 'T45e', 'T55a']; bundle PL on f71ba51: n/a; cited checks on f71ba51: check.t14c_kit:1, check.t45_entry_gates:1, check.t55_cases:1, check.pilot_report:1, check.finalgate:2, check.r12_pl_local_rules:1"
   ],
   "judged_at": "audit lượt 5, 25/10/2026, HEAD 2bba0f0"
  },
@@ -2105,7 +2195,8 @@
   "missing": "Ngoài: chủ sở hữu chọn 3 job thật và chạy PL-A; cổng CG-R01/R02/R03/RX1 đạt (hiện refused vì acceptance partial).",
   "next": "Pilot thật.",
   "evidence": [
-   "PL-check.t45_entry_gates, PL-check.pilot_report on 6366137 (rules on fixtures only); no pilot receipt"
+   "PL-check.t45_entry_gates, PL-check.pilot_report on 6366137 (rules on fixtures only); no pilot receipt",
+   "snapshot f71ba51: gate PL-A receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 PL-A: acceptance complete 0/0, partial [], blocked []; bundle PL-A on f71ba51: n/a"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -2131,7 +2222,8 @@
   "missing": "Công cụ local HOÀN TẤT trên fixture synthetic. Ngoài: chạy trên 10 job PL-B thật (state root, DO-10-VIEC.csv, chat/decision log, wheel thật), continuation trial thật, T14c job data/ops, nghiệm thu. Ghi chú: E29 'finding liên kết' cần bản ghi liên kết sản phẩm chưa có; đọc chặt E32 (job dừng/skip → AC5 không đạt) ghi để Codex/chủ sở hữu xác nhận.",
   "next": "Pilot thật.",
   "evidence": [
-   "PL-check.t45_entry_gates, PL-check.t14c_kit, PL-check.pilot_report, PL-check.finalgate (rules only)"
+   "PL-check.t45_entry_gates, PL-check.t14c_kit, PL-check.pilot_report, PL-check.finalgate (rules only)",
+   "snapshot f71ba51: gate PL-B receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 PL-B: acceptance complete 0/0, partial [], blocked []; bundle PL-B on f71ba51: n/a"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  },
@@ -2154,7 +2246,8 @@
   "missing": "Ngoài: bằng chứng pilot thật, artifact cuối gồm R06–R08, quyết định CK12/CK21/CK23 và nghiệm thu U3/U4 của chủ sở hữu; spec kiểm bổ sung viết cùng artifact đó.",
   "next": "Sau pilot.",
   "evidence": [
-   "PL-check.finalgate, PL-check.t55_cases, RP-check.finalgate (rules on constructed receipts)"
+   "PL-check.finalgate, PL-check.t55_cases, RP-check.finalgate (rules on constructed receipts)",
+   "snapshot f71ba51: gate KET receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 KET: acceptance complete 0/0, partial [], blocked []; bundle KET on f71ba51: n/a"
   ],
   "judged_at": "audit lượt 5 + sửa lượt 5, 25/10/2026"
  }
