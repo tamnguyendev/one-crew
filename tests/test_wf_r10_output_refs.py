@@ -140,7 +140,11 @@ class ParserGrammarTests(unittest.TestCase):
         self.assertEqual([r[0] for r in self.refs(text)], ['c/d.cs', 'i/j.cs'])
 
     def test_urls_and_host_ports_are_not_references(self):
-        self.assertEqual(self.refs('https://github.com/o/r/blob/x/a.cs:12 ftp://h/p.cs:3 example.com:443'), [])
+        text = 'https://github.com/o/r/blob/x/a.cs:12 ftp://h/p.cs:3 example.com:443'
+        # R13: scan() keeps host:port as a WEAK token ('~') that only the candidate tree can promote; URLs are never emitted
+        self.assertEqual([row for row in self.refs(text) if not row[3].endswith('~')], [])
+        got = output_refs.check({'a.cs': 12, 'p.cs': 3, 'README.md': 3}, output_refs.scan(text), [])
+        self.assertEqual((got['result'], got['counts']['total'], got['offender_count'], got['ignored']['count']), ('pass', 0, 0, 0), got)
 
     def test_malformed_forms_are_reported_unverifiable_never_dropped(self):
         got = self.refs('a/b.cs:3-5:extra a/b.cs:line a/b.cs:7.5 a/b.cs:3-x src\\a.cs:3')

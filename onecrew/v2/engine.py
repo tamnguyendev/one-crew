@@ -7,6 +7,7 @@ reconciliation. This module never launches a provider or implements recovery.
 import copy
 import json
 import re
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -63,7 +64,8 @@ def state(ledger, selector, conn=None):
             continue
         record = records[nid]
         if event['kind'] == 'node.started':
-            record.update(phase='running', child=payload['child'], attempt=payload['attempt'], inputs=payload.get('inputs', {}))
+            record.update(phase='running', child=payload['child'], attempt=payload['attempt'], inputs=payload.get('inputs', {}),
+                          source=payload.get('source'), source_error=payload.get('source_error'))   # R13: the engine's source capture
             for dependency in payload.get('early_dependencies', []):
                 record['early_runs'][dependency] = record['early_runs'].get(dependency, 0) + 1
         elif event['kind'] == 'node.produced':
@@ -179,6 +181,19 @@ def _event(ledger, conn, view, nid, kind, **payload):
     plans.emit(ledger, conn, view['root'], kind, dict(plan=namespaces.parse(view['selector'])[0],
                revision=view['contract_revision'], internal_revision=view['internal_revision'], node=nid,
                generation=view['nodes'][nid]['generation'], **payload))
+
+
+def _source_capture(ledger, item):
+    """R13 P1-S: (capture key, None) of the node's read+write scope in the project as the engine observes it when it admits an attempt:
+    the HEAD and the working-tree bytes, uncommitted edits, new files and deletions included (Snapshots.capture). (None, reason) when the
+    scope cannot be captured; the attempt still runs as before, and the verifier then finds its candidate unverifiable instead of
+    choosing another baseline."""
+    paths = sorted(set(list(item.get('read') or []) + list(item.get('write') or [])))
+    if not paths: return None, 'the node has no file scope to capture'
+    try:
+        return Snapshots(ledger.state_root).capture(ledger.project, paths), None
+    except (LedgerError, OSError, ValueError, subprocess.SubprocessError) as error:
+        return None, 'source capture failed: ' + str(error)[:300]
 
 
 def _forecast(ledger, view, key, reason):
@@ -368,6 +383,10 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
                   **({key: pin[key] for key in ('provider', 'model')} if pin else {}))
     execution = control.configure(task['id'], task['revision'], {'mode': 'common-workflow-node', 'node': nid})
 
+    # R13 P1-S: the engine itself captures the node's source when it admits the attempt; that capture, recorded in node.started, is the
+    # ONE baseline the candidate verifier judges paths outside the write scope against. The executor receives it as `source_snapshot`.
+    source, source_error = _source_capture(ledger, item)
+    if source: item['source_snapshot'] = source
     admitted = []
 
     def reserve(conn, attempt):
@@ -376,7 +395,8 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
                 or nid not in {choice['id'] for choice in _ready(current,slots)}):
             raise LedgerError('The root slot or internal node changed before admission.')
         _event(ledger, conn, current, nid, 'node.started', attempt=attempt['id'], child=task['id'],
-               early_dependencies=eligible(current, nid).get('early_dependencies', []), inputs=inputs)
+               early_dependencies=eligible(current, nid).get('early_dependencies', []), inputs=inputs,
+               source=source, **({'source_error': source_error} if source_error else {}))
         admitted.append(attempt['id'])
 
     attempt = control.reserve(task['id'], execution['revision'], 'node-run', {'unit': 'task:' + nid, 'stage': nid}, on_reserved=reserve)

@@ -62,15 +62,43 @@ line/range within the file; a bare hidden name that is not a top-level file (`.e
 is `bare_basename`, a missing file is `unresolvable` (never "nothing to check"), a malformed tail is `unverifiable`.
 Still not references: `e.g.:1`, `i.e.:2`, `etc.:3`, `Wait...:3` (a dotted name with an empty extension), `1.5:1`, `v1.2:3`.
 Residual false positives (fail-closed): a lowercase dot word glued to ':digit' in prose (`.local:8080`, `.io:3`) is judged as a hidden
-file and fails unless the tree has it. Residual false negatives: an uppercase hidden name not anchored in the tree (`.Rprofile:2`
-with no such file) and a hidden name starting with a digit (`.1password:1`) are not counted (the uppercase one is listed in
-`ignored`); the reviewer milestone remains the semantic gate for those.
+file and fails unless the tree has it. Residual false negative: an uppercase hidden name not anchored in the tree (`.Rprofile:2`
+with no such file) is not counted (it is listed in `ignored`); the reviewer milestone remains the semantic gate for it.
+
+R13 tree anchoring wins (Codex P1-H). Before R13 the "not a file reference" shapes above were discarded by scan(), which has no tree,
+so a citation of a REAL tree file of that shape (`.1password:999999`, `.v1.2:999999` with both files present) passed with total=0
+and ignored=0. scan() no longer discards them: every token whose last segment has one of these shapes is kept as WEAK
+(kind 'ref~' / 'unverifiable~'):
+  * a hidden name whose rest does not start with an ASCII letter or '_' (`.1password`, `.9front`, `.5`, `.-x`);
+  * a hidden name with a non-letter or empty dotted tail (`.v1.2`, `.gitignore.`);
+  * a dotted name with a non-letter or empty extension (`127.0.0.1`, `nginx-1.2`, `python3.12`, `1.2.3`, `notes.2024`, `e.g.`);
+  * a separator-free dotted name with a host extension (`example.com`, `api.local`).
+check() judges a weak token exactly like any other reference (resolved, `unresolvable`, `unverifiable`, `skipped_outputs`) when the
+TREE anchors it, by these rules and no name list:
+  - the path is a file of the tree (so `.1password:999999` is `line_outside_file`, `.5:1` cites a file named `.5` when one exists);
+  - it contains a separator and its first segment is a top-level directory of the tree (`tools/.1y:1`, `tools/v1.2:3` when `tools/`
+    exists): a path anchored in the repository that does not exist is a wrong citation (`no_such_file`);
+  - it has no separator and equals the basename of a tree file (`.1x:1` when only `tools/.1x` exists): `bare_basename`;
+  - a directory segment is a lowercase hidden name (`.config/.1x:2`, `.cache/v1.2:3`): R12's hidden-directory rule, a reference
+    even when that directory is absent.
+Otherwise the weak token is dropped: not counted, not an offender and NOT listed in `ignored` (unlike the R11/R12 ambiguous tokens), so
+the negative controls keep their pre-R13 result: URLs, `127.0.0.1:5000`, `nginx-1.2:3`, `python3.12:1`, `1.2.3:4`, `v1.2:3`,
+`.v1.2:3`, `.5:1`, `e.g.:1`, `Wait...:3` with no such tree file. Justification: a weak token is promoted only by the candidate tree,
+so an address/version/decimal/prose shape can fail a report only when the repository really contains a file (or directory) it names,
+and a citation of a real tree file can never silently pass whatever its name shape.
+Residual false positives (fail-closed, by design "tree anchoring wins"): when the tree has a file literally named like a prose token
+(`.5`, `1.2.3`, `127.0.0.1`, `example.com`), that token is a citation of it (`ratio .5:3` fails when `.5` has one line); when the
+first segment of an address/version path is a top-level directory (`docs/1.2.3:4` with `docs/`), it is a wrong citation.
+Residual false negatives: a weak token naming nothing in the tree and not anchored by a directory (`.1password:1` with no such file
+anywhere, `other/.1x:2` with no `other/`) is not counted and not listed anywhere; it cites nothing that exists, the reviewer
+milestone remains the semantic gate for it. Tokens without a line part, or with a separator other than ':' + digits, are not scanned.
 Resolution against the candidate tree (case-sensitive, full path from the repository root):
   * the path must be a file of the tree; a path with no '/' is accepted only when it is exactly a top-level file of the tree.
     A bare basename (`publish.yml:32`) that is not a top-level file is `unresolvable`; it is never mapped to a file elsewhere;
   * line >= 1 and <= the file's line count (count of b'\\n', a trailing partial line counts as a line);
   * a range must be ordered (start <= end) and its end within the file.
-Not references (never counted): URLs (`scheme://...`), host:port tokens (`example.com:443`, `localhost:8080`, `127.0.0.1:5000`),
+Not references (never counted): URLs (`scheme://...`), host:port tokens (`example.com:443`, `localhost:8080`, `127.0.0.1:5000`;
+R13: unless the tree anchors them),
 the ambiguous extensionless tokens above that no rule promotes (`Note:3`, `12:30`, `image: nginx:1.25`), Windows drive paths without
 a line part (`C:\\Users\\x`), paths that are outputs of the node
 itself (counted only as `skipped_outputs`), and everything inside a fenced code block whose info string is `text`, `log`,
@@ -93,7 +121,9 @@ KNOWN_EXTENSIONLESS = frozenset({
 _EXTENSION = re.compile(r'[A-Za-z][A-Za-z0-9]{0,9}')
 _SEPARATORS = re.compile(r'[/\\]')
 
-# kind: 'ref' | 'unverifiable', or 'ref?' | 'unverifiable?' for an ambiguous extensionless token (check() decides it); line = 1-based line of the report that holds it
+# kind: 'ref' | 'unverifiable'; 'ref?' | 'unverifiable?' for an ambiguous token (check() decides it; the rest is listed in `ignored`);
+# 'ref~' | 'unverifiable~' for a weak token (R13: check() judges it only when the tree anchors it, otherwise drops it uncounted);
+# line = 1-based line of the report that holds it
 Ref = namedtuple('Ref', 'path start end raw line kind reason')
 
 _URL = re.compile(r'[A-Za-z][A-Za-z0-9+.-]*://\S+')
@@ -151,24 +181,25 @@ def _one(found, line, number):
     path, where = found.group('path'), found.end()
     parts = _SEPARATORS.split(path)
     name = parts[-1]
+    weak = False   # R13: a shape that is not a file reference by itself; kept for check(), where only the tree can promote it
     if name.startswith('.'):   # R12 hidden-name family (module docstring); the leading dot is not an extension
         rest = name[1:]
         if not (rest[:1].isascii() and (rest[:1].isalpha() or rest[:1] == '_')):
-            return []   # `.5:1`, `.-x:3`: a decimal, a ratio or punctuation, not a file
-        if '.' in rest and not _EXTENSION.fullmatch(rest.rsplit('.', 1)[1]):
-            return []   # `.v1.2:3`, `.gitignore.:3`
-        ambiguous = rest[0].isupper()   # `.NET:8`: R11 tree anchoring decides
+            weak = True   # `.5:1`, `.-x:3`, `.1password:1`: a decimal, a ratio, punctuation or a digit-leading hidden file
+        elif '.' in rest and not _EXTENSION.fullmatch(rest.rsplit('.', 1)[1]):
+            weak = True   # `.v1.2:3`, `.gitignore.:3`
+        ambiguous = not weak and rest[0].isupper()   # `.NET:8`: R11 tree anchoring decides
     else:
         ambiguous = '.' not in name
         if not ambiguous:
             ext = name.rsplit('.', 1)[1]
             if not _EXTENSION.fullmatch(ext):
-                return []   # `127.0.0.1:5000`, `nginx-1.2:3`: an address or a version, not a file
-            if '/' not in path and '\\' not in path and ext.lower() in HOST_EXTENSIONS:
-                return []   # host:port, not a source reference
-    if ambiguous and any(_HIDDEN.match(part) for part in parts[:-1]):
-        ambiguous = False   # `.husky/pre-commit:2`: a path through a hidden directory is a repository path, never prose
-    mark = '?' if ambiguous else ''
+                weak = True   # `127.0.0.1:5000`, `nginx-1.2:3`: an address or a version unless the tree has that file
+            elif '/' not in path and '\\' not in path and ext.lower() in HOST_EXTENSIONS:
+                weak = True   # host:port unless the tree has that file
+    if (ambiguous or weak) and any(_HIDDEN.match(part) for part in parts[:-1]):
+        ambiguous = weak = False   # `.husky/pre-commit:2`: a path through a hidden directory is a repository path, never prose
+    mark = '~' if weak else '?' if ambiguous else ''
     token = line[found.start():_token_end(line, where)]
     lines = _LINES.match(line, where)
     if not lines:
@@ -205,6 +236,13 @@ def check(tree_files, refs, outputs):
         if len(parts) > 1: return parts[0] in top_dirs
         return path in basenames
 
+    def anchored(path):
+        """R13: is a weak token (a shape that is not a file reference by itself) a reference? Only the tree decides."""
+        if path in tree_files: return True
+        parts = _SEPARATORS.split(path)
+        if len(parts) > 1: return parts[0] in top_dirs
+        return path in basenames
+
     def lines_of(path):
         if path not in cache:
             value = tree_files[path]
@@ -215,6 +253,10 @@ def check(tree_files, refs, outputs):
         if ref.kind.endswith('?'):
             if not promoted(ref.path):
                 ignored.append(ref.raw); continue
+            ref = ref._replace(kind=ref.kind[:-1])
+        elif ref.kind.endswith('~'):
+            if not anchored(ref.path):
+                continue   # R13: an address, version, decimal or prose shape that names no tree file; never counted
             ref = ref._replace(kind=ref.kind[:-1])
         if ref.path in mine:
             counts['skipped_outputs'] += 1

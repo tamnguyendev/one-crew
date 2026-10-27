@@ -179,11 +179,244 @@ def receipt_problems(rdir, commit, wsha, decision=None, registry=None, label='ga
     return out
 
 
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Round 13 P2-B: the evidence chain INSIDE a bundle. A correct SHA256SUMS proves bytes only; the receipts a bundle certifies its result with
+# (bundles/<R>/receipts/*.json) must name the right build by their ROLE.
+#
+# Required set (strongest source first): bundle.json `checks` = {installed, upgrade, events, rollback, notes} -> {path, sha256}, the bundle's
+# own declaration, which release_check.decide reads the same way. Every declared file must exist, hash to the declared sha256 and be a JSON
+# object; the receipts those name by hash are followed too (rollback.allowed.old_run / forward_run, notes.real_checks, bundle.json
+# gate_history, comparison.items[*].original). A receipt on disk that no declaration reaches is refused for a produced bundle.
+# Roles (the receipt writer, wfkit/release_bundle.Producer.receipt(artifact=...), fixes them):
+#   current  : installed (+ scenarios[*], adapter_runs[*]), upgrade (+ `to`), events, rollback, notes (+ gate_decision), rollback-forward-run
+#   previous : rollback-old-run (rollback.allowed.old_run), upgrade.from, events.old_artifact, rollback.{allowed,rejected}.scan.old_version (commit)
+# `current` = the package's manifest commit/wheel; `previous` = bundle.json artifacts.previous, which is itself pinned: bundle.first_release.baseline
+# == release-check.first_release_baseline == manifest.bundles[R].first_release_baseline, or, for a bundle that is not a first release, the
+# manifest.previous_wheel of the package. Nested identity-looking fields outside this table (e.g. provider-matrix cells of RP, which keep the
+# identity of the build they ran on) are not judged here. A bundle refused by its producer (produced:false) keeps whatever receipts it has:
+# they are read and judged by role where they exist; nothing is required of them, and with no bundle.json the previous-role statements
+# must at least agree with each other.
+_BUNDLE_CHECKS = ('installed', 'upgrade', 'events', 'rollback', 'notes')
+_NAME_ROLE = {'installed': 'current', 'upgrade': 'current', 'events': 'current', 'rollback': 'current', 'notes': 'current',
+              'rollback-old-run': 'previous', 'rollback-forward-run': 'current'}
+_HEX64 = re.compile(r'[0-9a-f]{64}')
+
+
+def _is_ref(x):
+    return isinstance(x, dict) and isinstance(x.get('path'), str) and isinstance(x.get('sha256'), str) and bool(_HEX64.fullmatch(x['sha256']))
+
+
+def _same_build(a, b):
+    """a, b = {'commit','wheel_sha256'} dicts of the same build (commit by the prefix rule, wheel exactly)."""
+    return (isinstance(a, dict) and isinstance(b, dict) and commit_matches(a.get('commit'), b.get('commit'))
+            and isinstance(a.get('wheel_sha256'), str) and a.get('wheel_sha256') == b.get('wheel_sha256'))
+
+
+def bundle_receipt_problems(bdir, rel, commit, wsha, produced=True, previous_wheel=None, baseline=None, label=None):
+    """-> [reason, ...]: the evidence chain of ONE bundle directory (shipped bundles/<R>/ or the producer's output dir before the build).
+
+    commit/wsha = the build the package is made of; produced = not refused by the producer; previous_wheel = manifest.previous_wheel (or the
+    provenance about to be written) for a bundle that is not a first release; baseline = manifest.bundles[R].first_release_baseline."""
+    bdir = Path(bdir)
+    label = label or f'bundles/{rel}'
+    out = []
+    cur = {'commit': commit, 'wheel_sha256': wsha}
+    bj = None
+    if (bdir / 'bundle.json').exists():
+        bj, why = _read_json_strict(bdir / 'bundle.json')
+        if bj is None:
+            out.append(f'{label}/bundle.json: {why}')
+    elif produced:
+        out.append(f'{label}/bundle.json is missing although the bundle is produced: its receipts have no declaration to be judged by')
+    prev = None                                    # the previous build, pinned: {'commit','wheel_sha256'}; None = unpinned
+    if bj is not None:
+        arts = bj.get('artifacts') if isinstance(bj.get('artifacts'), dict) else {}
+        bcur = arts.get('current')
+        if not isinstance(bcur, dict):
+            out.append(f'{label}/bundle.json names no artifacts.current build')
+        else:
+            for k, name in (('commit', 'commit'), ('wheel_sha256', 'wheel sha256')):
+                v = bcur.get(k)
+                good = commit_matches(v, commit) if k == 'commit' else (isinstance(v, str) and isinstance(wsha, str) and v == wsha)
+                if not good:
+                    out.append(f'package mixes builds: {label}/bundle.json artifacts.current {k} is {v!r}, the manifest {name} is {commit if k == "commit" else wsha!r}')
+        bprev = arts.get('previous')
+        if not (isinstance(bprev, dict) and isinstance(bprev.get('commit'), str) and isinstance(bprev.get('wheel_sha256'), str)):
+            out.append(f'{label}/bundle.json names no usable artifacts.previous build (commit + wheel_sha256)')
+        else:
+            prev = {'commit': bprev['commit'], 'wheel_sha256': bprev['wheel_sha256']}
+            pins = []                              # every other statement of the previous build that pins it
+            if 'first_release' in bj:
+                claim = bj['first_release']
+                pins.append((f'{label}/bundle.json first_release.baseline', claim.get('baseline') if isinstance(claim, dict) else None))
+                rc = _json_file(bdir / 'release-check.json')
+                if rc is not None and isinstance(rc.get('first_release_baseline'), dict):
+                    pins.append((f'{label}/release-check.json first_release_baseline', rc.get('first_release_baseline')))
+                if baseline is not None:
+                    pins.append((f'manifest.bundles[{rel}].first_release_baseline', baseline))
+            elif isinstance(previous_wheel, dict):
+                pc = previous_wheel.get('commit')          # a manifest that does not know the previous commit (or writes prose) is matched by the wheel alone
+                pins.append(('manifest.previous_wheel', {'commit': pc if isinstance(pc, str) and re.fullmatch(r'[0-9a-f]{7,}', pc) else prev['commit'],
+                                                         'wheel_sha256': previous_wheel.get('sha256')}))
+            for what, pin in pins:
+                if not _same_build(prev, pin):
+                    out.append(f'{label}/bundle.json artifacts.previous ({prev["commit"][:12]}, {prev["wheel_sha256"][:12]}) is not the previous build pinned by {what} ({pin!r})')
+    roles = {}                                     # path relative to bdir (posix) -> role of the file
+    declared = {}                                  # path -> check name
+    refs = []                                      # (path, expected sha256, where it was named)
+
+    def add_ref(ref, where, role, name=None):
+        if not _is_ref(ref):
+            out.append(f'{label}/bundle.json {where} is not {{path, sha256}}: {ref!r}')
+            return
+        p = Path(ref['path'])
+        if p.is_absolute() or '..' in p.parts:
+            out.append(f'{label}/bundle.json {where} points outside the bundle: {ref["path"]}')
+            return
+        refs.append((p.as_posix(), ref['sha256'], f'{label}/bundle.json {where}'))
+        if role:
+            roles.setdefault(p.as_posix(), role)
+        if name:
+            declared.setdefault(p.as_posix(), name)
+
+    if bj is not None:
+        checks = bj.get('checks')
+        if not isinstance(checks, dict):
+            out.append(f'{label}/bundle.json declares no checks ({", ".join(_BUNDLE_CHECKS)})')
+            checks = {}
+        for name in _BUNDLE_CHECKS:
+            if name in checks:
+                add_ref(checks[name], f'checks.{name}', 'current', name)
+            elif produced:
+                out.append(f'{label}/bundle.json declares no {name} receipt')
+        for name in sorted(set(checks) - set(_BUNDLE_CHECKS)):
+            add_ref(checks[name], f'checks.{name}', None)
+        for i, ref in enumerate(bj.get('gate_history') or []):
+            add_ref(ref, f'gate_history[{i}]', None)
+        comp = bj.get('comparison')
+        for i, item in enumerate((comp.get('items') or []) if isinstance(comp, dict) else []):
+            if isinstance(item, dict):
+                add_ref(item.get('original'), f'comparison.items[{i}].original', None)
+        for i, d in enumerate(bj.get('deliveries') or []):
+            if isinstance(d, dict):
+                for k, n in (('commit', 'commit'), ('wheel_sha256', 'wheel sha256')):
+                    v = d.get(k)
+                    if not (commit_matches(v, commit) if k == 'commit' else (isinstance(v, str) and v == wsha)):
+                        out.append(f'{label}/bundle.json deliveries[{i}] {n} is {v!r}, the manifest {n} is {commit if k == "commit" else wsha!r}')
+    bodies = {}
+
+    def load(path, want_sha, where):
+        if path in bodies:
+            return bodies[path]
+        full, body = bdir / path, None
+        if not full.is_file():
+            if produced or want_sha:
+                out.append(f'{label}/{path}: named by {where} but missing')
+        else:
+            if want_sha and sha(full) != want_sha:
+                out.append(f'{label}/{path}: bytes do not match the sha256 that {where} references ({want_sha[:12]}…)')
+            body, why = _read_json_strict(full)
+            if body is None:
+                out.append(f'{label}/{path}: {why}')
+        bodies[path] = body
+        return body
+
+    for path, want_sha, where in list(refs):       # follow the references a declared receipt itself makes by hash
+        body = load(path, want_sha, where)
+        if body is None:
+            continue
+        if declared.get(path) == 'rollback':
+            allowed = body.get('allowed') if isinstance(body.get('allowed'), dict) else {}
+            for key, ref, role in (('allowed.old_run', allowed.get('old_run'), 'previous'), ('forward_run', body.get('forward_run'), 'current')):
+                p = Path(ref['path']) if _is_ref(ref) else None
+                if p is None:
+                    if produced:
+                        out.append(f'{label}/{path}: {key} is not {{path, sha256}}: {ref!r}')
+                elif p.is_absolute() or '..' in p.parts:
+                    out.append(f'{label}/{path}: {key} points outside the bundle: {ref["path"]}')
+                else:
+                    roles.setdefault(p.as_posix(), role)
+                    load(p.as_posix(), ref['sha256'], f'{label}/{path} {key}')
+        elif declared.get(path) == 'notes' and isinstance(body.get('real_checks'), list):
+            for i, ref in enumerate(body['real_checks']):
+                p = Path(ref['path']) if _is_ref(ref) else None
+                if p is not None and not p.is_absolute() and '..' not in p.parts:
+                    load(p.as_posix(), ref['sha256'], f'{label}/{path} real_checks[{i}]')
+    rdir = bdir / 'receipts'
+    for f in sorted(rdir.glob('*.json')) if rdir.is_dir() else []:
+        path = f.relative_to(bdir).as_posix()
+        if path not in bodies:
+            if produced and bj is not None:
+                out.append(f'{label}/{path}: not declared by bundle.json (checks and the receipts they reference): a receipt from another run?')
+            load(path, None, 'the receipts directory')
+            if _NAME_ROLE.get(f.stem):
+                roles.setdefault(path, _NAME_ROLE[f.stem])
+    prev_seen = []
+
+    def judge_id(path, obj, role, what=''):
+        where = f'{label}/{path}' + (f' {what}' if what else '')
+        c, s = (obj.get('commit'), obj.get('wheel_sha256')) if isinstance(obj, dict) else (None, None)
+        if not isinstance(obj, dict):
+            out.append(f'{where}: not an object, cannot carry the {role} build identity')
+            return
+        if not isinstance(c, str):
+            out.append(f'{where}: no commit')
+        if not isinstance(s, str):
+            out.append(f'{where}: no wheel_sha256')
+        if not (isinstance(c, str) and isinstance(s, str)):
+            return
+        want = cur if role == 'current' else prev
+        if want is None:
+            prev_seen.append((where, c, s))
+            return
+        src = 'the manifest' if role == 'current' else 'bundle.json artifacts.previous'
+        if not commit_matches(c, want['commit']):
+            out.append(f'{where}: commit {c!r} is not the {role} build commit {want["commit"]!r} ({src})')
+        if s != want['wheel_sha256']:
+            out.append(f'{where}: wheel sha256 {s!r} ≠ the {role} build wheel {want["wheel_sha256"]!r} ({src})')
+
+    for path, body in sorted(bodies.items()):
+        role = roles.get(path)
+        if not isinstance(body, dict) or role is None:
+            continue                               # unreadable (already reported) or no role (history / matrix evidence): hash + readability only
+        if isinstance(body.get('release'), str) and body['release'] != rel:
+            out.append(f'{label}/{path}: receipt belongs to release {body["release"]!r}, not {rel!r}')
+        name = declared.get(path) or (Path(path).stem if Path(path).stem in _BUNDLE_CHECKS and path == f'receipts/{Path(path).stem}.json' else None)
+        if name and isinstance(body.get('kind'), str) and body['kind'] != name:
+            out.append(f'{label}/{path}: receipt kind {body["kind"]!r} is not the declared {name!r}')
+        judge_id(path, body, role)
+        if name == 'installed':
+            for key in ('scenarios', 'adapter_runs'):
+                for i, row in enumerate(body[key] if isinstance(body.get(key), list) else []):
+                    judge_id(path, row, 'current', f'{key}[{i}]')
+        elif name == 'upgrade':
+            judge_id(path, body.get('from'), 'previous', 'from')
+            judge_id(path, body.get('to'), 'current', 'to')
+        elif name == 'events':
+            judge_id(path, body.get('old_artifact'), 'previous', 'old_artifact')
+        elif name == 'rollback':
+            for br in ('rejected', 'allowed'):
+                scan = body[br].get('scan') if isinstance(body.get(br), dict) else None
+                v = scan.get('old_version') if isinstance(scan, dict) else None
+                if prev is not None and isinstance(v, str) and not commit_matches(v, prev['commit']):
+                    out.append(f'{label}/{path} {br}.scan.old_version: {v!r} is not the previous build commit {prev["commit"]!r} (bundle.json artifacts.previous)')
+        elif name == 'notes' and isinstance(body.get('gate_decision'), dict):
+            gd = body['gate_decision']
+            if 'commit' in gd or 'wheel_sha256' in gd:
+                judge_id(path, gd, 'current', 'gate_decision')
+            if isinstance(gd.get('snapshot'), dict) and 'commit' in gd['snapshot'] and not commit_matches(gd['snapshot']['commit'], commit):
+                out.append(f'{label}/{path} gate_decision.snapshot: commit {gd["snapshot"]["commit"]!r} is not the current build commit {commit!r} (the manifest)')
+    if prev is None and len({(c, s) for _, c, s in prev_seen}) > 1:      # no pin: the previous-build statements must at least agree
+        out.append(f'{label}: the previous-build statements of its receipts contradict each other: ' + '; '.join(f'{w} {c[:12]}/{s[:12]}' for w, c, s in prev_seen))
+    return out
+
+
 def identity_problems(pkg, manifest):
     """-> [reason, ...]: everything in the package that names a commit or a wheel digest must agree with manifest.commit / manifest.wheel
     (round 11 D: a package assembled from a later snapshot's audit table, another build's bundles or another commit's receipts is mixed).
     Checked when present: tasks_92_commit, docs/audit-92.json, docs/AUDIT-92.md, gate/gate-build.json, gate/snapshot.json, gate/receipts/*.json,
-    manifest.bundles[*] and bundles/<R>/release-check.json (commit + wheel sha256 + decision). A package with nothing comparable has no problems."""
+    manifest.bundles[*], bundles/<R>/release-check.json (commit + wheel sha256 + decision) and, round 13 P2-B, bundles/<R>/bundle.json with every receipt
+    under bundles/<R>/receipts/ (bundle_receipt_problems: judged by role against the current or the pinned previous build). A package with nothing comparable has no problems."""
     pkg = Path(pkg)
     out = []
     commit = manifest.get('commit')
@@ -237,16 +470,9 @@ def identity_problems(pkg, manifest):
             for k in ('commit', 'wheel_sha256'):
                 if not isinstance(ent.get(k), str):
                     out.append(f'manifest.bundles[{rel}] has no {k}')
-        if (bdir / 'bundle.json').is_file():
-            bj, why = _read_json_strict(bdir / 'bundle.json')
-            cur = (bj.get('artifacts') or {}).get('current') if bj is not None and isinstance(bj.get('artifacts'), dict) else None
-            if bj is None:
-                out.append(f'bundles/{rel}/bundle.json: {why}')
-            elif not isinstance(cur, dict):
-                out.append(f'bundles/{rel}/bundle.json names no artifacts.current build')
-            else:
-                seen.append((f'bundles/{rel}/bundle.json artifacts.current commit', 'commit', cur.get('commit')))
-                seen.append((f'bundles/{rel}/bundle.json artifacts.current wheel_sha256', 'sha', cur.get('wheel_sha256')))
+        if bdir.is_dir():                       # round 13 P2-B: bundle.json + every receipt the bundle certifies its result with, by role
+            out.extend(bundle_receipt_problems(bdir, rel, commit, wsha, produced=ent.get('produced', True) is not False,
+                                               previous_wheel=manifest.get('previous_wheel'), baseline=ent.get('first_release_baseline'), label=f'bundles/{rel}'))
         disk = _json_file(bdir / 'release-check.json')
         if disk is None and (bdir / 'release-check.json').is_file():
             out.append(f'bundles/{rel}/release-check.json is unreadable or not a JSON object')

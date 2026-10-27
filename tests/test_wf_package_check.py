@@ -462,6 +462,8 @@ class PackageIdentityStepTests(unittest.TestCase):
         write_json(self.pkg / 'gate' / 'gate-build.json', {'commit': FULL, 'wheel_sha256': self.wsha})
         write_json(self.pkg / 'gate' / 'receipts' / 'KN-a.json', {'check': 'KN/a', 'commit': FULL, 'wheel_sha256': self.wsha, 'wheel_used': []})
         write_json(self.pkg / 'bundles' / 'R01' / 'release-check.json', {'decision': 'pass', 'commit': FULL, 'wheel_sha256': self.wsha})
+        from tests.test_wf_r11_build_package import bundle_evidence       # round 13 P2-B: a produced bundle carries bundle.json + its declared receipts
+        bundle_evidence(self.pkg / 'bundles' / 'R01', 'R01', FULL, self.wsha)
         write_json(self.pkg / 'bundles' / 'RP' / 'bundle-result.json', {'decision': 'refused', 'reason': 'RP needs --matrix'})
 
     def manifest(self):

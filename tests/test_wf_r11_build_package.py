@@ -49,6 +49,37 @@ def jwrite(path, obj):
     path.write_text(json.dumps(obj, ensure_ascii=False), encoding='utf-8')
     return path
 
+PREV_COMMIT = 'd3120c6' + '0' * 33
+PREV_SHA = 'b' * 64
+
+
+def bundle_evidence(bdir, rel, commit, wsha, prev_commit=PREV_COMMIT, prev_sha=PREV_SHA, first_release=True):
+    """Round 13 P2-B: the evidence set of a produced bundle as wfkit.release_bundle writes it: bundle.json (artifacts, the five `checks` pinned by
+    sha256, first_release baseline) + receipts/ (installed, upgrade, events, rollback -> old_run/forward_run, notes), roles as the producer fixes them."""
+    bdir = Path(bdir)
+    cur, prv = {'commit': commit, 'wheel_sha256': wsha}, {'commit': prev_commit, 'wheel_sha256': prev_sha}
+
+    def put(name, body):
+        raw = json.dumps({'kind': name, 'release': rel, 'result': 'pass', 'simulated': False, **body}, ensure_ascii=False, sort_keys=True, indent=1).encode('utf-8')
+        (bdir / 'receipts').mkdir(parents=True, exist_ok=True)
+        (bdir / 'receipts' / (name + '.json')).write_bytes(raw)
+        return {'path': f'receipts/{name}.json', 'sha256': hashlib.sha256(raw).hexdigest()}
+
+    old = put('rollback-old-run', {**prv})
+    fwd = put('rollback-forward-run', {**cur})
+    checks = {'installed': put('installed', {**cur, 'scenarios': [dict(cur), dict(cur)]}),
+              'upgrade': put('upgrade', {**cur, 'from': dict(prv), 'to': dict(cur)}),
+              'events': put('events', {**cur, 'old_artifact': dict(prv)}),
+              'rollback': put('rollback', {**cur, 'allowed': {'scan': {'old_version': prev_commit}, 'old_run': old}, 'rejected': {'scan': {'old_version': prev_commit}},
+                                           'forward_run': fwd}),
+              'notes': put('notes', {**cur, 'gate_decision': {**cur, 'snapshot': {'commit': commit}}})}
+    bundle = {'schema': 1, 'release': rel, 'mode': 'real', 'artifacts': {'previous': dict(prv, wheel='wheels/previous/p.whl'), 'current': dict(cur, wheel='wheels/current/c.whl')},
+              'gate_history': [], 'deliveries': [], 'checks': checks}
+    if first_release:
+        bundle['first_release'] = {'baseline': {**prv, 'role': 'compat-baseline', 'delivered': False, 'accepted': False}, 'reason': 'no delivered build'}
+    jwrite(bdir / 'bundle.json', bundle)
+    return bundle
+
 
 class BuildPackageBase(unittest.TestCase):
     def setUp(self):
@@ -86,7 +117,8 @@ class BuildPackageBase(unittest.TestCase):
     def add_bundle(self, rel, decision, commit=FULL, wsha=None):
         p = jwrite(self.bdir / rel / 'release-check.json', {'decision': decision, 'conditions': {'INPUTS(bootstrap)': True}, 'reasons': [], 'release': rel,
                                                              'commit': commit, 'wheel_sha256': wsha or self.wsha, 'first_release': True,
-                                                             'first_release_baseline': {'commit': 'd3120c6' + '0' * 33, 'wheel_sha256': 'b' * 64}})
+                                                             'first_release_baseline': {'commit': PREV_COMMIT, 'wheel_sha256': PREV_SHA}})
+        bundle_evidence(self.bdir / rel, rel, commit, wsha or self.wsha)          # round 13 P2-B: a produced bundle carries its declared receipts
         self.index[rel] = str(p)
 
     def add_refused(self, rel):

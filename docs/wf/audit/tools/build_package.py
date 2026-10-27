@@ -70,8 +70,10 @@ def previous_provenance(wheel_path, evidence=None):
     return {'file': 'wheel/previous/' + p.name, 'sha256': digest, 'commit': found.get('commit'), 'version': version, 'source': found['source']}
 
 
-def check_one_build(gate_out, build, decision, audit_path, bundle_results, problems):
-    """Every input that names a commit or a wheel digest must name the gate's. Appends to `problems`."""
+def check_one_build(gate_out, build, decision, audit_path, bundle_results, problems, bundle_dirs=None, previous=None):
+    """Every input that names a commit or a wheel digest must name the gate's. Appends to `problems`.
+    Round 13 P2-B: `bundle_dirs` = {release: the producer's output dir}; every produced bundle's evidence chain (bundle.json + receipts/*.json) is judged by the
+    same function the shipped identity step uses (package_check.bundle_receipt_problems); `previous` = the previous wheel provenance about to be packaged."""
     commit, wheel_sha = build['commit'], build['wheel_sha256']
     same = package_check.commit_matches
     audit = _read(audit_path)
@@ -101,6 +103,12 @@ def check_one_build(gate_out, build, decision, audit_path, bundle_results, probl
         if v.get('wheel_sha256') != wheel_sha:
             problems.append(f'bundle {rel}: wheel sha256 is {v.get("wheel_sha256")!r}, the gate wheel is {wheel_sha}')
 
+    for rel, bdir in sorted((bundle_dirs or {}).items()):          # round 13 P2-B: the receipts the bundle certifies with, by role (refused bundles keep theirs)
+        v = bundle_results.get(rel) or {}
+        if Path(bdir).is_dir():
+            problems.extend(package_check.bundle_receipt_problems(bdir, rel, commit, wheel_sha, produced=v.get('produced') is not False,
+                                                                  previous_wheel=previous, baseline=v.get('first_release_baseline'), label=f'bundles/{rel}'))
+
 
 def main(argv=None):
     ap = argparse.ArgumentParser(); ap.add_argument('gate_out'); ap.add_argument('package'); ap.add_argument('--bundles'); ap.add_argument('--previous-wheel'); ap.add_argument('--matrix', help='W45 provider matrix dir (matrix.json/matrix.md/receipts)')
@@ -124,9 +132,9 @@ def main(argv=None):
     index = json.load(open(a.bundles, encoding='utf-8')) if a.bundles else {}
     bundle_results = {rel: _read(path) for rel, path in index.items()}
     problems = []
-    check_one_build(gate_out, build, decision, audit_path, bundle_results, problems)
-    if problems: sys.exit('refusing to build a package from inputs of different builds:\n  ' + '\n  '.join(problems))
     previous = previous_provenance(a.previous_wheel, a.previous_evidence) if a.previous_wheel else None       # evidence first: a refusal leaves nothing behind
+    check_one_build(gate_out, build, decision, audit_path, bundle_results, problems, bundle_dirs={rel: Path(path).parent for rel, path in index.items()}, previous=previous)
+    if problems: sys.exit('refusing to build a package from inputs of different builds:\n  ' + '\n  '.join(problems))
     (pkg / 'wheel').mkdir(parents=True); shutil.copy2(wheel_src, pkg / 'wheel' / wheel_src.name)
     if a.previous_wheel:
         p = Path(a.previous_wheel); (pkg / 'wheel' / 'previous').mkdir(); shutil.copy2(p, pkg / 'wheel' / 'previous' / p.name)

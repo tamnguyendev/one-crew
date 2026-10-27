@@ -11,9 +11,11 @@
   "tests": [
    "tests.test_wf_kit.KitGuardTests",
    "tests.test_wf_kit.DocCheckTests",
-   "tests.test_wf_program_transition.ProgramTransitionTests"
+   "tests.test_wf_program_transition.ProgramTransitionTests",
+   "check.r13_bundle_receipts",
+   "check.r12_package_identity"
   ],
-  "missing": "",
+  "missing": "Lượt 13 (27/10, review Codex trên f71ba51): TẠI f71ba51 Done là SAI ở phần provenance/identity của chuỗi bằng chứng gói: receipt con trong bundles/<R>/receipts/ không được kiểm danh tính (đổi wheel_sha256 của events.json + ghi lại SHA256SUMS vẫn reasons=[]) → loại A. Sửa R13: `package_check.bundle_receipt_problems` theo vai trò current/previous, dùng chung trước build và trong verifier đóng gói (`check.r13_bundle_receipts`, 35 test; kiểm trên bản sao gói thật f71ba51). Done chỉ với bằng chứng trên dev15.",
   "next": "T38a has no development-registry entry (R00 kit only, receipted in CG-R00 d467546); kit-guard is used by gate.py and development_gate.py on the real path.",
   "evidence": [
    "snapshot f71ba51: gate R00 receipts 0 pass / 0 fail on wheel 0fdb3217871e; registry f71ba51 R00: acceptance complete 0/0, partial [], blocked []; bundle R00 on f71ba51: n/a"
@@ -167,9 +169,10 @@
    "tests.test_wf_installed_r00_scenarios (1)",
    "tests.test_wf_packaging (10)",
    "tests.test_wf_release_bundle (6)",
-   "tests.test_wf_scenarios"
+   "tests.test_wf_scenarios",
+   "check.r13_bundle_receipts"
   ],
-  "missing": "",
+  "missing": "Lượt 13 (27/10, review Codex trên f71ba51): khung kiểm bản cài: bước identity của gói nay kiểm cả receipt con của bundle theo vai trò (xem WK0, `check.r13_bundle_receipts`); gói cũ (≤ f71ba51) giữ verifier ghim cũ cho tới khi dựng lại.",
   "next": "Read boundary.py/wf_wheel.py: markers from `python -I -S`, base_exempt only for clean-venv base packages. Not re-run (wheel build is heavy).",
   "evidence": [
    "R01-check.installed_r00_scenarios, R01-check.scenarios, R01-check.release_bundle",
@@ -785,9 +788,11 @@
    "tests.test_wf_r04a_authority.GateTests.test_each_of_the_seven_fields_and_the_paths_are_enforced",
    "tests.test_wf_r04a_authority.DecisionTests.test_t17a_a_write_outside_scope_is_refused_u2_nothing_is_written_and_the_grant_is_unchanged",
    "tests.test_wf_r04a_authority.GateTests.test_a_legacy_root_without_authority_keeps_its_behaviour",
-   "tests/test_wf_audit_w02_authority.py (2)"
+   "tests/test_wf_audit_w02_authority.py (2)",
+   "check.r13_source_baseline",
+   "check.r12_output_contract_chain"
   ],
-  "missing": "",
+  "missing": "Lượt 13 (27/10, review Codex trên f71ba51): TẠI f71ba51 dòng này Done là SAI ở phần cưỡng chế quyền ghi trên candidate: `common_verification._source_values` coi HEAD ∪ working tree là baseline hợp lệ nên candidate hoàn nguyên thay đổi CHƯA COMMIT ngoài quyền (b.txt → nội dung HEAD) vẫn pass (loại A — sai code, không phải điều kiện ngoài). Sửa R13: engine capture nguồn khi nhận attempt (`engine._source_capture`, `node.started.source`), verifier so với đúng capture đó + producer đã ghi (`check.r13_source_baseline`, 17 test: s1 hoàn nguyên → fail; s2 giữ → pass; s3 không hồi sinh file đã xoá/không mất file mới; s4 producer; s5 resume/integration; s6 stale/HEAD đổi; s7 không capture → unverifiable; s8 receipt R12 không tái dùng). Done chỉ với bằng chứng trên snapshot dev15.",
   "next": "Biên nhận gate snapshot lượt 5.",
   "evidence": [
    "R04-check.r04a_authority.json",
@@ -1143,9 +1148,10 @@
   "tests": [
    "tests.test_wf_evidence_binding.BindingPolicyTests.test_each_changed_dimension_is_named_and_original_checks_are_retained",
    "tests.test_wf_evidence_binding.BindingPolicyTests.test_artifact_change_outside_inputs_is_not_implicitly_neutral",
-   "tests.test_wf_evidence_binding.BoundReceiptTests.test_actual_run_binds_inputs_configuration_environment_and_readonly_stale_reasons"
+   "tests.test_wf_evidence_binding.BoundReceiptTests.test_actual_run_binds_inputs_configuration_environment_and_readonly_stale_reasons",
+   "check.r13_source_baseline"
   ],
-  "missing": "none (registry T06: complete ở R05 — đã áp dụng; ghi chú cũ \"partial -> complete\" là loại D, sửa lượt 10).",
+  "missing": "none (registry T06: complete ở R05 — đã áp dụng; ghi chú cũ \"partial -> complete\" là loại D, sửa lượt 10). Lượt 13 (27/10, review Codex trên f71ba51): stale phải nêu đúng thứ đổi: R13 thêm trường hợp capture nguồn thiếu/hỏng/khác HEAD/capture lại sau khi người dùng sửa → 'candidate provenance unverifiable' với lý do cụ thể, candidate được giữ (không chọn baseline khác). Bằng chứng `check.r13_source_baseline` s6/s6b/s7/s7b.",
   "next": "Ran w07_env.py: verifier_env keeps TERM/SHELL, so the same work checked from Git Bash and re-assessed from PowerShell is stale with reason 'checker environment changed: variables' (the variable is not named; safe direction, but may refuse an owner `plan accept` run from another shell). Binding only exists on sequential-engine roots (evidence_context is passed only with that capability); legacy plans keep unbound receipts by design. Environment = interpreter/platform + hashed env vars, not tool versions on PATH.",
   "evidence": [
    "R05-check.evidence_binding (pass), R05-check.candidate_adapters, R05-check.candidate_reuse_counter",
@@ -2012,9 +2018,11 @@
    "tests.test_wf_rx1_core.OneCoreTests",
    "tests.test_wf_rx1_doc",
    "tests.test_wf_installed_adapters",
-   "tests/test_wf_rx1_core.py quét toàn bộ onecrew/v2 + common_verification, phản chứng mọi module"
+   "tests/test_wf_rx1_core.py quét toàn bộ onecrew/v2 + common_verification, phản chứng mọi module",
+   "check.r13_output_refs_tree_names",
+   "check.r12_output_refs_dotfiles"
   ],
-  "missing": "",
+  "missing": "Lượt 13 (27/10, review Codex trên f71ba51): TẠI f71ba51 Done là SAI ở phần kiểm nguồn/link: tham chiếu tới file CÓ THẬT trong cây nhưng tên không hợp heuristic (`.1password:999999`, `.v1.2:999999`) bị bỏ qua (total=0) → loại A. Sửa R13: scan giữ token yếu, check quyết theo neo cây (`check.r13_output_refs_tree_names`, 14 test, 2 fail + 1 pass qua CandidateChecker thật). Done chỉ với bằng chứng trên dev15.",
   "next": "",
   "evidence": [
    "RX1-check.rx1_core, RX1-check.rx1_doc, RX1-check.installed_adapters, RX1-check.candidate_adapters",
@@ -2164,9 +2172,10 @@
    "check.t55_cases",
    "check.pilot_report",
    "check.finalgate",
-   "check.r12_pl_local_rules"
+   "check.r12_pl_local_rules",
+   "check.r13_bundle_receipts"
   ],
-  "missing": "Lượt 12 (27/10, review Codex trên 572fd18): T45e E19/E20/E27 có quy tắc local thật (`PL/check.r12_pl_local_rules`, 30 test: dòng nghiệm thu trên B với đúng từ trạng thái, hàng kiểm lại gắn 'kiểm báo cáo' không cột hành vi, bản ghi so sánh có cờ/căn cứ/cặp hash và ba loại bản ghi ở ba file, không sửa bản ghi loại 1) và được nối vào finalgate.decide / pilot_report.check_report / pilot_tools verify. Còn lại đều ngoài (E): T45d/T45e/T45a cần việc thật do chủ sở hữu chọn (U3), so sánh A->B trên hai bản dựng thật, bản sao sổ pilot PL-B thật; quyết định chủ sở hữu về CK12/CK21/CK23 lệch bảng.",
+  "missing": "Lượt 12 (27/10, review Codex trên 572fd18): T45e E19/E20/E27 có quy tắc local thật (`PL/check.r12_pl_local_rules`, 30 test: dòng nghiệm thu trên B với đúng từ trạng thái, hàng kiểm lại gắn 'kiểm báo cáo' không cột hành vi, bản ghi so sánh có cờ/căn cứ/cặp hash và ba loại bản ghi ở ba file, không sửa bản ghi loại 1) và được nối vào finalgate.decide / pilot_report.check_report / pilot_tools verify. Còn lại đều ngoài (E): T45d/T45e/T45a cần việc thật do chủ sở hữu chọn (U3), so sánh A->B trên hai bản dựng thật, bản sao sổ pilot PL-B thật; quyết định chủ sở hữu về CK12/CK21/CK23 lệch bảng. Lượt 13 (27/10, review Codex trên f71ba51): PL/check.package_check mở rộng bằng `check.r13_bundle_receipts` (receipt con bundle). Phần ngoài không đổi.",
   "next": "Pilot thật + quyết định CK12/CK21/CK23 — chủ sở hữu (E). Không còn phần C.",
   "evidence": [
    "PL-*.json receipts on 6366137 (9, pass); registry PL testcases blocked (external pilot)",

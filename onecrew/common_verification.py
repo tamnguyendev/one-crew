@@ -20,15 +20,21 @@ required to exist, to be absent or to be non-empty (R11 did, and refused a corre
 approved contract's to judge, through its own milestones (command / reviewer / adapter), which run on the same candidate after the
 guard. A worker's declaration never exempts a candidate from them.
 
-Outside the write scope (R12 P1-B, invariant 4) nothing may differ from a baseline the ENGINE authenticated; the `parent` chain a
-candidate declares about itself is never that baseline. For every manifest path outside the node's `write`, the candidate bytes must be
-  * the project source: the file at the candidate's base commit, which must be the project HEAD observed now, or the project's
-    current working bytes of that file (a capture keeps working bytes); or
-  * the output of a producer the engine recorded for this attempt (`node.started` inputs), on a path in that producer's `write`, at
-    the producer's CURRENT artifact and generation and not failed; an integration also accepts every producer's current artifact
-    (what `snapshot_candidate` already requires it to carry).
-Paths outside the manifest come from the base commit itself. A parent chain may still exist (inheritance is not banned), but each link
-must load, verify and come from this project at the same base commit, or the candidate's provenance is unverifiable and it fails.
+Outside the write scope (R12 P1-B, invariant 4; R13 P1-S, docs/wf/r13-notes.md invariants 1-3) nothing may differ from ONE baseline
+the ENGINE authenticated for this attempt; the `parent` chain a candidate declares about itself is never that baseline, and the project
+HEAD, its working tree and the producers are not alternatives to choose from. The baseline is
+  * the source capture the engine took when it admitted the attempt (`node.started` `source`, engine._source_capture): the HEAD it
+    observed and the working-tree bytes of the node's read+write scope, uncommitted edits, new files and deletions included; it must be
+    a raw capture of this project at the HEAD observed now (R12: a HEAD change during the run is refused);
+  * overlaid, on a captured path in a producer's `write`, with that producer's output, when the engine recorded the producer for this
+    attempt (`node.started` inputs) and it is still at that artifact and generation and not failed; an integration also takes every
+    producer's current artifact (what `snapshot_candidate` already requires it to carry). Producers that disagree on a path outside
+    the write scope give no baseline for it: unverifiable.
+Every captured or manifest path outside `write` is compared IN THE CANDIDATE GIT TREE (so a path the manifest leaves out, which the tree
+takes from the base commit, is judged too); a manifest path outside the captured scope is a change outside the write scope. A missing,
+unreadable or foreign capture, or none recorded (a root started before R13), makes the candidate unverifiable: it fails and is kept;
+no other baseline is chosen. A parent chain may still exist (inheritance is not banned), but each link must load, verify and come from
+this project at the same base commit, or the candidate's provenance is unverifiable and it fails.
 `OUT_RULE` versions this rule: a stored receipt of an older rule is never reused as its proof. Text reports present in the write scope
 are then scanned for source references (v2/verifiers/output_refs.py).
 """
@@ -43,7 +49,7 @@ from pathlib import Path
 
 from .git_candidate_core import GitCandidate
 from .ledger import LedgerError, canonical, content_hash
-from .snapshots import Snapshots, bytes_hash, safe_file
+from .snapshots import Snapshots
 from .v2 import authority, contract as contracts, engine, internal_plan as ip, retention, verification_evidence
 from .v2.verifiers import command, output_refs, port, reviewer
 
@@ -117,25 +123,36 @@ def materialized_tree(ledger, tree, temp):
     return checkout
 
 
-OUT_RULE = 'r12-declared-vs-candidate+authenticated-baseline'
+OUT_RULE = 'r13-declared-vs-candidate+engine-source-capture'
 
 
-def _source_values(ledger, head, path):
-    """The authenticated source bytes of `path` as snapshot blob keys (None = absent): the file at commit `head` and the project's
-    current working bytes. Read-only: nothing is written to the snapshot store or to the project."""
-    data = Snapshots.git(ledger.project, 'cat-file', 'blob', head + ':' + path, allow_failure=True)
-    values = {bytes_hash(data) if data is not None else None}
+def _engine_source(store, record, project, observed, problems):
+    """R13 P1-S: the ONE source baseline of this attempt - the capture the engine itself took when it admitted the attempt, recorded in
+    node.started (`source`): the HEAD it observed and the working-tree bytes of the node's read+write scope, uncommitted edits, new
+    files (a blob) and deletions (None) included. None, with the reason appended to `problems`, when it cannot be authenticated: no
+    capture recorded (node.started written before R13, or a scope the engine could not capture), a capture that is missing or fails
+    verification, one that is not a raw capture of this project, or one taken at another commit than the HEAD observed now. The
+    verifier never falls back to the project HEAD or the current working tree instead."""
+    key = record.get('source')
+    if not key:
+        reason = record.get('source_error')
+        problems.append('no engine-recorded source capture for this attempt (' + (reason or 'node.started written before R13') + ')')
+        return None
     try:
-        target = safe_file(Path(ledger.project).resolve(), path)
-        if target.is_file(): values.add(bytes_hash(target.read_bytes()))
-        elif not os.path.lexists(target): values.add(None)
-    except (LedgerError, OSError):
-        pass                                     # an unreadable working file authenticates nothing; the committed file still does
-    return values
+        capture = store.load(key)
+    except (LedgerError, OSError, ValueError, TypeError, KeyError):
+        problems.append('the engine source capture ' + str(key)[:16] + ' is missing or fails verification'); return None
+    if (capture.get('parent') is not None or not isinstance(capture.get('source'), str)
+            or Path(capture['source']).resolve() != project):
+        problems.append('the engine source capture ' + key[:16] + ' is not a capture of this project'); return None
+    if not observed or capture.get('head') != observed:
+        problems.append('the engine source capture ' + key[:16] + ' was taken at another commit than the project HEAD'); return None
+    return capture
 
 
 def _producer_values(store, view, item, problems):
-    """{path: {blob}}: what the engine-recorded producers of this node may have put on a path of their own `write` (module docstring)."""
+    """({path: blob}, {path}): what the engine-recorded producers of this node put on a path of their own `write` (module docstring),
+    and the paths on which two of them disagree (no single inherited value)."""
     definitions = {node['id']: node for node in view['definition']['nodes']}
     record = view['nodes'][item['id']]
     sources = {}
@@ -148,7 +165,7 @@ def _producer_values(store, view, item, problems):
         for nid, node in definitions.items():
             if nid != item['id'] and node['write'] and view['nodes'][nid].get('artifact'):
                 sources.setdefault(nid, view['nodes'][nid]['artifact'])
-    values = {}
+    values, conflicts = {}, set()
     for source, artifact in sorted(sources.items()):
         if source not in definitions: continue
         try:
@@ -156,8 +173,10 @@ def _producer_values(store, view, item, problems):
         except (LedgerError, OSError, ValueError):
             problems.append('producer ' + source + ' artifact is unreadable'); continue
         for path in definitions[source]['write']:
-            if path in produced: values.setdefault(path, set()).add(produced[path]['working'])
-    return values
+            if path not in produced: continue
+            if path in values and values[path] != produced[path]['working']: conflicts.add(path)
+            values.setdefault(path, produced[path]['working'])
+    return values, conflicts
 
 
 def _chain_problems(store, manifest, project):
@@ -185,7 +204,7 @@ def output_expectations(store, manifest, item, contract=None, *, ledger=None, vi
     callers of the R11 signature; no obligation is read from its prose (nor from the node's)."""
     files, write = manifest['files'], list(item['write'])
     if ledger is None or view is None:
-        return {'write': write, 'declared': {path: 'unchanged' for path in write}, 'blobs': {}, 'outside': [],
+        return {'write': write, 'declared': {path: 'unchanged' for path in write}, 'blobs': {}, 'outside': [], 'baseline': {},
                 'provenance': ['no engine view was given to authenticate the candidate baseline']}
     project = Path(ledger.project).resolve()
     head, problems = manifest.get('head'), []
@@ -194,22 +213,40 @@ def output_expectations(store, manifest, item, contract=None, *, ledger=None, vi
     if not isinstance(head, str) or observed is None or observed != head:
         problems.append('the candidate base commit is not the project HEAD')
     problems += _chain_problems(store, manifest, project)
-    # the source is read at the commit the engine observed, never at a revision string the candidate supplied
-    source = {path: _source_values(ledger, observed or 'HEAD', path) for path in files}
-    produced = _producer_values(store, view, item, problems)
+    # R13 P1-S: ONE baseline - the engine's capture for this attempt, overlaid with the engine-recorded producer outputs on its scope
+    capture = _engine_source(store, view['nodes'][item['id']], project, observed, problems)
+    produced, conflicts = _producer_values(store, view, item, problems)
+    baseline = {}
+    if capture is not None:
+        baseline = {path: row['working'] for path, row in capture['files'].items()}
+        baseline.update({path: value for path, value in produced.items() if path in baseline})
+        for path in sorted(conflicts):
+            if path in baseline and path not in write:
+                problems.append('engine-recorded producers disagree on ' + path); del baseline[path]
     declared, blobs = {}, {}
     for path in write:
         want = files[path]['working'] if path in files else None
-        if path not in files or want in source[path]:
+        if path not in files or (path in baseline and want == baseline[path]):
             declared[path] = 'unchanged'
         elif want is None:
             declared[path] = 'deleted'
         else:
             declared[path] = 'empty' if not store.read_blob(want) else 'content'
         if path in files and want is not None: blobs[path] = want
-    outside = sorted(path for path, row in files.items()
-                     if path not in write and row['working'] not in source[path] | produced.get(path, set()))
-    return {'write': write, 'declared': declared, 'blobs': blobs, 'outside': outside, 'provenance': problems}
+    # every captured or manifest path outside `write` must be the baseline IN THE CANDIDATE TREE (output_check compares it there, so a
+    # path the manifest leaves out - which the tree then takes from the base commit - is judged too); a manifest path with no baseline
+    # (outside the captured scope) is a change outside the write scope. A write path the manifest leaves out is declared unchanged:
+    # its tree content must be the baseline as well. Without an authenticated capture nothing is compared: the candidate is unverifiable.
+    outside, compare = [], {}
+    if capture is not None:
+        for path in sorted(set(files) | set(baseline)):
+            if path in write:
+                if path not in files and path in baseline: compare[path] = baseline[path]
+            elif path in baseline:
+                compare[path] = baseline[path]
+            elif path not in conflicts:
+                outside.append(path)
+    return {'write': write, 'declared': declared, 'blobs': blobs, 'outside': outside, 'baseline': compare, 'provenance': problems}
 
 
 def output_check(checkout, outputs, expected, store):
@@ -238,6 +275,15 @@ def output_check(checkout, outputs, expected, store):
         if path in present and declared.get(path) != 'unchanged':
             # the same clean conversion GitCandidate used to seal the tree (filters=True), so CRLF settings cannot change the answer
             if command._git(root, 'hash-object', '--path=' + path, '--stdin', input=store.read_blob(blob)) != oids[path]: differs.append(path)
+    # R13 P1-S: the candidate tree against the engine-authenticated baseline (output_expectations), with the same clean conversion
+    outside = list(expected['outside'])
+    for path, blob in sorted((expected.get('baseline') or {}).items()):
+        if blob is None:
+            same = path not in oids
+        else:
+            same = path in oids and command._git(root, 'hash-object', '--path=' + path, '--stdin', input=store.read_blob(blob)) == oids[path]
+        if not same: (differs if path in outputs else outside).append(path)
+    outside, differs = sorted(set(outside)), sorted(set(differs))
     refs, reports = [], []
     for path in outputs:
         if path not in present or not output_refs.is_text_report(path): continue
@@ -247,13 +293,13 @@ def output_check(checkout, outputs, expected, store):
     reasons = []
     provenance = list(expected.get('provenance', ['no authenticated baseline']))
     for label, paths in (('declared output missing', missing), ('declared deletion still present', still),
-                         ('output content differs from the artifact', differs), ('changed outside the write scope', expected['outside']),
+                         ('output content differs from the artifact', differs), ('changed outside the write scope', outside),
                          ('candidate provenance unverifiable', provenance)):
         if paths: reasons.append(label + ': ' + ', '.join(paths[:5]))
     if judged['result'] == 'fail': reasons.append(f"{judged['offender_count']} unresolved reference(s): " + '; '.join(judged['offenders']))
     return {'id': 'OUT', 'rule': OUT_RULE, 'result': 'fail' if reasons else 'pass', 'outputs': list(outputs), 'reports': reports,
             'missing': missing, 'declared': dict(declared), 'still_present': still, 'content_differs': differs,
-            'outside_scope': list(expected['outside']), 'provenance': provenance,
+            'outside_scope': outside, 'provenance': provenance,
             'counts': judged['counts'], 'reasons': judged['reasons'], 'offenders': judged['offenders'], 'offender_count': judged['offender_count'],
             'ignored': judged['ignored'], 'reason': ' | '.join(reasons)}
 
