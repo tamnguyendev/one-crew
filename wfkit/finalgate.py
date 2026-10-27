@@ -145,8 +145,237 @@ def compare(bundle, evidence):
     selected = list(items) if changed - mapped else [r['id'] for r in rows if set(r['owned']) & changed]
     affected = affected_tasks({'tasks': rows}, selected) if selected else set()
     require(strings(comp['affected'], 'affected') == affected, 'comparison omitted or added dependency impact')
-    return {'id': comp['id'], 'source': identity(source), 'target': identity(target), 'items': items,
-            'changed_files': sorted(changed), 'affected': sorted(affected)}
+    result = {'id': comp['id'], 'source': identity(source), 'target': identity(target), 'items': items,
+              'changed_files': sorted(changed), 'affected': sorted(affected)}
+    result['records'] = comparison_records(result)
+    return result
+
+
+def comparison_records(computed):
+    """T45e [E27] (HL3): the kind-2 record, one row per item: the affected flag, its basis (changed file, propagation through
+    `owned` or `depends_on`, or a changed file outside the map) and the (A, B) hash pair. Derived; it never edits a kind-1 record."""
+    items, changed, affected = computed['items'], set(computed['changed_files']), set(computed['affected'])
+    unmapped = sorted(changed - {p for row in items.values() for p in row['owned']})
+    records = []
+    for key in sorted(items):
+        row, basis = items[key], []
+        if key in affected:
+            direct = sorted(set(row['owned']) & changed)
+            if unmapped:
+                basis.append({'via': 'unmapped_file', 'files': unmapped})
+            if direct:
+                basis.append({'via': 'changed_file', 'files': direct})
+            if not basis:
+                deps = sorted(set(row['depends_on']) & affected)
+                if deps:
+                    basis.append({'via': 'depends_on', 'items': deps})
+                shared = {o: sorted(set(items[o]['owned']) & set(row['owned'])) for o in sorted(affected - {key})
+                          if set(items[o]['owned']) & set(row['owned'])}
+                if shared:
+                    basis.append({'via': 'owned', 'items': sorted(shared), 'files': sorted({f for v in shared.values() for f in v})})
+            basis = basis or [{'via': 'closure'}]
+        else:
+            basis.append({'via': 'unchanged'})
+        records.append({'kind': 2, 'comparison_id': computed['id'], 'item': key, 'affected': key in affected, 'basis': basis,
+                        'hashes': {'A': dict(computed['source']), 'B': dict(computed['target'])}})
+    return records
+
+
+def check_comparison_records(records, computed):
+    """T45e [E27]: every item carries the affected flag, the basis and the (A, B) hash pair, equal to the analysis derived from the
+    pinned map. Returns the list of problems (empty = accepted)."""
+    if not isinstance(records, list) or not all(isinstance(r, dict) for r in records):
+        return ['comparison records: expected a list of objects']
+    expected, seen, problems = {r['item']: r for r in comparison_records(computed)}, {}, []
+    for rec in records:
+        item = rec.get('item')
+        if not isinstance(item, str) or item in seen:
+            problems.append(f'{item}: duplicate or unnamed record')
+            continue
+        seen[item] = rec
+        if item not in expected:
+            problems.append(f'{item}: unknown item')
+            continue
+        want = expected[item]
+        if rec.get('kind') != 2:
+            problems.append(f'{item}: the comparison result is a kind-2 record')
+        if not isinstance(rec.get('affected'), bool):
+            problems.append(f'{item}: affected flag missing')
+        elif rec['affected'] != want['affected']:
+            problems.append(f'{item}: affected flag differs from the pinned-map analysis')
+        if not isinstance(rec.get('basis'), list) or not rec['basis']:
+            problems.append(f'{item}: basis missing')
+        elif rec['basis'] != want['basis']:
+            problems.append(f'{item}: basis differs from the changed files and the owned/depends_on paths')
+        if rec.get('hashes') != want['hashes']:
+            problems.append(f'{item}: hash pair (A, B) missing or wrong')
+    problems.extend(f'{item}: record missing' for item in sorted(set(expected) - set(seen)))
+    return problems
+
+
+def _resolved(path):
+    return str(Path(path).resolve())
+
+
+def verify_kind1_unchanged(pins):
+    """HL1: a kind-1 (original evidence) file keeps the sha256 it was pinned with."""
+    problems = []
+    for path, sha in (pins or {}).items():
+        target = Path(path)
+        if not target.is_file():
+            problems.append(f'kind-1 record missing: {path}')
+        elif hashlib.sha256(target.read_bytes()).hexdigest() != sha:
+            problems.append(f'kind-1 record edited: {path}')
+    return problems
+
+
+def _held_kind(path):
+    try:
+        held = json.loads(Path(path).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    return held.get('kind') if isinstance(held, dict) else None
+
+
+def check_record_layout(layout, kind1_pins):
+    """T45e [E27] (HL1-HL4): the three record kinds (1 original evidence, 2 comparison result, 3 gate receipt) sit in separate files,
+    an existing file holds its own kind only, and no pinned kind-1 file was edited. Returns the list of problems."""
+    if not isinstance(layout, dict) or set(layout) != {1, 2, 3} or not all(isinstance(v, list) and v for v in layout.values()):
+        return ['record layout: kinds 1, 2 and 3 each need their own file']
+    files, problems = {k: {_resolved(p) for p in v} for k, v in layout.items()}, []
+    for a, b in ((1, 2), (1, 3), (2, 3)):
+        if files[a] & files[b]:
+            problems.append(f'record kinds {a} and {b} share a file; the three kinds must be kept in separate files (tách riêng)')
+    for kind, names in files.items():
+        for name in sorted(names):
+            held = _held_kind(name) if Path(name).is_file() else None
+            if held is not None and held != kind:
+                problems.append(f'{name}: holds a kind-{held} record, expected kind {kind}')
+    pins = {_resolved(k): v for k, v in (kind1_pins or {}).items()}
+    problems.extend(verify_kind1_unchanged(pins))
+    problems.extend(f'{k}: a kind-1 pin must be a kind-1 file of the layout' for k in sorted(pins) if k not in files[1])
+    return problems
+
+
+def write_record(kind, path, payload, kind1_pins):
+    """Write one record of the given kind. A kind-1 record is created once and never rewritten; a kind-2 or kind-3 write that
+    targets a kind-1 file (pinned, or holding a kind-1 payload) is refused."""
+    require(kind in (1, 2, 3), 'record kind must be 1, 2 or 3')
+    require(isinstance(payload, dict) and payload.get('kind') == kind, f'payload kind does not match record kind {kind}')
+    pins = {_resolved(k): v for k, v in (kind1_pins or {}).items()}
+    problems = verify_kind1_unchanged(pins)
+    require(not problems, '; '.join(problems))
+    target = Path(path)
+    require(kind == 1 or (_resolved(target) not in pins and _held_kind(target) != 1), f'refused: {target} is a kind-1 record and is never edited')
+    require(kind != 1 or not target.exists(), f'refused: kind-1 record {target} already exists and is never rewritten')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=1), encoding='utf-8')
+
+
+PARTIAL_AC = 'chỉ bộ kiểm, chưa có việc thật trên B'
+PARTIAL_RELEASE = 'chỉ bộ kiểm, chưa dùng thật'
+NO_DATA = 'không có dữ liệu'
+ACCEPTANCE_WORDS = {'AC1': PARTIAL_AC, 'AC2': PARTIAL_AC, 'AC3': PARTIAL_AC, 'R06': PARTIAL_RELEASE, 'R07': PARTIAL_RELEASE,
+                    'R08': PARTIAL_RELEASE, 'skip_leak': NO_DATA}
+MISSING, DONE = 'còn thiếu', 'đạt'
+
+
+def _on_target(row, target, kind=None):
+    try:
+        return (isinstance(row, dict) and identity(row) == target and row.get('result', 'pass') == 'pass'
+                and (kind is None or row.get('kind') == kind))
+    except ValueError:
+        return False
+
+
+def _real_work(row, target):
+    """U3: real work on B counts only as a real (not simulated) pilot receipt, chosen by the owner, passed, on build B."""
+    return _on_target(row, target, 'pilot') and row.get('simulated') is False and row.get('authorized_by') == 'U3' and row.get('result') == 'pass'
+
+
+def acceptance_report(target, real_work=(), simulated=False):
+    """T45e [E19]: the acceptance-report lines of the A->B case. An item keeps its partial words unless an owner-chosen (U3) real
+    pilot receipt on B is supplied for it. The real A->B report on two real builds stays external."""
+    target, lines = identity(target), []
+    for item, words in ACCEPTANCE_WORDS.items():
+        work = [w for w in real_work if isinstance(w, dict) and w.get('item') == item and _real_work(w, target)]
+        if work:
+            lines.append({'item': item, 'status': DONE, 'text': f'{item}: việc thật trên B do chủ sở hữu chọn (U3)',
+                          'checks_on_target': [], 'real_work_on_target': work})
+        else:
+            lines.append({'item': item, 'status': MISSING, 'text': f'{item}: {words}', 'checks_on_target': [], 'real_work_on_target': []})
+    return {'target': target, 'simulated': bool(simulated), 'lines': lines}
+
+
+def passed_without_check_on_target(report, target):
+    """T45e [E19] evidence: the number of items marked `đạt` on B with neither a passing check on B nor owner-chosen real work on B (must be 0)."""
+    target = identity(target)
+    lines = report.get('lines') if isinstance(report, dict) and isinstance(report.get('lines'), list) else []
+    return sum(1 for x in lines if isinstance(x, dict) and x.get('status') == DONE
+               and not any(_on_target(c, target) for c in x.get('checks_on_target') or [])
+               and not any(_real_work(w, target) for w in x.get('real_work_on_target') or []))
+
+
+def check_acceptance_report(report, target):
+    """T45e [E19] (U3): the acceptance-report lines on B. AC1-AC3 say "chỉ bộ kiểm, chưa có việc thật trên B", R06-R08 "chỉ bộ kiểm,
+    chưa dùng thật", the SKIP leak "không có dữ liệu"; none is `đạt`, nor claims real use, without owner-chosen real pilot data on B.
+    Returns the list of problems (empty = accepted)."""
+    target = identity(target)
+    if not isinstance(report, dict) or not isinstance(report.get('lines'), list) or not all(isinstance(x, dict) for x in report['lines']):
+        return ['acceptance report: lines missing']
+    problems, by_item = [], {}
+    for line in report['lines']:
+        if line.get('item') in by_item:
+            problems.append(f'{line.get("item")}: dòng trùng')
+        by_item.setdefault(line.get('item'), line)
+    for item, words in ACCEPTANCE_WORDS.items():
+        line = by_item.get(item)
+        if line is None:
+            problems.append(f'{item}: thiếu dòng trong báo cáo nghiệm thu')
+            continue
+        text, status = line.get('text'), line.get('status')
+        text = text if isinstance(text, str) else ''
+        valid = [w for w in line.get('real_work_on_target') or [] if _real_work(w, target)]
+        if status not in (MISSING, DONE):
+            problems.append(f'{item}: trạng thái phải là "{MISSING}" hoặc "{DONE}"')
+        if (status != MISSING or line.get('real_work_on_target') or 'đã dùng thật' in text) and not valid:
+            problems.append(f'{item}: ghi đã dùng thật/đạt trên B mà không có dữ liệu pilot thật trên B do chủ sở hữu chọn (U3)')
+        if not valid and words not in text:
+            problems.append(f'{item}: dòng phải ghi "{words}"')
+        if status == DONE and not valid and not any(_on_target(c, target) for c in line.get('checks_on_target') or []):
+            problems.append(f'{item}: ghi đạt mà không có kiểm trên B')
+        if status == DONE and report.get('simulated') is True:
+            problems.append(f'{item}: báo cáo giả lập không ghi đạt')
+    return problems
+
+
+def t45e_local_problems(bundle, computed, root, required=False):
+    """T45e local rules [E19, E20, E27] as judged by the final gate. Optional inputs of the bundle: `acceptance_report` (E19),
+    `rerun` (E20, the pilot-checker rerun row on the final artifact), `comparison.records` and `record_files` {layout: {kind: [paths]},
+    kind1_pins: {path: sha256}} (E27; paths relative to the bundle). `required` (real mode) also refuses their absence."""
+    from wfkit import pilot_report
+    target, problems = identity(bundle['artifacts']['final']), []
+    comp = bundle.get('comparison') or {}
+    given = {'acceptance_report': 'acceptance_report' in bundle, 'rerun': 'rerun' in bundle,
+             'records': 'records' in comp, 'record_files': 'record_files' in bundle}
+    if required:
+        problems += [f'{name} missing (T45e needs it on a real gate)' for name, ok in given.items() if not ok]
+    if given['acceptance_report']:
+        problems += check_acceptance_report(bundle['acceptance_report'], target)
+    if given['rerun']:
+        problems += pilot_report.check_rerun_row(bundle['rerun'], target)
+    if given['records'] and computed.get('items'):
+        problems += check_comparison_records(comp['records'], computed)
+    if given['record_files']:
+        files = bundle['record_files']
+        if not isinstance(files, dict) or not isinstance(files.get('layout'), dict):
+            problems.append('record_files: layout missing')
+        else:
+            base = Path(root)
+            layout = {int(k) if str(k).isdigit() else k: [base / p for p in v] if isinstance(v, list) else v for k, v in files['layout'].items()}
+            pins = {str(base / k): v for k, v in (files.get('kind1_pins') or {}).items()}
+            problems += check_record_layout(layout, pins)
+    return problems
 
 
 def evidence_status(original, attempts, target, comparison=None, item=None):
@@ -261,7 +490,8 @@ def decide(bundle, root='.', allow_simulated=False):
         try:
             fn()
         except (ValueError, KeyError, TypeError, AttributeError, OSError, BadZipFile, StopIteration) as exc:
-            errors[code] = str(exc) or type(exc).__name__
+            msg = str(exc) or type(exc).__name__
+            errors[code] = f'{errors[code]}; {msg}' if code in errors else msg
     try:
         require(isinstance(bundle, dict) and type(bundle.get('schema')) is int and bundle['schema'] == 1, 'bundle schema must be 1')
         require(bundle.get('mode') in ('real', 'fixture'), 'bundle mode missing')
@@ -290,6 +520,10 @@ def decide(bundle, root='.', allow_simulated=False):
                         require(rec.get('item') == key, f'{key}: wrong supplemental item')
                         require(rec.get('kind') == 'supplement', f'{key}: supplemental checks are not historical pilot work')
     check('KQ2', comparison_check)
+    def t45e_local_check():
+        problems = t45e_local_problems(bundle, computed, root, required=bundle['mode'] == 'real')
+        require(not problems, 'T45e local rules: ' + '; '.join(problems))
+    check('KQ2', t45e_local_check)
     # Structural proof may remain valid when only a supplemental check is missing.
     structural = computed if computed.get('items') else None
     def gates_check():

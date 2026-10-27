@@ -765,12 +765,28 @@ def render_aggregate(r):
                    f'({c["grader"].get("model")}), người điều phối {c["coordinator_model"]}; '
                    f'{sum(1 for a in c["answers"] if a["correct"])}/{len(c["answers"])} câu đúng: {c["result"]}')
     out.append(f'Ca K: {r["case_k"]}')
+    if r.get('rerun_on_final'):
+        out.append(r['rerun_on_final']['line'])
     return '\n'.join(out) + '\n'
 
 
 def open_read_only(entry):
     from onecrew.v2.lint import ReadOnlyLedger
     return ReadOnlyLedger(Path(entry['project']), Path(entry['state_root']))
+
+
+def attach_final_rerun(report, final):
+    """T45e [E20]: when the manifest names the final artifact (``final_artifact`` {commit, wheel_sha256}) the report carries the
+    pilot-checker rerun row on it, labelled "kiểm báo cáo" without a behaviour column; the figures digest is recomputed over it."""
+    if final is None:
+        return report
+    need(isinstance(final, dict) and COMMIT_RE.fullmatch(str(final.get('commit'))) and HASH_RE.fullmatch(str(final.get('wheel_sha256'))),
+         'manifest: final_artifact needs commit and wheel_sha256')
+    final = {'commit': final['commit'], 'wheel_sha256': final['wheel_sha256']}
+    report['final_artifact'] = final
+    report['rerun_on_final'] = pr.rerun_row(final)
+    report['figures_sha256'] = pr.figures_digest(report)
+    return report
 
 
 def generate_aggregate(manifest, open_ledger=open_read_only, base=None):
@@ -834,6 +850,7 @@ def generate_aggregate(manifest, open_ledger=open_read_only, base=None):
         need(not outside, f'ledger {entry["id"]}: plan root(s) {", ".join(outside)} are neither pilot jobs nor excluded with a reason '
                           '(wrong scope: a sample is never dropped silently)')
     report = build_aggregate(ledgers, jobs, measured, facts, outcomes, manifest, chat, obs, roots_of)
+    attach_final_rerun(report, manifest.get('final_artifact'))
     return report, render_aggregate(report)
 
 
@@ -845,8 +862,10 @@ def write_named(report, text, out_dir, names):
     return out / names[0], out / names[1]
 
 
-def verify_aggregate(manifest, report_dir, open_ledger=open_read_only, base=None):
+def verify_aggregate(manifest, report_dir, open_ledger=open_read_only, base=None, final=None):
     """Regenerate from the same manifest and ledgers; refuse unless both written files are byte-identical and check_report passes."""
+    if final is not None:
+        manifest = dict(manifest, final_artifact=final)
     report, text = generate_aggregate(manifest, open_ledger, base)
     want_json = (json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + '\n').encode('utf-8')
     want_md = text.encode('utf-8')
@@ -858,7 +877,15 @@ def verify_aggregate(manifest, report_dir, open_ledger=open_read_only, base=None
             problems.append(f'ID {name} khác bản sinh lại từ sổ (số liệu bị sửa hay sinh từ nguồn khác)' if got is not None else f'ID {name} missing')
     checked = pr.check_files(Path(report_dir) / AGG_FILES[0], Path(report_dir) / AGG_FILES[1])
     problems += checked['problems']
-    return {'result': 'refused' if problems else 'pass', 'problems': problems, 'owner_acceptance': False, 'pilot_evidence': False}
+    result = {'result': 'refused' if problems else 'pass', 'problems': problems, 'owner_acceptance': False, 'pilot_evidence': False}
+    if manifest.get('final_artifact') is not None:
+        # T45e [E20]: the rerun on the final artifact reports itself as a report check; a regenerated report without the row is refused.
+        row = report.get('rerun_on_final')
+        extra = pr.check_rerun_row(row, manifest['final_artifact'])
+        if extra:
+            result.update(result='refused', problems=problems + ['kiểm báo cáo: ' + e for e in extra])
+        result['rerun'] = row
+    return result
 
 
 # ---- W38d: re-run plan checker (T45e) ---------------------------------------------------------------------------------
@@ -1019,6 +1046,8 @@ def main(argv=None):
     rv.add_argument('--kind', choices=('aggregate',), default='aggregate')
     rv.add_argument('--manifest', type=Path, required=True)
     rv.add_argument('--report-dir', type=Path, required=True)
+    rv.add_argument('--final-commit', help='T45e: the final artifact the pilot checker is rerun on (with --final-wheel-sha256).')
+    rv.add_argument('--final-wheel-sha256')
     rc = sub.add_parser('rerun-check')
     rc.add_argument('analysis', type=Path)
     rs = sub.add_parser('supp-run')
@@ -1028,7 +1057,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == 'verify':
-            result = verify_aggregate(load(args.manifest), args.report_dir, base=args.manifest.parent)
+            final = ({'commit': args.final_commit, 'wheel_sha256': args.final_wheel_sha256}
+                     if args.final_commit or args.final_wheel_sha256 else None)
+            result = verify_aggregate(load(args.manifest), args.report_dir, base=args.manifest.parent, final=final)
             print(json.dumps(result, ensure_ascii=False, sort_keys=True))
             return 0 if result['result'] == 'pass' else 1
         if args.command == 'report':

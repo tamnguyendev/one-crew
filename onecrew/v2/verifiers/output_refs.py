@@ -14,6 +14,7 @@ Reference grammar (strict; anything else that looks like a reference is `unverif
     ref      := path ':' item (',' [spaces] item)*        (each item is checked on its own)
     item     := line [ ('-' | en-dash) line ]
     path     := [drive ':'] segment ('/' segment)* ['.' extension]    (extension starts with a letter, 1-10 letters/digits)
+                (R12: any segment, the last one included, may be a hidden name: one leading '.', see "R12 hidden files" below)
     line     := decimal digits (no sign, no 'L' prefix)
     boundary := after the ref the next character is not a word character, not '.' or ',' followed by a digit, not a dash followed
                 by a letter or digit, and not ':' followed by a non-space (so `a.cs:3-5:extra` and `a.cs:3:7` are unverifiable)
@@ -40,6 +41,30 @@ file that does not exist and pass. The LAST segment of a path decides its family
     build/legal file names, so ordinary prose can never fail a report while a citation of a repository file can never silently pass.
     Residual: an extensionless citation that is neither in the closed list nor anchored in the tree (`Gonefile:3` with no such
     basename and no separator) is ignored; the reviewer milestone remains the semantic gate for that.
+
+R12 hidden files and directories (Codex P1-C). Before R12 a last segment could not start with '.', so `.gitignore:999999` was never
+scanned (total=0, ignored=0) and a report citing a line beyond EOF passed. A segment of the HIDDEN shape is exactly one leading '.'
+followed by an ASCII letter or '_' and then the ordinary segment characters (`.gitignore`, `.editorconfig`, `.env`, `.github`,
+`.husky`, `.env.example`, `.eslintrc.json`). That is the shape of a repository hidden file or directory; the rule is general, there
+is no name list. For a dot-leading LAST segment the leading dot is NOT a dotted extension (`.gitignore` has no extension in the R11
+sense); the family is decided by the rest after that dot:
+  * rest starts with a lowercase letter or '_' and has no further dot (`.gitignore`, `.env`, `.tool-versions`) -> a reference;
+  * rest starts with a lowercase letter or '_' and has further dots -> R11's dotted rule applied to the rest: a letter extension
+    (`.env.example`, `.eslintrc.json`, `.env.local`) is a reference, and the host-extension exemption does NOT apply (a host name
+    never starts with '.'); a non-letter or empty extension (`.v1.2`, `.gitignore.`) is not a file reference;
+  * rest starts with an UPPERCASE letter (`.NET:8`, `.DS_Store:1`) -> AMBIGUOUS and judged by R11's tree anchoring above (a product
+    name in prose has this shape; repository hidden files are conventionally lowercase);
+  * rest starts with anything else (`.5:1` decimal or ratio, `..`/`...` ellipses, `.-x`, `.:3`) -> not a reference, never counted.
+A path whose DIRECTORY segments include a lowercase hidden segment (`.husky/pre-commit:2`, `.circleci/config:3`) is a reference even
+when its last segment alone would be ambiguous: prose, URLs (removed first), host:port, image tags, times and ratios never contain
+`.name/`. Every such reference is then resolved exactly like any other: full path from the repository root in the candidate tree,
+line/range within the file; a bare hidden name that is not a top-level file (`.env.example:3` when only `src/.env.example` exists)
+is `bare_basename`, a missing file is `unresolvable` (never "nothing to check"), a malformed tail is `unverifiable`.
+Still not references: `e.g.:1`, `i.e.:2`, `etc.:3`, `Wait...:3` (a dotted name with an empty extension), `1.5:1`, `v1.2:3`.
+Residual false positives (fail-closed): a lowercase dot word glued to ':digit' in prose (`.local:8080`, `.io:3`) is judged as a hidden
+file and fails unless the tree has it. Residual false negatives: an uppercase hidden name not anchored in the tree (`.Rprofile:2`
+with no such file) and a hidden name starting with a digit (`.1password:1`) are not counted (the uppercase one is listed in
+`ignored`); the reviewer milestone remains the semantic gate for those.
 Resolution against the candidate tree (case-sensitive, full path from the repository root):
   * the path must be a file of the tree; a path with no '/' is accepted only when it is exactly a top-level file of the tree.
     A bare basename (`publish.yml:32`) that is not a top-level file is `unresolvable`; it is never mapped to a file elsewhere;
@@ -74,12 +99,13 @@ Ref = namedtuple('Ref', 'path start end raw line kind reason')
 _URL = re.compile(r'[A-Za-z][A-Za-z0-9+.-]*://\S+')
 _CANDIDATE = re.compile(
     r'(?<![A-Za-z0-9_./\\@+~-])'
-    r'(?P<path>(?:[A-Za-z]:)?(?:[A-Za-z0-9_.@+~\\-]+[/\\])*[A-Za-z0-9_@+~-][A-Za-z0-9_.@+~-]*)'
+    r'(?P<path>(?:[A-Za-z]:)?(?:[A-Za-z0-9_.@+~\\-]+[/\\])*\.?[A-Za-z0-9_@+~-][A-Za-z0-9_.@+~-]*)'
     r':(?=-?\d|L\d|line)')
 _ITEM = r'\d+(?:[-–]\d+)?'
 _LINES = re.compile(r'(?P<list>' + _ITEM + r'(?:, *(?=\d)' + _ITEM + r')*)')
 _FENCE = re.compile(r'^\s{0,3}(?P<mark>`{3,}|~{3,})\s*(?P<info>[^`\s]*)')
 _DASHES = '-‐‑‒–—'
+_HIDDEN = re.compile(r'\.[a-z_]')   # R12: a lowercase hidden file/directory segment (`.gitignore`, `.github`); prefix match
 
 
 def is_text_report(path):
@@ -123,14 +149,25 @@ def scan(text):
 
 def _one(found, line, number):
     path, where = found.group('path'), found.end()
-    name = _SEPARATORS.split(path)[-1]
-    ambiguous = '.' not in name
-    if not ambiguous:
-        ext = name.rsplit('.', 1)[1]
-        if not _EXTENSION.fullmatch(ext):
-            return []   # `127.0.0.1:5000`, `nginx-1.2:3`: an address or a version, not a file
-        if '/' not in path and '\\' not in path and ext.lower() in HOST_EXTENSIONS:
-            return []   # host:port, not a source reference
+    parts = _SEPARATORS.split(path)
+    name = parts[-1]
+    if name.startswith('.'):   # R12 hidden-name family (module docstring); the leading dot is not an extension
+        rest = name[1:]
+        if not (rest[:1].isascii() and (rest[:1].isalpha() or rest[:1] == '_')):
+            return []   # `.5:1`, `.-x:3`: a decimal, a ratio or punctuation, not a file
+        if '.' in rest and not _EXTENSION.fullmatch(rest.rsplit('.', 1)[1]):
+            return []   # `.v1.2:3`, `.gitignore.:3`
+        ambiguous = rest[0].isupper()   # `.NET:8`: R11 tree anchoring decides
+    else:
+        ambiguous = '.' not in name
+        if not ambiguous:
+            ext = name.rsplit('.', 1)[1]
+            if not _EXTENSION.fullmatch(ext):
+                return []   # `127.0.0.1:5000`, `nginx-1.2:3`: an address or a version, not a file
+            if '/' not in path and '\\' not in path and ext.lower() in HOST_EXTENSIONS:
+                return []   # host:port, not a source reference
+    if ambiguous and any(_HIDDEN.match(part) for part in parts[:-1]):
+        ambiguous = False   # `.husky/pre-commit:2`: a path through a hidden directory is a repository path, never prose
     mark = '?' if ambiguous else ''
     token = line[found.start():_token_end(line, where)]
     lines = _LINES.match(line, where)

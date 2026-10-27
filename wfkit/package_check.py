@@ -102,6 +102,83 @@ def _json_file(path):
         return None
 
 
+def _read_json_strict(path):
+    """-> (object, None) or (None, why): unreadable, not UTF-8, invalid JSON or a non-object are all reported, never skipped."""
+    try:
+        v = json.loads(Path(path).read_text(encoding='utf-8'))
+    except (OSError, ValueError) as e:
+        return None, f'unreadable or invalid JSON ({type(e).__name__}: {e})'
+    return (v, None) if isinstance(v, dict) else (None, 'not a JSON object')
+
+
+def required_receipt_names(decision, registry):
+    """-> ({receipt file name: installed?} | None, source). The receipts the GATE itself expected, strongest source first (round 12 P2-D):
+    1. the registry snapshot (development-testcases.json) x decision.releases: every check of every judged release -> '<release>-<key>.json'; trusted only
+       when its size equals decision.implementation_checks.expected (a partial `only` run, or a registry that is not the gate's, is not trusted);
+    2. otherwise None: the receipts directory listing is the set, and its size must equal decision.implementation_checks.receipted."""
+    checks = decision.get('implementation_checks') if isinstance(decision, dict) else None
+    releases = decision.get('releases') if isinstance(decision, dict) else None
+    rel_doc = registry.get('releases') if isinstance(registry, dict) else None
+    fallback = (None, 'receipts directory listing')
+    if not (isinstance(checks, dict) and isinstance(releases, list) and releases and isinstance(rel_doc, dict)):
+        return fallback
+    names = {}
+    for r in releases:
+        body = rel_doc.get(r)
+        tcs = body.get('testcases') if isinstance(body, dict) else None
+        if not isinstance(tcs, dict):
+            return fallback
+        for key, entry in tcs.items():
+            if isinstance(entry, dict) and entry.get('modules'):
+                names[(r + '/' + key).replace('/', '-') + '.json'] = bool(entry.get('installed'))
+    if len(names) != checks.get('expected'):
+        return fallback
+    return names, 'registry snapshot x decision.releases'
+
+
+def receipt_problems(rdir, commit, wsha, decision=None, registry=None, label='gate/receipts'):
+    """-> [reason, ...]. EVERY gate receipt must carry the commit AND the wheel sha256 of the build (manifest / gate build.json): the receipt never
+    picks its own identity. A receipt that is unreadable, invalid JSON, not an object, or lacks `commit` / `wheel_sha256` is refused (never skipped);
+    `wheel_used`, when present, must be a list naming only that wheel. The required set is the gate's own expectation (required_receipt_names): a
+    missing one is refused, and a receipt on disk outside it is refused too. A correct checksum elsewhere proves bytes only, never that these agree."""
+    rdir = Path(rdir)
+    out = []
+    names, source = required_receipt_names(decision, registry)
+    on_disk = sorted(f.name for f in rdir.glob('*.json')) if rdir.is_dir() else []
+    checks = decision.get('implementation_checks') if isinstance(decision, dict) else None
+    if names is not None:
+        for n in sorted(set(names) - set(on_disk)):
+            out.append(f'{label}/{n}: required by the gate ({source}) but missing')
+        for n in sorted(set(on_disk) - set(names)):
+            out.append(f'{label}/{n}: not an expected check of this gate ({source}): a receipt from another run?')
+    elif isinstance(checks, dict):
+        if isinstance(checks.get('receipted'), int) and not isinstance(checks.get('receipted'), bool) and checks['receipted'] != len(on_disk):
+            out.append(f'{label}: the gate decision says {checks["receipted"]} receipts, the directory holds {len(on_disk)}')
+    for n in on_disk:
+        r, why = _read_json_strict(rdir / n)
+        if r is None:
+            out.append(f'{label}/{n}: {why}')
+            continue
+        if not isinstance(r.get('commit'), str):
+            out.append(f'{label}/{n}: receipt has no commit')
+        elif not commit_matches(r['commit'], commit):
+            out.append(f'{label}/{n}: receipt commit {r["commit"]!r} is not the build commit {commit!r}')
+        if not isinstance(r.get('wheel_sha256'), str):
+            out.append(f'{label}/{n}: receipt has no wheel_sha256')
+        elif r['wheel_sha256'] != wsha:
+            out.append(f'{label}/{n}: receipt wheel sha256 {r["wheel_sha256"]!r} ≠ manifest/build wheel {wsha!r}')
+        installed = bool(names and names.get(n))
+        if 'wheel_used' in r:
+            used = r['wheel_used']
+            if not isinstance(used, list) or any(u != wsha for u in used):
+                out.append(f'{label}/{n}: receipt wheel_used {used!r} is not (only) the build wheel {wsha!r}')
+            elif installed and not used:
+                out.append(f'{label}/{n}: installed check recorded no consumed wheel')
+        elif installed:
+            out.append(f'{label}/{n}: installed check has no wheel_used')
+    return out
+
+
 def identity_problems(pkg, manifest):
     """-> [reason, ...]: everything in the package that names a commit or a wheel digest must agree with manifest.commit / manifest.wheel
     (round 11 D: a package assembled from a later snapshot's audit table, another build's bundles or another commit's receipts is mixed).
@@ -129,12 +206,17 @@ def identity_problems(pkg, manifest):
     sn = _json_file(pkg / 'gate' / 'snapshot.json')
     if sn is not None and 'commit' in sn:
         seen.append(('gate/snapshot.json commit', 'commit', sn.get('commit')))
+    for dn in ('decision.json', 'gate-decision.json'):
+        dd = _json_file(pkg / 'gate' / dn)
+        if dd is not None:
+            for k, kind in (('commit', 'commit'), ('wheel_sha256', 'sha')):
+                if k in dd:
+                    seen.append((f'gate/{dn} {k}', kind, dd.get(k)))
+    decision = _json_file(pkg / 'gate' / 'decision.json')
+    registry = _json_file(pkg / 'docs' / 'development-testcases.json')
     rdir = pkg / 'gate' / 'receipts'
-    if rdir.is_dir():
-        for f in sorted(rdir.glob('*.json')):
-            r = _json_file(f)
-            if r is not None and 'commit' in r:
-                seen.append((f'gate/receipts/{f.name} commit', 'commit', r.get('commit')))
+    if rdir.is_dir() or (decision is not None and isinstance(decision.get('implementation_checks'), dict)):
+        out.extend(receipt_problems(rdir, commit, wsha, decision, registry))           # round 12 P2-D: commit AND wheel of every receipt, none skipped
     bundles = manifest.get('bundles')
     for rel, ent in sorted(bundles.items()) if isinstance(bundles, dict) else []:
         if not isinstance(ent, dict):
@@ -145,7 +227,31 @@ def identity_problems(pkg, manifest):
                 seen.append((f'manifest.bundles[{rel}] commit', 'commit', ent.get('commit')))
             if 'wheel_sha256' in ent:
                 seen.append((f'manifest.bundles[{rel}] wheel_sha256', 'sha', ent.get('wheel_sha256')))
-        disk = _json_file(pkg / 'bundles' / rel / 'release-check.json')
+        bdir = pkg / 'bundles' / rel
+        res = _json_file(bdir / 'bundle-result.json')
+        if res is not None and (('decision' in ent and res.get('decision') != ent.get('decision'))
+                                or ('produced' in res and (res.get('produced') is not False) != (ent.get('produced', True) is not False))):
+            out.append(f'bundle {rel}: manifest says decision {ent.get("decision")!r} produced={ent.get("produced")!r}, '
+                       f'bundles/{rel}/bundle-result.json says {res.get("decision")!r} produced={res.get("produced")!r}')
+        if ent.get('produced', True) is not False:
+            for k in ('commit', 'wheel_sha256'):
+                if not isinstance(ent.get(k), str):
+                    out.append(f'manifest.bundles[{rel}] has no {k}')
+        if (bdir / 'bundle.json').is_file():
+            bj, why = _read_json_strict(bdir / 'bundle.json')
+            cur = (bj.get('artifacts') or {}).get('current') if bj is not None and isinstance(bj.get('artifacts'), dict) else None
+            if bj is None:
+                out.append(f'bundles/{rel}/bundle.json: {why}')
+            elif not isinstance(cur, dict):
+                out.append(f'bundles/{rel}/bundle.json names no artifacts.current build')
+            else:
+                seen.append((f'bundles/{rel}/bundle.json artifacts.current commit', 'commit', cur.get('commit')))
+                seen.append((f'bundles/{rel}/bundle.json artifacts.current wheel_sha256', 'sha', cur.get('wheel_sha256')))
+        disk = _json_file(bdir / 'release-check.json')
+        if disk is None and (bdir / 'release-check.json').is_file():
+            out.append(f'bundles/{rel}/release-check.json is unreadable or not a JSON object')
+        elif disk is None and ent.get('produced', True) is not False and bdir.is_dir():
+            out.append(f'bundle {rel} is produced in the manifest but bundles/{rel}/release-check.json is missing')
         if disk is not None:
             seen.append((f'bundles/{rel}/release-check.json commit', 'commit', disk.get('commit')))
             seen.append((f'bundles/{rel}/release-check.json wheel_sha256', 'sha', disk.get('wheel_sha256')))

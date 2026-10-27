@@ -81,20 +81,25 @@ class OutputRefsThroughCandidateCheckerTests(OutputRefsFixture):
                 if number: self.setUp()
                 self.assertOutFails(self.verify_reports({'docs/rep/K03.md': 'Look at ' + text + '.\n'}), text, 'bare basename')
 
-    def test_d_required_output_missing_from_the_candidate(self):
-        # R11: `write` is permission; the node's `output` naming the skeleton makes it a required deliverable
+    def test_d_a_write_path_named_in_prose_but_not_written_is_no_structural_obligation(self):
+        # R11 made the skeleton "required" because the node `output` names it; R12 (P1-A, invariant 1): `write` is permission and prose
+        # creates no obligation. Whether the skeleton must exist is the contract milestone's to judge (tests/test_wf_r12_output_contract.py);
+        # this fixture's milestone reads none of the reports, so the candidate passes.
         both = ['docs/rep/K03.md', 'docs/rep/skeleton-1.md']
         result = self.verify_reports({'docs/rep/K03.md': 'ok a.cs:1\n'}, declared=both, output=['Report docs/rep/K03.md and docs/rep/skeleton-1.md'])
-        out = self.assertOutFails(result, 'docs/rep/skeleton-1.md', 'required output missing')
-        self.assertEqual(out['missing'], ['docs/rep/skeleton-1.md'])
+        out = result['observed']['output_check']
+        self.assertEqual((result['result'], out['result'], out['missing']), ('pass', 'pass', []), json.dumps(out))
+        self.assertEqual(out['declared']['docs/rep/skeleton-1.md'], 'unchanged')
 
-    def test_d2_required_output_that_is_empty_without_the_artifact_declaring_it(self):
-        # R11: an empty file is valid only when the artifact declares it; here the required report is empty in the source and untouched
+    def test_d2_an_untouched_empty_file_named_in_prose_is_no_structural_obligation(self):
+        # R12 (P1-A): an already-empty report the worker left alone is "unchanged"; prose naming it does not require content. A contract that
+        # needs content says so in its milestone (tests/test_wf_r12_output_contract.py test_5 refuses that case through the milestone).
         (self.root / 'docs' / 'rep').mkdir(parents=True); (self.root / 'docs' / 'rep' / 'K03.md').write_bytes(b'')
         result = self.verify_reports({'docs/rep/skeleton-1.md': 'ok a.cs:1\n'}, declared=['docs/rep/K03.md', 'docs/rep/skeleton-1.md'],
                                      output=['The report docs/rep/K03.md'])
-        out = self.assertOutFails(result, 'docs/rep/K03.md', 'required output empty')
-        self.assertEqual(out['empty_required'], ['docs/rep/K03.md'])
+        out = result['observed']['output_check']
+        self.assertEqual((result['result'], out['result']), ('pass', 'pass'), json.dumps(out))
+        self.assertEqual(out['declared']['docs/rep/K03.md'], 'unchanged')
 
     def test_e_wrong_part_while_the_two_skeleton_files_are_correct(self):
         good = 'Cites a.cs:1 and src/Foo.cs:2-3 and README.md:3.\n'

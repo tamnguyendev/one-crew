@@ -8,20 +8,29 @@ authors AND the actual producing child models before any call, and its provider
 call goes through the metered root budget. Owner-manual checks are refused here:
 they need the owner.
 
-Declared outputs (R11, Codex round 11 finding A). A node's `write` list is a PERMISSION, not a list of files that must exist: the
-artifact v1 protocol lets a worker write content, an empty file (`content: ""`) or delete a file (`content: null`) inside it. The
-structural output guard (`output_expectations` + `output_check`) therefore judges every write path by what the candidate artifact
-DECLARED, relative to the source capture at the root of its snapshot chain (so resumed and inherited content counts as declared):
+Declared outputs (R11 finding A, corrected in R12 P1-A; docs/wf/r12-notes.md invariants 1-3). A node's `write` list is a PERMISSION,
+not a list of files that must exist: the artifact v1 protocol lets a worker write content, an empty file (`content: ""`) or delete a
+file (`content: null`) inside it. The structural output guard (`output_expectations` + `output_check`) compares what the candidate
+DECLARED for each write path with the real candidate tree, relative to the authenticated source (below):
   * declared content or empty  -> the path must exist in the candidate tree with exactly that content (an empty file is valid);
   * declared deleted (null)    -> the path must be absent;
   * not declared (unchanged)   -> no obligation; a write path the worker left alone is permission it did not use.
-A REQUIRED output is a write path that the approved definition names as a deliverable: it appears verbatim, as a whole path token, in
-the node's own `output` list or in a contract `output` criterion of the node's `acceptance` ids. A required output must exist, must
-not be declared deleted, and must have content unless the artifact itself declared it empty. Nothing else is inferred.
-Outside the write scope nothing may change: the artifact API already refuses it (`artifact_core.artifacts`, `Snapshots.overlay`), and
-the guard re-checks a non-integration candidate against its immediate parent snapshot so a manifest that bypassed the API fails too
-(an integration candidate carries producer outputs; `snapshot_candidate` judges that). Text reports present in the write scope are
-then scanned for source references (v2/verifiers/output_refs.py).
+The guard infers NO obligation from prose: a path named in the node `output` or in a contract output criterion is not thereby
+required to exist, to be absent or to be non-empty (R11 did, and refused a correct deletion). The state an output must be in is the
+approved contract's to judge, through its own milestones (command / reviewer / adapter), which run on the same candidate after the
+guard. A worker's declaration never exempts a candidate from them.
+
+Outside the write scope (R12 P1-B, invariant 4) nothing may differ from a baseline the ENGINE authenticated; the `parent` chain a
+candidate declares about itself is never that baseline. For every manifest path outside the node's `write`, the candidate bytes must be
+  * the project source: the file at the candidate's base commit, which must be the project HEAD observed now, or the project's
+    current working bytes of that file (a capture keeps working bytes); or
+  * the output of a producer the engine recorded for this attempt (`node.started` inputs), on a path in that producer's `write`, at
+    the producer's CURRENT artifact and generation and not failed; an integration also accepts every producer's current artifact
+    (what `snapshot_candidate` already requires it to carry).
+Paths outside the manifest come from the base commit itself. A parent chain may still exist (inheritance is not banned), but each link
+must load, verify and come from this project at the same base commit, or the candidate's provenance is unverifiable and it fails.
+`OUT_RULE` versions this rule: a stored receipt of an older rule is never reused as its proof. Text reports present in the write scope
+are then scanned for source references (v2/verifiers/output_refs.py).
 """
 import copy
 import re
@@ -34,7 +43,7 @@ from pathlib import Path
 
 from .git_candidate_core import GitCandidate
 from .ledger import LedgerError, canonical, content_hash
-from .snapshots import Snapshots
+from .snapshots import Snapshots, bytes_hash, safe_file
 from .v2 import authority, contract as contracts, engine, internal_plan as ip, retention, verification_evidence
 from .v2.verifiers import command, output_refs, port, reviewer
 
@@ -108,44 +117,99 @@ def materialized_tree(ledger, tree, temp):
     return checkout
 
 
-def _names_path(text, path):
-    """`path` appears in `text` as a whole path token (not inside a longer path or name; a sentence-final '.' is allowed)."""
-    return re.search(r'(?<![\w./\\-])' + re.escape(path) + r'(?![\w/\\-]|\.\w)', text) is not None
+OUT_RULE = 'r12-declared-vs-candidate+authenticated-baseline'
 
 
-def required_outputs(item, contract=None):
-    """R11: the write paths the approved definition names as deliverables (module docstring)."""
-    texts = list(item.get('output') or [])
-    if contract is not None:
-        texts += [text for oid, text in zip(contracts.output_ids(contract['output']), contract['output']) if oid in item['acceptance']]
-    return [path for path in item['write'] if any(_names_path(text, path) for text in texts)]
+def _source_values(ledger, head, path):
+    """The authenticated source bytes of `path` as snapshot blob keys (None = absent): the file at commit `head` and the project's
+    current working bytes. Read-only: nothing is written to the snapshot store or to the project."""
+    data = Snapshots.git(ledger.project, 'cat-file', 'blob', head + ':' + path, allow_failure=True)
+    values = {bytes_hash(data) if data is not None else None}
+    try:
+        target = safe_file(Path(ledger.project).resolve(), path)
+        if target.is_file(): values.add(bytes_hash(target.read_bytes()))
+        elif not os.path.lexists(target): values.add(None)
+    except (LedgerError, OSError):
+        pass                                     # an unreadable working file authenticates nothing; the committed file still does
+    return values
 
 
-def output_expectations(store, manifest, item, contract=None):
-    """R11: what the candidate artifact declared for each write path, the required outputs, and the paths changed outside the write
-    scope. `manifest` is the loaded candidate snapshot (its parent chain ends at the project capture)."""
+def _producer_values(store, view, item, problems):
+    """{path: {blob}}: what the engine-recorded producers of this node may have put on a path of their own `write` (module docstring)."""
+    definitions = {node['id']: node for node in view['definition']['nodes']}
+    record = view['nodes'][item['id']]
+    sources = {}
+    for source, binding in (record.get('inputs') or {}).items():
+        current = view['nodes'].get(source) or {}
+        if (isinstance(binding, dict) and current.get('artifact') and binding.get('artifact') == current['artifact']
+                and binding.get('generation') == current.get('generation') and current.get('verification_result') != 'fail'):
+            sources[source] = current['artifact']
+    if item['integration']:
+        for nid, node in definitions.items():
+            if nid != item['id'] and node['write'] and view['nodes'][nid].get('artifact'):
+                sources.setdefault(nid, view['nodes'][nid]['artifact'])
+    values = {}
+    for source, artifact in sorted(sources.items()):
+        if source not in definitions: continue
+        try:
+            produced = store.load(artifact)['files']
+        except (LedgerError, OSError, ValueError):
+            problems.append('producer ' + source + ' artifact is unreadable'); continue
+        for path in definitions[source]['write']:
+            if path in produced: values.setdefault(path, set()).add(produced[path]['working'])
+    return values
+
+
+def _chain_problems(store, manifest, project):
+    """A declared parent chain is never the baseline, but every link must load, verify and come from this project at the same base commit."""
+    problems, key, seen = [], manifest.get('parent'), set()
+    while key:
+        if key in seen or len(seen) >= 64:
+            problems.append('snapshot chain is cyclic or deeper than 64 links'); break
+        seen.add(key)
+        try:
+            link = store.load(key)
+        except (LedgerError, OSError, ValueError, TypeError):
+            problems.append('parent snapshot ' + str(key)[:16] + ' is missing or fails verification'); break
+        if (not isinstance(link.get('source'), str) or Path(link['source']).resolve() != project
+                or link.get('head') != manifest.get('head')):
+            problems.append('parent snapshot ' + key[:16] + ' is not from this project at the candidate base commit'); break
+        key = link.get('parent')
+    return problems
+
+
+def output_expectations(store, manifest, item, contract=None, *, ledger=None, view=None):
+    """R12: what the candidate artifact declared for each write path, and the manifest paths outside the write scope that differ from
+    the engine-authenticated baseline (module docstring). `manifest` is the loaded candidate snapshot; `ledger` and `view`
+    (engine.state) supply that baseline - without them nothing is authenticated and the candidate fails. `contract` is accepted for
+    callers of the R11 signature; no obligation is read from its prose (nor from the node's)."""
     files, write = manifest['files'], list(item['write'])
-    parent = store.load(manifest['parent'])['files'] if manifest.get('parent') else files
-    origin, chain, seen = parent, manifest.get('parent'), set()
-    while chain:
-        if chain in seen or len(seen) >= 64: raise LedgerError('Candidate snapshot chain is cyclic or too deep.')
-        seen.add(chain)
-        loaded = store.load(chain)
-        origin, chain = loaded['files'], loaded.get('parent')
+    if ledger is None or view is None:
+        return {'write': write, 'declared': {path: 'unchanged' for path in write}, 'blobs': {}, 'outside': [],
+                'provenance': ['no engine view was given to authenticate the candidate baseline']}
+    project = Path(ledger.project).resolve()
+    head, problems = manifest.get('head'), []
+    observed = Snapshots.git(project, 'rev-parse', '--verify', 'HEAD', allow_failure=True)
+    observed = observed.decode('ascii', 'replace').strip() if observed is not None else None
+    if not isinstance(head, str) or observed is None or observed != head:
+        problems.append('the candidate base commit is not the project HEAD')
+    problems += _chain_problems(store, manifest, project)
+    # the source is read at the commit the engine observed, never at a revision string the candidate supplied
+    source = {path: _source_values(ledger, observed or 'HEAD', path) for path in files}
+    produced = _producer_values(store, view, item, problems)
     declared, blobs = {}, {}
     for path in write:
         want = files[path]['working'] if path in files else None
-        before = origin[path]['working'] if path in origin else None
-        if path not in files or want == before:
+        if path not in files or want in source[path]:
             declared[path] = 'unchanged'
         elif want is None:
             declared[path] = 'deleted'
         else:
             declared[path] = 'empty' if not store.read_blob(want) else 'content'
         if path in files and want is not None: blobs[path] = want
-    outside = [] if item['integration'] else sorted(
-        path for path, row in files.items() if path not in write and (path not in parent or parent[path]['working'] != row['working']))
-    return {'write': write, 'required': required_outputs(item, contract), 'declared': declared, 'blobs': blobs, 'outside': outside}
+    outside = sorted(path for path, row in files.items()
+                     if path not in write and row['working'] not in source[path] | produced.get(path, set()))
+    return {'write': write, 'declared': declared, 'blobs': blobs, 'outside': outside, 'provenance': problems}
 
 
 def output_check(checkout, outputs, expected, store):
@@ -165,11 +229,9 @@ def output_check(checkout, outputs, expected, store):
         meta, _, path = row.partition('\t')
         if path and not meta.startswith('160000'):
             tree_files[path] = counter(path); oids[path] = meta.split()[1]
-    declared, required = expected['declared'], expected['required']
+    declared = expected['declared']
     present = {path for path in outputs if path in tree_files and (root / path).is_file()}
-    missing = [path for path in outputs if path not in present and (path in required or declared.get(path) in ('content', 'empty'))]
-    deleted = [path for path in required if declared.get(path) == 'deleted']
-    empty = [path for path in required if path in present and (root / path).stat().st_size == 0 and declared.get(path) != 'empty']
+    missing = [path for path in outputs if path not in present and declared.get(path) in ('content', 'empty')]
     still = [path for path in outputs if declared.get(path) == 'deleted' and path in present]
     differs = []
     for path, blob in expected['blobs'].items():
@@ -183,15 +245,15 @@ def output_check(checkout, outputs, expected, store):
         refs.extend(output_refs.scan((root / path).read_bytes().decode('utf-8', 'replace')))
     judged = output_refs.check(tree_files, refs, outputs)
     reasons = []
-    for label, paths in (('required output missing', [p for p in missing if p in required]),
-                         ('declared output missing', [p for p in missing if p not in required]), ('required output deleted', deleted), ('required output empty (the artifact did not declare it empty)', empty),
-                         ('declared deletion still present', still), ('output content differs from the artifact', differs),
-                         ('changed outside the write scope', expected['outside'])):
+    provenance = list(expected.get('provenance', ['no authenticated baseline']))
+    for label, paths in (('declared output missing', missing), ('declared deletion still present', still),
+                         ('output content differs from the artifact', differs), ('changed outside the write scope', expected['outside']),
+                         ('candidate provenance unverifiable', provenance)):
         if paths: reasons.append(label + ': ' + ', '.join(paths[:5]))
     if judged['result'] == 'fail': reasons.append(f"{judged['offender_count']} unresolved reference(s): " + '; '.join(judged['offenders']))
-    return {'id': 'OUT', 'result': 'fail' if reasons else 'pass', 'outputs': list(outputs), 'reports': reports, 'missing': missing,
-            'required': list(required), 'declared': dict(declared), 'deleted_required': deleted, 'empty_required': empty,
-            'still_present': still, 'content_differs': differs, 'outside_scope': list(expected['outside']),
+    return {'id': 'OUT', 'rule': OUT_RULE, 'result': 'fail' if reasons else 'pass', 'outputs': list(outputs), 'reports': reports,
+            'missing': missing, 'declared': dict(declared), 'still_present': still, 'content_differs': differs,
+            'outside_scope': list(expected['outside']), 'provenance': provenance,
             'counts': judged['counts'], 'reasons': judged['reasons'], 'offenders': judged['offenders'], 'offender_count': judged['offender_count'],
             'ignored': judged['ignored'], 'reason': ' | '.join(reasons)}
 
@@ -292,8 +354,9 @@ def _reuse(ledger, view, item, artifact, previous_receipt, tree, binding, plan_s
         if (observed.get('artifact') != artifact or observed.get('candidate_tree') != tree or len(rows) != len(ids)
                 or {r['id'] for r in rows} != set(ids) or any(r['result'] != 'pass' for r in rows)):
             return None
-        if not isinstance(observed.get('output_check'), dict) or observed['output_check'].get('result') != 'pass':
-            return None   # R10: a receipt without the declared-output / reference check cannot stand in for it
+        if (not isinstance(observed.get('output_check'), dict) or observed['output_check'].get('result') != 'pass'
+                or observed['output_check'].get('rule') != OUT_RULE):
+            return None   # R10: no declared-output / reference check, or (R12) one of an older rule, cannot stand in for it
         observed_binding = observed.get('evidence_binding')
         if observed_binding is None or observed_binding.get('revision') != view['contract_revision']:
             return None
@@ -394,7 +457,7 @@ class CandidateChecker:
             commit = command._git(checkout, '-c', 'user.name=OneCrew', '-c', 'user.email=onecrew@localhost',
                                   'commit-tree', tree, input=b'OneCrew candidate verification\n')
             command._git(checkout, 'update-ref', 'HEAD', commit)
-            out = output_check(checkout, item['write'], output_expectations(store, manifest, item, contract), store)
+            out = output_check(checkout, item['write'], output_expectations(store, manifest, item, contract, ledger=ledger, view=view), store)
             out['evidence'] = store.blob(canonical(dict(out, kind='candidate-output-check', node=nid, snapshot=artifact, tree=tree)).encode())
             if out['result'] != 'pass':
                 # A failed structural check fails the node like a failed milestone; the milestones are not run on a candidate that already fails.

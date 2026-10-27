@@ -460,7 +460,7 @@ class PackageIdentityStepTests(unittest.TestCase):
         write_json(self.pkg / 'docs' / 'audit-92.json', {'commit': FULL[:7], 'counts': {}})
         (self.pkg / 'docs' / 'AUDIT-92.md').write_text(f'Commit kiểm: `{FULL[:7]}`. Nguồn\n', encoding='utf-8')
         write_json(self.pkg / 'gate' / 'gate-build.json', {'commit': FULL, 'wheel_sha256': self.wsha})
-        write_json(self.pkg / 'gate' / 'receipts' / 'KN-a.json', {'check': 'KN/a', 'commit': FULL})
+        write_json(self.pkg / 'gate' / 'receipts' / 'KN-a.json', {'check': 'KN/a', 'commit': FULL, 'wheel_sha256': self.wsha, 'wheel_used': []})
         write_json(self.pkg / 'bundles' / 'R01' / 'release-check.json', {'decision': 'pass', 'commit': FULL, 'wheel_sha256': self.wsha})
         write_json(self.pkg / 'bundles' / 'RP' / 'bundle-result.json', {'decision': 'refused', 'reason': 'RP needs --matrix'})
 
@@ -513,9 +513,9 @@ class PackageIdentityStepTests(unittest.TestCase):
         self.assertTrue(any('bundle R01: manifest decision' in x for x in self.reasons()), self.reasons())
 
     def test_receipt_or_gate_build_of_another_commit_is_refused(self):
-        write_json(self.pkg / 'gate' / 'receipts' / 'KN-a.json', {'check': 'KN/a', 'commit': OTHER})
-        self.assert_mixed('gate/receipts/KN-a.json')
-        write_json(self.pkg / 'gate' / 'receipts' / 'KN-a.json', {'commit': FULL})
+        write_json(self.pkg / 'gate' / 'receipts' / 'KN-a.json', {'check': 'KN/a', 'commit': OTHER, 'wheel_sha256': self.wsha})
+        self.assertTrue(any('KN-a.json' in x and 'commit' in x for x in self.reasons()), self.reasons())
+        write_json(self.pkg / 'gate' / 'receipts' / 'KN-a.json', {'commit': FULL, 'wheel_sha256': self.wsha})
         write_json(self.pkg / 'gate' / 'gate-build.json', {'commit': FULL, 'wheel_sha256': '0' * 64})
         self.assert_mixed('gate/gate-build.json wheel_sha256')
 

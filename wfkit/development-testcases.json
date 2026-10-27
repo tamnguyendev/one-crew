@@ -4615,7 +4615,32 @@
       "tests.test_wf_r11_output_refs"
      ],
      "installed": false,
-     "scope": "Round 11 (Codex review 26/10, findings A/B) through the real engine.step + artifact API + engine.verify with CandidateChecker: a node's write scope is a permission, not a list of files that must exist — a deletion (content null) or an intentionally empty file inside the scope passes; a REQUIRED output (a write path named in the node/contract output) must exist, must not be declared deleted and must have content unless the artifact itself declared it empty; a change outside the write scope that bypasses the API fails the guard. References: an extensionless citation (Dockerfile, Makefile, LICENSE, a tree file, a tree-anchored path) is a reference and fails when it does not resolve; URLs, host:port, times, ratios, image tags, Windows drive paths and ordinary prose are neither references nor offenders (controls). Structural only; never semantic review."
+     "scope": "Round 11 (Codex review 26/10, findings A/B) through the real engine.step + artifact API + engine.verify with CandidateChecker: a node's write scope is a permission, not a list of files that must exist — a deletion (content null) or an intentionally empty file inside the scope passes; (round 12 supersedes the R11 'required output' prose rule: a write path named in prose carries no obligation of its own; existence/content requirements come from the contract's milestones — the R11 tests f-i now refuse through a real NONEMPTY/EMPTY_FILE milestone while the structural guard passes); a change outside the write scope that bypasses the API fails the guard. References: an extensionless citation (Dockerfile, Makefile, LICENSE, a tree file, a tree-anchored path) is a reference and fails when it does not resolve; URLs, host:port, times, ratios, image tags, Windows drive paths and ordinary prose are neither references nor offenders (controls). Structural only; never semantic review."
+    },
+    "check.r12_t28_e1_evidence": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r12_t28_e1_evidence"
+     ],
+     "installed": false,
+     "scope": "Round 12 (Codex review 27/10, C-class gap WK05a/T28 E1): the retained before/after-split evidence of the two v1 register suites (docs/wf/evidence/t28-e1-before-split) is intact (114 tests each, both OK, identical lists), the before-split commit 54b802c is 1b4f4c6^ and an ancestor of HEAD, the CURRENT build enumerates exactly that test list (unittest loader, no run), and the gate still executes the after-split side (check.register_v1_guard/_p6). Verifies retained evidence against this snapshot; never reruns the 50-minute historical side and never claims more than the one recorded run."
+    },
+    "check.r12_output_refs_dotfiles": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r12_output_refs_dotfiles"
+     ],
+     "installed": false,
+     "scope": "Round 12 (Codex review 27/10, P1-C): a citation of a hidden file or a path through a hidden directory (.gitignore:1, .editorconfig:2, .github/workflows/build.yml:5, src/.env.example:3, .config/x.toml) is a source reference by a GENERAL rule (one leading dot + lowercase letter/underscore; R11 dotted rule for the rest of the name; uppercase hidden names stay ambiguous and tree-anchored), resolved against the pinned candidate tree with line/range bounds; a hidden file that does not exist, a wrong path or a line beyond EOF is unresolvable and fails M1 (the Codex counterexample .gitignore:999999 included). Negative controls (URLs, host:port, times, ratios, image tags, decimals, ellipses, prose, the whole R11 control list) stay uncounted. Two failing and one passing case go through engine.step + artifact API + engine.verify. Structural only; never semantic review."
+    },
+    "check.r12_output_contract_chain": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r12_output_contract",
+      "tests.test_wf_r12_parent_chain"
+     ],
+     "installed": false,
+     "scope": "Round 12 (Codex review 27/10, P1-A/P1-B) through the real engine.step + artifact API + engine.verify with CandidateChecker. P1-A: no output obligation is inferred from a path appearing in node/contract prose; the structural guard compares only what the artifact DECLARED with the real candidate tree (declared content/empty must match, declared deletion must be absent, undeclared write paths carry no obligation); whether an output must exist, be empty or have content is decided by the contract's own milestones, so a worker's content:null/\"\" never exempts a candidate (a correct deletion named in prose passes; deleting/omitting what a milestone requires is refused by that milestone; an already-empty valid file passes; different phrasing of the same contract gives the same result). P1-B: the out-of-scope comparison uses a baseline the engine authenticated — the project HEAD the candidate captured (must equal the project HEAD observed at verify time, read at that commit) and the producer artifacts/generations recorded in node.started/resumed for this attempt — never the candidate's self-declared parent chain; every chain link must load, pass its hash and belong to this project at the same base; a change hidden behind one or more intermediate parents, a foreign/switched parent or head, a missing/corrupt chain, a candidate without parent carrying an out-of-scope change, a producer at a stale generation or invalidated are all refused with 'changed outside the write scope' or 'candidate provenance unverifiable'; legitimate resume/integration inheritance at the recorded producer artifact passes; integration candidates get the out-of-scope check too; stored OUT receipts carry OUT_RULE and older ones are not reusable."
     },
     "registry": {
      "kind": "unittest",
@@ -4837,25 +4862,23 @@
        "scope": "Real reviewer verifier and register on a temporary ledger, scripted provider: F1 open and F2 closed with its receipt; the handover open-finding section is exactly {F1} with ID, criterion and artifact; the counter-example (report._open_findings returns nothing: the report does not read the register) turns the check red."
       },
       "T28": {
-       "status": "partial",
+       "status": "complete",
        "checks": [
         "check.findings",
         "check.adapter_findings",
         "check.register_v1_guard",
         "check.register_v1_guard_p6",
-        "check.r7_t28"
+        "check.r7_t28",
+        "check.r12_t28_e1_evidence"
        ],
-       "gaps": [
-        {
-         "kind": "manual-evidence",
-         "detail": "E2-E6 covered (tests.test_wf_findings, tests.test_wf_r7_t28). E1 (the two v1 register suites tests.test_review_lifecycle + tests.test_review_p6 run on the commit BEFORE finding_core.py was split out, same list and results as after): proven by a manual run on 25/10/2026 22:21-22:47 — 114 tests on 54b802c (= 1b4f4c6^, git archive) and 114 tests on e61b2c2, identical test list (diff empty), both OK; logs and README in D:/OneCrewRuns/wf-dev-logs/t28-e1-before-split. The after-split side runs in every gate as R05/check.register_v1_guard + check.register_v1_guard_p6. E1 stays outside the gate (about 50 minutes per run), so the case is partial-by-construction, not for lack of a test."
-        },
-        {
-         "kind": "acceptance-audit",
-         "detail": "Audited round 7, 25/10: covered E2, E3, E4, E5, E6; UNCOVERED E1: The after-split side is the gate check.register_v1_guard / check.register_v1_guard_p6 (tests.test_review_lifecycle, tests.test_review_p6; both files unchanged since 1b4f4c6^, the commit before onecrew/finding_core.py was extracted). The before-split run on 1b4f4c6^ (same list, same results) was not executed in round 7 (machine constraint: no checkout or suite runs), so the before/after comparison the evidence asks for is not recorded."
-        }
-       ],
-       "evidence_matrix_partial": {
+       "gaps": [],
+       "evidence_matrix": {
+        "E1": [
+         "tests.test_wf_r12_t28_e1_evidence.T28E1EvidenceTests.test_e1_retained_before_and_after_split_runs_have_the_same_114_tests_and_both_passed",
+         "tests.test_wf_r12_t28_e1_evidence.T28E1EvidenceTests.test_e1_the_before_split_commit_is_the_parent_of_the_split_commit_in_this_repository",
+         "tests.test_wf_r12_t28_e1_evidence.T28E1EvidenceTests.test_e1_the_current_build_enumerates_exactly_the_retained_test_list",
+         "tests.test_wf_r12_t28_e1_evidence.T28E1EvidenceTests.test_e1_the_gate_still_runs_the_after_split_side"
+        ],
         "E2": [
          "tests.test_wf_findings.FindingTests.test_t28_code_change_and_generic_accept_do_not_close_or_call_closure",
          "tests.test_wf_r7_t28.T28ClosureWiringTests.test_e4_closure_goes_through_the_register_transition_only_at_c"
@@ -4876,7 +4899,8 @@
         "E6": [
          "tests.test_wf_r7_t28.T28ClosureWiringTests.test_e6_wrong_wiring_closing_without_the_register_turns_the_check_red"
         ]
-       }
+       },
+       "audit_note": "Round 12, 27/10: E1 closed as a gate check over RETAINED evidence (manual run 25/10 22:21-22:47 on 54b802c = 1b4f4c6^ and e61b2c2, 114/114 identical, both OK) tied to the current build by test-list enumeration; the historical before-split run is not re-executed per gate (fixed commit, ~50 min). E2-E6 unchanged (round 7 audit)."
       },
       "T31": {
        "status": "complete",
@@ -5469,25 +5493,23 @@
      "scope": "Real reviewer verifier and register on a temporary ledger, scripted provider: F1 open and F2 closed with its receipt; the handover open-finding section is exactly {F1} with ID, criterion and artifact; the counter-example (report._open_findings returns nothing: the report does not read the register) turns the check red."
     },
     "T28": {
-     "status": "partial",
+     "status": "complete",
      "checks": [
       "check.findings",
       "check.adapter_findings",
       "check.register_v1_guard",
       "check.register_v1_guard_p6",
-      "check.r7_t28"
+      "check.r7_t28",
+      "check.r12_t28_e1_evidence"
      ],
-     "gaps": [
-      {
-       "kind": "manual-evidence",
-       "detail": "E2-E6 covered (tests.test_wf_findings, tests.test_wf_r7_t28). E1 (the two v1 register suites tests.test_review_lifecycle + tests.test_review_p6 run on the commit BEFORE finding_core.py was split out, same list and results as after): proven by a manual run on 25/10/2026 22:21-22:47 — 114 tests on 54b802c (= 1b4f4c6^, git archive) and 114 tests on e61b2c2, identical test list (diff empty), both OK; logs and README in D:/OneCrewRuns/wf-dev-logs/t28-e1-before-split. The after-split side runs in every gate as R05/check.register_v1_guard + check.register_v1_guard_p6. E1 stays outside the gate (about 50 minutes per run), so the case is partial-by-construction, not for lack of a test."
-      },
-      {
-       "kind": "acceptance-audit",
-       "detail": "Audited round 7, 25/10: covered E2, E3, E4, E5, E6; UNCOVERED E1: The after-split side is the gate check.register_v1_guard / check.register_v1_guard_p6 (tests.test_review_lifecycle, tests.test_review_p6; both files unchanged since 1b4f4c6^, the commit before onecrew/finding_core.py was extracted). The before-split run on 1b4f4c6^ (same list, same results) was not executed in round 7 (machine constraint: no checkout or suite runs), so the before/after comparison the evidence asks for is not recorded."
-      }
-     ],
-     "evidence_matrix_partial": {
+     "gaps": [],
+     "evidence_matrix": {
+      "E1": [
+       "tests.test_wf_r12_t28_e1_evidence.T28E1EvidenceTests.test_e1_retained_before_and_after_split_runs_have_the_same_114_tests_and_both_passed",
+       "tests.test_wf_r12_t28_e1_evidence.T28E1EvidenceTests.test_e1_the_before_split_commit_is_the_parent_of_the_split_commit_in_this_repository",
+       "tests.test_wf_r12_t28_e1_evidence.T28E1EvidenceTests.test_e1_the_current_build_enumerates_exactly_the_retained_test_list",
+       "tests.test_wf_r12_t28_e1_evidence.T28E1EvidenceTests.test_e1_the_gate_still_runs_the_after_split_side"
+      ],
       "E2": [
        "tests.test_wf_findings.FindingTests.test_t28_code_change_and_generic_accept_do_not_close_or_call_closure",
        "tests.test_wf_r7_t28.T28ClosureWiringTests.test_e4_closure_goes_through_the_register_transition_only_at_c"
@@ -5508,7 +5530,8 @@
       "E6": [
        "tests.test_wf_r7_t28.T28ClosureWiringTests.test_e6_wrong_wiring_closing_without_the_register_turns_the_check_red"
       ]
-     }
+     },
+     "audit_note": "Round 12, 27/10: E1 closed as a gate check over RETAINED evidence (manual run 25/10 22:21-22:47 on 54b802c = 1b4f4c6^ and e61b2c2, 114/114 identical, both OK) tied to the current build by test-list enumeration; the historical before-split run is not re-executed per gate (fixed commit, ~50 min). E2-E6 unchanged (round 7 audit)."
     },
     "T31": {
      "status": "complete",
@@ -8495,6 +8518,22 @@
      "installed": false,
      "scope": "Round 11 (Codex finding D): the package builder refuses an audit-92 of another commit before writing anything, records the previous wheel's provenance from evidence (previous package manifest / sidecar / wheel METADATA; sha or version mismatch refuses), keeps every bundle result including refused ones (11 entries with decisions), refuses bundles/receipts/snapshot of another commit or wheel, and the package verifier's identity step refuses a mixed package; the previous-wheel oracle branch (reads plan-ns or not) follows the pinned previous wheel's real METADATA."
     },
+    "check.r12_package_identity": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r12_package_identity"
+     ],
+     "installed": false,
+     "scope": "Round 12 (Codex review 27/10, P2-D): every gate receipt of a handover package must be readable JSON carrying the gate commit AND the gate wheel sha256 (and a wheel_used naming only that wheel when present); a missing field, invalid JSON, an unreadable receipt, a receipt of another run, a missing required receipt (required set = registry snapshot x decision.releases, size-checked against implementation_checks) is refused by the same function (package_check.receipt_problems) before build (build_package.check_one_build) and in the shipped identity step (package_scope); the identity comes from manifest/build.json, never from the receipt; a package whose SHA256SUMS is valid but whose receipt identities contradict is refused by identity while the checksum step passes; a consistent evidence set passes; refused/blocked bundle results stay packaged and pass. Also the release_bootstrap INPUTS sentence is tested by behaviour on a built package."
+    },
+    "check.r12_pl_local_rules": {
+     "kind": "unittest",
+     "modules": [
+      "tests.test_wf_r12_pl_local_rules"
+     ],
+     "installed": false,
+     "scope": "Round 12 (Codex review 27/10, WKPL C-class): local rules for T45e E19, E20 and E27 on synthetic fixtures only, enforced at the pipeline entry points. finalgate.decide (KQ2) judges the bundle's acceptance_report (AC1-AC3 'chỉ bộ kiểm, chưa có việc thật trên B', R06-R08 'chỉ bộ kiểm, chưa dùng thật', SKIP leak 'không có dữ liệu'; no 'đạt' or real-use claim without an owner-chosen U3 real pilot receipt on B), its rerun row, its comparison.records (per item: affected flag, basis, A/B hash pair) and its record_files layout (three kinds in three files, no kind-1 edit). A real-mode bundle must supply all four. pilot_report.check_report requires an aggregate that names a final_artifact to carry a rerun_on_final row labelled 'kiểm báo cáo' with no behaviour column and never behaviour evidence, rendered in the Markdown. pilot_tools verify --final-commit/--final-wheel-sha256 emits that row and refuses a regenerated report without it. Proves rules only; no real A->B comparison, no real PL-B ledger, no pilot evidence."
+    },
     "registry": {
      "kind": "unittest",
      "modules": [
@@ -8725,7 +8764,8 @@
        "status": "blocked",
        "checks": [
         "check.finalgate",
-        "check.t55_cases"
+        "check.t55_cases",
+        "check.r12_pl_local_rules"
        ],
        "gaps": [
         {
@@ -8734,7 +8774,7 @@
         },
         {
          "kind": "acceptance-audit",
-         "detail": "Audited round 7, 25/10: covered E17, E18, E21, E23, E24, E25, E26; UNCOVERED ALL: EXTERNAL: the A->B comparison on two real builds and the copy of the real PL-B pilot ledger.; E19: No local rule checks the acceptance-report lines on B (\"chỉ bộ kiểm, chưa có việc thật trên B\", \"chưa dùng thật\", \"không có dữ liệu\").; E20: No local rule labels the pilot-checker rerun on the final artifact as \"kiểm báo cáo\" without a behaviour column.; E27: finalgate.compare yields the changed files and the affected set from the pinned map, but no local rule checks a per-item flag/basis/hash-pair output or that the three record kinds sit in separate files and never edit a kind-1 record."
+         "detail": "Audited round 7, 25/10; E19, E20 and E27 closed locally in round 12 (check.r12_pl_local_rules: rules wired into finalgate.decide, pilot_report.check_report, pilot_tools verify). UNCOVERED, EXTERNAL: the A->B comparison on two real builds, the copy of the real PL-B pilot ledger, and the real acceptance report on B with owner-chosen (U3) work. The local rules prove the lines, the label and the record layout on synthetic fixtures only; a fixture-mode bundle without these inputs still passes (real mode requires all four)."
         }
        ],
        "evidence_matrix_partial": {
@@ -8748,6 +8788,21 @@
          "tests.test_wf_pilot_tools.SupplementRunTests.test_runs_the_check_and_writes_receipts_readable_by_finalgate",
          "tests.test_wf_pilot_tools.SupplementRunTests.test_failing_and_unstartable_checks_are_recorded_not_passed",
          "tests.test_wf_finalgate.FinalGateTests.test_kq6_blocked_does_not_create_pass_or_erase_inheritance"
+        ],
+        "E19": [
+         "tests.test_wf_r12_pl_local_rules.E19AcceptanceLinesTests.test_default_report_carries_the_required_status_words",
+         "tests.test_wf_r12_pl_local_rules.E19AcceptanceLinesTests.test_real_use_without_pilot_data_is_refused",
+         "tests.test_wf_r12_pl_local_rules.E19AcceptanceLinesTests.test_real_work_receipts_that_do_not_count_are_refused",
+         "tests.test_wf_r12_pl_local_rules.E19AcceptanceLinesTests.test_passed_on_b_needs_a_passing_check_on_b",
+         "tests.test_wf_r12_pl_local_rules.PipelineWiringTests.test_acceptance_report_violation_is_refused_by_decide"
+        ],
+        "E20": [
+         "tests.test_wf_r12_pl_local_rules.E20RerunLabelTests.test_rerun_is_labelled_report_check_without_behaviour_column",
+         "tests.test_wf_r12_pl_local_rules.E20RerunLabelTests.test_a_behaviour_column_is_refused",
+         "tests.test_wf_r12_pl_local_rules.E20RerunLabelTests.test_rerun_is_never_behaviour_evidence",
+         "tests.test_wf_r12_pl_local_rules.PipelineWiringTests.test_rerun_violation_is_refused_by_decide",
+         "tests.test_wf_r12_pl_local_rules.ReportWiringTests.test_rerun_violations_are_refused_by_check_report",
+         "tests.test_wf_r12_pl_local_rules.ReportWiringTests.test_verify_emits_the_labelled_row_and_requires_it"
         ],
         "E21": [
          "tests.test_wf_pilot_tools.RerunPlanTests.test_file_outside_the_map_affects_every_item_so_rerunning_all_is_allowed",
@@ -8766,6 +8821,14 @@
         "E26": [
          "tests.test_wf_t55_cases.T55CaseTests.test_c5_no_inheritance_wrong_hash_pair",
          "tests.test_wf_t55_cases.T55CaseTests.test_c6_no_inheritance_dependency_changed"
+        ],
+        "E27": [
+         "tests.test_wf_r12_pl_local_rules.E27ComparisonRecordTests.test_every_item_has_flag_basis_and_hash_pair",
+         "tests.test_wf_r12_pl_local_rules.E27ComparisonRecordTests.test_incomplete_or_wrong_records_are_refused",
+         "tests.test_wf_r12_pl_local_rules.E27ComparisonRecordTests.test_three_kinds_live_in_three_separate_files",
+         "tests.test_wf_r12_pl_local_rules.E27ComparisonRecordTests.test_writer_refuses_to_edit_a_kind_1_record",
+         "tests.test_wf_r12_pl_local_rules.PipelineWiringTests.test_comparison_record_violation_is_refused_by_decide",
+         "tests.test_wf_r12_pl_local_rules.PipelineWiringTests.test_record_layout_violation_is_refused_by_decide"
         ]
        }
       },
@@ -9035,7 +9098,8 @@
      "status": "blocked",
      "checks": [
       "check.finalgate",
-      "check.t55_cases"
+      "check.t55_cases",
+      "check.r12_pl_local_rules"
      ],
      "gaps": [
       {
@@ -9044,7 +9108,7 @@
       },
       {
        "kind": "acceptance-audit",
-       "detail": "Audited round 7, 25/10: covered E17, E18, E21, E23, E24, E25, E26; UNCOVERED ALL: EXTERNAL: the A->B comparison on two real builds and the copy of the real PL-B pilot ledger.; E19: No local rule checks the acceptance-report lines on B (\"chỉ bộ kiểm, chưa có việc thật trên B\", \"chưa dùng thật\", \"không có dữ liệu\").; E20: No local rule labels the pilot-checker rerun on the final artifact as \"kiểm báo cáo\" without a behaviour column.; E27: finalgate.compare yields the changed files and the affected set from the pinned map, but no local rule checks a per-item flag/basis/hash-pair output or that the three record kinds sit in separate files and never edit a kind-1 record."
+       "detail": "Audited round 7, 25/10; E19, E20 and E27 closed locally in round 12 (check.r12_pl_local_rules: rules wired into finalgate.decide, pilot_report.check_report, pilot_tools verify). UNCOVERED, EXTERNAL: the A->B comparison on two real builds, the copy of the real PL-B pilot ledger, and the real acceptance report on B with owner-chosen (U3) work. The local rules prove the lines, the label and the record layout on synthetic fixtures only; a fixture-mode bundle without these inputs still passes (real mode requires all four)."
       }
      ],
      "evidence_matrix_partial": {
@@ -9058,6 +9122,21 @@
        "tests.test_wf_pilot_tools.SupplementRunTests.test_runs_the_check_and_writes_receipts_readable_by_finalgate",
        "tests.test_wf_pilot_tools.SupplementRunTests.test_failing_and_unstartable_checks_are_recorded_not_passed",
        "tests.test_wf_finalgate.FinalGateTests.test_kq6_blocked_does_not_create_pass_or_erase_inheritance"
+      ],
+      "E19": [
+       "tests.test_wf_r12_pl_local_rules.E19AcceptanceLinesTests.test_default_report_carries_the_required_status_words",
+       "tests.test_wf_r12_pl_local_rules.E19AcceptanceLinesTests.test_real_use_without_pilot_data_is_refused",
+       "tests.test_wf_r12_pl_local_rules.E19AcceptanceLinesTests.test_real_work_receipts_that_do_not_count_are_refused",
+       "tests.test_wf_r12_pl_local_rules.E19AcceptanceLinesTests.test_passed_on_b_needs_a_passing_check_on_b",
+       "tests.test_wf_r12_pl_local_rules.PipelineWiringTests.test_acceptance_report_violation_is_refused_by_decide"
+      ],
+      "E20": [
+       "tests.test_wf_r12_pl_local_rules.E20RerunLabelTests.test_rerun_is_labelled_report_check_without_behaviour_column",
+       "tests.test_wf_r12_pl_local_rules.E20RerunLabelTests.test_a_behaviour_column_is_refused",
+       "tests.test_wf_r12_pl_local_rules.E20RerunLabelTests.test_rerun_is_never_behaviour_evidence",
+       "tests.test_wf_r12_pl_local_rules.PipelineWiringTests.test_rerun_violation_is_refused_by_decide",
+       "tests.test_wf_r12_pl_local_rules.ReportWiringTests.test_rerun_violations_are_refused_by_check_report",
+       "tests.test_wf_r12_pl_local_rules.ReportWiringTests.test_verify_emits_the_labelled_row_and_requires_it"
       ],
       "E21": [
        "tests.test_wf_pilot_tools.RerunPlanTests.test_file_outside_the_map_affects_every_item_so_rerunning_all_is_allowed",
@@ -9076,6 +9155,14 @@
       "E26": [
        "tests.test_wf_t55_cases.T55CaseTests.test_c5_no_inheritance_wrong_hash_pair",
        "tests.test_wf_t55_cases.T55CaseTests.test_c6_no_inheritance_dependency_changed"
+      ],
+      "E27": [
+       "tests.test_wf_r12_pl_local_rules.E27ComparisonRecordTests.test_every_item_has_flag_basis_and_hash_pair",
+       "tests.test_wf_r12_pl_local_rules.E27ComparisonRecordTests.test_incomplete_or_wrong_records_are_refused",
+       "tests.test_wf_r12_pl_local_rules.E27ComparisonRecordTests.test_three_kinds_live_in_three_separate_files",
+       "tests.test_wf_r12_pl_local_rules.E27ComparisonRecordTests.test_writer_refuses_to_edit_a_kind_1_record",
+       "tests.test_wf_r12_pl_local_rules.PipelineWiringTests.test_comparison_record_violation_is_refused_by_decide",
+       "tests.test_wf_r12_pl_local_rules.PipelineWiringTests.test_record_layout_violation_is_refused_by_decide"
       ]
      }
     },

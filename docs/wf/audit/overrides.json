@@ -673,7 +673,6 @@
  "WK04a": {
   "status": "Partial",
   "classes": [
-   "C",
    "E"
   ],
   "implementation": [
@@ -690,7 +689,7 @@
    "check.t36a_scenario",
    "check.t37_child_acceptance"
   ],
-  "missing": "T02, T03, T04a, T16a, T17a, T19, T21, T36a complete (W02/W05 phản chứng lượt 5). Còn T37 E3/E6: bước 3 chỉ chạy khi O4 = 'có' — quyết định chủ sở hữu.",
+  "missing": "T02, T03, T04a, T16a, T17a, T19, T21, T36a complete (W02/W05 phản chứng lượt 5). Còn T37 E3/E6: bước 3 chỉ chạy khi O4 = 'có' — quyết định chủ sở hữu. Lượt 12 (27/10, review Codex trên 572fd18): nhãn C bỏ — T37 E3/E6 chỉ chờ quyết định O4 của chủ sở hữu (bước 3 không chạy khi O4 chưa trả lời), không thiếu test/bằng chứng local; còn T54d release-evidence (E).",
   "next": "O4.",
   "evidence": [
    "R04-*.json receipts on 6366137 (33, pass)",
@@ -1026,7 +1025,6 @@
  "WK05a": {
   "status": "Partial",
   "classes": [
-   "C",
    "E"
   ],
   "implementation": [
@@ -1041,10 +1039,11 @@
    "check.repair_tasks",
    "check.retention*",
    "check.findings_report",
-   "check.register_v1_guard*"
+   "check.register_v1_guard*",
+   "check.r12_t28_e1_evidence"
   ],
-  "missing": "T06, T17b, T22, T24b, T31 complete; T28 partial chỉ còn E1 (so hai suite v1 register trước/sau tách finding_core trên 1b4f4c6^ — bằng chứng chạy tay lượt 7 tại D:\\OneCrewRuns\\wf-dev-logs\\t28-e1-before-split, chưa thành test gate). Còn T54e (release-evidence). Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt); T54e giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
-  "next": "E1 của T28 đã ghi vào registry là manual-evidence gap (chạy tay 25/10: 114 test trước và sau tách finding_core, danh sách giống nhau); chưa thành check gate (≈50 phút/lần) — loại C, không phải thiếu code. bundle R05 trên artifact 4b1b7b1: pass (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4, T54.5 đạt).",
+  "missing": "T06, T17b, T22, T24b, T31, T28 complete. Lượt 12 (27/10, review Codex trên 572fd18): T28 E1 khép bằng check gate `R05/check.r12_t28_e1_evidence` (tests.test_wf_r12_t28_e1_evidence, 4 test): bằng chứng chạy tay 25/10 đưa vào checkout `docs/wf/evidence/t28-e1-before-split/` (114/114, hai danh sách giống nhau, cả hai OK), commit trước tách 54b802c = 1b4f4c6^ là tổ tiên HEAD, bản dựng hiện hành liệt kê đúng danh sách test đó, gate vẫn chạy phía sau tách. Còn T54e (release-evidence): INPUTS cần biên nhận giao của bản trước và bản ghi review độc lập — điều kiện ngoài (E).",
+  "next": "T54e: chủ sở hữu giao bản đầu + review độc lập (E). Không còn phần C.",
   "evidence": [
    "R05-*.json receipts on 6366137 (43, pass)",
    "registry 4b1b7b1 R05: acceptance complete 19/21, partial [T28, T54e], blocked []",
@@ -1802,7 +1801,6 @@
  "WKP": {
   "status": "Partial",
   "classes": [
-   "C",
    "E"
   ],
   "implementation": [
@@ -1817,7 +1815,7 @@
    "check.candidate_reviewer",
    "check.metered_verifier"
   ],
-  "missing": "T40a, T40c complete (E30 lượt 8: bundle RP ghi quyết định hợp đồng trước/sau, hash, nguồn pin). T40b blocked ngoài (CLI codex chưa cài; pin từ program kit vì hợp đồng chưa duyệt). T54i release-evidence. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle RP trên artifact 4b1b7b1: refused (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4 đạt; không đạt: T54.5); T54i giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu.",
+  "missing": "T40a, T40c complete (E30 lượt 8: bundle RP ghi quyết định hợp đồng trước/sau, hash, nguồn pin). T40b blocked ngoài (CLI codex chưa cài; pin từ program kit vì hợp đồng chưa duyệt). T54i release-evidence. Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle RP trên artifact 4b1b7b1: refused (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4 đạt; không đạt: T54.5); T54i giữ partial vì còn điều kiện ngoài (E): bản ghi review độc lập và lần giao đầu. Lượt 12 (27/10, review Codex trên 572fd18): nhãn C bỏ — T40b (codex CLI, ma trận W45 trả phí trên wheel hiện hành) và T54i (bản giao đầu, review độc lập) đều là điều kiện ngoài; quy tắc kit đã có test (check.provider_matrix, check.release_check).",
   "next": "Bundle RP trên artifact 4b1b7b1: refused (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4 đạt; không đạt: T54.5): T54.5 thiếu so sánh ma trận W45 — ma trận duy nhất là của wheel 6366137 (4/6; codex thiếu CLI), không có cho wheel hiện hành. W45: cài codex CLI + chạy lại ô codex và ma trận trên wheel hiện hành (provider trả phí, E); quyết định pin/hợp đồng — chủ sở hữu.",
   "evidence": [
    "RP-*.json receipts on 6366137 (9, pass)",
@@ -1869,7 +1867,6 @@
  "W40-RP": {
   "status": "Partial",
   "classes": [
-   "C",
    "E"
   ],
   "implementation": [
@@ -1884,7 +1881,7 @@
    "tests.test_wf_release_check",
    "tests.test_wf_upgrade_drill"
   ],
-  "missing": "Cổng CG-RP refused: T40b blocked (W45 codex CLI, pin từ kit vì hợp đồng chưa duyệt). Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle RP trên artifact 4b1b7b1: refused (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4 đạt; không đạt: T54.5); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E).",
+  "missing": "Cổng CG-RP refused: T40b blocked (W45 codex CLI, pin từ kit vì hợp đồng chưa duyệt). Cập nhật lượt 10 (sửa ghi chú cũ, loại D): bundle RP trên artifact 4b1b7b1: refused (INPUTS(bootstrap), T54.1, T54.2, T54.3, T54.4 đạt; không đạt: T54.5); cổng giao vẫn refused vì acceptance partial và thiếu bản ghi review độc lập (E). Lượt 12 (27/10, review Codex trên 572fd18): nhãn C bỏ — cổng CG-RP chỉ còn chờ W45 trên wheel hiện hành (trả phí) và bản ghi review độc lập (E).",
   "next": "Quyết định chủ sở hữu về pin/hợp đồng + codex CLI; chạy ma trận W45 trên wheel hiện hành để có so sánh cho T54.5 (provider trả phí, E).",
   "evidence": [
    "package 4b1b7b1 bundles/RP/release-check.json: refused; T54.5 comparison missing (ma trận W45 thuộc wheel 6366137, không có so sánh cho wheel hiện hành) — lịch sử 6366137: refused vì INPUTS \"previous delivered gate history missing\", đã thay bằng INPUTS(bootstrap)",
@@ -2040,9 +2037,7 @@
  },
  "WKN": {
   "status": "Done",
-  "classes": [
-   "C"
-  ],
+  "classes": [],
   "implementation": [
    "wfkit/development-testcases.json#releases.KN",
    "wfkit/development_gate.py:run"
@@ -2058,7 +2053,7 @@
    "check.r02_boundaries"
   ],
   "missing": "",
-  "next": "",
+  "next": "Lượt 12 (27/10, review Codex trên 572fd18): nhãn C bỏ — dòng Done không có mục thiếu; T36c/T46b/T47b complete trong registry với ma trận E.",
   "evidence": [
    "KN-*.json receipts on 6366137 (10, pass); registry T36c complete; T46b E2, T47b E10 uncovered",
    "registry KN: T36c, T46b, T47b complete (ma trận E; tests/test_wf_r7_t46b.py, tests/test_wf_r7_t47b.py)"
@@ -2068,7 +2063,6 @@
  "WKPL": {
   "status": "Partial",
   "classes": [
-   "C",
    "E"
   ],
   "implementation": [
@@ -2080,10 +2074,11 @@
    "check.t45_entry_gates",
    "check.t55_cases",
    "check.pilot_report",
-   "check.finalgate"
+   "check.finalgate",
+   "check.r12_pl_local_rules"
   ],
-  "missing": "T45d/T45e hook/config hash per phase + U2 count under AC1; T45a E5 (pilot from a checkout refused); report part z1-z12; owner decision on CK12/CK21/CK23 table mismatch",
-  "next": "Unchanged verdict; kit rules exist, pilot data is external.",
+  "missing": "Lượt 12 (27/10, review Codex trên 572fd18): T45e E19/E20/E27 có quy tắc local thật (`PL/check.r12_pl_local_rules`, 30 test: dòng nghiệm thu trên B với đúng từ trạng thái, hàng kiểm lại gắn 'kiểm báo cáo' không cột hành vi, bản ghi so sánh có cờ/căn cứ/cặp hash và ba loại bản ghi ở ba file, không sửa bản ghi loại 1) và được nối vào finalgate.decide / pilot_report.check_report / pilot_tools verify. Còn lại đều ngoài (E): T45d/T45e/T45a cần việc thật do chủ sở hữu chọn (U3), so sánh A->B trên hai bản dựng thật, bản sao sổ pilot PL-B thật; quyết định chủ sở hữu về CK12/CK21/CK23 lệch bảng.",
+  "next": "Pilot thật + quyết định CK12/CK21/CK23 — chủ sở hữu (E). Không còn phần C.",
   "evidence": [
    "PL-*.json receipts on 6366137 (9, pass); registry PL testcases blocked (external pilot)"
   ],

@@ -61,7 +61,7 @@ def inspect(ledger, store, view, item, mode, checker, contract=None):
             with tempfile.TemporaryDirectory(prefix='oc-reverify-') as temp:
                 checkout = cv.materialized_tree(ledger, tree, temp)
                 # R11: the same declared-output expectations CandidateChecker builds (write permission vs required outputs)
-                row['out'] = cv.output_check(checkout, item['write'], cv.output_expectations(store, manifest, item, contract), store)
+                row['out'] = cv.output_check(checkout, item['write'], cv.output_expectations(store, manifest, item, contract, ledger=ledger, view=view), store)
             row['new_receipt'] = {'tree': tree, 'note': 'read-only structural check; no receipt written'}
     except Exception as error:   # keep the inventory complete: a node that cannot be rebuilt is a row, not a crash
         row['error'] = type(error).__name__ + ': ' + str(error)[:300]

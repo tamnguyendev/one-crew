@@ -99,6 +99,7 @@ import argparse
 import hashlib
 import json
 import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -678,6 +679,19 @@ class Checker:
         if r.get('figures_sha256') != figures_digest(r):
             self.add('ID figures_sha256 không khớp nội dung báo cáo (số liệu bị sửa sau khi sinh)')
 
+    def rerun_on_final(self):
+        """T45e [E20]: an aggregate that names a final artifact carries the pilot-checker rerun row on it (label "kiểm báo cáo",
+        no behaviour column, never behaviour evidence), rendered in the Markdown; a row without its final artifact is refused too."""
+        r = self.report
+        if 'final_artifact' not in r and 'rerun_on_final' not in r:
+            return
+        require('final_artifact' in r, 'rerun_on_final: thiếu final_artifact (artifact cuối được kiểm lại)')
+        require('rerun_on_final' in r, 'rerun_on_final: báo cáo nêu artifact cuối nhưng thiếu dòng kết quả "kiểm báo cáo"')
+        for problem in check_rerun_row(r['rerun_on_final'], r['final_artifact']):
+            self.add('rerun_on_final: ' + problem)
+        line = r['rerun_on_final'].get('line') if isinstance(r['rerun_on_final'], dict) else None
+        require(isinstance(line, str) and line in self.text, 'rerun_on_final: dòng "kiểm báo cáo" không có trong báo cáo Markdown')
+
     def run(self):
         try:
             self.top()
@@ -694,9 +708,47 @@ class Checker:
                 self.check(fn)
         else:
             for fn in (self.blanket_baseline, self.tiers, self.false_pass, self.decisions, self.skip_leak, self.skip_link_records,
-                       self.manual_fixes, self.providers, self.continuation, self.identity):
+                       self.manual_fixes, self.providers, self.continuation, self.identity, self.rerun_on_final):
                 self.check(fn)
             self.check(self.header)
+
+
+RERUN_LABEL = 'kiểm báo cáo'
+BEHAVIOUR_WORDS = ('hành vi', 'behavio')
+
+
+def rerun_row(target, columns=('báo cáo', 'cách tính', 'kết quả')):
+    """T45e [E20] (HL4): the result line of the pilot-checker rerun on the FINAL artifact. It is a report check (the report is
+    computed correctly from the pilot ledger), never behaviour evidence of the final artifact: label "kiểm báo cáo", no behaviour column."""
+    commit, wheel = target['commit'], target['wheel_sha256']
+    return {'kind': 'report-check', 'label': RERUN_LABEL, 'commit': commit, 'wheel_sha256': wheel, 'columns': list(columns),
+            'behavior_evidence': False,
+            'line': f'{RERUN_LABEL}: bộ kiểm pilot chạy lại trên artifact cuối {wheel[:12]}; chỉ kiểm cách tính báo cáo từ sổ pilot, '
+                    'không là bằng chứng hành vi của artifact cuối'}
+
+
+def check_rerun_row(row, target):
+    """T45e [E20]: the rerun line on the final artifact is labelled exactly "kiểm báo cáo", has no behaviour column and is not
+    presented as behaviour evidence. Returns the list of problems (empty = accepted)."""
+    if not isinstance(row, dict):
+        return ['rerun: expected an object']
+    problems = []
+    line = row.get('line')
+    if row.get('label') != RERUN_LABEL or not isinstance(line, str) or RERUN_LABEL not in line:
+        problems.append(f'dòng kết quả bộ kiểm pilot trên artifact cuối phải ghi "{RERUN_LABEL}"')
+    columns = row.get('columns')
+    if not isinstance(columns, list) or not columns or not all(isinstance(c, str) for c in columns):
+        problems.append('rerun: danh sách cột thiếu')
+    else:
+        for column in columns:
+            folded = unicodedata.normalize('NFC', column).casefold()
+            if any(word in folded for word in BEHAVIOUR_WORDS):
+                problems.append(f'cột hành vi "{column}": kiểm báo cáo trên artifact cuối không có cột hành vi')
+    if row.get('kind') != 'report-check' or any('behavio' in str(k).casefold() and row[k] is not False for k in row):
+        problems.append('kết quả bộ kiểm chạy lại không là bằng chứng hành vi của artifact cuối (kind report-check)')
+    if not isinstance(target, dict) or (row.get('commit'), row.get('wheel_sha256')) != (target.get('commit'), target.get('wheel_sha256')):
+        problems.append('rerun: không ghi đúng artifact cuối')
+    return problems
 
 
 def check_report(report, text):

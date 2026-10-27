@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261027-R12-P-1",
+ "file": "wfkit/finalgate.py",
+ "old_sha256": "9e102a2fe0a659a54eb4628cc4b6234300fae847fc25b8b8dfa802d3471927d0",
+ "new_sha256": "af23dfc5281f9b93f493fa3928e129b2e841e598865c407573c4ec5a4ee5b6e7",
+ "reason": "R12 (Codex review 27/10, WKPL C-class T45e E19/E20/E27): finalgate gains acceptance_report/check_acceptance_report, comparison_records/check_comparison_records/check_record_layout/write_record/verify_kind1_unchanged and t45e_local_problems wired into decide (KQ2, second check; reasons of one code are joined, not overwritten; compare() exposes records). Rules only tighten (a non-conforming report/rerun/record layout is refused; real mode requires all four inputs); no decision rule relaxed. Tests: tests.test_wf_r12_pl_local_rules (30), regressions finalgate 42, t55_cases 44, r7_t45d 8, t45_entry_gates 20, t14c_kit 4.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 27/10/2026 ~03:45, chỉ thị lượt 12 của Codex (dán nguyên văn): \"Tôi ủy quyền tự chia task, chọn cách sửa, bổ sung test, chạy agent phù hợp, xử lý lỗi phát sinh trong phạm vi, commit local, dựng và kiểm gói. Không hỏi tôi duyệt từng file, task, test hoặc commit.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry) + agent P (round 12), integration commit on codex/wf-development",
+ "at": "2026-10-27"
+}

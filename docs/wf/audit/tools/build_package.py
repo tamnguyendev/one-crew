@@ -85,10 +85,14 @@ def check_one_build(gate_out, build, decision, audit_path, bundle_results, probl
     for label, doc in (('snapshot.json', _read(gate_out / 'snapshot.json')), ('decision.json snapshot', decision.get('snapshot') or {})):
         if 'commit' in doc and not same(doc['commit'], commit):
             problems.append(f'gate {label} commit is {doc["commit"]!r}, build.json says {commit[:12]}')
-    for f in sorted((gate_out / 'gate' / 'receipts').glob('*.json')):
-        r = _read(f)
-        if 'commit' in r and not same(r['commit'], commit):
-            problems.append(f'receipt {f.name} commit is {r["commit"]!r}, the gate commit is {commit[:12]}')
+    for key in ('commit', 'wheel_sha256'):                          # round 12 P2-D: the decision belongs to this build too
+        if key in decision and not (same(decision[key], commit) if key == 'commit' else decision[key] == wheel_sha):
+            problems.append(f'gate decision.json {key} is {decision[key]!r}, build.json says {(commit if key == "commit" else wheel_sha)!r}')
+    # Round 12 P2-D: EVERY receipt must carry the gate's commit AND wheel (the receipt never picks its own identity); an unreadable receipt, one missing
+    # a field, or a required one that is absent is refused, not skipped. Same function as the shipped identity step (package_check.receipt_problems);
+    # the required set is the gate's expectation: the registry that will be packaged (docs/development-testcases.json) x decision.releases.
+    registry = package_check._json_file(R / 'wfkit' / 'development-testcases.json')
+    problems.extend(package_check.receipt_problems(gate_out / 'gate' / 'receipts', commit, wheel_sha, decision, registry, label='gate receipts'))
     for rel, v in sorted(bundle_results.items()):
         if v.get('produced') is False:
             continue                                               # a refused/blocked release produced no bundle: nothing to compare, its refusal is the evidence

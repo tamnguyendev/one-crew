@@ -59,9 +59,11 @@ class BuildPackageBase(unittest.TestCase):
         cur = wheel(self.gate / 'gate' / 'wheel' / 'onecrew-2.2.0.dev11-py3-none-any.whl', '2.2.0.dev11')
         self.wsha = sha(cur)
         jwrite(self.gate / 'gate' / 'build.json', {'commit': FULL, 'wheel_sha256': self.wsha, 'version': '2.2.0.dev11', 'wheel': str(cur)})
-        jwrite(self.gate / 'decision.json', {'decision': 'refused', 'implementation_checks': {'expected': 1, 'receipted': 1, 'failed': []}, 'snapshot': {'intact': True}})
+        jwrite(self.gate / 'decision.json', {'decision': 'refused', 'implementation_checks': {'expected': 2, 'receipted': 2, 'failed': []}, 'snapshot': {'intact': True}})
         jwrite(self.gate / 'snapshot.json', {'prepared_at': 'now', 'commit': FULL})
-        jwrite(self.gate / 'gate' / 'receipts' / 'KN-a.json', {'check': 'KN/a', 'commit': FULL})
+        # round 12 P2-D: a receipt carries the commit AND the wheel of the build; an installed check also the wheel it consumed
+        jwrite(self.gate / 'gate' / 'receipts' / 'KN-a.json', {'check': 'KN/a', 'commit': FULL, 'wheel_sha256': self.wsha, 'wheel_used': []})
+        jwrite(self.gate / 'gate' / 'receipts' / 'KN-i.json', {'check': 'KN/i', 'commit': FULL, 'wheel_sha256': self.wsha, 'wheel_used': [self.wsha]})
         self.audit = self.write_audit(FULL[:7])
         # previous package (evidence) + its wheel
         self.prevpkg = t / 'prevpkg'
@@ -139,7 +141,7 @@ class ConsistencyTests(BuildPackageBase):
         self.assertIn('commit', str(cm.exception))
 
     def test_receipt_of_another_commit_is_refused(self):
-        jwrite(self.gate / 'gate' / 'receipts' / 'KN-b.json', {'check': 'KN/b', 'commit': OTHER})
+        jwrite(self.gate / 'gate' / 'receipts' / 'KN-b.json', {'check': 'KN/b', 'commit': OTHER, 'wheel_sha256': self.wsha, 'wheel_used': []})
         with self.assertRaises(SystemExit) as cm:
             self.build()
         self.assertIn('KN-b.json', str(cm.exception))

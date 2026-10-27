@@ -128,12 +128,47 @@ class ConsumerTests(unittest.TestCase):
         self.assertEqual(release_check.inputs_summary(check_result(False))['code'], 'INPUTS')
 
     def test_build_package_no_longer_hard_codes_the_inputs_sentence(self):
-        text = (ROOT / 'docs' / 'wf' / 'audit' / 'tools' / 'build_package.py').read_text(encoding='utf-8')
-        self.assertNotIn('INPUTS luôn không đạt vì chưa có release nào được giao', text)
-        # behaviour, not form (R11): the INPUTS sentence is computed by release_check.inputs_sentence from the bundle results that were
-        # actually produced, whatever the local variable is called
-        self.assertRegex(text, r'inputs_sentence\((produced_results|bundles)\)'); self.assertIn("'first_release'", text)
-        self.assertIn('verify_kit.build_verify_dir(pkg)', text)                     # the verify/ shipping logic is kept
+        """Behaviour, not form (round 12 item 7): build a real package from fake bundle results (two produced passes, one refused with produced:false)
+        and read what the README and manifest SAY. Renaming a variable in build_package.py cannot turn this red; a hard-coded sentence does."""
+        from tests import test_wf_r11_build_package as r11
+        base = r11.BuildPackageBase('setUp'); base.setUp(); self.addCleanup(shutil.rmtree, base.tmp, ignore_errors=True)
+        base.add_bundle('R02', 'pass')                                          # R01 pass (first release) + R02 pass + RP refused (produced:false)
+        pkg = base.build(name='pkg inputs')
+        readme = (pkg / 'README.md').read_text(encoding='utf-8')
+        manifest = base.manifest(pkg)
+        results = {rel: json.loads(Path(base.index[rel]).read_text(encoding='utf-8')) for rel in base.index}
+        produced = {rel: v for rel, v in results.items() if v.get('produced') is not False}
+        self.assertEqual(sorted(produced), ['R01', 'R02']); self.assertIs(results['RP']['produced'], False)
+        expected = release_check.inputs_sentence(produced)
+        line = next(l for l in readme.splitlines() if l.startswith('| Bundle T54 |'))
+        self.assertEqual(line, f'| Bundle T54 | 3 release, 2 có bundle (bundles/<R>/release-check.json) — {expected} |')
+        self.assertNotIn(release_check.ORDINARY_REFUSED, line)                  # the "INPUTS always fails" sentence is not what these bundles say
+        self.assertNotIn('INPUTS luôn không đạt vì chưa có release nào được giao', readme)
+        # the refused result is LISTED (row + manifest) but does not enter the INPUTS rule: the sentence differs from one that counts it
+        self.assertRegex(readme, r'\| RP \| refused \| KHÔNG')
+        self.assertIn('RP needs --matrix', readme)
+        self.assertIs(manifest['bundles']['RP']['produced'], False); self.assertIsNone(manifest['bundles']['RP']['inputs_rule'])
+        self.assertEqual([manifest['bundles'][r]['inputs_rule'] for r in ('R01', 'R02')], ['INPUTS(bootstrap)', 'INPUTS(bootstrap)'])
+        self.assertNotIn('RP', expected)
+        self.assertIs(manifest['bundles']['R01']['first_release'], True)         # first_release is carried from the bundle result into the manifest
+        # the verify/ shipping logic is kept: the verifier files exist in the package and are hash-pinned in the manifest
+        pinned = manifest['verifier']['files']
+        self.assertIn('verify/package_check.py', pinned)
+        for rel, digest in pinned.items():
+            self.assertEqual(hashlib.sha256((pkg / rel).read_bytes()).hexdigest(), digest)
+
+    def test_inputs_sentence_follows_the_produced_results_not_a_fixed_text(self):
+        """Same builder, ordinary (not first-release) refused bundles: a different sentence comes out of the same code path."""
+        from tests import test_wf_r11_build_package as r11
+        base = r11.BuildPackageBase('setUp'); base.setUp(); self.addCleanup(shutil.rmtree, base.tmp, ignore_errors=True)
+        path = Path(base.index['R01']); doc = json.loads(path.read_text(encoding='utf-8'))
+        doc.update(decision='refused', first_release=False, first_release_baseline=None,
+                   conditions={'INPUTS': False}, reasons=[{'code': 'INPUTS', 'detail': 'previous delivered gate history missing'}])
+        path.write_text(json.dumps(doc), encoding='utf-8')
+        pkg = base.build(name='pkg ordinary')
+        line = next(l for l in (pkg / 'README.md').read_text(encoding='utf-8').splitlines() if l.startswith('| Bundle T54 |'))
+        self.assertTrue(line.endswith(release_check.inputs_sentence({'R01': doc}) + ' |'), line)
+        self.assertIn(release_check.ORDINARY_REFUSED, line)
 
     def test_release_notes_render_which_inputs_rule_applied_into_an_override_dir(self):
         notes = ROOT / 'docs' / 'wf' / 'release-notes'; before = tree_hash(notes)
