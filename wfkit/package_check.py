@@ -186,7 +186,9 @@ def receipt_problems(rdir, commit, wsha, decision=None, registry=None, label='ga
 # Required set (strongest source first): bundle.json `checks` = {installed, upgrade, events, rollback, notes} -> {path, sha256}, the bundle's
 # own declaration, which release_check.decide reads the same way. Every declared file must exist, hash to the declared sha256 and be a JSON
 # object; the receipts those name by hash are followed too (rollback.allowed.old_run / forward_run, notes.real_checks, bundle.json
-# gate_history, comparison.items[*].original). A receipt on disk that no declaration reaches is refused for a produced bundle.
+# gate_history, comparison.items[*].original). A receipt on disk that no declaration reaches is refused for a produced bundle. Every
+# reference is judged on its own against the file's bytes (round 13b): two references to one file with different sha256 can never
+# both hold, and the one that does not match is named; a malformed reference is refused for a produced bundle, never skipped.
 # Roles (the receipt writer, wfkit/release_bundle.Producer.receipt(artifact=...), fixes them):
 #   current  : installed (+ scenarios[*], adapter_runs[*]), upgrade (+ `to`), events, rollback, notes (+ gate_decision), rollback-forward-run
 #   previous : rollback-old-run (rollback.allowed.old_run), upgrade.from, events.old_artifact, rollback.{allowed,rejected}.scan.old_version (commit)
@@ -304,22 +306,29 @@ def bundle_receipt_problems(bdir, rel, commit, wsha, produced=True, previous_whe
                     if not (commit_matches(v, commit) if k == 'commit' else (isinstance(v, str) and v == wsha)):
                         out.append(f'{label}/bundle.json deliveries[{i}] {n} is {v!r}, the manifest {n} is {commit if k == "commit" else wsha!r}')
     bodies = {}
+    hashes = {}                                    # path -> sha256 of the bytes on disk (None = missing); computed once per file
 
     def load(path, want_sha, where):
-        if path in bodies:
-            return bodies[path]
-        full, body = bdir / path, None
-        if not full.is_file():
+        # Round 13b: the file is read once, but EVERY reference to it is judged against its bytes. Memoising the verdict by path let a
+        # second reference to the same file with another sha256 (notes.real_checks, gate_history, comparison, checks.<extra>, rollback
+        # forward_run/old_run) pass unexamined, so a chain whose statements contradict each other looked consistent (Codex, 27/10).
+        full = bdir / path
+        if path not in bodies:
+            body = None
+            if full.is_file():
+                hashes[path] = sha(full)
+                body, why = _read_json_strict(full)
+                if body is None:
+                    out.append(f'{label}/{path}: {why}')
+            else:
+                hashes[path] = None
+            bodies[path] = body
+        if hashes[path] is None:
             if produced or want_sha:
                 out.append(f'{label}/{path}: named by {where} but missing')
-        else:
-            if want_sha and sha(full) != want_sha:
-                out.append(f'{label}/{path}: bytes do not match the sha256 that {where} references ({want_sha[:12]}…)')
-            body, why = _read_json_strict(full)
-            if body is None:
-                out.append(f'{label}/{path}: {why}')
-        bodies[path] = body
-        return body
+        elif want_sha and hashes[path] != want_sha:
+            out.append(f'{label}/{path}: bytes do not match the sha256 that {where} references ({want_sha[:12]}…)')
+        return bodies[path]
 
     for path, want_sha, where in list(refs):       # follow the references a declared receipt itself makes by hash
         body = load(path, want_sha, where)
@@ -339,9 +348,16 @@ def bundle_receipt_problems(bdir, rel, commit, wsha, produced=True, previous_whe
                     load(p.as_posix(), ref['sha256'], f'{label}/{path} {key}')
         elif declared.get(path) == 'notes' and isinstance(body.get('real_checks'), list):
             for i, ref in enumerate(body['real_checks']):
-                p = Path(ref['path']) if _is_ref(ref) else None
-                if p is not None and not p.is_absolute() and '..' not in p.parts:
-                    load(p.as_posix(), ref['sha256'], f'{label}/{path} real_checks[{i}]')
+                where = f'{label}/{path} real_checks[{i}]'
+                if not _is_ref(ref):               # round 13b: a reference that cannot be checked is refused, not skipped
+                    if produced:
+                        out.append(f'{where} is not {{path, sha256}}: {ref!r}')
+                    continue
+                p = Path(ref['path'])
+                if p.is_absolute() or '..' in p.parts:
+                    out.append(f'{where} points outside the bundle: {ref["path"]}')
+                    continue
+                load(p.as_posix(), ref['sha256'], where)
     rdir = bdir / 'receipts'
     for f in sorted(rdir.glob('*.json')) if rdir.is_dir() else []:
         path = f.relative_to(bdir).as_posix()

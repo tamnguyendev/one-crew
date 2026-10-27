@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261027-R13B-REG-1",
+ "file": "wfkit/development-testcases.json#PL/check.r13_bundle_receipts",
+ "old_sha256": "3f66f60488a23e57a2797bb3cc3a1298dcb047320cb478318fb0c7b94b3f23d5",
+ "new_sha256": "dc55b71b6d6106eaf11722f79eb30fb1af54635fcc1c72b7b8710593bf7d17a5",
+ "reason": "R13b: scope text of PL check.r13_bundle_receipts extended with the contradictory-reference rule (every reference judged on its own, malformed references refused); same module, no check removed, no oracle lowered. Also registers R05 check.r13b_compat (tests.test_wf_r13b_compat, 5 tests, agent C) for the pre-R13 continuation guarantees.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 27/10/2026 ~18:40, chỉ thị lượt 13b của Codex (dán nguyên văn): \"Tôi ủy quyền bạn tự phân tích, chọn giải pháp, sửa code, bổ sung test, phân công công việc, commit local và dựng/kiểm gói. Không hỏi tôi duyệt từng việc thuộc phạm vi này.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry) + agent C (round 13b), integration commit on codex/wf-development",
+ "at": "2026-10-27"
+}

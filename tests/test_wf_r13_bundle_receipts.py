@@ -454,5 +454,163 @@ class ThroughTheShippedVerifierTests(BundleCopyBase):
         self.assertFalse((work / 'venv').exists())
 
 
+class ContradictoryReferenceTests(BundleCopyBase):
+    """Round 13b (Codex review 27/10 on the R13 tree): two references to the SAME file with DIFFERENT sha256 passed, because the chain
+    follower memoised by path and never looked at the second hash. Invariant: every (path, sha256) reference in the chain is checked
+    against the bytes AND against every other reference to that path, whatever its position or how many times the file is named;
+    a reference that cannot be verified (malformed) is refused for a produced bundle, never skipped."""
+
+    def bj(self):
+        return read(self.bdir / 'bundle.json')
+
+    def put_bj(self, bj):
+        jwrite(self.bdir / 'bundle.json', bj)
+        self.rewrite_sums()
+
+    def good(self, name='events.json'):
+        return {'path': f'receipts/{name}', 'sha256': sha(self.bdir / 'receipts' / name)}
+
+    def bad(self, name='events.json', h='a' * 64):
+        return {'path': f'receipts/{name}', 'sha256': h}
+
+    # the Codex case exactly: notes.real_checks names receipts/events.json with 'a'*64, notes + bundle.json + SHA256SUMS re-hashed
+    def test_codex_case_notes_real_checks_contradicts_checks_events(self):
+        self.edit('notes.json', lambda d: d.update(real_checks=[self.bad()]))
+        self.assertEqual(r12.sums_step_bad(self.pkg), [])
+        self.refused('bundles/R01/receipts/notes.json real_checks[0]', 'receipts/events.json')
+
+    def test_codex_variant_gate_history_contradicts_checks_events(self):
+        bj = self.bj()
+        bj['gate_history'] = [self.bad()]
+        self.put_bj(bj)
+        self.refused('gate_history[0]', 'receipts/events.json')
+
+    def test_every_reference_site_is_judged_whatever_the_order_or_count(self):
+        def extra(bj, ref):
+            bj['checks']['extra'] = ref
+
+        def history(bj, ref):
+            bj['gate_history'] = [self.good(), ref]
+
+        def comparison(bj, ref):
+            bj['comparison'] = {'items': [{'original': ref}]}
+        sites = {'checks.extra': extra, 'gate_history[1]': history, 'comparison.items[0].original': comparison}
+        for site, place in sites.items():
+            for name in ('events.json', 'installed.json', 'notes.json'):
+                with self.subTest(site=site, file=name):
+                    saved = (self.bdir / 'bundle.json').read_bytes()
+                    bj = self.bj()
+                    place(bj, self.bad(name))
+                    self.put_bj(bj)
+                    self.refused(site, f'receipts/{name}')
+                    (self.bdir / 'bundle.json').write_bytes(saved)
+                    self.rewrite_sums()
+                    self.assertEqual(self.reasons(), [])
+
+    def test_contradiction_inside_a_receipt_chain_is_judged_too(self):
+        # rollback.forward_run re-points to a file bundle.json already declared (loaded first) but with another hash
+        def fwd(d):
+            d['forward_run'] = self.bad('events.json', 'b' * 64)
+        self.edit('rollback.json', fwd, pin=False)
+        bj = self.bj()
+        bj['checks']['rollback']['sha256'] = sha(self.bdir / 'receipts' / 'rollback.json')
+        self.put_bj(bj)
+        self.refused('rollback.json forward_run', 'receipts/events.json')
+        # and the mirror: a second real_checks entry contradicting the FIRST one (both after bundle.json)
+        self.edit('rollback.json', lambda d: d.update(forward_run=self.good('rollback-forward-run.json')))
+        self.assertEqual(self.reasons(), [])
+        self.edit('notes.json', lambda d: d.update(real_checks=[self.good('upgrade.json'), self.bad('upgrade.json', 'c' * 64)]))
+        self.refused('real_checks[1]', 'receipts/upgrade.json')
+
+    def test_wrong_hash_first_and_right_hash_later_is_still_refused(self):
+        bj = self.bj()
+        bj['checks']['events']['sha256'] = 'a' * 64
+        bj['gate_history'] = [self.good()]
+        self.put_bj(bj)
+        self.refused('checks.events', 'receipts/events.json')
+
+    def test_malformed_real_checks_entry_is_refused_not_skipped(self):
+        for entry in ({'path': 'receipts/events.json', 'sha256': 'zz'}, {'path': 'receipts/events.json'}, {'sha256': 'a' * 64},
+                      'receipts/events.json', None, {'path': '../outside.json', 'sha256': 'a' * 64}):
+            with self.subTest(entry=entry):
+                self.edit('notes.json', lambda d: d.update(real_checks=[entry]))
+                self.refused('bundles/R01/receipts/notes.json real_checks[0]')
+
+    def test_a_dangling_real_checks_reference_is_refused(self):
+        self.edit('notes.json', lambda d: d.update(real_checks=[{'path': 'receipts/never-written.json', 'sha256': 'a' * 64}]))
+        self.refused('bundles/R01/receipts/never-written.json', 'real_checks[0]', 'missing')
+
+    # valid controls: the same file named many times with the SAME, true hash, at every site, passes; history files outside receipts/ too
+    def test_consistent_repeated_references_pass(self):
+        self.edit('notes.json', lambda d: d.update(real_checks=[self.good(), self.good(), self.good('installed.json')]))
+        bj = self.bj()
+        bj['gate_history'] = [self.good(), self.good('upgrade.json')]
+        bj['comparison'] = {'items': [{'original': self.good('notes.json')}]}
+        bj['checks']['extra'] = self.good('rollback.json')
+        self.put_bj(bj)
+        self.assertEqual(self.reasons(), [])
+        hist = self.bdir / 'history'
+        hist.mkdir()
+        dump(hist / 'gate-1.json', {'kind': 'gate', 'commit': OTHER, 'wheel_sha256': '9' * 64})       # another build's history: hash + readability only
+        bj = self.bj()
+        bj['gate_history'].append({'path': 'history/gate-1.json', 'sha256': sha(hist / 'gate-1.json')})
+        self.put_bj(bj)
+        self.assertEqual(self.reasons(), [])
+        bj = self.bj()
+        bj['gate_history'][-1]['sha256'] = 'd' * 64
+        self.put_bj(bj)
+        self.refused('gate_history[2]', 'history/gate-1.json')
+
+    def test_refused_bundle_keeps_its_result_and_its_contradictions_are_still_named(self):
+        rp = self.pkg / 'bundles' / 'RP'
+        r11.bundle_evidence(rp, 'RP', FULL, self.wsha)
+        self.rewrite_sums()
+        self.assertEqual(self.reasons(), [])
+        self.assertIs(read(rp / 'bundle-result.json').get('produced'), False)
+        d = read(rp / 'receipts' / 'notes.json')
+        d['real_checks'] = [{'path': 'receipts/events.json', 'sha256': 'a' * 64}]
+        dump(rp / 'receipts' / 'notes.json', d)
+        repin(rp)
+        self.rewrite_sums()
+        self.refused('bundles/RP/receipts/notes.json real_checks[0]', 'receipts/events.json')
+        self.assertIs(read(rp / 'bundle-result.json').get('produced'), False)
+
+
+class ContradictoryReferenceBeforeBuildTests(r11.BuildPackageBase):
+    """The same class of contradiction is refused by build_package.check_one_build before anything is written."""
+
+    def test_notes_real_checks_contradiction_refuses_the_build(self):
+        rdir = self.bdir / 'R01' / 'receipts'
+        d = read(rdir / 'notes.json')
+        d['real_checks'] = [{'path': 'receipts/events.json', 'sha256': 'a' * 64}]
+        dump(rdir / 'notes.json', d)
+        repin(self.bdir / 'R01')
+        with self.assertRaises(SystemExit) as cm:
+            self.build()
+        self.assertIn('real_checks[0]', str(cm.exception))
+        self.assertIn('receipts/events.json', str(cm.exception))
+        self.assertFalse((self.tmp / 'pkg').exists())
+
+    def test_gate_history_contradiction_refuses_the_build_and_a_consistent_one_builds(self):
+        bj = read(self.bdir / 'R01' / 'bundle.json')
+        bj['gate_history'] = [{'path': 'receipts/events.json', 'sha256': 'a' * 64}]
+        jwrite(self.bdir / 'R01' / 'bundle.json', bj)
+        with self.assertRaises(SystemExit) as cm:
+            self.build()
+        self.assertIn('gate_history[0]', str(cm.exception))
+        bj['gate_history'] = [{'path': 'receipts/events.json', 'sha256': sha(self.bdir / 'R01' / 'receipts' / 'events.json')}]
+        jwrite(self.bdir / 'R01' / 'bundle.json', bj)
+        pkg = self.build()
+        self.assertEqual(pc.package_scope(pkg)['reasons'], [])
+
+
+class ContradictoryReferenceThroughTheShippedVerifierTests(ThroughTheShippedVerifierTests):
+    def test_verify_package_refuses_the_notes_contradiction_before_running_anything(self):
+        self.edit('notes.json', lambda d: d.update(real_checks=[{'path': 'receipts/events.json', 'sha256': 'a' * 64}]))
+        r, work = self.run_launcher('verify_package')
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('real_checks[0]', r.stdout + r.stderr)
+        self.assertFalse((work / 'venv').exists())
+
 if __name__ == '__main__':
     unittest.main()

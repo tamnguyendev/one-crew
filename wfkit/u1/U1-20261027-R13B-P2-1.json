@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261027-R13B-P2-1",
+ "file": "tests/test_wf_r13_bundle_receipts.py",
+ "old_sha256": "ac68cc669bc0a67fff67e4e1c072a5f1b6260e6de7bbcf55216a15492db17ec8",
+ "new_sha256": "58054ec06ebe600b7d66180dab4c51c1993e169124749bbd78d081622e471566",
+ "reason": "R13b (Codex review 27/10 on the R13 tree, P2 contradictory evidence references): bundle_receipt_problems.load() memoised its verdict by path, so a second reference to the same receipt with another sha256 (notes.real_checks, bundle.json gate_history/comparison/checks.<extra>, rollback forward_run/old_run) was never compared with the bytes and a malformed real_checks entry was skipped. Now the file is hashed once and EVERY reference is judged against it naming the reference; malformed/outside references are refused for a produced bundle. 13 new tests (ContradictoryReference* classes: Codex case, gate_history variant, every site x order x count, chain-internal contradiction, malformed entries, dangling reference, consistent repeated references control, refused bundle, before-build and shipped-verifier paths). No assertion weakened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 27/10/2026 ~18:40, chỉ thị lượt 13b của Codex (dán nguyên văn): \"Tôi ủy quyền bạn tự phân tích, chọn giải pháp, sửa code, bổ sung test, phân công công việc, commit local và dựng/kiểm gói. Không hỏi tôi duyệt từng việc thuộc phạm vi này.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry) + agent C (round 13b), integration commit on codex/wf-development",
+ "at": "2026-10-27"
+}

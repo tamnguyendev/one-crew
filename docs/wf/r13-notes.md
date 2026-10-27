@@ -39,3 +39,25 @@ Từ bản sao trong gói (`gate/receipts`, `gate/runs`): **280 receipt**, tổn
 
 ## Sự cố môi trường 27/10 15:59
 Runtime Python 3.12 của Codex (`C:/Users/NUC/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/`) mất thư mục `Lib` (thư mục cache được tạo lại lúc 15:59, không do phiên này; mọi lệnh gọi nó chết ở khởi động với `ModuleNotFoundError: encodings`). Từ 16:20 mọi lượt chạy (agent, hồi quy, gate dev15, gói) dùng Python 3.13.15 cài chính thức `C:/Users/NUC/AppData/Local/Programs/Python/Python313/python.exe` — cùng interpreter mà kịch bản PowerShell cài thử và host OneCrew đang dùng. Gate ghi đường dẫn + sha của python trong decision.json nên khác biệt này hiện rõ trong receipt; gate f71ba51 (3.12.14) không bị ảnh hưởng vì đã xong lúc 15:00. Các lượt chạy chết ở khởi động không được tính là kết quả.
+
+## Lượt 13b — review Codex trên cây R13 (P2 chuỗi tham chiếu mâu thuẫn + kiểm tương thích), 27/10 ~18:40
+Ủy quyền: chủ sở hữu dán nguyên văn chỉ thị 13b ("Tôi ủy quyền bạn tự phân tích, chọn giải pháp, sửa code, bổ sung test, phân công công việc, commit local và dựng/kiểm gói. Không hỏi tôi duyệt từng việc thuộc phạm vi này."). Baseline: `5b1fd7a` (dev15), cây sạch ngoài §10 SDK. Gate dev15 (bắt đầu 17:36, 136/283 receipt) được **dừng lúc 18:45** vì snapshot mới phải có gate riêng và không chạy hai gate đồng thời; thư mục `D:\OneCrewRuns\wf-gates\wf-snapshot-gate-20261027-5b1fd7a` giữ nguyên làm bằng chứng dở, không dùng chứng nhận.
+
+### Bất biến bổ sung (ghi trước khi sửa)
+8. **Mỗi tham chiếu `{path, sha256}` là một mệnh đề riêng**: nó đúng khi và chỉ khi bytes của file đúng bằng sha đó. Hai tham chiếu tới cùng file với sha khác nhau không thể cùng đúng; cái sai phải được nêu tên theo vị trí (`notes.json real_checks[i]`, `bundle.json gate_history[i]`, `comparison.items[i].original`, `checks.<x>`, `rollback.json forward_run/allowed.old_run`). Không phụ thuộc thứ tự duyệt hay số lần file được nêu.
+9. **Tham chiếu không kiểm được = từ chối, không bỏ qua** (bundle produced): sai định dạng, thiếu path/sha, sha không phải hex-64, trỏ ra ngoài bundle.
+10. Checksum (SHA256SUMS) chỉ chứng minh bytes; chuỗi bằng chứng do bundle.json và các receipt tự khai, phải tự nhất quán. Cùng một hàm (`package_check.bundle_receipt_problems`) ở đường trước build và trong verifier gói.
+11. Bundle refused/blocked giữ `bundle-result.json` và không bị trình bày thành đạt; mâu thuẫn trong receipt còn lại của nó vẫn được nêu.
+12. Tương thích: dữ liệu do bản trước R13 tạo (sổ, attempt, artifact, thay đổi chưa commit) được bảo toàn và đọc được; bằng chứng cũ không đủ điều kiện (không có `node.started.source`) là *unverifiable*, không hợp thức hoá; tiếp tục công việc còn hợp lệ bằng attempt mới qua cơ chế hiện có; không chạy trùng/chạy lại việc đã xong; không gia hạn root/ngân sách. Phân biệt 4 mức: đọc sổ · giữ artifact · tiếp tục công việc · tiếp tục nguyên attempt cũ.
+
+### Bảng finding → tái hiện → mong đợi → đỏ trước → sau
+| # | Finding | Tái hiện | Mong đợi | Đỏ trước | Sau |
+|---|---|---|---|---|---|
+| P2-C | `bundle_receipt_problems.load()` nhớ kết quả theo path (`if path in bodies: return`): tham chiếu thứ hai tới cùng file với sha khác không bao giờ được so với bytes; `real_checks` sai định dạng bị `continue` im lặng | bản sao gói f71ba51: `notes.real_checks=[{events.json, 'a'×64}]`, ghim lại hash notes trong bundle.json, ghi lại SHA256SUMS → verifier trong gói `reasons=[]`; biến thể `gate_history[0]` cũng lọt (`D:\OneCrewRuns\wf v\f71ba51\cx-r13b-1851\cx-r13b.json`) | từ chối nêu đúng vị trí tham chiếu sai; tham chiếu lặp nhất quán vẫn đạt; history ngoài `receipts/` chỉ kiểm hash+đọc; refused bundle giữ nguyên; cùng kết quả trước build và trong gói | `tests.test_wf_r13_bundle_receipts` +13 test (3 lớp `ContradictoryReference*`): **22 fail** trên 5b1fd7a (log `D:\OneCrewRuns\wf-dev-logs\r13b-p2-red.txt`); 3 đối chứng hợp lệ xanh sẵn | `load()` băm file một lần, so **mọi** tham chiếu với bytes (nêu `where`); `real_checks` sai định dạng/ra ngoài bundle → từ chối (produced). Module 48/48 xanh (`r13b-p2-green.txt`); phản chứng gói thật: verifier cũ PASS ×2 ca sai, code mới REFUSED ×2, đối chứng PASS ×2 |
+| Tương thích | rủi ro, chưa phải lỗi | agent C: dữ liệu dev9 (`state-sdk-trial`) + root mới tạo bằng wheel dev14 với executor giả, kiểm bằng code dev15/dev16 | 4 mức (e) có bằng chứng riêng; regression nếu có → file:line | — | xem `docs/wf/r13b-compat.md` |
+
+### Tách việc
+| Ai | Model | Việc | File |
+|---|---|---|---|
+| Đầu mối | Fable | P2-C: test đỏ → sửa `load()` → phản chứng gói thật → harness wheel cuối (+P2-C/P2-D) → registry/U1/refreeze → dev16 → gate → gói | wfkit/package_check.py; tests/test_wf_r13_bundle_receipts.py; registry; u1; pyproject; docs |
+| C | Opus | Kiểm tương thích root/sổ trước R13 (chỉ đọc code; bản sao dữ liệu; báo regression, không sửa runtime) | docs/wf/r13b-compat.md; tests/test_wf_r13b_compat.py (nếu có); D:\OneCrewRuns\wf-dev-tools\compat\; D:\OneCrewRuns\wf v\compat-r13b\ |
