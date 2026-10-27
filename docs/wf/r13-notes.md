@@ -61,3 +61,11 @@ Runtime Python 3.12 của Codex (`C:/Users/NUC/.cache/codex-runtimes/codex-prima
 |---|---|---|---|
 | Đầu mối | Fable | P2-C: test đỏ → sửa `load()` → phản chứng gói thật → harness wheel cuối (+P2-C/P2-D) → registry/U1/refreeze → dev16 → gate → gói | wfkit/package_check.py; tests/test_wf_r13_bundle_receipts.py; registry; u1; pyproject; docs |
 | C | Opus | Kiểm tương thích root/sổ trước R13 (chỉ đọc code; bản sao dữ liệu; báo regression, không sửa runtime) | docs/wf/r13b-compat.md; tests/test_wf_r13b_compat.py (nếu có); D:\OneCrewRuns\wf-dev-tools\compat\; D:\OneCrewRuns\wf v\compat-r13b\ |
+
+### Kết quả cuối lượt 13b (dev16 `b71cea4`)
+- Gate `D:\OneCrewRuns\wf-gates\wf-snapshot-gate-20261027-b71cea4` (19:08–21:28, Python 3.13.15): 284/284 check đạt, 0 skip; 2.452 lượt test theo receipt, 216 lần chạy riêng / 2.065 test (= 2.065 test id); document-selfcheck pass; refused chỉ vì acceptance partial 13 / blocked 10.
+- Bundles `D:\OneCrewRuns\wf-gates\wf-bundles-b71cea4`: 10/11 (RP refused, W45).
+- 92 task: Done 62 · Partial 26 · Blocked 4, 0 đổi trạng thái; 0 check trích dẫn thiếu receipt.
+- Gói `D:\OneCrewRuns\wf-handover-b71cea4` (665 file, wheel `300de300…a6a57781b`, bản trước dev14 f71ba51): verify 26/26, legacy 15/15, phản chứng wheel cuối 12/12 (P1-S, P1-H, P2-B, P2-C, P2-D, đối chứng), PowerShell 10/10, kiểm chéo 665/665 SHA256SUMS + 284/284 receipt + 10/10 bundle khớp commit+wheel, `package_scope` trong gói reasons=[].
+- Drill tương thích trên wheel dev16 (dữ liệu trước R13 tạo lại 21:45): 4/4 bộ trùng kết quả chạy từ checkout, dữ liệu giữ nguyên (`D:\OneCrewRuns\wf v\compat-r13b-wheel-b71cea4\results-wheel\`).
+- Báo cáo: `docs/wf/BAO-CAO-R13-2026-10-27.vi.md`.
