@@ -1,6 +1,7 @@
 """Kit harness for W40/T33a: build the wheel (pure-python, by hand — no setuptools needed), install it offline into a fresh venv, and run
 the install-boundary check of onecrew.v2.boundary against that INSTALLED distribution. The wheel is built from the same pyproject py-modules
-test_g1_core checks, so the shipped set and the RECORD agree by construction."""
+test_g1_core checks, so the shipped set and the RECORD agree by construction. Round 14: the console scripts come from the same pyproject
+([project.scripts]); the builder held its own `onecrew = onecrew.v2.cli:main` until dev17, so the installed executable skipped the UTF-8 wrapper."""
 import base64
 import csv
 import hashlib
@@ -10,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 import uuid
 import zipfile
 from pathlib import Path
@@ -35,6 +37,15 @@ def _log_used(whl):
             f.write(hashlib.sha256(Path(whl).read_bytes()).hexdigest() + chr(10))
 
 
+def declared_scripts(pyproject_text):
+    """pyproject's [project.scripts]: the only definition of the console scripts a wheel of that tree declares."""
+    return dict(tomllib.loads(pyproject_text).get('project', {}).get('scripts', {}))
+
+
+def entry_points_txt(scripts):
+    return ('[console_scripts]' + chr(10) + ''.join(f'{name} = {target}' + chr(10) for name, target in sorted(scripts.items()))).encode()
+
+
 def _reuse_wheel(src, into):
     """WF_WHEEL: use the wheel the release gate already built (same bytes, same hash) instead of building another one."""
     src = Path(src)
@@ -50,6 +61,10 @@ def _reuse_wheel(src, into):
     pj = (REPO / 'pyproject.toml').read_text(encoding='utf-8')
     modules = re.findall(r'"([\w.]+)"', re.search(r'py-modules\s*=\s*\[(.*?)\]', pj, re.S).group(1))
     packages = re.findall(r'"([\w.]+)"', re.search(r'^\s*packages\s*=\s*\[(.*?)\]', pj, re.M | re.S).group(1))
+    from wfkit.package_check import wheel_console_scripts
+    scripts, found = declared_scripts(pj), wheel_console_scripts(src)
+    if found != scripts:
+        raise RuntimeError(f'WF_WHEEL {src.name} declares console scripts {found}; {REPO / "pyproject.toml"} declares {scripts}')
     dst = Path(into) / src.name
     if dst.resolve() != src.resolve():
         dst.write_bytes(src.read_bytes())
@@ -86,7 +101,9 @@ def build_wheel(into):
         di = f'onecrew-{version}.dist-info'
         add(f'{di}/METADATA', f'Metadata-Version: 2.1\nName: onecrew\nVersion: {version}\nRequires-Python: >=3.10\n'.encode())
         add(f'{di}/WHEEL', b'Wheel-Version: 1.0\nGenerator: wf-handbuild\nRoot-Is-Purelib: true\nTag: py3-none-any\n')
-        add(f'{di}/entry_points.txt', b'[console_scripts]\nonecrew = onecrew.v2.cli:main\n')
+        scripts = declared_scripts(pj)
+        if scripts:
+            add(f'{di}/entry_points.txt', entry_points_txt(scripts))
         rec = io.StringIO(); w = csv.writer(rec)
         for arc, h, sz in records:
             w.writerow([arc, h, sz])

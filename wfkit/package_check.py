@@ -21,7 +21,9 @@ Two halves:
                  reports a block, so rollback must be REFUSED with zero pip install/uninstall) and `state-clear` (0 blocks, rollback allowed,
                  old build reads, roll-forward restores the same installed build).
 
-Every child runs with a UTF-8 environment; stdout/stderr tails are recorded; an unexpected nonzero exit or a traceback in any step fails the check.
+Every child runs with a UTF-8 environment, except the three console steps (round 14), which set the encoding explicitly (cp1252, then a UTF-8
+control) and run only the executable pip generated from the wheel; stdout/stderr tails are recorded; an unexpected nonzero exit or a traceback in
+any step fails the check.
 """
 import hashlib
 import json
@@ -39,7 +41,7 @@ CHECKOUT = Path(__file__).resolve().parents[1]
 FORBIDDEN_MARKERS = ('UnicodeEncodeError', 'UnicodeDecodeError', 'Traceback (most recent call last)', "codec can't encode", "codec can't decode")
 TAIL_KEYS = ('tail', 'stdout_tail', 'stderr_tail')
 
-BASE_REQUIRED = ('sha256sums', 'wheel_sha', 'venv', 'pip_install', 'help', 'smoke_body', 'verdict_run', 'plan_report', 'modules_from_venv',
+BASE_REQUIRED = ('sha256sums', 'wheel_sha', 'venv', 'pip_install', 'help', 'console_entry', 'console_cp1252_help', 'console_cp1252_init', 'smoke_body', 'verdict_run', 'plan_report', 'modules_from_venv',
                  'checkout_not_on_path')
 ROLLBACK_REQUIRED = ('blocked_copy_built', 'blocked_scan', 'blocked_refused_no_pip', 'blocked_installed_unchanged', 'blocked_copy_unchanged',
                      'clear_scan', 'clear_uninstall_current', 'clear_install_previous', 'clear_old_digest', 'clear_old_cannot_read_plan_ns',
@@ -86,6 +88,123 @@ def wheel_metadata_version(wheel_path):
     except (OSError, zipfile.BadZipFile, KeyError):
         pass
     return None
+
+
+# ---- the console script a user gets from the wheel (round 14, Codex review 28/10 on dev17 b522c24) -------------------------------------
+# The installed entry_points.txt, the executable pip generates from it and the code that executable imports must agree, and that executable
+# must print Vietnamese as UTF-8 when the console encoding is not UTF-8. The encoding variables of these runs are set here explicitly, never
+# inherited: the runner's UTF-8 environment (and an agent tool's PYTHONIOENCODING) hid the cp1252 failure of the dev16/dev17 executable.
+CONSOLE_VARS = ('PYTHONUTF8', 'PYTHONIOENCODING', 'PYTHONLEGACYWINDOWSSTDIO', 'ONECREW_LANG')
+CONSOLE_ENV = {'cp1252': {'PYTHONUTF8': '0', 'PYTHONIOENCODING': 'cp1252', 'PYTHONLEGACYWINDOWSSTDIO': None, 'ONECREW_LANG': 'vi'},
+               'utf8': {'PYTHONUTF8': '1', 'PYTHONIOENCODING': None, 'PYTHONLEGACYWINDOWSSTDIO': None, 'ONECREW_LANG': 'vi'}}
+CONSOLE_NEEDLES = {'help_vi': 'cài một repo: sổ, quy tắc, hook Claude Code', 'init_plan': 'OneCrew init sẽ làm cho dự án',
+                   'init_cancelled': 'Đã hủy; chưa ghi gì.'}
+_LAUNCHER_IMPORT = re.compile(r'^from ([\w.]+) import (\w+)\s*$', re.M)
+
+
+def console_scripts(text):
+    """-> {name: 'module:function'} of the [console_scripts] section of an entry_points.txt text."""
+    out, section = {}, None
+    for line in (text or '').splitlines():
+        line = line.strip()
+        if not line or line.startswith(('#', ';')):
+            continue
+        if line.startswith('[') and line.endswith(']'):
+            section = line[1:-1].strip()
+        elif section == 'console_scripts' and '=' in line:
+            name, target = line.split('=', 1)
+            out[name.strip()] = target.strip()
+    return out
+
+
+def wheel_console_scripts(wheel_path):
+    """-> the console scripts the wheel's own dist-info/entry_points.txt declares ({} when it has none)."""
+    with zipfile.ZipFile(wheel_path) as z:
+        name = next((n for n in z.namelist() if n.count('/') == 1 and n.endswith('.dist-info/entry_points.txt')), None)
+        return console_scripts(z.read(name).decode('utf-8')) if name else {}
+
+
+def installed_console_scripts(venv):
+    """-> ({name: target} of the installed onecrew dist-info, {name: target} the executable pip generated really imports, None if unreadable).
+    Windows: the script inside the launcher's appended zip; elsewhere: the script file."""
+    sites = [p for p in [Path(venv) / 'Lib' / 'site-packages', *Path(venv).glob('lib/python*/site-packages')] if p.is_dir()]
+    found = {}
+    for site in sites:
+        for d in site.glob('onecrew-*.dist-info'):
+            if (d / 'entry_points.txt').is_file():
+                found.update(console_scripts((d / 'entry_points.txt').read_text(encoding='utf-8')))
+    win = os.name == 'nt'
+    launcher = {}
+    for name in found:
+        exe = Path(venv) / ('Scripts' if win else 'bin') / (name + ('.exe' if win else ''))
+        try:
+            if win:
+                with zipfile.ZipFile(exe) as z:
+                    script = z.read('__main__.py').decode('utf-8')
+            else:
+                script = exe.read_text(encoding='utf-8')
+        except (OSError, KeyError, zipfile.BadZipFile, UnicodeDecodeError):
+            launcher[name] = None
+            continue
+        m = _LAUNCHER_IMPORT.findall(script)
+        launcher[name] = f'{m[-1][0]}:{m[-1][1]}' if m else None
+    return found, launcher
+
+
+def console_env(base, mode, home):
+    """The environment of one console run: `base` without any encoding variable or source path, then exactly CONSOLE_ENV[mode]; the per-user
+    directory (project registry, default state root) is `home`, inside the work dir."""
+    env = {k: v for k, v in base.items() if k not in CONSOLE_VARS and k not in ('PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP')}
+    env.update({k: v for k, v in CONSOLE_ENV[mode].items() if v is not None})
+    env['LOCALAPPDATA'] = str(home)
+    return env
+
+
+def _console_run(argv, env, cwd):
+    done = subprocess.run([str(a) for a in argv], capture_output=True, env=env, cwd=str(cwd), stdin=subprocess.DEVNULL, timeout=600)
+    try:
+        text, strict = done.stdout.decode('utf-8'), True
+    except UnicodeDecodeError:
+        text, strict = done.stdout.decode('utf-8', 'replace'), False
+    return done.returncode, done.stdout, text, strict, done.stderr.decode('utf-8', 'replace')
+
+
+def console_checks(venv, py, work, base_env):
+    """-> [(step id, name, ok, facts)] of the three console steps. `ok` is the oracle's own (_POSITIVE) on those facts, so the runner and the
+    judge cannot disagree. Runs only what pip generated in `venv`, from `work` (outside any checkout); writes only under `work`."""
+    work, venv = Path(work), Path(venv)
+    home = work / 'console-home'
+    cp, u8 = console_env(base_env, 'cp1252', home), console_env(base_env, 'utf8', home)
+    installed, launcher = installed_console_scripts(venv)
+    modules = sorted({t.split(':', 1)[0] for t in installed.values()} | {'onecrew'})
+    probe = subprocess.run([str(py), '-c', 'import importlib, json, sys\nprint(json.dumps({m: getattr(importlib.import_module(m), "__file__", None) for m in sys.argv[1:]}))',
+                            *modules], capture_output=True, text=True, env=cp, cwd=str(work), timeout=300)
+    try:
+        origins = json.loads(probe.stdout)
+    except ValueError:
+        origins = {}
+    outside = {m: f for m, f in origins.items() if not f or not Path(f).resolve().is_relative_to(venv.resolve())}
+    exe = venv / ('Scripts' if os.name == 'nt' else 'bin') / ('onecrew' + ('.exe' if os.name == 'nt' else ''))
+    facts = {'console_entry': {'installed': installed, 'launcher': launcher, 'origins': origins, 'outside': outside, 'exe': str(exe),
+                               'exe_sha256': sha(exe) if exe.is_file() else None, 'stderr_tail': probe.stderr[-500:]}}
+    code, raw, text, strict, err = _console_run([exe, '--help'], cp, work)
+    ucode, uraw, _, _, uerr = _console_run([exe, '--help'], u8, work)
+    facts['console_cp1252_help'] = {'env': {k: cp.get(k) for k in CONSOLE_VARS}, 'exit': code, 'utf8_strict': strict,
+                                    'needles': {'help_vi': CONSOLE_NEEDLES['help_vi'] in text}, 'same_as_utf8': raw == uraw, 'utf8_exit': ucode,
+                                    'stdout_sha256': hashlib.sha256(raw).hexdigest(), 'utf8_stdout_sha256': hashlib.sha256(uraw).hexdigest(),
+                                    'stdout_tail': text[-500:], 'stderr_tail': (err + uerr)[-500:]}
+    project, state = work / 'console-project', work / 'console-state'
+    project.mkdir()
+    subprocess.run(['git', '-C', str(project), 'init', '-q'], check=True, capture_output=True)
+    code, raw, text, strict, err = _console_run([exe, 'init', '--project', project, '--state-root', state], cp, work)
+    facts['console_cp1252_init'] = {'env': {k: cp.get(k) for k in CONSOLE_VARS}, 'init_exit': code, 'utf8_strict': strict,
+                                    'needles': {k: CONSOLE_NEEDLES[k] in text for k in ('init_plan', 'init_cancelled')},
+                                    'wrote': sorted(str(x) for x in (project / '.onecrew', project / '.claude', state, home) if x.exists()),
+                                    'stdout_tail': text[-500:], 'stderr_tail': err[-500:]}
+    names = {'console_entry': 'console script: installed entry_points.txt = what the generated executable imports, loaded from the venv',
+             'console_cp1252_help': 'onecrew --help (vi) from the venv executable under cp1252: UTF-8 text, same bytes as under UTF-8',
+             'console_cp1252_init': 'onecrew init (vi, no stdin: cancelled) from the venv executable under cp1252: UTF-8 text, nothing written'}
+    return [(sid, names[sid], bool(_POSITIVE[sid](_Facts(f, None, False))), f) for sid, f in facts.items()]
 
 
 def commit_matches(a, b):
@@ -743,6 +862,13 @@ _POSITIVE = {
     'venv': _exit0,
     'pip_install': _exit0,
     'help': lambda f: _exit0(f) and f.needle('plan') is True,
+    'console_entry': lambda f: (isinstance(f('installed'), dict) and bool(f('installed')) and f('launcher') == f('installed')
+                                and isinstance(f('origins'), dict) and all(t.split(':', 1)[0] in f('origins') for t in f('installed').values())
+                                and f('outside') == {}),
+    'console_cp1252_help': lambda f: (_exit0(f) and f('env') == CONSOLE_ENV['cp1252'] and f('utf8_strict') is True and f.needle('help_vi') is True
+                                      and f('same_as_utf8') is True and f('utf8_exit') == 0),
+    'console_cp1252_init': lambda f: (f('init_exit') == 2 and f('env') == CONSOLE_ENV['cp1252'] and f('utf8_strict') is True
+                                      and f.needle('init_plan') is True and f.needle('init_cancelled') is True and f('wrote') == []),
     'smoke_body': lambda f: _exit0(f) and f('observation') is True,
     'verdict_run': lambda f: _exit0(f) and f('m1') == 'passed',
     'plan_report': lambda f: f('rendered') is True,
@@ -1042,6 +1168,8 @@ def _verify(pkg, work, report, runner, step, tails, out):
     step('pip_install', 'pip install --no-index from the package wheel', code == 0, **tails(code, so, se))
     code, so, se = runner.run([exe, '--help'])
     step('help', 'onecrew --help from the venv console script', code == 0 and 'plan' in so, needles={'plan': 'plan' in so}, **tails(code, so, se))
+    for sid, name, ok, facts in console_checks(venv, py, work, runner.env):        # round 14: the encoding of these runs is set explicitly
+        step(sid, name, ok, **facts)
 
     project, state = work / 'project', work / 'state'
     project.mkdir()

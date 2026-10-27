@@ -21,7 +21,7 @@ Mọi module còn lại của `onecrew/`: `workflow`, `owned*`, `delivery*`, `so
 
 ## Lệnh `onecrew` của wheel
 
-`onecrew = onecrew.v2.cli:main`: chỉ ba nhóm `plan`, `verdict`, `hook`; nhóm khác báo lỗi và chỉ về `onecrew_cli.py`. Checkout giữ router đầy đủ (`onecrew/cli.py`), dùng chung hàm `route` của `onecrew/v2/cli.py` cho ba nhóm v2.
+`onecrew = onecrew.console:main` (từ lượt 10, khai ở `[project.scripts]` của `pyproject.toml`; wheel ghi đúng mục này từ 2.2.0.dev18, các wheel trước ghi `onecrew.v2.cli:main` nên executable bỏ qua lớp bọc UTF-8): ép stdout/stderr sang UTF-8 rồi chạy `onecrew.v2.cli:main`, chỉ ba nhóm `plan`, `verdict`, `hook`; nhóm khác báo lỗi và chỉ về `onecrew_cli.py`. Checkout giữ router đầy đủ (`onecrew/cli.py`), dùng chung hàm `route` của `onecrew/v2/cli.py` cho ba nhóm v2.
 
 ## Tìm Claude CLI và model mặc định
 

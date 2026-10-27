@@ -33,6 +33,13 @@ FACTS = {
     'clear_old_copy_unchanged': {'tree_sha': 'D', 'copy_before': 'D'}, 'clear_uninstall_previous': {'exit': 0},
     'clear_reinstall_current': {'exit': 0}, 'clear_same_build_restored': {'installed': 'A'}, 'clear_roll_forward_reads': {'exit': 0, 'needles': {'smoke': True}},
     'clear_roll_forward_copy_unchanged': {'tree_sha': 'D'},
+    # round 14: the console steps, as console_checks records them for a wheel whose executable runs the UTF-8 wrapper
+    'console_entry': {'installed': {'onecrew': 'onecrew.console:main'}, 'launcher': {'onecrew': 'onecrew.console:main'},
+                      'origins': {'onecrew': 'v/onecrew/__init__.py', 'onecrew.console': 'v/onecrew/console.py'}, 'outside': {}},
+    'console_cp1252_help': {'env': dict(pc.CONSOLE_ENV['cp1252']), 'exit': 0, 'utf8_strict': True, 'needles': {'help_vi': True},
+                            'same_as_utf8': True, 'utf8_exit': 0, 'stdout_tail': '', 'stderr_tail': ''},
+    'console_cp1252_init': {'env': dict(pc.CONSOLE_ENV['cp1252']), 'init_exit': 2, 'utf8_strict': True,
+                            'needles': {'init_plan': True, 'init_cancelled': True}, 'wrote': [], 'stdout_tail': '', 'stderr_tail': ''},
 }
 
 

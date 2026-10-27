@@ -1,0 +1,10 @@
+{
+ "id": "U1-20261028-R14-P2-1",
+ "file": "tests/test_wf_package_check.py",
+ "old_sha256": "c7d77f915d71810fe45884a3386ad4fb6981140bf1fbf5f218747429ecd1f67d",
+ "new_sha256": "76a411f0d7346241a38ffc472500717e9934cd41acec0abe8a83ddd6db194c96",
+ "reason": "R14 P2 (Codex review 28/10 on dev17): no check ran the executable pip generates from the wheel under a non-UTF-8 encoding (test_wf_r10_console_utf8 runs the wrapper from the checkout; the package verifier ran every child with PYTHONUTF8=1 PYTHONIOENCODING=utf-8, so dev17's shipped verifier passed 26/26 while the executable in its own venv failed). package_check gains three mandatory BASE steps (console_entry: installed entry_points.txt = what the generated executable imports, target modules loaded from the venv; console_cp1252_help: explicitly built cp1252 env, strict UTF-8, Vietnamese needle, byte-identical to a UTF-8 control; console_cp1252_init: init with no stdin, strict UTF-8 plan + cancellation, exit 2, nothing written) recomputed by the judge from their facts; the existing steps and oracle are unchanged. The two judge fixtures only ADD the three steps as the current runner records them (a good report must carry every mandatory step); no assertion changed or removed.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 28/10/2026 (sau review Codex trên dev17 b522c24), chỉ thị sửa 1 P1 + 1 P2 (dán nguyên văn): \"Tôi ủy quyền bạn tự phân tích, chọn giải pháp, sửa code/test/công cụ đóng gói liên quan, commit local, dựng và kiểm gói, cập nhật báo cáo/audit/wiki trong phạm vi này. Không hỏi tôi duyệt từng việc.\" Quyết định kỹ thuật theo ủy quyền, không phải chữ ký trực tiếp của chủ sở hữu.",
+ "applied_by": "claude (entry), round 14, integration commit on codex/wf-development",
+ "at": "2026-10-28"
+}

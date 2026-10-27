@@ -3,7 +3,8 @@
 Base fixture: a verbatim copy of the real report of package wf-handover-6366137 (tests/fixtures/wf_verify_report_6366137.json).
 That report was written by the runner before P1-1, so it lacks a few facts the judge now recomputes `ok` from; `real_report()` adds
 exactly those facts (values taken from the same report where they exist) as the current runner records them. Every counter-example
-below starts from that report and must be REFUSED.
+below starts from that report and must be REFUSED. Round 14: that report also predates the three console steps; `real_report()` inserts them
+after `help` with the facts the current runner records for a passing executable (tests/test_wf_r14_console_entry.py judges their defects).
 """
 import copy
 import json
@@ -56,6 +57,15 @@ def real_report():
     get(r, 'clear_old_copy_unchanged').update(tree_sha=rb['clear']['copy_before'], copy_before=rb['clear']['copy_before'])
     get(r, 'clear_roll_forward_reads')['needles'] = {'smoke': True}
     get(r, 'clear_roll_forward_copy_unchanged')['tree_sha'] = rb['clear']['copy_before']
+    i = next(n for n, s in enumerate(r['steps']) if s['id'] == 'help') + 1
+    r['steps'][i:i] = [
+        {'id': 'console_entry', 'step': 'console entry', 'ok': True, 'mandatory': True, 'installed': {'onecrew': 'onecrew.console:main'},
+         'launcher': {'onecrew': 'onecrew.console:main'}, 'origins': {'onecrew': 'v/onecrew/__init__.py', 'onecrew.console': 'v/onecrew/console.py'},
+         'outside': {}, 'stderr_tail': ''},
+        {'id': 'console_cp1252_help', 'step': 'console help cp1252', 'ok': True, 'mandatory': True, 'env': dict(pc.CONSOLE_ENV['cp1252']), 'exit': 0,
+         'utf8_strict': True, 'needles': {'help_vi': True}, 'same_as_utf8': True, 'utf8_exit': 0, 'stdout_tail': '', 'stderr_tail': ''},
+        {'id': 'console_cp1252_init', 'step': 'console init cp1252', 'ok': True, 'mandatory': True, 'env': dict(pc.CONSOLE_ENV['cp1252']),
+         'init_exit': 2, 'utf8_strict': True, 'needles': {'init_plan': True, 'init_cancelled': True}, 'wrote': [], 'stdout_tail': '', 'stderr_tail': ''}]
     return r
 
 
