@@ -54,8 +54,13 @@ def unresolved(ledger, selector, conn=None):
                 pending.append({'attempt': attempt_id, 'node': prepared['node'], 'task': start.get('child'), 'status': 'candidate_unpublished',
                                 'reason': 'managed candidate saved but not published by the engine; step adopts it before any replan'})
             continue
-        attempt = conn.execute('SELECT status,charged,task_id FROM attempts WHERE id=?', (attempt_id,)).fetchone()
+        attempt = conn.execute('SELECT status,charged,task_id,result FROM attempts WHERE id=?', (attempt_id,)).fetchone()
         if attempt and attempt['status'] == 'settled' and not attempt['charged']:
+            continue
+        start = started.get(attempt_id)
+        if attempt and released(attempt) and start is not None and _adopted(conn, root['task_id'], attempt_id, start):
+            # 2.3-B (M2): its process tree is confirmed stopped, its result can never become a candidate (interrupted, stopped or a
+            # known failure), and the engine already held/retained this node attempt: it owns nothing any more.
             continue
         pending.append({'attempt': attempt_id, 'node': prepared['node'], 'task': attempt['task_id'] if attempt else None,
                         'status': attempt['status'] if attempt else 'unknown', 'reason': 'managed result lacks a durable candidate; reconcile before replay'})
@@ -63,6 +68,86 @@ def unresolved(ledger, selector, conn=None):
 
 
 ADOPTING = ('node.produced', 'node.held', 'node.result_retained')
+
+
+def _body(attempt):
+    try:
+        body = json.loads(attempt['result'] or '{}')
+    except (ValueError, TypeError):
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def cleanup_view(attempt):
+    """2.3-B (M5): is the attempt's process tree confirmed gone? Words only, from the Control row:
+    'confirmed'      - Control settled it with the Supervisor's tree-stopped proof (and the Job evidence when recorded);
+    'not_applicable' - settled without a charged launch (a known not-started attempt: no process ever ran);
+    'pending'        - anything else: reserved, running, unknown, or settled without that proof. Never called clean."""
+    body = _body(attempt)
+    if attempt['status'] == 'settled' and body.get('tree_stopped') is True:
+        return {'cleanup': 'confirmed', 'evidence': {k: body[k] for k in ('reason', 'exit_code', 'trigger', 'job') if k in body}}
+    if attempt['status'] == 'settled' and not attempt['charged']:
+        return {'cleanup': 'not_applicable', 'evidence': {'not_started': True}}
+    return {'cleanup': 'pending', 'evidence': {'status': attempt['status'], **({'reason': body['reason']} if body.get('reason') else {})}}
+
+
+def released(attempt):
+    """A settled attempt whose tree is confirmed stopped and whose result can never be rebuilt into a candidate: the Supervisor
+    recorded a reason (interrupted, stopped, timed out...) or the process itself failed. A successful process (exit 0, no reason)
+    without a candidate is NOT released: its durable outputs may still rebuild one (W37b point c)."""
+    body = _body(attempt)
+    if attempt['status'] != 'settled' or body.get('tree_stopped') is not True:
+        return False
+    exit_code = body.get('exit_code')
+    return body.get('reason') is not None or (isinstance(exit_code, int) and not isinstance(exit_code, bool) and exit_code != 0)
+
+
+def _token(attempt):
+    try:
+        token = json.loads(attempt.get('identity') or 'null')
+    except (ValueError, TypeError):
+        token = None
+    return token if isinstance(token, dict) else {}
+
+
+def contained_state(control, attempt_id, **extra):
+    """2.3-B (M4): the state of a journal-less attempt that the Supervisor launched (NativeExecutor through `engine step`). Its process
+    tree can be reconciled; its result cannot: there is no managed journal to rebuild a candidate from, so it is never `completed`."""
+    attempt = control.attempt(attempt_id)
+    body, cleanup = _body(attempt), cleanup_view(attempt)
+    exit_code = body.get('exit_code')
+    if attempt['status'] == 'running':
+        state = 'running'
+    elif (cleanup['cleanup'] == 'confirmed' and body.get('reason') is None and isinstance(exit_code, int)
+          and not isinstance(exit_code, bool) and exit_code != 0):
+        state = 'failed'
+    else:
+        state = 'unknown'
+    return dict({'state': state, 'attempt': attempt_id, 'generation': attempt['generation'], 'candidate': None,
+                 'executor': 'common-native-artifact', 'recovery': 'supervisor-contained process tree only',
+                 'tree_stopped': cleanup['cleanup'] == 'confirmed', 'cleanup': cleanup['cleanup'], 'cleanup_evidence': cleanup['evidence'],
+                 'text': ('the contained process is still running' if state == 'running' else
+                          'the contained process failed (known result); nothing to replay' if state == 'failed' else
+                          'operation result unknown: no managed journal to rebuild a candidate; the engine decides any replay')},
+                **extra)
+
+
+def recover_contained(control, attempt_id):
+    """2.3-B (M4): reconcile a journal-less, Supervisor-contained attempt: settle it once its controller and whole Job are gone, and
+    escalate a hung controller's tree after a stop/cap plus grace. Never a candidate, never a new run. An attempt without a contained
+    launch identity (an executor that declared nothing) is refused: no command is sent to it."""
+    attempt = control.attempt(attempt_id)
+    if not _token(attempt).get('job_contained'):
+        raise LedgerError('The attempt has no managed executor journal and no contained launch identity; '
+                          'controls are not sent to an undeclared executor.')
+    before = attempt['status']
+    reconciled = {'status': 'settled'}
+    if before != 'settled':
+        supervisor = Supervisor(control)
+        reconciled = supervisor.reconcile(attempt_id)
+        if reconciled.get('status') == 'alive':
+            reconciled = dict(reconciled, escalation=supervisor.terminate(attempt_id))
+    return contained_state(control, attempt_id, previous=before, reconciled=reconciled)
 
 
 def _root_starts(conn, root_task):
@@ -310,6 +395,10 @@ class ManagedExecutor(executors.Executor):
         attempt = self.control.attempt(attempt_id)
         self._write(attempt_id, 'stop_requested', reason=reason)
         self.control.cancel(attempt['task_id'])
+        if self.control.attempt(attempt_id)['status'] in ('running', 'unknown'):
+            # 2.3-B: a live controller honours the cancel itself; a repeated stop after the grace period escalates a hung one. The
+            # first request is never due (its grace starts now), so a stop alone never terminates anything.
+            Supervisor(self.control).terminate(attempt_id)
         return self.state(attempt_id)
 
     def state(self, attempt_id):
@@ -335,8 +424,10 @@ class ManagedExecutor(executors.Executor):
         else:
             state = 'running' if attempt['status'] == 'running' else 'unknown'
         host = host_status_core.status(self.ledger.state_root)
+        cleanup = cleanup_view(attempt)
         return {'state': state, 'attempt': attempt_id, 'generation': attempt['generation'], 'candidate': candidate,
                 'safe_point_acknowledged': state == 'paused', 'tree_stopped': stopped,
+                'cleanup': cleanup['cleanup'], 'cleanup_evidence': cleanup['evidence'],
                 'text': 'đã dừng tại điểm an toàn' if state == 'paused' else 'pause requested, not confirmed' if state == 'pause_requested' else state,
                 'measured': {'seconds': proof.get('seconds', 'unknown'), 'calls': 'not_measured'},
                 'host': host, 'automatic_restart': False, 'restart_reason': host['text']}
@@ -357,7 +448,12 @@ class ManagedExecutor(executors.Executor):
         attempt = self.control.attempt(attempt_id)
         before = attempt['status']
         if before != 'settled':
-            reconciled = Supervisor(self.control).reconcile(attempt_id)
+            supervisor = Supervisor(self.control)
+            reconciled = supervisor.reconcile(attempt_id)
+            if reconciled.get('status') == 'alive':
+                # 2.3-B (M3): the controller lives but may be hung. Its own tree is terminated only when a stop request or a passed cap
+                # plus the grace period makes it due; otherwise nothing happens (recorded as not_due, never as a guess).
+                reconciled = dict(reconciled, escalation=supervisor.terminate(attempt_id))
             self._write(attempt_id, 'reconciled', previous=before, result=reconciled)
         self._ack_pause(attempt_id)
         result = self.state(attempt_id)

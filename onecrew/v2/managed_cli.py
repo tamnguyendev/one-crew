@@ -1,6 +1,7 @@
 """Public managed controls; recovery reconciles evidence, never starts a job."""
 import argparse
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -26,11 +27,19 @@ def _parser():
 def main(argv=None):
     args = _parser().parse_args(executors._without_group(sys.argv[1:] if argv is None else argv))
     try:
-        from .managed_executor import ManagedExecutor
+        from .managed_executor import ManagedExecutor, contained_state, recover_contained, _token
         # Read commands connect existing ports without initialization/migration.
         ledger = _ledger(args, args.command in ('state', 'isolate'))
         adapter = ManagedExecutor(ledger, initialize=False)
         if not adapter._history(args.attempt):
+            # 2.3-B (M4): a journal-less attempt that the Supervisor launched (`engine step`, NativeExecutor) can still be reconciled
+            # as a process tree by the Supervisor itself - state and recover only, never a candidate or a replay. Pause/stop/isolate
+            # stay refused: that executor did not declare them.
+            if args.command in ('state', 'recover') and _token(adapter.control.attempt(args.attempt)).get('job_contained'):
+                result = (recover_contained(adapter.control, args.attempt) if args.command == 'recover'
+                          else contained_state(adapter.control, args.attempt))
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                return 0
             raise LedgerError('The attempt has no managed executor journal; controls are not sent to an undeclared executor.')
         dispatcher = executors.Dispatcher()
         if args.command == 'state': result = adapter.state(args.attempt)
@@ -42,6 +51,11 @@ def main(argv=None):
         return 0
     except (LedgerError, OSError, ValueError, TypeError) as error:
         print(json.dumps({'error': str(error), 'type': type(error).__name__}, ensure_ascii=False))
+        return 2
+    except sqlite3.OperationalError as error:
+        # 2.3-B (Q4): e.g. a suspended controller holds the ledger lock. Nothing was recorded, so nothing was terminated either.
+        print(json.dumps({'error': str(error), 'type': type(error).__name__, 'cleanup': 'pending',
+                          'text': 'the ledger could not record the step; nothing was stopped or claimed'}, ensure_ascii=False))
         return 2
 
 

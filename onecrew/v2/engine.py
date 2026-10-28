@@ -340,7 +340,166 @@ def _adopt(ledger, conn, root, view, row):
     return {'node': nid, 'state': 'produced', 'adopted_after_crash': True, **candidate}
 
 
-def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
+# ---- 2.3-B (L1): cleanup before takeover --------------------------------------------------------------------------------------------
+# The attempt's own controller lost ownership: it died (reconcile) or recovery terminated its tree after a stop/cap plus grace. Only
+# these are "interrupted"; a stop, timeout or failure the live controller recorded itself is handled (held) by that controller.
+INTERRUPTED = ('supervisor_interrupted', 'stopped_by_recovery')
+
+
+def _row_json(row, key):
+    try:
+        value = json.loads(row[key]) if row[key] else None
+    except (ValueError, TypeError):
+        value = None
+    return value if isinstance(value, dict) else {}
+
+
+def _lost(row):
+    """Can the attempt's own controller no longer settle or publish it? True when recovery settled it, or when its recorded controller
+    is dead (creation-time identity; another host or an unreadable identity is NOT dead)."""
+    if _row_json(row, 'result').get('reason') == 'stopped_by_recovery':
+        return True
+    from ..process_core import probe
+    return probe(_row_json(row, 'identity').get('supervisor')) == 'dead'
+
+
+def _classify(body):
+    exit_code = body.get('exit_code')
+    if body.get('reason') in INTERRUPTED: return 'interrupted'
+    if body.get('reason') is not None: return 'stopped'
+    if isinstance(exit_code, int) and not isinstance(exit_code, bool) and exit_code != 0: return 'failed'
+    return 'result_unknown'
+
+
+def _replay_decision(ledger, conn, view, nid, attempt_id):
+    """Q1: the shared v1 policy recovery_core.decide(class 'interrupted') = replay once, then ask. The count is rebuilt from the
+    recovery records already written for this node (never reset), and a replay must fit the remaining root budget (never extended)."""
+    from .. import recovery_core
+    signature = recovery_core.signature(nid, 'interrupted', nid)
+    prior = None
+    for row in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind IN ('node.held','node.resumed') AND json_extract(payload,'$.node')=? "
+                            "ORDER BY seq", (view['root'], nid)):
+        record = json.loads(row['payload']).get('recovery')
+        if isinstance(record, dict) and record.get('signature') == signature: prior = record
+    durable = {'failures': {signature: {k: v for k, v in prior.items() if k not in ('signature', 'progress')}}} if prior else {}
+    action, record = recovery_core.decide(durable, nid, 'interrupted', nid, 'attempt ' + attempt_id + ' lost its controller; cleanup confirmed')
+    return action, record, next(item for item in view['definition']['nodes'] if item['id'] == nid)
+
+
+def _takeover(ledger, selector, nid, attempt_id, generation):
+    """M1/M2: the node's attempt is settled with its process tree confirmed stopped and its controller can no longer publish it. Hold
+    the node at its generation with the cleanup evidence; for an interrupted attempt apply the shared policy (replay once inside the
+    existing root budget -> node.resumed, budget_reset False; then hold for a decision). Nothing is written when another caller already
+    moved the node, when its inputs are held, or when the cleanup is not confirmed. Returns a summary or None."""
+    from . import managed_executor
+    with ledger.transaction(write=True) as conn:
+        root, _, _ = ip.context(ledger, conn, selector, 'sequential-engine')
+        view = state(ledger, root['selector'], conn)
+        record = view['nodes'].get(nid)
+        if record is None or record['phase'] != 'running' or record['attempt'] != attempt_id or record['generation'] != generation:
+            return None
+        row = dict(conn.execute('SELECT * FROM attempts WHERE id=?', (attempt_id,)).fetchone())
+        cleanup = managed_executor.cleanup_view(row)
+        if row['status'] != 'settled' or cleanup['cleanup'] == 'pending' or not _publication_current(view, view, nid):
+            return None
+        body = _row_json(row, 'result')
+        receipt = Snapshots(ledger.state_root).blob(canonical({'kind': 'process-cleanup-receipt', 'attempt': attempt_id, 'status': row['status'],
+            'charged': row['charged'], 'identity': _row_json(row, 'identity'), 'result': body}).encode())
+        kind = _classify(body)
+        evidence = dict(attempt=attempt_id, cleanup=cleanup['cleanup'], cleanup_evidence=cleanup['evidence'], process_receipt=receipt)
+        if kind != 'interrupted':
+            _event(ledger, conn, view, nid, 'node.held', classification='executor_' + kind, **evidence,
+                   reason='Attempt ' + attempt_id + ' ended without a candidate (' + kind + '); its process tree is confirmed stopped. '
+                          'Held: repair or replan; nothing is replayed automatically.')
+            return {'node': nid, 'state': 'held', 'classification': 'executor_' + kind, 'attempt': attempt_id, 'cleanup': cleanup['cleanup']}
+        action, recovery, node = _replay_decision(ledger, conn, view, nid, attempt_id)
+        remaining = ip.ceilings(ledger, conn, root)['remaining_calls']
+        if action == 'replay' and remaining < node['budget_calls']:
+            action, why = 'ask', 'the replay does not fit the remaining root call budget'
+        else:
+            why = ('replayed once under the shared recovery policy (interrupted: replay x1)' if action == 'replay'
+                   else 'interrupted again after the automatic replay: held for a decision (the policy asks)')
+        _event(ledger, conn, view, nid, 'node.held', classification='executor_interrupted', decision=action, recovery=recovery, **evidence,
+               reason='Attempt ' + attempt_id + ' lost its controller; its process tree is confirmed stopped (' + str(body.get('reason')) + '); ' + why)
+        if action != 'replay':
+            return {'node': nid, 'state': 'held', 'classification': 'executor_interrupted', 'decision': action, 'attempt': attempt_id}
+        _event(ledger, conn, view, nid, 'node.resumed', continues_attempt=attempt_id, recovery=recovery, budget_reset=False,
+               reason='interrupted attempt with confirmed cleanup: a new attempt takes over inside the same root budget')
+        return {'node': nid, 'state': 'resumed', 'generation': generation + 1, 'continues_attempt': attempt_id, 'decision': action}
+
+
+def reconcile_orphans(ledger, selector, executor=None, *, control=None):
+    """M1 (2.3-B, L1): the sweep at the start of `step`/`run_batch`. For every node whose current attempt is unsettled (running or held) or
+    settled while the node still shows it running:
+      * reserved / no contained launch identity / controller on another host -> reported `cleanup: pending`, nothing written;
+      * controller alive and no stop/cap trigger due -> left alone (it is still the owner; silence is not a reason);
+      * otherwise reconciled by the attempt's own declared executor (`recover` of the managed journal) or, for a journal-less Supervisor
+        attempt, by the Supervisor (process tree only); a hung controller's tree is terminated only when escalation is due;
+      * once settled with the tree confirmed stopped and the controller unable to publish -> `_takeover` (held, then policy replay).
+    A managed candidate saved before the loss is left to adopt_managed (W37b). Returns one row per node it looked at."""
+    from . import managed_executor
+    from ..process_core import Supervisor, probe
+    control = control or getattr(executor, 'control', None)
+    if control is None:
+        from ..control_core import Control
+        control = Control(ledger)
+    with ledger.transaction() as conn:
+        if conn is None or not conn.execute("SELECT 1 FROM sqlite_master WHERE name='attempts'").fetchone(): return []
+        root, _, _ = ip.context(ledger, conn, selector, 'sequential-engine')
+        view = state(ledger, root['selector'], conn)
+        rows = []
+        for nid, record in view['nodes'].items():
+            if not record.get('attempt') or record['phase'] not in ('running', 'held'): continue
+            row = conn.execute('SELECT * FROM attempts WHERE id=?', (record['attempt'],)).fetchone()
+            if row is None or (record['phase'] == 'held' and row['status'] == 'settled'): continue
+            rows.append((nid, record['phase'], record['generation'], dict(row)))
+        if not rows: return []
+        adoptable = {r['attempt'] for r in managed_executor.adoptable(ledger, conn, root['task_id'])}
+    report = []
+    for nid, phase, generation, row in rows:
+        entry = {'node': nid, 'attempt': row['id'], 'generation': generation}
+        if row['status'] in ('running', 'unknown'):
+            token = _row_json(row, 'identity')
+            if not token.get('job_contained'):
+                report.append(dict(entry, cleanup='pending', reason='no contained launch identity: this executor cannot be reconciled automatically')); continue
+            owner = probe(token.get('supervisor'))
+            if owner == 'unknown':
+                report.append(dict(entry, cleanup='pending', reason='the controller state cannot be observed from this host')); continue
+            if owner == 'alive' and not Supervisor(control).escalation(row['id'])['due']:
+                report.append(dict(entry, cleanup='pending', reason='its controller is alive and still owns it')); continue
+            try:
+                history = managed_executor.ManagedExecutor(ledger, initialize=False)._history(row['id'])
+                if any(p['phase'] == 'prepared' for p in history):
+                    adapter = executor if isinstance(executor, managed_executor.ManagedExecutor) else managed_executor.ManagedExecutor(ledger, initialize=False)
+                    executors.Dispatcher().send(adapter, 'recover', row['id'])
+                else:
+                    managed_executor.recover_contained(control, row['id'])
+            except LedgerError as error:
+                report.append(dict(entry, cleanup='pending', reason=str(error)[:300])); continue
+            row = control.attempt(row['id'])
+            if row['status'] != 'settled':
+                report.append(dict(entry, cleanup='pending', reason='reconciliation could not confirm the process tree stopped')); continue
+        elif row['status'] != 'settled':
+            report.append(dict(entry, cleanup='pending', reason='reserved without a recorded launch: in flight or manual reconciliation')); continue
+        if phase != 'running':
+            report.append(dict(entry, cleanup=managed_executor.cleanup_view(row)['cleanup'], reason='held node: its attempt is now settled')); continue
+        if row['id'] in adoptable or not _lost(row):
+            continue                                           # a saved candidate is adopted by adopt_managed; a live controller still publishes
+        history = managed_executor.ManagedExecutor(ledger, initialize=False)._history(row['id'])
+        if (any(p['phase'] == 'prepared' for p in history) and not any(p['phase'] == 'candidate' for p in history)
+                and isinstance(executor, managed_executor.ManagedExecutor) and executor.native is not None
+                and _classify(_row_json(row, 'result')) == 'result_unknown'):
+            executors.Dispatcher().send(executor, 'recover', row['id'])   # W37b (c): a successful process may still rebuild its candidate
+            with ledger.transaction() as conn:
+                root, _, _ = ip.context(ledger, conn, selector, 'sequential-engine')
+                if row['id'] in {r['attempt'] for r in managed_executor.adoptable(ledger, conn, root['task_id'])}: continue
+        taken = _takeover(ledger, selector, nid, row['id'], generation)
+        report.append(dict(entry, **(taken or {'cleanup': managed_executor.cleanup_view(row)['cleanup'], 'state': 'waiting',
+                                                'reason': 'not taken over now (inputs held, node moved or cleanup unconfirmed)'})))
+    return report
+
+
+def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _swept=False):
     from . import answer_effects
     answer_effects.reconcile(ledger, selector)
     control = control or getattr(executor, 'control', None)
@@ -351,6 +510,7 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
         declaration=getattr(executor,'declaration',None)
         if declaration is None or not declaration.supports('isolate'):
             raise LedgerError('Parallel execution requires a declared isolate capability.')
+    swept = [] if _swept else [row for row in reconcile_orphans(ledger, selector, executor, control=control) if row.get('state')]
     retained = publish_retained(ledger, selector,node=_target)
     if retained: return retained
     with ledger.transaction() as conn:
@@ -358,7 +518,7 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
         view = state(ledger, root['selector'], conn)
         choices = _ready(view,slots)
         ctx = ip.ceilings(ledger, conn, root)
-    if not choices: return {'state': 'waiting', 'internal_revision': view['internal_revision']}
+    if not choices: return {'state': 'waiting', 'internal_revision': view['internal_revision'], **({'reconciled': swept} if swept else {})}
     if view['definition_contract_sha'] != sha:
         raise LedgerError('Revise the internal plan against the current approved contract before dispatch.')
     if _target is not None:
@@ -458,8 +618,14 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
                     _retain(ledger, conn, view, nid, 'Root changed during execution', candidate=produced, attempt=attempt['id'])
             return {'node': nid, 'state': 'held' if progress_status == 'blocked' else 'waiting', 'progress': progress_status}
     except Exception as error:
-        if control.attempt(attempt['id'])['status'] != 'settled':
+        observed = control.attempt(attempt['id'])
+        if observed['status'] != 'settled':
             control.unknown(attempt['id'], str(error)[:1000])
+        elif _row_json(observed, 'result').get('reason') in INTERRUPTED:
+            # 2.3-B: recovery took this attempt's tree while this controller was hung; whoever observes it first applies the same takeover
+            # (a newer generation already taken over makes _takeover a no-op, and the late outcome below is retained, never published)
+            taken = _takeover(ledger, root['selector'], nid, attempt['id'], view['nodes'][nid]['generation'])
+            if taken: return dict(taken, reason=str(error)[:1000])
         with ledger.transaction(write=True) as conn:
             current = state(ledger, root['selector'], conn)
             if _publication_current(current, view, nid):
@@ -486,6 +652,7 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None):
 
 def run_batch(ledger,selector,executor,*,slots=1,control=None):
     """Run the existing scheduler's bounded batch through the same step port."""
+    swept=[row for row in reconcile_orphans(ledger,selector,executor,control=control) if row.get('state')]   # 2.3-B: cleanup before takeover
     adopted=[]
     for _ in range(201):                        # W37b: candidates saved before a lost controller are adopted first (bounded: one per node)
         result=adopt_managed(ledger,selector)
@@ -498,14 +665,14 @@ def run_batch(ledger,selector,executor,*,slots=1,control=None):
         declaration=getattr(executor,'declaration',None)
         if declaration is None or not declaration.supports('isolate'):
             raise LedgerError('Parallel execution requires a declared isolate capability.')
-    if not choices:return {'slots':slots,'results':[],'state':'waiting'}
+    if not choices:return {'slots':slots,'results':[],'state':'waiting',**({'reconciled':swept} if swept else {})}
     def execute(choice):
-        try:return step(ledger,selector,executor,control=control,slots=slots,_target=choice['id'])
+        try:return step(ledger,selector,executor,control=control,slots=slots,_target=choice['id'],_swept=True)
         except LedgerError as error:return {'node':choice['id'],'state':'waiting','reason':str(error)}
     with ThreadPoolExecutor(max_workers=slots) as pool:
         futures=[pool.submit(execute,choice) for choice in choices]
         results=[future.result() for future in futures]
-    return {'slots':slots,'results':results}
+    return {'slots':slots,'results':results,**({'reconciled':swept} if swept else {})}
 
 
 def release_paused(ledger,selector,nid,executor):

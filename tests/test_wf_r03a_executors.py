@@ -197,7 +197,9 @@ class ObservationTests(Fixture):
         self.assertIn('claude-code-hook', text)
         self.assertIn('call: không đo', text)
         listed = subprocess.run(base + ['list'], cwd=REPO, capture_output=True, timeout=120, env=env)
-        self.assertEqual(sorted(d['executor'] for d in json.loads(listed.stdout)), ['claude-code-hook', 'command-verifier'])
+        # 2.3-B (M4): the list also shows the two runtime executors the engine starts, exactly as they declare themselves
+        self.assertEqual(sorted(d['executor'] for d in json.loads(listed.stdout)),
+                         ['claude-code-hook', 'command-verifier', 'common-native-artifact', 'managed-native-artifact'])
 
 
 def _have_git():

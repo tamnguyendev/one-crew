@@ -11,6 +11,19 @@ from .process_core import Supervisor
 from .subscription import environment, CLAUDE_AUTH_ARGS, CODEX_AUTH_ARGS
 
 
+def _state_root(control):
+    """The state root of the connected Control, or None for an adapter used without one (parsers, v1 tests)."""
+    return getattr(getattr(control, 'ledger', None), 'state_root', None)
+
+
+def _output(state_root, attempt, stored):
+    """2.3-B M6: a Supervisor output of `attempt` read inside the state root that holds it; the stored path when unknown."""
+    if state_root is None or not attempt.get('id'):
+        return Path(stored)
+    from .process_core import output_file
+    return output_file(state_root, attempt['id'], stored)
+
+
 def executable(provider):
     found = shutil.which({'codex': 'codex', 'claude': 'claude', 'kiro': 'kiro-cli'}[provider])
     if provider == 'claude' and not found:
@@ -90,11 +103,12 @@ class ExternalArtifact:
 
     def stdout(self, attempt):
         from .provider_limits import check_attempt
-        check_attempt(self.provider, attempt)
+        state_root = _state_root(self.control)
+        check_attempt(self.provider, attempt, state_root)
         receipt = json.loads(attempt['result'])
         if receipt.get('exit_code') != 0 or receipt.get('reason'):
             raise LedgerError('Provider did not complete; inspect local attempt logs.')
-        path = Path(receipt['stdout'])
+        path = _output(state_root, attempt, receipt['stdout'])              # 2.3-B M6: never the folder of a copied-from ledger
         if path.stat().st_size > 4_000_000:
             raise LedgerError('Provider response exceeds 4 MB.')
         return path.read_text(encoding='utf-8')
@@ -257,12 +271,13 @@ class CodexArtifact:
 
     def result(self, attempt):
         from .provider_limits import check_attempt
-        check_attempt('codex', attempt)
+        state_root = _state_root(self.control)
+        check_attempt('codex', attempt, state_root)
         receipt = json.loads(attempt['result'])
         if receipt.get('exit_code') != 0 or receipt.get('reason'):
             raise LedgerError('Worker did not complete; inspect attempt receipt before retry.')
         usages = []
-        for line in Path(receipt['stdout']).read_text(encoding='utf-8').splitlines():
+        for line in _output(state_root, attempt, receipt['stdout']).read_text(encoding='utf-8').splitlines():
             try:
                 event = json.loads(line)
             except ValueError:

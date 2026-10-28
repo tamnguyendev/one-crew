@@ -352,6 +352,25 @@ def _parser():
     return p
 
 
+def listing():
+    """`executor list`: every declaration OneCrew knows, exactly as declared (2.3-B, design §7 case 14). The two runtime executors the
+    engine itself starts carry a `process` note saying what their process containment really does; the hook declares nothing and gets
+    no note. Observation from outside (`observe`/`progress`) stays limited to REGISTRY."""
+    from ..common_executor import NativeExecutor
+    from .managed_executor import ManagedExecutor
+    rows = [d.view() for d in REGISTRY.values()]
+    rows.append(dict(ManagedExecutor.declaration.view(), process={
+        'contained_by': 'one named Windows Job per attempt (Supervisor), killed with its last handle',
+        'stop': 'a live controller honours the stop at once; a hung controller\'s tree is terminated by recover only after the stop request '
+                'or a passed cap plus a grace period, never on silence',
+        'recover': 'Supervisor reconcile, then rebuild from durable outputs only; never a new run, never "cleaned" without the Job proof'}))
+    rows.append(dict(NativeExecutor.declaration.view(), process={
+        'contained_by': 'one named Windows Job per attempt (Supervisor)',
+        'recover': 'not declared by this executor: `executor recover` asks the Supervisor to reconcile the contained process tree only '
+                   '(settles a dead tree, escalates after a stop/cap plus grace); never a candidate and never a replay'}))
+    return rows
+
+
 def _without_group(argv):
     """The router passes the whole command line (global options, the group word, the command): drop the group word."""
     argv, out, i = list(argv), [], 0
@@ -366,7 +385,7 @@ def main(argv=None):
     parsed = _parser().parse_args(_without_group(sys.argv[1:] if argv is None else argv))
     try:
         if parsed.command == 'list':
-            print(json.dumps([d.view() for d in REGISTRY.values()], ensure_ascii=False, indent=2)); return 0
+            print(json.dumps(listing(), ensure_ascii=False, indent=2)); return 0
         from ..ledger import Ledger
         from . import where
         state_root = where.state_root_for(parsed.project, parsed.state_root)
