@@ -64,15 +64,6 @@ def sessions():
         wts.WTSFreeMemory(pointer)
 
 
-def boot_filetime():
-    """This boot as a FILETIME (100 ns since 1601), the unit of process creation times."""
-    k = ctypes.WinDLL('kernel32')
-    now = ctypes.c_ulonglong()
-    k.GetSystemTimeAsFileTime(ctypes.byref(now))
-    k.GetTickCount64.restype = ctypes.c_ulonglong
-    return now.value - k.GetTickCount64() * 10000
-
-
 def image(pid):
     k = ctypes.WinDLL('kernel32', use_last_error=True)
     k.OpenProcess.restype = ctypes.c_void_p
@@ -650,8 +641,10 @@ class ReviewRound2Tests(TakeoverFixture):
             conn.execute('UPDATE attempts SET identity=? WHERE id=?', (json.dumps(token), attempt_id))
         return token
 
-    def before_boot(self, token):
-        token['supervisor']['created'] = boot_filetime() - 3600 * 10 ** 7        # the controller started an hour before this boot
+    def other_live_session(self, token):
+        other = [s for s in sessions() if s != token.get('session')]
+        if not other: self.skipTest('no other live Windows session on this machine')
+        return other[0]
 
     def test_n1_job_gone_in_a_session_that_no_longer_exists_is_proof_and_the_lost_owner_is_replayed_once(self):
         self.single()
@@ -663,25 +656,56 @@ class ReviewRound2Tests(TakeoverFixture):
         body = json.loads(self.attempt(a1)['result'])
         self.assertEqual((self.attempt(a1)['status'], body['reason'], body['job']['proof']), ('settled', 'supervisor_interrupted', 'session_ended'))
 
-    def test_n1_job_gone_after_a_reboot_since_the_controller_started_is_proof(self):
+    def test_r3_1_a_forward_clock_step_never_claims_a_reboot(self):
+        """A wall-clock estimate of the boot (now - uptime) moves with every clock step: after a forward step it lies after the
+        controller's start although nothing rebooted. Simulated by moving that estimate (the 2.3-B rule up to f38d118 read it) a year
+        past the controller's creation; the recorded session is another LIVE session, so only a reboot rule could settle it."""
         self.single()
         a1 = self.crashed()
         token = self.token(a1)
-        other = [s for s in sessions() if s != token.get('session')]
-        if not other: self.skipTest('no other live Windows session on this machine')
-        self.rewrite(a1, lambda t: (t.update(session=other[0]), self.before_boot(t)))
-        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'produced')
-        self.assertEqual(json.loads(self.attempt(a1)['result'])['job']['proof'], 'rebooted_since_controller_start')
+        self.rewrite(a1, lambda t: t.update(session=self.other_live_session(token)))
+        stepped = token['supervisor']['created'] + 365 * 24 * 3600 * 10 ** 7
+        with patch.object(process_core, 'boot_filetime', lambda: stepped, create=True):
+            self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'waiting')
+        self.assertEqual(self.attempt(a1)['status'], 'running')                # no reboot proof from the clock: pending
 
-    def test_n2_a_token_without_session_settles_after_a_reboot_since_the_controller_started(self):
+    def test_r3_1_an_uptime_lower_than_at_launch_is_the_reboot_proof_and_a_token_without_it_has_none(self):
         self.single()
         a1 = self.crashed()
-        self.rewrite(a1, lambda t: (t.pop('session', None), t.update(job_name='Local\\OneCrew-' + a1)))   # the 72b1b22 token format
-        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'waiting')   # no session, no reboot: no proof yet
+        token = self.token(a1)
+        self.assertIsInstance(token.get('uptime_ms'), int)                     # recorded at launch
+        live = self.other_live_session(token)
+        rebooted = patch.object(process_core, 'uptime_ms', lambda: 1000, create=True)   # a new boot: the uptime went backwards
+        self.rewrite(a1, lambda t: (t.update(session=live), t.pop('uptime_ms', None)))  # a token without the launch uptime ...
+        with rebooted:
+            self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'waiting')   # ... gets no reboot proof
         self.assertEqual(self.attempt(a1)['status'], 'running')
-        self.rewrite(a1, self.before_boot)
-        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'produced')
+        self.rewrite(a1, lambda t: t.update(uptime_ms=token['uptime_ms']))
+        with rebooted:
+            self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'produced')
         self.assertEqual(json.loads(self.attempt(a1)['result'])['job']['proof'], 'rebooted_since_controller_start')
+
+    def test_r3_2_an_unreadable_session_list_is_never_reported_as_a_live_session(self):
+        self.single()
+        a1 = self.crashed()
+        self.rewrite(a1, lambda t: t.update(session=max(sessions()) + 7))
+        with patch.object(process_core, 'live_sessions', lambda: None):
+            result = Supervisor(self.control).reconcile(a1)
+        self.assertEqual(result['status'], 'unknown', result)
+        self.assertIn('cannot be shown', result['reason'])
+        self.assertNotIn('still exists', result['reason'])
+        self.assertEqual(Supervisor(self.control).reconcile(a1)['status'], 'settled')   # readable again: the session has ended
+
+    def test_n2_a_token_without_session_or_launch_uptime_never_gets_a_proof_from_a_clock_or_uptime(self):
+        self.single()
+        a1 = self.crashed()
+        token = self.rewrite(a1, lambda t: (t.pop('session', None), t.pop('uptime_ms', None), t.update(job_name='Local\\OneCrew-' + a1)))
+        stepped = token['supervisor']['created'] + 365 * 24 * 3600 * 10 ** 7   # the 72b1b22 token format; any clock, any uptime
+        with patch.object(process_core, 'boot_filetime', lambda: stepped, create=True), \
+                patch.object(process_core, 'uptime_ms', lambda: 1000, create=True):
+            self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'waiting')
+            self.assertEqual(Supervisor(self.control).reconcile(a1)['status'], 'unknown')
+        self.assertEqual(self.attempt(a1)['status'], 'running')                # documented limit: such a token stays pending
 
     def test_n3_a_recorded_worker_that_is_alive_is_never_proof_of_a_stopped_tree(self):
         self.single()
@@ -730,7 +754,10 @@ class CrossedScopeTests(TakeoverFixture):
         file is refused while they run (a revise and a new reservation), the cleanup sweep leaves both live attempts alone, and both
         finish under their original scopes. No hold-and-wait exists: a running attempt can never grow its sealed scope."""
         import threading
-        self.pair()
+        nodes = [node('A'), node('B', write=('b.txt',)), node('I', ['A', 'B'], integration=True, write=())]
+        for item in nodes:
+            item['executor'] = dict(PIN); item['budget_calls'] = 3                # review R3-3: spare calls, so only the fences can refuse
+        self.revise(nodes)
         release, started = threading.Event(), []
         def body(ledger, control, task, item, attempt):
             control.launched(attempt['id'], attempt['generation'], {'fixture': True})
@@ -751,11 +778,13 @@ class CrossedScopeTests(TakeoverFixture):
             if item['id'] == 'A': item['write'] = ['a.txt', 'b.txt']
             if item['id'] == 'B': item['write'] = ['a.txt', 'b.txt']
         revision = self.ip.current(self.ledger, 'P1')['internal_revision']
-        with self.assertRaises(LedgerError):
+        with self.assertRaisesRegex(LedgerError, 'Reconcile the affected active workflow attempt before revising'):
             self.revise(crossed)                                               # neither may extend into the other's file while both live
         self.assertEqual(self.ip.current(self.ledger, 'P1')['internal_revision'], revision)
         child = self.attempt(live['A'])['task_id']
-        with self.assertRaisesRegex(LedgerError, 'budget exhausted|Previous attempt must stop|live writer'):
+        status = self.control.status(child)
+        self.assertLess(status['used_calls'] + status['reserved_calls'], status['budget']['limits']['max_calls'])   # calls to spare
+        with self.assertRaisesRegex(LedgerError, 'Previous attempt must stop and reconcile first'):   # the live-attempt fence itself
             self.control.reserve(child, self.control.status(child)['revision'], 'extend-a', {'unit': 'task:A', 'stage': 'A'})
         sweep = getattr(self.engine, 'reconcile_orphans', None)                 # 2.3-B; absent in 2.2, where nothing sweeps at all
         if sweep is not None:
