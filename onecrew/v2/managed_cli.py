@@ -53,9 +53,11 @@ def main(argv=None):
         print(json.dumps({'error': str(error), 'type': type(error).__name__}, ensure_ascii=False))
         return 2
     except sqlite3.OperationalError as error:
-        # 2.3-B (Q4): e.g. a suspended controller holds the ledger lock. Nothing was recorded, so nothing was terminated either.
+        # 2.3-B (Q4): e.g. a suspended controller holds the ledger lock. A termination never starts before its intent is recorded, but
+        # a termination already confirmed may have lost only its settlement (review F6): claim nothing either way.
         print(json.dumps({'error': str(error), 'type': type(error).__name__, 'cleanup': 'pending',
-                          'text': 'the ledger could not record the step; nothing was stopped or claimed'}, ensure_ascii=False))
+                          'text': 'the ledger is locked and this step could not be recorded; nothing is claimed - '
+                                  'run recover again once the ledger is free, it confirms and records the actual state'}, ensure_ascii=False))
         return 2
 
 

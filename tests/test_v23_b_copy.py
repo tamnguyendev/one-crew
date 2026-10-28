@@ -44,6 +44,8 @@ class LedgerCopyTests(TakeoverFixture):
         a1 = next(p['attempt'] for k, p in self.events() if k == 'node.held' and p['generation'] == 0)
         self.assertEqual(view['nodes']['C']['phase'], 'held')
         stdout_attempt = self.supervised_stdout()
+        with self.assertRaisesRegex(LedgerError, 'engine node'):              # review F6: the v2 CLI path touches engine node attempts only
+            managed_executor.recover_contained(self.control, stdout_attempt)
         before = {'nodes': {n: {k: r.get(k) for k in ('phase', 'generation', 'attempt', 'classification')} for n, r in view['nodes'].items()},
                   'attempts': {a: {k: self.control.attempt(a)[k] for k in ('id', 'status', 'charged', 'result', 'identity', 'generation')}
                                for a in (a1, a2, stdout_attempt)},
