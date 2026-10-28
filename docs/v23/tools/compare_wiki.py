@@ -66,7 +66,7 @@ internal_plan.revise(ledger, 'P1', json.loads(DEFINITION), reason='Wiki comparis
 started = time.perf_counter()
 produced = engine.step(ledger, 'P1', NativeExecutor(ledger))
 seconds = time.perf_counter() - started
-out = {'condition': condition, 'state': produced['state'], 'seconds': round(seconds, 3)}
+out = {'condition': condition, 'state': produced['state'], 'seconds': round(seconds, 3), 'reason': str(produced.get('reason') or '')[:300]}
 if produced['state'] == 'produced':
     verdict = engine.verify(ledger, 'P1', 'C', CandidateChecker(ledger, 'P1'))
     store = Snapshots(ledger.state_root)
@@ -78,7 +78,7 @@ if produced['state'] == 'produced':
                delivered=[[e['id'], e['use'], e['applicability']['state']] for e in (view or {}).get('entries', [])],
                declared_used=receipt['knowledge_use']['used'], violations=receipt['knowledge_use']['violations'],
                usage=receipt.get('usage'))
-    out['misled'] = out['verdict'] != 'pass' and bool(out['declared_used'])
+    out['misled'] = out['verdict'] != 'pass' and bool(set(out['declared_used']) & {d[0] for d in out['delivered']})
     out['rework_needed'] = out['verdict'] != 'pass'
 Path(OUT).write_text(json.dumps(out, ensure_ascii=False), encoding='utf-8')
 '''

@@ -35,6 +35,10 @@ def _values(entries, use):
 
 def decide(body, policy):
     node = body['node']
+    if not node.get('write'):                          # a read-only (integration/report) node answers the report schema
+        evidence = [v['receipt'] for v in (body.get('input_artifacts') or {}).values() if isinstance(v, dict) and v.get('receipt')]
+        return ({'summary': 'integrated the declared inputs', 'evidence': evidence, 'knowledge': {'used': [], 'rejected': [], 'requests': []}},
+                {'how': 'report', 'value': None, 'delivered': [], 'used': []})
     knowledge = body.get('knowledge') or {}
     entries = (knowledge.get('entries') or []) + (knowledge.get('requested') or [])
     source_text = '\n'.join(str(v) for v in (body.get('source') or {}).values() if isinstance(v, str))
