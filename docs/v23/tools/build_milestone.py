@@ -84,11 +84,16 @@ Bộ kiểm (bước V7) đã diễn tập: 2.2 đọc sổ do bản này ghi (`
 '''
 
 
-STEPS = {'A1': 'Bộ kiểm chạy 7 bước từ chính gói: V1 danh tính, V2 cài vào venv mới, V3 nguồn module, V4 task đầu tiên, V5 phản chứng, V6 console cp1252, V7 quay về 2.2 rồi lên lại.',
+STEPS = {'A1': 'Bộ kiểm chạy 7 bước từ chính gói: V1 danh tính, V2 cài vào venv mới, V3 nguồn module, V4 luồng task đầu tiên dựng bằng API Python (fixture; không phải các lệnh của hướng dẫn), V5 phản chứng, V6 console cp1252, V7 quay về 2.2 rồi lên lại.',
          'A2': 'Bộ kiểm chạy 8 bước từ chính gói: V1–V7 như A1 và V8 hai root ở hai process (root A công bố điều check đã chứng minh rồi kết thúc; root B mới dùng lại).',
          'B': 'Bộ kiểm chạy 8 bước từ chính gói: V1–V7 như A1 và V9 tiếp quản (controller `engine step` chết thật; `onecrew executor recover` xác nhận dọn; bước sau giữ node, chạy lại đúng 1 lần, không reset ngân sách).',
-         'FINAL': 'Bộ kiểm chạy 11 bước từ chính gói: V1 danh tính, V2 cài vào venv mới, V3 nguồn module, V4 task đầu tiên (A1), V5 phản chứng, V6 console cp1252, V7 quay về 2.2 rồi lên lại, V8 hai root ở hai process (A2), V9 tiếp quản sau khi controller chết (B), V10 ràng buộc bắt buộc qua giới hạn đọc và trang hỏng (Codex P2-02), V11 gói tiếp tục `onecrew continue` nhất quán với gói tri thức (Codex P2-01).'}
-TRY_A1 = ('- Task đầu tiên chạy được: `examples/first-task/` (trang wiki mẫu, hợp đồng và định nghĩa node mẫu) và `verify/scenario_a1.py` (đúng luồng bộ kiểm chạy).\n'
+         'FINAL': 'Bộ kiểm chạy 11 bước từ chính gói: V1 danh tính, V2 cài vào venv mới, V3 nguồn module, V4 luồng task đầu tiên (A1) dựng bằng API Python (fixture; không phải các lệnh của hướng dẫn), V5 phản chứng, V6 console cp1252, V7 quay về 2.2 rồi lên lại, V8 hai root ở hai process (A2), V9 tiếp quản sau khi controller chết (B), V10 ràng buộc bắt buộc qua giới hạn đọc và trang hỏng (Codex P2-02), V11 gói tiếp tục `onecrew continue` nhất quán với gói tri thức (Codex P2-01).'}
+TRY_A1 = ('- Task đầu tiên: làm theo `examples/first-task/README.vi.md`. Thư mục đó có trang wiki mẫu `docs/wiki/rules.md`, hợp đồng `contract.json`, định nghĩa node `nodes.json`, '
+          '`fake-policy.json`, các lệnh `onecrew` cụ thể và đường dẫn nằm trong gói. Phần A diễn tập với `claude` giả (không gọi model); phần B dùng Claude Code CLI thật '
+          '(điều kiện ở mục 6B của file đó). Bước duyệt plan là việc của chủ sở hữu, trong terminal riêng; AI không duyệt thay.\n'
+          '- Diễn tập tự động phần A từ chính gói, trên một thư mục trống: `& $py -I "$pkg\\verify\\first_task_drill.py" $pkg "D:\\OneCrewRuns\\task dau tien drill"`, '
+          'rồi đọc `first-task-drill-log.json` trong thư mục đó (`result: pass`). Nó chạy các khối PowerShell của README nên chứng minh các lệnh trong đó chạy được; '
+          'không chứng minh phần B (model thật) và không chứng minh model hiểu wiki. `verify/scenario_a1.py` là luồng của bước V4 (dựng bằng API Python), không phải hướng dẫn cho người dùng.\n'
           '- Cách viết wiki, lệnh `onecrew wiki pages|show|read`, cách đọc receipt: `docs/HUONG-DAN-WIKI.vi.md` §1–5.')
 TRY_A2 = ('- Ghi và quản lý tri thức (A2): worker khai `knowledge.new`; điều check của node chứng minh được công bố cho project. Lệnh `onecrew wiki record|withdraw|archive|summarize|export|history`: '
           '`docs/HUONG-DAN-WIKI.vi.md` §6. Ca hai root chạy được: `verify/scenario_a2.py` (đúng luồng bước V8).')
@@ -127,6 +132,8 @@ def main():
     if args.milestone in ('B', 'FINAL'): shutil.copy2(ROOT / 'docs/v23/tools/scenario_b.py', verify / 'scenario_b.py')
     if args.milestone == 'FINAL': shutil.copy2(ROOT / 'docs/v23/tools/scenario_codex.py', verify / 'scenario_codex.py')
     shutil.copy2(ROOT / 'tests/v23_fake_claude.py', verify / 'onecrew_fake_claude.py')
+    for name in ('make_fake_claude_wheel.py', 'first_task_drill.py'):      # what examples/first-task/README.vi.md names under verify/ (the README's links are checked by the drill)
+        shutil.copy2(ROOT / 'docs/v23/tools' / name, verify / name)
     docs = out / 'docs'; docs.mkdir()
     for path in sorted((ROOT / 'docs/v23').glob('*.md')): shutil.copy2(path, docs / path.name)
     if (ROOT / 'docs/v23/evidence').is_dir(): shutil.copytree(ROOT / 'docs/v23/evidence', docs / 'evidence')

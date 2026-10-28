@@ -1,0 +1,32 @@
+{
+  "schema_version": 2,
+  "title": "Viết a.txt theo wiki",
+  "size": "S",
+  "understanding": {
+    "restated_goal": "a.txt chứa giá trị mà wiki của project yêu cầu.",
+    "target": {"repo": ".", "ref": "HEAD", "paths": ["a.txt"]},
+    "assumptions": [],
+    "confidence": "high",
+    "unknowns": []
+  },
+  "preconditions": [
+    {"id": "P1", "check": "path_exists", "args": {"path": "a.txt"}, "why": "the file to work on is there"}
+  ],
+  "output": ["a.txt holds the required value"],
+  "scope": {"owned": ["a.txt"]},
+  "non_goals": ["Nothing else"],
+  "items": [
+    {"id": "I1", "title": "Write a.txt", "tier": "must", "milestone": "M1"}
+  ],
+  "milestones": [
+    {"id": "M1", "title": "Value check",
+     "verifier": {"type": "command",
+                  "config": {"argv": ["PYTHON_EXE", "-c",
+                                      "from pathlib import Path; v = Path('a.txt').read_text().strip(); assert v == 'right', v; print('value verified')"]}},
+     "covers": ["O1"]}
+  ],
+  "budget": {"max_calls": 100, "time": 120},
+  "attention": {"questions": 1},
+  "profile_version": null,
+  "authority": {"edit": true, "commands": true, "unconfined_commands": true, "self_decide": ["Q1", "Q2", "Q3", "Q4", "Q5", "Q9", "Q12"]}
+}
