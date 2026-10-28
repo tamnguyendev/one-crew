@@ -109,7 +109,9 @@ def main(out):
             row['context_retrieve_200_new_s'], _ = timed(lambda: context.retrieve(ledger, plan='P1', scope='both'))
             row['context_retrieve_200_base_s'], _ = timed(lambda: BASE.retrieve(ledger, plan='P1', scope='both'))
             rows.append(row); print(json.dumps(row))
-    result = {'kind': 'v23-ks01-scale', 'python': sys.version.split()[0], 'platform': sys.platform, 'machine_shared': True,
+    result = {'kind': 'v23-ks01-scale', 'checkout': subprocess.run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip(),
+              'dirty': bool(subprocess.run(['git', '-C', str(ROOT), 'status', '--porcelain', '--', 'onecrew', 'pyproject.toml'], capture_output=True, text=True).stdout.strip()),
+              'python': sys.version.split()[0], 'platform': sys.platform, 'machine_shared': True,
               'note': 'wall time on a shared Windows machine (other sessions running); rows inserted directly; 20% code-bound entries cite 20 files',
               'rows': rows}
     Path(out).parent.mkdir(parents=True, exist_ok=True)
