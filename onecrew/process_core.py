@@ -77,34 +77,35 @@ def live_sessions():
         wts.WTSFreeMemory(pointer)
 
 
-def boot_filetime():
-    """This boot as a FILETIME (100 ns since 1601, the unit of process creation times): now minus the uptime."""
+def uptime_ms():
+    """Milliseconds since this boot (GetTickCount64). Monotonic within a boot and untouched by any change of the system clock."""
     api = ctypes.WinDLL('kernel32', use_last_error=True)
-    now = w.FILETIME()
-    api.GetSystemTimeAsFileTime(ctypes.byref(now))
     api.GetTickCount64.restype = ctypes.c_ulonglong
-    return (now.dwLowDateTime | now.dwHighDateTime << 32) - api.GetTickCount64() * 10_000
-
-
-BOOT_MARGIN = 10 * 10 ** 7      # 10 s in FILETIME units: the boot estimate (now - uptime) is far more precise than this
+    return int(api.GetTickCount64())
 
 
 def gone_proof(token):
-    """Review N1/N2: why "the named Job is not found here" proves the controller's tree is gone, or None when it proves nothing.
+    """Review N1/N2/R3-1: (proof, None) when "the named Job is not found here" proves the controller's tree is gone, else (None, why).
     `Local\\` names live per Windows session, so "not found" from another session says nothing - unless that session no longer exists
-    (its whole namespace and every process of it ended) or the machine booted after the controller started (no process survives a
-    reboot). A token without a session (an intermediate 2.3 build) can only use the reboot rule."""
+    (its whole namespace and every process of it ended) or the machine has rebooted since the launch (no process survives a reboot).
+    The reboot is read from the uptime recorded in the launch token: the uptime now is LOWER only after a new boot, and no clock change
+    moves it (a wall-clock estimate of the boot could be moved by a clock step). A token without that uptime has no reboot proof; after
+    a Fast Startup shutdown the uptime continues, so the rule stays silent there (a safe miss)."""
     recorded = token.get('session')
     if recorded is not None and recorded == session_id():
-        return 'same_session'
-    created = (token.get('supervisor') or {}).get('created')
-    if type(created) is int and created < boot_filetime() - BOOT_MARGIN:
-        return 'rebooted_since_controller_start'
-    if recorded is not None:
-        live = live_sessions()
-        if live is not None and recorded not in live:
-            return 'session_ended'
-    return None
+        return 'same_session', None
+    launched = token.get('uptime_ms')
+    if type(launched) is int and uptime_ms() < launched:
+        return 'rebooted_since_controller_start', None
+    if recorded is None:
+        return None, ('no session was recorded and no reboot since the launch can be shown; a Job name not found proves nothing')
+    live = live_sessions()
+    if live is None:
+        return None, ('the end of the controller\'s recorded Windows session cannot be shown (the session list is unavailable); '
+                      'a Local\\ Job name not found here proves nothing')
+    if recorded not in live:
+        return 'session_ended', None
+    return None, 'the controller ran in another Windows session that still exists; a Local\\ Job name not found here proves nothing'
 
 
 def grace_seconds(cap):
@@ -336,7 +337,8 @@ class Supervisor:
                 # 2.3-B: the Job name and the execution cap are part of the identity committed BEFORE the worker is resumed, so
                 # recovery can find exactly this tree and knows when the cap has passed even if this controller hangs.
                 token = {'worker': identity(child.pid), 'supervisor': identity(os.getpid()), 'job_contained': True,
-                         'job_name': job.name, 'session': session_id(), 'timeout': timeout, 'started_at': self.control.clock().isoformat()}
+                         'job_name': job.name, 'session': session_id(), 'uptime_ms': uptime_ms(), 'timeout': timeout,
+                         'started_at': self.control.clock().isoformat()}
                 self.control.launched(attempt['id'], attempt['generation'], token)
                 nt = ctypes.WinDLL('ntdll')
                 nt.NtResumeProcess.argtypes = [w.HANDLE]
@@ -445,8 +447,8 @@ class Supervisor:
 
     def _reconcile_job(self, attempt_id, row, token, worker):
         """The controller is dead and the attempt has a named Job (2.3-B). The Job is the proof for the whole tree (Q7):
-        * Job gone - proof only when `gone_proof` holds (the controller's recorded session is this one, has ended, or the machine booted
-          since the controller started: review F3, N1, N2) and the recorded worker does not probe alive; then every member ended with
+        * Job gone - proof only when `gone_proof` holds (the controller's recorded session is this one, has ended, or the uptime shows a
+          reboot since the launch: review F3, N1, N2, R3-1) and the recorded worker does not probe alive; then every member ended with
           the last handle (KILL_ON_JOB_CLOSE);
         * Job present with 0 active processes - proof, unless the recorded worker probes alive (it escaped the Job: review N3);
         * Job present with members (a member or another process keeps a handle) - an orphan tree: terminated here (intent first,
@@ -461,12 +463,9 @@ class Supervisor:
         if job is None:
             if worker == 'alive':
                 return dict(dead, reason='the worker lives although its named Job is gone; manual reconciliation required')
-            proof = gone_proof(token)
+            proof, why = gone_proof(token)
             if proof is None:
-                return dict(dead, reason=('no session was recorded and the machine has not rebooted since the controller started; '
-                                          'a Job name not found proves nothing' if token.get('session') is None else
-                                          'the controller ran in another Windows session that still exists; a Local\\ Job name not '
-                                          'found here proves nothing'))
+                return dict(dead, reason=why)
             self.control.finish(attempt_id, row['generation'], {'reason': 'supervisor_interrupted', 'tree_stopped': True,
                                 'job': {'name': name, 'exists': False, 'session': token.get('session'), 'proof': proof}})
             return {'status': 'settled'}
