@@ -275,6 +275,11 @@ def _applicability(state, entry, environment):
 
 # ---- candidates ----------------------------------------------------------------------------------------------------------------
 
+def _section_signature(entry):
+    return canonical({k: entry.get(k) for k in ('kind', 'label', 'must', 'status', 'sources', 'conditions', 'applies_to', 'supersedes',
+                                               'derived_from', 'ledger_id')} | {'text': ' '.join(str(entry.get('text', '')).split())})
+
+
 def _undelivered(entry, path, reason):
     return {'path': path, 'line': entry.get('line'), 'id': entry['id'], 'applies_to': list(entry.get('applies_to') or []),
             'source_paths': [s['path'] for s in entry.get('sources') or [] if s.get('path')], 'reason': reason}
@@ -313,13 +318,16 @@ def _wiki_candidates(ledger, problems, coverage=None):
             continue
         problems += [{'path': page['path'], 'problem': p} for p in parsed['problems']]
         coverage['undelivered'] += [dict(u, path=page['path']) for u in parsed['undelivered']]
+        if parsed.get('skipped'): coverage['partly_read'] = coverage.get('partly_read', 0) + 1          # review r1 F14
         for entry in parsed['entries']:
             if entry['id'] in seen:
-                problems.append({'path': page['path'], 'problem': f'id {entry["id"]} is already used by {seen[entry["id"]]}; skipped'})
-                if entry['must']:
-                    coverage['undelivered'].append(_undelivered(entry, page['path'], f'its id {entry["id"]} is already used by {seen[entry["id"]]}'))
+                problems.append({'path': page['path'], 'problem': f'id {entry["id"]} is already used by {seen[entry["id"]][0]}; skipped'})
+                first = seen[entry['id']][1]           # review r1 F6: a copy of the same section, or of a ledger subject, loses nothing
+                if entry['must'] and not entry.get('ledger_id') and _section_signature(entry) != _section_signature(first):
+                    coverage['undelivered'].append(_undelivered(entry, page['path'], f'its id {entry["id"]} is already used by a different '
+                                                                                      f'section in {seen[entry["id"]][0]}'))
                 continue
-            seen[entry['id']] = page['path']
+            seen[entry['id']] = (page['path'], entry)
             out.append({'id': entry['id'], 'origin': {'type': 'wiki', 'path': page['path'], 'sha256': page['sha256'], 'line': entry['line'],
                                                       'external': page['origin'] == 'external'},
                         'kind': entry['kind'], 'label': entry['label'], 'must': entry['must'], 'status': entry['status'], 'title': entry['title'],
@@ -335,7 +343,7 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
     try:
         entries = context.retrieve(ledger, scope='both', limit=None, raw=True)['entries']
     except (LedgerError, OSError) as error:
-        problems.append({'path': 'ledger', 'problem': 'context entries unreadable: ' + str(error)[:160]}); return []
+        problems.append({'path': 'ledger', 'problem': 'context entries unreadable: ' + str(error)[:160], 'ledger_unreadable': True}); return []
     newest, locations = {}, _lesson_locations(ledger)
     for e in entries:
         try:
@@ -638,7 +646,8 @@ def _uncursor(cursor):
 
 # ---- the package ---------------------------------------------------------------------------------------------------------------
 
-def _collect(ledger, cons, view):
+def _read_all(ledger):
+    """Everything a decision reads, once: wiki candidates, ledger candidates, lifecycle records, problems, coverage."""
     problems, lifecycle, coverage = [], [], {}
     candidates = _wiki_candidates(ledger, problems, coverage)
     taken = {c['id'] for c in candidates}
@@ -648,12 +657,63 @@ def _collect(ledger, cons, view):
             if c['must']: coverage['undelivered'].append(_undelivered(c, 'ledger', 'a wiki entry has the id of this ledger subject'))
             continue
         taken.add(c['id']); candidates.append(c)
-    eligible = _decide(ledger, cons, candidates, lifecycle, _withdrawn_lessons(ledger), view)
+    if any(p.get('ledger_unreadable') for p in problems): coverage['ledger_unreadable'] = True
+    return candidates, lifecycle, problems, coverage, _withdrawn_lessons(ledger)
+
+
+def _collect(ledger, cons, view, memo=None):
+    """(candidates, eligible, problems, coverage) for `cons`. `memo` (a dict) shares one reading between several decisions of one
+    command (review r1 F17): every decision gets its own copies, _decide writes on them."""
+    if memo is not None and 'read' in memo: raw = memo['read']
+    else:
+        raw = _read_all(ledger)
+        if memo is not None: memo['read'] = raw
+    candidates, lifecycle, problems, coverage, withdrawn = raw
+    candidates = [dict(c) for c in candidates]
+    problems = list(problems)
+    coverage = dict(coverage, undelivered=list(coverage.get('undelivered') or []))
+    eligible = _decide(ledger, cons, candidates, lifecycle, withdrawn, view)
+    ids = {c['id'] for c in candidates}
+    for c in candidates:                               # review r1 F4: a mandatory entry derived from an entry that was not read
+        missing = [d for d in c['derived_from'] if d not in ids]
+        if c['must'] and c.get('excluded') == 'source_not_visible' and missing:
+            coverage['undelivered'].append(_undelivered(c, c['origin'].get('path', 'ledger'), f'it derives from {", ".join(missing[:3])}, '
+                                                        'which was not read (malformed, or on a page past the reading budget)'))
     return candidates, eligible, problems, coverage
 
 
-def _established(cons, coverage):
+def _ledger_has_must(ledger):
+    """Whether the ledger holds a mandatory knowledge record of this project (True when that cannot be told)."""
+    try:
+        with ledger.transaction() as conn:
+            return bool(conn and conn.execute("SELECT 1 FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.project_id=? AND e.kind='context.entry' "
+                                              "AND json_extract(e.payload,'$.knowledge.must') IN (1, 'true') LIMIT 1", (ledger.project_id,)).fetchone())
+    except Exception:
+        return True
+
+
+def declares_mandatory(ledger):
+    """Review r1 F5: whether the project declares any mandatory knowledge at all, by a reading that shares nothing with the selection
+    (bytes of the wiki pages, one SQL query); True when that cannot be told."""
+    try:
+        scanned = 0
+        for folder in wiki.configured_paths(ledger.project):
+            base = Path(folder) if Path(folder).is_absolute() else Path(ledger.project) / folder
+            if not base.is_dir(): continue
+            for file in base.rglob('*.md'):
+                scanned += file.stat().st_size
+                if scanned > wiki.MAX_SCAN_BYTES or wiki._scan_for_must(file): return True
+                if file.stat().st_size <= wiki.MAX_PAGE_BYTES and wiki._declares_must_bytes(file.read_bytes()): return True
+    except Exception:
+        return True
+    return _ledger_has_must(ledger)
+
+
+def _established(cons, coverage, ledger=None):
     """P2-02: raise KnowledgeIncomplete when a mandatory constraint that may concern `cons` cannot be established."""
+    if coverage.get('ledger_unreadable') and (ledger is None or _ledger_has_must(ledger)):
+        raise KnowledgeIncomplete('Mandatory knowledge cannot be established: the context entries of the ledger could not be read and it may '
+                                  'hold mandatory records; nothing runs with partial constraints.')
     if coverage.get('unscanned'):
         raise KnowledgeIncomplete(f'Mandatory knowledge cannot be established: {coverage["unscanned"]} wiki page(s) were not looked through '
                                   f'(more than {wiki.MAX_SCAN_BYTES} bytes of wiki); narrow the wiki folders (.onecrew/config.json "wiki") '
@@ -668,16 +728,21 @@ def _established(cons, coverage):
 
 def _coverage_view(coverage):
     """What the package says about the wiki it could not read whole (nothing when it read every page)."""
-    if not (coverage.get('not_read') or coverage.get('unreadable') or coverage.get('undelivered')): return None
-    return {'complete': False, 'pages': coverage.get('pages', 0), 'not_read': coverage.get('not_read', 0),
+    if not (coverage.get('not_read') or coverage.get('unreadable') or coverage.get('undelivered') or coverage.get('partly_read')
+            or coverage.get('missing_folders') or coverage.get('config_problem')): return None
+    view = {'complete': False, 'pages': coverage.get('pages', 0), 'not_read': coverage.get('not_read', 0),
             'unreadable': len(coverage.get('unreadable') or []), 'mandatory_not_delivered': len(coverage.get('undelivered') or [])}
+    if coverage.get('partly_read'): view['partly_read'] = coverage['partly_read']             # review r1 F14
+    if coverage.get('missing_folders'): view['missing_folders'] = coverage['missing_folders'][:5]   # review r1 F2
+    if coverage.get('config_problem'): view['config_problem'] = True
+    return view
 
 
 def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None, view=None):
     if type(cap_chars) is not int or cap_chars < 0: raise LedgerError('cap_chars: an integer of at least 0.')
     started = time.perf_counter()
     candidates, eligible, problems, coverage = _collect(ledger, cons, view)
-    _established(cons, coverage)
+    _established(cons, coverage, ledger)
     revision = _state_hash(cons, candidates)
     wiki_view = _coverage_view(coverage)
     if expect_revision is not None and expect_revision != revision:
@@ -690,6 +755,7 @@ def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None
     for c in candidates:
         if c['excluded']: by_reason_excluded[c['excluded']] = by_reason_excluded.get(c['excluded'], 0) + 1
     shown_problems = problems[:PROBLEM_ROWS]
+    trimmed_problems = None
 
     def make(delivered, requested_out, refused, position):
         left = ordered[position:]
@@ -717,6 +783,11 @@ def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None
     if offset == 0:
         rendered = [_render(c, text_chars) for c in must]
         need = sum(len(canonical(r)) + 1 for r in rendered)
+        if must and need > budget and shown_problems:  # review r1 F16: page problems go to the receipt, mandatory knowledge to the worker
+            all_problems, shown_problems = shown_problems, []
+            skeleton = len(canonical(make([], [], [], 0)))
+            budget = cap_chars - skeleton - 64
+            if need <= budget: trimmed_problems = all_problems
         if must and need > budget:
             raise KnowledgeOverflow(f'Mandatory knowledge needs {need} characters, over the room of {max(budget, 0)} left for knowledge '
                                     f'({", ".join(c["id"] for c in must)}); do not run with partial constraints.')
@@ -750,6 +821,7 @@ def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None
         delivered.pop(); position = taken_at.pop()    # the estimate missed: give the last optional entry back to the cursor
         package = make(delivered, requested_out, refused, position)
     package['cost'] = {'candidates': len(candidates), 'eligible': len(eligible), 'seconds': round(time.perf_counter() - started, 4)}
+    if trimmed_problems is not None: package['cost']['problems_not_in_the_package'] = trimmed_problems
     return package
 
 
@@ -862,13 +934,17 @@ def for_native(ledger, store, selector, node, pin, *, view=None, room=None):
     except KnowledgeNoRoom as error:               # the prompt is full without knowledge: run on the inputs, say so in the receipt
         record['no_room'] = str(error)[:300]
         return None, record
-    except Exception as error:                     # the knowledge layer never takes an independent node down with it
+    except Exception as error:                     # the knowledge layer never takes an independent node down with it ...
         record['error'] = f'{type(error).__name__}: {str(error)[:300]}'
+        if declares_mandatory(ledger):             # ... unless the project declares mandatory knowledge (review r1 F5)
+            raise KnowledgeIncomplete(f'Mandatory knowledge cannot be established: the knowledge selection failed ({record["error"][:200]}) '
+                                      'and the project declares mandatory knowledge; nothing runs with partial constraints.') from error
         return None, record
     prompt = prompt_view(pkg)
     record.update(delivered=delivered_ids(prompt), omitted_total=pkg['omitted']['total'], omitted_by_reason=pkg['omitted']['by_reason'],
                   problems=pkg['problems'], revision=pkg['revision'], requested=[e['id'] for e in pkg['requested']],
                   requests_refused=pkg['requests_refused'], cost=pkg['cost'], **({'wiki': pkg['wiki']} if pkg.get('wiki') else {}))
+    if pkg['cost'].get('problems_not_in_the_package'): record['problems'] = pkg['cost']['problems_not_in_the_package']
     if not record['delivered']:
         return None, record
     text = canonical(prompt)
@@ -1097,24 +1173,44 @@ def records(ledger, *, history=False, root=None):
 GONE = ('withdrawn', 'archived', 'superseded', 'source_withdrawn')
 
 
-def for_root(ledger, plan):
+LIFECYCLE_REASONS = ('contested', 'contradicted', 'superseded by')
+
+
+def for_root(ledger, plan, *, memo=None, lifecycle_only=False):
     """Codex P2-01: the root's OWN ledger knowledge judged by the same code as a package (`_collect` on the plan consumer), for the
-    readers that show it to an agent continuing that root (the resume pack, `context retrieve`). The root wrote these entries, so the
-    files they cite do not hide them from it; other roots and projects stay out exactly as in a package.
-    id -> {'gone': lifecycle state or None, 'stale': reason or None, 'use': fact|rejected|lead|None, 'knowledge': bool}."""
+    readers that show it to an agent continuing that root (the resume pack, `context retrieve`). `plan`: a selector or the root's task
+    id. The root wrote these entries, so the files they cite do not hide them from it; other roots and projects stay out exactly as in a
+    package (of another root only the fact that it replaced a subject is told, never its text). A 2.2 entry keeps the 2.2 rule for its
+    source (context._stale_reason: the cited line or symbol, review r1 F11); only lifecycle, contest and contradiction act on it.
+    `lifecycle_only` (a reading at another revision, F12): applicability is not judged. `memo`: one reading shared by several roots.
+    id -> {'gone': lifecycle state or None, 'stale': reason or None, 'use', 'event', 'root'}."""
+    if str(plan).startswith('TASK-'):                  # a root named by its task id: its exact selector, never an ambiguous bare name
+        with ledger.transaction() as conn:
+            row = conn.execute('SELECT request_key FROM tasks WHERE id=? AND project_id=?', (plan, ledger.project_id)).fetchone() if conn else None
+        if row is None: raise LedgerError(f'No root {plan} in this project.')
+        plan = row['request_key']
     cons = dict(consumer(ledger, plan), own_root=True)
-    candidates = _collect(ledger, cons, None)[0]
+    candidates = _collect(ledger, cons, None, memo)[0]
     out = {}
     for c in candidates:
-        if c['origin']['type'] != 'ledger' or c['root'] != cons['root']: continue
+        if c['origin']['type'] != 'ledger' or (c['visibility'] == 'root' and c['root'] != cons['root']): continue
         excluded, applicability = c.get('excluded'), c.get('applicability') or {'state': None, 'reasons': []}
-        if excluded in GONE: out[c['id']] = {'gone': excluded, 'stale': None, 'use': None}; continue
-        stale = None
-        if excluded == 'not_applicable': stale = 'not applicable now: ' + '; '.join(applicability['reasons'])[:300]
-        elif applicability['state'] == 'recheck': stale = '; '.join(applicability['reasons'])[:300] or 'to recheck'
-        elif c.get('use') == 'lead' and c['label'] in ('verified', 'refuted') and c.get('evidence') is not None:
-            stale = 'cannot be checked now: ' + ('; '.join(applicability['reasons'])[:300] or str(applicability['state']))
-        out[c['id']] = {'gone': None, 'stale': stale, 'use': c.get('use')}
+        base = {'event': c['seq'], 'root': c['root'], 'use': c.get('use')}
+        if excluded in GONE: out[c['id']] = dict(base, gone=excluded, stale=None); continue
+        if c['root'] != cons['root']:                  # review r1 F7: the newest version of this subject is another root's
+            out[c['id']] = dict(base, gone=None, use=None, stale='a newer version of this subject was recorded by another root '
+                                                                  f'(event {c["seq"]}); `onecrew wiki show` gives what applies now')
+            continue
+        reasons = applicability['reasons']
+        if c.get('evidence') is None or lifecycle_only:
+            reasons = [r for r in reasons if str(r).startswith(LIFECYCLE_REASONS)]
+            stale = '; '.join(reasons)[:300] or None
+        elif excluded == 'not_applicable': stale = 'not applicable now: ' + '; '.join(reasons)[:300]
+        elif applicability['state'] == 'recheck': stale = '; '.join(reasons)[:300] or 'to recheck'
+        elif c.get('use') == 'lead' and c['label'] in ('verified', 'refuted'):
+            stale = 'cannot be checked now: ' + ('; '.join(reasons)[:300] or str(applicability['state']))
+        else: stale = None
+        out[c['id']] = dict(base, gone=None, stale=stale)
     return out
 
 

@@ -355,18 +355,27 @@ def for_pack(ledger, name):
     return judged(ledger, retrieve(ledger, plan=name, scope='project', raw=True)['entries'], drop_lifecycle=True)
 
 
-def judged(ledger, entries, *, drop_lifecycle=False):
-    """`entries` (retrieve(raw=True)) as an agent continuing their roots may read them: knowledge.for_root decides, per root, what the
-    knowledge package decides — gone (withdrawn, archived, superseded, derived from such) is left out; an entry whose pinned file or
-    source changed, that does not apply now, or (a 2.3 record) that cannot be checked is `stale` with the reason, never `verified`.
-    Entries that are not knowledge (engine bookkeeping, lifecycle records) are kept as recorded; the payload is dropped."""
+def judged(ledger, entries, *, drop_lifecycle=False, revision=None):
+    """`entries` (retrieve(raw=True)) as an agent continuing their roots may read them: knowledge.for_root decides, per root (by task
+    id, review r1 F9; one reading of the wiki and the ledger for all roots, F17), what the knowledge package decides — gone (withdrawn,
+    archived, superseded, derived from such) is left out; an entry whose pinned file or source changed, that does not apply now, that
+    another root replaced (F7) or (a 2.3 record) that cannot be checked is `stale` with the reason, never `verified`. A general record is
+    judged by the project's lifecycle records (F8). `revision` (a reading at another revision, F12): lifecycle only. When the judgement
+    fails, gone knowledge is still left out and every other knowledge entry is `stale` (F10). Entries that are not knowledge (engine
+    bookkeeping) are kept as recorded; the payload is dropped."""
     from . import knowledge
-    verdicts, failed = {}, {}
-    for plan in sorted({e['plan'] for e in entries if e.get('plan')}):
+    memo, verdicts, failed = {}, {}, {}
+    for root in sorted({(e.get('payload') or {}).get('task') or e.get('task') for e in entries if e['scope'] == 'project'} - {None}):
         try:
-            verdicts[plan] = knowledge.for_root(ledger, plan)
+            verdicts[root] = knowledge.for_root(ledger, root, memo=memo, lifecycle_only=revision is not None)
         except Exception as error:                     # the reader never fails the pack; an unjudged entry is not shown as current
-            failed[plan] = f'knowledge state not checked ({type(error).__name__}: {str(error)[:120]})'
+            failed[root] = f'knowledge state not checked ({type(error).__name__}: {str(error)[:120]})'
+    status = {}
+    if failed or any(e['scope'] == 'general' for e in entries):
+        try:
+            status = knowledge.status_by_id(ledger)    # lifecycle only: what is gone whatever the selection can say (F8, F10)
+        except Exception:
+            status = {}
     out = []
     for entry in entries:
         payload = entry.pop('payload', None) or {}
@@ -374,13 +383,19 @@ def judged(ledger, entries, *, drop_lifecycle=False):
         if extra.get('withdraws') or extra.get('archives'):
             if drop_lifecycle: continue
             out.append(entry); continue
-        plan = entry.get('plan')
+        root = payload.get('task') or entry.get('task')
         visibility = extra.get('visibility') or ('project' if entry['key'].startswith('lesson-') else 'root')
-        verdict = verdicts.get(plan, {}).get(knowledge.ledger_id(entry['key'], visibility, payload.get('task'))) if plan else None
-        reason = failed.get(plan) if plan in failed and entry['label'] in ('observed', 'verified', 'refuted') else None
+        ident = knowledge.ledger_id(entry['key'], visibility, root)
+        verdict = verdicts.get(root, {}).get(ident) if entry['scope'] == 'project' else None
+        reason = None
         if verdict is not None:
             if verdict['gone']: continue
             reason = verdict['stale']
+            if verdict['root'] != root and verdict['event'] <= entry['event']: reason = None   # this entry is the newest version itself
+        elif status.get(ident, 'active') != 'active':
+            continue
+        elif root in failed and entry['label'] in ('observed', 'verified', 'refuted'):
+            reason = failed[root]
         if reason and entry['label'] != 'stale':
             entry.update(label='stale', label_vi=LABEL_VI['stale'], stale_reason=reason)
         out.append(entry)

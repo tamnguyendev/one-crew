@@ -18,8 +18,8 @@ of the project still count. Pages are read from the working tree (what the next 
 bytes; the delivered text is sealed in the attempt receipt by the caller.
 
 A reading limit never hides a mandatory section (Codex review P2-02): the first MAX_PAGES pages are read whole, every later page is
-looked through for a section that declares `"must": true` and only such a page is read (its mandatory sections count, the rest is
-reported as not read). A section that declares itself mandatory but cannot be delivered (the page is too large or not UTF-8, the
+looked through for a section that declares `"must": true` or `"supersedes"` and only such a page is read (its mandatory and
+superseding sections and what they derive from count, the rest is reported as not read). A section that declares itself mandatory but cannot be delivered (the page is too large or not UTF-8, the
 metadata is invalid, the id repeats, the block is outside a section...) is listed as `undelivered`; past MAX_SCAN_BYTES nothing more is
 looked through and the pages left are `unscanned`. knowledge.py holds the consumer such a constraint may concern before the model.
 
@@ -44,6 +44,7 @@ MAX_SCAN_BYTES = 256 * 1024 * 1024                 # bytes looked through per re
 SCAN_CHUNK = 1 << 20
 MUST_BYTES = re.compile(rb'"must"\s*:\s*true')
 MUST_TEXT = re.compile(r'"must"\s*:\s*true')
+SUPERSEDES_BYTES = re.compile(rb'"supersedes"\s*:')
 HEADING = re.compile(r'^(#{2,3})\s+(.+?)\s*#*\s*$')
 FENCE_OPEN = re.compile(r'^```onecrew\s*$')
 IDENT = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$')
@@ -218,7 +219,9 @@ def _declared(raw, line, reason):
         out['applies_to'] = [a.replace('\\', '/') for a in applies][:40]
     sources = value.get('sources')
     if isinstance(sources, list) and all(isinstance(s, dict) for s in sources):
-        out['source_paths'] = [str(s['path']).replace('\\', '/') for s in sources if isinstance(s.get('path'), str)][:20]
+        paths = [s['path'] for s in sources if 'path' in s]
+        clean = [_relpath(p) for p in paths]
+        if all(clean): out['source_paths'] = clean[:20]   # review r1 F3: an absolute or invalid path says nothing about permission
     return out
 
 
@@ -257,8 +260,12 @@ def parse(text, path, mandatory_only=False):
         reason = (said[-1].split(': ', 1)[-1] if said else 'outside a ## or ### section' if owner is None
                   else 'not the metadata block of its section')
         undelivered.append(_declared(raw, start, reason))
-    if mandatory_only: entries = [e for e in entries if e['must']]
-    return {'entries': entries, 'problems': problems, 'undelivered': undelivered}
+    skipped = 0
+    if mandatory_only:                                   # a page past the reading budget: what can act on mandatory knowledge
+        wanted = {d for e in entries if e['must'] for d in e['derived_from']}
+        kept = [e for e in entries if e['must'] or e['supersedes'] or e['id'] in wanted]
+        skipped, entries = len(entries) - len(kept), kept
+    return {'entries': entries, 'problems': problems, 'undelivered': undelivered, 'skipped': skipped}
 
 
 def _section(section, where, stem, seen, problems, entries, delivered=None):
@@ -287,17 +294,48 @@ def _section(section, where, stem, seen, problems, entries, delivered=None):
     if typed and meta['must'] and delivered is not None and fence_line is not None: delivered.add(fence_line)
 
 
-def configured_paths(project):
-    """The wiki folders of a project: `.onecrew/config.json` "wiki": {"paths": [...]} when present, else docs/wiki."""
+def configured_paths(project, problems=None):
+    """The wiki folders of a project: `.onecrew/config.json` "wiki": {"paths": [...]} when present, else docs/wiki. The file is read like
+    the rest of OneCrew reads it (UTF-8 with or without a BOM); one that cannot be read, or a "wiki" value that is not a list of folder
+    names, is a problem in `problems` (review r1 F2), never a silent fall back."""
     config = Path(project) / '.onecrew' / 'config.json'
+    if not config.is_file(): return list(DEFAULT_PATHS)
     try:
-        value = json.loads(config.read_text(encoding='utf-8'))
-        paths = value.get('wiki', {}).get('paths') if isinstance(value, dict) and isinstance(value.get('wiki'), dict) else None
-        if isinstance(paths, list) and paths and all(isinstance(p, str) and p for p in paths):
-            return list(paths)
-    except (OSError, ValueError):
-        pass
+        value = json.loads(config.read_text(encoding='utf-8-sig'))
+    except (OSError, ValueError) as error:
+        if problems is not None:
+            problems.append({'path': '.onecrew/config.json', 'problem': f'config.json cannot be read ({type(error).__name__}); the wiki folders it '
+                                                                   f'may name are unknown, only {", ".join(DEFAULT_PATHS)} is read'})
+        return list(DEFAULT_PATHS)
+    if not isinstance(value, dict) or 'wiki' not in value: return list(DEFAULT_PATHS)
+    paths = value['wiki'].get('paths') if isinstance(value['wiki'], dict) else None
+    if isinstance(paths, list) and paths and all(isinstance(p, str) and p for p in paths):
+        return list(paths)
+    if problems is not None:
+        problems.append({'path': '.onecrew/config.json', 'problem': f'"wiki" is not {{"paths": [folder, ...]}}; only {", ".join(DEFAULT_PATHS)} is read'})
     return list(DEFAULT_PATHS)
+
+
+def _decode(data):
+    """(text, None) of a UTF-8 page (a BOM is dropped: review r1 F15), else (None, reason)."""
+    try:
+        text = data.decode('utf-8')
+    except UnicodeDecodeError:
+        return None, 'not UTF-8 text'
+    return (text[1:] if text.startswith('\ufeff') else text), None
+
+
+def _declares_must_bytes(data):
+    """Whether bytes that cannot be read as UTF-8 still declare a mandatory section: ASCII-compatible encodings, and UTF-16 (what Windows
+    PowerShell 5.1 writes) in either byte order (review r1 F1)."""
+    if MUST_BYTES.search(data): return True
+    if b'\x00' in data[:4096]:
+        for encoding in ('utf-16', 'utf-16-le', 'utf-16-be'):
+            try:
+                if MUST_TEXT.search(data.decode(encoding, 'ignore')): return True
+            except LookupError:
+                continue
+    return False
 
 
 def _scan_for_must(path):
@@ -312,18 +350,25 @@ def _scan_for_must(path):
 
 
 def pages(project, paths=None, coverage=None):
-    """The wiki pages to parse: [{'path', 'origin', 'sha256', 'bytes', 'text'[, 'mandatory_only']}] plus problems; a missing folder is
-    no page, not an error. `coverage` (a dict, optional) receives what was not read: {'pages', 'read_whole', 'mandatory_only',
-    'not_read' (later pages that declare nothing mandatory), 'unreadable' (names), 'undelivered' (pages whose mandatory section cannot be
-    delivered, with the reason), 'unscanned' (pages past MAX_SCAN_BYTES), 'scanned_bytes'}."""
+    """The wiki pages to parse: [{'path', 'origin', 'sha256', 'bytes', 'text'[, 'mandatory_only']}] plus problems; the default folder
+    missing is no wiki, not an error; a configured folder missing is a problem (review r1 F2). `coverage` (a dict, optional) receives
+    what was not read: {'pages', 'read_whole', 'mandatory_only', 'not_read' (later pages that declare nothing mandatory or superseding),
+    'unreadable' (names), 'missing_folders', 'undelivered' (pages whose mandatory section cannot be delivered, with the reason),
+    'unscanned' (pages past MAX_SCAN_BYTES), 'scanned_bytes'}."""
     project = Path(project)
     found, problems = [], []
     cov = coverage if coverage is not None else {}
-    cov.update(pages=0, read_whole=0, mandatory_only=0, not_read=0, unreadable=[], undelivered=[], unscanned=0, scanned_bytes=0)
-    for folder in (paths if paths is not None else configured_paths(project)):
+    cov.update(pages=0, read_whole=0, mandatory_only=0, not_read=0, unreadable=[], missing_folders=[], undelivered=[], unscanned=0, scanned_bytes=0)
+    folders = paths if paths is not None else configured_paths(project, problems)
+    if problems: cov['config_problem'] = True
+    for folder in folders:
         external = Path(folder).is_absolute()
         base = Path(folder) if external else project / folder
-        if not base.is_dir(): continue
+        if not base.is_dir():
+            if paths is not None or tuple(folders) != DEFAULT_PATHS:      # a folder the project named: say it was not read
+                problems.append({'path': str(folder), 'problem': 'configured wiki folder not found or not a folder; not read'})
+                cov['missing_folders'].append(str(folder))
+            continue
         try:
             files = sorted(p for p in base.rglob('*.md') if p.is_file())
         except OSError as error:
@@ -347,16 +392,15 @@ def pages(project, paths=None, coverage=None):
                 data = file.read_bytes()
             except OSError as error:
                 problems.append({'path': name, 'problem': f'cannot read: {str(error)[:120]}'}); cov['unreadable'].append(name); continue
-            if not whole and not MUST_BYTES.search(data):
-                not_read += 1; continue                  # past the reading budget and nothing mandatory in it
-            try:
-                text = data.decode('utf-8')
-            except UnicodeDecodeError:
-                problems.append({'path': name, 'problem': 'not UTF-8 text; not read'}); cov['unreadable'].append(name)
-                if MUST_BYTES.search(data):
+            text, why = _decode(data)
+            if text is None:
+                problems.append({'path': name, 'problem': f'{why}; not read'}); cov['unreadable'].append(name)
+                if _declares_must_bytes(data):
                     cov['undelivered'].append({'path': name, 'line': None, 'id': None, 'applies_to': None, 'source_paths': None,
-                                               'reason': 'the page declares a mandatory section but is not UTF-8 text'})
+                                               'reason': f'the page declares a mandatory section but is {why}'})
                 continue
+            if not whole and not (MUST_TEXT.search(text) or SUPERSEDES_BYTES.search(data)):
+                not_read += 1; continue                  # past the reading budget and nothing mandatory or superseding in it
             page = {'path': name, 'origin': 'external' if external else 'repo', 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data), 'text': text}
             if whole: cov['read_whole'] += 1
             else: page['mandatory_only'] = True; cov['mandatory_only'] += 1
@@ -364,7 +408,7 @@ def pages(project, paths=None, coverage=None):
         cov['not_read'] += not_read; cov['unscanned'] += unscanned
         if not_read:
             problems.append({'path': str(folder), 'problem': f'{not_read} page(s) after the first {MAX_PAGES} were looked through for mandatory '
-                                                             'sections only: they declare none; the rest of their text is not read'})
+                                                             'and superseding sections only: they declare none; the rest of their text is not read'})
         if unscanned:
             problems.append({'path': str(folder), 'problem': f'{unscanned} page(s) not looked through: more than {MAX_SCAN_BYTES} bytes of wiki; '
                                                              'mandatory constraints cannot be established'})
