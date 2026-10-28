@@ -76,7 +76,7 @@ produced = engine.step(ledger, 'P1', NativeExecutor(ledger))
 runs = len(fake_log.read_text(encoding='utf-8').splitlines()) if fake_log.exists() else 0
 out = {'case': case, 'project': str(root), 'state': str(ledger.state_root), 'fake_runs': runs}
 if case == 'control22':
-    out.update(state=produced['state'])
+    out.update(step_state=produced['state'], reason=str(produced.get('reason') or '')[:300])
 elif produced['state'] == 'produced':
     receipt = json.loads(store.read_blob(produced['receipt']))
     record = receipt['knowledge']

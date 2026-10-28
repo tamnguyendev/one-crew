@@ -78,8 +78,10 @@ def main():
     body = json.loads(prompt.split('\n', 1)[1])
     policy = json.loads(Path(os.environ['ONECREW_FAKE_POLICY']).read_text(encoding='utf-8'))
     value, trace = decide(body, policy)
-    if 'new' in value.get('knowledge', {}) and 'new' not in schema['properties'].get('knowledge', {}).get('properties', {}):
-        del value['knowledge']['new']                        # an A1 build has no place for claims: the fake never breaks the schema
+    if 'knowledge' not in schema.get('properties', {}):
+        value.pop('knowledge', None)                         # a 2.2 build has no knowledge field: the fake never breaks the schema
+    elif 'new' in value.get('knowledge', {}) and 'new' not in schema['properties']['knowledge'].get('properties', {}):
+        del value['knowledge']['new']                        # an A1 build has no place for claims
     log = os.environ.get('ONECREW_FAKE_LOG')
     if log:
         knowledge = body.get('knowledge')

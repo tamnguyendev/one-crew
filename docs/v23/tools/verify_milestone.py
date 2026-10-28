@@ -157,10 +157,10 @@ def main(pkg, work):
     up = run([py, '-m', 'pip', 'install', '--no-index', '--no-build-isolation', '--force-reinstall', wheel])
     again = run([scripts / 'onecrew.exe', '--project', project, '--state-root', state, 'wiki', 'show', '--plan', 'P1', '--node', 'C'], cwd=work, env=env_for(work, scripts))
     ok = (down.returncode == 0 and old_version == manifest['previous_wheel']['version'] and show.returncode == 0 and engine_state.returncode == 0
-          and isinstance(blocking, dict) and blocking.get('read') == 0 and control is not None and control.get('state') == 'produced'
+          and isinstance(blocking, dict) and blocking.get('read') == 0 and control is not None and control.get('step_state') == 'produced'
           and isinstance(control_blocking, dict) and control_ids == continue_ids and up.returncode == 0 and again.returncode == 0 and b'a-value' in again.stdout)
     step('V7-rollback', ok, previous_version=old_version, compat_blocking=blocking, continue_blocks=continue_ids,
-         control_compat_blocking=control_blocking, control_continue_blocks=control_ids, control_state=(control or {}).get('state'),
+         control_compat_blocking=control_blocking, control_continue_blocks=control_ids, control_state=(control or {}).get('step_state'), control_reason=(control or {}).get('reason'),
          plan_show_exit=show.returncode, engine_state_exit=engine_state.returncode, forward_exit=again.returncode,
          show_tail=(show.stdout + show.stderr)[-200:].decode('utf-8', 'replace'))
     return finish(report, work)
