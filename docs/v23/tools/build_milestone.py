@@ -53,7 +53,7 @@ $py = "C:\\Users\\NUC\\AppData\\Local\\Programs\\Python\\Python313\\python.exe";
 & $py -I "$pkg\\verify\\verify_milestone.py" $pkg "D:\\OneCrewRuns\\v23 thu {milestone_lower}\\verify"
 ```
 
-Bộ kiểm chạy 7 bước từ chính gói (danh tính, cài vào venv mới, nguồn module, task đầu tiên, phản chứng, console cp1252, quay về 2.2 rồi lên lại); kết quả ở `verify-report.json` trong thư mục làm việc. Bước task đầu tiên dùng `claude` giả (test double, không gọi model).
+{steps_text} Kết quả ở `verify-report.json` trong thư mục làm việc. Các bước có worker dùng `claude` giả (test double, không gọi model): chứng minh đường đi, không chứng minh model dùng đúng tri thức.
 
 ## 2. Cài và dùng thử
 
@@ -63,8 +63,7 @@ $venv = "D:\\OneCrewRuns\\v23 thu {milestone_lower}\\venv"; & $py -m venv $venv;
 
 Dùng trên một **bản sao** project (không dùng sổ đang chạy việc thật). Với project đã `onecrew init` bằng bản 2.2, chỉ cần cài wheel này vào venv thử; `init` mới ghi `%LOCALAPPDATA%\\OneCrew\\hook-projects.json` của người chạy.
 
-- Task đầu tiên chạy được: `examples/first-task/` (trang wiki mẫu, hợp đồng và định nghĩa node mẫu) và `verify/scenario_a1.py` (đúng luồng bộ kiểm chạy).
-- Cách viết wiki, lệnh `onecrew wiki pages|show|read`, cách đọc receipt: `docs/HUONG-DAN-WIKI.vi.md`.
+{try_text}
 - Hợp đồng triển khai, truy vết requirement → test → bằng chứng: `docs/HOP-DONG-2.3.vi.md`. Báo cáo mốc: `docs/` (file BAO-CAO).
 
 ## 3. Quay về 2.2 và lên lại
@@ -83,6 +82,19 @@ Bộ kiểm (bước V7) đã diễn tập: 2.2 đọc sổ do bản này ghi (`
 
 {limits}
 '''
+
+
+STEPS = {'A1': 'Bộ kiểm chạy 7 bước từ chính gói: V1 danh tính, V2 cài vào venv mới, V3 nguồn module, V4 task đầu tiên, V5 phản chứng, V6 console cp1252, V7 quay về 2.2 rồi lên lại.',
+         'A2': 'Bộ kiểm chạy 8 bước từ chính gói: V1–V7 như A1 và V8 hai root ở hai process (root A công bố điều check đã chứng minh rồi kết thúc; root B mới dùng lại).',
+         'B': 'Bộ kiểm chạy 8 bước từ chính gói: V1–V7 như A1 và V9 tiếp quản (controller `engine step` chết thật; `onecrew executor recover` xác nhận dọn; bước sau giữ node, chạy lại đúng 1 lần, không reset ngân sách).',
+         'FINAL': 'Bộ kiểm chạy 9 bước từ chính gói: V1 danh tính, V2 cài vào venv mới, V3 nguồn module, V4 task đầu tiên (A1), V5 phản chứng, V6 console cp1252, V7 quay về 2.2 rồi lên lại, V8 hai root ở hai process (A2), V9 tiếp quản sau khi controller chết (B).'}
+TRY_A1 = ('- Task đầu tiên chạy được: `examples/first-task/` (trang wiki mẫu, hợp đồng và định nghĩa node mẫu) và `verify/scenario_a1.py` (đúng luồng bộ kiểm chạy).\n'
+          '- Cách viết wiki, lệnh `onecrew wiki pages|show|read`, cách đọc receipt: `docs/HUONG-DAN-WIKI.vi.md` §1–5.')
+TRY_A2 = ('- Ghi và quản lý tri thức (A2): worker khai `knowledge.new`; điều check của node chứng minh được công bố cho project. Lệnh `onecrew wiki record|withdraw|archive|summarize|export|history`: '
+          '`docs/HUONG-DAN-WIKI.vi.md` §6. Ca hai root chạy được: `verify/scenario_a2.py` (đúng luồng bước V8).')
+TRY_B = ('- Dọn và tiếp quản (B): khi controller `engine step` chết hoặc treo, chạy `onecrew executor recover <attempt>` (hoặc `engine step` lần sau tự quét); '
+         'node bị giữ với `cleanup: confirmed` rồi chạy lại một lần trong ngân sách cũ. Ca chạy được: `verify/scenario_b.py` (bước V9). Ghi chú và giới hạn: `docs/B-NOTES.vi.md`.')
+TRY = {'A1': TRY_A1, 'A2': TRY_A1 + '\n' + TRY_A2, 'B': TRY_A1 + '\n' + TRY_B, 'FINAL': TRY_A1 + '\n' + TRY_A2 + '\n' + TRY_B}
 
 
 def main():
@@ -122,7 +134,7 @@ def main():
     previous_version = previous.name.split('-')[1]
     readme = README.format(version=version, label=MILESTONES[args.milestone], commit=commit, wheel=wheel_path.name, wheel_sha=sha(wheel_path),
                            previous=previous.name, previous_sha=args.previous_sha, built=built, out=str(out.resolve()),
-                           milestone_lower=args.milestone.lower(), limits=Path(args.limits).read_text(encoding='utf-8').strip())
+                           milestone_lower=args.milestone.lower(), steps_text=STEPS[args.milestone], try_text=TRY[args.milestone], limits=Path(args.limits).read_text(encoding='utf-8').strip())
     (out / 'README.md').write_text(readme, encoding='utf-8')
     manifest = {'kind': 'v23-milestone-package', 'milestone': args.milestone, 'label': MILESTONES[args.milestone], 'version': version,
                 'code_commit': commit, 'built_at': built, 'ships_paging': False,

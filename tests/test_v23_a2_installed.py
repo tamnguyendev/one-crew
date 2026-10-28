@@ -89,6 +89,7 @@ Path(OUT).write_text(json.dumps(out, ensure_ascii=False), encoding='utf-8')
 PROCESS_B = COMMON + r'''
 ledger = Ledger(root, state)
 os.environ.pop('ONECREW_ACTOR', None)
+a_status_at_b_start = plan.show(ledger, 'P1')['status']           # KB-13: A has ended before root B exists
 plan.propose(ledger, 'P2', contract('b.txt', 'right'), 'codex', workflow=True, capabilities=caps)
 plan.approve(ledger, 'P2', 'owner', 'fixture owner approves root B, a new root')
 plan.propose(ledger, 'P3', contract('b.txt', 'right'), 'codex', workflow=True, capabilities=caps)
@@ -114,7 +115,9 @@ try:
 except LedgerError as error:
     late = 'refused: ' + str(error)[:120]
 task_a = plan.show(ledger, 'P1')['anchor_task']
-out = {'pid': os.getpid(), 'b': b, 'narrow': narrow, 'late_write_on_A': late, 'a_status': plan.show(ledger, 'P1')['status'], 'a_budget': group(task_a),
+out = {'pid': os.getpid(), 'a_status_at_b_start': a_status_at_b_start, 'b_root': knowledge.consumer(ledger, 'P2')['root'],
+       'a_root': knowledge.consumer(ledger, 'P1')['root'], 'b_task': plan.show(ledger, 'P2')['anchor_task'],
+       'b': b, 'narrow': narrow, 'late_write_on_A': late, 'a_status': plan.show(ledger, 'P1')['status'], 'a_budget': group(task_a),
        'fake_runs': len(log.read_text(encoding='utf-8').splitlines())}
 Path(OUT).write_text(json.dumps(out, ensure_ascii=False), encoding='utf-8')
 '''
@@ -166,6 +169,11 @@ class InstalledA2(unittest.TestCase):
         self.assertIsNotNone(dump, tail); self.assertEqual(boundary.violations(dump['end'], self.ctx), [], tail)
         b = json.loads(out_b.read_text(encoding='utf-8'))
         self.assertNotEqual(a['pid'], b['pid'])                                       # a new process, nothing carried over in memory
+        # KB-13: not two nodes of one root: B is another root of the same project, created after A ended; the entry it used was
+        # recorded by root A (its project-visible record), and B's budget group is its own
+        self.assertEqual(b['a_status_at_b_start'], 'accepted')
+        self.assertNotEqual(b['b_root'], b['a_root']); self.assertNotEqual(b['b_task'], a['task'])
+        self.assertEqual(published['root'], b['a_root'])
         self.assertEqual(b['b']['verdict'], 'pass', b)
         self.assertIn([published['id'], 'fact', 'verified'], b['b']['delivered'])
         self.assertEqual(b['b']['used'], [published['id']])
