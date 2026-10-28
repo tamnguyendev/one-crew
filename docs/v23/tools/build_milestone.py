@@ -77,7 +77,7 @@ Dùng trên một **bản sao** project (không dùng sổ đang chạy việc t
 & "$venv\\Scripts\\python.exe" -I -m pip install --no-index --no-build-isolation --force-reinstall "$pkg\\wheel\\{wheel}"; Remove-Item Env:PYTHONUTF8 -ErrorAction SilentlyContinue; & "$venv\\Scripts\\onecrew.exe" --help
 ```
 
-Bộ kiểm (bước V7) đã diễn tập: sổ do bản này ghi được 2.2 đọc (`compat scan` blocking 0, `plan show` chạy), rồi lên lại bản này dùng tiếp. Không mặc định mọi sổ 2.3 đọc được bởi 2.2 ngoài phạm vi đã diễn tập; với sổ thật hãy chạy `compat scan` trên bản sao trước.
+Bộ kiểm (bước V7) đã diễn tập: 2.2 đọc sổ do bản này ghi (`plan show`, `engine state`, `compat scan` không có khối read; khối continue giống sổ do 2.2 tự ghi), rồi lên lại bản này dùng tiếp. 2.2 không biết vòng đời tri thức: mục đã thu hồi hiện như ghi chú bình thường, và 2.2 không khôi phục được attempt đang dở mà worker đã trả khóa `knowledge`. Trước khi quay về, để mọi attempt kết thúc; với sổ thật hãy chạy `compat scan` trên bản sao trước. Không mặc định mọi sổ 2.3 đọc được bởi 2.2 ngoài phạm vi đã diễn tập.
 
 ## 4. Giới hạn
 

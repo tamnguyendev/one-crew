@@ -74,7 +74,7 @@ class ExtraTests(A2Fixture):
                          conditions=[{'type': 'file_contains', 'path': 'requirements.txt', 'text': 'lib==1.0'}],
                          evidence={'status': 'verified', 'property': 'agreed', 'sources': [{'type': 'event', 'id': ev}]})
         out = knowledge.export(self.ledger, self.wiki_dir / 'export')
-        text = open(out['pages'][0], encoding='utf-8').read()
+        with open(out['pages'][0], encoding='utf-8') as handle: text = handle.read()
         meta = json.loads(text.split('```onecrew\n', 1)[1].split('\n```', 1)[0])
         self.assertTrue(meta['must']); self.assertEqual(meta['conditions'][0]['type'], 'file_contains')
 
@@ -102,3 +102,27 @@ class ExtraTests(A2Fixture):
         published = [r for r in knowledge.records(self.ledger) if r['text'] == claim['text'] and r['visibility'] == 'project']
         self.assertEqual(len(published), 1)
         self.assertEqual(published[0]['label'], 'verified')
+
+    def test_33b_a_copy_whose_ledger_id_is_absent_is_never_an_independent_fact(self):
+        self.page('copy.md', '## a.txt copied rule\n' + fence({'id': 'copy-x', 'kind': 'constraint', 'label': 'verified', 'applies_to': ['a.txt'],
+                  'sources': [{'type': 'event', 'id': 987654}], 'ledger_id': 'ctx-from-another-state-root'}) + 'a.txt keeps one line.\n')
+        entry = {e['id']: e for e in knowledge.package(self.ledger, self.consumer(), cap_chars=8000)['entries']}['copy-x']
+        self.assertEqual(entry['use'], 'lead')
+
+    def test_10b_a_claim_about_a_file_the_worker_created_goes_through_finish(self):
+        self.git('rm', '-q', 'b.txt'); self.git('commit', '-qm', 'b.txt not in HEAD')        # the worker creates b.txt (owned by the fixture contract)
+        item = self.item('C', read=('a.txt', 'b.txt'), write=('a.txt', 'b.txt'))
+        self.revise([item, dict(node('I', ['C'], integration=True, write=()), executor=dict(PIN))])
+        claim = {'kind': 'finding', 'text': 'b.txt holds the parser table', 'applies_to': ['b.txt'], 'sources': ['b.txt'], 'check': 'check-C'}
+        self.values.append({'summary': 'done', 'files': [{'path': 'a.txt', 'content': 'one\n'}, {'path': 'b.txt', 'content': 'table\n'}], 'backlog': [],
+                            'knowledge': {'new': [claim, dict(claim, text='c.txt holds X', sources=['c.txt'])]}})
+        produced = self.engine.step(self.ledger, 'P1', self.adapter)
+        self.assertEqual(produced['state'], 'produced', produced)
+        receipt = json.loads(self.store.read_blob(produced['receipt']))
+        self.assertEqual([c['text'] for c in receipt['knowledge_claims']], ['b.txt holds the parser table'])
+        self.assertEqual(len(receipt['knowledge_claims_refused']), 1)                       # c.txt is outside the node scope
+        observed = [r for r in knowledge.records(self.ledger, history=True, root=self.ledger_root()) if r['text'] == claim['text']]
+        self.assertTrue(observed and any(s.get('path') == 'b.txt' and s.get('blob') for s in observed[0]['sources']))
+
+    def ledger_root(self):
+        return plans.show(self.ledger, 'P1')['anchor_task']

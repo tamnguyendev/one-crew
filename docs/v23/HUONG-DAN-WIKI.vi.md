@@ -102,6 +102,7 @@ Root B mới của cùng project (phiên/process mới) tự nhận các mục `
 
 ## 7. Giới hạn
 
+- **Quay về 2.2:** 2.2 đọc được sổ 2.3 (plan show, engine state, compat scan không có khối read — diễn tập ở bộ kiểm gói), nhưng 2.2 không biết vòng đời tri thức: mục đã thu hồi/lưu trữ/thay thế hiện như ghi chú bình thường trong `context retrieve`/gói tiếp tục của 2.2, và 2.2 không khôi phục được một attempt đang dở mà worker đã trả khóa `knowledge` (attempt đó giữ trạng thái unknown). Trước khi quay về, để mọi attempt kết thúc; sau khi quay về, coi tri thức 2.3 trong sổ là dữ liệu thô.
 - Bản A1 (2.3.0.dev1) chỉ đọc/giao; phần ghi và dùng lại qua root mới có từ 2.3.0.dev2 (A2).
 - Mục `context.entry` cũ của 2.2 (không có `visibility`) coi là ghi chú làm việc của root đó, không sang root khác.
 - Root đang chạy không nhận cập nhật giữa chừng: thu hồi/sửa có hiệu lực ở lần truy xuất tiếp theo (cập nhật consumer đang chạy là 2.4-B).

@@ -152,7 +152,7 @@ class ContextConflict(LedgerError):
 
 
 def add(ledger, name, *, kind, label, text, source, scope='project', conditions=None, key=None, extra=None, expect_latest=None,
-        subject_scope='root', require_open=False):
+        subject_scope='root', require_open=False, lifecycle_target=None):
     """Write one `context.entry` on the root `name`. Returns {'recorded': bool, 'id', 'key', 'event'}; a repeat of the same content is not written.
     2.3-A2: `extra` (a dict built and validated by knowledge.py) is stored as the payload's `knowledge`; `expect_latest` ('' = no earlier
     entry expected) makes the write refuse with ContextConflict when the subject's newest entry is not that id; `subject_scope='project'`
@@ -204,6 +204,15 @@ def add(ledger, name, *, kind, label, text, source, scope='project', conditions=
             return {'recorded': False, 'id': body['id'], 'key': key, 'event': None}
         if expect_latest is not None and current != expect_latest:
             raise ContextConflict(f'subject {key} changed since version {expect_latest[:12] or "(none)"}: the newest is {current[:12]}', current)
+        if expect_latest is not None and lifecycle_target:
+            # 2.3 review r2 N13: a withdrawal or an archive is a newer state of the subject; an update from a version older than it conflicts
+            life = conn.execute("SELECT MAX(e.seq) AS seq FROM tasks t JOIN events e ON e.task_id=t.id WHERE t.project_id=? AND e.kind='context.entry' "
+                                "AND (json_extract(e.payload,'$.knowledge.withdraws')=? OR json_extract(e.payload,'$.knowledge.archives')=?)",
+                                (ledger.project_id, lifecycle_target, lifecycle_target)).fetchone()['seq']
+            based = conn.execute("SELECT MAX(e.seq) AS seq FROM tasks t JOIN events e ON e.task_id=t.id WHERE t.project_id=? AND e.kind='context.entry' "
+                                 "AND json_extract(e.payload,'$.id')=?", (ledger.project_id, expect_latest)).fetchone()['seq'] if expect_latest else None
+            if life and (based is None or life > based):
+                raise ContextConflict(f'subject {key} was withdrawn or archived after version {expect_latest[:12] or "(none)"}', 'lifecycle')
         state = plans.derive(ledger, conn, selector)
         if require_open and state and state.get('status') in ('accepted', 'stopped_with_report', 'closed'):
             raise LedgerError('Record knowledge before the root ends: this root has ended (' + state['status'] + ').')
@@ -345,7 +354,8 @@ def for_pack(ledger, name):
         payload = entry.pop('payload', None) or {}
         extra = payload.get('knowledge') if isinstance(payload.get('knowledge'), dict) else {}
         if extra.get('withdraws') or extra.get('archives'): continue
-        if status.get(knowledge.ledger_id(entry['key']), 'active') != 'active': continue
+        visibility = extra.get('visibility') or ('project' if entry['key'].startswith('lesson-') else 'root')
+        if status.get(knowledge.ledger_id(entry['key'], visibility, payload.get('task')), 'active') != 'active': continue   # r2 N16
         live.append(entry)
     return live
 

@@ -87,6 +87,8 @@ class P02CrossProject(Base):
             'in project-2 package?', g['id'] in [e['id'] for e in later['entries']], 'project-2 ids:', [e['id'] for e in later['entries']])
         self.assertIn('one-line', delivered, 'project 2 lost its own mandatory constraint to another project')
         self.assertNotIn(g['id'], [e['id'] for e in later['entries']], 'withdrawn general record still delivered in project 2')
+        self.assertNotIn(g['id'], [r['id'] for r in later['omitted']['index']], 'withdrawn general record still listed in project 2')
+        self.assertGreaterEqual(later['omitted']['by_reason'].get('withdrawn', 0), 1)
 
 
 class P03RootPrivateSupersedes(Base):
