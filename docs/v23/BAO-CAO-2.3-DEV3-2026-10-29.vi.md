@@ -13,7 +13,15 @@ Người viết: Claude (Opus 5.5), đầu mối triển khai 2.3, đêm 28–29
 
 ## 1. Đã sẵn sàng test chưa, trong phạm vi nào
 
-GATE_VERDICT_PLACEHOLDER
+**Sẵn sàng để Codex review lại và để thử trên bản sao project và state root riêng** (phạm vi dưới đây). **Chưa sẵn sàng phát hành hay dùng trên sổ thật.** Mọi kiểm bắt buộc đã chạy xong:
+- kiểm từ artifact 11/11;
+- diễn tập README 9/9 và task đầu tiên 23/23 từ gói;
+- hồi quy trên code cuối đạt;
+- gate snapshot 2.2 trên `0594a43` chạy hết, **286/286 check đạt** (2 097 test, 0 skip, 0 lỗi).
+
+Quyết định của gate là `refused`. Gate beta cũng `refused`, vì trong phát triển gate không thể đạt khi chưa có nghiệm thu và pilot thật. Có hai nhóm vấn đề:
+- 23 khoảng trống cần việc của chủ sở hữu, pilot hoặc provider thật, giống từng chữ gate beta;
+- **một vấn đề mới của 2.3, kit-guard:** ba file test được ghim trong bộ kit 2.2 đã được sửa trên nhánh 2.3 mà không có ngoại lệ U1 (§5.5). Việc này cần chủ sở hữu quyết định (§8).
 
 Phạm vi test: A1 (đọc wiki, chọn/giao context có quyền, khả năng áp dụng, trần, đọc tiếp), A2 (ghi có bằng chứng, vòng đời, dùng lại qua root mới/process mới), B (dọn, sở hữu, tiếp quản an toàn) — trên **bản sao project và state root riêng**, Windows, worker native của engine (Claude Code CLI 2.1.286, subscription). Diễn tập dùng `claude` giả; task đầu tiên phần B dùng Claude Code CLI thật. Không dùng với sổ thật hay sổ của task đang chạy.
 
@@ -79,7 +87,7 @@ Truy vết đầy đủ: [HOP-DONG-2.3](HOP-DONG-2.3.vi.md) §7.
 | Lượt | Kết quả | Nguồn |
 |---|---|---|
 | Hồi quy trên code cuối `6a8421d`: mọi `tests/test_v23_*` (gồm 55 test từ phản chứng Codex và 3 vòng review) + `test_g1_core`, `test_wf_r03a_executors`, `test_wf_r02_resume/retrieval/boundaries`, `test_wf_r06_learning`, `test_wf_r07_localization`, `test_wf_r7_t46a/t46b`, `test_wf_node_learning`, `test_wf_runtime_unknowns`, `test_wf_w49b/w50a_evidence` | 268/268 đạt, 0 skip; `test_wf_r7_t51b` lỗi import vì lượt chạy bỏ `tests` khỏi `PYTHONPATH` → chạy lại 4/4 đạt | `D:\OneCrewRuns\v23\logs\final-regress-6a8421d.txt`, `final-t51b-6a8421d.txt` |
-| Gate snapshot 2.2 (286 check) trên `0594a43` | GATE_ROW_PLACEHOLDER | §5.5 |
+| Gate snapshot 2.2 (286 check) trên `0594a43` | 286/286 check đạt (217 lượt module, 2 097 test, 0 skip, 0 lỗi); quyết định `refused`: 23 khoảng trống ngoài (giống beta) + kit-guard (3 test ghim đã sửa) | §5.5 |
 
 KS-01 (chọn gói, giây, min–max của 3 lần; đo **song song** code cũ `38981bd` và code mới `0594a43` trong cùng lúc, máy đang chạy gate nên số tuyệt đối cao hơn lượt `4182ee5` lúc máy rảnh — 22 000 mục khi đó 2,5–2,7 s):
 
@@ -100,7 +108,33 @@ KE-01/KE-02 trên `0594a43` (claude giả + Claude Code CLI thật `claude-haiku
 
 ### 5.5 Gate snapshot 2.2
 
-GATE_SECTION_PLACEHOLDER
+29/10 00:45–04:19 (3 h 34 m; máy đang chịu tải của phiên khác). Lệnh `wfkit.development_gate snapshot` chạy trên commit `0594a43` (code = `6a8421d`) trong worktree tách riêng.
+- Kết quả: `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261029-0594a43` (`decision.json`, `gate\kitguard.json`, `gate\receipts\`, `gate-run.log`).
+- Log lệnh: `D:\OneCrewRuns\v23\logs\gate-snapshot-0594a43.txt`.
+
+- **Snapshot:** `intact: true` (cây code và thư mục tài liệu không đổi trong lúc chạy); build `dirty: []`; Python 3.13.15.
+- **Check:** 286/286 có receipt, `failed: []`; 217 lượt chạy module khác nhau, 2 097 test đạt, 0 skip, 0 lỗi. Mọi receipt mang commit `0594a43` và wheel của gate.
+- **Wheel của gate khác wheel của gói về byte, giống về nội dung.** Gate luôn tự dựng wheel từ snapshot:
+  - wheel của gate: `bc43c37e47458fa73ca03440942c6b9d2f3e6f8f494b4236b24935de41cb19ff`, dựng 00:45;
+  - wheel của gói: `30e6b7e6…ac0ec43`, dựng 00:38 bằng `build_milestone.py`.
+
+  Hai wheel cùng commit `0594a43` và version `2.3.0.dev3`; 132/132 file bên trong giống nhau từng byte, chỉ khác giờ ghi trong zip. Gate chạy trên wheel `bc43c37e…`; kiểm từ artifact (§5.2) và diễn tập (§5.3) chạy trên wheel của gói `30e6b7e6…`.
+- **Cài và nguồn module:** wheel cài vào venv của gate và module được nạp từ venv; bản checkout bị từ chối đúng như đối chứng (`gate\install.json`).
+- **Tự kiểm tài liệu T38a:** đạt, 155/155 phản chứng và 18/18 đối chứng (khối `482bf8a3…`). Vấn đề `document-selfcheck` của gate beta `34eb7c4` không còn.
+- **Quyết định gate: `refused`, 24 vấn đề:**
+  - **23 khoảng trống nghiệm thu:** 13 `acceptance-partial` (R01–R08, RP, RX1, RX2) và 10 `acceptance-blocked` (PL, RP). Mỗi khoảng trống cần một việc thật: chủ sở hữu chạy lệnh nghiệm thu trên bản giao, pilot thật, provider ngoài (W45), hoặc receipt giao của bản trước. Nội dung giống từng chữ gate beta (`D:\OneCrewRuns\wf-handover-34eb7c4-hs2\gate\decision.json`); không khoảng trống nào đóng được trong phát triển.
+  - **1 vấn đề mới: `kit-guard`.** Bộ kit 2.2 ghim hash của các test đã duyệt. Nhánh 2.3 đã sửa 3 file ghim; cả ba thay đổi có từ trước mốc Codex review và đều nằm trong gói dev2:
+
+| File ghim | Release | Commit sửa | Vì sao sửa | Oracle |
+|---|---|---|---|---|
+| `tests/test_g1_core.py` | PL | `f045a0b` | dòng version `2\.2\.0\.dev\d+` → `2\.3\.0\.dev\d+` | các ràng buộc khác của metadata giữ nguyên |
+| `tests/test_wf_r03a_executors.py` | R03 | `72b1b22` (2.3-B) | `executor list` nay có thêm 2 executor runtime mà engine khởi động | vẫn so khớp đúng cả danh sách |
+| `tests/test_wf_r7_t51b.py` | R02 | `3d96f5b` (2.3-A1) | bộ lọc project nay có thêm lớp SQL; đột biến bỏ cả hai lớp, thêm test chứng minh mỗi lớp tự giữ được | chặt hơn |
+
+  Không file nào hạ oracle, nhưng kit không có ngoại lệ U1 cho chúng nên từ chối. Đó là đúng thiết kế. Đặt lại bản 2.2 của các file này không giải quyết được: trên code 2.3, ba check đó sẽ đỏ vì version 2.3, danh sách executor mới và đột biến một lớp không còn làm lộ dữ liệu. Vì vậy không có cách sửa kỹ thuật nào không cần chủ sở hữu.
+
+  Tôi không ghi ngoại lệ U1 và không sửa manifest của kit; việc đó cần chủ sở hữu (§8). Ghim lịch sử R00 (`tests/test_wf_plan_names.py`) đổi như ở beta và được namespace lineage chấp nhận như ở beta (`lineage_valid: true`).
+- **Gate baseline trên `38981bd`:** dừng ở 155/286, không có decision, không tính là đạt.
 
 ## 6. Cách cài và chạy task đầu tiên
 
@@ -116,6 +150,13 @@ Theo `README.md` của gói và `examples/first-task/README.vi.md`: kiểm hash 
 
 ## 8. Quyết định cần chủ sở hữu
 
-- **Không có quyết định nào đang chặn** công việc trong phạm vi đã ủy quyền.
+- **Cần quyết định: ngoại lệ kit-guard cho 3 test ghim (§5.5).**
+  - Đổi gì: ghi 3 bản ghi U1 (hash cũ → mới, lý do) cho `tests/test_g1_core.py`, `tests/test_wf_r03a_executors.py` và `tests/test_wf_r7_t51b.py`, chỉ trên nhánh 2.3.
+  - Vì sao: ba test 2.2 này kiểm version 2.2, danh sách executor của 2.2 và đột biến một lớp; 2.3 đổi đúng ba điều đó.
+  - Ảnh hưởng: chạy lại gate (~3,5 h); sau đó gate chỉ còn đúng 23 khoảng trống như beta.
+  - Không đổi: beta và bộ kit của `wf-codex`, các test khác, oracle.
+  - Rủi ro: nếu không duyệt, gate 2.3 luôn `refused` vì kit-guard; Codex vẫn review được.
+  - Tôi chưa làm gì cho việc này.
+- Ngoài việc trên, không quyết định nào khác đang chặn công việc trong phạm vi đã ủy quyền.
 - Việc của chủ sở hữu/Codex (ngoài quyền đã cấp): giao Codex review lại gói `2.3.0.dev3`; nghiệm thu; push/tag/publish; dùng 2.3 trên sổ thật hay migrate sổ thật.
 - Ghi nhận để chủ sở hữu biết: một lượt diễn tập đã chạy `owner approve` trên sổ tạm (§5.3); một lượt Claude thật ngoài ý muốn của agent P2-03 (§5.4).

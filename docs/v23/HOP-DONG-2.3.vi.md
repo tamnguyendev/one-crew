@@ -108,6 +108,8 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 28/10 22:04–22:30 | testcase đỏ cho P2-01/P2-02 trên `38981bd` (9/12 fail, 3 đối chứng đạt); sửa | `581fbca` |
 | 28/10 ~23:00 | dừng gate baseline trên `38981bd` ở 155/286 (đều pass, không có decision; không tính là đạt) | `logs\gate-38981bd-stopped.txt` |
 | 28/10 23:00–29/10 00:40 | ba vòng review độc lập bản sửa: 18 → 10 → 3 điểm (P1 0; P2 11 → 3 → 0) | `989eb9c`, `522a6c9`, `6a8421d` |
+| 29/10 00:38–01:40 | gói `2.3.0.dev3` từ `0594a43`: kiểm từ artifact 11/11, diễn tập README 9/9, task đầu tiên 23/23; KS-01 song song, KE-01/KE-02 | `66eed3a`, `cbc18d9`; BAO-CAO-2.3-DEV3 §5 |
+| 29/10 00:45–04:19 | gate snapshot 2.2 trên `0594a43`: 286/286 check đạt (2 097 test, 0 skip); quyết định `refused`: 23 khoảng trống ngoài như beta + kit-guard (3 test ghim đã sửa, cần chủ sở hữu) | `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261029-0594a43`; BAO-CAO-2.3-DEV3 §5.5 |
 
 ## 7. Review Codex 28/10 và sửa
 
