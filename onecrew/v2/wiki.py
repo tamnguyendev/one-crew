@@ -40,6 +40,10 @@ IDENT = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$')
 
 
 def slug(text):
+    """A stable ASCII id part from a heading: accents dropped (Vietnamese "Ghi chú về a.txt" -> "ghi-chu-ve-a-txt")."""
+    import unicodedata
+    text = unicodedata.normalize('NFKD', text.replace('đ', 'd').replace('Đ', 'D'))
+    text = ''.join(c for c in text if not unicodedata.combining(c))
     value = re.sub(r'[^a-z0-9]+', '-', text.casefold()).strip('-')
     return value[:60] or 'section'
 

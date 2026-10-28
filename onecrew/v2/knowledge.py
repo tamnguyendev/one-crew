@@ -532,7 +532,7 @@ def pages_report(ledger):
     for page in found:
         parsed = wiki.parse(page['text'], page['path'])
         out.append({'path': page['path'], 'origin': page['origin'], 'sha256': page['sha256'], 'bytes': page['bytes'],
-                    'entries': [{'id': e['id'], 'kind': e['kind'], 'label': e['label'], 'must': e['must'], 'typed': e['typed'], 'line': e['line']}
+                    'entries': [{'id': e['id'], 'title': e['title'], 'kind': e['kind'], 'label': e['label'], 'must': e['must'], 'typed': e['typed'], 'line': e['line']}
                                 for e in parsed['entries']],
                     'problems': parsed['problems']})
         problems += [{'path': page['path'], 'problem': p} for p in parsed['problems']]
