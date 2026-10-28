@@ -122,6 +122,8 @@ py-modules = [
     "onecrew.v2.questions",
     "onecrew.v2.answer_effects",
     "onecrew.v2.context",
+    "onecrew.v2.knowledge",
+    "onecrew.v2.wiki",
     "onecrew.v2.outcome",
     "onecrew.v2.resume_pack",
     "onecrew.v2.evidence_cli",

@@ -199,16 +199,45 @@ def observe(ledger, name, op):
 
 # ---- retrieval ---------------------------------------------------------------------------------------------------------
 
-def _stale_reason(ledger, payload, current):
+class FileCache:
+    """`file_at` once per (revision, path) within one retrieval: a store of thousands of code-bound entries cites few files, and one git
+    process per entry made retrieval cost grow with the store (2.3-A1, KS-01). The cache lives for one call; nothing is kept across calls."""
+    def __init__(self, project):
+        self.project, self.texts = project, {}
+
+    def file_at(self, revision, path):
+        key = (revision, path)
+        if key not in self.texts:
+            try:
+                self.texts[key] = (file_at(self.project, revision, path), None)
+            except LedgerError as error:
+                self.texts[key] = (None, error)
+        text, error = self.texts[key]
+        if error is not None: raise error
+        return text
+
+    def symbol_present(self, revision, symbol, path=None):
+        if not path: return symbol_present(self.project, revision, symbol, path)
+        leaf = _leaf(symbol)
+        try:
+            text = self.file_at(revision, path)
+        except LedgerError:
+            return False, f'{path} is not in {revision[:12]}'
+        found = re.search(r'(?<![A-Za-z0-9_])' + re.escape(leaf) + r'(?![A-Za-z0-9_])', text) is not None
+        return found, None if found else f'symbol {symbol} is no longer in {path} at {revision[:12]}'
+
+
+def _stale_reason(ledger, payload, current, cache=None):
     """Why a code-bound entry no longer holds at commit `current` (None when it still does or is not code-bound)."""
     if payload['scope'] != 'project' or not payload.get('revision_ref') or payload['revision_ref'] == current: return None
+    cache = cache or FileCache(ledger.project)
     symbol, source = payload.get('symbol'), payload['source']
     if symbol:
-        present, why = symbol_present(ledger.project, current, symbol['name'], symbol.get('path'))
+        present, why = cache.symbol_present(current, symbol['name'], symbol.get('path'))
         if not present: return f'{why} (verified at {payload["revision_ref"][:12]})'
     if source['type'] == 'file_line':
         try:
-            text = file_at(ledger.project, current, source['path'])
+            text = cache.file_at(current, source['path'])
         except LedgerError:
             return f'{source["path"]} is not in {current[:12]} (cited at {payload["revision_ref"][:12]})'
         if _line_hash(text, source['line']) != payload.get('line_hash'):
@@ -216,15 +245,32 @@ def _stale_reason(ledger, payload, current):
     return None
 
 
-def retrieve(ledger, *, plan=None, scope='both', revision=None, limit=200):
-    """The entries a task may use, from both scopes by one function. `plan` narrows the project scope to that root. Newest state per subject (`key`)."""
+def _rows(ledger, conn, scope, task_id=None):
+    """The context.entry rows a retrieval of `scope` can use, filtered in SQL: the project's own (through the tasks of this project and
+    the events_task index) and/or the general ones. The same set the former full scan kept after its Python filter, ordered by seq."""
+    rows = []
+    if scope in ('project', 'both'):
+        query = ("SELECT e.seq, e.created_at, e.payload, e.task_id, t.project_id FROM tasks t JOIN events e ON e.task_id=t.id "
+                 "WHERE t.project_id=? AND e.kind='context.entry'" + (' AND t.id=?' if task_id else ''))
+        rows += conn.execute(query, (ledger.project_id, task_id) if task_id else (ledger.project_id,)).fetchall()
+    if scope in ('general', 'both'):
+        seen = {row['seq'] for row in rows}
+        rows += [row for row in conn.execute("SELECT e.seq, e.created_at, e.payload, e.task_id, t.project_id FROM events e JOIN tasks t ON t.id=e.task_id "
+                                             "WHERE e.kind='context.entry' AND json_extract(e.payload,'$.scope')='general'").fetchall()
+                 if row['seq'] not in seen]
+    return sorted(rows, key=lambda row: row['seq'])
+
+
+def retrieve(ledger, *, plan=None, scope='both', revision=None, limit=200, raw=False):
+    """The entries a task may use, from both scopes by one function. `plan` narrows the project scope to that root. Newest state per subject (`key`).
+    `limit=None` (2.3-A1, knowledge.py only) returns every entry, never the newest N: choosing by task, permission and relevance is knowledge.py's
+    job, not "the latest 200"; `raw=True` adds the stored payload (with its task) for that choice."""
     if scope not in ('project', 'general', 'both'): raise LedgerError('scope: project, general or both.')
-    if type(limit) is not int or not 1 <= limit <= 1000: raise LedgerError('limit: integer 1-1000.')
+    if limit is not None and (type(limit) is not int or not 1 <= limit <= 1000): raise LedgerError('limit: integer 1-1000.')
     with ledger.transaction() as conn:
         selected = namespaces.resolve(ledger, conn, plan) if plan is not None else None
         if plan is not None and selected is None: raise LedgerError(f'No plan named {plan}.')
-        rows = conn.execute("SELECT e.seq, e.created_at, e.payload, e.task_id, t.project_id FROM events e JOIN tasks t ON t.id=e.task_id "
-                            "WHERE e.kind='context.entry' ORDER BY e.seq").fetchall() if conn else []
+        rows = _rows(ledger, conn, scope, selected['id'] if selected is not None and scope == 'project' else None) if conn else []
     import json
     latest = {}
     for row in rows:
@@ -233,25 +279,27 @@ def retrieve(ledger, *, plan=None, scope='both', revision=None, limit=200):
         shared = p.get('scope') == 'general' and p.get('conditions') and p.get('source', {}).get('type') in ('event', 'receipt')
         if not (mine and scope in ('project', 'both') or shared and scope in ('general', 'both')): continue
         if mine and selected is not None and row['task_id'] != selected['id']: continue
-        latest[(p['scope'], row['project_id'], row['task_id'] if mine else None, p['key'])] = dict(p, event=row['seq'], at=row['created_at'])
+        latest[(p['scope'], row['project_id'], row['task_id'] if mine else None, p['key'])] = dict(p, event=row['seq'], at=row['created_at'], task=row['task_id'])
     current, problem = None, None
     if any(p['scope'] == 'project' and p.get('revision_ref') for p in latest.values()):
         try:
             current = resolve_revision(ledger.project, revision or 'HEAD')
         except (LedgerError, OSError) as error:
             problem = str(error)[:160]
-    entries = []
-    for p in sorted(latest.values(), key=lambda x: x['event'])[-limit:]:
+    entries, cache = [], FileCache(ledger.project)
+    ordered = sorted(latest.values(), key=lambda x: x['event'])
+    for p in (ordered[-limit:] if limit else ordered):
         label, reason = p['label'], None
         if p['scope'] == 'project' and p.get('revision_ref') and label in ('observed', 'verified'):
             if problem: label, reason = 'stale', f'cannot be checked now: {problem}'
             else:
-                reason = _stale_reason(ledger, p, current)
+                reason = _stale_reason(ledger, p, current, cache)
                 if reason: label = 'stale'
         entries.append({'event': p['event'], 'id': p['id'], 'key': p['key'], 'scope': p['scope'], 'plan': p.get('plan') if p['scope'] == 'project' else None,
                         'kind': p['kind'], 'label': label, 'label_vi': LABEL_VI[label], 'stored_label': p['label'], 'text': p['text'], 'source': p['source'],
                         'source_text': p['source_text'], 'symbol': p.get('symbol'), 'conditions': p.get('conditions'), 'stale_reason': reason,
-                        'plan_revision': p.get('plan_revision'), 'at': p['at'], 'is_instruction': False})
+                        'plan_revision': p.get('plan_revision'), 'at': p['at'], 'is_instruction': False,
+                        **({'payload': p} if raw else {})})
     from . import lessons
     entries = lessons.refine_context(ledger, entries, revision or current)
     return {'data_not_authority': True, 'notice': NOTICE, 'scope': scope, 'plan': plan, 'checked_at': current, 'entries': entries}

@@ -36,6 +36,14 @@ def _parser():
     p.add_argument('name'); p.add_argument('--op', required=True, help='JSON object with "type".')
     p = ctx.add_parser('retrieve', help='Entries of the project and of the shared scope, checked at a revision (read-only).')
     p.add_argument('--plan'); p.add_argument('--scope', default='both', choices=['project', 'general', 'both']); p.add_argument('--revision')
+    wk = groups.add_parser('wiki', help='The project knowledge (wiki pages + context entries) a plan or a node may use, chosen by permission, '
+                           'applicability, relevance and a cap (2.3-A1). Read-only; data, never authority.').add_subparsers(dest='command', required=True)
+    p = wk.add_parser('show', help='The first page of the package a node (or, without --node, the plan) would receive.')
+    p.add_argument('--plan', required=True); p.add_argument('--node'); p.add_argument('--cap', type=int, default=None); p.add_argument('--text', action='store_true')
+    p = wk.add_parser('read', help='The page after a cursor of `wiki show` (same plan/node, same knowledge state).')
+    p.add_argument('--plan', required=True); p.add_argument('--node'); p.add_argument('--cursor', required=True); p.add_argument('--cap', type=int, default=None)
+    p.add_argument('--text', action='store_true')
+    wk.add_parser('pages', help='Every wiki page of the project with its entries and problems (a lint; nothing is written).')
     return parser
 
 
@@ -68,6 +76,14 @@ def _run(args):
         if args.command == 'observe': return context.observe(_ledger(args, False), args.name, json.loads(args.op))
         return context.add(_ledger(args, False), args.name, kind=args.kind, label=args.label, text=args.text, source=parse_source(args.source),
                            scope=args.scope, conditions=args.condition, key=args.key)
+    if args.group == 'wiki':
+        from . import knowledge
+        ledger = _ledger(args, True)
+        if args.command == 'pages': return knowledge.pages_report(ledger)
+        cons = knowledge.consumer(ledger, args.plan, node=knowledge.node_of(ledger, args.plan, args.node) if args.node else None)
+        cap = args.cap or knowledge.NATIVE_CAP_CHARS
+        pkg = knowledge.package(ledger, cons, cap_chars=cap) if args.command == 'show' else knowledge.read(ledger, cons, args.cursor, cap_chars=cap)
+        return knowledge.render_text(pkg) if args.text else pkg
     if args.group == 'continue':
         pack = resume_pack.build(_ledger(args, True), args.name, context=_context())
         return json.dumps(pack, ensure_ascii=False, indent=2) if args.as_json else resume_pack.render(pack)

@@ -263,7 +263,7 @@ class ManagedExecutor(executors.Executor):
         # Durable launch intent (W37b crash point b): the base snapshot and the exact node are what a rebuild needs after a
         # crash between the settled process and the candidate checkpoint. Written before the provider launch.
         self._write(attempt['id'], 'dispatching', base=prepared['base'], node_definition=node,
-                    prompt_sha=content_hash(prepared['prompt']), profile=prepared['profile'])
+                    prompt_sha=content_hash(prepared['prompt']), profile=prepared['profile'], knowledge=prepared.get('knowledge'))
         started = time.monotonic()
         with self.native.liveness(ledger, control, task, node, attempt):          # W51: liveness while the command runs
             prepared['worker'].run(attempt, prepared['prompt'], prepared['schema'], prepared['profile'])
@@ -291,7 +291,7 @@ class ManagedExecutor(executors.Executor):
         if self.native is None: return None             # a state/recovery-only connection has no worker factory to read the result with
         task = self.ledger.task(attempt['task_id'], full=True)
         try:
-            context = self.native.rebuild_context(self.ledger, self.control, node, intent['base'])
+            context = self.native.rebuild_context(self.ledger, self.control, node, intent['base'], intent.get('knowledge'))
             seconds = self._process_result(attempt).get('seconds')
             candidate = self.native.finish(self.ledger, task, node, attempt, context, attempt,
                                            elapsed=seconds if isinstance(seconds, (int, float)) else 0, rebuilt_from='settled-process')

@@ -7,7 +7,7 @@ import sys
 
 from .messages import t
 
-GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson', 'issue', 'unknown', 'engine')
+GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson', 'issue', 'unknown', 'engine', 'wiki')
 OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
                   '  verdict    record / run (v2 milestone verdicts with receipts)\n'
                   '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
@@ -15,6 +15,7 @@ OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enfo
                   '  outcome    record / show / missing / reconcile / intervene (recorded results)\n'
                   '  continue   read-only resume pack; grants no authority\n'
                   '  context    add / observe / retrieve (project and shared knowledge)\n'
+                  '  wiki       show / read / pages (sourced project knowledge chosen for a plan or node; read-only)\n'
                   '  incident   list / observe / finalize (evidence of errors and repairs)\n'
                   '  lesson     list / record / general / withdraw (project lessons and general candidates)\n'
                   '  issue      localize / map (pinned file and method hypotheses)\n'
@@ -67,7 +68,7 @@ def route(args, index):
             return managed_cli.main(args)
         from .executors import main as executor_main
         return executor_main(args)
-    if args[index] in ('outcome', 'continue', 'context'):
+    if args[index] in ('outcome', 'continue', 'context', 'wiki'):
         from .evidence_cli import main as evidence_main
         return evidence_main(args)
     if args[index] == 'question':
