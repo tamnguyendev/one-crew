@@ -302,3 +302,23 @@ class CliTests(A2Fixture):
         self.assertEqual(code, 0, out); self.assertTrue(json.loads(out)['derived_view'])
         code, out = self.run_cli('wiki', 'record', '--plan', 'P1', '--kind', 'finding', '--text', 'x', '--status', 'verified', '--source', f'event:{event}')
         self.assertNotEqual(code, 0)                                  # verified without the property shown is refused
+
+
+class NoResurrectionTests(A2Fixture):
+    """Withdrawn knowledge does not come back through the other readers: the resume pack of `onecrew continue`, and a continuation's request."""
+    ledger_event = RecordingTests.ledger_event
+
+    def test_the_resume_pack_and_a_requested_id_do_not_bring_back_withdrawn_knowledge(self):
+        from onecrew.v2 import resume_pack
+        event = self.ledger_event()
+        gone = knowledge.record(self.ledger, 'P1', kind='finding', text='a.txt needs VALUE: gone', applies_to=['a.txt'],
+                                evidence={'status': 'verified', 'property': 'checked once', 'sources': [{'type': 'event', 'id': event}]})
+        kept = knowledge.record(self.ledger, 'P1', kind='finding', text='a.txt keeps one line', applies_to=['a.txt'],
+                                evidence={'status': 'verified', 'property': 'checked', 'sources': [{'type': 'event', 'id': event}]})
+        knowledge.withdraw(self.ledger, 'P1', gone['id'], reason='wrong', evidence={'sources': [{'type': 'event', 'id': event}]})
+        pack = resume_pack.build(self.ledger, 'P1', context=context.for_pack)
+        texts = [e['text'] for e in pack['context']]
+        self.assertNotIn('a.txt needs VALUE: gone', texts); self.assertIn('a.txt keeps one line', texts)
+        self.assertFalse([t for t in texts if t.startswith('Withdraws ')])
+        page = knowledge.package(self.ledger, self.consumer(), cap_chars=8000, requested=[gone['id'], kept['id']])
+        self.assertEqual(page['requests_refused'], [{'id': gone['id'], 'reason': 'not_available'}])

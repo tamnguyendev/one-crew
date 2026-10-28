@@ -324,8 +324,19 @@ def retrieve(ledger, *, plan=None, scope='both', revision=None, limit=200, raw=F
 
 
 def for_pack(ledger, name):
-    """The entries of one root for the resume pack (project scope, checked at HEAD)."""
-    return retrieve(ledger, plan=name, scope='project')['entries']
+    """The entries of one root for the resume pack (project scope, checked at HEAD). 2.3-A2: an entry the knowledge lifecycle has withdrawn,
+    archived or superseded (or a summary derived from one) is not shown as live context; lifecycle records themselves are not context."""
+    entries = retrieve(ledger, plan=name, scope='project', raw=True)['entries']
+    from . import knowledge
+    status = knowledge.status_by_id(ledger)
+    live = []
+    for entry in entries:
+        payload = entry.pop('payload', None) or {}
+        extra = payload.get('knowledge') if isinstance(payload.get('knowledge'), dict) else {}
+        if extra.get('withdraws') or extra.get('archives'): continue
+        if status.get(knowledge.ledger_id(entry['key']), 'active') != 'active': continue
+        live.append(entry)
+    return live
 
 
 def note_error(error):

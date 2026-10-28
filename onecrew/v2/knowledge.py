@@ -736,6 +736,11 @@ def records(ledger, *, history=False):
     return out
 
 
+def status_by_id(ledger):
+    """knowledge id -> lifecycle status of every ledger record of the project (active, withdrawn, archived, superseded, source_withdrawn)."""
+    return {r['id']: r['status'] for r in records(ledger, history=True)}
+
+
 def summarize(ledger, plan, sources, *, text, visibility='project'):
     """A summary of knowledge `sources` (ids): its label is the weakest of theirs, its cause stays not established, its meaning is
     unverified (nobody checked the summary against the sources), and it keeps `derived_from` so withdrawal reaches it."""
