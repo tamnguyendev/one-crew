@@ -58,12 +58,13 @@ onecrew --project <repo> wiki read --plan <plan> [--node <node>] --cursor <con t
 
 - Adapter được hỗ trợ: worker native của engine (`NativeExecutor`, gồm khi chạy qua `ManagedExecutor`). Gói nằm trong prompt dưới khóa `knowledge`.
 - Receipt `native-node-receipt` của attempt có:
-  - `knowledge.package`: khóa blob của đúng gói đã giao (đọc bằng snapshot store của sổ), `knowledge.delivered`: các id, `knowledge.chars`, `knowledge.omitted_total`, `knowledge.problems` (lỗi trang).
+  - `knowledge.package`: khóa blob của đúng gói đã giao (đọc bằng snapshot store của sổ), `knowledge.delivered`: các id, `knowledge.chars`, `knowledge.omitted_total`, `knowledge.problems` (lỗi trang), và `knowledge.wiki` khi wiki không được đọc hết (`complete: false`, số trang không đọc, trang không đọc được, mục bắt buộc không giao được); gói trong prompt mang cùng khóa `wiki`.
   - `knowledge_use`: worker khai `used`/`rejected`/`requests`; `violations` (id không được giao), `leads_used` (dựa vào đầu mối), `must_unacknowledged`, `proves_semantics: false`.
 - Kết quả đúng hay sai do **check của node** quyết định. Khai báo sử dụng chỉ là kiểm cấu trúc.
 - Worker cần mục chưa được giao: trả `continuation` kèm `knowledge.requests: [id…]`; lần tiếp tục nhận đúng các mục đó trong `requested` (nếu vẫn được phép).
 - Không có wiki và không có mục liên quan: prompt giữ nguyên như 2.2; receipt ghi `knowledge.package: null`.
-- Trang wiki hỏng chỉ làm mục hỏng không được dùng (mục khác của trang và trang khác vẫn được giao); node vẫn chạy và receipt ghi lỗi.
+- Trang wiki hỏng chỉ làm mục hỏng không được dùng (mục khác của trang và trang khác vẫn được giao); node vẫn chạy và receipt ghi lỗi — **trừ khi phần hỏng là một mục bắt buộc** (xem dưới).
+- **Ràng buộc bắt buộc không mất vì giới hạn đọc** (sửa sau review Codex P2-02): 2 000 trang đầu (theo tên) được đọc trọn; mọi trang sau đó vẫn được dò tìm khối `onecrew` có `"must": true`, và mục bắt buộc của chúng được giao như thường (phần tùy chọn của các trang đó không đọc, gói ghi rõ số trang). Một mục tự khai bắt buộc mà không giao được — trang lớn hơn 2 MB, không phải UTF-8, metadata sai, id trùng, khối nằm ngoài mục `##`/`###`… — làm node mà nó có thể áp dụng (`applies_to` khớp file của node, hoặc không có `applies_to`) bị **giữ trước khi gọi model**, lý do `Mandatory knowledge cannot be established: …` nêu trang/dòng; sửa trang rồi chạy lại. Wiki lớn hơn 256 MB không dò hết được cũng giữ node như vậy. Trang hỏng không khai gì bắt buộc không bao giờ làm node bị giữ. Dò bằng mẫu chữ `"must": true` trên trang không đọc được nên một trang hỏng chỉ nhắc chuỗi đó trong văn bản cũng bị coi là có mục bắt buộc (thà giữ node còn hơn chạy thiếu ràng buộc).
 - Khai báo `knowledge` sai giới hạn schema bị bỏ và ghi `knowledge_declaration_problem` vào receipt; artifact vẫn giữ. Claim nêu file ngoài phạm vi node, hoặc file không có trong candidate, bị từ chối và ghi `knowledge_claims_refused`.
 
 ## 6. Ghi tri thức có bằng chứng và dùng lại qua root mới (A2, từ 2.3.0.dev2)
@@ -92,11 +93,15 @@ onecrew wiki history
 - Nhãn là mức bằng chứng: `verified` bắt buộc `--property` và ít nhất một nguồn event/receipt/file:line/symbol; `cause` chỉ "established" khi có nguồn nguyên nhân riêng.
 - **Tóm tắt** (`summarize`) mang `derived_from`, nhãn bằng nguồn yếu nhất, `semantic_verification: unverified`. Bản sao cùng nội dung, cùng nguồn chỉ là một mục (`copies: n`), không tăng độ tin cậy.
 - **Cập nhật đồng thời:** ghi lại một chủ đề (`--key`) kèm `--base` là `state_version` đã đọc (`wiki history`; thường bằng `version`, còn khi mục đã bị thu hồi hoặc lưu trữ thì là bản ghi thu hồi/lưu trữ đó — đính chính dựa trên nó thành version kế tiếp, không thành contested). Nếu chủ đề đã đổi, bản mới được giữ riêng là `contested`; cả hai được giao như `lead` có lý do, không bản nào mất.
-- **Thu hồi / thay thế / lưu trữ** là bản ghi mới trên một root đang mở; không xóa sổ, receipt hay trang. Ở lần truy xuất tiếp: các phiên bản viết trước bản ghi thu hồi, tóm tắt dẫn từ nó, bản sao wiki mang `ledger_id` của nó và lesson cùng id (cả `lesson list`, `issue localize`) đều không được giao; một bản đính chính viết sau bản ghi thu hồi thì sống lại. `wiki history` vẫn hiện tất cả với trạng thái. Mục general chỉ project đã viết nó mới thu hồi được, bằng một bản ghi general mọi project đều đọc.
+- **Thu hồi / thay thế / lưu trữ** là bản ghi mới trên một root đang mở; không xóa sổ, receipt hay trang. Ở lần truy xuất tiếp: các phiên bản viết trước bản ghi thu hồi, tóm tắt dẫn từ nó, bản sao wiki mang `ledger_id` của nó và lesson cùng id (cả `lesson list`, `issue localize`) đều không được giao; một bản đính chính viết sau bản ghi thu hồi thì sống lại. `wiki history` vẫn hiện tất cả với trạng thái (ghi chú riêng của một root theo vòng đời của chính root đó). Mục general chỉ project đã viết nó mới thu hồi được, bằng một bản ghi general mọi project đều đọc.
 - Bản ghi **general** chỉ mang chữ, điều kiện và nguồn event/receipt — không `applies_to`, `must`, `supersedes`, tiêu đề hay file; phần riêng của project bị từ chối ngay khi ghi.
 - **Xuất wiki** là bản dẫn xuất: mỗi mục giữ `ledger_id`; commit bản xuất vào `docs/wiki/` không tạo nguồn thứ hai (mục còn sống được giao một lần từ sổ; mục đã thu hồi không sống lại từ bản sao).
 
-### 6.3 Root mới dùng lại
+### 6.3 Gói tiếp tục và `context retrieve` đọc cùng một quyết định
+
+`onecrew continue <plan> [--json]` (gói tiếp tục) và `onecrew context retrieve` cho agent tiếp tục một root xem tri thức của chính root đó theo **đúng quyết định của gói tri thức** (sửa sau review Codex P2-01): mục bị thu hồi, lưu trữ, bị thay thế (kể cả ghi chú riêng bị ghi chú mới thay) hay dẫn xuất từ các mục đó không hiện; mục có file ghim hoặc nguồn đã đổi, không còn áp dụng, hay (bản ghi 2.3) không kiểm được, hiện nhãn `stale` kèm lý do — không bao giờ `verified`. Mục còn đúng giữ nguyên nhãn; ghi chú hợp lệ không mất; root/project khác vẫn không hiện. Lịch sử đầy đủ vẫn ở `wiki history`.
+
+### 6.4 Root mới dùng lại
 
 Root B mới của cùng project (phiên/process mới) tự nhận các mục `visibility: project` và lesson của root khác, qua cùng bộ chọn A1: quyền đọc nguồn của node B, khả năng áp dụng hiện tại, mức liên quan, trần. Không cần chép tay context của root A, không mở lại A, không đụng ngân sách của A. Mục `visibility: root` (bộ nhớ làm việc) của A không sang B. Project khác không thấy.
 
@@ -108,5 +113,6 @@ Root B mới của cùng project (phiên/process mới) tự nhận các mục `
 - Root đang chạy không nhận cập nhật giữa chừng: thu hồi/sửa có hiệu lực ở lần truy xuất tiếp theo (cập nhật consumer đang chạy là 2.4-B).
 - Chỉ một adapter có bằng chứng giao: worker native. Phiên Claude Code tương tác (hook) đọc được bằng `wiki show`, nhưng không có receipt giao.
 - Kiểm áp dụng là so blob file và điều kiện kiểu; không phải phân tích ngữ nghĩa. File không đổi không chứng minh kết luận còn đúng về hành vi ngoài file đó.
-- Chi phí chọn gói tăng gần tuyến tính theo số mục: trên máy dùng chung, min 0,11 s (100 mục), 0,46 s (~1 200), 0,98 s (~6 000), 2,8 s (~22 000) mỗi lần giao, tối đa tới 12 s khi máy tải nặng (`docs/v23/evidence/ks01-scale-41ad32e.json`). Chưa có chỉ mục riêng; không tuyên bố giảm token/latency.
+- Chi phí chọn gói tăng gần tuyến tính theo số mục và số trang: số đo trên bản cuối ở BAO-CAO-2.3 §4 (`docs/v23/evidence/ks01-scale-*.json`). Mỗi lần giao đọc lại toàn bộ wiki (dò mục bắt buộc trên mọi trang); chưa có chỉ mục riêng; không tuyên bố giảm token/latency.
+- Gói tiếp tục bây giờ chạy cùng bộ chọn với gói tri thức (đọc wiki và toàn bộ tri thức của sổ một lần mỗi lệnh `continue`); các reader nội bộ khác (`issue localize`, bản đồ issue, incident) giữ cách đọc của 2.2.
 - Đối chứng wiki: xem `docs/v23/evidence/` — hàng provider giả chỉ chứng minh đường đi và nhãn; hàng Claude thật là một task nhỏ, vài lượt, không có ý nghĩa thống kê.

@@ -103,7 +103,10 @@ def _run(args):
     from . import outcome, resume_pack
     if args.group == 'context':
         from . import context
-        if args.command == 'retrieve': return context.retrieve(_ledger(args, True), plan=args.plan, scope=args.scope, revision=args.revision)
+        if args.command == 'retrieve':                 # Codex P2-01: judged per root like the knowledge package and the resume pack
+            ledger = _ledger(args, True)
+            result = context.retrieve(ledger, plan=args.plan, scope=args.scope, revision=args.revision, raw=True)
+            return dict(result, entries=context.judged(ledger, result['entries']))
         if args.command == 'observe': return context.observe(_ledger(args, False), args.name, json.loads(args.op))
         return context.add(_ledger(args, False), args.name, kind=args.kind, label=args.label, text=args.text, source=parse_source(args.source),
                            scope=args.scope, conditions=args.condition, key=args.key)

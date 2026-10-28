@@ -20,6 +20,14 @@
   V9 takeover     (B, FINAL) verify/scenario_b.py: an installed `engine step` controller really dies while its worker (with a
                   grandchild) runs; the installed `onecrew executor recover` confirms cleanup (no candidate, no replay); the next step
                   holds the node with cleanup confirmed, replays once (generation 1), budget not reset (2 calls used), 2 launches in all
+  V10 mandatory   (FINAL) verify/scenario_codex.py, Codex review P2-02, through the real dispatch path: 2 000 pages sorting before the page
+                  of a mandatory rule -> the rule is delivered as mandatory and the node runs; the page of the rule not UTF-8 -> the
+                  step stops before any provider process (fake log empty, attempt not started); control: pages that cannot be read but
+                  declare nothing mandatory -> the node runs, the record says the wiki was not read whole
+  V11 continue    (FINAL) verify/scenario_codex.py, Codex review P2-01, installed CLI: `onecrew continue --json` and `context retrieve`
+                  show a verified decision as verified, then `stale` with the reason once its pinned a.txt changes; a root note
+                  superseded by a newer one is gone from the pack and `superseded` in `wiki history`; the newer note stays verified;
+                  another root's note never appears
 Exit 0 when every step passes, 1 otherwise. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
 import base64
 import hashlib
@@ -209,10 +217,40 @@ def main(pkg, work):
               and b.get('launches_total') == 2 and b.get('held') == [[b.get('first_attempt'), 'confirmed', 'executor_interrupted']]
               and b.get('resumed') == [[b.get('first_attempt'), False]] and b.get('used_calls') == 2)
         step('V9-takeover', ok, **b)
+    if manifest['milestone'] == 'FINAL':
+        codex = {}
+        for case in ('beyond_pages', 'undeliverable', 'optional_broken', 'continue'):
+            case_work = work / f'codex {case}'
+            if case_work.exists(): shutil.rmtree(case_work)
+            case_work.mkdir()
+            done = run([py, '-I', pkg / 'verify' / 'scenario_codex.py', case, case_work], text=True, encoding='utf-8', errors='replace',
+                       cwd=case_work, env=env_for(case_work, scripts))
+            try:
+                codex[case] = json.loads((case_work / 'result.json').read_text(encoding='utf-8'))
+            except (OSError, ValueError):
+                codex[case] = {'error': (done.stdout + done.stderr)[-600:]}
+        beyond, broken, control = codex['beyond_pages'], codex['undeliverable'], codex['optional_broken']
+        ok = (beyond.get('state') == 'produced' and beyond.get('mandatory') == ['a-value'] and beyond.get('fake_runs') == 1
+              and broken.get('state') == 'held' and broken.get('reason', '').startswith('Mandatory knowledge cannot be established')
+              and broken.get('fake_runs') == 0 and 'native_preflight' in json.dumps(broken.get('attempts'))
+              and control.get('state') == 'produced' and control.get('mandatory') == ['a-value'] and control.get('fake_runs') == 1
+              and (control.get('wiki') or {}).get('complete') is False and (control.get('wiki') or {}).get('unreadable') == 1)
+        step('V10-mandatory', ok, beyond_pages=beyond, undeliverable=broken, optional_broken=control)
+        c = codex['continue']
+        before, after, history = c.get('before') or {}, c.get('after') or {}, c.get('history') or {}
+        ok = (all((c.get('recorded') or {}).values()) and c.get('before_exit') == 0 and c.get('after_exit') == 0
+              and before.get('Use the old a.txt convention', [None])[0] == 'verified' and after.get('Use the old a.txt convention', [None])[0] == 'stale'
+              and 'a.txt' in str(after.get('Use the old a.txt convention', [None, ''])[1])
+              and (c.get('retrieve_before') or {}).get('Use the old a.txt convention') == 'verified'
+              and (c.get('retrieve_after') or {}).get('Use the old a.txt convention') == 'stale'
+              and after.get('New private rule', [None])[0] == 'verified' and 'Old private rule' not in after and 'Old private rule' not in before
+              and history.get('Old private rule') == 'superseded' and history.get('New private rule') == 'active'
+              and 'P2 private working note' not in after and 'P2 private working note' not in before)
+        step('V11-continue', ok, **c)
     return finish(report, work)
 
 
-EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 9}
+EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 11}
 
 
 def finish(report, work):

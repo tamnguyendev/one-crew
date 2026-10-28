@@ -349,20 +349,42 @@ def retrieve(ledger, *, plan=None, scope='both', revision=None, limit=200, raw=F
 
 
 def for_pack(ledger, name):
-    """The entries of one root for the resume pack (project scope, checked at HEAD). 2.3-A2: an entry the knowledge lifecycle has withdrawn,
-    archived or superseded (or a summary derived from one) is not shown as live context; lifecycle records themselves are not context."""
-    entries = retrieve(ledger, plan=name, scope='project', raw=True)['entries']
+    """The entries of one root for the resume pack (project scope, checked at HEAD), judged like a knowledge package (Codex P2-01).
+    2.3-A2: an entry the knowledge lifecycle has withdrawn, archived or superseded (or a summary derived from one) is not shown as live
+    context (the ledger keeps it: `wiki history`); lifecycle records themselves are not context."""
+    return judged(ledger, retrieve(ledger, plan=name, scope='project', raw=True)['entries'], drop_lifecycle=True)
+
+
+def judged(ledger, entries, *, drop_lifecycle=False):
+    """`entries` (retrieve(raw=True)) as an agent continuing their roots may read them: knowledge.for_root decides, per root, what the
+    knowledge package decides — gone (withdrawn, archived, superseded, derived from such) is left out; an entry whose pinned file or
+    source changed, that does not apply now, or (a 2.3 record) that cannot be checked is `stale` with the reason, never `verified`.
+    Entries that are not knowledge (engine bookkeeping, lifecycle records) are kept as recorded; the payload is dropped."""
     from . import knowledge
-    status = knowledge.status_by_id(ledger)
-    live = []
+    verdicts, failed = {}, {}
+    for plan in sorted({e['plan'] for e in entries if e.get('plan')}):
+        try:
+            verdicts[plan] = knowledge.for_root(ledger, plan)
+        except Exception as error:                     # the reader never fails the pack; an unjudged entry is not shown as current
+            failed[plan] = f'knowledge state not checked ({type(error).__name__}: {str(error)[:120]})'
+    out = []
     for entry in entries:
         payload = entry.pop('payload', None) or {}
         extra = payload.get('knowledge') if isinstance(payload.get('knowledge'), dict) else {}
-        if extra.get('withdraws') or extra.get('archives'): continue
+        if extra.get('withdraws') or extra.get('archives'):
+            if drop_lifecycle: continue
+            out.append(entry); continue
+        plan = entry.get('plan')
         visibility = extra.get('visibility') or ('project' if entry['key'].startswith('lesson-') else 'root')
-        if status.get(knowledge.ledger_id(entry['key'], visibility, payload.get('task')), 'active') != 'active': continue   # r2 N16
-        live.append(entry)
-    return live
+        verdict = verdicts.get(plan, {}).get(knowledge.ledger_id(entry['key'], visibility, payload.get('task'))) if plan else None
+        reason = failed.get(plan) if plan in failed and entry['label'] in ('observed', 'verified', 'refuted') else None
+        if verdict is not None:
+            if verdict['gone']: continue
+            reason = verdict['stale']
+        if reason and entry['label'] != 'stale':
+            entry.update(label='stale', label_vi=LABEL_VI['stale'], stale_reason=reason)
+        out.append(entry)
+    return out
 
 
 def note_error(error):

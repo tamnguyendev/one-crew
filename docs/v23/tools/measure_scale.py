@@ -96,7 +96,8 @@ def main(out):
         cons = knowledge.consumer(ledger, 'P1', node={'id': 'C', 'read': ['a.txt', 'f1.txt'], 'write': ['a.txt'], 'goal': 'Fix the a.txt line',
                                                         'output': ['a.txt fixed'], 'checks': [{'id': 'M1', 'spec': 'a.txt has one line'}]})
         total_mine = total_other = 0
-        for target_mine, target_other, sections in ((100, 0, 0), (1000, 1000, 200), (5000, 5000, 1000), (20000, 20000, 2000)):
+        for target_mine, target_other, sections in ((100, 0, 0), (1000, 1000, 200), (5000, 5000, 1000), (10000, 10000, 1000), (20000, 20000, 2000),
+                                                    (50000, 50000, 2000)):
             insert(ledger, 'P1', total_mine, target_mine - total_mine, head, 0.2, rng, 'mine'); total_mine = target_mine
             insert(foreign, 'Q1', total_other, target_other - total_other, other_head, 0.2, rng, 'foreign'); total_other = target_other
             wiki_dir = mine / 'docs' / 'wiki'; wiki_dir.mkdir(parents=True, exist_ok=True)
@@ -109,11 +110,31 @@ def main(out):
             row['context_retrieve_200_new_s'], _ = timed(lambda: context.retrieve(ledger, plan='P1', scope='both'))
             row['context_retrieve_200_base_s'], _ = timed(lambda: BASE.retrieve(ledger, plan='P1', scope='both'))
             rows.append(row); print(json.dumps(row))
+        pages_rows = []                                # Codex P2-02: every page is looked through; past wiki.MAX_PAGES only for mandatory sections
+        plans.propose(ledger, 'P2', plan_json(), 'codex')
+        quiet = Ledger(mine, base / 'state-pages')
+        plans.propose(quiet, 'P1', plan_json(), 'codex')
+        cons_pages = knowledge.consumer(quiet, 'P1', node={'id': 'C', 'read': ['a.txt', 'f1.txt'], 'write': ['a.txt'], 'goal': 'Fix the a.txt line',
+                                                            'output': ['a.txt fixed'], 'checks': [{'id': 'M1', 'spec': 'a.txt has one line'}]})
+        for f in wiki_dir.glob('*.md'): f.unlink()
+        made = 0
+        for count in (1000, 2000, 2001, 5000, 10000):
+            for p in range(made, count):
+                (wiki_dir / f'p{p:05d}.md').write_text(f'## Topic {p}\nWiki text about f{p % 20}.txt and deployment.\n', encoding='utf-8')
+            made = count
+            (wiki_dir / 'zzz-must.md').write_text('## a.txt value\n```onecrew\n{"id": "required-last", "kind": "constraint", "must": true, '
+                                                  '"applies_to": ["a.txt"]}\n```\nVALUE: right\n', encoding='utf-8')
+            row = {'wiki_pages': count + 1, 'ledger_entries_project': 0}
+            row.update(measure(quiet, cons_pages))
+            pkg = knowledge.package(quiet, cons_pages, cap_chars=12000)
+            row['mandatory_delivered'] = [e['id'] for e in pkg['entries'] if e['must']]
+            row['wiki'] = pkg.get('wiki')
+            pages_rows.append(row); print(json.dumps(row))
     result = {'kind': 'v23-ks01-scale', 'checkout': subprocess.run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip(),
               'dirty': bool(subprocess.run(['git', '-C', str(ROOT), 'status', '--porcelain', '--', 'onecrew', 'pyproject.toml'], capture_output=True, text=True).stdout.strip()),
               'python': sys.version.split()[0], 'platform': sys.platform, 'machine_shared': True,
               'note': 'wall time on a shared Windows machine (other sessions running); rows inserted directly; 20% code-bound entries cite 20 files',
-              'rows': rows}
+              'rows': rows, 'pages_rows': pages_rows}
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(json.dumps(result, indent=1), encoding='utf-8')
 

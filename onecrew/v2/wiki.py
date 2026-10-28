@@ -17,6 +17,12 @@ as `unverified` and the page gets a problem. Malformed metadata is a problem of 
 of the project still count. Pages are read from the working tree (what the next worker will see) and identified by the SHA-256 of their
 bytes; the delivered text is sealed in the attempt receipt by the caller.
 
+A reading limit never hides a mandatory section (Codex review P2-02): the first MAX_PAGES pages are read whole, every later page is
+looked through for a section that declares `"must": true` and only such a page is read (its mandatory sections count, the rest is
+reported as not read). A section that declares itself mandatory but cannot be delivered (the page is too large or not UTF-8, the
+metadata is invalid, the id repeats, the block is outside a section...) is listed as `undelivered`; past MAX_SCAN_BYTES nothing more is
+looked through and the pages left are `unscanned`. knowledge.py holds the consumer such a constraint may concern before the model.
+
 Nothing here decides permissions, applicability or relevance (knowledge.py does), and nothing here writes.
 """
 import hashlib
@@ -33,7 +39,11 @@ CONDITION_TYPES = ('file_contains', 'file_unchanged', 'env', 'text')
 META_KEYS = {'id', 'kind', 'label', 'must', 'applies_to', 'sources', 'conditions', 'supersedes', 'derived_from', 'ledger_id', 'status', 'title'}
 DEFAULT_PATHS = ('docs/wiki',)
 MAX_PAGE_BYTES = 2_000_000
-MAX_PAGES = 2000
+MAX_PAGES = 2000                                   # pages read whole; later pages are looked through for mandatory sections only
+MAX_SCAN_BYTES = 256 * 1024 * 1024                 # bytes looked through per reading; past it the mandatory set is unknown
+SCAN_CHUNK = 1 << 20
+MUST_BYTES = re.compile(rb'"must"\s*:\s*true')
+MUST_TEXT = re.compile(r'"must"\s*:\s*true')
 HEADING = re.compile(r'^(#{2,3})\s+(.+?)\s*#*\s*$')
 FENCE_OPEN = re.compile(r'^```onecrew\s*$')
 IDENT = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$')
@@ -184,9 +194,39 @@ def _relpath_or_glob(value):
     return _relpath(value)
 
 
-def parse(text, path):
-    """{'entries': [...], 'problems': [...]} of one page; `path` is how the page is named in the package (repo-relative or absolute)."""
-    problems, entries, seen = [], [], {}
+def declares_must(raw):
+    """Whether the text of an onecrew block declares a mandatory section (also when it is not valid JSON)."""
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return bool(MUST_TEXT.search(raw))
+    return value.get('must') is True if isinstance(value, dict) else bool(MUST_TEXT.search(raw))
+
+
+def _declared(raw, line, reason):
+    """What can be said of an undeliverable mandatory section: its line, id, applies_to and cited files when the block is readable JSON."""
+    out = {'line': line, 'reason': reason[:200], 'id': None, 'applies_to': None, 'source_paths': None}
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return out
+    if not isinstance(value, dict): return out
+    if isinstance(value.get('id'), str): out['id'] = value['id'][:80]
+    applies = value.get('applies_to')
+    applies = [applies] if isinstance(applies, str) else applies
+    if isinstance(applies, list) and all(isinstance(a, str) for a in applies):
+        out['applies_to'] = [a.replace('\\', '/') for a in applies][:40]
+    sources = value.get('sources')
+    if isinstance(sources, list) and all(isinstance(s, dict) for s in sources):
+        out['source_paths'] = [str(s['path']).replace('\\', '/') for s in sources if isinstance(s.get('path'), str)][:20]
+    return out
+
+
+def parse(text, path, mandatory_only=False):
+    """{'entries': [...], 'problems': [...], 'undelivered': [...]} of one page; `path` is how the page is named in the package
+    (repo-relative or absolute). `undelivered`: every onecrew block of the page that declares `"must": true` and did not become a
+    mandatory entry. `mandatory_only` (a page past the reading budget): only the mandatory entries are returned."""
+    problems, entries, seen, delivered = [], [], {}, set()
     stem = slug(Path(str(path)).stem)
     lines = text.splitlines()
     sections, current = [], None
@@ -200,18 +240,34 @@ def parse(text, path):
     for section in sections:
         where = f'{path}:{section["line"]}'
         try:
-            _section(section, where, stem, seen, problems, entries)
+            _section(section, where, stem, seen, problems, entries, delivered)
         except Exception as error:                       # a section that breaks the parser is a page problem, never a crash of the reader
             problems.append(f'{where}: section not read ({type(error).__name__}: {str(error)[:120]}).')
-    return {'entries': entries, 'problems': problems}
+    undelivered, number = [], 0
+    while number < len(lines):                           # P2-02: every block that declares must and did not become a mandatory entry
+        number += 1
+        if not FENCE_OPEN.match(lines[number - 1]): continue
+        start, raw = number, []
+        while number < len(lines) and lines[number].strip() != '```':
+            raw.append(lines[number]); number += 1
+        raw = '\n'.join(raw)
+        if start in delivered or not declares_must(raw): continue
+        owner = max((s['line'] for s in sections if s['line'] < start), default=None)
+        said = [q for q in problems if owner is not None and q.startswith(f'{path}:{owner}:')]
+        reason = (said[-1].split(': ', 1)[-1] if said else 'outside a ## or ### section' if owner is None
+                  else 'not the metadata block of its section')
+        undelivered.append(_declared(raw, start, reason))
+    if mandatory_only: entries = [e for e in entries if e['must']]
+    return {'entries': entries, 'problems': problems, 'undelivered': undelivered}
 
 
-def _section(section, where, stem, seen, problems, entries):
-    body, meta_raw, i = [], None, 0
+def _section(section, where, stem, seen, problems, entries, delivered=None):
+    body, meta_raw, i, fence_line = [], None, 0, None
     rows = section['body']
     while i < len(rows):
         if FENCE_OPEN.match(rows[i]) and meta_raw is None:
             j = i + 1
+            fence_line = section['line'] + 1 + i
             while j < len(rows) and rows[j].strip() != '```': j += 1
             if j >= len(rows):
                 problems.append(f'{where}: the onecrew block is not closed.'); meta_raw = ''
@@ -228,6 +284,7 @@ def _section(section, where, stem, seen, problems, entries):
     seen[ident] = section['line']
     text_body = '\n'.join(body).strip()
     entries.append(dict(meta, id=ident, title=meta['title'] or section['title'], text=text_body, line=section['line'], typed=typed))
+    if typed and meta['must'] and delivered is not None and fence_line is not None: delivered.add(fence_line)
 
 
 def configured_paths(project):
@@ -243,10 +300,26 @@ def configured_paths(project):
     return list(DEFAULT_PATHS)
 
 
-def pages(project, paths=None):
-    """Every page of the wiki folders: [{'path', 'origin', 'sha256', 'bytes', 'text'}] plus problems; a missing folder is no page, not an error."""
+def _scan_for_must(path):
+    """Whether a file declares a mandatory section, read in chunks (a page too large to read whole is still looked through)."""
+    tail = b''
+    with open(path, 'rb') as handle:
+        while True:
+            chunk = handle.read(SCAN_CHUNK)
+            if not chunk: return False
+            if MUST_BYTES.search(tail + chunk): return True
+            tail = chunk[-64:]
+
+
+def pages(project, paths=None, coverage=None):
+    """The wiki pages to parse: [{'path', 'origin', 'sha256', 'bytes', 'text'[, 'mandatory_only']}] plus problems; a missing folder is
+    no page, not an error. `coverage` (a dict, optional) receives what was not read: {'pages', 'read_whole', 'mandatory_only',
+    'not_read' (later pages that declare nothing mandatory), 'unreadable' (names), 'undelivered' (pages whose mandatory section cannot be
+    delivered, with the reason), 'unscanned' (pages past MAX_SCAN_BYTES), 'scanned_bytes'}."""
     project = Path(project)
     found, problems = [], []
+    cov = coverage if coverage is not None else {}
+    cov.update(pages=0, read_whole=0, mandatory_only=0, not_read=0, unreadable=[], undelivered=[], unscanned=0, scanned_bytes=0)
     for folder in (paths if paths is not None else configured_paths(project)):
         external = Path(folder).is_absolute()
         base = Path(folder) if external else project / folder
@@ -254,21 +327,45 @@ def pages(project, paths=None):
         try:
             files = sorted(p for p in base.rglob('*.md') if p.is_file())
         except OSError as error:
-            problems.append({'path': str(folder), 'problem': f'cannot list the folder: {str(error)[:120]}'}); continue
+            problems.append({'path': str(folder), 'problem': f'cannot list the folder: {str(error)[:120]}'}); cov['unreadable'].append(str(folder)); continue
+        not_read = unscanned = 0
         for file in files:
-            if len(found) >= MAX_PAGES:
-                problems.append({'path': str(folder), 'problem': f'more than {MAX_PAGES} pages; the rest is not read'}); break
+            cov['pages'] += 1
             name = str(file) if external else file.relative_to(project).as_posix()
+            if cov['scanned_bytes'] >= MAX_SCAN_BYTES:
+                unscanned += 1; continue
+            whole = cov['read_whole'] < MAX_PAGES
             try:
+                size = file.stat().st_size
+                cov['scanned_bytes'] += size
+                if size > MAX_PAGE_BYTES:
+                    problems.append({'path': name, 'problem': f'page larger than {MAX_PAGE_BYTES} bytes; not read'}); cov['unreadable'].append(name)
+                    if _scan_for_must(file):
+                        cov['undelivered'].append({'path': name, 'line': None, 'id': None, 'applies_to': None, 'source_paths': None,
+                                                   'reason': f'the page declares a mandatory section but is larger than {MAX_PAGE_BYTES} bytes'})
+                    continue
                 data = file.read_bytes()
             except OSError as error:
-                problems.append({'path': name, 'problem': f'cannot read: {str(error)[:120]}'}); continue
-            if len(data) > MAX_PAGE_BYTES:
-                problems.append({'path': name, 'problem': f'page larger than {MAX_PAGE_BYTES} bytes; not read'}); continue
+                problems.append({'path': name, 'problem': f'cannot read: {str(error)[:120]}'}); cov['unreadable'].append(name); continue
+            if not whole and not MUST_BYTES.search(data):
+                not_read += 1; continue                  # past the reading budget and nothing mandatory in it
             try:
                 text = data.decode('utf-8')
             except UnicodeDecodeError:
-                problems.append({'path': name, 'problem': 'not UTF-8 text; not read'}); continue
-            found.append({'path': name, 'origin': 'external' if external else 'repo', 'sha256': hashlib.sha256(data).hexdigest(),
-                          'bytes': len(data), 'text': text})
+                problems.append({'path': name, 'problem': 'not UTF-8 text; not read'}); cov['unreadable'].append(name)
+                if MUST_BYTES.search(data):
+                    cov['undelivered'].append({'path': name, 'line': None, 'id': None, 'applies_to': None, 'source_paths': None,
+                                               'reason': 'the page declares a mandatory section but is not UTF-8 text'})
+                continue
+            page = {'path': name, 'origin': 'external' if external else 'repo', 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data), 'text': text}
+            if whole: cov['read_whole'] += 1
+            else: page['mandatory_only'] = True; cov['mandatory_only'] += 1
+            found.append(page)
+        cov['not_read'] += not_read; cov['unscanned'] += unscanned
+        if not_read:
+            problems.append({'path': str(folder), 'problem': f'{not_read} page(s) after the first {MAX_PAGES} were looked through for mandatory '
+                                                             'sections only: they declare none; the rest of their text is not read'})
+        if unscanned:
+            problems.append({'path': str(folder), 'problem': f'{unscanned} page(s) not looked through: more than {MAX_SCAN_BYTES} bytes of wiki; '
+                                                             'mandatory constraints cannot be established'})
     return found, problems

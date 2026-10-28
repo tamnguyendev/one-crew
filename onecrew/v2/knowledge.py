@@ -22,7 +22,9 @@ candidate goes through, in order:
      weakest delivered source, contested and contradicted entries are leads, and a fact carries the property its evidence proved;
   5. relevance (files and words of the node and the plan) and the character cap, which bounds the WHOLE package: mandatory entries
      are never cut (do not fit -> KnowledgeOverflow, the caller stops before the model), optional ones fill the room, the rest is
-     listed with a cursor. The native adapter gives the package only the room the prompt cap leaves, so optional knowledge never blocks
+     listed with a cursor. A mandatory constraint is never lost to a reading limit (Codex P2-02): a wiki section that declares itself
+     mandatory and cannot be delivered (wiki.parse/pages `undelivered`), or a wiki too large to look through, stops the consumer it
+     may concern before the model (KnowledgeIncomplete); optional pages that cannot be read are reported, never a reason to stop. The native adapter gives the package only the room the prompt cap leaves, so optional knowledge never blocks
      a node that ran before 2.3.
 
 The package is DATA, not authority. `check_use` compares the worker's declaration with the delivery (structural); the node's checks
@@ -78,6 +80,10 @@ FULL_COMMIT = wiki.FULL_COMMIT
 
 class KnowledgeOverflow(LedgerError):
     """Mandatory knowledge does not fit the room: run nothing with partial constraints."""
+
+
+class KnowledgeIncomplete(KnowledgeOverflow):
+    """A mandatory constraint that may concern the consumer cannot be established (undeliverable or not looked through): run nothing."""
 
 
 class KnowledgeNoRoom(LedgerError):
@@ -269,6 +275,20 @@ def _applicability(state, entry, environment):
 
 # ---- candidates ----------------------------------------------------------------------------------------------------------------
 
+def _undelivered(entry, path, reason):
+    return {'path': path, 'line': entry.get('line'), 'id': entry['id'], 'applies_to': list(entry.get('applies_to') or []),
+            'source_paths': [s['path'] for s in entry.get('sources') or [] if s.get('path')], 'reason': reason}
+
+
+def _concerns(item, cons):
+    """Whether an undeliverable mandatory section may concern `cons`: the rule of `mandatory` (must, and it applies to the consumer's
+    files or to no file in particular) with what is known of it; a section citing files the consumer may not read would not reach it."""
+    sources = item.get('source_paths') or []
+    if any(not _readable(cons['paths'], f) for f in sources): return False
+    if not item.get('applies_to'): return True
+    paths = list(item['applies_to']) + list(sources)
+    return any(_covers(a, p) or _covers(p, a) for a in paths for p in cons['paths'])
+
 def ledger_id(key, visibility=None, root=None):
     """The id a ledger subject is known by. A project-visible subject is one per project (`ctx-<key>`); a root's working memory is
     one per root (`ctx-<key>.r<root>`), so the two never stand for each other. Lessons keep their logical id."""
@@ -277,19 +297,28 @@ def ledger_id(key, visibility=None, root=None):
     return 'ctx-' + key
 
 
-def _wiki_candidates(ledger, problems):
-    found, page_problems = wiki.pages(ledger.project)
+def _wiki_candidates(ledger, problems, coverage=None):
+    coverage = coverage if coverage is not None else {}
+    found, page_problems = wiki.pages(ledger.project, coverage=coverage)
     problems += page_problems
     out, seen = [], {}
     for page in found:
         try:
-            parsed = wiki.parse(page['text'], page['path'])
+            parsed = wiki.parse(page['text'], page['path'], mandatory_only=bool(page.get('mandatory_only')))
         except Exception as error:                              # one page never takes the others down (review r1 #4)
-            problems.append({'path': page['path'], 'problem': f'page not read ({type(error).__name__})'}); continue
+            problems.append({'path': page['path'], 'problem': f'page not read ({type(error).__name__})'})
+            if wiki.MUST_TEXT.search(page['text']):                # P2-02: ... but its mandatory sections are not lost silently
+                coverage['undelivered'].append({'path': page['path'], 'line': None, 'id': None, 'applies_to': None, 'source_paths': None,
+                                                'reason': f'the page declares a mandatory section but could not be read ({type(error).__name__})'})
+            continue
         problems += [{'path': page['path'], 'problem': p} for p in parsed['problems']]
+        coverage['undelivered'] += [dict(u, path=page['path']) for u in parsed['undelivered']]
         for entry in parsed['entries']:
             if entry['id'] in seen:
-                problems.append({'path': page['path'], 'problem': f'id {entry["id"]} is already used by {seen[entry["id"]]}; skipped'}); continue
+                problems.append({'path': page['path'], 'problem': f'id {entry["id"]} is already used by {seen[entry["id"]]}; skipped'})
+                if entry['must']:
+                    coverage['undelivered'].append(_undelivered(entry, page['path'], f'its id {entry["id"]} is already used by {seen[entry["id"]]}'))
+                continue
             seen[entry['id']] = page['path']
             out.append({'id': entry['id'], 'origin': {'type': 'wiki', 'path': page['path'], 'sha256': page['sha256'], 'line': entry['line'],
                                                       'external': page['origin'] == 'external'},
@@ -467,7 +496,8 @@ def _decide(ledger, cons, candidates, lifecycle=(), withdrawn_lessons=None, view
         c['_base'] = None
         if c['visibility'] == 'root' and c['root'] != cons['root']: c['_base'] = 'root_private'; continue
         files = [s['path'] for s in c['sources'] if s.get('path')] + list(c['scope_paths'])
-        if any(not _readable(cons['paths'], f) for f in files): c['_base'] = 'source_outside_read_scope'; continue
+        own = cons.get('own_root') and c['origin']['type'] == 'ledger' and c['root'] == cons['root']   # for_root: the root wrote it
+        if not own and any(not _readable(cons['paths'], f) for f in files): c['_base'] = 'source_outside_read_scope'; continue
         c['applicability'] = _applicability(state, c, cons['environment'])
         if c['applicability']['state'] == 'not_applicable': c['_base'] = 'not_applicable'; continue
         usable.add(c['id'])
@@ -609,22 +639,47 @@ def _uncursor(cursor):
 # ---- the package ---------------------------------------------------------------------------------------------------------------
 
 def _collect(ledger, cons, view):
-    problems, lifecycle = [], []
-    candidates = _wiki_candidates(ledger, problems)
+    problems, lifecycle, coverage = [], [], {}
+    candidates = _wiki_candidates(ledger, problems, coverage)
     taken = {c['id'] for c in candidates}
     for c in _ledger_candidates(ledger, problems, lifecycle):
         if c['id'] in taken:
-            problems.append({'path': 'ledger', 'problem': 'a ledger subject has the id of a wiki entry; the ledger entry is skipped'}); continue
+            problems.append({'path': 'ledger', 'problem': 'a ledger subject has the id of a wiki entry; the ledger entry is skipped'})
+            if c['must']: coverage['undelivered'].append(_undelivered(c, 'ledger', 'a wiki entry has the id of this ledger subject'))
+            continue
         taken.add(c['id']); candidates.append(c)
     eligible = _decide(ledger, cons, candidates, lifecycle, _withdrawn_lessons(ledger), view)
-    return candidates, eligible, problems
+    return candidates, eligible, problems, coverage
+
+
+def _established(cons, coverage):
+    """P2-02: raise KnowledgeIncomplete when a mandatory constraint that may concern `cons` cannot be established."""
+    if coverage.get('unscanned'):
+        raise KnowledgeIncomplete(f'Mandatory knowledge cannot be established: {coverage["unscanned"]} wiki page(s) were not looked through '
+                                  f'(more than {wiki.MAX_SCAN_BYTES} bytes of wiki); narrow the wiki folders (.onecrew/config.json "wiki") '
+                                  'and run again; nothing runs with partial constraints.')
+    blocking = [u for u in coverage.get('undelivered') or [] if _concerns(u, cons)]
+    if blocking:
+        named = '; '.join(f'{u["path"]}' + (f':{u["line"]}' if u.get('line') else '') + (f' {u["id"]}' if u.get('id') else '') + f' ({u["reason"]})'
+                          for u in blocking[:5])
+        raise KnowledgeIncomplete(f'Mandatory knowledge cannot be established: {len(blocking)} mandatory section(s) cannot be delivered: '
+                                  f'{named[:900]}; fix the page and run again; nothing runs with partial constraints.')
+
+
+def _coverage_view(coverage):
+    """What the package says about the wiki it could not read whole (nothing when it read every page)."""
+    if not (coverage.get('not_read') or coverage.get('unreadable') or coverage.get('undelivered')): return None
+    return {'complete': False, 'pages': coverage.get('pages', 0), 'not_read': coverage.get('not_read', 0),
+            'unreadable': len(coverage.get('unreadable') or []), 'mandatory_not_delivered': len(coverage.get('undelivered') or [])}
 
 
 def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None, view=None):
     if type(cap_chars) is not int or cap_chars < 0: raise LedgerError('cap_chars: an integer of at least 0.')
     started = time.perf_counter()
-    candidates, eligible, problems = _collect(ledger, cons, view)
+    candidates, eligible, problems, coverage = _collect(ledger, cons, view)
+    _established(cons, coverage)
     revision = _state_hash(cons, candidates)
+    wiki_view = _coverage_view(coverage)
     if expect_revision is not None and expect_revision != revision:
         raise LedgerError('This cursor belongs to an older knowledge state (a page, an entry or the task changed); retrieve the package again.')
     must, optional, rest = _order(eligible)
@@ -651,7 +706,7 @@ def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None
                 'entries': delivered, 'requested': requested_out, 'requests_refused': refused,
                 'omitted': {'total': sum(by_reason.values()), 'by_reason': by_reason, 'index': index[:INDEX_ROWS],
                             'cursor': None if eof else _cursor(revision, position), 'eof': eof},
-                'problems': shown_problems}
+                'problems': shown_problems, **({'wiki': wiki_view} if wiki_view else {})}
 
     skeleton = len(canonical(make([], [], [], max(offset, len(must)) if offset else 0)))
     budget = cap_chars - skeleton - 64                 # the whole package stays under cap_chars (index and problems included)
@@ -813,7 +868,7 @@ def for_native(ledger, store, selector, node, pin, *, view=None, room=None):
     prompt = prompt_view(pkg)
     record.update(delivered=delivered_ids(prompt), omitted_total=pkg['omitted']['total'], omitted_by_reason=pkg['omitted']['by_reason'],
                   problems=pkg['problems'], revision=pkg['revision'], requested=[e['id'] for e in pkg['requested']],
-                  requests_refused=pkg['requests_refused'], cost=pkg['cost'])
+                  requests_refused=pkg['requests_refused'], cost=pkg['cost'], **({'wiki': pkg['wiki']} if pkg.get('wiki') else {}))
     if not record['delivered']:
         return None, record
     text = canonical(prompt)
@@ -997,7 +1052,8 @@ def records(ledger, *, history=False, root=None):
     problems, lifecycle = [], []
     candidates = _ledger_candidates(ledger, problems, lifecycle)
     cons = {'root': root} if root else None
-    status = _lifecycle(candidates, lifecycle, _withdrawn_lessons(ledger), cons, ledger.project_id)
+    withdrawn = _withdrawn_lessons(ledger)
+    status = _lifecycle(candidates, lifecycle, withdrawn, cons, ledger.project_id)
     status.pop('__hidden_superseders__', None)
     newest_life = {}
     for record in sorted(lifecycle, key=lambda r: r['event']):
@@ -1005,6 +1061,17 @@ def records(ledger, *, history=False, root=None):
         if target and _acts_for(record, cons, ledger.project_id): newest_life[target] = record
     by_id = {c['id']: c for c in candidates}
     states = {c['id']: _state_of(status, c) for c in candidates}
+    if root is None:                                   # Codex P2-01: a root's working memory as that root sees it (its own supersession,
+        for owner in sorted({c['root'] for c in candidates if c['visibility'] == 'root' and c['root']}):      # withdrawal, archiving)
+            own = {'root': owner}
+            seen = _lifecycle(candidates, lifecycle, withdrawn, own, ledger.project_id)
+            seen.pop('__hidden_superseders__', None)
+            for c in candidates:
+                if c['visibility'] == 'root' and c['root'] == owner: states[c['id']] = _state_of(seen, c)
+            for record in sorted(lifecycle, key=lambda r: r['event']):
+                target = record.get('withdraws') or record.get('archives')
+                if target in by_id and by_id[target]['visibility'] == 'root' and by_id[target]['root'] == owner and _acts_for(record, own, ledger.project_id):
+                    newest_life[target] = record
     changed = True
     while changed:
         changed = False
@@ -1024,6 +1091,30 @@ def records(ledger, *, history=False, root=None):
                     # r3 R3-3: what an update names as --base: the withdrawal/archive record when it is the subject's newest state
                     'state_version': (newest_life[c['id']]['version'] if c['id'] in newest_life and newest_life[c['id']]['event'] > c['seq']
                                       else c.get('version'))})
+    return out
+
+
+GONE = ('withdrawn', 'archived', 'superseded', 'source_withdrawn')
+
+
+def for_root(ledger, plan):
+    """Codex P2-01: the root's OWN ledger knowledge judged by the same code as a package (`_collect` on the plan consumer), for the
+    readers that show it to an agent continuing that root (the resume pack, `context retrieve`). The root wrote these entries, so the
+    files they cite do not hide them from it; other roots and projects stay out exactly as in a package.
+    id -> {'gone': lifecycle state or None, 'stale': reason or None, 'use': fact|rejected|lead|None, 'knowledge': bool}."""
+    cons = dict(consumer(ledger, plan), own_root=True)
+    candidates = _collect(ledger, cons, None)[0]
+    out = {}
+    for c in candidates:
+        if c['origin']['type'] != 'ledger' or c['root'] != cons['root']: continue
+        excluded, applicability = c.get('excluded'), c.get('applicability') or {'state': None, 'reasons': []}
+        if excluded in GONE: out[c['id']] = {'gone': excluded, 'stale': None, 'use': None}; continue
+        stale = None
+        if excluded == 'not_applicable': stale = 'not applicable now: ' + '; '.join(applicability['reasons'])[:300]
+        elif applicability['state'] == 'recheck': stale = '; '.join(applicability['reasons'])[:300] or 'to recheck'
+        elif c.get('use') == 'lead' and c['label'] in ('verified', 'refuted') and c.get('evidence') is not None:
+            stale = 'cannot be checked now: ' + ('; '.join(applicability['reasons'])[:300] or str(applicability['state']))
+        out[c['id']] = {'gone': None, 'stale': stale, 'use': c.get('use')}
     return out
 
 
@@ -1201,17 +1292,20 @@ def node_of(ledger, plan, node_id):
 
 
 def pages_report(ledger):
-    """Every page with the ids, kinds and labels it yields, and every problem (bad metadata, unreadable pages)."""
-    found, problems = wiki.pages(ledger.project)
+    """Every page with the ids, kinds and labels it yields, and every problem (bad metadata, unreadable pages); `coverage`: what was not
+    read and the mandatory sections that cannot be delivered (P2-02)."""
+    coverage = {}
+    found, problems = wiki.pages(ledger.project, coverage=coverage)
     out = []
     for page in found:
-        parsed = wiki.parse(page['text'], page['path'])
+        parsed = wiki.parse(page['text'], page['path'], mandatory_only=bool(page.get('mandatory_only')))
+        coverage['undelivered'] += [dict(u, path=page['path']) for u in parsed['undelivered']]
         out.append({'path': page['path'], 'origin': page['origin'], 'sha256': page['sha256'], 'bytes': page['bytes'],
                     'entries': [{'id': e['id'], 'title': e['title'], 'kind': e['kind'], 'label': e['label'], 'must': e['must'], 'typed': e['typed'], 'line': e['line']}
                                 for e in parsed['entries']],
                     'problems': parsed['problems']})
         problems += [{'path': page['path'], 'problem': p} for p in parsed['problems']]
-    return {'data_not_authority': True, 'folders': wiki.configured_paths(ledger.project), 'pages': out, 'problems': problems}
+    return {'data_not_authority': True, 'folders': wiki.configured_paths(ledger.project), 'pages': out, 'problems': problems, 'coverage': coverage}
 
 
 def render_text(pkg):

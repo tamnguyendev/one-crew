@@ -87,7 +87,7 @@ Bộ kiểm (bước V7) đã diễn tập: 2.2 đọc sổ do bản này ghi (`
 STEPS = {'A1': 'Bộ kiểm chạy 7 bước từ chính gói: V1 danh tính, V2 cài vào venv mới, V3 nguồn module, V4 task đầu tiên, V5 phản chứng, V6 console cp1252, V7 quay về 2.2 rồi lên lại.',
          'A2': 'Bộ kiểm chạy 8 bước từ chính gói: V1–V7 như A1 và V8 hai root ở hai process (root A công bố điều check đã chứng minh rồi kết thúc; root B mới dùng lại).',
          'B': 'Bộ kiểm chạy 8 bước từ chính gói: V1–V7 như A1 và V9 tiếp quản (controller `engine step` chết thật; `onecrew executor recover` xác nhận dọn; bước sau giữ node, chạy lại đúng 1 lần, không reset ngân sách).',
-         'FINAL': 'Bộ kiểm chạy 9 bước từ chính gói: V1 danh tính, V2 cài vào venv mới, V3 nguồn module, V4 task đầu tiên (A1), V5 phản chứng, V6 console cp1252, V7 quay về 2.2 rồi lên lại, V8 hai root ở hai process (A2), V9 tiếp quản sau khi controller chết (B).'}
+         'FINAL': 'Bộ kiểm chạy 11 bước từ chính gói: V1 danh tính, V2 cài vào venv mới, V3 nguồn module, V4 task đầu tiên (A1), V5 phản chứng, V6 console cp1252, V7 quay về 2.2 rồi lên lại, V8 hai root ở hai process (A2), V9 tiếp quản sau khi controller chết (B), V10 ràng buộc bắt buộc qua giới hạn đọc và trang hỏng (Codex P2-02), V11 gói tiếp tục `onecrew continue` nhất quán với gói tri thức (Codex P2-01).'}
 TRY_A1 = ('- Task đầu tiên chạy được: `examples/first-task/` (trang wiki mẫu, hợp đồng và định nghĩa node mẫu) và `verify/scenario_a1.py` (đúng luồng bộ kiểm chạy).\n'
           '- Cách viết wiki, lệnh `onecrew wiki pages|show|read`, cách đọc receipt: `docs/HUONG-DAN-WIKI.vi.md` §1–5.')
 TRY_A2 = ('- Ghi và quản lý tri thức (A2): worker khai `knowledge.new`; điều check của node chứng minh được công bố cho project. Lệnh `onecrew wiki record|withdraw|archive|summarize|export|history`: '
@@ -125,6 +125,7 @@ def main():
     shutil.copy2(ROOT / 'docs/v23/tools/scenario_a1.py', verify / 'scenario_a1.py')
     if args.milestone in ('A2', 'FINAL'): shutil.copy2(ROOT / 'docs/v23/tools/scenario_a2.py', verify / 'scenario_a2.py')
     if args.milestone in ('B', 'FINAL'): shutil.copy2(ROOT / 'docs/v23/tools/scenario_b.py', verify / 'scenario_b.py')
+    if args.milestone == 'FINAL': shutil.copy2(ROOT / 'docs/v23/tools/scenario_codex.py', verify / 'scenario_codex.py')
     shutil.copy2(ROOT / 'tests/v23_fake_claude.py', verify / 'onecrew_fake_claude.py')
     docs = out / 'docs'; docs.mkdir()
     for path in sorted((ROOT / 'docs/v23').glob('*.md')): shutil.copy2(path, docs / path.name)
