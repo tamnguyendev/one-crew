@@ -4,7 +4,8 @@ A project with one wiki rule ("a.txt must hold VALUE: right"), a plan approved i
 ledger), an engine root with node C (pin claude / claude-haiku-5-5) whose real command check wants "right". engine.step goes through the
 real NativeExecutor -> ClaudeArtifact -> Supervisor -> the `claude` on PATH (the fake test double installed in the verify venv).
 Cases: first | outside_scope (the rule cites a file outside C's read scope) | stale_source (a.txt changed after the rule was recorded)
-| mandatory_over_cap (a mandatory rule longer than the knowledge cap). Writes <work>/result.json."""
+| mandatory_over_cap (a mandatory rule longer than the knowledge cap) | control22 (the same flow, run by a 2.2 install: no knowledge
+fields are read, so the ledger it writes is the rollback control). Writes <work>/result.json."""
 import json
 import os
 import subprocess
@@ -15,7 +16,7 @@ from onecrew.common_executor import NativeExecutor
 from onecrew.common_verification import CandidateChecker
 from onecrew.ledger import Ledger
 from onecrew.snapshots import Snapshots
-from onecrew.v2 import engine, internal_plan, knowledge, plan
+from onecrew.v2 import engine, internal_plan, plan
 
 case, work = sys.argv[1], Path(sys.argv[2])
 root = work / 'project with space'; root.mkdir()
@@ -74,7 +75,9 @@ store = Snapshots(ledger.state_root)
 produced = engine.step(ledger, 'P1', NativeExecutor(ledger))
 runs = len(fake_log.read_text(encoding='utf-8').splitlines()) if fake_log.exists() else 0
 out = {'case': case, 'project': str(root), 'state': str(ledger.state_root), 'fake_runs': runs}
-if produced['state'] == 'produced':
+if case == 'control22':
+    out.update(state=produced['state'])
+elif produced['state'] == 'produced':
     receipt = json.loads(store.read_blob(produced['receipt']))
     record = receipt['knowledge']
     view = json.loads(store.read_blob(record['package'])) if record.get('package') else {'entries': []}

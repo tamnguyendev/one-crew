@@ -10,8 +10,10 @@
                   -> delivered as a lead (recheck), not a fact; (c) a mandatory rule over the cap -> the step stops before any provider
                   process (fake log empty) and the attempt is recorded not-started
   V6 console      the installed onecrew.exe under PYTHONIOENCODING=cp1252, PYTHONUTF8=0: --help exit 0; `wiki pages` prints Vietnamese
-  V7 rollback     the previous wheel (2.2) installed over the ledger written in V4: compat scan blocking 0, plan show works; then
-                  2.3 again: `wiki show` works on the same project/ledger
+  V7 rollback     the previous wheel (2.2) installed over the ledger written in V4: `plan show` and `engine state` work, `compat scan`
+                  has no READ block, and its continue blocks are the same as on a control ledger the 2.2 install writes itself for
+                  the same flow (compat scan judges a return to the binary BEFORE 2.2; an engine root with an active plan is a B1
+                  continue block there whatever wrote it); then 2.3 again: `wiki show` works on the same project/ledger
 Exit 0 when every step passes, 1 otherwise. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
 import base64
 import hashlib
@@ -61,7 +63,8 @@ def run(argv, **kw):
 def main(pkg, work):
     pkg, work = Path(pkg).resolve(), Path(work).resolve()
     work.mkdir(parents=True, exist_ok=True)
-    steps, report = [], {'kind': 'v23-milestone-verify-report', 'package': str(pkg), 'started': time.strftime('%Y-%m-%dT%H:%M:%S'), 'steps': steps}
+    steps = []
+    report = {'kind': 'v23-milestone-verify-report', 'package': str(pkg), 'started': time.strftime('%Y-%m-%dT%H:%M:%S'), 'steps': steps}
     def step(sid, ok, **facts):
         steps.append(dict(id=sid, result='pass' if ok else 'fail', **facts)); print(sid, 'pass' if ok else 'FAIL', flush=True)
         return ok
@@ -132,18 +135,34 @@ def main(pkg, work):
     down = run([py, '-m', 'pip', 'install', '--no-index', '--no-build-isolation', '--force-reinstall', previous])
     old_version = run([py, '-c', 'import importlib.metadata as m; print(m.version("onecrew"))'], text=True).stdout.strip()
     old_env = env_for(work, scripts, PYTHONUTF8='1')
-    scan = run([scripts / 'onecrew.exe', '--project', project, '--state-root', state, 'compat', 'scan', '--json'], cwd=work, env=old_env)
+    def scan(project_dir, state_dir):
+        done = run([scripts / 'onecrew.exe', '--project', project_dir, '--state-root', state_dir, 'compat', 'scan', '--json'], cwd=work, env=old_env)
+        try:
+            value = json.loads(done.stdout.decode('utf-8'))
+            return value['blocking'], sorted({b['id'] for r in value.get('roots', []) for b in r.get('blocks', []) if b.get('type') == 'continue'})
+        except (ValueError, KeyError, TypeError):
+            return None, (done.stdout + done.stderr)[-300:].decode('utf-8', 'replace')
+    blocking, continue_ids = scan(project, state)
     show = run([scripts / 'onecrew.exe', '--project', project, '--state-root', state, 'plan', 'show', 'P1'], cwd=work, env=old_env)
+    engine_state = run([scripts / 'onecrew.exe', '--project', project, '--state-root', state, 'engine', 'state', 'P1'], cwd=work, env=old_env)
+    control_work = work / 'case control22'
+    if control_work.exists(): shutil.rmtree(control_work)
+    control_work.mkdir()
+    run([py, '-I', scenario, 'control22', control_work], cwd=control_work, env=env_for(control_work, scripts, PYTHONUTF8='1'))
     try:
-        blocking = json.loads(scan.stdout.decode('utf-8'))['blocking']['total']
-    except (ValueError, KeyError, TypeError):
-        blocking = None
+        control = json.loads((control_work / 'result.json').read_text(encoding='utf-8'))
+        control_blocking, control_ids = scan(control['project'], control['state'])
+    except (OSError, ValueError, KeyError):
+        control, control_blocking, control_ids = None, None, None
     up = run([py, '-m', 'pip', 'install', '--no-index', '--no-build-isolation', '--force-reinstall', wheel])
     again = run([scripts / 'onecrew.exe', '--project', project, '--state-root', state, 'wiki', 'show', '--plan', 'P1', '--node', 'C'], cwd=work, env=env_for(work, scripts))
-    step('V7-rollback', down.returncode == 0 and old_version == manifest['previous_wheel']['version'] and blocking == 0 and show.returncode == 0
-         and up.returncode == 0 and again.returncode == 0 and b'a-value' in again.stdout,
-         previous_version=old_version, compat_blocking=blocking, plan_show_exit=show.returncode, forward_exit=again.returncode,
-         scan_tail=scan.stdout[-300:].decode('utf-8', 'replace'), show_tail=(show.stdout + show.stderr)[-300:].decode('utf-8', 'replace'))
+    ok = (down.returncode == 0 and old_version == manifest['previous_wheel']['version'] and show.returncode == 0 and engine_state.returncode == 0
+          and isinstance(blocking, dict) and blocking.get('read') == 0 and control is not None and control.get('state') == 'produced'
+          and isinstance(control_blocking, dict) and control_ids == continue_ids and up.returncode == 0 and again.returncode == 0 and b'a-value' in again.stdout)
+    step('V7-rollback', ok, previous_version=old_version, compat_blocking=blocking, continue_blocks=continue_ids,
+         control_compat_blocking=control_blocking, control_continue_blocks=control_ids, control_state=(control or {}).get('state'),
+         plan_show_exit=show.returncode, engine_state_exit=engine_state.returncode, forward_exit=again.returncode,
+         show_tail=(show.stdout + show.stderr)[-200:].decode('utf-8', 'replace'))
     return finish(report, work)
 
 
