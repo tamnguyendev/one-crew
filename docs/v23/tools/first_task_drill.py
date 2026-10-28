@@ -222,10 +222,11 @@ def main():
         if kind == 'owner': facts['substituted'] = False           # the owner's own terminal: the README command ran as written
         if not record(sid, 'run', passed and code == 0, command_text, **facts): return finish()
         if sid == 'venv': report['onecrew_version'] = out.strip().splitlines()[-1] if out.strip() else None
-    probe_env = dict(env)
-    done = subprocess.run(['claude', '--version'], capture_output=True, env=probe_env, timeout=20) if shutil.which('claude', path=env.get('PATH')) else None
-    report['real_provider_probe'] = {'note': 'informational: the claude on this machine WITHOUT the fake, `claude --version` only (no login probe, no model call)',
-                                     'version': done.stdout.decode('utf-8', 'replace').strip() if done else None, 'required': '2.1.286 (Claude Code)'}
+    # informational only: the claude the adapter would find WITHOUT the fake (PATH first, then ~/.local/bin/claude.exe): `--version`, no login probe, no model call
+    real = next((c for c in (shutil.which('claude', path=env.get('PATH')), str(Path.home() / '.local' / 'bin' / 'claude.exe')) if c and Path(c).is_file()), None)
+    done = subprocess.run([real, '--version'], capture_output=True, env=env, timeout=20) if real else None
+    report['real_provider_probe'] = {'note': 'informational: the claude on this machine the adapter would use if the fake were not first on PATH (version only; no login probe, no model call)',
+                                     'path': real, 'version': done.stdout.decode('utf-8', 'replace').strip() if done else None, 'required': '2.1.286 (Claude Code)'}
     return finish()
 
 

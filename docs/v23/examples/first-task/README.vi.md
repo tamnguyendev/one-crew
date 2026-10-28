@@ -2,7 +2,7 @@
 
 Mục tiêu: một node của engine viết `a.txt` theo quy ước ghi trong wiki của project; check `M1` của node kiểm kết quả; receipt của lần chạy cho thấy gói tri thức nào đã được giao cho worker.
 
-Chỉ cần **gói bàn giao** (thư mục có `README.md`, `wheel\`, `verify\`, `examples\`, `docs\`) và Python 3.10+ trên Windows. File này nằm ở `<gói>\examples\first-task\`; mọi đường dẫn tương đối trong file này tính từ thư mục đó và nằm trong gói (hướng dẫn wiki: [`../../docs/HUONG-DAN-WIKI.vi.md`](../../docs/HUONG-DAN-WIKI.vi.md); luồng của bộ kiểm: [`../../verify/scenario_a1.py`](../../verify/scenario_a1.py); README của gói: [`../../README.md`](../../README.md)).
+Chỉ cần **gói bàn giao** (thư mục có `README.md`, `wheel\`, `verify\`, `examples\`, `docs\`) và, trên Windows, Python 3.10+, Git và Windows PowerShell. File này nằm ở `<gói>\examples\first-task\`; mọi đường dẫn tương đối trong file này tính từ thư mục đó và nằm trong gói (hướng dẫn wiki: [`../../docs/HUONG-DAN-WIKI.vi.md`](../../docs/HUONG-DAN-WIKI.vi.md); luồng của bộ kiểm: [`../../verify/scenario_a1.py`](../../verify/scenario_a1.py); README của gói: [`../../README.md`](../../README.md)).
 
 | File trong thư mục này | Là gì |
 |---|---|
@@ -162,12 +162,14 @@ claude --version
 
 Kỳ vọng: `claude` trỏ vào `...\venv\Scripts\claude.exe` và in `2.1.286 (Claude Code)` (số bản mà adapter đòi; bản giả khai đúng số đó).
 
+**Nếu dòng đầu không phải `claude.exe` trong `venv\Scripts` của bạn thì dừng, đừng chạy 6.1.** Adapter tìm `claude` trên PATH rồi mới tới `%USERPROFILE%\.local\bin\claude.exe`; máy có Claude Code thật mà `claude` giả không đứng đầu PATH thì `engine step` gọi model thật qua subscription của bạn.
+
 ### 6B. Với model thật (không nằm trong diễn tập tự động)
 
 Mở **cửa sổ PowerShell mới** (không có `claude` giả trên PATH), làm lại các bước 1–5 với `$work` khác (ví dụ `D:\OneCrewRuns\task dau tien that`), bỏ qua 6A. Adapter (`onecrew\artifact_provider_core.py`) tự kiểm ba điều đầu và chỉ chạy khi cả ba đúng; điều thứ tư là việc của tài khoản. Không có fallback sang API trả phí (biến `ANTHROPIC_*`, `OPENAI_*` bị bỏ khỏi môi trường của worker):
 
 1. Windows, và có lệnh `claude` trên PATH (hoặc `%USERPROFILE%\.local\bin\claude.exe`).
-2. `claude --version` in đúng `2.1.286 (Claude Code)`. Bản khác bị adapter từ chối ("Pinned Windows CLI capability unavailable"); gói này không cài hộ Claude Code, bạn cài đúng bản đó theo cách bạn vẫn cài.
+2. `claude --version` in đúng `2.1.286 (Claude Code)`. Bản khác bị adapter từ chối trước khi chạy bất cứ gì: `engine step` in `"state": "held"` với `"reason": "claude: Pinned Windows CLI capability unavailable."` (mã thoát vẫn 0). Gói này không cài hộ Claude Code, bạn cài đúng bản đó theo cách bạn vẫn cài.
 3. Đăng nhập **subscription** trong terminal: `claude auth login --claudeai`. `claude auth status --json` phải có `"loggedIn": true` và `"authMethod"` là `claude.ai` hoặc `oauth`. Đăng nhập chỉ ở desktop/trình duyệt thì chưa đủ.
 4. Tài khoản dùng được model đã ghim trong `nodes.json`: `claude-haiku-5-5` (adapter không kiểm; đổi `provider`/`model` ở đó là đổi pin, adapter không tự đổi).
 
@@ -235,9 +237,9 @@ Kỳ vọng: cả hai node `verified` / `pass`; `a.txt` trong project vẫn `bas
 |---|---|
 | `wiki pages` có `problems` về revision | chưa thay `HEAD` bằng commit đầy đủ (bước 2) hoặc commit trước khi thay |
 | `owner approve refused: ... AI tool session` | chạy trong phiên AI; chạy ở terminal của chủ sở hữu |
-| `claude` không phải bản `2.1.286` / chưa đăng nhập subscription | điều kiện 2–3 của 6B |
+| `engine step` in `"state": "held"` và `"reason": "claude: ..."` (mã thoát 0) | `claude` không phải bản `2.1.286` hoặc chưa đăng nhập subscription: điều kiện 2–3 của 6B |
 | `engine step` báo node bị giữ vì tri thức bắt buộc | mục `must` quá trần gói; xem `docs\HUONG-DAN-WIKI.vi.md` §3 |
-| `engine step` lần hai trên sổ cũ không như mong đợi | dùng `$work` mới cho mỗi lần thử |
+| `plan propose` báo plan `P1` đã tồn tại | sổ cũ đã có `P1` (làm lại trên cùng `$work`): dùng `$work` mới cho mỗi lần thử |
 
 ## Diễn tập tự động (phần A)
 
