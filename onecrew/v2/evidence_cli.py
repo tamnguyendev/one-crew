@@ -44,7 +44,38 @@ def _parser():
     p.add_argument('--plan', required=True); p.add_argument('--node'); p.add_argument('--cursor', required=True); p.add_argument('--cap', type=int, default=None)
     p.add_argument('--text', action='store_true')
     wk.add_parser('pages', help='Every wiki page of the project with its entries and problems (a lint; nothing is written).')
+    p = wk.add_parser('record', help='2.3-A2: write one knowledge record with its evidence on an OPEN root (the label is the evidence status).')
+    p.add_argument('--plan', required=True); p.add_argument('--kind', required=True); p.add_argument('--text', required=True)
+    p.add_argument('--status', required=True, choices=['observed', 'hypothesis', 'verified', 'refuted'])
+    p.add_argument('--source', action='append', required=True, help='event:<id> | receipt:<key> | file:<path>:<line>@<rev> | symbol:<name>:<path>@<rev> | path:<path>@<rev> (repeat)')
+    p.add_argument('--property', help='what exactly was shown (required with --status verified)')
+    p.add_argument('--applies-to', action='append', default=[]); p.add_argument('--condition', action='append', default=[], help='a JSON condition or plain text (repeat)')
+    p.add_argument('--visibility', default='project', choices=['project', 'root']); p.add_argument('--scope', default='project', choices=['project', 'general'])
+    p.add_argument('--must', action='store_true'); p.add_argument('--key'); p.add_argument('--base', help='the version you read (wiki history), for an update of --key')
+    p.add_argument('--supersedes', action='append', default=[])
+    p = wk.add_parser('withdraw', help='2.3-A2: withdraw a knowledge id from an OPEN root, with a reason and a source; nothing is deleted.')
+    p.add_argument('id'); p.add_argument('--plan', required=True); p.add_argument('--reason', required=True); p.add_argument('--source', action='append', required=True)
+    p = wk.add_parser('archive', help='2.3-A2: archive a knowledge id (not delivered any more; kept with its sources).')
+    p.add_argument('id'); p.add_argument('--plan', required=True); p.add_argument('--reason', required=True)
+    p = wk.add_parser('summarize', help='2.3-A2: a summary of knowledge ids: never stronger than its weakest source, its meaning unverified.')
+    p.add_argument('ids', nargs='+'); p.add_argument('--plan', required=True); p.add_argument('--text', required=True)
+    p = wk.add_parser('export', help='2.3-A2: write the live project knowledge as a derived Markdown page (copies keep their ledger id).')
+    p.add_argument('--out', required=True, type=Path)
+    wk.add_parser('history', help='2.3-A2: every knowledge record with its status (active, withdrawn, archived, superseded, contested).')
     return parser
+
+
+def _sources(values):
+    """--source values -> source dicts; `path:<path>@<rev>` is a whole-file source (the other forms are parse_source's)."""
+    out = []
+    for text in values:
+        if text.startswith('path:'):
+            path, _, revision = text[5:].rpartition('@')
+            if not path: raise ValueError(f'source {text!r}: expected path:<path>@<revision>.')
+            out.append({'type': 'file', 'path': path, 'revision': revision})
+        else:
+            out.append(parse_source(text))
+    return out
 
 
 def parse_source(text):
@@ -80,6 +111,20 @@ def _run(args):
         from . import knowledge
         ledger = _ledger(args, True)
         if args.command == 'pages': return knowledge.pages_report(ledger)
+        if args.command == 'history': return {'data_not_authority': True, 'records': knowledge.records(ledger, history=True)}
+        if args.command in ('record', 'withdraw', 'archive', 'summarize', 'export'):
+            writer = _ledger(args, False)
+            if args.command == 'record':
+                conditions = [json.loads(c) if c.strip().startswith('{') else c for c in args.condition]
+                return knowledge.record(writer, args.plan, kind=args.kind, text=args.text, applies_to=args.applies_to, conditions=conditions,
+                                        must=args.must, visibility=args.visibility, scope=args.scope, key=args.key, base=args.base,
+                                        supersedes=args.supersedes,
+                                        evidence={'status': args.status, 'property': args.property, 'sources': _sources(args.source)})
+            if args.command == 'withdraw':
+                return knowledge.withdraw(writer, args.plan, args.id, reason=args.reason, evidence={'sources': _sources(args.source)})
+            if args.command == 'archive': return knowledge.archive(writer, args.plan, args.id, reason=args.reason)
+            if args.command == 'summarize': return knowledge.summarize(writer, args.plan, args.ids, text=args.text)
+            return knowledge.export(writer, args.out)
         cons = knowledge.consumer(ledger, args.plan, node=knowledge.node_of(ledger, args.plan, args.node) if args.node else None)
         cap = args.cap or knowledge.NATIVE_CAP_CHARS
         pkg = knowledge.package(ledger, cons, cap_chars=cap) if args.command == 'show' else knowledge.read(ledger, cons, args.cursor, cap_chars=cap)

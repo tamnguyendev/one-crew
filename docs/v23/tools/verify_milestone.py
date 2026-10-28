@@ -14,6 +14,9 @@
                   has no READ block, and its continue blocks are the same as on a control ledger the 2.2 install writes itself for
                   the same flow (compat scan judges a return to the binary BEFORE 2.2; an engine root with an active plan is a B1
                   continue block there whatever wrote it); then 2.3 again: `wiki show` works on the same project/ledger
+  V8 two roots    (A2, FINAL) verify/scenario_a2.py in two separate interpreters: root A publishes what its passing check proved while
+                  open, then ends (fixture owner acceptance); a NEW root B in a NEW process receives exactly that entry as a fact and passes;
+                  a root that cannot read the source does not receive it; a write on the ended root is refused; A's budget is unchanged
 Exit 0 when every step passes, 1 otherwise. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
 import base64
 import hashlib
@@ -164,14 +167,42 @@ def main(pkg, work):
          control_compat_blocking=control_blocking, control_continue_blocks=control_ids, control_state=(control or {}).get('step_state'), control_reason=(control or {}).get('reason'),
          plan_show_exit=show.returncode, engine_state_exit=engine_state.returncode, forward_exit=again.returncode,
          show_tail=(show.stdout + show.stderr)[-200:].decode('utf-8', 'replace'))
+    if manifest['milestone'] in ('A2', 'FINAL'):
+        two = work / 'two roots'
+        if two.exists(): shutil.rmtree(two)
+        (two / 'A').mkdir(parents=True); (two / 'B').mkdir()
+        project, state2 = two / 'project', two / 'state'
+        side = {}
+        for name in ('A', 'B'):
+            run([py, '-I', pkg / 'verify' / 'scenario_a2.py', name, two / name, project, state2], cwd=two / name, env=env_for(two / name, scripts))
+            try:
+                side[name] = json.loads((two / name / 'result.json').read_text(encoding='utf-8'))
+            except (OSError, ValueError):
+                side[name] = None
+        a, b = side['A'] or {}, side['B'] or {}
+        published = (a.get('published') or [{}])[0]
+        ok = (a.get('steps') == ['produced', 'pass', 'produced', 'pass'] and len(a.get('published') or []) == 1
+              and (published.get('label'), published.get('visibility')) == ('verified', 'project')
+              and published.get('evidence', {}).get('cause') == 'not_established' and a.get('status_while_published') == 'approved'
+              and a.get('final_status') == 'accepted' and b and b.get('pid') != a.get('pid')
+              and b['b']['verdict'] == 'pass' and [published.get('id'), 'fact', 'verified'] in b['b']['delivered'] and b['b']['used'] == [published.get('id')]
+              and b['narrow']['verdict'] == 'fail' and published.get('id') not in json.dumps(b['narrow']['delivered'])
+              and b['narrow']['omitted'].get('source_outside_read_scope', 0) >= 1 and str(b.get('late_write_on_a', '')).startswith('refused')
+              and b.get('a_status') == 'accepted' and b.get('a_budget') == a.get('budget'))
+        step('V8-two-roots', ok, root_a=a, root_b=b)
     return finish(report, work)
+
+
+EXPECTED = {'A1': 7, 'A2': 8, 'B': 7, 'FINAL': 8}
 
 
 def finish(report, work):
     report['finished'] = time.strftime('%Y-%m-%dT%H:%M:%S')
-    report['result'] = 'pass' if report['steps'] and all(s['result'] == 'pass' for s in report['steps']) and len(report['steps']) == 7 else 'fail'
+    expected = EXPECTED.get((report.get('manifest') or {}).get('milestone'), 7)
+    report['expected_steps'] = expected
+    report['result'] = 'pass' if report['steps'] and all(s['result'] == 'pass' for s in report['steps']) and len(report['steps']) == expected else 'fail'
     (work / 'verify-report.json').write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding='utf-8')
-    print('RESULT', report['result'], f'{sum(s["result"] == "pass" for s in report["steps"])}/7')
+    print('RESULT', report['result'], f'{sum(s["result"] == "pass" for s in report["steps"])}/{expected}')
     return 0 if report['result'] == 'pass' else 1
 
 

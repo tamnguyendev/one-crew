@@ -16,6 +16,7 @@ OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enfo
                   '  continue   read-only resume pack; grants no authority\n'
                   '  context    add / observe / retrieve (project and shared knowledge)\n'
                   '  wiki       show / read / pages (sourced project knowledge chosen for a plan or node; read-only)\n'
+                  '  wiki       record / withdraw / archive / summarize / export / history (knowledge with its evidence, 2.3-A2)\n'
                   '  incident   list / observe / finalize (evidence of errors and repairs)\n'
                   '  lesson     list / record / general / withdraw (project lessons and general candidates)\n'
                   '  issue      localize / map (pinned file and method hypotheses)\n'

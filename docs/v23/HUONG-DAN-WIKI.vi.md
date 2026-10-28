@@ -1,6 +1,6 @@
 # Wiki của project trong OneCrew 2.3 — cách dùng và cách kiểm
 
-Áp dụng cho bản `2.3.0.dev1` trở lên (mốc 2.3-A1). Phần ghi tri thức tự động (A2) và cleanup (B) có ở các bản sau; mục "Giới hạn" ghi rõ bản này làm gì và không làm gì.
+Áp dụng cho bản `2.3.0.dev1` trở lên: đọc/giao (A1) từ dev1, ghi có bằng chứng và dùng lại qua root mới (A2) từ dev2. Mục "Giới hạn" ghi rõ phần không làm.
 
 ## 1. Wiki là gì ở đây
 
@@ -65,10 +65,44 @@ onecrew --project <repo> wiki read --plan <plan> [--node <node>] --cursor <con t
 - Không có wiki và không có mục liên quan: prompt giữ nguyên như 2.2; receipt ghi `knowledge.package: null`.
 - Trang wiki hỏng chỉ làm mục của trang đó không được dùng; node độc lập vẫn chạy và receipt ghi lỗi.
 
-## 6. Giới hạn của bản A1 (2.3.0.dev1)
+## 6. Ghi tri thức có bằng chứng và dùng lại qua root mới (A2, từ 2.3.0.dev2)
 
-- A1 **không ghi** tri thức mới: không tạo/sửa trang wiki hay mục trong sổ. Ghi tri thức có bằng chứng, dùng lại qua root mới, thu hồi qua tóm tắt: mốc A2.
-- Mục của root khác cùng project chỉ được dùng khi đã công bố cho project (lesson, hoặc mục `visibility: project` của A2). Mục `context.entry` cũ của 2.2 coi là ghi chú làm việc của root đó.
+### 6.1 OneCrew tự ghi khi có bằng chứng
+
+- Worker native có thể trả `knowledge.new`: `[{kind, text, applies_to, sources: [file đã đọc], check: <id check của node>}]`. Ngay khi attempt có receipt, mỗi claim được ghi là **quan sát của root đó** (`observed`, `visibility: root`, nguồn = receipt). Claim không bao giờ tự thành sự thật vì đã được nói ra.
+- Khi check của node đạt trong lần verify được công bố, claim nêu đúng check đó được **công bố cho project** (`verified`, `visibility: project`): thuộc tính đã chứng minh = "check X (spec) đạt trên artifact Y", nguồn = receipt verify + receipt attempt + file đã trích (ghim blob), `cause: not_established`. Check đỏ thì không công bố gì.
+- Worker từ chối một mục đã được giao (`knowledge.rejected`) và node đạt: ghi một phát hiện `contradicts` cho project; mục bị phản bác được giao lại dưới dạng `lead` có lý do.
+- Lesson sau sửa đã kiểm (cơ chế 2.2) là tri thức project, dùng được ở root mới.
+- Mọi bản ghi chỉ ghi được khi root còn mở; root đã kết thúc thì bị từ chối (guard của 2.2).
+
+### 6.2 Ghi bằng lệnh
+
+```text
+onecrew wiki record --plan <root đang mở> --kind finding --text "…" --status verified --property "điều đã chứng minh" \
+        --source event:<id> --source path:<file>@<commit> [--applies-to <path>] [--condition '{"type":"file_contains",…}'] \
+        [--visibility project|root] [--scope general --condition "…"] [--key <chủ đề> --base <version đã đọc>]
+onecrew wiki summarize --plan <root> --text "…" <id> [<id> …]
+onecrew wiki withdraw <id> --plan <root đang mở> --reason "…" --source event:<id>
+onecrew wiki archive <id> --plan <root đang mở> --reason "…"
+onecrew wiki export --out docs/wiki/onecrew-export
+onecrew wiki history
+```
+
+- Nhãn là mức bằng chứng: `verified` bắt buộc `--property` và ít nhất một nguồn event/receipt/file:line/symbol; `cause` chỉ "established" khi có nguồn nguyên nhân riêng.
+- **Tóm tắt** (`summarize`) mang `derived_from`, nhãn bằng nguồn yếu nhất, `semantic_verification: unverified`. Bản sao cùng nội dung, cùng nguồn chỉ là một mục (`copies: n`), không tăng độ tin cậy.
+- **Cập nhật đồng thời:** ghi lại một chủ đề (`--key`) kèm `--base` là version đã đọc (`wiki history` → `version`). Nếu chủ đề đã đổi, bản mới được giữ riêng là `contested`; cả hai được giao như `lead` có lý do, không bản nào mất.
+- **Thu hồi / thay thế / lưu trữ** là bản ghi mới trên một root đang mở; không xóa sổ, receipt hay trang. Ở lần truy xuất tiếp: mục bị thu hồi, tóm tắt dẫn từ nó và bản sao wiki mang `ledger_id` của nó đều không được giao; `wiki history` vẫn hiện với trạng thái.
+- **Xuất wiki** là bản dẫn xuất: mỗi mục giữ `ledger_id`; commit bản xuất vào `docs/wiki/` không tạo nguồn thứ hai (mục còn sống được giao một lần từ sổ; mục đã thu hồi không sống lại từ bản sao).
+
+### 6.3 Root mới dùng lại
+
+Root B mới của cùng project (phiên/process mới) tự nhận các mục `visibility: project` và lesson của root khác, qua cùng bộ chọn A1: quyền đọc nguồn của node B, khả năng áp dụng hiện tại, mức liên quan, trần. Không cần chép tay context của root A, không mở lại A, không đụng ngân sách của A. Mục `visibility: root` (bộ nhớ làm việc) của A không sang B. Project khác không thấy.
+
+## 7. Giới hạn
+
+- Bản A1 (2.3.0.dev1) chỉ đọc/giao; phần ghi và dùng lại qua root mới có từ 2.3.0.dev2 (A2).
+- Mục `context.entry` cũ của 2.2 (không có `visibility`) coi là ghi chú làm việc của root đó, không sang root khác.
+- Root đang chạy không nhận cập nhật giữa chừng: thu hồi/sửa có hiệu lực ở lần truy xuất tiếp theo (cập nhật consumer đang chạy là 2.4-B).
 - Chỉ một adapter có bằng chứng giao: worker native. Phiên Claude Code tương tác (hook) đọc được bằng `wiki show`, nhưng không có receipt giao.
 - Kiểm áp dụng là so blob file và điều kiện kiểu; không phải phân tích ngữ nghĩa. File không đổi không chứng minh kết luận còn đúng về hành vi ngoài file đó.
 - Chi phí chọn gói tăng gần tuyến tính theo số mục: trên máy dùng chung, min 0,11 s (100 mục), 0,46 s (~1 200), 0,98 s (~6 000), 2,8 s (~22 000) mỗi lần giao, tối đa tới 12 s khi máy tải nặng (`docs/v23/evidence/ks01-scale-41ad32e.json`). Chưa có chỉ mục riêng; không tuyên bố giảm token/latency.

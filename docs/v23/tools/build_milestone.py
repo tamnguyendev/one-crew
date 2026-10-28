@@ -111,6 +111,7 @@ def main():
     verify = out / 'verify'; verify.mkdir()
     shutil.copy2(ROOT / 'docs/v23/tools/verify_milestone.py', verify / 'verify_milestone.py')
     shutil.copy2(ROOT / 'docs/v23/tools/scenario_a1.py', verify / 'scenario_a1.py')
+    if args.milestone in ('A2', 'FINAL'): shutil.copy2(ROOT / 'docs/v23/tools/scenario_a2.py', verify / 'scenario_a2.py')
     shutil.copy2(ROOT / 'tests/v23_fake_claude.py', verify / 'onecrew_fake_claude.py')
     docs = out / 'docs'; docs.mkdir()
     for path in sorted((ROOT / 'docs/v23').glob('*.md')): shutil.copy2(path, docs / path.name)

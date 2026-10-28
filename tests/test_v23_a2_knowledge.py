@@ -264,3 +264,41 @@ class PermissionTests(A2Fixture):
         plans.propose(foreign, 'Q1', plan_json(), 'codex')
         seen = knowledge.package(foreign, knowledge.consumer(foreign, 'Q1', node=self.item('E', read=('b.txt',))), cap_chars=8000)
         self.assertNotIn('b.txt format rule', json.dumps(seen))
+
+
+class CliTests(A2Fixture):
+    """`onecrew wiki record|history|summarize|withdraw|archive|export` through the v2 router."""
+    ledger_event = RecordingTests.ledger_event
+
+    def run_cli(self, *args):
+        import contextlib, io
+        from onecrew.v2 import cli
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli.main(['--project', str(self.root), '--state-root', str(self.ledger.state_root), *args])
+        return code, out.getvalue()
+
+    def test_record_history_summarize_withdraw_archive_export(self):
+        event = self.ledger_event()
+        code, out = self.run_cli('wiki', 'record', '--plan', 'P1', '--kind', 'finding', '--text', 'a.txt needs VALUE: right', '--status', 'verified',
+                                 '--property', 'check M1 passed', '--source', f'event:{event}', '--source', f'path:a.txt@{self.head}', '--applies-to', 'a.txt')
+        self.assertEqual(code, 0, out); first = json.loads(out)
+        code, out = self.run_cli('wiki', 'summarize', '--plan', 'P1', '--text', 'a.txt: right', first['id'])
+        self.assertEqual(code, 0, out); summary = json.loads(out)
+        code, out = self.run_cli('wiki', 'history')
+        rows = {r['id']: r for r in json.loads(out)['records']}
+        self.assertEqual(rows[summary['id']]['derived_from'], [first['id']])
+        code, out = self.run_cli('wiki', 'withdraw', first['id'], '--plan', 'P1', '--reason', 'wrong word', '--source', f'event:{event}')
+        self.assertEqual(code, 0, out)
+        rows = {r['id']: r for r in json.loads(self.run_cli('wiki', 'history')[1])['records']}
+        self.assertEqual(rows[first['id']]['status'], 'withdrawn'); self.assertEqual(rows[summary['id']]['status'], 'source_withdrawn')
+        code, out = self.run_cli('wiki', 'record', '--plan', 'P1', '--kind', 'note', '--text', 'temporary a.txt note', '--status', 'observed',
+                                 '--source', f'event:{event}', '--applies-to', 'a.txt')
+        note = json.loads(out)
+        self.assertEqual(self.run_cli('wiki', 'archive', note['id'], '--plan', 'P1', '--reason', 'done')[0], 0)
+        rows = {r['id']: r for r in json.loads(self.run_cli('wiki', 'history')[1])['records']}
+        self.assertEqual(rows[note['id']]['status'], 'archived')
+        code, out = self.run_cli('wiki', 'export', '--out', str(Path(self.temp.name) / 'export'))
+        self.assertEqual(code, 0, out); self.assertTrue(json.loads(out)['derived_view'])
+        code, out = self.run_cli('wiki', 'record', '--plan', 'P1', '--kind', 'finding', '--text', 'x', '--status', 'verified', '--source', f'event:{event}')
+        self.assertNotEqual(code, 0)                                  # verified without the property shown is refused
