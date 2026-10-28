@@ -1,0 +1,61 @@
+{
+ "kind": "v23-ks01-scale",
+ "python": "3.13.15",
+ "platform": "win32",
+ "machine_shared": true,
+ "note": "wall time on a shared Windows machine (other sessions running); rows inserted directly; 20% code-bound entries cite 20 files",
+ "rows": [
+  {
+   "ledger_entries_project": 100,
+   "ledger_entries_other_project": 0,
+   "wiki_sections": 0,
+   "seconds_min": 0.1121,
+   "seconds_max": 0.2256,
+   "candidates": 100,
+   "eligible": 80,
+   "delivered": 0,
+   "omitted_total": 100,
+   "context_retrieve_200_new_s": 0.0872,
+   "context_retrieve_200_base_s": 0.099
+  },
+  {
+   "ledger_entries_project": 1000,
+   "ledger_entries_other_project": 1000,
+   "wiki_sections": 200,
+   "seconds_min": 0.4618,
+   "seconds_max": 2.1053,
+   "candidates": 1200,
+   "eligible": 1021,
+   "delivered": 21,
+   "omitted_total": 1179,
+   "context_retrieve_200_new_s": 0.1683,
+   "context_retrieve_200_base_s": 0.1584
+  },
+  {
+   "ledger_entries_project": 5000,
+   "ledger_entries_other_project": 5000,
+   "wiki_sections": 1000,
+   "seconds_min": 0.9798,
+   "seconds_max": 1.3917,
+   "candidates": 6000,
+   "eligible": 5032,
+   "delivered": 38,
+   "omitted_total": 5962,
+   "context_retrieve_200_new_s": 0.254,
+   "context_retrieve_200_base_s": 0.2931
+  },
+  {
+   "ledger_entries_project": 20000,
+   "ledger_entries_other_project": 20000,
+   "wiki_sections": 2000,
+   "seconds_min": 2.7531,
+   "seconds_max": 12.2141,
+   "candidates": 22000,
+   "eligible": 18122,
+   "delivered": 38,
+   "omitted_total": 21962,
+   "context_retrieve_200_new_s": 0.5951,
+   "context_retrieve_200_base_s": 0.7059
+  }
+ ]
+}

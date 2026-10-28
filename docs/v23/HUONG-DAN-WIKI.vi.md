@@ -71,5 +71,5 @@ onecrew --project <repo> wiki read --plan <plan> [--node <node>] --cursor <con t
 - Mục của root khác cùng project chỉ được dùng khi đã công bố cho project (lesson, hoặc mục `visibility: project` của A2). Mục `context.entry` cũ của 2.2 coi là ghi chú làm việc của root đó.
 - Chỉ một adapter có bằng chứng giao: worker native. Phiên Claude Code tương tác (hook) đọc được bằng `wiki show`, nhưng không có receipt giao.
 - Kiểm áp dụng là so blob file và điều kiện kiểu; không phải phân tích ngữ nghĩa. File không đổi không chứng minh kết luận còn đúng về hành vi ngoài file đó.
-- Chi phí chọn gói tăng theo số mục: đo trên máy dùng chung khoảng 0,05 s (100 mục), 0,25 s (~1 200), 0,5 s (~6 000), 1,8 s (~22 000) mỗi lần giao (`docs/v23/evidence/ks01-scale.json`). Chưa có chỉ mục riêng; không tuyên bố giảm token/latency.
+- Chi phí chọn gói tăng gần tuyến tính theo số mục: trên máy dùng chung, min 0,11 s (100 mục), 0,46 s (~1 200), 0,98 s (~6 000), 2,8 s (~22 000) mỗi lần giao, tối đa tới 12 s khi máy tải nặng (`docs/v23/evidence/ks01-scale-41ad32e.json`). Chưa có chỉ mục riêng; không tuyên bố giảm token/latency.
 - Đối chứng wiki: xem `docs/v23/evidence/` — hàng provider giả chỉ chứng minh đường đi và nhãn; hàng Claude thật là một task nhỏ, vài lượt, không có ý nghĩa thống kê.
