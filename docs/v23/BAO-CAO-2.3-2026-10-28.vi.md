@@ -48,7 +48,7 @@ Truy vết requirement → tái dùng → task → testcase → bằng chứng: 
 | A2-R9 đối chứng mở rộng | Đạt có giới hạn | KE-02 `evidence/ke02-4182ee5.json` |
 | A2-R10 guard root đã kết thúc | Đạt | KB-15 |
 | B-R1…R7 dọn/tiếp quản an toàn (thiết kế §7 ca 1–7, 14, 15) | Đạt cho ManagedExecutor và cây process của `engine step`, chỉ Windows | 29 test B (process thật, Job thật), `test_v23_b_installed`; gói V9; review B 4 vòng |
-| PK-R1 gói, kiểm từ wheel thật | xem bản trong checkout (§4.4) | — |
+| PK-R1 gói, kiểm từ wheel thật | Đạt | gói 9/9 từ artifact, diễn tập README 9/9 (§4.4) |
 
 ## 3. Tái dùng v1/2.2 và code mới
 
@@ -102,7 +102,23 @@ Ký tự prompt: không wiki 715; có wiki 2 863–2 927 (gói tri thức 2 135�
 
 ### 4.4 Gói thử, kiểm từ artifact
 
-Xem bản trong checkout.
+Gói `D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev2-final`: dựng từ commit sạch `38981bd` (code giống `bba3da6`) bằng `docs/v23/tools/build_milestone.py --milestone FINAL`; 27 file (26 dòng `SHA256SUMS` + chính nó). Wheel `onecrew-2.3.0.dev2-py3-none-any.whl` SHA256 `68ee776e4262611f2369013b5d1a6ff075503f86ccdb83a41ad5b00f16b846f4`; wheel quay về `wheel/previous/onecrew-2.2.0.dev18-py3-none-any.whl` SHA256 `0346577e…ef9bd2`, giống từng byte gói beta. `manifest.json` → `claims` đều `false` (chưa giao, chưa Codex review, chưa nghiệm thu, chưa phát hành).
+
+**Bộ kiểm từ artifact: 9/9 đạt** (28/10 20:03–20:04; `python -I` của Python 3.13.15, cwd và thư mục làm việc ngoài checkout, đường dẫn có dấu cách, `LOCALAPPDATA` riêng; báo cáo `D:\OneCrewRuns\v23 thu final\verify\verify-report.json`, log `D:\OneCrewRuns\v23\logs\verify-final-38981bd.txt`):
+
+| Bước | Kết quả |
+|---|---|
+| V1 danh tính | 26 file khớp `SHA256SUMS`, không thiếu/thừa; manifest đúng wheel và hash |
+| V2 cài | venv mới (đường dẫn có dấu cách), `pip install --no-index` → `2.3.0.dev2` |
+| V3 nguồn module | `onecrew.v2.knowledge`, `wiki`, executor nạp từ venv, không từ checkout; `--help` có `wiki` |
+| V4 task đầu tiên | `examples/first-task`: engine thật → ClaudeArtifact → Supervisor → process `claude` giả; ràng buộc `a-value` giao là `fact`/`applies`, check thật đạt, receipt niêm phong gói, trang wiki không đổi |
+| V5 phản chứng | nguồn ngoài quyền đọc → không giao, không nêu tên; nguồn đổi → giao `lead`/`recheck`; ràng buộc bắt buộc 22 025 ký tự vượt chỗ trống 14 072 → dừng trước model (`native_preflight`, claude giả 0 lượt) |
+| V6 console cp1252 | `--help` exit 0; `wiki pages` in đúng tiêu đề tiếng Việt |
+| V7 quay về 2.2 | wheel 2.2.0.dev18 cài đè: `plan show`, `engine state` exit 0 trên sổ của V4; `compat scan` không có khối read, khối continue `B1` giống sổ đối chứng do chính 2.2 ghi; lên lại 2.3: `wiki show` chạy |
+| V8 hai root | root A (process 50248) công bố mục `verified`/`project` khi còn `approved`, rồi được nghiệm thu bởi owner fixture; root B mới (process 51740) nhận đúng mục đó là `fact`, khai dùng, check đạt; root hẹp không đọc được nguồn → không nhận (`source_outside_read_scope`), sai; ghi vào root A đã kết thúc bị từ chối; ngân sách A không đổi (2 lượt) |
+| V9 tiếp quản | controller `engine step` cài đặt chết thật (exit 41) khi worker + cháu đang chạy; `onecrew executor recover` cài đặt: `cleanup: confirmed`, không candidate, không replay; attempt settle `supervisor_interrupted`; bước sau giữ node rồi chạy lại 1 lần (generation 1), `budget_reset: false`, tổng 2 lần launch, 2 lượt tính phí |
+
+**Diễn tập README** (các khối PowerShell của `README.md` gần nguyên văn, chỉ đổi tên thư mục; cwd `D:\TamNT\Workspace\9.VMAgent\onecrew` — checkout có sẵn thư mục `onecrew/` và `onecrew.egg-info`; `LOCALAPPDATA`/`APPDATA` riêng; log `D:\OneCrewRuns\v23 drill final\drill.txt`): R1 hash khớp manifest; R2 bộ kiểm 9/9; R3 venv đường dẫn có dấu cách, cài wheel, `--help` không cần `PYTHONUTF8` có `wiki`; R4 quay về `2.2.0.dev18`; R5 lên lại `2.3.0.dev2` — 9/9 bước exit 0.
 
 ### 4.5 Gate snapshot 2.2
 
