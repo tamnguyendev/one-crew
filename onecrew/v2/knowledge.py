@@ -131,9 +131,6 @@ def blob_of(ledger, path, data):
     return command._git(ledger.project, 'hash-object', '--stdin', f'--path={path}', input=data) or None
 
 
-_RECEIPTS_SEEN = set()                 # (state root, key) of receipts known to exist: blobs are content-addressed, they never change
-
-
 class _State:
     """File contents and blobs as the consumer's worker will see them: `view` (path -> text, the native prompt's source) first, the
     project working tree for any other file; ledger events and receipts of this state root for event/receipt sources. Cached."""
@@ -188,12 +185,10 @@ class _State:
         return self.events[(ident, project)]
 
     def receipt_exists(self, key):
-        if (str(self.ledger.state_root), key) in _RECEIPTS_SEEN: return True
-        if key not in self.receipts:
+        if key not in self.receipts:                   # once per package (a cleanup may remove a receipt between packages)
             from ..snapshots import Snapshots
             try:
                 Snapshots(self.ledger.state_root).read_blob(key); self.receipts[key] = True
-                _RECEIPTS_SEEN.add((str(self.ledger.state_root), key))
             except (LedgerError, OSError, ValueError, TypeError):
                 self.receipts[key] = False
         return self.receipts[key]
@@ -325,7 +320,7 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
                 if lifecycle is not None:
                     lifecycle.append({'id': ident, 'withdraws': k.get('withdraws'), 'archives': k.get('archives'), 'reason': k.get('reason'),
                                       'root': root, 'event': e['event'], 'project': p.get('project'), 'scope': e['scope'], 'visibility': visibility,
-                                      'text_sha': k.get('text_sha')})
+                                      'text_sha': k.get('text_sha'), 'version': e['id']})
                 continue
             source = dict(e['source'])
             if source.get('type') in ('file_line', 'symbol') and p.get('revision_ref'): source.setdefault('revision', p['revision_ref'])
@@ -368,11 +363,18 @@ def _lesson_locations(ledger):
 def withdrawn_targets(ledger):
     """id -> seq of the newest withdrawal record of the project (for readers outside this module: lessons.refine_context)."""
     with ledger.transaction() as conn:
-        rows = conn.execute("SELECT e.seq, json_extract(e.payload,'$.knowledge.withdraws') AS target FROM tasks t JOIN events e ON e.task_id=t.id "
+        rows = conn.execute("SELECT e.seq, t.project_id AS project, json_extract(e.payload,'$.scope') AS scope, "
+                            "json_extract(e.payload,'$.knowledge.withdraws') AS target FROM tasks t JOIN events e ON e.task_id=t.id "
                             "WHERE (t.project_id=? OR json_extract(e.payload,'$.scope')='general') AND e.kind='context.entry' "
                             "AND json_extract(e.payload,'$.knowledge.withdraws') IS NOT NULL", (ledger.project_id,)).fetchall() if conn else []
-    out = {}
-    for row in rows: out[row['target']] = max(out.get(row['target'], 0), row['seq'])
+        out = {}
+        for row in rows:
+            if row['project'] != ledger.project_id:    # another project's general withdrawal counts only for its own general entries
+                key = row['target'][len('lesson-'):] if row['target'].startswith('lesson-') else None
+                owner = conn.execute("SELECT t.project_id FROM tasks t JOIN events e ON e.task_id=t.id WHERE e.kind='learning.lesson' "
+                                     "AND json_extract(e.payload,'$.lesson')=? LIMIT 1", (key,)).fetchone() if key else None
+                if owner is None or owner['project_id'] != row['project']: continue
+            out[row['target']] = max(out.get(row['target'], 0), row['seq'])
     return out
 
 
@@ -412,11 +414,16 @@ def _lifecycle(candidates, lifecycle, withdrawn_lessons, cons, project_id, usabl
             status[target] = ('archived', record.get('reason') or '', record['event'], record.get('text_sha'))
     for c in candidates:
         if c['status'] != 'active': status.setdefault(c['id'], (c['status'], 'marked ' + c['status'] + ' in the wiki page', None, None))
+    hidden = {}
     for c in candidates:                               # supersession: by any usable record of the project, whatever its own state (order-free)
         if c['origin']['type'] == 'ledger' and not _acts_for(c, cons, project_id): continue
-        if usable is not None and c['id'] not in usable: continue
+        if usable is not None and c['id'] not in usable:
+            for old in c['supersedes']:                # r3 R3-2: the reader cannot use the newer entry: the old one is a lead, not current
+                if old != c['id']: hidden[old] = 'superseded by an entry outside your read scope or not applicable to you'
+            continue
         for old in c['supersedes']:
             if old != c['id']: status.setdefault(old, ('superseded', 'superseded by ' + c['id'], None, None))
+    status['__hidden_superseders__'] = hidden
     return status
 
 
@@ -465,6 +472,7 @@ def _decide(ledger, cons, candidates, lifecycle=(), withdrawn_lessons=None, view
         if c['applicability']['state'] == 'not_applicable': c['_base'] = 'not_applicable'; continue
         usable.add(c['id'])
     status = _lifecycle(candidates, list(lifecycle), withdrawn_lessons or {}, cons, ledger.project_id, usable)
+    hidden_superseders = status.pop('__hidden_superseders__', {})
     live_ledger = {c['id'] for c in candidates if c['origin']['type'] == 'ledger'}
     contested, contradicted = {}, {}
     for c in candidates:
@@ -472,8 +480,9 @@ def _decide(ledger, cons, candidates, lifecycle=(), withdrawn_lessons=None, view
         if c['conflict_with']:
             contested[c['id']] = 'contested: written from an older version of the same subject'
             for other in c['conflict_with']: contested.setdefault(other, 'contested: a concurrent update of this subject was kept separately')
-        for target in c['contradicts']:
-            contradicted.setdefault(target, 'contradicted by a later observation: ' + c['text'][:120])
+        for target in c['contradicts']:             # r3 R3-1: the text only for a reader who may use the contradiction record itself
+            contradicted.setdefault(target, ('contradicted by a later observation: ' + c['text'][:120]) if c['id'] in usable
+                                    else 'contradicted by a later observation outside your read scope')
     by_id = {c['id']: c for c in candidates}
     for c in candidates:
         c['excluded'] = None
@@ -485,7 +494,7 @@ def _decide(ledger, cons, candidates, lifecycle=(), withdrawn_lessons=None, view
         if own != 'active' or copied != 'active':
             c['excluded'] = own if own != 'active' else copied; continue          # a copy never outlives its source
         if c['_base'] == 'not_applicable': c['excluded'] = 'not_applicable'; continue
-        for reason in (contested.get(c['id']), contradicted.get(c['id'])):
+        for reason in (contested.get(c['id']), contradicted.get(c['id']), hidden_superseders.get(c['id'])):
             if reason:
                 applicability = c['applicability']
                 c['applicability'] = {'state': 'recheck' if applicability['state'] != 'not_applicable' else 'not_applicable',
@@ -989,6 +998,11 @@ def records(ledger, *, history=False, root=None):
     candidates = _ledger_candidates(ledger, problems, lifecycle)
     cons = {'root': root} if root else None
     status = _lifecycle(candidates, lifecycle, _withdrawn_lessons(ledger), cons, ledger.project_id)
+    status.pop('__hidden_superseders__', None)
+    newest_life = {}
+    for record in sorted(lifecycle, key=lambda r: r['event']):
+        target = record.get('withdraws') or record.get('archives')
+        if target and _acts_for(record, cons, ledger.project_id): newest_life[target] = record
     by_id = {c['id']: c for c in candidates}
     states = {c['id']: _state_of(status, c) for c in candidates}
     changed = True
@@ -1006,7 +1020,10 @@ def records(ledger, *, history=False, root=None):
                     'status': state[0], 'status_reason': state[1], 'evidence': c.get('evidence') or {'status': c['label']},
                     'sources': c['sources'], 'derived_from': c['derived_from'], 'supersedes': c['supersedes'], 'applies_to': c['applies_to'],
                     'conditions': c['conditions'], 'must': c['must'], 'conflict_with': c.get('conflict_with') or [], 'root': c['root'],
-                    'project': c['project'], 'event': c['seq'], 'version': c.get('version'), 'scope_paths': c['scope_paths']})
+                    'project': c['project'], 'event': c['seq'], 'version': c.get('version'), 'scope_paths': c['scope_paths'],
+                    # r3 R3-3: what an update names as --base: the withdrawal/archive record when it is the subject's newest state
+                    'state_version': (newest_life[c['id']]['version'] if c['id'] in newest_life and newest_life[c['id']]['event'] > c['seq']
+                                      else c.get('version'))})
     return out
 
 

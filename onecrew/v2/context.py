@@ -202,17 +202,22 @@ def add(ledger, name, *, kind, label, text, source, scope='project', conditions=
         current = newest['id'] if newest else ''
         if current == body['id']:
             return {'recorded': False, 'id': body['id'], 'key': key, 'event': None}
-        if expect_latest is not None and current != expect_latest:
-            raise ContextConflict(f'subject {key} changed since version {expect_latest[:12] or "(none)"}: the newest is {current[:12]}', current)
+        life = None
         if expect_latest is not None and lifecycle_target:
-            # 2.3 review r2 N13: a withdrawal or an archive is a newer state of the subject; an update from a version older than it conflicts
-            life = conn.execute("SELECT MAX(e.seq) AS seq FROM tasks t JOIN events e ON e.task_id=t.id WHERE t.project_id=? AND e.kind='context.entry' "
-                                "AND (json_extract(e.payload,'$.knowledge.withdraws')=? OR json_extract(e.payload,'$.knowledge.archives')=?)",
-                                (ledger.project_id, lifecycle_target, lifecycle_target)).fetchone()['seq']
-            based = conn.execute("SELECT MAX(e.seq) AS seq FROM tasks t JOIN events e ON e.task_id=t.id WHERE t.project_id=? AND e.kind='context.entry' "
-                                 "AND json_extract(e.payload,'$.id')=?", (ledger.project_id, expect_latest)).fetchone()['seq'] if expect_latest else None
-            if life and (based is None or life > based):
-                raise ContextConflict(f'subject {key} was withdrawn or archived after version {expect_latest[:12] or "(none)"}', 'lifecycle')
+            # 2.3 review r2 N13 / r3 R3-3: a withdrawal or an archive is the newest state of the subject when it is newer than its newest version;
+            # an update must be based on that state (its record) — one based on an older version conflicts
+            life = conn.execute("SELECT e.seq, json_extract(e.payload,'$.id') AS id FROM tasks t JOIN events e ON e.task_id=t.id WHERE t.project_id=? "
+                                "AND e.kind='context.entry' AND (json_extract(e.payload,'$.knowledge.withdraws')=? OR json_extract(e.payload,'$.knowledge.archives')=?) "
+                                "ORDER BY e.seq DESC LIMIT 1", (ledger.project_id, lifecycle_target, lifecycle_target)).fetchone()
+            newest_seq = conn.execute("SELECT MAX(e.seq) AS seq FROM tasks t JOIN events e ON e.task_id=t.id WHERE t.project_id=? AND e.kind='context.entry' "
+                                      "AND json_extract(e.payload,'$.id')=?", (ledger.project_id, current)).fetchone()['seq'] if current else None
+            if life is not None and (newest_seq is None or life['seq'] > newest_seq):
+                if expect_latest != life['id']:
+                    raise ContextConflict(f'subject {key} was withdrawn or archived after version {expect_latest[:12] or "(none)"}; base an update on that record', life['id'])
+            else:
+                life = None
+        if expect_latest is not None and life is None and current != expect_latest:
+            raise ContextConflict(f'subject {key} changed since version {expect_latest[:12] or "(none)"}: the newest is {current[:12]}', current)
         state = plans.derive(ledger, conn, selector)
         if require_open and state and state.get('status') in ('accepted', 'stopped_with_report', 'closed'):
             raise LedgerError('Record knowledge before the root ends: this root has ended (' + state['status'] + ').')
