@@ -1,0 +1,21 @@
+{
+  "reason": "first task: node C writes a.txt, node I integrates",
+  "evidence": ["a.txt:1"],
+  "nodes": [
+    {"id": "C", "goal": "Write a.txt with the value the project requires.", "input": [],
+     "output": ["a.txt holds the required value"], "acceptance": ["O1"], "depends": [],
+     "read": ["a.txt"], "write": ["a.txt"], "resources": [],
+     "estimate_seconds": [5, 120], "execution_cap_seconds": 180, "budget_calls": 1,
+     "checks": [{"id": "M1", "spec": "a.txt holds the value the project wiki requires."}],
+     "integration": false,
+     "executor": {"role": "worker", "provider": "claude", "model": "claude-haiku-5-5"}},
+    {"id": "I", "goal": "Integrate: read the result of node C and report that a.txt holds the value the project requires. Write nothing.", "input": [],
+     "output": ["a.txt holds the required value"], "acceptance": ["O1"],
+     "depends": [{"node": "C", "requires": "verified"}],
+     "read": ["a.txt"], "write": [], "resources": [],
+     "estimate_seconds": [5, 120], "execution_cap_seconds": 180, "budget_calls": 1,
+     "checks": [{"id": "M1", "spec": "a.txt holds the value the project wiki requires."}],
+     "integration": true,
+     "executor": {"role": "worker", "provider": "claude", "model": "claude-haiku-5-5"}}
+  ]
+}
