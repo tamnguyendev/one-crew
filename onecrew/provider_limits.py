@@ -36,13 +36,16 @@ def check_event(provider, event):
     if any(exhausted_error(error) for error in errors): raise QuotaExhausted(provider)
 
 
-def check_attempt(provider, attempt):
+def check_attempt(provider, attempt, state_root=None):
     # Supervisor settlement attests process-tree death. Never interpret timeout or
     # reconciliation failure as permission to run another provider concurrently.
     if attempt.get('status') != 'settled': return
     receipt = json.loads(attempt['result'])
     if receipt.get('reason') or receipt.get('exit_code') is None or not receipt.get('stdout'): return
     path = Path(receipt['stdout'])
+    if state_root is not None and attempt.get('id'):   # 2.3-B M6: read the output inside the state root that holds the attempt
+        from .process_core import output_file
+        path = output_file(state_root, attempt['id'], path)
     if path.stat().st_size > 4_000_000: raise LedgerError('Provider response exceeds 4 MB.')
     raw = path.read_text(encoding='utf-8')
     try:

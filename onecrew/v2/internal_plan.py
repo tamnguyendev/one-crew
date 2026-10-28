@@ -3,6 +3,7 @@ import copy
 import datetime as dt
 import json
 import math
+import re
 
 from ..ledger import LedgerError, canonical, content_hash, text_field, utcnow
 from ..snapshots import Snapshots, scope_list
@@ -141,6 +142,11 @@ def _checks(nodes):
     return result
 
 
+# 2.3-B (Q6): an 8.3 alias (up to 6 characters, ~digits, an optional 1-3 character extension) names the same file as its long path;
+# ownership is compared on one spelling only, so the alias form is refused in node scopes. Exclusivity holds per state root.
+SHORT_NAME = re.compile(r'[^~.]{1,6}~[0-9]{1,6}(\.[^.]{1,3})?')
+
+
 def _validate(nodes, outputs):
     if not isinstance(nodes, list) or not 2 <= len(nodes) <= 200:
         raise LedgerError('An internal plan requires 2..200 explicitly ordered nodes including integration.')
@@ -169,6 +175,9 @@ def _validate(nodes, outputs):
         for field in ('read', 'write'):
             if not isinstance(node[field], list): raise LedgerError('Node read/write scopes must be explicit file lists.')
             node[field] = scope_list(node[field]) if node[field] else []
+            if any(SHORT_NAME.fullmatch(part) for path in node[field] for part in path.split('/')):
+                raise LedgerError('A Windows 8.3 short-name component (like LONGNA~1.TXT) is refused in node read/write scopes: name the long '
+                                  'path, so two spellings of one file can never hold two scopes (2.3-B Q6).')
         node['estimate_seconds'] = estimates.interval(node['estimate_seconds'])
         cap = node['execution_cap_seconds']
         exception = node.get('indivisible')
