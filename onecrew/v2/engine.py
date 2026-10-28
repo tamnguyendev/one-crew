@@ -433,6 +433,10 @@ def _takeover(ledger, selector, nid, attempt_id, generation):
         evidence = dict(attempt=attempt_id, cleanup=cleanup['cleanup'], cleanup_evidence=cleanup['evidence'], process_receipt=receipt,
                         **({'trigger': trigger} if trigger else {}))
         if not _publication_current(view, view, nid):
+            if _classify(body, trigger) == 'result_unknown':
+                # review N4: a successful process without a candidate may still be rebuilt (W37b point c) by a caller that can; a
+                # retained record would make that candidate unadoptable for good. It is not released() either: nothing to write.
+                return None
             if not conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='node.result_retained' AND json_extract(payload,'$.attempt')=?",
                                 (view['root'], attempt_id)).fetchone():
                 _retain(ledger, conn, view, nid, 'Cleanup confirmed while the node inputs are held; decided again once they are clear', **evidence)

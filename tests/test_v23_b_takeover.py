@@ -48,6 +48,31 @@ def alive(pid):
     finally: k.CloseHandle(ctypes.c_void_p(handle))
 
 
+class _SessionInfo(ctypes.Structure):
+    _fields_ = [('id', ctypes.c_ulong), ('name', ctypes.c_wchar_p), ('state', ctypes.c_int)]
+
+
+def sessions():
+    """The Windows session ids that exist now (WTSEnumerateSessionsW); the test's own helper so it also runs on older builds."""
+    wts = ctypes.WinDLL('wtsapi32')
+    pointer, count = ctypes.POINTER(_SessionInfo)(), ctypes.c_ulong()
+    if not wts.WTSEnumerateSessionsW(None, 0, 1, ctypes.byref(pointer), ctypes.byref(count)):
+        raise OSError('WTSEnumerateSessionsW failed')
+    try:
+        return sorted(int(pointer[i].id) for i in range(count.value))
+    finally:
+        wts.WTSFreeMemory(pointer)
+
+
+def boot_filetime():
+    """This boot as a FILETIME (100 ns since 1601), the unit of process creation times."""
+    k = ctypes.WinDLL('kernel32')
+    now = ctypes.c_ulonglong()
+    k.GetSystemTimeAsFileTime(ctypes.byref(now))
+    k.GetTickCount64.restype = ctypes.c_ulonglong
+    return now.value - k.GetTickCount64() * 10000
+
+
 def image(pid):
     k = ctypes.WinDLL('kernel32', use_last_error=True)
     k.OpenProcess.restype = ctypes.c_void_p
@@ -555,8 +580,10 @@ class ReviewFindingTests(TakeoverFixture):
         (a1, pids), = self.wait_started(1)
         self.assertTrue(self.wait_dead(pids['worker'], pids['grandchild']))
         token = self.token(a1)
-        with self.ledger.transaction(write=True) as conn:                      # fixture: the controller is recorded in ANOTHER session
-            conn.execute('UPDATE attempts SET identity=? WHERE id=?', (json.dumps(dict(token, session=int(token.get('session', 0)) + 1)), a1))
+        other = [s for s in sessions() if s != token.get('session')]
+        if not other: self.skipTest('no other live Windows session on this machine')
+        with self.ledger.transaction(write=True) as conn:                      # fixture: the controller ran in ANOTHER, still live session
+            conn.execute('UPDATE attempts SET identity=? WHERE id=?', (json.dumps(dict(token, session=other[0])), a1))
         waiting = self.engine.step(self.ledger, 'P1', self.adapter)
         self.assertEqual(waiting['state'], 'waiting', waiting)
         self.assertEqual(self.attempt(a1)['status'], 'running')                # "Local\ name not found here" proves nothing there
@@ -604,6 +631,143 @@ class ReviewFindingTests(TakeoverFixture):
         body = json.loads(row['result'])
         self.assertEqual((body['tree_stopped'], body['job']['exists'], body['trigger']), (True, False, 'stop_requested'))
         self.assertEqual(unknowns(), before, 'no repeated attempt.unknown per escalation')
+
+
+class ReviewRound2Tests(TakeoverFixture):
+    """review-b-r2.md (on c690f3a = d55e4a7): N1 session ended / reboot, N2 token without session, N3 alive worker, N4 result_unknown."""
+
+    def crashed(self, **cfg):
+        code, _, err = self.outcome(self.controller(mode='step', seconds=30, crash_on_start=True, **cfg))
+        self.assertEqual(code, 41, err)
+        (a1, pids), = self.wait_started(1)
+        self.assertTrue(self.wait_dead(pids['worker'], pids['grandchild']))
+        return a1
+
+    def rewrite(self, attempt_id, change):
+        token = self.token(attempt_id)
+        change(token)
+        with self.ledger.transaction(write=True) as conn:                      # fixture only: what another build/session recorded
+            conn.execute('UPDATE attempts SET identity=? WHERE id=?', (json.dumps(token), attempt_id))
+        return token
+
+    def before_boot(self, token):
+        token['supervisor']['created'] = boot_filetime() - 3600 * 10 ** 7        # the controller started an hour before this boot
+
+    def test_n1_job_gone_in_a_session_that_no_longer_exists_is_proof_and_the_lost_owner_is_replayed_once(self):
+        self.single()
+        a1 = self.crashed()
+        gone = max(sessions()) + 7
+        self.rewrite(a1, lambda t: t.update(session=gone))
+        result = self.engine.step(self.ledger, 'P1', self.adapter)
+        self.assertEqual(result['state'], 'produced', result)                  # settled, then Q1: lost owner without trigger -> one replay
+        body = json.loads(self.attempt(a1)['result'])
+        self.assertEqual((self.attempt(a1)['status'], body['reason'], body['job']['proof']), ('settled', 'supervisor_interrupted', 'session_ended'))
+
+    def test_n1_job_gone_after_a_reboot_since_the_controller_started_is_proof(self):
+        self.single()
+        a1 = self.crashed()
+        token = self.token(a1)
+        other = [s for s in sessions() if s != token.get('session')]
+        if not other: self.skipTest('no other live Windows session on this machine')
+        self.rewrite(a1, lambda t: (t.update(session=other[0]), self.before_boot(t)))
+        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'produced')
+        self.assertEqual(json.loads(self.attempt(a1)['result'])['job']['proof'], 'rebooted_since_controller_start')
+
+    def test_n2_a_token_without_session_settles_after_a_reboot_since_the_controller_started(self):
+        self.single()
+        a1 = self.crashed()
+        self.rewrite(a1, lambda t: (t.pop('session', None), t.update(job_name='Local\\OneCrew-' + a1)))   # the 72b1b22 token format
+        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'waiting')   # no session, no reboot: no proof yet
+        self.assertEqual(self.attempt(a1)['status'], 'running')
+        self.rewrite(a1, self.before_boot)
+        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'produced')
+        self.assertEqual(json.loads(self.attempt(a1)['result'])['job']['proof'], 'rebooted_since_controller_start')
+
+    def test_n3_a_recorded_worker_that_is_alive_is_never_proof_of_a_stopped_tree(self):
+        self.single()
+        outsider, who = self.outsider()
+        ctl = self.controller(mode='step', seconds=40)
+        (a1, pids), = self.wait_started(1, proc=ctl)
+        token = self.token(a1)
+        held = process_core.Job.open(token['job_name'])                         # this test keeps the Job alive past its controller
+        self.addCleanup(lambda: held.close() if held.handle else None)
+        ctl.kill(); ctl.wait(timeout=20)
+        held.stop()                                                            # ends the test's own tree; the Job now exists with 0 members
+        self.assertEqual(held.counts().active, 0)
+        self.rewrite(a1, lambda t: t.update(worker=who))                         # fixture: the recorded worker is a process that lives
+        supervisor = Supervisor(self.control)
+        self.assertNotEqual(supervisor.reconcile(a1)['status'], 'settled')       # 0 active members, but the worker lives: no proof
+        self.assertEqual(self.attempt(a1)['status'], 'running')
+        held.close()                                                           # the Job is gone now: still no proof while the worker lives
+        self.assertNotEqual(supervisor.reconcile(a1)['status'], 'settled')
+        self.assertEqual(self.attempt(a1)['status'], 'running')
+        self.rewrite(a1, lambda t: t.update(worker=token['worker']))
+        self.assertEqual(supervisor.reconcile(a1)['status'], 'settled')
+        self.assertIsNone(outsider.poll())
+
+    def test_n4_a_successful_process_without_candidate_is_not_released_while_inputs_are_held_and_is_adopted_later(self):
+        self.single()
+        code, _, err = self.outcome(self.controller(mode='step', seconds=0.2, crash_before_candidate=True))
+        self.assertEqual(code, 42, err)
+        a1 = self.engine.state(self.ledger, 'P1')['nodes']['C']['attempt']
+        body = json.loads(self.attempt(a1)['result'])
+        self.assertEqual((self.attempt(a1)['status'], body['exit_code'], body['reason']), ('settled', 0, None))
+        runtime_unknowns.open_unknown(self.ledger, 'P1', 'late-fact', question='Which input is required?', affected=['C', 'I'],
+                                      required_by=['C'], resolver='doc', evidence=['a.txt:1'])
+        recovery_only = managed_executor.ManagedExecutor(self.ledger, initialize=False)       # a caller that cannot rebuild
+        self.assertEqual(self.engine.step(self.ledger, 'P1', recovery_only)['state'], 'waiting')
+        self.assertEqual([p for p in self.payloads('node.result_retained') if p.get('attempt') == a1], [])   # not released
+        runtime_unknowns.resolve(self.ledger, 'P1', 'late-fact', by='doc', evidence='a.txt:1', answer='Existing text format confirmed')
+        result = self.engine.run_batch(self.ledger, 'P1', self.adapter, slots=1)   # W37b (c): rebuilt from durable outputs, adopted
+        self.assertEqual(result['state'], 'adopted', result)
+        self.assertEqual([(r['state'], r['adopted_after_crash']) for r in result['results']], [('produced', True)])
+        self.assertEqual((self.launches, len(self.operations())), ([], 1))       # no second launch
+
+
+class CrossedScopeTests(TakeoverFixture):
+    def test_t9_a_holds_x_needs_y_b_holds_y_needs_x_both_extensions_refused_and_neither_live_attempt_released(self):
+        """Design §7 case 3 (survey T9, in-process): two live attempts on disjoint scopes; an extension that would give each the other's
+        file is refused while they run (a revise and a new reservation), the cleanup sweep leaves both live attempts alone, and both
+        finish under their original scopes. No hold-and-wait exists: a running attempt can never grow its sealed scope."""
+        import threading
+        self.pair()
+        release, started = threading.Event(), []
+        def body(ledger, control, task, item, attempt):
+            control.launched(attempt['id'], attempt['generation'], {'fixture': True})
+            started.append(item['id'])
+            release.wait(20)
+            result = {'artifact': self.store.blob(('crossed-' + item['id']).encode()), 'receipt': self.store.blob(b'crossed fixture')}
+            control.finish(attempt['id'], attempt['generation'], result)
+            return result
+        outcome = {}
+        worker = threading.Thread(target=lambda: outcome.update(batch=self.engine.run_batch(self.ledger, 'P1', self.isolated(body), slots=2)))
+        worker.start(); self.addCleanup(lambda: (release.set(), worker.join(20)))
+        until = time.monotonic() + 20
+        while len(started) < 2 and time.monotonic() < until: time.sleep(.02)
+        self.assertEqual(sorted(started), ['A', 'B'])
+        live = {n: self.engine.state(self.ledger, 'P1')['nodes'][n]['attempt'] for n in ('A', 'B')}
+        crossed = self.ip.current(self.ledger, 'P1')['definition']['nodes']
+        for item in crossed:
+            if item['id'] == 'A': item['write'] = ['a.txt', 'b.txt']
+            if item['id'] == 'B': item['write'] = ['a.txt', 'b.txt']
+        revision = self.ip.current(self.ledger, 'P1')['internal_revision']
+        with self.assertRaises(LedgerError):
+            self.revise(crossed)                                               # neither may extend into the other's file while both live
+        self.assertEqual(self.ip.current(self.ledger, 'P1')['internal_revision'], revision)
+        child = self.attempt(live['A'])['task_id']
+        with self.assertRaisesRegex(LedgerError, 'budget exhausted|Previous attempt must stop|live writer'):
+            self.control.reserve(child, self.control.status(child)['revision'], 'extend-a', {'unit': 'task:A', 'stage': 'A'})
+        sweep = getattr(self.engine, 'reconcile_orphans', None)                 # 2.3-B; absent in 2.2, where nothing sweeps at all
+        if sweep is not None:
+            swept = sweep(self.ledger, 'P1', self.isolated(body), control=self.control)
+            self.assertTrue(all(row.get('cleanup') == 'pending' and not row.get('state') for row in swept), swept)   # nothing released
+        self.assertEqual({n: self.attempt(a)['status'] for n, a in live.items()}, {'A': 'running', 'B': 'running'})
+        release.set(); worker.join(20)
+        self.assertEqual(sorted((r['node'], r['state']) for r in outcome['batch']['results']), [('A', 'produced'), ('B', 'produced')])
+        view = self.engine.state(self.ledger, 'P1')
+        self.assertEqual({n: (view['nodes'][n]['attempt'], view['nodes'][n]['generation']) for n in ('A', 'B')},
+                         {n: (a, 0) for n, a in live.items()})
+        self.assertEqual(self.engine.state(self.ledger, 'P1')['definition']['nodes'][0]['write'], ['a.txt'])
 
 
 class GraceBoundTests(unittest.TestCase):

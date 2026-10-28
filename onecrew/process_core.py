@@ -57,6 +57,56 @@ def session_id(pid=None):
     return int(sid.value)
 
 
+class SessionInfo(ctypes.Structure):
+    _fields_ = [('id', w.DWORD), ('name', w.LPWSTR), ('state', ctypes.c_int)]
+
+
+def live_sessions():
+    """The ids of the Windows sessions that exist now (WTSEnumerateSessionsW), or None when they cannot be listed."""
+    try:
+        wts = ctypes.WinDLL('wtsapi32', use_last_error=True)
+    except OSError:
+        return None
+    wts.WTSEnumerateSessionsW.argtypes = [w.HANDLE, w.DWORD, w.DWORD, ctypes.POINTER(ctypes.POINTER(SessionInfo)), ctypes.POINTER(w.DWORD)]
+    pointer, count = ctypes.POINTER(SessionInfo)(), w.DWORD()
+    if not wts.WTSEnumerateSessionsW(None, 0, 1, ctypes.byref(pointer), ctypes.byref(count)):
+        return None
+    try:
+        return {int(pointer[i].id) for i in range(count.value)}
+    finally:
+        wts.WTSFreeMemory(pointer)
+
+
+def boot_filetime():
+    """This boot as a FILETIME (100 ns since 1601, the unit of process creation times): now minus the uptime."""
+    api = ctypes.WinDLL('kernel32', use_last_error=True)
+    now = w.FILETIME()
+    api.GetSystemTimeAsFileTime(ctypes.byref(now))
+    api.GetTickCount64.restype = ctypes.c_ulonglong
+    return (now.dwLowDateTime | now.dwHighDateTime << 32) - api.GetTickCount64() * 10_000
+
+
+BOOT_MARGIN = 10 * 10 ** 7      # 10 s in FILETIME units: the boot estimate (now - uptime) is far more precise than this
+
+
+def gone_proof(token):
+    """Review N1/N2: why "the named Job is not found here" proves the controller's tree is gone, or None when it proves nothing.
+    `Local\\` names live per Windows session, so "not found" from another session says nothing - unless that session no longer exists
+    (its whole namespace and every process of it ended) or the machine booted after the controller started (no process survives a
+    reboot). A token without a session (an intermediate 2.3 build) can only use the reboot rule."""
+    recorded = token.get('session')
+    if recorded is not None and recorded == session_id():
+        return 'same_session'
+    created = (token.get('supervisor') or {}).get('created')
+    if type(created) is int and created < boot_filetime() - BOOT_MARGIN:
+        return 'rebooted_since_controller_start'
+    if recorded is not None:
+        live = live_sessions()
+        if live is not None and recorded not in live:
+            return 'session_ended'
+    return None
+
+
 def grace_seconds(cap):
     """max(ESCALATION_GRACE_FLOOR, min(ESCALATION_GRACE_MAX, ESCALATION_GRACE_FRACTION x cap)); the maximum when the cap is unknown."""
     if type(cap) not in (int, float) or cap <= 0:
@@ -395,9 +445,10 @@ class Supervisor:
 
     def _reconcile_job(self, attempt_id, row, token, worker):
         """The controller is dead and the attempt has a named Job (2.3-B). The Job is the proof for the whole tree (Q7):
-        * Job gone - proof only when this process is in the controller's recorded session (`Local\\` names are per session, review F3)
-          and the worker root is not alive; then every member ended with the last handle (KILL_ON_JOB_CLOSE);
-        * Job present with 0 active processes - proof;
+        * Job gone - proof only when `gone_proof` holds (the controller's recorded session is this one, has ended, or the machine booted
+          since the controller started: review F3, N1, N2) and the recorded worker does not probe alive; then every member ended with
+          the last handle (KILL_ON_JOB_CLOSE);
+        * Job present with 0 active processes - proof, unless the recorded worker probes alive (it escaped the Job: review N3);
         * Job present with members (a member or another process keeps a handle) - an orphan tree: terminated here (intent first,
           TerminateJobObject, confirm 0 active), but ONLY when the recorded name is this state root's own Job (review F1);
         anything else stays `unknown` with its reason. Never settled without the proof."""
@@ -410,14 +461,20 @@ class Supervisor:
         if job is None:
             if worker == 'alive':
                 return dict(dead, reason='the worker lives although its named Job is gone; manual reconciliation required')
-            if token.get('session') is None or token.get('session') != session_id():
-                return dict(dead, reason='the controller ran in another Windows session; a Local\\ Job name not found here proves nothing')
+            proof = gone_proof(token)
+            if proof is None:
+                return dict(dead, reason=('no session was recorded and the machine has not rebooted since the controller started; '
+                                          'a Job name not found proves nothing' if token.get('session') is None else
+                                          'the controller ran in another Windows session that still exists; a Local\\ Job name not '
+                                          'found here proves nothing'))
             self.control.finish(attempt_id, row['generation'], {'reason': 'supervisor_interrupted', 'tree_stopped': True,
-                                'job': {'name': name, 'exists': False, 'session': token['session']}})
+                                'job': {'name': name, 'exists': False, 'session': token.get('session'), 'proof': proof}})
             return {'status': 'settled'}
         before, after, failure = None, None, None
         try:
             counts = job.counts()
+            if counts.active == 0 and worker == 'alive':
+                return dict(dead, reason='the Job has no active member but the recorded worker lives outside it; manual reconciliation required')
             if counts.active == 0:
                 after = counts
             elif not owns_job(self.control.ledger.state_root, attempt_id, name):
@@ -499,8 +556,9 @@ class Supervisor:
             if probe(token['worker']) == 'alive':
                 self._unconfirmed(attempt_id, 'process-tree stop unconfirmed: the worker lives although its named Job is gone')
                 return {'status': 'unknown', 'trigger': due['trigger']}
-            result = dict({'reason': 'job_closed', 'tree_stopped': True,
-                           'job': {'name': token['job_name'], 'exists': False, 'session': token['session']}}, **trigger)
+            result = dict({'reason': 'job_closed', 'tree_stopped': True,              # escalation is due only in the recorded session
+                           'job': {'name': token['job_name'], 'exists': False, 'session': token['session'], 'proof': 'same_session'}},
+                          **trigger)
             return dict(self._settle(attempt_id, row['generation'], result), trigger=due['trigger'])
         before, counts, failure = None, None, None
         try:

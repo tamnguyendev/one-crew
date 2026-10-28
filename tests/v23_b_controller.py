@@ -9,7 +9,8 @@ writes `<started>/<attempt>.json` with its own and the grandchild's pid, sleeps 
 
 Config keys: project, state, plan ('P1'), mode ('step' | 'batch' | 'native-step'), target (node id or null), slots (1|2), seconds,
 timeout, ops (file), started (directory), hold_job (bool: the worker opens its own Job by the name the test writes to
-worker-io/<attempt>/holdjob.txt and keeps that handle), crash_on_start (bool: os._exit(41) as soon as a worker of THIS controller started),
+worker-io/<attempt>/holdjob.txt and keeps that handle), crash_before_candidate (bool: os._exit(42) at the managed `candidate`
+checkpoint, after the process settled), crash_on_start (bool: os._exit(41) as soon as a worker of THIS controller started),
 go (optional file: wait for it before calling the engine, so two controllers start together), out (optional file: the JSON result).
 """
 import json
@@ -95,6 +96,12 @@ def main(cfg):
     else:
         adapter = ManagedExecutor(ledger, worker_factory=factory)
     started = Path(cfg['started']); started.mkdir(parents=True, exist_ok=True)
+    if cfg.get('crash_before_candidate'):
+        real = adapter._write
+        def write(attempt_id, phase, **facts):
+            if phase == 'candidate': os._exit(42)            # the process settled exit 0; the controller dies before the candidate checkpoint
+            return real(attempt_id, phase, **facts)
+        adapter._write = write
     if cfg.get('crash_on_start'):
         _crash_when_started(started, set(os.listdir(started)))
     if cfg.get('go'):
