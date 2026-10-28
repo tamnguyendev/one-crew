@@ -137,18 +137,37 @@ def blob_of(ledger, path, data):
     return command._git(ledger.project, 'hash-object', '--stdin', f'--path={path}', input=data) or None
 
 
+class RevisionView:
+    """The files of one commit as a worker view (review r2 R2-01: `context retrieve --revision`): every path is read from that commit,
+    a path the commit does not hold is absent."""
+    def __init__(self, project, commit):
+        self.project, self.commit, self.cache = str(project), commit, {}
+
+    def __contains__(self, path):
+        return True
+
+    def __getitem__(self, path):
+        if path not in self.cache:
+            import subprocess
+            done = subprocess.run(['git', '-C', self.project, 'cat-file', 'blob', f'{self.commit}:{path}'], capture_output=True, timeout=60)
+            self.cache[path] = done.stdout if done.returncode == 0 else None
+        return self.cache[path]
+
+
 class _State:
-    """File contents and blobs as the consumer's worker will see them: `view` (path -> text, the native prompt's source) first, the
-    project working tree for any other file; ledger events and receipts of this state root for event/receipt sources. Cached."""
+    """File contents and blobs as the consumer's worker will see them: `view` (path -> text, the native prompt's source, or a
+    RevisionView) first, the project working tree for any other file; ledger events and receipts of this state root for event/receipt
+    sources. Cached."""
     def __init__(self, ledger, view=None):
-        self.ledger, self.project, self.view = ledger, Path(ledger.project), dict(view or {})
+        self.ledger, self.project = ledger, Path(ledger.project)
+        self.view = view if isinstance(view, RevisionView) else dict(view or {})
         self.texts, self.revisions, self.blobs, self.events, self.receipts = {}, {}, {}, {}, {}
 
     def current(self, path):
         if path not in self.texts:
             if path in self.view:
                 value = self.view[path]
-                self.texts[path] = value.encode('utf-8') if isinstance(value, str) else None
+                self.texts[path] = value.encode('utf-8') if isinstance(value, str) else value if isinstance(value, bytes) else None
             else:
                 try:
                     self.texts[path] = (self.project / path).read_bytes()
@@ -277,7 +296,8 @@ def _applicability(state, entry, environment):
 
 def _section_signature(entry):
     return canonical({k: entry.get(k) for k in ('kind', 'label', 'must', 'status', 'sources', 'conditions', 'applies_to', 'supersedes',
-                                               'derived_from', 'ledger_id')} | {'text': ' '.join(str(entry.get('text', '')).split())})
+                                               'derived_from', 'ledger_id')} | {'text': ' '.join(str(entry.get('text', '')).split()),
+                                                                                 'title': ' '.join(str(entry.get('title') or '').split())})
 
 
 def _undelivered(entry, path, reason):
@@ -322,10 +342,11 @@ def _wiki_candidates(ledger, problems, coverage=None):
         for entry in parsed['entries']:
             if entry['id'] in seen:
                 problems.append({'path': page['path'], 'problem': f'id {entry["id"]} is already used by {seen[entry["id"]][0]}; skipped'})
-                first = seen[entry['id']][1]           # review r1 F6: a copy of the same section, or of a ledger subject, loses nothing
-                if entry['must'] and not entry.get('ledger_id') and _section_signature(entry) != _section_signature(first):
-                    coverage['undelivered'].append(_undelivered(entry, page['path'], f'its id {entry["id"]} is already used by a different '
-                                                                                      f'section in {seen[entry["id"]][0]}'))
+                first = seen[entry['id']][1]           # review r1 F6: a copy of the same section, or of a live ledger subject, loses nothing
+                if entry['must'] and _section_signature(entry) != _section_signature(first):
+                    clash = _undelivered(entry, page['path'], f'its id {entry["id"]} is already used by a different section in {seen[entry["id"]][0]}')
+                    if entry.get('ledger_id'): coverage.setdefault('copies', []).append(dict(clash, ledger_id=entry['ledger_id']))   # R2-03
+                    else: coverage['undelivered'].append(clash)
                 continue
             seen[entry['id']] = (page['path'], entry)
             out.append({'id': entry['id'], 'origin': {'type': 'wiki', 'path': page['path'], 'sha256': page['sha256'], 'line': entry['line'],
@@ -562,7 +583,7 @@ def _decide(ledger, cons, candidates, lifecycle=(), withdrawn_lessons=None, view
     eligible = [c for c in candidates if not c['excluded']]
     groups = {}
     for c in eligible:                                 # copies: the same claim, sources, scope and qualifiers; keep the strongest one
-        signature = (' '.join(c['text'].casefold().split()), c['kind'], c['label'], c['must'], canonical(sorted(c['applies_to'])),
+        signature = (' '.join(c['text'].casefold().split()), ' '.join(c['title'].casefold().split()), c['kind'], c['label'], c['must'], canonical(sorted(c['applies_to'])),
                      canonical(sorted(canonical(s) for s in c['sources'])), canonical(c['conditions']))
         groups.setdefault(signature, []).append(c)
     for twins in groups.values():
@@ -658,6 +679,9 @@ def _read_all(ledger):
             continue
         taken.add(c['id']); candidates.append(c)
     if any(p.get('ledger_unreadable') for p in problems): coverage['ledger_unreadable'] = True
+    ledger_ids = {c['id'] for c in candidates if c['origin']['type'] == 'ledger'}
+    for clash in coverage.pop('copies', []):          # review r2 R2-03: copies of a subject this ledger lacks are the only source
+        if clash['ledger_id'] not in ledger_ids: coverage['undelivered'].append(clash)
     return candidates, lifecycle, problems, coverage, _withdrawn_lessons(ledger)
 
 
@@ -673,10 +697,15 @@ def _collect(ledger, cons, view, memo=None):
     problems = list(problems)
     coverage = dict(coverage, undelivered=list(coverage.get('undelivered') or []))
     eligible = _decide(ledger, cons, candidates, lifecycle, withdrawn, view)
-    ids = {c['id'] for c in candidates}
-    for c in candidates:                               # review r1 F4: a mandatory entry derived from an entry that was not read
-        missing = [d for d in c['derived_from'] if d not in ids]
-        if c['must'] and c.get('excluded') == 'source_not_visible' and missing:
+    by_id = {c['id']: c for c in candidates}
+    def unread(ident, seen=()):                        # review r1 F4 / r2 R2-02: not read, here or further down the derivation
+        if ident not in by_id: return True
+        c = by_id[ident]
+        if ident in seen or c.get('excluded') != 'source_not_visible': return False
+        return any(unread(d, seen + (ident,)) for d in c['derived_from'])
+    for c in candidates:
+        missing = [d for d in c['derived_from'] if unread(d)] if c['must'] and c.get('excluded') == 'source_not_visible' else []
+        if missing:
             coverage['undelivered'].append(_undelivered(c, c['origin'].get('path', 'ledger'), f'it derives from {", ".join(missing[:3])}, '
                                                         'which was not read (malformed, or on a page past the reading budget)'))
     return candidates, eligible, problems, coverage
@@ -701,9 +730,13 @@ def declares_mandatory(ledger):
             base = Path(folder) if Path(folder).is_absolute() else Path(ledger.project) / folder
             if not base.is_dir(): continue
             for file in base.rglob('*.md'):
-                scanned += file.stat().st_size
-                if scanned > wiki.MAX_SCAN_BYTES or wiki._scan_for_must(file): return True
-                if file.stat().st_size <= wiki.MAX_PAGE_BYTES and wiki._declares_must_bytes(file.read_bytes()): return True
+                try:
+                    if not file.is_file(): continue    # review r2 R2-08: a folder named like a page declares nothing
+                    scanned += file.stat().st_size
+                    if scanned > wiki.MAX_SCAN_BYTES: return True
+                    if wiki._scan_for_must(file): return True
+                except OSError:
+                    continue                           # content unknown: reported by the selection, never read as mandatory here
     except Exception:
         return True
     return _ledger_has_must(ledger)
@@ -755,7 +788,7 @@ def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None
     for c in candidates:
         if c['excluded']: by_reason_excluded[c['excluded']] = by_reason_excluded.get(c['excluded'], 0) + 1
     shown_problems = problems[:PROBLEM_ROWS]
-    trimmed_problems = None
+    trimmed_problems, index_rows = None, INDEX_ROWS
 
     def make(delivered, requested_out, refused, position):
         left = ordered[position:]
@@ -770,7 +803,7 @@ def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None
         return {'kind': 'knowledge-package', 'version': VERSION, 'data_not_authority': True, 'notice': NOTICE, 'policy': POLICY,
                 'consumer': {k: cons[k] for k in ('project', 'plan', 'node', 'paths')}, 'revision': revision,
                 'entries': delivered, 'requested': requested_out, 'requests_refused': refused,
-                'omitted': {'total': sum(by_reason.values()), 'by_reason': by_reason, 'index': index[:INDEX_ROWS],
+                'omitted': {'total': sum(by_reason.values()), 'by_reason': by_reason, 'index': index[:index_rows],
                             'cursor': None if eof else _cursor(revision, position), 'eof': eof},
                 'problems': shown_problems, **({'wiki': wiki_view} if wiki_view else {})}
 
@@ -783,8 +816,8 @@ def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None
     if offset == 0:
         rendered = [_render(c, text_chars) for c in must]
         need = sum(len(canonical(r)) + 1 for r in rendered)
-        if must and need > budget and shown_problems:  # review r1 F16: page problems go to the receipt, mandatory knowledge to the worker
-            all_problems, shown_problems = shown_problems, []
+        if must and need > budget and (shown_problems or index_rows):   # review r1 F16 / r2 R2-07: page problems go to the receipt and
+            all_problems, shown_problems, index_rows = shown_problems, [], 0   # the omitted list to the cursor; mandatory knowledge stays
             skeleton = len(canonical(make([], [], [], 0)))
             budget = cap_chars - skeleton - 64
             if need <= budget: trimmed_problems = all_problems
@@ -1176,13 +1209,14 @@ GONE = ('withdrawn', 'archived', 'superseded', 'source_withdrawn')
 LIFECYCLE_REASONS = ('contested', 'contradicted', 'superseded by')
 
 
-def for_root(ledger, plan, *, memo=None, lifecycle_only=False):
+def for_root(ledger, plan, *, memo=None, revision=None):
     """Codex P2-01: the root's OWN ledger knowledge judged by the same code as a package (`_collect` on the plan consumer), for the
     readers that show it to an agent continuing that root (the resume pack, `context retrieve`). `plan`: a selector or the root's task
     id. The root wrote these entries, so the files they cite do not hide them from it; other roots and projects stay out exactly as in a
     package (of another root only the fact that it replaced a subject is told, never its text). A 2.2 entry keeps the 2.2 rule for its
     source (context._stale_reason: the cited line or symbol, review r1 F11); only lifecycle, contest and contradiction act on it.
-    `lifecycle_only` (a reading at another revision, F12): applicability is not judged. `memo`: one reading shared by several roots.
+    `revision` (a commit-ish, `context retrieve --revision`): applicability is judged on that commit's files (review r1 F12, r2 R2-01;
+    the wiki pages themselves are read from the working tree). `memo`: one reading shared by several roots of one command.
     id -> {'gone': lifecycle state or None, 'stale': reason or None, 'use', 'event', 'root'}."""
     if str(plan).startswith('TASK-'):                  # a root named by its task id: its exact selector, never an ambiguous bare name
         with ledger.transaction() as conn:
@@ -1190,7 +1224,8 @@ def for_root(ledger, plan, *, memo=None, lifecycle_only=False):
         if row is None: raise LedgerError(f'No root {plan} in this project.')
         plan = row['request_key']
     cons = dict(consumer(ledger, plan), own_root=True)
-    candidates = _collect(ledger, cons, None, memo)[0]
+    view = RevisionView(ledger.project, context.resolve_revision(ledger.project, revision)) if revision else None
+    candidates = _collect(ledger, cons, view, memo)[0]
     out = {}
     for c in candidates:
         if c['origin']['type'] != 'ledger' or (c['visibility'] == 'root' and c['root'] != cons['root']): continue
@@ -1202,7 +1237,7 @@ def for_root(ledger, plan, *, memo=None, lifecycle_only=False):
                                                                   f'(event {c["seq"]}); `onecrew wiki show` gives what applies now')
             continue
         reasons = applicability['reasons']
-        if c.get('evidence') is None or lifecycle_only:
+        if c.get('evidence') is None:
             reasons = [r for r in reasons if str(r).startswith(LIFECYCLE_REASONS)]
             stale = '; '.join(reasons)[:300] or None
         elif excluded == 'not_applicable': stale = 'not applicable now: ' + '; '.join(reasons)[:300]

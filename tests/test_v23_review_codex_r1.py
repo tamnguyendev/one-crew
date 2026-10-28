@@ -300,7 +300,8 @@ class Probe(A2Fixture):
         with patch.object(knowledge, 'for_root', side_effect=RuntimeError('boom')):
             code, out = self.run_cli('continue', 'P1', '--json')
         self.assertEqual(code, 0, out)
-        self.assertEqual({e['text']: e['label'] for e in json.loads(out)['context']}, {'Keep a.txt short': 'stale'})
+        # review r2 R2-09: a 2.2 entry is judged on lifecycle only, which the fallback still reads: it keeps its label
+        self.assertEqual({e['text']: e['label'] for e in json.loads(out)['context']}, {'Keep a.txt short': 'verified'})
 
     def test_r1_17_context_retrieve_shows_another_root_only_without_plan_as_documented(self):
         self.root_b('P2')
@@ -310,9 +311,9 @@ class Probe(A2Fixture):
         self.assertNotIn('P2 private working note', [e['text'] for e in json.loads(out)['entries']])   # control: with --plan
         code, out = self.run_cli('context', 'retrieve')                                                  # --plan is optional
         self.assertEqual(code, 0, out)
-        # F18 resolved in the guide (HUONG-DAN 6.3): without --plan `context retrieve` is the project-wide listing of 2.2 (every root's
-        # entries, each judged by its own root); with --plan it shows that root only. 2.2 entries carry no visibility, so hiding them here
-        # would change the 2.2 reader.
+        # F18 resolved in the guide (HUONG-DAN 6.3): without --plan `context retrieve` is the project-wide listing for the operator, as in
+        # 2.2 and like `wiki history` (every root's entries, each judged by its own root); an agent continuing a root reads `continue` or
+        # `--plan`, which show that root only.
         self.assertIn('P2 private working note', [e['text'] for e in json.loads(out)['entries']])
 
     def test_r1_15_an_unreadable_ledger_context_is_not_read_as_no_mandatory_record(self):

@@ -360,14 +360,14 @@ def judged(ledger, entries, *, drop_lifecycle=False, revision=None):
     id, review r1 F9; one reading of the wiki and the ledger for all roots, F17), what the knowledge package decides — gone (withdrawn,
     archived, superseded, derived from such) is left out; an entry whose pinned file or source changed, that does not apply now, that
     another root replaced (F7) or (a 2.3 record) that cannot be checked is `stale` with the reason, never `verified`. A general record is
-    judged by the project's lifecycle records (F8). `revision` (a reading at another revision, F12): lifecycle only. When the judgement
-    fails, gone knowledge is still left out and every other knowledge entry is `stale` (F10). Entries that are not knowledge (engine
+    judged by the project's lifecycle records (F8). `revision`: applicability is judged on that commit's files (F12, r2 R2-01). When
+    the judgement fails, gone knowledge is still left out and every other 2.3 record is `stale` (F10); a 2.2 entry keeps its label (R2-09). Entries that are not knowledge (engine
     bookkeeping) are kept as recorded; the payload is dropped."""
     from . import knowledge
     memo, verdicts, failed = {}, {}, {}
     for root in sorted({(e.get('payload') or {}).get('task') or e.get('task') for e in entries if e['scope'] == 'project'} - {None}):
         try:
-            verdicts[root] = knowledge.for_root(ledger, root, memo=memo, lifecycle_only=revision is not None)
+            verdicts[root] = knowledge.for_root(ledger, root, memo=memo, revision=revision)
         except Exception as error:                     # the reader never fails the pack; an unjudged entry is not shown as current
             failed[root] = f'knowledge state not checked ({type(error).__name__}: {str(error)[:120]})'
     status = {}
@@ -394,7 +394,8 @@ def judged(ledger, entries, *, drop_lifecycle=False, revision=None):
             if verdict['root'] != root and verdict['event'] <= entry['event']: reason = None   # this entry is the newest version itself
         elif status.get(ident, 'active') != 'active':
             continue
-        elif root in failed and entry['label'] in ('observed', 'verified', 'refuted'):
+        elif root in failed and extra and entry['label'] in ('observed', 'verified', 'refuted'):   # r2 R2-09: a 2.2 entry is judged on
+                                                                                                    # lifecycle only, and that is known
             reason = failed[root]
         if reason and entry['label'] != 'stale':
             entry.update(label='stale', label_vi=LABEL_VI['stale'], stale_reason=reason)

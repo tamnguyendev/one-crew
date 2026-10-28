@@ -262,7 +262,12 @@ def parse(text, path, mandatory_only=False):
         undelivered.append(_declared(raw, start, reason))
     skipped = 0
     if mandatory_only:                                   # a page past the reading budget: what can act on mandatory knowledge
-        wanted = {d for e in entries if e['must'] for d in e['derived_from']}
+        by_id, wanted = {e['id']: e for e in entries}, set()
+        todo = [d for e in entries if e['must'] for d in e['derived_from']]
+        while todo:                                      # review r2 R2-02: what a mandatory entry derives from, at any depth
+            d = todo.pop()
+            if d in wanted: continue
+            wanted.add(d); todo += by_id[d]['derived_from'] if d in by_id else []
         kept = [e for e in entries if e['must'] or e['supersedes'] or e['id'] in wanted]
         skipped, entries = len(entries) - len(kept), kept
     return {'entries': entries, 'problems': problems, 'undelivered': undelivered, 'skipped': skipped}
@@ -318,6 +323,7 @@ def configured_paths(project, problems=None):
 
 def _decode(data):
     """(text, None) of a UTF-8 page (a BOM is dropped: review r1 F15), else (None, reason)."""
+    if b'\x00' in data: return None, 'not UTF-8 text (NUL bytes: UTF-16?)'   # review r2 R2-06: UTF-16 without a BOM is valid "UTF-8"
     try:
         text = data.decode('utf-8')
     except UnicodeDecodeError:
@@ -343,10 +349,10 @@ def _scan_for_must(path):
     tail = b''
     with open(path, 'rb') as handle:
         while True:
-            chunk = handle.read(SCAN_CHUNK)
+            chunk = handle.read(SCAN_CHUNK)              # an even size: UTF-16 code units stay aligned (review r2 R2-05)
             if not chunk: return False
-            if MUST_BYTES.search(tail + chunk): return True
-            tail = chunk[-64:]
+            if _declares_must_bytes(tail + chunk): return True
+            tail = chunk[-128:]
 
 
 def pages(project, paths=None, coverage=None):
