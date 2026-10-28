@@ -25,6 +25,13 @@ def unfiltered_retrieve():
     return namespace['retrieve']
 
 
+def unfiltered_rows(ledger, conn, scope, task_id=None):
+    """2.3-A1 moved the project filter into SQL too (context._rows, through the project's tasks). The mutant removes BOTH layers, or
+    removing the Python line alone would no longer leak and the counter-example would prove nothing."""
+    return conn.execute("SELECT e.seq, e.created_at, e.payload, e.task_id, t.project_id FROM events e JOIN tasks t ON t.id=e.task_id "
+                        "WHERE e.kind='context.entry' ORDER BY e.seq").fetchall()
+
+
 class ProjectFilterMutantTests(RetrievalBase):
     def mixing_problems(self):
         """The T51b E5/E12 check: P1 gets its own + the general entry and never P2's private one; P2 never gets P1's project entries."""
@@ -44,10 +51,16 @@ class ProjectFilterMutantTests(RetrievalBase):
         self.assertEqual(self.mixing_problems(), [])
 
     def test_e5_counter_without_the_project_filter_the_check_is_red(self):
-        with patch.object(context, 'retrieve', unfiltered_retrieve()):
+        with patch.object(context, 'retrieve', unfiltered_retrieve()), patch.object(context, '_rows', unfiltered_rows):
             problems = self.mixing_problems()
         self.assertIn('P1 received the private entry of P2', problems)
         self.assertTrue(any(p.startswith('project entries shared by P1 and P2') for p in problems), problems)
+
+    def test_e5_each_filter_layer_holds_alone(self):
+        with patch.object(context, 'retrieve', unfiltered_retrieve()):                 # the SQL layer alone
+            self.assertEqual(self.mixing_problems(), [])
+        with patch.object(context, '_rows', unfiltered_rows):                          # the Python line alone
+            self.assertEqual(self.mixing_problems(), [])
 
     def test_e12_the_private_entry_never_enters_the_general_scope(self):
         for ledger in (self.l1, self.l2):
