@@ -17,6 +17,9 @@
   V8 two roots    (A2, FINAL) verify/scenario_a2.py in two separate interpreters: root A publishes what its passing check proved while
                   open, then ends (fixture owner acceptance); a NEW root B in a NEW process receives exactly that entry as a fact and passes;
                   a root that cannot read the source does not receive it; a write on the ended root is refused; A's budget is unchanged
+  V9 takeover     (B, FINAL) verify/scenario_b.py: an installed `engine step` controller really dies while its worker (with a
+                  grandchild) runs; the installed `onecrew executor recover` confirms cleanup (no candidate, no replay); the next step
+                  holds the node with cleanup confirmed, replays once (generation 1), budget not reset (2 calls used), 2 launches in all
 Exit 0 when every step passes, 1 otherwise. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
 import base64
 import hashlib
@@ -190,10 +193,26 @@ def main(pkg, work):
               and b['narrow']['omitted'].get('source_outside_read_scope', 0) >= 1 and str(b.get('late_write_on_a', '')).startswith('refused')
               and b.get('a_status') == 'accepted' and b.get('a_budget') == a.get('budget'))
         step('V8-two-roots', ok, root_a=a, root_b=b)
+    if manifest['milestone'] in ('B', 'FINAL'):
+        bwork = work / 'takeover case'
+        if bwork.exists(): shutil.rmtree(bwork)
+        bwork.mkdir()
+        done = run([py, '-I', pkg / 'verify' / 'scenario_b.py', bwork], cwd=bwork, env=env_for(bwork, scripts))
+        try:
+            b = json.loads((bwork / 'result.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            b = {'error': (done.stdout + done.stderr)[-600:].decode('utf-8', 'replace')}
+        ok = (b.get('child_exit') == 41 and b.get('phase_after_crash') == 'running' and b.get('attempt_after_crash') == 'running'
+              and b.get('recover_exit') == 0 and b.get('recover_cleanup') == 'confirmed' and b.get('recover_candidate') is None
+              and b.get('recover_state') == 'unknown' and b.get('settled_status') == 'settled' and b.get('settled_reason') == 'supervisor_interrupted'
+              and b.get('launches_before_takeover') == 1 and b.get('takeover_state') == 'produced' and b.get('generation') == 1
+              and b.get('launches_total') == 2 and b.get('held') == [[b.get('first_attempt'), 'confirmed', 'executor_interrupted']]
+              and b.get('resumed') == [[b.get('first_attempt'), False]] and b.get('used_calls') == 2)
+        step('V9-takeover', ok, **b)
     return finish(report, work)
 
 
-EXPECTED = {'A1': 7, 'A2': 8, 'B': 7, 'FINAL': 8}
+EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 9}
 
 
 def finish(report, work):
