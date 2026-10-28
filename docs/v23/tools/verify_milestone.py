@@ -63,6 +63,7 @@ def run(argv, **kw):
 def main(pkg, work):
     pkg, work = Path(pkg).resolve(), Path(work).resolve()
     work.mkdir(parents=True, exist_ok=True)
+    os.chdir(work)               # every child starts in the neutral work folder: a checkout or egg-info in the caller's folder never answers
     steps = []
     report = {'kind': 'v23-milestone-verify-report', 'package': str(pkg), 'started': time.strftime('%Y-%m-%dT%H:%M:%S'), 'steps': steps}
     def step(sid, ok, **facts):
@@ -87,9 +88,9 @@ def main(pkg, work):
     if venv.exists(): shutil.rmtree(venv)
     run([sys.executable, '-m', 'venv', venv], check=True)
     py, scripts = venv / 'Scripts' / 'python.exe', venv / 'Scripts'
-    a = run([py, '-m', 'pip', 'install', '--no-index', '--no-build-isolation', wheel])
-    b = run([py, '-m', 'pip', 'install', '--no-index', '--no-build-isolation', fake_wheel(pkg / 'verify' / 'onecrew_fake_claude.py', work)])
-    version = run([py, '-c', 'import importlib.metadata as m; print(m.version("onecrew"))'], text=True).stdout.strip()
+    a = run([py, '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', wheel])
+    b = run([py, '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', fake_wheel(pkg / 'verify' / 'onecrew_fake_claude.py', work)])
+    version = run([py, '-I', '-c', 'import importlib.metadata as m; print(m.version("onecrew"))'], text=True, cwd=work).stdout.strip()   # -I + neutral cwd: an egg-info in the caller's folder must not answer
     if not step('V2-install', a.returncode == 0 and b.returncode == 0 and version == manifest['version'], version=version,
                 pip_tail=(a.stdout + a.stderr)[-300:].decode('utf-8', 'replace')): return finish(report, work)
     # V3
@@ -132,8 +133,8 @@ def main(pkg, work):
     step('V6-console-cp1252', h.returncode == 0 and pages.returncode == 0 and title == 'Giá trị của a.txt', help_exit=h.returncode, pages_exit=pages.returncode, title=title)
     # V7
     state = first.get('state')
-    down = run([py, '-m', 'pip', 'install', '--no-index', '--no-build-isolation', '--force-reinstall', previous])
-    old_version = run([py, '-c', 'import importlib.metadata as m; print(m.version("onecrew"))'], text=True).stdout.strip()
+    down = run([py, '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', '--force-reinstall', previous])
+    old_version = run([py, '-I', '-c', 'import importlib.metadata as m; print(m.version("onecrew"))'], text=True, cwd=work).stdout.strip()
     old_env = env_for(work, scripts, PYTHONUTF8='1')
     def scan(project_dir, state_dir):
         done = run([scripts / 'onecrew.exe', '--project', project_dir, '--state-root', state_dir, 'compat', 'scan', '--json'], cwd=work, env=old_env)
@@ -154,7 +155,7 @@ def main(pkg, work):
         control_blocking, control_ids = scan(control['project'], control['state'])
     except (OSError, ValueError, KeyError):
         control, control_blocking, control_ids = None, None, None
-    up = run([py, '-m', 'pip', 'install', '--no-index', '--no-build-isolation', '--force-reinstall', wheel])
+    up = run([py, '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', '--force-reinstall', wheel])
     again = run([scripts / 'onecrew.exe', '--project', project, '--state-root', state, 'wiki', 'show', '--plan', 'P1', '--node', 'C'], cwd=work, env=env_for(work, scripts))
     ok = (down.returncode == 0 and old_version == manifest['previous_wheel']['version'] and show.returncode == 0 and engine_state.returncode == 0
           and isinstance(blocking, dict) and blocking.get('read') == 0 and control is not None and control.get('step_state') == 'produced'

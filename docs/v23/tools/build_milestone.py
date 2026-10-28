@@ -58,7 +58,7 @@ Bộ kiểm chạy 7 bước từ chính gói (danh tính, cài vào venv mới,
 ## 2. Cài và dùng thử
 
 ```powershell
-$venv = "D:\\OneCrewRuns\\v23 thu {milestone_lower}\\venv"; & $py -m venv $venv; & "$venv\\Scripts\\python.exe" -m pip install --no-index --no-build-isolation "$pkg\\wheel\\{wheel}"; & "$venv\\Scripts\\onecrew.exe" --help
+$venv = "D:\\OneCrewRuns\\v23 thu {milestone_lower}\\venv"; & $py -m venv $venv; & "$venv\\Scripts\\python.exe" -I -m pip install --no-index --no-build-isolation "$pkg\\wheel\\{wheel}"; & "$venv\\Scripts\\onecrew.exe" --help
 ```
 
 Dùng trên một **bản sao** project (không dùng sổ đang chạy việc thật). Với project đã `onecrew init` bằng bản 2.2, chỉ cần cài wheel này vào venv thử; `init` mới ghi `%LOCALAPPDATA%\\OneCrew\\hook-projects.json` của người chạy.
@@ -70,11 +70,11 @@ Dùng trên một **bản sao** project (không dùng sổ đang chạy việc t
 ## 3. Quay về 2.2 và lên lại
 
 ```powershell
-& "$venv\\Scripts\\python.exe" -m pip install --no-index --no-build-isolation --force-reinstall "$pkg\\wheel\\previous\\{previous}"; $env:PYTHONUTF8 = "1"; & "$venv\\Scripts\\onecrew.exe" --help
+& "$venv\\Scripts\\python.exe" -I -m pip install --no-index --no-build-isolation --force-reinstall "$pkg\\wheel\\previous\\{previous}"; $env:PYTHONUTF8 = "1"; & "$venv\\Scripts\\onecrew.exe" --help
 ```
 
 ```powershell
-& "$venv\\Scripts\\python.exe" -m pip install --no-index --no-build-isolation --force-reinstall "$pkg\\wheel\\{wheel}"; Remove-Item Env:PYTHONUTF8 -ErrorAction SilentlyContinue; & "$venv\\Scripts\\onecrew.exe" --help
+& "$venv\\Scripts\\python.exe" -I -m pip install --no-index --no-build-isolation --force-reinstall "$pkg\\wheel\\{wheel}"; Remove-Item Env:PYTHONUTF8 -ErrorAction SilentlyContinue; & "$venv\\Scripts\\onecrew.exe" --help
 ```
 
 Bộ kiểm (bước V7) đã diễn tập: sổ do bản này ghi được 2.2 đọc (`compat scan` blocking 0, `plan show` chạy), rồi lên lại bản này dùng tiếp. Không mặc định mọi sổ 2.3 đọc được bởi 2.2 ngoài phạm vi đã diễn tập; với sổ thật hãy chạy `compat scan` trên bản sao trước.
