@@ -2,6 +2,8 @@
 
 Người viết: Claude (Opus 5.5), đầu mối triển khai 2.3, 28/10/2026. Đây là **tự kiểm của tác giả cộng review độc lập bằng agent**, chưa phải Codex review, chưa nghiệm thu. Roadmap chung không bị sửa; 2.3 không cộng vào 92 task beta; không push/tag/publish.
 
+**Đã có bản sau:** gói `2.3.0.dev2` này là mốc Codex review ngày 28/10 (3 finding P2); bản sửa và gói `2.3.0.dev3`: [BAO-CAO-2.3-DEV3-2026-10-29](BAO-CAO-2.3-DEV3-2026-10-29.vi.md). Nội dung dưới đây giữ nguyên như lúc giao dev2.
+
 **Bản nào:** bản trong `docs/` của gói là bản lúc dựng gói. Kết quả kiểm gói từ artifact và gate (§4.4, §4.5) chỉ có ở bản trong checkout, commit sau khi kiểm: gói không tự chứng nhận chính nó.
 
 | | |

@@ -48,6 +48,8 @@ Không tạo memory store, ledger, router, scheduler hay engine thứ hai. Wiki 
 
 Cột "Bằng chứng" là lượt chạy trên code cuối `bba3da6` (số đo trên `4182ee5`, cùng code): log 2.3 = `D:\OneCrewRuns\v23\logs\final-bba3da6-v23.txt` (mọi module `tests/test_v23_*` + `test_g1_core` + `test_wf_r7_t51b` + `test_wf_r03a_executors`: 154/154); số đo trong `docs/v23/evidence/` mang id commit.
 
+Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8421d` (gói `2.3.0.dev3`). Bảng dưới giữ bằng chứng của bản dev2; bằng chứng bổ sung cho A1-R3, A1-R4, A1-R9, A1-R10, A2-R5, A2-R6, A2-R8 và PK-R1 nằm ở §7, kết quả gói và gate ở `BAO-CAO-2.3-DEV3-2026-10-29.vi.md`.
+
 | Req | Yêu cầu (rút gọn từ chỉ thị + thiết kế) | Tái dùng | Task | Testcase / phản chứng | Bằng chứng |
 |---|---|---|---|---|---|
 | A1-R1 | Truy xuất có nguồn theo task, revision | context.retrieve, snapshots | T23-A1-1 | KA-01 nguồn/revision/blob trên mọi mục; KA-02 trang wiki đổi → revision mới | KA-01, KA-02 (`test_v23_a1_knowledge`) — log 2.3; gói V4 (receipt niêm phong gói) |
@@ -88,6 +90,10 @@ Cột "Bằng chứng" là lượt chạy trên code cuối `bba3da6` (số đo 
 | T23-A2-1…5 | Ghi có bằng chứng, tóm tắt, đồng thời, thu hồi, vòng đời, ca 2 root | A1 | 7 h | xong `eb13cba` 15:38 … `e7a2aa9` 16:15; 4 vòng review đến `9307ade` 18:21; ~3 h |
 | T23-B-* | Theo khảo sát | T23-0 | 6–8 h | agent riêng (worktree `wf-v23-b`): `72b1b22` 17:39, 4 vòng review đến `3c393d0` 19:29; ~5 h |
 | T23-PK-F | Gói cuối 2.3, hồi quy, kiểm từ artifact, báo cáo | tất cả | 4 h | đo lại 19:42–19:54; gói, kiểm từ artifact, gate: BAO-CAO-2.3 §4 |
+| T23-CX-1 | P2-01: gói tiếp tục, `context retrieve`, `wiki history` dùng cùng quyết định với gói tri thức | T23-PK-F | 2 h | `581fbca` 22:3x; vòng review sửa đến `6a8421d` |
+| T23-CX-2 | P2-02: ràng buộc bắt buộc không mất vì giới hạn đọc, thứ tự tên, trang hỏng; giữ node trước model khi không xác lập được | T23-PK-F | 3 h | `581fbca`; review r1 18 điểm → `989eb9c`, r2 10 → `522a6c9`, r3 3 → `6a8421d` |
+| T23-CX-3 | P2-03: task đầu tiên chạy được chỉ với gói (hợp đồng/node mẫu, lệnh, đường dẫn, diễn tập từ gói) | T23-PK-F | 2 h | agent riêng (worktree `wf-v23-ft`): `263cd3b`; gộp `ff8452b` |
+| T23-PK-F3 | Gói `2.3.0.dev3`: hồi quy, kiểm từ artifact (11 bước), diễn tập README + task đầu tiên, gate snapshot 2.2 | T23-CX-* | 4 h | BAO-CAO-2.3-DEV3 |
 
 ## 6. Nhật ký tiến độ
 
@@ -98,3 +104,27 @@ Cột "Bằng chứng" là lượt chạy trên code cuối `bba3da6` (số đo 
 | 28/10 16:37–18:21 | review độc lập A1/A2 bốn vòng: 22 → 7 → 3 → 0 phát hiện P1/P2 (vòng 1 tổng 33 kể cả P3) | `a9b1d1d`, `8709bfa`, `1db1507`, `9307ade` |
 | 28/10 17:39–19:29 | 2.3-B và bốn vòng review B: 3 → 1 → 0 → 0 phát hiện P1/P2 | `72b1b22`, `d55e4a7`, `f38d118`, `3c393d0`; gộp `bba3da6` |
 | 28/10 19:42–19:54 | đo lại KS-01, KE-01, KE-02 trên code cuối (16 lượt Claude thật) | `4182ee5` |
+| 28/10 ~21:45 | Codex review gói `2.3.0.dev2` (`38981bd`): 3 finding P2 (P2-01…P2-03); verifier của Codex 9/9 từ gói | `D:\OneCrewRuns\codex-v23-review-20261028` |
+| 28/10 22:04–22:30 | testcase đỏ cho P2-01/P2-02 trên `38981bd` (9/12 fail, 3 đối chứng đạt); sửa | `581fbca` |
+| 28/10 ~23:00 | dừng gate baseline trên `38981bd` ở 155/286 (đều pass, không có decision; không tính là đạt) | `logs\gate-38981bd-stopped.txt` |
+| 28/10 23:00–29/10 00:40 | ba vòng review độc lập bản sửa: 18 → 10 → 3 điểm (P1 0; P2 11 → 3 → 0) | `989eb9c`, `522a6c9`, `6a8421d` |
+
+## 7. Review Codex 28/10 và sửa
+
+Nguồn finding: chỉ thị người dùng đêm 28/10 (dán trong phiên), bằng chứng của Codex ở `D:\OneCrewRuns\codex-v23-review-20261028` (`installed-continue-probe.json`, `knowledge-probes.json`, `artifact\verify-report.json`). Kết quả 9/9 của Codex chỉ chứng minh các ca đã chạy, không khép các phản chứng này.
+
+| Finding | Requirement chạm | Sửa (code) | Testcase đỏ trước → xanh sau | Bằng chứng từ gói |
+|---|---|---|---|---|
+| P2-01 gói tiếp tục đưa tri thức cũ ra như đã xác minh | A1-R4, A2-R5, A2-R6, A2-R8 | `context.for_pack`/`judged`, `knowledge.for_root` (cùng `_collect`/`_decide` với gói), `records` theo vòng đời của root, `context retrieve` theo root/commit | `tests/test_v23_codex_review` (Continue, ContinueCli): đỏ trên `38981bd` (log `D:\OneCrewRuns\v23\logs\codex-red-38981bd.txt`), xanh sau | V11 (`verify/scenario_codex.py continue`, CLI cài từ wheel) |
+| P2-02 giới hạn số trang làm mất ràng buộc `must` | A1-R3, A1-R9, A1-R6 | `wiki.pages/parse` dò mọi trang, `undelivered`; `knowledge._established` (KnowledgeIncomplete), `declares_mandatory`, đo trang | `tests/test_v23_codex_review` (Mandatory): đỏ 6/8 trên `38981bd`, xanh sau; KS-01 chuỗi số trang | V10 (`scenario_codex.py beyond_pages / undeliverable / optional_broken`, đường dispatch thật, claude giả) |
+| P2-03 task đầu tiên chưa tự chạy được từ gói | A1-R10, PK-R1 | `docs/v23/examples/first-task/` (contract.json, nodes.json, fake-policy.json, README), `tools/first_task_drill.py` | đỏ: README cũ từ gói dev2 dừng ở bước đường dẫn (`D:\OneCrewRuns\v23\p2-03\red`); xanh: diễn tập 23/23 (`D:\OneCrewRuns\v23\p2-03\drill run 2`) | diễn tập trên gói cuối (BAO-CAO-2.3-DEV3) |
+
+Review độc lập bản sửa (agent Opus 5.5, probe ghi thành test, chạy đối chứng trên bản trước):
+
+| Vòng | Trên | Kết quả | Sửa | Probe |
+|---|---|---|---|---|
+| r1 | `581fbca` | 18 điểm: 11 P2, 7 P3, 0 P1; 6 do chính bản sửa gây ra | `989eb9c` (+ hướng dẫn `930bcf0`) | `tests/test_v23_review_codex_r1.py` 23/25 fail trước → 25/25 |
+| r2 | `989eb9c` | 10 điểm: 3 P2, 7 P3; 4 do r1 gây ra | `522a6c9` | `tests/test_v23_review_codex_r2.py` 11/14 fail trước → 14/14 |
+| r3 | `522a6c9` | 3 P3, 0 P1/P2; cả 3 do r2 gây ra | `6a8421d` | `tests/test_v23_review_codex_r3.py` 3/4 fail trước → 4/4 |
+
+Báo cáo review: `D:\OneCrewRuns\v23\review-codex-r1.md`, `-r2.md`, `-r3.md`. Quyết định thiết kế đã chốt qua các vòng: ràng buộc bắt buộc đã biết mà không giao được, hoặc vượt giới hạn dò, thì giữ node trước model; lỗi làm không biết nội dung (thư mục cấu hình mất, config hỏng, trang không đọc được) thì báo trong gói/receipt, không chặn task độc lập; lỗi bất ngờ của lớp chọn chỉ giữ node khi project có khai báo tri thức bắt buộc. Hai probe được chỉnh có ghi lý do: r1-17 (không có `--plan`, `context retrieve` là danh sách cấp project như 2.2 và `wiki history`), r1-c2 (mục 2.2 giữ nhãn khi bước xét lỗi, theo R2-09); KB-06 và R2-04b cùng đạt (tiêu đề chỉ tính vào chữ ký bản sao với mục bắt buộc).
