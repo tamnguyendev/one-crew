@@ -606,6 +606,12 @@ def verify(ledger, selector, nid, checker):
                                     f'{len(configured)} check(s) passed on artifact {artifact[:12]}.'})
         except LedgerError:
             pass
+        # 2.3-A2: the claims this check proved become project knowledge now, while the root is open (knowledge.after_verification)
+        from . import knowledge
+        try:
+            knowledge.after_verification(ledger, root['selector'], nid, view['nodes'][nid].get('receipt'), receipt, body, item['checks'])
+        except (LedgerError, OSError, ValueError, KeyError, TypeError):
+            pass
     if not publish:
         raise LedgerError('The root or node changed while its checker ran; evidence was retained without verification.')
     if 'finding-register' in view['capabilities'] and body['result'] in ('pass', 'fail'):

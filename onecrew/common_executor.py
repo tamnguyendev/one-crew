@@ -222,6 +222,13 @@ class NativeExecutor(executors.Executor):
                 **({'prompt_chars': prepared['prompt_chars'], 'producer_chars': prepared['producer_chars']} if prepared.get('prompt_chars') is not None else {})}
         receipt = store.blob(canonical(body).encode('utf-8'))
         binding = ledger.task(task['id'], full=True)['handoff']['plan_binding']
+        if declared and declared.get('new') and not rebuilt_from:
+            # 2.3-A2: what the worker found is kept the moment its receipt exists, as an observation of this root (never verified by
+            # being claimed); a passing check of the node later publishes it for the project (engine.verify).
+            try:
+                knowledge.record_claims(ledger, binding['selector'], node, receipt, declared['new'])
+            except LedgerError:
+                pass
         try:
             executors.observe(ledger, binding['selector'], self, attempt['id'], 'end', source='receipt', ref=receipt,
                               measured={'seconds': body['elapsed_seconds']})
@@ -253,10 +260,14 @@ def _with_knowledge(schema):
 def _knowledge_fields(store, record, declared, continuation):
     """Receipt fields of 2.3-A1: the delivery record, the structural use check, and a continuation's requests."""
     if record is None:
-        return {'knowledge': {'package': None, 'delivered': [], 'note': 'no delivery record (context rebuilt without one)'},
-                'knowledge_use': knowledge.check_use(None, declared)}
+        fields = {'knowledge': {'package': None, 'delivered': [], 'note': 'no delivery record (context rebuilt without one)'},
+                  'knowledge_use': knowledge.check_use(None, declared)}
+        if declared and declared.get('new'): fields['knowledge_claims'] = list(declared['new'])
+        return fields
     view = json.loads(store.read_blob(record['package'])) if record.get('package') else None
     fields = {'knowledge': record, 'knowledge_use': knowledge.check_use(view, declared)}
     if continuation is not None and declared and declared['requests']:
         fields['knowledge_requests'] = list(declared['requests'])
+    if declared and declared.get('new'):
+        fields['knowledge_claims'] = list(declared['new'])
     return fields

@@ -21,7 +21,7 @@ import hashlib
 import re
 import sys
 
-from ..ledger import LedgerError, content_hash, key_field, text_field
+from ..ledger import LedgerError, canonical, content_hash, key_field, text_field
 from . import compat, namespaces, plan as plans
 from .verifiers import command
 
@@ -144,8 +144,17 @@ def _private_reasons(ledger, texts):
 
 # ---- write -------------------------------------------------------------------------------------------------------------
 
-def add(ledger, name, *, kind, label, text, source, scope='project', conditions=None, key=None):
-    """Write one `context.entry` on the root `name`. Returns {'recorded': bool, 'id', 'key', 'event'}; a repeat of the same content is not written."""
+class ContextConflict(LedgerError):
+    """An update based on an older version of the subject (2.3-A2): `current` is the id of the newer entry it would have hidden."""
+    def __init__(self, message, current):
+        super().__init__(message)
+        self.current = current
+
+
+def add(ledger, name, *, kind, label, text, source, scope='project', conditions=None, key=None, extra=None, expect_latest=None):
+    """Write one `context.entry` on the root `name`. Returns {'recorded': bool, 'id', 'key', 'event'}; a repeat of the same content is not written.
+    2.3-A2: `extra` (a dict built and validated by knowledge.py) is stored as the payload's `knowledge`; `expect_latest` ('' = no earlier
+    entry expected) makes the write refuse with ContextConflict when the subject's newest entry on this root is not that id."""
     if label not in LABELS: raise LedgerError(f'label {label!r}: expected one of {", ".join(LABELS)}.')
     if kind not in KINDS: raise LedgerError(f'kind {kind!r}: expected one of {", ".join(KINDS)}.')
     if scope not in SCOPES: raise LedgerError(f'scope {scope!r}: expected project or general.')
@@ -171,12 +180,21 @@ def add(ledger, name, *, kind, label, text, source, scope='project', conditions=
     body = {'version': 1, 'key': key, 'scope': scope, 'project': ledger.project_id, 'plan': bare, 'plan_anchor': selector, 'kind': kind, 'label': label, 'text': text,
             'source': src, 'source_text': source_text, 'symbol': symbol, 'revision_ref': revision_ref, 'line_hash': line_hash,
             'conditions': conditions}
+    if extra is not None:
+        if not isinstance(extra, dict) or len(canonical(extra)) > 12000: raise LedgerError('knowledge fields: an object of at most 12000 characters.')
+        body['knowledge'] = extra
     body['id'] = content_hash(body)
     with ledger.transaction(write=True) as conn:
         row = namespaces.resolve(ledger, conn, selector)
         if row is None: raise LedgerError(f'No plan named {name}.')
         if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='context.entry' AND json_extract(payload,'$.id')=?", (row['id'], body['id'])).fetchone():
             return {'recorded': False, 'id': body['id'], 'key': key, 'event': None}
+        if expect_latest is not None:
+            newest = conn.execute("SELECT json_extract(payload,'$.id') AS id FROM events WHERE task_id=? AND kind='context.entry' "
+                                  "AND json_extract(payload,'$.key')=? ORDER BY seq DESC LIMIT 1", (row['id'], key)).fetchone()
+            current = newest['id'] if newest else ''
+            if current != expect_latest:
+                raise ContextConflict(f'subject {key} changed since version {expect_latest[:12] or "(none)"}: the newest is {current[:12]}', current)
         state = plans.derive(ledger, conn, selector)
         payload = dict(body, plan_revision=state['latest'] if state else None, root=row['id'])
         plans.emit(ledger, conn, row['id'], 'context.entry', payload)                 # the class-A guard of compat.check_write runs here
