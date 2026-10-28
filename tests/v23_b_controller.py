@@ -8,7 +8,8 @@ The worker (native python) spawns a sleeping grandchild in the same Job, appends
 writes `<started>/<attempt>.json` with its own and the grandchild's pid, sleeps `seconds`, then writes answer.json and exits 0.
 
 Config keys: project, state, plan ('P1'), mode ('step' | 'batch' | 'native-step'), target (node id or null), slots (1|2), seconds,
-timeout, ops (file), started (directory), crash_on_start (bool: os._exit(41) as soon as a worker of THIS controller started),
+timeout, ops (file), started (directory), hold_job (bool: the worker opens its own Job by the name the test writes to
+worker-io/<attempt>/holdjob.txt and keeps that handle), crash_on_start (bool: os._exit(41) as soon as a worker of THIS controller started),
 go (optional file: wait for it before calling the engine, so two controllers start together), out (optional file: the JSON result).
 """
 import json
@@ -22,10 +23,18 @@ REPO = Path(__file__).resolve().parents[1]
 
 WORKER = r'''
 import json, os, pathlib, subprocess, sys, time
-ops, started, seconds, answer, attempt = sys.argv[1:6]
+ops, started, seconds, answer, attempt, hold = sys.argv[1:7]
 grandchild = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])
 with open(ops, 'a', encoding='utf-8') as out: out.write('launched ' + attempt + '\n')
 pathlib.Path(started).write_text(json.dumps({'worker': os.getpid(), 'grandchild': grandchild.pid}))
+if hold == 'hold':
+    # review F3: a member keeps a handle to its OWN Job (the test hands the name over in holdjob.txt), so the Job outlives its controller
+    import ctypes
+    k = ctypes.WinDLL('kernel32', use_last_error=True); k.OpenJobObjectW.restype = ctypes.c_void_p
+    until = time.time() + 30
+    while not pathlib.Path('holdjob.txt').exists() and time.time() < until: time.sleep(.05)
+    handle = k.OpenJobObjectW(0x0004, False, pathlib.Path('holdjob.txt').read_text())
+    pathlib.Path('held.txt').write_text(str(bool(handle)))
 time.sleep(float(seconds))
 pathlib.Path('answer.json').write_text(answer)
 '''
@@ -55,7 +64,8 @@ def make_factory(ledger, cfg, launches=None):
                     value = {'summary': 'v23-b fixture report', 'evidence': []}
                 timeout = min(float(cfg.get('timeout', 60)), float(profile['step_seconds']))
                 return Supervisor(control).run(attempt, [native_python(), '-c', WORKER, str(cfg['ops']), str(started / (attempt['id'] + '.json')),
-                                                         str(cfg.get('seconds', 0.2)), json.dumps(value), attempt['id']],
+                                                         str(cfg.get('seconds', 0.2)), json.dumps(value), attempt['id'],
+                                                         'hold' if cfg.get('hold_job') else 'plain'],
                                                cwd=directory, timeout=timeout, env=environment())
 
             def result(self, attempt):

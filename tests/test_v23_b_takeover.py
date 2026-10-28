@@ -6,21 +6,28 @@ worker runs under the real Supervisor (named per-attempt Job, KILL_ON_JOB_CLOSE)
 The test process only ever kills processes it started itself (by handle), never by name.
 
 Design §7 cases: 1 (T8), 2 (T3), 4 (T1, T5, Q4), 6 (T6), 7 (T1); survey T1-T3, T5, T6, T8.
+Independent review of 72b1b22 (D:\\OneCrewRuns\\v23\\review-b.md): F1 copied root, F2 stop/cap ends held, F3 orphan Job, F4 grace floor,
+F5 held inputs release the attempt, F10 Job gone while the controller lives (ReviewFindingTests, GraceBoundTests).
 """
 import ctypes
+import datetime as dt
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import time
+import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from onecrew import process_core
 from onecrew.budget_core import group
-from onecrew.ledger import LedgerError
-from onecrew.process_core import identity, native_python, probe
-from onecrew.v2 import managed_executor
+from onecrew.ledger import Ledger, LedgerError
+from onecrew.process_core import Supervisor, identity, native_python, probe
+from onecrew.subscription import environment
+from onecrew.task_intake import submit
+from onecrew.v2 import engine, managed_executor, runtime_unknowns
 from tests import v23_b_controller as driver
 from tests.test_wf_engine import node
 from tests.test_wf_parallel_engine import ParallelFixture
@@ -82,7 +89,8 @@ class TakeoverFixture(ParallelFixture):
                     'started': str(self.started_dir), 'seconds': 0.2, 'timeout': 60}
         self.launches = []
         self.adapter = managed_executor.ManagedExecutor(self.ledger, worker_factory=driver.make_factory(self.ledger, self.cfg, self.launches))
-        grace = patch.object(process_core, 'ESCALATION_GRACE_MAX', GRACE, create=True); grace.start(); self.addCleanup(grace.stop)
+        for name in ('ESCALATION_GRACE_MAX', 'ESCALATION_GRACE_FLOOR'):      # the floor exists from the review fix F4 on
+            grace = patch.object(process_core, name, GRACE, create=True); grace.start(); self.addCleanup(grace.stop)
 
     # ---- plan -----------------------------------------------------------------------------------------------------------
     def single(self):
@@ -145,6 +153,13 @@ class TakeoverFixture(ParallelFixture):
                 suspend(pid, resume=True); time.sleep(.03)
         self.fail('the controller always held the ledger lock')
 
+    def end_own_job(self, name):
+        job = process_core.Job.open(name)                                    # only the Job this test's own processes live in
+        if job is not None:
+            try: job.stop()
+            except LedgerError: pass
+            finally: job.close()
+
     def outsider(self):
         proc = subprocess.Popen([native_python(), '-c', 'import time; time.sleep(240)'], creationflags=NO_WINDOW)
         self.addCleanup(self._kill, proc)
@@ -169,6 +184,19 @@ class TakeoverFixture(ParallelFixture):
     def attempt(self, attempt_id):
         return self.adapter.control.attempt(attempt_id)
 
+    def token(self, attempt_id):
+        return json.loads(self.attempt(attempt_id)['identity'])
+
+    def held(self, nid, generation):
+        return [p for p in self.payloads('node.held') if p['node'] == nid and p['generation'] == generation]
+
+    def replan_wording(self, nid):
+        """The operator's replan after a held stop: a wording-only change of `nid` gives it a new generation (B takes X over)."""
+        nodes = self.ip.current(self.ledger, 'P1')['definition']['nodes']
+        for item in nodes:
+            if item['id'] == nid: item['goal'] += ' (taken over after a confirmed stop)'
+        return self.revise(nodes)
+
     def stopped_by_escalation(self, attempt_id, pids):
         """Stop a hung controller's attempt: a stop request alone never kills; recover terminates only after the grace period."""
         stop = self.adapter.stop(attempt_id, 'The controller of this operation is hung; stop it')
@@ -188,7 +216,7 @@ class TakeoverFixture(ParallelFixture):
 
 
 class HungControllerTests(TakeoverFixture):
-    def test_t1_hung_controller_is_escalated_only_after_stop_and_grace_then_b_takes_over_and_late_output_is_retained(self):
+    def test_t1_hung_controller_is_escalated_only_after_stop_and_grace_held_then_b_takes_over_and_late_output_is_retained(self):
         self.single()
         before = self.root_group()
         hung = self.controller(mode='step', seconds=40)
@@ -200,6 +228,8 @@ class HungControllerTests(TakeoverFixture):
         self.assertEqual(self.attempt(a1)['status'], 'running', silent)
         self.assertTrue(alive(pids['worker']) and alive(pids['grandchild']))
         self.assertEqual(silent.get('cleanup'), 'pending', silent)
+        with self.assertRaises(LedgerError):                                  # X is still owned: no replan can take it over yet
+            self.replan_wording('C')
         done = self.stopped_by_escalation(a1, pids)
         settled = json.loads(self.attempt(a1)['result'])
         self.assertEqual(settled['reason'], 'stopped_by_recovery')
@@ -207,19 +237,25 @@ class HungControllerTests(TakeoverFixture):
         self.assertEqual(settled['job']['active_after'], 0)                   # Q7: the Job's own count is the proof
         self.assertTrue({pids['worker'], pids['grandchild']} <= set(settled['job']['members_before']), settled['job'])
         self.assertEqual(done['cleanup'], 'confirmed')
-        # B takes over X only now: a new controller (this process) holds the node with cleanup confirmed and replays it once
+        self.assertEqual(settled['trigger'], 'stop_requested')
+        # a stop ends HELD, exactly like a healthy controller that honours it (review F2): no automatic replay, no new charge
+        stopped = self.engine.step(self.ledger, 'P1', self.adapter)
+        self.assertEqual(stopped['state'], 'waiting', stopped)
+        self.assertEqual(self.launches, [])
+        held = self.held('C', 0)
+        self.assertEqual(len(held), 1, held)
+        self.assertEqual((held[0]['classification'], held[0]['attempt'], held[0]['cleanup'], held[0]['trigger']),
+                         ('executor_stopped', a1, 'confirmed', 'stop_requested'))
+        self.assertEqual(self.payloads('node.resumed'), [])
+        # B takes over X only now: cleanup is confirmed, so the attempt no longer blocks the operator's replan; generation 1 runs
+        self.assertEqual(managed_executor.unresolved(self.ledger, 'P1'), [])
+        self.replan_wording('C')
         taken = self.engine.step(self.ledger, 'P1', self.adapter)
         self.assertEqual(taken['state'], 'produced', taken)
         view = self.engine.state(self.ledger, 'P1')
         self.assertEqual((view['nodes']['C']['generation'], view['nodes']['C']['state']), (1, 'produced'))
         a2 = view['nodes']['C']['attempt']
         self.assertNotEqual(a2, a1); self.assertEqual(self.launches, [a2])
-        held = [p for p in self.payloads('node.held') if p['node'] == 'C' and p['generation'] == 0]
-        self.assertEqual(len(held), 1, held)
-        self.assertEqual((held[0]['classification'], held[0]['attempt'], held[0]['cleanup']), ('executor_interrupted', a1, 'confirmed'))
-        resumed = [p for p in self.payloads('node.resumed') if p['node'] == 'C']
-        self.assertEqual(len(resumed), 1, resumed)
-        self.assertEqual((resumed[0]['generation'], resumed[0]['continues_attempt'], resumed[0]['budget_reset']), (0, a1, False))
         # the hung controller wakes up: its late outcome is retained under its original generation, never published
         suspend(hung.pid, resume=True)
         code, late, err = self.outcome(hung)
@@ -279,7 +315,8 @@ class HungControllerTests(TakeoverFixture):
         self.stopped_by_escalation(a1, pids)
         self.assertEqual(probe(who), 'alive', 'recovery terminates the attempt Job only, never a process by executable name')
         hung.kill(); hung.wait(timeout=20)
-        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'produced')
+        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'waiting')     # the stopped node is held
+        self.assertEqual(self.held('C', 0)[0]['classification'], 'executor_stopped')
         self.assertEqual(probe(who), 'alive')
         self.assertIsNone(outsider.poll())
 
@@ -366,15 +403,17 @@ class IndependentNodeTests(TakeoverFixture):
         code, result, err = self.outcome(ctl_b)                               # B's own controller finishes B
         self.assertEqual(code, 0, err)
         self.assertEqual((result['node'], result['state']), ('B', 'produced'), result)
-        taken = self.engine.step(self.ledger, 'P1', self.adapter, slots=2, _target='A')
-        self.assertEqual((taken['node'], taken['state']), ('A', 'produced'), taken)
+        stopped = self.engine.step(self.ledger, 'P1', self.adapter, slots=2, _target='A')
+        self.assertEqual(stopped['state'], 'waiting', stopped)                # the stopped A is held, nothing replayed
         view = self.engine.state(self.ledger, 'P1')
-        self.assertEqual((view['nodes']['A']['generation'], view['nodes']['B']['generation']), (1, 0))
+        self.assertEqual((view['nodes']['A']['phase'], view['nodes']['A']['classification'], view['nodes']['B']['state']),
+                         ('held', 'executor_stopped', 'produced'))
         suspend(ctl_a.pid, resume=True)
         code, late, err = self.outcome(ctl_a)
         self.assertEqual(code, 0, err)
-        self.assertEqual([p['node'] for p in self.payloads('node.produced')], ['B', 'A'])
-        self.assertEqual(len(self.operations()), 3)
+        self.assertEqual([p['node'] for p in self.payloads('node.produced')], ['B'])
+        self.assertEqual([p['attempt'] for p in self.payloads('node.result_retained')], [a1])   # A's late outcome
+        self.assertEqual(len(self.operations()), 2)
 
     def test_t3b_two_attempts_in_one_hung_controller_a_is_terminated_alone_and_the_same_sweep_recovers_both(self):
         self.pair()
@@ -390,11 +429,12 @@ class IndependentNodeTests(TakeoverFixture):
         shared.kill(); shared.wait(timeout=20)
         self.assertTrue(self.wait_dead(rows[b1]['worker'], rows[b1]['grandchild']))
         result = self.engine.run_batch(self.ledger, 'P1', self.adapter, slots=2)
-        self.assertEqual(sorted((r['node'], r['state']) for r in result['results']), [('A', 'produced'), ('B', 'produced')], result)
-        held = sorted((p['node'], p['attempt'], p['cleanup']) for p in self.payloads('node.held'))
-        self.assertEqual(held, sorted([('A', a1, 'confirmed'), ('B', b1, 'confirmed')]))
+        # A was stopped -> held; B lost its controller without any stop or cap -> the one policy replay
+        self.assertEqual([(r['node'], r['state']) for r in result['results']], [('B', 'produced')], result)
+        held = sorted((p['node'], p['attempt'], p['cleanup'], p['classification']) for p in self.payloads('node.held'))
+        self.assertEqual(held, [('A', a1, 'confirmed', 'executor_stopped'), ('B', b1, 'confirmed', 'executor_interrupted')])
         self.assertEqual(json.loads(self.attempt(b1)['result'])['reason'], 'supervisor_interrupted')
-        self.assertEqual(len(self.launches), 2)
+        self.assertEqual(len(self.launches), 1)
 
 
 class ConcurrentCallerTests(TakeoverFixture):
@@ -417,3 +457,158 @@ class ConcurrentCallerTests(TakeoverFixture):
         attempt = self.engine.state(self.ledger, 'P1')['nodes']['C']['attempt']
         self.assertEqual(self.adapter.control.status(self.attempt(attempt)['task_id'])['used_calls'], 1)
         self.assertEqual(self.root_group()['used_calls'], 1)
+
+
+class ReviewFindingTests(TakeoverFixture):
+    """The reviewer's cases of review-b.md, each red on 72b1b22."""
+
+    def copy_state_root(self):
+        original = Path(self.ledger.state_root)
+        copy = original.with_name('state-copy')
+        shutil.copytree(original, copy, ignore=shutil.ignore_patterns(self.ledger.path.name, self.ledger.path.name + '-journal'))
+        source, target = sqlite3.connect(str(self.ledger.path)), sqlite3.connect(str(copy / self.ledger.path.relative_to(original)))
+        try: source.backup(target)
+        finally: source.close(); target.close()
+        return Ledger(self.root, copy)
+
+    def test_f1_a_copied_state_root_never_terminates_the_original_roots_live_tree(self):
+        self.single()
+        ctl = self.controller(mode='step', seconds=40)                       # a HEALTHY controller of the original root
+        (a1, pids), = self.wait_started(1, proc=ctl)
+        copied = self.copy_state_root()
+        other = managed_executor.ManagedExecutor(copied, initialize=False)
+        self.assertEqual(other.stop(a1, 'Stop this operation in the copy only')['state'], 'stop_requested')
+        time.sleep(GRACE + .4)
+        recovered = other.recover(a1)                                          # due by the copy's own stop request, but not its Job
+        self.assertEqual((recovered['state'], recovered['cleanup']), ('stop_requested', 'pending'), recovered)
+        escalation = [p for p in other._history(a1) if p['phase'] == 'reconciled'][-1]['result']['escalation']
+        self.assertIn('another state root', escalation['reason'])
+        self.assertEqual(engine.step(copied, 'P1', other)['state'], 'waiting')     # the copy's sweep does not terminate it either
+        self.assertTrue(alive(pids['worker']) and alive(pids['grandchild']), "a copy never terminates the original root's tree")
+        self.assertEqual(self.attempt(a1)['status'], 'running')
+        # the original root still owns A: its own stop is honoured by its healthy controller and ends held, as before 2.3-B
+        self.adapter.stop(a1, 'Stop this operation in the original root')
+        code, result, err = self.outcome(ctl)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(self.attempt(a1)['result'])['reason'], 'cancelled')
+        self.assertEqual(self.engine.state(self.ledger, 'P1')['nodes']['C']['phase'], 'held')
+
+    def test_f2_a_controller_that_dies_after_the_stop_request_ends_held_not_replayed(self):
+        self.single()
+        ctl = self.controller(mode='step', seconds=40)
+        (a1, pids), = self.wait_started(1, proc=ctl)
+        self.suspend_unlocked(ctl.pid)
+        self.adapter.stop(a1, 'Stop this operation')
+        ctl.kill(); ctl.wait(timeout=20)                                       # killed while suspended: it never saw the request
+        self.assertTrue(self.wait_dead(pids['worker'], pids['grandchild']))
+        result = self.engine.step(self.ledger, 'P1', self.adapter)
+        self.assertEqual(result['state'], 'waiting', result)
+        self.assertEqual(json.loads(self.attempt(a1)['result'])['reason'], 'supervisor_interrupted')
+        held = self.held('C', 0)
+        self.assertEqual([(h['classification'], h['trigger'], h['cleanup']) for h in held], [('executor_stopped', 'stop_requested', 'confirmed')])
+        self.assertEqual(self.payloads('node.resumed'), [])
+        self.assertEqual((self.launches, len(self.operations())), ([], 1))
+
+    def test_f2_a_passed_cap_of_a_hung_controller_ends_held_not_replayed(self):
+        self.single()
+        hung = self.controller(mode='step', seconds=40, timeout=6)
+        (a1, pids), = self.wait_started(1, proc=hung)
+        self.suspend_unlocked(hung.pid)                                        # the hung controller cannot enforce its own cap
+        token = self.token(a1)
+        capped = dt.datetime.fromisoformat(token['started_at']) + dt.timedelta(seconds=token['timeout'] + GRACE + .4)
+        while dt.datetime.now(dt.timezone.utc) < capped: time.sleep(.1)
+        self.assertTrue(alive(pids['worker']))
+        done = self.adapter.recover(a1)                                        # no stop request: the passed cap is the trigger
+        self.assertEqual(done['cleanup'], 'confirmed', done)
+        self.assertEqual(json.loads(self.attempt(a1)['result'])['trigger'], 'execution_cap')
+        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'waiting')
+        self.assertEqual([(h['classification'], h['trigger']) for h in self.held('C', 0)], [('executor_stopped', 'execution_cap')])
+        self.assertEqual((self.payloads('node.resumed'), self.launches), ([], []))
+
+    def test_f3_dead_controller_whose_job_outlives_it_is_terminated_settled_and_replayed_once(self):
+        self.single()
+        ctl = self.controller(mode='step', seconds=40, hold_job=True)
+        (a1, pids), = self.wait_started(1, proc=ctl)
+        work = Path(self.ledger.state_root) / 'worker-io' / a1
+        (work / 'holdjob.txt').write_text(self.token(a1)['job_name'])
+        self.addCleanup(self.end_own_job, self.token(a1)['job_name'])       # whatever happens, the test's own orphan tree ends
+        until = time.monotonic() + 30
+        while not (work / 'held.txt').exists() and time.monotonic() < until: time.sleep(.05)
+        self.assertEqual((work / 'held.txt').read_text(), 'True')            # a member now holds a handle to its own Job
+        ctl.kill(); ctl.wait(timeout=20)                                       # the owner dies; KILL_ON_JOB_CLOSE cannot fire
+        time.sleep(1.0)
+        self.assertTrue(alive(pids['worker']) and alive(pids['grandchild']), 'the orphan tree outlives its controller')
+        result = self.engine.step(self.ledger, 'P1', self.adapter)            # the sweep terminates the orphan Job, then the policy replay
+        self.assertEqual(result['state'], 'produced', result)
+        self.assertTrue(self.wait_dead(pids['worker'], pids['grandchild'], timeout=2))
+        settled = json.loads(self.attempt(a1)['result'])
+        self.assertEqual((settled['reason'], settled['tree_stopped'], settled['job']['active_after']), ('supervisor_interrupted', True, 0))
+        self.assertTrue({pids['worker'], pids['grandchild']} <= set(settled['job']['members_before']), settled['job'])
+        self.assertTrue(settled['job']['terminated_after_owner_death'])
+        with self.ledger.transaction() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM attempts WHERE status IN ('reserved','running','unknown')").fetchone()[0], 0)
+
+    def test_f3b_job_not_found_is_no_proof_when_the_controller_ran_in_another_session(self):
+        self.single()
+        code, _, err = self.outcome(self.controller(mode='step', seconds=30, crash_on_start=True))
+        self.assertEqual(code, 41, err)
+        (a1, pids), = self.wait_started(1)
+        self.assertTrue(self.wait_dead(pids['worker'], pids['grandchild']))
+        token = self.token(a1)
+        with self.ledger.transaction(write=True) as conn:                      # fixture: the controller is recorded in ANOTHER session
+            conn.execute('UPDATE attempts SET identity=? WHERE id=?', (json.dumps(dict(token, session=int(token.get('session', 0)) + 1)), a1))
+        waiting = self.engine.step(self.ledger, 'P1', self.adapter)
+        self.assertEqual(waiting['state'], 'waiting', waiting)
+        self.assertEqual(self.attempt(a1)['status'], 'running')                # "Local\ name not found here" proves nothing there
+        with self.ledger.transaction(write=True) as conn:
+            conn.execute('UPDATE attempts SET identity=? WHERE id=?', (json.dumps(token), a1))
+        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'produced')
+
+    def test_f5_cleanup_confirmed_while_inputs_are_held_releases_the_attempt_and_resumes_when_clear(self):
+        self.single()
+        code, _, err = self.outcome(self.controller(mode='step', seconds=30, crash_on_start=True))
+        self.assertEqual(code, 41, err)
+        (a1, pids), = self.wait_started(1)
+        self.assertTrue(self.wait_dead(pids['worker'], pids['grandchild']))
+        runtime_unknowns.open_unknown(self.ledger, 'P1', 'late-fact', question='Which input is required?', affected=['C', 'I'],
+                                      required_by=['C'], resolver='doc', evidence=['a.txt:1'])
+        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'waiting')
+        self.assertEqual(self.attempt(a1)['status'], 'settled')
+        retained = [p for p in self.payloads('node.result_retained') if p.get('attempt') == a1]
+        self.assertEqual([(r['cleanup'], r['generation']) for r in retained], [('confirmed', 0)], retained)
+        self.assertEqual(managed_executor.unresolved(self.ledger, 'P1'), [])   # a revise that clears the blocker is not refused
+        self.engine.step(self.ledger, 'P1', self.adapter)
+        self.assertEqual(len([p for p in self.payloads('node.result_retained') if p.get('attempt') == a1]), 1)   # idempotent
+        runtime_unknowns.resolve(self.ledger, 'P1', 'late-fact', by='doc', evidence='a.txt:1', answer='Existing text format confirmed')
+        self.assertEqual(self.engine.step(self.ledger, 'P1', self.adapter)['state'], 'produced')   # lost owner, no trigger: one replay
+
+    def test_f10_job_gone_while_its_controller_lives_settles_once_without_repeated_unknown_events(self):
+        task = submit(self.ledger, 'F10 fixture', 'v23b-f10', plan_selector='plan-ns:P1', max_calls=2, max_seconds=60,
+                      provider='codex', model='fixture-model')
+        execution = self.control.configure(task['id'], task['revision'], {'mode': 'v23b-f10'})
+        attempt = self.control.reserve(task['id'], execution['revision'], 'f10', {'unit': 'task:Z', 'stage': 'Z'})
+        work = Path(self.temp.name) / 'f10'; work.mkdir()
+        # this process is the controller: its own unconfirmed-stop path records unknown and closes the Job, and the process lives on
+        with patch.object(process_core.Job, 'stop', side_effect=LedgerError('injected: tree stop unconfirmed')):
+            with self.assertRaises(LedgerError):
+                Supervisor(self.control).run(attempt, [native_python(), '-c', 'print(1)'], cwd=work, timeout=30, env=environment())
+        self.assertEqual(self.control.attempt(attempt['id'])['status'], 'unknown')
+        self.control.cancel(task['id'])
+        time.sleep(GRACE + .4)
+        unknowns = lambda: [e['kind'] for e in self.ledger.events(task['id'])].count('attempt.unknown')
+        before = unknowns()
+        supervisor = Supervisor(self.control)
+        supervisor.terminate(attempt['id']); supervisor.terminate(attempt['id'])
+        row = self.control.attempt(attempt['id'])
+        self.assertEqual(row['status'], 'settled', row)
+        body = json.loads(row['result'])
+        self.assertEqual((body['tree_stopped'], body['job']['exists'], body['trigger']), (True, False, 'stop_requested'))
+        self.assertEqual(unknowns(), before, 'no repeated attempt.unknown per escalation')
+
+
+class GraceBoundTests(unittest.TestCase):
+    def test_f4_grace_is_never_shorter_than_the_controllers_own_bounded_stop(self):
+        # a healthy controller stopping by itself may take Job.stop (10 s) + child.wait (10 s) + a busy ledger (10 s)
+        for cap in (1, 30, 60, 120, 299, 300, 600, 3600, None):
+            self.assertGreaterEqual(process_core.grace_seconds(cap), 30 + 5, cap)
+        self.assertEqual(process_core.grace_seconds(3600), 60)

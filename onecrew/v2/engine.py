@@ -341,9 +341,11 @@ def _adopt(ledger, conn, root, view, row):
 
 
 # ---- 2.3-B (L1): cleanup before takeover --------------------------------------------------------------------------------------------
-# The attempt's own controller lost ownership: it died (reconcile) or recovery terminated its tree after a stop/cap plus grace. Only
-# these are "interrupted"; a stop, timeout or failure the live controller recorded itself is handled (held) by that controller.
-INTERRUPTED = ('supervisor_interrupted', 'stopped_by_recovery')
+# RECOVERED: the attempt was settled by recovery, not by its own controller: the controller died (reconcile: supervisor_interrupted), or
+# recovery terminated its tree / found its Job closed after a stop or cap plus grace (stopped_by_recovery, job_closed). That controller can
+# no longer publish it. Review F2: only a lost owner WITHOUT any stop request, passed cap or passed deadline is "interrupted" (the one
+# policy replay); a stop, cap or deadline ends HELD, exactly as a healthy controller that honours it.
+RECOVERED = ('supervisor_interrupted', 'stopped_by_recovery', 'job_closed')
 
 
 def _row_json(row, key):
@@ -357,15 +359,36 @@ def _row_json(row, key):
 def _lost(row):
     """Can the attempt's own controller no longer settle or publish it? True when recovery settled it, or when its recorded controller
     is dead (creation-time identity; another host or an unreadable identity is NOT dead)."""
-    if _row_json(row, 'result').get('reason') == 'stopped_by_recovery':
+    if _row_json(row, 'result').get('reason') in ('stopped_by_recovery', 'job_closed'):
         return True
     from ..process_core import probe
     return probe(_row_json(row, 'identity').get('supervisor')) == 'dead'
 
 
-def _classify(body):
+def _trigger(ledger, conn, row):
+    """Review F2: the stop or cap that applied to this attempt before recovery settled it, or None. A recorded escalation trigger, a
+    cancel/stop request of its execution, its recorded Supervisor cap or its execution deadline passed by the settlement time. The
+    settlement time is an upper bound of the controller's death, so a cap that may have passed after it is counted (held, never a guess
+    that leads to a replay)."""
+    body, token = _row_json(row, 'result'), _row_json(row, 'identity')
+    if body.get('trigger'): return body['trigger']
+    execution = conn.execute('SELECT cancel_requested FROM executions WHERE task_id=?', (row['task_id'],)).fetchone()
+    if execution and execution['cancel_requested']: return 'stop_requested'
+    import datetime as dt
+    try:
+        settled = dt.datetime.fromisoformat(row['updated_at'])
+        if token.get('started_at') and type(token.get('timeout')) in (int, float):
+            if dt.datetime.fromisoformat(token['started_at']) + dt.timedelta(seconds=token['timeout']) <= settled: return 'execution_cap'
+        from ..budget_core import current
+        if dt.datetime.fromisoformat(current(conn, ledger._task(conn, row['task_id']))['deadline']) <= settled: return 'deadline'
+    except (ValueError, TypeError, KeyError, LedgerError):
+        return 'unknown_time'                                   # cannot place it in time: never treated as trigger-free
+    return None
+
+
+def _classify(body, trigger=None):
     exit_code = body.get('exit_code')
-    if body.get('reason') in INTERRUPTED: return 'interrupted'
+    if body.get('reason') == 'supervisor_interrupted' and trigger is None: return 'interrupted'
     if body.get('reason') is not None: return 'stopped'
     if isinstance(exit_code, int) and not isinstance(exit_code, bool) and exit_code != 0: return 'failed'
     return 'result_unknown'
@@ -388,9 +411,10 @@ def _replay_decision(ledger, conn, view, nid, attempt_id):
 
 def _takeover(ledger, selector, nid, attempt_id, generation):
     """M1/M2: the node's attempt is settled with its process tree confirmed stopped and its controller can no longer publish it. Hold
-    the node at its generation with the cleanup evidence; for an interrupted attempt apply the shared policy (replay once inside the
-    existing root budget -> node.resumed, budget_reset False; then hold for a decision). Nothing is written when another caller already
-    moved the node, when its inputs are held, or when the cleanup is not confirmed. Returns a summary or None."""
+    the node at its generation with the cleanup evidence. Only an interrupted attempt (lost owner, no stop/cap/deadline trigger) gets the
+    shared policy: replay once inside the existing root budget -> node.resumed, budget_reset False; then hold for a decision. While the
+    node's inputs are held the attempt is still released as node.result_retained (review F5, as the live-controller path does), once.
+    Nothing is written when another caller already moved the node or the cleanup is not confirmed. Returns a summary or None."""
     from . import managed_executor
     with ledger.transaction(write=True) as conn:
         root, _, _ = ip.context(ledger, conn, selector, 'sequential-engine')
@@ -400,22 +424,34 @@ def _takeover(ledger, selector, nid, attempt_id, generation):
             return None
         row = dict(conn.execute('SELECT * FROM attempts WHERE id=?', (attempt_id,)).fetchone())
         cleanup = managed_executor.cleanup_view(row)
-        if row['status'] != 'settled' or cleanup['cleanup'] == 'pending' or not _publication_current(view, view, nid):
+        if row['status'] != 'settled' or cleanup['cleanup'] == 'pending':
             return None
         body = _row_json(row, 'result')
+        trigger = _trigger(ledger, conn, row)
         receipt = Snapshots(ledger.state_root).blob(canonical({'kind': 'process-cleanup-receipt', 'attempt': attempt_id, 'status': row['status'],
             'charged': row['charged'], 'identity': _row_json(row, 'identity'), 'result': body}).encode())
-        kind = _classify(body)
-        evidence = dict(attempt=attempt_id, cleanup=cleanup['cleanup'], cleanup_evidence=cleanup['evidence'], process_receipt=receipt)
+        evidence = dict(attempt=attempt_id, cleanup=cleanup['cleanup'], cleanup_evidence=cleanup['evidence'], process_receipt=receipt,
+                        **({'trigger': trigger} if trigger else {}))
+        if not _publication_current(view, view, nid):
+            if not conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='node.result_retained' AND json_extract(payload,'$.attempt')=?",
+                                (view['root'], attempt_id)).fetchone():
+                _retain(ledger, conn, view, nid, 'Cleanup confirmed while the node inputs are held; decided again once they are clear', **evidence)
+            return {'node': nid, 'state': 'retained', 'attempt': attempt_id, 'cleanup': cleanup['cleanup']}
+        kind = _classify(body, trigger)
         if kind != 'interrupted':
+            why = ('it was asked to stop or ran past its cap (' + trigger + '); held exactly as a live controller holds a stop'
+                   if trigger else 'held: repair or replan; nothing is replayed automatically')
             _event(ledger, conn, view, nid, 'node.held', classification='executor_' + kind, **evidence,
-                   reason='Attempt ' + attempt_id + ' ended without a candidate (' + kind + '); its process tree is confirmed stopped. '
-                          'Held: repair or replan; nothing is replayed automatically.')
-            return {'node': nid, 'state': 'held', 'classification': 'executor_' + kind, 'attempt': attempt_id, 'cleanup': cleanup['cleanup']}
+                   reason='Attempt ' + attempt_id + ' ended without a candidate (' + kind + '); its process tree is confirmed stopped; ' + why)
+            return {'node': nid, 'state': 'held', 'classification': 'executor_' + kind, 'attempt': attempt_id, 'cleanup': cleanup['cleanup'],
+                    **({'trigger': trigger} if trigger else {})}
         action, recovery, node = _replay_decision(ledger, conn, view, nid, attempt_id)
         remaining = ip.ceilings(ledger, conn, root)['remaining_calls']
         if action == 'replay' and remaining < node['budget_calls']:
             action, why = 'ask', 'the replay does not fit the remaining root call budget'
+            # review F6: the stored record says what was decided - the last automatic attempt became a question
+            recovery = dict(recovery, status='escalated', budget_refused=True,
+                            attempts=recovery['attempts'][:-1] + [dict(recovery['attempts'][-1], action='ask')])
         else:
             why = ('replayed once under the shared recovery policy (interrupted: replay x1)' if action == 'replay'
                    else 'interrupted again after the automatic replay: held for a decision (the policy asks)')
@@ -465,8 +501,9 @@ def reconcile_orphans(ledger, selector, executor=None, *, control=None):
             owner = probe(token.get('supervisor'))
             if owner == 'unknown':
                 report.append(dict(entry, cleanup='pending', reason='the controller state cannot be observed from this host')); continue
-            if owner == 'alive' and not Supervisor(control).escalation(row['id'])['due']:
-                report.append(dict(entry, cleanup='pending', reason='its controller is alive and still owns it')); continue
+            due = Supervisor(control).escalation(row['id']) if owner == 'alive' else {'due': True}
+            if not due['due']:
+                report.append(dict(entry, cleanup='pending', reason='its controller is alive and still owns it: ' + due.get('reason', 'escalation not due'))); continue
             try:
                 history = managed_executor.ManagedExecutor(ledger, initialize=False)._history(row['id'])
                 if any(p['phase'] == 'prepared' for p in history):
@@ -619,20 +656,22 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
             return {'node': nid, 'state': 'held' if progress_status == 'blocked' else 'waiting', 'progress': progress_status}
     except Exception as error:
         observed = control.attempt(attempt['id'])
+        lost = False
         if observed['status'] != 'settled':
             control.unknown(attempt['id'], str(error)[:1000])
-        elif _row_json(observed, 'result').get('reason') in INTERRUPTED:
-            # 2.3-B: recovery took this attempt's tree while this controller was hung; whoever observes it first applies the same takeover
-            # (a newer generation already taken over makes _takeover a no-op, and the late outcome below is retained, never published)
+        elif _row_json(observed, 'result').get('reason') in RECOVERED:
+            # 2.3-B: recovery settled this attempt while this controller was hung; whoever observes it first applies the same takeover.
+            # Once taken over (or held by a sweep) this controller's outcome is late: retained below, never published, never a 2nd hold.
+            lost = True
             taken = _takeover(ledger, root['selector'], nid, attempt['id'], view['nodes'][nid]['generation'])
             if taken: return dict(taken, reason=str(error)[:1000])
         with ledger.transaction(write=True) as conn:
             current = state(ledger, root['selector'], conn)
-            if _publication_current(current, view, nid):
+            if _publication_current(current, view, nid) and not lost:
                 _event(ledger, conn, current, nid, 'node.held', reason=str(error)[:1000], classification='unknown')
             else:
                 _retain(ledger, conn, view, nid, str(error)[:1000], attempt=attempt['id'])
-        return {'node': nid, 'state': 'held', 'reason': str(error)}
+        return {'node': nid, 'state': 'retained' if lost else 'held', 'reason': str(error)}
     with ledger.transaction(write=True) as conn:
         current = state(ledger, root['selector'], conn)
         mine = current['nodes'].get(nid) or {}

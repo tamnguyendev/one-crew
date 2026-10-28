@@ -4,9 +4,11 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes as w
 import datetime as dt
+import hashlib
 import json
 import os
 from pathlib import Path
+import secrets
 import socket
 import subprocess
 import sys
@@ -16,6 +18,8 @@ from .ledger import LedgerError
 
 # 2.3-B (L1): every Supervisor attempt runs in its OWN named Job, so recovery can terminate exactly that attempt's tree (never a process by
 # name, never another attempt of the same controller). The name is recorded in the launch token before the worker is resumed.
+# Review F1/F8: the name carries what a copy of the ledger does NOT share (a tag of the resolved state root) and a random nonce, so a copied
+# or moved state root can never open-and-terminate the original's Job, and the name cannot be guessed from the attempt id.
 JOB_PREFIX = 'Local\\OneCrew-'
 # Exit code of a tree that recovery terminated (Supervisor.terminate). A live controller that races the termination reads it back as
 # reason 'stopped_by_recovery' instead of an ordinary non-zero exit (a "known failure").
@@ -25,17 +29,39 @@ RECOVERY_EXIT_CODE = 0x4F435243
 # healthy controller honour the request itself first. Silence, low CPU or a missing checkpoint are never a trigger. Tests shorten it.
 ESCALATION_GRACE_MAX = 60.0
 ESCALATION_GRACE_FRACTION = 0.1
+# Review F4: never shorter than a healthy controller's own bounded stop: Job.stop waits up to 10 s, child.wait up to 10 s, and its
+# settlement may wait 10 s on a busy ledger (sqlite timeout) - 30 s, plus a 5 s margin.
+ESCALATION_GRACE_FLOOR = 35.0
 
 
-def job_name(attempt_id):
-    return JOB_PREFIX + attempt_id
+def root_tag(state_root):
+    """12 hex of sha256(normcase(realpath(state root))): the same state root gives the same tag, a copy or a moved root another."""
+    return hashlib.sha256(os.path.normcase(os.path.realpath(str(state_root))).encode('utf-8')).hexdigest()[:12]
+
+
+def job_name(state_root, attempt_id):
+    return f'{JOB_PREFIX}{root_tag(state_root)}-{attempt_id}-{secrets.token_hex(8)}'
+
+
+def owns_job(state_root, attempt_id, name):
+    """Is `name` the Job of `attempt_id` launched from THIS state root? Only such a Job may ever be terminated from here."""
+    return isinstance(name, str) and name.startswith(f'{JOB_PREFIX}{root_tag(state_root)}-{attempt_id}-')
+
+
+def session_id(pid=None):
+    """The Windows session of `pid` (default: this process). `Local\\` object names live per session, so a Job name looked up in one
+    session says nothing about another (review F3)."""
+    sid = w.DWORD()
+    if not ctypes.WinDLL('kernel32', use_last_error=True).ProcessIdToSessionId(w.DWORD(pid or os.getpid()), ctypes.byref(sid)):
+        return None
+    return int(sid.value)
 
 
 def grace_seconds(cap):
-    """min(ESCALATION_GRACE_MAX, ESCALATION_GRACE_FRACTION x cap); the maximum when the cap is unknown."""
+    """max(ESCALATION_GRACE_FLOOR, min(ESCALATION_GRACE_MAX, ESCALATION_GRACE_FRACTION x cap)); the maximum when the cap is unknown."""
     if type(cap) not in (int, float) or cap <= 0:
-        return float(ESCALATION_GRACE_MAX)
-    return float(min(ESCALATION_GRACE_MAX, ESCALATION_GRACE_FRACTION * cap))
+        return float(max(ESCALATION_GRACE_FLOOR, ESCALATION_GRACE_MAX))
+    return float(max(ESCALATION_GRACE_FLOOR, min(ESCALATION_GRACE_MAX, ESCALATION_GRACE_FRACTION * cap)))
 
 
 def output_file(state_root, attempt_id, stored):
@@ -244,7 +270,7 @@ class Supervisor:
         input_path.write_text(stdin, encoding='utf-8')
         child = None
         resumed = False
-        job = Job(job_name(attempt['id']))  # Must succeed before creating a process; named per attempt (2.3-B).
+        job = Job(job_name(self.control.ledger.state_root, attempt['id']))  # Must succeed before creating a process; named per attempt (2.3-B).
         began = time.monotonic()
         reason = None
         # W51 (T18b): an executor may ask to be told, every `liveness_every` seconds, that the command is still running and how much it
@@ -260,7 +286,7 @@ class Supervisor:
                 # 2.3-B: the Job name and the execution cap are part of the identity committed BEFORE the worker is resumed, so
                 # recovery can find exactly this tree and knows when the cap has passed even if this controller hangs.
                 token = {'worker': identity(child.pid), 'supervisor': identity(os.getpid()), 'job_contained': True,
-                         'job_name': job.name, 'timeout': timeout, 'started_at': self.control.clock().isoformat()}
+                         'job_name': job.name, 'session': session_id(), 'timeout': timeout, 'started_at': self.control.clock().isoformat()}
                 self.control.launched(attempt['id'], attempt['generation'], token)
                 nt = ctypes.WinDLL('ntdll')
                 nt.NtResumeProcess.argtypes = [w.HANDLE]
@@ -320,6 +346,36 @@ class Supervisor:
         finally:
             job.close()
 
+    def _intent(self, attempt_id, row, reason):
+        """Durable intent BEFORE a termination: the attempt becomes `unknown` (an existing attempt.unknown event). An attempt that is
+        already unknown gets no second event (review F10), but the ledger must still be writable: a locked ledger (a suspended controller
+        holding it, Q4) raises here and nothing is terminated."""
+        if row['status'] == 'running':
+            self.control.unknown(attempt_id, reason)
+            return
+        with self.control.ledger.transaction(write=True) as conn:
+            conn.execute('UPDATE attempts SET updated_at=updated_at WHERE id=?', (attempt_id,))
+
+    def _unconfirmed(self, attempt_id, reason):
+        """Record an unconfirmed stop once: the same reason is not written again on every sweep (review F10)."""
+        row = self.control.attempt(attempt_id)
+        try:
+            current = json.loads(row['result'] or '{}').get('reason')
+        except (ValueError, TypeError, AttributeError):
+            current = None
+        if row['status'] == 'unknown' and current == reason:
+            return
+        self.control.unknown(attempt_id, reason)
+
+    def _settle(self, attempt_id, generation, result):
+        try:
+            self.control.finish(attempt_id, generation, result)
+        except LedgerError:
+            if self.control.attempt(attempt_id)['status'] != 'settled':
+                raise
+            return {'status': 'settled', 'by': 'owner'}          # the controller recorded its own settlement first
+        return {'status': 'settled', 'result': result}
+
     def reconcile(self, attempt_id):
         row = self.control.attempt(attempt_id)
         if row['status'] == 'settled':
@@ -330,31 +386,74 @@ class Supervisor:
             return {'status': 'unknown'}
         owner = probe(token['supervisor'])
         worker = probe(token['worker'])
-        if owner == 'dead' and worker == 'dead':
-            result = {'reason': 'supervisor_interrupted', 'tree_stopped': True}
-            if token.get('job_name'):
-                # 2.3-B (Q7): the Job itself is the proof for the whole tree, not only the two probed roots. A Job that still exists
-                # with active members means descendants live on: nothing is settled.
-                try:
-                    evidence = job_evidence(token['job_name'])
-                except (LedgerError, OSError) as error:
-                    return {'status': 'unknown', 'supervisor': owner, 'worker': worker,
-                            'job': {'name': token['job_name'], 'error': str(error)[:300]}}
-                if evidence.get('active'):
-                    return {'status': 'unknown', 'supervisor': owner, 'worker': worker, 'job': evidence}
-                result['job'] = evidence
-            self.control.finish(attempt_id, row['generation'], result)
+        if owner != 'dead' or not token.get('job_name'):
+            if owner == 'dead' and worker == 'dead':           # a launch token without a named Job (2.2): the original rule
+                self.control.finish(attempt_id, row['generation'], {'reason': 'supervisor_interrupted', 'tree_stopped': True})
+                return {'status': 'settled'}
+            return {'status': 'alive' if owner == 'alive' else 'unknown', 'supervisor': owner, 'worker': worker}
+        return self._reconcile_job(attempt_id, row, token, worker)
+
+    def _reconcile_job(self, attempt_id, row, token, worker):
+        """The controller is dead and the attempt has a named Job (2.3-B). The Job is the proof for the whole tree (Q7):
+        * Job gone - proof only when this process is in the controller's recorded session (`Local\\` names are per session, review F3)
+          and the worker root is not alive; then every member ended with the last handle (KILL_ON_JOB_CLOSE);
+        * Job present with 0 active processes - proof;
+        * Job present with members (a member or another process keeps a handle) - an orphan tree: terminated here (intent first,
+          TerminateJobObject, confirm 0 active), but ONLY when the recorded name is this state root's own Job (review F1);
+        anything else stays `unknown` with its reason. Never settled without the proof."""
+        name = token['job_name']
+        dead = {'status': 'unknown', 'supervisor': 'dead', 'worker': worker}
+        try:
+            job = Job.open(name)
+        except (LedgerError, OSError) as error:
+            return dict(dead, job={'name': name, 'error': str(error)[:300]})
+        if job is None:
+            if worker == 'alive':
+                return dict(dead, reason='the worker lives although its named Job is gone; manual reconciliation required')
+            if token.get('session') is None or token.get('session') != session_id():
+                return dict(dead, reason='the controller ran in another Windows session; a Local\\ Job name not found here proves nothing')
+            self.control.finish(attempt_id, row['generation'], {'reason': 'supervisor_interrupted', 'tree_stopped': True,
+                                'job': {'name': name, 'exists': False, 'session': token['session']}})
             return {'status': 'settled'}
-        return {'status': 'alive' if owner == 'alive' else 'unknown', 'supervisor': owner, 'worker': worker}
+        before, after, failure = None, None, None
+        try:
+            counts = job.counts()
+            if counts.active == 0:
+                after = counts
+            elif not owns_job(self.control.ledger.state_root, attempt_id, name):
+                return dict(dead, reason='the live Job belongs to another state root (copied or moved ledger); it is never terminated from here')
+            else:
+                self._intent(attempt_id, row, 'recovery is terminating the process tree of a dead controller; the stop is not confirmed yet')
+                before = job.members()
+                job.stop(RECOVERY_EXIT_CODE)
+                after = job.counts()
+        except (LedgerError, OSError) as error:
+            failure = str(error)[:300]
+        finally:
+            job.close()
+        if failure is not None:
+            self._unconfirmed(attempt_id, 'process-tree stop unconfirmed: ' + failure)
+            return dict(dead, error=failure)
+        evidence = {'name': name, 'exists': True, 'active_after': after.active, 'total_processes': after.total}
+        if before is not None:
+            evidence.update(members_before=before, terminated_after_owner_death=True)
+        self._settle(attempt_id, row['generation'], {'reason': 'supervisor_interrupted', 'tree_stopped': True, 'job': evidence})
+        return {'status': 'settled'}
 
     def escalation(self, attempt_id):
         """When recovery may terminate this attempt's own process tree (read-only). Only after an explicit stop/cancel of its execution
         or a passed execution cap (the recorded Supervisor timeout, or the execution deadline), plus `grace_seconds(cap)`; never on
-        silence, CPU, liveness or a missing checkpoint. Values are stable for the same trigger (safe to record repeatedly)."""
+        silence, CPU, liveness or a missing checkpoint. Never for a Job of another state root (review F1) or a controller in another
+        Windows session. Values are stable for the same trigger (safe to record repeatedly)."""
         row = self.control.attempt(attempt_id)
         token = json.loads(row['identity']) if row['identity'] else None
         if row['status'] not in ('running', 'unknown') or not isinstance(token, dict) or not token.get('job_contained') or not token.get('job_name'):
             return {'due': False, 'trigger': None, 'reason': 'no live attempt with a named contained process job'}
+        if not owns_job(self.control.ledger.state_root, attempt_id, token['job_name']):
+            return {'due': False, 'trigger': None, 'foreign_job': True,
+                    'reason': 'the attempt Job belongs to another state root (copied or moved ledger): it is never terminated from here'}
+        if token.get('session') is None or token.get('session') != session_id():
+            return {'due': False, 'trigger': None, 'reason': 'the controller runs in another Windows session: its Job cannot be reached from here'}
         status = self.control.status(row['task_id'])
         now = self.control.clock()
         cap = token.get('timeout')
@@ -378,44 +477,52 @@ class Supervisor:
         return {'due': now >= due_at, 'trigger': trigger, 'since': since.isoformat(), 'grace_seconds': grace, 'due_at': due_at.isoformat()}
 
     def terminate(self, attempt_id):
-        """Bounded escalation for a hung controller (2.3-B M3). When `escalation` says it is due: record the intent (the attempt
-        becomes `unknown`; a ledger that cannot record it - a suspended controller holding the lock - stops here and nothing is
-        terminated), open the attempt's named Job, check it holds the recorded worker, terminate the Job and confirm 0 active
-        processes, then settle 'stopped_by_recovery' with the member list as evidence. Any failure keeps the attempt `unknown`.
+        """Bounded escalation for a hung controller (2.3-B M3). When `escalation` says it is due (this state root's own Job, same session):
+        * the Job is gone while the controller lives (its own unconfirmed-stop path closed it, review F10): KILL_ON_JOB_CLOSE ended every
+          member, so the attempt settles `job_closed` with that proof - no intent, no repeated unknown;
+        * otherwise record the intent (the attempt becomes `unknown`; a ledger that cannot record it stops here and nothing is
+          terminated), check the Job holds the recorded worker, terminate the Job, confirm 0 active processes and settle
+          'stopped_by_recovery' with the member list. Any failure keeps the attempt `unknown` (recorded once).
         Only this attempt's Job is touched: other attempts (other Jobs) and processes outside any OneCrew Job never are."""
         due = self.escalation(attempt_id)
         if not due['due']:
             return dict(due, status='not_due')
         row = self.control.attempt(attempt_id)
         token = json.loads(row['identity'])
-        self.control.unknown(attempt_id, 'recovery is terminating the contained process tree after ' + due['trigger']
-                             + '; the stop is not confirmed yet')
-        job, before, counts = None, None, None
+        trigger = {'trigger': due['trigger'], 'trigger_since': due['since'], 'grace_seconds': due['grace_seconds']}
         try:
             job = Job.open(token['job_name'])
-            if job is None:
-                raise LedgerError('the named attempt job no longer exists while its controller is alive')
+        except (LedgerError, OSError) as error:
+            self._unconfirmed(attempt_id, 'process-tree stop unconfirmed: ' + str(error)[:300])
+            return {'status': 'unknown', 'trigger': due['trigger'], 'error': str(error)[:300]}
+        if job is None:
+            if probe(token['worker']) == 'alive':
+                self._unconfirmed(attempt_id, 'process-tree stop unconfirmed: the worker lives although its named Job is gone')
+                return {'status': 'unknown', 'trigger': due['trigger']}
+            result = dict({'reason': 'job_closed', 'tree_stopped': True,
+                           'job': {'name': token['job_name'], 'exists': False, 'session': token['session']}}, **trigger)
+            return dict(self._settle(attempt_id, row['generation'], result), trigger=due['trigger'])
+        before, counts, failure = None, None, None
+        try:
+            self._intent(attempt_id, row, 'recovery is terminating the contained process tree after ' + due['trigger']
+                         + '; the stop is not confirmed yet')
             if probe(token['worker']) == 'alive' and job.contains(token['worker']) is not True:
                 raise LedgerError('the named job does not contain the recorded worker')
             before = job.members()
             job.stop(RECOVERY_EXIT_CODE)
             counts = job.counts()
         except (LedgerError, OSError) as error:
-            self.control.unknown(attempt_id, 'process-tree stop unconfirmed: ' + str(error)[:300])
-            return {'status': 'unknown', 'trigger': due['trigger'], 'error': str(error)[:300]}
+            failure = str(error)[:300]
         finally:
-            if job is not None:
-                job.close()
-        result = {'reason': 'stopped_by_recovery', 'tree_stopped': True, 'trigger': due['trigger'], 'trigger_since': due['since'],
-                  'grace_seconds': due['grace_seconds'],
-                  'job': {'name': token['job_name'], 'members_before': before, 'active_after': counts.active, 'total_processes': counts.total}}
-        try:
-            self.control.finish(attempt_id, row['generation'], result)
-        except LedgerError:
-            if self.control.attempt(attempt_id)['status'] != 'settled':
-                raise
-            return {'status': 'settled', 'by': 'owner', 'trigger': due['trigger']}   # the controller recorded its own settlement first
-        return {'status': 'settled', 'trigger': due['trigger'], 'job': result['job']}
+            job.close()
+        if failure is not None:
+            self._unconfirmed(attempt_id, 'process-tree stop unconfirmed: ' + failure)
+            return {'status': 'unknown', 'trigger': due['trigger'], 'error': failure}
+        result = dict({'reason': 'stopped_by_recovery', 'tree_stopped': True,
+                       'job': {'name': token['job_name'], 'members_before': before, 'active_after': counts.active,
+                               'total_processes': counts.total}}, **trigger)
+        settled = self._settle(attempt_id, row['generation'], result)
+        return dict(settled, trigger=due['trigger'], job=result['job']) if 'by' not in settled else dict(settled, trigger=due['trigger'])
 
 
 def job_evidence(name):

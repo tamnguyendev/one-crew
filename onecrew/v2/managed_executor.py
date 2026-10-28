@@ -110,10 +110,22 @@ def _token(attempt):
     return token if isinstance(token, dict) else {}
 
 
+def engine_node_attempt(control, attempt):
+    """Is this the attempt `engine.step` reserved for a workflow node (key 'node-run' on a child task 'wf:<root>:<node>:g<n>')? Other
+    Supervisor attempts in the same ledger (v1 consultations, tests, ...) are not the v2 engine's to reconcile or terminate (review F6)."""
+    if attempt.get('request_key') != 'node-run':
+        return False
+    with control.ledger.transaction() as conn:
+        task = conn.execute('SELECT request_key FROM tasks WHERE id=?', (attempt['task_id'],)).fetchone() if conn else None
+    return bool(task) and str(task['request_key']).startswith('wf:')
+
+
 def contained_state(control, attempt_id, **extra):
     """2.3-B (M4): the state of a journal-less attempt that the Supervisor launched (NativeExecutor through `engine step`). Its process
     tree can be reconciled; its result cannot: there is no managed journal to rebuild a candidate from, so it is never `completed`."""
     attempt = control.attempt(attempt_id)
+    label = ('common-native-artifact' if engine_node_attempt(control, attempt)
+             else 'not recorded (a Supervisor-contained attempt without a managed journal, not an engine node)')
     body, cleanup = _body(attempt), cleanup_view(attempt)
     exit_code = body.get('exit_code')
     if attempt['status'] == 'running':
@@ -124,7 +136,7 @@ def contained_state(control, attempt_id, **extra):
     else:
         state = 'unknown'
     return dict({'state': state, 'attempt': attempt_id, 'generation': attempt['generation'], 'candidate': None,
-                 'executor': 'common-native-artifact', 'recovery': 'supervisor-contained process tree only',
+                 'executor': label, 'recovery': 'supervisor-contained process tree only',
                  'tree_stopped': cleanup['cleanup'] == 'confirmed', 'cleanup': cleanup['cleanup'], 'cleanup_evidence': cleanup['evidence'],
                  'text': ('the contained process is still running' if state == 'running' else
                           'the contained process failed (known result); nothing to replay' if state == 'failed' else
@@ -140,6 +152,8 @@ def recover_contained(control, attempt_id):
     if not _token(attempt).get('job_contained'):
         raise LedgerError('The attempt has no managed executor journal and no contained launch identity; '
                           'controls are not sent to an undeclared executor.')
+    if not engine_node_attempt(control, attempt):
+        raise LedgerError('The attempt is not an engine node attempt; it is reconciled by the executor that launched it, not here.')
     before = attempt['status']
     reconciled = {'status': 'settled'}
     if before != 'settled':
@@ -396,8 +410,9 @@ class ManagedExecutor(executors.Executor):
         self._write(attempt_id, 'stop_requested', reason=reason)
         self.control.cancel(attempt['task_id'])
         if self.control.attempt(attempt_id)['status'] in ('running', 'unknown'):
-            # 2.3-B: a live controller honours the cancel itself; a repeated stop after the grace period escalates a hung one. The
-            # first request is never due (its grace starts now), so a stop alone never terminates anything.
+            # 2.3-B: a live controller honours the cancel itself; a repeated stop after the grace period escalates a hung one. A new
+            # stop request starts its own grace, so it terminates at once only when an EARLIER trigger (a passed cap or deadline) has
+            # already run past its grace (review F6 wording).
             Supervisor(self.control).terminate(attempt_id)
         return self.state(attempt_id)
 
