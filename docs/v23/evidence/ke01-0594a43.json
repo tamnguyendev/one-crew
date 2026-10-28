@@ -1,0 +1,627 @@
+{
+ "kind": "v23-ke01-wiki-comparison",
+ "checkout": "0594a437dcdbbc26373b87266e922e7a35675fed",
+ "dirty": false,
+ "wheel_sha256_built_for_run": "eab186d837568c403ddfaa8b46b569c61bfc53b7f9aaffe1c462e1064e25fb7d",
+ "rows": [
+  {
+   "condition": "none",
+   "state": "produced",
+   "seconds": 8.366,
+   "reason": "",
+   "verdict": "fail",
+   "written": "naive",
+   "prompt_chars": 715,
+   "knowledge_chars": 0,
+   "delivered": [],
+   "declared_used": [],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 179,
+     "output_tokens": 50
+    }
+   ],
+   "misled": false,
+   "rework_needed": true,
+   "provider": "fake",
+   "repeat": 0
+  },
+  {
+   "condition": "none",
+   "state": "produced",
+   "seconds": 3.053,
+   "reason": "",
+   "verdict": "fail",
+   "written": "naive",
+   "prompt_chars": 715,
+   "knowledge_chars": 0,
+   "delivered": [],
+   "declared_used": [],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 179,
+     "output_tokens": 50
+    }
+   ],
+   "misled": false,
+   "rework_needed": true,
+   "provider": "fake",
+   "repeat": 1
+  },
+  {
+   "condition": "correct",
+   "state": "produced",
+   "seconds": 4.284,
+   "reason": "",
+   "verdict": "pass",
+   "written": "right",
+   "prompt_chars": 2863,
+   "knowledge_chars": 2135,
+   "delivered": [
+    [
+     "a-word",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 716,
+     "output_tokens": 50
+    }
+   ],
+   "misled": false,
+   "rework_needed": false,
+   "provider": "fake",
+   "repeat": 0
+  },
+  {
+   "condition": "correct",
+   "state": "produced",
+   "seconds": 7.921,
+   "reason": "",
+   "verdict": "pass",
+   "written": "right",
+   "prompt_chars": 2863,
+   "knowledge_chars": 2135,
+   "delivered": [
+    [
+     "a-word",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 716,
+     "output_tokens": 50
+    }
+   ],
+   "misled": false,
+   "rework_needed": false,
+   "provider": "fake",
+   "repeat": 1
+  },
+  {
+   "condition": "stale",
+   "state": "produced",
+   "seconds": 8.35,
+   "reason": "",
+   "verdict": "fail",
+   "written": "naive",
+   "prompt_chars": 2925,
+   "knowledge_chars": 2169,
+   "delivered": [
+    [
+     "a-word",
+     "lead",
+     "recheck"
+    ]
+   ],
+   "declared_used": [],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 731,
+     "output_tokens": 50
+    }
+   ],
+   "misled": false,
+   "rework_needed": true,
+   "provider": "fake",
+   "repeat": 0
+  },
+  {
+   "condition": "stale",
+   "state": "produced",
+   "seconds": 5.778,
+   "reason": "",
+   "verdict": "fail",
+   "written": "naive",
+   "prompt_chars": 2925,
+   "knowledge_chars": 2169,
+   "delivered": [
+    [
+     "a-word",
+     "lead",
+     "recheck"
+    ]
+   ],
+   "declared_used": [],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 731,
+     "output_tokens": 50
+    }
+   ],
+   "misled": false,
+   "rework_needed": true,
+   "provider": "fake",
+   "repeat": 1
+  },
+  {
+   "condition": "wrong",
+   "state": "produced",
+   "seconds": 5.661,
+   "reason": "",
+   "verdict": "fail",
+   "written": "wrong",
+   "prompt_chars": 2863,
+   "knowledge_chars": 2135,
+   "delivered": [
+    [
+     "a-word",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 716,
+     "output_tokens": 50
+    }
+   ],
+   "misled": true,
+   "rework_needed": true,
+   "provider": "fake",
+   "repeat": 0
+  },
+  {
+   "condition": "wrong",
+   "state": "produced",
+   "seconds": 5.259,
+   "reason": "",
+   "verdict": "fail",
+   "written": "wrong",
+   "prompt_chars": 2863,
+   "knowledge_chars": 2135,
+   "delivered": [
+    [
+     "a-word",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "fake": true,
+     "input_tokens": 716,
+     "output_tokens": 50
+    }
+   ],
+   "misled": true,
+   "rework_needed": true,
+   "provider": "fake",
+   "repeat": 1
+  },
+  {
+   "condition": "none",
+   "state": "held",
+   "seconds": 18.187,
+   "reason": "Invalid artifact file list.",
+   "provider": "claude-cli",
+   "repeat": 0
+  },
+  {
+   "condition": "none",
+   "state": "held",
+   "seconds": 16.682,
+   "reason": "Invalid artifact file list.",
+   "provider": "claude-cli",
+   "repeat": 1
+  },
+  {
+   "condition": "correct",
+   "state": "produced",
+   "seconds": 17.495,
+   "reason": "",
+   "verdict": "pass",
+   "written": "right",
+   "prompt_chars": 2865,
+   "knowledge_chars": 2135,
+   "delivered": [
+    [
+     "a-word",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 1960,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "cache_creation_input_tokens": 1960,
+     "cache_read_input_tokens": 1190,
+     "fallback_credit": null,
+     "inference_geo": "global",
+     "input_tokens": 2,
+     "iterations": [
+      {
+       "cache_creation": {
+        "ephemeral_1h_input_tokens": 1960,
+        "ephemeral_5m_input_tokens": 0
+       },
+       "cache_creation_input_tokens": 1960,
+       "cache_read_input_tokens": 1190,
+       "input_tokens": 2,
+       "output_tokens": 533,
+       "type": "message"
+      }
+     ],
+     "output_tokens": 533,
+     "output_tokens_details": {
+      "thinking_tokens": 245
+     },
+     "server_tool_use": {
+      "web_fetch_requests": 0,
+      "web_search_requests": 0
+     },
+     "service_tier": "standard",
+     "speed": "standard"
+    }
+   ],
+   "misled": false,
+   "rework_needed": false,
+   "provider": "claude-cli",
+   "repeat": 0
+  },
+  {
+   "condition": "correct",
+   "state": "produced",
+   "seconds": 19.867,
+   "reason": "",
+   "verdict": "pass",
+   "written": "right",
+   "prompt_chars": 2865,
+   "knowledge_chars": 2135,
+   "delivered": [
+    [
+     "a-word",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 2585,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "cache_creation_input_tokens": 2585,
+     "cache_read_input_tokens": 4346,
+     "fallback_credit": null,
+     "inference_geo": "global",
+     "input_tokens": 4,
+     "iterations": [
+      {
+       "cache_creation": {
+        "ephemeral_1h_input_tokens": 619,
+        "ephemeral_5m_input_tokens": 0
+       },
+       "cache_creation_input_tokens": 619,
+       "cache_read_input_tokens": 3156,
+       "input_tokens": 2,
+       "output_tokens": 324,
+       "type": "message"
+      }
+     ],
+     "output_tokens": 841,
+     "output_tokens_details": {
+      "thinking_tokens": 197
+     },
+     "server_tool_use": {
+      "web_fetch_requests": 0,
+      "web_search_requests": 0
+     },
+     "service_tier": "standard",
+     "speed": "standard"
+    }
+   ],
+   "misled": false,
+   "rework_needed": false,
+   "provider": "claude-cli",
+   "repeat": 1
+  },
+  {
+   "condition": "stale",
+   "state": "produced",
+   "seconds": 22.298,
+   "reason": "",
+   "verdict": "fail",
+   "written": "right",
+   "prompt_chars": 2927,
+   "knowledge_chars": 2169,
+   "delivered": [
+    [
+     "a-word",
+     "lead",
+     "recheck"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 1995,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "cache_creation_input_tokens": 1995,
+     "cache_read_input_tokens": 1190,
+     "fallback_credit": null,
+     "inference_geo": "global",
+     "input_tokens": 2,
+     "iterations": [
+      {
+       "cache_creation": {
+        "ephemeral_1h_input_tokens": 1995,
+        "ephemeral_5m_input_tokens": 0
+       },
+       "cache_creation_input_tokens": 1995,
+       "cache_read_input_tokens": 1190,
+       "input_tokens": 2,
+       "output_tokens": 1100,
+       "type": "message"
+      }
+     ],
+     "output_tokens": 1100,
+     "output_tokens_details": {
+      "thinking_tokens": 606
+     },
+     "server_tool_use": {
+      "web_fetch_requests": 0,
+      "web_search_requests": 0
+     },
+     "service_tier": "standard",
+     "speed": "standard"
+    }
+   ],
+   "misled": true,
+   "rework_needed": true,
+   "provider": "claude-cli",
+   "repeat": 0
+  },
+  {
+   "condition": "stale",
+   "state": "produced",
+   "seconds": 26.486,
+   "reason": "",
+   "verdict": "fail",
+   "written": "right",
+   "prompt_chars": 2927,
+   "knowledge_chars": 2169,
+   "delivered": [
+    [
+     "a-word",
+     "lead",
+     "recheck"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 3306,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "cache_creation_input_tokens": 3306,
+     "cache_read_input_tokens": 4378,
+     "fallback_credit": null,
+     "inference_geo": "global",
+     "input_tokens": 4,
+     "iterations": [
+      {
+       "cache_creation": {
+        "ephemeral_1h_input_tokens": 1308,
+        "ephemeral_5m_input_tokens": 0
+       },
+       "cache_creation_input_tokens": 1308,
+       "cache_read_input_tokens": 3188,
+       "input_tokens": 2,
+       "output_tokens": 556,
+       "type": "message"
+      }
+     ],
+     "output_tokens": 1761,
+     "output_tokens_details": {
+      "thinking_tokens": 655
+     },
+     "server_tool_use": {
+      "web_fetch_requests": 0,
+      "web_search_requests": 0
+     },
+     "service_tier": "standard",
+     "speed": "standard"
+    }
+   ],
+   "misled": true,
+   "rework_needed": true,
+   "provider": "claude-cli",
+   "repeat": 1
+  },
+  {
+   "condition": "wrong",
+   "state": "produced",
+   "seconds": 28.736,
+   "reason": "",
+   "verdict": "fail",
+   "written": "wrong",
+   "prompt_chars": 2865,
+   "knowledge_chars": 2135,
+   "delivered": [
+    [
+     "a-word",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 3162,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "cache_creation_input_tokens": 3162,
+     "cache_read_input_tokens": 4373,
+     "fallback_credit": null,
+     "inference_geo": "global",
+     "input_tokens": 4,
+     "iterations": [
+      {
+       "cache_creation": {
+        "ephemeral_1h_input_tokens": 1169,
+        "ephemeral_5m_input_tokens": 0
+       },
+       "cache_creation_input_tokens": 1169,
+       "cache_read_input_tokens": 3183,
+       "input_tokens": 2,
+       "output_tokens": 406,
+       "type": "message"
+      }
+     ],
+     "output_tokens": 1473,
+     "output_tokens_details": {
+      "thinking_tokens": 665
+     },
+     "server_tool_use": {
+      "web_fetch_requests": 0,
+      "web_search_requests": 0
+     },
+     "service_tier": "standard",
+     "speed": "standard"
+    }
+   ],
+   "misled": true,
+   "rework_needed": true,
+   "provider": "claude-cli",
+   "repeat": 0
+  },
+  {
+   "condition": "wrong",
+   "state": "produced",
+   "seconds": 18.539,
+   "reason": "",
+   "verdict": "fail",
+   "written": "wrong",
+   "prompt_chars": 2865,
+   "knowledge_chars": 2135,
+   "delivered": [
+    [
+     "a-word",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "a-word"
+   ],
+   "violations": [],
+   "usage": [
+    {
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 1960,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "cache_creation_input_tokens": 1960,
+     "cache_read_input_tokens": 1190,
+     "fallback_credit": null,
+     "inference_geo": "global",
+     "input_tokens": 2,
+     "iterations": [
+      {
+       "cache_creation": {
+        "ephemeral_1h_input_tokens": 1960,
+        "ephemeral_5m_input_tokens": 0
+       },
+       "cache_creation_input_tokens": 1960,
+       "cache_read_input_tokens": 1190,
+       "input_tokens": 2,
+       "output_tokens": 1002,
+       "type": "message"
+      }
+     ],
+     "output_tokens": 1002,
+     "output_tokens_details": {
+      "thinking_tokens": 757
+     },
+     "server_tool_use": {
+      "web_fetch_requests": 0,
+      "web_search_requests": 0
+     },
+     "service_tier": "standard",
+     "speed": "standard"
+    }
+   ],
+   "misled": true,
+   "rework_needed": true,
+   "provider": "claude-cli",
+   "repeat": 1
+  }
+ ],
+ "limits": "fake rows: deterministic test double, plumbing only; real rows: one task, few repeats, no statistical claim"
+}

@@ -1,0 +1,290 @@
+{
+ "kind": "v23-ke02-reuse-comparison",
+ "checkout": "0594a437dcdbbc26373b87266e922e7a35675fed",
+ "dirty": false,
+ "wheel_sha256_built_for_run": "d39683903d133b54c7ba38b26a16a1bedae057642fda1d92159cd6780fb02b97",
+ "rows": [
+  {
+   "condition": "fresh",
+   "state": "produced",
+   "seconds": 3.61,
+   "reason": "",
+   "verdict": "fail",
+   "written": "naive",
+   "prompt_chars": 824,
+   "knowledge_chars": 0,
+   "delivered": [],
+   "declared_used": [],
+   "omitted": {
+    "not_relevant": 2
+   },
+   "misled": false,
+   "rework_needed": true,
+   "published_by_a": [],
+   "provider": "fake",
+   "repeat": 0
+  },
+  {
+   "condition": "reused",
+   "state": "produced",
+   "seconds": 7.881,
+   "reason": "",
+   "verdict": "pass",
+   "written": "right",
+   "prompt_chars": 3322,
+   "knowledge_chars": 2484,
+   "delivered": [
+    [
+     "ctx-59e2028cb097c3c71a09a5f5",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "ctx-59e2028cb097c3c71a09a5f5"
+   ],
+   "omitted": {
+    "not_relevant": 2,
+    "root_private": 10
+   },
+   "misled": false,
+   "rework_needed": false,
+   "published_by_a": [
+    "ctx-59e2028cb097c3c71a09a5f5"
+   ],
+   "provider": "fake",
+   "repeat": 0
+  },
+  {
+   "condition": "changed",
+   "state": "produced",
+   "seconds": 8.019,
+   "reason": "",
+   "verdict": "fail",
+   "written": "right",
+   "prompt_chars": 3361,
+   "knowledge_chars": 2526,
+   "delivered": [
+    [
+     "ctx-78842d8f4f5f191081075a21",
+     "lead",
+     "recheck"
+    ]
+   ],
+   "declared_used": [
+    "ctx-78842d8f4f5f191081075a21"
+   ],
+   "omitted": {
+    "not_relevant": 2,
+    "root_private": 10
+   },
+   "misled": true,
+   "rework_needed": true,
+   "published_by_a": [
+    "ctx-78842d8f4f5f191081075a21"
+   ],
+   "provider": "fake",
+   "repeat": 0
+  },
+  {
+   "condition": "withdrawn",
+   "state": "produced",
+   "seconds": 7.519,
+   "reason": "",
+   "verdict": "fail",
+   "written": "naive",
+   "prompt_chars": 825,
+   "knowledge_chars": 0,
+   "delivered": [],
+   "declared_used": [],
+   "omitted": {
+    "not_relevant": 2,
+    "root_private": 10,
+    "withdrawn": 1
+   },
+   "misled": false,
+   "rework_needed": true,
+   "published_by_a": [
+    "ctx-1a8a7f96cba325e703f5869f"
+   ],
+   "provider": "fake",
+   "repeat": 0
+  },
+  {
+   "condition": "fresh",
+   "state": "held",
+   "seconds": 14.063,
+   "reason": "Invalid artifact file list.",
+   "published_by_a": [],
+   "provider": "claude-cli",
+   "repeat": 0
+  },
+  {
+   "condition": "fresh",
+   "state": "held",
+   "seconds": 11.809,
+   "reason": "Invalid artifact file list.",
+   "published_by_a": [],
+   "provider": "claude-cli",
+   "repeat": 1
+  },
+  {
+   "condition": "reused",
+   "state": "produced",
+   "seconds": 20.522,
+   "reason": "",
+   "verdict": "pass",
+   "written": "right",
+   "prompt_chars": 3322,
+   "knowledge_chars": 2484,
+   "delivered": [
+    [
+     "ctx-2e341ea0038025982299161c",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "ctx-2e341ea0038025982299161c"
+   ],
+   "omitted": {
+    "not_relevant": 2,
+    "root_private": 10
+   },
+   "misled": false,
+   "rework_needed": false,
+   "published_by_a": [
+    "ctx-2e341ea0038025982299161c"
+   ],
+   "provider": "claude-cli",
+   "repeat": 0
+  },
+  {
+   "condition": "reused",
+   "state": "produced",
+   "seconds": 18.091,
+   "reason": "",
+   "verdict": "pass",
+   "written": "right",
+   "prompt_chars": 3322,
+   "knowledge_chars": 2484,
+   "delivered": [
+    [
+     "ctx-83de524897dd39d6cb14fa49",
+     "fact",
+     "applies"
+    ]
+   ],
+   "declared_used": [
+    "ctx-83de524897dd39d6cb14fa49"
+   ],
+   "omitted": {
+    "not_relevant": 2,
+    "root_private": 10
+   },
+   "misled": false,
+   "rework_needed": false,
+   "published_by_a": [
+    "ctx-83de524897dd39d6cb14fa49"
+   ],
+   "provider": "claude-cli",
+   "repeat": 1
+  },
+  {
+   "condition": "changed",
+   "state": "produced",
+   "seconds": 16.936,
+   "reason": "",
+   "verdict": "pass",
+   "written": "bright",
+   "prompt_chars": 3361,
+   "knowledge_chars": 2526,
+   "delivered": [
+    [
+     "ctx-02566acc173b1a1bce88a823",
+     "lead",
+     "recheck"
+    ]
+   ],
+   "declared_used": [],
+   "omitted": {
+    "not_relevant": 2,
+    "root_private": 10
+   },
+   "misled": false,
+   "rework_needed": false,
+   "published_by_a": [
+    "ctx-02566acc173b1a1bce88a823"
+   ],
+   "provider": "claude-cli",
+   "repeat": 0
+  },
+  {
+   "condition": "changed",
+   "state": "produced",
+   "seconds": 24.242,
+   "reason": "",
+   "verdict": "pass",
+   "written": "bright",
+   "prompt_chars": 3361,
+   "knowledge_chars": 2526,
+   "delivered": [
+    [
+     "ctx-3333ab7d166a48cb9d283c08",
+     "lead",
+     "recheck"
+    ]
+   ],
+   "declared_used": [],
+   "omitted": {
+    "not_relevant": 2,
+    "root_private": 10
+   },
+   "misled": false,
+   "rework_needed": false,
+   "published_by_a": [
+    "ctx-3333ab7d166a48cb9d283c08"
+   ],
+   "provider": "claude-cli",
+   "repeat": 1
+  },
+  {
+   "condition": "withdrawn",
+   "state": "produced",
+   "seconds": 19.601,
+   "reason": "",
+   "verdict": "pass",
+   "written": "right",
+   "prompt_chars": 825,
+   "knowledge_chars": 0,
+   "delivered": [],
+   "declared_used": [
+    "D: write b.txt only"
+   ],
+   "omitted": {
+    "not_relevant": 2,
+    "root_private": 10,
+    "withdrawn": 1
+   },
+   "misled": false,
+   "rework_needed": false,
+   "published_by_a": [
+    "ctx-e8805ed162e5d7d637e12655"
+   ],
+   "provider": "claude-cli",
+   "repeat": 0
+  },
+  {
+   "condition": "withdrawn",
+   "state": "continuing",
+   "seconds": 13.083,
+   "reason": "",
+   "published_by_a": [
+    "ctx-953b749f860926175cb21da2"
+   ],
+   "provider": "claude-cli",
+   "repeat": 1
+  }
+ ],
+ "limits": "root A always runs the fake claude (the knowledge is written by the real engine path); real rows run B only; one task, few repeats"
+}

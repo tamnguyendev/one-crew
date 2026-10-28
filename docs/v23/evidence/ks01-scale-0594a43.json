@@ -1,0 +1,179 @@
+{
+ "kind": "v23-ks01-scale",
+ "checkout": "0594a437dcdbbc26373b87266e922e7a35675fed",
+ "dirty": false,
+ "python": "3.13.15",
+ "platform": "win32",
+ "machine_shared": true,
+ "note": "wall time on a shared Windows machine (other sessions running); rows inserted directly; 20% code-bound entries cite 20 files",
+ "rows": [
+  {
+   "ledger_entries_project": 100,
+   "ledger_entries_other_project": 0,
+   "wiki_sections": 0,
+   "seconds_min": 0.1768,
+   "seconds_max": 0.3581,
+   "candidates": 100,
+   "eligible": 80,
+   "delivered": 0,
+   "omitted_total": 100,
+   "context_retrieve_200_new_s": 0.1534,
+   "context_retrieve_200_base_s": 0.1411
+  },
+  {
+   "ledger_entries_project": 1000,
+   "ledger_entries_other_project": 1000,
+   "wiki_sections": 200,
+   "seconds_min": 0.8375,
+   "seconds_max": 4.5887,
+   "candidates": 1200,
+   "eligible": 921,
+   "delivered": 16,
+   "omitted_total": 1184,
+   "context_retrieve_200_new_s": 0.2301,
+   "context_retrieve_200_base_s": 0.1921
+  },
+  {
+   "ledger_entries_project": 5000,
+   "ledger_entries_other_project": 5000,
+   "wiki_sections": 1000,
+   "seconds_min": 1.8596,
+   "seconds_max": 6.7074,
+   "candidates": 6000,
+   "eligible": 4132,
+   "delivered": 25,
+   "omitted_total": 5975,
+   "context_retrieve_200_new_s": 0.3339,
+   "context_retrieve_200_base_s": 0.356
+  },
+  {
+   "ledger_entries_project": 10000,
+   "ledger_entries_other_project": 10000,
+   "wiki_sections": 1000,
+   "seconds_min": 5.4333,
+   "seconds_max": 10.1048,
+   "candidates": 11000,
+   "eligible": 8151,
+   "delivered": 25,
+   "omitted_total": 10975,
+   "context_retrieve_200_new_s": 0.6024,
+   "context_retrieve_200_base_s": 0.7242
+  },
+  {
+   "ledger_entries_project": 20000,
+   "ledger_entries_other_project": 20000,
+   "wiki_sections": 2000,
+   "seconds_min": 8.9981,
+   "seconds_max": 11.5473,
+   "candidates": 22000,
+   "eligible": 16205,
+   "delivered": 25,
+   "omitted_total": 21975,
+   "context_retrieve_200_new_s": 1.1124,
+   "context_retrieve_200_base_s": 1.257
+  },
+  {
+   "ledger_entries_project": 50000,
+   "ledger_entries_other_project": 50000,
+   "wiki_sections": 2000,
+   "seconds_min": 21.3366,
+   "seconds_max": 28.1226,
+   "candidates": 52000,
+   "eligible": 40564,
+   "delivered": 25,
+   "omitted_total": 51975,
+   "context_retrieve_200_new_s": 2.9721,
+   "context_retrieve_200_base_s": 4.9053
+  }
+ ],
+ "pages_rows": [
+  {
+   "wiki_pages": 1001,
+   "ledger_entries_project": 0,
+   "seconds_min": 0.5472,
+   "seconds_max": 4.6046,
+   "candidates": 1001,
+   "eligible": 21,
+   "delivered": 2,
+   "omitted_total": 999,
+   "mandatory_delivered": [
+    "required-last"
+   ],
+   "wiki": null
+  },
+  {
+   "wiki_pages": 2001,
+   "ledger_entries_project": 0,
+   "seconds_min": 0.905,
+   "seconds_max": 0.9319,
+   "candidates": 2001,
+   "eligible": 21,
+   "delivered": 2,
+   "omitted_total": 1999,
+   "mandatory_delivered": [
+    "required-last"
+   ],
+   "wiki": null
+  },
+  {
+   "wiki_pages": 2002,
+   "ledger_entries_project": 0,
+   "seconds_min": 0.8717,
+   "seconds_max": 4.8736,
+   "candidates": 2001,
+   "eligible": 21,
+   "delivered": 2,
+   "omitted_total": 1999,
+   "mandatory_delivered": [
+    "required-last"
+   ],
+   "wiki": {
+    "complete": false,
+    "pages": 2002,
+    "not_read": 1,
+    "unreadable": 0,
+    "mandatory_not_delivered": 0
+   }
+  },
+  {
+   "wiki_pages": 5001,
+   "ledger_entries_project": 0,
+   "seconds_min": 1.809,
+   "seconds_max": 6.1346,
+   "candidates": 2001,
+   "eligible": 21,
+   "delivered": 2,
+   "omitted_total": 1999,
+   "mandatory_delivered": [
+    "required-last"
+   ],
+   "wiki": {
+    "complete": false,
+    "pages": 5001,
+    "not_read": 3000,
+    "unreadable": 0,
+    "mandatory_not_delivered": 0
+   }
+  },
+  {
+   "wiki_pages": 10001,
+   "ledger_entries_project": 0,
+   "seconds_min": 3.0925,
+   "seconds_max": 10.0931,
+   "candidates": 2001,
+   "eligible": 21,
+   "delivered": 2,
+   "omitted_total": 1999,
+   "mandatory_delivered": [
+    "required-last"
+   ],
+   "wiki": {
+    "complete": false,
+    "pages": 10001,
+    "not_read": 8000,
+    "unreadable": 0,
+    "mandatory_not_delivered": 0
+   }
+  }
+ ]
+}
