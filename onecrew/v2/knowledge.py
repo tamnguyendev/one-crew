@@ -148,8 +148,11 @@ class RevisionView:
 
     def __getitem__(self, path):
         if path not in self.cache:
+            import os
             import subprocess
-            done = subprocess.run(['git', '-C', self.project, 'cat-file', 'blob', f'{self.commit}:{path}'], capture_output=True, timeout=60)
+            clean = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}   # review r3 R3-03: the F8 rule of command._git
+            done = subprocess.run(['git', '-C', self.project, 'cat-file', 'blob', f'{self.commit}:{path}'], capture_output=True, timeout=120,
+                                  env=clean, creationflags=0x08000000 if os.name == 'nt' else 0)
             self.cache[path] = done.stdout if done.returncode == 0 else None
         return self.cache[path]
 
@@ -582,8 +585,8 @@ def _decide(ledger, cons, candidates, lifecycle=(), withdrawn_lessons=None, view
                 changed = True
     eligible = [c for c in candidates if not c['excluded']]
     groups = {}
-    for c in eligible:                                 # copies: the same claim, sources, scope and qualifiers; keep the strongest one
-        signature = (' '.join(c['text'].casefold().split()), ' '.join(c['title'].casefold().split()), c['kind'], c['label'], c['must'], canonical(sorted(c['applies_to'])),
+    for c in eligible:                                 # copies: the same claim, sources, scope and qualifiers; keep the strongest one (a mandatory one is also its heading: r2 R2-04b)
+        signature = (' '.join(c['text'].casefold().split()), ' '.join(c['title'].casefold().split()) if c['must'] else '', c['kind'], c['label'], c['must'], canonical(sorted(c['applies_to'])),
                      canonical(sorted(canonical(s) for s in c['sources'])), canonical(c['conditions']))
         groups.setdefault(signature, []).append(c)
     for twins in groups.values():
@@ -697,12 +700,14 @@ def _collect(ledger, cons, view, memo=None):
     problems = list(problems)
     coverage = dict(coverage, undelivered=list(coverage.get('undelivered') or []))
     eligible = _decide(ledger, cons, candidates, lifecycle, withdrawn, view)
-    by_id = {c['id']: c for c in candidates}
-    def unread(ident, seen=()):                        # review r1 F4 / r2 R2-02: not read, here or further down the derivation
+    by_id, known = {c['id']: c for c in candidates}, {}
+    def unread(ident):                                 # review r1 F4 / r2 R2-02: not read, here or further down the derivation;
+        if ident in known: return known[ident]         # r3 R3-01: one answer per id (linear; a cycle counts as read)
         if ident not in by_id: return True
+        known[ident] = False
         c = by_id[ident]
-        if ident in seen or c.get('excluded') != 'source_not_visible': return False
-        return any(unread(d, seen + (ident,)) for d in c['derived_from'])
+        if c.get('excluded') == 'source_not_visible': known[ident] = any(unread(d) for d in c['derived_from'])
+        return known[ident]
     for c in candidates:
         missing = [d for d in c['derived_from'] if unread(d)] if c['must'] and c.get('excluded') == 'source_not_visible' else []
         if missing:

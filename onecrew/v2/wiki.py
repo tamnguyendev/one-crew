@@ -321,9 +321,15 @@ def configured_paths(project, problems=None):
     return list(DEFAULT_PATHS)
 
 
+def _looks_utf16(data):
+    """UTF-16 text without a BOM: NUL bytes in a quarter or more of the first 4 KiB (review r3 R3-02: one stray NUL in UTF-8 is text)."""
+    sample = data[:4096]
+    return bool(sample) and sample.count(0) * 4 >= len(sample)
+
+
 def _decode(data):
     """(text, None) of a UTF-8 page (a BOM is dropped: review r1 F15), else (None, reason)."""
-    if b'\x00' in data: return None, 'not UTF-8 text (NUL bytes: UTF-16?)'   # review r2 R2-06: UTF-16 without a BOM is valid "UTF-8"
+    if _looks_utf16(data): return None, 'not UTF-8 text (UTF-16?)'   # review r2 R2-06: UTF-16 without a BOM is valid "UTF-8"
     try:
         text = data.decode('utf-8')
     except UnicodeDecodeError:
