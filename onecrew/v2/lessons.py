@@ -124,7 +124,9 @@ def propose_general(ledger, name, lesson, *, text, conditions):
     with ledger.transaction() as conn:
         _still_open(incidents._root(ledger, conn, name)[0])
     original = _latest(ledger, name).get(lesson)
-    if original is None or original['scope'] != 'project' or original['status'] == 'withdrawn':
+    from . import knowledge
+    if (original is None or original['scope'] != 'project' or original['status'] == 'withdrawn'
+            or knowledge.withdrawn_targets(ledger).get(KEY_PREFIX + lesson, 0) > original.get('event', 0)):
         raise LedgerError('A live project lesson is required as the source.')
     text_field(text, 'general lesson text', 600)
     if not isinstance(conditions, list) or not 1 <= len(conditions) <= 20:
@@ -193,6 +195,9 @@ def refine_context(ledger, entries, revision=None):
             latest[(row['task_id'], item['lesson'])] = item
         if item.get('lesson') in keys:
             sources[row['seq']] = (row['task_id'], item)
+    from . import knowledge
+    withdrawn = knowledge.withdrawn_targets(ledger)           # 2.3-A2: a withdrawal recorded on any open root of the project
+    current_cache, blob_cache = [], {}
     out = []
     for entry in entries:
         logical = entry['key'][len(KEY_PREFIX):] if entry['key'].startswith(KEY_PREFIX) else None
@@ -203,6 +208,8 @@ def refine_context(ledger, entries, revision=None):
             out.append(entry); continue
         if lesson['status'] == 'withdrawn':
             continue
+        if withdrawn.get(KEY_PREFIX + logical, 0) > entry.get('event', 0):
+            continue
         if lesson.get('source_lesson'):
             origin = latest.get((source[0], lesson['source_lesson']))
             if origin and origin['status'] == 'withdrawn':
@@ -210,8 +217,11 @@ def refine_context(ledger, entries, revision=None):
         changed = None
         if lesson['scope'] == 'project':
             try:
-                current, _ = _revision(ledger, revision or 'HEAD')
-                blob = command._git(ledger.project, 'rev-parse', current + ':' + lesson['location']['path'])
+                if not current_cache: current_cache.append(_revision(ledger, revision or 'HEAD')[0])
+                current = current_cache[0]
+                where = current + ':' + lesson['location']['path']
+                if where not in blob_cache: blob_cache[where] = command._git(ledger.project, 'rev-parse', where)
+                blob = blob_cache[where]
                 if blob != lesson['file_blob']:
                     changed = f'file changed since revision {lesson["location"]["revision"][:12]}; recheck at {current[:12]}'
             except (LedgerError, OSError) as error:

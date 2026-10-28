@@ -1,31 +1,36 @@
-"""2.3-A1 — what one consumer may use from the project's knowledge, chosen and delivered by code, never by a model.
+"""2.3-A1/A2 — what one consumer may use from the project's knowledge, chosen and delivered by code, never by a model; and (A2) how
+knowledge is written with its evidence so that later work — new roots included — can use it again.
 
 Two sources, one entry model (docs/v23/HOP-DONG-2.3.vi.md §3):
   * the project's wiki pages (wiki.pages / wiki.parse: Markdown sections, typed by an optional `onecrew` block);
-  * the ledger's context entries (context.retrieve with limit=None, lessons already refined: withdrawn ones are gone).
+  * the ledger's context entries (context.retrieve with limit=None; lessons refined: withdrawn ones are gone). A2 records are
+    context.entry too (class A), with their fields under payload `knowledge`; there is no second store.
 
-For a consumer — a root, and usually one node of it with its read/write files — every candidate goes through, in order:
-  1. permission: project boundary (the ledger reader already keeps other projects out; general entries follow the old rule); an entry
-     of another root is used only when it was published for the project (`visibility: project`, lessons) — a root's working memory stays
-     with that root; every file a source cites must be inside the consumer's read scope (otherwise it is not delivered and not named);
-  2. status: withdrawn / superseded / archived entries are history, never delivered;
-  3. applicability at the current state (MEM-01): a cited file whose content differs from the revision the entry was recorded against
-     (committed or not) makes the entry `recheck`; a checkable condition that is false makes it `not_applicable`; a condition that cannot
-     be checked here makes it `unknown`. Nothing ages by a timer, and an unchanged entry is used again as it is;
-  4. use: verified + applies = `fact`; refuted + applies = `rejected` (an approach already shown not to work here); everything else is a
-     `lead` — data to check before relying on it (a refuted conclusion whose source changed is a lead again, its history kept);
-  5. relevance to the task: the files (applies_to / sources against read ∪ write) and the words of the node and the plan;
-  6. the character cap: mandatory entries (`must`, relevant to the consumer's files or project-wide) go first and are never cut — when they
-     do not fit, the package is refused (KnowledgeOverflow) so the caller stops BEFORE a model call; optional ones follow by relevance
-     until the cap; the rest is listed (ids and titles of what the consumer may read, counts by reason for everything) with a cursor to
-     the next page. A cursor belongs to one knowledge state: any change to a page or an entry makes it stale and it is refused.
+For a consumer — a root, and usually one node of it with its read/write files and the exact file contents its worker will see — every
+candidate goes through, in order:
+  1. permission: project boundary (general entries follow the old rule); an entry another root keeps as working memory
+     (`visibility: root`) stays with that root; every file a source cites, every concrete `applies_to` file pinned with the record and
+     every file of the scope the knowledge was learned in (`scope_paths`: the producing node's read ∪ write) must be readable by the
+     consumer — otherwise the entry is not delivered and not named;
+  2. lifecycle: withdrawn / archived / superseded entries, summaries derived from them and wiki copies of them are history. Only records
+     the consumer may see act on it (another root's private note supersedes nothing for it; another project's record never acts), and a
+     withdrawal reaches the versions written before it, not a correction written after it;
+  3. applicability at the state the worker sees (MEM-01): a cited or pinned file whose blob differs from the one recorded makes the
+     entry `recheck`; a checkable condition that is false makes it `not_applicable`; a condition, a symbolic revision, an event or a
+     receipt that cannot be checked here makes it `unknown`. Nothing ages by a timer; an unchanged entry is used again as it is;
+  4. use: verified + applies = `fact`; refuted + applies = `rejected`; everything else is a `lead`. A summary is never stronger than its
+     weakest delivered source, contested and contradicted entries are leads, and a fact carries the property its evidence proved;
+  5. relevance (files and words of the node and the plan) and the character cap, which bounds the WHOLE package: mandatory entries
+     are never cut (do not fit -> KnowledgeOverflow, the caller stops before the model), optional ones fill the room, the rest is
+     listed with a cursor. The native adapter gives the package only the room the prompt cap leaves, so optional knowledge never blocks
+     a node that ran before 2.3.
 
-The package is DATA, not authority (it says so). It records what was delivered; it does not prove the worker understood or used it
-correctly: `check_use` compares the worker's declaration with the delivery (structural), and the node's checks judge the result. A1
-writes no knowledge: reading and delivering leave pages and entries as they were.
+The package is DATA, not authority. `check_use` compares the worker's declaration with the delivery (structural); the node's checks
+judge the result. Reading never writes (A1); writing (A2) happens only on an open root, at the strength of the evidence given.
 """
 import base64
 import fnmatch
+import hashlib
 import json
 import math
 import re
@@ -37,34 +42,46 @@ from ..ledger import LedgerError, canonical, content_hash, text_field
 from . import context, namespaces, plan as plans, wiki
 from .verifiers import command
 
-VERSION = 1
-NATIVE_CAP_CHARS = 12000          # the knowledge part of a native prompt; the whole prompt keeps its own 80000 cap
-ENTRY_TEXT_CHARS = 1600           # text of one entry in a page; longer text is marked truncated, the whole of it can be requested
-INDEX_ROWS = 30
+VERSION = 2
+NATIVE_CAP_CHARS = 16000          # the whole knowledge package of a native prompt; the prompt keeps its own cap (common_executor)
+ENTRY_TEXT_CHARS = 1600           # text of one optional entry in a page; longer text is marked truncated and can be requested whole
+INDEX_ROWS = 15
+PROBLEM_ROWS = 10
+MIN_CAP = 200
 NOTICE = context.NOTICE
-POLICY = ('facts: still applicable at this state, rely on them; rejected: approaches already shown not to work here, do not retry them unless '
-          'their conditions changed; leads: unverified, historical or not checkable now, check the cited source before relying on them. '
-          'Answer knowledge.used with the ids you relied on, knowledge.rejected with [{id, why}] for any entry you found wrong, and '
-          'knowledge.requests with omitted ids you need (only together with a continuation), and knowledge.new with what you found that is worth '
-          'keeping for later work ({kind, text, applies_to, sources: file paths you read, check: the id of the node check that proves it}); '
-          'a claim stays an observation until that check passes.')
+POLICY = ('facts: still applicable at this state; rely on them for what their evidence.property states (a cause is established only '
+          'when evidence.cause says so); rejected: approaches already shown not to work here, do not retry them unless their conditions '
+          'changed; leads: unverified, contested, historical or not checkable now, check the cited source before relying on them. '
+          'Answer knowledge.used with the ids you relied on, knowledge.rejected with [{id, why}] for any entry you found wrong, '
+          'knowledge.requests with omitted or truncated ids you need (only together with a continuation), and knowledge.new with what '
+          'you found that is worth keeping ({kind, text, applies_to, sources: files you read, check: the id of the node check that proves '
+          'it}); a claim stays an observation until that check passes.')
 STOP = frozenset('the and for with that this from into are was were has have had not but you your our its their them then than there '
                  'what when which who will would should could can may might must also only just some any all each per via use used using '
                  'của và các những một cho với không được trong khi này đó là có thì đã sẽ để từ theo'.split())
 KIND_WEIGHT = {'constraint': 3.0, 'decision': 2.0, 'rejected': 2.0, 'lesson': 2.0, 'finding': 1.5, 'summary': 1.0, 'note': 0.5}
+USE_RANK = {'fact': 3, 'rejected': 2, 'lead': 1}
+LIMITS = {'text': 600, 'claims': 20, 'id': 120, 'why': 1000, 'used': 200, 'requests': 20, 'rejected': 50, 'path': 300, 'paths': 20, 'sources': 10}
+_STR = lambda n: {'type': 'string', 'minLength': 1, 'maxLength': n}
 SCHEMA = {'type': 'object', 'additionalProperties': False, 'properties': {
-    'new': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'required': ['kind', 'text'], 'properties': {
-        'kind': {'type': 'string', 'enum': list(wiki.KINDS)}, 'text': {'type': 'string'},
-        'applies_to': {'type': 'array', 'items': {'type': 'string'}}, 'sources': {'type': 'array', 'items': {'type': 'string'}},
-        'check': {'type': 'string'}}}},
-    'used': {'type': 'array', 'items': {'type': 'string'}},
-    'rejected': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'required': ['id', 'why'],
-                                            'properties': {'id': {'type': 'string'}, 'why': {'type': 'string'}}}},
-    'requests': {'type': 'array', 'items': {'type': 'string'}}}}
+    'new': {'type': 'array', 'maxItems': LIMITS['claims'], 'items': {'type': 'object', 'additionalProperties': False, 'required': ['kind', 'text'], 'properties': {
+        'kind': {'type': 'string', 'enum': list(wiki.KINDS)}, 'text': _STR(LIMITS['text']),
+        'applies_to': {'type': 'array', 'maxItems': LIMITS['paths'], 'items': _STR(LIMITS['path'])},
+        'sources': {'type': 'array', 'maxItems': LIMITS['sources'], 'items': _STR(LIMITS['path'])},
+        'check': _STR(LIMITS['id'])}}},
+    'used': {'type': 'array', 'maxItems': LIMITS['used'], 'items': _STR(LIMITS['id'])},
+    'rejected': {'type': 'array', 'maxItems': LIMITS['rejected'], 'items': {'type': 'object', 'additionalProperties': False, 'required': ['id', 'why'],
+                                                                         'properties': {'id': _STR(LIMITS['id']), 'why': {'type': 'string', 'maxLength': LIMITS['why']}}}},
+    'requests': {'type': 'array', 'maxItems': LIMITS['requests'], 'items': _STR(LIMITS['id'])}}}
+FULL_COMMIT = wiki.FULL_COMMIT
 
 
 class KnowledgeOverflow(LedgerError):
-    """Mandatory knowledge does not fit the cap: run nothing with partial constraints."""
+    """Mandatory knowledge does not fit the room: run nothing with partial constraints."""
+
+
+class KnowledgeNoRoom(LedgerError):
+    """The cap leaves no room for any entry beside the package frame (and nothing is mandatory): deliver no knowledge, run on the inputs."""
 
 
 # ---- the consumer ------------------------------------------------------------------------------------------------------------
@@ -82,6 +99,7 @@ def consumer(ledger, plan, *, node=None, pin=None):
     if node:
         paths = sorted(set(node.get('read') or []) | set(node.get('write') or []))
         words += [node.get('goal') or '', *(node.get('output') or []), *[c.get('spec', '') for c in node.get('checks') or []]]
+        pin = pin or node.get('executor')
     else:
         target = (contract.get('understanding') or {}).get('target') or {}
         paths = sorted(set(target.get('paths') or []) | set((contract.get('scope') or {}).get('owned') or []))
@@ -102,31 +120,54 @@ def _readable(paths, path):
     return any(_covers(p, path) for p in paths)
 
 
-# ---- the current state of the project, read once per package ------------------------------------------------------------------
+def _concrete(paths):
+    return [p for p in paths if p and not p.endswith('/') and not any(c in p for c in '*?[')]
+
+
+# ---- the state the worker sees, read once per package ---------------------------------------------------------------------------
+
+def blob_of(ledger, path, data):
+    """The git blob id `data` would have as `path` (git applies the path's filters, as on commit)."""
+    return command._git(ledger.project, 'hash-object', '--stdin', f'--path={path}', input=data) or None
+
 
 class _State:
-    def __init__(self, ledger):
-        self.ledger, self.project = ledger, Path(ledger.project)
-        self.texts, self.revisions, self.blobs = {}, {}, {}
+    """File contents and blobs as the consumer's worker will see them: `view` (path -> text, the native prompt's source) first, the
+    project working tree for any other file; ledger events and receipts of this state root for event/receipt sources. Cached."""
+    def __init__(self, ledger, view=None):
+        self.ledger, self.project, self.view = ledger, Path(ledger.project), dict(view or {})
+        self.texts, self.revisions, self.blobs, self.events, self.receipts = {}, {}, {}, {}, {}
 
     def current(self, path):
-        """The working-tree bytes of a repository file (what the next worker sees), None when absent."""
         if path not in self.texts:
-            try:
-                self.texts[path] = (self.project / path).read_bytes()
-            except OSError:
-                self.texts[path] = None
+            if path in self.view:
+                value = self.view[path]
+                self.texts[path] = value.encode('utf-8') if isinstance(value, str) else None
+            else:
+                try:
+                    self.texts[path] = (self.project / path).read_bytes()
+                except OSError:
+                    self.texts[path] = None
         return self.texts[path]
 
+    def blob(self, path):
+        key = ('now', path)
+        if key not in self.blobs:
+            data = self.current(path)
+            try:
+                self.blobs[key] = None if data is None else blob_of(self.ledger, path, data)
+            except LedgerError:
+                self.blobs[key] = None
+        return self.blobs[key]
+
     def blob_at(self, revision, path):
-        """The git blob id of `path` at a commit-ish, None when it is not there; LedgerError when the revision does not resolve."""
         if revision not in self.revisions:
             try:
                 self.revisions[revision] = context.resolve_revision(self.ledger.project, revision)
             except LedgerError:
                 self.revisions[revision] = None
         commit = self.revisions[revision]
-        if commit is None: raise LedgerError(f'revision {revision} does not resolve')
+        if commit is None: raise LedgerError(f'revision {revision[:40]} does not resolve')
         key = ('at', commit, path)
         if key not in self.blobs:
             try:
@@ -135,30 +176,40 @@ class _State:
                 self.blobs[key] = None
         return self.blobs[key]
 
-    def blob(self, path):
-        """The blob id the working-tree file would have (git hash-object applies the same filters as a commit), None when absent."""
-        key = ('now', path)
-        if key not in self.blobs:
-            if self.current(path) is None:
-                self.blobs[key] = None
-            else:
-                try:
-                    self.blobs[key] = command._git(self.ledger.project, 'hash-object', '--', path) or None
-                except LedgerError:
-                    self.blobs[key] = None
-        return self.blobs[key]
+    def event_exists(self, ident):
+        if ident not in self.events:
+            with self.ledger.transaction() as conn:
+                self.events[ident] = bool(conn and conn.execute('SELECT 1 FROM events e JOIN tasks t ON t.id=e.task_id WHERE e.seq=? AND t.project_id=?',
+                                                                (ident, self.ledger.project_id)).fetchone())
+        return self.events[ident]
+
+    def receipt_exists(self, key):
+        if key not in self.receipts:
+            from ..snapshots import Snapshots
+            try:
+                Snapshots(self.ledger.state_root).read_blob(key); self.receipts[key] = True
+            except (LedgerError, OSError, ValueError, TypeError):
+                self.receipts[key] = False
+        return self.receipts[key]
 
 
 def _source_state(state, source, recorded_revision=None):
-    """('unchanged'|'changed'|'unknown', reason) of one cited file against the revision the entry was recorded at."""
+    """('unchanged'|'changed'|'unknown'|'ignored', reason) of one source against the state the worker sees."""
+    kind = source.get('type')
+    if kind == 'url': return 'ignored', None
+    if kind == 'event':
+        return ('unchanged', None) if state.event_exists(source.get('id')) else ('unknown', f'event {source.get("id")} is not in this ledger')
+    if kind == 'receipt':
+        return ('unchanged', None) if state.receipt_exists(source.get('key')) else ('unknown', f'receipt {str(source.get("key"))[:16]} is not in this state root')
     path = source.get('path')
-    if not path: return 'unchanged', None                       # an event or a receipt is immutable; a url is not a source we check
-    revision = source.get('revision') or recorded_revision
+    if not path: return 'unknown', 'source without a path'
     now = state.blob(path)
     if source.get('blob'):
         if now is None: return 'changed', f'{path} no longer exists'
         return ('unchanged', None) if now == source['blob'] else ('changed', f'{path} changed since blob {source["blob"][:12]}')
+    revision = source.get('revision') or recorded_revision
     if not revision: return 'unknown', f'{path}: no revision or blob recorded, the source cannot be checked'
+    if not FULL_COMMIT.match(revision): return 'unknown', f'{path}: revision {revision[:40]} is symbolic (it always means "now"); pin a commit'
     try:
         then = state.blob_at(revision, path)
     except LedgerError as error:
@@ -169,6 +220,10 @@ def _source_state(state, source, recorded_revision=None):
     return ('unchanged', None) if then == now else ('changed', f'{path} changed since {revision[:12]}')
 
 
+def _normalized_sha(data):
+    return hashlib.sha256(data.replace(b'\r\n', b'\n')).hexdigest()
+
+
 def _condition_state(state, condition, environment):
     kind = condition.get('type')
     if kind == 'file_contains':
@@ -177,9 +232,8 @@ def _condition_state(state, condition, environment):
         found = condition['text'] in data.decode('utf-8', 'replace')
         return found, None if found else f'{condition["path"]} no longer contains {condition["text"][:60]!r}'
     if kind == 'file_unchanged':
-        import hashlib
-        data = state.current(condition['path'])
-        same = data is not None and hashlib.sha256(data).hexdigest() == condition['sha256']
+        data = state.current(condition['path'])                 # sha256 of the content with CRLF read as LF (a checkout's line ends never count)
+        same = data is not None and condition['sha256'] in (_normalized_sha(data), hashlib.sha256(data).hexdigest())
         return same, None if same else f'{condition["path"]} differs from the recorded content'
     if kind == 'env':
         actual = environment.get(condition['key'])
@@ -195,25 +249,42 @@ def _applicability(state, entry, environment):
         holds, why = _condition_state(state, condition, environment)
         if holds is False: return {'state': 'not_applicable', 'reasons': [why]}
         if holds is None: unknown = True; reasons.append(why)
+    checkable = False
     for source in entry['sources']:
         verdict, why = _source_state(state, source, entry.get('recorded_revision'))
+        if verdict == 'ignored': continue
+        if verdict in ('unchanged', 'changed'): checkable = True
         if verdict == 'changed': changed = True; reasons.append(why)
         elif verdict == 'unknown': unknown = True; reasons.append(why)
     if entry.get('ledger_stale'): changed = True; reasons.append(entry['ledger_stale'])
-    checkable = any(s['type'] in wiki.CHECKABLE for s in entry['sources'])
-    if not checkable and not entry['conditions']:
-        return {'state': 'unknown', 'reasons': ['no checkable source']}
+    pinned = {s['path'] for s in entry['sources'] if s.get('path')}
+    loose = [p for p in _concrete(entry['applies_to']) if p not in pinned]
+    if loose:                                          # an entry about files whose content was never pinned cannot be told current
+        unknown = True; reasons.append('applies to ' + ', '.join(loose[:3]) + ' with no pinned content')
+    if not checkable and not entry['conditions'] and not changed:
+        return {'state': 'unknown', 'reasons': [r for r in reasons if r] or ['no checkable source']}
     return {'state': 'recheck' if changed else 'unknown' if unknown else 'applies', 'reasons': [r for r in reasons if r]}
 
 
 # ---- candidates ----------------------------------------------------------------------------------------------------------------
+
+def ledger_id(key, visibility=None, root=None):
+    """The id a ledger subject is known by. A project-visible subject is one per project (`ctx-<key>`); a root's working memory is
+    one per root (`ctx-<key>.r<root>`), so the two never stand for each other. Lessons keep their logical id."""
+    if key.startswith('lesson-'): return key
+    if visibility == 'root' and root: return f'ctx-{key}.r{str(root)[-8:]}'
+    return 'ctx-' + key
+
 
 def _wiki_candidates(ledger, problems):
     found, page_problems = wiki.pages(ledger.project)
     problems += page_problems
     out, seen = [], {}
     for page in found:
-        parsed = wiki.parse(page['text'], page['path'])
+        try:
+            parsed = wiki.parse(page['text'], page['path'])
+        except Exception as error:                              # one page never takes the others down (review r1 #4)
+            problems.append({'path': page['path'], 'problem': f'page not read ({type(error).__name__})'}); continue
         problems += [{'path': page['path'], 'problem': p} for p in parsed['problems']]
         for entry in parsed['entries']:
             if entry['id'] in seen:
@@ -224,54 +295,63 @@ def _wiki_candidates(ledger, problems):
                         'kind': entry['kind'], 'label': entry['label'], 'must': entry['must'], 'status': entry['status'], 'title': entry['title'],
                         'text': entry['text'], 'sources': entry['sources'], 'conditions': entry['conditions'], 'applies_to': entry['applies_to'],
                         'supersedes': entry['supersedes'], 'derived_from': entry['derived_from'], 'ledger_id': entry['ledger_id'],
-                        'visibility': 'project', 'scope': 'project', 'root': None, 'seq': 0})
+                        'visibility': 'project', 'scope': 'project', 'root': None, 'seq': 0, 'project': ledger.project_id,
+                        'scope_paths': [], 'conflict_with': [], 'contradicts': [], 'evidence': None})
     return out
 
 
-def ledger_id(key):
-    """The id a ledger subject is known by in packages and lifecycle records (stable across versions of the subject)."""
-    return key if key.startswith('lesson-') else 'ctx-' + (key if len(key) <= 48 else key[:24])
-
-
 def _ledger_candidates(ledger, problems, lifecycle=None):
-    """Context entries as candidates; 2.3-A2 lifecycle records (withdraw/archive) go to `lifecycle`, never to the candidates."""
+    """Context entries as candidates (the newest version of each subject); lifecycle records go to `lifecycle`, never to the candidates."""
     try:
         entries = context.retrieve(ledger, scope='both', limit=None, raw=True)['entries']
     except (LedgerError, OSError) as error:
         problems.append({'path': 'ledger', 'problem': 'context entries unreadable: ' + str(error)[:160]}); return []
-    out = []
+    newest = {}
     for e in entries:
-        p = e.get('payload') or {}
-        if e['kind'] == 'task_done': continue                     # engine progress bookkeeping; the node's inputs already carry provenance
-        k = p.get('knowledge') if isinstance(p.get('knowledge'), dict) else {}
-        key = e['key']
-        ident = ledger_id(key)
-        if k.get('withdraws') or k.get('archives'):
-            if lifecycle is not None and p.get('project') == ledger.project_id:
-                lifecycle.append({'id': ident, 'withdraws': k.get('withdraws'), 'archives': k.get('archives'), 'reason': k.get('reason'),
-                                  'root': p.get('task'), 'event': e['event']})
-            continue
-        source = dict(e['source'])
-        if source.get('type') in ('file_line', 'symbol') and p.get('revision_ref'): source.setdefault('revision', p['revision_ref'])
-        visibility = k.get('visibility') or p.get('visibility') or ('project' if key.startswith('lesson-') else 'root')
-        extra_sources = [s for s in (k.get('sources') or []) if isinstance(s, dict) and s != e['source']]
-        conditions = k.get('conditions') if k.get('conditions') is not None else [c if isinstance(c, dict) else {'type': 'text', 'text': c} for c in (e.get('conditions') or [])]
-        out.append({'id': ident, 'origin': {'type': 'ledger', 'event': e['event'], 'key': key, 'scope': e['scope']},
-                    'kind': k.get('kind') or ('lesson' if key.startswith('lesson-') else e['kind'] if e['kind'] in wiki.KINDS else 'note'),
-                    'label': e['stored_label'] if e['stored_label'] != 'stale' else 'observed', 'must': bool(k.get('must') or p.get('must')),
-                    'status': 'active', 'title': (k.get('title') or e['text'])[:80], 'text': e['text'],
-                    'sources': [source] + extra_sources, 'conditions': conditions,
-                    'applies_to': k.get('applies_to') or p.get('applies_to') or [], 'supersedes': k.get('supersedes') or [],
-                    'derived_from': k.get('derived_from') or [], 'ledger_id': None, 'visibility': visibility, 'scope': e['scope'],
-                    'root': p.get('task'), 'recorded_revision': p.get('revision_ref'), 'seq': e['event'],
-                    'conflict_with': k.get('conflict_with') or [], 'contradicts': k.get('contradicts') or [], 'evidence': k.get('evidence'),
-                    'version': e['id'],
-                    'ledger_stale': e['stale_reason'] if e['label'] == 'stale' else None})
-    return out
+        try:
+            p = e.get('payload') or {}
+            if e['kind'] == 'task_done': continue                   # engine progress bookkeeping; the node's inputs carry provenance
+            k = p.get('knowledge') if isinstance(p.get('knowledge'), dict) else {}
+            key, root = e['key'], p.get('task')
+            visibility = k.get('visibility') or ('project' if key.startswith('lesson-') else 'root')
+            ident = ledger_id(key, visibility, root)
+            if k.get('withdraws') or k.get('archives'):
+                if lifecycle is not None:
+                    lifecycle.append({'id': ident, 'withdraws': k.get('withdraws'), 'archives': k.get('archives'), 'reason': k.get('reason'),
+                                      'root': root, 'event': e['event'], 'project': p.get('project'), 'scope': e['scope'], 'visibility': visibility})
+                continue
+            source = dict(e['source'])
+            if source.get('type') in ('file_line', 'symbol') and p.get('revision_ref'): source.setdefault('revision', p['revision_ref'])
+            sources = [source] + [s for s in (k.get('sources') or []) if isinstance(s, dict) and s != e['source']]
+            sources += [dict(s, role='applies') for s in (k.get('applies_pins') or []) if isinstance(s, dict)]
+            conditions = k.get('conditions') if k.get('conditions') is not None else [c if isinstance(c, dict) else {'type': 'text', 'text': c} for c in (e.get('conditions') or [])]
+            candidate = {'id': ident, 'origin': {'type': 'ledger', 'event': e['event'], 'key': key, 'scope': e['scope']},
+                         'kind': k.get('kind') or ('lesson' if key.startswith('lesson-') else e['kind'] if e['kind'] in wiki.KINDS else 'note'),
+                         'label': e['stored_label'] if e['stored_label'] != 'stale' else 'observed', 'must': bool(k.get('must')),
+                         'status': 'active', 'title': (k.get('title') or e['text'])[:80], 'text': e['text'], 'sources': sources, 'conditions': conditions,
+                         'applies_to': k.get('applies_to') or [], 'supersedes': k.get('supersedes') or [], 'derived_from': k.get('derived_from') or [],
+                         'ledger_id': None, 'visibility': visibility, 'scope': e['scope'], 'root': root, 'project': p.get('project'),
+                         'recorded_revision': p.get('revision_ref'), 'seq': e['event'], 'scope_paths': k.get('scope_paths') or [],
+                         'conflict_with': k.get('conflict_with') or [], 'contradicts': k.get('contradicts') or [], 'evidence': k.get('evidence'),
+                         'version': e['id'], 'ledger_stale': e['stale_reason'] if e['label'] == 'stale' else None}
+        except (KeyError, TypeError, ValueError, AttributeError):
+            problems.append({'path': 'ledger', 'problem': 'a context entry could not be read'}); continue
+        if ident not in newest or newest[ident]['seq'] < candidate['seq']:
+            newest[ident] = candidate                               # an older version of the same subject (any root) is history
+    return sorted(newest.values(), key=lambda c: c['seq'])
+
+
+def withdrawn_targets(ledger):
+    """id -> seq of the newest withdrawal record of the project (for readers outside this module: lessons.refine_context)."""
+    with ledger.transaction() as conn:
+        rows = conn.execute("SELECT e.seq, json_extract(e.payload,'$.knowledge.withdraws') AS target FROM tasks t JOIN events e ON e.task_id=t.id "
+                            "WHERE t.project_id=? AND e.kind='context.entry' AND json_extract(e.payload,'$.knowledge.withdraws') IS NOT NULL",
+                            (ledger.project_id,)).fetchall() if conn else []
+    return {row['target']: row['seq'] for row in rows}
 
 
 def _withdrawn_lessons(ledger):
-    """Lesson subjects (ids) whose newest learning.lesson record is withdrawn: refine_context already drops them, their copies must go too."""
+    """Lesson subjects whose newest learning.lesson record is withdrawn: refine_context already drops them, their copies must go too."""
     with ledger.transaction() as conn:
         rows = conn.execute("SELECT e.payload FROM tasks t JOIN events e ON e.task_id=t.id WHERE t.project_id=? AND e.kind='learning.lesson' ORDER BY e.seq",
                             (ledger.project_id,)).fetchall() if conn else []
@@ -280,6 +360,44 @@ def _withdrawn_lessons(ledger):
         value = json.loads(row['payload'])
         if value.get('lesson'): latest[value['lesson']] = value.get('status')
     return {'lesson-' + lesson: 'withdrawn lesson' for lesson, status in latest.items() if status == 'withdrawn'}
+
+
+def _acts_for(record, cons, project_id):
+    """Whether a record's lifecycle/supersession effects act for this consumer: same project, and visible to it."""
+    if record.get('project') != project_id: return False
+    return record.get('visibility') == 'project' or (cons is not None and record.get('root') == cons['root'])
+
+
+def _lifecycle(candidates, lifecycle, withdrawn_lessons, cons, project_id):
+    """id -> (state, reason, before_seq): state applies to versions written before `before_seq` (None = every version)."""
+    status = {ident: ('withdrawn', why, None) for ident, why in withdrawn_lessons.items()}
+    general = {c['id']: c for c in candidates if c['scope'] == 'general'}
+    for record in sorted(lifecycle, key=lambda r: r['event']):
+        target = record.get('withdraws') or record.get('archives')
+        owner = general.get(target)
+        effective = (_acts_for(record, cons, project_id) if owner is None
+                     else record.get('scope') == 'general' and record.get('project') == owner.get('project'))
+        if not effective: continue
+        if record.get('withdraws'):
+            status[target] = ('withdrawn', record.get('reason') or '', record['event'])
+        elif status.get(target, ('active',))[0] == 'active':
+            status[target] = ('archived', record.get('reason') or '', record['event'])
+    for c in candidates:
+        if c['status'] != 'active': status.setdefault(c['id'], (c['status'], 'marked ' + c['status'] + ' in the wiki page', None))
+    for c in candidates:                               # supersession: by any visible record of the project, whatever its own state (order-free)
+        if c['origin']['type'] == 'ledger' and not _acts_for(c, cons, project_id): continue
+        for old in c['supersedes']:
+            if old != c['id']: status.setdefault(old, ('superseded', 'superseded by ' + c['id'], None))
+    return status
+
+
+def _state_of(status, c, ident=None):
+    entry = status.get(ident or c['id'])
+    if entry is None: return 'active', None
+    state, reason, before = entry
+    if before is not None and c.get('seq', 0) > before and (ident is None or ident == c['id']):
+        return 'active', None                          # written after the withdrawal: a correction, live again
+    return state, reason
 
 
 def _tokens(text):
@@ -291,69 +409,67 @@ def _tokens(text):
     return words
 
 
-def _lifecycle_status(candidates, lifecycle, withdrawn_lessons):
-    """id -> (status, reason) from the lifecycle records, supersession, withdrawn lessons; and the derived ones (summaries, copies)."""
-    status = dict((ident, ('withdrawn', why)) for ident, why in withdrawn_lessons.items())
-    for record in sorted(lifecycle, key=lambda r: r['event']):
-        if record.get('withdraws'): status[record['withdraws']] = ('withdrawn', record.get('reason') or '')
-        if record.get('archives') and status.get(record['archives'], ('active',))[0] == 'active':
-            status[record['archives']] = ('archived', record.get('reason') or '')
-    by_id = {c['id']: c for c in candidates}
-    for c in candidates:
-        if c['status'] != 'active': status.setdefault(c['id'], (c['status'], 'marked ' + c['status'] + ' in the wiki page'))
-    for c in candidates:
-        if status.get(c['id'], ('active',))[0] != 'active': continue
-        for old in c['supersedes']:
-            if old != c['id'] and (old in by_id or old.startswith(('ctx-', 'lesson-'))): status.setdefault(old, ('superseded', 'superseded by ' + c['id']))
-    changed = True
-    while changed:                                     # a summary of a summary of withdrawn knowledge goes too
-        changed = False
-        for c in candidates:
-            if status.get(c['id'], ('active',))[0] != 'active': continue
-            gone = [d for d in c['derived_from'] if status.get(d, ('active',))[0] != 'active']
-            if gone:
-                status[c['id']] = ('source_withdrawn', 'derived from ' + ', '.join(gone)); changed = True
-    return status
-
-
-def _decide(ledger, cons, candidates, lifecycle=(), withdrawn_lessons=None):
+def _decide(ledger, cons, candidates, lifecycle=(), withdrawn_lessons=None, view=None):
     """Attach to every candidate: excluded (reason) or use/applicability/relevance. Pure code."""
-    state = _State(ledger)
-    status = _lifecycle_status(candidates, list(lifecycle), withdrawn_lessons or {})
+    state = _State(ledger, view)
+    status = _lifecycle(candidates, list(lifecycle), withdrawn_lessons or {}, cons, ledger.project_id)
     live_ledger = {c['id'] for c in candidates if c['origin']['type'] == 'ledger'}
-    contested = {}
+    contested, contradicted = {}, {}
     for c in candidates:
-        if c['origin']['type'] == 'ledger' and c.get('conflict_with') and status.get(c['id'], ('active',))[0] == 'active':
-            contested[c['id']] = 'contested: written from an older version of the subject than ' + ', '.join(i[:20] for i in c['conflict_with'])
-            for other in c['conflict_with']:
-                contested.setdefault(other, 'contested: a concurrent update kept as ' + c['id'])
-    contradicted = {}
-    for c in candidates:
-        if c['origin']['type'] == 'ledger' and c.get('contradicts') and c['visibility'] == 'project' and status.get(c['id'], ('active',))[0] == 'active':
-            for target in c['contradicts']: contradicted.setdefault(target, 'contradicted by ' + c['id'] + ': ' + c['text'][:120])
-    seen_copies = {}
+        if c['origin']['type'] != 'ledger' or not _acts_for(c, cons, ledger.project_id) or _state_of(status, c)[0] != 'active': continue
+        if c['conflict_with']:
+            contested[c['id']] = 'contested: written from an older version of the same subject'
+            for other in c['conflict_with']: contested.setdefault(other, 'contested: a concurrent update of this subject was kept separately')
+        for target in c['contradicts']:
+            contradicted.setdefault(target, 'contradicted by a later observation: ' + c['text'][:120])
+    by_id = {c['id']: c for c in candidates}
     for c in candidates:
         c['excluded'] = None
         if c['visibility'] == 'root' and c['root'] != cons['root']: c['excluded'] = 'root_private'; continue
-        files = [s['path'] for s in c['sources'] if s.get('path')]
+        files = [s['path'] for s in c['sources'] if s.get('path')] + list(c['scope_paths'])
         if any(not _readable(cons['paths'], f) for f in files): c['excluded'] = 'source_outside_read_scope'; continue
-        if c['origin']['type'] == 'wiki' and c['ledger_id'] and c['ledger_id'] in live_ledger and status.get(c['ledger_id'], ('active',))[0] == 'active':
+        if c['origin']['type'] == 'wiki' and c['ledger_id'] and c['ledger_id'] in live_ledger and _state_of(status, by_id[c['ledger_id']])[0] == 'active':
             c['excluded'] = 'copy_of_ledger_entry'; continue                     # delivered once, from the ledger that holds its lifecycle
-        own = status.get(c['id'], ('active',))[0]
+        own = _state_of(status, c)[0]
         copied = status.get(c['ledger_id'], ('active',))[0] if c['ledger_id'] else 'active'
         if own != 'active' or copied != 'active':
             c['excluded'] = own if own != 'active' else copied; continue          # a copy never outlives its source
-        signature = (' '.join(c['text'].casefold().split()), c['kind'], canonical(sorted(canonical(s) for s in c['sources'])))
-        if signature in seen_copies:
-            seen_copies[signature]['copies'] = seen_copies[signature].get('copies', 1) + 1
-            c['excluded'] = 'copy'; continue                                     # the same claim on the same sources: one entry, not more evidence
-        seen_copies[signature] = c
         c['applicability'] = _applicability(state, c, cons['environment'])
         for reason in (contested.get(c['id']), contradicted.get(c['id'])):
-            if reason: c['applicability'] = {'state': 'recheck', 'reasons': c['applicability']['reasons'] + [reason]}
+            if reason:
+                applicability = c['applicability']
+                c['applicability'] = {'state': 'recheck' if applicability['state'] != 'not_applicable' else 'not_applicable',
+                                      'reasons': applicability['reasons'] + [reason]}
         if c['applicability']['state'] == 'not_applicable': c['excluded'] = 'not_applicable'; continue
         applies = c['applicability']['state'] == 'applies'
         c['use'] = 'fact' if applies and c['label'] == 'verified' else 'rejected' if applies and c['label'] == 'refuted' else 'lead'
+    changed = True
+    while changed:                                     # a summary is never stronger than its weakest source, nor alive without it
+        changed = False
+        for c in candidates:
+            if c['excluded'] or not c['derived_from']: continue
+            sources = [by_id.get(d) for d in c['derived_from']]
+            gone = [d for d, s in zip(c['derived_from'], sources) if s is None or s['excluded']]
+            if gone:
+                reasons = {(by_id[d]['excluded'] if d in by_id else 'unknown') for d in gone}
+                c['excluded'] = 'source_' + ('withdrawn' if reasons & {'withdrawn', 'superseded', 'archived', 'source_withdrawn'} else
+                                             'not_applicable' if 'not_applicable' in reasons else 'not_visible'); changed = True; continue
+            weakest = min((s['use'] for s in sources), key=lambda u: USE_RANK[u])
+            if USE_RANK[weakest] < USE_RANK[c['use']]:
+                c['use'] = weakest
+                c['applicability'] = {'state': c['applicability']['state'], 'reasons': c['applicability']['reasons'] + ['a source of this summary is a ' + weakest]}
+                changed = True
+    eligible = [c for c in candidates if not c['excluded']]
+    groups = {}
+    for c in eligible:                                 # copies: the same claim, sources, scope and qualifiers; keep the strongest one
+        signature = (' '.join(c['text'].casefold().split()), c['kind'], c['label'], c['must'], canonical(sorted(c['applies_to'])),
+                     canonical(sorted(canonical(s) for s in c['sources'])), canonical(c['conditions']))
+        groups.setdefault(signature, []).append(c)
+    for twins in groups.values():
+        if len(twins) < 2: continue
+        twins.sort(key=lambda c: (-USE_RANK[c['use']], -int(c['must']), c['seq'], c['id']))
+        twins[0]['copies'] = len(twins)
+        for twin in twins[1:]: twin['excluded'] = 'copy'
     eligible = [c for c in candidates if not c['excluded']]
     mine = _tokens(cons['terms']) | {t for p in cons['paths'] for t in _tokens(p)}
     vocab = [_tokens(' '.join([c['title'], c['text'], *c['applies_to'], *[s.get('path', '') for s in c['sources']]])) for c in eligible]
@@ -372,16 +488,19 @@ def _decide(ledger, cons, candidates, lifecycle=(), withdrawn_lessons=None):
     return eligible
 
 
-def _render(c, text_chars):
+def _render(c, text_chars, whole=False):
     text = c['text']
-    if c['mandatory']: text_chars = len(text)                        # a mandatory entry is delivered whole or the package is refused
+    if c['mandatory'] or whole: text_chars = len(text)               # a mandatory (or requested) entry is delivered whole, never cut
     out = {'id': c['id'], 'use': c['use'], 'must': c['mandatory'], 'kind': c['kind'], 'label': c['label'], 'title': c['title'][:160],
-           'text': text[:text_chars], 'applicability': c['applicability'],
-           'source': [_source_text(s) for s in c['sources']] or ['wiki page ' + c['origin'].get('path', '')],
+           'text': text[:max(0, text_chars)], 'applicability': c['applicability'],
+           'source': [_source_text(s) for s in c['sources'] if s.get('role') != 'applies'] or ['wiki page ' + c['origin'].get('path', '')],
            'origin': {k: v for k, v in c['origin'].items() if k in ('type', 'path', 'line', 'sha256', 'event')}}
+    evidence = c.get('evidence') or {}
+    qualifiers = {k: evidence[k] for k in ('status', 'property', 'cause', 'basis', 'semantic_verification') if evidence.get(k)}
+    if qualifiers: out['evidence'] = qualifiers
     if c['applies_to']: out['applies_to'] = c['applies_to']
     if c['conditions']: out['conditions'] = c['conditions']
-    if len(text) > text_chars: out['text_truncated'] = {'delivered': text_chars, 'total': len(text)}
+    if len(text) > len(out['text']): out['text_truncated'] = {'delivered': len(out['text']), 'total': len(text)}
     if c.get('copies'): out['copies'] = c['copies']
     if c.get('derived_from'): out['derived_from'] = c['derived_from']
     return out
@@ -391,9 +510,9 @@ def _source_text(s):
     if s['type'] == 'file_line': return f'{s["path"]}:{s["line"]}' + (f'@{s["revision"][:12]}' if s.get('revision') else '')
     if s['type'] == 'symbol': return f'{s["name"]} in {s["path"]}' + (f'@{s["revision"][:12]}' if s.get('revision') else '')
     if s['type'] == 'file': return s['path'] + (f'@{s["revision"][:12]}' if s.get('revision') else f' blob {s["blob"][:12]}' if s.get('blob') else '')
-    if s['type'] == 'receipt': return 'receipt ' + s['key'][:16]
-    if s['type'] == 'event': return f'event {s["id"]}'
-    return s.get('url', '')[:200]
+    if s['type'] == 'receipt': return 'receipt ' + str(s.get('key'))[:16]
+    if s['type'] == 'event': return f'event {s.get("id")}'
+    return str(s.get('url', ''))[:200]
 
 
 def _order(eligible):
@@ -405,7 +524,7 @@ def _order(eligible):
 
 
 def _state_hash(cons, candidates):
-    return content_hash({'consumer': {k: cons[k] for k in ('project', 'root', 'node', 'paths')}, 'version': VERSION,
+    return content_hash({'consumer': {k: cons[k] for k in ('project', 'root', 'node', 'paths', 'terms', 'environment')}, 'version': VERSION,
                          'entries': [[c['id'], c['origin'].get('sha256') or c['origin'].get('event'), c.get('excluded'), c.get('use'),
                                       (c.get('applicability') or {}).get('state')] for c in candidates]})[:32]
 
@@ -427,79 +546,104 @@ def _uncursor(cursor):
 
 # ---- the package ---------------------------------------------------------------------------------------------------------------
 
-def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None):
-    if type(cap_chars) is not int or cap_chars < 200: raise LedgerError('cap_chars: an integer of at least 200.')
-    started = time.perf_counter()
+def _collect(ledger, cons, view):
     problems, lifecycle = [], []
     candidates = _wiki_candidates(ledger, problems)
     taken = {c['id'] for c in candidates}
     for c in _ledger_candidates(ledger, problems, lifecycle):
-        if c['id'] in taken: problems.append({'path': 'ledger', 'problem': f'id {c["id"]} also names a wiki entry; the ledger entry is skipped'}); continue
+        if c['id'] in taken:
+            problems.append({'path': 'ledger', 'problem': 'a ledger subject has the id of a wiki entry; the ledger entry is skipped'}); continue
         taken.add(c['id']); candidates.append(c)
-    eligible = _decide(ledger, cons, candidates, lifecycle, _withdrawn_lessons(ledger))
+    eligible = _decide(ledger, cons, candidates, lifecycle, _withdrawn_lessons(ledger), view)
+    return candidates, eligible, problems
+
+
+def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None, view=None):
+    if type(cap_chars) is not int or cap_chars < 0: raise LedgerError('cap_chars: an integer of at least 0.')
+    started = time.perf_counter()
+    candidates, eligible, problems = _collect(ledger, cons, view)
     revision = _state_hash(cons, candidates)
     if expect_revision is not None and expect_revision != revision:
-        raise LedgerError('This cursor belongs to an older knowledge state (a page or an entry changed); retrieve the package again.')
+        raise LedgerError('This cursor belongs to an older knowledge state (a page, an entry or the task changed); retrieve the package again.')
     must, optional, rest = _order(eligible)
-    text_chars = min(ENTRY_TEXT_CHARS, max(200, cap_chars // 2))
-    delivered, room = [], cap_chars
+    ordered = must + optional + rest                    # the cursor runs through every permitted entry: relevance orders, it never hides
+    relevant = {id(c) for c in must + optional}
+    permitted = {c['id']: c for c in eligible}
+    by_reason_excluded = {}
+    for c in candidates:
+        if c['excluded']: by_reason_excluded[c['excluded']] = by_reason_excluded.get(c['excluded'], 0) + 1
+    shown_problems = problems[:PROBLEM_ROWS]
+
+    def make(delivered, requested_out, refused, position):
+        left = ordered[position:]
+        by_reason = dict(by_reason_excluded)
+        capped = [c for c in left if id(c) in relevant and c['id'] not in {d['id'] for d in delivered}]
+        unrelated = [c for c in left if id(c) not in relevant]
+        if capped: by_reason['cap'] = len(capped)
+        if unrelated: by_reason['not_relevant'] = len(unrelated)
+        index = [{'id': c['id'], 'title': c['title'][:60], 'use': c['use'], 'reason': 'cap'} for c in capped]
+        index += [{'id': c['id'], 'title': c['title'][:60], 'use': c['use'], 'reason': 'not_relevant'} for c in unrelated]
+        eof = not left
+        return {'kind': 'knowledge-package', 'version': VERSION, 'data_not_authority': True, 'notice': NOTICE, 'policy': POLICY,
+                'consumer': {k: cons[k] for k in ('project', 'plan', 'node', 'paths')}, 'revision': revision,
+                'entries': delivered, 'requested': requested_out, 'requests_refused': refused,
+                'omitted': {'total': sum(by_reason.values()), 'by_reason': by_reason, 'index': index[:INDEX_ROWS],
+                            'cursor': None if eof else _cursor(revision, position), 'eof': eof},
+                'problems': shown_problems}
+
+    skeleton = len(canonical(make([], [], [], max(offset, len(must)) if offset else 0)))
+    budget = cap_chars - skeleton - 64                 # the whole package stays under cap_chars (index and problems included)
+    text_chars = min(ENTRY_TEXT_CHARS, max(MIN_CAP, cap_chars // 2))
+    delivered, room = [], budget
+    if budget < 150 and (offset or not must) and (ordered[max(offset, len(must)):] or requested):
+        raise KnowledgeNoRoom(f'a cap of {cap_chars} characters leaves no room for an entry beside the package frame ({skeleton} characters).')
     if offset == 0:
         rendered = [_render(c, text_chars) for c in must]
-        need = sum(len(canonical(r)) for r in rendered)
-        if need > cap_chars:
-            raise KnowledgeOverflow(f'Mandatory knowledge needs {need} characters, over the cap of {cap_chars} '
+        need = sum(len(canonical(r)) + 1 for r in rendered)
+        if must and need > budget:
+            raise KnowledgeOverflow(f'Mandatory knowledge needs {need} characters, over the room of {max(budget, 0)} left for knowledge '
                                     f'({", ".join(c["id"] for c in must)}); do not run with partial constraints.')
-        delivered, room = rendered, cap_chars - need
-    ordered = must + optional + rest                    # the cursor runs through every permitted entry: relevance orders, it never hides
+        delivered, room = rendered, budget - need
+    requested_out, refused = [], []
+    shown = {d['id']: d for d in delivered}
+    for ident in requested:                            # what the worker asked for comes before more optional entries, inside the cap
+        c = permitted.get(ident)
+        if c is None: refused.append({'id': ident, 'reason': 'not_available'}); continue
+        if ident in shown and 'text_truncated' not in shown[ident]: continue
+        item = _render(c, 0, whole=True)              # the whole text
+        size = len(canonical(item)) + 1
+        if size > room: refused.append({'id': ident, 'reason': 'too_large_for_the_room', 'chars': size}); continue
+        requested_out.append(item); room -= size
     stop = len(must) + len(optional) if offset == 0 else len(ordered)          # the first page carries only mandatory and relevant ones
     position = max(offset, len(must))
     while position < stop:
-        item = _render(ordered[position], text_chars)
-        size = len(canonical(item))
-        if size > room and (delivered or offset == 0 and must):
-            break
-        if size > room:                                 # a page that is not the last always delivers its first entry (cut to the room)
-            item = _render(ordered[position], max(80, room - (size - len(item['text']))))
-        delivered.append(item); room -= len(canonical(item)); position += 1
-    requested_out, refused = [], []
-    permitted = {c['id']: c for c in eligible}
-    for ident in requested:
-        if ident in permitted and ident not in {d['id'] for d in delivered}:
-            requested_out.append(_render(permitted[ident], max(text_chars, cap_chars // max(1, len(requested)))))
-        elif ident not in permitted:
-            refused.append({'id': ident, 'reason': 'not_available'})
-    left = ordered[position:]
-    relevant = {id(c) for c in must + optional}
-    by_reason = {}
-    for c in candidates:
-        reason = c['excluded']
-        if reason: by_reason[reason] = by_reason.get(reason, 0) + 1
-    capped = [c for c in left if id(c) in relevant]
-    unrelated = [c for c in left if id(c) not in relevant]
-    if capped: by_reason['cap'] = len(capped)
-    if unrelated: by_reason['not_relevant'] = len(unrelated)
-    index = [{'id': c['id'], 'title': c['title'][:80], 'use': c['use'], 'reason': 'cap'} for c in capped]
-    index += [{'id': c['id'], 'title': c['title'][:80], 'use': c['use'], 'reason': 'not_relevant'} for c in unrelated]
-    eof = not left
-    package = {'kind': 'knowledge-package', 'version': VERSION, 'data_not_authority': True, 'notice': NOTICE, 'policy': POLICY,
-               'consumer': {k: cons[k] for k in ('project', 'plan', 'node', 'paths')}, 'revision': revision,
-               'entries': delivered, 'requested': requested_out, 'requests_refused': refused,
-               'omitted': {'total': sum(by_reason.values()), 'by_reason': by_reason, 'index': index[:INDEX_ROWS],
-                           'cursor': None if eof else _cursor(revision, position), 'eof': eof},
-               'problems': problems[:30],
-               'cost': {'candidates': len(candidates), 'eligible': len(eligible), 'seconds': round(time.perf_counter() - started, 4)}}
+        candidate = ordered[position]
+        if candidate['id'] in {r['id'] for r in requested_out}: position += 1; continue
+        item = _render(candidate, text_chars)
+        size = len(canonical(item)) + 1
+        if size > room:
+            if delivered or requested_out or offset == 0: break
+            item = _render(candidate, max(80, room - (size - len(item['text'])) - 8))   # a later page always delivers its first entry, cut to the room
+            size = len(canonical(item)) + 1
+            if size > room: break
+        delivered.append(item); room -= size; position += 1
+    package = make(delivered, requested_out, refused, position)
+    while len(canonical(package)) > cap_chars and delivered and not delivered[-1]['must']:
+        delivered.pop(); position -= 1                 # the estimate missed: give the last optional entry back to the cursor
+        package = make(delivered, requested_out, refused, position)
+    package['cost'] = {'candidates': len(candidates), 'eligible': len(eligible), 'seconds': round(time.perf_counter() - started, 4)}
     return package
 
 
-def package(ledger, cons, *, cap_chars=NATIVE_CAP_CHARS, requested=()):
-    """The first page for `cons`. Raises KnowledgeOverflow when mandatory knowledge does not fit `cap_chars`."""
-    return _build(ledger, cons, cap_chars, requested=tuple(requested))
+def package(ledger, cons, *, cap_chars=NATIVE_CAP_CHARS, requested=(), view=None):
+    """The first page for `cons` (judged on `view`, the files its worker sees). KnowledgeOverflow when mandatory knowledge does not fit."""
+    return _build(ledger, cons, cap_chars, requested=tuple(requested), view=view)
 
 
-def read(ledger, cons, cursor, *, cap_chars=NATIVE_CAP_CHARS):
-    """The page after `cursor` (same consumer, same knowledge state; otherwise refused)."""
+def read(ledger, cons, cursor, *, cap_chars=NATIVE_CAP_CHARS, view=None):
+    """The page after `cursor` (same consumer and task, same knowledge state; otherwise refused)."""
     revision, offset = _uncursor(cursor)
-    return _build(ledger, cons, cap_chars, offset=offset, expect_revision=revision)
+    return _build(ledger, cons, cap_chars, offset=offset, expect_revision=revision, view=view)
 
 
 def prompt_view(pkg):
@@ -513,34 +657,40 @@ def delivered_ids(view):
 
 # ---- the worker's declaration ----------------------------------------------------------------------------------------------------
 
+def _ok_str(value, limit):
+    return isinstance(value, str) and 0 < len(value) <= limit
+
+
 def split_declaration(value):
-    """(declaration or None, value without it). The declaration is optional; a malformed one is refused like any malformed result."""
-    if not isinstance(value, dict) or 'knowledge' not in value: return None, value
+    """(declaration or None, value without it, problem or None). The declaration is optional and never costs the attempt: a malformed
+    one is dropped and the problem goes in the receipt (review r1 #5); the limits are the ones the worker's SCHEMA states."""
+    if not isinstance(value, dict) or 'knowledge' not in value: return None, value, None
     rest = {k: v for k, v in value.items() if k != 'knowledge'}
     declared = value['knowledge']
-    if not isinstance(declared, dict) or set(declared) - {'used', 'rejected', 'requests', 'new'}:
-        raise LedgerError('knowledge: an object with used, rejected, requests and new only.')
-    new = declared.get('new', [])
-    if not isinstance(new, list) or len(new) > 20:
-        raise LedgerError('knowledge.new: a list of at most 20 claims.')
-    claims = []
-    for claim in new:
-        if (not isinstance(claim, dict) or set(claim) - {'kind', 'text', 'applies_to', 'sources', 'check'} or claim.get('kind') not in wiki.KINDS
-                or not isinstance(claim.get('text'), str) or not 0 < len(claim['text']) <= 600
-                or not all(isinstance(v, str) and 0 < len(v) <= 300 for v in claim.get('applies_to', []) + claim.get('sources', []))
-                or len(claim.get('applies_to', [])) > 20 or len(claim.get('sources', [])) > 10
-                or ('check' in claim and (not isinstance(claim['check'], str) or not claim['check']))):
-            raise LedgerError('knowledge.new: claims of {kind, text, applies_to?, sources? (file paths), check?}.')
-        claims.append({'kind': claim['kind'], 'text': claim['text'], 'applies_to': list(claim.get('applies_to', [])),
-                       'sources': list(claim.get('sources', [])), **({'check': claim['check']} if 'check' in claim else {})})
-    used, rejected, requests = declared.get('used', []), declared.get('rejected', []), declared.get('requests', [])
-    if (not isinstance(used, list) or len(used) > 200 or not all(isinstance(i, str) and 0 < len(i) <= 120 for i in used)
-            or not isinstance(requests, list) or len(requests) > 20 or not all(isinstance(i, str) and 0 < len(i) <= 120 for i in requests)
-            or not isinstance(rejected, list) or len(rejected) > 50
-            or not all(isinstance(r, dict) and set(r) == {'id', 'why'} and isinstance(r['id'], str) and isinstance(r['why'], str)
-                       and 0 < len(r['id']) <= 120 and len(r['why']) <= 1000 for r in rejected)):
-        raise LedgerError('knowledge: used/requests are lists of ids, rejected a list of {id, why}.')
-    return {'used': used, 'rejected': rejected, 'requests': requests, 'new': claims}, rest
+    try:
+        if not isinstance(declared, dict) or set(declared) - {'used', 'rejected', 'requests', 'new'}:
+            raise ValueError('an object with used, rejected, requests and new only')
+        used, rejected, requests, new = (declared.get(k, []) for k in ('used', 'rejected', 'requests', 'new'))
+        if not isinstance(used, list) or len(used) > LIMITS['used'] or not all(_ok_str(i, LIMITS['id']) for i in used): raise ValueError('used')
+        if not isinstance(requests, list) or len(requests) > LIMITS['requests'] or not all(_ok_str(i, LIMITS['id']) for i in requests): raise ValueError('requests')
+        if (not isinstance(rejected, list) or len(rejected) > LIMITS['rejected']
+                or not all(isinstance(r, dict) and set(r) == {'id', 'why'} and _ok_str(r['id'], LIMITS['id']) and isinstance(r['why'], str)
+                           and len(r['why']) <= LIMITS['why'] for r in rejected)): raise ValueError('rejected')
+        if not isinstance(new, list) or len(new) > LIMITS['claims']: raise ValueError('new')
+        claims = []
+        for claim in new:
+            if (not isinstance(claim, dict) or set(claim) - {'kind', 'text', 'applies_to', 'sources', 'check'} or claim.get('kind') not in wiki.KINDS
+                    or not _ok_str(claim.get('text'), LIMITS['text'])
+                    or not isinstance(claim.get('applies_to', []), list) or len(claim.get('applies_to', [])) > LIMITS['paths']
+                    or not isinstance(claim.get('sources', []), list) or len(claim.get('sources', [])) > LIMITS['sources']
+                    or not all(_ok_str(v, LIMITS['path']) for v in claim.get('applies_to', []) + claim.get('sources', []))
+                    or ('check' in claim and not _ok_str(claim['check'], LIMITS['id']))):
+                raise ValueError('new: claims of {kind, text, applies_to?, sources?, check?} within the schema limits')
+            claims.append({'kind': claim['kind'], 'text': claim['text'], 'applies_to': list(claim.get('applies_to', [])),
+                           'sources': list(claim.get('sources', [])), **({'check': claim['check']} if 'check' in claim else {})})
+    except ValueError as error:
+        return None, rest, f'knowledge declaration dropped: {error}'
+    return {'used': used, 'rejected': rejected, 'requests': requests, 'new': claims}, rest, None
 
 
 def check_use(view, declared):
@@ -579,35 +729,39 @@ def previous_requests(ledger, store, selector, attempt_id):
     return []
 
 
-def for_native(ledger, store, selector, node, pin):
+def for_native(ledger, store, selector, node, pin, *, view=None, room=None):
     """(view, record) for one native attempt: `view` goes in the prompt (None when nothing is delivered), `record` in the receipt.
-    KnowledgeOverflow propagates (the caller stops before the model call); any other failure of this layer is recorded and the node
-    runs on its own inputs (a broken page or entry never blocks independent work)."""
-    record = {'package': None, 'delivered': [], 'chars': 0, 'omitted_total': 0, 'problems': [], 'revision': None}
+    `view` (argument) is the files the worker sees; `room` the characters the prompt cap leaves for the knowledge key. KnowledgeOverflow
+    propagates (the caller stops before the model call); any other failure of this layer is recorded and the node runs on its own inputs."""
+    cap = NATIVE_CAP_CHARS if room is None else max(0, min(NATIVE_CAP_CHARS, room))
+    record = {'package': None, 'delivered': [], 'chars': 0, 'omitted_total': 0, 'problems': [], 'revision': None, 'cap': cap}
     try:
         cons = consumer(ledger, selector, node=node, pin=pin)
         requested = previous_requests(ledger, store, selector, node.get('continues'))
-        pkg = package(ledger, cons, cap_chars=NATIVE_CAP_CHARS, requested=requested)
+        pkg = package(ledger, cons, cap_chars=cap, requested=requested, view=view)
     except KnowledgeOverflow:
         raise
-    except (LedgerError, OSError, ValueError, KeyError, TypeError) as error:
+    except KnowledgeNoRoom as error:               # the prompt is full without knowledge: run on the inputs, say so in the receipt
+        record['no_room'] = str(error)[:300]
+        return None, record
+    except Exception as error:                     # the knowledge layer never takes an independent node down with it
         record['error'] = f'{type(error).__name__}: {str(error)[:300]}'
         return None, record
-    view = prompt_view(pkg)
-    record.update(delivered=delivered_ids(view), omitted_total=pkg['omitted']['total'], omitted_by_reason=pkg['omitted']['by_reason'],
-                  problems=pkg['problems'], revision=pkg['revision'],
-                  requested=[e['id'] for e in pkg['requested']], requests_refused=pkg['requests_refused'], cost=pkg['cost'])
+    prompt = prompt_view(pkg)
+    record.update(delivered=delivered_ids(prompt), omitted_total=pkg['omitted']['total'], omitted_by_reason=pkg['omitted']['by_reason'],
+                  problems=pkg['problems'], revision=pkg['revision'], requested=[e['id'] for e in pkg['requested']],
+                  requests_refused=pkg['requests_refused'], cost=pkg['cost'])
     if not record['delivered']:
         return None, record
-    text = canonical(view)
+    text = canonical(prompt)
     record.update(package=store.blob(text.encode('utf-8')), chars=len(text))
-    return view, record
+    return prompt, record
 
 
 # ---- 2.3-A2: writing knowledge with its evidence ------------------------------------------------------------------------------
 #
-# One store: context.entry (class A) with the A2 fields under payload `knowledge`. A record is written on an OPEN root (the guard of
-# lessons._still_open); its label is the strength of the evidence given, never more:
+# One store: context.entry (class A) with the A2 fields under payload `knowledge`. A record is written on an OPEN root (checked in the
+# write transaction); its label is the strength of the evidence given, never more:
 #   evidence = {'status': observed|hypothesis|verified|refuted, 'sources': [...], 'property': what exactly was shown (verified),
 #               'cause': 'established' only with a cause_source, otherwise 'not_established'}
 # `visibility` 'project' publishes it for the other roots of the project (still filtered by their read scope); 'root' keeps it as the
@@ -622,12 +776,12 @@ def _open_root(ledger, plan):
     with ledger.transaction() as conn:
         if conn is None: raise LedgerError('No ledger in this state root.')
         state, selector = incidents._root(ledger, conn, plan)
-    lessons._still_open(state)                    # T52b [E14]: knowledge is written while the root is open, never after it ended
+    lessons._still_open(state)                    # T52b [E14]: knowledge is written while the root is open (re-checked in the write txn)
     return state, selector
 
 
 def _evidence_sources(ledger, sources):
-    """Validated sources: file paths inside the repository (pinned by revision or blob), receipts in this state root, events of this project."""
+    """Validated sources, pinned at write time: a file source keeps its commit AND its blob (the reader compares blobs, no history walk)."""
     out = []
     for source in sources or []:
         problems = []
@@ -642,12 +796,30 @@ def _evidence_sources(ledger, sources):
             from ..snapshots import Snapshots
             Snapshots(ledger.state_root).read_blob(checked['key'])
         elif checked['type'] in ('file', 'file_line', 'symbol') and not checked.get('blob'):
-            revision = checked.get('revision') or 'HEAD'
-            checked['revision'] = context.resolve_revision(ledger.project, revision)
-            if checked['type'] == 'file' and not command._git(ledger.project, 'rev-parse', '--verify', '-q', f'{checked["revision"]}:{checked["path"]}'):
-                raise LedgerError(f'{checked["path"]} is not in {checked["revision"][:12]}.')
+            checked['revision'] = context.resolve_revision(ledger.project, checked.get('revision') or 'HEAD')
+            if checked['type'] == 'file':
+                blob = command._git(ledger.project, 'rev-parse', '--verify', '-q', f'{checked["revision"]}:{checked["path"]}')
+                if not blob: raise LedgerError(f'{checked["path"]} is not in {checked["revision"][:12]}.')
+                checked['blob'] = blob
         out.append(checked)
     return out
+
+
+def _pins(ledger, paths, files=None):
+    """Blob pins of the concrete files a record applies to: from `files` (path -> text of the artifact the evidence is about) when given,
+    else from HEAD. A file found in neither is not pinned (the entry is then `unknown` for it, never silently current)."""
+    pins = []
+    for path in _concrete(paths):
+        blob = None
+        try:
+            if files is not None and path in files and isinstance(files[path], str):
+                blob = blob_of(ledger, path, files[path].encode('utf-8'))
+            else:
+                blob = command._git(ledger.project, 'rev-parse', '--verify', '-q', f'HEAD:{path}') or None
+        except LedgerError:
+            blob = None
+        if blob: pins.append({'type': 'file', 'path': path, 'blob': blob})
+    return pins
 
 
 def _primary(sources):
@@ -659,12 +831,16 @@ def _primary(sources):
 
 
 def record(ledger, plan, *, kind, text, evidence, applies_to=(), conditions=(), must=False, visibility='project', scope='project',
-           supersedes=(), derived_from=(), key=None, base=None, title=None, contradicts=(), _lifecycle=None):
-    """Write one knowledge record on the open root `plan`. Returns {'recorded', 'id', 'key', 'event', 'conflict'?}.
-    `key` + `base`: an update of subject `key` written from version `base` (the id of the entry the writer read; '' for none). When the
-    subject moved on meanwhile, the update is kept as a separate contested version, never written over the newer one."""
+           supersedes=(), derived_from=(), key=None, base=None, title=None, contradicts=(), scope_paths=(), files=None, basis=None, _lifecycle=None):
+    """Write one knowledge record on the open root `plan`. Returns {'recorded', 'id', 'version', 'key', 'event', 'conflict'?}.
+    `key` + `base`: an update of subject `key` written from version `base` (what `version` returned or `wiki history` shows; '' for
+    none). When the subject moved on meanwhile, the update is kept as a separate contested version, never written over the newer one.
+    `scope_paths`: the files the knowledge was learned from (a consumer must be able to read them all); `files`: the artifact contents
+    the evidence is about (the applies_to pins come from there)."""
     if kind not in wiki.KINDS and _lifecycle is None: raise LedgerError(f'kind: one of {", ".join(wiki.KINDS)}.')
     if visibility not in ('project', 'root'): raise LedgerError('visibility: project or root.')
+    if scope not in ('project', 'general'): raise LedgerError('scope: project or general.')
+    if base is not None and not key: raise LedgerError('base names the version of a subject: give --key with it.')
     if not isinstance(evidence, dict): raise LedgerError('evidence: an object with status and sources.')
     status = evidence.get('status', 'observed' if _lifecycle else None)
     if status not in EVIDENCE_STATUS: raise LedgerError(f'evidence.status: one of {", ".join(EVIDENCE_STATUS)}.')
@@ -678,32 +854,56 @@ def record(ledger, plan, *, kind, text, evidence, applies_to=(), conditions=(), 
     problems = []
     typed_conditions = [c for c in (wiki._condition(c, problems, 'condition') for c in conditions) if c is not None]
     if problems: raise LedgerError('; '.join(problems))
-    _, selector = _open_root(ledger, plan)
-    extra = {'version': 2, 'kind': kind if _lifecycle is None else 'note', 'visibility': visibility,
-             'applies_to': [p for p in (wiki._relpath_or_glob(a) for a in applies_to) if p], 'conditions': typed_conditions, 'must': bool(must),
-             'supersedes': list(supersedes), 'derived_from': list(derived_from), 'contradicts': list(contradicts),
-             'sources': sources, 'title': title,
+    applies = [p for p in (wiki._relpath_or_glob(a) for a in applies_to) if p]
+    if scope == 'general':
+        if visibility != 'project': raise LedgerError('a general record is shared: visibility project.')
+        extras = [name for name, value in (('applies_to', applies), ('must', must), ('supersedes', supersedes), ('contradicts', contradicts),
+                                           ('derived_from', derived_from), ('title', title), ('scope_paths', scope_paths)) if value]
+        if extras: raise LedgerError('a general record carries no project detail: drop ' + ', '.join(extras) + ' (review r1 #2).')
+        if any(s['type'] not in ('event', 'receipt') for s in sources): raise LedgerError('a general record cites events or receipts only.')
+    state, selector = _open_root(ledger, plan)
+    key = key or content_hash(['k2', visibility, ledger.project_id if visibility == 'project' else state['task_id'], scope, kind,
+                               ' '.join(text.casefold().split())])[:24]
+    extra = {'version': 2, 'kind': kind if _lifecycle is None else 'note', 'visibility': visibility, 'applies_to': applies,
+             'conditions': typed_conditions, 'must': bool(must), 'supersedes': list(supersedes), 'derived_from': list(derived_from),
+             'contradicts': list(contradicts), 'sources': sources, 'title': title, 'scope_paths': sorted(set(scope_paths)),
+             'applies_pins': _pins(ledger, applies, files) if scope == 'project' else [],
              'evidence': {'status': status, 'property': evidence.get('property'), 'cause': cause,
+                          **({'basis': basis} if basis else {}),
                           **({'cause_source': evidence['cause_source']} if cause == 'established' else {}),
                           **({'semantic_verification': evidence['semantic_verification']} if evidence.get('semantic_verification') else {})}}
     if _lifecycle: extra.update(_lifecycle)
-    general = scope == 'general'
     entry_kind = 'decision' if kind == 'decision' and _lifecycle is None else 'note'
-    common = dict(kind=entry_kind, label=status, text=text, source=_primary(sources), scope=scope,
-                  conditions=[c['text'] if c['type'] == 'text' else canonical(c) for c in typed_conditions] if general else None)
+    common = dict(kind=entry_kind, label=status, text=text, source=_primary(sources), scope=scope, require_open=True,
+                  conditions=[c['text'] if c['type'] == 'text' else canonical(c) for c in typed_conditions] if scope == 'general' else None)
+    subject = 'project' if visibility == 'project' else 'root'
     try:
-        written = context.add(ledger, selector, key=key, extra=extra, expect_latest=base, **common)
+        written = context.add(ledger, selector, key=key, extra=extra, expect_latest=base, subject_scope=subject, **common)
     except context.ContextConflict as conflict:
-        extra = dict(extra, conflict_with=[ledger_id(key)], base=base)
-        written = context.add(ledger, selector, key=f'{key}.c{content_hash([text, base, conflict.current])[:8]}', extra=extra, **common)
-        return dict(written, id=ledger_id(written['key']), version=written['id'], conflict=True, current=conflict.current)
-    return dict(written, id=ledger_id(written['key']), version=written['id'])
+        extra = dict(extra, conflict_with=[ledger_id(key, visibility, state['task_id'])], base=base)
+        conflict_key = f'{key}.c{content_hash([text, base, conflict.current])[:8]}'
+        written = context.add(ledger, selector, key=conflict_key, extra=extra, subject_scope=subject, **common)
+        return dict(written, id=ledger_id(written['key'], visibility, state['task_id']), version=written['id'], conflict=True, current=conflict.current)
+    return dict(written, id=ledger_id(written['key'], visibility, state['task_id']), version=written['id'])
+
+
+def _target(ledger, ident):
+    for r in records(ledger, history=True):
+        if r['id'] == ident: return r
+    return None
 
 
 def withdraw(ledger, plan, target, *, reason, evidence):
-    """Withdraw knowledge `target` (a ctx-/lesson-/wiki id) from the open root `plan`, with the evidence for it. The target stays in
-    history; at the next retrieval it, its summaries and its copies are not delivered."""
+    """Withdraw knowledge `target` (a ctx-/lesson-/wiki id) from the open root `plan`, with the evidence for it. The target's versions
+    written before this record, its summaries and its copies are not delivered at the next retrieval; it stays in history. A general
+    entry is withdrawn by its own project, with a general record every project reads."""
     text_field(reason, 'withdrawal reason', 1000)
+    found = _target(ledger, target)
+    if found is not None and found['scope'] == 'general':
+        if found['project'] != ledger.project_id: raise LedgerError('only the project that wrote a general entry can withdraw it.')
+        return record(ledger, plan, kind='note', text=f'Withdraws {target}: {reason}', evidence=dict(evidence, status=evidence.get('status', 'observed')),
+                      visibility='project', scope='general', conditions=['lifecycle record of a general entry'],
+                      _lifecycle={'withdraws': target, 'reason': reason})
     return record(ledger, plan, kind='note', text=f'Withdraws {target}: {reason}', evidence=dict(evidence, status=evidence.get('status', 'observed')),
                   visibility='project', _lifecycle={'withdraws': target, 'reason': reason})
 
@@ -719,20 +919,30 @@ def archive(ledger, plan, target, *, reason):
                   visibility='project', _lifecycle={'archives': target, 'reason': reason})
 
 
-def records(ledger, *, history=False):
-    """Every knowledge record of the project as the reader sees it (status after lifecycle), lifecycle records excluded; `history` keeps
-    the withdrawn/archived/superseded ones (they are always kept in the ledger)."""
+def records(ledger, *, history=False, root=None):
+    """Every ledger knowledge record of the project as the project sees it (status after lifecycle records visible to the project, or
+    to `root` too), lifecycle records excluded; `history` keeps withdrawn/archived/superseded ones (the ledger always keeps them)."""
     problems, lifecycle = [], []
     candidates = _ledger_candidates(ledger, problems, lifecycle)
-    status = _lifecycle_status(candidates, lifecycle, _withdrawn_lessons(ledger))
+    cons = {'root': root} if root else None
+    status = _lifecycle(candidates, lifecycle, _withdrawn_lessons(ledger), cons, ledger.project_id)
+    by_id = {c['id']: c for c in candidates}
+    states = {c['id']: _state_of(status, c) for c in candidates}
+    changed = True
+    while changed:
+        changed = False
+        for c in candidates:
+            if states[c['id']][0] == 'active' and any(states.get(d, ('active',))[0] != 'active' for d in c['derived_from'] if d in by_id):
+                states[c['id']] = ('source_withdrawn', 'derived from knowledge that is not live'); changed = True
     out = []
     for c in candidates:
-        state = status.get(c['id'], ('active', None))
+        state = states[c['id']]
         if state[0] != 'active' and not history: continue
         out.append({'id': c['id'], 'text': c['text'], 'kind': c['kind'], 'label': c['label'], 'visibility': c['visibility'], 'scope': c['scope'],
                     'status': state[0], 'status_reason': state[1], 'evidence': c.get('evidence') or {'status': c['label']},
                     'sources': c['sources'], 'derived_from': c['derived_from'], 'supersedes': c['supersedes'], 'applies_to': c['applies_to'],
-                    'conflict_with': c.get('conflict_with') or [], 'root': c['root'], 'event': c['seq'], 'version': c.get('version')})
+                    'conditions': c['conditions'], 'must': c['must'], 'conflict_with': c.get('conflict_with') or [], 'root': c['root'],
+                    'project': c['project'], 'event': c['seq'], 'version': c.get('version'), 'scope_paths': c['scope_paths']})
     return out
 
 
@@ -741,33 +951,40 @@ def status_by_id(ledger):
     return {r['id']: r['status'] for r in records(ledger, history=True)}
 
 
-def summarize(ledger, plan, sources, *, text, visibility='project'):
-    """A summary of knowledge `sources` (ids): its label is the weakest of theirs, its cause stays not established, its meaning is
-    unverified (nobody checked the summary against the sources), and it keeps `derived_from` so withdrawal reaches it."""
-    known = {r['id']: r for r in records(ledger)}
+def summarize(ledger, plan, sources, *, text, visibility=None):
+    """A summary of knowledge `sources` (ids): its label is the weakest of theirs, it inherits their conditions, scope and pins, its
+    meaning is unverified (nobody checked it against the sources), and it keeps `derived_from` so withdrawal and inapplicability reach it."""
+    known = {r['id']: r for r in records(ledger, root=_open_root(ledger, plan)[0]['task_id'])}
     missing = [s for s in sources if s not in known]
     if missing or not sources: raise LedgerError('summarize: live knowledge ids are required (' + ', '.join(missing) + ').')
     labels = [known[s]['label'] for s in sources]
     weakest = min(labels, key=lambda label: RANK.get(label, 0))
     if any(label == 'refuted' for label in labels) and any(label != 'refuted' for label in labels): weakest = 'hypothesis'
+    visibility = visibility or ('root' if any(known[s]['visibility'] == 'root' for s in sources) else 'project')
     applies = sorted({a for s in sources for a in known[s]['applies_to']})
-    files = [src for s in sources for src in known[s]['sources'] if src.get('path')]
+    files = [src for s in sources for src in known[s]['sources'] if src.get('path') and src.get('role') != 'applies']
     anchors = [src for s in sources for src in known[s]['sources'] if src['type'] in ('event', 'receipt')]
+    conditions, seen = [], set()
+    for s in sources:
+        for c in known[s]['conditions']:
+            if canonical(c) not in seen: seen.add(canonical(c)); conditions.append(c)
     evidence = {'status': weakest if weakest in EVIDENCE_STATUS else 'hypothesis', 'sources': (anchors[:1] + files)[:10],
                 'property': 'summary of ' + ', '.join(sources) if weakest == 'verified' else None, 'semantic_verification': 'unverified'}
-    return record(ledger, plan, kind='summary', text=text, evidence=evidence, applies_to=applies, derived_from=list(sources), visibility=visibility)
+    return record(ledger, plan, kind='summary', text=text, evidence=evidence, applies_to=applies, derived_from=list(sources), visibility=visibility,
+                  conditions=conditions, scope_paths=sorted({p for s in sources for p in known[s]['scope_paths']}))
 
 
 def export(ledger, folder):
     """Write the live PROJECT knowledge of the ledger as one Markdown page (a derived view, never a second source): every section keeps
-    the ledger id it copies, so a copy committed into the wiki is matched to its ledger lifecycle at the next retrieval."""
+    the ledger id it copies (and its conditions and `must`), so a copy committed into the wiki is matched to its ledger lifecycle."""
     folder = Path(folder); folder.mkdir(parents=True, exist_ok=True)
     rows = [r for r in records(ledger) if r['visibility'] == 'project' and r['scope'] == 'project']
     lines = ['# Tri thức project (xuất từ sổ OneCrew — bản dẫn xuất, không phải nguồn riêng)', '']
     for r in rows:
         meta = {'id': 'copy-' + re.sub(r'[^A-Za-z0-9_.-]', '-', r['id'])[:70], 'kind': r['kind'],
-                'label': r['label'] if r['label'] in wiki.LABELS else 'unverified', 'applies_to': r['applies_to'],
-                'sources': [s for s in r['sources'] if s['type'] in wiki.SOURCE_TYPES], 'derived_from': r['derived_from'], 'ledger_id': r['id']}
+                'label': r['label'] if r['label'] in wiki.LABELS else 'unverified', 'must': r['must'], 'applies_to': r['applies_to'],
+                'sources': [{k: v for k, v in s.items() if k != 'role'} for s in r['sources'] if s['type'] in wiki.SOURCE_TYPES],
+                'conditions': r['conditions'], 'derived_from': r['derived_from'], 'ledger_id': r['id']}
         lines += [f'## {r["text"][:80]}', '```onecrew', json.dumps(meta, ensure_ascii=False), '```', r['text'], '']
     page = folder / 'onecrew-export.md'
     page.write_text('\n'.join(lines), encoding='utf-8')
@@ -776,57 +993,109 @@ def export(ledger, folder):
 
 # ---- 2.3-A2: the engine path: claims at finish, promotion at a passing verification --------------------------------------------
 
-def record_claims(ledger, selector, node, receipt, claims):
-    """A worker's claims (knowledge.new) as observations of its root, citing the attempt receipt. Nothing is verified by being claimed."""
-    written = []
-    readable = set(node.get('read') or []) | set(node.get('write') or [])
+def validate_claims(node, claims, files):
+    """(accepted, refused) claims of one attempt: a claim's sources must be files of the node's scope and present in the candidate it was
+    made on; the rest is refused with a reason that goes in the receipt (review r1 #15)."""
+    scope = set(node.get('read') or []) | set(node.get('write') or [])
+    accepted, refused = [], []
     for claim in claims or []:
-        files = [{'type': 'file', 'path': p, 'revision': 'HEAD'} for p in claim.get('sources', []) if p in readable]
+        outside = [p for p in claim.get('sources', []) + _concrete(claim.get('applies_to', [])) if p not in scope]
+        absent = [p for p in claim.get('sources', []) if p not in (files or {})]
+        if outside: refused.append({'text': claim['text'][:120], 'reason': 'outside the node scope: ' + ', '.join(outside[:3])})
+        elif absent: refused.append({'text': claim['text'][:120], 'reason': 'not in the candidate: ' + ', '.join(absent[:3])})
+        else: accepted.append(claim)
+    return accepted, refused
+
+
+def _claim_sources(ledger, claim, files):
+    pins = []
+    for path in claim.get('sources', []):
+        if isinstance(files.get(path), str):
+            pins.append({'type': 'file', 'path': path, 'blob': blob_of(ledger, path, files[path].encode('utf-8'))})
+    return pins
+
+
+def record_claims(ledger, selector, node, receipt, claims, files):
+    """A worker's accepted claims (knowledge.new) as observations of its root, citing the attempt receipt, pinned to the candidate the
+    worker saw (`files`), bounded by the node's read ∪ write scope. Nothing is verified by being claimed."""
+    written = []
+    scope = sorted(set(node.get('read') or []) | set(node.get('write') or []))
+    for claim in claims or []:
         try:
             out = record(ledger, selector, kind=claim['kind'], text=claim['text'], applies_to=claim.get('applies_to', []), visibility='root',
-                         evidence={'status': 'observed', 'sources': [{'type': 'receipt', 'key': receipt}] + files})
+                         scope_paths=scope, files=files, basis='worker claim (observation)',
+                         evidence={'status': 'observed', 'sources': [{'type': 'receipt', 'key': receipt}] + _claim_sources(ledger, claim, files)})
             written.append(out['id'])
         except LedgerError:
-            continue                                   # a claim that cannot be anchored is not knowledge; the attempt is unaffected
+            continue
     return written
 
 
-def after_verification(ledger, selector, nid, produced_receipt, verification_receipt, body, checks):
-    """The node passed its checks: each claim whose `check` passed becomes PROJECT knowledge (verified, the property = that check's spec on
-    that artifact, cause not established) superseding the observation; each delivered entry the worker rejected gets a project-visible
-    contradiction (an observation, not a proof that the entry is wrong). Returns the ids written."""
+def _chain_receipts(ledger, selector, nid, produced_receipt, verification_receipt=None):
+    """The native receipts of this node's attempts since its previous verification (not this one): the produced one and the partial ones
+    it continued."""
+    out = [produced_receipt]
+    with ledger.transaction() as conn:
+        root = namespaces.resolve(ledger, conn, selector) if conn else None
+        if root is None: return out
+        rows = conn.execute("SELECT kind, payload FROM events WHERE task_id=? AND kind IN ('node.result_retained','node.verification') "
+                            "AND json_extract(payload,'$.node')=? ORDER BY seq", (root['id'], nid)).fetchall()
+    partial = []
+    for row in rows:
+        payload = json.loads(row['payload'])
+        if row['kind'] == 'node.verification':
+            if payload.get('receipt') != verification_receipt: partial = []
+        elif isinstance(payload.get('candidate'), dict) and payload['candidate'].get('receipt'): partial.append(payload['candidate']['receipt'])
+    return partial + out
+
+
+def after_verification(ledger, selector, nid, produced_receipt, verification_receipt, body, item):
+    """The node passed its checks: each claim whose `check` passed in THIS verification becomes PROJECT knowledge — verified for the
+    property that check states on that artifact (delivered with it), cause not established, pinned to the verified artifact, bounded by the
+    node's scope — superseding the observation; each delivered entry the worker rejected gets a project-visible contradiction (an
+    observation, not a proof that the entry is wrong). Claims of the partial attempts of a continuation count too. Returns the ids written."""
     from ..snapshots import Snapshots
-    try:
-        native = json.loads(Snapshots(ledger.state_root).read_blob(produced_receipt))
-    except (LedgerError, OSError, ValueError, TypeError):
-        return []
-    if native.get('kind') != 'native-node-receipt': return []
+    store = Snapshots(ledger.state_root)
     passed = {row.get('id') for row in (body.get('observed') or {}).get('checks', []) if isinstance(row, dict) and row.get('result') == 'pass'}
-    specs = {c['id']: c.get('spec', '') for c in checks}
-    written = []
-    readable_now = None
-    for claim in native.get('knowledge_claims') or []:
-        check = claim.get('check')
-        if not check or check not in passed: continue
-        files = [{'type': 'file', 'path': p, 'revision': 'HEAD'} for p in claim.get('sources', [])]
-        evidence = {'status': 'verified', 'property': f'check {check} ("{specs.get(check, "")[:200]}") passed on artifact {body["artifact"][:12]}',
-                    'sources': [{'type': 'receipt', 'key': verification_receipt}, {'type': 'receipt', 'key': produced_receipt}] + files}
+    specs = {c['id']: c.get('spec', '') for c in item.get('checks') or []}
+    scope = sorted(set(item.get('read') or []) | set(item.get('write') or []))
+    try:
+        files = store.context(body['artifact'])
+    except (LedgerError, OSError, ValueError, TypeError, KeyError):
+        files = {}
+    with ledger.transaction() as conn:
+        root = namespaces.resolve(ledger, conn, selector)
+    observations = {(r['text'], r['root']): r['id'] for r in records(ledger, root=root['id']) if r['visibility'] == 'root'}
+    written, seen = [], set()
+    for receipt in _chain_receipts(ledger, selector, nid, produced_receipt, verification_receipt):
         try:
-            # the same subject as the observation (same root, kind and text): this version replaces it on retrieval, now for the project
-            out = record(ledger, selector, kind=claim['kind'], text=claim['text'], applies_to=claim.get('applies_to', []), visibility='project',
-                         evidence=evidence)
-            written.append(out['id'])
-        except LedgerError:
+            native = json.loads(store.read_blob(receipt))
+        except (LedgerError, OSError, ValueError, TypeError):
             continue
-    for rejected in (native.get('knowledge_use') or {}).get('rejected_by_worker') or []:
-        if rejected['id'] not in (native.get('knowledge') or {}).get('delivered', []): continue
-        try:
-            out = record(ledger, selector, kind='finding', text=f'The worker of node {nid} rejected {rejected["id"]}: {rejected["why"][:400]}',
-                         visibility='project', contradicts=[rejected['id']],
-                         evidence={'status': 'observed', 'sources': [{'type': 'receipt', 'key': produced_receipt}, {'type': 'receipt', 'key': verification_receipt}]})
-            written.append(out['id'])
-        except LedgerError:
-            continue
+        if native.get('kind') != 'native-node-receipt': continue
+        for claim in native.get('knowledge_claims') or []:
+            check = claim.get('check')
+            if not check or check not in passed or claim['text'] in seen: continue
+            seen.add(claim['text'])
+            evidence = {'status': 'verified', 'property': f'check {check} ("{specs.get(check, "")[:200]}") passed on artifact {body["artifact"][:12]}',
+                        'sources': [{'type': 'receipt', 'key': verification_receipt}, {'type': 'receipt', 'key': receipt}] + _claim_sources(ledger, claim, files)}
+            obs = observations.get((claim['text'], root['id']))
+            try:
+                out = record(ledger, selector, kind=claim['kind'], text=claim['text'], applies_to=claim.get('applies_to', []), visibility='project',
+                             evidence=evidence, scope_paths=scope, files=files, supersedes=[obs] if obs else [],
+                             basis='worker claim supported by a passing check; the check proves its property, not every word of the claim')
+                written.append(out['id'])
+            except LedgerError:
+                continue
+        for rejected in (native.get('knowledge_use') or {}).get('rejected_by_worker') or []:
+            if rejected['id'] not in (native.get('knowledge') or {}).get('delivered', []): continue
+            try:
+                out = record(ledger, selector, kind='finding', text=f'The worker of node {nid} rejected {rejected["id"]}: {rejected["why"][:400]}',
+                             visibility='project', contradicts=[rejected['id']], scope_paths=scope,
+                             evidence={'status': 'observed', 'sources': [{'type': 'receipt', 'key': receipt}, {'type': 'receipt', 'key': verification_receipt}]})
+                written.append(out['id'])
+            except LedgerError:
+                continue
     return written
 
 
@@ -866,6 +1135,7 @@ def render_text(pkg):
     for e in pkg['entries'] + pkg.get('requested', []):
         lines.append(f'[{use_vi[e["use"]]}{" · bắt buộc" if e["must"] else ""}] {e["id"]} — «{e["title"]}» ({e["label"]}; {e["applicability"]["state"]})')
         lines.append('    nguồn: ' + '; '.join(e['source']))
+        if e.get('evidence', {}).get('property'): lines.append('    đã chứng minh: ' + e['evidence']['property'] + (' · nguyên nhân chưa xác lập' if e['evidence'].get('cause') == 'not_established' else ''))
         for reason in e['applicability']['reasons'][:3]: lines.append('    · ' + reason)
     omitted = pkg['omitted']
     if omitted['total']:

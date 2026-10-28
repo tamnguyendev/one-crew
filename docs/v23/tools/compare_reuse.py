@@ -71,7 +71,7 @@ if condition != 'fresh':
     os.environ['ONECREW_ACTOR'] = 'codex'
     internal_plan.revise(ledger, 'P1', nodes('C', 'a.txt', ['a.txt', 'spec.txt'], 'claude-haiku-5-5'), reason='Root A', evidence=['a.txt:1'])
     policy(target='a.txt', default='right', careful=True,
-           claims=[{'kind': 'finding', 'text': 'Files of this project hold the required word VALUE: right (spec.txt).', 'applies_to': ['a.txt', 'b.txt'],
+           claims=[{'kind': 'finding', 'text': 'Files of this project hold the required word VALUE: right (spec.txt).', 'applies_to': ['a.txt'],
                     'sources': ['spec.txt'], 'check': 'M1'}])
     executor = NativeExecutor(ledger); checker = CandidateChecker(ledger, 'P1')
     assert engine.step(ledger, 'P1', executor)['state'] == 'produced'
@@ -104,7 +104,7 @@ word = 'bright' if condition == 'changed' else 'right'
 plan.propose(ledger, 'P2', contract('b.txt', word), 'codex', workflow=True, capabilities=caps)
 plan.approve(ledger, 'P2', 'owner', 'fixture owner approves root B, a new root')
 os.environ['ONECREW_ACTOR'] = 'codex'
-internal_plan.revise(ledger, 'P2', nodes('D', 'b.txt', ['b.txt', 'spec.txt'], MODEL), reason='Root B', evidence=['b.txt:1'])
+internal_plan.revise(ledger, 'P2', nodes('D', 'b.txt', ['a.txt', 'b.txt', 'spec.txt'], MODEL), reason='Root B', evidence=['b.txt:1'])
 policy(target='b.txt', default='naive', careful=True)
 store = Snapshots(ledger.state_root)
 started = time.perf_counter()

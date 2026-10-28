@@ -37,6 +37,8 @@ MAX_PAGES = 2000
 HEADING = re.compile(r'^(#{2,3})\s+(.+?)\s*#*\s*$')
 FENCE_OPEN = re.compile(r'^```onecrew\s*$')
 IDENT = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$')
+RESERVED = ('ctx-', 'lesson-')                     # ids of ledger subjects; a page may not take them (2.3 review r1 #9)
+FULL_COMMIT = re.compile(r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$')
 
 
 def slug(text):
@@ -69,6 +71,9 @@ def _source(value, problems, where):
                 if not isinstance(value[key], str) or not re.fullmatch(r'[0-9A-Za-z_./^~-]{1,80}', value[key]):
                     problems.append(f'{where}: source {key} must be a commit-ish or a blob id.'); return None
                 out[key] = value[key]
+        if 'revision' in out and not FULL_COMMIT.match(out['revision']):
+            problems.append(f'{where}: source revision {out["revision"][:40]!r} is not a commit id; a symbolic name always resolves to "now", '
+                            f'so the entry cannot be rechecked (pin the full commit; it is delivered as unknown until then).')
         if kind == 'file_line':
             if type(value.get('line')) is not int or value['line'] < 1: problems.append(f'{where}: file_line needs a positive line.'); return None
             out['line'] = value['line']
@@ -137,6 +142,14 @@ def _meta(raw, problems, where):
         problems.append(f'{where}: unknown metadata key(s) {", ".join(unknown)}.'); return None
     if 'id' in value and (not isinstance(value['id'], str) or not IDENT.match(value['id'])):
         problems.append(f'{where}: id must be 1-80 letters, digits, ".", "_" or "-".'); return None
+    if isinstance(value.get('id'), str) and value['id'].startswith(RESERVED):
+        problems.append(f'{where}: ids starting with {" or ".join(RESERVED)} belong to ledger subjects.'); return None
+    for name in ('sources', 'conditions'):
+        if value.get(name) is not None and not isinstance(value[name], list):
+            problems.append(f'{where}: {name} must be a list.'); return None
+    for name in ('applies_to', 'supersedes', 'derived_from'):
+        if value.get(name) is not None and not isinstance(value[name], (list, str)):
+            problems.append(f'{where}: {name} must be a list of strings.'); return None
     if value.get('kind', 'note') not in KINDS: problems.append(f'{where}: kind must be one of {", ".join(KINDS)}.'); return None
     if value.get('label', 'unverified') not in LABELS: problems.append(f'{where}: label must be one of {", ".join(LABELS)}.'); return None
     if value.get('status', 'active') not in STATUSES: problems.append(f'{where}: status must be one of {", ".join(STATUSES)}.'); return None
@@ -186,28 +199,35 @@ def parse(text, path):
             current['body'].append(line)
     for section in sections:
         where = f'{path}:{section["line"]}'
-        body, meta_raw, i = [], None, 0
-        rows = section['body']
-        while i < len(rows):
-            if FENCE_OPEN.match(rows[i]) and meta_raw is None:
-                j = i + 1
-                while j < len(rows) and rows[j].strip() != '```': j += 1
-                if j >= len(rows):
-                    problems.append(f'{where}: the onecrew block is not closed.'); meta_raw = ''
-                    i = len(rows); break
-                meta_raw = '\n'.join(rows[i + 1:j]); i = j + 1; continue
-            body.append(rows[i]); i += 1
-        meta = _meta(meta_raw, problems, where) if meta_raw is not None else None
-        typed = meta is not None
-        meta = meta or {'id': None, 'kind': 'note', 'label': 'unverified', 'must': False, 'status': 'active', 'sources': [],
-                        'conditions': [], 'applies_to': [], 'supersedes': [], 'derived_from': [], 'ledger_id': None, 'title': None}
-        ident = meta['id'] or f'{stem}-{slug(section["title"])}'
-        if ident in seen:
-            problems.append(f'{where}: id {ident} repeats the section at line {seen[ident]}; this section is skipped.'); continue
-        seen[ident] = section['line']
-        text_body = '\n'.join(body).strip()
-        entries.append(dict(meta, id=ident, title=meta['title'] or section['title'], text=text_body, line=section['line'], typed=typed))
+        try:
+            _section(section, where, stem, seen, problems, entries)
+        except Exception as error:                       # a section that breaks the parser is a page problem, never a crash of the reader
+            problems.append(f'{where}: section not read ({type(error).__name__}: {str(error)[:120]}).')
     return {'entries': entries, 'problems': problems}
+
+
+def _section(section, where, stem, seen, problems, entries):
+    body, meta_raw, i = [], None, 0
+    rows = section['body']
+    while i < len(rows):
+        if FENCE_OPEN.match(rows[i]) and meta_raw is None:
+            j = i + 1
+            while j < len(rows) and rows[j].strip() != '```': j += 1
+            if j >= len(rows):
+                problems.append(f'{where}: the onecrew block is not closed.'); meta_raw = ''
+                i = len(rows); break
+            meta_raw = '\n'.join(rows[i + 1:j]); i = j + 1; continue
+        body.append(rows[i]); i += 1
+    meta = _meta(meta_raw, problems, where) if meta_raw is not None else None
+    typed = meta is not None
+    meta = meta or {'id': None, 'kind': 'note', 'label': 'unverified', 'must': False, 'status': 'active', 'sources': [],
+                    'conditions': [], 'applies_to': [], 'supersedes': [], 'derived_from': [], 'ledger_id': None, 'title': None}
+    ident = meta['id'] or f'{stem}-{slug(section["title"])}'
+    if ident in seen:
+        problems.append(f'{where}: id {ident} repeats the section at line {seen[ident]}; this section is skipped.'); return
+    seen[ident] = section['line']
+    text_body = '\n'.join(body).strip()
+    entries.append(dict(meta, id=ident, title=meta['title'] or section['title'], text=text_body, line=section['line'], typed=typed))
 
 
 def configured_paths(project):

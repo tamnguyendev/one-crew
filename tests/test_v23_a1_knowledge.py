@@ -123,7 +123,7 @@ class SelectionTests(KnowledgeFixture):
                   'applies_to': ['a.txt'], 'sources': [{'type': 'file', 'path': 'a.txt', 'revision': self.head}]}) + 'Keep a.txt to one line.\n')
         noise = ''.join(f'## Unrelated topic {i}\nThe deployment calendar entry number {i} for the marketing site.\n' for i in range(260))
         self.page('noise.md', noise)
-        package = knowledge.package(self.ledger, self.consumer(), cap_chars=3000)
+        package = knowledge.package(self.ledger, self.consumer(), cap_chars=6000)
         self.assertIn('old-rule', self.ids(package))
         self.assertGreaterEqual(package['omitted']['total'], 200)
         self.assertFalse(package['omitted']['eof'])
@@ -133,13 +133,13 @@ class SelectionTests(KnowledgeFixture):
         self.page('must.md', '## Big rule\n' + fence({'id': 'big', 'kind': 'constraint', 'label': 'verified', 'must': True,
                   'applies_to': ['a.txt'], 'sources': [{'type': 'file', 'path': 'a.txt', 'revision': self.head}]}) + long + '\n')
         with self.assertRaises(knowledge.KnowledgeOverflow) as caught:
-            knowledge.package(self.ledger, self.consumer(), cap_chars=1500)
+            knowledge.package(self.ledger, self.consumer(), cap_chars=8000)
         self.assertIn('big', str(caught.exception))
 
     def test_ka08_optional_entries_over_the_cap_are_listed_with_a_total_and_a_cursor(self):
         body = ''.join(f'## a.txt hint {i}\nHint {i} about a.txt formatting and the O1 evidence.\n' for i in range(40))
         self.page('hints.md', body)
-        package = knowledge.package(self.ledger, self.consumer(), cap_chars=1200)
+        package = knowledge.package(self.ledger, self.consumer(), cap_chars=5500)
         self.assertTrue(package['entries'])
         omitted = package['omitted']
         self.assertGreater(omitted['by_reason'].get('cap', 0), 0)
@@ -190,12 +190,12 @@ class CursorTests(KnowledgeFixture):
     def test_ka13_pages_continue_until_eof_and_never_claim_eof_early(self):
         self.page('hints.md', ''.join(f'## a.txt hint {i}\nHint {i} about a.txt and the O1 evidence.\n' for i in range(30)))
         consumer = self.consumer()
-        page = knowledge.package(self.ledger, consumer, cap_chars=900)
+        page = knowledge.package(self.ledger, consumer, cap_chars=5000)
         seen = set(self.ids(page))
         relevant_total = len(seen) + page['omitted']['by_reason'].get('cap', 0) + page['omitted']['by_reason'].get('not_relevant', 0)
         hops = 0
         while not page['omitted']['eof']:
-            page = knowledge.read(self.ledger, consumer, page['omitted']['cursor'], cap_chars=900)
+            page = knowledge.read(self.ledger, consumer, page['omitted']['cursor'], cap_chars=5000)
             new = set(self.ids(page)); self.assertTrue(new, 'a page that is not the last delivers something')
             self.assertFalse(new & seen); seen |= new; hops += 1
             self.assertLess(hops, 40)
@@ -204,10 +204,10 @@ class CursorTests(KnowledgeFixture):
     def test_ka14_a_cursor_of_an_older_knowledge_state_is_refused(self):
         self.page('hints.md', ''.join(f'## a.txt hint {i}\nHint {i} about a.txt and the O1 evidence.\n' for i in range(30)))
         consumer = self.consumer()
-        cursor = knowledge.package(self.ledger, consumer, cap_chars=900)['omitted']['cursor']
+        cursor = knowledge.package(self.ledger, consumer, cap_chars=5000)['omitted']['cursor']
         self.page('hints.md', '## a.txt hint changed\nA new hint for a.txt.\n')
         with self.assertRaises(LedgerError):
-            knowledge.read(self.ledger, consumer, cursor, cap_chars=900)
+            knowledge.read(self.ledger, consumer, cursor, cap_chars=5000)
 
 
 class DeliveryTests(KnowledgeFixture):
@@ -273,7 +273,7 @@ class DeliveryTests(KnowledgeFixture):
             self.assertIn(asked[0], [e['id'] for e in package['requested']])
             return {'summary': 'done', 'files': [{'path': 'a.txt', 'content': 'one\n'}], 'backlog': [], 'knowledge': {'used': list(asked)}}
         self.values += [first, second]
-        with patch.object(knowledge, 'NATIVE_CAP_CHARS', 900):
+        with patch.object(knowledge, 'NATIVE_CAP_CHARS', 5000):
             partial = self.engine.step(self.ledger, 'P1', self.adapter)
             self.assertEqual(partial['state'], 'continuing', partial)
             done = self.engine.step(self.ledger, 'P1', self.adapter)
@@ -351,11 +351,11 @@ class CliTests(KnowledgeFixture):
         self.page('hints.md', ''.join(f'## a.txt hint {i}\nHint {i} about a.txt and the O1 evidence.\n' for i in range(30))
                   + '## Bad\n```onecrew\n{"id": 3}\n```\n')
         self.revise([self.item('C'), dict(node('I', ['C'], integration=True, write=()), executor=dict(PIN))])
-        code, out = self.run_cli('wiki', 'show', '--plan', 'P1', '--node', 'C', '--cap', '900')
+        code, out = self.run_cli('wiki', 'show', '--plan', 'P1', '--node', 'C', '--cap', '5000')
         self.assertEqual(code, 0, out)
         first = json.loads(out)
         self.assertTrue(first['entries'] and first['omitted']['cursor'])
-        code, out = self.run_cli('wiki', 'read', '--plan', 'P1', '--node', 'C', '--cap', '900', '--cursor', first['omitted']['cursor'])
+        code, out = self.run_cli('wiki', 'read', '--plan', 'P1', '--node', 'C', '--cap', '5000', '--cursor', first['omitted']['cursor'])
         self.assertEqual(code, 0, out)
         self.assertFalse(set(e['id'] for e in json.loads(out)['entries']) & set(e['id'] for e in first['entries']))
         code, out = self.run_cli('wiki', 'show', '--plan', 'P1', '--node', 'C', '--text')

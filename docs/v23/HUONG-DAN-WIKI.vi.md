@@ -30,19 +30,19 @@ a.txt phải chứa đúng một dòng.
 | `label` | `observed`, `hypothesis`, `verified`, `refuted`, `unverified`. `verified`/`refuted` phải có nguồn kiểm được, nếu không bị đọc là `unverified` và trang bị báo lỗi |
 | `must` | ràng buộc bắt buộc: luôn được giao khi liên quan tới file của node, không bao giờ bị cắt; không vừa trần thì node dừng trước khi gọi model |
 | `applies_to` | file/thư mục (kết thúc `/`)/glob mà mục áp dụng; dùng để chọn và để xét bắt buộc |
-| `sources` | `file` (path + `revision` hoặc `blob`), `file_line`, `symbol`, `receipt`, `event`, `url` (url không kiểm được) |
-| `conditions` | `file_contains`, `file_unchanged` (sha256), `env` (`platform`, `python`, `provider`, `model`), hoặc chữ (không kiểm được) |
+| `sources` | `file` (path + `revision` là **commit đầy đủ** hoặc `blob`), `file_line`, `symbol`, `receipt`, `event`, `url` (url không kiểm được). Revision dạng tên (`HEAD`, nhánh) luôn chỉ "bây giờ" nên không kiểm lại được: trang bị báo lỗi và mục chỉ là đầu mối. Event/receipt phải có thật trong sổ này |
+| `conditions` | `file_contains`, `file_unchanged` (sha256 của nội dung, CRLF đọc như LF), `env` (`platform`, `python` = Python đang chạy OneCrew, `provider`, `model` = pin của node), hoặc chữ (không kiểm được) |
 | `status`, `supersedes`, `derived_from`, `ledger_id` | vòng đời và nguồn dẫn xuất (dùng nhiều ở A2) |
 
 Heading không có khối `onecrew` là ghi chú `unverified`: chỉ được giao như **đầu mối**, không bao giờ như sự thật.
 
 ## 3. OneCrew chọn gì cho một node
 
-1. **Quyền:** chỉ project này; mọi file mà nguồn của mục trích phải nằm trong `read` ∪ `write` của node, nếu không mục không được giao và không bị nêu tên. Ghi chú làm việc của một root chỉ thuộc root đó.
+1. **Quyền:** chỉ project này; mọi file mà nguồn của mục trích, mọi file cụ thể trong `applies_to` đã được ghim, và toàn bộ phạm vi node đã sinh ra tri thức đó (`read` ∪ `write` của node, với tri thức A2) phải nằm trong `read` ∪ `write` của node đọc — nếu không, mục không được giao và không bị nêu tên. Ghi chú làm việc của một root chỉ thuộc root đó; ghi chú đó cũng không thay thế/thu hồi gì cho root khác.
 2. **Trạng thái:** `withdrawn`/`superseded`/`archived` là lịch sử, không giao.
-3. **Còn áp dụng không:** file nguồn khác với revision lúc ghi (kể cả thay đổi chưa commit) → `recheck`; điều kiện kiểm được mà sai → `not_applicable` (không giao); điều kiện không kiểm được → `unknown`. Không có hạn dùng theo thời gian.
-4. **Cách dùng:** `fact` (verified, còn áp dụng), `rejected` (hướng đã loại, còn áp dụng), `lead` (còn lại: phải kiểm nguồn trước khi dựa vào). Kết luận `refuted` có nguồn đã đổi được mở lại thành `lead`.
-5. **Liên quan + trần:** mục bắt buộc trước, rồi theo file và từ khóa của node/plan, tới trần 12 000 ký tự. Phần chưa giao có tổng theo lý do, danh sách id/tiêu đề và con trỏ đọc tiếp.
+3. **Còn áp dụng không** — xét trên đúng nội dung file worker sẽ thấy (nguồn của prompt, gồm output của node trước), file khác thì trên working tree: blob khác với lúc ghi → `recheck`; điều kiện kiểm được mà sai → `not_applicable` (không giao); điều kiện, revision dạng tên, event/receipt không có, hay file trong `applies_to` chưa được ghim nội dung → `unknown`. Không có hạn dùng theo thời gian.
+4. **Cách dùng:** `fact` (verified, còn áp dụng — kèm `evidence.property` là điều đã chứng minh và `evidence.cause`), `rejected` (hướng đã loại, còn áp dụng), `lead` (còn lại: phải kiểm nguồn trước khi dựa vào). Kết luận `refuted` có nguồn đã đổi được mở lại thành `lead`; mục bị tranh chấp hay bị phản bác là `lead`; tóm tắt không bao giờ mạnh hơn nguồn yếu nhất còn được giao.
+5. **Liên quan + trần:** trần tính trên **cả gói** (khung, danh sách mục chưa giao, lỗi trang), tối đa 16 000 ký tự và không quá chỗ prompt 80 000 ký tự còn lại — tri thức tùy chọn không bao giờ làm node bị giữ. Mục bắt buộc trước (không bị cắt; không vừa thì node bị giữ trước khi gọi model), rồi các mục yêu cầu đọc tiếp, rồi theo file và từ khóa của node/plan. Phần chưa giao có tổng theo lý do, danh sách id/tiêu đề và con trỏ đọc tiếp; con trỏ gắn với đúng task và trạng thái tri thức.
 
 ## 4. Lệnh
 
@@ -52,7 +52,7 @@ onecrew --project <repo> wiki show --plan <plan> [--node <node>] [--cap 12000] [
 onecrew --project <repo> wiki read --plan <plan> [--node <node>] --cursor <con trỏ từ wiki show>
 ```
 
-`pages` liệt kê trang, mục và lỗi (bộ kiểm trang). `show`/`read` cho thấy đúng gói mà node sẽ nhận. Cả ba chỉ đọc. Con trỏ chỉ dùng được khi wiki/sổ chưa đổi; đổi rồi thì chạy lại `show`.
+`pages` liệt kê trang, mục và lỗi (bộ kiểm trang). `show`/`read` cho thấy gói node sẽ nhận, xét trên working tree (lúc chạy thật, engine xét trên đúng file trong prompt, nên mục về file mà node trước vừa sửa có thể khác). Cả ba chỉ đọc. Con trỏ chỉ dùng được khi wiki/sổ và task chưa đổi; đổi rồi thì chạy lại `show`.
 
 ## 5. Giao cho worker và cách kiểm kết quả
 
@@ -63,14 +63,15 @@ onecrew --project <repo> wiki read --plan <plan> [--node <node>] --cursor <con t
 - Kết quả đúng hay sai do **check của node** quyết định. Khai báo sử dụng chỉ là kiểm cấu trúc.
 - Worker cần mục chưa được giao: trả `continuation` kèm `knowledge.requests: [id…]`; lần tiếp tục nhận đúng các mục đó trong `requested` (nếu vẫn được phép).
 - Không có wiki và không có mục liên quan: prompt giữ nguyên như 2.2; receipt ghi `knowledge.package: null`.
-- Trang wiki hỏng chỉ làm mục của trang đó không được dùng; node độc lập vẫn chạy và receipt ghi lỗi.
+- Trang wiki hỏng chỉ làm mục hỏng không được dùng (mục khác của trang và trang khác vẫn được giao); node vẫn chạy và receipt ghi lỗi.
+- Khai báo `knowledge` sai giới hạn schema bị bỏ và ghi `knowledge_declaration_problem` vào receipt; artifact vẫn giữ. Claim nêu file ngoài phạm vi node, hoặc file không có trong candidate, bị từ chối và ghi `knowledge_claims_refused`.
 
 ## 6. Ghi tri thức có bằng chứng và dùng lại qua root mới (A2, từ 2.3.0.dev2)
 
 ### 6.1 OneCrew tự ghi khi có bằng chứng
 
-- Worker native có thể trả `knowledge.new`: `[{kind, text, applies_to, sources: [file đã đọc], check: <id check của node>}]`. Ngay khi attempt có receipt, mỗi claim được ghi là **quan sát của root đó** (`observed`, `visibility: root`, nguồn = receipt). Claim không bao giờ tự thành sự thật vì đã được nói ra.
-- Khi check của node đạt trong lần verify được công bố, claim nêu đúng check đó được **công bố cho project** (`verified`, `visibility: project`): thuộc tính đã chứng minh = "check X (spec) đạt trên artifact Y", nguồn = receipt verify + receipt attempt + file đã trích (ghim blob), `cause: not_established`. Check đỏ thì không công bố gì.
+- Worker native có thể trả `knowledge.new`: `[{kind, text, applies_to, sources: [file đã đọc], check: <id check của node>}]`; `applies_to`/`sources` phải là file của node. Ngay khi attempt có receipt, mỗi claim được ghi là **quan sát của root đó** (`observed`, `visibility: root`, nguồn = receipt, ghim blob trên candidate worker vừa tạo). Claim không bao giờ tự thành sự thật vì đã được nói ra.
+- Khi check của node đạt trong lần verify được công bố, claim nêu đúng check đó (kể cả claim của các attempt dở dang trước đó) được **công bố cho project** (`verified`, `visibility: project`): thuộc tính đã chứng minh = "check X (spec) đạt trên artifact Y" — check chứng minh thuộc tính của nó, không chứng minh từng chữ của claim, và điều này đi kèm mục khi giao —, nguồn = receipt verify + receipt attempt + file đã trích (ghim blob trên artifact đã verify), `cause: not_established`, phạm vi đọc = phạm vi node. Nếu candidate chưa được áp vào project, root sau nhận mục này là `lead`/`recheck` cho tới khi file trong project khớp. Check đỏ thì không công bố gì.
 - Worker từ chối một mục đã được giao (`knowledge.rejected`) và node đạt: ghi một phát hiện `contradicts` cho project; mục bị phản bác được giao lại dưới dạng `lead` có lý do.
 - Lesson sau sửa đã kiểm (cơ chế 2.2) là tri thức project, dùng được ở root mới.
 - Mọi bản ghi chỉ ghi được khi root còn mở; root đã kết thúc thì bị từ chối (guard của 2.2).
@@ -91,7 +92,8 @@ onecrew wiki history
 - Nhãn là mức bằng chứng: `verified` bắt buộc `--property` và ít nhất một nguồn event/receipt/file:line/symbol; `cause` chỉ "established" khi có nguồn nguyên nhân riêng.
 - **Tóm tắt** (`summarize`) mang `derived_from`, nhãn bằng nguồn yếu nhất, `semantic_verification: unverified`. Bản sao cùng nội dung, cùng nguồn chỉ là một mục (`copies: n`), không tăng độ tin cậy.
 - **Cập nhật đồng thời:** ghi lại một chủ đề (`--key`) kèm `--base` là version đã đọc (`wiki history` → `version`). Nếu chủ đề đã đổi, bản mới được giữ riêng là `contested`; cả hai được giao như `lead` có lý do, không bản nào mất.
-- **Thu hồi / thay thế / lưu trữ** là bản ghi mới trên một root đang mở; không xóa sổ, receipt hay trang. Ở lần truy xuất tiếp: mục bị thu hồi, tóm tắt dẫn từ nó và bản sao wiki mang `ledger_id` của nó đều không được giao; `wiki history` vẫn hiện với trạng thái.
+- **Thu hồi / thay thế / lưu trữ** là bản ghi mới trên một root đang mở; không xóa sổ, receipt hay trang. Ở lần truy xuất tiếp: các phiên bản viết trước bản ghi thu hồi, tóm tắt dẫn từ nó, bản sao wiki mang `ledger_id` của nó và lesson cùng id (cả `lesson list`, `issue localize`) đều không được giao; một bản đính chính viết sau bản ghi thu hồi thì sống lại. `wiki history` vẫn hiện tất cả với trạng thái. Mục general chỉ project đã viết nó mới thu hồi được, bằng một bản ghi general mọi project đều đọc.
+- Bản ghi **general** chỉ mang chữ, điều kiện và nguồn event/receipt — không `applies_to`, `must`, `supersedes`, tiêu đề hay file; phần riêng của project bị từ chối ngay khi ghi.
 - **Xuất wiki** là bản dẫn xuất: mỗi mục giữ `ledger_id`; commit bản xuất vào `docs/wiki/` không tạo nguồn thứ hai (mục còn sống được giao một lần từ sổ; mục đã thu hồi không sống lại từ bản sao).
 
 ### 6.3 Root mới dùng lại

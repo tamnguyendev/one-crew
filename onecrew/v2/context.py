@@ -151,10 +151,14 @@ class ContextConflict(LedgerError):
         self.current = current
 
 
-def add(ledger, name, *, kind, label, text, source, scope='project', conditions=None, key=None, extra=None, expect_latest=None):
+def add(ledger, name, *, kind, label, text, source, scope='project', conditions=None, key=None, extra=None, expect_latest=None,
+        subject_scope='root', require_open=False):
     """Write one `context.entry` on the root `name`. Returns {'recorded': bool, 'id', 'key', 'event'}; a repeat of the same content is not written.
     2.3-A2: `extra` (a dict built and validated by knowledge.py) is stored as the payload's `knowledge`; `expect_latest` ('' = no earlier
-    entry expected) makes the write refuse with ContextConflict when the subject's newest entry on this root is not that id."""
+    entry expected) makes the write refuse with ContextConflict when the subject's newest entry is not that id; `subject_scope='project'`
+    looks for that newest entry across the project's roots (a project-visible subject), 'root' on this root only. A write identical to the
+    subject's newest version is not written again; a write identical to an OLDER version (a revert) is. `require_open` refuses a root
+    that has ended, checked in the same write transaction (2.3 review r1 #24)."""
     if label not in LABELS: raise LedgerError(f'label {label!r}: expected one of {", ".join(LABELS)}.')
     if kind not in KINDS: raise LedgerError(f'kind {kind!r}: expected one of {", ".join(KINDS)}.')
     if scope not in SCOPES: raise LedgerError(f'scope {scope!r}: expected project or general.')
@@ -187,15 +191,22 @@ def add(ledger, name, *, kind, label, text, source, scope='project', conditions=
     with ledger.transaction(write=True) as conn:
         row = namespaces.resolve(ledger, conn, selector)
         if row is None: raise LedgerError(f'No plan named {name}.')
-        if conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='context.entry' AND json_extract(payload,'$.id')=?", (row['id'], body['id'])).fetchone():
-            return {'recorded': False, 'id': body['id'], 'key': key, 'event': None}
-        if expect_latest is not None:
+        if subject_scope == 'project':
+            newest = conn.execute("SELECT json_extract(e.payload,'$.id') AS id FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.project_id=? "
+                                  "AND e.kind='context.entry' AND json_extract(e.payload,'$.key')=? AND json_extract(e.payload,'$.scope')=? "
+                                  "AND json_extract(e.payload,'$.knowledge.visibility')='project' ORDER BY e.seq DESC LIMIT 1",
+                                  (ledger.project_id, key, scope)).fetchone()
+        else:
             newest = conn.execute("SELECT json_extract(payload,'$.id') AS id FROM events WHERE task_id=? AND kind='context.entry' "
                                   "AND json_extract(payload,'$.key')=? ORDER BY seq DESC LIMIT 1", (row['id'], key)).fetchone()
-            current = newest['id'] if newest else ''
-            if current != expect_latest:
-                raise ContextConflict(f'subject {key} changed since version {expect_latest[:12] or "(none)"}: the newest is {current[:12]}', current)
+        current = newest['id'] if newest else ''
+        if current == body['id']:
+            return {'recorded': False, 'id': body['id'], 'key': key, 'event': None}
+        if expect_latest is not None and current != expect_latest:
+            raise ContextConflict(f'subject {key} changed since version {expect_latest[:12] or "(none)"}: the newest is {current[:12]}', current)
         state = plans.derive(ledger, conn, selector)
+        if require_open and state and state.get('status') in ('accepted', 'stopped_with_report', 'closed'):
+            raise LedgerError('Record knowledge before the root ends: this root has ended (' + state['status'] + ').')
         payload = dict(body, plan_revision=state['latest'] if state else None, root=row['id'])
         plans.emit(ledger, conn, row['id'], 'context.entry', payload)                 # the class-A guard of compat.check_write runs here
         event = conn.execute('SELECT last_insert_rowid()').fetchone()[0]

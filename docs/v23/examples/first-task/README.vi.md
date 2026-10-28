@@ -2,7 +2,7 @@
 
 Mục tiêu: một node engine viết `a.txt` theo quy ước trong wiki; check của node kiểm kết quả.
 
-1. Tạo repo thử (bản sao, không phải project thật), có `a.txt` và chép `docs/wiki/rules.md` từ thư mục này vào `docs/wiki/`; commit; thay `"HEAD"` trong khối `onecrew` bằng commit vừa tạo rồi commit lại.
+1. Tạo repo thử (bản sao, không phải project thật), có `a.txt` và chép `docs/wiki/rules.md` từ thư mục này vào `docs/wiki/`; commit; thay `"HEAD"` trong khối `onecrew` bằng commit đầy đủ vừa tạo rồi commit lại (để `HEAD` thì `wiki pages` báo lỗi và mục chỉ là đầu mối).
 2. Xem wiki được đọc thế nào: `onecrew --project <repo> --state-root <sổ thử> wiki pages`.
 3. Tạo plan (engine root) như `../../tools/scenario_a1.py` làm: hợp đồng có milestone `M1` là command check `a.txt == "right"`, node `C` ghi `a.txt`, pin worker `claude`. Người duyệt plan là chủ sở hữu, chạy trong terminal của mình (`onecrew owner approve …`); AI không duyệt thay.
 4. Xem gói node C sẽ nhận: `onecrew --project <repo> --state-root <sổ thử> wiki show --plan <plan> --node C --text`.

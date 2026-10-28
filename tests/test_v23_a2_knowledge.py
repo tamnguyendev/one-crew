@@ -87,6 +87,11 @@ class RecordingTests(A2Fixture):
         self.assertTrue(any(s['type'] == 'receipt' for s in entry['sources']))
         self.assertIn({'type': 'file', 'path': 'b.txt'}, [{k: s[k] for k in ('type', 'path')} for s in entry['sources'] if s.get('path')])
         b = self.entries_for(self.root_b(), self.item('D', read=('a.txt', 'b.txt')))
+        # the claim was proven on C's candidate (a.txt = right), which is not applied: for a new root it is a lead to recheck (r1 #12/#15)
+        self.assertEqual((b[entry['id']]['use'], b[entry['id']]['applicability']['state']), ('lead', 'recheck'))
+        self.assertIn('check-C', b[entry['id']]['evidence']['property']); self.assertEqual(b[entry['id']]['evidence']['cause'], 'not_established')
+        (self.root / 'a.txt').write_text('right\n')                                                    # the candidate is now the project's
+        b = self.entries_for('P2', self.item('D', read=('a.txt', 'b.txt')))
         self.assertEqual(b[entry['id']]['use'], 'fact')                                                # a NEW root of the project uses it
 
     def test_kb02_a_claim_without_a_proving_check_stays_an_observation_of_its_root(self):
@@ -95,7 +100,7 @@ class RecordingTests(A2Fixture):
         mine = [e for e in knowledge.records(self.ledger) if e['text'] == claim['text']]
         self.assertEqual([(e['label'], e['visibility']) for e in mine], [('observed', 'root')])
         self.assertNotIn(mine[0]['id'], self.entries_for(self.root_b()))
-        self.assertEqual(self.entries_for('P1')[mine[0]['id']]['use'], 'lead')
+        self.assertEqual(self.entries_for('P1', self.item(read=('a.txt', 'b.txt')))[mine[0]['id']]['use'], 'lead')   # the producer's scope (r1 #1)
 
     def test_kb02b_a_failed_check_publishes_nothing(self):
         claim = {'kind': 'finding', 'text': 'a.txt must hold VALUE: wrong', 'applies_to': ['a.txt'], 'check': 'check-C'}
@@ -167,9 +172,13 @@ class SummaryTests(A2Fixture):
                          evidence={'status': 'hypothesis', 'sources': [{'type': 'event', 'id': event}]})
         delivered = [e for e in knowledge.package(self.ledger, knowledge.consumer(self.ledger, 'P2', node=self.item()), cap_chars=8000)['entries']
                      if e['text'] == 'a.txt hint copied']
-        self.assertEqual(len(delivered), 1)
+        self.assertEqual(len(delivered), 1)                       # the same project claim twice is one subject, not two pieces of evidence
         self.assertEqual(delivered[0]['label'], 'hypothesis')
-        self.assertEqual(delivered[0].get('copies'), 2)
+        self.page('twins.md', '## t1\n' + fence({'id': 'twin-1', 'kind': 'finding', 'applies_to': ['a.txt']}) + 'a.txt twin text.\n'
+                  '## t2\n' + fence({'id': 'twin-2', 'kind': 'finding', 'applies_to': ['a.txt']}) + 'a.txt twin text.\n')
+        twins = [e for e in knowledge.package(self.ledger, knowledge.consumer(self.ledger, 'P2', node=self.item()), cap_chars=8000)['entries']
+                 if e['text'] == 'a.txt twin text.']
+        self.assertEqual(len(twins), 1); self.assertEqual(twins[0].get('copies'), 2); self.assertEqual(twins[0]['label'], 'unverified')
 
     def test_kb07_an_update_from_an_older_version_is_kept_as_contested_not_lost(self):
         event = self.ledger_event()
