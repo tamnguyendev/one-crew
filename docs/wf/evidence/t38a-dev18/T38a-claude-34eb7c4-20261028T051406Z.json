@@ -1,0 +1,71 @@
+{
+ "testcase": "T38a",
+ "kind": "doccheck",
+ "at": "2026-10-28T05:14:06Z",
+ "doc_dir": "D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung",
+ "result": "pass",
+ "reason": null,
+ "block_sha256": "482bf8a38d77ea5b518b8eb87d36583c790950269c495cc324221238fc5e136d",
+ "kit_guard": {
+  "ok": true,
+  "sha256": "482bf8a38d77ea5b518b8eb87d36583c790950269c495cc324221238fc5e136d",
+  "problems": [],
+  "u1_used": [
+   {
+    "id": "U1-20261027-DOCCHECK-OWNERNEG",
+    "file": "doc:wf-doc-check",
+    "old_sha256": "a2ef6c0a26970915d062cfe9ea318a51d8d36154de2be7d79ab4b9c1c2839f9f",
+    "new_sha256": "482bf8a38d77ea5b518b8eb87d36583c790950269c495cc324221238fc5e136d",
+    "reason": "Codex round 11 finding E: K-OWNER flagged three sentences that NEGATE a per-task approval (ROADMAP 46 and 345, HANDOFF 46: 'khong hoi duyet tung task', 'khong them cong xin duyet tung task', 'khong them luot duyet cho tung task/commit/test'). The rule now strips only a narrow negated clause (OWNER_NEGATED: 'khong' + hoi|them|can + at most two words + duyet|nghiem thu, optionally 'cho' + 'tung|moi X') before matching, so the rest of the line is still judged; the commit noun is added to two 'duyet tung X' patterns; the 'duyet mot lan' whitelist no longer covers 'mot lan ma ...'. Added 3 controls (the negated sentences) and 5 counterexamples (CX-OWNER6-10: 'Moi task phai duoc chu so huu duyet', 'Can duyet tung commit', 'Chu so huu nghiem thu tung task', near-miss 'Khong chi duyet mot lan ma duyet tung task', negation mixed with a real requirement), all caught. No check removed or loosened beyond the narrow negated clause. Self-check: PROBLEMS 0, counterexamples 155/155, controls 18/18 (was 150/150 and 15/15).",
+    "authorized_by": "Chủ sở hữu, một ngoại lệ tối thiểu một lần cho finding E của Codex round 11 (26/10/2026), do điều phối viên (coordinator) chuyển trong yêu cầu giao việc: cho phép sửa các tài liệu do Codex quản lý và bộ tự kiểm đúng cho finding này. Quyết định kỹ thuật theo ủy quyền đó; không phải chữ ký trực tiếp của chủ sở hữu cho từng dòng.",
+    "applied_by": "claude (Sonnet 5.5 sub-agent), uncommitted in codex/wf-development checkout; coordinator commits",
+    "at": "2026-10-27"
+   }
+  ],
+  "manifest_sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f"
+ },
+ "manifest_sha256": "42d1f648f14a07411398f8bfb8da5c82ace6c1d338a2e6f99aa7c38049aaf35f",
+ "command": "C:\\Users\\NUC\\AppData\\Local\\Programs\\Python\\Python313\\python.exe -I -X utf8 - < section-7 block 482bf8a38d77ea5b (cwd=D:\\TamNT\\Workspace\\11.OneCrew\\outputs\\onecrew-as-qc\\workflow-chung)",
+ "changed_in_doc_dir": [],
+ "exit_code": 0,
+ "output_tail": "] ở bảng vòng K\r\n  ĐÚNG          không báo CTRL-L1 thêm ca CK23 nhất quán (bản sao của CK2)\r\n  ĐÚNG          không báo CTRL-L2 đảo thứ tự hai lý do của CK21 (cùng tập lý do)\r\n  BẮT           K-KET     CX-LM1 bộ đánh giá cổng cuối chỉ xét điều kiện provider (z8)\r\n  BẮT           K-KET     CX-LM2 bộ đánh giá bỏ qua KQ1 biên nhận cổng giao, KN (z9)\r\n  BẮT           K-KET     CX-LM3 bộ đánh giá bỏ qua KQ2 đối chiếu T45e (z9)\r\n  BẮT           K-KET     CX-LM4 bộ đánh giá bỏ qua KQ3 PL-B hoàn thành (z9)\r\n  BẮT           K-KET     CX-LM5 bộ đánh giá bỏ qua KQ4 lịch sử cổng vào (z9)\r\n  BẮT           K-KET     CX-LM6 bộ đánh giá bỏ qua KQ5 hook dự án giám sát (z9)\r\n  BẮT           K-KET     CX-LM7 bộ đánh giá bỏ qua KQ6 năng lực provider (z9)\r\n  BẮT           K-KET     CX-LM8 bộ đánh giá bỏ qua KQ7 công bố vượt bằng chứng (z9)\r\n  BẮT           K-KET     CX-LM9 bộ đánh giá coi biên nhận có mặt là đạt (z10)\r\n  BẮT           K-KET     CX-LM10 bộ đánh giá nhận biên nhận trên artifact khác (z12)\r\n  BẮT           K-KET     CX-LM11 bộ đánh giá nhận cổng vào đạt sau khi giai đoạn bắt đầu (z11)\r\n  BẮT           K-KET     CX-LM12 bộ đánh giá nhận đối chiếu sai cặp hash hay bỏ dependency (z12)\r\n  BẮT           K-KET     CX-LM13 bộ đánh giá nhận biên nhận thiếu lệnh bộ tự kiểm qua kit-guard (z10)\r\n  ĐÚNG          không báo CTRL-LM bộ đánh giá xét điều kiện theo thứ tự khác (cùng tập lý do)\r\nphản chứng bị bắt đúng lý do: 155/155; đối chứng không bị báo: 18/18\r\nđường tới bản dùng thử R01: 15 task\r\n",
+ "problems": 0,
+ "doc_files": {
+  "../DOI-CHIEU-NANG-LUC-V1-V2.vi.md": "3bc3ce350a3d6c93",
+  "../ROADMAP-CLAUDE-HANDOFF.vi.md": "b6e9ff0a32feb184",
+  "../ROADMAP-REVIEW-20261022.vi.md": "6f814feb0ac9a27e",
+  "../ROADMAP.vi.md": "5c8519adfede6a3e",
+  "00-THIET-KE-WORKFLOW-CHUNG.vi.md": "d0bb14283c100067",
+  "01-GAP-G01-G11.vi.md": "bfb1a6974b676676",
+  "02-TAI-SU-DUNG-V1-V2.vi.md": "91c28255b72d92ab",
+  "03-HOP-DONG-DRAFT.vi.md": "a1c5e9605409d7fe",
+  "04-TASKS.vi.md": "c1d8f8ae40cdbef2",
+  "05-TESTCASES.vi.md": "0e208d2fb77c91e5",
+  "06-TRUY-VET-VA-TU-KIEM.vi.md": "b14668771ee7b4c2",
+  "bang-chung/EV-A-control-plane.md": "b34bec490e9aa9db",
+  "bang-chung/EV-B-thuc-thi-phuc-hoi.md": "6f4be8b3e98a8d27",
+  "bang-chung/EV-C-evidence-learning-loi-v2.md": "7ba9c5d9477f2610",
+  "bang-chung/EV-D-quyet-dinh-jev-uoc-luong.md": "e5309e330d654653",
+  "bang-chung/EV-E-che-do-chuyen-tiep.md": "5e597c9ad0620247",
+  "bang-chung/EV-F-tai-su-dung-danh-gia-v1.md": "5202b62a5dab3521",
+  "bang-chung/EV-G-jev-local-fallback.md": "447121095809a6e7",
+  "bang-chung/EV-H-anh-xa-acceptance-cu.md": "18c036894ed54471",
+  "bang-chung/EV-I-tuong-thich-va-ranh-gioi-module.md": "23f74c56df7fa02c",
+  "bang-chung/EV-J-su-kien-rollback-module.md": "93a013326e1627ec",
+  "bang-chung/EV-K-lich-su-khong-doc-duoc.md": "4917a007a85cadcb"
+ },
+ "counterexamples": {
+  "caught": 155,
+  "missed": [],
+  "wrong_reason": [],
+  "not_applicable": [],
+  "controls_ok": 18,
+  "false_alarms": [],
+  "summary": {
+   "caught": 155,
+   "total": 155,
+   "controls_ok": 18,
+   "controls_total": 18
+  }
+ }
+}
