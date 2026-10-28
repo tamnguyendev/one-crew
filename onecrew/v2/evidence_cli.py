@@ -51,7 +51,7 @@ def _parser():
     p.add_argument('--property', help='what exactly was shown (required with --status verified)')
     p.add_argument('--applies-to', action='append', default=[]); p.add_argument('--condition', action='append', default=[], help='a JSON condition or plain text (repeat)')
     p.add_argument('--visibility', default='project', choices=['project', 'root']); p.add_argument('--scope', default='project', choices=['project', 'general'])
-    p.add_argument('--must', action='store_true'); p.add_argument('--key'); p.add_argument('--base', help='the version you read (wiki history), for an update of --key')
+    p.add_argument('--must', action='store_true'); p.add_argument('--key'); p.add_argument('--base', help='the state_version you read (wiki history), for an update of --key; after a withdrawal or an archive it is that record')
     p.add_argument('--supersedes', action='append', default=[])
     p = wk.add_parser('withdraw', help='2.3-A2: withdraw a knowledge id from an OPEN root, with a reason and a source; nothing is deleted.')
     p.add_argument('id'); p.add_argument('--plan', required=True); p.add_argument('--reason', required=True); p.add_argument('--source', action='append', required=True)

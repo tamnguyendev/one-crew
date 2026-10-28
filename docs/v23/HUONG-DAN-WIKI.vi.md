@@ -81,7 +81,7 @@ onecrew --project <repo> wiki read --plan <plan> [--node <node>] --cursor <con t
 ```text
 onecrew wiki record --plan <root đang mở> --kind finding --text "…" --status verified --property "điều đã chứng minh" \
         --source event:<id> --source path:<file>@<commit> [--applies-to <path>] [--condition '{"type":"file_contains",…}'] \
-        [--visibility project|root] [--scope general --condition "…"] [--key <chủ đề> --base <version đã đọc>]
+        [--visibility project|root] [--scope general --condition "…"] [--key <chủ đề> --base <state_version đã đọc>]
 onecrew wiki summarize --plan <root> --text "…" <id> [<id> …]
 onecrew wiki withdraw <id> --plan <root đang mở> --reason "…" --source event:<id>
 onecrew wiki archive <id> --plan <root đang mở> --reason "…"
@@ -91,7 +91,7 @@ onecrew wiki history
 
 - Nhãn là mức bằng chứng: `verified` bắt buộc `--property` và ít nhất một nguồn event/receipt/file:line/symbol; `cause` chỉ "established" khi có nguồn nguyên nhân riêng.
 - **Tóm tắt** (`summarize`) mang `derived_from`, nhãn bằng nguồn yếu nhất, `semantic_verification: unverified`. Bản sao cùng nội dung, cùng nguồn chỉ là một mục (`copies: n`), không tăng độ tin cậy.
-- **Cập nhật đồng thời:** ghi lại một chủ đề (`--key`) kèm `--base` là version đã đọc (`wiki history` → `version`). Nếu chủ đề đã đổi, bản mới được giữ riêng là `contested`; cả hai được giao như `lead` có lý do, không bản nào mất.
+- **Cập nhật đồng thời:** ghi lại một chủ đề (`--key`) kèm `--base` là `state_version` đã đọc (`wiki history`; thường bằng `version`, còn khi mục đã bị thu hồi hoặc lưu trữ thì là bản ghi thu hồi/lưu trữ đó — đính chính dựa trên nó thành version kế tiếp, không thành contested). Nếu chủ đề đã đổi, bản mới được giữ riêng là `contested`; cả hai được giao như `lead` có lý do, không bản nào mất.
 - **Thu hồi / thay thế / lưu trữ** là bản ghi mới trên một root đang mở; không xóa sổ, receipt hay trang. Ở lần truy xuất tiếp: các phiên bản viết trước bản ghi thu hồi, tóm tắt dẫn từ nó, bản sao wiki mang `ledger_id` của nó và lesson cùng id (cả `lesson list`, `issue localize`) đều không được giao; một bản đính chính viết sau bản ghi thu hồi thì sống lại. `wiki history` vẫn hiện tất cả với trạng thái. Mục general chỉ project đã viết nó mới thu hồi được, bằng một bản ghi general mọi project đều đọc.
 - Bản ghi **general** chỉ mang chữ, điều kiện và nguồn event/receipt — không `applies_to`, `must`, `supersedes`, tiêu đề hay file; phần riêng của project bị từ chối ngay khi ghi.
 - **Xuất wiki** là bản dẫn xuất: mỗi mục giữ `ledger_id`; commit bản xuất vào `docs/wiki/` không tạo nguồn thứ hai (mục còn sống được giao một lần từ sổ; mục đã thu hồi không sống lại từ bản sao).

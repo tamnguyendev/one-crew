@@ -313,6 +313,19 @@ class CliTests(A2Fixture):
         self.assertNotEqual(code, 0)                                  # verified without the property shown is refused
 
 
+    def test_cli_correction_after_a_withdrawal_uses_state_version(self):
+        event = self.ledger_event()
+        rec = lambda text, base: self.run_cli('wiki', 'record', '--plan', 'P1', '--kind', 'decision', '--text', text, '--status', 'verified',
+                                              '--property', 'agreed', '--source', f'event:{event}', '--applies-to', 'a.txt', '--key', 'fmt-cli', '--base', base)
+        code, out = rec('a.txt uses VALUE: one', ''); self.assertEqual(code, 0, out); first = json.loads(out)
+        self.assertEqual(self.run_cli('wiki', 'withdraw', first['id'], '--plan', 'P1', '--reason', 'wrong value', '--source', f'event:{event}')[0], 0)
+        row = {r['id']: r for r in json.loads(self.run_cli('wiki', 'history')[1])['records']}[first['id']]
+        self.assertEqual(row['status'], 'withdrawn'); self.assertNotEqual(row['state_version'], row['version'])
+        code, out = rec('a.txt uses VALUE: two (corrected)', row['state_version']); self.assertEqual(code, 0, out)
+        self.assertFalse(json.loads(out).get('conflict'), out)
+        row = {r['id']: r for r in json.loads(self.run_cli('wiki', 'history')[1])['records']}[first['id']]
+        self.assertEqual((row['status'], row['text']), ('active', 'a.txt uses VALUE: two (corrected)'))
+
 class NoResurrectionTests(A2Fixture):
     """Withdrawn knowledge does not come back through the other readers: the resume pack of `onecrew continue`, and a continuation's request."""
     ledger_event = RecordingTests.ledger_event
