@@ -185,3 +185,78 @@ Review độc lập (agent Opus 5.5, probe chạy trên bản sửa và bản tr
 | 1 | `ebcfa20`, `b32ae19` | 15 điểm: 1 P1, 9 P2, 5 P3 (7 do bản sửa, 8 có từ trước) | `926bdcf` (R1–R8, R11, R12, R15), `a87389f` (R9, R10, R13, R14) |
 | 2 | `926bdcf` | 8 điểm mới: 2 P2, 6 P3 (D1–D8) | `4516cc5` |
 | 3 | `4516cc5`, `a87389f` | không còn P1/P2; 4 điểm P3 (E1–E4) | E1–E3 ở commit sau `4516cc5`; E4 (hard link, có từ trước) là giới hạn |
+
+## 10. Hoàn tất 2.3 và phát hành bản thử (chỉ thị người dùng 29/10 tối)
+
+Nguồn: chỉ thị dán trong phiên Claude Code 29/10 ("Tiếp quản công việc hiện tại, hoàn thành toàn bộ phạm vi OneCrew 2.3 đã chốt và phát hành bản 2.3 sau khi tự kiểm chứng đạt…"). Phạm vi theo ba tài liệu chung bản Codex sửa 29/10 17:31–17:36: [roadmap §0.2 và mục wiki-init](../../../outputs/onecrew-as-qc/ROADMAP.vi.md#wiki-init), [thiết kế WI-01…05](../../../outputs/onecrew-as-qc/ROADMAP-DESIGN-20261026.vi.md#wiki-init), [bàn giao](../../../outputs/onecrew-as-qc/ROADMAP-CLAUDE-HANDOFF.vi.md#wiki-init-handoff); Claude đọc lúc ~21:20 29/10. Ngoài phạm vi: OA-01…OA-04 (chủ sở hữu 29/10: chưa sửa), MR-WORKSPACE, 2.4 trở đi, các đề xuất mới về báo tiến triển, bản đồ tool/harness, giảm bước điều phối, fast mode.
+
+### 10.1 Điểm tiếp quản (kiểm 29/10 21:16)
+
+| | |
+|---|---|
+| Nhánh / HEAD | `claude/onecrew-2.3` ở `4bb41b3`, không có thay đổi chưa commit |
+| Gói hiện có | `2.3.0.dev6` (`4bb41b3`, wheel `f4819c5a…`): kiểm từ gói 14/14, README 9/9, task đầu tiên 23/23, script thử `DAT`/0 và từ chối thư mục dùng lại (2), ca của Codex qua CLI cài 0 lỗi, sổ dev5 → dev6 → 2.2 đạt; hồi quy 304 test 2.3 + 246 test 2.2 liên quan đạt. Gate trên `4bb41b3` chạy làm kiểm sớm, không là bằng chứng của bản cuối |
+| Beta | checkout `wf-codex` ở `1753f77`, sạch; gói `2.2.0.dev18` và `2.2.0.dev19` không đụng |
+| Worktree lượt này | `wf-v23-wi` (WI, tri thức), `wf-v23-r15b` (R15), `wf-v23-fx` (verifier), cùng từ `4bb41b3`, gộp vào `claude/onecrew-2.3` trước snapshot cuối |
+
+### 10.2 Còn thiếu (phân loại A thiếu code, B thiếu đường nối/cấu hình, C thiếu bằng chứng, E điều kiện ngoài)
+
+| Mục | Loại | Task |
+|---|---|---|
+| WI-01…05: `init` tạo hoặc dùng lại wiki an toàn | A | T23-WI-1 |
+| Bài thử task đầu tiên còn tự tạo thư mục wiki và chép trang | B | T23-WI-2 |
+| Kiểm gói chưa có bước init → wiki → reader | C | T23-WI-3 (bước V15) |
+| `onecrew --version` thiếu (ma sát người test beta ghi ở báo cáo R15 §3) | B | T23-WI-1 |
+| Sửa beta R15 B1, B2, B4, B6 chưa có trong 2.3 (B3, B5 đã nhận ở `b32ae19`) | A | T23-R15B |
+| Verifier: mẫu `ids` có neo; tên 8.3 lúc đề xuất; hard link tới file bị cấm (E4); thư mục không Git có `.env` (D8 của beta) | A | T23-FX |
+| Tri thức: requests qua nâng cấp; mục `context add` 2.2 khóa `lesson-`; `wiki history` hiện mã project đầy đủ của project khác; thu hồi mục wiki ở trang ngoài ngân sách đọc | A | T23-KN |
+| 23 khoảng trống nghiệm thu, pilot và provider của 2.2 | E | không làm trong lượt này; §10.5 |
+
+### 10.3 Testcase WI (chốt trước code)
+
+| ID | WI | Ca | Kỳ vọng |
+|---|---|---|---|
+| KW-01 | WI-01 | repo mới chưa có wiki → `init --yes` | tạo `docs/wiki/README.md`, `project.md`, `lessons.md`, dòng đầu là dấu khung; `wiki pages`: 3 trang, 0 mục, không lỗi; kế hoạch của init có dòng wiki; trả lời N thì không ghi gì |
+| KW-02 | WI-02 | init lần hai sau khi sửa `project.md` | không ghi file nào; hash trang đã sửa giữ nguyên; "không có gì để đổi" |
+| KW-03 | WI-02 | `docs/wiki` đã có trang của người dùng | dùng lại, không thêm file khung |
+| KW-04 | WI-02 | `wiki.paths` là một thư mục trong repo | chưa có thì tạo khung ở đó, có rồi thì dùng lại; không tạo `docs/wiki` |
+| KW-05 | WI-02 | nhiều thư mục, hoặc thư mục ngoài repo | chỉ dùng lại; thiếu một thư mục thì init từ chối (mã 2), không ghi gì; không bao giờ ghi ngoài repo |
+| KW-06 | WI-02 | `config.json` không đọc được hoặc `wiki` sai dạng | từ chối (mã 2); bytes `config.json` giữ nguyên; không tạo sổ, hook hay wiki |
+| KW-07 | WI-02 | `docs/wiki` hoặc thư mục cha là link/junction | từ chối (mã 2); không ghi trong hay ngoài repo |
+| KW-08 | WI-02 | `docs/wiki` là file; tên file khung là thư mục | từ chối (mã 2), hoặc bỏ qua tên đó; không ghi đè |
+| KW-09 | WI-02 | khởi tạo dở (chỉ có một phần khung) | tạo phần thiếu, giữ bytes phần đã có |
+| KW-10 | WI-02 | ghi khung lỗi giữa chừng (giả lập) | các bước khác xong; mã thoát 3, in file đã ghi và lỗi; chạy lại thì hoàn tất |
+| KW-11 | WI-03 | khung trống | không mục nào được giao (không fact, không must); trang khung không sinh mục, kể cả ví dụ trong README của khung |
+| KW-12 | WI-03 | thêm một mục có nguồn vào wiki do init tạo → task đầu tiên | node có quyền đọc nhận đúng mục (diễn tập task đầu tiên); node không có quyền không nhận (KA-04, V5) |
+| KW-13 | WI-05 | project đã init bằng 2.2 → init 2.3 | giữ `config.json` (các khóa khác giữ nguyên), sổ không đổi byte, plan và ngân sách giữ; hook gộp sang lệnh mới; thêm khung wiki |
+| KW-14 | WI-05 | cài hoặc nâng wheel | không sửa project hay sổ nào (pip không chạy init) |
+| KW-15 | WI-04 | root A ghi → root B mới dùng lại (V8, KB-12) | trang khung không đổi sau khi A ghi; tri thức nằm trong sổ, không có kho thứ hai |
+
+Kiểm trên wheel cài trong venv sạch, cwd ngoài checkout, đường dẫn có dấu cách, `LOCALAPPDATA`/`APPDATA` riêng (bước V15 của bộ kiểm gói và diễn tập task đầu tiên); test đơn vị `tests/test_v23_wiki_init.py` cho cả ca giả lập lỗi ghi.
+
+### 10.4 Lỗi mở khác: kỳ vọng (người sửa tự chọn giải pháp)
+
+| ID | Lỗi | Kỳ vọng |
+|---|---|---|
+| R15-B1/B2/B4/B6 | sửa của beta dev19 (`e432be2`) chưa có trong 2.3 | 4 file `hook_cli`, `active_plan`, `lint`, `plan_cli` giống `e432be2`; test của beta cho B1, B2, B4, B6 đỏ trên `4bb41b3`, xanh sau |
+| FX-1 | mẫu `ids` có neo (`^REQ-\d+$`) làm kiểm `ids` không thấy id nào | id dùng mà chưa định nghĩa, hoặc định nghĩa hai lần, luôn bị báo với mọi mẫu hợp lệ; mẫu không dùng được thì bị từ chối lúc đề xuất; không bao giờ đạt rỗng |
+| FX-2 | `validate_config` của data/ops nhận tên ngắn 8.3 | xử lý ngay lúc đề xuất (từ chối, nêu lý do); không từ chối tên dài hợp lệ |
+| FX-3 | file bị cấm đọc được qua hard link (E4) | không đọc file bị cấm dưới bất kỳ tên nào mà hệ điều hành cho biết là cùng một file; báo chưa kiểm, không làm hỏng cả lượt |
+| FX-4 | thư mục không Git có `.env` không định danh được (D8 của beta) | như `Port.files()` sau B5: bỏ tên bị cấm khỏi định danh (không đọc, không băm), ghi rõ đã bỏ; link/junction vẫn dừng; giới hạn 200 file giữ nguyên |
+| KN-1 | requests ghi trước nâng cấp xin bản general của project khác bằng id cũ | lần tiếp tục giao đúng chủ thể worker đã xin (qua sự kiện gốc của gói niêm phong, như lần từ chối), không giao bản cùng khóa của chính project |
+| KN-2 | mục general ghi bằng `context add` 2.2 với khóa `lesson-` được đọc như lesson | mục đó là chủ thể của project đã ghi; không trùng id với lesson thật hay với mục của project khác |
+| KN-3 | `wiki history` hiện mã project đầy đủ của bản ghi project khác | project khác chỉ hiện dấu 12 ký tự (như trong id), không hiện mã đầy đủ |
+| KN-4 | thu hồi mục wiki ở trang ngoài ngân sách đọc 2 000 trang bị từ chối | id có thật thì nhận, id không trỏ gì vẫn bị từ chối |
+
+### 10.5 Điều kiện phát hành
+
+| Điều kiện | Nguồn | Trạng thái lúc chốt (điền khi phát hành) |
+|---|---|---|
+| Mọi requirement 2.3 (§4, §10.3, §10.4) có code, test và bằng chứng trên snapshot cuối | §4, §10 | — |
+| Hồi quy 2.3 và module 2.2 liên quan đạt trên snapshot cuối | roadmap §8.2 | — |
+| Gate 2.2 trên snapshot cuối: mọi check thực thi đạt, kit-guard đạt | §1, quy ước các bản trước | — |
+| Kiểm từ gói dựng từ snapshot đó: V1–V15, README, task đầu tiên, script thử, dữ liệu cũ, quay về 2.2 | roadmap §3.3, §8.3–5 | — |
+| Release note, lệnh cài/thử, giới hạn, hướng quay về | roadmap §8.5 | — |
+| Nghiệm thu của chủ sở hữu, pilot thật, provider thật đầy đủ | roadmap §3.2, §10; R1 của chủ sở hữu | chưa có: không đủ điều kiện bản stable |
+
+Loại bản: prerelease `2.3.0.devN` theo quy ước của §1 ("prerelease 2.3.0.devN … các dev sau cho A2/B/cuối"). Test ghim `tests/test_g1_core.py` chỉ nhận `2.3.0.devN` (U1-20261029-V23-PIN-1), và ủy quyền của U1 đó ghi rõ không bao gồm phát hành; lượt này không tự cấp U1 mới để đổi nhãn sang `b`/`rc`. Đích phát hành: như `v2.1.0` (commit version + changelog, tag có chú thích, push nhánh và tag lên `origin` `git@github.com:tamnguyendev/one-crew.git`, repo private); không có registry, PyPI hay GitHub Release nào được cấu hình.
