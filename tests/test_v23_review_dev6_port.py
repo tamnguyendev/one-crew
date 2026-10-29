@@ -362,11 +362,15 @@ class ShortNamesMore(ShortNameVolume):
         self.assertEqual(box._violations, [])
 
     def test_e24_the_data_adapter_given_a_short_name_reads_nothing_and_the_refusal_is_kept(self):
+        """THE SETUP CHANGED ON PURPOSE, in 2.3 (fx, F2): validate_config used to accept the alias at propose, and this test ran the config it returned.
+        It is now refused where it is proposed (tests/test_v23_open_verifier.py, ShortNamesAtPropose), so the stored form is written by hand: what a
+        plan approved before the change can hold. What this proves is unchanged: the run reads nothing and the port keeps the refusal."""
         self.plant('.env.example')
         alias = short_name(self.root / '.env.example')
         module = port.get('data')
         box = port.Port(self.root, port.authority(None, 'test'), 'data')
-        config = module.validate_config({'path': alias, 'format': 'csv', 'columns': {'API_KEY': 'string'}, 'key': ['API_KEY']}, 'test')
+        with self.assertRaises(LedgerError): module.validate_config({'path': alias, 'format': 'csv', 'columns': {'API_KEY': 'string'}, 'key': ['API_KEY']}, 'test')
+        config = {'path': alias, 'format': 'csv', 'columns': {'API_KEY': 'string'}, 'key': ['API_KEY'], 'row_count': None, 'reconcile': None, 'samples': []}
         module.run(config, box)                                                           # the adapter may swallow the refusal; the port keeps it
         self.assertEqual(box._read, set())
         self.assertEqual([v['rule'] for v in box._violations], ['read_scope'])

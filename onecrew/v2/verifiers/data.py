@@ -36,7 +36,7 @@ def _names(value, columns, label, minimum=0):
 
 def validate_config(config, label):
     _object(config, ('path', 'format', 'columns', 'key', 'row_count', 'reconcile', 'samples'), label)
-    path = scoped_path(config.get('path'))
+    path = port.long_name(scoped_path(config.get('path')), label + '.path')
     format_ = config.get('format', 'csv')
     if format_ not in ('csv', 'json'): raise LedgerError(label + '.format: csv or json.')
     columns = config.get('columns')
@@ -50,7 +50,7 @@ def validate_config(config, label):
     reconcile = config.get('reconcile')
     if reconcile is not None:
         _object(reconcile, ('path', 'format', 'compare', 'totals'), label + '.reconcile')
-        source = scoped_path(reconcile.get('path'))
+        source = port.long_name(scoped_path(reconcile.get('path')), label + '.reconcile.path')
         if source == path: raise LedgerError(label + ': reconciliation source must differ from output.')
         source_format = reconcile.get('format', format_)
         if source_format not in ('csv', 'json'): raise LedgerError(label + '.reconcile.format: csv or json.')

@@ -162,16 +162,71 @@ def kept_reason(text):
     return 'a name an adapter may not read (a Windows device name, a reserved character, an empty part or a trailing dot or space)'
 
 
+# A Windows short (8.3) name is the alias a volume gives to a file whose long name is longer than 8.3 characters or starts with a dot (.env.example is
+# ENV~1.EXA): up to 6 characters, `~`, digits (8 characters in all), and an optional extension of up to 3. A name that holds a character no short name can
+# hold (space . " * + , / : ; < = > ? [ \ ] |) is not one. The first part may hold a tilde of the long name (the Office lock file ~$K_TKBTLV.docx is
+# ~$K_TK~1.DOC, .env~ is ENV~~1). This is the shape internal_plan.SHORT_NAME refuses in node scopes (2.3-B Q6), narrowed to what a volume can give.
+SHORT_NAME = re.compile(r'([^.\s"*+,/:;<=>?\[\\\]|]{1,6})~([0-9]{1,6})(?:\.[^.\s"*+,/:;<=>?\[\\\]|]{1,3})?')
+HARD_LINK = ('has more than one name on the disk (a hard link), and the other name may be one an adapter may not read (.git, .onecrew, .ssh, .aws, .env*): '
+             'its content is never read')
+
+
+def short_name_part(text):
+    """The first component of the path `text` that has the form of a Windows short (8.3) name (ENV~1.EXA, GIT~1, PROGRA~1), else None. Only the form is
+    judged, so no file system is needed: an alias stands for another file on one volume, and nothing in the text says which."""
+    for part in str(text).split('/'):
+        found = SHORT_NAME.fullmatch(part)
+        if found and len(found.group(1)) + 1 + len(found.group(2)) <= 8: return part
+    return None
+
+
+def long_name(value, label):
+    """`value`, a path that a contract names (already through scoped_path), unless one of its components has the form of a Windows short name (review
+    dev6 section 3, 29/10). An alias can be the name of a kept file (ENV~1.EXA is .env.example), differs from one volume to another and is known only to
+    the disk, so a milestone that names one cannot be judged where it is proposed. A run refuses it when it does reach a kept file (R10); the contract
+    names the file by its long name instead, and a name that only looks like an alias (`notes~1-final.csv`, `backup~2024.csv`) is not refused."""
+    part = short_name_part(value)
+    if part is not None:
+        raise LedgerError(f'{label}: {part!r} has the form of a Windows short (8.3) name, an alias that a volume gives to a file with a longer name '
+                          '(.env.example is ENV~1.EXA). It can stand for a file that is never read and it differs from one volume to another: '
+                          'name the file by its long name.')
+    return value
+
+
+def has_other_names(box, rel):
+    """Does the file `rel` of the checkout that `box` (a Port) gives an adapter have another name on the disk (a hard link)? Nothing is read and nothing is
+    recorded. The link count is what the OS tells about a file and no name check can: a hard link to a kept file is no link or junction, resolves to itself
+    and carries an ordinary name (review E4, 29/10). A verifier checkout (checkout-index) and a materialized snapshot hold no hard link, so such a file was
+    not given as part of the artifact: Port.read_text refuses it, and an adapter that reads files it found asks first, to say 'not verified' instead of
+    being stopped by the refusal. A function of this module and not a method of the Port: the surface the core offers an adapter is pinned (T23)."""
+    try:
+        target = safe_file(box.workspace, rel)
+    except LedgerError:
+        return False                    # a name the port refuses when it is read
+    return target.is_file() and target.stat().st_nlink > 1
+
+
+def left_out_below(box, rel):
+    """Does `rel` lie below a folder that was left out of the checkout (the Port's `left_out`, a name with a slash at the end)? Whether it exists cannot be
+    told then: the folder is not listed, and the Port says 'exists' only because it must answer something for a kept name. A function of this module for the
+    same reason as has_other_names: the surface of the Port is pinned."""
+    return isinstance(rel, str) and any(rel.startswith(name) for name in box._left_out if name.endswith('/'))
+
+
 class Port:
     """The only door from an adapter to anything. Every refusal raises AdapterViolation and is also kept (so a refusal the adapter swallows
     is still recorded)."""
 
-    def __init__(self, workspace, grant, adapter, clock=time.monotonic):
+    def __init__(self, workspace, grant, adapter, clock=time.monotonic, left_out=()):
+        """`left_out`: names of the artifact that the checkout does not hold because the snapshot rules keep them from every reader (the identity of a
+        folder without Git names them, a folder with a slash at the end, artifact.py): they answer as a kept name does in a Git checkout, 'it exists, what
+        it says is not checked'. What lies below a folder that was left out cannot be told (it is not listed): it answers the same."""
         self._root = Path(workspace).resolve()
         self._grant = copy.deepcopy(grant)
         self._adapter = adapter
         self._clock = clock
         self._deadline = clock() + self._grant['max_minutes'] * 60
+        self._left_out = tuple(left_out)
         self._violations, self._retries, self._calls, self._read, self._listing, self._kept = [], 0, 0, set(), None, set()
 
     # read-only views of what was granted
@@ -216,7 +271,8 @@ class Port:
         """Every file of the checkout an adapter may read (posix paths relative to the workspace), sorted. A path that differs only in case is
         another path. A name the snapshot rules keep from every reader (kept_reason: .env*, .git, .onecrew, .ssh, .aws, a device name, a path over
         240 characters) is left out, a folder with what it holds, and does not stop the run (beta report B5, 29/10): reading it is still refused.
-        A link or a junction still stops the run, whatever its name: a kept name does not hide one (review R14, 29/10)."""
+        A link or a junction still stops the run, whatever its name: a kept name does not hide one (review R14, 29/10). A file that has another name
+        (a hard link) is listed like any other; read_text refuses it, and has_other_names(box, rel) tells it beforehand (review E4, 29/10)."""
         def withheld(rel):              # a name found by the walk is inside the checkout: any refusal of the snapshot rules keeps it
             try:
                 scoped_path(rel)
@@ -224,7 +280,7 @@ class Port:
             except LedgerError:
                 return True
         if self._listing is None:
-            found, kept = [], set()
+            found, kept = [], {name.rstrip('/') for name in self._left_out}
             for base, dirs, names_ in os.walk(self._root):
                 self._tick()
                 here = Path(base).relative_to(self._root)
@@ -254,6 +310,7 @@ class Port:
         self.files()
         if key in self._kept or any(k.startswith(key.rstrip('/') + '/') for k in self._kept): return True
         if not any(key.startswith(k + '/') for k in self._kept): return False
+        if any(key.startswith(name) for name in self._left_out if name.endswith('/')): return True      # below a folder left out of the checkout: it cannot be told, it is not read
         target = self._root
         for part in key.split('/'):
             target = target / part
@@ -273,6 +330,7 @@ class Port:
         self._tick()
         target, key = self._safe(rel)
         if not target.is_file(): raise FileNotFoundError(key)
+        if target.stat().st_nlink > 1: self._refuse('read', 'read_scope', f'{key!r} {HARD_LINK}')
         with target.open('rb') as stream:
             data = stream.read(min(limit, MAX_READ) + 1)
         if len(data) > min(limit, MAX_READ): raise Inconclusive(f'{key} is larger than {min(limit, MAX_READ)} bytes; it is not read in part')
@@ -396,7 +454,7 @@ def _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before
         left = (dt.datetime.fromisoformat(deadline) - dt.datetime.now(dt.timezone.utc)).total_seconds()
         if left <= 0: raise LedgerError('The original root deadline elapsed before verifier adapter dispatch.')
         granted['max_minutes'] = min(granted['max_minutes'], left / 60)
-    box = Port(workspace, granted, adapter.NAME)
+    box = Port(workspace, granted, adapter.NAME, left_out=proof.get('artifact_kept', ()))
     first = _fingerprint(top)
     started, begin, error, timed_out, report = utcnow(), time.monotonic(), None, False, None
     try:
