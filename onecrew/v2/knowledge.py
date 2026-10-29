@@ -354,11 +354,13 @@ def ledger_id(key, visibility=None, root=None, project=None, reader=None, tag=No
     return f'{base}@{tag or UNKNOWN_TAG}' if other else base
 
 
-def _in_reader_terms(ref, writer, reader, tag):
+def _in_reader_terms(ref, writer, reader, tag, lessons=False):
     """A ctx- id that project `writer` stored (a withdrawal or archive target, supersedes, derived_from, conflict_with, contradicts), as
     `reader` knows that subject: the writer named its own subject, so for another reader it is the writer's (P2-B). `lesson-` ids are left
-    as written here: a lesson of the lessons store keeps its id for every project, see _lesson_targets."""
-    if not isinstance(ref, str) or not ref.startswith('ctx-') or '@' in ref or not writer or not reader or writer == reader: return ref
+    as written (a lesson of the lessons store keeps its id for every project, see _lesson_targets) unless `lessons`: conflict_with, which
+    only knowledge.record writes, always names the writer's own 2.3 record (review dev6 D7)."""
+    if not isinstance(ref, str) or '@' in ref or not writer or not reader or writer == reader: return ref
+    if not (ref.startswith('ctx-') or (lessons and ref.startswith('lesson-'))): return ref    # D7: conflict_with names the writer's own record
     return f'{ref}@{tag or UNKNOWN_TAG}'
 
 
@@ -393,6 +395,24 @@ def _legacy_aliases(newest, versions, reader):
             c[field] = resolved
 
 
+def _replaced_elsewhere(ledger, newest, reader):
+    """Data written before the key rule (review dev6 D6): a project could keep a general and a project record under one key, one subject
+    whose newest version wins. Another project's shared version that its project replaced with a newer version it did not share is not
+    current for this reader: it is marked replaced, so every reader judges it superseded and `wiki history` keeps it (only its writer can
+    see the newer version)."""
+    shared = {(c['project'], c['origin'].get('key')): ident for ident, c in newest.items()
+              if c['scope'] == 'general' and c.get('project') and c['project'] != reader and c['origin'].get('key')}
+    if not shared: return
+    with ledger.transaction() as conn:
+        rows = conn.execute("SELECT t.project_id AS project, json_extract(e.payload,'$.key') AS key, MAX(e.seq) AS seq FROM tasks t JOIN events e "
+                            "ON e.task_id=t.id WHERE t.project_id<>? AND e.kind='context.entry' AND json_extract(e.payload,'$.scope')='project' "
+                            "AND json_extract(e.payload,'$.knowledge.visibility')='project' AND json_extract(e.payload,'$.knowledge.withdraws') IS NULL "
+                            "AND json_extract(e.payload,'$.knowledge.archives') IS NULL GROUP BY t.project_id, key", (reader,)).fetchall() if conn else []
+    for row in rows:
+        ident = shared.get((row['project'], row['key']))
+        if ident is not None and row['seq'] > newest[ident]['seq']: newest[ident]['replaced_by_owner'] = True
+
+
 def _lesson_targets(newest, lifecycle, reader, tags):
     """A withdrawal or archive that another project wrote for one of ITS subjects with a `lesson-` key: a lesson of the lessons store keeps
     its id for everyone; a 2.3 record with such a key is `<key>@<tag>` for this reader (review dev6 R3)."""
@@ -407,9 +427,11 @@ def _lesson_targets(newest, lifecycle, reader, tags):
 
 
 def legacy_wiki_references(candidates, problems):
-    """Wiki pages carry no format or time. A plain `ctx-<key>` (or `lesson-<key>`) in a section of this project that names no subject of
-    the project and exactly one other project's general subject with that key keeps naming it, as before P2-B; with several such subjects
-    the reference names none of them and the page problem says which id to write (review dev6 R6)."""
+    """Wiki pages carry no format or time, so a plain `ctx-<key>` (or `lesson-<key>`) in a section is read in this project's namespace:
+    it names this project's subject of that key; when the project has none and exactly one other project's general subject has that key,
+    it names that one, as before P2-B; with several such subjects it names none. Every plain reference that another project's general
+    record also matches is reported (`wiki pages` and packages) with what it names now and the id to write to keep it (review dev6 R6, D1,
+    D2): a later write under the key can change what a plain reference names, never silently."""
     ledger_ids = {c['id'] for c in candidates if c['origin']['type'] == 'ledger'}
     others = {}
     for ident in ledger_ids:
@@ -421,12 +443,15 @@ def legacy_wiki_references(candidates, problems):
             refs = c[field] if field != 'ledger_id' else ([c['ledger_id']] if c['ledger_id'] else [])
             resolved = []
             for ref in refs:
-                found = others.get(ref) if ref not in ledger_ids else None
-                if found and len(found) == 1: resolved.append(found[0]); continue
-                if found:
-                    problems.append({'path': c['origin'].get('path'), 'problem': f'{c["id"]}: {ref} names no subject of this project and '
-                                     f'{len(found)} general subjects of other projects; write one of {", ".join(sorted(found)[:3])}'})
-                resolved.append(ref)
+                found = sorted(others.get(ref) or [])
+                if not found: resolved.append(ref); continue
+                if ref in ledger_ids: now, target = 'names the record of this project', ref
+                elif len(found) == 1: now, target = f'names {found[0]} while this project has no record under that key', found[0]
+                else: now, target = 'names nothing', ref
+                problems.append({'path': c['origin'].get('path'), 'reference': True,
+                                 'problem': f'{c["id"]}: {ref} is a plain id that general records of other projects also match ({", ".join(found[:3])}); '
+                                            f'it {now}; write the id you mean ({ref} for this project, or one of those) to keep it'})
+                resolved.append(target)
             if field == 'ledger_id': c['ledger_id'] = resolved[0] if resolved else c['ledger_id']
             else: c[field] = resolved
 
@@ -509,7 +534,7 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
                          'derived_from': [_in_reader_terms(s, writer, reader, tag) for s in k.get('derived_from') or []],
                          'ledger_id': None, 'visibility': visibility, 'scope': e['scope'], 'root': root, 'project': p.get('project'),
                          'recorded_revision': p.get('revision_ref'), 'seq': e['event'], 'scope_paths': k.get('scope_paths') or [],
-                         'conflict_with': [_in_reader_terms(s, writer, reader, tag) for s in k.get('conflict_with') or []],
+                         'conflict_with': [_in_reader_terms(s, writer, reader, tag, lessons=True) for s in k.get('conflict_with') or []],
                          'contradicts': [_in_reader_terms(s, writer, reader, tag) for s in k.get('contradicts') or []], 'evidence': k.get('evidence'),
                          'version': e['id'], 'ledger_stale': e['stale_reason'] if e['label'] == 'stale' else None, 'format': k.get('version')}
         except (KeyError, TypeError, ValueError, AttributeError):
@@ -518,6 +543,7 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
         if ident not in newest or newest[ident]['seq'] < candidate['seq']:
             newest[ident] = candidate                               # an older version of the same subject (any root) is history
     _legacy_aliases(newest, versions, reader)
+    _replaced_elsewhere(ledger, newest, reader)
     if lifecycle is not None: _lesson_targets(newest, lifecycle, reader, tags)
     return sorted(newest.values(), key=lambda c: c['seq'])
 
@@ -590,6 +616,8 @@ def _lifecycle(candidates, lifecycle, withdrawn_lessons, cons, project_id, usabl
             status[target] = ('archived', record.get('reason') or '', record['event'], record.get('text_sha'))
     for c in candidates:
         if c['status'] != 'active': status.setdefault(c['id'], (c['status'], 'marked ' + c['status'] + ' in the wiki page', None, None))
+        if c.get('replaced_by_owner'):                 # review dev6 D6: its project replaced it with a version it did not share
+            status.setdefault(c['id'], ('superseded', 'replaced by a newer version of its project that is not shared', None, None))
     hidden = {}
     for c in candidates:                               # supersession: by any usable record of the project, whatever its own state (order-free)
         if c['origin']['type'] == 'ledger' and not _acts_for(c, cons, project_id): continue
@@ -1287,15 +1315,21 @@ def withdraw(ledger, plan, target, *, reason, evidence):
     return _lifecycle_record(ledger, plan, target, 'withdraws', reason, dict(evidence, status=evidence.get('status', 'observed')))
 
 
-def _key_in_other_scope(ledger, key, scope):
-    """Does this project already hold a knowledge record (not a lifecycle record) under `key` in the other scope?"""
-    other = 'project' if scope == 'general' else 'general'
+def _subject_scopes(ledger, key):
+    """The scopes in which this project holds versions of the project-visible subject `ctx-<key>` (2.3 records of visibility project;
+    lifecycle records, root working notes `ctx-<key>.r<root>` and 2.2 entries are other subjects; review dev6 D5)."""
     with ledger.transaction() as conn:
-        row = conn.execute("SELECT 1 FROM tasks t JOIN events e ON e.task_id=t.id WHERE t.project_id=? AND e.kind='context.entry' "
-                           "AND json_extract(e.payload,'$.key')=? AND json_extract(e.payload,'$.scope')=? "
-                           "AND json_extract(e.payload,'$.knowledge.withdraws') IS NULL AND json_extract(e.payload,'$.knowledge.archives') IS NULL LIMIT 1",
-                           (ledger.project_id, key, other)).fetchone() if conn else None
-    return row is not None
+        rows = conn.execute("SELECT DISTINCT json_extract(e.payload,'$.scope') AS scope FROM tasks t JOIN events e ON e.task_id=t.id WHERE t.project_id=? "
+                            "AND e.kind='context.entry' AND json_extract(e.payload,'$.key')=? AND json_extract(e.payload,'$.knowledge.visibility')='project' "
+                            "AND json_extract(e.payload,'$.knowledge.withdraws') IS NULL AND json_extract(e.payload,'$.knowledge.archives') IS NULL",
+                            (ledger.project_id, key)).fetchall() if conn else []
+    return {row['scope'] for row in rows}
+
+
+def _key_in_other_scope(ledger, key, scope):
+    """Would a record under `key` in `scope` put a second scope under one subject? (the subject exists in the other scope only)"""
+    scopes = _subject_scopes(ledger, key)
+    return bool(scopes) and scope not in scopes
 
 
 def _lifecycle_record(ledger, plan, target, verb, reason, evidence):
@@ -1307,22 +1341,41 @@ def _lifecycle_record(ledger, plan, target, verb, reason, evidence):
     if own and isinstance(target, str) and target.endswith('@' + own): target = target[:-(len(own) + 1)]
     found = _target(ledger, target)
     words = {'withdraws': 'Withdraws', 'archives': 'Archives'}[verb]
+    done = {'withdraws': 'withdrawn', 'archives': 'archived'}[verb]
     life = {verb: target, 'reason': reason}
     if found is None:
         wiki_entry = next((c for c in _wiki_candidates(ledger, []) if c['id'] == target), None)
         if wiki_entry is not None: life['text_sha'] = _text_sha(wiki_entry['text'])
-        elif isinstance(target, str) and (target.startswith('ctx-') or '@' in target):
-            raise LedgerError(f'{target} names no knowledge record of this project (`onecrew wiki history` lists the ids); a general record of '
-                              f'another project is {verb[:-1]}n in that project, under the id it has there (ctx-<key>).')
+        elif not (isinstance(target, str) and target.startswith('lesson-') and '@' not in target and _lesson_exists(ledger, target[len('lesson-'):])):
+            raise LedgerError(f'{target} names no knowledge record, lesson or wiki section of this project (`onecrew wiki history` and `onecrew '
+                              f'wiki pages` list the ids); a general record of another project is {done} in that project, under the id it has '
+                              'there (ctx-<key>).')
     if found is not None and found['project'] != ledger.project_id:
         plain = found['id'].rsplit('@', 1)[0] if '@' in found['id'] else found['id']
         raise LedgerError(f'only the project that wrote a general entry can {verb[:-1]} it: run this in that project, where its id is {plain}.')
-    if found is not None and found['scope'] != 'general' and found['id'].startswith('ctx-') and _key_in_other_scope(ledger, found['id'][4:], 'project'):
-        found = dict(found, scope='general')          # R7: old data, one key in both scopes: the withdrawal must reach every project
+    if (found is not None and found['scope'] != 'general' and found['id'].startswith('ctx-') and found.get('visibility') == 'project'
+            and 'general' in _subject_scopes(ledger, found['id'][4:])):
+        # review dev6 R7/D4: data written before the key rule, one subject with a general version too. The owner's record keeps the sources
+        # and reason a project record takes; a neutral general record carries the withdrawal to every project.
+        own_record = record(ledger, plan, kind='note', text=f'{words} {target}: {reason}', evidence=evidence, visibility='project', _lifecycle=life)
+        with ledger.transaction() as conn:
+            anchor = conn.execute('SELECT MIN(seq) FROM events WHERE task_id=?', (_open_root(ledger, plan)[0]['task_id'],)).fetchone()[0]
+        shared = record(ledger, plan, kind='note', text=f'{words} {target}: {done} by its project', visibility='project', scope='general',
+                        evidence={'status': 'observed', 'sources': [{'type': 'event', 'id': anchor}]},
+                        conditions=['lifecycle record of a general entry'], _lifecycle={verb: target, 'reason': f'{done} by its project'})
+        return dict(own_record, published=shared.get('id'))
     if found is not None and found['scope'] == 'general':
         return record(ledger, plan, kind='note', text=f'{words} {target}: {reason}', evidence=evidence, visibility='project', scope='general',
                       conditions=['lifecycle record of a general entry'], _lifecycle=life)
     return record(ledger, plan, kind='note', text=f'{words} {target}: {reason}', evidence=evidence, visibility='project', _lifecycle=life)
+
+
+def _lesson_exists(ledger, logical):
+    """Does this project hold a lesson with this logical id (the lessons store)?"""
+    with ledger.transaction() as conn:
+        row = conn.execute("SELECT 1 FROM tasks t JOIN events e ON e.task_id=t.id WHERE t.project_id=? AND e.kind='learning.lesson' "
+                           "AND json_extract(e.payload,'$.lesson')=? LIMIT 1", (ledger.project_id, logical)).fetchone() if conn else None
+    return row is not None
 
 
 def archive(ledger, plan, target, *, reason):
@@ -1632,6 +1685,10 @@ def pages_report(ledger):
                                 for e in parsed['entries']],
                     'problems': parsed['problems']})
         problems += [{'path': page['path'], 'problem': p} for p in parsed['problems']]
+    try:                                               # review dev6 D2: what a plain reference names is reported by the lint too
+        problems += [{'path': p['path'], 'problem': p['problem']} for p in _read_all(ledger)[2] if p.get('reference')]
+    except (LedgerError, OSError) as error:
+        problems.append({'path': 'ledger', 'problem': 'references not checked: ' + str(error)[:160]})
     return {'data_not_authority': True, 'folders': wiki.configured_paths(ledger.project), 'pages': out, 'problems': problems, 'coverage': coverage}
 
 
