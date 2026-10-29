@@ -395,24 +395,6 @@ def _legacy_aliases(newest, versions, reader):
             c[field] = resolved
 
 
-def _replaced_elsewhere(ledger, newest, reader):
-    """Data written before the key rule (review dev6 D6): a project could keep a general and a project record under one key, one subject
-    whose newest version wins. Another project's shared version that its project replaced with a newer version it did not share is not
-    current for this reader: it is marked replaced, so every reader judges it superseded and `wiki history` keeps it (only its writer can
-    see the newer version)."""
-    shared = {(c['project'], c['origin'].get('key')): ident for ident, c in newest.items()
-              if c['scope'] == 'general' and c.get('project') and c['project'] != reader and c['origin'].get('key')}
-    if not shared: return
-    with ledger.transaction() as conn:
-        rows = conn.execute("SELECT t.project_id AS project, json_extract(e.payload,'$.key') AS key, MAX(e.seq) AS seq FROM tasks t JOIN events e "
-                            "ON e.task_id=t.id WHERE t.project_id<>? AND e.kind='context.entry' AND json_extract(e.payload,'$.scope')='project' "
-                            "AND json_extract(e.payload,'$.knowledge.visibility')='project' AND json_extract(e.payload,'$.knowledge.withdraws') IS NULL "
-                            "AND json_extract(e.payload,'$.knowledge.archives') IS NULL GROUP BY t.project_id, key", (reader,)).fetchall() if conn else []
-    for row in rows:
-        ident = shared.get((row['project'], row['key']))
-        if ident is not None and row['seq'] > newest[ident]['seq']: newest[ident]['replaced_by_owner'] = True
-
-
 def _lesson_targets(newest, lifecycle, reader, tags):
     """A withdrawal or archive that another project wrote for one of ITS subjects with a `lesson-` key: a lesson of the lessons store keeps
     its id for everyone; a 2.3 record with such a key is `<key>@<tag>` for this reader (review dev6 R3)."""
@@ -426,7 +408,7 @@ def _lesson_targets(newest, lifecycle, reader, tags):
                 if qualified in newest and newest[qualified].get('project') == writer: record[verb] = qualified
 
 
-def legacy_wiki_references(candidates, problems):
+def legacy_wiki_references(candidates, problems, own_tag=None):
     """Wiki pages carry no format or time, so a plain `ctx-<key>` (or `lesson-<key>`) in a section is read in this project's namespace:
     it names this project's subject of that key; when the project has none and exactly one other project's general subject has that key,
     it names that one, as before P2-B; with several such subjects it names none. Every plain reference that another project's general
@@ -443,6 +425,8 @@ def legacy_wiki_references(candidates, problems):
             refs = c[field] if field != 'ledger_id' else ([c['ledger_id']] if c['ledger_id'] else [])
             resolved = []
             for ref in refs:
+                if own_tag and isinstance(ref, str) and ref.endswith('@' + own_tag):     # review dev6 E1: written as this project's own
+                    resolved.append(ref[:-(len(own_tag) + 1)]); continue
                 found = sorted(others.get(ref) or [])
                 if not found: resolved.append(ref); continue
                 if ref in ledger_ids: now, target = 'names the record of this project', ref
@@ -450,7 +434,8 @@ def legacy_wiki_references(candidates, problems):
                 else: now, target = 'names nothing', ref
                 problems.append({'path': c['origin'].get('path'), 'reference': True,
                                  'problem': f'{c["id"]}: {ref} is a plain id that general records of other projects also match ({", ".join(found[:3])}); '
-                                            f'it {now}; write the id you mean ({ref} for this project, or one of those) to keep it'})
+                                            f'it {now}; write the id you mean to keep it: {ref + "@" + own_tag if own_tag else ref} for this '
+                                            'project, or one of those'})
                 resolved.append(target)
             if field == 'ledger_id': c['ledger_id'] = resolved[0] if resolved else c['ledger_id']
             else: c[field] = resolved
@@ -499,7 +484,7 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
         entries = context.retrieve(ledger, scope='both', limit=None, raw=True)['entries']
     except (LedgerError, OSError) as error:
         problems.append({'path': 'ledger', 'problem': 'context entries unreadable: ' + str(error)[:160], 'ledger_unreadable': True}); return []
-    newest, versions, locations, tags = {}, {}, _lesson_locations(ledger), project_tags(ledger)
+    newest, versions, locations, tags, published = {}, {}, _lesson_locations(ledger), project_tags(ledger), {}
     reader = ledger.project_id
     for e in entries:
         try:
@@ -540,10 +525,14 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
         except (KeyError, TypeError, ValueError, AttributeError):
             problems.append({'path': 'ledger', 'problem': 'a context entry could not be read'}); continue
         versions.setdefault(ident, []).append(candidate['seq'])
+        if candidate['scope'] == 'general' and candidate.get('project') == reader and (ident not in published or published[ident]['event'] < candidate['seq']):
+            published[ident] = {'event': candidate['seq'], 'version': candidate['version'], 'text': candidate['text'][:200]}
         if ident not in newest or newest[ident]['seq'] < candidate['seq']:
             newest[ident] = candidate                               # an older version of the same subject (any root) is history
     _legacy_aliases(newest, versions, reader)
-    _replaced_elsewhere(ledger, newest, reader)
+    for ident, shared in published.items():            # review dev6 D6/E2: old data, one subject in both scopes: what other projects receive
+        c = newest.get(ident)
+        if c is not None and c['scope'] != 'general' and c['seq'] > shared['event']: c['published'] = shared
     if lifecycle is not None: _lesson_targets(newest, lifecycle, reader, tags)
     return sorted(newest.values(), key=lambda c: c['seq'])
 
@@ -616,8 +605,6 @@ def _lifecycle(candidates, lifecycle, withdrawn_lessons, cons, project_id, usabl
             status[target] = ('archived', record.get('reason') or '', record['event'], record.get('text_sha'))
     for c in candidates:
         if c['status'] != 'active': status.setdefault(c['id'], (c['status'], 'marked ' + c['status'] + ' in the wiki page', None, None))
-        if c.get('replaced_by_owner'):                 # review dev6 D6: its project replaced it with a version it did not share
-            status.setdefault(c['id'], ('superseded', 'replaced by a newer version of its project that is not shared', None, None))
     hidden = {}
     for c in candidates:                               # supersession: by any usable record of the project, whatever its own state (order-free)
         if c['origin']['type'] == 'ledger' and not _acts_for(c, cons, project_id): continue
@@ -827,7 +814,7 @@ def _read_all(ledger):
             if c['must']: coverage['undelivered'].append(_undelivered(c, 'ledger', 'a wiki entry has the id of this ledger subject'))
             continue
         taken.add(c['id']); candidates.append(c)
-    legacy_wiki_references(candidates, problems)
+    legacy_wiki_references(candidates, problems, project_tags(ledger).get(ledger.project_id))
     if any(p.get('ledger_unreadable') for p in problems): coverage['ledger_unreadable'] = True
     ledger_ids = {c['id'] for c in candidates if c['origin']['type'] == 'ledger'}
     for clash in coverage.pop('copies', []):          # review r2 R2-03: copies of a subject this ledger lacks are the only source
@@ -1249,6 +1236,10 @@ def record(ledger, plan, *, kind, text, evidence, applies_to=(), conditions=(), 
     if visibility not in ('project', 'root'): raise LedgerError('visibility: project or root.')
     if scope not in ('project', 'general'): raise LedgerError('scope: project or general.')
     if base is not None and not key: raise LedgerError('base names the version of a subject: give --key with it.')
+    own_tag = project_tags(ledger).get(ledger.project_id)      # review dev6 E1: `<id>@<own tag>` names this project's own subject
+    if own_tag:
+        mine = lambda refs: [r[:-(len(own_tag) + 1)] if isinstance(r, str) and r.endswith('@' + own_tag) else r for r in refs]
+        supersedes, derived_from, contradicts = mine(supersedes), mine(derived_from), mine(contradicts)
     if key and _lifecycle is None and key.startswith(RESERVED_KEY_PREFIXES):
         raise LedgerError('--key: names that start with lesson- are the ids of lessons; choose another key (review dev6 R3).')
     if not isinstance(evidence, dict): raise LedgerError('evidence: an object with status and sources.')
@@ -1432,7 +1423,8 @@ def records(ledger, *, history=False, root=None):
                     'project': c['project'], 'event': c['seq'], 'version': c.get('version'), 'scope_paths': c['scope_paths'],
                     # r3 R3-3: what an update names as --base: the withdrawal/archive record when it is the subject's newest state
                     'state_version': (newest_life[c['id']]['version'] if c['id'] in newest_life and newest_life[c['id']]['event'] > c['seq']
-                                      else c.get('version'))})
+                                      else c.get('version')),
+                    **({'published': c['published']} if c.get('published') else {})})
     return out
 
 

@@ -133,16 +133,20 @@ class ReviewDev6Delta(Base):
         say('dl04 withdraw with a reason naming a.txt', refused, 'project two still gets', brief(two.get('Shared rule under the reused key')))
         self.assertIsNone(refused)
 
-    def test_dl05_old_data_the_owner_sees_in_its_history_every_version_other_projects_receive(self):
-        """The changed p02 refuses the second scope at write; data written before it keeps both. The owner's `wiki history` then lists one
-        record under the key (the newer, project-scope one) while every other project still receives the older general version."""
+    def test_dl05_old_data_the_owner_sees_in_its_history_the_version_other_projects_receive(self):
+        """Changed (D6, then E2). The review offered two answers; the first chosen one (other projects stop receiving a version its project
+        replaced) let other projects observe the writer's unshared records (E2) and read them on every package (E3). Now: other projects keep
+        receiving the published version as before, and the owner's `wiki history` shows it under `published`, so the owner can withdraw it
+        (p02b: the withdrawal reaches every project)."""
         self.both_scopes()
         second = self.second_project()
         one = self.rows()
         two = self.retrieved('--scope', 'general', project=second.project)
-        say('dl05 owner history', {t: (r['id'], r['scope'], r['status']) for t, r in one.items()}, 'project two gets',
+        row = one.get('Project rule under the reused key') or {}
+        say('dl05 owner history', {t: (r['id'], r['scope'], r['status'], r.get('published')) for t, r in one.items()}, 'project two gets',
             {t: brief(e) for t, e in two.items()})
-        self.assertTrue('Shared rule under the reused key' in one or 'Shared rule under the reused key' not in two)
+        self.assertEqual((row.get('published') or {}).get('text'), 'Shared rule under the reused key')
+        self.assertIn('Shared rule under the reused key', two)
 
     def test_dl06_a_root_working_note_under_a_key_does_not_block_a_general_record_with_that_key(self):
         """_key_in_other_scope compares raw keys; a root-visible record is `ctx-<key>.r<root>`, another subject than `ctx-<key>`."""
@@ -223,6 +227,58 @@ class ReviewDev6Delta(Base):
         expected = rows['Rule of project two']['id']
         say('dl10', got, 'expected for the shared one', expected, mine['id'])
         self.assertEqual(got, {'ctx-retry-policy': expected, 'ctx-own-policy': 'ctx-own-policy', 'ctx-not-delivered': 'ctx-not-delivered'})
+
+
+class ReviewDev6LastDelta(Base):
+    """el01 and el02 of the last delta review (review-p2b.md, "Delta review of 4516cc5 and a87389f"), kept as written."""
+
+    def rows(self, ledger=None):
+        return {r['text']: r for r in knowledge.records(ledger or self.ledger, history=True)}
+
+    def seen(self, plan='P1'):
+        pkg = knowledge.package(self.ledger, knowledge.consumer(self.ledger, plan), cap_chars=12000)
+        out = {e['title']: e for e in pkg['entries']}
+        out.update({r['title']: r for r in pkg['omitted']['index'] if r['title'] not in out})
+        return out, pkg
+
+    def reference_lint(self):
+        return [p['problem'] for p in knowledge.pages_report(self.ledger)['problems'] if 'plain id' in p['problem']]
+
+    def test_el01_a_reference_to_our_own_record_can_be_written_without_a_permanent_problem(self):
+        self.general('Own shared rule', HERE, key='retry-policy')
+        second = self.second_project()
+        self.general('Rule of project two', HERE, ledger=second, plan='Q1', key='retry-policy')
+        own_tag = knowledge.project_tags(self.ledger)[self.ledger.project_id]
+        results = {}
+        for spelling in ('ctx-retry-policy', 'ctx-retry-policy@' + own_tag):
+            self.page('rules.md', '## Project replacement of our own retry rule\n' + fence({'id': 'own-replacement', 'kind': 'decision',
+                      'supersedes': [spelling]}) + 'Use the replacement here.\n')
+            seen, pkg = self.seen()
+            results[spelling] = {'own record superseded': 'Own shared rule' not in seen, 'lint': self.reference_lint(),
+                                 'package problems': [p['problem'][:90] for p in pkg['problems'] if 'plain id' in p['problem']]}
+        say('el01', results)
+        self.assertTrue(any(r['own record superseded'] and not r['lint'] for r in results.values()), results)
+
+    def test_el02_another_projects_private_writes_are_not_observable_through_its_shared_record(self):
+        second = self.second_project()
+        self.general('Shared rule of project two', HERE, ledger=second, plan='Q1', key='reused-key')
+        before = self.rows()['Shared rule of project two']
+        with patch.object(knowledge, '_key_in_other_scope', return_value=False):
+            knowledge.record(second, 'Q1', kind='decision', text='Private rule of project two', key='reused-key',
+                             evidence={'status': 'observed', 'sources': [{'type': 'event', 'id': self.event_of(second)}]})
+        after = self.rows()['Shared rule of project two']
+        say('el02 project one sees project two shared record', {k: before[k] for k in ('status', 'status_reason')}, '->',
+            {k: after[k] for k in ('status', 'status_reason')})
+        self.assertEqual((after['status'], after['status_reason']), (before['status'], before['status_reason']))
+
+    def test_el01b_a_ledger_reference_in_the_own_tag_form_names_our_own_record(self):
+        own = self.general('Own shared rule to replace', HERE, key='own-policy')
+        tag = knowledge.project_tags(self.ledger)[self.ledger.project_id]
+        written = self.project_record('Project rule replacing our own shared rule', supersedes=[own['id'] + '@' + tag])
+        rows = self.rows()
+        self.assertEqual(rows['Project rule replacing our own shared rule']['supersedes'], [own['id']])
+        self.assertEqual(rows['Own shared rule to replace']['status'], 'superseded')
+        self.assertTrue(written['id'])
 
 
 if __name__ == "__main__":
