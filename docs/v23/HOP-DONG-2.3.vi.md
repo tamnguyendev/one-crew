@@ -96,7 +96,9 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | T23-PK-F3 | Gói `2.3.0.dev3`: hồi quy, kiểm từ artifact (11 bước), diễn tập README + task đầu tiên, gate snapshot 2.2 | T23-CX-* | 4 h | BAO-CAO-2.3-DEV3 |
 | T23-CX-4 | Review Codex dev3 P2: bản ghi general không áp dụng hoặc chưa kiểm được điều kiện không hiện như sự thật trong `context retrieve` | T23-PK-F4 | 2 h | `6a8e400`; phản chứng `tests/test_v23_codex_review_dev3.py`, V12 |
 | T23-U1 | U1 hẹp cho 3 test ghim 2.2 đã sửa cho 2.3 (chủ sở hữu ủy quyền bằng văn bản 29/10) | — | 0,5 h | `26a51c5` |
-| T23-PK-F4 | Gói `2.3.0.dev4`: hồi quy, kiểm từ artifact (12 bước), diễn tập README + task đầu tiên, gate snapshot 2.2 | T23-CX-4, T23-U1 | 4 h | BAO-CAO-2.3-DEV4 |
+| T23-PK-F4 | Gói `2.3.0.dev4`: hồi quy, kiểm từ artifact (12 bước), diễn tập README + task đầu tiên, gate snapshot 2.2 | T23-CX-4, T23-U1 | 4 h | dựng và kiểm, không bàn giao (review tìm thêm lỗi; gate dừng) |
+| T23-CX-5 | Review độc lập bản sửa T23-CX-4: F1/F1b (mục general bị thay thế lại hiện), F2/F3/r03 (kết quả xét bị cho mượn giữa bản ghi trùng id) | T23-PK-F5 | 1,5 h | `9a2b453`; `tests/test_v23_review_dev4.py`; F4 (id trùng giữa project) còn mở |
+| T23-PK-F5 | Gói `2.3.0.dev5`: hồi quy, kiểm từ artifact (12 bước), diễn tập README + task đầu tiên, gate snapshot 2.2 | T23-CX-5 | 4 h | BAO-CAO-2.3-DEV5 |
 
 ## 6. Nhật ký tiến độ
 
@@ -143,3 +145,11 @@ Nguồn finding: chỉ thị người dùng 29/10 (dán trong phiên), bằng ch
 | P2 general: `context retrieve` trả bản ghi general có điều kiện sai/không kiểm được là `verified` | A1-R4, A2-R2 | `context.judged` chỉ lấy kết quả `knowledge.for_root` cho mục scope project; mục general chỉ được so với `status_by_id` (vòng đời) | `knowledge.for_root` xét cả bản ghi general cho người đọc (root của `--plan`, hoặc project không root khi không có `--plan`; nhớ kết quả mỗi root trong memo); `context.judged(plan=)` dùng kết quả đó cho mục general; bản ghi 2.3 không được xét thì không hiện như hiện hành; CLI truyền `--plan` | `tests/test_v23_codex_review_dev3.py`: 4 phản chứng đỏ trên code dev3 (12 subtest, `'verified' != 'stale'`; log `D:\OneCrewRuns\v23\dev4\logs\red-0594a43.txt`), 4 đối chứng đạt cả hai bản; CLI wheel dev3 đã cài: 8 lỗi, đối chứng đạt (`D:\OneCrewRuns\v23\dev4\cli red dev3\general-cli.json`) | V12 (`verify/scenario_codex.py general`, CLI cài từ wheel của gói) |
 
 U1 (ngoại lệ kit-guard) cho đúng ba test ghim 2.2 mà 2.3 đã sửa, theo ủy quyền bằng văn bản của chủ sở hữu trong chỉ thị 29/10 (mục 3): `wfkit/u1/U1-20261029-V23-PIN-1..3.json` (`26a51c5`), chỉ trên nhánh 2.3. Trước khi ghi đã kiểm: hash bản `95bb7a6` và bản hiện hành khớp với kit-guard, mỗi file chỉ có một commit sửa từ `95bb7a6` (`f045a0b`, `72b1b22`, `3d96f5b`), diff không xóa kiểm tra, không nới oracle. kit-guard development: từ chối đúng 3 file đó trước, đạt sau (`D:\OneCrewRuns\v23\dev4\u1\kitguard-before.json`, `kitguard-after.json`).
+
+Review độc lập bản sửa đầu (`6a8e400`), agent Opus 5.5, probe chạy trên bản sửa và trên bản trước sửa (`D:\OneCrewRuns\v23\review-dev4\review-dev4.md`):
+
+| Điểm | Mức | Mới/cũ | Sửa | Testcase đỏ trước → xanh sau |
+|---|---|---|---|---|
+| F1/F1b: mục general bị bản ghi project dẫn file thay thế lại hiện khi người đọc không đọc được bản thay thế (không `--plan`) | P1/P3 | mới | `9a2b453`: `context.judged` xét vòng đời của project trước cho mục dùng chung | `tests/test_v23_review_dev4.py` r01/r01b/r01c: đỏ trên `6a8e400`, xanh; CLI cài: wheel gói dev4 2 lỗi → wheel dev5 đạt; V12 |
+| F2/F3/r03/r03b: kết quả xét của bản ghi khác cùng id tri thức được áp nhầm | P1/P2 | cũ + mới | `9a2b453`: kết quả xét mang `version`/`scope`, chỉ áp đúng bản ghi; bản trùng id → `stale` "not judged" | r02a/r03/r03b: đỏ trên `6a8e400`, xanh |
+| F4: hai project dùng cùng `--key` cho bản ghi general chung một id (che nhau, thu hồi lẫn nhau, không thu hồi được) | P2 | cũ | chưa sửa (đổi hợp đồng id); không bao giờ hiện như hiện hành | r02b/r02c/r02d: expected failure, mở |

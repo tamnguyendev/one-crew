@@ -2,6 +2,8 @@
 
 Người viết: Claude (Opus 5.5), đầu mối triển khai 2.3, 29/10/2026, theo chỉ thị người dùng 29/10 ("Tiếp tục hoàn thiện OneCrew 2.3 từ kết quả Codex review dev3…"). Đây là **tự kiểm của tác giả**, chưa phải Codex review lại, chưa nghiệm thu. Roadmap chung và 92 task beta không bị sửa; không push/tag/publish; không gọi provider thật trong lượt này. Báo cáo trước: [BAO-CAO-2.3-DEV3-2026-10-29](BAO-CAO-2.3-DEV3-2026-10-29.vi.md) (đã thêm đính chính ở đầu).
 
+**Không bàn giao (29/10 ~11:00):** gói `2.3.0.dev4` đã dựng (`84940f7`, wheel `b3a63d1f…`) và qua kiểm từ gói 12/12, diễn tập README 9/9 và task đầu tiên 23/23. Sau đó review độc lập bản sửa tìm thêm lỗi: bản ghi general bị thay thế lại hiện khi không có `--plan`, và kết quả xét bị "cho mượn" giữa hai bản ghi trùng id. Tôi dừng gate trên `84940f7` (không tính là đạt). Bản sửa và gói thay thế: [BAO-CAO-2.3-DEV5-2026-10-29](BAO-CAO-2.3-DEV5-2026-10-29.vi.md). Phần dưới là bản nháp lúc dựng gói dev4, giữ nguyên.
+
 **Bản nào:** bản trong `docs/` của gói là bản lúc dựng gói: §1, §5 và §7 (phần "sau") chỉ có ở bản trong checkout `D:\TamNT\Workspace\11.OneCrew\wf-v23\docs\v23\BAO-CAO-2.3-DEV4-2026-10-29.vi.md`, ghi sau khi kiểm. Gói không tự chứng nhận chính nó.
 
 | | |

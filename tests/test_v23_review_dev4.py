@@ -2,6 +2,7 @@
 knowledge like the package). The reviewer's probes, kept as tests (lesson LL-10); each asserts the EXPECTED behaviour. Report and runs on
 6a8e400 and on the pre-fix tree: D:/OneCrewRuns/v23/review-dev4/review-dev4.md. Fixed in 2.3.0.dev5: F1/F1b (r01, r01b, r01c: a
 superseded shared record stays gone for every reader), F2/r02a and r03 (a verdict applies only to the record it judged; r03b mirrors r03).
+Delta review of 9a2b453: class Delta (d01-d05), no new finding.
 OPEN, old gap, not fixed in 2.3.0.dev5 (expected failures, reported in BAO-CAO-2.3-DEV5 section 4): r02b, r02c, r02d - two projects of one
 state root that reuse the same explicit --key for general records share one knowledge id (ledger_id), so one record hides the other
 (shown stale with that reason, never current), one project's withdrawal acts on both, and the second project cannot withdraw its own.
@@ -373,3 +374,83 @@ class Controls(Base):
 if __name__ == '__main__':
     import unittest
     unittest.main()
+
+
+# ---- delta review of 9a2b453 (the reviewer, same session): corrections, updates by another root, reverts stay judged ----------
+
+class Delta(Base):
+    def state_version(self, ident):
+        return next(r['state_version'] for r in knowledge.records(self.ledger, history=True) if r['id'] == ident)
+
+    def forms(self):
+        return (('--scope', 'general'), ('--scope', 'both'), ('--plan', 'P1', '--scope', 'general'), ('--plan', 'P1', '--scope', 'both'))
+
+    def test_d01_a_correction_written_after_a_withdrawal_is_live(self):
+        v1 = self.general('Shared rule, wrong first wording', HERE, key='corrected-subject')
+        self.cli('wiki', 'withdraw', v1['id'], '--plan', 'P1', '--reason', 'wrong', '--source', f'event:{self.ledger_event()}')
+        v2 = self.general('Shared rule, corrected wording', HERE, key='corrected-subject', base=self.state_version(v1['id']))
+        say('d01', v1, v2, self.history()[v1['id']]['status'])
+        for form in self.forms():
+            with self.subTest(form=form):
+                entries = self.retrieved(*form)
+                say('d01 ' + ' '.join(form), {t: brief(e) for t, e in entries.items() if 'Shared rule' in t})
+                self.assertNotIn('Shared rule, wrong first wording', entries)
+                self.assertEqual((entries['Shared rule, corrected wording']['label'], entries['Shared rule, corrected wording']['stale_reason']),
+                                 ('verified', None))
+
+    def test_d02_a_correction_written_after_an_archive_is_live(self):
+        v1 = self.general('Archived shared rule', HERE, key='archived-subject')
+        knowledge.archive(self.ledger, 'P1', v1['id'], reason='old')
+        v2 = self.general('Shared rule written after the archive', HERE, key='archived-subject', base=self.state_version(v1['id']))
+        for form in self.forms():
+            with self.subTest(form=form):
+                entries = self.retrieved(*form)
+                say('d02 ' + ' '.join(form), {t: brief(e) for t, e in entries.items() if 'rule' in t})
+                self.assertNotIn('Archived shared rule', entries)
+                self.assertEqual(entries['Shared rule written after the archive']['label'], 'verified')
+        self.assertTrue(v2['id'])
+
+    def test_d03_newest_version_written_by_another_root_is_judged_not_marked_not_judged(self):
+        v1 = self.general('Shared rule from P1', HERE, key='moved-subject')
+        self.root_b('P2')
+        v2 = self.general('Shared rule updated on P2', HERE, plan='P2', key='moved-subject', base=v1['version'])
+        bad = self.general('Elsewhere rule from P1', HERE, key='moved-elsewhere')
+        self.general('Elsewhere rule updated on P2', THERE, plan='P2', key='moved-elsewhere', base=bad['version'])
+        for form in self.forms() + (('--plan', 'P2', '--scope', 'both'),):
+            with self.subTest(form=form):
+                entries = self.retrieved(*form)
+                say('d03 ' + ' '.join(form), {t: brief(e) for t, e in entries.items() if 'rule' in t})
+                self.assertNotIn('Shared rule from P1', entries); self.assertNotIn('Elsewhere rule from P1', entries)
+                self.assertEqual((entries['Shared rule updated on P2']['label'], entries['Shared rule updated on P2']['stale_reason']), ('verified', None))
+                self.assertTrue(entries['Elsewhere rule updated on P2']['stale_reason'].startswith('not applicable now'))
+        self.assertTrue(v2['id'])
+
+    def test_d04_project_subject_updated_by_another_root_keeps_its_judgement(self):
+        v1 = self.project_record('Project rule from P1', key='project-subject')
+        self.root_b('P2')
+        self.project_record('Project rule updated on P2', plan='P2', key='project-subject', base=v1['version'])
+        for form in (('--scope', 'project'), ('--scope', 'both'), ('--plan', 'P2', '--scope', 'both')):
+            with self.subTest(form=form):
+                entries = self.retrieved(*form)
+                say('d04 ' + ' '.join(form), {t: brief(e) for t, e in entries.items() if 'Project rule' in t})
+                new = entries['Project rule updated on P2']
+                self.assertEqual((new['label'], new['stale_reason']), ('verified', None))
+                if 'Project rule from P1' in entries:
+                    self.assertNotEqual(entries['Project rule from P1']['label'], 'verified')
+                    self.assertNotIn('not judged', entries['Project rule from P1']['stale_reason'] or '')
+
+    def test_d05_a_revert_to_an_older_identical_version_is_judged(self):
+        event = self.ledger_event()
+        def write(text, condition, base):
+            return knowledge.record(self.ledger, 'P1', kind='decision', text=text, scope='general', conditions=[condition], key='revert-subject',
+                                    base=base, evidence={'status': 'verified', 'property': 'the retry check passed', 'sources': [{'type': 'event', 'id': event}]})
+        v1 = write('Reverted shared rule', HERE, '')
+        v2 = write('Replaced wording of the shared rule', THERE, v1['version'])
+        v3 = write('Reverted shared rule', HERE, v2['version'])
+        say('d05', v1['version'] == v3['version'], v3)
+        for form in self.forms():
+            with self.subTest(form=form):
+                entries = self.retrieved(*form)
+                say('d05 ' + ' '.join(form), {t: brief(e) for t, e in entries.items() if 'shared rule' in t})
+                self.assertNotIn('Replaced wording of the shared rule', entries)
+                self.assertEqual((entries['Reverted shared rule']['label'], entries['Reverted shared rule']['stale_reason']), ('verified', None))

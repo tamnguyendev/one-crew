@@ -6,7 +6,7 @@ Người viết: Claude (Opus 5.5), đầu mối triển khai 2.3, đêm 28–29
 - §2, hàng P2-01 ("dùng cùng một quyết định với gói tri thức") chỉ đúng với tri thức của project/root. `context retrieve` xét bản ghi general (dùng chung) theo vòng đời mà không xét điều kiện áp dụng: bản ghi general `verified` có điều kiện `platform: linux` vẫn hiện `verified` trên Windows, trong khi `wiki show --plan` loại nó là `not_applicable`. Codex tái hiện qua CLI của wheel dev3 đã cài (`D:\OneCrewRuns\codex-v23-dev3-review-20261029\installed-general-condition-*.json`). P2-01 vì vậy chưa khép hết ở gói này.
 - §1 và §8 ("chỉ còn chủ sở hữu quyết U1") không đúng: còn lỗi trên.
 
-Bản sửa, U1 và gói `2.3.0.dev4`: [BAO-CAO-2.3-DEV4-2026-10-29](BAO-CAO-2.3-DEV4-2026-10-29.vi.md). Phần dưới giữ nguyên như lúc giao dev3.
+Bản sửa, U1 và gói thay thế `2.3.0.dev5` (gói dev4 không bàn giao): [BAO-CAO-2.3-DEV5-2026-10-29](BAO-CAO-2.3-DEV5-2026-10-29.vi.md). Phần dưới giữ nguyên như lúc giao dev3.
 
 **Bản nào:** bản trong `docs/` của gói là bản lúc dựng gói. Kết quả kiểm gói từ artifact, diễn tập và gate (§5) chỉ có ở bản trong checkout, commit sau khi kiểm: gói không tự chứng nhận chính nó.
 
