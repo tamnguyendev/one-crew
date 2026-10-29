@@ -99,6 +99,9 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | T23-PK-F4 | Gói `2.3.0.dev4`: hồi quy, kiểm từ artifact (12 bước), diễn tập README + task đầu tiên, gate snapshot 2.2 | T23-CX-4, T23-U1 | 4 h | dựng và kiểm, không bàn giao (review tìm thêm lỗi; gate dừng) |
 | T23-CX-5 | Review độc lập bản sửa T23-CX-4: F1/F1b (mục general bị thay thế lại hiện), F2/F3/r03 (kết quả xét bị cho mượn giữa bản ghi trùng id) | T23-PK-F5 | 1,5 h | `9a2b453`; `tests/test_v23_review_dev4.py`; F4 (id trùng giữa project) còn mở |
 | T23-PK-F5 | Gói `2.3.0.dev5`: hồi quy, kiểm từ artifact (12 bước), diễn tập README + task đầu tiên, gate snapshot 2.2 | T23-CX-5 | 4 h | BAO-CAO-2.3-DEV5 |
+| T23-CX-6 | Codex review gói `2.3.0.dev5`: P2-A script thử, P2-B trùng khóa tri thức giữa project, P2-C `.env.example`, P2-D `[S1][S2]` | T23-PK-F6 | 6 h | §9; BAO-CAO-2.3-DEV6 §2 |
+| T23-CX-7 | Review độc lập bản sửa T23-CX-6 (ba vòng): R1–R15, D1–D8 | T23-PK-F6 | 4 h | §9; `D:\OneCrewRuns\v23\review-dev6\review-p2b.md` |
+| T23-PK-F6 | Gói `2.3.0.dev6`: hồi quy, kiểm từ artifact (14 bước), diễn tập README + task đầu tiên + script thử, phản chứng trên wheel cài, dữ liệu cũ, gate snapshot 2.2 | T23-CX-7 | 5 h | BAO-CAO-2.3-DEV6 §5 |
 
 ## 6. Nhật ký tiến độ
 
@@ -161,3 +164,24 @@ Review độc lập bản sửa đầu (`6a8e400`), agent Opus 5.5, probe chạy
 | F1/F1b: mục general bị bản ghi project dẫn file thay thế lại hiện khi người đọc không đọc được bản thay thế (không `--plan`) | P1/P3 | mới | `9a2b453`: `context.judged` xét vòng đời của project trước cho mục dùng chung | `tests/test_v23_review_dev4.py` r01/r01b/r01c: đỏ trên `6a8e400`, xanh; CLI cài: wheel gói dev4 2 lỗi → wheel dev5 đạt; V12 |
 | F2/F3/r03/r03b: kết quả xét của bản ghi khác cùng id tri thức được áp nhầm | P1/P2 | cũ + mới | `9a2b453`: kết quả xét mang `version`/`scope`, chỉ áp đúng bản ghi; bản trùng id → `stale` "not judged" | r02a/r03/r03b: đỏ trên `6a8e400`, xanh |
 | F4: hai project dùng cùng `--key` cho bản ghi general chung một id (che nhau, thu hồi lẫn nhau, không thu hồi được) | P2 | cũ | chưa sửa (đổi hợp đồng id); không bao giờ hiện như hiện hành | r02b/r02c/r02d: expected failure, mở |
+
+## 9. Review Codex 29/10 trên gói `2.3.0.dev5` và sửa
+
+Nguồn finding: chỉ thị người dùng 29/10 (dán trong phiên), bằng chứng của Codex ở `D:\OneCrewRuns\codex-dev5-handover-review-20261029` (`wrapper-reused-log.txt`, `installed-collision.json`, `installed-verifier.json`). Đính chính: báo cáo dev5 §1 ("phần local đã khép") không đúng; F4 ở đó là lỗi local, không phải giới hạn.
+
+| Finding | Requirement chạm | Nguyên nhân | Sửa (code) | Testcase đỏ trước → xanh sau | Bằng chứng từ gói |
+|---|---|---|---|---|---|
+| P2-A: script thử báo đạt bằng log cũ | gói/PL (cách thử của chủ sở hữu) | script dev5 đọc báo cáo không gắn với lần chạy | `fca2813`: `verify\thu-goi.ps1` (từ `docs/v23/tools/thu_goi.ps1`) | `tests/test_v23_owner_wrapper.py` 22 test; bản sao script dev5: `DAT`/0 → script mới: từ chối/2 | diễn tập script từ gói (§5 báo cáo dev6) |
+| P2-B: hai project dùng chung một `--key` cho bản ghi general là một chủ thể | A2-R2, A2-R4 (vòng đời), A1-R4 | `ledger_id` không có project | `ebcfa20`, `926bdcf`, `4516cc5` | r02b–d (expected failure trên `b3ecc57`) → đạt; `test_v23_codex_review_dev5` 10, `test_v23_review_dev6` 17, `test_v23_review_dev6_delta` 10 | V13 qua CLI cài; sổ do wheel dev5 ghi đọc bằng wheel mới |
+| P2-C: `.env.example` làm dừng verifier tài liệu | RX1 doc (2.2, nhận vào 2.3) | `Port.files()` từ chối mọi tên bị cấm đọc lúc liệt kê | `b32ae19` (= R15 `e432be2`, 3 file), `a87389f` | `test_v23_r15_port` 22 (9F+7E → 0), `test_v23_review_dev6_port` 20 (15 → 0) | V14 qua wheel cài |
+| P2-D: `[S1][S2]` bị báo là reference link | RX1 doc | kiểm link không biết mẫu trích dẫn | `b32ae19`, `a87389f` | như P2-C | V14 |
+
+Không nhận từ R15 (ngoài các finding trên): B1, B2, B4, B6 (hook, plan lint).
+
+Review độc lập (agent Opus 5.5, probe chạy trên bản sửa và bản trước sửa; `D:\OneCrewRuns\v23\review-dev6\review-p2b.md`):
+
+| Vòng | Trên | Kết quả | Sửa |
+|---|---|---|---|
+| 1 | `ebcfa20`, `b32ae19` | 15 điểm: 1 P1, 9 P2, 5 P3 (7 do bản sửa, 8 có từ trước) | `926bdcf` (R1–R8, R11, R12, R15), `a87389f` (R9, R10, R13, R14) |
+| 2 | `926bdcf` | 8 điểm mới: 2 P2, 6 P3 (D1–D8) | `4516cc5` |
+| 3 | `4516cc5`, `a87389f` | không còn P1/P2; 4 điểm P3 (E1–E4) | E1–E3 ở commit sau `4516cc5`; E4 (hard link, có từ trước) là giới hạn |

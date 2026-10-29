@@ -1,5 +1,19 @@
 # OneCrew 2.3 — bàn giao 2.3.0.dev5 sau review Codex dev3
 
+> **Đính chính (29/10, sau Codex review gói này).** §1 viết "phần local đã khép". Câu đó **không đúng**: Codex review gói dev5 tìm ra 4 lỗi local mức P2.
+> - **P2-A:** script thử `D:\OneCrewRuns\v23\thu-goi-dev5.ps1` báo đạt bằng log cũ.
+> - **P2-B:** hai project dùng chung một `--key` cho bản ghi general. §4 dưới đây ghi lỗi này (F4) như một giới hạn, nhưng nó là lỗi local chưa sửa.
+> - **P2-C:** `.env.example` làm verifier tài liệu dừng.
+> - **P2-D:** `[S1][S2]` bị báo là reference link thiếu.
+>
+> Bốn lỗi đã sửa ở `2.3.0.dev6`, xem [BAO-CAO-2.3-DEV6-2026-10-29](BAO-CAO-2.3-DEV6-2026-10-29.vi.md). Phần còn lại của báo cáo này giữ nguyên làm hồ sơ.
+>
+> Lần chủ sở hữu tự thử dev5 (§5.3) giữ nguyên làm bằng chứng. Ghi chính xác:
+> - kiểm gói đạt 12/12;
+> - task đầu tiên có 21 bước bắt buộc đều đạt, cộng 2 bước chỉ để ghi thông tin.
+>
+> `owner_step_mode=real` chỉ chứng minh lệnh `onecrew owner approve` chạy thật trên **sổ của bài diễn tập**. Worker vẫn là `claude` giả. Lượt chạy trong phiên AI có 23 bước bắt buộc, vì bước duyệt được thay bằng ba bước kiểm/fixture. Không lượt nào là provider thật, nghiệm thu, hay duyệt trên sổ thật.
+
 Người viết: Claude (Opus 5.5), đầu mối triển khai 2.3, 29/10/2026, theo chỉ thị người dùng 29/10 ("Tiếp tục hoàn thiện OneCrew 2.3 từ kết quả Codex review dev3…"). Đây là **tự kiểm của tác giả**, chưa phải Codex review lại, chưa nghiệm thu. Roadmap chung và 92 task beta không bị sửa; không push/tag/publish; không gọi provider thật trong lượt này. Báo cáo trước: [BAO-CAO-2.3-DEV3-2026-10-29](BAO-CAO-2.3-DEV3-2026-10-29.vi.md) (đã thêm đính chính ở đầu). Gói `2.3.0.dev4` đã dựng và kiểm nhưng **không bàn giao**: review độc lập bản sửa tìm thêm lỗi (§2.2); bản nháp của nó: [BAO-CAO-2.3-DEV4-2026-10-29](BAO-CAO-2.3-DEV4-2026-10-29.vi.md).
 
 **Bản nào:** bản trong `docs/` của gói là bản lúc dựng gói: §1, §5 và §7 (phần "sau") chỉ có ở bản trong checkout `D:\TamNT\Workspace\11.OneCrew\wf-v23\docs\v23\BAO-CAO-2.3-DEV5-2026-10-29.vi.md`, ghi sau khi kiểm. Gói không tự chứng nhận chính nó.
