@@ -54,30 +54,46 @@ def artifact_sha(directory):
 
 
 class HardLinked(LedgerError):
-    """A working-tree name that a verifier's tree would take is a hard link, or is reached through a link or junction (refuse_hard_links)."""
+    """A working-tree name that a verifier's tree would take is a hard link, is reached through a junction, or cannot be examined (refuse_hard_links)."""
 
 
-REPARSE_LINKS = (0xA0000003, 0xA000000C)               # IO_REPARSE_TAG_MOUNT_POINT (a junction) and IO_REPARSE_TAG_SYMLINK
+JUNCTION = 0xA0000003                                  # IO_REPARSE_TAG_MOUNT_POINT: a folder git walks into, wherever it leads
 
 
-def _is_link(path):
-    """A symbolic link or a junction, by the reparse tag of the entry itself (Path.is_junction needs Python 3.12); a cloud placeholder is neither."""
+def _lstat(path):
+    """os.lstat of a working-tree name; None when the name is gone. On Windows a name that fails is tried again through the \\\\?\\ prefix, so that a
+    path beyond MAX_PATH (the default LongPathsEnabled=0 with a repository's core.longpaths) is examined, not skipped (review E-R04); any other
+    failure is raised to the caller, which refuses the name."""
+    text = str(path)
     try:
-        status = os.lstat(path)
-    except (OSError, ValueError):
-        return False
-    return stat.S_ISLNK(status.st_mode) or getattr(status, 'st_reparse_tag', 0) in REPARSE_LINKS
+        return os.lstat(text)
+    except FileNotFoundError:
+        if os.name != 'nt' or text.startswith('\\\\?\\'): return None
+    except OSError:
+        if os.name != 'nt' or text.startswith('\\\\?\\'): raise
+    full = os.path.abspath(text)
+    try:
+        return os.lstat('\\\\?\\UNC\\' + full[2:] if full.startswith('\\\\') else '\\\\?\\' + full)
+    except FileNotFoundError:
+        return None
+
+
+def _is_junction(path):
+    """A folder git walks into although its content is elsewhere: a junction. A directory symlink is not one: git stores it as a link and hashes
+    nothing behind it (review E-R02). By the reparse tag, so with any Python (Path.is_junction needs 3.12); a cloud placeholder is not one either."""
+    status = _lstat(path)
+    return status is not None and getattr(status, 'st_reparse_tag', 0) == JUNCTION
 
 
 def _through(top, name):
-    """The first folder on the way to `name` that is a link or a junction, or None."""
+    """The first folder on the way to `name` that is a junction, or None."""
     parts = name.split('/')
-    return next((f for f in ('/'.join(parts[:n]) for n in range(1, len(parts))) if _is_link(top / f)), None)
+    return next((f for f in ('/'.join(parts[:n]) for n in range(1, len(parts))) if _is_junction(top / f)), None)
 
 
 def hard_links(directory):
     """The working-tree names that a verifier's trees would take from the disk and that are not safe to hash: a file with another name on the disk (a
-    hard link), and a file reached through a folder that is a link or a junction (git walks into a junction as into a folder). That other name or place
+    hard link), a file reached through a junction (git walks into it as into a folder), and a name that cannot be examined. That other name or place
     may be one every reader is kept from, an ignored .env or a home .ssh: `git add` would hash its content into the tree under an ordinary name and
     every verifier would read it in the checkout, where nothing tells (reviews FX-R01, D-R03). The names are those of HEAD, of the real index (a name
     added with -f or -N) and the untracked files that are not ignored, .onecrew included (git hashes it before the tree leaves it out, D-R04, D-R05);
@@ -90,19 +106,19 @@ def hard_links(directory):
         listed += b'\0' + _git(top, 'ls-files', '-z', '--cached', '--others', '--exclude-standard', env=env, raw=True)
     found, folders = set(), {}
     for name in set(listed.decode('utf-8', 'surrogateescape').split('\0')) - {''}:
-        parts = name.split('/')
-        for depth in range(1, len(parts)):
-            folder = '/'.join(parts[:depth])
-            if folder not in folders: folders[folder] = _is_link(top / folder)
-            if folders[folder]:
-                found.add(name)
-                break
-        else:
-            try:
-                status = os.lstat(top / name)
-            except (OSError, ValueError):
-                continue                                # gone from the working tree: nothing of it goes into the tree
-            if stat.S_ISREG(status.st_mode) and status.st_nlink > 1: found.add(name)
+        parts, crossed = name.split('/'), False
+        try:
+            for depth in range(1, len(parts)):
+                folder = '/'.join(parts[:depth])
+                if folder not in folders: folders[folder] = _is_junction(top / folder)
+                if folders[folder]:
+                    crossed = True
+                    break
+            status = None if crossed else _lstat(top / name)
+        except (OSError, ValueError):
+            found.add(name)                             # it cannot be examined: refused, never skipped (E-R04)
+            continue
+        if crossed or (status is not None and stat.S_ISREG(status.st_mode) and status.st_nlink > 1): found.add(name)
     return sorted(found)
 
 
@@ -112,8 +128,13 @@ def refuse_hard_links(directory):
     if found:
         top = Path(_git(directory, 'rev-parse', '--show-toplevel'))
         name, more = found[0], f' (and {len(found) - 1} more)' if len(found) > 1 else ''
-        through = _through(top, name)
-        what = f'is reached through {through!r}, a link or junction' if through else 'has more than one name on the disk (a hard link)'
+        try:
+            through = _through(top, name)
+            status = None if through else _lstat(top / name)
+            what = (f'is reached through {through!r}, a junction' if through else
+                    'has more than one name on the disk (a hard link)' if status is not None and status.st_nlink > 1 else 'cannot be examined')
+        except (OSError, ValueError):
+            what = 'cannot be examined'
         raise HardLinked(f'{name!r}{more} {what}: the other name or place may be a control or credential file (.env, .ssh), whose content would be '
                          'read under this one. Replace it with a copy, or move it out of the working tree, and try again.')
 
@@ -329,7 +350,10 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
             out, err = process.communicate()
     except OSError as problem:
         error = f'{type(problem).__name__}: {problem}'[:300]
-    after = verified_sha(directory)                    # made the way the before one is: a link the command made is not hashed into a tree (D-R05)
+    try:
+        after = verified_sha(directory)                # made the way the before one is: a link the command made is not hashed into a tree (D-R05)
+    except LedgerError as problem:                     # the command ran: its receipt is kept, inconclusive, with the reason (review E-R01)
+        after, error = None, error or f'the artifact after the command cannot be identified: {problem}'[:300]
     store = Snapshots(ledger.state_root)
     receipt = {'kind': 'command-receipt', 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
                'argv': argv, 'cwd': str(directory), 'exit_code': code, 'timed_out': timed_out, 'error': error,

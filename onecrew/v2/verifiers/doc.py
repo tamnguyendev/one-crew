@@ -53,7 +53,6 @@ DRIVE = re.compile(r'^[A-Za-z]:[\\/]')
 BAD_NAME = re.compile(r'[<>:"|?*\x00-\x1f]')
 URL = re.compile(r'https?://[^\s<>)\]]+')
 ENTRY = re.compile(r'^\s*(?:[-*+]|\d+[.)])?\s*\[([^\]]+)\]')
-DOTFILE = re.compile(r'\.(?:[\w-]+\.[\w.-]+|[a-z0-9_-]{5,})')  # a bare source named like a dotfile: .env.example, .gitignore (a dot-word like .csv is not)
 BRACKET = re.compile(r'\[([^\[\]]+)\](?!\()')            # a bracketed label that is not the text of an inline link: a citation if `cite` accepts it in full
 ID_FLAGS = re.compile(r'\(\?([aiLmsux]+)\)')            # global flags at the start of an ids pattern: (?i)  (?s)(?x) ...
 ID_BEFORE, ID_AFTER = (r'(?<![\w-])', ''), (r'(?![\w-])', r'(?![\w-])')      # an anchor is the edge of the id: (in the search, in a definition)
@@ -429,31 +428,55 @@ def _entries(parsed, config):
         match = ENTRY.match(text)
         if not match or not cite.fullmatch(match.group(1).strip()): continue
         rest = text[match.end():]
-        locator = None
+        candidates = []
         direct = re.match(r'\s*\(\s*([^)\s]+)', rest)
-        if direct: locator = direct.group(1)
+        if direct: candidates = [direct.group(1)]
         else:
             link = INLINE_LINK.search(rest)
-            if link: locator = link.group(2).strip('<>')
+            if link: candidates = [link.group(2).strip('<>')]
             else:
                 web = URL.search(rest)
-                if web: locator = web.group(0).rstrip('.,;')
-                else:
-                    later = False
-                    for token in rest.replace('`', ' ').split():
-                        token = token.lstrip(',;:()<>—–').rstrip('.,;:()<>—–')       # a leading dot is part of the path: ../x, ./x, .github/x, .env.example
-                        if token.startswith('...'):                                  # an ellipsis is not; glued to a path it makes none (D-R06)
-                            token = token.lstrip('.')
-                            if token.startswith(('/', '\\')): continue
-                        if not token: continue
-                        dotted = token.startswith('.') and not re.search(r'[\\/]', token)
-                        if dotted and later and not DOTFILE.fullmatch(token): continue   # after other words .NET, .csv, .5 are words (DX-R02, D-R06)
-                        later = True
-                        if '/' in token or (dotted and DOTFILE.fullmatch(token)) or re.search(r'\.\w{1,8}(#\S*)?$', token):
-                            locator = token
-                            break
-        entries.append({'id': match.group(1).strip(), 'line': number, 'locator': locator})
+                candidates = [web.group(0).rstrip('.,;')] if web else _bare_candidates(rest)
+        entries.append({'id': match.group(1).strip(), 'line': number, 'locator': candidates[0] if candidates else None, 'candidates': candidates})
     return heading, entries, [(label, number) for label, number, _ in _citations(parsed, heading, body, cite)]
+
+
+def _bare_candidates(rest):
+    """The locators a source line written without a link may mean, best first. Its first word, alone, when that is a path (a slash, or a name with an
+    extension that does not start with a dot); else a dot-led first word (.gitignore, .NET), then the later words with a slash, the later names with an
+    extension, the later dot-led words. _check_sources takes the first of them that is there, so a prose word (.csv, .NET, .parquet) never stands in
+    for a path that is, and a dotfile named after words (.env, .DS_Store) is still found (DX-R02, D-R06, E-R05)."""
+    words = []
+    for raw in rest.replace('`', ' ').split():
+        word = raw.lstrip(',;:()<>—–').rstrip('.,;:()<>—–')          # a leading dot is part of the path: ../x, ./x, .github/x, .env.example
+        if word.startswith('...'):                                    # an ellipsis is not; glued to a path it makes none (D-R06)
+            word = word.lstrip('.')
+            if word.startswith(('/', '\\')): continue
+        if word: words.append(word)
+    if not words: return []
+    slashed = lambda w: '/' in w or '\\' in w
+    named = lambda w: re.search(r'\.\w{1,8}(#\S*)?$', w) is not None
+    first, later = words[0], words[1:]
+    if slashed(first) or (named(first) and not first.startswith('.')): return [first]
+    found = ([first] if first.startswith('.') else []) + [w for w in later if slashed(w)]
+    found += [w for w in later if named(w) and not w.startswith('.')] + [w for w in later if w.startswith('.')]
+    return list(dict.fromkeys(found))
+
+
+def _source_paths(locator, resolved):
+    """The project paths a file locator names: where it points from the document, and, unless it is written relative to the document (./x, ../x), the
+    same name from the root of the project (DX-R01: a root file of that name is another file)."""
+    written = locator.partition('#')[0].replace('\\', '/')
+    root = posixpath.normpath(written.lstrip('/'))
+    here = written.startswith(('./', '../'))
+    return [c for c in ((resolved,) if here else (resolved, root)) if not c.startswith('..')]
+
+
+def _there(folder, paths):
+    """(found, hidden): the first of `paths` the artifact holds, else the first kept name among them that exists ((path, folder.kept(path)))."""
+    found = next((c for c in paths if folder.exists(c)), None)
+    hidden = None if found else next(((c, kept) for c in paths for kept in [folder.kept(c)] if kept and kept[0]), None)
+    return found, hidden
 
 
 def _check_sources(entry, parsed, folder, unverified):
@@ -469,26 +492,28 @@ def _check_sources(entry, parsed, folder, unverified):
         if not item['locator']:
             problems.append(f'{where}: source {name} has no locator (a path or a link)')
             continue
-        kind, resolved, anchor, why = _locate(path, item['locator'])
+        locator = item['locator']
+        if len(item['candidates']) > 1:                     # more than one reading of a bare line: the first that is there
+            for candidate in item['candidates']:
+                kind, resolved, _, _ = _locate(path, candidate)
+                if kind == 'file' and any(_there(folder, _source_paths(candidate, resolved))):
+                    locator = candidate
+                    break
+        kind, resolved, anchor, why = _locate(path, locator)
         if kind == 'web':
-            if config['external'] == 'forbid': problems.append(f'{where}: source {name} is an external address ({item["locator"]}); external sources are forbidden here')
-            else: unverified.add(f'{where}: source {name} {item["locator"]} (not checked: no network)')
+            if config['external'] == 'forbid': problems.append(f'{where}: source {name} is an external address ({locator}); external sources are forbidden here')
+            else: unverified.add(f'{where}: source {name} {locator} (not checked: no network)')
         elif kind == 'outside':
-            problems.append(f'{where}: source {name} {item["locator"]} leaves the project ({why})')
+            problems.append(f'{where}: source {name} {locator} leaves the project ({why})')
         elif kind == 'other':
-            problems.append(f'{where}: source {name} {item["locator"]} is not a file or an http(s) address')
+            problems.append(f'{where}: source {name} {locator} is not a file or an http(s) address')
         else:
-            written = item['locator'].partition('#')[0].replace('\\', '/')
-            root = posixpath.normpath(written.lstrip('/'))
-            here = written.startswith(('./', '../'))           # written relative to the document: only there, a root file of that name is another (DX-R01)
-            candidates = [c for c in ((resolved,) if here else (resolved, root)) if not c.startswith('..')]
-            found = next((c for c in candidates if folder.exists(c)), None)
+            found, hidden = _there(folder, _source_paths(locator, resolved))
             if found is None:
-                hidden = next(((c, kept) for c in candidates for kept in [folder.kept(c)] if kept and kept[0]), None)
-                if hidden: unverified.add(f'{where}: source {name} {item["locator"]}: {hidden[0]} is {hidden[1][1]}; {_whether(hidden[1][2])}')
-                else: problems.append(f'{where}: source {name} {item["locator"]}: file not found ({resolved})')
+                if hidden: unverified.add(f'{where}: source {name} {locator}: {hidden[0]} is {hidden[1][1]}; {_whether(hidden[1][2])}')
+                else: problems.append(f'{where}: source {name} {locator}: file not found ({resolved})')
                 continue
-            bad = _anchor_problem(folder, found, anchor, where, item['locator'], unverified)
+            bad = _anchor_problem(folder, found, anchor, where, locator, unverified)
             if bad: problems.append(bad.replace('link ', f'source {name} ', 1))
     have = set(ids)
     for name, number in cited:
