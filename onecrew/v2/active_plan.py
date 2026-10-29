@@ -137,7 +137,9 @@ def build(ledger, name):
             'protected': list(DEFAULT_PROTECTED) + [str(root / 'plans'), str(root)] + [str(Path.home() / '.claude' / n) for n in DEFAULT_GUARDED_HOME],
             'scratch': list(DEFAULT_SCRATCH) + [tempfile.gettempdir(), memory_dir(ledger.project)],
             'budget': contract['budget'], 'attention': contract['attention'],
-            'milestones': [{'id': v['id'], 'title': v['title'], 'state': v['state'], 'verifier': v['verifier']} for v in views],
+            # last_result / runs / repairs_left: the Stop hook tells a milestone that waits for the owner from one the session can move (B6)
+            'milestones': [{'id': v['id'], 'title': v['title'], 'state': v['state'], 'verifier': v['verifier'], 'runs': v.get('runs'),
+                            'repairs_left': v.get('repairs_left'), 'last_result': (v.get('last_verdict') or {}).get('result')} for v in views],
             'prompt_keywords': chosen.get('prompt_keywords', DEFAULT_KEYWORDS), 'project': str(Path(ledger.project).resolve()),
             'state_root': str(root), 'exported_at': utcnow(), 'expires': (now + dt.timedelta(hours=EXPIRY_HOURS)).isoformat()}
 

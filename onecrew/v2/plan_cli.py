@@ -183,11 +183,13 @@ def _lint(args):
     """plan lint: no sync_refusals (it writes the ledger), a ledger that cannot be written, exit 1 when there is a reason, 2 when the file cannot be read."""
     from . import lint
     try:
-        reasons, warnings = lint.check(lint.ReadOnlyLedger(args.project, args.state_root), read_json(args.file), args.author, args.ack_criteria)
+        raw = read_json(args.file)
+        reasons, warnings = lint.check(lint.ReadOnlyLedger(args.project, args.state_root), raw, args.author, args.ack_criteria)
     except (ValueError, OSError, LedgerError) as error:
         print(json.dumps({'error': str(error), 'type': type(error).__name__}, ensure_ascii=False))
         return 2
     print(lint.render(reasons, warnings))
+    for code, text in lint.notes(raw): print(f'[note {code}] {text}', file=sys.stderr)       # B4: about the host, on stderr, never the exit code
     return 1 if reasons else 0               # a warning never changes the exit code
 
 
