@@ -386,16 +386,18 @@ def _base_tracked(ledger):
     starts, so no untracked content can be on the base side of it. None outside a Git repository."""
     from .verifiers import command
     try:
+        if command.hard_links(ledger.project): return None        # its content may be a kept file's: not hashed, not pinned (review FX-R01)
         return command.tracked_tree(ledger.project)
     except (LedgerError, OSError, subprocess.SubprocessError):
         return None
 
 
 def _base_artifact(ledger):
-    """The tree the project is in as the owner approves: what a reviewer verifier later diffs against. None outside a Git repository."""
+    """The tree the project is in as the owner approves: what a reviewer verifier later diffs against. None outside a Git repository, and None while a
+    file of that tree has a hard link (command.verified_sha, review FX-R01): the reviewer then diffs against the last commit before the approval."""
     from .verifiers import command
     try:
-        return command.artifact_sha(ledger.project)
+        return command.verified_sha(ledger.project)
     except (LedgerError, OSError, subprocess.SubprocessError):
         return None
 
