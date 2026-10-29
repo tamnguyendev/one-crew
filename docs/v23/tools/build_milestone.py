@@ -1,7 +1,8 @@
 """build_milestone.py <out dir> --milestone A1|A2|B|FINAL --previous-wheel <2.2 wheel> --previous-sha <sha256> - assemble a OneCrew 2.3
 milestone package from a CLEAN checkout (onecrew/, tests/, pyproject.toml committed): the wheel built by the project's own builder
 (tests/wf_wheel.build_wheel, i.e. the same bytes a test would install), the previous wheel byte-identical for rollback, the verifier
-(docs/v23/tools/verify_milestone.py + scenario + the fake claude test double), the 2.3 documents and evidence, examples, README,
+(docs/v23/tools/verify_milestone.py + scenario + the fake claude test double + first_task_drill.py + the owner's one-command wrapper
+thu_goi.ps1, shipped as verify/thu-goi.ps1), the 2.3 documents and evidence, examples, README,
 manifest.json and SHA256SUMS. Refuses an existing <out> and a dirty code tree. Nothing outside <out> is written."""
 import argparse
 import hashlib
@@ -42,6 +43,14 @@ README = '''# OneCrew {version} — gói thử {label}
 | Dựng lúc | {built} |
 
 ## 1. Kiểm hash và kiểm gói
+
+Một lệnh làm cả kiểm hash, bộ kiểm của gói và task đầu tiên từ README, trên thư mục kết quả mới và sổ tạm:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "{out}\\verify\\thu-goi.ps1"
+```
+
+Đạt khi in dòng bắt đầu bằng `DAT:` và thoát mã 0. Mọi trường hợp khác (lệnh lỗi, thiếu báo cáo, báo cáo cũ hoặc của gói khác, thư mục kết quả đã có file) in `KHONG DAT:` và thoát mã khác 0. Hoặc làm từng bước:
 
 PowerShell, trong cùng một cửa sổ:
 
@@ -134,6 +143,7 @@ def main():
     shutil.copy2(ROOT / 'tests/v23_fake_claude.py', verify / 'onecrew_fake_claude.py')
     for name in ('make_fake_claude_wheel.py', 'first_task_drill.py'):      # what examples/first-task/README.vi.md names under verify/ (the README's links are checked by the drill)
         shutil.copy2(ROOT / 'docs/v23/tools' / name, verify / name)
+    shutil.copy2(ROOT / 'docs/v23/tools/thu_goi.ps1', verify / 'thu-goi.ps1')      # the owner's one-command test (Codex dev5 P2-A): runs the verifier and the drill and accepts only reports of THIS run
     docs = out / 'docs'; docs.mkdir()
     for path in sorted((ROOT / 'docs/v23').glob('*.md')): shutil.copy2(path, docs / path.name)
     if (ROOT / 'docs/v23/evidence').is_dir(): shutil.copytree(ROOT / 'docs/v23/evidence', docs / 'evidence')
