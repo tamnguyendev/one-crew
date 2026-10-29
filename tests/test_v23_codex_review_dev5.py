@@ -20,8 +20,8 @@ class TwoProjectsOneKey(Base):
     def setUp(self):
         super().setUp()
         self.second = self.second_project()
-        self.tag1 = knowledge.project_tag(self.ledger.project_id)
-        self.tag2 = knowledge.project_tag(self.second.project_id)
+        tags = knowledge.project_tags(self.ledger)
+        self.tag1, self.tag2 = tags[self.ledger.project_id], tags[self.second.project_id]
 
     def rows(self, ledger):
         return {r['text']: r for r in knowledge.records(ledger, history=True)}
@@ -79,7 +79,8 @@ class TwoProjectsOneKey(Base):
 
     def test_h_a_summary_cannot_cite_another_projects_record_and_says_why(self):
         """Unchanged boundary (not part of P2-B): a summary inherits the evidence events of its sources, and events of another project are
-        not this project's evidence, so `summarize` refuses openly. No summary across projects can exist, old or new."""
+        not this project's evidence, so `summarize` refuses a record of another project that cites events, openly. A record that cites a
+        receipt of the shared state root can be summarized, and the summary follows its withdrawal (review dev6 R15, its probe p06)."""
         self.general('Rule of project two', HERE, ledger=self.second, plan='Q1', key='retry-policy')
         with self.assertRaises(LedgerError) as caught:
             knowledge.summarize(self.ledger, 'P1', ['ctx-retry-policy@' + self.tag2], text='Summary of the shared retry rule')
@@ -108,7 +109,7 @@ class TwoProjectsOneKey(Base):
         third = self.second_project_named('third')
         self.general('Rule of project three', HERE, ledger=third, plan='Q1', key='retry-policy')
         with self.old_format(): self.supersede('Old rule replacing what it saw', 'ctx-retry-policy')
-        tag3 = knowledge.project_tag(third.project_id)
+        tag3 = knowledge.project_tags(self.ledger)[third.project_id]
         one = self.rows(self.ledger)
         self.assertEqual(one['Old rule replacing what it saw']['supersedes'], ['ctx-retry-policy@' + tag3])
         self.assertEqual((one['Rule of project three']['status'], one['Rule of project two']['status']), ('superseded', 'active'))

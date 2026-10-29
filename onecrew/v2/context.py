@@ -383,7 +383,7 @@ def judged(ledger, entries, *, drop_lifecycle=False, revision=None, plan=None):
             status = knowledge.status_by_id(ledger)    # lifecycle only: what is gone whatever the selection can say (F8, F10)
         except Exception:
             status = {}
-    out = []
+    out, tags = [], knowledge.project_tags(ledger)
     for entry in entries:
         payload = entry.pop('payload', None) or {}
         extra = payload.get('knowledge') if isinstance(payload.get('knowledge'), dict) else {}
@@ -392,7 +392,8 @@ def judged(ledger, entries, *, drop_lifecycle=False, revision=None, plan=None):
             out.append(entry); continue
         root = payload.get('task') or entry.get('task')
         visibility = extra.get('visibility') or ('project' if entry['key'].startswith('lesson-') else 'root')
-        ident = knowledge.ledger_id(entry['key'], visibility, root, payload.get('project'), ledger.project_id)      # P2-B: the writer's subject
+        ident = knowledge.ledger_id(entry['key'], visibility, root, payload.get('project'), ledger.project_id, tags.get(payload.get('project')),
+                                    lesson=entry['key'].startswith('lesson-') and not extra)          # P2-B: the writer's subject
         shared = entry['scope'] == 'general'
         verdict = general.get(ident) if shared else verdicts.get(root, {}).get(ident)
         other = None

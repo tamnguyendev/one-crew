@@ -228,7 +228,8 @@ class SameSubjectId(Base):
     def test_r03_a_project_record_with_the_key_of_a_general_record_does_not_lend_its_verdict(self):
         """Same project: general record key `reused-key` (condition false here), then a project-visible record with the same --key."""
         self.general('Shared rule under a reused key', THERE, key='reused-key')
-        self.project_record('Project rule under the reused key', key='reused-key')
+        with patch.object(knowledge, '_key_in_other_scope', return_value=False):          # data written before the key rule (review dev6 R7)
+            self.project_record('Project rule under the reused key', key='reused-key')
         for form in (('--scope', 'general'), ('--plan', 'P1', '--scope', 'general'), ('--plan', 'P1', '--scope', 'both')):
             with self.subTest(form=form):
                 entries = self.retrieved(*form)
@@ -239,7 +240,8 @@ class SameSubjectId(Base):
         """Mirror of r03 (2.3.0.dev5): a project record whose condition is false here, then a NEWER general record that holds here with
         the same --key: the project record is never shown as current on the general record's verdict."""
         self.project_record('Project rule for elsewhere under a reused key', key='mirror-key', applies_to=['a.txt'], conditions=[THERE])
-        self.general('Shared rule here under the reused key', HERE, key='mirror-key')
+        with patch.object(knowledge, '_key_in_other_scope', return_value=False):          # data written before the key rule (review dev6 R7)
+            self.general('Shared rule here under the reused key', HERE, key='mirror-key')
         for form in (('--plan', 'P1', '--scope', 'project'), ('--plan', 'P1', '--scope', 'both'), ('--scope', 'both'), ('--scope', 'project')):
             with self.subTest(form=form):
                 entries = self.retrieved(*form)

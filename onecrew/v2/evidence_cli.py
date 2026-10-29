@@ -8,7 +8,7 @@ import json
 import sys
 from pathlib import Path
 
-from ..ledger import Ledger
+from ..ledger import Ledger, LedgerError
 
 
 def _parser():
@@ -108,6 +108,8 @@ def _run(args):
             result = context.retrieve(ledger, plan=args.plan, scope=args.scope, revision=args.revision, raw=True)
             return dict(result, entries=context.judged(ledger, result['entries'], revision=args.revision, plan=args.plan))
         if args.command == 'observe': return context.observe(_ledger(args, False), args.name, json.loads(args.op))
+        if args.key and args.key.startswith('lesson-'):  # review dev6 R3: a lesson's id is never taken by hand
+            raise LedgerError('--key: names that start with lesson- are the ids of lessons; choose another key.')
         return context.add(_ledger(args, False), args.name, kind=args.kind, label=args.label, text=args.text, source=parse_source(args.source),
                            scope=args.scope, conditions=args.condition, key=args.key)
     if args.group == 'wiki':

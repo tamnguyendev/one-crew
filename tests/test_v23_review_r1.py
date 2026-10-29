@@ -75,8 +75,9 @@ class P02CrossProject(Base):
                              scope='general', conditions=['when a node produces evidence'],
                              evidence={'status': 'verified', 'property': 'seen in review', 'sources': [{'type': 'event', 'id': ev}]})
         say('p02 clean general record', g)
+        seen = g['id'] + '@' + knowledge.project_tags(self.ledger)[self.ledger.project_id]   # Codex dev5 P2-B: the id project two knows it by
         after = self.pkg('Q1', ledger=second)
-        self.assertIn(g['id'], [e['id'] for e in after['entries']] + [r['id'] for r in after['omitted']['index']])   # shared before withdrawal
+        self.assertIn(seen, [e['id'] for e in after['entries']] + [r['id'] for r in after['omitted']['index']])   # shared before withdrawal
         delivered = {e['id']: e for e in after['entries']}
         say('p02 project-2 package after the general record', {i: {k: e[k] for k in ('must', 'use', 'source', 'title')} for i, e in delivered.items()},
             after['omitted']['by_reason'])
@@ -84,10 +85,10 @@ class P02CrossProject(Base):
         p1 = self.pkg('P1')
         later = self.pkg('Q1', ledger=second)
         say('p02 after withdrawal in project 1: in project-1 package?', g['id'] in [e['id'] for e in p1['entries']],
-            'in project-2 package?', g['id'] in [e['id'] for e in later['entries']], 'project-2 ids:', [e['id'] for e in later['entries']])
+            'in project-2 package?', seen in [e['id'] for e in later['entries']], 'project-2 ids:', [e['id'] for e in later['entries']])
         self.assertIn('one-line', delivered, 'project 2 lost its own mandatory constraint to another project')
-        self.assertNotIn(g['id'], [e['id'] for e in later['entries']], 'withdrawn general record still delivered in project 2')
-        self.assertNotIn(g['id'], [r['id'] for r in later['omitted']['index']], 'withdrawn general record still listed in project 2')
+        self.assertNotIn(seen, [e['id'] for e in later['entries']], 'withdrawn general record still delivered in project 2')
+        self.assertNotIn(seen, [r['id'] for r in later['omitted']['index']], 'withdrawn general record still listed in project 2')
         self.assertGreaterEqual(later['omitted']['by_reason'].get('withdrawn', 0), 1)
 
 

@@ -322,50 +322,113 @@ def _concerns(item, cons):
     paths = list(item['applies_to']) + list(sources)
     return any(_covers(a, p) or _covers(p, a) for a in paths for p in cons['paths'])
 
-def project_tag(project):
-    """The mark of another project in a knowledge id: the first 12 characters of its id (a hash of its path, nothing of the path itself)."""
-    return str(project or '')[:12]
+UNKNOWN_TAG = '0' * 12
+RESERVED_KEY_PREFIXES = ('lesson-',)   # a 2.3 record never takes a lesson's id (review dev6 R3)
 
 
-def ledger_id(key, visibility=None, root=None, project=None, reader=None):
+def project_tags(ledger):
+    """project id -> the mark of that project in knowledge ids: 12 hex characters of a hash of the project's FIRST task id in this ledger.
+    Task ids are random, so the mark is stable but tells nothing about the project: a guessed path cannot be confirmed from it (review dev6
+    R12; the project id itself is a hash of the path)."""
+    with ledger.transaction() as conn:
+        rows = conn.execute('SELECT project_id, id FROM tasks ORDER BY rowid').fetchall() if conn else []
+    out = {}
+    for row in rows:
+        if row['project_id'] not in out:
+            out[row['project_id']] = hashlib.sha256(('onecrew-knowledge-subject:' + str(row['id'])).encode('utf-8')).hexdigest()[:12]
+    return out
+
+
+def ledger_id(key, visibility=None, root=None, project=None, reader=None, tag=None, lesson=None):
     """The id a ledger subject is known by. A project-visible subject is one per project (`ctx-<key>`); a root's working memory is
-    one per root (`ctx-<key>.r<root>`), so the two never stand for each other. Lessons keep their logical id.
+    one per root (`ctx-<key>.r<root>`), so the two never stand for each other. A lesson keeps its logical id (`lesson-<id>`).
     Codex dev5 P2-B: a subject belongs to the project that wrote it. The reader's own subjects keep these ids; a general subject of
-    ANOTHER project (`project` != `reader`) is `ctx-<key>@<tag>`: keys cannot hold '@', so it never stands for one of the reader's, and two
-    projects that reuse a --key keep two subjects."""
-    if key.startswith('lesson-'): return key
+    ANOTHER project (`project` != `reader`) is `<id>@<tag>` (`tag`: project_tags): keys cannot hold '@', so it never stands for one of the
+    reader's, and two projects that reuse a --key keep two subjects. `lesson`: the entry is a lesson of the lessons store (no 2.3
+    knowledge fields); a 2.3 record whose key happens to start with `lesson-` follows the project rule too (review dev6 R3)."""
+    if lesson is None: lesson = key.startswith('lesson-')
+    other = bool(project and reader and project != reader)
+    if key.startswith('lesson-') and (lesson or not other): return key
     if visibility == 'root' and root: return f'ctx-{key}.r{str(root)[-8:]}'
-    if project and reader and project != reader: return f'ctx-{key}@{project_tag(project)}'
-    return 'ctx-' + key
+    base = key if key.startswith('lesson-') else 'ctx-' + key
+    return f'{base}@{tag or UNKNOWN_TAG}' if other else base
 
 
-def _in_reader_terms(ref, writer, reader):
-    """A ctx- id that project `writer` stored (a withdrawal or archive target, supersedes, derived_from, conflict_with), as `reader` knows
-    that subject: the writer named its own subject, so for another reader it is the writer's (P2-B)."""
+def _in_reader_terms(ref, writer, reader, tag):
+    """A ctx- id that project `writer` stored (a withdrawal or archive target, supersedes, derived_from, conflict_with, contradicts), as
+    `reader` knows that subject: the writer named its own subject, so for another reader it is the writer's (P2-B). `lesson-` ids are left
+    as written here: a lesson of the lessons store keeps its id for every project, see _lesson_targets."""
     if not isinstance(ref, str) or not ref.startswith('ctx-') or '@' in ref or not writer or not reader or writer == reader: return ref
-    return f'{ref}@{project_tag(writer)}'
+    return f'{ref}@{tag or UNKNOWN_TAG}'
+
+
+def _format_of(value):
+    """The knowledge format of a stored record; anything that is not a whole number is read as an old record (review dev6 R11)."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 FORMAT = 3          # knowledge payload format: 3 = references name subjects exactly (P2-B); <= 2 = written before, one namespace per key
 
 
+LEGACY_FIELDS = ('derived_from', 'supersedes', 'contradicts')   # conflict_with always named the writer's own subject (review dev6 R5)
+
+
 def _legacy_aliases(newest, versions, reader):
-    """References in the reader's own records written before P2-B (format <= 2: a supersedes, derived_from or conflict_with): `ctx-<key>`
-    then stood for the newest record with that key the reader could see, its own or another project's general record. Each such reference
-    keeps that meaning: the subject among them whose newest version written before the referencing record is the newest. Nothing written
-    after the reference can take it over; a reference that named nothing still names nothing."""
+    """References in the reader's own records written before P2-B (format <= 2: a supersedes, derived_from or contradicts): `ctx-<key>`
+    then stood for the newest record with that key the reader could see, its own or another project's general record. A reference to a key
+    that another project also uses keeps that meaning: the subject among them whose newest version written before the referencing record
+    is the newest, so a subject written after the reference cannot take it over. A reference to a key that no subject had before it is left
+    as written: it names the reader's own subject of that key, as it did before P2-B (review dev6 R15)."""
     others = {}
     for ident, c in newest.items():
         if '@' in ident and c['scope'] == 'general': others.setdefault(ident.rsplit('@', 1)[0], []).append(ident)
     if not others: return
     for c in newest.values():
-        if c.get('project') != reader or (c.get('format') or 0) >= FORMAT: continue
-        for field in ('derived_from', 'supersedes', 'conflict_with'):
+        if c.get('project') != reader or _format_of(c.get('format')) >= FORMAT: continue
+        for field in LEGACY_FIELDS:
             resolved = []
             for ref in c[field]:
                 pool = [i for i in [ref] + others.get(ref, []) if any(s < c['seq'] for s in versions.get(i, ()))]
                 resolved.append(max(pool, key=lambda i: max(s for s in versions[i] if s < c['seq'])) if pool and ref in others else ref)
             c[field] = resolved
+
+
+def _lesson_targets(newest, lifecycle, reader, tags):
+    """A withdrawal or archive that another project wrote for one of ITS subjects with a `lesson-` key: a lesson of the lessons store keeps
+    its id for everyone; a 2.3 record with such a key is `<key>@<tag>` for this reader (review dev6 R3)."""
+    for record in lifecycle:
+        writer = record.get('project')
+        if not writer or writer == reader: continue
+        for verb in ('withdraws', 'archives'):
+            target = record.get(verb)
+            if isinstance(target, str) and target.startswith('lesson-') and '@' not in target:
+                qualified = f'{target}@{tags.get(writer) or UNKNOWN_TAG}'
+                if qualified in newest and newest[qualified].get('project') == writer: record[verb] = qualified
+
+
+def legacy_wiki_references(candidates, problems):
+    """Wiki pages carry no format or time. A plain `ctx-<key>` (or `lesson-<key>`) in a section of this project that names no subject of
+    the project and exactly one other project's general subject with that key keeps naming it, as before P2-B; with several such subjects
+    the reference names none of them and the page problem says which id to write (review dev6 R6)."""
+    ledger_ids = {c['id'] for c in candidates if c['origin']['type'] == 'ledger'}
+    others = {}
+    for ident in ledger_ids:
+        if '@' in ident: others.setdefault(ident.rsplit('@', 1)[0], []).append(ident)
+    if not others: return
+    for c in candidates:
+        if c['origin']['type'] != 'wiki': continue
+        for field in ('supersedes', 'derived_from', 'ledger_id'):
+            refs = c[field] if field != 'ledger_id' else ([c['ledger_id']] if c['ledger_id'] else [])
+            resolved = []
+            for ref in refs:
+                found = others.get(ref) if ref not in ledger_ids else None
+                if found and len(found) == 1: resolved.append(found[0]); continue
+                if found:
+                    problems.append({'path': c['origin'].get('path'), 'problem': f'{c["id"]}: {ref} names no subject of this project and '
+                                     f'{len(found)} general subjects of other projects; write one of {", ".join(sorted(found)[:3])}'})
+                resolved.append(ref)
+            if field == 'ledger_id': c['ledger_id'] = resolved[0] if resolved else c['ledger_id']
+            else: c[field] = resolved
 
 
 def _wiki_candidates(ledger, problems, coverage=None):
@@ -411,7 +474,8 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
         entries = context.retrieve(ledger, scope='both', limit=None, raw=True)['entries']
     except (LedgerError, OSError) as error:
         problems.append({'path': 'ledger', 'problem': 'context entries unreadable: ' + str(error)[:160], 'ledger_unreadable': True}); return []
-    newest, versions, locations = {}, {}, _lesson_locations(ledger)
+    newest, versions, locations, tags = {}, {}, _lesson_locations(ledger), project_tags(ledger)
+    reader = ledger.project_id
     for e in entries:
         try:
             p = e.get('payload') or {}
@@ -419,11 +483,12 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
             k = p.get('knowledge') if isinstance(p.get('knowledge'), dict) else {}
             key, root, writer = e['key'], p.get('task'), p.get('project')
             visibility = k.get('visibility') or ('project' if key.startswith('lesson-') else 'root')
-            ident = ledger_id(key, visibility, root, writer, ledger.project_id)
+            tag = tags.get(writer)
+            ident = ledger_id(key, visibility, root, writer, reader, tag, lesson=key.startswith('lesson-') and not k)
             if k.get('withdraws') or k.get('archives'):
                 if lifecycle is not None:              # P2-B: the target is the writer's own subject
-                    lifecycle.append({'id': ident, 'withdraws': _in_reader_terms(k.get('withdraws'), writer, ledger.project_id),
-                                      'archives': _in_reader_terms(k.get('archives'), writer, ledger.project_id), 'reason': k.get('reason'),
+                    lifecycle.append({'id': ident, 'withdraws': _in_reader_terms(k.get('withdraws'), writer, reader, tag),
+                                      'archives': _in_reader_terms(k.get('archives'), writer, reader, tag), 'reason': k.get('reason'),
                                       'root': root, 'event': e['event'], 'project': p.get('project'), 'scope': e['scope'], 'visibility': visibility,
                                       'text_sha': k.get('text_sha'), 'version': e['id']})
                 continue
@@ -440,19 +505,20 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
                          'label': e['stored_label'] if e['stored_label'] != 'stale' else 'observed', 'must': bool(k.get('must')),
                          'status': 'active', 'title': (k.get('title') or e['text'])[:80], 'text': e['text'], 'sources': sources, 'conditions': conditions,
                          'applies_to': k.get('applies_to') or [],
-                         'supersedes': [_in_reader_terms(s, writer, ledger.project_id) for s in k.get('supersedes') or []],
-                         'derived_from': [_in_reader_terms(s, writer, ledger.project_id) for s in k.get('derived_from') or []],
+                         'supersedes': [_in_reader_terms(s, writer, reader, tag) for s in k.get('supersedes') or []],
+                         'derived_from': [_in_reader_terms(s, writer, reader, tag) for s in k.get('derived_from') or []],
                          'ledger_id': None, 'visibility': visibility, 'scope': e['scope'], 'root': root, 'project': p.get('project'),
                          'recorded_revision': p.get('revision_ref'), 'seq': e['event'], 'scope_paths': k.get('scope_paths') or [],
-                         'conflict_with': [_in_reader_terms(s, writer, ledger.project_id) for s in k.get('conflict_with') or []],
-                         'contradicts': k.get('contradicts') or [], 'evidence': k.get('evidence'),
+                         'conflict_with': [_in_reader_terms(s, writer, reader, tag) for s in k.get('conflict_with') or []],
+                         'contradicts': [_in_reader_terms(s, writer, reader, tag) for s in k.get('contradicts') or []], 'evidence': k.get('evidence'),
                          'version': e['id'], 'ledger_stale': e['stale_reason'] if e['label'] == 'stale' else None, 'format': k.get('version')}
         except (KeyError, TypeError, ValueError, AttributeError):
             problems.append({'path': 'ledger', 'problem': 'a context entry could not be read'}); continue
         versions.setdefault(ident, []).append(candidate['seq'])
         if ident not in newest or newest[ident]['seq'] < candidate['seq']:
             newest[ident] = candidate                               # an older version of the same subject (any root) is history
-    _legacy_aliases(newest, versions, ledger.project_id)
+    _legacy_aliases(newest, versions, reader)
+    if lifecycle is not None: _lesson_targets(newest, lifecycle, reader, tags)
     return sorted(newest.values(), key=lambda c: c['seq'])
 
 
@@ -587,10 +653,13 @@ def _decide(ledger, cons, candidates, lifecycle=(), withdrawn_lessons=None, view
     live_ledger = {c['id'] for c in candidates if c['origin']['type'] == 'ledger'}
     contested, contradicted = {}, {}
     for c in candidates:
-        if c['origin']['type'] != 'ledger' or not _acts_for(c, cons, ledger.project_id) or _state_of(status, c)[0] != 'active': continue
-        if c['conflict_with']:
+        if c['origin']['type'] != 'ledger' or _state_of(status, c)[0] != 'active': continue
+        mine = _acts_for(c, cons, ledger.project_id)
+        if not mine and c['scope'] != 'general': continue
+        if c['conflict_with']:                         # review dev6 R8: the writer's contest of its own general subject, for every reader
             contested[c['id']] = 'contested: written from an older version of the same subject'
             for other in c['conflict_with']: contested.setdefault(other, 'contested: a concurrent update of this subject was kept separately')
+        if not mine: continue
         for target in c['contradicts']:             # r3 R3-1: the text only for a reader who may use the contradiction record itself
             contradicted.setdefault(target, ('contradicted by a later observation: ' + c['text'][:120]) if c['id'] in usable
                                     else 'contradicted by a later observation outside your read scope')
@@ -730,6 +799,7 @@ def _read_all(ledger):
             if c['must']: coverage['undelivered'].append(_undelivered(c, 'ledger', 'a wiki entry has the id of this ledger subject'))
             continue
         taken.add(c['id']); candidates.append(c)
+    legacy_wiki_references(candidates, problems)
     if any(p.get('ledger_unreadable') for p in problems): coverage['ledger_unreadable'] = True
     ledger_ids = {c['id'] for c in candidates if c['origin']['type'] == 'ledger'}
     for clash in coverage.pop('copies', []):          # review r2 R2-03: copies of a subject this ledger lacks are the only source
@@ -988,6 +1058,35 @@ def check_use(view, declared):
 
 # ---- the native adapter ------------------------------------------------------------------------------------------------------
 
+def _id_of_event(ledger, seq):
+    """The knowledge id, for this reader, of the subject whose version is context.entry `seq` (None if it is not one)."""
+    with ledger.transaction() as conn:
+        row = conn.execute("SELECT e.payload, e.task_id FROM events e WHERE e.seq=? AND e.kind='context.entry'", (seq,)).fetchone() if conn else None
+    if row is None: return None
+    try:
+        p = json.loads(row['payload'])
+        k = p.get('knowledge') if isinstance(p.get('knowledge'), dict) else {}
+        visibility = k.get('visibility') or ('project' if p['key'].startswith('lesson-') else 'root')
+        return ledger_id(p['key'], visibility, row['task_id'], p.get('project'), ledger.project_id, project_tags(ledger).get(p.get('project')),
+                         lesson=p['key'].startswith('lesson-') and not k)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+
+
+def _current_id(ledger, store, record, ident):
+    """The id a delivered entry has NOW: a package sealed before an upgrade (2.3.0.dev5) named another project's general record without
+    its project; the delivered entry's origin event says which subject the worker judged (review dev6 R4)."""
+    try:
+        view = json.loads(store.read_blob(record['package'])) if record.get('package') else {}
+    except (KeyError, LedgerError, OSError, ValueError, TypeError):
+        return ident
+    for e in (view.get('entries') or []) + (view.get('requested') or []):
+        origin = e.get('origin') or {}
+        if e.get('id') == ident and origin.get('type') == 'ledger' and origin.get('event'):
+            return _id_of_event(ledger, origin['event']) or ident
+    return ident
+
+
 def previous_requests(ledger, store, selector, attempt_id):
     """knowledge.requests of the partial result of `attempt_id` (the attempt a continuation continues), from its retained receipt."""
     if not attempt_id: return []
@@ -1122,6 +1221,8 @@ def record(ledger, plan, *, kind, text, evidence, applies_to=(), conditions=(), 
     if visibility not in ('project', 'root'): raise LedgerError('visibility: project or root.')
     if scope not in ('project', 'general'): raise LedgerError('scope: project or general.')
     if base is not None and not key: raise LedgerError('base names the version of a subject: give --key with it.')
+    if key and _lifecycle is None and key.startswith(RESERVED_KEY_PREFIXES):
+        raise LedgerError('--key: names that start with lesson- are the ids of lessons; choose another key (review dev6 R3).')
     if not isinstance(evidence, dict): raise LedgerError('evidence: an object with status and sources.')
     status = evidence.get('status', 'observed' if _lifecycle else None)
     if status not in EVIDENCE_STATUS: raise LedgerError(f'evidence.status: one of {", ".join(EVIDENCE_STATUS)}.')
@@ -1143,6 +1244,9 @@ def record(ledger, plan, *, kind, text, evidence, applies_to=(), conditions=(), 
         if extras: raise LedgerError('a general record carries no project detail: drop ' + ', '.join(extras) + ' (review r1 #2).')
         if any(s['type'] not in ('event', 'receipt') for s in sources): raise LedgerError('a general record cites events or receipts only.')
     state, selector = _open_root(ledger, plan)
+    if key and _lifecycle is None and _key_in_other_scope(ledger, key, scope):
+        raise LedgerError(f'--key {key} already names a {"project" if scope == "general" else "general"} record of this project; a key names one '
+                          'subject of a project, so a general and a project record never share one: choose another key (review dev6 R7).')
     key = key or content_hash(['k2', visibility, ledger.project_id if visibility == 'project' else state['task_id'], scope, kind,
                                ' '.join(text.casefold().split())])[:24]
     extra = {'version': FORMAT, 'kind': kind if _lifecycle is None else 'note', 'visibility': visibility, 'applies_to': applies,
@@ -1183,17 +1287,39 @@ def withdraw(ledger, plan, target, *, reason, evidence):
     return _lifecycle_record(ledger, plan, target, 'withdraws', reason, dict(evidence, status=evidence.get('status', 'observed')))
 
 
+def _key_in_other_scope(ledger, key, scope):
+    """Does this project already hold a knowledge record (not a lifecycle record) under `key` in the other scope?"""
+    other = 'project' if scope == 'general' else 'general'
+    with ledger.transaction() as conn:
+        row = conn.execute("SELECT 1 FROM tasks t JOIN events e ON e.task_id=t.id WHERE t.project_id=? AND e.kind='context.entry' "
+                           "AND json_extract(e.payload,'$.key')=? AND json_extract(e.payload,'$.scope')=? "
+                           "AND json_extract(e.payload,'$.knowledge.withdraws') IS NULL AND json_extract(e.payload,'$.knowledge.archives') IS NULL LIMIT 1",
+                           (ledger.project_id, key, other)).fetchone() if conn else None
+    return row is not None
+
+
 def _lifecycle_record(ledger, plan, target, verb, reason, evidence):
     """One withdraw/archive record. A general entry: only its own project, with a general record every project reads (r2 N2). A wiki
-    entry: the record keeps the text it had, so a corrected section lives again (r2 P3a)."""
+    entry: the record keeps the text it had, so a corrected section lives again (r2 P3a). Review dev6 R1: our own subject named as another
+    project shows it (`<id>@<our tag>`) is our subject; an id that names no record is refused, never recorded as done. R7 (data written
+    before the key rule): a subject of this project that also has a general version is withdrawn for every project."""
+    own = project_tags(ledger).get(ledger.project_id)
+    if own and isinstance(target, str) and target.endswith('@' + own): target = target[:-(len(own) + 1)]
     found = _target(ledger, target)
     words = {'withdraws': 'Withdraws', 'archives': 'Archives'}[verb]
     life = {verb: target, 'reason': reason}
     if found is None:
         wiki_entry = next((c for c in _wiki_candidates(ledger, []) if c['id'] == target), None)
         if wiki_entry is not None: life['text_sha'] = _text_sha(wiki_entry['text'])
+        elif isinstance(target, str) and (target.startswith('ctx-') or '@' in target):
+            raise LedgerError(f'{target} names no knowledge record of this project (`onecrew wiki history` lists the ids); a general record of '
+                              f'another project is {verb[:-1]}n in that project, under the id it has there (ctx-<key>).')
+    if found is not None and found['project'] != ledger.project_id:
+        plain = found['id'].rsplit('@', 1)[0] if '@' in found['id'] else found['id']
+        raise LedgerError(f'only the project that wrote a general entry can {verb[:-1]} it: run this in that project, where its id is {plain}.')
+    if found is not None and found['scope'] != 'general' and found['id'].startswith('ctx-') and _key_in_other_scope(ledger, found['id'][4:], 'project'):
+        found = dict(found, scope='general')          # R7: old data, one key in both scopes: the withdrawal must reach every project
     if found is not None and found['scope'] == 'general':
-        if found['project'] != ledger.project_id: raise LedgerError(f'only the project that wrote a general entry can {verb[:-1]} it.')
         return record(ledger, plan, kind='note', text=f'{words} {target}: {reason}', evidence=evidence, visibility='project', scope='general',
                       conditions=['lifecycle record of a general entry'], _lifecycle=life)
     return record(ledger, plan, kind='note', text=f'{words} {target}: {reason}', evidence=evidence, visibility='project', _lifecycle=life)
@@ -1468,9 +1594,10 @@ def after_verification(ledger, selector, nid, produced_receipt, verification_rec
                 continue
         for rejected in (native.get('knowledge_use') or {}).get('rejected_by_worker') or []:
             if rejected['id'] not in (native.get('knowledge') or {}).get('delivered', []): continue
+            judged = _current_id(ledger, store, native.get('knowledge') or {}, rejected['id'])
             try:
                 out = record(ledger, selector, kind='finding', text=f'The worker of node {nid} rejected {rejected["id"]}: {rejected["why"][:400]}',
-                             visibility='project', contradicts=[rejected['id']], scope_paths=scope,
+                             visibility='project', contradicts=[judged], scope_paths=scope,
                              evidence={'status': 'observed', 'sources': [{'type': 'receipt', 'key': receipt}, {'type': 'receipt', 'key': verification_receipt}]})
                 written.append(out['id'])
             except LedgerError:
