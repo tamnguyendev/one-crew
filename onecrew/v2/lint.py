@@ -153,6 +153,17 @@ def check(ledger, raw, author=None, ack_criteria=False):
     return reasons, ([] if ack_criteria else _warnings(ledger, raw, contract))
 
 
+def notes(raw):
+    """Facts about the host, not about the contract (beta report B4, 29/10): `plan lint` prints them on stderr, so they never change the exit code
+    or the `lint: clean` line. Today one: an AI session that works under the hooks has no call counter, so budget.max_calls limits nothing there."""
+    budget = raw.get('budget') if isinstance(raw, dict) else None
+    calls = budget.get('max_calls') if isinstance(budget, dict) else None
+    if type(calls) is not int: return []
+    return [('budget_calls_untracked', f'budget.max_calls ({calls}) is not counted for an AI session that works under the hooks: nothing deducts its '
+                                       'tool calls and plan report shows the calls as not counted; only runs that OneCrew executes itself are metered. '
+                                       'Read it as a note for the reviewer, not as a limit.')]
+
+
 def render(reasons, warnings=()):
     lines = [f'[{code}] {text}' for code, text in list(reasons) + list(warnings)]
     return '\n'.join(lines) if lines else 'lint: clean'

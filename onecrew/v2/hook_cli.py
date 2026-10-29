@@ -203,16 +203,51 @@ FIRST = ('set-content', 'sc', 'add-content', 'ac', 'out-file', 'tee-object', 'ne
 COPY = ('cp', 'mv', 'copy', 'move', 'copy-item', 'cpi', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni')              # the last one is
 NAMED = ('-path', '-filepath', '-literalpath', '-destination', '-name')
 WRITERS = re.compile(r'(?:^|[\s;|&(])(' + '|'.join(re.escape(n) for n in sorted(EVERY + FIRST + COPY, key=len, reverse=True)) + r')(?=\s)'
-                     r'((?:\s+(?:-\w+\s+\S+|-\w+|"[^"]*"|\'[^\']*\'|[^\s;|&<>-][^\s;|&<>]*))+)', re.I)
+                     r'((?:\s+(?:-\w+\s+(?:"[^"]*"|\'[^\']*\'|[^\s;|&<>]+)|-\w+|"[^"]*"|\'[^\']*\'|[^\s;|&<>-][^\s;|&<>]*))+)', re.I)   # a flag's value stops at ; | & < > (B1)
 DOTNET = re.compile(r'\[(?:System\.)?IO\.(?:File|Directory)\]::(\w+)\(\s*("[^"]*"|\'[^\']*\'|[^,)\s]+)(?:\s*,\s*("[^"]*"|\'[^\']*\'|[^,)\s]+))?', re.I)
 SED_I = re.compile(r'\bsed\s+(?:-\w*i\w*|--in-place)\b[^|;&]*?\s("[^"]+"|\'[^\']+\'|[^\s;|&<>]+)\s*(?:[;|&]|$)', re.I)
+# PowerShell only (beta report B1): the common parameters whose value is never a path, and the built-in drives that are not files. A drive the
+# session makes with New-PSDrive is still read as a file; registry writes are left to the other rules.
+COMMON_VALUE = ('-erroraction', '-ea', '-warningaction', '-wa', '-informationaction', '-infa', '-errorvariable', '-ev', '-warningvariable', '-wv',
+                '-informationvariable', '-iv', '-outvariable', '-ov', '-outbuffer', '-ob', '-pipelinevariable', '-pv')
+PSDRIVE = re.compile(r'^(?:(?:env|variable|function|alias|hkcu|hklm|cert|wsman):|(?:microsoft\.powershell\.(?:core|security)\\)?'
+                     r'(?:environment|variable|function|alias|registry|certificate|wsman)::)', re.I)
 
 
-def shell_targets(command):
-    """Paths a shell command text appears to write. Heuristic: redirects, tee/Set-Content/sc/ac/Out-File/Tee-Object/cp/mv/rm/ri..., [IO.File]::, sed -i."""
-    found = [m.group(1).strip('"\'') for m in REDIRECT.finditer(command)]
-    for m in WRITERS.finditer(command):
-        cmd, words = m.group(1).lower(), re.findall(r'"[^"]*"|\'[^\']*\'|\S+', m.group(2))
+def masked_quotes(command):
+    """The command with the inside of every quoted string blanked (same length, the quotes kept), so `<`, `>`, `|`, `;` and a writer's name
+    inside a string are text, not a redirect, a pipe or a command (beta report B2). A double-quoted string that holds `$(` or a backtick is left as
+    written, because it can run a command; quotes that do not pair leave the whole text as written (such a command does not parse)."""
+    spans, i = [], 0
+    while i < len(command):
+        quote = command[i]
+        if quote not in '"\'':
+            i += 1
+            continue
+        end = i + 1
+        while end < len(command) and command[end] != quote:
+            end += 2 if quote == '"' and command[end] == '\\' else 1
+        if end >= len(command): return command
+        spans.append((i, end))
+        i = end + 1
+    out = list(command)
+    for start, end in spans:
+        inner = command[start + 1:end]
+        if command[start] == '"' and ('$(' in inner or '`' in inner): continue
+        out[start + 1:end] = '_' * len(inner)
+    return ''.join(out)
+
+
+def shell_targets(command, powershell=False):
+    """Paths a shell command text appears to write. Heuristic: redirects, tee/Set-Content/sc/ac/Out-File/Tee-Object/cp/mv/rm/ri..., [IO.File]::, sed -i.
+    Redirects and writers are found outside quoted strings (masked_quotes); their targets are read from the command as written. In PowerShell
+    the value of a common parameter (-ErrorAction ...) is not a target."""
+    masked = masked_quotes(command)
+    found = [command[m.start(1):m.end(1)].strip('"\'') for m in REDIRECT.finditer(masked)]
+    for m in WRITERS.finditer(masked):
+        cmd, words = m.group(1).lower(), re.findall(r'"[^"]*"|\'[^\']*\'|\S+', command[m.start(2):m.end(2)])
+        if powershell:
+            words = [w for i, w in enumerate(words) if not (i and words[i - 1].lower() in COMMON_VALUE)]
         named = [words[i + 1] for i, w in enumerate(words[:-1]) if w.lower() in NAMED]
         plain = [w for w in words if not w.startswith('-')]
         if cmd in EVERY: values = plain + named
@@ -232,19 +267,30 @@ QUOTED = re.compile(r"\"([^\"]{3,})\"|'([^']{3,})'")
 CUE = re.compile(r'\b(?:iex|invoke-expression|powershell(?:\.exe)?|pwsh|cmd(?:\.exe)?|bash|sh|zsh|dash|eval|invoke-command|start-process|wsl)\b', re.I)
 
 
-def all_targets(command, depth=0):
+def all_targets(command, depth=0, powershell=False):
     """C10: shell_targets of the command as written, without backticks/carets, and (recursively, up to 3 levels) of each quoted part that follows an
     interpreter (`iex 'sc README.md x'`, `powershell -c "sc ..."`, `cmd /c "..."`, `bash -c '...'`), so a write nested in a string is judged like one
     typed plainly. Only text after such a cue is read as a command: a commit message "Move a to b" is not a move. A quoted path with a space
-    may show up cut at the space, which errs on the side of blocking."""
+    may show up cut at the space, which errs on the side of blocking. `powershell`: the text is PowerShell; a nested string is PowerShell after
+    powershell/pwsh, not after bash/sh/zsh/dash/wsl/cmd, and otherwise what its parent is."""
     cleaned = re.sub(r'[`^]', '', command)
-    found = shell_targets(command)
-    if cleaned != command: found += shell_targets(cleaned)
+    found = shell_targets(command, powershell)
+    if cleaned != command: found += shell_targets(cleaned, powershell)
     if depth < 3:
         for text in dict.fromkeys((command, cleaned)):
             for m in QUOTED.finditer(text):
-                if CUE.search(re.split(r'[;&|\n]', text[:m.start()])[-1]): found += all_targets(m.group(1) or m.group(2), depth + 1)
+                cue = CUE.findall(re.split(r'[;&|\n]', text[:m.start()])[-1])
+                if cue:
+                    word = cue[-1].lower()
+                    inner = True if word.startswith(('powershell', 'pwsh')) else False if word.startswith(('bash', 'sh', 'zsh', 'dash', 'wsl', 'cmd')) else powershell
+                    found += all_targets(m.group(1) or m.group(2), depth + 1, inner)
     return list(dict.fromkeys(found))
+
+
+def not_a_file(raw, powershell):
+    """A write target that is no file of any project: a null device, the temp folder, or (PowerShell) a built-in drive that is not a file system."""
+    lowered = raw.casefold()
+    return lowered in NULLS or lowered.startswith(TEMP_VARS) or (powershell and PSDRIVE.match(raw) is not None)
 
 
 def variants(command):
@@ -348,11 +394,11 @@ def without_scratch(flat):
     return ''.join(kept)
 
 
-def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=False):
+def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=False, powershell=False):
     """The plan's verdict on a shell command. `limited` is a plan that is not the session's (it was reached through the cwd or through a path the command
     writes): the deny and mention rules apply, since the command runs there, but only the paths the command writes INSIDE that plan's repository are
     judged, and a path the hook cannot resolve is left to the session's plan, unless `refuse_unresolvable` (the plan of the cwd when the session has no
-    enforce plan of its own: nothing else would look at it)."""
+    enforce plan of its own: nothing else would look at it). `powershell`: the command comes from the PowerShell tool."""
     forms = variants(command)
     for entry in plan.get('bash_deny', []):
         for form in forms:
@@ -369,10 +415,8 @@ def judge_shell(plan, root, cwd, command, limited=False, refuse_unresolvable=Fal
         for item, how in items:
             if mentions(flat, item, how):
                 return 'protected', f'The command mentions {item}, which only the owner changes ({first or "?"} is not a read-only command).'
-    for raw in all_targets(command):
-        lowered = raw.casefold()
-        if lowered in NULLS: continue
-        if lowered.startswith(TEMP_VARS): continue
+    for raw in all_targets(command, powershell=powershell):
+        if not_a_file(raw, powershell): continue
         if re.search(r'[$%`]', raw):
             if limited and not refuse_unresolvable: continue
             return 'unresolvable_target', f'The command writes to "{raw}", a path the hook cannot resolve; write to a literal path inside the owned scope.'
@@ -391,8 +435,9 @@ def touches_repo(plan, root, event, base):
             raw = next((data[k] for k in PATH_KEYS if isinstance(data.get(k), str) and data[k]), None)
             return raw is not None and inside_repo(root, normalize(raw, base))
         if event.get('tool_name') in SHELL_TOOLS and isinstance(data.get('command'), str):
-            for raw in all_targets(data['command']):
-                if re.search(r'[$%`]', raw) or raw.casefold() in NULLS or raw.casefold().startswith(TEMP_VARS): continue
+            powershell = event.get('tool_name') == 'PowerShell'
+            for raw in all_targets(data['command'], powershell=powershell):
+                if re.search(r'[$%`]', raw) or not_a_file(raw, powershell): continue
                 if inside_repo(root, normalize(raw, base)): return True
     except (OSError, ValueError):
         return True
@@ -609,7 +654,7 @@ def judge_call(plan, root, bad_plan, source, event, bad_input, limited=False, re
             verdict = judge_path(plan, root, normalize(raw, base), 'Do not edit it.') if touched else None
         elif tool in SHELL_TOOLS:
             if not isinstance(data.get('command'), str): raise ValueError(f'{tool} call without command')
-            verdict = judge_shell(plan, root, base, data['command'], limited=limited, refuse_unresolvable=refuse_unresolvable)
+            verdict = judge_shell(plan, root, base, data['command'], limited=limited, refuse_unresolvable=refuse_unresolvable, powershell=tool == 'PowerShell')
         else:
             return 0                                     # a tool this hook does not govern
     except Exception as error:                          # noqa: BLE001 - fail closed in enforce, open in log
@@ -670,6 +715,19 @@ def refreshed(root, plan):
     return plan
 
 
+def owner_wait(milestone):
+    """Why a milestone without a passing verdict waits for the owner and not for the session, or None (beta report B6, 29/10): the owner checks it
+    (owner-manual), its last verdict was inconclusive (another run on the same work gives the same answer and uses a repair), or no repair is
+    left. Read from the exported milestone; an export written before these fields existed says None, and the Stop hook behaves as before."""
+    if milestone.get('verifier') == 'owner-manual': return 'the owner checks it (owner-manual) and only the owner records its verdict'
+    if milestone.get('last_result') == 'inconclusive':
+        return (f"its last verdict was inconclusive: the verifier could not judge the work, and another run on the same work gives the same answer "
+                f"and uses a repair ({milestone.get('repairs_left')} left). If the receipt names a cause in your own work, fix that first; otherwise "
+                f"tell the owner what blocks it (the owner amends the plan)")
+    if milestone.get('repairs_left') == 0 and milestone.get('runs'): return 'no repair is left; only an amendment the owner approves can change it'
+    return None
+
+
 def stop(args):
     event, _ = read_stdin()
     plan, root, bad, _ = governing(args, event)
@@ -691,6 +749,23 @@ def stop(args):
         record(root, plan, 'logged', 'Stop', f"waiting, the session is let go: {what}; milestone {pending['id']} ({pending['title']}) has no verdict yet", 'stop_waiting', session=session)
         return 0
     state = session_state(root, session)
+    why = owner_wait(pending)
+    if why:
+        # B6: the session cannot move this milestone. Say so once for each (plan, revision, milestone, number of runs), then let the session
+        # stop: a new verdict or a new revision is a new reminder. The milestone stays unpassed, so "done" is still not true.
+        key = f"{plan.get('anchor', plan['plan'])}:{plan.get('revision')}:{pending['id']}:{pending.get('runs')}"
+        reason = (f"Milestone {pending['id']} ({pending['title']}) has no passing verdict and waits for the owner: {why}. "
+                  f"Stop here and say what the owner has to decide. Do not say it is done.")
+        if plan.get('mode') != 'enforce':
+            record(root, plan, 'logged', 'Stop', 'would block once: ' + reason, 'stop_owner_wait', session=session)
+            return 0
+        if state.get('owner_wait') == key:
+            record(root, plan, 'logged', 'Stop', 'waiting for the owner, the session is let go: ' + reason, 'stop_waiting_owner', session=session)
+            return 0
+        session_state(root, session, {'owner_wait': key, 'stop_blocks': 0})
+        record(root, plan, 'stop_blocked', 'Stop', reason, 'stop_owner_wait', session=session)
+        print(json.dumps({'decision': 'block', 'reason': reason}, ensure_ascii=False))
+        return 0
     reason = (f"Milestone {pending['id']} ({pending['title']}) has no passing verdict; run `onecrew verdict run --plan {plan['plan']} --milestone {pending['id']}` "
               f"(or `onecrew plan amend {plan['plan']}` to change the contract). Do not say it is done.")
     if plan.get('mode') != 'enforce':
