@@ -104,6 +104,13 @@ def main(argv=None):
             index += 1
         else:
             break
+    if len(args) > index and args[index] == '--version':
+        try:
+            from importlib.metadata import version, PackageNotFoundError
+            print('onecrew ' + version('onecrew'))
+        except PackageNotFoundError:
+            print('onecrew unknown (not installed: a checkout)')
+        return 0
     if len(args) <= index or args[index] in ('--help', '-h'):
         print('OneCrew: --project <path> <group> <command> [options]\n' + help_lines() +
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')

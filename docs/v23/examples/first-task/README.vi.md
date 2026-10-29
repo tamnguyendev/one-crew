@@ -6,7 +6,7 @@ Chỉ cần **gói bàn giao** (thư mục có `README.md`, `wheel\`, `verify\`,
 
 | File trong thư mục này | Là gì |
 |---|---|
-| `docs/wiki/rules.md` | trang wiki mẫu: 2 mục có kiểu (`a-value`, `no-two-lines`) và 1 ghi chú chưa có nguồn. Chứa `"revision": "HEAD"`: bước 2 thay bằng commit đầy đủ |
+| `docs/wiki/rules.md` | trang wiki mẫu: 2 mục có kiểu (`a-value`, `no-two-lines`) và 1 ghi chú chưa có nguồn. Bước 2 thêm nó vào wiki mà `onecrew init` tạo, với `"revision": "HEAD"` thay bằng commit đầy đủ |
 | `contract.json` | hợp đồng (plan `P1`): milestone `M1` là check bằng lệnh `a.txt == "right"`. Chứa `PYTHON_EXE`: bước 3 thay bằng Python của venv |
 | `nodes.json` | định nghĩa node cho `engine revise`: `C` ghi `a.txt` (pin `claude` / `claude-haiku-5-5`), `I` tích hợp (chỉ đọc) |
 | `fake-policy.json` | chính sách của `claude` giả (chỉ phần A) |
@@ -46,29 +46,49 @@ $wheel = (Get-ChildItem "$pkg\wheel\onecrew-*.whl").FullName
 
 Kỳ vọng: `pip` báo `Successfully installed onecrew-...`, `--help` liệt kê nhóm `wiki`, dòng cuối là số phiên bản của gói.
 
-## 2. Repo thử (bản sao, không phải project thật)
+## 2. Repo thử (bản sao, không phải project thật), `onecrew init` và wiki
 
-Commit đầu có `a.txt` (`core.autocrlf false` để repo thử không phụ thuộc cấu hình xuống dòng của máy bạn). Trang wiki trích `a.txt` ở một **commit đầy đủ** (40 ký tự), nên trang được chép vào sau, với `"HEAD"` thay bằng commit vừa tạo; để nguyên `HEAD` thì `wiki pages` báo lỗi và mục chỉ là đầu mối.
+Commit đầu có `a.txt` (`core.autocrlf false` để repo thử không phụ thuộc cấu hình xuống dòng của máy bạn). `.gitignore` bỏ qua `.onecrew/` và `.claude/`: hai thư mục máy này mà `init` ghi vào.
 
 <!-- drill: run id=repo -->
 ```powershell
-New-Item -ItemType Directory -Force "$proj\docs\wiki" | Out-Null
+New-Item -ItemType Directory -Force $proj | Out-Null
 git -C $proj init -q
 git -C $proj config user.name "task dau tien"
 git -C $proj config user.email "task-dau-tien@localhost"
 git -C $proj config core.autocrlf false
 [IO.File]::WriteAllText("$proj\a.txt", "base`n")
-[IO.File]::WriteAllText("$proj\.gitignore", ".onecrew/`n")
+[IO.File]::WriteAllText("$proj\.gitignore", ".onecrew/`n.claude/`n")
 git -C $proj add .
 git -C $proj commit -q -m "base"
 ```
+
+`onecrew init` cài project: sổ, quy tắc của chủ sở hữu, `.onecrew\config.json`, hook Claude Code trong `.claude\settings.local.json`, và **wiki**: chưa có thì tạo khung `docs\wiki\` (`README.md` cách viết, `project.md` ngữ cảnh project, `lessons.md` bài học); đã có thì dùng nguyên. Init không ghi đè file nào và không commit. Mã thoát 0 là xong; 1 là xong nhưng chưa thấy Claude CLI đã đăng nhập (phần A không cần nó); 2 là chưa ghi gì (lý do in ra); 3 là xong trừ khung wiki.
+
+<!-- drill: run id=init -->
+```powershell
+& $onecrew init --project $proj --state-root $ledger --yes; $initCode = $LASTEXITCODE; $global:LASTEXITCODE = 0
+"init: $initCode"
+Get-ChildItem "$proj\docs\wiki" -Name
+```
+
+Kỳ vọng: init in kế hoạch có dòng `create the wiki skeleton in docs/wiki (README.md, project.md, lessons.md)`, rồi `init: 0` (hoặc `1`), rồi ba tên file đó. Wiki mới chưa có mục nào, nên chưa có gì được giao cho worker:
+
+<!-- drill: run id=wiki-empty -->
+```powershell
+& $onecrew --project $proj --state-root $ledger wiki pages
+```
+
+Kỳ vọng: 3 trang, mỗi trang `"entries": []`, và `"problems": []`.
+
+Thêm quy ước của project vào wiki: trang mẫu `rules.md` trích `a.txt` ở một **commit đầy đủ** (40 ký tự), nên `"HEAD"` trong trang được thay bằng commit vừa tạo; để nguyên `HEAD` thì `wiki pages` báo lỗi và mục chỉ là đầu mối.
 
 <!-- drill: run id=wiki-page -->
 ```powershell
 $sha = git -C $proj rev-parse HEAD
 $page = [IO.File]::ReadAllText("$ex\docs\wiki\rules.md", [Text.Encoding]::UTF8).Replace('"revision": "HEAD"', '"revision": "' + $sha + '"')
 [IO.File]::WriteAllText("$proj\docs\wiki\rules.md", $page, (New-Object Text.UTF8Encoding $false))
-git -C $proj add .
+git -C $proj add docs
 git -C $proj commit -q -m "wiki"
 Select-String -Path "$proj\docs\wiki\rules.md" -Pattern '"revision"'
 ```
@@ -82,7 +102,7 @@ Xem wiki được đọc thế nào (chỉ đọc):
 & $onecrew --project $proj --state-root $ledger wiki pages
 ```
 
-Kỳ vọng: 3 mục (`a-value` `verified`, `no-two-lines` `refuted`, một ghi chú `unverified`) và `"problems": []`.
+Kỳ vọng: 3 mục, đều ở `rules.md` (`a-value` `verified`, `no-two-lines` `refuted`, một ghi chú `unverified`); ba trang khung vẫn `"entries": []`; `"problems": []`.
 
 ## 3. Hợp đồng (plan P1)
 
@@ -236,6 +256,7 @@ Kỳ vọng: cả hai node `verified` / `pass`; `a.txt` trong project vẫn `bas
 | Dấu hiệu | Nguyên nhân thường gặp |
 |---|---|
 | `wiki pages` có `problems` về revision | chưa thay `HEAD` bằng commit đầy đủ (bước 2) hoặc commit trước khi thay |
+| `init` in `Nothing was changed` và mã 2 | `.onecrew\config.json` không đọc được, hoặc `wiki.paths` trỏ thư mục không dùng được (link, file, ngoài repo): sửa theo dòng init in ra |
 | `owner approve refused: ... AI tool session` | chạy trong phiên AI; chạy ở terminal của chủ sở hữu |
 | `engine step` in `"state": "held"` và `"reason": "claude: ..."` (mã thoát 0) | `claude` không phải bản `2.1.286` hoặc chưa đăng nhập subscription: điều kiện 2–3 của 6B |
 | `engine step` báo node bị giữ vì tri thức bắt buộc | mục `must` quá trần gói; xem `docs\HUONG-DAN-WIKI.vi.md` §3 |

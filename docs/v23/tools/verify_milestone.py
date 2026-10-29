@@ -270,6 +270,12 @@ def main(pkg, work):
         step('V13-collision', not problems, problems=problems, **codex['collision'])
         problems = docverify_problems(codex['docverify'])
         step('V14-docverify', not problems, problems=problems, **codex['docverify'])
+        try:
+            facts = init_wiki_cases(work, scripts, previous)
+            problems = initwiki_problems(facts)
+        except Exception as error:                     # an environment failure (git, venv) is a failed step, never a crash of the verifier
+            facts, problems = {'error': f'{type(error).__name__}: {str(error)[:300]}'}, ['V15 could not run']
+        step('V15-init-wiki', not problems, problems=problems, **facts)
     return finish(report, work)
 
 
@@ -372,7 +378,139 @@ def docverify_problems(d):
     return problems
 
 
-EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 14}
+SKELETON_MARK = '<!-- onecrew:wiki-skeleton 1 -->'
+SKELETON = ['README.md', 'lessons.md', 'project.md']
+
+
+def _files(folder):
+    folder = Path(folder)
+    return sorted(p.name for p in folder.iterdir()) if folder.is_dir() else None
+
+
+def _tree(folder):
+    folder = Path(folder)
+    return {p.relative_to(folder).as_posix(): sha256(p) for p in sorted(folder.rglob('*')) if p.is_file()} if folder.is_dir() else {}
+
+
+def init_wiki_cases(work, scripts, previous):
+    """V15 facts: `onecrew init` of the installed wheel on new Git repositories in a folder with spaces, LOCALAPPDATA/APPDATA per case
+    (HOP-DONG-2.3 §10.3): KW-01 a new repository, KW-02 a second init after a page was edited, KW-04 one configured folder, KW-06 an
+    unreadable config.json, KW-07 a junction to a folder outside, KW-09 an interrupted skeleton, KW-13 a project set up by the previous
+    (2.2) wheel. Judged by initwiki_problems."""
+    base = work / 'init wiki'
+    if base.exists(): shutil.rmtree(base)
+    base.mkdir()
+    exe = scripts / 'onecrew.exe'
+    def repo(name):
+        project = base / name
+        project.mkdir()
+        for args in (['init', '-q'], ['config', 'user.name', 'v15'], ['config', 'user.email', 'v15@localhost'], ['config', 'core.autocrlf', 'false']):
+            run(['git', '-C', project, *args], check=True)
+        (project / 'a.txt').write_text('base\n', encoding='utf-8')
+        run(['git', '-C', project, 'add', '.'], check=True); run(['git', '-C', project, 'commit', '-qm', 'base'], check=True)
+        return project
+    def state(project):
+        return base / ('state ' + project.name)
+    def env(project):
+        folder = base / ('env ' + project.name); folder.mkdir(exist_ok=True)
+        return env_for(folder, scripts)
+    def init(project, command=exe):
+        done = run([command, 'init', '--project', project, '--state-root', state(project), '--yes'], cwd=base, env=env(project))
+        return done.returncode, (done.stdout + done.stderr).decode('utf-8', 'replace')
+    def pages(project):
+        done = run([exe, '--project', project, '--state-root', state(project), 'wiki', 'pages'], cwd=base, env=env(project))
+        try:
+            value = json.loads(done.stdout.decode('utf-8'))
+            return {'pages': sorted(p['path'] for p in value['pages']), 'entries': sum(len(p['entries']) for p in value['pages']), 'problems': value['problems']}
+        except (ValueError, KeyError, TypeError):
+            return {'error': (done.stdout + done.stderr)[-300:].decode('utf-8', 'replace')}
+    facts = {}
+    project = repo('new one')
+    folder = project / 'docs' / 'wiki'
+    code, out = init(project)
+    files = _files(folder) or []
+    facts['new'] = {'exit': code, 'files': files, 'marked': [n for n in files if (folder / n).read_text(encoding='utf-8').startswith(SKELETON_MARK)],
+                    'plan_line': 'create the wiki skeleton in docs/wiki' in out, 'pages': pages(project), 'tail': out[-300:]}
+    page = folder / 'project.md'
+    if page.is_file(): page.write_text(page.read_text(encoding='utf-8') + '\n## A rule of the project\nKeep a.txt short.\n', encoding='utf-8')
+    before = _tree(project / 'docs')
+    code, out = init(project)
+    facts['again'] = {'exit': code, 'unchanged': _tree(project / 'docs') == before, 'nothing': 'nothing to change' in out, 'pages': pages(project)}
+    project = repo('configured')
+    (project / '.onecrew').mkdir(); (project / '.onecrew' / 'config.json').write_text(json.dumps({'wiki': {'paths': ['kb']}}), encoding='utf-8')
+    code, out = init(project)
+    try:
+        kept = json.loads((project / '.onecrew' / 'config.json').read_text(encoding='utf-8')).get('wiki')
+    except (OSError, ValueError):
+        kept = None
+    facts['configured'] = {'exit': code, 'kb': _files(project / 'kb'), 'docs': (project / 'docs').exists(), 'wiki_config': kept}
+    project = repo('bad config')
+    (project / '.onecrew').mkdir(); config = project / '.onecrew' / 'config.json'; config.write_bytes(b'{ not json')
+    code, out = init(project)
+    facts['bad_config'] = {'exit': code, 'config_unchanged': config.read_bytes() == b'{ not json', 'said': 'Nothing was changed' in out,
+                           'wrote': [str(p) for p in (project / '.claude', project / 'docs', state(project) / 'ledger.sqlite3') if p.exists()]}
+    project = repo('junction')
+    outside = base / 'outside folder'; outside.mkdir(); (project / 'docs').mkdir()
+    made = run(['cmd', '/c', 'mklink', '/J', project / 'docs' / 'wiki', outside]) if os.name == 'nt' else None
+    if made is None: os.symlink(outside, project / 'docs' / 'wiki')
+    code, out = init(project)
+    facts['junction'] = {'made': made is None or made.returncode == 0, 'exit': code, 'outside': _files(outside),
+                         'ledger': (state(project) / 'ledger.sqlite3').exists()}
+    project = repo('interrupted')
+    folder = project / 'docs' / 'wiki'; folder.mkdir(parents=True)
+    (folder / 'README.md').write_text(SKELETON_MARK + '\n# kept as it was\n', encoding='utf-8')
+    kept = sha256(folder / 'README.md')
+    code, out = init(project)
+    facts['interrupted'] = {'exit': code, 'files': _files(folder), 'kept': sha256(folder / 'README.md') == kept}
+    old = work / 'venv previous wheel'
+    if old.exists(): shutil.rmtree(old)
+    run([sys.executable, '-m', 'venv', old], check=True)
+    installed = run([old / 'Scripts' / 'python.exe', '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', previous])
+    old_version = run([old / 'Scripts' / 'python.exe', '-I', '-c', 'import importlib.metadata as m; print(m.version("onecrew"))'], text=True, cwd=work).stdout.strip()
+    project = repo('old project')
+    old_code, _ = init(project, old / 'Scripts' / 'onecrew.exe')
+    config = project / '.onecrew' / 'config.json'
+    value = json.loads(config.read_text(encoding='utf-8')); value['custom'] = {'kept': True}; config.write_text(json.dumps(value), encoding='utf-8')
+    ledger = state(project) / 'ledger.sqlite3'
+    ledger_before = sha256(ledger) if ledger.is_file() else None
+    had_wiki = (project / 'docs').exists()
+    code, out = init(project)
+    after = json.loads(config.read_text(encoding='utf-8'))
+    settings = json.loads((project / '.claude' / 'settings.local.json').read_text(encoding='utf-8'))
+    commands = sorted({h.get('command') for entries in settings.get('hooks', {}).values() for e in entries for h in e.get('hooks', [])})
+    facts['old_project'] = {'previous_install': installed.returncode, 'previous_version': old_version, 'old_exit': old_code, 'old_had_wiki': had_wiki,
+                            'exit': code, 'ledger_unchanged': ledger_before is not None and sha256(ledger) == ledger_before,
+                            'custom_kept': after.get('custom') == {'kept': True}, 'state_root_kept': after.get('state_root') == value.get('state_root'),
+                            'hook_commands': commands, 'new_exe': str(exe.resolve()), 'wiki': _files(project / 'docs' / 'wiki')}
+    return facts
+
+
+def initwiki_problems(f):
+    """What the installed `onecrew init` got wrong in V15 (WI-01..05); [] when nothing."""
+    problems, done = [], (0, 1)                        # 1 = done but the Claude CLI is not logged in: init's own code for that
+    new, again, conf, bad, link, part, old = (f.get(k) or {} for k in ('new', 'again', 'configured', 'bad_config', 'junction', 'interrupted', 'old_project'))
+    if new.get('exit') not in done or new.get('files') != SKELETON or new.get('marked') != SKELETON or not new.get('plan_line'):
+        problems.append(f'KW-01 new repository: {new}')
+    if (new.get('pages') or {}) != {'pages': ['docs/wiki/' + n for n in SKELETON], 'entries': 0, 'problems': []}:
+        problems.append(f'KW-01/KW-11 the empty skeleton as read: {new.get("pages")}')
+    if again.get('exit') not in done or not again.get('unchanged') or not again.get('nothing') or (again.get('pages') or {}).get('entries') != 1:
+        problems.append(f'KW-02 second init: {again}')
+    if conf.get('exit') not in done or conf.get('kb') != SKELETON or conf.get('docs') or conf.get('wiki_config') != {'paths': ['kb']}:
+        problems.append(f'KW-04 configured folder: {conf}')
+    if bad.get('exit') != 2 or not bad.get('config_unchanged') or bad.get('wrote') or not bad.get('said'):
+        problems.append(f'KW-06 unreadable config.json: {bad}')
+    if not link.get('made') or link.get('exit') != 2 or link.get('outside') != [] or link.get('ledger'):
+        problems.append(f'KW-07 junction: {link}')
+    if part.get('exit') not in done or part.get('files') != SKELETON or not part.get('kept'):
+        problems.append(f'KW-09 interrupted skeleton: {part}')
+    if (old.get('previous_install') != 0 or old.get('old_exit') not in done or old.get('old_had_wiki') or old.get('exit') not in done
+            or not old.get('ledger_unchanged') or not old.get('custom_kept') or not old.get('state_root_kept')
+            or old.get('hook_commands') != [old.get('new_exe')] or old.get('wiki') != SKELETON):
+        problems.append(f'KW-13 a project set up by the previous wheel: {old}')
+    return problems
+
+
+EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 15}
 
 
 def finish(report, work):
