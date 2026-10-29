@@ -392,7 +392,7 @@ def judged(ledger, entries, *, drop_lifecycle=False, revision=None, plan=None):
             out.append(entry); continue
         root = payload.get('task') or entry.get('task')
         visibility = extra.get('visibility') or ('project' if entry['key'].startswith('lesson-') else 'root')
-        ident = knowledge.ledger_id(entry['key'], visibility, root)
+        ident = knowledge.ledger_id(entry['key'], visibility, root, payload.get('project'), ledger.project_id)      # P2-B: the writer's subject
         shared = entry['scope'] == 'general'
         verdict = general.get(ident) if shared else verdicts.get(root, {}).get(ident)
         other = None

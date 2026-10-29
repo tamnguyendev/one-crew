@@ -3,9 +3,10 @@ knowledge like the package). The reviewer's probes, kept as tests (lesson LL-10)
 6a8e400 and on the pre-fix tree: D:/OneCrewRuns/v23/review-dev4/review-dev4.md. Fixed in 2.3.0.dev5: F1/F1b (r01, r01b, r01c: a
 superseded shared record stays gone for every reader), F2/r02a and r03 (a verdict applies only to the record it judged; r03b mirrors r03).
 Delta review of 9a2b453: class Delta (d01-d05), no new finding.
-OPEN, old gap, not fixed in 2.3.0.dev5 (expected failures, reported in BAO-CAO-2.3-DEV5 section 4): r02b, r02c, r02d - two projects of one
-state root that reuse the same explicit --key for general records share one knowledge id (ledger_id), so one record hides the other
-(shown stale with that reason, never current), one project's withdrawal acts on both, and the second project cannot withdraw its own.
+r02b, r02c, r02d (an old gap, expected failures in 2.3.0.dev5, Codex dev5 review P2-B): two projects of one state root that reuse the same
+explicit --key for general records shared one knowledge id (ledger_id), so one record hid the other, one project's withdrawal acted on both
+and the second project could not withdraw its own. Fixed in 2.3.0.dev6 (a subject belongs to the project that wrote it): plain tests now;
+more cases in tests/test_v23_codex_review_dev5.py.
 """
 import contextlib
 import io
@@ -183,7 +184,6 @@ class SameSubjectId(Base):
                 self.assertEqual(entries['Shared retry rule of project one']['label'], 'stale', entries['Shared retry rule of project one'])
                 self.assertEqual(entries['Shared retry rule of project two']['label'], 'verified')
 
-    @unittest.expectedFailure      # OPEN old gap (shared knowledge id across projects), see the module docstring
     def test_r02b_a_valid_general_record_is_not_hidden_by_another_projects_record_with_the_same_key(self):
         self.general('Valid shared rule of project one', HERE, key='retry-policy')
         second = self.second_project()
@@ -195,7 +195,6 @@ class SameSubjectId(Base):
                 self.assertEqual((entries['Valid shared rule of project one']['label'], entries['Valid shared rule of project one']['stale_reason']),
                                  ('verified', None))
 
-    @unittest.expectedFailure      # OPEN old gap (shared knowledge id across projects), see the module docstring
     def test_r02c_another_projects_withdrawal_of_its_own_record_does_not_remove_ours(self):
         mine = self.general('Valid shared rule kept by project one', HERE, key='retry-policy')
         second = self.second_project()
@@ -211,7 +210,6 @@ class SameSubjectId(Base):
                 self.assertIn('Valid shared rule kept by project one', entries)
                 self.assertNotIn('Rule project two withdraws', entries)
 
-    @unittest.expectedFailure      # OPEN old gap (shared knowledge id across projects), see the module docstring
     def test_r02d_a_project_can_withdraw_its_own_general_record_when_another_project_reused_the_key(self):
         """Related write-path check (same root cause): project one withdraws its own general record after project two wrote a newer
         general record with the same --key."""

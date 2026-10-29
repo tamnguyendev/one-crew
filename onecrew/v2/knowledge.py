@@ -322,12 +322,50 @@ def _concerns(item, cons):
     paths = list(item['applies_to']) + list(sources)
     return any(_covers(a, p) or _covers(p, a) for a in paths for p in cons['paths'])
 
-def ledger_id(key, visibility=None, root=None):
+def project_tag(project):
+    """The mark of another project in a knowledge id: the first 12 characters of its id (a hash of its path, nothing of the path itself)."""
+    return str(project or '')[:12]
+
+
+def ledger_id(key, visibility=None, root=None, project=None, reader=None):
     """The id a ledger subject is known by. A project-visible subject is one per project (`ctx-<key>`); a root's working memory is
-    one per root (`ctx-<key>.r<root>`), so the two never stand for each other. Lessons keep their logical id."""
+    one per root (`ctx-<key>.r<root>`), so the two never stand for each other. Lessons keep their logical id.
+    Codex dev5 P2-B: a subject belongs to the project that wrote it. The reader's own subjects keep these ids; a general subject of
+    ANOTHER project (`project` != `reader`) is `ctx-<key>@<tag>`: keys cannot hold '@', so it never stands for one of the reader's, and two
+    projects that reuse a --key keep two subjects."""
     if key.startswith('lesson-'): return key
     if visibility == 'root' and root: return f'ctx-{key}.r{str(root)[-8:]}'
+    if project and reader and project != reader: return f'ctx-{key}@{project_tag(project)}'
     return 'ctx-' + key
+
+
+def _in_reader_terms(ref, writer, reader):
+    """A ctx- id that project `writer` stored (a withdrawal or archive target, supersedes, derived_from, conflict_with), as `reader` knows
+    that subject: the writer named its own subject, so for another reader it is the writer's (P2-B)."""
+    if not isinstance(ref, str) or not ref.startswith('ctx-') or '@' in ref or not writer or not reader or writer == reader: return ref
+    return f'{ref}@{project_tag(writer)}'
+
+
+FORMAT = 3          # knowledge payload format: 3 = references name subjects exactly (P2-B); <= 2 = written before, one namespace per key
+
+
+def _legacy_aliases(newest, versions, reader):
+    """References in the reader's own records written before P2-B (format <= 2: a supersedes, derived_from or conflict_with): `ctx-<key>`
+    then stood for the newest record with that key the reader could see, its own or another project's general record. Each such reference
+    keeps that meaning: the subject among them whose newest version written before the referencing record is the newest. Nothing written
+    after the reference can take it over; a reference that named nothing still names nothing."""
+    others = {}
+    for ident, c in newest.items():
+        if '@' in ident and c['scope'] == 'general': others.setdefault(ident.rsplit('@', 1)[0], []).append(ident)
+    if not others: return
+    for c in newest.values():
+        if c.get('project') != reader or (c.get('format') or 0) >= FORMAT: continue
+        for field in ('derived_from', 'supersedes', 'conflict_with'):
+            resolved = []
+            for ref in c[field]:
+                pool = [i for i in [ref] + others.get(ref, []) if any(s < c['seq'] for s in versions.get(i, ()))]
+                resolved.append(max(pool, key=lambda i: max(s for s in versions[i] if s < c['seq'])) if pool and ref in others else ref)
+            c[field] = resolved
 
 
 def _wiki_candidates(ledger, problems, coverage=None):
@@ -373,18 +411,19 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
         entries = context.retrieve(ledger, scope='both', limit=None, raw=True)['entries']
     except (LedgerError, OSError) as error:
         problems.append({'path': 'ledger', 'problem': 'context entries unreadable: ' + str(error)[:160], 'ledger_unreadable': True}); return []
-    newest, locations = {}, _lesson_locations(ledger)
+    newest, versions, locations = {}, {}, _lesson_locations(ledger)
     for e in entries:
         try:
             p = e.get('payload') or {}
             if e['kind'] == 'task_done': continue                   # engine progress bookkeeping; the node's inputs carry provenance
             k = p.get('knowledge') if isinstance(p.get('knowledge'), dict) else {}
-            key, root = e['key'], p.get('task')
+            key, root, writer = e['key'], p.get('task'), p.get('project')
             visibility = k.get('visibility') or ('project' if key.startswith('lesson-') else 'root')
-            ident = ledger_id(key, visibility, root)
+            ident = ledger_id(key, visibility, root, writer, ledger.project_id)
             if k.get('withdraws') or k.get('archives'):
-                if lifecycle is not None:
-                    lifecycle.append({'id': ident, 'withdraws': k.get('withdraws'), 'archives': k.get('archives'), 'reason': k.get('reason'),
+                if lifecycle is not None:              # P2-B: the target is the writer's own subject
+                    lifecycle.append({'id': ident, 'withdraws': _in_reader_terms(k.get('withdraws'), writer, ledger.project_id),
+                                      'archives': _in_reader_terms(k.get('archives'), writer, ledger.project_id), 'reason': k.get('reason'),
                                       'root': root, 'event': e['event'], 'project': p.get('project'), 'scope': e['scope'], 'visibility': visibility,
                                       'text_sha': k.get('text_sha'), 'version': e['id']})
                 continue
@@ -400,15 +439,20 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
                          'kind': k.get('kind') or ('lesson' if key.startswith('lesson-') else e['kind'] if e['kind'] in wiki.KINDS else 'note'),
                          'label': e['stored_label'] if e['stored_label'] != 'stale' else 'observed', 'must': bool(k.get('must')),
                          'status': 'active', 'title': (k.get('title') or e['text'])[:80], 'text': e['text'], 'sources': sources, 'conditions': conditions,
-                         'applies_to': k.get('applies_to') or [], 'supersedes': k.get('supersedes') or [], 'derived_from': k.get('derived_from') or [],
+                         'applies_to': k.get('applies_to') or [],
+                         'supersedes': [_in_reader_terms(s, writer, ledger.project_id) for s in k.get('supersedes') or []],
+                         'derived_from': [_in_reader_terms(s, writer, ledger.project_id) for s in k.get('derived_from') or []],
                          'ledger_id': None, 'visibility': visibility, 'scope': e['scope'], 'root': root, 'project': p.get('project'),
                          'recorded_revision': p.get('revision_ref'), 'seq': e['event'], 'scope_paths': k.get('scope_paths') or [],
-                         'conflict_with': k.get('conflict_with') or [], 'contradicts': k.get('contradicts') or [], 'evidence': k.get('evidence'),
-                         'version': e['id'], 'ledger_stale': e['stale_reason'] if e['label'] == 'stale' else None}
+                         'conflict_with': [_in_reader_terms(s, writer, ledger.project_id) for s in k.get('conflict_with') or []],
+                         'contradicts': k.get('contradicts') or [], 'evidence': k.get('evidence'),
+                         'version': e['id'], 'ledger_stale': e['stale_reason'] if e['label'] == 'stale' else None, 'format': k.get('version')}
         except (KeyError, TypeError, ValueError, AttributeError):
             problems.append({'path': 'ledger', 'problem': 'a context entry could not be read'}); continue
+        versions.setdefault(ident, []).append(candidate['seq'])
         if ident not in newest or newest[ident]['seq'] < candidate['seq']:
             newest[ident] = candidate                               # an older version of the same subject (any root) is history
+    _legacy_aliases(newest, versions, ledger.project_id)
     return sorted(newest.values(), key=lambda c: c['seq'])
 
 
@@ -1101,7 +1145,7 @@ def record(ledger, plan, *, kind, text, evidence, applies_to=(), conditions=(), 
     state, selector = _open_root(ledger, plan)
     key = key or content_hash(['k2', visibility, ledger.project_id if visibility == 'project' else state['task_id'], scope, kind,
                                ' '.join(text.casefold().split())])[:24]
-    extra = {'version': 2, 'kind': kind if _lifecycle is None else 'note', 'visibility': visibility, 'applies_to': applies,
+    extra = {'version': FORMAT, 'kind': kind if _lifecycle is None else 'note', 'visibility': visibility, 'applies_to': applies,
              'conditions': typed_conditions, 'must': bool(must), 'supersedes': list(supersedes), 'derived_from': list(derived_from),
              'contradicts': list(contradicts), 'sources': sources, 'title': title, 'scope_paths': sorted(set(scope_paths)),
              'applies_pins': _pins(ledger, applies, files) if scope == 'project' else [],
