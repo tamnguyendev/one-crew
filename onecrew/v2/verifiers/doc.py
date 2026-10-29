@@ -442,11 +442,12 @@ def _entries(parsed, config):
 
 
 def _bare_candidates(rest):
-    """The locators a source line written without a link may mean. A line that names a path is checked on that path, alone: its first word when that is
-    a path (a slash, or a name with an extension that does not start with a dot), else its first later word with a slash, else its first later name
-    with an extension; such a path is reported when it is missing or leaves the project, whatever else the line names (F-R01). Only a line that names
-    no path at all gives its dot-led words (.gitignore, .env, .NET), in order, and _check_sources takes the first of them that is there, so a prose
-    word (.csv, .NET) never hides a path and a dotfile named after words is still found (DX-R02, D-R06, E-R05)."""
+    """The locators a source line written without a link may mean. A line that names a path is checked on that path, alone (F-R01): its first word when
+    that is a path, else its first later word that looks like a path (a slash and a file name, a folder ending in a slash, ./ or ../), else its first
+    later file name, else its first word with a slash; a file name has an extension after its first character, with a letter in it, so .env.example
+    is one (G-R02) and .NET, .gitignore, v1.2 are not, and CI/CD or km/h before the path do not hide it (G-R01). Such a path is reported when it is
+    missing or leaves the project, whatever else the line names. Only a line that names no path at all gives its dot-led words (.gitignore, .env,
+    .NET), in order, and _check_sources takes the first of them that is there (DX-R02, D-R06, E-R05)."""
     words = []
     for raw in rest.replace('`', ' ').split():
         word = raw.lstrip(',;:()<>—–').rstrip('.,;:()<>—–')          # a leading dot is part of the path: ../x, ./x, .github/x, .env.example
@@ -456,11 +457,12 @@ def _bare_candidates(rest):
         if word: words.append(word)
     if not words: return []
     slashed = lambda w: '/' in w or '\\' in w
-    named = lambda w: re.search(r'\.\w{1,8}(#\S*)?$', w) is not None
+    named = lambda w: re.search(r'[^./\\]\.(?=\w*[^\W\d_])\w{1,8}(#\S*)?$', w) is not None
+    pathish = lambda w: slashed(w) and (named(w) or w.endswith(('/', '\\')) or w.startswith(('./', '../', '.\\', '..\\')))
     first, later = words[0], words[1:]
-    if slashed(first) or (named(first) and not first.startswith('.')): return [first]
-    path = next((w for w in later if slashed(w)), None) or next((w for w in later if named(w) and not w.startswith('.')), None)
-    if path: return [path]
+    if pathish(first) or named(first): return [first]
+    for group in ([w for w in later if pathish(w)], [w for w in later if named(w)], [w for w in words if slashed(w)]):
+        if group: return [group[0]]
     return list(dict.fromkeys(w for w in words if w.startswith('.')))
 
 

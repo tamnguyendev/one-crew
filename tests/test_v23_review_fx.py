@@ -749,6 +749,36 @@ class RoundFourDocs(unittest.TestCase):
                 self.assertIn(problem, failing['sources'][0])
 
 
+class RoundFiveDocs(RoundFourDocs):
+    """The check of 3f3edb7 (review-fx.md, "Check of 3f3edb7"; probes test_v23_review_check4_probes.py of the reviewer)."""
+
+    def setUp(self):
+        super().setUp()
+        for rel in ('README.md', 'notes.txt', 'data.xlsx'): (self.root / rel).write_text('x\n', encoding='utf-8')
+
+    def test_f01_a_line_that_names_a_path_is_checked_on_that_path(self):
+        pass                                                                   # run once, in RoundFourDocs
+
+    def test_s05_dot_led_words_and_dotfiles(self):
+        pass                                                                   # run once, in RoundFourDocs
+
+    def test_g02_a_word_that_only_looks_like_a_path_does_not_hide_the_path_the_line_names(self):
+        """G-R01: a prose word with a slash (CI/CD, km/h) or a version number (v1.2) is not taken for the path the line names after it."""
+        for line in ('- [S1] hướng dẫn CI/CD: docs/guide.md', '- [S1] dữ liệu và/hoặc tóm tắt: sources/notes.txt', '- [S1] phiên bản v1.2, xem notes.txt',
+                     '- [S1] đo bằng km/h trong sources/notes.txt'):
+            with self.subTest(line=line):
+                self.assertEqual(self.page(line)[0], {})
+
+    def test_g03_a_missing_dotfile_with_an_extension_is_reported_although_a_later_dotfile_is_there(self):
+        """G-R02: a dot-led name with an extension (.env.example, .env.local) is a path of its own, checked on its own."""
+        for line in ('- [S1] mẫu cấu hình .env.example (thêm vào .gitignore)', '- [S1] mẫu .env.local hoặc .env'):
+            with self.subTest(line=line):
+                (self.root / '.env.example').unlink(missing_ok=True)
+                failing, _ = self.page(line)
+                self.assertIn('sources', failing)
+                self.assertIn('file not found', failing['sources'][0])
+
+
 class DeltaIds(IdsTree):
     def test_i03_the_case_rule_is_the_flag_s_not_casefold(self):
         """D-R08: with (?i), ids differing in case are one id, as the regex flag sees them; STRASSE and STRAẞE stay two."""
