@@ -32,7 +32,7 @@ import time
 from pathlib import Path, PurePosixPath
 
 from ...ledger import LedgerError, canonical, utcnow
-from ...snapshots import Snapshots, safe_file, scoped_path
+from ...snapshots import Snapshots, control_part, safe_file, scoped_path
 from . import command, artifact
 
 BUILTIN = ('doc', 'data', 'ops')            # shipped adapters; no task-type branch in the lifecycle
@@ -139,6 +139,29 @@ def normalize(name, config, label):
 
 # ---- what the adapter is given ---------------------------------------------------------------------------------------------
 
+def _leaves(text):
+    """Does this path text leave the checkout (not a string, empty, absolute, a drive, a backslash, a `..` component), rather than name
+    something inside it?"""
+    return (not isinstance(text, str) or not text or '\\' in text or text.startswith('/') or re.match(r'[A-Za-z]:', text) is not None
+            or '..' in text.split('/'))
+
+
+def kept_reason(text):
+    """Why the snapshot rules (scoped_path) keep this path INSIDE the checkout from every reader, or None: a path that leaves the checkout is
+    not kept, it is outside. Only the name is judged; nothing is read."""
+    if _leaves(text): return None
+    try:
+        scoped_path(text)
+        return None
+    except LedgerError:
+        pass
+    if any(control_part(part) for part in text.split('/')):
+        return 'a control or credential path (.git, .onecrew, .ssh, .aws, .env*): its content is never read'
+    if len(text) > 240:
+        return 'longer than 240 characters, a path an adapter may not read'
+    return 'a name an adapter may not read (a Windows device name, a reserved character, an empty part or a trailing dot or space)'
+
+
 class Port:
     """The only door from an adapter to anything. Every refusal raises AdapterViolation and is also kept (so a refusal the adapter swallows
     is still recorded)."""
@@ -149,7 +172,7 @@ class Port:
         self._adapter = adapter
         self._clock = clock
         self._deadline = clock() + self._grant['max_minutes'] * 60
-        self._violations, self._retries, self._calls, self._read, self._listing = [], 0, 0, set(), None
+        self._violations, self._retries, self._calls, self._read, self._listing, self._kept = [], 0, 0, set(), None, set()
 
     # read-only views of what was granted
     @property
@@ -180,24 +203,56 @@ class Port:
             text = scoped_path(rel)
             target = safe_file(self._root, text)
         except LedgerError:
-            self._refuse('read', 'read_scope', f'{str(rel)[:200]!r} is outside the checkout of the artifact; an adapter reads inside it only')
+            kept = kept_reason(rel)
+            why = (f'is {kept}' if kept else 'goes through a link or a junction, or resolves outside the checkout; an adapter reads inside the checkout only'
+                   if not _leaves(rel) else 'is outside the checkout of the artifact; an adapter reads inside it only')
+            self._refuse('read', 'read_scope', f'{str(rel)[:200]!r} {why}')
         return target, PurePosixPath(text).as_posix()
 
     def files(self):
-        """Every file of the checkout (posix paths relative to the workspace), sorted. A path that differs only in case is another path."""
+        """Every file of the checkout an adapter may read (posix paths relative to the workspace), sorted. A path that differs only in case is
+        another path. A name the snapshot rules keep from every reader (kept_reason: .env*, .git, .onecrew, .ssh, .aws, a device name, a path over
+        240 characters) is left out, a folder with what it holds, and does not stop the run (beta report B5, 29/10): reading it is still refused.
+        A link or a junction still stops the run."""
+        def withheld(rel):              # a name found by the walk is inside the checkout: any refusal of the snapshot rules keeps it
+            try:
+                scoped_path(rel)
+                return False
+            except LedgerError:
+                return True
         if self._listing is None:
-            found = []
+            found, kept = [], set()
             for base, dirs, names_ in os.walk(self._root):
                 self._tick()
-                for name in dirs + names_:
-                    self._safe((Path(base) / name).relative_to(self._root).as_posix())
+                here = Path(base).relative_to(self._root)
+                for name in list(dirs):
+                    rel = (here / name).as_posix()
+                    if withheld(rel): kept.add(rel); dirs.remove(name)           # not walked: nothing below it is listed or read
+                    else: self._safe(rel)
                 for name in names_:
-                    found.append((Path(base) / name).relative_to(self._root).as_posix())
+                    rel = (here / name).as_posix()
+                    if withheld(rel): kept.add(rel); continue
+                    self._safe(rel)
+                    found.append(rel)
                     if len(found) > MAX_FILES: raise Inconclusive(f'more than {MAX_FILES} files in the checkout')
-            self._listing = sorted(found)
+            self._listing, self._kept = sorted(found), kept
         return list(self._listing)
 
+    def _kept_exists(self, key):
+        """Does the kept path `key` exist? Answered from the walk, or below a kept folder that was not walked from the disk without following a
+        link; nothing is opened."""
+        self.files()
+        if key in self._kept or any(k.startswith(key.rstrip('/') + '/') for k in self._kept): return True
+        if not any(key.startswith(k + '/') for k in self._kept): return False
+        target = self._root
+        for part in key.split('/'):
+            target = target / part
+            if target.is_symlink() or (hasattr(target, 'is_junction') and target.is_junction()): return False
+        return target.exists()
+
     def exists(self, rel):
+        """Is `rel` a file or a folder of the checkout? A kept name (see files) is answered by name only: its content is not read."""
+        if kept_reason(rel): return self._kept_exists(PurePosixPath(rel).as_posix())
         _, key = self._safe(rel)
         listing = self.files()
         if key in set(listing): return True

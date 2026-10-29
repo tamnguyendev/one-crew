@@ -16,6 +16,13 @@ MAX_FILE = 2_000_000
 MAX_TOTAL = 16_000_000
 MAX_EVIDENCE = 64_000_000
 EVIDENCE_CHUNK = 1_000_000
+CONTROL_NAMES = ('.git', '.onecrew', '.ssh', '.aws')        # path components no snapshot carries ...
+CREDENTIAL_PREFIX = '.env'                                   # ... nor any component that starts with this
+
+
+def control_part(part):
+    """Is this one path component a control or credential name (`.git`, `.onecrew`, `.ssh`, `.aws`, `.env*`, any case)?"""
+    return part.lower() in CONTROL_NAMES or part.lower().startswith(CREDENTIAL_PREFIX)
 
 
 def scoped_path(value):
@@ -27,7 +34,7 @@ def scoped_path(value):
                 re.search(r'[<>:"|?*\x00-\x1f]', part) or
                 re.fullmatch(r'(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?', part, re.I)):
             raise LedgerError('Unsafe scope path.')
-        if part.lower() in ('.git', '.onecrew', '.ssh', '.aws') or part.lower().startswith('.env'):
+        if control_part(part):
             raise LedgerError('Control or credential paths cannot enter worker snapshots.')
     if PurePosixPath(value).is_absolute():
         raise LedgerError('Absolute scope paths are forbidden.')

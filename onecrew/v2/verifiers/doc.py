@@ -198,7 +198,7 @@ class Parsed:
                 self.links.append((number, match.group(2).strip('<>')))
             for match in REF_USE.finditer(clean):
                 label = (match.group(2) or match.group(1)).strip().casefold()
-                self.links.append((number, ('ref', label)))
+                self.links.append((number, ('ref', label, match.group(1).strip(), match.group(2).strip())))
 
     def body_lines(self):
         return [(n, _strip_code(r)) for n, r, code in self.lines if not code]
@@ -233,6 +233,12 @@ class Folder:
     def exists(self, path):
         if BAD_NAME.search(path): return False
         return path in self.files or any(f.startswith(path.rstrip('/') + '/') for f in self.files)
+
+    def kept(self, path):
+        """(exists, why) for a path the core keeps from every reader (port.kept_reason: .env*, .git, ...), else None. Such a file is never in the
+        listing and never read, so a link or a source naming it is checked by name only (beta report B5)."""
+        why = port.kept_reason(path)
+        return None if why is None else (self.box.exists(path), why)
 
 
 def _locate(base, target):
@@ -346,9 +352,12 @@ def _check_sources(entry, parsed, folder, unverified):
             problems.append(f'{where}: source {name} {item["locator"]} is not a file or an http(s) address')
         else:
             root = posixpath.normpath(item['locator'].partition('#')[0].replace('\\', '/').lstrip('/'))
-            found = next((c for c in (resolved, root) if not c.startswith('..') and folder.exists(c)), None)
+            candidates = [c for c in (resolved, root) if not c.startswith('..')]
+            found = next((c for c in candidates if folder.exists(c)), None)
             if found is None:
-                problems.append(f'{where}: source {name} {item["locator"]}: file not found ({resolved})')
+                hidden = next(((c, kept[1]) for c in candidates for kept in [folder.kept(c)] if kept and kept[0]), None)
+                if hidden: unverified.add(f'{where}: source {name} {item["locator"]}: {hidden[0]} is {hidden[1]}; it exists, what it says is not checked')
+                else: problems.append(f'{where}: source {name} {item["locator"]}: file not found ({resolved})')
                 continue
             bad = _anchor_problem(folder, found, anchor, where, item['locator'])
             if bad: problems.append(bad.replace('link ', f'source {name} ', 1))
@@ -358,10 +367,13 @@ def _check_sources(entry, parsed, folder, unverified):
     return list(dict.fromkeys(problems)), checked
 
 
-def _check_links(path, parsed, folder, unverified):
+def _check_links(path, parsed, folder, unverified, cite=None):
+    """`cite`: the citation pattern of the document's sources, or None. `[S21][S20]` where both brackets are citations is two citations (the
+    sources check reads them so), not a reference link labelled S20 (beta report B3); a document without sources keeps the Markdown rule."""
     problems, checked = [], 0
     targets = [(n, t) for n, t in parsed.links if not isinstance(t, tuple)]
-    for number, (ref, label) in [(n, t) for n, t in parsed.links if isinstance(t, tuple)]:
+    for number, (_, label, text, name) in [(n, t) for n, t in parsed.links if isinstance(t, tuple)]:
+        if cite and name and re.fullmatch(cite, text) and re.fullmatch(cite, name): continue
         found = parsed.refdefs.get(label)
         if found is None: problems.append(f'{path}:{number}: reference [{label}] is used but never defined')
     targets += [(n, t) for n, t in parsed.refdefs.values()]
@@ -373,7 +385,9 @@ def _check_links(path, parsed, folder, unverified):
         if kind == 'web': unverified.add(f'{where}: {target} (not checked: no network)')
         elif kind == 'outside': problems.append(f'{where}: link {target} leaves the project ({why}), outside the checkout')
         elif kind == 'file':
-            if not folder.exists(resolved): problems.append(f'{where}: link {target} points to {resolved}, which does not exist')
+            kept = None if folder.exists(resolved) else folder.kept(resolved)
+            if kept and kept[0]: unverified.add(f'{where}: link {target}: {resolved} is {kept[1]}; it exists, what it says is not checked')
+            elif not folder.exists(resolved): problems.append(f'{where}: link {target} points to {resolved}, which does not exist')
             else:
                 bad = _anchor_problem(folder, resolved, anchor, where, target)
                 if bad: problems.append(bad)
@@ -444,7 +458,7 @@ def run(config, box):
     if config['links']:
         found, count = [], 0
         for path, (entry, parsed) in ready.items():
-            more, seen = _check_links(path, parsed, folder, unverified)
+            more, seen = _check_links(path, parsed, folder, unverified, entry['sources']['cite'] if entry['sources'] else None)
             found += more; count += seen
         checks.append({'id': 'links', 'ok': not found, 'checked': count, 'problems': found})
     if config['ids']:
