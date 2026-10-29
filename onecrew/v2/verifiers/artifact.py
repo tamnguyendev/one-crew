@@ -69,6 +69,11 @@ def _paths(directory):
             raise LedgerError('Artifact snapshot exceeds the existing 200-file scope limit.')
         if len(kept) > 200:
             raise LedgerError('Artifact snapshot leaves out more than 200 control or credential names.')
+    for rel in kept:
+        try:
+            rel.encode('utf-8')
+        except UnicodeEncodeError:                             # it is named in the identity, so it must be text (review FX-R05); 4bb41b3 refused it too
+            raise LedgerError('Artifact holds a control or credential name that is not valid Unicode; rename or remove it.') from None
     shared = next((rel for rel in paths if (root / rel).stat().st_nlink > 1), None) if kept else None
     if shared:
         raise LedgerError(f'{shared!r} has more than one name on the disk (a hard link) and the folder holds control or credential names '
@@ -90,8 +95,8 @@ def _manifest(directory):
 
 
 def identity(directory):
-    """Read a current artifact id; keeps command.artifact_sha semantics for Git."""
-    return command.artifact_sha(directory) if is_git(directory) else content_hash(_manifest(directory))
+    """Read a current artifact id; keeps command.artifact_sha semantics for Git, refusing a tree that would take a hard-linked file (verified_sha)."""
+    return command.verified_sha(directory) if is_git(directory) else content_hash(_manifest(directory))
 
 
 def capture(ledger, directory, scratch):

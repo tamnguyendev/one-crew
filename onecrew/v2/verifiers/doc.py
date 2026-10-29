@@ -438,9 +438,14 @@ def _entries(parsed, config):
                 web = URL.search(rest)
                 if web: locator = web.group(0).rstrip('.,;')
                 else:
+                    later = False
                     for token in rest.replace('`', ' ').split():
-                        token = token.strip('.,;:()<>—–')
-                        if token and ('/' in token or re.search(r'\.\w{1,8}(#\S*)?$', token)):
+                        token = token.lstrip(',;:()<>—–').rstrip('.,;:()<>—–')       # a leading dot is part of the path: ../x, ./x, .github/x, .env.example
+                        if token.startswith('...'): token = token.lstrip('.')          # an ellipsis is not
+                        if not token: continue
+                        if later and token.startswith('.') and not re.search(r'[\\/]', token): continue   # after other words, .NET or .csv is a word (DX-R02)
+                        later = True
+                        if '/' in token or re.search(r'\.\w{1,8}(#\S*)?$', token):
                             locator = token
                             break
         entries.append({'id': match.group(1).strip(), 'line': number, 'locator': locator})
@@ -469,8 +474,10 @@ def _check_sources(entry, parsed, folder, unverified):
         elif kind == 'other':
             problems.append(f'{where}: source {name} {item["locator"]} is not a file or an http(s) address')
         else:
-            root = posixpath.normpath(item['locator'].partition('#')[0].replace('\\', '/').lstrip('/'))
-            candidates = [c for c in (resolved, root) if not c.startswith('..')]
+            written = item['locator'].partition('#')[0].replace('\\', '/')
+            root = posixpath.normpath(written.lstrip('/'))
+            here = written.startswith(('./', '../'))           # written relative to the document: only there, a root file of that name is another (DX-R01)
+            candidates = [c for c in ((resolved,) if here else (resolved, root)) if not c.startswith('..')]
             found = next((c for c in candidates if folder.exists(c)), None)
             if found is None:
                 hidden = next(((c, kept) for c in candidates for kept in [folder.kept(c)] if kept and kept[0]), None)
@@ -525,6 +532,10 @@ def _check_ids(spec, folder, names):
     except LedgerError as error:                       # a pattern stored by a plan approved before it was refused at propose
         return [f'{spec["name"]}: {error}'], 0
     problems, defined, where_, blind = [], {}, spec['defined_in'] or names, False
+    key, written = _id_key(spec['pattern']), {}        # one id, however it is written (FX-R04), and how it was first written, for the problems
+    def named(found):
+        written.setdefault(key(found), found)
+        return key(found)
     for path in where_:
         if path not in folder.files:
             problems.append(f'{spec["name"]}: definition file {path} is not in the artifact')
@@ -537,9 +548,9 @@ def _check_ids(spec, folder, names):
         if parsed is None: continue
         for number, text in parsed.body_lines():
             match = start.match(text)
-            if match: defined.setdefault(tidy(match.group(1)), []).append(f'{path}:{number}')
+            if match: defined.setdefault(named(tidy(match.group(1))), []).append(f'{path}:{number}')
     for name, spots in sorted(defined.items()):
-        if len(spots) > 1: problems.append(f'{spec["name"]}: {name} is defined twice ({", ".join(spots)})')
+        if len(spots) > 1: problems.append(f'{spec["name"]}: {written[name]} is defined twice ({", ".join(spots)})')
     used = {}
     for path in names:
         parsed = folder.parsed.get(path)
@@ -548,10 +559,25 @@ def _check_ids(spec, folder, names):
             head = start.match(text)
             for match in use.finditer(text):
                 if head and match.start() == head.start(1) and path in where_: continue        # this occurrence is the definition itself
-                used.setdefault(tidy(match.group(0)), f'{path}:{number}')
+                used.setdefault(named(tidy(match.group(0))), f'{path}:{number}')
     for name, spot in sorted(used.items()):
-        if name not in defined and not blind: problems.append(f'{spot}: {name} is used but never defined ({spec["name"]})')
+        if name not in defined and not blind: problems.append(f'{spot}: {written[name]} is used but never defined ({spec["name"]})')
+    if not defined and not used and not problems:     # a check that examined nothing proves nothing: never a pass (review FX-R02)
+        problems.append(f'{spec["name"]}: no id of the pattern {spec["pattern"]!r} was found in the documents, so this check examined nothing. An id '
+                        'stands alone (no letter, digit, _ or - right before or after it): a pattern that needs one there (a lookbehind, a lookahead '
+                        'or \\B at its edge) never finds one.')
     return problems, len(defined) + len(used)
+
+
+def _id_key(pattern):
+    """How two ids found with `pattern` are one id: as written, or regardless of case when the pattern starts with a global (?i) (review FX-R04).
+    A scoped (?i:..) leaves them as written, as the rest of the pattern does."""
+    flags, body = '', pattern
+    while True:
+        found = ID_FLAGS.match(body)
+        if not found: break
+        flags, body = flags + found.group(1), body[found.end():]
+    return str.casefold if 'i' in flags else str
 
 
 def run(config, box):

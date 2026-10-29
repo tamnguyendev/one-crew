@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -24,7 +25,7 @@ OUTPUT_CAP = 1_000_000
 TREE_ID = re.compile(r'[0-9a-f]{40}|[0-9a-f]{64}')          # the only shape of a tree id that is ever given to git
 
 
-def _git(directory, *args, env=None, input=None):
+def _git(directory, *args, env=None, input=None, raw=False):
     # F8: the caller's GIT_DIR / GIT_WORK_TREE / ... never reach git; only what this module sets (GIT_INDEX_FILE) does
     clean = {k: v for k, v in os.environ.items() if not k.upper().startswith('GIT_')}
     done = subprocess.run(['git', '-C', str(directory), *args], capture_output=True, env=dict(clean, **{k: v for k, v in (env or {}).items() if k.upper().startswith('GIT_')}), timeout=120,
@@ -32,7 +33,7 @@ def _git(directory, *args, env=None, input=None):
     if done.returncode:
         reason = done.stderr.decode('utf-8', 'replace') if isinstance(done.stderr, bytes) else str(done.stderr or '')
         raise LedgerError('git ' + ' '.join(args[:2]) + ' failed: ' + reason[:300])
-    return done.stdout.decode('utf-8', 'replace').strip()
+    return done.stdout if raw else done.stdout.decode('utf-8', 'replace').strip()
 
 
 def toplevel(directory):
@@ -50,6 +51,38 @@ def artifact_sha(directory):
         _git(top, 'add', '-A', env=env)
         _git(top, 'rm', '-r', '--cached', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)  # hook files (.onecrew/) are not part of the artifact
         return _git(top, 'write-tree', env=env)
+
+
+def hard_links(directory):
+    """The working-tree files that the tree of artifact_sha takes (what HEAD holds and what is untracked but not ignored, outside .onecrew) and
+    that have another name on the disk (a hard link). That other name may be one every reader is kept from, an ignored `.env`: `git add -A` would
+    hash its content into the tree under the ordinary name, and every verifier would read it in the checkout, where the link count is 1 (review
+    FX-R01). Every such file is looked at, whatever the stat data of an index says; names and link counts only, nothing is read."""
+    top = Path(_git(directory, 'rev-parse', '--show-toplevel'))
+    with tempfile.TemporaryDirectory() as temp:
+        env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
+        _git(top, 'read-tree', 'HEAD', env=env)
+        names = _git(top, 'ls-files', '-z', '--cached', '--others', '--exclude-standard', env=env, raw=True).decode('utf-8', 'surrogateescape').split('\0')
+    found = []
+    for name in names:
+        if not name or name == '.onecrew' or name.startswith('.onecrew/'): continue
+        try:
+            status = os.lstat(top / name)
+        except (OSError, ValueError):
+            continue                                    # gone from the working tree: nothing of it goes into the tree
+        if stat.S_ISREG(status.st_mode) and status.st_nlink > 1: found.append(name)
+    return sorted(set(found))
+
+
+def verified_sha(directory):
+    """artifact_sha for a verifier: a working tree whose tree would take a file that has another name on the disk is refused, before git hashes it
+    (hard_links). The run stops with the reason; it cannot go on without that file, as a tree that leaves it out is another artifact."""
+    linked = hard_links(directory)
+    if linked:
+        more = f' (and {len(linked) - 1} more)' if len(linked) > 1 else ''
+        raise LedgerError(f'{linked[0]!r}{more} has more than one name on the disk (a hard link): the other name may be a control or credential file '
+                          '(.env), whose content a verifier would read under this one. Replace the link with a copy, or move it out, and run again.')
+    return artifact_sha(directory)
 
 
 def tracked_tree(directory):
@@ -223,7 +256,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, evidence_context
     argv, limit = milestone['verifier']['config']['argv'], milestone['verifier']['config']['max_minutes']
     directory = Path(directory).resolve()
     if not directory.is_dir(): raise LedgerError('Verifier working directory does not exist: ' + str(directory))
-    before = artifact_sha(directory)
+    before = verified_sha(directory)
     scratch = tempfile.mkdtemp(prefix='ocv-')
     try:
         return _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, before, scratch, evidence_context,
