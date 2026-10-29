@@ -732,6 +732,22 @@ class RoundFourDocs(unittest.TestCase):
         failing, _ = self.page('- [S1] tài liệu .csv không có ở đây')
         self.assertIn('.csv: file not found', failing['sources'][0])       # a dot-word with nothing there: reported, never a pass
 
+    def test_f01_a_line_that_names_a_path_is_checked_on_that_path(self):
+        """F-R01 (the delta review of 726aacf): a missing path written after a description is reported even when a later word names a file that is there;
+        a path that leaves the project is reported; only a line that names no path at all tries its dot-led words."""
+        (self.root / 'README.md').write_text('# R\n', encoding='utf-8')
+        (self.root / 'data.xlsx').write_text('x', encoding='utf-8')
+        for line, problem in (('- [S1] ghi chú về sources/missing.txt, xem README.md', 'sources/missing.txt: file not found'),
+                              ('- [S1] tóm tắt reports/q3.md (bản gốc trong data.xlsx)', 'reports/q3.md: file not found'),
+                              ('- [S1] bản tóm tắt reports/missing.md, dữ liệu .env', 'reports/missing.md: file not found'),
+                              ('- [S1] cấu hình config/app.yaml dựa trên .gitignore', 'config/app.yaml: file not found'),
+                              ('- [S1] tham khảo ../../../outside.md và README.md', 'leaves the project'),
+                              ('- [S1] ghi chú về missing.txt, xem README.md', 'missing.txt: file not found')):
+            with self.subTest(line=line):
+                failing, _ = self.page(line)
+                self.assertIn('sources', failing)
+                self.assertIn(problem, failing['sources'][0])
+
 
 class DeltaIds(IdsTree):
     def test_i03_the_case_rule_is_the_flag_s_not_casefold(self):

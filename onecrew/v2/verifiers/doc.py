@@ -442,10 +442,11 @@ def _entries(parsed, config):
 
 
 def _bare_candidates(rest):
-    """The locators a source line written without a link may mean, best first. Its first word, alone, when that is a path (a slash, or a name with an
-    extension that does not start with a dot); else a dot-led first word (.gitignore, .NET), then the later words with a slash, the later names with an
-    extension, the later dot-led words. _check_sources takes the first of them that is there, so a prose word (.csv, .NET, .parquet) never stands in
-    for a path that is, and a dotfile named after words (.env, .DS_Store) is still found (DX-R02, D-R06, E-R05)."""
+    """The locators a source line written without a link may mean. A line that names a path is checked on that path, alone: its first word when that is
+    a path (a slash, or a name with an extension that does not start with a dot), else its first later word with a slash, else its first later name
+    with an extension; such a path is reported when it is missing or leaves the project, whatever else the line names (F-R01). Only a line that names
+    no path at all gives its dot-led words (.gitignore, .env, .NET), in order, and _check_sources takes the first of them that is there, so a prose
+    word (.csv, .NET) never hides a path and a dotfile named after words is still found (DX-R02, D-R06, E-R05)."""
     words = []
     for raw in rest.replace('`', ' ').split():
         word = raw.lstrip(',;:()<>—–').rstrip('.,;:()<>—–')          # a leading dot is part of the path: ../x, ./x, .github/x, .env.example
@@ -458,9 +459,9 @@ def _bare_candidates(rest):
     named = lambda w: re.search(r'\.\w{1,8}(#\S*)?$', w) is not None
     first, later = words[0], words[1:]
     if slashed(first) or (named(first) and not first.startswith('.')): return [first]
-    found = ([first] if first.startswith('.') else []) + [w for w in later if slashed(w)]
-    found += [w for w in later if named(w) and not w.startswith('.')] + [w for w in later if w.startswith('.')]
-    return list(dict.fromkeys(found))
+    path = next((w for w in later if slashed(w)), None) or next((w for w in later if named(w) and not w.startswith('.')), None)
+    if path: return [path]
+    return list(dict.fromkeys(w for w in words if w.startswith('.')))
 
 
 def _source_paths(locator, resolved):
