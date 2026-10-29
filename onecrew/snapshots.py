@@ -53,15 +53,28 @@ def scope_list(paths):
     return paths
 
 
+class ControlAlias(LedgerError):
+    """The NAME passed scoped_path, but on disk it reaches a control or credential path: a Windows short (8.3) name such as ENV~1.EXA for
+    `.env.example` or GIT~1 for `.git`."""
+
+
+def is_link(path):
+    """Is this path a symbolic link or, on Windows, a junction? Neither is followed by a snapshot, a checkout listing or an adapter."""
+    return path.is_symlink() or (hasattr(path, 'is_junction') and path.is_junction())
+
+
 def safe_file(root, name):
     name = scoped_path(name)
     target = root
     for part in name.split('/'):
         target = target / part
-        if target.is_symlink() or (hasattr(target, 'is_junction') and target.is_junction()):
+        if is_link(target):
             raise LedgerError('Snapshot paths cannot traverse links or junctions.')
-    if not target.resolve().is_relative_to(root.resolve()):
+    top, real = root.resolve(), target.resolve()
+    if not real.is_relative_to(top):
         raise LedgerError('Snapshot path escaped root.')
+    if any(control_part(part) for part in real.relative_to(top).parts):          # judged by what the name reaches, not by how it is spelled
+        raise ControlAlias('Control or credential paths cannot enter worker snapshots (this name reaches one, a Windows short name).')
     return target
 
 

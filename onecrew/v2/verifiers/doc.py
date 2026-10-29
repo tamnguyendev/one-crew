@@ -9,7 +9,8 @@ Config (the adapter's own keys; `authority` is the core's):
            headings  [ "Text" | {text, level} ]    each must exist (outside code blocks); `ordered` makes their order matter
            tables    [ {under: "Heading", columns: [...]} ]   a table under that heading whose header holds the columns, in that order
            sources   {section, min, cite, external}   `section` lists the sources as `[S1] <path or link> - ...`; every id cited in the
-                      text (`cite` is the id pattern, default S\\d+) must have an entry, every entry a locator, a local locator must exist
+                      text (`cite` is the id pattern, default S\\d+; a citation is a `[label]` that it accepts in full, so `[S1]` is one
+                      and `[ S1 ]` is not) must have an entry, every entry a locator, a local locator must exist
                       (and its #anchor too); `external` is "unverified" (default: an http source is listed, never said to be reachable)
                       or "forbid"
   links  true (default) | false     every internal link and image resolves to a file, and its #anchor to a heading, inside the checkout
@@ -49,6 +50,7 @@ DRIVE = re.compile(r'^[A-Za-z]:[\\/]')
 BAD_NAME = re.compile(r'[<>:"|?*\x00-\x1f]')
 URL = re.compile(r'https?://[^\s<>)\]]+')
 ENTRY = re.compile(r'^\s*(?:[-*+]|\d+[.)])?\s*\[([^\]]+)\]')
+BRACKET = re.compile(r'\[([^\[\]]+)\](?!\()')            # a bracketed label that is not the text of an inline link: a citation if `cite` accepts it in full
 
 
 # ---- the contract form ----------------------------------------------------------------------------------------------------
@@ -198,7 +200,7 @@ class Parsed:
                 self.links.append((number, match.group(2).strip('<>')))
             for match in REF_USE.finditer(clean):
                 label = (match.group(2) or match.group(1)).strip().casefold()
-                self.links.append((number, ('ref', label, match.group(1).strip(), match.group(2).strip())))
+                self.links.append((number, ('ref', label, ((match.start(), match.end(1) + 1), (match.start(2) - 1, match.end())))))     # where the brackets stand
 
     def body_lines(self):
         return [(n, _strip_code(r)) for n, r, code in self.lines if not code]
@@ -295,6 +297,18 @@ def _check_structure(entry, parsed):
     return problems, checked
 
 
+def _citations(parsed, heading, body, cite):
+    """[(label, line number, (start, end))]: the ids cited in the text outside the sources section, as the sources check reads them. A citation is a
+    `[label]` (not the text of an inline link) whose WHOLE label the compiled pattern `cite` accepts: the pattern is applied to the label alone
+    (fullmatch, as to the entries of the section), so an anchored or flagged pattern means what it says, and a padded `[ S1 ]` is not a citation."""
+    skip = {n for n, _ in body} | ({heading['line']} if heading else set())
+    found = []
+    for number, text in parsed.body_lines():
+        if number in skip or REF_DEF.match(text): continue
+        found += [(m.group(1), number, m.span()) for m in BRACKET.finditer(text) if cite.fullmatch(m.group(1))]
+    return found
+
+
 def _entries(parsed, config):
     """(entries, citations) of one document: the `[S1] locator` lines of its sources section, and the ids cited in the text outside it."""
     heading, body = parsed.section(config['section'])
@@ -320,13 +334,7 @@ def _entries(parsed, config):
                             locator = token
                             break
         entries.append({'id': match.group(1).strip(), 'line': number, 'locator': locator})
-    skip = {n for n, _ in body} | ({heading['line']} if heading else set())
-    cited = []
-    for number, text in parsed.body_lines():
-        if number in skip or REF_DEF.match(text): continue
-        for match in re.finditer(r'\[(' + config['cite'] + r')\](?!\()', text):
-            cited.append((match.group(1), number))
-    return heading, entries, cited
+    return heading, entries, [(label, number) for label, number, _ in _citations(parsed, heading, body, cite)]
 
 
 def _check_sources(entry, parsed, folder, unverified):
@@ -367,13 +375,19 @@ def _check_sources(entry, parsed, folder, unverified):
     return list(dict.fromkeys(problems)), checked
 
 
-def _check_links(path, parsed, folder, unverified, cite=None):
-    """`cite`: the citation pattern of the document's sources, or None. `[S21][S20]` where both brackets are citations is two citations (the
-    sources check reads them so), not a reference link labelled S20 (beta report B3); a document without sources keeps the Markdown rule."""
+def _check_links(path, parsed, folder, unverified, sources=None):
+    """`sources`: the sources config of the document, or None. `[S21][S20]` where both brackets are citations is two citations, not a reference link
+    labelled S20 (beta report B3) -- but only where the sources check itself reads both brackets as citations of that line (_citations), so a
+    pair is never lost between the two checks (review R9, R13, 29/10). Whatever it does not read keeps the Markdown rule: a padded `[ S9 ]`, a
+    bracket the pattern does not accept in full, a pair inside the sources section, a document without sources."""
     problems, checked = [], 0
+    cited = set()
+    if sources:
+        heading, body = parsed.section(sources['section'])
+        cited = {(number, span) for _, number, span in _citations(parsed, heading, body, re.compile(sources['cite']))}
     targets = [(n, t) for n, t in parsed.links if not isinstance(t, tuple)]
-    for number, (_, label, text, name) in [(n, t) for n, t in parsed.links if isinstance(t, tuple)]:
-        if cite and name and re.fullmatch(cite, text) and re.fullmatch(cite, name): continue
+    for number, (_, label, brackets) in [(n, t) for n, t in parsed.links if isinstance(t, tuple)]:
+        if cited and all((number, span) in cited for span in brackets): continue
         found = parsed.refdefs.get(label)
         if found is None: problems.append(f'{path}:{number}: reference [{label}] is used but never defined')
     targets += [(n, t) for n, t in parsed.refdefs.values()]
@@ -458,7 +472,7 @@ def run(config, box):
     if config['links']:
         found, count = [], 0
         for path, (entry, parsed) in ready.items():
-            more, seen = _check_links(path, parsed, folder, unverified, entry['sources']['cite'] if entry['sources'] else None)
+            more, seen = _check_links(path, parsed, folder, unverified, entry['sources'])
             found += more; count += seen
         checks.append({'id': 'links', 'ok': not found, 'checked': count, 'problems': found})
     if config['ids']:
