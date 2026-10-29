@@ -122,6 +122,7 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 29/10 10:55–11:41 | sửa F1–F3, hồi quy 331 test (3 expected failure F4), công cụ gói dev5, snapshot | `9a2b453`, `cecc09b`, `b3ecc57` |
 | 29/10 11:41–11:50 | gói `2.3.0.dev5`: kiểm từ artifact 12/12, diễn tập README 9/9, task đầu tiên 23/23; CLI cài dev3 8 → dev4 2 → dev5 0 lỗi | BAO-CAO-2.3-DEV5 §5 |
 | 29/10 11:41–15:43 | gate snapshot 2.2 trên `b3ecc57`: 286/286 check đạt (2 097 test, 0 skip); quyết định `refused`: 23 khoảng trống ngoài như beta, kit-guard đạt (U1) | `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261029-b3ecc57`; BAO-CAO-2.3-DEV5 §5.5 |
+| 29/10 15:58–16:02 | chủ sở hữu tự chạy thử gói `2.3.0.dev5` từ terminal của mình: kiểm 12/12, task đầu tiên 21/21 với bước duyệt plan chạy thật trên sổ tạm (không phải nghiệm thu) | `D:\OneCrewRuns\v23 thu cua anh dev5 20261029-155825` |
 
 ## 7. Review Codex 28/10 và sửa
 

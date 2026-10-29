@@ -124,6 +124,7 @@ Mỗi bản ghi nêu `authorized_by` = chỉ thị 29/10 (trích nguyên văn) v
 
 - **README của gói — 9/9** (các khối PowerShell của README; log `D:\OneCrewRuns\v23 drill dev5\drill.txt`): hash khớp, bộ kiểm 12/12, venv có dấu cách + cài wheel + `--help` có `wiki`, quay về `2.2.0.dev18`, lên lại `2.3.0.dev5`.
 - **Task đầu tiên từ gói — 23/23** (`verify/first_task_drill.py`, phần A với `claude` giả, venv mới, gói không đổi; log `D:\OneCrewRuns\v23 task dau tien dev5 ai\drill\first-task-drill-log.json`). Chạy trong phiên AI: bước duyệt plan `onecrew owner approve` của README bị từ chối đúng thiết kế, nên được thay bằng fixture có nhãn; không phải hành động của chủ sở hữu.
+- **Chủ sở hữu tự chạy từ terminal của mình** (29/10 15:58–16:02, `D:\OneCrewRuns\v23\thu-goi-dev5.ps1`, kết quả `D:\OneCrewRuns\v23 thu cua anh dev5 20261029-155825`): bộ kiểm 12/12; task đầu tiên 21/21 bước bắt buộc với `owner_step_mode: real`, `in_ai_session: false`, không bước nào bị thay. Lệnh `onecrew owner approve P1` của README chạy đúng như viết, trên **sổ tạm của diễn tập**; gói không đổi. Lần chạy này khép giới hạn "bước duyệt được thay bằng fixture" của lượt diễn tập trong phiên AI. Đây là chủ sở hữu tự thử trên sổ tạm, không phải nghiệm thu, cũng không phải duyệt plan trên sổ thật.
 
 ### 5.4 Phản chứng P2 qua CLI cài, cùng kịch bản
 
