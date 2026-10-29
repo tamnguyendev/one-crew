@@ -18,6 +18,7 @@ import json
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -554,14 +555,14 @@ class DeltaHardLinks(DeltaRepo):
         self.assertFalse(has_object(self.root, secret_blob(self.root)))
 
     def test_h06_a_hard_link_made_during_a_command_run_is_never_hashed_into_a_pinned_tree(self):
-        """D-R05: the after-identity is made the way the before one is."""
+        """D-R05: the after-identity is made the way the before one is, so the tree it would hash is never made; since E-R01 the run is kept as an
+        inconclusive receipt (test_s01)."""
         from onecrew.v2 import verdict
         argv = [sys.executable, '-c', f'import os; os.link({str(self.root / ".env")!r}, {str(self.root / "docs" / "late.md")!r})']
         ledger = Ledger(self.root, self.base / 'state')
         plans = self.plan(ledger, {'type': 'command', 'config': {'argv': argv}}); plans.approve(ledger, 'P1', 'owner', 'probe fixture')
-        with self.assertRaises(LedgerError) as caught:
-            verdict.run(ledger, 'P1', 'M1')
-        self.assertIn('hard link', str(caught.exception))
+        self.assertEqual(verdict.run(ledger, 'P1', 'M1')['milestones'][0]['last_verdict']['result'], 'inconclusive')
+        self.assertFalse(objects_holding(self.root, TOKEN))
         refs = [line.split() for line in git(self.root, 'for-each-ref', '--format=%(refname) %(objectname)').splitlines() if 'onecrew' in line.lower()]
         for ref, tree in refs:
             shown = subprocess.run(['git', '-C', str(self.root), 'cat-file', '-p', f'{tree}:docs/late.md'], capture_output=True, text=True)
@@ -642,6 +643,94 @@ class DeltaDocs(unittest.TestCase):
                 self.assertEqual(self.page(line)[0], {})
         failing, _ = self.page('- [S1] .../guide.md — an ellipsis glued to a path')
         self.assertNotIn('(guide.md)', json.dumps(failing, ensure_ascii=False))
+
+
+class RoundFour(DeltaRepo):
+    """The second delta review (review-fx.md, "Delta review of 376654d"; probes test_v23_review_delta2_probes.py of the reviewer)."""
+
+    def test_s01_a_link_made_by_the_command_gives_an_inconclusive_receipt_and_the_next_run_goes_on(self):
+        """E-R01: the command ran, so its result is kept: inconclusive with the reason, never a lost run that holds the milestone."""
+        from onecrew.v2 import verdict
+        argv = [sys.executable, '-c', f'import os; print("ran"); os.link({str(self.root / ".env")!r}, {str(self.root / "docs" / "late.md")!r})']
+        ledger = Ledger(self.root, self.base / 'state')
+        plans = self.plan(ledger, {'type': 'command', 'config': {'argv': argv}}); plans.approve(ledger, 'P1', 'owner', 'probe fixture')
+        first = verdict.run(ledger, 'P1', 'M1')['milestones'][0]['last_verdict']
+        self.assertEqual(first['result'], 'inconclusive')
+        body = json.loads(Snapshots(ledger.state_root).read_blob(first['receipt']))
+        self.assertIsNone(body['artifact_sha_after']); self.assertIn('hard link', body['error'])
+        (self.root / 'docs' / 'late.md').unlink()
+        self.assertIn(verdict.run(ledger, 'P1', 'M1')['milestones'][0]['last_verdict']['result'], ('pass', 'fail', 'inconclusive'))
+
+    def test_s01b_the_after_identity_of_an_adapter_check_is_kept_the_same_way(self):
+        calls = []
+        real = artifact.verified_identity
+        def second_refused(directory):
+            calls.append(directory)
+            if len(calls) > 1: raise command.HardLinked('docs/late.md has more than one name on the disk (a hard link)')
+            return real(directory)
+        with patch.object(artifact, 'verified_identity', second_refused):
+            _, receipt = port.run(Ledger(self.root, self.base / 'state'), 'P1', 1, 'a' * 64,
+                                  milestone('doc', {'docs': ['docs/guide.md'], 'links': True}), self.root)
+        self.assertEqual(port.expected_result(receipt), 'inconclusive')
+        self.assertIsNone(receipt['artifact_sha_after']); self.assertIn('hard link', receipt['error'])
+
+    def test_s02_a_tracked_path_under_a_folder_that_became_a_directory_symlink_is_not_refused(self):
+        """E-R02: git stores the folder as a link and hashes nothing behind it; only a junction refuses the names below it."""
+        (self.root / 'vendor').mkdir(); (self.root / 'vendor' / 'lib.txt').write_text('v\n', encoding='utf-8'); commit(self.root, 'vendor')
+        outside = self.base / 'shared-vendor'; outside.mkdir(); (outside / 'lib.txt').write_text('v\n', encoding='utf-8')
+        (self.root / 'vendor' / 'lib.txt').unlink(); (self.root / 'vendor').rmdir()
+        try:
+            os.symlink(outside, self.root / 'vendor', target_is_directory=True)
+        except OSError as error:
+            self.skipTest(f'this account cannot create a symbolic link: {error}')
+        self.assertEqual(command.hard_links(self.root), [])
+        self.assertTrue(command.verified_sha(self.root))
+
+    def test_s06_a_hard_link_at_a_path_python_cannot_stat_plainly_is_still_refused(self):
+        """E-R04: beyond MAX_PATH (LongPathsEnabled 0, core.longpaths in the repository) the name is examined through the \\\\?\\ prefix."""
+        if os.name != 'nt': self.skipTest('MAX_PATH is a Windows limit')
+        git(self.root, 'config', 'core.longpaths', 'true')
+        deep = 'docs/' + '/'.join(['d' * 50] * 5) + '/notes-with-a-long-name.md'
+        prefix = '\\\\?\\'
+        target = prefix + str(self.root / deep).replace('/', '\\')
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        self.addCleanup(shutil.rmtree, prefix + str(self.root / 'docs' / ('d' * 50)), True)      # the temporary folder's own cleanup cannot reach it
+        os.link(prefix + str(self.root / '.env'), target)
+        self.assertGreater(len(str(self.root / deep)), 260)
+        self.assertIn(deep, command.hard_links(self.root))
+        with self.assertRaises(LedgerError):
+            command.verified_sha(self.root)
+
+
+class RoundFourDocs(unittest.TestCase):
+    """E-R05: a bare source line names the first of its readings that is there."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / 'tree'
+        for rel, text in (('.env', SECRET), ('.env.example', SECRET), ('.gitignore', '*.tmp\n'), ('.DS_Store', 'x'), ('.vscode/settings.json', '{}'),
+                          ('data/x.parquet', 'p'), ('sources/notes.txt', 'n\n'), ('docs/guide.md', '# G\n')):
+            path = self.root / rel; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(text, encoding='utf-8', newline='\n')
+
+    def page(self, line):
+        path = self.root / 'docs' / 'sub' / 'page.md'; path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('# Page\n\nText [S1].\n\n## Nguồn\n\n' + line + '\n', encoding='utf-8', newline='\n')
+        box = port.Port(self.root, port.authority(None, 'test'), 'doc')
+        report = doc.run(doc.validate_config(DX_CONFIG, 'probe'), box)
+        return {c['id']: c['problems'] for c in report['checks'] if not c['ok']}, report
+
+    def test_s05_dot_led_words_and_dotfiles(self):
+        for line in ('- [S1] bảng .parquet: data/x.parquet', '- [S1] bảng .jsonl: sources/notes.txt', '- [S1] tệp ẩn .DS_Store',
+                     '- [S1] cấu hình trong .vscode', '- [S1] .NET guide: sources/notes.txt', '- [S1] quy tắc bỏ qua .gitignore', '- [S1] .gitignore'):
+            with self.subTest(line=line):
+                self.assertEqual(self.page(line)[0], {})
+        for line in ('- [S1] mẫu .env', '- [S1] mẫu cấu hình .env.example'):
+            with self.subTest(line=line):
+                failing, report = self.page(line)
+                self.assertEqual(failing, {})
+                self.assertTrue([n for n in report['unverified'] if 'not checked' in n], report['unverified'])
+        failing, _ = self.page('- [S1] tài liệu .csv không có ở đây')
+        self.assertIn('.csv: file not found', failing['sources'][0])       # a dot-word with nothing there: reported, never a pass
 
 
 class DeltaIds(IdsTree):
