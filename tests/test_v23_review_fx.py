@@ -732,6 +732,52 @@ class RoundFourDocs(unittest.TestCase):
         failing, _ = self.page('- [S1] tài liệu .csv không có ở đây')
         self.assertIn('.csv: file not found', failing['sources'][0])       # a dot-word with nothing there: reported, never a pass
 
+    def test_f01_a_line_that_names_a_path_is_checked_on_that_path(self):
+        """F-R01 (the delta review of 726aacf): a missing path written after a description is reported even when a later word names a file that is there;
+        a path that leaves the project is reported; only a line that names no path at all tries its dot-led words."""
+        (self.root / 'README.md').write_text('# R\n', encoding='utf-8')
+        (self.root / 'data.xlsx').write_text('x', encoding='utf-8')
+        for line, problem in (('- [S1] ghi chú về sources/missing.txt, xem README.md', 'sources/missing.txt: file not found'),
+                              ('- [S1] tóm tắt reports/q3.md (bản gốc trong data.xlsx)', 'reports/q3.md: file not found'),
+                              ('- [S1] bản tóm tắt reports/missing.md, dữ liệu .env', 'reports/missing.md: file not found'),
+                              ('- [S1] cấu hình config/app.yaml dựa trên .gitignore', 'config/app.yaml: file not found'),
+                              ('- [S1] tham khảo ../../../outside.md và README.md', 'leaves the project'),
+                              ('- [S1] ghi chú về missing.txt, xem README.md', 'missing.txt: file not found')):
+            with self.subTest(line=line):
+                failing, _ = self.page(line)
+                self.assertIn('sources', failing)
+                self.assertIn(problem, failing['sources'][0])
+
+
+class RoundFiveDocs(RoundFourDocs):
+    """The check of 3f3edb7 (review-fx.md, "Check of 3f3edb7"; probes test_v23_review_check4_probes.py of the reviewer)."""
+
+    def setUp(self):
+        super().setUp()
+        for rel in ('README.md', 'notes.txt', 'data.xlsx'): (self.root / rel).write_text('x\n', encoding='utf-8')
+
+    def test_f01_a_line_that_names_a_path_is_checked_on_that_path(self):
+        pass                                                                   # run once, in RoundFourDocs
+
+    def test_s05_dot_led_words_and_dotfiles(self):
+        pass                                                                   # run once, in RoundFourDocs
+
+    def test_g02_a_word_that_only_looks_like_a_path_does_not_hide_the_path_the_line_names(self):
+        """G-R01: a prose word with a slash (CI/CD, km/h) or a version number (v1.2) is not taken for the path the line names after it."""
+        for line in ('- [S1] hướng dẫn CI/CD: docs/guide.md', '- [S1] dữ liệu và/hoặc tóm tắt: sources/notes.txt', '- [S1] phiên bản v1.2, xem notes.txt',
+                     '- [S1] đo bằng km/h trong sources/notes.txt'):
+            with self.subTest(line=line):
+                self.assertEqual(self.page(line)[0], {})
+
+    def test_g03_a_missing_dotfile_with_an_extension_is_reported_although_a_later_dotfile_is_there(self):
+        """G-R02: a dot-led name with an extension (.env.example, .env.local) is a path of its own, checked on its own."""
+        for line in ('- [S1] mẫu cấu hình .env.example (thêm vào .gitignore)', '- [S1] mẫu .env.local hoặc .env'):
+            with self.subTest(line=line):
+                (self.root / '.env.example').unlink(missing_ok=True)
+                failing, _ = self.page(line)
+                self.assertIn('sources', failing)
+                self.assertIn('file not found', failing['sources'][0])
+
 
 class DeltaIds(IdsTree):
     def test_i03_the_case_rule_is_the_flag_s_not_casefold(self):
