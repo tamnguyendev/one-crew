@@ -256,22 +256,24 @@ def skeleton_text(name, language):
     return SKELETON_MARK + '\n' + TEXT[SKELETON[name]]['vi' if language == 'vi' else 'en'].format()
 
 
-ALIAS_PART = re.compile(r'[^~]{1,6}~\d+(?:\.[^.]{0,3})?', re.I)       # an 8.3 short name: another spelling of some folder
-
-
 def _is_skeleton(path):
-    """Is this page byte for byte a page init writes (either language, LF or CRLF)? An edited page is the user's (review dev7 R7-10)."""
+    """Is this page init's own: the skeleton text of its name (either language, LF or CRLF), or a prefix of it, empty included (an
+    interrupted write, review dev7 R7-15)? An edited page is the user's (R7-10). Such a page is never rewritten; only missing pages are added.
+    The texts of a released version must stay recognised here if the wording ever changes (2.3.0.dev7 is the first that writes a skeleton)."""
     try:
-        data = Path(path).read_bytes()
+        data = Path(path).read_bytes().replace(b'\r\n', b'\n')
     except OSError:
         return False
-    texts = {skeleton_text(n, language).encode('utf-8') for n in SKELETON_NAMES for language in ('en', 'vi')}
-    return data in texts or data in {t.replace(b'\n', b'\r\n') for t in texts}
+    return any(skeleton_text(Path(path).name, language).encode('utf-8').startswith(data) for language in ('en', 'vi'))
+
+
+DEVICE = re.compile(r'(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?', re.I)      # = snapshots.scoped_path
 
 
 def _spelling(part):
-    """A component Windows reads as another name: a trailing dot or space, a stream (`name:stream`), an 8.3 short name (review dev7 R7-02)."""
-    return part.endswith(('.', ' ')) or ':' in part or bool(ALIAS_PART.fullmatch(part))
+    """A component Windows reads as another name whatever is on disk: a trailing dot or space, a stream (`name:stream`) (review dev7 R7-02).
+    A short (8.3) name is judged by what it resolves to (_path_problem), so a real folder named like one is accepted (R7-19)."""
+    return part.endswith(('.', ' ')) or ':' in part
 
 
 def _guarded(part):
@@ -295,7 +297,9 @@ def _path_problem(root, parts):
     except OSError:
         return 'unlistable'
     if not resolved.is_relative_to(top): return 'link'
-    if any(_guarded(p) for p in list(resolved.relative_to(top).parts) + rest): return 'protected'
+    names = list(resolved.relative_to(top).parts)
+    if [n.casefold() for n in names] != [p.casefold() for p in parts[:len(parts) - len(rest)]]: return 'spelling'   # an 8.3 alias, R7-19
+    if any(_guarded(p) for p in names + rest): return 'protected'
     return None
 
 
@@ -306,7 +310,8 @@ def wiki_plan(root):
     'pages'}: a wiki is there (also a linked one that has pages, R7-09), or several folders or a folder outside the repository are
     configured: nothing is written there (init never picks a folder to write into); {'action': 'refuse', 'reason'}: the configuration or the
     folder cannot be used, init stops with nothing written. A config.json that cannot be read is refused, never overwritten (where.read_config
-    reads it as {}). A rooted path without a drive ('/docs/wiki') is outside the repository, as the reader reads it (R7-03)."""
+    reads it as {}). A rooted path without a drive ('/docs/wiki') is a folder at the drive's root, outside the repository, as the reader reads
+    it: only reused (R7-03, R7-18)."""
     refuse = lambda key, **values: {'action': 'refuse', 'reason': t('wiki.' + key, **values)}
     config = where.config_file(root)
     paths = [DEFAULT_WIKI]
@@ -324,9 +329,11 @@ def wiki_plan(root):
     for raw in paths:
         candidate = Path(raw)
         if candidate.is_absolute(): outside.append(candidate); continue
+        if candidate.root and not candidate.drive: outside.append(root / candidate); continue    # '/x': the drive's root, read as the reader reads it (R7-18)
         parts = [p for p in raw.replace(chr(92), '/').split('/') if p not in ('', '.')]
-        if candidate.anchor or '..' in parts: return refuse('outside', path=raw)          # 'D:x' another drive's folder, '/x' the drive's root
+        if candidate.drive or '..' in parts: return refuse('outside', path=raw)             # 'D:x': a folder of another drive's current directory
         if any(_spelling(p) for p in parts): return refuse('spelling', path=raw)
+        if any(DEVICE.fullmatch(p) for p in parts): return refuse('device', path=raw)      # review dev7 delta N2
         if any(_guarded(p) for p in parts): return refuse('protected', path=raw)
         inside.append((raw, parts))
     if len(paths) > 1 or outside:                      # only reused: every folder must be there

@@ -79,6 +79,8 @@ TEXT = {
                      'vi': 'Không thấy thư mục wiki: {paths}. Khi cấu hình nhiều thư mục, hoặc thư mục ngoài repo, init chỉ dùng thư mục đã có; tạo chúng hoặc sửa .onecrew/config.json.'},
     'wiki.link': {'en': 'The wiki folder {path} is, or goes through, a link or junction; init writes only into real folders of the repository. A shared wiki elsewhere is named by its absolute path in .onecrew/config.json under "wiki": {{"paths": [...]}}.',
                   'vi': 'Thư mục wiki {path} là, hoặc đi qua, một link/junction; init chỉ ghi vào thư mục thật của repo. Wiki dùng chung ở nơi khác được khai bằng đường dẫn tuyệt đối trong .onecrew/config.json, mục "wiki": {{"paths": [...]}}.'},
+    'wiki.device': {'en': 'The wiki folder {path} uses a name Windows keeps for a device (CON, PRN, AUX, NUL, COM1-9, LPT1-9); choose another name.',
+                    'vi': 'Thư mục wiki {path} dùng một tên Windows dành cho thiết bị (CON, PRN, AUX, NUL, COM1-9, LPT1-9); hãy chọn tên khác.'},
     'wiki.spelling': {'en': 'The wiki folder {path} names a folder by another spelling (a trailing dot or space, a stream, an 8.3 short name); write the name as it is on disk.',
                       'vi': 'Thư mục wiki {path} gọi một thư mục bằng cách viết khác (dấu chấm hoặc khoảng trắng ở cuối, stream, tên ngắn 8.3); hãy viết đúng tên trên đĩa.'},
     'wiki.not_folder': {'en': '{path} exists and is not a folder.', 'vi': '{path} đã có và không phải thư mục.'},

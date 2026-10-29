@@ -109,6 +109,12 @@ def main(argv=None):
         from pathlib import Path
         import onecrew
         here = Path(onecrew.__file__).resolve().parent
+        project = here.parent / 'pyproject.toml'
+        if project.is_file():                          # a checkout: its own pyproject, never a stale egg-info beside it (review dev7 R7-14)
+            import re
+            found = re.search(r'(?m)^version = "([^"]+)"', project.read_text(encoding='utf-8', errors='replace'))
+            print(f'onecrew {found.group(1) if found else "unknown"} (checkout: {here.parent})')
+            return 0
         try:
             dist = metadata.distribution('onecrew')
             installed = Path(dist.locate_file('onecrew')).resolve()

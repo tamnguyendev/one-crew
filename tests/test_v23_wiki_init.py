@@ -283,7 +283,7 @@ class Version(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             code = cli.main(['--version'])
         self.assertEqual(code, 0)
-        self.assertRegex(out.getvalue().strip(), r'^onecrew (\d+\.\d+\.\d+\S*( \(installed; the code running is .*\))?|unknown \(not installed: .*\))$')
+        self.assertRegex(out.getvalue().strip(), r'^onecrew (\d+\.\d+\.\d+\S*( \(installed; the code running is .*\)| \(checkout: .*\))?|unknown \(not installed: .*\))$')
 
 
 if __name__ == '__main__':

@@ -220,11 +220,11 @@ Nguồn: chỉ thị dán trong phiên Claude Code 29/10 ("Tiếp quản công v
 | KW-02 | WI-02 | init lần hai sau khi sửa `project.md` | không ghi file nào; hash trang đã sửa giữ nguyên; "không có gì để đổi" |
 | KW-03 | WI-02 | `docs/wiki` đã có trang của người dùng | dùng lại, không thêm file khung |
 | KW-04 | WI-02 | `wiki.paths` là một thư mục trong repo | chưa có thì tạo khung ở đó, có rồi thì dùng lại; không tạo `docs/wiki` |
-| KW-05 | WI-02 | nhiều thư mục, hoặc thư mục ngoài repo | chỉ dùng lại; thiếu một thư mục thì init từ chối (mã 2), không ghi gì; không bao giờ ghi ngoài repo |
+| KW-05 | WI-02 | nhiều thư mục, hoặc thư mục ngoài repo (tuyệt đối, hoặc `/x`: gốc của ổ đĩa, như bộ đọc hiểu) | chỉ dùng lại; thiếu một thư mục thì init từ chối (mã 2), không ghi gì; không bao giờ ghi ngoài repo |
 | KW-06 | WI-02 | `config.json` không đọc được hoặc `wiki` sai dạng | từ chối (mã 2); bytes `config.json` giữ nguyên; không tạo sổ, hook hay wiki |
-| KW-07 | WI-02 | `docs/wiki` hoặc thư mục cha là link/junction | từ chối (mã 2); không ghi trong hay ngoài repo |
+| KW-07 | WI-02 | `docs/wiki` hoặc thư mục cha là link/junction | tới thư mục rỗng hay chưa có: từ chối (mã 2), không ghi trong hay ngoài repo; tới một wiki đã có trang: dùng nguyên, không ghi gì (review dev7 R7-09); không bao giờ ghi xuyên qua link |
 | KW-08 | WI-02 | `docs/wiki` là file; tên file khung là thư mục | từ chối (mã 2), hoặc bỏ qua tên đó; không ghi đè |
-| KW-09 | WI-02 | khởi tạo dở (chỉ có một phần khung) | tạo phần thiếu, giữ bytes phần đã có |
+| KW-09 | WI-02 | khởi tạo dở (chỉ có một phần khung) | trang mang tên khung mà đúng chữ init viết, hoặc là phần đầu của chữ đó (ghi dở, kể cả rỗng): tạo các trang còn thiếu, giữ bytes trang đã có (không viết lại trang dở); trang khung đã sửa là của người dùng (R7-10, R7-15) |
 | KW-10 | WI-02 | ghi khung lỗi giữa chừng (giả lập) | các bước khác xong; mã thoát 3, in file đã ghi và lỗi; chạy lại thì hoàn tất |
 | KW-11 | WI-03 | khung trống | không mục nào được giao (không fact, không must); trang khung không sinh mục, kể cả ví dụ trong README của khung |
 | KW-12 | WI-03 | thêm một mục có nguồn vào wiki do init tạo → task đầu tiên | node có quyền đọc nhận đúng mục (diễn tập task đầu tiên); node không có quyền không nhận (KA-04, V5) |

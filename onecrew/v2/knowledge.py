@@ -1137,14 +1137,17 @@ def _current_id(ledger, store, record, ident):
 def _sealed_hints(store, record):
     """id -> {'event', 'title', 'legacy'} of every entry a sealed package named (delivered, requested, omitted): the origin event when the
     package listed one (delivered and requested rows always, omitted rows from package version 3), the title it showed (60 characters), and
-    whether the package predates version 3 (sealed before 2.3.0.dev7: its plain ids may name another project's subject, KN-1)."""
+    whether the package predates version 3 and names no subject with a tag (sealed before 2.3.0.dev6: its plain ids may name another
+    project's subject, KN-1; a dev6 package that names one already used exact ids, review dev7 R7-16)."""
     try:
         view = json.loads(store.read_blob(record['package'])) if record.get('package') else {}
     except (KeyError, LedgerError, OSError, ValueError, TypeError):
         return {}
-    legacy = not (isinstance(view.get('version'), int) and view['version'] >= 3)
+    rows = (view.get('entries') or []) + (view.get('requested') or []) + ((view.get('omitted') or {}).get('index') or [])
+    tagged = any(isinstance(r, dict) and '@' in str(r.get('id') or '') for r in rows)    # sealed after P2-B (2.3.0.dev6): plain ids are exact (R7-16)
+    legacy = not (isinstance(view.get('version'), int) and view['version'] >= 3) and not tagged
     out = {}
-    for r in (view.get('entries') or []) + (view.get('requested') or []) + ((view.get('omitted') or {}).get('index') or []):
+    for r in rows:
         if not (isinstance(r, dict) and isinstance(r.get('id'), str)) or r['id'] in out: continue
         event = r.get('event') or ((r.get('origin') or {}).get('event') if (r.get('origin') or {}).get('type') == 'ledger' else None)
         out[r['id']] = {'event': event if isinstance(event, int) else None, 'title': str(r.get('title') or '')[:60], 'legacy': legacy}
