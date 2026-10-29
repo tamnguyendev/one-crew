@@ -395,6 +395,14 @@ def judged(ledger, entries, *, drop_lifecycle=False, revision=None, plan=None):
         ident = knowledge.ledger_id(entry['key'], visibility, root)
         shared = entry['scope'] == 'general'
         verdict = general.get(ident) if shared else verdicts.get(root, {}).get(ident)
+        other = None
+        if shared:
+            if status.get(ident, 'active') != 'active':    # review dev4 F1: what the project's lifecycle says is gone stays gone, also
+                continue                                    # for a reader that cannot use the superseder (no --plan: no paths)
+            if verdict is not None and verdict.get('version') not in (None, entry['id']):
+                other, verdict = verdict, None              # F2/F3: the decision judged another record that has the same knowledge id
+        elif verdict is not None and verdict.get('scope') == 'general':
+            other, verdict = verdict, None                  # r03 mirrored: a shared record with this id is not this project entry
         reason = None
         if verdict is not None:
             if verdict['gone']: continue
@@ -402,8 +410,9 @@ def judged(ledger, entries, *, drop_lifecycle=False, revision=None, plan=None):
             if not shared and verdict['root'] != root and verdict['event'] <= entry['event']: reason = None   # the newest version itself
         elif status.get(ident, 'active') != 'active':
             continue
-        elif shared and extra and entry['label'] in ('observed', 'verified', 'refuted'):     # a 2.3 shared record the judgement did not
-            reason = general_failed or 'knowledge state not checked (not judged for this reader)'   # cover is never shown as current
+        elif (shared or other) and extra and entry['label'] in ('observed', 'verified', 'refuted'):   # a 2.3 record the judgement did not
+            reason = (f'not judged: another record (event {other["event"]}) has the same knowledge id {ident}; `onecrew wiki history` '
+                      'lists both' if other else general_failed or 'knowledge state not checked (not judged for this reader)')   # never current
         elif root in failed and extra and entry['label'] in ('observed', 'verified', 'refuted'):   # r2 R2-09: a 2.2 entry is judged on
                                                                                                     # lifecycle only, and that is known
             reason = failed[root]

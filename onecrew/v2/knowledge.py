@@ -1231,7 +1231,7 @@ def for_root(ledger, plan, *, memo=None, revision=None):
     Codex dev3 review P2: the shared (general) records are judged here too, for this reader, by the same decision (applicability,
     certainty), so that `context retrieve` never shows one whose condition is false or cannot be checked as current. `plan` None: the
     reader is the project without a root (no paths, no node; its environment is this process): only the general records are judged.
-    id -> {'gone': lifecycle state or None, 'stale': reason or None, 'use', 'event', 'root'}."""
+    id -> {'gone': lifecycle state or None, 'stale': reason or None, 'use', 'event', 'root', 'version' and 'scope' of the record judged}."""
     if plan is None:
         return _for_reader(ledger, {'project': ledger.project_id, 'plan': None, 'root': None, 'node': None, 'paths': [], 'terms': '',
                                     'environment': _environment(), 'own_root': True}, memo, revision)
@@ -1254,7 +1254,7 @@ def _for_reader(ledger, cons, memo, revision):
         shared = c['scope'] == 'general'
         if cons['root'] is None and not shared: continue
         excluded, applicability = c.get('excluded'), c.get('applicability') or {'state': None, 'reasons': []}
-        base = {'event': c['seq'], 'root': c['root'], 'use': c.get('use')}
+        base = {'event': c['seq'], 'root': c['root'], 'use': c.get('use'), 'version': c.get('version'), 'scope': c['scope']}
         if excluded in GONE: out[c['id']] = dict(base, gone=excluded, stale=None); continue
         if not shared and c['root'] != cons['root']:   # review r1 F7: the newest version of this subject is another root's
             out[c['id']] = dict(base, gone=None, use=None, stale='a newer version of this subject was recorded by another root '
