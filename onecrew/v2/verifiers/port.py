@@ -479,7 +479,7 @@ def _run(ledger, adapter, name, revision, plan_sha, milestone, directory, before
             checks, findings, unverified = _checks(report, box)
         except Inconclusive as unsure:
             error = 'inconclusive: ' + str(unsure)[:280]
-    after = artifact.identity(directory)
+    after = artifact.verified_identity(directory)       # made the way the before one is (review D-R05)
     receipt = {'kind': receipt_kind(adapter.NAME), 'adapter': adapter.NAME, 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
                'config': config, 'cwd': str(directory), 'started': started, 'seconds': round(time.monotonic() - begin, 2),
                'artifact_sha': before, 'artifact_sha_after': after, 'checks': checks, 'findings': findings, 'unverified': unverified,

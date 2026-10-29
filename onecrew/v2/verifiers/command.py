@@ -53,35 +53,75 @@ def artifact_sha(directory):
         return _git(top, 'write-tree', env=env)
 
 
+class HardLinked(LedgerError):
+    """A working-tree name that a verifier's tree would take is a hard link, or is reached through a link or junction (refuse_hard_links)."""
+
+
+REPARSE_LINKS = (0xA0000003, 0xA000000C)               # IO_REPARSE_TAG_MOUNT_POINT (a junction) and IO_REPARSE_TAG_SYMLINK
+
+
+def _is_link(path):
+    """A symbolic link or a junction, by the reparse tag of the entry itself (Path.is_junction needs Python 3.12); a cloud placeholder is neither."""
+    try:
+        status = os.lstat(path)
+    except (OSError, ValueError):
+        return False
+    return stat.S_ISLNK(status.st_mode) or getattr(status, 'st_reparse_tag', 0) in REPARSE_LINKS
+
+
+def _through(top, name):
+    """The first folder on the way to `name` that is a link or a junction, or None."""
+    parts = name.split('/')
+    return next((f for f in ('/'.join(parts[:n]) for n in range(1, len(parts))) if _is_link(top / f)), None)
+
+
 def hard_links(directory):
-    """The working-tree files that the tree of artifact_sha takes (what HEAD holds and what is untracked but not ignored, outside .onecrew) and
-    that have another name on the disk (a hard link). That other name may be one every reader is kept from, an ignored `.env`: `git add -A` would
-    hash its content into the tree under the ordinary name, and every verifier would read it in the checkout, where the link count is 1 (review
-    FX-R01). Every such file is looked at, whatever the stat data of an index says; names and link counts only, nothing is read."""
+    """The working-tree names that a verifier's trees would take from the disk and that are not safe to hash: a file with another name on the disk (a
+    hard link), and a file reached through a folder that is a link or a junction (git walks into a junction as into a folder). That other name or place
+    may be one every reader is kept from, an ignored .env or a home .ssh: `git add` would hash its content into the tree under an ordinary name and
+    every verifier would read it in the checkout, where nothing tells (reviews FX-R01, D-R03). The names are those of HEAD, of the real index (a name
+    added with -f or -N) and the untracked files that are not ignored, .onecrew included (git hashes it before the tree leaves it out, D-R04, D-R05);
+    every one is looked at, whatever the stat data of an index says. Names, link counts and reparse tags only: nothing is read."""
     top = Path(_git(directory, 'rev-parse', '--show-toplevel'))
+    listed = _git(top, 'ls-files', '-z', '--cached', raw=True)                     # the real index
     with tempfile.TemporaryDirectory() as temp:
         env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
         _git(top, 'read-tree', 'HEAD', env=env)
-        names = _git(top, 'ls-files', '-z', '--cached', '--others', '--exclude-standard', env=env, raw=True).decode('utf-8', 'surrogateescape').split('\0')
-    found = []
-    for name in names:
-        if not name or name == '.onecrew' or name.startswith('.onecrew/'): continue
-        try:
-            status = os.lstat(top / name)
-        except (OSError, ValueError):
-            continue                                    # gone from the working tree: nothing of it goes into the tree
-        if stat.S_ISREG(status.st_mode) and status.st_nlink > 1: found.append(name)
-    return sorted(set(found))
+        listed += b'\0' + _git(top, 'ls-files', '-z', '--cached', '--others', '--exclude-standard', env=env, raw=True)
+    found, folders = set(), {}
+    for name in set(listed.decode('utf-8', 'surrogateescape').split('\0')) - {''}:
+        parts = name.split('/')
+        for depth in range(1, len(parts)):
+            folder = '/'.join(parts[:depth])
+            if folder not in folders: folders[folder] = _is_link(top / folder)
+            if folders[folder]:
+                found.add(name)
+                break
+        else:
+            try:
+                status = os.lstat(top / name)
+            except (OSError, ValueError):
+                continue                                # gone from the working tree: nothing of it goes into the tree
+            if stat.S_ISREG(status.st_mode) and status.st_nlink > 1: found.add(name)
+    return sorted(found)
+
+
+def refuse_hard_links(directory):
+    """Raise HardLinked, with the reason and the way out, when hard_links finds a name."""
+    found = hard_links(directory)
+    if found:
+        top = Path(_git(directory, 'rev-parse', '--show-toplevel'))
+        name, more = found[0], f' (and {len(found) - 1} more)' if len(found) > 1 else ''
+        through = _through(top, name)
+        what = f'is reached through {through!r}, a link or junction' if through else 'has more than one name on the disk (a hard link)'
+        raise HardLinked(f'{name!r}{more} {what}: the other name or place may be a control or credential file (.env, .ssh), whose content would be '
+                         'read under this one. Replace it with a copy, or move it out of the working tree, and try again.')
 
 
 def verified_sha(directory):
-    """artifact_sha for a verifier: a working tree whose tree would take a file that has another name on the disk is refused, before git hashes it
-    (hard_links). The run stops with the reason; it cannot go on without that file, as a tree that leaves it out is another artifact."""
-    linked = hard_links(directory)
-    if linked:
-        more = f' (and {len(linked) - 1} more)' if len(linked) > 1 else ''
-        raise LedgerError(f'{linked[0]!r}{more} has more than one name on the disk (a hard link): the other name may be a control or credential file '
-                          '(.env), whose content a verifier would read under this one. Replace the link with a copy, or move it out, and run again.')
+    """artifact_sha for a verifier and for an approval: refused before git hashes anything when hard_links finds a name. The run stops with the reason;
+    it cannot go on without that file, as a tree that leaves it out is another artifact."""
+    refuse_hard_links(directory)
     return artifact_sha(directory)
 
 
@@ -289,7 +329,7 @@ def _run(ledger, name, revision, plan_sha, milestone, directory, argv, limit, be
             out, err = process.communicate()
     except OSError as problem:
         error = f'{type(problem).__name__}: {problem}'[:300]
-    after = artifact_sha(directory)
+    after = verified_sha(directory)                    # made the way the before one is: a link the command made is not hashed into a tree (D-R05)
     store = Snapshots(ledger.state_root)
     receipt = {'kind': 'command-receipt', 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
                'argv': argv, 'cwd': str(directory), 'exit_code': code, 'timed_out': timed_out, 'error': error,

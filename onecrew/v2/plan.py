@@ -386,20 +386,37 @@ def _base_tracked(ledger):
     starts, so no untracked content can be on the base side of it. None outside a Git repository."""
     from .verifiers import command
     try:
-        if command.hard_links(ledger.project): return None        # its content may be a kept file's: not hashed, not pinned (review FX-R01)
+        command.refuse_hard_links(ledger.project)          # its content may be a kept file's: never hashed into a pinned base (review D-R04)
         return command.tracked_tree(ledger.project)
+    except command.HardLinked:
+        raise
     except (LedgerError, OSError, subprocess.SubprocessError):
         return None
 
 
 def _base_artifact(ledger):
-    """The tree the project is in as the owner approves: what a reviewer verifier later diffs against. None outside a Git repository, and None while a
-    file of that tree has a hard link (command.verified_sha, review FX-R01): the reviewer then diffs against the last commit before the approval."""
+    """The tree the project is in as the owner approves: what a reviewer verifier later diffs against. None outside a Git repository. A working tree that
+    holds a hard-linked name (or one reached through a junction) is refused, never approved without a base (command.verified_sha, review D-R02)."""
     from .verifiers import command
     try:
         return command.verified_sha(ledger.project)
+    except command.HardLinked:
+        raise
     except (LedgerError, OSError, subprocess.SubprocessError):
         return None
+
+
+def _refuse_hard_links(ledger):
+    """Before step 0 runs: a Git working tree with a hard-linked name, or one reached through a junction, is not approved. Its base trees would hash
+    that content (maybe a kept .env), and an approval without them would end every reviewer milestone of the plan (review D-R02). The owner replaces
+    the link with a copy and approves again; nothing is recorded until then."""
+    from .verifiers import command
+    try:
+        command.refuse_hard_links(ledger.project)
+    except command.HardLinked:
+        raise
+    except (LedgerError, OSError, subprocess.SubprocessError):
+        pass                                                # not a Git repository, or no commit yet: there is no base tree to make
 
 
 def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, estimate=None):
@@ -425,6 +442,7 @@ def approve(ledger, name, by, reference, revision=None, tick=(), choose=None, es
         if choose is not None and choose != approved.get('chosen'):
             raise LedgerError(f'The choice was made once ({approved.get("chosen")}); changing it needs plan amend (a change request).')
         return show(ledger, name)
+    _refuse_hard_links(ledger)
     from . import root_writer
     with ledger.transaction() as conn:                       # T26 E4: refused before step 0 runs (repeated at the write below)
         root_writer.check_approval(ledger, conn, state, contract)
