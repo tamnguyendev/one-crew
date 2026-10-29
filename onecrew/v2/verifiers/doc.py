@@ -439,7 +439,7 @@ def _entries(parsed, config):
                 if web: locator = web.group(0).rstrip('.,;')
                 else:
                     for token in rest.replace('`', ' ').split():
-                        token = token.strip('.,;:()<>—–')
+                        token = token.lstrip(',;:()<>—–').rstrip('.,;:()<>—–')       # a leading dot is part of the path: ../x, ./x, .github/x, .env.example
                         if token and ('/' in token or re.search(r'\.\w{1,8}(#\S*)?$', token)):
                             locator = token
                             break
