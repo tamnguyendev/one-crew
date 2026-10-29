@@ -115,6 +115,13 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 28/10 23:00–29/10 00:40 | ba vòng review độc lập bản sửa: 18 → 10 → 3 điểm (P1 0; P2 11 → 3 → 0) | `989eb9c`, `522a6c9`, `6a8421d` |
 | 29/10 00:38–01:40 | gói `2.3.0.dev3` từ `0594a43`: kiểm từ artifact 11/11, diễn tập README 9/9, task đầu tiên 23/23; KS-01 song song, KE-01/KE-02 | `66eed3a`, `cbc18d9`; BAO-CAO-2.3-DEV3 §5 |
 | 29/10 00:45–04:19 | gate snapshot 2.2 trên `0594a43`: 286/286 check đạt (2 097 test, 0 skip); quyết định `refused`: 23 khoảng trống ngoài như beta + kit-guard (3 test ghim đã sửa, cần chủ sở hữu) | `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261029-0594a43`; BAO-CAO-2.3-DEV3 §5.5 |
+| 29/10 ~09:00 | Codex review gói `2.3.0.dev3` (`0594a43`): 1 finding P2 (tri thức general chưa xét khả năng áp dụng trong `context retrieve`) | chỉ thị 29/10 |
+| 29/10 09:18–09:34 | testcase đỏ trên `0594a43` (8 test, 12 subtest đỏ); sửa | `6a8e400` |
+| 29/10 09:37 | ghi 3 ngoại lệ U1 theo ủy quyền bằng văn bản 29/10 (chỉ nhánh 2.3) | `26a51c5` |
+| 29/10 09:41–10:55 | gói `2.3.0.dev4` kiểm 12/12; gate trên `84940f7` dừng ở 16/286 vì review độc lập tìm F1–F3 | không bàn giao |
+| 29/10 10:55–11:41 | sửa F1–F3, hồi quy 331 test (3 expected failure F4), công cụ gói dev5, snapshot | `9a2b453`, `cecc09b`, `b3ecc57` |
+| 29/10 11:41–11:50 | gói `2.3.0.dev5`: kiểm từ artifact 12/12, diễn tập README 9/9, task đầu tiên 23/23; CLI cài dev3 8 → dev4 2 → dev5 0 lỗi | BAO-CAO-2.3-DEV5 §5 |
+| 29/10 11:41–15:43 | gate snapshot 2.2 trên `b3ecc57`: 286/286 check đạt (2 097 test, 0 skip); quyết định `refused`: 23 khoảng trống ngoài như beta, kit-guard đạt (U1) | `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261029-b3ecc57`; BAO-CAO-2.3-DEV5 §5.5 |
 
 ## 7. Review Codex 28/10 và sửa
 

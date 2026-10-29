@@ -12,8 +12,7 @@ Người viết: Claude (Opus 5.5), đầu mối triển khai 2.3, 29/10/2026, t
 
 ## 1. Đã sẵn sàng test chưa, trong phạm vi nào
 
-<!-- dev5:verdict -->
-_Ghi sau khi kiểm gói (bản trong checkout)._
+**Sẵn sàng cho Codex review lại**, trong phạm vi dưới đây: phần local đã khép trên snapshot `b3ecc57`, mọi bằng chứng thuộc gói cuối `2.3.0.dev5` (wheel `da500499…`). Gate 2.2 trên snapshot đó: 286/286 check đạt, quyết định `refused` chỉ vì 23 khoảng trống nghiệm thu như beta (không còn vấn đề kit-guard). Đây là tự kiểm của tác giả, không phải Codex chấp thuận, nghiệm thu hay phát hành. Còn mở: F4 (§4) và các mục ở §8.
 
 Phạm vi test như dev3: A1, A2, B trên **bản sao project và state root riêng**, Windows, worker native của engine (Claude Code CLI 2.1.286, subscription); diễn tập dùng `claude` giả. Không dùng với sổ thật hay sổ của task đang chạy.
 
@@ -109,8 +108,47 @@ Mỗi bản ghi nêu `authorized_by` = chỉ thị 29/10 (trích nguyên văn) v
 
 ## 5. Gói, kiểm từ artifact, gate
 
-<!-- dev5:section5 -->
-_Ghi sau khi kiểm gói (bản trong checkout)._
+### 5.1 Gói
+
+`D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev5-final`: 40 file (39 dòng `SHA256SUMS` + chính nó); `manifest.json` → version `2.3.0.dev5`, commit `b3ecc57`, wheel SHA256 `da500499a86daea1635b7ea61c9a77f40a203e2df87fd0653c1db707b7fd8b89`, wheel quay về `onecrew-2.2.0.dev18` SHA256 `0346577e…ef9bd2` (giống từng byte gói beta), `claims` đều `false`. Gói dev2, dev3, dev4 giữ nguyên.
+
+### 5.2 Kiểm từ artifact — 12/12 đạt
+
+29/10 11:41–11:44, `python -I` của Python 3.13.15, thư mục làm việc `D:\OneCrewRuns\v23 thu dev5\verify` (ngoài checkout, có dấu cách), `LOCALAPPDATA`/`APPDATA` riêng; báo cáo `D:\OneCrewRuns\v23 thu dev5\verify\verify-report.json`, log `D:\OneCrewRuns\v23\dev5\logs\verify-dev5-b3ecc57.txt`. V1–V11 như dev3 (§5.2 của báo cáo dev3), cùng kết quả; mới:
+
+| Bước | Kết quả |
+|---|---|
+| **V12 general (P2 Codex dev3)** | CLI của wheel cài: bản ghi general có điều kiện sai, đúng, không kiểm được, đã thu hồi, bị thay thế bằng bản ghi project dẫn file; có và không có `--plan`, scope `general`/`both`, `--revision HEAD`. Điều kiện sai hoặc không kiểm được không hiện là `verified`; bản ghi thu hồi hoặc bị thay không hiện lại (ca F1); bản ghi đúng vẫn `verified`; `wiki show` và `context retrieve` cùng kết luận; lịch sử `superseded`, `verified` |
+
+### 5.3 Diễn tập
+
+- **README của gói — 9/9** (các khối PowerShell của README; log `D:\OneCrewRuns\v23 drill dev5\drill.txt`): hash khớp, bộ kiểm 12/12, venv có dấu cách + cài wheel + `--help` có `wiki`, quay về `2.2.0.dev18`, lên lại `2.3.0.dev5`.
+- **Task đầu tiên từ gói — 23/23** (`verify/first_task_drill.py`, phần A với `claude` giả, venv mới, gói không đổi; log `D:\OneCrewRuns\v23 task dau tien dev5 ai\drill\first-task-drill-log.json`). Chạy trong phiên AI: bước duyệt plan `onecrew owner approve` của README bị từ chối đúng thiết kế, nên được thay bằng fixture có nhãn; không phải hành động của chủ sở hữu.
+
+### 5.4 Phản chứng P2 qua CLI cài, cùng kịch bản
+
+Kịch bản `docs/v23/tools/scenario_codex.py` ca `general` (SHA256 `6ac0c7a1…`, giống bản trong `verify/` của gói), venv sạch có dấu cách ngoài checkout, đếm lỗi bằng oracle `general_problems` của V12:
+
+| Wheel | SHA256 | Lỗi |
+|---|---|---|
+| gói dev3 `2.3.0.dev3` | `30e6b7e6…` | 8 (đỏ: bản ghi general không áp dụng hiện `verified`) |
+| gói dev4 `2.3.0.dev4` | `b3a63d1f…` | 2 (F1: bản ghi bị thay lại hiện khi không `--plan`) |
+| gói dev5 `2.3.0.dev5` | `da500499…` | 0 |
+
+Kết quả: `D:\OneCrewRuns\v23\dev5\cli red dev3`, `cli red dev4`, `cli green dev5 package` (`general-cli.json`).
+
+### 5.5 Gate snapshot 2.2
+
+29/10 11:41–15:43 (4 h 02 m). Một phiên khác chạy gate 2.2 của nó trên `e432be2` cùng lúc (09:56–13:39), sau đó là bundle; cùng bộ test trên máy này chậm hơn sáng 28/10 khoảng gấp đôi. Lệnh `wfkit.development_gate snapshot` chạy trên commit `b3ecc57` trong worktree tách riêng.
+- Kết quả: `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261029-b3ecc57` (`decision.json`, `gate\kitguard.json`, `gate\receipts\`, `gate-run.log`); log lệnh `D:\OneCrewRuns\v23\dev5\logs\gate-snapshot-b3ecc57.txt`.
+- **Snapshot:** `intact: true`; build `dirty: []`; Python 3.13.15.
+- **Check:** 286/286 có receipt, `failed: []`; 217 lượt chạy module khác nhau, 2 097 test đạt, 0 skip, 0 lỗi. Mọi receipt mang commit `b3ecc57` và wheel của gate.
+- **Wheel của gate khác wheel của gói về byte, giống về nội dung:** wheel của gate `a59728f7d05f2f7d5833226bd6f020e574414670fb57dcabbe37a6a93eb5493e` (gate tự dựng từ snapshot); wheel của gói `da500499…` (`build_milestone.py`). Cùng commit và version `2.3.0.dev5`; 132/132 file bên trong giống nhau từng byte. Gate chạy trên wheel của gate; kiểm từ artifact (§5.2), diễn tập (§5.3) và phản chứng CLI (§5.4) chạy trên wheel của gói. Không gọi chúng là cùng một artifact.
+- **Cài và nguồn module:** module nạp từ venv của gate; bản checkout bị từ chối đúng như đối chứng (`gate\install.json`).
+- **Tự kiểm tài liệu T38a:** đạt, 155 phản chứng và 18 đối chứng.
+- **kit-guard: đạt.** Ba ngoại lệ U1 `U1-20261029-V23-PIN-1..3` (§3) được dùng cho đúng ba file ghim; không file ghim nào khác đổi; namespace lineage đạt. Vấn đề kit-guard của gate dev3 không còn.
+- **Quyết định gate: `refused`, 23 vấn đề**, đều là khoảng trống nghiệm thu: 13 `acceptance-partial` và 10 `acceptance-blocked`, giống từng chữ gate beta (`D:\OneCrewRuns\wf-handover-34eb7c4-hs2\gate\gate-decision.json`) và gate dev3. Mỗi khoảng trống cần việc thật ngoài phát triển (lệnh nghiệm thu của chủ sở hữu trên bản giao, pilot thật, provider ngoài). "Check thực thi đạt" ở trên khác quyết định cuối của gate: quyết định vẫn là `refused`.
+- **Gate trên `84940f7` (dev4):** dừng ở 16/286 khi review tìm ra F1; các receipt `error` ghi sau lúc dừng là hệ quả của việc dừng, không tính là đạt hay hỏng (`D:\OneCrewRuns\v23\dev4\logs\gate-84940f7-stopped.txt`).
 
 ## 6. Cách cài và chạy task đầu tiên
 
@@ -130,10 +168,7 @@ Quay về 2.2: wheel `wheel/previous/`, giống từng byte gói beta.
   - checkout `wf-codex` ở `95bb7a6` **đang có thay đổi chưa commit của một phiên khác** (7 file code + `tests/test_wf_r15_beta_signsdk.py`, sửa 09:03–09:14 hôm nay, không phải của tôi; dấu vân tay `D:\OneCrewRuns\v23\dev4\beta-check\wf-codex-before.txt`). Lượt này không đọc, không sửa, không chạy gì trong checkout đó.
   - 09:46: `wf-codex` đã sang `e432be2` ("Round 15 … 2.2.0.dev19", phiên khác commit lúc 09:44); gói beta vẫn 687/687. 2.3 vẫn dựa trên `95bb7a6` (dev18): sửa của dev19 chưa có trong 2.3, wheel quay về là dev18 của gói beta.
   - Trong lúc làm, một phiên khác chạy gate 2.2 của nó trên `e432be2` (`D:\OneCrewRuns\wf-gates\wf-snapshot-gate-20261029-e432be2`); tôi không đụng vào. Máy chịu tải của cả hai gate.
-- **Sau khi làm:**
-
-<!-- dev5:beta-after -->
-_Ghi sau khi kiểm gói (bản trong checkout)._
+- **Sau khi làm (15:44 29/10):** gói `D:\OneCrewRuns\wf-handover-34eb7c4-hs2` 687/687 dòng `SHA256SUMS` khớp, 0 file sửa sau 28/10 13:30; `hook-projects.json` thật vẫn SHA256 `884335df…`, sửa lần cuối 28/10 16:29 (như trước); checkout `wf-codex` ở `1753f77` (lúc 09:46 là `e432be2`; phiên khác commit thêm, tôi không đụng vào).
 
 - **Cách ly:**
   - worktree riêng `wf-v23`, `wf-v23-dev4` (hồi quy trên commit cố định);
@@ -145,5 +180,12 @@ _Ghi sau khi kiểm gói (bản trong checkout)._
 
 ## 8. Còn Blocked và quyết định
 
-<!-- dev5:blocked -->
-_Ghi sau khi kiểm gói (bản trong checkout)._
+- **Còn mở, không bàn giao như đã khép:**
+  - F4 (§4): id tri thức của bản ghi general khi hai project tự đặt cùng `--key`; sửa đúng cần đổi hợp đồng id, để version sau. 3 probe giữ là expected failure.
+  - 23 khoảng trống nghiệm thu, pilot và provider của 2.2 (Partial/Blocked) giữ nguyên.
+  - Sửa của `2.2.0.dev19` (`e432be2`, phiên khác) chưa có trong 2.3 (2.3 dựa trên dev18 `95bb7a6`).
+  - Chưa đo riêng chi phí của lần xét thêm cho bản ghi general khi không có `--plan`.
+- **Cần chủ sở hữu:**
+  - Codex review lại gói `2.3.0.dev5`.
+  - Có đưa dev19 vào nhánh 2.3 trước lượt sau không (đổi baseline: phải chạy lại gate và kiểm gói).
+  - Nghiệm thu, push, tag, phát hành: chưa làm, không thuộc lượt này.
