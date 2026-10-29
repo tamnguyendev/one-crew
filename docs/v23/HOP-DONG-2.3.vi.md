@@ -94,6 +94,9 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | T23-CX-2 | P2-02: ràng buộc bắt buộc không mất vì giới hạn đọc, thứ tự tên, trang hỏng; giữ node trước model khi không xác lập được | T23-PK-F | 3 h | `581fbca`; review r1 18 điểm → `989eb9c`, r2 10 → `522a6c9`, r3 3 → `6a8421d` |
 | T23-CX-3 | P2-03: task đầu tiên chạy được chỉ với gói (hợp đồng/node mẫu, lệnh, đường dẫn, diễn tập từ gói) | T23-PK-F | 2 h | agent riêng (worktree `wf-v23-ft`): `263cd3b`; gộp `ff8452b` |
 | T23-PK-F3 | Gói `2.3.0.dev3`: hồi quy, kiểm từ artifact (11 bước), diễn tập README + task đầu tiên, gate snapshot 2.2 | T23-CX-* | 4 h | BAO-CAO-2.3-DEV3 |
+| T23-CX-4 | Review Codex dev3 P2: bản ghi general không áp dụng hoặc chưa kiểm được điều kiện không hiện như sự thật trong `context retrieve` | T23-PK-F4 | 2 h | `6a8e400`; phản chứng `tests/test_v23_codex_review_dev3.py`, V12 |
+| T23-U1 | U1 hẹp cho 3 test ghim 2.2 đã sửa cho 2.3 (chủ sở hữu ủy quyền bằng văn bản 29/10) | — | 0,5 h | `26a51c5` |
+| T23-PK-F4 | Gói `2.3.0.dev4`: hồi quy, kiểm từ artifact (12 bước), diễn tập README + task đầu tiên, gate snapshot 2.2 | T23-CX-4, T23-U1 | 4 h | BAO-CAO-2.3-DEV4 |
 
 ## 6. Nhật ký tiến độ
 
@@ -130,3 +133,13 @@ Review độc lập bản sửa (agent Opus 5.5, probe ghi thành test, chạy �
 | r3 | `522a6c9` | 3 P3, 0 P1/P2; cả 3 do r2 gây ra | `6a8421d` | `tests/test_v23_review_codex_r3.py` 3/4 fail trước → 4/4 |
 
 Báo cáo review: `D:\OneCrewRuns\v23\review-codex-r1.md`, `-r2.md`, `-r3.md`. Quyết định thiết kế đã chốt qua các vòng: ràng buộc bắt buộc đã biết mà không giao được, hoặc vượt giới hạn dò, thì giữ node trước model; lỗi làm không biết nội dung (thư mục cấu hình mất, config hỏng, trang không đọc được) thì báo trong gói/receipt, không chặn task độc lập; lỗi bất ngờ của lớp chọn chỉ giữ node khi project có khai báo tri thức bắt buộc. Hai probe được chỉnh có ghi lý do: r1-17 (không có `--plan`, `context retrieve` là danh sách cấp project như 2.2 và `wiki history`), r1-c2 (mục 2.2 giữ nhãn khi bước xét lỗi, theo R2-09); KB-06 và R2-04b cùng đạt (tiêu đề chỉ tính vào chữ ký bản sao với mục bắt buộc).
+
+## 8. Review Codex 29/10 trên gói `2.3.0.dev3` và sửa
+
+Nguồn finding: chỉ thị người dùng 29/10 (dán trong phiên), bằng chứng của Codex ở `D:\OneCrewRuns\codex-v23-dev3-review-20261029` (`installed-general-condition-probe.json`, `installed-general-condition-control.json`, `general-condition-probe.json`). Đính chính: §7 hàng P2-01 và báo cáo dev3 §2 nói các đường đọc dùng "cùng một quyết định" — chỉ đúng với tri thức của project/root; bản ghi general chỉ được xét vòng đời.
+
+| Finding | Requirement chạm | Nguyên nhân | Sửa (code) | Testcase đỏ trước → xanh sau | Bằng chứng từ gói |
+|---|---|---|---|---|---|
+| P2 general: `context retrieve` trả bản ghi general có điều kiện sai/không kiểm được là `verified` | A1-R4, A2-R2 | `context.judged` chỉ lấy kết quả `knowledge.for_root` cho mục scope project; mục general chỉ được so với `status_by_id` (vòng đời) | `knowledge.for_root` xét cả bản ghi general cho người đọc (root của `--plan`, hoặc project không root khi không có `--plan`; nhớ kết quả mỗi root trong memo); `context.judged(plan=)` dùng kết quả đó cho mục general; bản ghi 2.3 không được xét thì không hiện như hiện hành; CLI truyền `--plan` | `tests/test_v23_codex_review_dev3.py`: 4 phản chứng đỏ trên code dev3 (12 subtest, `'verified' != 'stale'`; log `D:\OneCrewRuns\v23\dev4\logs\red-0594a43.txt`), 4 đối chứng đạt cả hai bản; CLI wheel dev3 đã cài: 8 lỗi, đối chứng đạt (`D:\OneCrewRuns\v23\dev4\cli red dev3\general-cli.json`) | V12 (`verify/scenario_codex.py general`, CLI cài từ wheel của gói) |
+
+U1 (ngoại lệ kit-guard) cho đúng ba test ghim 2.2 mà 2.3 đã sửa, theo ủy quyền bằng văn bản của chủ sở hữu trong chỉ thị 29/10 (mục 3): `wfkit/u1/U1-20261029-V23-PIN-1..3.json` (`26a51c5`), chỉ trên nhánh 2.3. Trước khi ghi đã kiểm: hash bản `95bb7a6` và bản hiện hành khớp với kit-guard, mỗi file chỉ có một commit sửa từ `95bb7a6` (`f045a0b`, `72b1b22`, `3d96f5b`), diff không xóa kiểm tra, không nới oracle. kit-guard development: từ chối đúng 3 file đó trước, đạt sau (`D:\OneCrewRuns\v23\dev4\u1\kitguard-before.json`, `kitguard-after.json`).

@@ -2,6 +2,12 @@
 
 Người viết: Claude (Opus 5.5), đầu mối triển khai 2.3, đêm 28–29/10/2026, theo chỉ thị người dùng đêm 28/10 ("Tiếp tục làm OneCrew 2.3 đến sáng, ưu tiên sửa hết các finding Codex vừa review…"). Đây là **tự kiểm của tác giả cộng review độc lập bằng agent**, chưa phải Codex review lại, chưa nghiệm thu. Roadmap chung không bị sửa; 2.3 không cộng vào 92 task beta; không push/tag/publish. Báo cáo trước (gói `2.3.0.dev2`, mốc Codex review): [BAO-CAO-2.3-2026-10-28](BAO-CAO-2.3-2026-10-28.vi.md).
 
+**Đính chính 29/10 (sau review Codex trên gói này):** hai tuyên bố dưới đây rộng hơn hành vi thật của gói `2.3.0.dev3`:
+- §2, hàng P2-01 ("dùng cùng một quyết định với gói tri thức") chỉ đúng với tri thức của project/root. `context retrieve` xét bản ghi general (dùng chung) theo vòng đời mà không xét điều kiện áp dụng: bản ghi general `verified` có điều kiện `platform: linux` vẫn hiện `verified` trên Windows, trong khi `wiki show --plan` loại nó là `not_applicable`. Codex tái hiện qua CLI của wheel dev3 đã cài (`D:\OneCrewRuns\codex-v23-dev3-review-20261029\installed-general-condition-*.json`). P2-01 vì vậy chưa khép hết ở gói này.
+- §1 và §8 ("chỉ còn chủ sở hữu quyết U1") không đúng: còn lỗi trên.
+
+Bản sửa, U1 và gói `2.3.0.dev4`: [BAO-CAO-2.3-DEV4-2026-10-29](BAO-CAO-2.3-DEV4-2026-10-29.vi.md). Phần dưới giữ nguyên như lúc giao dev3.
+
 **Bản nào:** bản trong `docs/` của gói là bản lúc dựng gói. Kết quả kiểm gói từ artifact, diễn tập và gate (§5) chỉ có ở bản trong checkout, commit sau khi kiểm: gói không tự chứng nhận chính nó.
 
 | | |
