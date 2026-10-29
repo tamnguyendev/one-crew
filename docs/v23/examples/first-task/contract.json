@@ -1,6 +1,7 @@
 {
   "schema_version": 2,
   "title": "Viết a.txt theo wiki",
+  "origin": {"by": "owner", "at": "ví dụ task đầu tiên của gói OneCrew 2.3", "quote": "Ghi a.txt theo quy ước trong wiki của project."},
   "size": "S",
   "understanding": {
     "restated_goal": "a.txt chứa giá trị mà wiki của project yêu cầu.",
@@ -16,7 +17,7 @@
   "scope": {"owned": ["a.txt"]},
   "non_goals": ["Nothing else"],
   "items": [
-    {"id": "I1", "title": "Write a.txt", "tier": "must", "milestone": "M1"}
+    {"id": "I1", "title": "Write a.txt", "tier": "must", "milestone": "M1", "source": "origin"}
   ],
   "milestones": [
     {"id": "M1", "title": "Value check",

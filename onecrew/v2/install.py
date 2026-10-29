@@ -305,6 +305,12 @@ def wiki_plan(root):
         if is_link(current): return refuse('link', path=raw)
         if not current.exists(): break
         if not current.is_dir(): return refuse('not_folder', path=raw)
+    probe = target
+    while not probe.exists() and probe != root: probe = probe.parent
+    try:                                               # what is_link cannot see (a junction before Python 3.12) still resolves elsewhere
+        if not probe.resolve().is_relative_to(root.resolve()): return refuse('link', path=raw)
+    except OSError as error:
+        return refuse('unlistable', path=raw, why=type(error).__name__)
     if not target.exists(): return {'action': 'create', 'target': target, 'shown': raw, 'names': list(SKELETON_NAMES)}
     try:
         if not target.resolve().is_relative_to(root.resolve()): return refuse('outside', path=raw)

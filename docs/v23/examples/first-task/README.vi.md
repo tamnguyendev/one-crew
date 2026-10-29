@@ -121,7 +121,7 @@ $text = [IO.File]::ReadAllText("$ex\contract.json", [Text.Encoding]::UTF8).Repla
 & $onecrew --project $proj --state-root $ledger plan propose P1 --file "$work\contract.json" --author "first-task-example" --workflow --capability namespaced-storage --capability root-budget --capability internal-plan --capability sequential-engine
 ```
 
-Kỳ vọng: `lint: clean`; `propose` in plan với `"status": "proposed"`. Hợp đồng cho `claude` quyền sửa `a.txt` (và chạy lệnh check); nó **không** cấp `apply_to_project`: kết quả là ứng viên trong sổ, `a.txt` của project vẫn là `base`.
+Vì `init` đã ghi quy tắc của chủ sở hữu (`<sổ>\plans\owner-rules.md`), bước duyệt đòi hợp đồng có `origin` (lời gốc của chủ sở hữu: ai, lúc nào, câu nào) và mỗi item có `source`; hợp đồng mẫu đã có hai trường đó. Kỳ vọng: `lint: clean`; `propose` in plan với `"status": "proposed"`. Hợp đồng cho `claude` quyền sửa `a.txt` (và chạy lệnh check); nó **không** cấp `apply_to_project`: kết quả là ứng viên trong sổ, `a.txt` của project vẫn là `base`.
 
 ## 4. Chủ sở hữu duyệt plan
 

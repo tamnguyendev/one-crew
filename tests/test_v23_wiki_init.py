@@ -194,6 +194,15 @@ class Refuse(Base):
                 self.assertFalse((self.state / 'ledger.sqlite3').exists())
                 os.rmdir(link) if os.name == 'nt' else os.unlink(link)
 
+    def test_kw07_a_junction_the_link_test_cannot_see_still_resolves_outside_and_is_refused(self):
+        outside = self.base / 'elsewhere'; outside.mkdir()
+        self._junction(self.repo / 'docs', outside)
+        with patch.object(install, 'is_link', lambda path: False):                         # Python < 3.12: Path.is_junction does not exist
+            code, out = self.init()
+        self.assertEqual(code, 2, out)
+        self.assertEqual(list(outside.iterdir()), [])
+        os.rmdir(self.repo / 'docs') if os.name == 'nt' else os.unlink(self.repo / 'docs')
+
     def test_kw08_a_file_where_the_folder_should_be_is_refused_and_a_folder_named_like_a_page_is_skipped(self):
         (self.repo / 'docs').mkdir(); (self.repo / 'docs' / 'wiki').write_text('not a folder', encoding='utf-8')
         code, out = self.init()

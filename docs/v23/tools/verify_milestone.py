@@ -276,6 +276,12 @@ def main(pkg, work):
         except Exception as error:                     # an environment failure (git, venv) is a failed step, never a crash of the verifier
             facts, problems = {'error': f'{type(error).__name__}: {str(error)[:300]}'}, ['V15 could not run']
         step('V15-init-wiki', not problems, problems=problems, **facts)
+        try:
+            facts = old_work_cases(work, previous, wheel, pkg)
+            problems = oldwork_problems(facts, manifest)
+        except Exception as error:                     # an environment failure (git, venv) is a failed step, never a crash of the verifier
+            facts, problems = {'error': f'{type(error).__name__}: {str(error)[:300]}'}, ['V16 could not run']
+        step('V16-old-work', not problems, problems=problems, **facts)
     return finish(report, work)
 
 
@@ -510,7 +516,114 @@ def initwiki_problems(f):
     return problems
 
 
-EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 15}
+def _events(state):
+    """[(seq, kind, sha256 of the payload)] of every event of a ledger, read-only."""
+    import sqlite3
+    conn = sqlite3.connect((Path(state) / 'ledger.sqlite3').as_uri() + '?mode=ro', uri=True)
+    try:
+        return [(r[0], r[1], hashlib.sha256((r[2] or '').encode('utf-8')).hexdigest()) for r in conn.execute('SELECT seq, kind, payload FROM events ORDER BY seq')]
+    finally:
+        conn.close()
+
+
+def _first_json(data):
+    text = data.decode('utf-8', 'replace') if isinstance(data, bytes) else data
+    start = text.find('{')
+    try:
+        return json.loads(text[start:]) if start >= 0 else None
+    except ValueError:
+        try:
+            return json.JSONDecoder().raw_decode(text[start:])[0]
+        except ValueError:
+            return None
+
+
+def old_work_cases(work, previous, wheel, pkg):
+    """V16 facts: OLD WORK CONTINUED. With the previous (2.2) wheel, in one venv with spaces: `onecrew init`, the first-task contract proposed and
+    approved (the fixture approval of V4/V8 on the temporary ledger, not an owner approval), the nodes revised, node C stepped by the fake
+    claude and verified. Then this wheel is installed over it (`pip install --force-reinstall`) and `onecrew init` runs again; node I is
+    stepped and verified by this wheel. Every event the 2.2 run wrote must still be there byte for byte, and this wheel's compat scan finds
+    the blocks the 2.2 scanner found on the same ledger before the upgrade, no more (they concern the archived pre-namespace baseline d3120c6)."""
+    base = work / 'old work'
+    if base.exists(): shutil.rmtree(base)
+    base.mkdir()
+    venv = base / 'venv old work'
+    run([sys.executable, '-m', 'venv', venv], check=True)
+    py, scripts = venv / 'Scripts' / 'python.exe', venv / 'Scripts'
+    exe = scripts / 'onecrew.exe'
+    installs = [run([py, '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', w]).returncode
+                for w in (previous, fake_wheel(pkg / 'verify' / 'onecrew_fake_claude.py', base))]
+    project, state = base / 'project old work', base / 'state old work'
+    project.mkdir()
+    for args in (['init', '-q'], ['config', 'user.name', 'v16'], ['config', 'user.email', 'v16@localhost'], ['config', 'core.autocrlf', 'false']):
+        run(['git', '-C', project, *args], check=True)
+    (project / 'a.txt').write_text('base\n', encoding='utf-8'); (project / '.gitignore').write_text('.onecrew/\n.claude/\n', encoding='utf-8')
+    run(['git', '-C', project, 'add', '.'], check=True); run(['git', '-C', project, 'commit', '-qm', 'base'], check=True)
+    policy = base / 'policy right.json'
+    policy.write_text(json.dumps({'target': 'a.txt', 'default': 'right', 'careful': True}), encoding='utf-8')   # 2.2 delivers no knowledge
+    log = base / 'fake.jsonl'
+    env = env_for(base, scripts, ONECREW_FAKE_POLICY=str(policy), ONECREW_FAKE_LOG=str(log))
+    cli = lambda *args: run([exe, '--project', project, '--state-root', state, *args], cwd=base, env=env)
+    version = lambda: run([py, '-I', '-c', 'import importlib.metadata as m; print(m.version("onecrew"))'], text=True, cwd=base).stdout.strip()
+    facts = {'installs_previous': installs, 'version_before': version()}
+    facts['init_previous'] = run([exe, 'init', '--project', project, '--state-root', state, '--yes'], cwd=base, env=env).returncode
+    contract = (pkg / 'examples' / 'first-task' / 'contract.json').read_text(encoding='utf-8').replace('PYTHON_EXE', str(py).replace(chr(92), '/'))
+    (base / 'contract.json').write_text(contract, encoding='utf-8')
+    facts['propose'] = cli('plan', 'propose', 'P1', '--file', base / 'contract.json', '--author', 'v16-old-work', '--workflow', '--capability',
+                           'namespaced-storage', '--capability', 'root-budget', '--capability', 'internal-plan', '--capability', 'sequential-engine').returncode
+    approve = ('import sys; from pathlib import Path; from onecrew.ledger import Ledger; from onecrew.v2 import plan; '
+               'shown = plan.approve(Ledger(Path(sys.argv[1]), Path(sys.argv[2])), "P1", "owner", '
+               '"package step V16 fixture on a temporary ledger, not an owner approval"); print(shown["status"])')
+    facts['approve'] = run([py, '-I', '-c', approve, project, state], cwd=base, env=env, text=True).stdout.strip()
+    facts['revise'] = cli('engine', 'revise', 'P1', '--file', pkg / 'examples' / 'first-task' / 'nodes.json').returncode
+    step = _first_json(cli('engine', 'step', 'P1').stdout) or {}
+    facts['step_c_previous'] = [step.get('node'), step.get('state')]
+    facts['verify_c_previous'] = (_first_json(cli('engine', 'verify', 'P1', 'C').stdout) or {}).get('result')
+    facts['compat_previous'] = (_first_json(cli('compat', 'scan', '--json').stdout) or {}).get('blocking')     # the 2.2 scanner on its own ledger
+    before = _events(state)
+    facts['upgrade'] = run([py, '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', '--force-reinstall', wheel]).returncode
+    facts['version_after'] = version()
+    facts['init_this'] = run([exe, 'init', '--project', project, '--state-root', state, '--yes'], cwd=base, env=env).returncode
+    facts['wiki'] = _files(project / 'docs' / 'wiki')
+    scan = _first_json(cli('compat', 'scan', '--json').stdout) or {}
+    facts['compat_blocking'] = scan.get('blocking')
+    step = _first_json(cli('engine', 'step', 'P1').stdout) or {}
+    facts['step_i_this'] = [step.get('node'), step.get('state')]
+    facts['verify_i_this'] = (_first_json(cli('engine', 'verify', 'P1', 'I').stdout) or {}).get('result')
+    shown = cli('engine', 'state', 'P1').stdout.decode('utf-8', 'replace')
+    facts['state_counts'] = {'verified': shown.count('"verified"'), 'pass': shown.count('"pass"')}
+    after = _events(state)
+    facts['events_previous'] = len(before)
+    facts['previous_events_kept'] = after[:len(before)] == before
+    facts['events_added'] = len(after) - len(before)
+    try:
+        facts['fake_nodes'] = [json.loads(line)['node'] for line in log.read_text(encoding='utf-8').splitlines()]
+    except (OSError, ValueError, KeyError):
+        facts['fake_nodes'] = None
+    return facts
+
+
+def oldwork_problems(f, manifest):
+    """What went wrong in V16; [] when nothing."""
+    problems, done = [], (0, 1)
+    if f.get('installs_previous') != [0, 0] or f.get('version_before') != manifest['previous_wheel']['version'] or f.get('init_previous') not in done:
+        problems.append(f'the previous wheel did not set the project up: {[f.get(k) for k in ("installs_previous", "version_before", "init_previous")]}')
+    if (f.get('propose'), f.get('approve'), f.get('revise'), f.get('step_c_previous'), f.get('verify_c_previous')) != (0, 'approved', 0, ['C', 'produced'], 'pass'):
+        problems.append(f'the 2.2 half of the work: {[f.get(k) for k in ("propose", "approve", "revise", "step_c_previous", "verify_c_previous")]}')
+    if f.get('upgrade') != 0 or f.get('version_after') != manifest['version'] or f.get('init_this') not in done or f.get('wiki') != SKELETON:
+        problems.append(f'the upgrade: {[f.get(k) for k in ("upgrade", "version_after", "init_this", "wiki")]}')
+    blocking = f.get('compat_blocking')
+    if not isinstance(blocking, dict) or blocking != f.get('compat_previous') or blocking.get('read'):
+        problems.append(f'compat scan after the upgrade {blocking} differs from the 2.2 scan before it {f.get("compat_previous")} or blocks reading')
+    if (f.get('step_i_this'), f.get('verify_i_this')) != (['I', 'produced'], 'pass'): problems.append(f'node I with this wheel: {[f.get("step_i_this"), f.get("verify_i_this")]}')
+    counts = f.get('state_counts') or {}
+    if counts.get('verified', 0) < 2 or counts.get('pass', 0) < 2: problems.append(f'engine state after: {counts}')
+    if not f.get('previous_events_kept') or not f.get('events_added'): problems.append(f'the 2.2 events: kept {f.get("previous_events_kept")}, added {f.get("events_added")}')
+    if f.get('fake_nodes') != ['C', 'I']: problems.append(f'worker runs: {f.get("fake_nodes")}')
+    return problems
+
+
+EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 16}
 
 
 def finish(report, work):
