@@ -53,6 +53,7 @@ DRIVE = re.compile(r'^[A-Za-z]:[\\/]')
 BAD_NAME = re.compile(r'[<>:"|?*\x00-\x1f]')
 URL = re.compile(r'https?://[^\s<>)\]]+')
 ENTRY = re.compile(r'^\s*(?:[-*+]|\d+[.)])?\s*\[([^\]]+)\]')
+DOTFILE = re.compile(r'\.(?:[\w-]+\.[\w.-]+|[a-z0-9_-]{5,})')  # a bare source named like a dotfile: .env.example, .gitignore (a dot-word like .csv is not)
 BRACKET = re.compile(r'\[([^\[\]]+)\](?!\()')            # a bracketed label that is not the text of an inline link: a citation if `cite` accepts it in full
 ID_FLAGS = re.compile(r'\(\?([aiLmsux]+)\)')            # global flags at the start of an ids pattern: (?i)  (?s)(?x) ...
 ID_BEFORE, ID_AFTER = (r'(?<![\w-])', ''), (r'(?![\w-])', r'(?![\w-])')      # an anchor is the edge of the id: (in the search, in a definition)
@@ -441,11 +442,14 @@ def _entries(parsed, config):
                     later = False
                     for token in rest.replace('`', ' ').split():
                         token = token.lstrip(',;:()<>—–').rstrip('.,;:()<>—–')       # a leading dot is part of the path: ../x, ./x, .github/x, .env.example
-                        if token.startswith('...'): token = token.lstrip('.')          # an ellipsis is not
+                        if token.startswith('...'):                                  # an ellipsis is not; glued to a path it makes none (D-R06)
+                            token = token.lstrip('.')
+                            if token.startswith(('/', '\\')): continue
                         if not token: continue
-                        if later and token.startswith('.') and not re.search(r'[\\/]', token): continue   # after other words, .NET or .csv is a word (DX-R02)
+                        dotted = token.startswith('.') and not re.search(r'[\\/]', token)
+                        if dotted and later and not DOTFILE.fullmatch(token): continue   # after other words .NET, .csv, .5 are words (DX-R02, D-R06)
                         later = True
-                        if '/' in token or re.search(r'\.\w{1,8}(#\S*)?$', token):
+                        if '/' in token or (dotted and DOTFILE.fullmatch(token)) or re.search(r'\.\w{1,8}(#\S*)?$', token):
                             locator = token
                             break
         entries.append({'id': match.group(1).strip(), 'line': number, 'locator': locator})
@@ -562,22 +566,26 @@ def _check_ids(spec, folder, names):
                 used.setdefault(named(tidy(match.group(0))), f'{path}:{number}')
     for name, spot in sorted(used.items()):
         if name not in defined and not blind: problems.append(f'{spot}: {written[name]} is used but never defined ({spec["name"]})')
-    if not defined and not used and not problems:     # a check that examined nothing proves nothing: never a pass (review FX-R02)
-        problems.append(f'{spec["name"]}: no id of the pattern {spec["pattern"]!r} was found in the documents, so this check examined nothing. An id '
-                        'stands alone (no letter, digit, _ or - right before or after it): a pattern that needs one there (a lookbehind, a lookahead '
-                        'or \\B at its edge) never finds one.')
     return problems, len(defined) + len(used)
 
 
+def _nothing_examined(spec):
+    """The problem of an ids check that examined nothing: it proves nothing, so it is never a pass (review FX-R02). Added by run(), so _check_ids keeps
+    the results of the old search (D-R09)."""
+    return (f'{spec["name"]}: no id of the pattern {spec["pattern"]!r} was found in the documents, so this check examined nothing. An id stands '
+            'alone (no letter, digit, _ or - right before or after it): a pattern that needs one there (a lookbehind, a lookahead or \\B at its edge) '
+            'never finds one. Documents that hold no id yet: leave the ids check out of the milestone until they do.')
+
+
 def _id_key(pattern):
-    """How two ids found with `pattern` are one id: as written, or regardless of case when the pattern starts with a global (?i) (review FX-R04).
-    A scoped (?i:..) leaves them as written, as the rest of the pattern does."""
+    """How two ids found with `pattern` are one id: as written, or regardless of case when the pattern starts with a global (?i) (review FX-R04),
+    lower-cased as the flag compares letters (D-R08: casefold would make STRASSE and STRAẞE one). A scoped (?i:..) leaves them as written."""
     flags, body = '', pattern
     while True:
         found = ID_FLAGS.match(body)
         if not found: break
         flags, body = flags + found.group(1), body[found.end():]
-    return str.casefold if 'i' in flags else str
+    return str.lower if 'i' in flags else str
 
 
 def run(config, box):
@@ -620,6 +628,7 @@ def run(config, box):
         found, count = [], 0
         for spec in config['ids']:
             more, seen = _check_ids(spec, folder, [n for n in names if n in ready or n in folder.linked])      # a document not read says so there too
+            if not more and not seen: more = [_nothing_examined(spec)]
             found += more; count += seen
         checks.append({'id': 'ids', 'ok': not found, 'checked': count, 'problems': found})
     for path in sorted(folder.linked - folder.noted):   # a file with another name is never read, whatever its role: it is listed as not verified, once

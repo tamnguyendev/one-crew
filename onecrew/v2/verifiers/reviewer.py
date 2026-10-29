@@ -323,7 +323,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
         [{'id': c['id'], 'verdict': 'pass' if note else 'inconclusive', 'evidence': []} for c in config['criteria']], [], [])
     if calls and not answer and not error and not timed_out: problems = ['the reviewer sent an empty answer']
     try:
-        after = before if no_artifact else command.artifact_sha(directory)
+        after = before if no_artifact else command.verified_sha(directory)
     except LedgerError:
         after = None                         # not the same as before: never a pass
     receipt = {'kind': 'reviewer-receipt', 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],

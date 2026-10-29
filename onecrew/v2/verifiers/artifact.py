@@ -95,14 +95,21 @@ def _manifest(directory):
 
 
 def identity(directory):
-    """Read a current artifact id; keeps command.artifact_sha semantics for Git, refusing a tree that would take a hard-linked file (verified_sha)."""
+    """Read a current artifact id; keeps command.artifact_sha semantics for Git. What a view, a report or an evidence check compares (no adapter reads
+    the tree): a hard link or a junction does not stop it, so a changed artifact is still seen as changed (review D-R01)."""
+    return command.artifact_sha(directory) if is_git(directory) else content_hash(_manifest(directory))
+
+
+def verified_identity(directory):
+    """identity for a verifier, which reads the tree: for Git, refused before git hashes anything when a name of the working tree is a hard link or
+    is reached through a junction (command.verified_sha, reviews FX-R01, D-R03)."""
     return command.verified_sha(directory) if is_git(directory) else content_hash(_manifest(directory))
 
 
 def capture(ledger, directory, scratch):
     """Return (isolated checkout, identity, receipt proof), reusing v1 snapshots."""
     directory = Path(directory).resolve()
-    before = identity(directory)
+    before = verified_identity(directory)
     if is_git(directory):
         return command._checkout(directory, before, scratch), before, {'artifact_kind': 'git-tree'}
     state = Path(ledger.state_root).resolve()
@@ -111,7 +118,7 @@ def capture(ledger, directory, scratch):
     store = Snapshots(ledger.state_root)
     paths, kept = _paths(directory)
     key = store.capture(directory, paths, kept=kept)
-    if key != before or identity(directory) != before:
+    if key != before or verified_identity(directory) != before:
         raise LedgerError('Artifact changed while capturing its snapshot.')
     workspace = Path(scratch) / 'src'
     store.materialize(key, workspace)

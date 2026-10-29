@@ -117,7 +117,7 @@ class GitArtifactHardLink(unittest.TestCase):
         os.remove(self.root / 'docs' / 'guide.md')
         link(self.root / '.env', self.root / 'docs' / 'guide.md')
         os.utime(self.root / 'docs' / 'guide.md', ns=(stamp.st_atime_ns, stamp.st_mtime_ns))       # the times the index has: they must not hide it
-        self.refused(lambda: artifact.identity(self.root))
+        self.refused(lambda: artifact.verified_identity(self.root))         # the identity a verifier makes (identity() is the views', D-R01)
 
     def test_x09_control_a_tree_without_hard_links_keeps_its_identity(self):
         self.assertEqual(artifact.identity(self.root), command.artifact_sha(self.root))
@@ -126,7 +126,8 @@ class GitArtifactHardLink(unittest.TestCase):
 
 
 class GitVerdictRunHardLink(unittest.TestCase):
-    """x01 through the production path: propose, approve and `verdict run` a doc milestone on a Git project (no direct port call)."""
+    """x01 through the production path: propose, approve and `verdict run` a doc milestone on a Git project (no direct port call). The link is made
+    after the approval, as a worker would make it: a link already there when the owner approves stops the approval (D-R02, test_h08)."""
 
     def test_x06_verdict_run_keeps_no_copy_of_a_kept_file_reached_through_a_hard_link(self):
         from onecrew.v2 import plan as plans, verdict
@@ -139,7 +140,7 @@ class GitVerdictRunHardLink(unittest.TestCase):
         (root / 'docs' / 'guide.md').write_text('# Guide\n\n- REQ-1 the first\n\nSee REQ-1.\n', encoding='utf-8', newline='\n')
         git(root, 'add', '-A'); git(root, '-c', 'user.name=probe', '-c', 'user.email=probe@example.invalid', 'commit', '-q', '-m', 'base')
         (root / '.env').write_text(SECRET, encoding='utf-8', newline='\n')
-        link(root / '.env', root / 'docs' / 'notes.md')
+        (root / 'docs' / 'notes.md').write_text('# Notes\n\nKeep REQ-1.\n', encoding='utf-8', newline='\n')
         env = patch.dict(os.environ); env.start(); self.addCleanup(env.stop)
         for name in ('ONECREW_ACTOR', 'ONECREW_V2_REQUIRE_PLAN', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION'): os.environ.pop(name, None)
         os.environ['LOCALAPPDATA'] = str(base / 'lad'); os.environ['APPDATA'] = str(base / 'ad')
@@ -148,6 +149,7 @@ class GitVerdictRunHardLink(unittest.TestCase):
                   'ids': [{'name': 'K', 'pattern': r'do-not-[a-z-]+', 'defined_in': ['docs/guide.md']}]}
         value = plan_json(milestones=[{'id': 'M1', 'title': 'Docs', 'max_repairs': 2, 'verifier': {'type': 'doc', 'config': config}, 'covers': ['O1']}])
         plans.propose(ledger, 'P1', value, 'claude'); plans.approve(ledger, 'P1', 'owner', 'probe fixture')
+        os.remove(root / 'docs' / 'notes.md'); link(root / '.env', root / 'docs' / 'notes.md')          # the worker's link, after the approval
         with self.assertRaises(LedgerError) as caught:
             verdict.run(ledger, 'P1', 'M1')
         self.assertIn('hard link', str(caught.exception))
@@ -490,6 +492,173 @@ class BareLocators(unittest.TestCase):
     def test_d04_the_same_target_as_a_link_and_as_a_source_is_reported_by_both(self):
         failing, _ = self.page('- [S1] ./README.md — the read-me of this folder', links=True, body=' See [the read-me](./README.md).')
         self.assertEqual(sorted(failing), ['links', 'sources'])
+
+
+# ---- the delta review of 7a1ce5c (review-fx.md, "Delta review of 7a1ce5c"; probes test_v23_review_delta_*.py of the reviewer) -------------
+
+def commit(root, message='c'):
+    git(root, 'add', '-A'); git(root, '-c', 'user.name=probe', '-c', 'user.email=probe@example.invalid', 'commit', '-q', '-m', message)
+
+
+def has_object(root, oid):
+    return subprocess.run(['git', '-C', str(root), 'cat-file', '-e', oid], capture_output=True).returncode == 0
+
+
+def secret_blob(root):
+    return subprocess.run(['git', '-C', str(root), 'hash-object', '--stdin'], input=SECRET.encode(), capture_output=True).stdout.decode().strip()
+
+
+class DeltaRepo(unittest.TestCase):
+    """A Git project with an ignored .env holding the secret and an ignored private/ folder."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.base = Path(self.temp.name); self.root = self.base / 'repo'; (self.root / 'docs').mkdir(parents=True)
+        git(self.root, 'init', '-q')
+        (self.root / '.gitignore').write_text('.env\nprivate/\n', encoding='utf-8', newline='\n')
+        (self.root / 'a.txt').write_text('one\n', encoding='utf-8', newline='\n')
+        (self.root / 'docs' / 'guide.md').write_text('# Guide\n\n## Usage\n\n- REQ-1 the first\n\nSee REQ-1.\n', encoding='utf-8', newline='\n')
+        commit(self.root, 'base')
+        (self.root / '.env').write_text(SECRET, encoding='utf-8', newline='\n')
+        env = patch.dict(os.environ); env.start(); self.addCleanup(env.stop)
+        for name in ('ONECREW_ACTOR', 'ONECREW_V2_REQUIRE_PLAN', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION'): os.environ.pop(name, None)
+        os.environ['LOCALAPPDATA'] = str(self.base / 'lad'); os.environ['APPDATA'] = str(self.base / 'ad')
+
+    def plan(self, ledger, verifier):
+        from onecrew.v2 import plan as plans
+        from tests.test_v2_l1 import plan_json
+        plans.propose(ledger, 'P1', plan_json(milestones=[{'id': 'M1', 'title': 'Check', 'max_repairs': 2, 'verifier': verifier, 'covers': ['O1']}]), 'claude')
+        return plans
+
+
+class DeltaHardLinks(DeltaRepo):
+    def test_h01_a_force_added_ignored_hard_link_is_seen(self):
+        """D-R04: names of the REAL index too (git add -f of an ignored name, and -N)."""
+        from onecrew.v2 import plan as plans
+        for flags in (('-f',), ('-f', '-N')):
+            with self.subTest(flags=flags):
+                (self.root / 'private').mkdir(exist_ok=True)
+                target = self.root / 'private' / ('notes%d.md' % len(flags))
+                link(self.root / '.env', target)
+                git(self.root, 'add', *flags, target.relative_to(self.root).as_posix())
+                self.assertIn(target.relative_to(self.root).as_posix(), command.hard_links(self.root))
+                with self.assertRaises(LedgerError):
+                    plans._base_tracked(Ledger(self.root, self.base / 'state'))
+
+    def test_h04_a_hard_link_inside_onecrew_is_refused_before_git_hashes_it(self):
+        """D-R05: .onecrew is looked at too, so no blob of it is written."""
+        (self.root / '.onecrew').mkdir()
+        link(self.root / '.env', self.root / '.onecrew' / 'x.md')
+        with self.assertRaises(LedgerError):
+            command.verified_sha(self.root)
+        self.assertFalse(has_object(self.root, secret_blob(self.root)))
+
+    def test_h06_a_hard_link_made_during_a_command_run_is_never_hashed_into_a_pinned_tree(self):
+        """D-R05: the after-identity is made the way the before one is."""
+        from onecrew.v2 import verdict
+        argv = [sys.executable, '-c', f'import os; os.link({str(self.root / ".env")!r}, {str(self.root / "docs" / "late.md")!r})']
+        ledger = Ledger(self.root, self.base / 'state')
+        plans = self.plan(ledger, {'type': 'command', 'config': {'argv': argv}}); plans.approve(ledger, 'P1', 'owner', 'probe fixture')
+        with self.assertRaises(LedgerError) as caught:
+            verdict.run(ledger, 'P1', 'M1')
+        self.assertIn('hard link', str(caught.exception))
+        refs = [line.split() for line in git(self.root, 'for-each-ref', '--format=%(refname) %(objectname)').splitlines() if 'onecrew' in line.lower()]
+        for ref, tree in refs:
+            shown = subprocess.run(['git', '-C', str(self.root), 'cat-file', '-p', f'{tree}:docs/late.md'], capture_output=True, text=True)
+            self.assertFalse(shown.returncode == 0 and TOKEN in shown.stdout, ref)
+
+    def test_j01_a_file_reached_through_a_junction_is_never_read_under_an_ordinary_name(self):
+        """D-R03: a working-tree path that crosses a junction is refused like a hard link."""
+        if os.name != 'nt': self.skipTest('junctions are a Windows feature')
+        import _winapi
+        home = self.base / 'home' / '.ssh'; home.mkdir(parents=True); (home / 'notes.md').write_text(SECRET, encoding='utf-8', newline='\n')
+        _winapi.CreateJunction(str(home), str(self.root / 'docs' / 'keys'))
+        self.addCleanup(lambda: os.rmdir(self.root / 'docs' / 'keys'))
+        config = {'docs': ['docs/guide.md', 'docs/keys/notes.md'], 'links': True,
+                  'ids': [{'name': 'K', 'pattern': r'do-not-[a-z-]+', 'defined_in': ['docs/guide.md']}]}
+        with self.assertRaises(LedgerError) as caught:
+            port.run(Ledger(self.root, self.base / 'state'), 'P1', 1, 'a' * 64, milestone('doc', config), self.root)
+        self.assertIn('junction', str(caught.exception))
+        self.assertNotIn(TOKEN, str(caught.exception))
+        self.assertFalse(objects_holding(self.root, TOKEN))
+
+    def test_j01b_control_a_directory_symlink_is_stored_as_a_link_and_not_refused(self):
+        try:
+            os.symlink(self.base, self.root / 'docs' / 'symdir', target_is_directory=True)
+        except OSError as error:
+            self.skipTest(f'this account cannot create a symbolic link: {error}')
+        self.assertEqual(command.hard_links(self.root), [])
+
+
+class DeltaViewsAndApproval(DeltaRepo):
+    DOC = {'type': 'doc', 'config': {'docs': [{'path': 'docs/guide.md', 'headings': ['Usage']}], 'links': True}}
+
+    def unrelated_link(self):
+        (self.root / 'assets').mkdir(exist_ok=True); (self.root / 'assets' / 'a.bin').write_bytes(b'\x00')
+        link(self.root / 'assets' / 'a.bin', self.root / 'assets' / 'b.bin')
+
+    def test_h07_a_pass_on_an_older_artifact_is_not_shown_as_passed_while_a_hard_link_exists(self):
+        """D-R01: the views judge the artifact as before; a hard link does not switch stale detection off."""
+        from onecrew.v2 import verdict
+        ledger = Ledger(self.root, self.base / 'state')
+        plans = self.plan(ledger, self.DOC); plans.approve(ledger, 'P1', 'owner', 'probe fixture')
+        self.assertEqual(verdict.run(ledger, 'P1', 'M1')['milestones'][0]['state'], 'passed')
+        (self.root / 'docs' / 'guide.md').write_text('# Guide\n\nThe usage section was removed.\n', encoding='utf-8', newline='\n')
+        self.unrelated_link()
+        self.assertNotEqual(plans.show(ledger, 'P1')['milestones'][0]['state'], 'passed')
+
+    def test_h08_approve_refuses_a_hard_link_and_then_records_both_bases(self):
+        """D-R02: approve stops with the reason (nothing is recorded), and approves once the link is gone, with both base trees."""
+        from onecrew.v2.verifiers import reviewer
+        ledger = Ledger(self.root, self.base / 'state')
+        self.unrelated_link()
+        plans = self.plan(ledger, self.DOC)
+        with self.assertRaises(LedgerError) as caught:
+            plans.approve(ledger, 'P1', 'owner', 'probe fixture')
+        self.assertIn('hard link', str(caught.exception))
+        with ledger.transaction() as conn:
+            task = plans.derive(ledger, conn, 'P1')['task_id']
+        self.assertFalse([e for e in ledger.events(task) if e['kind'] == 'plan.approved'])
+        (self.root / 'assets' / 'b.bin').unlink()
+        plans.approve(ledger, 'P1', 'owner', 'probe fixture')
+        approved = next(e['payload'] for e in ledger.events(task) if e['kind'] == 'plan.approved')
+        self.assertTrue(approved.get('base_artifact') and approved.get('base_tracked'))
+        (self.root / 'docs' / 'guide.md').write_text('# Guide\n\n## Usage\n\nChanged.\n', encoding='utf-8', newline='\n')
+        self.assertIn('Changed.', reviewer.review_diff(self.root, reviewer.base_event(approved, None), None)[0])
+
+
+class DeltaDocs(unittest.TestCase):
+    setUp, page = BareLocators.setUp, BareLocators.page                   # the same tree, without running the BareLocators tests a second time
+
+    def test_l02_a_dotted_locator_after_words(self):
+        """D-R06: a dotfile name after words is the locator when it holds another dot or is a longer lowercase name; a short dot-word is prose;
+        an ellipsis glued to a path does not make it a root path; a dotfile first is the locator."""
+        (self.root / '.gitignore').write_text('*.tmp\n', encoding='utf-8', newline='\n')
+        failing, report = self.page('- [S1] mẫu cấu hình .env.example')
+        self.assertEqual(failing, {})
+        self.assertTrue([n for n in report['unverified'] if '.env.example' in n])
+        for line in ('- [S1] quy tắc bỏ qua .gitignore', '- [S1] .gitignore — the ignore rules'):
+            with self.subTest(line=line):
+                self.assertEqual(self.page(line)[0], {})
+        failing, _ = self.page('- [S1] .../guide.md — an ellipsis glued to a path')
+        self.assertNotIn('(guide.md)', json.dumps(failing, ensure_ascii=False))
+
+
+class DeltaIds(IdsTree):
+    def test_i03_the_case_rule_is_the_flag_s_not_casefold(self):
+        """D-R08: with (?i), ids differing in case are one id, as the regex flag sees them; STRASSE and STRAẞE stay two."""
+        self.write('docs/spec.md', '# Spec\n\n- STRASSE-1 one\n- STRAẞE-1 two\n\nSee straße-1.\n')
+        self.assertEqual(self.ids(r'(?i)[a-zß]+-\d+', ['docs/spec.md'])[0], [])
+
+    def test_i04_the_old_search_results_are_kept_and_the_empty_check_is_a_problem_of_the_check(self):
+        """D-R09: _check_ids gives the old search's results; the ids check (doc.run) adds the 'examined nothing' problem."""
+        self.write('docs/spec.md', '# Spec\n\nNo requirement is listed yet.\n')
+        spec = doc.validate_config({'docs': ['docs/spec.md'], 'links': False, 'ids': [{'name': 'R', 'pattern': r'REQ-\d+', 'defined_in': []}]}, 't')['ids'][0]
+        box = port.Port(self.root, port.authority(None, 'test'), 'doc')
+        folder = doc.Folder(box); folder.load('docs/spec.md', required=True)
+        self.assertEqual(doc._check_ids(spec, folder, ['docs/spec.md']), ([], 0))
+        problems, checked = self.ids(r'REQ-\d+', ['docs/spec.md'])
+        self.assertEqual(checked, 0); self.assertIn('examined nothing', problems[0])
 
 
 if __name__ == '__main__':
