@@ -109,10 +109,15 @@ def consumer(ledger, plan, *, node=None, pin=None):
     else:
         target = (contract.get('understanding') or {}).get('target') or {}
         paths = sorted(set(target.get('paths') or []) | set((contract.get('scope') or {}).get('owned') or []))
+    return {'project': ledger.project_id, 'plan': root['request_key'], 'root': root['id'], 'node': node['id'] if node else None,
+            'paths': [p.replace('\\', '/') for p in paths], 'terms': ' '.join(w for w in words if w), 'environment': _environment(pin)}
+
+
+def _environment(pin=None):
+    """What an `env` condition is checked against: this process, and the provider/model of a node's pin when there is one."""
     environment = {'platform': sys.platform, 'python': '%d.%d' % sys.version_info[:2]}
     if pin: environment.update(provider=pin.get('provider'), model=pin.get('model'))
-    return {'project': ledger.project_id, 'plan': root['request_key'], 'root': root['id'], 'node': node['id'] if node else None,
-            'paths': [p.replace('\\', '/') for p in paths], 'terms': ' '.join(w for w in words if w), 'environment': environment}
+    return environment
 
 
 def _covers(pattern, path):
@@ -1221,23 +1226,37 @@ def for_root(ledger, plan, *, memo=None, revision=None):
     package (of another root only the fact that it replaced a subject is told, never its text). A 2.2 entry keeps the 2.2 rule for its
     source (context._stale_reason: the cited line or symbol, review r1 F11); only lifecycle, contest and contradiction act on it.
     `revision` (a commit-ish, `context retrieve --revision`): applicability is judged on that commit's files (review r1 F12, r2 R2-01;
-    the wiki pages themselves are read from the working tree). `memo`: one reading shared by several roots of one command.
+    the wiki pages themselves are read from the working tree). `memo`: one reading shared by several roots of one command (and the
+    verdicts of a root already judged in it).
+    Codex dev3 review P2: the shared (general) records are judged here too, for this reader, by the same decision (applicability,
+    certainty), so that `context retrieve` never shows one whose condition is false or cannot be checked as current. `plan` None: the
+    reader is the project without a root (no paths, no node; its environment is this process): only the general records are judged.
     id -> {'gone': lifecycle state or None, 'stale': reason or None, 'use', 'event', 'root'}."""
+    if plan is None:
+        return _for_reader(ledger, {'project': ledger.project_id, 'plan': None, 'root': None, 'node': None, 'paths': [], 'terms': '',
+                                    'environment': _environment(), 'own_root': True}, memo, revision)
     if str(plan).startswith('TASK-'):                  # a root named by its task id: its exact selector, never an ambiguous bare name
         with ledger.transaction() as conn:
             row = conn.execute('SELECT request_key FROM tasks WHERE id=? AND project_id=?', (plan, ledger.project_id)).fetchone() if conn else None
         if row is None: raise LedgerError(f'No root {plan} in this project.')
         plan = row['request_key']
-    cons = dict(consumer(ledger, plan), own_root=True)
+    return _for_reader(ledger, dict(consumer(ledger, plan), own_root=True), memo, revision)
+
+
+def _for_reader(ledger, cons, memo, revision):
+    key = ('verdicts', cons['root'], revision)
+    if memo is not None and key in memo: return memo[key]
     view = RevisionView(ledger.project, context.resolve_revision(ledger.project, revision)) if revision else None
     candidates = _collect(ledger, cons, view, memo)[0]
     out = {}
     for c in candidates:
         if c['origin']['type'] != 'ledger' or (c['visibility'] == 'root' and c['root'] != cons['root']): continue
+        shared = c['scope'] == 'general'
+        if cons['root'] is None and not shared: continue
         excluded, applicability = c.get('excluded'), c.get('applicability') or {'state': None, 'reasons': []}
         base = {'event': c['seq'], 'root': c['root'], 'use': c.get('use')}
         if excluded in GONE: out[c['id']] = dict(base, gone=excluded, stale=None); continue
-        if c['root'] != cons['root']:                  # review r1 F7: the newest version of this subject is another root's
+        if not shared and c['root'] != cons['root']:   # review r1 F7: the newest version of this subject is another root's
             out[c['id']] = dict(base, gone=None, use=None, stale='a newer version of this subject was recorded by another root '
                                                                   f'(event {c["seq"]}); `onecrew wiki show` gives what applies now')
             continue
@@ -1251,6 +1270,7 @@ def for_root(ledger, plan, *, memo=None, revision=None):
             stale = 'cannot be checked now: ' + ('; '.join(reasons)[:300] or str(applicability['state']))
         else: stale = None
         out[c['id']] = dict(base, gone=None, stale=stale)
+    if memo is not None: memo[key] = out
     return out
 
 
