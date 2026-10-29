@@ -1,0 +1,17 @@
+{
+ "id": "U1-20261029-V23-PIN-1",
+ "file": "tests/test_g1_core.py",
+ "old_sha256": "8e824df826b7977b716d265e1c9718f29dd39efb4915f02b30cd7337ff065618",
+ "new_sha256": "1d454de4743e4f145662e1beba1a392259a469badf8ccf6bfce163c94bddcf31",
+ "reason": "OneCrew 2.3 line (branch claude/onecrew-2.3): PackagingTests.test_metadata pins the version line of a 2.2 dev build (2\\.2\\.0\\.dev\\d+); the 2.3 line is 2.3.0.devN, so the pattern becomes 2\\.3\\.0\\.dev\\d+ (and its comment). One line; the name, console entry and empty dependency assertions and every other test of the module are unchanged; no check removed or loosened.",
+ "authorized_by": "Chủ sở hữu, chat Claude Code 29/10/2026 (sau review Codex trên dev3 0594a43), chỉ thị dán nguyên văn, mục 3 \"Quyền xử lý U1\": \"Trong chính yêu cầu này, tôi cho phép ghi ngoại lệ U1 có phạm vi hẹp trên nhánh 2.3 cho đúng ba thay đổi đã được Codex xem diff\" (tests/test_g1_core.py, tests/test_wf_r03a_executors.py, tests/test_wf_r7_t51b.py); \"Ủy quyền này không bao gồm ngoại lệ cho file khác, thay đổi tiêu chí nghiệm thu, duyệt plan trên sổ thật, nghiệm thu sản phẩm hay phát hành.\" Quyết định kỹ thuật theo ủy quyền đó; không phải chữ ký trực tiếp của chủ sở hữu, không phải nghiệm thu.",
+ "applied_by": "claude (entry, Opus 5.5), OneCrew 2.3 dev4, branch claude/onecrew-2.3 only (not codex/wf-development, not the beta kit)",
+ "evidence": {
+  "base": "95bb7a614fa63b1ca1b3c84b95df235d1f05da21",
+  "commit": "f045a0b",
+  "diff": "git diff 95bb7a6 f045a0b -- tests/test_g1_core.py",
+  "gate_refusal": "D:\\OneCrewRuns\\v23\\gates-tmp\\wf-snapshot-gate-20261029-0594a43\\gate\\kitguard.json",
+  "reviewed_by": "Codex review of 2.3.0.dev3 (owner directive 29/10: \"ba thay đổi đã được Codex xem diff\")"
+ },
+ "at": "2026-10-29"
+}
