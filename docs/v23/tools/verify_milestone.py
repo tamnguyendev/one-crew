@@ -35,8 +35,18 @@
                   never comes back and is `withdrawn` in `wiki history`, one superseded by a project record that cites a file never
                   comes back (no --plan included) and is `superseded`, a project record whose condition is false stays stale, a 2.2
                   shared note keeps its 2.2 label
+  V13 collision   (FINAL) verify/scenario_codex.py, Codex review of 2.3.0.dev5 P2-B, installed CLI: a second project of the same state
+                  root reuses `--key retry-policy` for a general record. Each project's own record is `ctx-retry-policy` to itself and
+                  the other's is `ctx-retry-policy@<12 hex>`; both are listed, ours verified; the other project's withdrawal of its own
+                  record removes only that one; withdrawing the other project's record is refused; withdrawing our own works and
+                  removes only ours, for both projects
+  V14 docverify   (FINAL) verify/scenario_codex.py, Codex review of 2.3.0.dev5 P2-C/P2-D, the installed doc verifier: a `.env.example`
+                  at the root changes nothing (never read, its text never in the report); `[S1][S2]` are two citations; controls: the
+                  plain sample passes, a real undefined reference link next to them fails (exactly that one), a link to a missing
+                  `.env-sample` is a broken link, and reading `.env.example` is refused with its real reason (a credential path)
 Exit 0 when every step passes, 1 otherwise. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
 import base64
+import re
 import hashlib
 import json
 import os
@@ -226,7 +236,7 @@ def main(pkg, work):
         step('V9-takeover', ok, **b)
     if manifest['milestone'] == 'FINAL':
         codex = {}
-        for case in ('beyond_pages', 'undeliverable', 'optional_broken', 'continue', 'general'):
+        for case in ('beyond_pages', 'undeliverable', 'optional_broken', 'continue', 'general', 'collision', 'docverify'):
             case_work = work / f'codex {case}'
             if case_work.exists(): shutil.rmtree(case_work)
             case_work.mkdir()
@@ -256,6 +266,10 @@ def main(pkg, work):
         step('V11-continue', ok, **c)
         problems = general_problems(codex['general'])
         step('V12-general', not problems, problems=problems, **codex['general'])
+        problems = collision_problems(codex['collision'])
+        step('V13-collision', not problems, problems=problems, **codex['collision'])
+        problems = docverify_problems(codex['docverify'])
+        step('V14-docverify', not problems, problems=problems, **codex['docverify'])
     return finish(report, work)
 
 
@@ -292,7 +306,73 @@ def general_problems(g):
     return problems
 
 
-EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 12}
+def collision_problems(c):
+    """What the installed CLI got wrong in scenario_codex.py `collision` (Codex review of 2.3.0.dev5, P2-B); [] when nothing."""
+    problems = []
+    if c.get('error') or not all((c.get('recorded') or {}).get(side, {}).get('id') == 'ctx-retry-policy' for side in ('A', 'B')):
+        return ['recording failed: ' + str(c.get('error') or c.get('recorded'))[:300]]
+    mine, theirs = 'Valid retry rule of project one', 'Retry rule of project two'
+    before = c.get('before') or {}
+    qualified = {}
+    for side, own, other in (('A', mine, theirs), ('B', theirs, mine)):
+        history = (before.get(side) or {}).get('history') or {}
+        own_id, other_id = (history.get(own) or [None])[0], (history.get(other) or [None])[0]
+        if own_id != 'ctx-retry-policy': problems.append(f'{side}: its own record is {own_id}, not ctx-retry-policy')
+        if not (isinstance(other_id, str) and re.fullmatch(r'ctx-retry-policy@[0-9a-f]{12}', other_id)):
+            problems.append(f'{side}: the other project\'s record is {other_id}, not ctx-retry-policy@<12 hex>')
+        qualified[side] = other_id
+        for form in ('general', 'plan general'):
+            rows = (before.get(side) or {}).get(form) or {}
+            if rows.get(own) != ['verified', None] or rows.get(other) != ['verified', None]:
+                problems.append(f'{side} {form} before: {rows}')
+    if qualified.get('A') == qualified.get('B'): problems.append(f'both projects see the same qualified id {qualified.get("A")}')
+    if (c.get('B_withdraws_own') or {}).get('exit') != 0: problems.append(f'B could not withdraw its own record: {c.get("B_withdraws_own")}')
+    after = c.get('after_B') or {}
+    for form in ('general', 'plan general'):
+        a, b = (after.get('A') or {}).get(form) or {}, (after.get('B') or {}).get(form) or {}
+        if a.get(mine) != ['verified', None] or theirs in a: problems.append(f'A {form} after B withdrew its own: {a}')
+        if theirs in b or b.get(mine) != ['verified', None]: problems.append(f'B {form} after B withdrew its own: {b}')
+    refused = c.get('A_withdraws_theirs') or {}
+    if refused.get('exit') in (0, None) or 'only the project that wrote a general entry' not in refused.get('message', ''):
+        problems.append(f'withdrawing the other project\'s record was not refused: {refused}')
+    if (c.get('A_withdraws_own') or {}).get('exit') != 0: problems.append(f'A could not withdraw its own record: {c.get("A_withdraws_own")}')
+    final = c.get('after_A') or {}
+    for side in ('A', 'B'):
+        for form in ('general', 'plan general'):
+            rows = (final.get(side) or {}).get(form) or {}
+            if mine in rows or theirs in rows: problems.append(f'{side} {form} after both withdrawals: {rows}')
+        history = (final.get(side) or {}).get('history') or {}
+        if [row[1] for text, row in sorted(history.items())] != ['withdrawn', 'withdrawn']: problems.append(f'{side} history at the end: {history}')
+    return problems
+
+
+def docverify_problems(d):
+    """What the installed doc verifier got wrong in scenario_codex.py `docverify` (Codex review of 2.3.0.dev5, P2-C/P2-D); [] when nothing."""
+    problems = []
+    runs = d.get('docverify') or {}
+    if not str(d.get('doc_module', '')).replace('\\', '/').lower().count('site-packages/onecrew/v2/verifiers/doc.py'):
+        problems.append(f'the doc verifier was not the installed one: {d.get("doc_module")}')
+    clean = runs.get('control') or {}
+    if clean.get('error') or clean.get('failed') != {}: problems.append(f'control: {clean}')
+    env = runs.get('env-file') or {}
+    if env.get('error') or env.get('failed') != {} or env.get('read_kept') or env.get('violations') or env.get('secret_in_report'):
+        problems.append(f'.env.example at the root: {env}')
+    if not env.get('error') and env.get('unverified') != clean.get('unverified'): problems.append(f'.env.example changed the report: {env} vs {clean}')
+    adjacent = runs.get('adjacent') or {}
+    if adjacent.get('error') or adjacent.get('failed') != {}: problems.append(f'[S1][S2]: {adjacent}')
+    missing = runs.get('missing-ref') or {}
+    links = (missing.get('failed') or {}).get('links') or []
+    if set(missing.get('failed') or {}) != {'links'} or len(links) != 1 or 'khong-dinh-nghia' not in links[0]:
+        problems.append(f'a real undefined reference link next to [S1][S2]: {missing}')
+    kept = runs.get('missing-kept-link') or {}
+    links = (kept.get('failed') or {}).get('links') or []
+    if len(links) != 1 or '.env-sample' not in links[0] or 'does not exist' not in links[0]: problems.append(f'a link to a missing .env-sample: {kept}')
+    if not (str(d.get('read_refusal', '')).startswith('AdapterViolation') and 'control or credential' in str(d.get('read_refusal'))):
+        problems.append(f'reading .env.example: {d.get("read_refusal")}')
+    return problems
+
+
+EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 14}
 
 
 def finish(report, work):

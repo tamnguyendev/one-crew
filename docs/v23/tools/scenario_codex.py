@@ -13,7 +13,14 @@ Case (Codex review of 2.3.0.dev3, P2, through the installed CLI):
   general          shared (general) records whose condition is false here, holds, cannot be checked, or was withdrawn; a project
                    record whose condition is false; a 2.2 shared note: `onecrew context retrieve` in every form that returns the
                    general scope (with/without --plan, scope general/both), `wiki show --plan P1` and `wiki history`; a
-                   general record superseded by a project record that cites a file (review of the dev4 fix, F1)."""
+                   general record superseded by a project record that cites a file (review of the dev4 fix, F1).
+Cases (Codex review of 2.3.0.dev5):
+  collision        P2-B, installed CLI: a second project on the same state root reuses `--key retry-policy` for a general record;
+                   ids, `context retrieve` and `wiki history` from both sides, the other project's withdrawal of its own record, a
+                   withdrawal of the other project's record (refused), and the project's withdrawal of its own.
+  docverify        P2-C/P2-D, the installed doc verifier on a copy of the RX1 sample documents: control; a `.env.example` at the
+                   root (never read, changes nothing); `[S1][S2]` as two citations; a real undefined reference link next to them and a
+                   link to a missing `.env-sample` (both still fail); reading `.env.example` is refused with its real reason."""
 import json
 import os
 import shutil
@@ -162,6 +169,110 @@ elif case == 'general':
         out['wiki'] = {'error': (stdout + stderr)[-300:]}
     code, stdout, _ = cli('wiki', 'history')
     out['history'] = {r['text']: [r['status'], r['label']] for r in json.loads(stdout)['records']} if code == 0 else None
+elif case == 'collision':
+    exe = shutil.which('onecrew')
+    second = work / 'second project'; second.mkdir()
+    for args in (('init', '-q'), ('config', 'user.name', 'fixture'), ('config', 'user.email', 'fixture@localhost')):
+        subprocess.run(['git', '-C', str(second), *args], check=True, capture_output=True)
+    (second / 'a.txt').write_text('base\n'); (second / '.gitignore').write_text('.onecrew/\n')
+    subprocess.run(['git', '-C', str(second), 'add', '.'], check=True, capture_output=True)
+    subprocess.run(['git', '-C', str(second), 'commit', '-qm', 'base'], check=True, capture_output=True)
+    other = Ledger(second, ledger.state_root)
+    plan.propose(other, 'Q1', contract, 'codex', workflow=True, capabilities=CAPS)
+    plan.approve(other, 'Q1', 'owner', 'temporary verification fixture (not a real ledger)')
+    projects = {'A': (root, 'P1', ledger), 'B': (second, 'Q1', other)}
+    def cli(side, *args):
+        project, _, own = projects[side]
+        done = subprocess.run([exe, '--project', str(project), '--state-root', str(own.state_root), *args], capture_output=True,
+                              text=True, encoding='utf-8', errors='replace', cwd=work)
+        return done.returncode, done.stdout, done.stderr
+    def last_event(side):
+        own = projects[side][2]
+        with own.transaction() as conn:
+            return conn.execute('SELECT MAX(e.seq) FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.project_id=?', (own.project_id,)).fetchone()[0]
+    def general(side, text):
+        code, stdout, stderr = cli(side, 'wiki', 'record', '--plan', projects[side][1], '--kind', 'decision', '--text', text, '--status', 'verified',
+                                   '--scope', 'general', '--key', 'retry-policy', '--property', 'the retry check passed',
+                                   '--source', f'event:{last_event(side)}', '--condition', json.dumps({'type': 'env', 'key': 'platform', 'value': sys.platform}))
+        return json.loads(stdout) if code == 0 else {'error': (stdout + stderr)[-300:]}
+    def withdraw(side, target):
+        code, stdout, stderr = cli(side, 'wiki', 'withdraw', target, '--plan', projects[side][1], '--reason', 'shown wrong', '--source', f'event:{last_event(side)}')
+        return {'exit': code, 'message': (stdout + stderr)[-240:] if code else ''}
+    def view(side):
+        found = {}
+        for name, form in (('general', ['--scope', 'general']), ('plan general', ['--plan', projects[side][1], '--scope', 'general'])):
+            code, stdout, stderr = cli(side, 'context', 'retrieve', *form)
+            found[name] = ({e['text']: [e['label'], e.get('stale_reason')] for e in json.loads(stdout)['entries'] if 'retry rule' in e['text'].lower()}
+                           if code == 0 else {'error': (stdout + stderr)[-300:]})
+        code, stdout, stderr = cli(side, 'wiki', 'history')
+        found['history'] = ({r['text']: [r['id'], r['status']] for r in json.loads(stdout)['records'] if 'retry rule' in r['text'].lower()}
+                            if code == 0 else {'error': (stdout + stderr)[-300:]})
+        return found
+    out['recorded'] = {'A': general('A', 'Valid retry rule of project one'), 'B': general('B', 'Retry rule of project two')}
+    out['before'] = {'A': view('A'), 'B': view('B')}
+    out['B_withdraws_own'] = withdraw('B', 'ctx-retry-policy')
+    out['after_B'] = {'A': view('A'), 'B': view('B')}
+    theirs = [row[0] for text, row in out['before']['A'].get('history', {}).items() if text == 'Retry rule of project two']
+    out['A_withdraws_theirs'] = withdraw('A', theirs[0] if theirs else 'ctx-retry-policy@missing')
+    out['A_withdraws_own'] = withdraw('A', 'ctx-retry-policy')
+    out['after_A'] = {'A': view('A'), 'B': view('B')}
+elif case == 'docverify':
+    from onecrew.v2.verifiers import doc, port
+    out['doc_module'] = doc.__file__
+    files = {
+        'docs/guide.md': '\n'.join([
+            '# Hướng dẫn cài đặt', '', '## Tổng quan', '',
+            'Công cụ này đáp ứng yêu cầu REQ-1 và REQ-2 [S1] [S2]. Kiến trúc nằm ở [thiết kế](design.md#kiến-trúc);',
+            'các bước nằm ở [phần cài đặt](#cài-đặt). Tham khảo thêm [S3].', '', '## Cài đặt', '',
+            '| Bước | Lệnh | Ghi chú |', '|---|---|---|', '| 1 | `pip install demo` | cần Python 3.13 |', '| 2 | `demo --check` | |', '',
+            'Sơ đồ: ![sơ đồ](../img/diagram.png)', '', '## Nguồn', '',
+            '- [S1] [Phạm vi gốc](../sources/spec.md#phạm-vi) — bản đặc tả của chủ sở hữu',
+            '- [S2] sources/notes.txt — ghi chú phỏng vấn',
+            '- [S3] https://example.invalid/tham-khao — tài liệu ngoài, không kiểm được khi offline', '']),
+        'docs/design.md': '\n'.join(['# Thiết kế', '', '## Kiến trúc', '', 'Hai thành phần, xem [hướng dẫn](guide.md#tổng-quan).', '',
+                                     '### REQ-1 Cài được trên máy sạch', '', 'Cài bằng một lệnh.', '', '### REQ-2 Kiểm được sau khi cài', '',
+                                     'Có lệnh tự kiểm. Liên quan REQ-1.', '']),
+        'sources/spec.md': '# Đặc tả\n\n## Phạm vi\n\nCài đặt và tự kiểm. Không gồm nâng cấp.\n',
+        'sources/notes.txt': 'Ghi chú phỏng vấn: chủ sở hữu muốn một lệnh cài và một lệnh kiểm.\n',
+    }
+    config = {'docs': [{'path': 'docs/guide.md', 'headings': ['Tổng quan', 'Cài đặt', 'Nguồn'],
+                        'tables': [{'under': 'Cài đặt', 'columns': ['Bước', 'Lệnh']}],
+                        'sources': {'section': 'Nguồn', 'min': 1, 'cite': 'S\\d+', 'external': 'unverified'}},
+                       {'path': 'docs/design.md', 'headings': ['Kiến trúc']}],
+              'links': True, 'ids': [{'name': 'REQ', 'pattern': 'REQ-\\d+', 'defined_in': ['docs/design.md']}]}
+    def tree(name, edits=(), extra=()):
+        base = work / ('docs ' + name)
+        for rel, text in files.items():
+            for old, new in edits:
+                if rel == 'docs/guide.md': text = text.replace(old, new, 1)
+            (base / rel).parent.mkdir(parents=True, exist_ok=True); (base / rel).write_text(text, encoding='utf-8', newline='\n')
+        (base / 'img').mkdir(exist_ok=True); (base / 'img' / 'diagram.png').write_bytes(b'\x89PNG\r\n\x1a\n' + bytes(53))
+        for rel, text in extra:
+            (base / rel).parent.mkdir(parents=True, exist_ok=True); (base / rel).write_text(text, encoding='utf-8')
+        return base
+    def run(base):
+        box = port.Port(base, port.authority(None, 'scenario'), 'doc')
+        try:
+            report = doc.run(doc.validate_config(json.loads(json.dumps(config)), 'scenario'), box)
+        except Exception as error:
+            return {'error': f'{type(error).__name__}: {error}'[:300]}
+        return {'failed': {c['id']: c['problems'] for c in report['checks'] if not c['ok']}, 'unverified': sorted(report.get('unverified') or []),
+                'read_kept': sorted(f for f in box._read if '.env' in f), 'violations': len(box._violations),
+                'secret_in_report': 'not-secret' in json.dumps(report, ensure_ascii=False)}
+    env_file = [('.env.example', 'SAMPLE=not-secret\n')]
+    out['docverify'] = {
+        'control': run(tree('control')),
+        'env-file': run(tree('env file', extra=env_file)),
+        'adjacent': run(tree('adjacent', [('[S1] [S2]', '[S1][S2]')])),
+        'missing-ref': run(tree('missing ref', [('[S1] [S2].', '[S1][S2] và [đặc tả][khong-dinh-nghia].')])),
+        'missing-kept-link': run(tree('missing kept link', [('Tham khảo thêm [S3].', 'Tham khảo thêm [S3]. Mẫu: [mẫu](../.env-sample).')])),
+    }
+    kept = tree('read refusal', extra=env_file)
+    try:
+        port.Port(kept, port.authority(None, 'scenario'), 'doc').read_text('.env.example')
+        out['read_refusal'] = 'read: not refused'
+    except Exception as error:
+        out['read_refusal'] = f'{type(error).__name__}: {error}'[:300]
 else:
     internal_plan.revise(ledger, 'P1', [node('C'), node('I', ['C'], integration=True, write=())], reason='Codex P2-02 case', evidence=['a.txt:1'])
     fake_log = Path(os.environ.get('ONECREW_FAKE_LOG') or (work / 'fake.jsonl'))
