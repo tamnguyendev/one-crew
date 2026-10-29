@@ -68,7 +68,8 @@ def env_for(work, venv_scripts, **extra):
     env = {k: v for k, v in os.environ.items() if k.upper() not in AI_MARKERS}
     local, roaming = work / 'localappdata', work / 'appdata'
     local.mkdir(exist_ok=True); roaming.mkdir(exist_ok=True)
-    env.update(PATH=str(venv_scripts) + os.pathsep + env.get('PATH', ''), LOCALAPPDATA=str(local), APPDATA=str(roaming))
+    env.update(PATH=str(venv_scripts) + os.pathsep + env.get('PATH', ''), LOCALAPPDATA=str(local), APPDATA=str(roaming),
+               ONECREW_LANG='en')                  # review dev7 R7-13: the facts read English output whatever the machine says; V6 asks for vi
     env.update(extra)
     return env
 
@@ -270,6 +271,18 @@ def main(pkg, work):
         step('V13-collision', not problems, problems=problems, **codex['collision'])
         problems = docverify_problems(codex['docverify'])
         step('V14-docverify', not problems, problems=problems, **codex['docverify'])
+        try:
+            facts = init_wiki_cases(work, scripts, previous)
+            problems = initwiki_problems(facts)
+        except Exception as error:                     # an environment failure (git, venv) is a failed step, never a crash of the verifier
+            facts, problems = {'error': f'{type(error).__name__}: {str(error)[:300]}'}, ['V15 could not run']
+        step('V15-init-wiki', not problems, problems=problems, **facts)
+        try:
+            facts = old_work_cases(work, previous, wheel, pkg)
+            problems = oldwork_problems(facts, manifest)
+        except Exception as error:                     # an environment failure (git, venv) is a failed step, never a crash of the verifier
+            facts, problems = {'error': f'{type(error).__name__}: {str(error)[:300]}'}, ['V16 could not run']
+        step('V16-old-work', not problems, problems=problems, **facts)
     return finish(report, work)
 
 
@@ -372,7 +385,309 @@ def docverify_problems(d):
     return problems
 
 
-EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 14}
+SKELETON_MARK = '<!-- onecrew:wiki-skeleton 1 -->'
+SKELETON = ['README.md', 'lessons.md', 'project.md']
+
+
+def _files(folder):
+    folder = Path(folder)
+    return sorted(p.name for p in folder.iterdir()) if folder.is_dir() else None
+
+
+def _tree(folder):
+    folder = Path(folder)
+    return {p.relative_to(folder).as_posix(): sha256(p) for p in sorted(folder.rglob('*')) if p.is_file()} if folder.is_dir() else {}
+
+
+def _state_tree(state):
+    """{path: sha256} of a state root without SQLite's side files (a read-only open may create them)."""
+    return {k: v for k, v in _tree(state).items() if not k.endswith(('-wal', '-shm', '-journal'))}
+
+
+def _project_tree(project):
+    """{path: sha256} of every file of a project but its .git folder."""
+    project = Path(project)
+    return {p.relative_to(project).as_posix(): sha256(p) for p in sorted(project.rglob('*'))
+            if p.is_file() and '.git' not in p.relative_to(project).parts[:1]}
+
+
+def init_wiki_cases(work, scripts, previous):
+    """V15 facts: `onecrew init` of the installed wheel on new Git repositories in a folder with spaces, LOCALAPPDATA/APPDATA per case, English
+    output (HOP-DONG-2.3 §10.3): KW-01 a new repository, KW-02 a second init after a page was edited, KW-04 one configured folder, KW-05 several
+    folders, KW-06 an unreadable config.json, KW-07 a junction to a folder outside, KW-08 a file where the folder should be, KW-09 an
+    interrupted skeleton, R7-10 an edited skeleton page, KW-13 a project set up by the previous (2.2) wheel. Judged by initwiki_problems."""
+    base = work / 'init wiki'
+    if base.exists(): shutil.rmtree(base)
+    base.mkdir()
+    exe, py = scripts / 'onecrew.exe', scripts / 'python.exe'
+    def repo(name):
+        project = base / name
+        project.mkdir()
+        for args in (['init', '-q'], ['config', 'user.name', 'v15'], ['config', 'user.email', 'v15@localhost'], ['config', 'core.autocrlf', 'false']):
+            run(['git', '-C', project, *args], check=True)
+        (project / 'a.txt').write_text('base\n', encoding='utf-8')
+        run(['git', '-C', project, 'add', '.'], check=True); run(['git', '-C', project, 'commit', '-qm', 'base'], check=True)
+        return project
+    def state(project):
+        return base / ('state ' + project.name)
+    def env(project):
+        folder = base / ('env ' + project.name); folder.mkdir(exist_ok=True)
+        return env_for(folder, scripts)
+    def init(project, command=exe):
+        done = run([command, 'init', '--project', project, '--state-root', state(project), '--yes'], cwd=base, env=env(project))
+        out = (done.stdout + done.stderr).decode('utf-8', 'replace')
+        return done.returncode, out, ('Done.' in out and 'Traceback' not in out)       # R7-12: exit 1 is also an uncaught error
+    def pages(project):
+        done = run([exe, '--project', project, '--state-root', state(project), 'wiki', 'pages'], cwd=base, env=env(project))
+        try:
+            value = json.loads(done.stdout.decode('utf-8'))
+            return {'pages': sorted(p['path'] for p in value['pages']), 'entries': sum(len(p['entries']) for p in value['pages']), 'problems': value['problems']}
+        except (ValueError, KeyError, TypeError):
+            return {'error': (done.stdout + done.stderr)[-300:].decode('utf-8', 'replace')}
+    skeleton = {name: run([py, '-I', '-c', 'import sys; from onecrew.v2 import install; sys.stdout.buffer.write(install.skeleton_text(sys.argv[1], "en").encode())', name],
+                          cwd=base).stdout for name in SKELETON}
+    facts = {}
+    project = repo('new one')
+    folder = project / 'docs' / 'wiki'
+    code, out, finished = init(project)
+    files = _files(folder) or []
+    facts['new'] = {'exit': code, 'finished': finished, 'files': files,
+                    'marked': [n for n in files if (folder / n).read_text(encoding='utf-8').startswith(SKELETON_MARK)],
+                    'plan_line': 'create the wiki skeleton in docs/wiki' in out, 'pages': pages(project), 'tail': out[-300:]}
+    page = folder / 'project.md'
+    if page.is_file(): page.write_text(page.read_text(encoding='utf-8') + '\n## A rule of the project\nKeep a.txt short.\n', encoding='utf-8')
+    before = (_project_tree(project), _state_tree(state(project)))
+    code, out, finished = init(project)
+    facts['again'] = {'exit': code, 'finished': finished, 'unchanged': (_project_tree(project), _state_tree(state(project))) == before,
+                      'nothing': 'nothing to change' in out, 'pages': pages(project)}
+    project = repo('configured')
+    (project / '.onecrew').mkdir(); (project / '.onecrew' / 'config.json').write_text(json.dumps({'wiki': {'paths': ['kb']}}), encoding='utf-8')
+    code, out, finished = init(project)
+    try:
+        kept = json.loads((project / '.onecrew' / 'config.json').read_text(encoding='utf-8')).get('wiki')
+    except (OSError, ValueError):
+        kept = None
+    facts['configured'] = {'exit': code, 'finished': finished, 'kb': _files(project / 'kb'), 'docs': (project / 'docs').exists(), 'wiki_config': kept}
+    project = repo('several')
+    (project / 'a').mkdir(); (project / 'b').mkdir(); (project / 'b' / 'page.md').write_text('# B\n\n## A rule\nText.\n', encoding='utf-8')
+    (project / '.onecrew').mkdir(); config = project / '.onecrew' / 'config.json'
+    config.write_text(json.dumps({'wiki': {'paths': ['a', 'b']}}), encoding='utf-8')
+    before = _project_tree(project)
+    code, out, finished = init(project)
+    after = {k: v for k, v in _project_tree(project).items() if not k.startswith(('.onecrew/', '.claude/'))}
+    reused = {'exit': code, 'finished': finished, 'unchanged': after == {k: v for k, v in before.items() if not k.startswith('.onecrew/')},
+              'a': _files(project / 'a'), 'docs': (project / 'docs').exists()}
+    project = repo('several missing')
+    (project / 'a').mkdir(); (project / '.onecrew').mkdir(); config = project / '.onecrew' / 'config.json'
+    config.write_text(json.dumps({'wiki': {'paths': ['a', 'missing']}}), encoding='utf-8')
+    raw = config.read_bytes()
+    code, out, finished = init(project)
+    facts['several'] = {'reused': reused, 'missing': {'exit': code, 'config_unchanged': config.read_bytes() == raw, 'said': 'not found' in out,
+                        'wrote': [str(p) for p in (project / '.claude', project / 'missing', state(project) / 'ledger.sqlite3') if p.exists()]}}
+    project = repo('bad config')
+    (project / '.onecrew').mkdir(); config = project / '.onecrew' / 'config.json'; config.write_bytes(b'{ not json')
+    code, out, finished = init(project)
+    facts['bad_config'] = {'exit': code, 'config_unchanged': config.read_bytes() == b'{ not json', 'said': 'Nothing was changed' in out,
+                           'wrote': [str(p) for p in (project / '.claude', project / 'docs', state(project) / 'ledger.sqlite3') if p.exists()]}
+    project = repo('junction')
+    outside = base / 'outside folder'; outside.mkdir(); (project / 'docs').mkdir()
+    made = run(['cmd', '/c', 'mklink', '/J', project / 'docs' / 'wiki', outside]) if os.name == 'nt' else None
+    if made is None: os.symlink(outside, project / 'docs' / 'wiki')
+    code, out, finished = init(project)
+    facts['junction'] = {'made': made is None or made.returncode == 0, 'exit': code, 'outside': _files(outside),
+                         'ledger': (state(project) / 'ledger.sqlite3').exists(), 'said': 'link or junction' in out}
+    project = repo('file clash')
+    (project / 'docs').mkdir(); (project / 'docs' / 'wiki').write_text('not a folder', encoding='utf-8')
+    code, out, finished = init(project)
+    facts['file_clash'] = {'exit': code, 'file_unchanged': (project / 'docs' / 'wiki').read_text(encoding='utf-8') == 'not a folder',
+                           'ledger': (state(project) / 'ledger.sqlite3').exists(), 'said': 'is not a folder' in out}
+    project = repo('interrupted')
+    folder = project / 'docs' / 'wiki'; folder.mkdir(parents=True)
+    (folder / 'README.md').write_bytes(skeleton['README.md'])          # what an init stopped after its first page left
+    kept = sha256(folder / 'README.md')
+    code, out, finished = init(project)
+    facts['interrupted'] = {'exit': code, 'finished': finished, 'files': _files(folder), 'kept': sha256(folder / 'README.md') == kept,
+                            'skeleton_read': len(skeleton['README.md'])}
+    project = repo('edited')
+    folder = project / 'docs' / 'wiki'
+    init(project)
+    page = folder / 'project.md'
+    if page.is_file(): page.write_text(page.read_text(encoding='utf-8') + '\n## Our rule\nKeep a.txt short.\n', encoding='utf-8')
+    for name in ('README.md', 'lessons.md'):
+        if (folder / name).is_file(): (folder / name).unlink()
+    code, out, finished = init(project)
+    facts['edited'] = {'exit': code, 'finished': finished, 'files': _files(folder)}
+    old = work / 'venv previous wheel'
+    if old.exists(): shutil.rmtree(old)
+    run([sys.executable, '-m', 'venv', old], check=True)
+    installed = run([old / 'Scripts' / 'python.exe', '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', previous])
+    old_version = run([old / 'Scripts' / 'python.exe', '-I', '-c', 'import importlib.metadata as m; print(m.version("onecrew"))'], text=True, cwd=work).stdout.strip()
+    project = repo('old project')
+    old_code, _, old_finished = init(project, old / 'Scripts' / 'onecrew.exe')
+    config = project / '.onecrew' / 'config.json'
+    value = json.loads(config.read_text(encoding='utf-8')); value['custom'] = {'kept': True}; config.write_text(json.dumps(value), encoding='utf-8')
+    ledger = state(project) / 'ledger.sqlite3'
+    ledger_before = sha256(ledger) if ledger.is_file() else None
+    had_wiki = (project / 'docs').exists()
+    code, out, finished = init(project)
+    after = json.loads(config.read_text(encoding='utf-8'))
+    settings = json.loads((project / '.claude' / 'settings.local.json').read_text(encoding='utf-8'))
+    commands = sorted({h.get('command') for entries in settings.get('hooks', {}).values() for e in entries for h in e.get('hooks', [])})
+    facts['old_project'] = {'previous_install': installed.returncode, 'previous_version': old_version, 'old_exit': old_code, 'old_finished': old_finished,
+                            'old_had_wiki': had_wiki, 'exit': code, 'finished': finished,
+                            'ledger_unchanged': ledger_before is not None and sha256(ledger) == ledger_before,
+                            'custom_kept': after.get('custom') == {'kept': True}, 'state_root_kept': after.get('state_root') == value.get('state_root'),
+                            'hook_commands': commands, 'new_exe': str(exe.resolve()), 'wiki': _files(project / 'docs' / 'wiki')}
+    return facts
+
+
+def initwiki_problems(f):
+    """What the installed `onecrew init` got wrong in V15 (WI-01..05); [] when nothing."""
+    problems = []
+    done = lambda case: case.get('exit') in (0, 1) and case.get('finished') is True     # 1 = done but the Claude CLI is not logged in
+    new, again, conf, several, bad, link, clash, part, edited, old = (f.get(k) or {} for k in (
+        'new', 'again', 'configured', 'several', 'bad_config', 'junction', 'file_clash', 'interrupted', 'edited', 'old_project'))
+    if not done(new) or new.get('files') != SKELETON or new.get('marked') != SKELETON or not new.get('plan_line'):
+        problems.append(f'KW-01 new repository: {new}')
+    if (new.get('pages') or {}) != {'pages': ['docs/wiki/' + n for n in SKELETON], 'entries': 0, 'problems': []}:
+        problems.append(f'KW-01/KW-11 the empty skeleton as read: {new.get("pages")}')
+    if not done(again) or not again.get('unchanged') or not again.get('nothing') or (again.get('pages') or {}).get('entries') != 1:
+        problems.append(f'KW-02 second init: {again}')
+    if not done(conf) or conf.get('kb') != SKELETON or conf.get('docs') or conf.get('wiki_config') != {'paths': ['kb']}:
+        problems.append(f'KW-04 configured folder: {conf}')
+    reused, missing = several.get('reused') or {}, several.get('missing') or {}
+    if not done(reused) or not reused.get('unchanged') or reused.get('a') != [] or reused.get('docs'):
+        problems.append(f'KW-05 several folders reused: {reused}')
+    if missing.get('exit') != 2 or not missing.get('config_unchanged') or missing.get('wrote') or not missing.get('said'):
+        problems.append(f'KW-05 a missing folder among several: {missing}')
+    if bad.get('exit') != 2 or not bad.get('config_unchanged') or bad.get('wrote') or not bad.get('said'):
+        problems.append(f'KW-06 unreadable config.json: {bad}')
+    if not link.get('made') or link.get('exit') != 2 or link.get('outside') != [] or link.get('ledger') or not link.get('said'):
+        problems.append(f'KW-07 junction: {link}')
+    if clash.get('exit') != 2 or not clash.get('file_unchanged') or clash.get('ledger') or not clash.get('said'):
+        problems.append(f'KW-08 a file where the folder should be: {clash}')
+    if not done(part) or part.get('files') != SKELETON or not part.get('kept') or not part.get('skeleton_read'):
+        problems.append(f'KW-09 interrupted skeleton: {part}')
+    if not done(edited) or edited.get('files') != ['project.md']:
+        problems.append(f'R7-10 an edited skeleton page is the user\'s: {edited}')
+    if (old.get('previous_install') != 0 or old.get('old_exit') not in (0, 1) or not old.get('old_finished') or old.get('old_had_wiki') or not done(old)
+            or not old.get('ledger_unchanged') or not old.get('custom_kept') or not old.get('state_root_kept')
+            or old.get('hook_commands') != [old.get('new_exe')] or old.get('wiki') != SKELETON):
+        problems.append(f'KW-13 a project set up by the previous wheel: {old}')
+    return problems
+
+
+def _events(state):
+    """[(seq, kind, sha256 of the payload)] of every event of a ledger, read-only."""
+    import sqlite3
+    conn = sqlite3.connect((Path(state) / 'ledger.sqlite3').as_uri() + '?mode=ro', uri=True)
+    try:
+        return [(r[0], r[1], hashlib.sha256((r[2] or '').encode('utf-8')).hexdigest()) for r in conn.execute('SELECT seq, kind, payload FROM events ORDER BY seq')]
+    finally:
+        conn.close()
+
+
+def _first_json(data):
+    text = data.decode('utf-8', 'replace') if isinstance(data, bytes) else data
+    start = text.find('{')
+    try:
+        return json.loads(text[start:]) if start >= 0 else None
+    except ValueError:
+        try:
+            return json.JSONDecoder().raw_decode(text[start:])[0]
+        except ValueError:
+            return None
+
+
+def old_work_cases(work, previous, wheel, pkg):
+    """V16 facts: OLD WORK CONTINUED. With the previous (2.2) wheel, in one venv with spaces: `onecrew init`, the first-task contract proposed and
+    approved (the fixture approval of V4/V8 on the temporary ledger, not an owner approval), the nodes revised, node C stepped by the fake
+    claude and verified. Then this wheel is installed over it (`pip install --force-reinstall`) and `onecrew init` runs again; node I is
+    stepped and verified by this wheel. Every event the 2.2 run wrote must still be there byte for byte, and this wheel's compat scan finds
+    the blocks the 2.2 scanner found on the same ledger before the upgrade, no more (they concern the archived pre-namespace baseline d3120c6)."""
+    base = work / 'old work'
+    if base.exists(): shutil.rmtree(base)
+    base.mkdir()
+    venv = base / 'venv old work'
+    run([sys.executable, '-m', 'venv', venv], check=True)
+    py, scripts = venv / 'Scripts' / 'python.exe', venv / 'Scripts'
+    exe = scripts / 'onecrew.exe'
+    installs = [run([py, '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', w]).returncode
+                for w in (previous, fake_wheel(pkg / 'verify' / 'onecrew_fake_claude.py', base))]
+    project, state = base / 'project old work', base / 'state old work'
+    project.mkdir()
+    for args in (['init', '-q'], ['config', 'user.name', 'v16'], ['config', 'user.email', 'v16@localhost'], ['config', 'core.autocrlf', 'false']):
+        run(['git', '-C', project, *args], check=True)
+    (project / 'a.txt').write_text('base\n', encoding='utf-8'); (project / '.gitignore').write_text('.onecrew/\n.claude/\n', encoding='utf-8')
+    run(['git', '-C', project, 'add', '.'], check=True); run(['git', '-C', project, 'commit', '-qm', 'base'], check=True)
+    policy = base / 'policy right.json'
+    policy.write_text(json.dumps({'target': 'a.txt', 'default': 'right', 'careful': True}), encoding='utf-8')   # 2.2 delivers no knowledge
+    log = base / 'fake.jsonl'
+    env = env_for(base, scripts, ONECREW_FAKE_POLICY=str(policy), ONECREW_FAKE_LOG=str(log))
+    cli = lambda *args: run([exe, '--project', project, '--state-root', state, *args], cwd=base, env=env)
+    version = lambda: run([py, '-I', '-c', 'import importlib.metadata as m; print(m.version("onecrew"))'], text=True, cwd=base).stdout.strip()
+    facts = {'installs_previous': installs, 'version_before': version()}
+    facts['init_previous'] = run([exe, 'init', '--project', project, '--state-root', state, '--yes'], cwd=base, env=env).returncode
+    contract = (pkg / 'examples' / 'first-task' / 'contract.json').read_text(encoding='utf-8').replace('PYTHON_EXE', str(py).replace(chr(92), '/'))
+    (base / 'contract.json').write_text(contract, encoding='utf-8')
+    facts['propose'] = cli('plan', 'propose', 'P1', '--file', base / 'contract.json', '--author', 'v16-old-work', '--workflow', '--capability',
+                           'namespaced-storage', '--capability', 'root-budget', '--capability', 'internal-plan', '--capability', 'sequential-engine').returncode
+    approve = ('import sys; from pathlib import Path; from onecrew.ledger import Ledger; from onecrew.v2 import plan; '
+               'shown = plan.approve(Ledger(Path(sys.argv[1]), Path(sys.argv[2])), "P1", "owner", '
+               '"package step V16 fixture on a temporary ledger, not an owner approval"); print(shown["status"])')
+    facts['approve'] = run([py, '-I', '-c', approve, project, state], cwd=base, env=env, text=True).stdout.strip()
+    facts['revise'] = cli('engine', 'revise', 'P1', '--file', pkg / 'examples' / 'first-task' / 'nodes.json').returncode
+    step = _first_json(cli('engine', 'step', 'P1').stdout) or {}
+    facts['step_c_previous'] = [step.get('node'), step.get('state')]
+    facts['verify_c_previous'] = (_first_json(cli('engine', 'verify', 'P1', 'C').stdout) or {}).get('result')
+    facts['compat_previous'] = (_first_json(cli('compat', 'scan', '--json').stdout) or {}).get('blocking')     # the 2.2 scanner on its own ledger
+    before = _events(state)
+    tree_before = (_project_tree(project), _state_tree(state))
+    facts['upgrade'] = run([py, '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', '--force-reinstall', wheel]).returncode
+    facts['install_wrote_nothing'] = (_project_tree(project), _state_tree(state)) == tree_before and _events(state) == before     # KW-14
+    facts['version_after'] = version()
+    facts['init_this'] = run([exe, 'init', '--project', project, '--state-root', state, '--yes'], cwd=base, env=env).returncode
+    facts['wiki'] = _files(project / 'docs' / 'wiki')
+    scan = _first_json(cli('compat', 'scan', '--json').stdout) or {}
+    facts['compat_blocking'] = scan.get('blocking')
+    step = _first_json(cli('engine', 'step', 'P1').stdout) or {}
+    facts['step_i_this'] = [step.get('node'), step.get('state')]
+    facts['verify_i_this'] = (_first_json(cli('engine', 'verify', 'P1', 'I').stdout) or {}).get('result')
+    shown = cli('engine', 'state', 'P1').stdout.decode('utf-8', 'replace')
+    facts['state_counts'] = {'verified': shown.count('"verified"'), 'pass': shown.count('"pass"')}
+    after = _events(state)
+    facts['events_previous'] = len(before)
+    facts['previous_events_kept'] = after[:len(before)] == before
+    facts['events_added'] = len(after) - len(before)
+    try:
+        facts['fake_nodes'] = [json.loads(line)['node'] for line in log.read_text(encoding='utf-8').splitlines()]
+    except (OSError, ValueError, KeyError):
+        facts['fake_nodes'] = None
+    return facts
+
+
+def oldwork_problems(f, manifest):
+    """What went wrong in V16; [] when nothing."""
+    problems, done = [], (0, 1)
+    if f.get('installs_previous') != [0, 0] or f.get('version_before') != manifest['previous_wheel']['version'] or f.get('init_previous') not in done:
+        problems.append(f'the previous wheel did not set the project up: {[f.get(k) for k in ("installs_previous", "version_before", "init_previous")]}')
+    if (f.get('propose'), f.get('approve'), f.get('revise'), f.get('step_c_previous'), f.get('verify_c_previous')) != (0, 'approved', 0, ['C', 'produced'], 'pass'):
+        problems.append(f'the 2.2 half of the work: {[f.get(k) for k in ("propose", "approve", "revise", "step_c_previous", "verify_c_previous")]}')
+    if not f.get('install_wrote_nothing'): problems.append('KW-14: installing the wheel changed the project or the ledger')
+    if f.get('upgrade') != 0 or f.get('version_after') != manifest['version'] or f.get('init_this') not in done or f.get('wiki') != SKELETON:
+        problems.append(f'the upgrade: {[f.get(k) for k in ("upgrade", "version_after", "init_this", "wiki")]}')
+    blocking = f.get('compat_blocking')
+    if not isinstance(blocking, dict) or blocking != f.get('compat_previous') or blocking.get('read'):
+        problems.append(f'compat scan after the upgrade {blocking} differs from the 2.2 scan before it {f.get("compat_previous")} or blocks reading')
+    if (f.get('step_i_this'), f.get('verify_i_this')) != (['I', 'produced'], 'pass'): problems.append(f'node I with this wheel: {[f.get("step_i_this"), f.get("verify_i_this")]}')
+    counts = f.get('state_counts') or {}
+    if counts.get('verified', 0) < 2 or counts.get('pass', 0) < 2: problems.append(f'engine state after: {counts}')
+    if not f.get('previous_events_kept') or not f.get('events_added'): problems.append(f'the 2.2 events: kept {f.get("previous_events_kept")}, added {f.get("events_added")}')
+    if f.get('fake_nodes') != ['C', 'I']: problems.append(f'worker runs: {f.get("fake_nodes")}')
+    return problems
+
+
+EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 16}
 
 
 def finish(report, work):

@@ -104,6 +104,24 @@ def main(argv=None):
             index += 1
         else:
             break
+    if len(args) > index and args[index] == '--version':
+        from importlib import metadata
+        from pathlib import Path
+        import onecrew
+        here = Path(onecrew.__file__).resolve().parent
+        project = here.parent / 'pyproject.toml'
+        if project.is_file():                          # a checkout: its own pyproject, never a stale egg-info beside it (review dev7 R7-14)
+            import re
+            found = re.search(r'(?m)^version = "([^"]+)"', project.read_text(encoding='utf-8', errors='replace'))
+            print(f'onecrew {found.group(1) if found else "unknown"} (checkout: {here.parent})')
+            return 0
+        try:
+            dist = metadata.distribution('onecrew')
+            installed = Path(dist.locate_file('onecrew')).resolve()
+            print(f'onecrew {dist.version}' + ('' if installed == here else f' (installed; the code running is {here})'))
+        except metadata.PackageNotFoundError:
+            print(f'onecrew unknown (not installed: the code running is {here})')
+        return 0
     if len(args) <= index or args[index] in ('--help', '-h'):
         print('OneCrew: --project <path> <group> <command> [options]\n' + help_lines() +
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')

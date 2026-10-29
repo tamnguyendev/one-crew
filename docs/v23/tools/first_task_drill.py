@@ -282,6 +282,23 @@ def check_step(sid, code, out, err, ctx, work):
     if sid == 'repo':
         count = subprocess.run(['git', '-C', str(proj), 'rev-list', '--count', 'HEAD'], capture_output=True, text=True).stdout.strip()
         return count == '1' and (proj / 'a.txt').read_text() == 'base\n', {'commits': count}
+    if sid == 'init':                                     # WI-01/WI-03: the wiki `onecrew init` creates is the one the task uses
+        code_line = re.search(r'^init: (\d+)\s*$', out, re.M)      # PowerShell ends lines with CRLF
+        folder = proj / 'docs' / 'wiki'
+        names = sorted(p.name for p in folder.iterdir()) if folder.is_dir() else []
+        marked = [n for n in names if (folder / n).read_text(encoding='utf-8').startswith('<!-- onecrew:wiki-skeleton 1 -->')]
+        try:
+            state = json.loads((proj / '.onecrew' / 'config.json').read_text(encoding='utf-8')).get('state_root')
+        except (OSError, ValueError):
+            state = None
+        facts = {'init_exit': code_line.group(1) if code_line else None, 'wiki': names, 'skeleton': marked, 'state_root': state}
+        return (code_line is not None and code_line.group(1) in ('0', '1') and names == ['README.md', 'lessons.md', 'project.md'] and marked == names
+                and state is not None and Path(state).resolve() == ledger.resolve() and 'create the wiki skeleton in docs/wiki' in out), facts
+    if sid == 'wiki-empty':
+        value = first_json(out) or {}
+        pages = [(p['path'], len(p.get('entries', []))) for p in value.get('pages', [])]
+        facts = {'pages': pages, 'problems': value.get('problems')}
+        return value.get('problems') == [] and sorted(pages) == [('docs/wiki/README.md', 0), ('docs/wiki/lessons.md', 0), ('docs/wiki/project.md', 0)], facts
     if sid == 'wiki-page':
         page = (proj / 'docs' / 'wiki' / 'rules.md').read_text(encoding='utf-8')
         first = subprocess.run(['git', '-C', str(proj), 'rev-list', '--max-parents=0', 'HEAD'], capture_output=True, text=True).stdout.strip()

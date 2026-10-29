@@ -1,6 +1,22 @@
 # Wiki của project trong OneCrew 2.3 — cách dùng và cách kiểm
 
-Áp dụng cho bản `2.3.0.dev1` trở lên: đọc/giao (A1) từ dev1, ghi có bằng chứng và dùng lại qua root mới (A2) từ dev2. Mục "Giới hạn" ghi rõ phần không làm.
+Áp dụng cho bản `2.3.0.dev1` trở lên: đọc/giao (A1) từ dev1, ghi có bằng chứng và dùng lại qua root mới (A2) từ dev2, `onecrew init` tạo hoặc dùng lại wiki (§0) từ dev7. Mục "Giới hạn" ghi rõ phần không làm.
+
+## 0. Khởi tạo: `onecrew init` tạo hoặc dùng lại wiki (từ 2.3.0.dev7)
+
+`onecrew init` (chạy lại được) ngoài sổ, hook và `.onecrew/config.json` còn lo wiki của project. Nó quyết định trước khi ghi bất cứ gì:
+- `.onecrew/config.json` có `"wiki": {"paths": [...]}`:
+  - đúng một thư mục trong repo: chưa có thì tạo khung ở đó, có rồi thì dùng;
+  - nhiều thư mục, hoặc một thư mục ngoài repo (đường dẫn tuyệt đối, hoặc `/x`: thư mục ở gốc ổ đĩa của repo, như bộ đọc hiểu): chỉ dùng lại, init không chọn chỗ ghi; thiếu thư mục nào thì init dừng (mã 2) và không ghi gì.
+- Không cấu hình: `docs/wiki/`.
+- Thư mục đã có một trang của bạn: dùng nguyên, không thêm file. Trang khung bạn đã sửa cũng là trang của bạn: init chỉ coi một trang là của nó khi trang còn đúng chữ init viết, hoặc là phần đầu của chữ đó (lần ghi trước bị ngắt giữa chừng, kể cả trang rỗng); init không viết lại trang đó, chỉ thêm các trang còn thiếu. Thư mục chưa có, rỗng, hoặc chỉ có trang khung init viết mà chưa ai sửa (init trước bị ngắt): tạo các trang khung còn thiếu.
+- `docs/wiki` (hoặc thư mục cha) là link/junction tới một wiki đã có trang: dùng nguyên, init không ghi gì vào đó. Link tới thư mục rỗng hay chưa có: init dừng (mã 2). Wiki dùng chung nên khai bằng đường dẫn tuyệt đối trong `wiki.paths`.
+
+Khung gồm `README.md` (cách viết một mục, có ví dụ), `project.md` (ngữ cảnh project) và `lessons.md` (bài học nhóm tự viết; điều OneCrew ghi kèm bằng chứng nằm trong sổ: `onecrew wiki history`, `onecrew lesson list`). Dòng đầu mỗi trang là `<!-- onecrew:wiki-skeleton 1 -->`. Khung không có heading `##`/`###` nào và không khai báo mục bắt buộc (ví dụ trong `README.md` không có `must`), nên chưa có mục nào được giao cho worker: `onecrew wiki pages` cho 3 trang, 0 mục. Bắt đầu bằng cách thêm mục vào `project.md` (§2).
+
+Init không bao giờ ghi đè file, ghi ngoài repo hay qua link/junction, ghi vào `.git`, `.onecrew`, `.claude`, commit, gọi model hay quét repo. Init dừng với mã 2 và không ghi gì khi `config.json` không đọc được hoặc `wiki` sai dạng (trước dev7, một `config.json` không đọc được bị ghi đè), khi đường dẫn tương đối ra ngoài repo (`..`, `D:x`), khi một thành phần được viết theo cách khác của Windows (dấu chấm hoặc khoảng trắng ở cuối, stream `:`, hoặc một tên ngắn 8.3 phân giải thành thư mục mang tên khác), khi thư mục wiki là file, hoặc là hay đi qua link/junction mà không có trang nào. Init xét lại đường dẫn ngay trước khi ghi, nên một junction tạo ra trong lúc init chờ trả lời cũng không bị ghi xuyên qua. Ghi khung lỗi giữa chừng (thư mục chỉ đọc chẳng hạn): các bước khác của init vẫn xong, init in file đã ghi và lỗi, thoát mã 3; sửa rồi chạy lại để hoàn tất.
+
+Project đã `init` bằng bản 2.2: chạy `onecrew init` của bản này một lần. Sổ, `config.json` (các khóa khác giữ nguyên), plan và ngân sách giữ nguyên; hook được gộp sang lệnh mới; khung wiki được thêm nếu project chưa có wiki. Cài hay nâng wheel không tự init project nào. Bằng chứng: `tests/test_v23_wiki_init.py`, bước V15 của bộ kiểm gói (CLI của wheel đã cài, có ca project do wheel 2.2 cài).
 
 ## 1. Wiki là gì ở đây
 
@@ -121,6 +137,12 @@ Mục general ghi bằng 2.2 (`context add --scope general --condition "<chữ>"
 Root B mới của cùng project (phiên/process mới) tự nhận các mục `visibility: project` và lesson của root khác, qua cùng bộ chọn A1: quyền đọc nguồn của node B, khả năng áp dụng hiện tại, mức liên quan, trần. Không cần chép tay context của root A, không mở lại A, không đụng ngân sách của A. Mục `visibility: root` (bộ nhớ làm việc) của A không sang B. Project khác không thấy.
 
 ## 7. Giới hạn
+
+- Init xét đường dẫn ngay trước khi ghi; một thư mục bị đổi thành junction trong khoảng rất ngắn giữa lần xét cuối và lúc tạo file thì vẫn bị ghi xuyên qua (kiểm theo đường dẫn không đóng được khoảng đó; khoảng chờ trả lời y/N đã được đóng).
+- Một mục `context add` kiểu 2.2 mà project này ghi với đúng khóa `lesson-<mã 32 hex>` của một lesson general của project khác thì mang cùng id với lesson đó, và với project này lesson kia bị che (cần biết trước mã băm của lesson; bản ghi 2.3 mới không lấy được khóa `lesson-`).
+
+- Khung wiki viết bằng ngôn ngữ của `ONECREW_LANG` lúc init (vi, mặc định en); init không dịch hay sửa trang đã có.
+- Trên Python 3.10/3.11 (chưa có `Path.is_junction`), init nhận ra junction qua đường dẫn sau khi phân giải: junction trỏ ra ngoài repo vẫn bị từ chối; junction trỏ tới chỗ khác trong repo thì không bị coi là junction.
 
 - **Quay về 2.2:** 2.2 đọc được sổ 2.3 (plan show, engine state, compat scan không có khối read — diễn tập ở bộ kiểm gói), nhưng 2.2 không biết vòng đời tri thức: mục đã thu hồi/lưu trữ/thay thế hiện như ghi chú bình thường trong `context retrieve`/gói tiếp tục của 2.2, và 2.2 không khôi phục được một attempt đang dở mà worker đã trả khóa `knowledge` (attempt đó giữ trạng thái unknown). Trước khi quay về, để mọi attempt kết thúc; sau khi quay về, coi tri thức 2.3 trong sổ là dữ liệu thô.
 - Bản A1 (2.3.0.dev1) chỉ đọc/giao; phần ghi và dùng lại qua root mới có từ 2.3.0.dev2 (A2).
