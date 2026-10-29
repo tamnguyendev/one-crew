@@ -32,7 +32,7 @@ import time
 from pathlib import Path, PurePosixPath
 
 from ...ledger import LedgerError, canonical, utcnow
-from ...snapshots import Snapshots, control_part, safe_file, scoped_path
+from ...snapshots import ControlAlias, Snapshots, control_part, is_link, safe_file, scoped_path
 from . import command, artifact
 
 BUILTIN = ('doc', 'data', 'ops')            # shipped adapters; no task-type branch in the lifecycle
@@ -202,6 +202,9 @@ class Port:
         try:
             text = scoped_path(rel)
             target = safe_file(self._root, text)
+        except ControlAlias:            # the name looks ordinary, but on disk it is a kept file or folder (a Windows short name such as ENV~1.EXA)
+            self._refuse('read', 'read_scope', f'{str(rel)[:200]!r} reaches a control or credential path (.git, .onecrew, .ssh, .aws, .env*) under another '
+                                               'name, a Windows short name: its content is never read')
         except LedgerError:
             kept = kept_reason(rel)
             why = (f'is {kept}' if kept else 'goes through a link or a junction, or resolves outside the checkout; an adapter reads inside the checkout only'
@@ -213,7 +216,7 @@ class Port:
         """Every file of the checkout an adapter may read (posix paths relative to the workspace), sorted. A path that differs only in case is
         another path. A name the snapshot rules keep from every reader (kept_reason: .env*, .git, .onecrew, .ssh, .aws, a device name, a path over
         240 characters) is left out, a folder with what it holds, and does not stop the run (beta report B5, 29/10): reading it is still refused.
-        A link or a junction still stops the run."""
+        A link or a junction still stops the run, whatever its name: a kept name does not hide one (review R14, 29/10)."""
         def withheld(rel):              # a name found by the walk is inside the checkout: any refusal of the snapshot rules keeps it
             try:
                 scoped_path(rel)
@@ -227,16 +230,23 @@ class Port:
                 here = Path(base).relative_to(self._root)
                 for name in list(dirs):
                     rel = (here / name).as_posix()
-                    if withheld(rel): kept.add(rel); dirs.remove(name)           # not walked: nothing below it is listed or read
+                    if withheld(rel): self._keep(rel, Path(base) / name, kept); dirs.remove(name)     # not walked: nothing below it is listed or read
                     else: self._safe(rel)
                 for name in names_:
                     rel = (here / name).as_posix()
-                    if withheld(rel): kept.add(rel); continue
+                    if withheld(rel): self._keep(rel, Path(base) / name, kept); continue
                     self._safe(rel)
                     found.append(rel)
                     if len(found) > MAX_FILES: raise Inconclusive(f'more than {MAX_FILES} files in the checkout')
             self._listing, self._kept = sorted(found), kept
         return list(self._listing)
+
+    def _keep(self, rel, path, kept):
+        """A kept name is left out of the listing, not refused. A link or a junction under it is not a kept file: it is a scope violation, judged as
+        one (it is the link that is refused, not the name), so the name cannot hide it."""
+        if is_link(path):
+            self._refuse('read', 'read_scope', f'{rel!r} is a link or a junction (its name is also one an adapter may not read); an adapter follows no link')
+        kept.add(rel)
 
     def _kept_exists(self, key):
         """Does the kept path `key` exist? Answered from the walk, or below a kept folder that was not walked from the disk without following a
