@@ -8,7 +8,11 @@ Cases (P2-02, through the real dispatch path engine.step -> NativeExecutor -> Cl
   optional_broken  control: pages that cannot be read but declare nothing mandatory -> the node runs, the problems are recorded
 Case (P2-01, through the installed CLI):
   continue         `onecrew wiki record` (verified, applies to a.txt; a root note superseded by a newer one; a note of another root),
-                   `onecrew continue P1 --json` and `onecrew context retrieve --plan P1` before and after a.txt changes."""
+                   `onecrew continue P1 --json` and `onecrew context retrieve --plan P1` before and after a.txt changes.
+Case (Codex review of 2.3.0.dev3, P2, through the installed CLI):
+  general          shared (general) records whose condition is false here, holds, cannot be checked, or was withdrawn; a project
+                   record whose condition is false; a 2.2 shared note: `onecrew context retrieve` in every form that returns the
+                   general scope (with/without --plan, scope general/both), `wiki show --plan P1` and `wiki history`."""
 import json
 import os
 import shutil
@@ -109,6 +113,50 @@ if case == 'continue':
     out['retrieve_after'] = retrieved()
     code, stdout, _ = cli('wiki', 'history')
     out['history'] = {r['text']: r['status'] for r in json.loads(stdout)['records']} if code == 0 else None
+elif case == 'general':
+    exe = shutil.which('onecrew')
+    elsewhere = 'linux' if sys.platform != 'linux' else 'win32'
+    def cli(*args):
+        done = subprocess.run([exe, '--project', str(root), '--state-root', str(ledger.state_root), *args], capture_output=True,
+                              text=True, encoding='utf-8', errors='replace', cwd=work)
+        return done.returncode, done.stdout, done.stderr
+    def last_event():
+        with ledger.transaction() as conn:
+            return conn.execute('SELECT MAX(seq) FROM events').fetchone()[0]
+    def general(text, condition):
+        code, stdout, stderr = cli('wiki', 'record', '--plan', 'P1', '--kind', 'decision', '--text', text, '--status', 'verified', '--scope', 'general',
+                                   '--property', 'the retry check passed', '--source', f'event:{last_event()}', '--condition', json.dumps(condition))
+        return json.loads(stdout) if code == 0 else {'error': (stdout + stderr)[-300:]}
+    ids = {'false': general('Retry rule for elsewhere', {'type': 'env', 'key': 'platform', 'value': elsewhere}),
+           'true': general('Retry rule here', {'type': 'env', 'key': 'platform', 'value': sys.platform}),
+           'unknown': general('Retry rule for a model', {'type': 'env', 'key': 'model', 'value': 'some-model'}),
+           'withdrawn': general('Withdrawn retry rule', {'type': 'env', 'key': 'platform', 'value': sys.platform})}
+    out['recorded'] = {name: bool(value.get('id')) for name, value in ids.items()}
+    out['withdraw_exit'] = cli('wiki', 'withdraw', ids['withdrawn'].get('id', '?'), '--plan', 'P1', '--reason', 'shown wrong',
+                               '--source', f'event:{last_event()}')[0]
+    out['project_exit'] = cli('wiki', 'record', '--plan', 'P1', '--kind', 'decision', '--text', 'Project rule for elsewhere', '--status', 'verified',
+                              '--property', 'check M1 passed', '--source', f'event:{last_event()}', '--applies-to', 'a.txt',
+                              '--condition', json.dumps({'type': 'env', 'key': 'platform', 'value': elsewhere}))[0]
+    out['legacy_exit'] = cli('context', 'add', 'P1', '--kind', 'note', '--label', 'observed', '--text', '2.2 shared note',
+                             '--source', f'event:{last_event()}', '--scope', 'general', '--condition', 'Python')[0]
+    forms = {'general': ['--scope', 'general'], 'both': ['--scope', 'both'], 'plan general': ['--plan', 'P1', '--scope', 'general'],
+             'plan both': ['--plan', 'P1', '--scope', 'both'], 'plan project': ['--plan', 'P1', '--scope', 'project']}
+    out['retrieve'] = {}
+    for name, form in forms.items():
+        code, stdout, stderr = cli('context', 'retrieve', *form)
+        out['retrieve'][name] = ({e['text']: [e['label'], e.get('stale_reason'), e.get('stored_label')] for e in json.loads(stdout)['entries']}
+                                 if code == 0 else {'error': (stdout + stderr)[-300:]})
+    code, stdout, stderr = cli('wiki', 'show', '--plan', 'P1')
+    if code == 0:
+        package = json.loads(stdout)
+        seen = {e['id']: e['use'] for e in package['entries']}
+        seen.update({row['id']: row['use'] for row in package['omitted']['index']})
+        out['wiki'] = {name: seen.get(value.get('id'), 'not delivered') for name, value in ids.items()}
+        out['wiki_left_out'] = package['omitted']['by_reason']
+    else:
+        out['wiki'] = {'error': (stdout + stderr)[-300:]}
+    code, stdout, _ = cli('wiki', 'history')
+    out['history'] = {r['text']: [r['status'], r['label']] for r in json.loads(stdout)['records']} if code == 0 else None
 else:
     internal_plan.revise(ledger, 'P1', [node('C'), node('I', ['C'], integration=True, write=())], reason='Codex P2-02 case', evidence=['a.txt:1'])
     fake_log = Path(os.environ.get('ONECREW_FAKE_LOG') or (work / 'fake.jsonl'))

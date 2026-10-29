@@ -28,6 +28,12 @@
                   show a verified decision as verified, then `stale` with the reason once its pinned a.txt changes; a root note
                   superseded by a newer one is gone from the pack and `superseded` in `wiki history`; the newer note stays verified;
                   another root's note never appears
+  V12 general     (FINAL) verify/scenario_codex.py, Codex review of 2.3.0.dev3 P2, installed CLI: a shared (general) record whose
+                  condition is false here or cannot be checked is `stale` with the reason (original label kept) in every
+                  `context retrieve` form that returns the general scope (no --plan / --plan, scope general / both), and left out
+                  (false) or a lead (unknown) by `wiki show --plan`; controls: one whose condition holds stays verified, a withdrawn one
+                  never comes back and is `withdrawn` in `wiki history`, a project record whose condition is false stays stale, a 2.2
+                  shared note keeps its 2.2 label
 Exit 0 when every step passes, 1 otherwise. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
 import base64
 import hashlib
@@ -219,7 +225,7 @@ def main(pkg, work):
         step('V9-takeover', ok, **b)
     if manifest['milestone'] == 'FINAL':
         codex = {}
-        for case in ('beyond_pages', 'undeliverable', 'optional_broken', 'continue'):
+        for case in ('beyond_pages', 'undeliverable', 'optional_broken', 'continue', 'general'):
             case_work = work / f'codex {case}'
             if case_work.exists(): shutil.rmtree(case_work)
             case_work.mkdir()
@@ -247,10 +253,43 @@ def main(pkg, work):
               and history.get('Old private rule') == 'superseded' and history.get('New private rule') == 'active'
               and 'P2 private working note' not in after and 'P2 private working note' not in before)
         step('V11-continue', ok, **c)
+        problems = general_problems(codex['general'])
+        step('V12-general', not problems, problems=problems, **codex['general'])
     return finish(report, work)
 
 
-EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 11}
+def general_problems(g):
+    """What the installed CLI got wrong in scenario_codex.py `general` (Codex review of 2.3.0.dev3, P2); [] when nothing."""
+    problems = []
+    if not (g.get('recorded') and all(g['recorded'].values())) or any(g.get(k) != 0 for k in ('withdraw_exit', 'project_exit', 'legacy_exit')):
+        problems.append('recording failed: ' + str({k: g.get(k) for k in ('recorded', 'withdraw_exit', 'project_exit', 'legacy_exit', 'error')})[:300])
+    retrieved = g.get('retrieve') or {}
+    for form in ('general', 'both', 'plan general', 'plan both'):
+        rows = retrieved.get(form) or {}
+        false, unknown, true = rows.get('Retry rule for elsewhere'), rows.get('Retry rule for a model'), rows.get('Retry rule here')
+        if not (false and false[0] == 'stale' and str(false[1]).startswith('not applicable now') and false[2] == 'verified'):
+            problems.append(f'{form}: a general record whose condition is false here is shown as {false}')
+        if not (unknown and unknown[0] == 'stale' and str(unknown[1]).startswith('cannot be checked now') and unknown[2] == 'verified'):
+            problems.append(f'{form}: a general record whose condition cannot be checked is shown as {unknown}')
+        if not (true and true[0] == 'verified' and true[1] is None):
+            problems.append(f'{form}: control, a general record whose condition holds is shown as {true}')
+        if 'Withdrawn retry rule' in rows: problems.append(f'{form}: a withdrawn general record came back')
+        if (rows.get('2.2 shared note') or [None, 'missing'])[:2] != ['observed', None]:
+            problems.append(f'{form}: control, the 2.2 shared note is shown as {rows.get("2.2 shared note")}')
+    for form in ('both', 'plan both', 'plan project'):
+        project = (retrieved.get(form) or {}).get('Project rule for elsewhere')
+        if not (project and project[0] == 'stale' and str(project[1]).startswith('not applicable now')):
+            problems.append(f'{form}: control, a project record whose condition is false is shown as {project}')
+    if g.get('wiki') != {'false': 'not delivered', 'true': 'fact', 'unknown': 'lead', 'withdrawn': 'not delivered'}:
+        problems.append(f'wiki show: {g.get("wiki")}')
+    if (g.get('wiki_left_out') or {}).get('not_applicable', 0) < 2: problems.append(f'wiki show left out: {g.get("wiki_left_out")}')
+    history = g.get('history') or {}
+    if history.get('Withdrawn retry rule') != ['withdrawn', 'verified'] or history.get('Retry rule for elsewhere') != ['active', 'verified']:
+        problems.append(f'wiki history: {history.get("Withdrawn retry rule")}, {history.get("Retry rule for elsewhere")}')
+    return problems
+
+
+EXPECTED = {'A1': 7, 'A2': 8, 'B': 8, 'FINAL': 12}
 
 
 def finish(report, work):
