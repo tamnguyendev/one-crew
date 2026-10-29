@@ -148,7 +148,7 @@ Kết quả: `D:\OneCrewRuns\v23\dev5\cli red dev3`, `cli red dev4`, `cli green 
 - **Tự kiểm tài liệu T38a:** đạt, 155 phản chứng và 18 đối chứng.
 - **kit-guard: đạt.** Ba ngoại lệ U1 `U1-20261029-V23-PIN-1..3` (§3) được dùng cho đúng ba file ghim; không file ghim nào khác đổi; namespace lineage đạt. Vấn đề kit-guard của gate dev3 không còn.
 - **Quyết định gate: `refused`, 23 vấn đề**, đều là khoảng trống nghiệm thu: 13 `acceptance-partial` và 10 `acceptance-blocked`, giống từng chữ gate beta (`D:\OneCrewRuns\wf-handover-34eb7c4-hs2\gate\gate-decision.json`) và gate dev3. Mỗi khoảng trống cần việc thật ngoài phát triển (lệnh nghiệm thu của chủ sở hữu trên bản giao, pilot thật, provider ngoài). "Check thực thi đạt" ở trên khác quyết định cuối của gate: quyết định vẫn là `refused`.
-- **Gate trên `84940f7` (dev4):** dừng ở 16/286 khi review tìm ra F1; các receipt `error` ghi sau lúc dừng là hệ quả của việc dừng, không tính là đạt hay hỏng (`D:\OneCrewRuns\v23\dev4\logs\gate-84940f7-stopped.txt`).
+- **Gate trên `84940f7` (dev4):** dừng ở 16/286 khi review tìm ra F1. Trước lúc dừng có 15 check đạt và 1 check fail thật: `R01/check.release_bundle`, test canh sổ thật, vì việc thật của project khác ghi sổ trong lúc test chạy (§2.2, bài học LL-16). Trên `b3ecc57`, check này đạt. Các receipt `error` ghi sau lúc dừng là hệ quả của việc dừng, không tính là đạt hay hỏng (`D:\OneCrewRuns\v23\dev4\logs\gate-84940f7-stopped.txt`).
 
 ## 6. Cách cài và chạy task đầu tiên
 
