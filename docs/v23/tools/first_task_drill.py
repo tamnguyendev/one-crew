@@ -283,7 +283,7 @@ def check_step(sid, code, out, err, ctx, work):
         count = subprocess.run(['git', '-C', str(proj), 'rev-list', '--count', 'HEAD'], capture_output=True, text=True).stdout.strip()
         return count == '1' and (proj / 'a.txt').read_text() == 'base\n', {'commits': count}
     if sid == 'init':                                     # WI-01/WI-03: the wiki `onecrew init` creates is the one the task uses
-        code_line = re.search(r'^init: (\d+)$', out, re.M)
+        code_line = re.search(r'^init: (\d+)\s*$', out, re.M)      # PowerShell ends lines with CRLF
         folder = proj / 'docs' / 'wiki'
         names = sorted(p.name for p in folder.iterdir()) if folder.is_dir() else []
         marked = [n for n in names if (folder / n).read_text(encoding='utf-8').startswith('<!-- onecrew:wiki-skeleton 1 -->')]
