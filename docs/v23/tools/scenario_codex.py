@@ -12,7 +12,8 @@ Case (P2-01, through the installed CLI):
 Case (Codex review of 2.3.0.dev3, P2, through the installed CLI):
   general          shared (general) records whose condition is false here, holds, cannot be checked, or was withdrawn; a project
                    record whose condition is false; a 2.2 shared note: `onecrew context retrieve` in every form that returns the
-                   general scope (with/without --plan, scope general/both), `wiki show --plan P1` and `wiki history`."""
+                   general scope (with/without --plan, scope general/both), `wiki show --plan P1` and `wiki history`; a
+                   general record superseded by a project record that cites a file (review of the dev4 fix, F1)."""
 import json
 import os
 import shutil
@@ -137,6 +138,10 @@ elif case == 'general':
     out['project_exit'] = cli('wiki', 'record', '--plan', 'P1', '--kind', 'decision', '--text', 'Project rule for elsewhere', '--status', 'verified',
                               '--property', 'check M1 passed', '--source', f'event:{last_event()}', '--applies-to', 'a.txt',
                               '--condition', json.dumps({'type': 'env', 'key': 'platform', 'value': elsewhere}))[0]
+    replaced = general('Replaced retry rule', {'type': 'env', 'key': 'platform', 'value': sys.platform})
+    out['replaced_exit'] = cli('wiki', 'record', '--plan', 'P1', '--kind', 'decision', '--text', 'Project rule that replaces it', '--status', 'verified',
+                               '--property', 'agreed in review', '--source', f'event:{last_event()}', '--source', f'path:a.txt@{recorded}',
+                               '--supersedes', replaced.get('id', '?'))[0]                # review dev4 F1: a file-citing superseder
     out['legacy_exit'] = cli('context', 'add', 'P1', '--kind', 'note', '--label', 'observed', '--text', '2.2 shared note',
                              '--source', f'event:{last_event()}', '--scope', 'general', '--condition', 'Python')[0]
     forms = {'general': ['--scope', 'general'], 'both': ['--scope', 'both'], 'plan general': ['--plan', 'P1', '--scope', 'general'],
