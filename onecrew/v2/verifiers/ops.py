@@ -30,7 +30,7 @@ def _conditions(value, label):
 
 def validate_config(config, label):
     data._object(config, ('pre', 'post', 'receipt', 'reconcile', 'operation_id', 'request_sha', 'preconditions', 'postconditions'), label)
-    paths = {k: scoped_path(config.get(k)) for k in ('pre', 'post', 'receipt', 'reconcile')}
+    paths = {k: port.long_name(scoped_path(config.get(k)), f'{label}.{k}') for k in ('pre', 'post', 'receipt', 'reconcile')}
     if len(set(paths.values())) != 4: raise LedgerError(label + ': four distinct evidence files are required.')
     operation = config.get('operation_id')
     if not isinstance(operation, str) or not 1 <= len(operation) <= 100:

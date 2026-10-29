@@ -200,7 +200,9 @@ class Snapshots:
             raise LedgerError('Cannot capture scoped Git state.')
         return result.stdout if result.returncode == 0 else None
 
-    def capture(self, project, paths):
+    def capture(self, project, paths, kept=None):
+        """`kept`: names of the folder that the snapshot rules keep from every reader and that are left out (artifact identity of a folder without Git,
+        beta report D8). They are named in the manifest, not read, and a manifest without any is the one there always was."""
         project = Path(project).resolve()
         paths = scope_list(paths)
         before = self._working(project, paths)
@@ -226,7 +228,7 @@ class Snapshots:
                 head != self.git(project, 'rev-parse', '--verify', 'HEAD', allow_failure=True)):
             raise LedgerError('Source changed during snapshot; retry without publishing.')
         return self.save({'version': 1, 'parent': None, 'source': str(project),
-                          'head': head.decode('ascii').strip() if head else None, 'files': files})
+                          'head': head.decode('ascii').strip() if head else None, 'files': files, **({'kept': list(kept)} if kept else {})})
 
     @staticmethod
     def _working(project, paths):

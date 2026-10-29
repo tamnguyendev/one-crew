@@ -15,10 +15,13 @@ Config (the adapter's own keys; `authority` is the core's):
                       or "forbid"
   links  true (default) | false     every internal link and image resolves to a file, and its #anchor to a heading, inside the checkout
   ids    [ {name, pattern, defined_in} ]   every id matching `pattern` that is used must be defined once (a heading, list item or table
-                      row that starts with it) in `defined_in` (default: the documents)
+                      row that starts with it) in `defined_in` (default: the documents). The pattern is searched inside a line and the id must
+                      stand alone (no letter, digit, `_` or `-` right before or after it): `^` `\\A` and `$` `\\Z` mean those two edges, a global
+                      flag such as `(?i)` applies to the pattern, and a group is referred to by name, `(?P=n)`, never by number
 
 What it does not prove: that a web address is alive (it is listed as not verified), that a source says what the document claims, or that
-the text is good. It proves the references hold together.
+the text is good. It proves the references hold together. A file that has another name on the disk (a hard link) is never read: a link or a
+source to it is listed as not verified, a document or a definition file that is one is a problem of its check (it cannot be verified).
 """
 import hashlib
 import posixpath
@@ -51,6 +54,9 @@ BAD_NAME = re.compile(r'[<>:"|?*\x00-\x1f]')
 URL = re.compile(r'https?://[^\s<>)\]]+')
 ENTRY = re.compile(r'^\s*(?:[-*+]|\d+[.)])?\s*\[([^\]]+)\]')
 BRACKET = re.compile(r'\[([^\[\]]+)\](?!\()')            # a bracketed label that is not the text of an inline link: a citation if `cite` accepts it in full
+ID_FLAGS = re.compile(r'\(\?([aiLmsux]+)\)')            # global flags at the start of an ids pattern: (?i)  (?s)(?x) ...
+ID_BEFORE, ID_AFTER = (r'(?<![\w-])', ''), (r'(?![\w-])', r'(?![\w-])')      # an anchor is the edge of the id: (in the search, in a definition)
+ID_EDGES = {'^': ID_BEFORE, r'\A': ID_BEFORE, '$': ID_AFTER, r'\Z': ID_AFTER, r'\z': ID_AFTER}
 
 
 # ---- the contract form ----------------------------------------------------------------------------------------------------
@@ -67,6 +73,7 @@ def _list(value, label, low, high):
 
 def _path(value, label):
     scoped_path(value)
+    port.long_name(value, label)
     if not value.lower().endswith(MARKDOWN): raise LedgerError(f'{label}: {value} is not a Markdown file ({", ".join(MARKDOWN)}).')
     return value
 
@@ -75,9 +82,92 @@ def _regex(value, label):
     text_field(value, label, 100)
     try:
         re.compile(value)
-    except re.error as error:
+    except (re.error, ValueError) as error:             # ValueError: (?a)(?u) and the like, which re refuses without a re.error
         raise LedgerError(f'{label} is not a regular expression: {error}') from error
     return value
+
+
+def _unescaped_end(body, i, stop):
+    """The index after the first `stop` character at or after `i` that a backslash does not carry off (as in re, a backslash takes the next character with
+    it), or the end of `body`: where a `(?#..)` comment ends at its `)`, and a verbose `#` comment at its newline."""
+    while i < len(body):
+        if body[i] == '\\': i += 2
+        elif body[i] == stop: return i + 1
+        else: i += 1
+    return len(body)
+
+
+def _id_forms(pattern, label):
+    """(use, start, tidy): the two compiled forms in which an `ids` pattern is searched, and how an id it found is named. It is searched anywhere in a line,
+    standing alone (no letter, digit, `_` or `-` right before or after it), and at the start of a heading, list item or table row, where an id is defined.
+    The pattern is placed inside those regexes, and placed as it stands it does not mean what it says: an anchored one (`^REQ-\\d+$`) finds nothing, so an
+    id used but never defined and an id defined twice are reported by no check, and a global flag (`(?i)`) is a re.error at run (review dev6 section 3,
+    29/10; the same class as R9 for `cite`). So it is read for what it says about an id: global flags become a scoped group, and `^ \\A` and `$ \\Z`
+    (outside a character class, a comment or a negative assertion) mean the edge of the id, which the search requires anyway ('no id character before /
+    after'); a definition starts where its marker ends, so there an anchor at the start says nothing. An anchor at the edge of a pattern changes nothing.
+    An anchor inside a negative assertion, `(?<!^)` or `(?!$)`, keeps the meaning it had, as does everything in a pattern without anchors or flags: the
+    two regexes, and so the results, are the ones there were. `tidy` strips the space that a rewritten pattern may take with an id (`^\\s*REQ-\\d+`); it
+    changes nothing for any other. A pattern that still cannot be placed (a group referred to by number: the definition form opens one group before it;
+    a `(?x)` in the middle of the pattern, which `re` no longer accepts there) is refused here, at propose, and met at run as a problem of the ids check."""
+    flags, body = '', pattern
+    while True:
+        found = ID_FLAGS.match(body)
+        if not found: break
+        flags, body = flags + found.group(1), body[found.end():]
+    size, i, inside, numbered, rewritten = len(body), 0, False, False, bool(flags)
+    opened = []                                         # one entry per open group: (is it a negative assertion, is the verbose flag on inside it)
+    searched, defined = [], []                          # the pattern as the search reads it, and as a definition reads it
+    def verbose():                                      # does a `#` start a comment here? (?x:..) and (?-x:..) switch it for the group they open
+        return opened[-1][1] if opened else 'x' in flags
+    def put(text, in_definition=None):
+        searched.append(text); defined.append(text if in_definition is None else in_definition)
+    while i < size:
+        char = body[i]
+        if char == '\\' and i + 1 < size:               # an escape: \A and \Z are edges, \1 is a group by number (but \123 is an octal), the rest as it is
+            pair = body[i:i + 2]
+            numbered = numbered or (not inside and pair[1] in '123456789' and not re.match(r'[0-7]{3}', body[i + 1:i + 4]))
+            if inside or any(negative for negative, _ in opened) or pair not in ID_EDGES: put(pair)
+            else: put(*ID_EDGES[pair]); rewritten = True
+            i += 2
+        elif inside:
+            put(char); i += 1
+            inside = char != ']'
+        elif char == '[':
+            put(char); i += 1; inside = True
+            for lead in '^]':                           # `[^...]`, and a `]` first in the class is one of its members, not its end
+                if body[i:i + 1] == lead: put(lead); i += 1
+        elif char in '^$':
+            if any(negative for negative, _ in opened): put(char)
+            else: put(*ID_EDGES[char]); rewritten = True
+            i += 1
+        elif (char == '#' and verbose()) or body.startswith('(?#', i):          # a comment: copied as it is, whatever it holds
+            end = _unescaped_end(body, i + 1 if char == '#' else i + 3, '\n' if char == '#' else ')')
+            put(body[i:end]); i = end
+        else:
+            if char == '(':
+                inline = re.match(r'\(\?([aiLmsux]*)(?:-([imsx]*))?([:)])', body[i:])
+                on, off, closer = (inline.group(1), inline.group(2) or '', inline.group(3)) if inline else ('', '', '')
+                if closer == ')' and 'x' in on + off:
+                    raise LedgerError(f'{label}: a verbose flag in the middle of the pattern, (?x), is not accepted by re there: write it at the very start of the pattern.')
+                here = verbose()
+                if closer == ':': here = 'x' in on or (here and 'x' not in off)           # (?x:..) and (?-x:..) hold for the group they open
+                opened.append((body.startswith(('(?!', '(?<!'), i), here))
+                numbered = numbered or re.match(r'\(\?\(\d', body[i:i + 4]) is not None     # (?(1)..) names a group by number as well
+            elif char == ')' and opened:
+                opened.pop()
+            put(char); i += 1
+    if numbered:
+        raise LedgerError(f'{label}: a group referred to by number (\\1, (?(1)..)) cannot be told from the group that holds the id in the search: '
+                          'name the group, (?P<n>..) and (?P=n).')
+    def scoped(parts):                                  # the global flags apply to the pattern only; a verbose comment must not eat the closing paren
+        return '(?' + ''.join(dict.fromkeys(flags)) + ':' + ''.join(parts) + ('\n' if 'x' in flags else '') + ')' if flags else ''.join(parts)
+    try:
+        use = re.compile(r'(?<![\w-])(?:' + scoped(searched) + r')(?![\w-])')
+        start = re.compile(r'^\s*(?:#{1,6}[ \t]+|[-*+][ \t]+|\d+[.)][ \t]+|\|[ \t]*)[\[\*_`(]*(' + scoped(defined) + r')(?![\w-])')
+    except (re.error, ValueError) as error:
+        hint = ' Global flags such as (?i) go at the very start of the pattern.' if 'global flags' in str(error) else ''
+        raise LedgerError(f'{label}: this pattern cannot be placed in the search for ids ({error}).{hint}') from error
+    return use, start, (str.strip if rewritten else (lambda text: text))
 
 
 def _heading(value, label):
@@ -117,7 +207,9 @@ def _document(value, label):
 
 def _id_spec(value, label):
     value = _keys(value, ('name', 'pattern', 'defined_in'), label)
-    return {'name': text_field(value.get('name'), label + '.name', 40), 'pattern': _regex(value.get('pattern'), label + '.pattern'),
+    pattern = _regex(value.get('pattern'), label + '.pattern')
+    _id_forms(pattern, label + '.pattern')              # a pattern the search cannot place is refused here, not met first at run
+    return {'name': text_field(value.get('name'), label + '.name', 40), 'pattern': pattern,
             'defined_in': [_path(p, label + '.defined_in') for p in _list(value.get('defined_in', []), label + '.defined_in', 0, MAX_DOCS)]}
 
 
@@ -219,13 +311,19 @@ class Folder:
     """The documents of the run: read once, parsed once; files that are only link targets are read on demand (at most MAX_EXTRA)."""
 
     def __init__(self, box):
-        self.box, self.parsed, self.extra, self.files = box, {}, 0, set(box.files())
+        self.box, self.parsed, self.extra, self.files, self.linked, self.noted = box, {}, 0, set(box.files()), set(), set()
 
     def load(self, path, required=False):
+        """The parsed document, None when it is not valid UTF-8, and None with `path` in `linked` when it has another name on the disk (a hard link,
+        review E4): it is not read, what it says is not verified, and the run goes on. `noted`: the linked files that already have a note in `unverified`."""
         if path in self.parsed: return self.parsed[path]
         if not required:
             self.extra += 1
             if self.extra > MAX_EXTRA: raise port.Inconclusive(f'more than {MAX_EXTRA} link targets to read')
+        if port.has_other_names(self.box, path):
+            self.linked.add(path)
+            self.parsed[path] = None
+            return None
         try:
             self.parsed[path] = Parsed(self.box.read_text(path, limit=MAX_FILE))
         except UnicodeDecodeError:
@@ -237,10 +335,11 @@ class Folder:
         return path in self.files or any(f.startswith(path.rstrip('/') + '/') for f in self.files)
 
     def kept(self, path):
-        """(exists, why) for a path the core keeps from every reader (port.kept_reason: .env*, .git, ...), else None. Such a file is never in the
-        listing and never read, so a link or a source naming it is checked by name only (beta report B5)."""
+        """(exists, why, below) for a path the core keeps from every reader (port.kept_reason: .env*, .git, ...), else None. Such a file is never in the
+        listing and never read, so a link or a source naming it is checked by name only (beta report B5). `below`: it lies below a folder that was left
+        out of the artifact (a folder without Git that holds .aws), so that whether it exists cannot be told."""
         why = port.kept_reason(path)
-        return None if why is None else (self.box.exists(path), why)
+        return None if why is None else (self.box.exists(path), why, port.left_out_below(self.box, path))
 
 
 def _locate(base, target):
@@ -257,10 +356,21 @@ def _locate(base, target):
     return 'file', resolved, anchor, ''
 
 
-def _anchor_problem(folder, resolved, anchor, where, target):
-    """None, or why the #anchor of a link to a Markdown file is not there."""
+def _whether(below):
+    """The end of the note for a kept path that is not read: it exists, or, below a folder left out of the artifact, that cannot be told."""
+    return ('whether it exists cannot be told (it lies below a folder left out of the artifact), what it says is not checked' if below
+            else 'it exists, what it says is not checked')
+
+
+def _anchor_problem(folder, resolved, anchor, where, target, unverified):
+    """None, or why the #anchor of a link to a Markdown file is not there. A file that has another name on the disk is not read: its anchor is noted as
+    not verified (`unverified`), not as a problem."""
     if not anchor or not resolved.lower().endswith(MARKDOWN) or resolved not in folder.files: return None
     parsed = folder.load(resolved)
+    if resolved in folder.linked:
+        unverified.add(f'{where}: {target}: {resolved} {port.HARD_LINK}; what it says is not checked')
+        folder.noted.add(resolved)
+        return None
     if parsed is None: return f'{where}: link {target}: {resolved} is not valid UTF-8, its anchor #{anchor} cannot be checked'
     if unicodedata.normalize('NFC', anchor).lower() not in parsed.anchors: return f'{where}: link {target}: no heading with the anchor #{anchor} in {resolved}'
     return None
@@ -363,11 +473,11 @@ def _check_sources(entry, parsed, folder, unverified):
             candidates = [c for c in (resolved, root) if not c.startswith('..')]
             found = next((c for c in candidates if folder.exists(c)), None)
             if found is None:
-                hidden = next(((c, kept[1]) for c in candidates for kept in [folder.kept(c)] if kept and kept[0]), None)
-                if hidden: unverified.add(f'{where}: source {name} {item["locator"]}: {hidden[0]} is {hidden[1]}; it exists, what it says is not checked')
+                hidden = next(((c, kept) for c in candidates for kept in [folder.kept(c)] if kept and kept[0]), None)
+                if hidden: unverified.add(f'{where}: source {name} {item["locator"]}: {hidden[0]} is {hidden[1][1]}; {_whether(hidden[1][2])}')
                 else: problems.append(f'{where}: source {name} {item["locator"]}: file not found ({resolved})')
                 continue
-            bad = _anchor_problem(folder, found, anchor, where, item['locator'])
+            bad = _anchor_problem(folder, found, anchor, where, item['locator'], unverified)
             if bad: problems.append(bad.replace('link ', f'source {name} ', 1))
     have = set(ids)
     for name, number in cited:
@@ -400,30 +510,34 @@ def _check_links(path, parsed, folder, unverified, sources=None):
         elif kind == 'outside': problems.append(f'{where}: link {target} leaves the project ({why}), outside the checkout')
         elif kind == 'file':
             kept = None if folder.exists(resolved) else folder.kept(resolved)
-            if kept and kept[0]: unverified.add(f'{where}: link {target}: {resolved} is {kept[1]}; it exists, what it says is not checked')
+            if kept and kept[0]: unverified.add(f'{where}: link {target}: {resolved} is {kept[1]}; {_whether(kept[2])}')
             elif not folder.exists(resolved): problems.append(f'{where}: link {target} points to {resolved}, which does not exist')
             else:
-                bad = _anchor_problem(folder, resolved, anchor, where, target)
+                bad = _anchor_problem(folder, resolved, anchor, where, target, unverified)
                 if bad: problems.append(bad)
         # other schemes (mailto:, tel:, ...) are not files: left alone
     return problems, checked
 
 
 def _check_ids(spec, folder, names):
-    pattern = spec['pattern']
-    wrapped = r'(?<![\w-])(?:' + pattern + r')(?![\w-])'
-    start = re.compile(r'^\s*(?:#{1,6}[ \t]+|[-*+][ \t]+|\d+[.)][ \t]+|\|[ \t]*)[\[\*_`(]*(' + pattern + r')(?![\w-])')
-    use = re.compile(wrapped)
-    problems, defined, where_ = [], {}, spec['defined_in'] or names
+    try:
+        use, start, tidy = _id_forms(spec['pattern'], f'ids {spec["name"]} pattern')
+    except LedgerError as error:                       # a pattern stored by a plan approved before it was refused at propose
+        return [f'{spec["name"]}: {error}'], 0
+    problems, defined, where_, blind = [], {}, spec['defined_in'] or names, False
     for path in where_:
         if path not in folder.files:
             problems.append(f'{spec["name"]}: definition file {path} is not in the artifact')
             continue
         parsed = folder.load(path, required=path in names)
+        if path in folder.linked:                      # not read: what it defines is unknown, so nothing is said to be undefined below
+            problems.append(f'{spec["name"]}: definition file {path} {port.HARD_LINK}; its definitions are not read')
+            blind = True
+            continue
         if parsed is None: continue
         for number, text in parsed.body_lines():
             match = start.match(text)
-            if match: defined.setdefault(match.group(1), []).append(f'{path}:{number}')
+            if match: defined.setdefault(tidy(match.group(1)), []).append(f'{path}:{number}')
     for name, spots in sorted(defined.items()):
         if len(spots) > 1: problems.append(f'{spec["name"]}: {name} is defined twice ({", ".join(spots)})')
     used = {}
@@ -434,9 +548,9 @@ def _check_ids(spec, folder, names):
             head = start.match(text)
             for match in use.finditer(text):
                 if head and match.start() == head.start(1) and path in where_: continue        # this occurrence is the definition itself
-                used.setdefault(match.group(0), f'{path}:{number}')
+                used.setdefault(tidy(match.group(0)), f'{path}:{number}')
     for name, spot in sorted(used.items()):
-        if name not in defined: problems.append(f'{spot}: {name} is used but never defined ({spec["name"]})')
+        if name not in defined and not blind: problems.append(f'{spot}: {name} is used but never defined ({spec["name"]})')
     return problems, len(defined) + len(used)
 
 
@@ -451,7 +565,8 @@ def run(config, box):
             problems.append(f'{path}: document is missing from the artifact')
             continue
         parsed = folder.load(path, required=True)
-        if parsed is None: problems.append(f'{path}: document is not valid UTF-8')
+        if path in folder.linked: problems.append(f'{path}: document {port.HARD_LINK}; it is not verified')
+        elif parsed is None: problems.append(f'{path}: document is not valid UTF-8')
         elif not parsed.lines or not any(t.strip() for _, t, _ in parsed.lines): problems.append(f'{path}: document is empty')
         else: loaded[path] = (entry, parsed)
     checks = [{'id': 'documents', 'ok': not problems, 'checked': len(config['docs']), 'problems': problems}]
@@ -478,9 +593,11 @@ def run(config, box):
     if config['ids']:
         found, count = [], 0
         for spec in config['ids']:
-            more, seen = _check_ids(spec, folder, [n for n in names if n in ready])
+            more, seen = _check_ids(spec, folder, [n for n in names if n in ready or n in folder.linked])      # a document not read says so there too
             found += more; count += seen
         checks.append({'id': 'ids', 'ok': not found, 'checked': count, 'problems': found})
+    for path in sorted(folder.linked - folder.noted):   # a file with another name is never read, whatever its role: it is listed as not verified, once
+        unverified.add(f'{path} {port.HARD_LINK}; what it says is not checked')
     findings = []
     for check in checks:
         for problem in check['problems']:

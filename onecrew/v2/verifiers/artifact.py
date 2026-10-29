@@ -1,13 +1,14 @@
 """Generic artifact identity: existing Git trees or v1 content-addressed snapshots.
 
 Snapshot identities bind the canonical source folder and every eligible file's
-bytes. They do not confer execution authority or attest an external service.
+bytes, and the names (never the content) of the control and credential files that
+were left out. They do not confer execution authority or attest an external service.
 """
 import os
 from pathlib import Path
 
 from ...ledger import LedgerError, content_hash
-from ...snapshots import Snapshots, bytes_hash, safe_file, scope_list
+from ...snapshots import Snapshots, bytes_hash, is_link, safe_file, scope_list, scoped_path
 from . import command
 
 
@@ -18,31 +19,74 @@ def is_git(directory):
     return any((p / '.git').exists() for p in (root, *root.parents))
 
 
+def _kept(rel):
+    """Do the snapshot rules (scoped_path) keep this path of the folder from every reader: .env*, .ssh, .aws, a nested .git, a device name, a reserved
+    character, a path over 240 characters? The name decides; nothing is opened."""
+    try:
+        scoped_path(rel)
+        return False
+    except LedgerError:
+        return True
+
+
+def _holds_files(path):
+    """Does the kept folder `path` hold a file, at any depth (`.onecrew` folders do not count, as they never did)? Names only, and the walk stops at the
+    first file. A link or a junction met on the way stops the run, as it does anywhere in the folder (review R14)."""
+    for base, dirs, files in os.walk(path):
+        dirs[:] = [d for d in dirs if d != '.onecrew']
+        if any(is_link(Path(base) / name) for name in dirs + files):
+            raise LedgerError('Artifact snapshots cannot traverse links or junctions.')
+        if files: return True
+    return False
+
+
 def _paths(directory):
+    """(paths, kept): the files that identify a folder which is not a Git tree, and the names left out of its identity (a folder with a slash at the end).
+    A name the snapshot rules keep from every reader is left out, as Port.files() leaves it out of a checkout (beta report B5, D8): never read, never
+    hashed, no part of the 200-file limit, and a folder is not walked (it is named only if it holds a file: an empty one changes nothing, as it never did). A link or a junction still
+    stops the run, whatever its name (review R14); `.onecrew` folders are skipped as they always were. While the folder holds kept names, a file that has
+    another name on the disk (a hard link) stops it too: that other name may be a kept one, and the file would be read and hashed under the ordinary
+    name (review E4); a folder that holds none is identified as it always was."""
     root = Path(directory).resolve()
     if not root.is_dir():
         raise LedgerError('Artifact directory does not exist.')
-    paths = []
+    paths, kept = [], []
     for base, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d != '.onecrew']
         for name in dirs + files:
-            target = Path(base) / name
-            if target.is_symlink() or (hasattr(target, 'is_junction') and target.is_junction()):
+            if is_link(Path(base) / name):
                 raise LedgerError('Artifact snapshots cannot traverse links or junctions.')
-        paths.extend((Path(base) / name).relative_to(root).as_posix() for name in files)
+        here = Path(base).relative_to(root)
+        for name in list(dirs):
+            rel = (here / name).as_posix()
+            if _kept(rel):
+                if _holds_files(Path(base) / name): kept.append(rel + '/')           # a folder is named with its slash: what was left out is not a file
+                dirs.remove(name)                              # not walked: nothing below it is listed or read
+        for name in files:
+            rel = (here / name).as_posix()
+            (kept if _kept(rel) else paths).append(rel)
         if len(paths) > 200:
             raise LedgerError('Artifact snapshot exceeds the existing 200-file scope limit.')
-    return scope_list(paths)
+        if len(kept) > 200:
+            raise LedgerError('Artifact snapshot leaves out more than 200 control or credential names.')
+    shared = next((rel for rel in paths if (root / rel).stat().st_nlink > 1), None) if kept else None
+    if shared:
+        raise LedgerError(f'{shared!r} has more than one name on the disk (a hard link) and the folder holds control or credential names '
+                          f'({", ".join(sorted(kept)[:3])}): the other name may be one of those, and the file would be read and hashed under this one. '
+                          'Break the link or move the credential file out of the folder.')
+    return scope_list(paths), sorted(kept)
 
 
 def _manifest(directory):
+    """The identity of the folder, as a snapshot manifest: its files by content, and, when there are any, the names left out (`kept`: names only). A folder
+    without kept names has the manifest, and so the identity, it always had."""
     root = Path(directory).resolve()
-    paths = _paths(root)
+    paths, kept = _paths(root)
     before = Snapshots._working(root, paths)
-    if paths != _paths(root) or before != Snapshots._working(root, paths):
+    if (paths, kept) != _paths(root) or before != Snapshots._working(root, paths):
         raise LedgerError('Artifact changed while computing its identity.')
     return {'version': 1, 'parent': None, 'source': str(root), 'head': None,
-            'files': {p: {'working': bytes_hash(data), 'index': []} for p, data in before.items()}}
+            'files': {p: {'working': bytes_hash(data), 'index': []} for p, data in before.items()}, **({'kept': kept} if kept else {})}
 
 
 def identity(directory):
@@ -60,12 +104,13 @@ def capture(ledger, directory, scratch):
     if state == directory or directory in state.parents:
         raise LedgerError('Non-Git artifact state root must be outside the source folder.')
     store = Snapshots(ledger.state_root)
-    key = store.capture(directory, _paths(directory))
+    paths, kept = _paths(directory)
+    key = store.capture(directory, paths, kept=kept)
     if key != before or identity(directory) != before:
         raise LedgerError('Artifact changed while capturing its snapshot.')
     workspace = Path(scratch) / 'src'
     store.materialize(key, workspace)
-    return workspace, before, {'artifact_kind': 'snapshot', 'artifact_snapshot': key}
+    return workspace, before, {'artifact_kind': 'snapshot', 'artifact_snapshot': key, **({'artifact_kept': kept} if kept else {})}
 
 
 def _load(ledger, value, directory):

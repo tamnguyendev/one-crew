@@ -222,11 +222,17 @@ class B5OtherAdaptersTests(unittest.TestCase):
         with self.assertRaises(LedgerError): ops.validate_config(dict(self.configs['ops'], pre='.env-sample'), 'test')
         with self.assertRaises(LedgerError): doc.validate_config(config(docs=['.env/notes.md']), 'test')
 
-    def test_known_limit_d8_a_folder_without_git_that_holds_env_has_no_artifact_identity(self):
-        """D8 (dev19 contract): the same rule refuses a non-Git artifact whose folder holds `.env`; this path is not Port.files() and is NOT
-        changed in dev19. The test pins today's behaviour so the limit is visible; it changes when the limit is fixed."""
-        with self.assertRaises(LedgerError) as caught: artifact.identity(self.root)
-        self.assertIn('Control or credential', str(caught.exception))
+    def test_d8_a_folder_without_git_that_holds_env_has_an_artifact_identity_without_it(self):
+        """D8 (dev19 contract) was a known limit that this test pinned (named test_known_limit_d8_...): the same rule refused a non-Git artifact whose
+        folder holds `.env`, with 'Control or credential'. THE EXPECTATION CHANGED ON PURPOSE, in 2.3 (fx, F4): the kept names are left out of the
+        identity as Port.files() leaves them out of a checkout (never read, never hashed) and the identity names them. The cases are in
+        tests/test_v23_open_verifier.py (NonGitKeptNames); this keeps the one the R15 fixture gives (`.env-sample` beside the data and ops files)."""
+        identity = artifact.identity(self.root)
+        self.assertRegex(identity, '^[0-9a-f]{64}$')
+        (self.root / '.env-sample').write_text('API_KEY=another-secret\n', encoding='utf-8')
+        self.assertEqual(artifact.identity(self.root), identity)                      # the content of a kept file is not part of it
+        (self.root / '.env-sample').unlink()
+        self.assertNotEqual(artifact.identity(self.root), identity)                   # its name is
 
 
 class B5VerdictTests(Fixture):
