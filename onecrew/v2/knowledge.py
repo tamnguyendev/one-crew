@@ -485,6 +485,7 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
     except (LedgerError, OSError) as error:
         problems.append({'path': 'ledger', 'problem': 'context entries unreadable: ' + str(error)[:160], 'ledger_unreadable': True}); return []
     newest, versions, locations, tags, published = {}, {}, _lesson_locations(ledger), project_tags(ledger), {}
+    lesson_keys = _lesson_keys(ledger)
     reader = ledger.project_id
     for e in entries:
         try:
@@ -494,7 +495,8 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
             key, root, writer = e['key'], p.get('task'), p.get('project')
             visibility = k.get('visibility') or ('project' if key.startswith('lesson-') else 'root')
             tag = tags.get(writer)
-            ident = ledger_id(key, visibility, root, writer, reader, tag, lesson=key.startswith('lesson-') and not k)
+            is_lesson = key.startswith('lesson-') and not k and key in lesson_keys      # KN-2: the lessons store says what a lesson is
+            ident = ledger_id(key, visibility, root, writer, reader, tag, lesson=is_lesson)
             if k.get('withdraws') or k.get('archives'):
                 if lifecycle is not None:              # P2-B: the target is the writer's own subject
                     lifecycle.append({'id': ident, 'withdraws': _in_reader_terms(k.get('withdraws'), writer, reader, tag),
@@ -511,7 +513,7 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
                 sources.append({'type': 'file', 'path': location['path'], **({'blob': location['blob']} if location.get('blob') else {'revision': location.get('revision')})})
             conditions = k.get('conditions') if k.get('conditions') is not None else [c if isinstance(c, dict) else {'type': 'text', 'text': c} for c in (e.get('conditions') or [])]
             candidate = {'id': ident, 'origin': {'type': 'ledger', 'event': e['event'], 'key': key, 'scope': e['scope']},
-                         'kind': k.get('kind') or ('lesson' if key.startswith('lesson-') else e['kind'] if e['kind'] in wiki.KINDS else 'note'),
+                         'kind': k.get('kind') or ('lesson' if is_lesson else e['kind'] if e['kind'] in wiki.KINDS else 'note'),
                          'label': e['stored_label'] if e['stored_label'] != 'stale' else 'observed', 'must': bool(k.get('must')),
                          'status': 'active', 'title': (k.get('title') or e['text'])[:80], 'text': e['text'], 'sources': sources, 'conditions': conditions,
                          'applies_to': k.get('applies_to') or [],
@@ -535,6 +537,14 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
         if c is not None and c['scope'] != 'general' and c['seq'] > shared['event']: c['published'] = shared
     if lifecycle is not None: _lesson_targets(newest, lifecycle, reader, tags)
     return sorted(newest.values(), key=lambda c: c['seq'])
+
+
+def _lesson_keys(ledger):
+    """Every lesson key of the state root (`lesson-` + the logical id of a learning.lesson event, whichever project recorded it): what tells the
+    index entry of a lesson apart from a 2.2 `context add` entry that only took a lesson- key (KN-2: that entry is its writer's subject)."""
+    with ledger.transaction() as conn:
+        rows = conn.execute("SELECT DISTINCT json_extract(payload,'$.lesson') AS lesson FROM events WHERE kind='learning.lesson'").fetchall() if conn else []
+    return {'lesson-' + row['lesson'] for row in rows if isinstance(row['lesson'], str) and row['lesson']}
 
 
 def _lesson_locations(ledger):
@@ -967,7 +977,17 @@ def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None
     requested_out, refused = [], []
     shown = {d['id']: d for d in delivered}
     for ident in requested:                            # what the worker asked for comes before more optional entries, inside the cap
+        hint = None
+        if isinstance(ident, tuple): ident, hint = ident
         c = permitted.get(ident)
+        if hint is not None and ident.startswith('ctx-') and '@' not in ident:     # KN-1: the subject the sealed package showed under this id
+            same = [p for i, p in permitted.items() if i == ident or i.startswith(ident + '@')]
+            if len(same) > 1 or c is None:
+                titled = [p for p in same if p['title'][:60] == hint]
+                if len(titled) == 1: c = titled[0]
+                elif len(same) > 1: refused.append({'id': ident, 'reason': 'ambiguous'}); continue
+                else: c = None                         # the only subject under this key is not the one the worker saw
+            if c is not None: ident = c['id']
         if c is None: refused.append({'id': ident, 'reason': 'not_available'}); continue
         if ident in shown and 'text_truncated' not in shown[ident]: continue
         item = _render(c, 0, whole=True)              # the whole text
@@ -1083,7 +1103,7 @@ def _id_of_event(ledger, seq):
         k = p.get('knowledge') if isinstance(p.get('knowledge'), dict) else {}
         visibility = k.get('visibility') or ('project' if p['key'].startswith('lesson-') else 'root')
         return ledger_id(p['key'], visibility, row['task_id'], p.get('project'), ledger.project_id, project_tags(ledger).get(p.get('project')),
-                         lesson=p['key'].startswith('lesson-') and not k)
+                         lesson=p['key'].startswith('lesson-') and not k and p['key'] in _lesson_keys(ledger))
     except (KeyError, TypeError, ValueError, AttributeError):
         return None
 
@@ -1102,8 +1122,20 @@ def _current_id(ledger, store, record, ident):
     return ident
 
 
+def _sealed_titles(store, record):
+    """id -> title (60 characters, as the package showed it) of every entry a sealed package named: delivered, requested and omitted."""
+    try:
+        view = json.loads(store.read_blob(record['package'])) if record.get('package') else {}
+    except (KeyError, LedgerError, OSError, ValueError, TypeError):
+        return {}
+    rows = (view.get('entries') or []) + (view.get('requested') or []) + ((view.get('omitted') or {}).get('index') or [])
+    return {r['id']: str(r.get('title') or '')[:60] for r in rows if isinstance(r, dict) and isinstance(r.get('id'), str)}
+
+
 def previous_requests(ledger, store, selector, attempt_id):
-    """knowledge.requests of the partial result of `attempt_id` (the attempt a continuation continues), from its retained receipt."""
+    """knowledge.requests of the partial result of `attempt_id` (the attempt a continuation continues), from its retained receipt. Each
+    request the sealed package listed comes with the title it showed: a package sealed before 2.3.0.dev6 named another project's general
+    record `ctx-<key>` like the reader's own subject, and the title tells which one the worker asked for (KN-1; _build resolves it)."""
     if not attempt_id: return []
     with ledger.transaction() as conn:
         root = namespaces.resolve(ledger, conn, selector) if conn else None
@@ -1116,7 +1148,8 @@ def previous_requests(ledger, store, selector, attempt_id):
             receipt = json.loads(store.read_blob(candidate['receipt']))
         except (KeyError, LedgerError, OSError, ValueError, TypeError):
             continue
-        return list(receipt.get('knowledge_requests') or [])
+        titles = _sealed_titles(store, receipt.get('knowledge') or {})
+        return [(r, titles[r]) if isinstance(r, str) and r in titles else r for r in receipt.get('knowledge_requests') or []]
     return []
 
 
@@ -1323,6 +1356,31 @@ def _key_in_other_scope(ledger, key, scope):
     return bool(scopes) and scope not in scopes
 
 
+def _wiki_section(ledger, target):
+    """The wiki section `target` read past the budget of a normal reading (KN-4: a section on a page after the first wiki.MAX_PAGES is
+    otherwise not seen): every page is parsed whole, one at a time, until the id is found; None when no page holds it."""
+    for folder in wiki.configured_paths(ledger.project):
+        base = Path(folder) if Path(folder).is_absolute() else Path(ledger.project) / folder
+        try:
+            files = sorted(p for p in base.rglob('*.md') if p.is_file()) if base.is_dir() else []
+        except OSError:
+            continue
+        for file in files:
+            try:
+                if file.stat().st_size > wiki.MAX_PAGE_BYTES: continue
+                text, _ = wiki._decode(file.read_bytes())
+            except OSError:
+                continue
+            if text is None: continue
+            name = str(file) if Path(folder).is_absolute() else file.relative_to(ledger.project).as_posix()
+            try:
+                entry = next((e for e in wiki.parse(text, name)['entries'] if e['id'] == target), None)
+            except Exception:                              # a page that breaks the parser holds nothing to withdraw
+                continue
+            if entry is not None: return entry
+    return None
+
+
 def _lifecycle_record(ledger, plan, target, verb, reason, evidence):
     """One withdraw/archive record. A general entry: only its own project, with a general record every project reads (r2 N2). A wiki
     entry: the record keeps the text it had, so a corrected section lives again (r2 P3a). Review dev6 R1: our own subject named as another
@@ -1335,7 +1393,7 @@ def _lifecycle_record(ledger, plan, target, verb, reason, evidence):
     done = {'withdraws': 'withdrawn', 'archives': 'archived'}[verb]
     life = {verb: target, 'reason': reason}
     if found is None:
-        wiki_entry = next((c for c in _wiki_candidates(ledger, []) if c['id'] == target), None)
+        wiki_entry = next((c for c in _wiki_candidates(ledger, []) if c['id'] == target), None) or (_wiki_section(ledger, target) if isinstance(target, str) else None)
         if wiki_entry is not None: life['text_sha'] = _text_sha(wiki_entry['text'])
         elif not (isinstance(target, str) and target.startswith('lesson-') and '@' not in target and _lesson_exists(ledger, target[len('lesson-'):])):
             raise LedgerError(f'{target} names no knowledge record, lesson or wiki section of this project (`onecrew wiki history` and `onecrew '
@@ -1394,6 +1452,8 @@ def records(ledger, *, history=False, root=None):
         if target and _acts_for(record, cons, ledger.project_id): newest_life[target] = record
     by_id = {c['id']: c for c in candidates}
     states = {c['id']: _state_of(status, c) for c in candidates}
+    tags = project_tags(ledger)
+    shown = lambda project: project if project == ledger.project_id else '@' + (tags.get(project) or UNKNOWN_TAG)   # KN-3: never the full id of another project
     if root is None:                                   # Codex P2-01: a root's working memory as that root sees it (its own supersession,
         for owner in sorted({c['root'] for c in candidates if c['visibility'] == 'root' and c['root']}):      # withdrawal, archiving)
             own = {'root': owner}
@@ -1420,7 +1480,7 @@ def records(ledger, *, history=False, root=None):
                     'status': state[0], 'status_reason': state[1], 'evidence': c.get('evidence') or {'status': c['label']},
                     'sources': c['sources'], 'derived_from': c['derived_from'], 'supersedes': c['supersedes'], 'applies_to': c['applies_to'],
                     'conditions': c['conditions'], 'must': c['must'], 'conflict_with': c.get('conflict_with') or [], 'root': c['root'],
-                    'project': c['project'], 'event': c['seq'], 'version': c.get('version'), 'scope_paths': c['scope_paths'],
+                    'project': shown(c['project']), 'event': c['seq'], 'version': c.get('version'), 'scope_paths': c['scope_paths'],
                     # r3 R3-3: what an update names as --base: the withdrawal/archive record when it is the subject's newest state
                     'state_version': (newest_life[c['id']]['version'] if c['id'] in newest_life and newest_life[c['id']]['event'] > c['seq']
                                       else c.get('version')),
@@ -1696,6 +1756,7 @@ def render_text(pkg):
         lines.append('    nguồn: ' + '; '.join(e['source']))
         if e.get('evidence', {}).get('property'): lines.append('    đã chứng minh: ' + e['evidence']['property'] + (' · nguyên nhân chưa xác lập' if e['evidence'].get('cause') == 'not_established' else ''))
         for reason in e['applicability']['reasons'][:3]: lines.append('    · ' + reason)
+    if not pkg['entries'] and not pkg.get('requested'): lines.append('Không có mục tri thức nào cho consumer này.')
     omitted = pkg['omitted']
     if omitted['total']:
         lines.append('Chưa giao: ' + ', '.join(f'{k} {v}' for k, v in sorted(omitted['by_reason'].items())))
