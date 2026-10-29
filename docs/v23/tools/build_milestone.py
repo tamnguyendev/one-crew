@@ -33,11 +33,11 @@ def sha(path):
 
 README = '''# OneCrew {version} — gói thử {label}
 
-**Đây là gói thử để chạy trên project copy và sổ riêng, chưa phải bản phát hành.** Chưa được Codex review, chưa nghiệm thu. Gói không tự nhận đã giao (`manifest.json` → `claims`).
+**Đây là bản thử (prerelease) `{version}`, không phải bản ổn định; chạy trên bản sao project và sổ riêng.** Chưa được Codex review lại, chưa nghiệm thu. Gói không tự nhận đã giao (`manifest.json` → `claims`).
 
 | Mục | Giá trị |
 |---|---|
-| Code | `{commit}` (nhánh `claude/onecrew-2.3`, local) |
+| Code | `{commit}` (nhánh `claude/onecrew-2.3`) |
 | Wheel | `wheel/{wheel}` · SHA256 `{wheel_sha}` |
 | Wheel để quay về | `wheel/previous/{previous}` · SHA256 `{previous_sha}` (beta 2.2, giống từng byte gói beta) |
 | Dựng lúc | {built} |
