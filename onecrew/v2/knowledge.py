@@ -1424,7 +1424,8 @@ def records(ledger, *, history=False, root=None):
                     # r3 R3-3: what an update names as --base: the withdrawal/archive record when it is the subject's newest state
                     'state_version': (newest_life[c['id']]['version'] if c['id'] in newest_life and newest_life[c['id']]['event'] > c['seq']
                                       else c.get('version')),
-                    **({'published': c['published']} if c.get('published') else {})})
+                    **({'published': c['published']} if c.get('published') and not (       # review dev6 F1: not once withdrawn/archived
+                        c['id'] in newest_life and newest_life[c['id']]['event'] > c['published']['event']) else {})})
     return out
 
 

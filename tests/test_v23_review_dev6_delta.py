@@ -148,6 +148,20 @@ class ReviewDev6Delta(Base):
         self.assertEqual((row.get('published') or {}).get('text'), 'Shared rule under the reused key')
         self.assertIn('Shared rule under the reused key', two)
 
+    def test_dl05b_published_is_not_shown_once_the_subject_was_withdrawn(self):
+        """Review dev6 F1: after the owner withdraws the old two-scope subject and writes a corrected version, `published` no longer names
+        the withdrawn shared version (other projects no longer receive it)."""
+        shared = self.both_scopes()
+        second = self.second_project()
+        knowledge.withdraw(self.ledger, 'P1', shared['id'], reason='wrong everywhere', evidence=self.evidence(self.ledger))
+        self.project_record('Corrected project rule under the reused key', key='reused-key')
+        row = self.rows().get('Corrected project rule under the reused key') or {}
+        two = self.retrieved('--scope', 'general', project=second.project)
+        say('dl05b', {k: row.get(k) for k in ('id', 'status', 'published')}, list(two))
+        self.assertEqual(row.get('status'), 'active')
+        self.assertNotIn('published', row)
+        self.assertNotIn('Shared rule under the reused key', two)
+
     def test_dl06_a_root_working_note_under_a_key_does_not_block_a_general_record_with_that_key(self):
         """_key_in_other_scope compares raw keys; a root-visible record is `ctx-<key>.r<root>`, another subject than `ctx-<key>`."""
         knowledge.record(self.ledger, 'P1', kind='note', text='Root working note under a key', visibility='root', key='note-key',
