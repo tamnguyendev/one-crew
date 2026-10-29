@@ -44,7 +44,7 @@ from ..ledger import LedgerError, canonical, content_hash, text_field
 from . import context, namespaces, plan as plans, wiki
 from .verifiers import command
 
-VERSION = 2
+VERSION = 3          # knowledge package version: 3 = omitted index rows carry their origin event (a request names a subject exactly); 2 = before
 NATIVE_CAP_CHARS = 16000          # the whole knowledge package of a native prompt; the prompt keeps its own cap (common_executor)
 ENTRY_TEXT_CHARS = 1600           # text of one optional entry in a page; longer text is marked truncated and can be requested whole
 INDEX_ROWS = 15
@@ -485,7 +485,7 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
     except (LedgerError, OSError) as error:
         problems.append({'path': 'ledger', 'problem': 'context entries unreadable: ' + str(error)[:160], 'ledger_unreadable': True}); return []
     newest, versions, locations, tags, published = {}, {}, _lesson_locations(ledger), project_tags(ledger), {}
-    lesson_keys = _lesson_keys(ledger)
+    lessons_by_key = lesson_index(ledger)
     reader = ledger.project_id
     for e in entries:
         try:
@@ -495,7 +495,7 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
             key, root, writer = e['key'], p.get('task'), p.get('project')
             visibility = k.get('visibility') or ('project' if key.startswith('lesson-') else 'root')
             tag = tags.get(writer)
-            is_lesson = key.startswith('lesson-') and not k and key in lesson_keys      # KN-2: the lessons store says what a lesson is
+            is_lesson = is_lesson_entry(key, k, e.get('source'), lessons_by_key)      # KN-2, R7-07: the lesson's own event says it is one
             ident = ledger_id(key, visibility, root, writer, reader, tag, lesson=is_lesson)
             if k.get('withdraws') or k.get('archives'):
                 if lifecycle is not None:              # P2-B: the target is the writer's own subject
@@ -539,12 +539,21 @@ def _ledger_candidates(ledger, problems, lifecycle=None):
     return sorted(newest.values(), key=lambda c: c['seq'])
 
 
-def _lesson_keys(ledger):
-    """Every lesson key of the state root (`lesson-` + the logical id of a learning.lesson event, whichever project recorded it): what tells the
-    index entry of a lesson apart from a 2.2 `context add` entry that only took a lesson- key (KN-2: that entry is its writer's subject)."""
+def lesson_index(ledger):
+    """lesson key -> the learning.lesson event seqs of that lesson, whichever project recorded it. The index entry of a lesson cites one of them
+    as its source; a 2.2 `context add` entry that only took a lesson- key does not, and stays its writer's subject (KN-2, review dev7 R7-07)."""
     with ledger.transaction() as conn:
-        rows = conn.execute("SELECT DISTINCT json_extract(payload,'$.lesson') AS lesson FROM events WHERE kind='learning.lesson'").fetchall() if conn else []
-    return {'lesson-' + row['lesson'] for row in rows if isinstance(row['lesson'], str) and row['lesson']}
+        rows = conn.execute("SELECT seq, json_extract(payload,'$.lesson') AS lesson FROM events WHERE kind='learning.lesson'").fetchall() if conn else []
+    out = {}
+    for row in rows:
+        if isinstance(row['lesson'], str) and row['lesson']: out.setdefault('lesson-' + row['lesson'], set()).add(row['seq'])
+    return out
+
+
+def is_lesson_entry(key, extra, source, index):
+    """Is this context entry the index entry of a lesson? One rule for every reader (knowledge, context.judged: review dev7 R7-06)."""
+    return (key.startswith('lesson-') and not extra and isinstance(source, dict) and source.get('type') == 'event'
+            and source.get('id') in index.get(key, ()))
 
 
 def _lesson_locations(ledger):
@@ -946,8 +955,9 @@ def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None
         unrelated = [c for c in left if id(c) not in relevant]
         if capped: by_reason['cap'] = len(capped)
         if unrelated: by_reason['not_relevant'] = len(unrelated)
-        index = [{'id': c['id'], 'title': c['title'][:60], 'use': c['use'], 'reason': 'cap'} for c in capped]
-        index += [{'id': c['id'], 'title': c['title'][:60], 'use': c['use'], 'reason': 'not_relevant'} for c in unrelated]
+        event = lambda c: {'event': c['origin']['event']} if c['origin']['type'] == 'ledger' else {}       # review dev7 R7-04: the exact subject
+        index = [{'id': c['id'], 'title': c['title'][:60], 'use': c['use'], 'reason': 'cap', **event(c)} for c in capped]
+        index += [{'id': c['id'], 'title': c['title'][:60], 'use': c['use'], 'reason': 'not_relevant', **event(c)} for c in unrelated]
         eof = not left
         return {'kind': 'knowledge-package', 'version': VERSION, 'data_not_authority': True, 'notice': NOTICE, 'policy': POLICY,
                 'consumer': {k: cons[k] for k in ('project', 'plan', 'node', 'paths')}, 'revision': revision,
@@ -980,13 +990,15 @@ def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None
         hint = None
         if isinstance(ident, tuple): ident, hint = ident
         c = permitted.get(ident)
-        if hint is not None and ident.startswith('ctx-') and '@' not in ident:     # KN-1: the subject the sealed package showed under this id
-            same = [p for i, p in permitted.items() if i == ident or i.startswith(ident + '@')]
-            if len(same) > 1 or c is None:
-                titled = [p for p in same if p['title'][:60] == hint]
-                if len(titled) == 1: c = titled[0]
-                elif len(same) > 1: refused.append({'id': ident, 'reason': 'ambiguous'}); continue
-                else: c = None                         # the only subject under this key is not the one the worker saw
+        if isinstance(hint, dict):                     # KN-1, review dev7 R7-04/R7-05: the subject the sealed package showed, never another one
+            if hint.get('event'):
+                now = _id_of_event(ledger, hint['event'])
+                c = permitted.get(now) if now else None
+            elif hint.get('legacy') and '@' not in ident and ident.startswith(('ctx-', 'lesson-')):
+                same = [p for i, p in permitted.items() if i == ident or i.startswith(ident + '@')]
+                titled = [p for p in same if p['title'][:60] == hint.get('title')]
+                if len(titled) > 1: refused.append({'id': ident, 'reason': 'ambiguous'}); continue
+                c = titled[0] if titled else None
             if c is not None: ident = c['id']
         if c is None: refused.append({'id': ident, 'reason': 'not_available'}); continue
         if ident in shown and 'text_truncated' not in shown[ident]: continue
@@ -1103,7 +1115,7 @@ def _id_of_event(ledger, seq):
         k = p.get('knowledge') if isinstance(p.get('knowledge'), dict) else {}
         visibility = k.get('visibility') or ('project' if p['key'].startswith('lesson-') else 'root')
         return ledger_id(p['key'], visibility, row['task_id'], p.get('project'), ledger.project_id, project_tags(ledger).get(p.get('project')),
-                         lesson=p['key'].startswith('lesson-') and not k and p['key'] in _lesson_keys(ledger))
+                         lesson=is_lesson_entry(p['key'], k, p.get('source'), lesson_index(ledger)))
     except (KeyError, TypeError, ValueError, AttributeError):
         return None
 
@@ -1122,20 +1134,27 @@ def _current_id(ledger, store, record, ident):
     return ident
 
 
-def _sealed_titles(store, record):
-    """id -> title (60 characters, as the package showed it) of every entry a sealed package named: delivered, requested and omitted."""
+def _sealed_hints(store, record):
+    """id -> {'event', 'title', 'legacy'} of every entry a sealed package named (delivered, requested, omitted): the origin event when the
+    package listed one (delivered and requested rows always, omitted rows from package version 3), the title it showed (60 characters), and
+    whether the package predates version 3 (sealed before 2.3.0.dev7: its plain ids may name another project's subject, KN-1)."""
     try:
         view = json.loads(store.read_blob(record['package'])) if record.get('package') else {}
     except (KeyError, LedgerError, OSError, ValueError, TypeError):
         return {}
-    rows = (view.get('entries') or []) + (view.get('requested') or []) + ((view.get('omitted') or {}).get('index') or [])
-    return {r['id']: str(r.get('title') or '')[:60] for r in rows if isinstance(r, dict) and isinstance(r.get('id'), str)}
+    legacy = not (isinstance(view.get('version'), int) and view['version'] >= 3)
+    out = {}
+    for r in (view.get('entries') or []) + (view.get('requested') or []) + ((view.get('omitted') or {}).get('index') or []):
+        if not (isinstance(r, dict) and isinstance(r.get('id'), str)) or r['id'] in out: continue
+        event = r.get('event') or ((r.get('origin') or {}).get('event') if (r.get('origin') or {}).get('type') == 'ledger' else None)
+        out[r['id']] = {'event': event if isinstance(event, int) else None, 'title': str(r.get('title') or '')[:60], 'legacy': legacy}
+    return out
 
 
 def previous_requests(ledger, store, selector, attempt_id):
     """knowledge.requests of the partial result of `attempt_id` (the attempt a continuation continues), from its retained receipt. Each
-    request the sealed package listed comes with the title it showed: a package sealed before 2.3.0.dev6 named another project's general
-    record `ctx-<key>` like the reader's own subject, and the title tells which one the worker asked for (KN-1; _build resolves it)."""
+    request the sealed package listed comes with what that package said about it (_sealed_hints; _build resolves it to the subject the
+    worker saw: KN-1, review dev7 R7-04)."""
     if not attempt_id: return []
     with ledger.transaction() as conn:
         root = namespaces.resolve(ledger, conn, selector) if conn else None
@@ -1148,8 +1167,8 @@ def previous_requests(ledger, store, selector, attempt_id):
             receipt = json.loads(store.read_blob(candidate['receipt']))
         except (KeyError, LedgerError, OSError, ValueError, TypeError):
             continue
-        titles = _sealed_titles(store, receipt.get('knowledge') or {})
-        return [(r, titles[r]) if isinstance(r, str) and r in titles else r for r in receipt.get('knowledge_requests') or []]
+        hints = _sealed_hints(store, receipt.get('knowledge') or {})
+        return [(r, hints[r]) if isinstance(r, str) and r in hints else r for r in receipt.get('knowledge_requests') or []]
     return []
 
 
@@ -1356,23 +1375,32 @@ def _key_in_other_scope(ledger, key, scope):
     return bool(scopes) and scope not in scopes
 
 
-def _wiki_section(ledger, target):
-    """The wiki section `target` read past the budget of a normal reading (KN-4: a section on a page after the first wiki.MAX_PAGES is
-    otherwise not seen): every page is parsed whole, one at a time, until the id is found; None when no page holds it."""
+def _wiki_section(ledger, target, coverage):
+    """The wiki section `target` on a page the normal reading did not read whole (KN-4: past the first wiki.MAX_PAGES pages): only such pages
+    are parsed, one at a time, until the id is found, and no more than wiki.MAX_SCAN_BYTES are read (review dev7 R7-11). None when no page
+    holds it, or when the normal reading read every page (it would have found it)."""
+    if not (coverage.get('not_read') or coverage.get('mandatory_only')): return None
+    seen, scanned = 0, 0
     for folder in wiki.configured_paths(ledger.project):
+        external = Path(folder).is_absolute() or bool(Path(folder).anchor)      # as wiki.pages names a page (R7-03)
         base = Path(folder) if Path(folder).is_absolute() else Path(ledger.project) / folder
         try:
             files = sorted(p for p in base.rglob('*.md') if p.is_file()) if base.is_dir() else []
         except OSError:
             continue
         for file in files:
+            seen += 1
+            if seen <= wiki.MAX_PAGES: continue                 # read whole by the normal reading
             try:
-                if file.stat().st_size > wiki.MAX_PAGE_BYTES: continue
+                size = file.stat().st_size
+                scanned += size
+                if scanned > wiki.MAX_SCAN_BYTES: return None
+                if size > wiki.MAX_PAGE_BYTES: continue
                 text, _ = wiki._decode(file.read_bytes())
             except OSError:
                 continue
             if text is None: continue
-            name = str(file) if Path(folder).is_absolute() else file.relative_to(ledger.project).as_posix()
+            name = str(file) if external else file.relative_to(ledger.project).as_posix()
             try:
                 entry = next((e for e in wiki.parse(text, name)['entries'] if e['id'] == target), None)
             except Exception:                              # a page that breaks the parser holds nothing to withdraw
@@ -1393,7 +1421,9 @@ def _lifecycle_record(ledger, plan, target, verb, reason, evidence):
     done = {'withdraws': 'withdrawn', 'archives': 'archived'}[verb]
     life = {verb: target, 'reason': reason}
     if found is None:
-        wiki_entry = next((c for c in _wiki_candidates(ledger, []) if c['id'] == target), None) or (_wiki_section(ledger, target) if isinstance(target, str) else None)
+        coverage = {}
+        wiki_entry = next((c for c in _wiki_candidates(ledger, [], coverage) if c['id'] == target), None)
+        if wiki_entry is None and isinstance(target, str): wiki_entry = _wiki_section(ledger, target, coverage)
         if wiki_entry is not None: life['text_sha'] = _text_sha(wiki_entry['text'])
         elif not (isinstance(target, str) and target.startswith('lesson-') and '@' not in target and _lesson_exists(ledger, target[len('lesson-'):])):
             raise LedgerError(f'{target} names no knowledge record, lesson or wiki section of this project (`onecrew wiki history` and `onecrew '

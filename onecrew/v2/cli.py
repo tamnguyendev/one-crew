@@ -105,11 +105,16 @@ def main(argv=None):
         else:
             break
     if len(args) > index and args[index] == '--version':
+        from importlib import metadata
+        from pathlib import Path
+        import onecrew
+        here = Path(onecrew.__file__).resolve().parent
         try:
-            from importlib.metadata import version, PackageNotFoundError
-            print('onecrew ' + version('onecrew'))
-        except PackageNotFoundError:
-            print('onecrew unknown (not installed: a checkout)')
+            dist = metadata.distribution('onecrew')
+            installed = Path(dist.locate_file('onecrew')).resolve()
+            print(f'onecrew {dist.version}' + ('' if installed == here else f' (installed; the code running is {here})'))
+        except metadata.PackageNotFoundError:
+            print(f'onecrew unknown (not installed: the code running is {here})')
         return 0
     if len(args) <= index or args[index] in ('--help', '-h'):
         print('OneCrew: --project <path> <group> <command> [options]\n' + help_lines() +

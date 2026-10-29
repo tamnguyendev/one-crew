@@ -26,11 +26,13 @@ class KN1RequestsAcrossTheUpgrade(Base):
         return [e['id'] for e in pkg['requested']], [(r['id'], r['reason']) for r in pkg['requests_refused']]
 
     def test_kn1_a_request_sealed_before_dev6_brings_the_subject_its_package_showed(self):
-        self.assertEqual(self.requested(('ctx-retry', 'Rule of project two')), (['ctx-retry@' + self.tag2], []))
-        self.assertEqual(self.requested(('ctx-retry', 'Rule of project one')), (['ctx-retry'], []))
+        legacy = lambda title: {'event': None, 'title': title, 'legacy': True}          # an index row of a package sealed before version 3
+        self.assertEqual(self.requested(('ctx-retry', legacy('Rule of project two'))), (['ctx-retry@' + self.tag2], []))
+        self.assertEqual(self.requested(('ctx-retry', legacy('Rule of project one'))), (['ctx-retry'], []))
 
     def test_kn1_a_title_that_tells_no_subject_is_refused_never_guessed(self):
-        self.assertEqual(self.requested(('ctx-retry', 'A title nobody wrote')), ([], [('ctx-retry', 'ambiguous')]))
+        self.assertEqual(self.requested(('ctx-retry', {'event': None, 'title': 'A title nobody wrote', 'legacy': True})),
+                         ([], [('ctx-retry', 'not_available')]))                    # review dev7 R7-05: never answered with another subject
 
     def test_kn1_control_a_plain_request_is_the_own_subject(self):
         self.assertEqual(self.requested('ctx-retry'), (['ctx-retry'], []))
@@ -45,7 +47,8 @@ class KN1RequestsAcrossTheUpgrade(Base):
         with self.ledger.transaction(write=True) as conn:
             root = namespaces.resolve(self.ledger, conn, 'P1')
             self.ledger._event(conn, root['id'], 'node.result_retained', {'attempt': 'ATT-kn1', 'node': 'C', 'candidate': {'receipt': receipt}})
-        self.assertEqual(knowledge.previous_requests(self.ledger, store, 'P1', 'ATT-kn1'), [('ctx-retry', 'Rule of project two'), 'never-listed'])
+        self.assertEqual(knowledge.previous_requests(self.ledger, store, 'P1', 'ATT-kn1'),
+                         [('ctx-retry', {'event': None, 'title': 'Rule of project two', 'legacy': True}), 'never-listed'])
 
 
 class KN2LessonKeyedNotes(Base):

@@ -256,21 +256,57 @@ def skeleton_text(name, language):
     return SKELETON_MARK + '\n' + TEXT[SKELETON[name]]['vi' if language == 'vi' else 'en'].format()
 
 
+ALIAS_PART = re.compile(r'[^~]{1,6}~\d+(?:\.[^.]{0,3})?', re.I)       # an 8.3 short name: another spelling of some folder
+
+
 def _is_skeleton(path):
+    """Is this page byte for byte a page init writes (either language, LF or CRLF)? An edited page is the user's (review dev7 R7-10)."""
     try:
-        with open(path, 'rb') as stream: head = stream.read(len(SKELETON_MARK) + 8)
+        data = Path(path).read_bytes()
     except OSError:
         return False
-    return head.decode('utf-8', 'replace').lstrip('\ufeff').startswith(SKELETON_MARK)
+    texts = {skeleton_text(n, language).encode('utf-8') for n in SKELETON_NAMES for language in ('en', 'vi')}
+    return data in texts or data in {t.replace(b'\n', b'\r\n') for t in texts}
+
+
+def _spelling(part):
+    """A component Windows reads as another name: a trailing dot or space, a stream (`name:stream`), an 8.3 short name (review dev7 R7-02)."""
+    return part.endswith(('.', ' ')) or ':' in part or bool(ALIAS_PART.fullmatch(part))
+
+
+def _guarded(part):
+    return control_part(part) or part.casefold() == '.claude'
+
+
+def _path_problem(root, parts):
+    """None, or (message key, linked) for the folder root/parts: a link or junction on the way (also one is_link cannot see before Python 3.12:
+    the deepest existing folder must resolve inside the repository), a file on the way, a control folder however it is spelled (the names the
+    file system resolves are judged, R7-02). Asked when init plans and again right before it writes (R7-08)."""
+    current = root
+    for part in parts:
+        current = current / part
+        if is_link(current): return 'link'
+        if not current.exists(): break
+        if not current.is_dir(): return 'not_folder'
+    probe, rest = root.joinpath(*parts), []
+    while not probe.exists() and probe != root: rest.insert(0, probe.name); probe = probe.parent
+    try:
+        resolved, top = probe.resolve(), root.resolve()
+    except OSError:
+        return 'unlistable'
+    if not resolved.is_relative_to(top): return 'link'
+    if any(_guarded(p) for p in list(resolved.relative_to(top).parts) + rest): return 'protected'
+    return None
 
 
 def wiki_plan(root):
     """What init does about the wiki of the repository `root`, decided before anything is written:
-    {'action': 'create', 'target', 'shown', 'names'}: the folder and the skeleton pages that do not exist yet (a missing folder, an empty one,
-    or one that holds only part of init's own skeleton: an interrupted init); {'action': 'reuse', 'folders', 'pages'}: a wiki is there, or
-    several folders or a folder outside the repository are configured: nothing is written there (init never picks a folder to write into);
-    {'action': 'refuse', 'reason'}: the configuration or the folder cannot be used, init stops with nothing written. A config.json that
-    cannot be read is refused, never overwritten (where.read_config reads it as {})."""
+    {'action': 'create', 'target', 'shown', 'parts', 'names'}: the folder and the skeleton pages that do not exist yet (a missing folder, an
+    empty one, or one that holds only pages init wrote and the user did not edit: an interrupted init); {'action': 'reuse', 'folders',
+    'pages'}: a wiki is there (also a linked one that has pages, R7-09), or several folders or a folder outside the repository are
+    configured: nothing is written there (init never picks a folder to write into); {'action': 'refuse', 'reason'}: the configuration or the
+    folder cannot be used, init stops with nothing written. A config.json that cannot be read is refused, never overwritten (where.read_config
+    reads it as {}). A rooted path without a drive ('/docs/wiki') is outside the repository, as the reader reads it (R7-03)."""
     refuse = lambda key, **values: {'action': 'refuse', 'reason': t('wiki.' + key, **values)}
     config = where.config_file(root)
     paths = [DEFAULT_WIKI]
@@ -288,9 +324,10 @@ def wiki_plan(root):
     for raw in paths:
         candidate = Path(raw)
         if candidate.is_absolute(): outside.append(candidate); continue
-        parts = [p for p in raw.replace('\\', '/').split('/') if p not in ('', '.')]
-        if candidate.drive or '..' in parts: return refuse('outside', path=raw)            # 'D:x' names another drive's folder
-        if any(control_part(p) or p.casefold() == '.claude' for p in parts): return refuse('protected', path=raw)
+        parts = [p for p in raw.replace(chr(92), '/').split('/') if p not in ('', '.')]
+        if candidate.anchor or '..' in parts: return refuse('outside', path=raw)          # 'D:x' another drive's folder, '/x' the drive's root
+        if any(_spelling(p) for p in parts): return refuse('spelling', path=raw)
+        if any(_guarded(p) for p in parts): return refuse('protected', path=raw)
         inside.append((raw, parts))
     if len(paths) > 1 or outside:                      # only reused: every folder must be there
         folders = [root.joinpath(*parts) for _, parts in inside] + outside
@@ -299,21 +336,13 @@ def wiki_plan(root):
         return {'action': 'reuse', 'folders': [str(f) for f in folders], 'pages': sum(_count_pages(f) for f in folders)}
     raw, parts = inside[0]
     if not parts: return {'action': 'reuse', 'folders': [raw], 'pages': _count_pages(root)}     # the repository root itself: never a skeleton there
-    target, current = root.joinpath(*parts), root
-    for part in parts:                                 # every existing folder on the way is a real folder of the repository
-        current = current / part
-        if is_link(current): return refuse('link', path=raw)
-        if not current.exists(): break
-        if not current.is_dir(): return refuse('not_folder', path=raw)
-    probe = target
-    while not probe.exists() and probe != root: probe = probe.parent
-    try:                                               # what is_link cannot see (a junction before Python 3.12) still resolves elsewhere
-        if not probe.resolve().is_relative_to(root.resolve()): return refuse('link', path=raw)
-    except OSError as error:
-        return refuse('unlistable', path=raw, why=type(error).__name__)
-    if not target.exists(): return {'action': 'create', 'target': target, 'shown': raw, 'names': list(SKELETON_NAMES)}
+    target = root.joinpath(*parts)
+    problem = _path_problem(root, parts)
+    if problem == 'link' and target.is_dir() and _count_pages(target):
+        return {'action': 'reuse', 'folders': [raw], 'pages': _count_pages(target), 'linked': True}   # R7-09: read as it is, never written through
+    if problem: return refuse(problem, path=raw, why='OSError')
+    if not target.exists(): return {'action': 'create', 'target': target, 'shown': raw, 'parts': parts, 'names': list(SKELETON_NAMES)}
     try:
-        if not target.resolve().is_relative_to(root.resolve()): return refuse('outside', path=raw)
         pages = sorted(p for p in target.rglob('*.md') if p.is_file())
     except OSError as error:
         return refuse('unlistable', path=raw, why=type(error).__name__)
@@ -321,7 +350,7 @@ def wiki_plan(root):
         return {'action': 'reuse', 'folders': [raw], 'pages': len(pages)}         # a page of the user: the wiki is theirs, nothing is added
     names = [n for n in SKELETON_NAMES if not os.path.lexists(target / n)]       # a name taken by a folder is left alone
     if not names: return {'action': 'reuse', 'folders': [raw], 'pages': len(pages)}
-    return {'action': 'create', 'target': target, 'shown': raw, 'names': names}
+    return {'action': 'create', 'target': target, 'shown': raw, 'parts': parts, 'names': names}
 
 
 def _count_pages(folder):
@@ -336,20 +365,27 @@ def _create_new_file(path, text):
     with open(path, 'x', encoding='utf-8', newline='\n') as stream: stream.write(text)
 
 
-def write_wiki(plan, language):
-    """Create the skeleton pages `plan` names: (written names, None) or, at the first error, (written so far, (name, why))."""
+def write_wiki(plan, language, root):
+    """Create the skeleton pages `plan` names: (written names, None) or, at the first error, (written so far, (name, why)). The path is judged
+    again right before the folder is made and before the pages are written: what changed while init waited for its answer is not written
+    through (review dev7 R7-08)."""
     written = []
-    try:
-        plan['target'].mkdir(parents=True, exist_ok=True)
-    except OSError as error:
-        return written, (plan['shown'], type(error).__name__ + (': ' + error.strerror if getattr(error, 'strerror', None) else ''))
+    why = lambda error: type(error).__name__ + (': ' + error.strerror if getattr(error, 'strerror', None) else '')
+    for moment in ('before', 'after'):
+        problem = _path_problem(root, plan['parts'])
+        if problem: return written, (plan['shown'], t('wiki.' + problem, path=plan['shown'], why='OSError'))
+        if moment == 'after': break
+        try:
+            plan['target'].mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            return written, (plan['shown'], why(error))
     for name in plan['names']:
         try:
             _create_new_file(plan['target'] / name, skeleton_text(name, language))
         except FileExistsError:
             continue                                   # appeared meanwhile: never overwritten
         except OSError as error:
-            return written, (name, type(error).__name__ + (': ' + error.strerror if getattr(error, 'strerror', None) else ''))
+            return written, (name, why(error))
         written.append(name)
     return written, None
 
@@ -429,7 +465,7 @@ def init(project=None, state_root=None, shared=False, yes=False, exe=None, ask=i
             backup = settings_path.with_name(settings_path.name + '.bak')
             if settings_path.exists() and not backup.exists(): shutil.copyfile(settings_path, backup)
             write_text(settings_path, dump(merged))
-        if todo['wiki']: wiki_written, wiki_failed = write_wiki(wiki_step, 'vi' if lang() == 'vi' else 'en')     # last: a wiki error never undoes the rest
+        if todo['wiki']: wiki_written, wiki_failed = write_wiki(wiki_step, 'vi' if lang() == 'vi' else 'en', root)     # last: a wiki error never undoes the rest
     else:
         say(t('init.nothing'))
     where.register_project(root, state)       # a second pointer to the state root, outside .onecrew/, for the hook when that folder is gone

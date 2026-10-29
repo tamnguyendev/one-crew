@@ -219,7 +219,7 @@ class Refuse(Base):
 class Partial(Base):
     def test_kw09_an_interrupted_skeleton_is_completed_and_the_written_part_kept(self):
         folder = self.repo / 'docs' / 'wiki'; folder.mkdir(parents=True)
-        (folder / 'README.md').write_text(install.SKELETON_MARK + '\n# edited by hand\n', encoding='utf-8')
+        (folder / 'README.md').write_bytes(install.skeleton_text('README.md', 'en').encode('utf-8'))      # what an init stopped after its first page left
         before = sha(folder / 'README.md')
         code, out = self.init()
         self.assertEqual(code, 0, out)
@@ -283,7 +283,7 @@ class Version(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             code = cli.main(['--version'])
         self.assertEqual(code, 0)
-        self.assertRegex(out.getvalue().strip(), r'^onecrew (\d+\.\d+\.\d+\S*|unknown \(.*\))$')
+        self.assertRegex(out.getvalue().strip(), r'^onecrew (\d+\.\d+\.\d+\S*( \(installed; the code running is .*\))?|unknown \(not installed: .*\))$')
 
 
 if __name__ == '__main__':

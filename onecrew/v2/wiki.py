@@ -374,8 +374,8 @@ def pages(project, paths=None, coverage=None):
     folders = paths if paths is not None else configured_paths(project, problems)
     if problems: cov['config_problem'] = True
     for folder in folders:
-        external = Path(folder).is_absolute()
-        base = Path(folder) if external else project / folder
+        external = Path(folder).is_absolute() or bool(Path(folder).anchor)      # review dev7 R7-03: '/x' (the drive's root) and 'D:x' are not in the repository
+        base = Path(folder) if Path(folder).is_absolute() else project / folder
         if not base.is_dir():
             if paths is not None or tuple(folders) != DEFAULT_PATHS:      # a folder the project named: say it was not read
                 problems.append({'path': str(folder), 'problem': 'configured wiki folder not found or not a folder; not read'})
