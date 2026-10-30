@@ -78,6 +78,16 @@ def safe_file(root, name):
     return target
 
 
+def _alone(path, name):
+    """The bytes of a scope file that has no other name on the disk. A hard link may be the other name of a file every reader is kept from (an
+    ignored .env, a home folder, the ledger): its bytes would enter the snapshot, and the worker's files, under an ordinary name (2.3 alpha AL-01).
+    Judged on the handle that is read."""
+    with open(path, 'rb') as handle:
+        if os.fstat(handle.fileno()).st_nlink > 1:
+            raise LedgerError(f'Snapshot file {name} has another name on the disk (a hard link), so it is not read; remove the other name or use a copy.')
+        return handle.read()
+
+
 def bytes_hash(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -240,7 +250,7 @@ class Snapshots:
                 raise LedgerError('Scope must name files, not directories.')
             if path.exists() and path.stat().st_size > MAX_FILE:
                 raise LedgerError('Snapshot file exceeds size cap.')
-            result[name] = path.read_bytes() if path.exists() else None
+            result[name] = _alone(path, name) if path.exists() else None
             total += len(result[name] or b'')
             if total > MAX_TOTAL:
                 raise LedgerError('Snapshot exceeds total size cap.')

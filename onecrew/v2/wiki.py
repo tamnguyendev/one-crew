@@ -27,7 +27,9 @@ Nothing here decides permissions, applicability or relevance (knowledge.py does)
 """
 import hashlib
 import json
+import os
 import re
+import stat
 from pathlib import Path
 
 KINDS = ('decision', 'constraint', 'finding', 'lesson', 'rejected', 'note', 'summary')
@@ -361,6 +363,38 @@ def _scan_for_must(path):
             tail = chunk[-128:]
 
 
+JUNCTION = 0xA0000003                                  # IO_REPARSE_TAG_MOUNT_POINT
+
+
+def _is_link(path):
+    """A symbolic link or a junction (by the reparse tag, so with any Python): a name whose content is elsewhere."""
+    status = os.lstat(path)
+    return stat.S_ISLNK(status.st_mode) or getattr(status, 'st_reparse_tag', 0) == JUNCTION
+
+
+def _listing(base):
+    """(the *.md files below `base`, the names below it that are not followed). A folder or page that is a symbolic link or a junction is not
+    walked or read: what it leads to may be a file every reader is kept from, and its text would be delivered as knowledge (2.3 alpha AL-02)."""
+    files, links, pending = [], [], [base]
+    while pending:
+        with os.scandir(pending.pop()) as entries:
+            for entry in entries:
+                path, page = Path(entry.path), os.path.normcase(entry.name).endswith('.md')
+                if _is_link(path):
+                    if page or entry.is_dir(): links.append(path)
+                elif entry.is_dir(follow_symlinks=False):
+                    pending.append(path)
+                elif page and entry.is_file(follow_symlinks=False):
+                    files.append(path)
+    return sorted(files), sorted(links)
+
+
+def _through(project, base):
+    """The first folder of a repository wiki folder, from the project down, that is a symbolic link or a junction, or None."""
+    parts = base.relative_to(project).parts
+    return next(('/'.join(parts[:n]) for n in range(1, len(parts) + 1) if _is_link(project.joinpath(*parts[:n]))), None)
+
+
 def pages(project, paths=None, coverage=None):
     """The wiki pages to parse: [{'path', 'origin', 'sha256', 'bytes', 'text'[, 'mandatory_only']}] plus problems; the default folder
     missing is no wiki, not an error; a configured folder missing is a problem (review r1 F2). `coverage` (a dict, optional) receives
@@ -382,9 +416,16 @@ def pages(project, paths=None, coverage=None):
                 cov['missing_folders'].append(str(folder))
             continue
         try:
-            files = sorted(p for p in base.rglob('*.md') if p.is_file())
-        except OSError as error:
+            through = None if external else _through(project, base)
+            if through:
+                problems.append({'path': str(folder), 'problem': f'the wiki folder is reached through {through}, a link or junction; not read'})
+                cov['unreadable'].append(str(folder)); continue
+            files, links = _listing(base)
+        except (OSError, ValueError) as error:
             problems.append({'path': str(folder), 'problem': f'cannot list the folder: {str(error)[:120]}'}); cov['unreadable'].append(str(folder)); continue
+        for path in links:
+            name = str(path) if external else path.relative_to(project).as_posix()
+            problems.append({'path': name, 'problem': 'a link or junction: what it leads to is not read'}); cov['unreadable'].append(name)
         not_read = unscanned = 0
         for file in files:
             cov['pages'] += 1
@@ -393,6 +434,9 @@ def pages(project, paths=None, coverage=None):
                 unscanned += 1; continue
             whole = cov['read_whole'] < MAX_PAGES
             try:
+                if os.lstat(file).st_nlink > 1:
+                    problems.append({'path': name, 'problem': 'the page has another name on the disk (a hard link); not read'}); cov['unreadable'].append(name)
+                    continue
                 size = file.stat().st_size
                 cov['scanned_bytes'] += size
                 if size > MAX_PAGE_BYTES:
@@ -401,7 +445,11 @@ def pages(project, paths=None, coverage=None):
                         cov['undelivered'].append({'path': name, 'line': None, 'id': None, 'applies_to': None, 'source_paths': None,
                                                    'reason': f'the page declares a mandatory section but is larger than {MAX_PAGE_BYTES} bytes'})
                     continue
-                data = file.read_bytes()
+                with open(file, 'rb') as handle:
+                    if os.fstat(handle.fileno()).st_nlink > 1:                  # a name made between the look and the read
+                        problems.append({'path': name, 'problem': 'the page has another name on the disk (a hard link); not read'})
+                        cov['unreadable'].append(name); continue
+                    data = handle.read()
             except OSError as error:
                 problems.append({'path': name, 'problem': f'cannot read: {str(error)[:120]}'}); cov['unreadable'].append(name); continue
             text, why = _decode(data)
