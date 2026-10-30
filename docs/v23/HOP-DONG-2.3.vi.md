@@ -185,6 +185,7 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 30/10 12:05–12:41 | hồi quy trên `7455621`: 2.3 520 chạy, 446 đạt, 9 bỏ qua, 2 lỗi đã biết (expected failure), 63 hỏng, trong 3 nhóm test: gói giả của test script thử thiếu `alpha_flow.py` (59), spy đọc file qua `Path.read_bytes` (2), hai đối chứng FX-R06 cũ (2); dừng lượt đó, sửa test (`1c378e6`), gộp `fab7389` = snapshot alpha | `D:\OneCrewRuns\v23\dev7\logs\int-v23-7455621.txt` |
 | 30/10 12:48–13:32 | hồi quy trên `fab7389`: 2.3 522 chạy, 511 đạt, 9 bỏ qua, 2 lỗi đã biết (expected failure); 2.2 417 chạy, 414 đạt, 3 hỏng (ghim version cũ; `test_owned` lỗi môi trường như trên `6cbcaa9`; 2 module chạy lại riêng vì tên bị ghép: 51 chạy, 51 đạt) | ALPHA §6 |
 | 30/10 | gói alpha `onecrew-2.3.0.dev8-alpha` (wheel `878e8744…`): bộ kiểm 16/16, README 9/9, task đầu tiên 25/25, script thử `DAT`/0 (luồng alpha 5/5) và dùng lại thư mục → 2, CLI 0 lỗi, sổ dev5 đạt, V15 dev6 → dev8 0, luồng alpha dev7 S5 đỏ → dev8 xanh | ALPHA §6 |
+| 30/10 13:54 | phát hành alpha: tag `v2.3.0.dev8` trên `fab7389` và nhánh `claude/onecrew-2.3` lên `origin` (repo private); đọc lại khớp | ALPHA §1 |
 
 ## 7. Review Codex 28/10 và sửa
 

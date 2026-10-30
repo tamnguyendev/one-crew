@@ -16,8 +16,11 @@ Bản trong `docs/` của gói là bản lúc dựng gói. Các mục §1 và §
 
 ## 1. Bản nào, tải và cài ở đâu
 
-<!-- alpha:release -->
-_Ghi sau khi kiểm gói (bản trong checkout)._
+**Bản alpha `2.3.0.dev8` (prerelease), không phải bản ổn định `2.3.0`.** Phát hành 13:54 30/10, theo cách đã làm với `v2.1.0`:
+- **Tag** `v2.3.0.dev8` (annotated) trên snapshot `fab7389187cd909c768fb65239b098d0571f7722`, đã push lên `origin` `git@github.com:tamnguyendev/one-crew.git` (repo private, đã kiểm `isPrivate: true`). Đọc lại từ `origin`: tag trỏ tới `fab7389187cd`.
+- **Nhánh** `claude/onecrew-2.3` đã push lên `origin` (nhánh mới, không force). Lần đầu đưa lên `origin` 257 commit. Trước khi push đã quét các dòng thêm vào: không dòng nào giống khóa bí mật.
+- **Gói cài:** `D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev8-alpha`. Lệnh thử một lệnh: `powershell -ExecutionPolicy Bypass -File "D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev8-alpha\verify\thu-goi.ps1"`. Cài tay: `pip install --no-index "D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev8-alpha\wheel\onecrew-2.3.0.dev8-py3-none-any.whl"` vào một venv mới (README của gói §2). Wheel SHA256 `878e87442f246246c7f315bb4d4c1fac175041eff18f15b4bfe38e4c93d1bf57`.
+- **Không làm:** không cấu hình registry, PyPI hay GitHub Release nào, nên không tạo; không đổi quyền repo; không ghi đè tag hay artifact nào.
 
 ## 2. Bạn thử gì (5 bước)
 
