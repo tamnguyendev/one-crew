@@ -33,7 +33,7 @@ def sha(path):
 
 README = '''# OneCrew {version} — gói thử {label}
 
-**Đây là bản thử (prerelease) `{version}`, không phải bản ổn định; chạy trên bản sao project và sổ riêng.** Chưa được Codex review lại, chưa nghiệm thu. Gói không tự nhận đã giao (`manifest.json` → `claims`).
+**Đây là bản thử {stage}(prerelease) `{version}`, không phải bản ổn định; chạy trên bản sao project và sổ riêng.** Chưa được Codex review lại, chưa nghiệm thu. Gói không tự nhận đã giao (`manifest.json` → `claims`).
 
 | Mục | Giá trị |
 |---|---|
@@ -44,7 +44,7 @@ README = '''# OneCrew {version} — gói thử {label}
 
 ## 1. Kiểm hash và kiểm gói
 
-Một lệnh làm cả kiểm hash, bộ kiểm của gói và task đầu tiên từ README, trên thư mục kết quả mới và sổ tạm:
+Một lệnh làm cả kiểm hash, bộ kiểm của gói, task đầu tiên từ README và luồng alpha (`verify/alpha_flow.py`, 5 chặng: init và wiki, tri thức cho task, kết quả đã kiểm thành tri thức, root mới dùng lại, guard hard link), trên thư mục kết quả mới và sổ tạm:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File "{out}\\verify\\thu-goi.ps1"
@@ -116,6 +116,7 @@ def main():
     parser.add_argument('out'); parser.add_argument('--milestone', required=True, choices=sorted(MILESTONES))
     parser.add_argument('--previous-wheel', required=True); parser.add_argument('--previous-sha', required=True)
     parser.add_argument('--limits', required=True, help='a Markdown file with the limits section')
+    parser.add_argument('--stage', default='', choices=['', 'alpha', 'beta'], help='the prerelease stage named in the README and the manifest')
     args = parser.parse_args()
     out = Path(args.out)
     if out.exists(): raise SystemExit(f'{out} exists; a package folder is never reused.')
@@ -150,12 +151,12 @@ def main():
     if (ROOT / 'docs/v23/examples').is_dir(): shutil.copytree(ROOT / 'docs/v23/examples', out / 'examples')
     built = time.strftime('%Y-%m-%d %H:%M:%S')
     previous_version = previous.name.split('-')[1]
-    readme = README.format(version=version, label=MILESTONES[args.milestone], commit=commit, wheel=wheel_path.name, wheel_sha=sha(wheel_path),
+    readme = README.format(stage=(args.stage + ' ') if args.stage else '', version=version, label=MILESTONES[args.milestone], commit=commit, wheel=wheel_path.name, wheel_sha=sha(wheel_path),
                            previous=previous.name, previous_sha=args.previous_sha, built=built, out=str(out.resolve()),
                            milestone_lower=args.milestone.lower(), steps_text=STEPS[args.milestone], try_text=TRY[args.milestone], limits=Path(args.limits).read_text(encoding='utf-8').strip())
     (out / 'README.md').write_text(readme, encoding='utf-8')
     manifest = {'kind': 'v23-milestone-package', 'milestone': args.milestone, 'label': MILESTONES[args.milestone], 'version': version,
-                'code_commit': commit, 'built_at': built, 'ships_paging': False,
+                'code_commit': commit, 'built_at': built, 'ships_paging': False, 'stage': args.stage or None,
                 'wheel': {'name': wheel_path.name, 'sha256': sha(wheel_path)},
                 'previous_wheel': {'name': previous.name, 'sha256': args.previous_sha, 'version': previous_version},
                 'claims': {'delivered': False, 'reviewed_by_codex': False, 'accepted_by_owner': False, 'released': False}}

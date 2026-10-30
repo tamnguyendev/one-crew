@@ -1,14 +1,17 @@
 r"""alpha_flow.py <package dir> <work dir> [--owner-step auto|fixture] - the 2.3 ALPHA flow FROM A BUILT PACKAGE, with the INSTALLED onecrew CLI.
 
-Stdlib only; run it with `python -I` from anywhere (it never imports a checkout). Four stages on a new sample Git project and a new ledger:
+Stdlib only; run it with `python -I` from anywhere (it never imports a checkout). Five stages (after S0, the setup) on a new sample Git project
+and a new ledger:
   S1 init + wiki: `onecrew init` creates the wiki skeleton (docs/wiki: README.md, project.md, lessons.md); a second `init` changes no byte of it
      (reuse); a page of project rules is added; `wiki pages` reads its entries and no problem.
-  S2 a task gets the knowledge it may use: plan P1 (a.txt must hold the required word), node C reads a.txt + spec.txt and writes a.txt;
+  S2 a task gets the knowledge it may use: plan P1 (a.txt must hold the required word), node C reads a.txt, b.txt, spec.txt and writes a.txt;
      `wiki show` gives C the rule `a-value` as a mandatory fact.
   S3 a checked result becomes knowledge with evidence: C's worker claims "VALUE: right" citing spec.txt under check M1; the check really runs
-     on C's candidate and passes; `wiki history` then holds the record, visible to the project, with its evidence.
-  S4 a new root uses it, within permission: plan P2 node D (reads a.txt, b.txt, spec.txt; writes b.txt) is given the record; its worker, whose
-     own default is wrong, follows it and D's check passes; node E of plan P3, which can read only c.txt, is given neither the record nor the rule.
+     on C's candidate and passes; `wiki history` then holds a verified project record with its evidence, and the claim's first root-only
+     observation is superseded by it; P1 is handed into the sample project (its contract grants apply_to_project) and committed.
+  S4 a new root uses it, within permission: plan P2 node D (reads a.txt, b.txt, spec.txt; writes b.txt) is given the record as an applicable
+     fact (the wiki rule, checked on the old a.txt, is only a lead now); its worker, whose own default is wrong, follows it and D's check
+     passes; node E of plan P3, which can read only c.txt, is given neither the record nor the rule.
   S5 the alpha guards (AL-01, AL-02): a wiki page that is a hard link to a file outside the project is not read and is named; a node whose scope
      holds such a file is not started, the step names the hard link, and nothing of the file reaches the ledger.
 Worker: the package's fake `claude` (verify/onecrew_fake_claude.py, a test double: no model, no login, no provider call). It proves the path,

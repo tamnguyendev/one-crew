@@ -115,6 +115,8 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | T23-RFX4 | Sửa theo lượt soát lại `726aacf` và lần kiểm `3f3edb7`: F-R01 dòng có đường dẫn thì kiểm đúng đường dẫn đó; G-R01, G-R02 | T23-RFX3 | 0,3 h | `3f3edb7` 05:31, `0c6074f` 05:41 |
 | T23-RV7 | Review độc lập theo rủi ro: WI/KN hai vòng, FX và DX sau khi gộp, soát lại `7a1ce5c`, `376654d`, `726aacf` | T23-WI-1, T23-KN, T23-FX, T23-DX | 2 h | `D:\OneCrewRuns\v23\review-dev7\review-wi.md`, `review-fx.md` |
 | T23-RACE | Race `.onecrew` của index tạm khi tính artifact (gate trên snapshot thứ nhất thấy) | T23-PK-F7 | 0,2 h | `01c5831` 09:26 |
+| T23-AL | Blocker alpha AL-01, AL-02: ca tái hiện trước, sửa, phản chứng từ gói (S5) | chỉ thị alpha | 1 h | `6d504c0` |
+| T23-ALPHA | Bản alpha `2.3.0.dev8`: luồng alpha từ gói, hồ sơ alpha riêng, phát hành alpha | T23-AL | 3 h | ALPHA-2.3.0.dev8 |
 | T23-PK-F7 | Gói `2.3.0.dev7`: hồi quy tích hợp, kiểm từ gói (16 bước), diễn tập README + task đầu tiên + script thử, phản chứng, dữ liệu cũ, gate snapshot 2.2, phát hành bản thử | tất cả | 5 h | BAO-CAO-2.3-DEV7 |
 
 ## 6. Nhật ký tiến độ
@@ -152,7 +154,7 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 30/10 01:18 | FX-1…FX-4 (agent Sonnet, 3 vòng review agent riêng); ~01:51 một test của `tests.test_v2_reviewer` gọi Claude thật một lần (subscription, ước 0,066 USD) | `04ae80b`; BAO-CAO-2.3-DEV7 §5 |
 | 30/10 01:09–02:23 | gộp WI/KN, R15, FX vào `claude/onecrew-2.3` | `845f7cd`, `845c714`, `4f6a707` |
 | 30/10 ~03:00 | DX: nguồn viết trần mất dấu chấm đầu (có từ 2.2; agent FX thấy, để nguyên); 5 test đỏ trên `4f6a707` → 7/7; gộp sau hồi quy tích hợp | `1cc9419`; `D:\OneCrewRuns\v23\dev7\logs\dx-red-4f6a707.txt` |
-| 30/10 02:24–03:51 | hồi quy tích hợp trên `4f6a707`, tuần tự: 460 test 2.3 đạt (8 bỏ qua); 965 test 2.2, chỉ test ghim version cũ hỏng | `D:\OneCrewRuns\v23\dev7\logs` (`int-v23-4f6a707.txt`, `int-22-4f6a707.txt`) |
+| 30/10 02:24–03:51 | hồi quy tích hợp trên `4f6a707`, tuần tự: 460 test 2.3 chạy, 452 đạt, 8 bỏ qua; 965 test 2.2 chạy, 964 đạt, 1 hỏng (test ghim version cũ) | `D:\OneCrewRuns\v23\dev7\logs` (`int-v23-4f6a707.txt`, `int-22-4f6a707.txt`) |
 | 30/10 02:23–03:24 | review độc lập FX (sau khi gộp) và DX: không P1; 3 P2 (FX-R01, FX-R02, DX-R01), 7 P3 | `review-dev7\review-fx.md` |
 | 30/10 03:24–03:41 | sửa theo review: probe của reviewer giữ thành test, đỏ trên `1cc9419` (23 fail + 3 lỗi kể cả subtest) → xanh; FX-R03, R06, R07, R08 thành giới hạn | `7a1ce5c`; `D:\OneCrewRuns\v23\dev7\logs\rfx-red-1cc9419.txt` |
 | 30/10 03:52 | gộp DX và lượt sửa hai vào `claude/onecrew-2.3` | `fdcc2e9` |
@@ -165,7 +167,7 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 30/10 05:17 | gộp lượt sửa bốn vào `claude/onecrew-2.3` | `1c09994` |
 | 30/10 05:18–05:24 | soát lại `726aacf`: không P1; 1 P2 (F-R01: dòng nguồn ghi mô tả trước có đường dẫn thiếu vẫn đạt nhờ một chữ khác có thật); E-R01, E-R02, E-R04 khép | `review-dev7\review-fx.md` |
 | 30/10 05:25–05:31 | sửa F-R01: 6 dòng đỏ trên `726aacf` → xanh | `3f3edb7`; `D:\OneCrewRuns\v23\dev7\logs\rfx4-red-726aacf.txt` |
-| 30/10 05:17–06:10 | hồi quy trên `1c09994`, tuần tự: 504 test 2.3 đạt (9 bỏ qua, 3 expected failure); 361 test của 11 module 2.2 ngoài gate, chỉ test ghim version cũ hỏng | `D:\OneCrewRuns\v23\dev7\logs\int-v23-1c09994.txt`, `int-22-1c09994.txt` |
+| 30/10 05:17–06:10 | hồi quy trên `1c09994`, tuần tự: 504 test 2.3 chạy, 492 đạt, 9 bỏ qua, 3 lỗi đã biết (expected failure); 361 test của 11 module 2.2 ngoài gate, 360 đạt, 1 hỏng (test ghim version cũ) | `D:\OneCrewRuns\v23\dev7\logs\int-v23-1c09994.txt`, `int-22-1c09994.txt` |
 | 30/10 05:32–05:38 | kiểm `3f3edb7`: F-R01 khép; không P1/P2; 2 P3: G-R01 chữ có `/` (CI/CD, km/h) trước đường dẫn bị lấy làm đường dẫn (báo sai, không bao giờ đạt sai), G-R02 `.env.example` thiếu vẫn đạt nhờ `.gitignore` có thật | `review-dev7\review-fx.md` |
 | 30/10 05:36–05:41 | sửa G-R01, G-R02: 6 dòng đỏ trên `3f3edb7` → xanh; probe check4 của reviewer chạy trên bản sửa: g01–g03 đạt, 18 dòng g04 như trên `3f3edb7`; không review lại (chỉ P3) | `0c6074f`; `D:\OneCrewRuns\v23\dev7\logs\rfx5-red-3f3edb7.txt`, `check4-on-round5.log` |
 | 30/10 06:11 | gộp `3f3edb7` và `0c6074f` vào `claude/onecrew-2.3` (code cuối); chạy lại các module verifier tài liệu và test giữ từ review: 255 test đạt (3 expected failure) | `30f65c9`; `D:\OneCrewRuns\v23\dev7\logs` (`final-doc-*.txt`) |
@@ -173,6 +175,13 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 30/10 06:28–06:44 | gói từ `c6d8477` (wheel `82bc6e25…`): kiểm từ gói 16/16, README 9/9, task đầu tiên 25/25, script thử `DAT`/0 và dùng lại thư mục → 2, ca Codex qua CLI cài 0 lỗi, dữ liệu dev5 đạt, V15 qua CLI cài: dev6 11 lỗi → dev7 0. Không bàn giao: thay bằng gói của snapshot thứ hai | `D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev7-final-c6d8477-superseded` |
 | 30/10 06:45–09:22 | gate trên `c6d8477` dừng ở 179/286: `R03/check.t41_gaps` hỏng (chạy riêng: hỏng 2 trong 3 lần). Nguyên nhân: hook ghi lại `.onecrew/active-plan.json` giữa `git add` và `git rm --cached .onecrew` của index tạm, git từ chối, lượt kiểm bị bỏ dở (race có từ 2.2; bước kiểm hard link mới làm khoảng hở rộng ra) | `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261030-c6d8477`; `D:\OneCrewRuns\v23\dev7\logs\t41-alone-c6d8477.txt` |
 | 30/10 09:22–09:26 | sửa race: `git rm --cached -f` trên index tạm (`artifact_sha`, `tracked_tree`); test race đỏ trên `0c6074f` → xanh; `t41_gaps` chạy riêng 6/6 | `01c5831`, gộp `7e91d8c`; `D:\OneCrewRuns\v23\dev7\logs\t41-after-fix.txt` |
+| 30/10 09:28–10:11 | hồi quy trên `6cbcaa9`, tuần tự: 510 test 2.3 chạy, 498 đạt, 9 bỏ qua (điều kiện máy), 3 lỗi đã biết (expected failure FX-R03, R06, R08); 361 test của 11 module 2.2 ngoài gate, 360 đạt, 1 hỏng (test ghim version cũ) | `D:\OneCrewRuns\v23\dev7\logs` (`int-v23-6cbcaa9.txt`, `int-22-6cbcaa9.txt`) |
+| 30/10 10:11–10:24 | gói `2.3.0.dev7` từ `6cbcaa9` (wheel `1275988a…`): kiểm từ gói 16/16, README 9/9, task đầu tiên 25/25, script thử `DAT`/0 và dùng lại thư mục → 2, CLI 0 lỗi, sổ dev5 đạt, V15 dev6 11 → dev7 0. Không phát hành (dòng dưới) | `D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev7-final` |
+| 30/10 10:24–11:42 | gate trên `6cbcaa9`: dừng có chủ đích ở 141/286 check, không check nào hỏng; chỉ dừng cây process của lượt đó; log, receipt giữ nguyên, ghi là đã hủy. Không phải đạt, không phải hỏng, không tính cho snapshot khác | `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261030-6cbcaa9\CANCELLED.json` |
+| 30/10 ~11:30 | chỉ thị của người dùng: giao ALPHA dùng được sớm rồi hoàn thiện BETA; ủy quyền tự quyết giải pháp, sửa, kiểm, đóng gói, phát hành alpha vào đích đã xác lập | ALPHA-2.3.0.dev8 |
+| 30/10 11:35–11:45 | đối chiếu finding theo code: AL-01 (ảnh chụp phạm vi node đọc file có hard link), AL-02 (trình đọc wiki theo link) là blocker alpha; ca `tests/test_v23_alpha_links.py`: 8 đỏ trên `01c5831`, 10/10 xanh sau sửa; FX-R06 khép theo | `6d504c0`; `D:\OneCrewRuns\v23\alpha\logs` (`red-01c5831.txt`, `green-al.txt`) |
+| 30/10 11:47–12:20 | luồng alpha `alpha_flow.py` (5 chặng) vào script thử; trên gói `2.3.0.dev7`: S0–S4 đạt, S5 hỏng (file bí mật vào `snapshots/blobs` và `attempts/…/stdin.txt`) = phản chứng của AL-01/AL-02 | `dd52cf5`; `D:\OneCrewRuns\v23\alpha\try10 dev7` |
+| 30/10 | snapshot alpha: version `2.3.0.dev8`, hồ sơ `ALPHA-2.3.0.dev8.vi.md`, CHANGELOG, giới hạn; dev7 đóng là không bàn giao | ALPHA-2.3.0.dev8 |
 
 ## 7. Review Codex 28/10 và sửa
 
@@ -327,6 +336,8 @@ Loại bản: prerelease `2.3.0.devN` theo quy ước của §1 ("prerelease 2.3
 | Soát lại `726aacf` (F-R01) | `3f3edb7` | `tests/test_v23_review_fx.py` RoundFourDocs.test_f01: đỏ trên `726aacf` (`rfx4-red-726aacf.txt`) | hồi quy, gate |
 | Kiểm `3f3edb7` (G-R01, G-R02) | `0c6074f` | `tests/test_v23_review_fx.py` RoundFiveDocs: đỏ trên `3f3edb7` (`rfx5-red-3f3edb7.txt`); probe check4 của reviewer đạt | hồi quy, gate |
 | Race `.onecrew` (gate trên `c6d8477`, `R03/check.t41_gaps`) | `01c5831` | `tests/test_v23_review_fx.py` OnecrewRace: đỏ trên `0c6074f` (`race-red-0c6074f.txt`); `t41_gaps` riêng: 2/3 hỏng → 6/6 | gate |
+| AL-01 ảnh chụp phạm vi node, AL-02 trình đọc wiki (blocker alpha); FX-R06 | `6d504c0` | `tests/test_v23_alpha_links.py` (10): 8 đỏ trên `01c5831` (`red-01c5831.txt`); `tests/test_v23_review_fx.py` x04 thành test hồi quy | luồng alpha S5 (đỏ trên gói dev7, xanh trên gói alpha) |
+| Luồng alpha trong script thử | `dd52cf5` | `alpha_flow.py` trên gói dev7: S0–S4 đạt, S5 đỏ | `verify/thu-goi.ps1` bước 4 |
 
 FX-3 (§10.4) với artifact Git: theo review FX-R01 và D-R03, một tên là hard link hay đi qua junction làm lượt kiểm (và `plan approve`) bị từ chối kèm lý do thay vì "báo chưa kiểm, không làm hỏng cả lượt"; đây là giới hạn đã ghi (`docs/v23/tools/limits-final.md`), không phải kỳ vọng mới. Tương tự FX-R08 với thư mục không Git có tên bị cấm.
 

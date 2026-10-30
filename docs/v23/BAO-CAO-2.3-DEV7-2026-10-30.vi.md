@@ -1,5 +1,7 @@
 # OneCrew 2.3 — bản thử 2.3.0.dev7: hoàn tất phạm vi 2.3, phát hành prerelease
 
+> **Không bàn giao.** Thay bằng bản alpha `2.3.0.dev8` ([ALPHA-2.3.0.dev8](ALPHA-2.3.0.dev8.vi.md)). Chỉ thị 30/10 ~11:30 chuyển ưu tiên sang alpha; hai blocker alpha (AL-01, AL-02) đổi code, nên gate trên `6cbcaa9` được dừng có chủ đích ở 141/286 check (không check nào hỏng; `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261030-6cbcaa9\CANCELLED.json`). Gói `onecrew-2.3.0.dev7-final` (từ `6cbcaa9`) đạt mọi bước kiểm từ gói nhưng không phát hành; không có tag `v2.3.0.dev7`.
+
 Người viết: Claude (Opus 5.5), đầu mối triển khai 2.3, 30/10/2026, theo chỉ thị người dùng tối 29/10 ("Tiếp quản công việc hiện tại, hoàn thành toàn bộ phạm vi OneCrew 2.3 đã chốt và phát hành bản 2.3 sau khi tự kiểm chứng đạt…"). Phạm vi: ba tài liệu chung bản Codex sửa 29/10 17:31–17:36 (roadmap §0.2, thiết kế và bàn giao mục wiki-init: WI-01…05) và [hợp đồng 2.3](HOP-DONG-2.3.vi.md) §10. Đây là **tự kiểm của tác giả và review của agent độc lập**, chưa phải Codex review lại hay nghiệm thu. Báo cáo trước: [BAO-CAO-2.3-DEV6](BAO-CAO-2.3-DEV6-2026-10-29.vi.md); gói dev6 không bàn giao, dev7 thay nó.
 
 **Bản nào:** bản trong `docs/` của gói là bản lúc dựng gói. §1, §3 (kết quả), §5 (phần "sau") và §6 chỉ có ở bản trong checkout `D:\TamNT\Workspace\11.OneCrew\wf-v23\docs\v23\BAO-CAO-2.3-DEV7-2026-10-30.vi.md`, ghi sau khi kiểm. Gói không tự chứng nhận chính nó.
@@ -13,8 +15,7 @@ Người viết: Claude (Opus 5.5), đầu mối triển khai 2.3, 30/10/2026, t
 
 ## 1. Đã phát hành loại bản nào, ở đâu
 
-<!-- dev7:release -->
-_Ghi sau khi kiểm gói (bản trong checkout)._
+Không áp dụng: bản này không bàn giao (xem dòng đầu trang).
 
 ## 2. Người dùng dùng được gì
 
@@ -34,8 +35,7 @@ _Ghi sau khi kiểm gói (bản trong checkout)._
 
 ## 3. Kết quả kiểm và giới hạn còn lại
 
-<!-- dev7:results -->
-_Ghi sau khi kiểm gói (bản trong checkout)._
+Không áp dụng: bản này không bàn giao (xem dòng đầu trang).
 
 ### 3.1 Giới hạn còn lại (đã ghi, không tính là đã khép)
 
@@ -78,8 +78,7 @@ Quay về 2.2: `& "$venv\Scripts\python.exe" -I -m pip install --no-index --no-b
 
 - **Trước khi làm (29/10 17:05):** gói `D:\OneCrewRuns\wf-handover-34eb7c4-hs2` khớp 687/687 dòng `SHA256SUMS`; `hook-projects.json` thật có SHA256 `884335df…`; checkout `wf-codex` ở `1753f77`, sạch.
 
-<!-- dev7:beta -->
-_Ghi sau khi kiểm gói (bản trong checkout)._
+Không áp dụng: bản này không bàn giao (xem dòng đầu trang).
 
 - **Hai lần ghi nhầm vào sổ đăng ký hook thật, đã khôi phục từng byte:**
   - 29/10 21:39: một lượt chạy `tests.test_g2_install` + `tests.test_v2_trust_fixes` do tôi chạy, không đặt `LOCALAPPDATA` riêng, thêm vào `%LOCALAPPDATA%\OneCrew\hook-projects.json` một mục trỏ vào thư mục tạm `v23\dev7\tmp-wi`. Agent R15 phát hiện; 23:00 tôi bỏ đúng mục đó.
@@ -89,8 +88,7 @@ _Ghi sau khi kiểm gói (bản trong checkout)._
 
 ## 6. Quyết định vượt quyền
 
-<!-- dev7:decisions -->
-_Ghi sau khi kiểm gói (bản trong checkout)._
+Không áp dụng: bản này không bàn giao (xem dòng đầu trang).
 
 ## 7. Truy vết yêu cầu → code → test → bằng chứng
 

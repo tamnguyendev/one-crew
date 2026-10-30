@@ -1,6 +1,16 @@
 # CHANGELOG
 
-## v2.3.0.dev7 (30/10/2026) — bản thử 2.3: wiki của project, tri thức có bằng chứng, dọn và tiếp quản
+## v2.3.0.dev8 (30/10/2026) — bản alpha 2.3
+
+**Bản alpha (prerelease), chưa nghiệm thu, chưa được Codex review lại; gate 2.2 đầy đủ chưa chạy trên snapshot này.** Dùng trên bản sao project và sổ riêng. Hồ sơ alpha: `docs/v23/ALPHA-2.3.0.dev8.vi.md` (bước thử, kết quả mong đợi, giới hạn, danh sách blocker A/B/C, phần còn lại cho beta).
+
+So với `2.3.0.dev7` (không bàn giao):
+- **Không đọc file có tên khác trên đĩa (AL-01):** ảnh chụp phạm vi node cho worker (và định danh thư mục không Git) từ chối file có hard link, vì tên kia có thể là `.env`, thư mục home hay sổ; trước đây nội dung đó vào snapshot và prompt của worker. Node không chạy, lý do nêu tên file.
+- **Trình đọc wiki không đi theo link (AL-02):** trang là hard link hay symlink không được đọc, junction trong wiki không được đi vào, thư mục wiki là link không được đọc; mỗi tên được nêu trong `problems` của `wiki pages`.
+- **Script thử một lệnh có luồng alpha:** `verify/thu-goi.ps1` chạy thêm `verify/alpha_flow.py` (init và wiki, tri thức cho task, kết quả đã kiểm thành tri thức, root mới dùng lại, guard hard link) và để lại `feedback-alpha.zip` để gửi lại.
+- Race `.onecrew` của index tạm khi tính artifact (có từ 2.2) đã sửa (`git rm --cached -f`).
+
+## v2.3.0.dev7 (30/10/2026, không bàn giao: thay bằng 2.3.0.dev8) — bản thử 2.3: wiki của project, tri thức có bằng chứng, dọn và tiếp quản
 
 **Bản thử (prerelease), chưa nghiệm thu, chưa được Codex review lại.** Dùng trên bản sao project và sổ riêng. Chưa có nghiệm thu của chủ sở hữu, pilot thật và provider thật đầy đủ, nên đây không phải bản ổn định `2.3.0`. Bản này dựng trên beta 2.2 (`2.2.0.dev18`). Các bản 2.2.0.dev4…dev19 không có mục ở đây; ghi chú của chúng nằm trong báo cáo và gói bàn giao từng bản.
 
