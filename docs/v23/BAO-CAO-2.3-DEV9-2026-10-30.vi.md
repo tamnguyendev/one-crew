@@ -13,8 +13,11 @@ Người viết: Claude (Opus 5.5), đầu mối triển khai 2.3, 30/10/2026, t
 
 ## 1. Đã phát hành loại bản nào, ở đâu
 
-<!-- dev9:release -->
-_Ghi sau khi kiểm gói (bản trong checkout)._
+**Bản beta `2.3.0.dev9` (prerelease), không phải bản ổn định `2.3.0`.** Phát hành 19:54 30/10 theo cách của `v2.1.0` và alpha `v2.3.0.dev8`:
+- **Tag** `v2.3.0.dev9` (có chú thích) trên commit snapshot `d35b8108ea19a40eaac349210803b1edfb4318c6`, push lên `origin` `git@github.com:tamnguyendev/one-crew.git` (repo private). Đọc lại từ `origin`: tag object `fabcda96db8e`, trỏ tới `d35b8108ea19`.
+- **Nhánh** `claude/onecrew-2.3` push lên `origin` (fast-forward, không force); 7 commit mới lên `origin` so với alpha. Trước khi push đã quét các dòng được thêm: không có dòng nào giống khóa bí mật.
+- **Gói:** `D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev9-beta` (local), `manifest.json` ghi commit `d35b8108ea19` và wheel `onecrew-2.3.0.dev9-py3-none-any.whl` SHA256 `cbd8bc8bd171c50c3fb2ec07ce6d06b0f3d180a3b352eaa34b7d7877f2bbb549`, khớp file hiện có.
+- **Không làm:** không có registry, PyPI hay GitHub Release nào được cấu hình, nên không tạo; không đổi quyền repo; không ghi đè tag hay artifact nào.
 
 ## 2. Người dùng dùng được gì
 

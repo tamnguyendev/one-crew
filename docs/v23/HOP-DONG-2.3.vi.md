@@ -194,6 +194,7 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 30/10 14:42–15:37 | hồi quy trên snapshot beta `d35b810`, tuần tự: 2.3 536 chạy, 525 đạt, 9 bỏ qua, 2 lỗi đã biết (expected failure); 467 chạy, 465 đạt, 2 hỏng của 24 module 2.2 (ghim version cũ; `test_owned` lỗi môi trường) | BAO-CAO-2.3-DEV9 §3.4 |
 | 30/10 15:37–15:52 | gói beta `2.3.0.dev9`: kiểm từ gói 16/16, luồng alpha 5/5 trong script thử, luồng alpha dev7 S5 đỏ → dev9 xanh, README 9/9, task đầu tiên 25/25, script thử `DAT`/0 và dùng lại thư mục → 2; V15 qua CLI cài: dev6 11 lỗi → dev7 0; ca Codex dev5 0 lỗi; sổ dev5 đạt | BAO-CAO-2.3-DEV9 §3.3 |
 | 30/10 15:57–19:48 | gate snapshot 2.2 trên `d35b810`, chạy một mình: 286/286 check đạt (2 097 test, 0 skip); `refused`: 23 khoảng trống nghiệm thu như beta; kit-guard đạt (U1) | `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261030-d35b810`; BAO-CAO-2.3-DEV9 §3.5 |
+| 30/10 19:54 | phát hành beta: tag `v2.3.0.dev9` trên `d35b810` và nhánh `claude/onecrew-2.3` lên `origin` (repo private); đọc lại từ `origin` khớp | BAO-CAO-2.3-DEV9 §1 |
 
 ## 7. Review Codex 28/10 và sửa
 
