@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.3.0.dev9 (30/10/2026) — bản beta 2.3
+
+**Bản beta (prerelease), chưa nghiệm thu, chưa được Codex review lại; không phải bản ổn định `2.3.0`.** Dùng trên bản sao project và sổ riêng. Gate 2.2 đầy đủ chạy trên đúng snapshot của gói; kết quả, giới hạn và lệnh thử: `docs/v23/BAO-CAO-2.3-DEV9-2026-10-30.vi.md`.
+
+So với alpha `2.3.0.dev8`:
+- **B2:** các lệnh chỉ xem trạng thái (`plan show`, báo cáo, so evidence, handoff) không còn băm nội dung tên có hard link hay nằm sau junction vào kho object của repo; chỗ đó là marker từ dữ liệu stat, nên artifact đổi vẫn thấy đổi. Sparse checkout không mở lại đường đọc này.
+- Ảnh chụp phạm vi node chỉ lưu byte khi hai lần đọc khớp nhau (một thư mục thành junction giữa hai lần không để lại gì trong sổ).
+
 ## v2.3.0.dev8 (30/10/2026) — bản alpha 2.3
 
 **Bản alpha (prerelease), chưa nghiệm thu, chưa được Codex review lại; gate 2.2 đầy đủ chưa chạy trên snapshot này.** Dùng trên bản sao project và sổ riêng. Hồ sơ alpha: `docs/v23/ALPHA-2.3.0.dev8.vi.md` (bước thử, kết quả mong đợi, giới hạn, danh sách blocker A/B/C, phần còn lại cho beta).

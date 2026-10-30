@@ -117,6 +117,8 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | T23-RACE | Race `.onecrew` của index tạm khi tính artifact (gate trên snapshot thứ nhất thấy) | T23-PK-F7 | 0,2 h | `01c5831` 09:26 |
 | T23-AL | Blocker alpha AL-01, AL-02: ca tái hiện trước, sửa, phản chứng từ gói (S5) | chỉ thị alpha | 1 h | `6d504c0` |
 | T23-ALPHA | Bản alpha `2.3.0.dev8`: luồng alpha từ gói, hồ sơ alpha riêng, phát hành alpha | T23-AL | 3 h | ALPHA-2.3.0.dev8 |
+| T23-B2 | Danh tính cho các lệnh xem không đọc tên có hard link hay sau junction (B2), review độc lập 3 vòng | T23-ALPHA | 1,5 h | `a0354ff` |
+| T23-BETA | Bản beta `2.3.0.dev9`: snapshot, hồi quy, gói, gate 2.2 đầy đủ chạy một mình, phát hành | T23-B2 | 6 h | BAO-CAO-2.3-DEV9 |
 | T23-PK-F7 | Gói `2.3.0.dev7`: hồi quy tích hợp, kiểm từ gói (16 bước), diễn tập README + task đầu tiên + script thử, phản chứng, dữ liệu cũ, gate snapshot 2.2, phát hành bản thử | tất cả | 5 h | BAO-CAO-2.3-DEV7 |
 
 ## 6. Nhật ký tiến độ
@@ -186,6 +188,9 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 30/10 12:48–13:32 | hồi quy trên `fab7389`: 2.3 522 chạy, 511 đạt, 9 bỏ qua, 2 lỗi đã biết (expected failure); 2.2 417 chạy, 414 đạt, 3 hỏng (ghim version cũ; `test_owned` lỗi môi trường như trên `6cbcaa9`; 2 module chạy lại riêng vì tên bị ghép: 51 chạy, 51 đạt) | ALPHA §6 |
 | 30/10 | gói alpha `onecrew-2.3.0.dev8-alpha` (wheel `878e8744…`): bộ kiểm 16/16, README 9/9, task đầu tiên 25/25, script thử `DAT`/0 (luồng alpha 5/5) và dùng lại thư mục → 2, CLI 0 lỗi, sổ dev5 đạt, V15 dev6 → dev8 0, luồng alpha dev7 S5 đỏ → dev8 xanh | ALPHA §6 |
 | 30/10 13:54 | phát hành alpha: tag `v2.3.0.dev8` trên `fab7389` và nhánh `claude/onecrew-2.3` lên `origin` (repo private); đọc lại khớp | ALPHA §1 |
+| 30/10 13:56–14:10 | B2: ca tái hiện `tests/test_v23_beta_identity.py`, 4/6 đỏ trên `1c378e6`; sửa; các module bị ảnh hưởng: 234 chạy, 230 đạt, 2 bỏ qua, 2 lỗi đã biết | `D:\OneCrewRuns\v23\beta\logs` (`b2-red-1c378e6.txt`, `b2-affected.txt`) |
+| 30/10 14:00–15:00 | review độc lập 3 vòng (B2, AL-01/AL-02): P2-1, P1 sparse checkout, P2 sparse checkout thật, 4 P3 sửa; P3 còn lại thành giới hạn | `a0354ff`, `d705001`; `D:\OneCrewRuns\v23\beta\review-b2.md` |
+| 30/10 | snapshot beta: version `2.3.0.dev9`, báo cáo `BAO-CAO-2.3-DEV9`, CHANGELOG, giới hạn | BAO-CAO-2.3-DEV9 |
 
 ## 7. Review Codex 28/10 và sửa
 
@@ -342,6 +347,7 @@ Loại bản: prerelease `2.3.0.devN` theo quy ước của §1 ("prerelease 2.3
 | Race `.onecrew` (gate trên `c6d8477`, `R03/check.t41_gaps`) | `01c5831` | `tests/test_v23_review_fx.py` OnecrewRace: đỏ trên `0c6074f` (`race-red-0c6074f.txt`); `t41_gaps` riêng: 2/3 hỏng → 6/6 | gate |
 | AL-01 ảnh chụp phạm vi node, AL-02 trình đọc wiki (blocker alpha); FX-R06 | `6d504c0` | `tests/test_v23_alpha_links.py` (10): 8 đỏ trên `01c5831` (`red-01c5831.txt`); `tests/test_v23_review_fx.py` x04 thành test hồi quy | luồng alpha S5 (đỏ trên gói dev7, xanh trên gói alpha) |
 | Luồng alpha trong script thử | `dd52cf5` | `alpha_flow.py` trên gói dev7: S0–S4 đạt, S5 đỏ | `verify/thu-goi.ps1` bước 4 |
+| B2 danh tính cho các lệnh xem; snapshot lưu byte sau hai lần đọc | `a0354ff` | `tests/test_v23_beta_identity.py` (12): b01–b03, b06 đỏ trên `1c378e6` (`b2-red-1c378e6.txt`); b07–b12 từ review (b12 đỏ trên code alpha); `tests/test_v23_alpha_links.py` a06 đỏ trên code alpha | hồi quy, gate |
 
 FX-3 (§10.4) với artifact Git: theo review FX-R01 và D-R03, một tên là hard link hay đi qua junction làm lượt kiểm (và `plan approve`) bị từ chối kèm lý do thay vì "báo chưa kiểm, không làm hỏng cả lượt"; đây là giới hạn đã ghi (`docs/v23/tools/limits-final.md`), không phải kỳ vọng mới. Tương tự FX-R08 với thư mục không Git có tên bị cấm.
 
