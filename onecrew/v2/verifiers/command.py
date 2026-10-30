@@ -43,12 +43,19 @@ def toplevel(directory):
 
 def artifact_sha(directory):
     """Git tree hash of the working tree (tracked and untracked, honouring .gitignore), via a throw-away index: the
-    repository's own index and refs are not touched."""
+    repository's own index and refs are not touched. A name that hard_links finds (another name on the disk, a file through a junction, a name that
+    cannot be examined) is never hashed: its place in the tree holds a marker blob made of its stat data only (size, modification time, file id), so
+    the identity still changes when that file changes and nothing of its content reaches the object store (2.3 beta B2). verified_sha refuses such
+    a tree; this one is what views, reports and evidence checks compare."""
     top = _git(directory, 'rev-parse', '--show-toplevel')
+    linked = hard_links(top)
     with tempfile.TemporaryDirectory() as temp:
         env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
         _git(top, 'read-tree', 'HEAD', env=env)
-        _git(top, 'add', '-A', env=env)
+        if linked:
+            _add_without(top, linked, Path(temp), env)
+        else:
+            _git(top, 'add', '-A', env=env)
         # hook files (.onecrew/) are not part of the artifact. -f: a hook may rewrite one between the add and this rm, and without it git refuses to drop
         # a staged entry that differs from both the file and HEAD (the gate on c6d8477); only the throw-away index is touched.
         _git(top, 'rm', '-r', '--cached', '-f', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)
@@ -91,6 +98,63 @@ def _through(top, name):
     """The first folder on the way to `name` that is a junction, or None."""
     parts = name.split('/')
     return next((f for f in ('/'.join(parts[:n]) for n in range(1, len(parts))) if _is_junction(top / f)), None)
+
+
+NOSPARSE = ('-c', 'core.sparseCheckout=false', '-c', 'index.sparse=false')   # a sparse checkout clears skip-worktree on files on disk (review B2 P1)
+
+
+def _add_without(top, linked, temp, env):
+    """`git add -A` into the throw-away index of artifact_sha without reading any name of `linked`, then a marker blob at each of them: what os.lstat
+    says of it, never its bytes. A name HEAD holds is kept from the add with skip-worktree: an excluding pathspec would make git refuse the whole add
+    when the name is ignored (review B2 P2-1). A name only the untracked listing holds is left out by an excluding pathspec, with the whole junction
+    it is reached through, so a file made below it meanwhile is not hashed either. A name git would not take (ignored and not in HEAD) gets no
+    marker: the tree never held it. A name that is gone (a tracked file behind a junction that does not hold it) gets none either: `git add -A`
+    drops it, as before (P3-5). Every marker must be in the index afterwards, or the identity is refused (P3-2). Sparse checkout is off for these
+    commands: with it on, git clears skip-worktree on a file that is on disk and `add` would hash the linked file (review B2 P1)."""
+    top = Path(top)
+    enc = lambda n: n.encode('utf-8', 'surrogateescape')
+
+    def listed(*args):
+        return {n for n in _git(top, 'ls-files', '-z', *args, env=env, raw=True).decode('utf-8', 'surrogateescape').split('\0') if n}
+    held, others = listed('--cached'), listed('--others', '--exclude-standard')
+    keep, leave, marks = [], set(), []
+    for name in linked:
+        plain = name.rstrip('/')                       # a nested repository is listed as a folder with its slash
+        if plain not in held and name not in others and plain not in others: continue
+        try:
+            status, failed = _lstat(top / plain), False
+        except (OSError, ValueError):
+            status, failed = None, True
+        if status is None and not failed: continue     # gone: `git add -A` drops a tracked one from its stat alone, an untracked one is not there
+        marks.append((plain, status))
+        if plain in held:
+            keep.append(plain)
+        else:
+            try:
+                through = _through(top, plain)
+            except (OSError, ValueError):              # P3-3: the name itself is left out, never read
+                through = None
+            leave.add(through or plain)
+    if keep:
+        _git(top, *NOSPARSE, 'update-index', '--skip-worktree', '-z', '--stdin', env=env, input=b''.join(enc(n) + b'\0' for n in keep))
+    if leave:
+        _git(top, *NOSPARSE, 'add', '-A', '--pathspec-from-file=-', '--pathspec-file-nul', env=env,
+             input=b'\0'.join([b'.'] + [b':(exclude,literal)' + enc(n) for n in sorted(leave)]))
+    else:
+        _git(top, *NOSPARSE, 'add', '-A', env=env)
+    if not marks: return
+    files = []
+    for number, (name, status) in enumerate(marks):
+        text = (f'onecrew: not read (another name on the disk, or reached through a junction); size={status.st_size} '
+                f'mtime_ns={status.st_mtime_ns} file={status.st_ino}\n' if status is not None else 'onecrew: not read (cannot be examined)\n')
+        files.append(temp / f'marker-{number}')
+        files[-1].write_bytes(text.encode('ascii'))
+    oids = _git(top, 'hash-object', '-w', '--no-filters', '--stdin-paths', env=env, input='\n'.join(str(f) for f in files).encode('utf-8')).split()
+    if len(oids) != len(marks): raise LedgerError('git hash-object did not hash every marker.')
+    _git(top, *NOSPARSE, 'update-index', '--add', '-z', '--index-info', env=env,                 # -z: a name may hold any character but NUL
+         input=b''.join(b'100644 ' + oid.encode('ascii') + b'\t' + enc(name) + b'\0' for oid, (name, _) in zip(oids, marks)))
+    missing = {name for name, _ in marks} - listed('--cached')
+    if missing: raise LedgerError(f'git did not take the marker of {sorted(missing)[0]!r}: the identity of this working tree cannot be made.')
 
 
 def hard_links(directory):

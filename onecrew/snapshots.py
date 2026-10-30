@@ -221,8 +221,9 @@ class Snapshots:
         # Non-Git folders have no index. A Git folder with unreadable index is unsafe.
         if index is None and self.git(project, 'rev-parse', '--git-dir', allow_failure=True) is not None:
             raise LedgerError('Git index unavailable.')
-        files = {p: {'working': self.blob(data) if data is not None else None, 'index': []}
-                 for p, data in before.items()}
+        # the working bytes are stored only once the second pass below agrees: a folder made a junction between the two passes leaves nothing
+        # behind in the store (review of AL-01, P3)
+        files = {p: {'working': data, 'index': []} for p, data in before.items()}
         for entry in (index or b'').split(b'\0'):
             if not entry:
                 continue
@@ -237,6 +238,8 @@ class Snapshots:
                 index != self.git(project, 'ls-files', '--stage', '-z', '--', *paths, allow_failure=True) or
                 head != self.git(project, 'rev-parse', '--verify', 'HEAD', allow_failure=True)):
             raise LedgerError('Source changed during snapshot; retry without publishing.')
+        for item in files.values():
+            if item['working'] is not None: item['working'] = self.blob(item['working'])
         return self.save({'version': 1, 'parent': None, 'source': str(project),
                           'head': head.decode('ascii').strip() if head else None, 'files': files, **({'kept': list(kept)} if kept else {})})
 

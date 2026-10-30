@@ -96,7 +96,9 @@ def _manifest(directory):
 
 def identity(directory):
     """Read a current artifact id; keeps command.artifact_sha semantics for Git. What a view, a report or an evidence check compares (no adapter reads
-    the tree): a hard link or a junction does not stop it, so a changed artifact is still seen as changed (review D-R01)."""
+    the tree): for Git a hard link or a junction does not stop it, so a changed artifact is still seen as changed (review D-R01; such a name is a
+    marker of its stat data, never its content, B2). A folder without Git is refused with the reason when it holds a hard link (AL-01): its
+    identity is the snapshot of its files, which never reads such a file."""
     return command.artifact_sha(directory) if is_git(directory) else content_hash(_manifest(directory))
 
 
