@@ -191,6 +191,9 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 30/10 13:56–14:10 | B2: ca tái hiện `tests/test_v23_beta_identity.py`, 4/6 đỏ trên `1c378e6`; sửa; các module bị ảnh hưởng: 234 chạy, 230 đạt, 2 bỏ qua, 2 lỗi đã biết | `D:\OneCrewRuns\v23\beta\logs` (`b2-red-1c378e6.txt`, `b2-affected.txt`) |
 | 30/10 14:00–15:00 | review độc lập 3 vòng (B2, AL-01/AL-02): P2-1, P1 sparse checkout, P2 sparse checkout thật, 4 P3 sửa; P3 còn lại thành giới hạn | `a0354ff`, `d705001`; `D:\OneCrewRuns\v23\beta\review-b2.md` |
 | 30/10 | snapshot beta: version `2.3.0.dev9`, báo cáo `BAO-CAO-2.3-DEV9`, CHANGELOG, giới hạn | BAO-CAO-2.3-DEV9 |
+| 30/10 14:42–15:37 | hồi quy trên snapshot beta `d35b810`, tuần tự: 2.3 536 chạy, 525 đạt, 9 bỏ qua, 2 lỗi đã biết (expected failure); 467 chạy, 465 đạt, 2 hỏng của 24 module 2.2 (ghim version cũ; `test_owned` lỗi môi trường) | BAO-CAO-2.3-DEV9 §3.4 |
+| 30/10 15:37–15:52 | gói beta `2.3.0.dev9`: kiểm từ gói 16/16, luồng alpha 5/5 trong script thử, luồng alpha dev7 S5 đỏ → dev9 xanh, README 9/9, task đầu tiên 25/25, script thử `DAT`/0 và dùng lại thư mục → 2; V15 qua CLI cài: dev6 11 lỗi → dev7 0; ca Codex dev5 0 lỗi; sổ dev5 đạt | BAO-CAO-2.3-DEV9 §3.3 |
+| 30/10 15:57–19:48 | gate snapshot 2.2 trên `d35b810`, chạy một mình: 286/286 check đạt (2 097 test, 0 skip); `refused`: 23 khoảng trống nghiệm thu như beta; kit-guard đạt (U1) | `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261030-d35b810`; BAO-CAO-2.3-DEV9 §3.5 |
 
 ## 7. Review Codex 28/10 và sửa
 
@@ -319,11 +322,11 @@ Kiểm trên wheel cài trong venv sạch, cwd ngoài checkout, đường dẫn 
 
 | Điều kiện | Nguồn | Trạng thái lúc chốt (điền khi phát hành) |
 |---|---|---|
-| Mọi requirement 2.3 (§4, §10.3, §10.4) có code, test và bằng chứng trên snapshot cuối | §4, §10 | — |
-| Hồi quy 2.3 và module 2.2 liên quan đạt trên snapshot cuối | roadmap §8.2 | — |
-| Gate 2.2 trên snapshot cuối: mọi check thực thi đạt, kit-guard đạt | §1, quy ước các bản trước | — |
-| Kiểm từ gói dựng từ snapshot đó: V1–V15, README, task đầu tiên, script thử, dữ liệu cũ, quay về 2.2 | roadmap §3.3, §8.3–5 | — |
-| Release note, lệnh cài/thử, giới hạn, hướng quay về | roadmap §8.5 | — |
+| Mọi requirement 2.3 (§4, §10.3, §10.4) có code, test và bằng chứng trên snapshot cuối | §4, §10 | đạt trên `d35b810`: §10.6, BAO-CAO-2.3-DEV9 §7 |
+| Hồi quy 2.3 và module 2.2 liên quan đạt trên snapshot cuối | roadmap §8.2 | đạt trên `d35b810`: 536 test 2.3, 467 test của 24 module 2.2 ngoài gate hay dùng kho snapshot, 56 module 2.2 khác trong gate, 4 module gate không chạy chạy riêng (49 chạy, 49 đạt); 2 lỗi có từ trước: ghim version, môi trường (BAO-CAO-2.3-DEV9 §3.4) |
+| Gate 2.2 trên snapshot cuối: mọi check thực thi đạt, kit-guard đạt | §1, quy ước các bản trước | đạt: 286/286, kit-guard đạt; quyết định `refused` vì 23 khoảng trống nghiệm thu như beta |
+| Kiểm từ gói dựng từ snapshot đó: V1–V15, README, task đầu tiên, script thử, dữ liệu cũ, quay về 2.2 | roadmap §3.3, §8.3–5 | đạt: 16/16 (thêm V16), README 9/9, task đầu tiên 25/25, script thử `DAT`/0, dữ liệu dev5, quay về 2.2 (V7, README) |
+| Release note, lệnh cài/thử, giới hạn, hướng quay về | roadmap §8.5 | đạt: `docs/CHANGELOG.md`, BAO-CAO-2.3-DEV9 §3.1 và §4, `README.md` của gói |
 | Nghiệm thu của chủ sở hữu, pilot thật, provider thật đầy đủ | roadmap §3.2, §10; R1 của chủ sở hữu | chưa có: không đủ điều kiện bản stable |
 
 Loại bản: prerelease `2.3.0.devN` theo quy ước của §1 ("prerelease 2.3.0.devN … các dev sau cho A2/B/cuối"). Test ghim `tests/test_g1_core.py` chỉ nhận `2.3.0.devN` (U1-20261029-V23-PIN-1), và ủy quyền của U1 đó ghi rõ không bao gồm phát hành; lượt này không tự cấp U1 mới để đổi nhãn sang `b`/`rc`. Đích phát hành: như `v2.1.0` (commit version + changelog, tag có chú thích, push nhánh và tag lên `origin` `git@github.com:tamnguyendev/one-crew.git`, repo private); không có registry, PyPI hay GitHub Release nào được cấu hình.
