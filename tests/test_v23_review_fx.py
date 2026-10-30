@@ -11,7 +11,8 @@ probes D:/OneCrewRuns/v23/review-dev7/wt-fx/tests/test_v23_review_fx_probes.py).
   DX-R01 (P2) a source written ./x, .\x or ../x is relative to the document only: a file of that name at the root does not stand in for it.
   DX-R02 (P3) a word that starts with a dot before the path (.NET, .csv, .5) is not taken for the locator; an ellipsis before it is dropped.
 
-The known limits that stay open are expected failures (FX-R03, FX-R06, FX-R08) or pinned (FX-R07, the junction case), so that a change is seen.
+The known limits that stay open are expected failures (FX-R03, FX-R08) or pinned (FX-R07, the junction case), so that a change is seen.
+FX-R06 is closed by the 2.3 alpha fix AL-01: a snapshot never reads a file that has another name on the disk.
 No network, no provider, no model: git and the verifier adapters only, in temporary folders; LOCALAPPDATA and APPDATA are those of the run.
 """
 import json
@@ -179,13 +180,14 @@ class NonGitFolder(unittest.TestCase):
         _, receipt = port.run(Ledger(self.root, self.base / 'state'), 'P1', 1, 'a' * 64, milestone('doc', {'docs': ['docs/a.md'], 'links': True}), self.root)
         self.assertTrue(any('hard link' in n for n in receipt['unverified']))
 
-    @unittest.expectedFailure
     def test_x04_a_kept_file_outside_the_folder_is_never_copied_into_the_ledger_through_a_hard_link(self):
-        """Known limit FX-R06: a folder without kept names is identified as it always was, a hard link to a file elsewhere included."""
+        """FX-R06, closed by the 2.3 alpha fix AL-01 (tests/test_v23_alpha_links.py): a snapshot never reads a file that has another name on the
+        disk, so the run is refused with the reason, as with a kept name in the folder (x03), and nothing of the linked file reaches the ledger."""
         elsewhere = self.base / 'home'; elsewhere.mkdir()
         (elsewhere / '.env').write_text(SECRET, encoding='utf-8', newline='\n')
         link(elsewhere / '.env', self.root / 'docs' / 'notes.md')
-        port.run(Ledger(self.root, self.base / 'state'), 'P1', 1, 'a' * 64, milestone('doc', {'docs': ['docs/a.md', 'docs/notes.md'], 'links': True}), self.root)
+        with self.assertRaisesRegex(LedgerError, 'hard link'):
+            port.run(Ledger(self.root, self.base / 'state'), 'P1', 1, 'a' * 64, milestone('doc', {'docs': ['docs/a.md', 'docs/notes.md'], 'links': True}), self.root)
         self.assertEqual(state_files_holding(self.base / 'state', TOKEN), [])
 
     def test_x05_a_kept_name_that_cannot_be_written_as_utf8_is_refused_not_a_crash(self):

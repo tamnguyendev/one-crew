@@ -141,7 +141,7 @@ def main():
     if args.milestone in ('B', 'FINAL'): shutil.copy2(ROOT / 'docs/v23/tools/scenario_b.py', verify / 'scenario_b.py')
     if args.milestone == 'FINAL': shutil.copy2(ROOT / 'docs/v23/tools/scenario_codex.py', verify / 'scenario_codex.py')
     shutil.copy2(ROOT / 'tests/v23_fake_claude.py', verify / 'onecrew_fake_claude.py')
-    for name in ('make_fake_claude_wheel.py', 'first_task_drill.py'):      # what examples/first-task/README.vi.md names under verify/ (the README's links are checked by the drill)
+    for name in ('make_fake_claude_wheel.py', 'first_task_drill.py', 'alpha_flow.py'):      # what examples/first-task/README.vi.md names under verify/ (the README's links are checked by the drill)
         shutil.copy2(ROOT / 'docs/v23/tools' / name, verify / name)
     shutil.copy2(ROOT / 'docs/v23/tools/thu_goi.ps1', verify / 'thu-goi.ps1')      # the owner's one-command test (Codex dev5 P2-A): runs the verifier and the drill and accepts only reports of THIS run
     docs = out / 'docs'; docs.mkdir()

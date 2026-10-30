@@ -8,6 +8,9 @@
 #        2 run verify\verify_milestone.py -> <work>\verify\verify-report.json;
 #        3 run verify\first_task_drill.py -> <work>\task dau tien\first-task-drill-log.json (the first task of the package README: fake claude,
 #          temporary ledger). The real ledger, hook-projects.json, PATH and provider settings are never touched.
+#        4 run verify\alpha_flow.py -> <work>\alpha\alpha-flow-log.json (the 2.3 alpha flow, five stages: init + wiki, knowledge for a task,
+#          a checked result becomes knowledge, a new root uses it, the hard-link guards; fake claude, temporary ledger; it also checks that the
+#          real hook-projects.json and .claude\settings.json did not change) and <work>\alpha\feedback-alpha.zip (to send back).
 # It prints "DAT: ..." and exits 0 ONLY when, in THIS run, both tools exited 0 and each wrote a report that
 #   - did not exist before the tool started and was written by it (start time and last write not before the tool started, not in the future),
 #   - names this package and the manifest's version and code commit (the verifier report also the wheel name and sha256),
@@ -132,7 +135,8 @@ try {
     if ($wheelSha -cnotmatch '^[0-9a-f]{64}$') { Stop-Refuse 'manifest.json: wheel.sha256 thieu hoac khong phai 64 ky tu hex.' }
     $verifyTool = Join-Path $pkg 'verify\verify_milestone.py'
     $drillTool = Join-Path $pkg 'verify\first_task_drill.py'
-    foreach ($tool in @($verifyTool, $drillTool)) {
+    $alphaTool = Join-Path $pkg 'verify\alpha_flow.py'
+    foreach ($tool in @($verifyTool, $drillTool, $alphaTool)) {
         if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) { Stop-Refuse ('goi thieu file: ' + $tool) }
     }
     if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) { Stop-Refuse ('khong thay Python: ' + $Python + ' (dung -Python <python.exe>).') }
@@ -172,12 +176,12 @@ try {
         $gap = $line.IndexOf('  ')
         if ($gap -gt 0) { $listed[$line.Substring($gap + 2).Trim()] = $line.Substring(0, $gap).Trim().ToLower() }
     }
-    foreach ($relative in @('manifest.json', ('wheel/' + $wheelName), 'verify/verify_milestone.py', 'verify/first_task_drill.py')) {
+    foreach ($relative in @('manifest.json', ('wheel/' + $wheelName), 'verify/verify_milestone.py', 'verify/first_task_drill.py', 'verify/alpha_flow.py')) {
         $onDisk = Join-Path $pkg ($relative -replace '/', '\')
         if (-not $listed.ContainsKey($relative)) { Stop-Fail ('SHA256SUMS khong liet ke ' + $relative) }
         if ($listed[$relative] -ne (Get-Sha256Hex $onDisk)) { Stop-Fail ('file khac SHA256SUMS: ' + $relative) }
     }
-    Write-Host '   manifest, wheel va hai cong cu cua goi khop SHA256SUMS.'
+    Write-Host '   manifest, wheel va ba cong cu cua goi khop SHA256SUMS.'
     try { New-Item -ItemType Directory -Force -Path $workDir -ErrorAction Stop | Out-Null }
     catch { Stop-Refuse ('khong tao duoc thu muc ket qua ' + $workDir + ': ' + $_.Exception.Message) }
 
@@ -250,14 +254,55 @@ try {
         foreach ($reason in $drillReasons) { Write-Host ('   - ' + $reason); $problems.Add('task dau tien: ' + $reason) }
     }
 
-    # ---- 4. the wheel is still the verified one
+    # ---- 4. the alpha flow (five stages, from the installed wheel, on a sample project and a temporary ledger)
+    Write-Host '4. Luong alpha: init + wiki, tri thuc cho task, ket qua da kiem thanh tri thuc, root moi dung lai, guard hard link (khoang 1 phut)...'
+    $alphaDir = Join-Path $workDir 'alpha'
+    $alphaReport = Join-Path $alphaDir 'alpha-flow-log.json'
+    $alphaRun = Invoke-Tool $alphaTool @($pkg, $alphaDir) $alphaReport
+    $alphaReasons = New-Object 'System.Collections.Generic.List[string]'
+    $alphaCount = '?'
+    $alphaOwner = '(khong doc duoc)'
+    if ($alphaRun.Error) { $alphaReasons.Add($alphaRun.Error) }
+    else {
+        if ($alphaRun.Exit -ne 0) { $alphaReasons.Add('luong alpha thoat voi ma ' + [string]$alphaRun.Exit + ' (can 0)') }
+        $a = Read-Report $alphaReport $alphaRun.Since 'alpha-flow-log' $pkg $version $commit $alphaReasons
+        if ($null -ne $a) {
+            if (-not (Test-ReportedPath ([string]$a.work) $alphaDir)) { $alphaReasons.Add('bao cao ghi thu muc lam viec khac: ' + [string]$a.work + ' (can ' + $alphaDir + ')') }
+            if ($a.onecrew_version -cne $version) { $alphaReasons.Add('bao cao cai onecrew ' + [string]$a.onecrew_version + ' (manifest: ' + $version + ')') }
+            if ($a.package_unchanged -ne $true) { $alphaReasons.Add('bao cao khong xac nhan goi nguyen ven') }
+            foreach ($name in @('hook-projects.json', 'claude settings.json')) {
+                $real = $a.real_files.$name
+                if ($null -eq $real -or $real.unchanged -ne $true) { $alphaReasons.Add('file that ' + $name + ' khong duoc xac nhan la khong doi') }
+            }
+            $alphaOwner = [string]$a.owner_step_mode
+            if ($alphaOwner -cne 'real' -and $alphaOwner -cne 'fixture') { $alphaReasons.Add('buoc duyet plan khong ro (owner_step_mode = ' + $alphaOwner + ')') }
+            $aStages = @()
+            if ($null -ne $a.stages) { $aStages = @($a.stages) }
+            $aNamed = @($aStages | ForEach-Object { [string]$_.id }) -join ','
+            $aPassed = @($aStages | Where-Object { $_.result -ceq 'pass' -and $_.id -cne 'S0' }).Count
+            $alphaCount = [string]$aPassed + '/5'
+            if ($aNamed -cne 'S0,S1,S2,S3,S4,S5') { $alphaReasons.Add('bao cao co cac chang ' + $aNamed + ' (can S0..S5)') }
+            foreach ($s in $aStages) { if ($s.result -cne 'pass') { $alphaReasons.Add('chang ' + [string]$s.id + ' khong dat: ' + [string]$s.observed.failure) } }
+            if ($a.result -cne 'pass') { $alphaReasons.Add('bao cao ghi result = ' + [string]$a.result) }
+        }
+    }
+    if ($alphaReasons.Count -eq 0) {
+        Write-Host ('   ket qua: pass, chang dat ' + $alphaCount + ', buoc duyet plan: ' + $alphaOwner)
+        Write-Host ('   goi gui lai khi gop y: ' + (Join-Path $alphaDir 'feedback-alpha.zip'))
+    }
+    else {
+        Write-Host ('   ket qua: KHONG DAT (bao cao khong duoc chap nhan), buoc duyet plan: ' + $alphaOwner)
+        foreach ($reason in $alphaReasons) { Write-Host ('   - ' + $reason); $problems.Add('luong alpha: ' + $reason) }
+    }
+
+    # ---- 5. the wheel is still the verified one
     $after = Get-Sha256Hex $wheelPath
-    if ($after -ne $wheelSha) { Write-Host ('4. wheel sau khi chay: KHAC manifest (' + $after + ')'); $problems.Add('wheel doi trong luc chay') }
-    else { Write-Host '4. wheel sau khi chay: van dung hash cua manifest.' }
+    if ($after -ne $wheelSha) { Write-Host ('5. wheel sau khi chay: KHAC manifest (' + $after + ')'); $problems.Add('wheel doi trong luc chay') }
+    else { Write-Host '5. wheel sau khi chay: van dung hash cua manifest.' }
 
     # ---- the result: DAT only when nothing above recorded a problem
     if ($problems.Count -eq 0) {
-        Write-Host ('DAT: goi ' + $version + ' qua bo kiem ' + $verifyCount + ' buoc va task dau tien tu goi ' + $drillCount + ' buoc bat buoc (buoc duyet plan: ' + $ownerMode + '). Day khong phai nghiem thu.') -ForegroundColor Green
+        Write-Host ('DAT: goi ' + $version + ' qua bo kiem ' + $verifyCount + ' buoc, task dau tien tu goi ' + $drillCount + ' buoc bat buoc va luong alpha ' + $alphaCount + ' chang (buoc duyet plan: ' + $ownerMode + '). Day khong phai nghiem thu.') -ForegroundColor Green
         Write-Host ('Thu muc ket qua: ' + $workDir)
         exit 0
     }
