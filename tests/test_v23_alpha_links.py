@@ -98,6 +98,30 @@ class SnapshotHardLink(Isolated):
         manifest = store.load(store.capture(self.root, ['docs/a.md', 'docs/notes.md']))
         self.assertEqual(store.read_blob(manifest['files']['docs/notes.md']['working']), b'plain\n')
 
+    def test_a06_a_folder_made_a_junction_between_the_two_passes_leaves_nothing_in_the_store(self):
+        """Review of AL-01, P3: the first pass read a file through a junction made after its path was checked; the second pass refused it, but the
+        bytes of the first were already stored. Expected: refused, and nothing of the outside file in the state root."""
+        if os.name != 'nt': self.skipTest('junctions are a Windows feature')
+        import shutil
+        from unittest import mock
+        from onecrew import snapshots
+        (self.root / 'docs' / 'x.md').write_text('inside\n', encoding='utf-8', newline='\n')
+        outside = self.base / 'outside'; outside.mkdir(); (outside / 'x.md').write_text(SECRET, encoding='utf-8', newline='\n')
+        original, swapped = snapshots.safe_file, []
+
+        def swap(root, name):
+            target = original(root, name)
+            if name == 'docs/x.md' and not swapped:
+                swapped.append(1)
+                shutil.rmtree(Path(root) / 'docs')
+                junction(outside, Path(root) / 'docs')
+            return target
+        self.addCleanup(lambda: os.rmdir(self.root / 'docs') if (self.root / 'docs').is_junction() else None)
+        with mock.patch.object(snapshots, 'safe_file', swap), self.assertRaises(LedgerError):
+            Snapshots(self.state).capture(self.root, ['docs/x.md'])
+        self.assertTrue(swapped)
+        self.assertEqual(files_holding(self.state, TOKEN), [])
+
     def test_a05_a_hard_link_whose_other_name_is_gone_is_an_ordinary_file_again(self):
         (self.root / 'docs' / 'notes.md').write_text('plain\n', encoding='utf-8', newline='\n')
         link(self.root / 'docs' / 'notes.md', self.base / 'other.md')
