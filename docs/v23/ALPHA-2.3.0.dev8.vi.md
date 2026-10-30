@@ -87,8 +87,20 @@ Mỗi finding được đối chiếu với code và test hiện tại, không m
 
 ## 6. Điều kiện giao alpha, kiểm trên artifact cuối
 
-<!-- alpha:results -->
-_Ghi sau khi kiểm gói (bản trong checkout)._
+Kiểm trên gói `D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev8-alpha` (dựng 2026-10-30 13:32:17 từ snapshot `fab7389`), từng bước một, không chạy chồng. Đếm test: chạy, đạt, bỏ qua, lỗi đã biết, hỏng ghi riêng.
+
+| Điều kiện alpha | Kết quả | Bằng chứng |
+|---|---|---|
+| Danh tính version, commit, wheel, manifest khớp | đạt: `2.3.0.dev8`, commit `fab7389187cd`, `stage: alpha`, wheel `onecrew-2.3.0.dev8-py3-none-any.whl` SHA256 `878e87442f246246c7f315bb4d4c1fac175041eff18f15b4bfe38e4c93d1bf57` khớp file; `claims` đều `false`; `SHA256SUMS` khớp, không có `__pycache__` sau mọi bước | `manifest.json`; `D:\OneCrewRuns\v23\alpha\logs\package-intact-dev8.txt` |
+| Cài sạch, entrypoint chạy | đạt: bộ kiểm 16/16 (V2 venv mới, V3 nguồn module từ `site-packages`); README 9/9 (venv có dấu cách, `--help`, quay về 2.2, lên lại) | `D:\OneCrewRuns\v23\alpha\logs\verify-dev8-fab7389.txt`, `D:\OneCrewRuns\v23\alpha\logs\readme-drill-dev8.txt` |
+| Luồng wiki đã công bố chạy từ wheel, ngoài checkout | đạt: script thử một lệnh `DAT`, thoát 0 (13:39–13:43); trong đó luồng alpha 5/5 chặng, bước duyệt `fixture`; task đầu tiên 25/25; chạy lại vào cùng thư mục bị từ chối, thoát 2 | `D:\OneCrewRuns\v23\alpha\logs\wrapper-dev8.txt`; `D:\OneCrewRuns\v23 thu script dev8 claude\alpha` |
+| Phản chứng của các blocker | đạt: cùng `alpha_flow.py` của gói alpha trên gói `2.3.0.dev7`: S5 hỏng (5 điều kiện; file bí mật vào `snapshots/…`, `attempts/…`); trên gói alpha: 5/5. V15 qua CLI cài: dev6 11 lỗi → dev8 0; ca Codex dev5 qua CLI cài 0 lỗi | `D:\OneCrewRuns\v23\alpha\pair alpha dev7`, `D:\OneCrewRuns\v23\alpha\pair alpha dev8`, `D:\OneCrewRuns\v23\alpha\pair v15 dev6`, `D:\OneCrewRuns\v23\alpha\pair v15 dev8` |
+| Cách ly project, sổ, config, provider | đạt: mọi lệnh với `TEMP`/`LOCALAPPDATA`/`APPDATA` riêng, project mẫu và sổ tạm; `claude` trên PATH là bản giả của venv (kiểm trước khi chạy node); `hook-projects.json` thật và `.claude\settings.json` thật không đổi (SHA256 trước và sau); sổ dev5 → dev8 → 2.2 dùng được | `alpha-flow-log.json` (`real_files`); `D:\OneCrewRuns\v23\alpha\logs\compat-dev5-ledger-dev8-package.txt` |
+| Hồi quy trên snapshot `fab7389` | 2.3: 522 chạy, 511 đạt, 9 bỏ qua, 2 lỗi đã biết (expected failure). 2.2 (11 module ngoài gate và 13 module dùng kho snapshot nhiều nhất): 417 chạy, 414 đạt, 3 hỏng, gồm: 1 test ghim version `2.2.0.dev3` có từ trước; 1 lỗi môi trường, `test_owned…survives_launcher_and_cancel` không tạo được process tách khỏi Job object trong phiên này (`Access is denied`, hỏng y hệt trên `6cbcaa9`), không tính là đạt; 1 lỗi tên module do file danh sách của tôi ghép hai tên, hai module đó chạy riêng: 51 chạy, 51 đạt | `D:\OneCrewRuns\v23\dev7\logs\int-v23-fab7389.txt`, `D:\OneCrewRuns\v23\dev7\logs\int-22-fab7389.txt`, `D:\OneCrewRuns\v23\dev7\logs\int-22b-fab7389.txt`, `D:\OneCrewRuns\v23\alpha\logs\owned-6cbcaa9.txt` |
+| Giới hạn và phần chưa kiểm được ghi rõ | đạt: §4, §5 (B, C), `README.md` của gói §4 | — |
+| Beta 2.2 và việc đang chạy | không đổi: gói `wf-handover-34eb7c4-hs2` 687/687 dòng `SHA256SUMS` khớp, 0 file sửa sau 28/10 13:30; `hook-projects.json` thật SHA256 `884335df…` như 29/10 17:05. Không dừng tiến trình của phiên khác (chỉ dừng cây process gate của chính lượt này) | `D:\OneCrewRuns\v23\dev4\beta-check\after-alpha.json` |
+
+**Không phải:** gate 2.2 đầy đủ trên snapshot này (B1), model thật (B6), nghiệm thu.
 
 ## 7. Phần còn lại để lên beta
 

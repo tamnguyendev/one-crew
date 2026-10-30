@@ -181,7 +181,10 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 30/10 ~11:30 | chỉ thị của người dùng: giao ALPHA dùng được sớm rồi hoàn thiện BETA; ủy quyền tự quyết giải pháp, sửa, kiểm, đóng gói, phát hành alpha vào đích đã xác lập | ALPHA-2.3.0.dev8 |
 | 30/10 11:35–11:45 | đối chiếu finding theo code: AL-01 (ảnh chụp phạm vi node đọc file có hard link), AL-02 (trình đọc wiki theo link) là blocker alpha; ca `tests/test_v23_alpha_links.py`: 8 đỏ trên `01c5831`, 10/10 xanh sau sửa; FX-R06 khép theo | `6d504c0`; `D:\OneCrewRuns\v23\alpha\logs` (`red-01c5831.txt`, `green-al.txt`) |
 | 30/10 11:47–12:20 | luồng alpha `alpha_flow.py` (5 chặng) vào script thử; trên gói `2.3.0.dev7`: S0–S4 đạt, S5 hỏng (file bí mật vào `snapshots/blobs` và `attempts/…/stdin.txt`) = phản chứng của AL-01/AL-02 | `dd52cf5`; `D:\OneCrewRuns\v23\alpha\try10 dev7` |
-| 30/10 | snapshot alpha: version `2.3.0.dev8`, hồ sơ `ALPHA-2.3.0.dev8.vi.md`, CHANGELOG, giới hạn; dev7 đóng là không bàn giao | ALPHA-2.3.0.dev8 |
+| 30/10 | `7455621`: snapshot alpha: version `2.3.0.dev8`, hồ sơ `ALPHA-2.3.0.dev8.vi.md`, CHANGELOG, giới hạn; dev7 đóng là không bàn giao | ALPHA-2.3.0.dev8 |
+| 30/10 12:05–12:41 | hồi quy trên `7455621`: 2.3 520 chạy, 446 đạt, 9 bỏ qua, 2 lỗi đã biết (expected failure), 63 hỏng, trong 3 nhóm test: gói giả của test script thử thiếu `alpha_flow.py` (59), spy đọc file qua `Path.read_bytes` (2), hai đối chứng FX-R06 cũ (2); dừng lượt đó, sửa test (`1c378e6`), gộp `fab7389` = snapshot alpha | `D:\OneCrewRuns\v23\dev7\logs\int-v23-7455621.txt` |
+| 30/10 12:48–13:32 | hồi quy trên `fab7389`: 2.3 522 chạy, 511 đạt, 9 bỏ qua, 2 lỗi đã biết (expected failure); 2.2 417 chạy, 414 đạt, 3 hỏng (ghim version cũ; `test_owned` lỗi môi trường như trên `6cbcaa9`; 2 module chạy lại riêng vì tên bị ghép: 51 chạy, 51 đạt) | ALPHA §6 |
+| 30/10 | gói alpha `onecrew-2.3.0.dev8-alpha` (wheel `878e8744…`): bộ kiểm 16/16, README 9/9, task đầu tiên 25/25, script thử `DAT`/0 (luồng alpha 5/5) và dùng lại thư mục → 2, CLI 0 lỗi, sổ dev5 đạt, V15 dev6 → dev8 0, luồng alpha dev7 S5 đỏ → dev8 xanh | ALPHA §6 |
 
 ## 7. Review Codex 28/10 và sửa
 
