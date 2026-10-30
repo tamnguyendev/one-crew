@@ -168,6 +168,23 @@ class StatusIdentity(unittest.TestCase):
         self.assertRegex(artifact.identity(self.root), '^[0-9a-f]{40}$')
         self.assertFalse(objects_holding(self.root, TOKEN))
 
+    def test_b13_in_a_cone_sparse_checkout_a_link_changes_only_its_own_name(self):
+        """Review B2 round 3, P2: with sparse checkout turned off for the add, every absent file outside the cone was dropped from the identity.
+        Expected: only the linked name differs from what HEAD holds; the files the cone keeps absent stay; nothing of the link is read."""
+        (self.root / 'src').mkdir()
+        for name in ('x.py', 'y.py'): (self.root / 'src' / name).write_text(name + '\n', encoding='utf-8', newline='\n')
+        (self.root / 'docs' / 'm.md').write_text('m\n', encoding='utf-8', newline='\n')
+        git(self.root, 'add', '-A'); git(self.root, 'commit', '-q', '-m', 'src')
+        head = git(self.root, 'rev-parse', 'HEAD^{tree}')
+        git(self.root, 'sparse-checkout', 'set', '--cone', 'docs')
+        self.assertFalse((self.root / 'src' / 'x.py').exists())
+        self.assertEqual(artifact.identity(self.root), head)                           # no link: as plain `git add -A`
+        (self.root / 'docs' / 'm.md').unlink()
+        link(self.home / '.env', self.root / 'docs' / 'm.md')
+        identity = artifact.identity(self.root)
+        self.assertEqual(command.changed_paths(self.root, head, identity), ['docs/m.md'])
+        self.assertFalse(objects_holding(self.root, TOKEN))
+
     def test_b06_a_file_reached_through_a_junction_is_never_hashed(self):
         if os.name != 'nt': self.skipTest('junctions are a Windows feature')
         import _winapi

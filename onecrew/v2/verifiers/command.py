@@ -100,7 +100,9 @@ def _through(top, name):
     return next((f for f in ('/'.join(parts[:n]) for n in range(1, len(parts))) if _is_junction(top / f)), None)
 
 
-NOSPARSE = ('-c', 'core.sparseCheckout=false', '-c', 'index.sparse=false')   # a sparse checkout clears skip-worktree on files on disk (review B2 P1)
+# A sparse checkout clears skip-worktree on a file that is on disk unless told it may be there (review B2 P1); turning sparse checkout off instead
+# makes `add -A` drop every absent file outside the cone (review B2 round 3, P2). Git 2.42+.
+NOSPARSE = ('-c', 'sparse.expectFilesOutsideOfPatterns=true', '-c', 'index.sparse=false')
 
 
 def _add_without(top, linked, temp, env):
@@ -109,8 +111,9 @@ def _add_without(top, linked, temp, env):
     when the name is ignored (review B2 P2-1). A name only the untracked listing holds is left out by an excluding pathspec, with the whole junction
     it is reached through, so a file made below it meanwhile is not hashed either. A name git would not take (ignored and not in HEAD) gets no
     marker: the tree never held it. A name that is gone (a tracked file behind a junction that does not hold it) gets none either: `git add -A`
-    drops it, as before (P3-5). Every marker must be in the index afterwards, or the identity is refused (P3-2). Sparse checkout is off for these
-    commands: with it on, git clears skip-worktree on a file that is on disk and `add` would hash the linked file (review B2 P1)."""
+    drops it, as before (P3-5). Every marker must be in the index afterwards, or the identity is refused (P3-2). These commands tell git that a
+    file outside the sparse patterns may be on disk: otherwise a sparse checkout clears skip-worktree on it and `add` would hash the linked file
+    (review B2 P1), while the files a sparse checkout keeps absent stay as HEAD holds them (round 3, P2)."""
     top = Path(top)
     enc = lambda n: n.encode('utf-8', 'surrogateescape')
 
