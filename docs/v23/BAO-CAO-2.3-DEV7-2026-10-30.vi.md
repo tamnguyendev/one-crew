@@ -8,7 +8,7 @@ Người viết: Claude (Opus 5.5), đầu mối triển khai 2.3, 30/10/2026, t
 |---|---|
 | Nhánh | `claude/onecrew-2.3`; push lên `origin` cùng tag khi phát hành (§1) |
 | Version | `2.3.0.dev7`, prerelease theo quy ước `2.3.0.devN` của hợp đồng §1 |
-| Gói | `D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev7-final` |
+| Gói | `D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev7-final` (gói của snapshot thứ nhất `c6d8477` không bàn giao, đổi tên `…-c6d8477-superseded`: gate trên nó thấy một race, §7) |
 | Đích phát hành | tag `v2.3.0.dev7` và nhánh trên `origin` (`git@github.com:tamnguyendev/one-crew.git`, repo private), như `v2.1.0` |
 
 ## 1. Đã phát hành loại bản nào, ở đâu
@@ -104,6 +104,7 @@ _Ghi sau khi kiểm gói (bản trong checkout)._
 | FX-1…FX-4: verifier | `onecrew/v2/verifiers/doc.py`, `port.py`, `data.py`, `ops.py`, `artifact.py`, `onecrew/snapshots.py` | `tests/test_v23_open_verifier.py` (65) | hồi quy; gate (các check verifier của 2.2); V14 |
 | DX: nguồn viết trần giữ dấu chấm đầu | `onecrew/v2/verifiers/doc.py` (`_entries`) | `tests/test_v23_doc_locators.py` (7) | hồi quy; gate (các check verifier tài liệu của 2.2) |
 | Review verifier: FX-R01 hard link trong artifact Git, FX-R02 kiểm `ids` không thấy id, FX-R04 `(?i)`, FX-R05 tên không phải Unicode, DX-R01 `./x`, DX-R02 chữ có dấu chấm; soát lại: D-R01 trạng thái mốc, D-R02 duyệt plan, D-R03 junction, D-R04 index thật, D-R05 `.onecrew` và lần định danh sau, D-R06, D-R08, D-R09; lần soát sau: E-R01 kết quả lượt kiểm được giữ, E-R02 chỉ junction, E-R04 tên dài, E-R05 chọn đường dẫn có thật, F-R01 dòng có đường dẫn thì kiểm đúng đường dẫn đó | `onecrew/v2/verifiers/command.py` (`hard_links`, `refuse_hard_links`, `verified_sha`, `_lstat`), `artifact.py` (`verified_identity`), `port.py`, `reviewer.py`, `doc.py` (`_bare_candidates`), `onecrew/v2/plan.py` (duyệt plan) | `tests/test_v23_review_fx.py` (37: 3 expected failure cho FX-R03, FX-R06, FX-R08) | hồi quy; gate |
+| Race `.onecrew` khi tính artifact (gate trên snapshot thứ nhất `c6d8477`) | `onecrew/v2/verifiers/command.py` (`artifact_sha`, `tracked_tree`: `git rm --cached -f` trên index tạm) | `tests/test_v23_review_fx.py` OnecrewRace; `tests/test_wf_t41_gaps.py` | gate (`R03/check.t41_gaps`) |
 | A1, A2, B, PK của các bản trước | như hợp đồng §4, §7–§9 | như hợp đồng | V1–V14 |
 
 ## 8. Review độc lập (theo rủi ro)

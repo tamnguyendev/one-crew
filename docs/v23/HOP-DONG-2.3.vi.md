@@ -114,6 +114,7 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | T23-RFX3 | Sửa theo lượt soát lại `376654d`: E-R01 giữ kết quả lượt kiểm, E-R02 chỉ junction, E-R04 tên dài, E-R05 chọn đường dẫn có thật | T23-RFX2 | 0,5 h | `726aacf` 05:17; E-R03 thành giới hạn |
 | T23-RFX4 | Sửa theo lượt soát lại `726aacf` và lần kiểm `3f3edb7`: F-R01 dòng có đường dẫn thì kiểm đúng đường dẫn đó; G-R01, G-R02 | T23-RFX3 | 0,3 h | `3f3edb7` 05:31, `0c6074f` 05:41 |
 | T23-RV7 | Review độc lập theo rủi ro: WI/KN hai vòng, FX và DX sau khi gộp, soát lại `7a1ce5c`, `376654d`, `726aacf` | T23-WI-1, T23-KN, T23-FX, T23-DX | 2 h | `D:\OneCrewRuns\v23\review-dev7\review-wi.md`, `review-fx.md` |
+| T23-RACE | Race `.onecrew` của index tạm khi tính artifact (gate trên snapshot thứ nhất thấy) | T23-PK-F7 | 0,2 h | `01c5831` 09:26 |
 | T23-PK-F7 | Gói `2.3.0.dev7`: hồi quy tích hợp, kiểm từ gói (16 bước), diễn tập README + task đầu tiên + script thử, phản chứng, dữ liệu cũ, gate snapshot 2.2, phát hành bản thử | tất cả | 5 h | BAO-CAO-2.3-DEV7 |
 
 ## 6. Nhật ký tiến độ
@@ -168,6 +169,10 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 30/10 05:32–05:38 | kiểm `3f3edb7`: F-R01 khép; không P1/P2; 2 P3: G-R01 chữ có `/` (CI/CD, km/h) trước đường dẫn bị lấy làm đường dẫn (báo sai, không bao giờ đạt sai), G-R02 `.env.example` thiếu vẫn đạt nhờ `.gitignore` có thật | `review-dev7\review-fx.md` |
 | 30/10 05:36–05:41 | sửa G-R01, G-R02: 6 dòng đỏ trên `3f3edb7` → xanh; probe check4 của reviewer chạy trên bản sửa: g01–g03 đạt, 18 dòng g04 như trên `3f3edb7`; không review lại (chỉ P3) | `0c6074f`; `D:\OneCrewRuns\v23\dev7\logs\rfx5-red-3f3edb7.txt`, `check4-on-round5.log` |
 | 30/10 06:11 | gộp `3f3edb7` và `0c6074f` vào `claude/onecrew-2.3` (code cuối); chạy lại các module verifier tài liệu và test giữ từ review: 255 test đạt (3 expected failure) | `30f65c9`; `D:\OneCrewRuns\v23\dev7\logs` (`final-doc-*.txt`) |
+| 30/10 06:18–06:28 | snapshot thứ nhất `c6d8477` (version `2.3.0.dev7`); module đọc version và tài liệu: 264/265 (test ghim version cũ) | `c6d8477`; `D:\OneCrewRuns\v23\dev7\logs\snap-c6d8477.txt` |
+| 30/10 06:28–06:44 | gói từ `c6d8477` (wheel `82bc6e25…`): kiểm từ gói 16/16, README 9/9, task đầu tiên 25/25, script thử `DAT`/0 và dùng lại thư mục → 2, ca Codex qua CLI cài 0 lỗi, dữ liệu dev5 đạt, V15 qua CLI cài: dev6 11 lỗi → dev7 0. Không bàn giao: thay bằng gói của snapshot thứ hai | `D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev7-final-c6d8477-superseded` |
+| 30/10 06:45–09:22 | gate trên `c6d8477` dừng ở 179/286: `R03/check.t41_gaps` hỏng (chạy riêng: hỏng 2 trong 3 lần). Nguyên nhân: hook ghi lại `.onecrew/active-plan.json` giữa `git add` và `git rm --cached .onecrew` của index tạm, git từ chối, lượt kiểm bị bỏ dở (race có từ 2.2; bước kiểm hard link mới làm khoảng hở rộng ra) | `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261030-c6d8477`; `D:\OneCrewRuns\v23\dev7\logs\t41-alone-c6d8477.txt` |
+| 30/10 09:22–09:26 | sửa race: `git rm --cached -f` trên index tạm (`artifact_sha`, `tracked_tree`); test race đỏ trên `0c6074f` → xanh; `t41_gaps` chạy riêng 6/6 | `01c5831`, gộp `7e91d8c`; `D:\OneCrewRuns\v23\dev7\logs\t41-after-fix.txt` |
 
 ## 7. Review Codex 28/10 và sửa
 
@@ -321,6 +326,7 @@ Loại bản: prerelease `2.3.0.devN` theo quy ước của §1 ("prerelease 2.3
 | Soát lại `376654d` (E-R01, R02, R04, R05) | `726aacf` | `tests/test_v23_review_fx.py` (thêm 5): đỏ trên `376654d` (`rfx3-red-376654d.txt`) | hồi quy, gate |
 | Soát lại `726aacf` (F-R01) | `3f3edb7` | `tests/test_v23_review_fx.py` RoundFourDocs.test_f01: đỏ trên `726aacf` (`rfx4-red-726aacf.txt`) | hồi quy, gate |
 | Kiểm `3f3edb7` (G-R01, G-R02) | `0c6074f` | `tests/test_v23_review_fx.py` RoundFiveDocs: đỏ trên `3f3edb7` (`rfx5-red-3f3edb7.txt`); probe check4 của reviewer đạt | hồi quy, gate |
+| Race `.onecrew` (gate trên `c6d8477`, `R03/check.t41_gaps`) | `01c5831` | `tests/test_v23_review_fx.py` OnecrewRace: đỏ trên `0c6074f` (`race-red-0c6074f.txt`); `t41_gaps` riêng: 2/3 hỏng → 6/6 | gate |
 
 FX-3 (§10.4) với artifact Git: theo review FX-R01 và D-R03, một tên là hard link hay đi qua junction làm lượt kiểm (và `plan approve`) bị từ chối kèm lý do thay vì "báo chưa kiểm, không làm hỏng cả lượt"; đây là giới hạn đã ghi (`docs/v23/tools/limits-final.md`), không phải kỳ vọng mới. Tương tự FX-R08 với thư mục không Git có tên bị cấm.
 
