@@ -105,6 +105,8 @@ Kiểm trên gói `D:\OneCrewRuns\v23\pkg\onecrew-2.3.0.dev8-alpha` (dựng 2026
 
 **Không phải:** gate 2.2 đầy đủ trên snapshot này (B1), model thật (B6), nghiệm thu.
 
+**Ghi thêm sau beta (30/10 19:50):** có 4 module 2.2 chạm vùng sửa mà gate không chạy, là `test_v2_report`, `test_wf_compat_scan`, `test_wf_packaging` và `test_wf_plan_names`. Hồi quy của alpha không chạy 4 module này. Chúng đã chạy riêng trên snapshot beta `d35b810` (có toàn bộ code alpha): 49 chạy, 49 đạt (`D:\OneCrewRuns\v23\dev7\logs\int-22c-d35b810.txt`). Không cần thu hồi alpha.
+
 ## 7. Phần còn lại để lên beta
 
 B1–B7 ở trên, theo thứ tự. Phạm vi A1/A2/B của 2.3 giữ nguyên. Bản beta sẽ:
