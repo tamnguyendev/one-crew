@@ -702,6 +702,29 @@ class RoundFour(DeltaRepo):
             command.verified_sha(self.root)
 
 
+class OnecrewRace(DeltaRepo):
+    """The gate on c6d8477 (R03/check.t41_gaps, 2 runs in 3 alone): a hook rewrote .onecrew/active-plan.json while the artifact tree was being made, so
+    `git rm --cached .onecrew` of the throw-away index refused ('staged content different from both the file and the HEAD') and the verdict run was
+    abandoned. The race is in artifact_sha and tracked_tree since 2.2; the hard-link check before them made it frequent."""
+
+    def rewritten_between(self, call):
+        real = command._git
+        def git_then_rewrite(directory, *args, **kwargs):
+            out = real(directory, *args, **kwargs)
+            if args[:2] in (('add', '-A'), ('add', '-u')):
+                (self.root / '.onecrew' / 'active-plan.json').write_text('{"changed": true}\n', encoding='utf-8')     # the hook, at that moment
+            return out
+        with patch.object(command, '_git', git_then_rewrite):
+            return call(self.root)
+
+    def test_r01_a_onecrew_file_rewritten_while_the_tree_is_made_does_not_stop_the_identity(self):
+        (self.root / '.onecrew').mkdir(); (self.root / '.onecrew' / 'active-plan.json').write_text('{}\n', encoding='utf-8')
+        expected = command.artifact_sha(self.root)
+        self.assertEqual(self.rewritten_between(command.artifact_sha), expected)       # .onecrew is not part of the tree, whatever it holds
+        git(self.root, 'add', '-f', '.onecrew/active-plan.json')                       # staged in the real index too (tracked_tree copies it)
+        self.assertTrue(self.rewritten_between(command.tracked_tree))
+
+
 class RoundFourDocs(unittest.TestCase):
     """E-R05: a bare source line names the first of its readings that is there."""
 

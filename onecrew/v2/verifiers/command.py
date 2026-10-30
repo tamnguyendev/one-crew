@@ -49,7 +49,9 @@ def artifact_sha(directory):
         env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
         _git(top, 'read-tree', 'HEAD', env=env)
         _git(top, 'add', '-A', env=env)
-        _git(top, 'rm', '-r', '--cached', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)  # hook files (.onecrew/) are not part of the artifact
+        # hook files (.onecrew/) are not part of the artifact. -f: a hook may rewrite one between the add and this rm, and without it git refuses to drop
+        # a staged entry that differs from both the file and HEAD (the gate on c6d8477); only the throw-away index is touched.
+        _git(top, 'rm', '-r', '--cached', '-f', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)
         return _git(top, 'write-tree', env=env)
 
 
@@ -159,7 +161,7 @@ def tracked_tree(directory):
         if real.is_file(): shutil.copyfile(real, env['GIT_INDEX_FILE'])
         else: _git(top, 'read-tree', 'HEAD', env=env)                  # a repository whose index was never written: what HEAD holds is what Git tracks
         _git(top, 'add', '-u', env=env)
-        _git(top, 'rm', '-r', '--cached', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)
+        _git(top, 'rm', '-r', '--cached', '-f', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)     # -f: as in artifact_sha
         return _git(top, 'write-tree', env=env)
 
 
