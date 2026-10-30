@@ -19,6 +19,7 @@ from pathlib import Path
 from unittest import mock
 
 from onecrew.ledger import Ledger, LedgerError, content_hash
+from onecrew import snapshots
 from onecrew.snapshots import Snapshots, bytes_hash
 from onecrew.v2 import plan, verdict
 from onecrew.v2.verifiers import artifact, data, doc, ops, port
@@ -618,11 +619,19 @@ class NonGitKeptNames(unittest.TestCase):
         return content_hash(manifest)
 
     def reads(self, call):
-        top, seen, original = self.root.resolve(), [], Path.read_bytes
-        def spy(path):
+        """Every file read while `call` runs: by Path.read_bytes, or by onecrew.snapshots._alone (a snapshot reads a file on the handle it
+        checked for other names, 2.3 alpha AL-01)."""
+        top, seen, original, alone = self.root.resolve(), [], Path.read_bytes, snapshots._alone
+        def note(path):
+            path = Path(path)
             seen.append(path.relative_to(top).as_posix() if path.is_relative_to(top) else str(path))
+        def spy(path):
+            note(path)
             return original(path)
-        with mock.patch.object(Path, 'read_bytes', spy):
+        def spy_alone(path, name):
+            note(path)
+            return alone(path, name)
+        with mock.patch.object(Path, 'read_bytes', spy), mock.patch.object(snapshots, '_alone', spy_alone):
             result = call()
         return result, seen
 
@@ -767,9 +776,12 @@ class NonGitKeptNames(unittest.TestCase):
                 finally:                                                                   # whatever the outcome, the next case starts from a clean tree
                     for rel in (ordinary, kept): (self.root / rel).unlink(missing_ok=True)
 
-    def test_f4_control_hard_links_in_a_folder_without_kept_names_are_identified_as_before(self):
+    def test_f4_control_hard_links_in_a_folder_without_kept_names_are_refused_since_al01(self):
+        """The 2.3 alpha fix AL-01 changed this decision (it was FX-R06: identified as before): a snapshot never reads a file that has another
+        name on the disk, so a hard link stops the identity of any folder without Git, with the reason, as a Git working tree does."""
         link(self.root / 'docs' / 'a.md', self.root / 'docs' / 'b.md')
-        self.assertEqual(artifact.identity(self.root), self.manifest_hash(['docs/a.md', 'docs/b.md', 'output.csv']))
+        with self.assertRaisesRegex(LedgerError, 'hard link'):
+            artifact.identity(self.root)
 
     def test_f4_control_a_kept_name_without_a_file_in_it_changes_nothing(self):
         """An empty `.ssh`, a nested `.git` with nothing in it: 4bb41b3 identified such a folder, so its identity stays what it was (a kept folder is
@@ -778,12 +790,12 @@ class NonGitKeptNames(unittest.TestCase):
         for rel in ('.ssh', 'docs/.git', 'cfg/.env.d', '.aws/sub/deeper'): (self.root / rel).mkdir(parents=True)
         self.assertEqual(artifact.identity(self.root), before)
 
-    def test_f4_control_a_onecrew_folder_inside_a_kept_folder_is_still_nothing_even_with_a_hard_link_in_the_folder(self):
-        """`.onecrew` folders are skipped at any depth, as they always were: a kept folder that holds nothing else is not named, so it changes nothing
-        (and does not bring the hard-link rule of the folders that hold kept names)."""
+    def test_f4_control_a_onecrew_folder_inside_a_kept_folder_is_still_nothing(self):
+        """`.onecrew` folders are skipped at any depth, as they always were: a kept folder that holds nothing else is not named, so it changes nothing.
+        (Its hard-link half went with AL-01: any hard link now stops the identity, see the test above.)"""
+        before = artifact.identity(self.root)
         self.plant('.aws/.onecrew/x.json')
-        link(self.root / 'docs' / 'a.md', self.root / 'docs' / 'b.md')
-        self.assertEqual(artifact.identity(self.root), self.manifest_hash(['docs/a.md', 'docs/b.md', 'output.csv']))
+        self.assertEqual(artifact.identity(self.root), before)
 
     def test_f4m_a_kept_folder_that_holds_a_file_is_named_even_deep_below(self):
         before = artifact.identity(self.root)

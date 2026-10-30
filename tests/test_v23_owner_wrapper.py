@@ -4,8 +4,9 @@ when the required steps of THIS run succeeded, from reports that belong to this 
 report or an old report never becomes PASS; the exit code is right for the person and for a calling tool (0 only on PASS, 1 = ran or checked and
 failed, 2 = refused to start).
 
-The wrapper runs here under Windows PowerShell 5.1 against a STUB package: a manifest, a wheel whose sha256 it states, and two stub tools that
-behave at the interface of verify_milestone.py / first_task_drill.py as the test tells them through environment variables. Every case that must not
+The wrapper runs here under Windows PowerShell 5.1 against a STUB package: a manifest, a wheel whose sha256 it states, and three stub tools that
+behave at the interface of verify_milestone.py / first_task_drill.py / alpha_flow.py (the 2.3 alpha flow, step 4) as the test tells them through
+environment variables. Every case that must not
 pass asserts the exit code AND that no `DAT:` line is printed, and that the output names the reason (so a case cannot fail by accident).
 The Codex case is also run on a verbatim copy of the old script (only its hard-coded paths adapted): RED there (DAT, exit 0), GREEN on the wrapper.
 Packaging: build_milestone.py ships the wrapper as verify/thu-goi.ps1 and its README names the command (test at the end, no PowerShell needed).
@@ -50,14 +51,14 @@ import sys
 import time
 from pathlib import Path
 
-role = 'drill' if Path(__file__).stem == 'first_task_drill' else 'verify'
+role = {'first_task_drill': 'drill', 'alpha_flow': 'alpha'}.get(Path(__file__).stem, 'verify')
 spec = json.loads(os.environ.get('STUB_%s_SPEC' % role.upper()) or '{}')
 pkg, work = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
 if os.environ.get('STUB_CALLS'):
     with open(os.environ['STUB_CALLS'], 'a', encoding='utf-8') as handle:
         handle.write(json.dumps({'role': role, 'argv': sys.argv[1:]}) + '\n')
 print('stub %s start' % role, flush=True)
-if role == 'drill' and work.exists() and any(work.iterdir()):
+if role in ('drill', 'alpha') and work.exists() and any(work.iterdir()):
     raise SystemExit('%s is not empty; a drill folder is never reused.' % work)
 work.mkdir(parents=True, exist_ok=True)
 manifest = json.loads((pkg / 'manifest.json').read_text(encoding='utf-8'))
@@ -73,6 +74,14 @@ if role == 'verify':
     report = {'kind': 'v23-milestone-verify-report', 'package': str(pkg), 'started': stamp(), 'steps': steps,
               'manifest': {k: manifest.get(k) for k in ('milestone', 'version', 'code_commit', 'wheel', 'previous_wheel', 'claims')}}
     report.update(finished=stamp(), expected_steps=12, result='pass')
+elif role == 'alpha':
+    name = 'alpha-flow-log.json'
+    mode = os.environ.get('STUB_OWNER_MODE', 'real')
+    steps = [{'id': 'S%d' % n, 'title': 'stub', 'result': 'pass', 'observed': {}} for n in range(6)]
+    report = {'kind': 'alpha-flow-log', 'package': str(pkg), 'work': str(work), 'started': stamp(), 'manifest': manifest, 'owner_step_mode': mode,
+              'in_ai_session': mode == 'fixture', 'stages': steps, 'onecrew_version': manifest['version'], 'package_unchanged': True,
+              'real_files': {'hook-projects.json': {'unchanged': True}, 'claude settings.json': {'unchanged': True}}}
+    report.update(finished=stamp(), result='pass')
 else:
     name = 'first-task-drill-log.json'
     mode = os.environ.get('STUB_OWNER_MODE', 'real')
@@ -168,7 +177,7 @@ def read_calls(path):
 
 
 def make_package(root, version=VERSION):
-    """A package the wrapper accepts: manifest.json, the wheel it states (+ previous/), the two stub tools, and the wrapper where it ships."""
+    """A package the wrapper accepts: manifest.json, the wheel it states (+ previous/), the three stub tools, and the wrapper where it ships."""
     wheel_name = f'onecrew-{version}-py3-none-any.whl'
     (root / 'wheel' / 'previous').mkdir(parents=True)
     (root / 'verify').mkdir()
@@ -181,7 +190,7 @@ def make_package(root, version=VERSION):
                 'previous_wheel': {'name': previous.name, 'sha256': sha256(previous), 'version': '2.2.0.dev18'},
                 'claims': {'delivered': False, 'reviewed_by_codex': False, 'accepted_by_owner': False, 'released': False}}
     (root / 'manifest.json').write_text(json.dumps(manifest, indent=1, ensure_ascii=False), encoding='utf-8')
-    for name in ('verify_milestone.py', 'first_task_drill.py'):
+    for name in ('verify_milestone.py', 'first_task_drill.py', 'alpha_flow.py'):
         (root / 'verify' / name).write_text(STUB, encoding='utf-8')
     shutil.copy2(WRAPPER, root / 'verify' / 'thu-goi.ps1')
     lines = [f'{sha256(p)}  {p.relative_to(root).as_posix()}' for p in sorted(root.rglob('*')) if p.is_file()]
@@ -202,9 +211,10 @@ class OwnerWrapperTests(unittest.TestCase):
     def new_work(self):
         return self.tmp / f'work {next(self.ids)}'
 
-    def env(self, calls_file, verify=None, drill=None, owner_mode='real'):
+    def env(self, calls_file, verify=None, drill=None, owner_mode='real', alpha=None):
         env = dict(os.environ)
-        env.update(STUB_CALLS=str(calls_file), STUB_VERIFY_SPEC=json.dumps(verify or {}), STUB_DRILL_SPEC=json.dumps(drill or {}), STUB_OWNER_MODE=owner_mode)
+        env.update(STUB_CALLS=str(calls_file), STUB_VERIFY_SPEC=json.dumps(verify or {}), STUB_DRILL_SPEC=json.dumps(drill or {}), STUB_OWNER_MODE=owner_mode,
+                   STUB_ALPHA_SPEC=json.dumps(alpha or {}))
         return env
 
     def powershell(self, script_args, env):
@@ -212,7 +222,7 @@ class OwnerWrapperTests(unittest.TestCase):
                               capture_output=True, env=env, cwd=str(self.tmp), timeout=600)
         return done.returncode, done.stdout.decode('utf-8', 'replace') + done.stderr.decode('utf-8', 'replace')
 
-    def run_wrapper(self, work=DEFAULT, package=DEFAULT, python=DEFAULT, script=DEFAULT, verify=None, drill=None, owner_mode='real'):
+    def run_wrapper(self, work=DEFAULT, package=DEFAULT, python=DEFAULT, script=DEFAULT, verify=None, drill=None, owner_mode='real', alpha=None):
         work = self.new_work() if work is DEFAULT else work
         package = self.pkg if package is DEFAULT else package
         python = sys.executable if python is DEFAULT else python
@@ -221,7 +231,7 @@ class OwnerWrapperTests(unittest.TestCase):
             if value is not None:
                 args += [flag, value]
         calls_file = self.tmp / f'calls {next(self.ids)}.jsonl'
-        code, out = self.powershell(args, self.env(calls_file, verify, drill, owner_mode))
+        code, out = self.powershell(args, self.env(calls_file, verify, drill, owner_mode, alpha))
         return Run(code, out, work, read_calls(calls_file))
 
     def run_side_by_side(self, jobs):
@@ -249,17 +259,20 @@ class OwnerWrapperTests(unittest.TestCase):
         self.assertIn('ket qua: pass, buoc dat 12/12', res.out)
         self.assertIn('ket qua: pass, buoc bat buoc dat 21/21, buoc duyet plan: real', res.out)
         self.assertIn('(buoc duyet plan: real)', next(line for line in res.out.splitlines() if line.startswith('DAT: ')))
+        self.assertIn('ket qua: pass, chang dat 5/5, buoc duyet plan: real', res.out)
+        self.assertIn('luong alpha 5/5 chang', next(line for line in res.out.splitlines() if line.startswith('DAT: ')))
         self.assertIn(('Thu muc ket qua: ' + str(res.work)).lower(), res.out.lower())
-        self.assertEqual(res.calls, ['verify', 'drill'])
+        self.assertEqual(res.calls, ['verify', 'drill', 'alpha'])
         self.assertTrue((res.work / 'verify' / 'verify-report.json').is_file())
         self.assertTrue((res.work / 'task dau tien' / 'first-task-drill-log.json').is_file())
+        self.assertTrue((res.work / 'alpha' / 'alpha-flow-log.json').is_file())
 
     def test_script_shipped_in_the_package_defaults_to_its_own_package(self):
         shipped = self.pkg / 'verify' / 'thu-goi.ps1'
         res = self.run_wrapper(package=None, script=shipped)           # no -Package: the parent of the script's folder, from another working folder
         self.assert_passed(res)
         self.assertIn(('goi            : ' + str(self.pkg)).lower(), res.out.lower())
-        self.assertEqual(res.calls, ['verify', 'drill'])
+        self.assertEqual(res.calls, ['verify', 'drill', 'alpha'])
 
     def test_fixture_owner_step_inside_an_ai_session_counts_all_required_steps_and_says_so(self):
         res = self.run_wrapper(owner_mode='fixture')
@@ -336,6 +349,27 @@ class OwnerWrapperTests(unittest.TestCase):
         self.assert_not_passed(green, 2, 'khong dung lai')
         self.assertEqual(green.calls, [])
 
+    # ---- the alpha flow (step 4): a failed stage, a changed real file or a missing tool never becomes DAT
+    def test_alpha_flow_failures_never_print_dat(self):
+        cases = [('alpha exits 1 with a failed stage', dict(alpha={'exit': 1, 'fail_steps': ['S5']}), 'chang S5 khong dat'),
+                 ('alpha reports a real file changed', dict(alpha={'set': {'real_files': {'hook-projects.json': {'unchanged': False}, 'claude settings.json': {'unchanged': True}}}}),
+                  'file that hook-projects.json khong duoc xac nhan la khong doi'),
+                 ('alpha log missing', dict(alpha={'write': False}), 'khong co bao cao cua lan chay nay'),
+                 ('alpha log of another version', dict(alpha={'set': {'manifest.version': '2.3.0.dev4'}}), 'phien ban'),
+                 ('alpha lacks a stage', dict(alpha={'delete': ['stages.5']}), 'can S0..S5')]
+        for (name, kwargs, reason), res in zip(cases, self.run_side_by_side([kwargs for _, kwargs, _ in cases])):
+            with self.subTest(name):
+                self.assert_not_passed(res, 1, reason)
+                self.assertEqual(res.calls, ['verify', 'drill', 'alpha'])
+
+    def test_a_package_without_the_alpha_tool_refuses_to_start(self):
+        no_alpha = self.tmp / 'package without the alpha flow'
+        shutil.copytree(self.pkg, no_alpha)
+        (no_alpha / 'verify' / 'alpha_flow.py').unlink()
+        res = self.run_wrapper(package=no_alpha)
+        self.assert_not_passed(res, 2, 'goi thieu file')
+        self.assertEqual(res.calls, [])
+
     # ---- a tool that fails, or a report that is not this run's, never becomes DAT
     VERIFY_CASES = [
         ('verifier exits 1 with a failing report', {'exit': 1, 'set': {'result': 'fail'}, 'fail_steps': ['V4-stub']}, 'bo kiem thoat voi ma 1'),
@@ -384,7 +418,7 @@ class OwnerWrapperTests(unittest.TestCase):
             with self.subTest(name):
                 self.assert_not_passed(res, 1, reason)
                 self.assertNotIn('ket qua: pass, buoc dat', res.out)
-                self.assertEqual(res.calls, ['verify', 'drill'])                  # the drill still runs: both results are shown
+                self.assertEqual(res.calls, ['verify', 'drill', 'alpha'])                  # the drill still runs: both results are shown
 
     def test_drill_failures_and_foreign_logs_never_print_dat(self):
         results = self.run_side_by_side([dict(drill=spec) for _, spec, _ in self.DRILL_CASES])
@@ -393,7 +427,7 @@ class OwnerWrapperTests(unittest.TestCase):
                 self.assert_not_passed(res, 1, reason)
                 self.assertNotIn('ket qua: pass, buoc bat buoc', res.out)
                 self.assertIn('ket qua: pass, buoc dat 12/12', res.out)           # the verifier's own pass is still reported as such
-                self.assertEqual(res.calls, ['verify', 'drill'])
+                self.assertEqual(res.calls, ['verify', 'drill', 'alpha'])
 
     def test_both_tools_failing_reports_both(self):
         res = self.run_wrapper(verify={'exit': 1}, drill={'write': False, 'exit': 1})

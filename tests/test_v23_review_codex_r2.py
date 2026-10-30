@@ -147,7 +147,11 @@ class R2(A2Fixture):
         def locked(path):
             if path.name == 'locked.md': raise PermissionError(13, 'The process cannot access the file')
             return real(path)
-        with patch.object(Path, 'read_bytes', locked):
+        real_open = open
+        def locked_open(file, *args, **kwargs):                            # the wiki reader opens a page to check it on the handle (2.3 alpha AL-02)
+            if Path(file).name == 'locked.md': raise PermissionError(13, 'The process cannot access the file')
+            return real_open(file, *args, **kwargs)
+        with patch.object(Path, 'read_bytes', locked), patch('onecrew.v2.wiki.open', locked_open, create=True):
             pkg = self.package()
         self.assertEqual([e['id'] for e in pkg['entries'] if e['must']], ['required-rule'])
         self.assertTrue(any('cannot read' in p['problem'] for p in pkg['problems']), pkg['problems'])
