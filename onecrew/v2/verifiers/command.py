@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 from ...ledger import LedgerError, canonical, utcnow
-from ...snapshots import Snapshots
+from ...snapshots import Snapshots, check_alone
 
 OUTPUT_CAP = 1_000_000
 TREE_ID = re.compile(r'[0-9a-f]{40}|[0-9a-f]{64}')          # the only shape of a tree id that is ever given to git
@@ -41,25 +41,249 @@ def toplevel(directory):
     return Path(_git(directory, 'rev-parse', '--show-toplevel')).resolve()
 
 
-def artifact_sha(directory):
+def artifact_sha(directory, verified=False):
     """Git tree hash of the working tree (tracked and untracked, honouring .gitignore), via a throw-away index: the
     repository's own index and refs are not touched. A name that hard_links finds (another name on the disk, a file through a junction, a name that
     cannot be examined) is never hashed: its place in the tree holds a marker blob made of its stat data only (size, modification time, file id), so
     the identity still changes when that file changes and nothing of its content reaches the object store (2.3 beta B2). verified_sha refuses such
-    a tree; this one is what views, reports and evidence checks compare."""
-    top = _git(directory, 'rev-parse', '--show-toplevel')
-    linked = hard_links(top)
+    a tree; this one is what views, reports and evidence checks compare.
+    A name can also change between that check and git's read of it (Codex review of beta 2.3.0.dev9, P1). So git never walks the working tree here:
+    every file it takes is opened first and judged on that handle (_Pins: a regular file, one name on the disk, its final path the path as named),
+    kept open while `git update-index` hashes exactly those files (the same clean conversion as `git add`), and only then closed. On Windows the open
+    handle (shared for reading and writing, not for deleting) keeps the file and every folder above it from being renamed, deleted or replaced, so
+    the file git reads is the one judged. Links and folders (a nested repository, a file that became a folder) are pinned the same way, although git
+    reads no content there: otherwise such a name could become a hard link before git looks at it (review of 3c1687a, finding 1). A file that fails
+    is a marker here and refuses verified_sha. A file that is gone is dropped, as `git add -A` drops it, unless the real index keeps it outside a
+    sparse checkout. OneCrew's own files (.onecrew/) are never part of the tree, so they are neither held nor read (finding 4)."""
+    top = str(Path(_git(directory, 'rev-parse', '--show-toplevel')).resolve())
+    linked = set(hard_links(top))
+    if verified and linked: refuse_hard_links(top)
     with tempfile.TemporaryDirectory() as temp:
         env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
         _git(top, 'read-tree', 'HEAD', env=env)
-        if linked:
-            _add_without(top, linked, Path(temp), env)
-        else:
-            _git(top, 'add', '-A', env=env)
+        held, others = _listed(top, env, '--cached'), _listed(top, env, '--others', '--exclude-standard')
+        with _Pins(top) as pins:
+            names = sorted(n for n in held | others if n not in linked and n.rstrip('/') not in linked and not _own(n))
+            refused, gone = pins.pin(names)
+            if refused and verified: raise HardLinked(_refusal(*refused[0]))
+            why = dict(refused)
+            linked |= set(why)
+            _stage(top, env, sorted(pins.held), [n for n in gone if n in held and n not in _sparse_kept(top)])
+            _repositories_for_files(top, env, pins)
+            if linked: _add_markers(top, sorted(linked), held, others, Path(temp), env, why)
+            pins.recheck()
         # hook files (.onecrew/) are not part of the artifact. -f: a hook may rewrite one between the add and this rm, and without it git refuses to drop
         # a staged entry that differs from both the file and HEAD (the gate on c6d8477); only the throw-away index is touched.
         _git(top, 'rm', '-r', '--cached', '-f', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)
         return _git(top, 'write-tree', env=env)
+
+
+def _refusal(name, why):
+    if why == HELD_OPEN:
+        return f'{name!r} {why}. Close that program, or wait until it is done with the file, and try again.'
+    return (f'{name!r} {why}: the other name or place may be a control or credential file (.env, .ssh), whose content would be read under this one. '
+            'Replace it with a copy, or move it out of the working tree, and try again.')
+
+
+def _own(name):
+    """OneCrew's own files (hooks, the active plan): never part of a tree (they are dropped from it at the end), so they are not held while git reads:
+    OneCrew's writer replaces them meanwhile (review of 3c1687a, finding 4)."""
+    return name.rstrip('/') == '.onecrew' or name.startswith('.onecrew/')
+
+
+def _listed(top, env, *args):
+    return {n for n in _git(top, 'ls-files', '-z', *args, env=env, raw=True).decode('utf-8', 'surrogateescape').split('\0') if n}
+
+
+def _sparse_kept(top):
+    """The names the real index keeps outside a sparse checkout (skip-worktree): absent on purpose, kept as HEAD holds them (review B2 round 3)."""
+    rows = _git(top, 'ls-files', '-t', '-z', raw=True).decode('utf-8', 'surrogateescape').split('\0')
+    return {row[2:] for row in rows if row.startswith('S ')}
+
+
+def _stage(top, env, present, gone):
+    """Drop `gone` from the throw-away index, then hash `present` into it: `git update-index` with exactly these names, so nothing else of the working
+    tree is read (a name made after the listing is not taken). In that order, sorted, and with --remove and --replace, a file that became a folder or a
+    folder that became a file takes its new place as with `git add -A` / `add -u` (review of 3c1687a, finding 2): the gone file under a folder that is
+    now a file is dropped first; a folder that was a file (not a nested repository) is dropped before the files in it are added."""
+    enc = lambda n: n.rstrip('/').encode('utf-8', 'surrogateescape') + b'\0'
+    if gone: _git(top, *NOSPARSE, 'update-index', '--force-remove', '-z', '--stdin', env=env, input=b''.join(enc(n) for n in gone))
+    if present: _git(top, *NOSPARSE, 'update-index', '--add', '--remove', '--replace', '-z', '--stdin', env=env,
+                     input=b''.join(enc(n) for n in sorted(present, key=lambda n: n.rstrip('/'))))
+
+
+def _repositories_for_files(top, env, pins):
+    """A tracked file that is now a nested repository: `update-index --remove` dropped the file (the listing ran against an index that still held
+    it, so the folder was never listed as untracked); the repository's commit takes its place, as `git add -A` and `add -u` record it (review of
+    570c64e, finding 1). Only where git sees a repository, as it decides: a HEAD that resolves through that folder's own .git, and no file under
+    the folder taken already; a broken gitfile, an empty .git or a repository without a commit is a plain folder, as for git (review of 1cf3112).
+    The folder stays pinned; git reads only its HEAD, no content."""
+    folders = [name for name, kind in pins.kinds.items() if kind == 'folder']
+    if not folders: return
+    staged = _listed(top, env, '--cached')
+    repositories = [n for n in folders if n.rstrip('/') not in staged and not any(s.startswith(n.rstrip('/') + '/') for s in staged)
+                    and _repository(Path(top).joinpath(*n.rstrip('/').split('/')))]
+    if repositories:
+        _git(top, *NOSPARSE, 'update-index', '--add', '-z', '--stdin', env=env,
+             input=b''.join(n.rstrip('/').encode('utf-8', 'surrogateescape') + b'\0' for n in sorted(repositories)))
+
+
+def _repository(folder):
+    """Whether git takes `folder` for a nested repository: its own .git (a folder or a gitfile) with a HEAD that resolves to a commit. --git-dir, so
+    that git never looks upwards into the project's repository."""
+    if _lstat(folder / '.git') is None: return False
+    try:
+        _git(folder, '--git-dir', str(folder / '.git'), 'rev-parse', '--verify', '-q', 'HEAD^{commit}')
+    except LedgerError:
+        return False
+    return True
+
+
+class _Pins:
+    """The names git is about to read, each opened and judged on its handle and held until git has read them (P1 of the review of beta dev9): regular
+    files, and links and folders (a nested repository, a file that became a folder), whose content git does not read but whose name could otherwise
+    become a hard link before git looks at it (review of 3c1687a, finding 1). pin(names) -> (refused [(name, reason)], gone [names]); the names held
+    are self.held. On Windows a raw handle (no C-runtime descriptor limit) keeps each name, and every folder above it, from being renamed, deleted or
+    replaced until it is closed. POSIX cannot keep a name: each file is judged on a descriptor that is closed at once (one open descriptor per file
+    ran into the open-file limit, finding 3), and recheck() makes sure each name still leads to what was judged (a recorded limit: git may have read
+    the new one first)."""
+
+    def __init__(self, top):
+        self.top, self.held, self.folders, self.kinds = Path(top), {}, {}, {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        for handle, _ in self.held.values():
+            if handle is not None: _close(handle)
+        self.held.clear(); self.kinds.clear()
+
+    def pin(self, names):
+        refused, gone = [], []
+        for name in names:
+            path = self.top.joinpath(*name.rstrip('/').split('/'))
+            if self._beyond_link(name):
+                gone.append(name); continue
+            try:
+                status = _lstat(path)
+            except (OSError, ValueError):
+                refused.append((name, 'cannot be examined')); continue
+            if status is None:
+                gone.append(name); continue
+            kind = 'link' if stat.S_ISLNK(status.st_mode) else 'folder' if stat.S_ISDIR(status.st_mode) else 'file'
+            try:
+                self.held[name] = _open_judged(path, kind, status)
+                self.kinds[name] = kind
+            except FileNotFoundError:
+                gone.append(name)
+            except LedgerError as error:
+                refused.append((name, str(error)))
+            except OSError as error:
+                refused.append((name, HELD_OPEN if getattr(error, 'winerror', None) == 32 else f'cannot be opened ({error.__class__.__name__})'))
+        return refused, gone
+
+    def _beyond_link(self, name):
+        """A folder on the way to `name` is a link: git stores that link and drops every name behind it, so the name is gone here too and nothing
+        behind the link is opened (E-R02; the pins had broken it, the affected regression of 3c1687a). A junction is not a link here: git walks into
+        it, and the final path of the handle refuses the name."""
+        parts = name.rstrip('/').split('/')
+        for depth in range(1, len(parts)):
+            folder = '/'.join(parts[:depth])
+            if folder not in self.folders:
+                try:
+                    status = _lstat(self.top.joinpath(*parts[:depth]))
+                except (OSError, ValueError):
+                    status = None
+                self.folders[folder] = status is not None and stat.S_ISLNK(status.st_mode)
+            if self.folders[folder]: return True
+        return False
+
+    def recheck(self):
+        if os.name == 'nt': return                              # the open handles kept every name in place
+        for name, (_, facts) in self.held.items():
+            now = _lstat(self.top.joinpath(*name.rstrip('/').split('/')))
+            if now is None or (now.st_dev, now.st_ino, stat.S_IFMT(now.st_mode)) != facts:
+                raise HardLinked(_refusal(name, 'was replaced while git read it'))
+
+
+# A Windows sharing violation: another program holds the file open with delete access (it may rename or delete it), so it cannot be pinned (review
+# of 3c1687a, finding 5). It is tried three times over 0.2 s, then not read.
+HELD_OPEN = 'is held open by another program that may rename or delete it, so it cannot be kept in place while git reads it'
+
+
+def _long(path):
+    text = os.path.abspath(str(path))
+    if os.name != 'nt' or text.startswith('\\\\?\\'): return text
+    return '\\\\?\\UNC\\' + text[2:] if text.startswith('\\\\') else '\\\\?\\' + text
+
+
+def _open_judged(path, kind='file', status=None):
+    """(handle, facts) of `path`, judged on a handle: a regular file has one name on the disk, a link is still a link, a folder still a plain folder,
+    and the final path of each is `path` (no junction on the way). On Windows the handle is returned open: it is the pin. Elsewhere no descriptor stays
+    open and facts are (dev, ino, type) for recheck(). LedgerError when the judgment fails."""
+    if os.name == 'nt':
+        import _winapi
+        flags = {'file': 0, 'link': 0x02000000 | 0x00200000, 'folder': 0x02000000}[kind]    # BACKUP_SEMANTICS (a folder); OPEN_REPARSE_POINT (the link)
+        for attempt in range(3):
+            try:
+                handle = _winapi.CreateFile(_long(path), 0x80000000, 0x1 | 0x2, 0, 3, flags, 0)    # GENERIC_READ; share read and write, never delete
+                break
+            except OSError as error:
+                if getattr(error, 'winerror', None) != 32 or attempt == 2: raise
+                time.sleep(0.1)
+        try:
+            _judge_windows(handle, path, kind)
+        except BaseException:
+            _winapi.CloseHandle(handle)
+            raise
+        return handle, None
+    if kind != 'file':
+        return None, (status.st_dev, status.st_ino, stat.S_IFMT(status.st_mode))
+    fd = os.open(str(path), os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+    try:
+        check_alone(fd, path, repr(str(path)))
+        now = os.fstat(fd)
+    finally:
+        os.close(fd)
+    return None, (now.st_dev, now.st_ino, stat.S_IFREG)
+
+
+def _judge_windows(handle, path, kind='file'):
+    import ctypes
+    from ctypes import wintypes
+
+    class Info(ctypes.Structure):
+        _fields_ = [('attributes', wintypes.DWORD), ('created', wintypes.FILETIME), ('accessed', wintypes.FILETIME), ('written', wintypes.FILETIME),
+                    ('volume', wintypes.DWORD), ('size_high', wintypes.DWORD), ('size_low', wintypes.DWORD), ('links', wintypes.DWORD),
+                    ('index_high', wintypes.DWORD), ('index_low', wintypes.DWORD)]
+    info = Info()
+    if not ctypes.windll.kernel32.GetFileInformationByHandle(ctypes.c_void_p(handle), ctypes.byref(info)):
+        raise LedgerError('cannot be examined')
+    folder, reparse = info.attributes & 0x10, info.attributes & 0x400       # FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT
+    if kind == 'link':
+        if not reparse: raise LedgerError('is no longer a link')
+    elif kind == 'folder':
+        if not folder or reparse: raise LedgerError('is no longer a plain folder')
+    elif folder:
+        raise LedgerError('is not a regular file')
+    elif info.links > 1:
+        raise LedgerError('has more than one name on the disk (a hard link)')
+    buffer = ctypes.create_unicode_buffer(32768)
+    size = ctypes.windll.kernel32.GetFinalPathNameByHandleW(ctypes.c_void_p(handle), buffer, 32768, 0)
+    final = buffer.value if 0 < size < 32768 else None
+    if final and final.startswith('\\\\?\\UNC\\'): final = '\\\\' + final[8:]
+    elif final and final.startswith('\\\\?\\'): final = final[4:]
+    if final is None or os.path.normcase(final) != os.path.normcase(os.path.abspath(str(path))):
+        raise LedgerError(f'is reached through a link or junction ({final or "its final path cannot be told"})')
+
+
+def _close(handle):
+    if os.name == 'nt':
+        import _winapi
+        _winapi.CloseHandle(handle)
+    else:
+        os.close(handle)
 
 
 class HardLinked(LedgerError):
@@ -76,6 +300,8 @@ def _lstat(path):
     text = str(path)
     try:
         return os.lstat(text)
+    except NotADirectoryError:
+        return None                                     # a folder on the way is a file now (POSIX): the name is gone
     except FileNotFoundError:
         if os.name != 'nt' or text.startswith('\\\\?\\'): return None
     except OSError:
@@ -105,22 +331,15 @@ def _through(top, name):
 NOSPARSE = ('-c', 'sparse.expectFilesOutsideOfPatterns=true', '-c', 'index.sparse=false')
 
 
-def _add_without(top, linked, temp, env):
-    """`git add -A` into the throw-away index of artifact_sha without reading any name of `linked`, then a marker blob at each of them: what os.lstat
-    says of it, never its bytes. A name HEAD holds is kept from the add with skip-worktree: an excluding pathspec would make git refuse the whole add
-    when the name is ignored (review B2 P2-1). A name only the untracked listing holds is left out by an excluding pathspec, with the whole junction
-    it is reached through, so a file made below it meanwhile is not hashed either. A name git would not take (ignored and not in HEAD) gets no
-    marker: the tree never held it. A name that is gone (a tracked file behind a junction that does not hold it) gets none either: `git add -A`
-    drops it, as before (P3-5). Every marker must be in the index afterwards, or the identity is refused (P3-2). These commands tell git that a
-    file outside the sparse patterns may be on disk: otherwise a sparse checkout clears skip-worktree on it and `add` would hash the linked file
-    (review B2 P1), while the files a sparse checkout keeps absent stay as HEAD holds them (round 3, P2)."""
+def _add_markers(top, linked, held, others, temp, env, why=None):
+    """A marker blob at each name of `linked` that the tree would hold (HEAD holds it, or it is an untracked file that is not ignored): what os.lstat
+    says of it, never its bytes (2.3 beta B2). A name git would not take gets none: the tree never held it. A name that is gone gets none either: it is
+    dropped from the index, as `git add -A` drops it, unless the real index keeps it outside a sparse checkout. Every marker must be in the index
+    afterwards, or the identity is refused (review B2 P3-2). A name `why` says another program holds open says so in its marker (review of 3c1687a,
+    finding 5)."""
     top = Path(top)
     enc = lambda n: n.encode('utf-8', 'surrogateescape')
-
-    def listed(*args):
-        return {n for n in _git(top, 'ls-files', '-z', *args, env=env, raw=True).decode('utf-8', 'surrogateescape').split('\0') if n}
-    held, others = listed('--cached'), listed('--others', '--exclude-standard')
-    keep, leave, marks = [], set(), []
+    marks, gone = [], []
     for name in linked:
         plain = name.rstrip('/')                       # a nested repository is listed as a folder with its slash
         if plain not in held and name not in others and plain not in others: continue
@@ -128,35 +347,30 @@ def _add_without(top, linked, temp, env):
             status, failed = _lstat(top / plain), False
         except (OSError, ValueError):
             status, failed = None, True
-        if status is None and not failed: continue     # gone: `git add -A` drops a tracked one from its stat alone, an untracked one is not there
+        if status is None and not failed:
+            if plain in held: gone.append(plain)
+            continue
         marks.append((plain, status))
-        if plain in held:
-            keep.append(plain)
-        else:
-            try:
-                through = _through(top, plain)
-            except (OSError, ValueError):              # P3-3: the name itself is left out, never read
-                through = None
-            leave.add(through or plain)
-    if keep:
-        _git(top, *NOSPARSE, 'update-index', '--skip-worktree', '-z', '--stdin', env=env, input=b''.join(enc(n) + b'\0' for n in keep))
-    if leave:
-        _git(top, *NOSPARSE, 'add', '-A', '--pathspec-from-file=-', '--pathspec-file-nul', env=env,
-             input=b'\0'.join([b'.'] + [b':(exclude,literal)' + enc(n) for n in sorted(leave)]))
-    else:
-        _git(top, *NOSPARSE, 'add', '-A', env=env)
+    # a tracked file that became a junction: git walks into it, so the files behind it are marked and the name itself is dropped, as git drops a
+    # file that became a folder; a marker at both names is a pair git refuses (review of 570c64e, finding 2)
+    inner = {name for name, _ in marks if any(other.startswith(name + '/') for other, _ in marks)}
+    gone += [name for name in inner if name in held]
+    marks = [(name, status) for name, status in marks if name not in inner]
+    gone = [n for n in gone if n not in _sparse_kept(top)]
+    if gone: _stage(top, env, [], gone)
     if not marks: return
     files = []
     for number, (name, status) in enumerate(marks):
-        text = (f'onecrew: not read (another name on the disk, or reached through a junction); size={status.st_size} '
-                f'mtime_ns={status.st_mtime_ns} file={status.st_ino}\n' if status is not None else 'onecrew: not read (cannot be examined)\n')
+        reason = 'held open by another program' if HELD_OPEN in ((why or {}).get(name), (why or {}).get(name + '/')) else 'another name on the disk, or reached through a junction'
+        text = (f'onecrew: not read ({reason}); size={status.st_size} mtime_ns={status.st_mtime_ns} file={status.st_ino}\n' if status is not None
+                else 'onecrew: not read (cannot be examined)\n')
         files.append(temp / f'marker-{number}')
         files[-1].write_bytes(text.encode('ascii'))
     oids = _git(top, 'hash-object', '-w', '--no-filters', '--stdin-paths', env=env, input='\n'.join(str(f) for f in files).encode('utf-8')).split()
     if len(oids) != len(marks): raise LedgerError('git hash-object did not hash every marker.')
     _git(top, *NOSPARSE, 'update-index', '--add', '-z', '--index-info', env=env,                 # -z: a name may hold any character but NUL
          input=b''.join(b'100644 ' + oid.encode('ascii') + b'\t' + enc(name) + b'\0' for oid, (name, _) in zip(oids, marks)))
-    missing = {name for name, _ in marks} - listed('--cached')
+    missing = {name for name, _ in marks} - _listed(top, env, '--cached')
     if missing: raise LedgerError(f'git did not take the marker of {sorted(missing)[0]!r}: the identity of this working tree cannot be made.')
 
 
@@ -212,22 +426,30 @@ def verified_sha(directory):
     """artifact_sha for a verifier and for an approval: refused before git hashes anything when hard_links finds a name. The run stops with the reason;
     it cannot go on without that file, as a tree that leaves it out is another artifact."""
     refuse_hard_links(directory)
-    return artifact_sha(directory)
+    return artifact_sha(directory, verified=True)
 
 
 def tracked_tree(directory):
     """Git tree hash of what Git tracks now: a copy of the repository's real index (so a new file that was `git add`ed is in it) plus the
     modifications and deletions of the files in it (`add -u`), through a throw-away index. Unlike artifact_sha, an untracked file is never in it, and
     an ignored one is not either: what a reviewer is shown must not depend on build output lying around. The real index and the refs are not touched.
-    Whatever the artifact holds and this tree does not is `changed_paths(tracked, artifact)`: the untracked files that are not ignored."""
-    top = _git(directory, 'rev-parse', '--show-toplevel')
+    Whatever the artifact holds and this tree does not is `changed_paths(tracked, artifact)`: the untracked files that are not ignored.
+    As artifact_sha, the files are pinned and judged on their handles before `git update-index` reads them (Codex review of beta dev9, P1): a file
+    that has another name on the disk or is reached through a junction refuses the tree (HardLinked)."""
+    top = str(Path(_git(directory, 'rev-parse', '--show-toplevel')).resolve())
     real = Path(_git(top, 'rev-parse', '--git-path', 'index'))
     real = real if real.is_absolute() else Path(top) / real
     with tempfile.TemporaryDirectory() as temp:
         env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
         if real.is_file(): shutil.copyfile(real, env['GIT_INDEX_FILE'])
         else: _git(top, 'read-tree', 'HEAD', env=env)                  # a repository whose index was never written: what HEAD holds is what Git tracks
-        _git(top, 'add', '-u', env=env)
+        held, kept_out = _listed(top, env, '--cached'), _sparse_kept(top)
+        with _Pins(top) as pins:
+            refused, gone = pins.pin(sorted(n for n in held if n not in kept_out and not _own(n)))
+            if refused: raise HardLinked(_refusal(*refused[0]))
+            _stage(top, env, sorted(pins.held), gone)
+            _repositories_for_files(top, env, pins)
+            pins.recheck()
         _git(top, 'rm', '-r', '--cached', '-f', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)     # -f: as in artifact_sha
         return _git(top, 'write-tree', env=env)
 

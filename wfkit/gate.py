@@ -119,10 +119,14 @@ def check_install(python, checkout, workdir):
 
 # ---- (d) the decision --------------------------------------------------------------------------------------------------------
 
-def _counts_pass(r, allow_skips):
-    run, passed, errors, skipped = (int(r.get(k) or 0) for k in ('tests_run', 'tests_passed', 'tests_errors', 'tests_skipped'))
-    return (r.get('result') == 'pass' and run > 0 and errors == 0 and skipped <= allow_skips and passed >= 1
-            and passed == run - skipped)
+def _counts_pass(r, allow_skips, allow_expected=0):
+    """A receipt passes on its counts: no failure or error, no unexpected success, skips and expected failures only as far as its testcase allows
+    (`allow_skips`, `allow_expected_failures`, both 0 when absent), and every other test passed. An expected failure is not a passed test (Codex review
+    of beta 2.3.0.dev9, P2)."""
+    run, passed, errors, skipped, expected, unexpected = (int(r.get(k) or 0) for k in (
+        'tests_run', 'tests_passed', 'tests_errors', 'tests_skipped', 'tests_expected_failures', 'tests_unexpected_successes'))
+    return (r.get('result') == 'pass' and run > 0 and errors == 0 and unexpected == 0 and skipped <= allow_skips and expected <= allow_expected
+            and passed >= 1 and passed == run - skipped - expected)
 
 
 def decide(release, config, build, receipts, install, kit, *, allow_simulated=False):
@@ -171,9 +175,10 @@ def decide(release, config, build, receipts, install, kit, *, allow_simulated=Fa
             if not (r.get('result') == 'pass' and r.get('problems') == 0 and kg.get('ok') and r.get('block_sha256')
                     and not cx.get('missed') and not cx.get('wrong_reason')):
                 why('not-pass', f"{tc}: {r.get('reason') or r.get('result')}", tc)
-        elif not _counts_pass(r, int(entry.get('allow_skips', 0))):
+        elif not _counts_pass(r, int(entry.get('allow_skips', 0)), int(entry.get('allow_expected_failures', 0))):
             why('not-pass', f"{tc}: result={r.get('result')} run={r.get('tests_run')} passed={r.get('tests_passed')} "
-                            f"errors={r.get('tests_errors')} skipped={r.get('tests_skipped')}", tc)
+                            f"errors={r.get('tests_errors')} skipped={r.get('tests_skipped')} expected_failures={r.get('tests_expected_failures')} "
+                            f"unexpected_successes={r.get('tests_unexpected_successes')}", tc)
     if not install or not install.get('ok'):
         why('run-from-checkout', 'install scenario not accepted: ' + '; '.join((install or {}).get('problems') or ['no install scenario recorded']))
     else:
@@ -194,18 +199,21 @@ def decide(release, config, build, receipts, install, kit, *, allow_simulated=Fa
 # ---- (c) running the testcases -----------------------------------------------------------------------------------------------
 
 def parse_unittest(text):
-    run = re.search(r'^Ran (\d+) tests? in', text, re.M)
+    """The counts of a unittest run from its summary line: failures and errors together, skipped, expected failures and unexpected successes apart,
+    and passed = the rest. `failures=` is matched as a whole key, never inside `expected failures=` (Codex review of beta 2.3.0.dev9, P2)."""
+    runs = list(re.finditer(r'^Ran (\d+) tests? in', text, re.M))       # the last one, and the summary after it: a test may print `OK` itself
+    run = runs[-1] if runs else None
     n = int(run.group(1)) if run else 0
-    errors = skipped = 0
-    m = re.search(r'^FAILED \((.*)\)\s*$', text, re.M)
-    if m:
-        errors = sum(int(x) for x in re.findall(r'(?:failures|errors)=(\d+)', m.group(1)))
-        skipped = sum(int(x) for x in re.findall(r'skipped=(\d+)', m.group(1)))
-    else:
-        m = re.search(r'^OK(?: \((.*)\))?\s*$', text, re.M)
-        if m and m.group(1):
-            skipped = sum(int(x) for x in re.findall(r'skipped=(\d+)', m.group(1)))
-    return {'ran': bool(run), 'run': n, 'errors': errors, 'skipped': skipped, 'passed': max(0, n - errors - skipped)}
+    tail = text[run.end():] if run else text
+    m = re.search(r'^FAILED \((.*)\)\s*$', tail, re.M) or re.search(r'^OK(?: \((.*)\))?\s*$', tail, re.M)
+    summary = (m.group(1) or '') if m else ''
+
+    def count(key):
+        return sum(int(x) for x in re.findall(r'(?:^|, )' + key + r'=(\d+)', summary))
+    errors, skipped = count('failures') + count('errors'), count('skipped')
+    expected, unexpected = count('expected failures'), count('unexpected successes')
+    return {'ran': bool(run), 'run': n, 'errors': errors, 'skipped': skipped, 'expected_failures': expected, 'unexpected_successes': unexpected,
+            'passed': max(0, n - errors - skipped - expected - unexpected)}
 
 
 def _git(root, *args):
@@ -233,9 +241,11 @@ def run_unittests(root, modules, wheel, wheel_sha, out_dir, tag, python):
     (Path(out_dir) / 'runs' / f'{tag}.log').write_text(text, encoding='utf-8')
     p = parse_unittest(text)
     used = sorted(set(used_log.read_text(encoding='utf-8').split())) if used_log.exists() else []
-    result = 'pass' if (code == 0 and p['ran'] and p['run'] > 0 and p['errors'] == 0) else ('error' if (code is None or not p['ran']) else 'fail')
+    result = ('pass' if (code == 0 and p['ran'] and p['run'] > 0 and p['errors'] == 0 and p['unexpected_successes'] == 0)
+              else ('error' if (code is None or not p['ran']) else 'fail'))
     return {'command': ' '.join(['python', '-m', 'unittest', *modules]), 'python': str(python), 'exit_code': code, 'seconds': round(time.time() - t0, 1),
             'tests_run': p['run'], 'tests_passed': p['passed'], 'tests_errors': p['errors'], 'tests_skipped': p['skipped'],
+            'tests_expected_failures': p['expected_failures'], 'tests_unexpected_successes': p['unexpected_successes'],
             'result': result, 'wheel_used': used, 'output_tail': text[-800:], 'log': f'runs/{tag}.log'}
 
 

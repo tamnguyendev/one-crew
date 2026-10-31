@@ -61,8 +61,10 @@ from pathlib import Path
     code+='result=unittest.TextTestRunner(verbosity=2).run(suite)\n'
     code+='''loaded={n:{'path':m.__file__,'sha256':hashlib.sha256(Path(m.__file__).read_bytes()).hexdigest()}
  for n,m in sys.modules.items() if (n=='onecrew' or n.startswith('onecrew.')) and getattr(m,'__file__',None)}
-print('@@LINEAGE@@'+json.dumps({'tests_run':result.testsRun,'tests_passed':result.testsRun-len(result.failures)-len(result.errors)-len(result.skipped),
- 'tests_errors':len(result.failures)+len(result.errors),'tests_skipped':len(result.skipped),'result':'pass' if result.wasSuccessful() else 'fail','loaded':loaded}))
+print('@@LINEAGE@@'+json.dumps({'tests_run':result.testsRun,'tests_passed':result.testsRun-len(result.failures)-len(result.errors)-len(result.skipped)
+ -len(result.expectedFailures)-len(result.unexpectedSuccesses),
+ 'tests_errors':len(result.failures)+len(result.errors),'tests_skipped':len(result.skipped),'tests_expected_failures':len(result.expectedFailures),
+ 'tests_unexpected_successes':len(result.unexpectedSuccesses),'result':'pass' if result.wasSuccessful() and not result.expectedFailures else 'fail','loaded':loaded}))
 raise SystemExit(not result.wasSuccessful())
 '''
     env={k:v for k,v in os.environ.items() if k not in ('PYTHONPATH','PYTHONHOME','PYTHONSTARTUP','ONECREW_ACTOR','CLAUDECODE','CLAUDE_CODE_CHILD_SESSION')}

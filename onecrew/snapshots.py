@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import stat
 import subprocess
 import uuid
 
@@ -78,13 +79,50 @@ def safe_file(root, name):
     return target
 
 
+def final_path(fd):
+    """The path the open file `fd` really is, as the system resolves it (links and junctions followed); None when it cannot be told."""
+    if os.name == 'nt':
+        import ctypes
+        import msvcrt
+        buffer = ctypes.create_unicode_buffer(32768)
+        size = ctypes.windll.kernel32.GetFinalPathNameByHandleW(ctypes.c_void_p(msvcrt.get_osfhandle(fd)), buffer, 32768, 0)
+        if not size or size >= 32768: return None
+        text = buffer.value
+        return '\\\\' + text[8:] if text.startswith('\\\\?\\UNC\\') else text[4:] if text.startswith('\\\\?\\') else text
+    try:
+        return os.readlink(f'/proc/self/fd/{fd}')
+    except OSError:
+        pass
+    try:
+        import fcntl                                   # macOS
+        if hasattr(fcntl, 'F_GETPATH'):
+            return fcntl.fcntl(fd, fcntl.F_GETPATH, b'\0' * 1024).split(b'\0', 1)[0].decode('utf-8', 'surrogateescape')
+    except OSError:
+        pass
+    return None
+
+
+def check_alone(fd, expected, label):
+    """Judge the open file `fd` that is about to be read as `expected`: a regular file, no other name on the disk (link count 1), and the file the path
+    as named leads to with no link or junction on the way (its final path is `expected`). A hard link may be the other name of a file every reader
+    is kept from (an ignored .env, a home folder, the ledger), and a folder made a junction after its path was checked leads anywhere; judged on the
+    handle, a change between the check and the read cannot slip through (2.3 alpha AL-01; Codex review of beta 2.3.0.dev9, P1). LedgerError otherwise."""
+    status = os.fstat(fd)
+    if not stat.S_ISREG(status.st_mode):
+        raise LedgerError(f'{label} is not a regular file, so it is not read.')
+    if status.st_nlink > 1:
+        raise LedgerError(f'{label} has another name on the disk (a hard link), so it is not read; remove the other name or use a copy.')
+    final = final_path(fd)
+    if final is None and os.name != 'nt':
+        final = os.path.realpath(str(expected))         # no handle API on this system: the path as it resolves now (a recorded limit)
+    if final is None or os.path.normcase(final) != os.path.normcase(os.path.abspath(str(expected))):
+        raise LedgerError(f'{label} is reached through a link or junction ({final or "its final path cannot be told"}), so it is not read.')
+
+
 def _alone(path, name):
-    """The bytes of a scope file that has no other name on the disk. A hard link may be the other name of a file every reader is kept from (an
-    ignored .env, a home folder, the ledger): its bytes would enter the snapshot, and the worker's files, under an ordinary name (2.3 alpha AL-01).
-    Judged on the handle that is read."""
+    """The bytes of a scope file, read on a handle check_alone accepted (`path` is the scope root, resolved, joined with the name)."""
     with open(path, 'rb') as handle:
-        if os.fstat(handle.fileno()).st_nlink > 1:
-            raise LedgerError(f'Snapshot file {name} has another name on the disk (a hard link), so it is not read; remove the other name or use a copy.')
+        check_alone(handle.fileno(), path, f'Snapshot file {name}')
         return handle.read()
 
 
