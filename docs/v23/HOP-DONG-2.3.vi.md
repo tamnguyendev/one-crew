@@ -207,6 +207,7 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 31/10 14:21–14:41 | gói beta `2.3.0.dev10`: kiểm từ gói 16/16, luồng alpha 5/5 trong script thử, luồng alpha dev7 S5 đỏ → dev10 xanh, test P1 trên wheel cài dev9 đỏ → dev10 xanh, README 9/9, task đầu tiên 25/25, script thử `DAT`/0 và dùng lại thư mục → 2; V15 qua CLI cài: dev6 11 lỗi → dev10 0; ca Codex dev5 0 lỗi; sổ dev5 đạt | BAO-CAO-2.3-DEV10 §3.3 |
 | 31/10 14:52–22:49 | gate snapshot 2.2 trên `fb3333b`, lượt 1, không tính: 283/286 check đạt; 3 check hỏng là một test hạn 2 giây của `test_wf_metered_verifier`, máy chậm (dev9 hỏng y vậy khi đo cùng lúc); test không sửa, chạy lại cả gate | `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261031-fb3333b`; BAO-CAO-2.3-DEV10 §3.5 |
 | 31/10 23:06 – 01/11 02:02 | gate snapshot 2.2 trên `fb3333b`, lượt 2, chạy một mình: 286/286 check đạt (2 097 test, 0 skip); `refused`: 23 khoảng trống nghiệm thu như beta; kit-guard đạt (U1) | `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261031-fb3333b-run2`; BAO-CAO-2.3-DEV10 §3.5 |
+| 01/11 02:06 | phát hành beta 2: tag `v2.3.0.dev10` trên `fb3333b` và nhánh `claude/onecrew-2.3` lên `origin` (repo private); đọc lại từ `origin` khớp | BAO-CAO-2.3-DEV10 §1 |
 
 ## 7. Review Codex 28/10 và sửa
 
