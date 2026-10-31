@@ -13,6 +13,10 @@ Expected, whatever the path (verifier, status identity, reviewer tree, worker sn
     itself fails on Windows (the pinned file and the folders above it cannot be renamed, deleted or replaced) and the identity is the ordinary one;
   - ordinary work is as before (kept from the independent review of the first fix): CRLF in the index with core.autocrlf or text=auto, a file above
     core.bigFileThreshold, a path beyond MAX_PATH, a `;` in the repository's path; the tree's objects are in the repository afterwards.
+  - from the review of the redesign (3c1687a): a link or a nested repository, whose content git does not read, is pinned too, so it cannot become a
+    hard link to an outside file while git looks at it (r11, r12); a file that became a folder, or a folder that became a file, takes its new place
+    as with `git add` (r13); OneCrew's own files (.onecrew/) are not held, so its writer can replace them meanwhile (r14); a file another program
+    holds open for deleting cannot be kept in place: it is not read, and the reason says so (r15); on POSIX no descriptor stays open per file (r16).
 No network, no provider, no model; temporary folders; LOCALAPPDATA and APPDATA are those of the run.
 """
 import os
@@ -243,6 +247,105 @@ class Race(unittest.TestCase):
             self.skipTest(f'git cannot add this long path here: {str(error)[:120]}')
         self.assertEqual(command.verified_sha(self.root), plain)
 
+
+    # ---- the review of the redesign (3c1687a)
+    def nested(self, name):
+        n = self.root / name; n.mkdir()
+        git(n, 'init', '-q'); git(n, 'config', 'user.email', 't@example.com'); git(n, 'config', 'user.name', 't')
+        (n / 'f').write_text('f\n', encoding='utf-8', newline='\n'); git(n, 'add', '-A'); git(n, 'commit', '-q', '-m', 'n')
+        return n
+
+    def swapped_while_git_reads(self, swap, runs):
+        """`swap` tried right before git reads (step B), for each of `runs`: nothing outside reaches the store; on Windows the swap is refused and the
+        identity is made."""
+        for run in runs:
+            with self.subTest(run.__name__):
+                patch, tried = self.at_read(swap)
+                with patch:
+                    try:
+                        tree = run(self.root)
+                    except LedgerError:
+                        tree = None
+                self.assertTrue(tried)
+                self.assertFalse(objects_holding(self.root, TOKEN), 'the outside file reached .git/objects')
+                if os.name == 'nt':
+                    self.assertTrue(tried[0].startswith('blocked'), tried)
+                    self.assertIsNotNone(tree)
+                if tried[0] == 'swapped': return
+
+    def test_r11_a_nested_repository_cannot_become_a_hard_link_while_git_reads(self):
+        """Review of 3c1687a, finding 1: a folder (a nested repository) went to `update-index` without a pin; renamed away and replaced by a hard link
+        to an outside file at that moment, git hashed that file. No symlink privilege is needed for this one."""
+        self.nested('nested')
+
+        def swap():
+            os.rename(self.root / 'nested', self.base / 'nested-moved'); link(self.home / '.env', self.root / 'nested')
+        self.swapped_while_git_reads(swap, (command.verified_sha, command.artifact_sha))
+
+    def test_r12_a_symlink_cannot_become_a_hard_link_while_git_reads(self):
+        """Review of 3c1687a, finding 1: the same with a symlink, which git stores as a link (its target, never the content behind it)."""
+        try:
+            os.symlink(self.root / 'a.txt', self.root / 'x.txt')
+        except OSError as error:
+            self.skipTest(f'no symlink here: {error}')
+
+        def swap():
+            os.remove(self.root / 'x.txt'); link(self.home / '.env', self.root / 'x.txt')
+        self.swapped_while_git_reads(swap, (command.verified_sha, command.artifact_sha))
+
+    def test_r13_a_file_made_a_folder_and_a_folder_made_a_file_take_their_new_place_as_with_git_add(self):
+        """Review of 3c1687a, finding 2: `update-index` without --remove/--replace refused the type change that `git add -A` and `add -u` make."""
+        (self.root / 'foo').write_text('file\n', encoding='utf-8', newline='\n')
+        (self.root / 'bar').mkdir(); (self.root / 'bar' / 'x.txt').write_text('x\n', encoding='utf-8', newline='\n')
+        git(self.root, 'add', '-A'); git(self.root, 'commit', '-q', '-m', 'types')
+        (self.root / 'foo').unlink(); (self.root / 'foo').mkdir(); (self.root / 'foo' / 'a.txt').write_text('a\n', encoding='utf-8', newline='\n')
+        shutil.rmtree(self.root / 'bar'); (self.root / 'bar').write_text('now a file\n', encoding='utf-8', newline='\n')
+        self.assertEqual(command.artifact_sha(self.root), self.plain())
+        self.assertEqual(command.verified_sha(self.root), self.plain())
+        self.assertEqual(command.tracked_tree(self.root), self.plain(args=('add', '-u')))
+
+    def test_r14_onecrews_own_files_can_be_replaced_while_an_identity_is_made(self):
+        """Review of 3c1687a, finding 4: .onecrew/ (not ignored in this project) was pinned with the rest, so OneCrew's own writer of
+        active-plan.json, which saves by os.replace, failed while an identity ran. Those files are never part of the tree: they are not held."""
+        (self.root / '.onecrew').mkdir(); (self.root / '.onecrew' / 'active-plan.json').write_text('{}\n', encoding='utf-8')
+
+        def save():
+            new = self.root / '.onecrew' / 'active-plan.json.new'
+            new.write_text('{"plan": 1}\n', encoding='utf-8'); os.replace(new, self.root / '.onecrew' / 'active-plan.json')
+        for run in (command.verified_sha, command.artifact_sha):
+            with self.subTest(run.__name__):
+                patch, tried = self.at_read(save)
+                with patch:
+                    tree = run(self.root)
+                self.assertEqual(tried, ['swapped'])
+                self.assertEqual(tree, self.plain())
+
+    def test_r15_a_file_another_program_holds_open_for_deleting_is_not_read_and_the_reason_says_so(self):
+        """Review of 3c1687a, finding 5 (P3): such a file cannot be kept in place (that program may rename or delete it at any moment), so it is not
+        read; the refusal and the marker say why, not 'another name on the disk'."""
+        if os.name != 'nt': self.skipTest('a Windows sharing mode')
+        import _winapi
+        (self.root / 'work.log').write_text('log\n', encoding='utf-8', newline='\n')
+        handle = _winapi.CreateFile(str(self.root / 'work.log'), 0x80000000 | 0x00010000, 0x1 | 0x2 | 0x4, 0, 3, 0, 0)   # READ|DELETE, share all
+        self.addCleanup(_winapi.CloseHandle, handle)
+        with self.assertRaisesRegex(LedgerError, 'another program') as caught:
+            command.verified_sha(self.root)
+        self.assertNotIn('another name on the disk', str(caught.exception))
+        marker = git(self.root, 'cat-file', '-p', command.artifact_sha(self.root) + ':work.log')
+        self.assertIn('onecrew: not read (held open by another program', marker)
+
+    def test_r16_no_descriptor_stays_open_per_file_on_posix(self):
+        """Review of 3c1687a, finding 3 (POSIX, by reading): one descriptor per file was kept open until git had read them all, so past the open-file
+        limit (often 256 or 1024) every file failed. Run in a child whose limit is below the number of files."""
+        if os.name == 'nt': self.skipTest('the open-file limit of POSIX; a Windows handle is not limited this way')
+        for n in range(200):
+            (self.root / f'f{n:03}.txt').write_text(f'{n}\n', encoding='utf-8', newline='\n')
+        package_root = Path(command.__file__).resolve().parents[3]
+        code = ('import resource, sys; resource.setrlimit(resource.RLIMIT_NOFILE, (64, resource.getrlimit(resource.RLIMIT_NOFILE)[1])); '
+                f'sys.path.insert(0, {str(package_root)!r}); from onecrew.v2.verifiers import command; print(command.verified_sha({str(self.root)!r}))')
+        done = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr[-600:])
+        self.assertEqual(done.stdout.strip(), self.plain())
 
 class ReadersRace(unittest.TestCase):
     """The two other readers that judge a name and then read it: the worker snapshot (Snapshots.capture) and the wiki (wiki.pages)."""
