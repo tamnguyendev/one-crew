@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v2.3.0.dev10 (31/10/2026) — beta 2.3 sau review Codex trên dev9
+
+**Bản beta (prerelease), chưa nghiệm thu, chưa được Codex review lại; không phải bản ổn định `2.3.0`.** Kết quả, giới hạn và lệnh thử: `docs/v23/BAO-CAO-2.3-DEV10-2026-10-31.vi.md`.
+
+So với beta `2.3.0.dev9`:
+- **P1:** một file đổi thành hard link hay một thư mục đổi thành junction giữa lúc OneCrew kiểm và lúc đọc không còn lọt vào kho Git, kho snapshot, cây bàn giao hay trang wiki. Git không tự duyệt cây làm việc khi tính danh tính nữa: mỗi file được mở, xét trên handle và giữ mở trong lúc git đọc.
+- **P2:** gate tách đạt, hỏng, bỏ qua, expected failure và unexpected success; expected failure không bao giờ được tính là đạt (chỉ được chấp nhận khi testcase khai rõ). Ngoại lệ U1 hẹp `U1-20261031-V23-GATECOUNT-1..3` theo quyền chủ sở hữu 31/10.
+- Báo cáo dev9 đính chính nguồn thực thi của gate (source trên snapshot; 22/217 lượt có ghi nhận dùng wheel) và số test B2 (13).
+
 ## v2.3.0.dev9 (30/10/2026) — bản beta 2.3
 
 **Bản beta (prerelease), chưa nghiệm thu, chưa được Codex review lại; không phải bản ổn định `2.3.0`.** Dùng trên bản sao project và sổ riêng. Gate 2.2 đầy đủ chạy trên đúng snapshot của gói; kết quả, giới hạn và lệnh thử: `docs/v23/BAO-CAO-2.3-DEV9-2026-10-30.vi.md`.

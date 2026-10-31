@@ -119,6 +119,10 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | T23-ALPHA | Bản alpha `2.3.0.dev8`: luồng alpha từ gói, hồ sơ alpha riêng, phát hành alpha | T23-AL | 3 h | ALPHA-2.3.0.dev8 |
 | T23-B2 | Danh tính cho các lệnh xem không đọc tên có hard link hay sau junction (B2), review độc lập 3 vòng | T23-ALPHA | 1,5 h | `a0354ff` |
 | T23-BETA | Bản beta `2.3.0.dev9`: snapshot, hồi quy, gói, gate 2.2 đầy đủ chạy một mình, phát hành | T23-B2 | 6 h | BAO-CAO-2.3-DEV9 |
+| T23-CX-P1 | P1 review Codex dev9: khe giữa lúc kiểm và lúc đọc (git, snapshot, wiki), review độc lập 4 vòng | T23-BETA | 5 h | `6d48333`, `26eb8fc`, `570c64e`, `1cf3112`, `3265147` |
+| T23-CX-P2 | P2 review Codex dev9: bộ đếm gate (U1 hẹp GATECOUNT-1..3) | T23-BETA | 1 h | `563e0a4`, `e88b250` |
+| T23-CX-DOC | P2 review Codex dev9: nguồn thực thi của gate, số test B2 trong báo cáo dev9 và hợp đồng | T23-BETA | 0,3 h | `3a0d834` |
+| T23-BETA2 | Bản beta `2.3.0.dev10`: snapshot, hồi quy, gói, gate 2.2 đầy đủ chạy một mình, phát hành | T23-CX-* | 6 h | BAO-CAO-2.3-DEV10 |
 | T23-PK-F7 | Gói `2.3.0.dev7`: hồi quy tích hợp, kiểm từ gói (16 bước), diễn tập README + task đầu tiên + script thử, phản chứng, dữ liệu cũ, gate snapshot 2.2, phát hành bản thử | tất cả | 5 h | BAO-CAO-2.3-DEV7 |
 
 ## 6. Nhật ký tiến độ
@@ -195,6 +199,10 @@ Sau review Codex ngày 28/10 trên gói `2.3.0.dev2` (§7), code cuối là `6a8
 | 30/10 15:37–15:52 | gói beta `2.3.0.dev9`: kiểm từ gói 16/16, luồng alpha 5/5 trong script thử, luồng alpha dev7 S5 đỏ → dev9 xanh, README 9/9, task đầu tiên 25/25, script thử `DAT`/0 và dùng lại thư mục → 2; V15 qua CLI cài: dev6 11 lỗi → dev7 0; ca Codex dev5 0 lỗi; sổ dev5 đạt | BAO-CAO-2.3-DEV9 §3.3 |
 | 30/10 15:57–19:48 | gate snapshot 2.2 trên `d35b810`, chạy một mình: 286/286 check đạt (2 097 test, 0 skip); `refused`: 23 khoảng trống nghiệm thu như beta; kit-guard đạt (U1) | `D:\OneCrewRuns\v23\gates-tmp\wf-snapshot-gate-20261030-d35b810`; BAO-CAO-2.3-DEV9 §3.5 |
 | 30/10 19:54 | phát hành beta: tag `v2.3.0.dev9` trên `d35b810` và nhánh `claude/onecrew-2.3` lên `origin` (repo private); đọc lại từ `origin` khớp | BAO-CAO-2.3-DEV9 §1 |
+| 31/10 10:45–10:56 | review Codex dev9, P1 và P2: ca tái hiện đỏ trên `d705001` (P1 6/8 hỏng, P2 10 hỏng); bản sửa đầu `06f55e5`, `563e0a4`; U1 `GATECOUNT-1`, `-2` (`1254b56`) | `D:\OneCrewRuns\v23\beta2\logs` (`p1-red-d705001.txt`, `p2-red-d705001.txt`) |
+| 31/10 10:58 | P2 review Codex dev9: báo cáo dev9 và hợp đồng đính chính nguồn thực thi của gate và số test B2 (13) | `3a0d834` |
+| 31/10 11:00–12:33 | review độc lập 4 vòng cho P1/P2; P1 thiết kế lại (giữ file mở trong lúc git đọc) `6d48333`, rồi `26eb8fc`, `570c64e`, `1cf3112`, `3265147`; P2 `e88b250`, U1 `GATECOUNT-3` (`3c1687a`); mỗi vòng có test đỏ trên bản trước | `D:\OneCrewRuns\v23\beta2\review-p1p2.md`; logs `p1r3-*`, `p1r4-*`, `p1r5-*`, `r17-red-26eb8fc.txt` |
+| 31/10 | snapshot beta 2: version `2.3.0.dev10`, báo cáo `BAO-CAO-2.3-DEV10`, CHANGELOG, giới hạn, ghi chú WK00 bảng 92 | BAO-CAO-2.3-DEV10 |
 
 ## 7. Review Codex 28/10 và sửa
 
@@ -352,6 +360,9 @@ Loại bản: prerelease `2.3.0.devN` theo quy ước của §1 ("prerelease 2.3
 | AL-01 ảnh chụp phạm vi node, AL-02 trình đọc wiki (blocker alpha); FX-R06 | `6d504c0` | `tests/test_v23_alpha_links.py` (10): 8 đỏ trên `01c5831` (`red-01c5831.txt`); `tests/test_v23_review_fx.py` x04 thành test hồi quy | luồng alpha S5 (đỏ trên gói dev7, xanh trên gói alpha) |
 | Luồng alpha trong script thử | `dd52cf5` | `alpha_flow.py` trên gói dev7: S0–S4 đạt, S5 đỏ | `verify/thu-goi.ps1` bước 4 |
 | B2 danh tính cho các lệnh xem; snapshot lưu byte sau hai lần đọc | `a0354ff`, `d705001` | `tests/test_v23_beta_identity.py` (13): b01–b03, b06 đỏ trên `1c378e6` (`b2-red-1c378e6.txt`); b07–b13 từ review (b12 đỏ trên code alpha; b13 cone sparse, từ probe15 của reviewer, sửa ở `d705001`); `tests/test_v23_alpha_links.py` a06 đỏ trên code alpha | hồi quy, gate |
+| P1 review Codex dev9: khe giữa lúc kiểm và lúc đọc | `06f55e5` (bản đầu, bị review bác), `6d48333` (thiết kế lại: ghim), `26eb8fc`, `570c64e`, `1cf3112`, `3265147` | `tests/test_v23_beta2_race.py` (22): r01–r06 đỏ trên `d705001` (`p1-red-d705001.txt`), r11–r15 đỏ trên `3c1687a` (`p1r3-red-3c1687a.txt`), r17 đỏ trên `26eb8fc`, r18–r19 đỏ trên `570c64e`, r20 đỏ trên `1cf3112`; ca của review độc lập thành đối chứng (CRLF, `text=auto`, file lớn, `;`, MAX_PATH, clean filter, đổi file↔thư mục, symlink thư mục, file đổi thành repo lồng, junction hay thư mục có `.git` hỏng) | hồi quy, gate, kiểm từ gói |
+| P2 review Codex dev9: bộ đếm gate | `563e0a4`, `e88b250`; U1 `GATECOUNT-1..3` | `tests/test_v23_gate_counts.py` (7): đỏ trên `d705001` (`p2-red-d705001.txt`), c07 đỏ trên `563e0a4` | gate |
+| P2 review Codex dev9: nguồn thực thi, số test B2 | `3a0d834` | — (sửa chữ) | báo cáo dev9 §3.5, §7 |
 
 FX-3 (§10.4) với artifact Git: theo review FX-R01 và D-R03, một tên là hard link hay đi qua junction làm lượt kiểm (và `plan approve`) bị từ chối kèm lý do thay vì "báo chưa kiểm, không làm hỏng cả lượt"; đây là giới hạn đã ghi (`docs/v23/tools/limits-final.md`), không phải kỳ vọng mới. Tương tự FX-R08 với thư mục không Git có tên bị cấm.
 
