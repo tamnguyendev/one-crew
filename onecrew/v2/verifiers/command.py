@@ -69,6 +69,7 @@ def artifact_sha(directory, verified=False):
             why = dict(refused)
             linked |= set(why)
             _stage(top, env, sorted(pins.held), [n for n in gone if n in held and n not in _sparse_kept(top)])
+            _repositories_for_files(top, env, pins)
             if linked: _add_markers(top, sorted(linked), held, others, Path(temp), env, why)
             pins.recheck()
         # hook files (.onecrew/) are not part of the artifact. -f: a hook may rewrite one between the add and this rm, and without it git refuses to drop
@@ -111,6 +112,19 @@ def _stage(top, env, present, gone):
                      input=b''.join(enc(n) for n in sorted(present, key=lambda n: n.rstrip('/'))))
 
 
+def _repositories_for_files(top, env, pins):
+    """A tracked file that is now a nested repository: `update-index --remove` dropped the file (the listing ran against an index that still held
+    it, so the folder was never listed as untracked); the repository's commit takes its place, as `git add -A` and `add -u` record it (review of
+    570c64e, finding 1). The folder stays pinned; git reads only its HEAD, no content."""
+    folders = [name for name, kind in pins.kinds.items() if kind == 'folder']
+    if not folders: return
+    staged = _listed(top, env, '--cached')
+    repositories = [n for n in folders if n.rstrip('/') not in staged and _lstat(Path(top).joinpath(*n.rstrip('/').split('/'), '.git')) is not None]
+    if repositories:
+        _git(top, *NOSPARSE, 'update-index', '--add', '-z', '--stdin', env=env,
+             input=b''.join(n.rstrip('/').encode('utf-8', 'surrogateescape') + b'\0' for n in sorted(repositories)))
+
+
 class _Pins:
     """The names git is about to read, each opened and judged on its handle and held until git has read them (P1 of the review of beta dev9): regular
     files, and links and folders (a nested repository, a file that became a folder), whose content git does not read but whose name could otherwise
@@ -121,7 +135,7 @@ class _Pins:
     the new one first)."""
 
     def __init__(self, top):
-        self.top, self.held, self.folders = Path(top), {}, {}
+        self.top, self.held, self.folders, self.kinds = Path(top), {}, {}, {}
 
     def __enter__(self):
         return self
@@ -129,7 +143,7 @@ class _Pins:
     def __exit__(self, *exc):
         for handle, _ in self.held.values():
             if handle is not None: _close(handle)
-        self.held.clear()
+        self.held.clear(); self.kinds.clear()
 
     def pin(self, names):
         refused, gone = [], []
@@ -146,6 +160,7 @@ class _Pins:
             kind = 'link' if stat.S_ISLNK(status.st_mode) else 'folder' if stat.S_ISDIR(status.st_mode) else 'file'
             try:
                 self.held[name] = _open_judged(path, kind, status)
+                self.kinds[name] = kind
             except FileNotFoundError:
                 gone.append(name)
             except LedgerError as error:
@@ -322,6 +337,11 @@ def _add_markers(top, linked, held, others, temp, env, why=None):
             if plain in held: gone.append(plain)
             continue
         marks.append((plain, status))
+    # a tracked file that became a junction: git walks into it, so the files behind it are marked and the name itself is dropped, as git drops a
+    # file that became a folder; a marker at both names is a pair git refuses (review of 570c64e, finding 2)
+    inner = {name for name, _ in marks if any(other.startswith(name + '/') for other, _ in marks)}
+    gone += [name for name in inner if name in held]
+    marks = [(name, status) for name, status in marks if name not in inner]
     gone = [n for n in gone if n not in _sparse_kept(top)]
     if gone: _stage(top, env, [], gone)
     if not marks: return
@@ -414,6 +434,7 @@ def tracked_tree(directory):
             refused, gone = pins.pin(sorted(n for n in held if n not in kept_out and not _own(n)))
             if refused: raise HardLinked(_refusal(*refused[0]))
             _stage(top, env, sorted(pins.held), gone)
+            _repositories_for_files(top, env, pins)
             pins.recheck()
         _git(top, 'rm', '-r', '--cached', '-f', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)     # -f: as in artifact_sha
         return _git(top, 'write-tree', env=env)

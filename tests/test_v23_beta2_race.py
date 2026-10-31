@@ -17,7 +17,9 @@ Expected, whatever the path (verifier, status identity, reviewer tree, worker sn
     hard link to an outside file while git looks at it (r11, r12); a file that became a folder, or a folder that became a file, takes its new place
     as with `git add` (r13); OneCrew's own files (.onecrew/) are not held, so its writer can replace them meanwhile (r14); a file another program
     holds open for deleting cannot be kept in place: it is not read, and the reason says so (r15); on POSIX no descriptor stays open per file (r16);
-    a tracked name behind a folder that became a directory symlink is dropped as `git add` drops it, not refused (r17: E-R02, which the pins broke).
+    a tracked name behind a folder that became a directory symlink is dropped as `git add` drops it, not refused (r17: E-R02, which the pins broke);
+    from the review of 570c64e: a tracked file that became a nested repository is recorded by its commit, as `git add` does (r18); a tracked file
+    that became a junction gives the status identity its markers instead of failing it (r19).
 No network, no provider, no model; temporary folders; LOCALAPPDATA and APPDATA are those of the run.
 """
 import os
@@ -349,6 +351,37 @@ class Race(unittest.TestCase):
         self.assertEqual(command.artifact_sha(self.root), self.plain())
         self.assertEqual(command.verified_sha(self.root), self.plain())
         self.assertEqual(command.tracked_tree(self.root), self.plain(args=('add', '-u')))
+        self.assertFalse(objects_holding(self.root, TOKEN))
+
+    def test_r18_a_tracked_file_that_became_a_nested_repository_is_recorded_by_its_commit(self):
+        """Review of 570c64e, finding 1 (P2): the untracked listing runs against an index that still holds the file, so the folder was only passed as
+        the tracked name, and `update-index --remove` dropped it: the identity was that of the file deleted, and the new commit was not seen."""
+        (self.root / 'foo').write_text('file\n', encoding='utf-8', newline='\n')
+        git(self.root, 'add', '-A'); git(self.root, 'commit', '-q', '-m', 'foo')
+        (self.root / 'foo').unlink()
+        deleted = command.verified_sha(self.root)
+        self.nested('foo')
+        self.assertEqual(command.artifact_sha(self.root), self.plain())
+        self.assertEqual(command.verified_sha(self.root), self.plain())
+        self.assertNotEqual(command.verified_sha(self.root), deleted)
+        self.assertEqual(command.tracked_tree(self.root), self.plain(args=('add', '-u')))
+        self.assertIn('160000 commit', git(self.root, 'ls-tree', command.artifact_sha(self.root), 'foo'))
+
+    def test_r19_a_tracked_file_that_became_a_junction_gives_the_status_identity_its_markers(self):
+        """Review of 570c64e, finding 2 (P3): the name and the file behind the junction were both given a marker, git refused the pair, and the status
+        identity failed (`git did not take the marker`). The verifier and the tracked tree refuse such a tree, as before."""
+        (self.root / 'foo').write_text('file\n', encoding='utf-8', newline='\n')
+        git(self.root, 'add', '-A'); git(self.root, 'commit', '-q', '-m', 'foo')
+        (self.outside / 'inner.txt').write_text(SECRET, encoding='utf-8', newline='\n')
+        (self.root / 'foo').unlink(); junction(self.outside, self.root / 'foo')
+        self.addCleanup(lambda: os.rmdir(self.root / 'foo') if (self.root / 'foo').is_junction() else None)
+        identity = artifact.identity(self.root)
+        self.assertIn('onecrew: not read', git(self.root, 'cat-file', '-p', identity + ':foo/inner.txt'))
+        self.assertFalse(objects_holding(self.root, TOKEN))
+        with self.assertRaises(LedgerError):
+            command.verified_sha(self.root)
+        with self.assertRaises(LedgerError):
+            command.tracked_tree(self.root)
         self.assertFalse(objects_holding(self.root, TOKEN))
 
     def test_r16_no_descriptor_stays_open_per_file_on_posix(self):
