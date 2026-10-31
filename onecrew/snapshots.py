@@ -92,7 +92,14 @@ def final_path(fd):
     try:
         return os.readlink(f'/proc/self/fd/{fd}')
     except OSError:
-        return None
+        pass
+    try:
+        import fcntl                                   # macOS
+        if hasattr(fcntl, 'F_GETPATH'):
+            return fcntl.fcntl(fd, fcntl.F_GETPATH, b'\0' * 1024).split(b'\0', 1)[0].decode('utf-8', 'surrogateescape')
+    except OSError:
+        pass
+    return None
 
 
 def check_alone(fd, expected, label):
@@ -106,6 +113,8 @@ def check_alone(fd, expected, label):
     if status.st_nlink > 1:
         raise LedgerError(f'{label} has another name on the disk (a hard link), so it is not read; remove the other name or use a copy.')
     final = final_path(fd)
+    if final is None and os.name != 'nt':
+        final = os.path.realpath(str(expected))         # no handle API on this system: the path as it resolves now (a recorded limit)
     if final is None or os.path.normcase(final) != os.path.normcase(os.path.abspath(str(expected))):
         raise LedgerError(f'{label} is reached through a link or junction ({final or "its final path cannot be told"}), so it is not read.')
 
