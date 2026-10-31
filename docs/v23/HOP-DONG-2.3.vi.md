@@ -351,7 +351,7 @@ Loại bản: prerelease `2.3.0.devN` theo quy ước của §1 ("prerelease 2.3
 | Race `.onecrew` (gate trên `c6d8477`, `R03/check.t41_gaps`) | `01c5831` | `tests/test_v23_review_fx.py` OnecrewRace: đỏ trên `0c6074f` (`race-red-0c6074f.txt`); `t41_gaps` riêng: 2/3 hỏng → 6/6 | gate |
 | AL-01 ảnh chụp phạm vi node, AL-02 trình đọc wiki (blocker alpha); FX-R06 | `6d504c0` | `tests/test_v23_alpha_links.py` (10): 8 đỏ trên `01c5831` (`red-01c5831.txt`); `tests/test_v23_review_fx.py` x04 thành test hồi quy | luồng alpha S5 (đỏ trên gói dev7, xanh trên gói alpha) |
 | Luồng alpha trong script thử | `dd52cf5` | `alpha_flow.py` trên gói dev7: S0–S4 đạt, S5 đỏ | `verify/thu-goi.ps1` bước 4 |
-| B2 danh tính cho các lệnh xem; snapshot lưu byte sau hai lần đọc | `a0354ff` | `tests/test_v23_beta_identity.py` (12): b01–b03, b06 đỏ trên `1c378e6` (`b2-red-1c378e6.txt`); b07–b12 từ review (b12 đỏ trên code alpha); `tests/test_v23_alpha_links.py` a06 đỏ trên code alpha | hồi quy, gate |
+| B2 danh tính cho các lệnh xem; snapshot lưu byte sau hai lần đọc | `a0354ff`, `d705001` | `tests/test_v23_beta_identity.py` (13): b01–b03, b06 đỏ trên `1c378e6` (`b2-red-1c378e6.txt`); b07–b13 từ review (b12 đỏ trên code alpha; b13 cone sparse, từ probe15 của reviewer, sửa ở `d705001`); `tests/test_v23_alpha_links.py` a06 đỏ trên code alpha | hồi quy, gate |
 
 FX-3 (§10.4) với artifact Git: theo review FX-R01 và D-R03, một tên là hard link hay đi qua junction làm lượt kiểm (và `plan approve`) bị từ chối kèm lý do thay vì "báo chưa kiểm, không làm hỏng cả lượt"; đây là giới hạn đã ghi (`docs/v23/tools/limits-final.md`), không phải kỳ vọng mới. Tương tự FX-R08 với thư mục không Git có tên bị cấm.
 

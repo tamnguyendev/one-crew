@@ -79,8 +79,13 @@ Môi trường như gate (bỏ `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`; `TEMP`
 - **Các lượt gate trước:** trên `c6d8477` dừng ở 179/286 vì race `.onecrew` của index tạm (sửa `01c5831`); trên `6cbcaa9` dừng có chủ đích ở 141/286, không check nào hỏng, khi chỉ thị 30/10 ~11:30 chuyển sang alpha (`CANCELLED.json`). Không receipt nào của hai lượt đó được tính cho snapshot này.
 - **Snapshot:** `intact: true`; build `dirty: []`; Python 3.13.15.
 - **Check:** 286/286 có receipt, `failed: []`; 217 lượt chạy module khác nhau, 2 097 test đạt, 0 skip, 0 lỗi. Mọi receipt mang commit `d35b810` và wheel của gate.
-- **Wheel của gate khác wheel của gói về byte, giống về nội dung:** wheel của gate `2312a896192c519ca634acfeb23d4ba76d92ca66d41c72ae333ecbee0d2abbba`, wheel của gói `cbd8bc8b…`; cùng commit và version; 132/132 file bên trong giống từng byte. Gate chạy trên wheel của gate; kiểm từ gói (§3.3) chạy trên wheel của gói.
-- **Cài và nguồn module:** module nạp từ venv của gate; bản checkout bị từ chối đúng như đối chứng.
+- **Wheel của gate khác wheel của gói về byte, giống về nội dung:** wheel của gate `2312a896192c519ca634acfeb23d4ba76d92ca66d41c72ae333ecbee0d2abbba`, wheel của gói `cbd8bc8b…`; cùng commit và version; 132/132 file bên trong giống từng byte. Kiểm từ gói (§3.3) chạy trên wheel của gói. **Đính chính 31/10 (review Codex):** câu cũ "gate chạy trên wheel của gate" sai. Xem dòng nguồn thực thi ngay dưới.
+- **Cài và nguồn module:** bước cài riêng của gate cho thấy module nạp từ venv của gate, và bản checkout bị từ chối đúng như đối chứng. Kết quả này chỉ đúng cho bước cài.
+- **Nguồn thực thi của các lượt unittest (đính chính 31/10):** `wfkit/gate.py` (`run_unittests`) chạy `python -m unittest` bằng Python hệ thống, với `PYTHONPATH` và `cwd` đặt vào checkout của snapshot. Đây là hồi quy trên mã nguồn của snapshot, không phải kiểm trên wheel.
+  - 22/217 lượt có ghi nhận dùng wheel (`wheel_used`, các test tự cài wheel của gate).
+  - 195 lượt không có ghi nhận đó. Thiếu ghi nhận không có nghĩa lượt đó hỏng; nó chỉ có nghĩa lượt đó không chứng minh được nguồn là wheel.
+  - Kiểm trên package hay CLI đã cài nằm ở §3.3. Mọi worker ở cả hai nơi đều là fixture (`claude` giả); lượt này không chạy provider thật nào.
+  - Số đạt 2 097 vẫn đúng: cả 217 log đều kết thúc bằng `OK`, không có bỏ qua hay expected failure (Codex đã kiểm lại).
 - **Tự kiểm tài liệu T38a:** đạt, 155 phản chứng và 18 đối chứng.
 - **kit-guard: đạt.** Ngoại lệ U1 `U1-20261029-V23-PIN-1..3` dùng cho đúng ba file ghim như dev5 (3 lần dùng); namespace lineage đạt.
 - **Quyết định gate: `refused`, 23 vấn đề**, đều là khoảng trống nghiệm thu: 13 `acceptance-partial` và 10 `acceptance-blocked`, giống từng chữ gate beta. "Check thực thi đạt" khác quyết định cuối của gate.
@@ -161,7 +166,7 @@ Quay về 2.2: `& "$venv\Scripts\python.exe" -I -m pip install --no-index --no-b
 | AL-01: ảnh chụp phạm vi node không đọc file có tên khác trên đĩa (blocker alpha) | `onecrew/snapshots.py` (`_alone`) | `tests/test_v23_alpha_links.py` a01–a06; `tests/test_v23_review_fx.py` x04 (FX-R06 khép); `tests/test_v23_open_verifier.py` hai đối chứng theo quyết định mới | luồng alpha S5 (đỏ trên gói dev7, xanh trên gói này) |
 | AL-02: trình đọc wiki không theo link, junction, hard link (blocker alpha) | `onecrew/v2/wiki.py` (`_listing`, `_through`, `_is_link`, `pages`) | `tests/test_v23_alpha_links.py` w01–w05; `tests/test_v23_review_codex_r2.py` c1 | luồng alpha S5 |
 | Luồng alpha trong script thử | `docs/v23/tools/alpha_flow.py`, `thu_goi.ps1` | `tests/test_v23_owner_wrapper.py` (bước 4, các ca hỏng) | script thử `DAT`, luồng alpha 5/5 |
-| B2: danh tính cho các lệnh xem không đọc tên có hard link hay sau junction | `onecrew/v2/verifiers/command.py` (`artifact_sha`, `_add_without`) | `tests/test_v23_beta_identity.py` (11): b01–b03, b06 đỏ trên `1c378e6`; b07–b11 từ review | hồi quy; gate (các check verifier, evidence, handoff của 2.2) |
+| B2: danh tính cho các lệnh xem không đọc tên có hard link hay sau junction | `onecrew/v2/verifiers/command.py` (`artifact_sha`, `_add_without`) | `tests/test_v23_beta_identity.py` (13): b01–b03, b06 đỏ trên `1c378e6`; b07–b13 từ review (b12 sparse checkout đỏ trên code alpha; b13 cone sparse, bản sửa cuối `d705001`) | hồi quy; gate (các check verifier, evidence, handoff của 2.2) |
 | A1, A2, B, PK của các bản trước | như hợp đồng §4, §7–§9 | như hợp đồng | V1–V14 |
 
 ## 8. Review độc lập (theo rủi ro)
