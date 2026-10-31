@@ -121,7 +121,7 @@ class _Pins:
     the new one first)."""
 
     def __init__(self, top):
-        self.top, self.held = Path(top), {}
+        self.top, self.held, self.folders = Path(top), {}, {}
 
     def __enter__(self):
         return self
@@ -135,6 +135,8 @@ class _Pins:
         refused, gone = [], []
         for name in names:
             path = self.top.joinpath(*name.rstrip('/').split('/'))
+            if self._beyond_link(name):
+                gone.append(name); continue
             try:
                 status = _lstat(path)
             except (OSError, ValueError):
@@ -151,6 +153,22 @@ class _Pins:
             except OSError as error:
                 refused.append((name, HELD_OPEN if getattr(error, 'winerror', None) == 32 else f'cannot be opened ({error.__class__.__name__})'))
         return refused, gone
+
+    def _beyond_link(self, name):
+        """A folder on the way to `name` is a link: git stores that link and drops every name behind it, so the name is gone here too and nothing
+        behind the link is opened (E-R02; the pins had broken it, the affected regression of 3c1687a). A junction is not a link here: git walks into
+        it, and the final path of the handle refuses the name."""
+        parts = name.rstrip('/').split('/')
+        for depth in range(1, len(parts)):
+            folder = '/'.join(parts[:depth])
+            if folder not in self.folders:
+                try:
+                    status = _lstat(self.top.joinpath(*parts[:depth]))
+                except (OSError, ValueError):
+                    status = None
+                self.folders[folder] = status is not None and stat.S_ISLNK(status.st_mode)
+            if self.folders[folder]: return True
+        return False
 
     def recheck(self):
         if os.name == 'nt': return                              # the open handles kept every name in place

@@ -16,7 +16,8 @@ Expected, whatever the path (verifier, status identity, reviewer tree, worker sn
   - from the review of the redesign (3c1687a): a link or a nested repository, whose content git does not read, is pinned too, so it cannot become a
     hard link to an outside file while git looks at it (r11, r12); a file that became a folder, or a folder that became a file, takes its new place
     as with `git add` (r13); OneCrew's own files (.onecrew/) are not held, so its writer can replace them meanwhile (r14); a file another program
-    holds open for deleting cannot be kept in place: it is not read, and the reason says so (r15); on POSIX no descriptor stays open per file (r16).
+    holds open for deleting cannot be kept in place: it is not read, and the reason says so (r15); on POSIX no descriptor stays open per file (r16);
+    a tracked name behind a folder that became a directory symlink is dropped as `git add` drops it, not refused (r17: E-R02, which the pins broke).
 No network, no provider, no model; temporary folders; LOCALAPPDATA and APPDATA are those of the run.
 """
 import os
@@ -333,6 +334,22 @@ class Race(unittest.TestCase):
         self.assertNotIn('another name on the disk', str(caught.exception))
         marker = git(self.root, 'cat-file', '-p', command.artifact_sha(self.root) + ':work.log')
         self.assertIn('onecrew: not read (held open by another program', marker)
+
+    def test_r17_a_name_behind_a_folder_that_became_a_directory_symlink_is_dropped_as_with_git_add(self):
+        """The affected regression of 3c1687a: tests.test_v23_review_fx RoundFour s02 (E-R02) was refused, because the pin followed the link to the
+        file behind it. git stores the folder as a link and drops the names behind it; so do the identities, and nothing behind the link is read."""
+        (self.root / 'vendor').mkdir(); (self.root / 'vendor' / 'lib.txt').write_text('v\n', encoding='utf-8', newline='\n')
+        git(self.root, 'add', '-A'); git(self.root, 'commit', '-q', '-m', 'vendor')
+        (self.outside / 'lib.txt').write_text(SECRET, encoding='utf-8', newline='\n')
+        shutil.rmtree(self.root / 'vendor')
+        try:
+            os.symlink(self.outside, self.root / 'vendor', target_is_directory=True)
+        except OSError as error:
+            self.skipTest(f'no symlink here: {error}')
+        self.assertEqual(command.artifact_sha(self.root), self.plain())
+        self.assertEqual(command.verified_sha(self.root), self.plain())
+        self.assertEqual(command.tracked_tree(self.root), self.plain(args=('add', '-u')))
+        self.assertFalse(objects_holding(self.root, TOKEN))
 
     def test_r16_no_descriptor_stays_open_per_file_on_posix(self):
         """Review of 3c1687a, finding 3 (POSIX, by reading): one descriptor per file was kept open until git had read them all, so past the open-file
