@@ -32,6 +32,9 @@ import re
 import stat
 from pathlib import Path
 
+from ..ledger import LedgerError
+from ..snapshots import check_alone
+
 KINDS = ('decision', 'constraint', 'finding', 'lesson', 'rejected', 'note', 'summary')
 LABELS = ('observed', 'hypothesis', 'verified', 'refuted', 'unverified')
 STATUSES = ('active', 'superseded', 'withdrawn', 'archived')
@@ -427,6 +430,7 @@ def pages(project, paths=None, coverage=None):
             name = str(path) if external else path.relative_to(project).as_posix()
             problems.append({'path': name, 'problem': 'a link or junction: what it leads to is not read'}); cov['unreadable'].append(name)
         not_read = unscanned = 0
+        anchor = base.resolve() if external else Path(project).resolve() / Path(folder)     # where a page must really be
         for file in files:
             cov['pages'] += 1
             name = str(file) if external else file.relative_to(project).as_posix()
@@ -445,10 +449,11 @@ def pages(project, paths=None, coverage=None):
                         cov['undelivered'].append({'path': name, 'line': None, 'id': None, 'applies_to': None, 'source_paths': None,
                                                    'reason': f'the page declares a mandatory section but is larger than {MAX_PAGE_BYTES} bytes'})
                     continue
-                with open(file, 'rb') as handle:
-                    if os.fstat(handle.fileno()).st_nlink > 1:                  # a name made between the look and the read
-                        problems.append({'path': name, 'problem': 'the page has another name on the disk (a hard link); not read'})
-                        cov['unreadable'].append(name); continue
+                with open(file, 'rb') as handle:                                # judged on the handle: a name changed after the listing is seen
+                    try:
+                        check_alone(handle.fileno(), anchor / file.relative_to(base), 'the page')
+                    except LedgerError as refused:
+                        problems.append({'path': name, 'problem': str(refused)}); cov['unreadable'].append(name); continue
                     data = handle.read()
             except OSError as error:
                 problems.append({'path': name, 'problem': f'cannot read: {str(error)[:120]}'}); cov['unreadable'].append(name); continue

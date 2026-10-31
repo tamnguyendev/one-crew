@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 
 from ...ledger import LedgerError, canonical, utcnow
-from ...snapshots import Snapshots
+from ...snapshots import Snapshots, check_alone
 
 OUTPUT_CAP = 1_000_000
 TREE_ID = re.compile(r'[0-9a-f]{40}|[0-9a-f]{64}')          # the only shape of a tree id that is ever given to git
@@ -41,25 +41,92 @@ def toplevel(directory):
     return Path(_git(directory, 'rev-parse', '--show-toplevel')).resolve()
 
 
-def artifact_sha(directory):
+def artifact_sha(directory, verified=False):
     """Git tree hash of the working tree (tracked and untracked, honouring .gitignore), via a throw-away index: the
     repository's own index and refs are not touched. A name that hard_links finds (another name on the disk, a file through a junction, a name that
     cannot be examined) is never hashed: its place in the tree holds a marker blob made of its stat data only (size, modification time, file id), so
     the identity still changes when that file changes and nothing of its content reaches the object store (2.3 beta B2). verified_sha refuses such
-    a tree; this one is what views, reports and evidence checks compare."""
-    top = _git(directory, 'rev-parse', '--show-toplevel')
-    linked = hard_links(top)
-    with tempfile.TemporaryDirectory() as temp:
-        env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
-        _git(top, 'read-tree', 'HEAD', env=env)
-        if linked:
-            _add_without(top, linked, Path(temp), env)
-        else:
-            _git(top, 'add', '-A', env=env)
-        # hook files (.onecrew/) are not part of the artifact. -f: a hook may rewrite one between the add and this rm, and without it git refuses to drop
-        # a staged entry that differs from both the file and HEAD (the gate on c6d8477); only the throw-away index is touched.
-        _git(top, 'rm', '-r', '--cached', '-f', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)
-        return _git(top, 'write-tree', env=env)
+    a tree; this one is what views, reports and evidence checks compare.
+    A name can change between that check and git's read of it (Codex review of beta 2.3.0.dev9, P1): git writes into a private object directory, every
+    entry whose blob is not HEAD's is read again on a checked handle (_vetted), and only the objects of an accepted tree reach the repository
+    (_publish). A name that fails is never stored: `verified` (verified_sha) refuses; the status identity is made once more, when hard_links names it."""
+    top = str(Path(_git(directory, 'rev-parse', '--show-toplevel')).resolve())
+    for attempt in (1, 2):
+        linked = hard_links(top)
+        if verified and linked: refuse_hard_links(top)
+        with tempfile.TemporaryDirectory() as temp:
+            env, mine, objects = _private_objects(top, Path(temp))
+            _git(top, 'read-tree', 'HEAD', env=env)
+            started = _entries(top, env)
+            markers = _add_without(top, linked, Path(temp), env) if linked else set()
+            if not linked: _git(top, 'add', '-A', env=env)
+            # hook files (.onecrew/) are not part of the artifact. -f: a hook may rewrite one between the add and this rm, and without it git refuses to
+            # drop a staged entry that differs from both the file and HEAD (the gate on c6d8477); only the throw-away index is touched.
+            _git(top, 'rm', '-r', '--cached', '-f', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)
+            failed = _vetted(top, env, started, markers)
+            if not failed:
+                tree = _git(top, 'write-tree', env=env)
+                _publish(top, env, mine, objects, tree)
+                return tree
+        if verified or attempt == 2:
+            raise HardLinked(f'{failed[0][0]!r} changed while it was read: {failed[0][1]} Nothing of it was stored; try again.')
+    raise LedgerError('unreachable')
+
+
+def _private_objects(top, temp):
+    """(git environment for a throw-away index and a private object directory, that directory, the repository's object directory). Git reads the
+    repository's objects as an alternate and writes only into the private directory, so what it hashed is in the repository only once accepted."""
+    objects = Path(_git(top, 'rev-parse', '--git-path', 'objects'))
+    objects = (objects if objects.is_absolute() else Path(top) / objects).resolve()
+    mine = temp / 'objects'
+    mine.mkdir()
+    return ({'GIT_INDEX_FILE': str(temp / 'index'), 'GIT_OBJECT_DIRECTORY': str(mine), 'GIT_ALTERNATE_OBJECT_DIRECTORIES': str(objects)},
+            mine, objects)
+
+
+def _entries(top, env):
+    """{name: (mode, blob id)} of the throw-away index."""
+    out = {}
+    for row in _git(top, 'ls-files', '-s', '-z', env=env, raw=True).decode('utf-8', 'surrogateescape').split('\0'):
+        meta, _, name = row.partition('\t')
+        if name:
+            mode, oid, _stage = meta.split()
+            out[name] = (mode, oid)
+    return out
+
+
+def _vetted(top, env, started, markers):
+    """[(name, reason)] of the entries git took from the disk that cannot be shown to be that file's own bytes: every regular entry whose blob is not
+    the one it started from (HEAD's, or the real index's for tracked_tree) and is not a B2 marker is read again on a handle check_alone accepts and
+    hashed the way git hashes that path (`hash-object --path`, the same clean conversion). A name made a hard link or reached through a junction for
+    the add fails here, whatever was there before or after."""
+    failed = []
+    for name, (mode, oid) in sorted(_entries(top, env).items()):
+        if mode not in ('100644', '100755') or oid in markers or started.get(name, (None, None))[1] == oid: continue
+        path = Path(top).joinpath(*name.split('/'))
+        try:
+            with open(path, 'rb') as handle:
+                check_alone(handle.fileno(), path, repr(name))
+                data = handle.read()
+        except (LedgerError, OSError) as error:
+            failed.append((name, str(error)[:200])); continue
+        if _git(top, 'hash-object', '--path=' + name, '--stdin', env=env, input=data) != oid:
+            failed.append((name, 'its bytes are not the ones git hashed (it changed while it was read).'))
+    return failed
+
+
+def _publish(top, env, mine, objects, tree):
+    """Move into the repository the objects of `tree` that only the private directory holds (loose objects, the same files git writes)."""
+    wanted = {tree} | {row.split()[2] for row in _git(top, 'ls-tree', '-r', '-t', tree, env=env).splitlines() if row}
+    for oid in sorted(wanted):
+        source = mine / oid[:2] / oid[2:]
+        if not source.is_file(): continue
+        target = objects / oid[:2] / oid[2:]
+        if target.exists(): continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        part = target.with_name(target.name + '.oc-' + str(os.getpid()) + '.tmp')
+        shutil.copyfile(source, part)
+        os.replace(part, target)
 
 
 class HardLinked(LedgerError):
@@ -145,7 +212,7 @@ def _add_without(top, linked, temp, env):
              input=b'\0'.join([b'.'] + [b':(exclude,literal)' + enc(n) for n in sorted(leave)]))
     else:
         _git(top, *NOSPARSE, 'add', '-A', env=env)
-    if not marks: return
+    if not marks: return set()
     files = []
     for number, (name, status) in enumerate(marks):
         text = (f'onecrew: not read (another name on the disk, or reached through a junction); size={status.st_size} '
@@ -158,6 +225,7 @@ def _add_without(top, linked, temp, env):
          input=b''.join(b'100644 ' + oid.encode('ascii') + b'\t' + enc(name) + b'\0' for oid, (name, _) in zip(oids, marks)))
     missing = {name for name, _ in marks} - listed('--cached')
     if missing: raise LedgerError(f'git did not take the marker of {sorted(missing)[0]!r}: the identity of this working tree cannot be made.')
+    return set(oids)
 
 
 def hard_links(directory):
@@ -212,7 +280,7 @@ def verified_sha(directory):
     """artifact_sha for a verifier and for an approval: refused before git hashes anything when hard_links finds a name. The run stops with the reason;
     it cannot go on without that file, as a tree that leaves it out is another artifact."""
     refuse_hard_links(directory)
-    return artifact_sha(directory)
+    return artifact_sha(directory, verified=True)
 
 
 def tracked_tree(directory):
@@ -220,16 +288,22 @@ def tracked_tree(directory):
     modifications and deletions of the files in it (`add -u`), through a throw-away index. Unlike artifact_sha, an untracked file is never in it, and
     an ignored one is not either: what a reviewer is shown must not depend on build output lying around. The real index and the refs are not touched.
     Whatever the artifact holds and this tree does not is `changed_paths(tracked, artifact)`: the untracked files that are not ignored."""
-    top = _git(directory, 'rev-parse', '--show-toplevel')
+    top = str(Path(_git(directory, 'rev-parse', '--show-toplevel')).resolve())
     real = Path(_git(top, 'rev-parse', '--git-path', 'index'))
     real = real if real.is_absolute() else Path(top) / real
     with tempfile.TemporaryDirectory() as temp:
-        env = {'GIT_INDEX_FILE': str(Path(temp) / 'index')}
+        env, mine, objects = _private_objects(top, Path(temp))         # as artifact_sha: what git hashes is checked before it is stored (P1)
         if real.is_file(): shutil.copyfile(real, env['GIT_INDEX_FILE'])
         else: _git(top, 'read-tree', 'HEAD', env=env)                  # a repository whose index was never written: what HEAD holds is what Git tracks
+        started = _entries(top, env)
         _git(top, 'add', '-u', env=env)
         _git(top, 'rm', '-r', '--cached', '-f', '-q', '--ignore-unmatch', '--', '.onecrew', env=env)     # -f: as in artifact_sha
-        return _git(top, 'write-tree', env=env)
+        failed = _vetted(top, env, started, set())
+        if failed:
+            raise HardLinked(f'{failed[0][0]!r} changed while it was read: {failed[0][1]} Nothing of it was stored; try again.')
+        tree = _git(top, 'write-tree', env=env)
+        _publish(top, env, mine, objects, tree)
+        return tree
 
 
 def _two_trees(first, second):
