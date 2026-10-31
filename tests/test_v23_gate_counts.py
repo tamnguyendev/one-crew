@@ -43,6 +43,17 @@ MODULES = {
             def test_two(self):
                 self.assertTrue(True)
     ''',
+    'test_xf_print': '''
+        import unittest
+        class T(unittest.TestCase):
+            def test_prints(self):
+                print('Ran 1 test in 0.001s')
+                print()
+                print('OK')
+            @unittest.expectedFailure
+            def test_known(self):
+                self.assertEqual(1, 2)
+    ''',
     'test_mixed': '''
         import unittest
         class T(unittest.TestCase):
@@ -115,6 +126,12 @@ class RunnerReceiptDecision(unittest.TestCase):
         self.assertTrue(self.not_pass(self.decision(r)))                                                    # no allowance at all
         self.assertTrue(self.not_pass(self.decision(r, {'allow_skips': 1})))                                # skips allowed, not this
         self.assertFalse(self.not_pass(self.decision(r, {'allow_skips': 1, 'allow_expected_failures': 1})))
+
+    def test_c07_a_test_that_prints_ok_does_not_hide_the_real_summary(self):
+        """Independent review of the first fix: stdout comes before stderr in the log, and the first `OK` line won."""
+        r = self.receipt('test_xf_print', 'xfprint')
+        self.assertEqual((r['tests_run'], r['tests_passed'], r.get('tests_expected_failures')), (2, 1, 1))
+        self.assertTrue(self.not_pass(self.decision(r)))
 
     def test_c05_control_a_clean_run_passes_as_before(self):
         r = self.receipt('test_ok', 'ok')

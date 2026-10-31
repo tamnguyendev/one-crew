@@ -201,9 +201,11 @@ def decide(release, config, build, receipts, install, kit, *, allow_simulated=Fa
 def parse_unittest(text):
     """The counts of a unittest run from its summary line: failures and errors together, skipped, expected failures and unexpected successes apart,
     and passed = the rest. `failures=` is matched as a whole key, never inside `expected failures=` (Codex review of beta 2.3.0.dev9, P2)."""
-    run = re.search(r'^Ran (\d+) tests? in', text, re.M)
+    runs = list(re.finditer(r'^Ran (\d+) tests? in', text, re.M))       # the last one, and the summary after it: a test may print `OK` itself
+    run = runs[-1] if runs else None
     n = int(run.group(1)) if run else 0
-    m = re.search(r'^FAILED \((.*)\)\s*$', text, re.M) or re.search(r'^OK(?: \((.*)\))?\s*$', text, re.M)
+    tail = text[run.end():] if run else text
+    m = re.search(r'^FAILED \((.*)\)\s*$', tail, re.M) or re.search(r'^OK(?: \((.*)\))?\s*$', tail, re.M)
     summary = (m.group(1) or '') if m else ''
 
     def count(key):
