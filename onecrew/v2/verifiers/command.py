@@ -115,14 +115,28 @@ def _stage(top, env, present, gone):
 def _repositories_for_files(top, env, pins):
     """A tracked file that is now a nested repository: `update-index --remove` dropped the file (the listing ran against an index that still held
     it, so the folder was never listed as untracked); the repository's commit takes its place, as `git add -A` and `add -u` record it (review of
-    570c64e, finding 1). The folder stays pinned; git reads only its HEAD, no content."""
+    570c64e, finding 1). Only where git sees a repository, as it decides: a HEAD that resolves through that folder's own .git, and no file under
+    the folder taken already; a broken gitfile, an empty .git or a repository without a commit is a plain folder, as for git (review of 1cf3112).
+    The folder stays pinned; git reads only its HEAD, no content."""
     folders = [name for name, kind in pins.kinds.items() if kind == 'folder']
     if not folders: return
     staged = _listed(top, env, '--cached')
-    repositories = [n for n in folders if n.rstrip('/') not in staged and _lstat(Path(top).joinpath(*n.rstrip('/').split('/'), '.git')) is not None]
+    repositories = [n for n in folders if n.rstrip('/') not in staged and not any(s.startswith(n.rstrip('/') + '/') for s in staged)
+                    and _repository(Path(top).joinpath(*n.rstrip('/').split('/')))]
     if repositories:
         _git(top, *NOSPARSE, 'update-index', '--add', '-z', '--stdin', env=env,
              input=b''.join(n.rstrip('/').encode('utf-8', 'surrogateescape') + b'\0' for n in sorted(repositories)))
+
+
+def _repository(folder):
+    """Whether git takes `folder` for a nested repository: its own .git (a folder or a gitfile) with a HEAD that resolves to a commit. --git-dir, so
+    that git never looks upwards into the project's repository."""
+    if _lstat(folder / '.git') is None: return False
+    try:
+        _git(folder, '--git-dir', str(folder / '.git'), 'rev-parse', '--verify', '-q', 'HEAD^{commit}')
+    except LedgerError:
+        return False
+    return True
 
 
 class _Pins:

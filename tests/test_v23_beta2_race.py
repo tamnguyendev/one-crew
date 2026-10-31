@@ -19,7 +19,8 @@ Expected, whatever the path (verifier, status identity, reviewer tree, worker sn
     holds open for deleting cannot be kept in place: it is not read, and the reason says so (r15); on POSIX no descriptor stays open per file (r16);
     a tracked name behind a folder that became a directory symlink is dropped as `git add` drops it, not refused (r17: E-R02, which the pins broke);
     from the review of 570c64e: a tracked file that became a nested repository is recorded by its commit, as `git add` does (r18); a tracked file
-    that became a junction gives the status identity its markers instead of failing it (r19).
+    that became a junction gives the status identity its markers instead of failing it (r19); from the review of 1cf3112: a folder whose .git is
+    not a repository git can use is a plain folder, as for git (r20).
 No network, no provider, no model; temporary folders; LOCALAPPDATA and APPDATA are those of the run.
 """
 import os
@@ -383,6 +384,27 @@ class Race(unittest.TestCase):
         with self.assertRaises(LedgerError):
             command.tracked_tree(self.root)
         self.assertFalse(objects_holding(self.root, TOKEN))
+
+    def test_r20_a_folder_whose_git_is_not_a_usable_repository_is_a_plain_folder_as_for_git(self):
+        """Review of 1cf3112 (P3): a tracked file replaced by a folder with a broken gitfile, an empty .git folder or a repository without a commit
+        made the identity fail (the second `update-index --add` took any .git for a repository). git treats such a folder as a plain one."""
+        (self.root / 'foo').write_text('file\n', encoding='utf-8', newline='\n')
+        git(self.root, 'add', '-A'); git(self.root, 'commit', '-q', '-m', 'foo')
+        cases = {'broken gitfile': lambda f: (f / '.git').write_text('gitdir: ../nowhere\n', encoding='utf-8'),
+                 'empty .git folder': lambda f: (f / '.git').mkdir(),
+                 'no commit yet': lambda f: git(f, 'init', '-q')}
+        for name, make in cases.items():
+            with self.subTest(name):
+                shutil.rmtree(self.root / 'foo', ignore_errors=True)
+                if (self.root / 'foo').is_file(): (self.root / 'foo').unlink()
+                (self.root / 'foo').mkdir(); (self.root / 'foo' / 'f').write_text('f\n', encoding='utf-8', newline='\n'); make(self.root / 'foo')
+                self.assertEqual(command.tracked_tree(self.root), self.plain(args=('add', '-u')))
+                try:
+                    plain = self.plain()
+                except AssertionError:
+                    continue                                # plain `git add -A` itself fails here (a repository without a commit)
+                self.assertEqual(command.artifact_sha(self.root), plain)
+                self.assertEqual(command.verified_sha(self.root), plain)
 
     def test_r16_no_descriptor_stays_open_per_file_on_posix(self):
         """Review of 3c1687a, finding 3 (POSIX, by reading): one descriptor per file was kept open until git had read them all, so past the open-file
