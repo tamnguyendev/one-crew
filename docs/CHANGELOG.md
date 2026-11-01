@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## v2.4.0.dev1 (đang làm, chưa đóng gói)
+
+- **2.4-A — worker tự đọc nguồn theo quyền:** node khai `sources` {read, max_rounds, max_chars_per_round} xin `list`/`search`/`read`/`page` bằng JSON kèm `continuation`; lượt sau của chuỗi thực thi trên cây làm việc đã ghim ở lần chạy đầu (file sửa dở và chưa commit có mặt, hard link và junction bị từ chối) và đưa trang kết quả có nguồn, dòng, blob, coverage, `withheld`, `next_cursor`. Root cấp quyền đọc bằng `authority.read` (không có thì `scope.owned` + `understanding.target.paths`); node đọc ngoài quyền bị từ chối khi revise. Giới hạn theo yêu cầu, theo lượt (Kiro 15 000 ký tự tính cả schema), theo chuỗi (`max_rounds` đếm từ sổ, không reset khi đổi task con hay controller); yêu cầu lặp bị từ chối, trang tiếp được phép. Node báo cáo cũng tiếp tục được. Node không khai `sources` giữ nguyên prompt, schema và receipt của 2.3. `onecrew.paging` và `onecrew.v2.source_tools` vào wheel. Hướng dẫn: `docs/v24/HUONG-DAN-SOURCE.vi.md`.
+
 ## v2.3.0.dev10 (31/10/2026) — beta 2.3 sau review Codex trên dev9
 
 **Bản beta (prerelease), chưa nghiệm thu, chưa được Codex review lại; không phải bản ổn định `2.3.0`.** Kết quả, giới hạn và lệnh thử: `docs/v23/BAO-CAO-2.3-DEV10-2026-10-31.vi.md`.
