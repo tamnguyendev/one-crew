@@ -152,6 +152,10 @@ Giờ lấy từ commit (`git log --format="%h %ci"`), lúc tạo nhánh (`git r
 | T24-U1-DL | U1 cho test hạn root | T24-INT | `wf-v24` | không ghi | probe đỏ 12:40–12:42; xanh 12:45–12:47; `7767982` 12:47 |
 | T24-INT | Gộp, hồi quy tích hợp | mọi task trên | `wf-v24` | không ghi | `ba42e22`, `65ef023` 11:01 (72 OK, 11:01–11:04); `bde505b` 12:40; hai lượt song song trên `bde505b`: 2.4 12:41–13:20 (170/170), module ảnh hưởng 12:41–13:34 (448, 1 skip) |
 | T24-FINAL | Gói cuối, gate 2.2 một lần, hồ sơ bàn giao | T24-INT | `wf-v24-pkg` (gộp vào `claude/onecrew-2.4` bởi người điều phối) | không ghi | bước V23–V25 `a039d1f` 13:02; sửa giới hạn và `ships_paging` `d9d3075` 13:20 (gộp `d5f0815`); snapshot `61862e6` (`2.4.0.dev2`) 13:34; dựng, kiểm 25/25 và script thử `DAT`/0 13:34–13:45; gate 2.2 13:46:05–16:39:35 trên `61862e6`: 286/286 check thực thi, `refused` chỉ vì 23 khoảng trống nghiệm thu trùng dev10 (BAO-CAO-2.4 §4) |
+| T24-CX-F1 | Codex F1 (P1): danh tính venv từ nội dung file và mốc tạo venv, không chạy gì trước kiểm tĩnh; `support cleanup --venv` | T24-FINAL | `wf-v24` / `claude/onecrew-2.4` | không ghi | đỏ 21:22 trên `953096a` (`s2/red-953096a.txt`); `58cfb24` 21:53 (code), `0af3482` 21:53 (docs); vòng 2 `7253969`, `a7964a3` 22:55; vòng 3 `9c2600a`, `550f40a` 23:53; vòng 4 `f171ac9`, `daa3caa` 01:04 (02/11); vòng 5 `bb19222` 01:29 (02/11); review r2 22:11 (P1 3, P2 5, P3 5), r3 23:05 (2/3/4), r4 00:02 (2/2/4), r5 01:09 (0/1/4) |
+| T24-CX-F2 | Codex F2 (P1): quyết định chuyển/quay lui gắn với dữ liệu đã diễn tập; cửa sổ chuyển hai phía; vi phạm không là ngõ cụt; claim có thời hạn | T24-CX-F1 (cùng `hotfix.py`) | `wf-v24` / `claude/onecrew-2.4` | không ghi | cùng các commit và review của T24-CX-F1 (một lượt sửa cho cả hai finding) |
+| T24-CX-F3 | Codex F3 (P2): duyệt đủ chuỗi đầu vào, không bao giờ mặc định `publish`; attempt sinh lấy từ sổ | T24-FINAL | `wf-v24-a` / `claude/onecrew-2.4-a` | không ghi | đỏ 21:44 (`b/red-test_v24_b_review2-12-953096a.txt`); `3bc739e`, `3cf5b30`, `155ed60` 21:46; review 21:57 (P1 1, P2 0, P3 4); P1-1: `8ed6040` (đỏ), `8424336`, `31baabf` 22:26; review lại 23:13 (0/0/4); vòng P3 `5b24fca`, `d2f1c5f` 23:25 |
+| T24-CX-F4 | Codex F4 (P3): đồng bộ báo cáo, hợp đồng, giới hạn, wiki với dev3; bước gói V26–V28; hợp nhất; snapshot `2.4.0.dev3` | T24-CX-F1, -F2, -F3 | `wf-v24-pkg` / `claude/onecrew-2.4-pkg` (docs phần 1 `9e9de4d` 21:06 ở `claude/onecrew-2.4`) | không ghi | `9151e86` 22:16 (V26–V28), `576ba00` 00:13 (kiểm lại với `fe495c1`); gộp `da9c913` 21:56, `830af1a` 22:56, `fe495c1` 23:53, `34709d5` 01:05; snapshot `5a7a8ef` 01:30 (02/11); tài liệu phần 2 (commit này); gói và gate dev3 chưa có (§7) |
 
 ## 7. Nhật ký
 
@@ -192,6 +196,36 @@ Giờ lấy từ commit (`git log --format="%h %ci"`), lúc tạo nhánh (`git r
 | 13:46:05–16:39:35 | Gate snapshot 2.2 trên `61862e6`, chạy một mình: 286/286 check thực thi đạt, 2.097 test đạt (0 skip, 0 expected failure), `refused` chỉ vì 23 khoảng trống nghiệm thu (trùng dev10); kit-guard `ok` | `gate-snapshot-61862e6`, `gates-tmp\wf-snapshot-gate-20261101-61862e6\gate\decision.json` |
 | 14:08:57 | Sổ hook thật đổi lần hai bởi phiên khác (thêm bản sao `signsdk-dev10-thu-20261101`); không phải lượt 2.4, không khôi phục | §1 |
 
+### Review Codex vòng 1 trên dev2 → dev3 (01/11 20:55 – 02/11)
+
+Giờ lấy từ `git log --date=format:%H:%M` trong `wf-v24-pkg`, giờ ghi file của báo cáo review và log dưới `D:/OneCrewRuns/v24/codex-r1/`, `D:/OneCrewRuns/v24/logs/`. Cột "Lúc" ghi cả ngày.
+
+| Lúc | Việc | Bằng chứng |
+|---|---|---|
+| 01/11 ~20:55 | Chỉ thị chủ: sửa 2 P1 (F1 runtime bị sửa vẫn qua danh tính, F2 rollback lấy mốc sau diễn tập), 1 P2 (F3 `INPUT_DEPTH=3`), 1 P3 (F4 báo cáo/giới hạn sai hoặc cũ) từ review Codex vòng 1 trên `2.4.0.dev2` (code `61862e6`, tài liệu `953096a`) | chat Claude Code; probe Codex `D:/OneCrewRuns/codex-v24-progress-29e140be/` |
+| 01/11 21:03–21:12 | Bảng finding → ca thử → kỳ vọng; tái hiện baseline `953096a`: `rollback_probe` ra `rolled_back` với `data_changed_since_drill true`; `depth_probe` và `chain_integration` ra `E publish` | `codex-r1/plan.md`; `baseline/rollback_probe-953096a.json`; `b/probe-before-953096a.txt` |
+| 01/11 21:06 | F4 phần 1: số gate `61862e6`, 447 + 1 skip, `limits-s2` | `9e9de4d` |
+| 01/11 21:22–21:46 | Test đỏ trên baseline: S2 20 test (16 hỏng, 1 lỗi); B 12 test (10 hỏng, 2 lỗi) | `s2/red-953096a.txt`; `b/red-test_v24_b_review2-12-953096a.txt`; `3bc739e` |
+| 01/11 21:46–21:53 | F3 sửa và docs; F1/F2 sửa và docs; gộp | `3cf5b30`, `155ed60`; `58cfb24`, `0af3482`; `da9c913` 21:56 |
+| 01/11 21:57 | Review độc lập F3: P1 1, P2 0, P3 4 (P1-1: biên nhận nêu attempt của node khác thì chuỗi bị bỏ lọt) | `review-b/review-f3.md` |
+| 01/11 22:11 | Review độc lập S2 r2: P1 3, P2 5, P3 5 | `review-s2/review-s2-r2.md` |
+| 01/11 22:13–22:16 | Bước gói V26–V28 viết; cả ba FAIL trên gói dev2 | `9151e86`; `pkg/v26-on-dev2.txt`, `v27-on-dev2.txt`, `v28-on-dev2.txt` |
+| 01/11 22:26 | F3 P1-1: test đỏ trên `155ed60`, sửa (attempt sinh luôn lấy từ sổ), docs | `8ed6040`, `8424336`, `31baabf` |
+| 01/11 22:55–23:22 | S2 vòng 2 (mốc tạo venv, kiểm tĩnh trước khi chạy, vi phạm khôi phục được, claim có thời hạn); gộp `830af1a`; hồi quy tích hợp 2.4 228/228 (22:56:30–23:22:36) | `7253969`, `a7964a3`; `logs/reg-int-v24-830af1a.txt` |
+| 01/11 23:05 | Review độc lập S2 r3: P1 2, P2 3, P3 4 | `review-s2-r3/review-s2-r3.md` |
+| 01/11 23:13–23:25 | Review lại F3: P1 0, P2 0, P3 4; vòng P3 của F3 | `review-b-r2/review-f3-r2.md`; `5b24fca`, `d2f1c5f` |
+| 01/11 23:53 | S2 vòng 3 (không ngõ cụt, cửa sổ giữa file hook đầu và cuối, không tiếp tục venv không có mốc, mỗi sổ một venv); gộp `fe495c1` | `9c2600a`, `550f40a` |
+| 01/11 23:54 – 02/11 00:29 | Hồi quy tích hợp 2.4 trên `fe495c1`: 238/238, 0 skip | `logs/reg-int-v24-fe495c1.txt` |
+| 02/11 00:02 | Review độc lập S2 r4: P1 2, P2 2, P3 4 | `review-s2-r4/review-s2-r4.md` |
+| 02/11 00:10–00:13 | V26–V28 kiểm lại với `fe495c1` (dạng lệnh rollback, venv đã chuyển bị sửa); FAIL trên gói dev2, đạt trên wheel dựng từ `fe495c1` | `576ba00`; `pkg/v26-on-dev2-r2.txt` … `v28-on-dev2-r2.txt`; `D:/OneCrewRuns/v24 thu v2x fe495c1` |
+| 02/11 01:04–01:05 | S2 vòng 4 (`cleanup --venv` đúng đường dẫn đưa và hai dạng thư mục, kiểm trước ghi trong một lượt đọc, luật chặn cho chủ); gộp `34709d5` | `f171ac9`, `daa3caa` |
+| 02/11 01:09 | Review độc lập S2 r5 (cuối): P1 0, P2 1 (viết tắt `--ven` lọt luật chặn), P3 4 | `review-s2-r5/review-s2-r5.md` |
+| 02/11 01:29 | S2 vòng 5: `allow_abbrev=False`, luật chặn mọi tùy chọn bắt đầu `--v`; module S2 183 test, 1 hỏng có từ trước (`test_g2_install`) | `bb19222`; `s2/round5-green.txt` |
+| 02/11 01:30 | Snapshot `2.4.0.dev3` (version và CHANGELOG) | `5a7a8ef` |
+| 02/11 (tài liệu) | Báo cáo §8, hợp đồng §6–§8, `limits-final.md`, wiki | commit "2.4 docs: Codex round 1 (F1–F4) section ..." |
+| chưa có | Gói `onecrew-2.4.0.dev3-beta` (28 bước), kiểm từ gói, script thử | <!-- v24:dev3-pkg --> |
+| chưa có | Gate 2.2 và hồi quy 2.4 trên `5a7a8ef` | <!-- v24:dev3-gate --> |
+
 ## 8. Quyết định vượt quyền và điều cần Codex hay chủ sở hữu
 
 - **Không phát hành 2.4.** Không push nhánh, không tag, không publish gói 2.4 nào; không nâng runtime đang dùng (`%LOCALAPPDATA%\OneCrew`, venv và hook thật); không đọc/ghi `state-v2-real`. Phát hành là quyết định của chủ sở hữu sau Codex review.
@@ -203,3 +237,4 @@ Giờ lấy từ commit (`git log --format="%h %ci"`), lúc tạo nhánh (`git r
 - **Hai U1 hẹp trên nhánh 2.4,** theo mục 6 chỉ thị 01/11: `U1-20261101-V24-PIN-1` (`tests/test_g1_core.py`, một regex version) và `U1-20261101-V24-DEADLINE-1` (`tests/test_wf_metered_verifier.py`, cửa sổ hạn đo từ một lượt định danh; không bỏ assertion, không đổi guard runtime). Không cấp U1 nào khác; test ghim template `2.2.0.dev3` của `test_g2_install` không sửa.
 - **Version:** hai gói thử cùng `2.4.0.dev1`, khác §2 ("mỗi gói alpha tăng N"). Gói bàn giao: `2.4.0.dev2` (`61862e6`); hai gói `2.4.0.dev1` trong `pkg-trial` là bản thử công cụ, không bàn giao.
 - **Cần Codex hoặc chủ sở hữu:** Codex review gói cuối (danh sách điểm rủi ro ở báo cáo bàn giao); quyết định phát hành; thử với model thật trong quyền; nghiệm thu. Lượt này không ghi review hay nghiệm thu nào thay họ.
+- **Vòng Codex 1 trên dev2 (02/11): không có việc mới nào ngoài quyền.** Cả bốn finding sửa được ngay trong quyền của lượt này và đã sửa. Việc của chủ sở hữu giữ nguyên: Codex review dev3; quyết định push/tag/phát hành; nghiệm thu. Test `test_g2_install` (ghim `2.2.0.dev3`) vẫn hỏng từ trước và không có U1; lỗi mới của code 2.4 không bao giờ ghi là ngoài quyền.

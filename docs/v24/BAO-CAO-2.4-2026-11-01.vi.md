@@ -1,8 +1,9 @@
 # OneCrew 2.4 — báo cáo bàn giao 01/11/2026
 
-Người viết: Claude (đầu mối 2.4), 01/11/2026, theo chỉ thị người dùng ngày 01/11 ~02:10 ("Tiếp quản và hoàn thành toàn bộ feature đã chốt của OneCrew 2.4 theo roadmap chung: 2.4-S1, S2, A, B, C"). Phạm vi, thiết kế và truy vết đầy đủ: [hợp đồng 2.4](HOP-DONG-2.4.vi.md) §3–§8. Đây là **tự kiểm của tác giả và review của agent độc lập**: chưa có Codex review, chưa có nghiệm thu của chủ sở hữu, chưa phát hành. Mọi kiểm dùng `claude` giả và sổ tạm, không có lượt model thật.
+Người viết: Claude (đầu mối 2.4), 01/11/2026, theo chỉ thị người dùng ngày 01/11 ~02:10 ("Tiếp quản và hoàn thành toàn bộ feature đã chốt của OneCrew 2.4 theo roadmap chung: 2.4-S1, S2, A, B, C"). Phạm vi, thiết kế và truy vết đầy đủ: [hợp đồng 2.4](HOP-DONG-2.4.vi.md) §3–§8. Đây là **tự kiểm của tác giả và review của agent độc lập**: Codex đã review dev2 vòng 1 (bốn finding, đã sửa ở dev3, xem §8); dev3 chưa được Codex review lại, chưa có nghiệm thu của chủ sở hữu, chưa phát hành. Mọi kiểm dùng `claude` giả và sổ tạm, không có lượt model thật.
 
 **Tóm tắt (quyết định trước):**
+- **Mới nhất (02/11): dev2 → dev3 sau review Codex vòng 1.** Bốn finding đã sửa trên nhánh, có phản chứng đỏ trước và xanh sau, snapshot `2.4.0.dev3` = `5a7a8ef`: F1 (P1) runtime bị sửa file vẫn được nhận là đúng artifact; F2 (P1) rollback lấy mốc dữ liệu sau khi diễn tập; F3 (P2) chuỗi phụ thuộc dài công bố tri thức đã thu hồi; F4 (P3) báo cáo/giới hạn sai hoặc cũ. Review độc lập: S2 bốn lượt (kết quả cuối P1 0/P2 1/P3 4, P2 đã sửa), B hai lượt (cuối P1 0/P2 0/P3 4). Hồi quy tích hợp 2.4 trên `fe495c1` (trước vòng 4–5 của S2): 238/238, 0 skip. Gói dev3 và gate trên `5a7a8ef`: chưa có, xem §8.5–§8.6. Các gạch đầu dòng dưới đây và §1–§7 mô tả dev2 (`61862e6`).
 - Cả năm mốc đã có code và test trên một cây (gộp `bde505b`; snapshot cuối `61862e6`, version `2.4.0.dev2`); mỗi mốc có review độc lập, ca review được viết thành test đỏ trước khi sửa.
 - Gói cuối gồm cả năm mốc: `D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev2-beta` (wheel SHA256 `383df81d…`); kiểm từ gói 25/25 bước; script thử `DAT`/0 (bộ kiểm 25/25, task đầu tiên 25/25, luồng alpha 5/5). Gate 2.2 trên `61862e6`: 286/286 check thực thi đạt; `refused` chỉ vì 23 khoảng trống nghiệm thu, trùng danh sách beta 2.3 (§4).
 - Hồi quy tích hợp trên `bde505b`: 170/170 test 2.4; 448 test của 34 module 2.2/2.3 bị ảnh hưởng: 447 đạt, 1 skip, 0 fail.
@@ -148,3 +149,82 @@ Chỉ số quan sát được; không có so sánh trước/sau trên cùng đi�
 - **B consumer bị ảnh hưởng** — `knowledge.affected_consumers`: `test_sb02…`, `test_sb08…`, `test_b_r07…`.
 - **C điểm dừng bước 0** — `proposal.py` (luật mới), `survey.open_in`: `test_v24_c_review` r01 ×3, r02.
 - **C chế độ `tools` và giữ phiên** — `execution_mode.py`, `engine.py` (claim tools, `resources`): `test_r03_…`, `test_r04_…`, `test_r06_reuse_needs_the_previous_attempt_session_the_same_id_and_the_same_pin`; lưu ý C-R17 (fixture `list(namespaces.CAPABILITIES)`).
+
+
+**Điểm rủi ro mới sau vòng sửa dev3 (cho Codex xem lại):**
+
+- **S2 mốc tạo venv nằm trong sổ** — `hotfix.py` (mốc `support.install` ghi sau lần kiểm đầu: `pyvenv.cfg`, `Scripts/`, phần còn lại của `site-packages`): người ghi được sổ hoặc thư mục `support-work` giả được cả mốc lẫn marker (đã ghi trong `limits-s2.md`). Mốc không chứng minh `python -m venv` đã tạo đúng. Test: `test_v24_s2_review2` `R2_*`, `R3_02`, `R3_04`.
+- **S2 quy kết trong cửa sổ chuyển** — `_window`, `_settled`, `events_in_window`, `attempts_in_window`: cửa sổ từ lần chụp ngay trước lần ghi hook đầu tới lần chụp ngay sau lần ghi cuối; một process hook khởi động trước lần ghi cuối có thể ghi sau lần chụp đó và được đếm như của runtime mới; nhiều file hook thì không phân biệt được ai ghi giữa file đầu và file cuối; project bận có thể làm bước kiểm trước lần ghi đầu từ chối lặp lại. Test: `R3_03`, `R4_02a/b`, `InstallWindow`, `RollbackWindow`.
+- **S2 `support cleanup --venv`** — `cleanup_venv`, `_cleanable`, `_reparse`, `ownership.refuse_argv`, `hook_cli.OWNER_DENY`: chỉ hai dạng thư mục của lần cài trong sổ này, không bao giờ xóa venv đích đã khai, không qua link hay junction, luật chặn cho phiên AI kể cả viết tắt (`--v*`). Còn lại: thư mục giữa gốc và đường dẫn được đưa bị thay bằng junction sau các phép kiểm (R5-02, ghi trong `limits-s2.md`); quote động từ lách mọi mẫu deny (giới hạn của mẫu). Test: `R4_01`, `R4_03`, `R4_04`, `R4_06`, `R5_01`.
+- **B duyệt đủ chuỗi đầu vào và nghĩa "không kiểm được"** — `working_context._walk`, `_edge`, `_attempt_of`, `decide`: attempt sinh lấy từ sổ theo node + biên nhận + generation, không từ biên nhận; mọi trường hợp không kiểm hết (biên nhận thiếu/không đọc được, attempt không có trong sổ, vòng, `MAX_WALK`) thành `input_changed`. Chi phí duyệt nằm trong khóa ghi (đo trên `8424336`: 0,18 s ở node thứ 2 và 0,50 s ở node thứ 12 của chuỗi 12 node). Test: `test_f3_a` … `test_f3_o`.
+
+**P3 còn lại từ hai review cuối (không chặn; Codex nên biết):**
+
+- Từ `review-s2-r5.md` (S2, 0 P1/1 P2/4 P3; P2 R5-01 đã sửa ở `bb19222`): R5-02 TOCTOU của `cleanup_venv` (đổi thư mục giữa gốc và đường dẫn sau kiểm; không sửa, ghi vào giới hạn); R5-03 `_norm` fail-closed (đường dẫn dạng `\\?\`, tên 8.3, ổ `subst` không khớp thì từ chối; lời từ chối nay nói "đưa đường dẫn đúng như `install` in ra"); R5-04 bước kiểm trước lần ghi đầu từ chối khi có bất kỳ thay đổi nào của project bận (an toàn, chạy lại; đã ghi); R5-05 câu "lần chụp thứ hai" trùng nghĩa với "lần đọc thứ hai" (đã sửa lời).
+- Từ `review-f3-r2.md` (B, 0 P1/0 P2/4 P3; đã xử lý ở `5b24fca`, `d2f1c5f`): P3-1 lời khuyên "re-open the producer" của `node.held` vẫn chung cho mọi `input_changed` (lý do đã nêu phần không kiểm được; với biên nhận nêu sai attempt cần sửa executor của node sinh); P3-2 `f3_m` đã chặt hơn, `f3_o` mới; P3-3 ràng buộc không có `generation` lấy kết quả mới nhất của node sinh mang biên nhận đó (ghi `limits-b.md`); P3-4 chi phí duyệt đã đo lại.
+- Từ `review-f3.md` (B vòng 1) P3-1, **chưa xử lý và chưa ghi trong `limits-b.md`**: `decide` trả `publish` khi root không resolve được hoặc không mở được sổ; `_own` bỏ mọi kiểm tri thức của node sinh không còn trong định nghĩa hiện tại. Reviewer thấy hai đường này không với tới được từ các điểm gọi hiện tại của engine; tài liệu vẫn viết "luôn đóng khi không kiểm được".
+- Sửa S2 mất năm vòng vì mỗi vòng sửa mở thêm một khe vòng đời (xem LL-37 ở `wiki/LESSONS.vi.md`). Còn ngoài phạm vi: Linux/POSIX (liệt kê process `unknown` nên từ chối chuyển), bản cũ đọc bản ghi S2, mọi thứ cần model thật.
+
+## 8. Review Codex vòng 1 trên dev2 → dev3 (02/11)
+
+Chỉ thị chủ 01/11 ~20:55 sau review Codex vòng 1 trên `2.4.0.dev2` (code `61862e6`, tài liệu `953096a`): sửa 2 P1 (F1, F2), 1 P2 (F3), 1 P3 (F4). Mỗi finding có phản chứng đỏ trên baseline `953096a` trước khi sửa. Snapshot sau sửa: `2.4.0.dev3` = `5a7a8ef`. Bảng finding → ca thử → kỳ vọng: `D:/OneCrewRuns/v24/codex-r1/plan.md`. §1–§7 ở trên vẫn mô tả dev2 (`61862e6`), không viết lại; mọi thay đổi của dev3 nằm ở đây.
+
+**Quyết định trước:** cả bốn finding đã sửa trên nhánh, có test đỏ → xanh và review độc lập (riêng F4 là tài liệu, chưa có review riêng). Chưa có Codex review lại dev3, chưa có kết quả gói dev3 và gate (neo ở cuối mục). Không push, không tag, không phát hành.
+
+### 8.1 Bảng finding
+
+Số dòng là của lượt sửa đầu (vòng 1); các vòng 2–5 đã dời dòng, tên hàm giữ nguyên. Đường dẫn bằng chứng nằm dưới `D:/OneCrewRuns/v24/codex-r1/` (trừ khi ghi `logs/`, là `D:/OneCrewRuns/v24/logs/`).
+
+| Finding | Thay đổi (file:dòng, vòng 1) | Đỏ trước / xanh sau | Test | Review độc lập (vòng, kết quả cuối) |
+|---|---|---|---|---|
+| **F1 P1, S2:** runtime bị sửa vẫn được nhận là đúng artifact | `onecrew/v2/hotfix.py`: `identity()` :211 băm nội dung từng file theo RECORD của wheel đã kiểm (không đọc RECORD trong venv); `interpreter()` :141, `entry_run()` :151 (`PYTHONVERBOSE`); `verify_installed()` :990 dùng ở `_install` :1073 (venv mới và venv dùng lại), :1050 (đã chuyển), :1280 (recheck). Vòng 2–5: mốc tạo venv ghi vào sổ, kiểm tĩnh trước khi chạy gì của venv, `.pth` đọc utf-8-sig, một venv cho mỗi sổ, `support cleanup --venv` (lệnh của chủ) | Đỏ: probe Codex `runtime_probe` trên `953096a`: sửa `diagnostics.py`, giữ RECORD, `before []`/`after []`; `s2/red-953096a.txt` (20 test, 16 hỏng + 1 lỗi, gồm cả F2). Xanh: `s2/codex-probes/runtime_probe-fixed.txt` (`after_problems` nêu `onecrew/v2/diagnostics.py`); `s2/green-final.txt` (103 OK) … `s2/round5-green.txt` | `tests/test_v24_s2_review2.py`: `RealVenvIdentity` (`test_f1_*`; venv và wheel thật: nguyên vẹn, nối byte, sửa, xóa, file thừa, `.pth`, `.pyc` giả, entrypoint sai), `RealVenvRound2` (`R2_01*`, `R2_03`–`R2_05`, `R2_11`), `Round2`–`Round4` (`R2_*`, `R3_*`, `R4_*`), `R5_01`; thêm vào `test_v24_s2_installed.py`, `test_v24_s2_apply.py`; bước gói V27 | 4 lượt (r2–r5): r2 P1 3/P2 5/P3 5; r3 2/3/4; r4 2/2/4; **r5 (cuối) 0/1/4**; P2 của r5 (viết tắt `--ven` lọt luật chặn) đã sửa ở `bb19222`, chưa review lại riêng |
+| **F2 P1, S2:** rollback lấy mốc dữ liệu sau khi diễn tập | `hotfix.py`: `_fenced()` :593 (fence và băm dữ liệu trong một lượt đọc), `_drill_copy()` :624 (fence mỗi state root trước khi chép; bản chép phải đúng dữ liệu đó), `_window()` :841 (kiểm lại sau khi trỏ hook), `_rollback()` :1169, điểm crash mới `rollback_after_drill` :1201. Vòng 2–5: cửa sổ tính từ lần chụp ngay trước lần ghi hook đầu tới lần chụp ngay sau lần ghi cuối; vi phạm không còn là ngõ cụt; claim có thời hạn, gia hạn, tiếp quản khi tiến trình giữ claim đã chết | Đỏ: `baseline/rollback_probe-953096a.json`: `result rolled_back` với `data_changed_since_drill true`; `s2/red-953096a.txt` (7/7 ca `RollbackWindow` và 2 ca `InstallWindow` hỏng). Xanh: `s2/codex-probes/rollback_probe-fixed.txt`: `result refused`; xanh như F1 | `RollbackWindow`, `InstallWindow` (`test_f2_*`; chèn ghi ở từng ranh giới, hai consumer chung một state root, crash sau diễn tập, ca đối chứng không đổi), `rollback_window` trong `test_v24_s2_installed.py` (runtime thật), `R2_02*`, `R3_01`, `R4_02*`; bước gói V28 | như F1 (cùng 4 lượt review, cùng hàm) |
+| **F3 P2, B:** chuỗi dài bỏ lọt tri thức đã thu hồi (`INPUT_DEPTH=3`) | `onecrew/v2/working_context.py`: bỏ `INPUT_DEPTH`; `MAX_WALK=10000` :34; `_walk` :316 (ngăn xếp tường minh, mỗi attempt xét một lần), `_facts` :279, `_edge` :260, `_attempt_of` :239, `_upstream` :294, `_decision` :228, `decide` :342. Không kiểm hết được thì `input_changed`, không bao giờ `publish`. Sau review: attempt sinh luôn lấy từ sổ (`8424336`), lý do hold nêu phần không kiểm được (`5b24fca`) | Đỏ: `b/probe-before-953096a.txt` (probe Codex `chain_integration`: A recheck, D `input_changed`, E `publish`, `verify E` được nhận); `b/red-test_v24_b_review2-12-953096a.txt` (12 test: 10 hỏng, 2 lỗi); `b/red-p1-misattributed-155ed60.txt`; `b/red-r2-hold-text-31baabf.txt`. Xanh: `b/probe-after-fix.txt` (E `input_changed`, `verify E` bị từ chối), `b/depth_probe-after-fix.json`, `b/green-test_v24_b_review2-12.txt`, `logs/reg-r2-review2-r2.txt` | `tests/test_v24_b_review2.py`: `test_f3_a` … `test_f3_o` (15 test): chuỗi 7 node, thứ tự/memo, restart, bản mới của mục bắt buộc, fan-in, fan-out, biên nhận không đọc được, biên nhận của executor khác, chuỗi 40, vòng, thiếu bản ghi start, trần `MAX_WALK`, biên nhận nêu sai attempt (`f3_m`, `f3_n`, `f3_o`); bước gói V26 | 2 lượt: `review-b/review-f3.md` P1 1/P2 0/P3 4 (P1-1: biên nhận nêu attempt của node khác thì chuỗi bị bỏ lọt; đã sửa); **`review-b-r2/review-f3-r2.md` (cuối) 0/0/4 P3**, đã xử lý ở `5b24fca`, `d2f1c5f` |
+| **F4 P3:** báo cáo/giới hạn sai hoặc cũ | Phần 1 `9e9de4d`: số gate `61862e6` đúng (217 lượt, 2.097/2.097, 0 skip/xfail), 447 đạt + 1 skip của 448, `limits-s2` không còn ghi "chỉ alpha S1/S2". Phần 2 (lượt này): mục 8 này, hợp đồng §6–§8, `limits-final.md` đồng bộ với `limits-s2.md`, `limits-b.md`, wiki; `docs/CHANGELOG.md` mục dev3 (`5a7a8ef`) | Đỏ: đọc tài liệu `953096a` (`plan.md` hàng F4). Xanh: tài liệu ở `5a7a8ef` và commit này | Không có (tài liệu) | Chưa có review độc lập riêng; Codex xem ở lượt sau |
+
+### 8.2 Chủ dự án thấy gì sau khi sửa
+
+- **F1:** `support install` và `support recheck` không còn nhận một venv đã bị sửa file, dù RECORD trong venv vẫn nguyên. Kiểm nội dung từng file với wheel đã kiểm, kiểm file lạ, `.pth`, `.pyc`, link và junction trước khi chạy bất cứ thứ gì của venv. Venv mà sổ này không ghi mốc lúc tạo thì không dùng lại; chủ dọn venv dở dang bằng `support cleanup --venv` (lệnh của chủ, bị từ chối trong phiên AI). Hook không đổi khi bị từ chối.
+- **F2:** nếu dữ liệu đổi giữa lúc diễn tập và lúc chuyển hook hay quay lui, lệnh từ chối (`refused`/`refused_unsafe`) và không ghi hook; kết quả `rolled_back` hay `switched` chỉ có khi dữ liệu đúng bản đã diễn tập. Nếu dữ liệu đổi sau lần ghi hook đầu thì lệnh ghi vi phạm cửa sổ chuyển, nhưng không còn ngõ cụt: chủ chạy lại `rollback` hay `install` thì diễn tập lại trên dữ liệu hiện tại. Trạng thái nói theo hook đang chạy thật và nhắc khởi động lại phiên Claude Code đang mở.
+- **F3:** nếu tri thức bắt buộc hoặc nguồn bị thu hồi ở đầu một chuỗi node dài, mọi node phía sau dựa trên nó bị giữ (`input_changed`), không công bố và không verify, dù chuỗi dài bao nhiêu. Node độc lập vẫn chạy. Khi không kiểm hết được (biên nhận thiếu hay nêu sai attempt, vòng, vượt `MAX_WALK`), kết quả là giữ, không bao giờ là công bố; lý do hold nêu phần không kiểm được.
+- **F4:** báo cáo, hợp đồng và giới hạn nói đúng những gì đã có và chưa có ở dev3; số liệu tách đạt/hỏng/skip. Không có thay đổi hành vi.
+
+### 8.3 Số test
+
+Đọc từ đuôi log (`Ran N tests`, `OK`, `OK (skipped=…)` hay `FAILED`). Không log nào dưới đây có dòng `skipped`: 0 skip.
+
+| Lượt | Code | Kết quả |
+|---|---|---|
+| Hồi quy tích hợp 2.4 (`logs/reg-int-v24-830af1a.txt`, 22:56:30–23:22:36) | `830af1a` (sau vòng 2 của S2, F3 đã sửa P1-1) | `Ran 228 tests in 1565.184s`, `OK`: 228 đạt, 0 hỏng, 0 skip |
+| Hồi quy tích hợp 2.4 (`logs/reg-int-v24-fe495c1.txt`, 23:54:15–00:29:50) | `fe495c1` (sau vòng 3 của S2 và vòng P3 của B) | `Ran 238 tests in 2133.359s`, `OK`: 238 đạt, 0 hỏng, 0 skip |
+| S2, đỏ trên baseline (`s2/red-953096a.txt`) | `953096a` | 20 test: 16 hỏng, 1 lỗi, 3 đạt |
+| S2, xanh vòng 1 (`s2/green-final.txt`) | `0af3482` | 103 test (ba module S2, các `test_v24_s1_*`, `test_g1_core`): OK, 0 skip |
+| S2, vòng 2: đỏ `round2/red-da9c913.txt`, xanh `round2/green-r2final.txt` (dưới `s2/`) | `da9c913` → `a7964a3` | đỏ 43 test (16 hỏng, 2 lỗi); xanh 142 test OK |
+| S2, vòng 3: `round3/red-830af1a.txt`, `round3/green-r3final.txt` | `830af1a` → `550f40a` | đỏ 10 test (6 hỏng, 4 lỗi); xanh 151 test OK |
+| S2, vòng 4: `round4/red-fe495c1.txt`, `round4/green-r4final.txt`, `round4/green-r4fix.txt` | `fe495c1` → `daa3caa` | đỏ 9 test (7 hỏng); xanh 340 test, 2 hỏng: 1 là assertion của `R3_02` (sửa trong lượt, chạy lại ở `green-r4fix.txt`), 1 là `test_g2_install` (dưới) |
+| S2, vòng 5: `s2/round5-green.txt` | `34709d5` + sửa `bb19222` | 183 test, 1 hỏng (chỉ `test_g2_install`); 182 đạt, 0 skip. Danh sách module không in trong log |
+| B, đỏ trên baseline (`b/red-test_v24_b_review2-12-953096a.txt`) | `953096a` | 12 test: 10 hỏng, 2 lỗi |
+| B, xanh vòng 1 (`b/green-test_v24_b_review2-12.txt`) | `3cf5b30` | 12 test OK |
+| B, P1-1: đỏ `b/red-p1-misattributed-155ed60.txt`; xanh `logs/reg-p1-green2-p1fix.txt` | `155ed60` → `8424336` | đỏ 2 test (1 hỏng); xanh 2 test OK |
+| B, vòng P3: đỏ `b/red-r2-hold-text-31baabf.txt`; xanh `logs/reg-r2-review2-r2.txt` (module `test_v24_b_review2`) | `31baabf` → `5b24fca` | đỏ 4 test (3 hỏng); xanh 15 test OK, 0 skip |
+| B, hồi quy module liên quan (`logs/`) | `3cf5b30`, `8424336`, `5b24fca` | `reg-f3-b1-fix1` 125 OK; `reg-f3-b2-fix1` 146 OK; `reg-p1-b1-p1fix` 41 OK; `reg-p1-b2-p1fix` 146 OK; `reg-r2-b1-r2` 42 OK |
+| Bước gói V26–V28 trên gói dev2 (`pkg/v26-on-dev2-r2.txt`, `v27-on-dev2-r2.txt`, `v28-on-dev2-r2.txt`) | gói dev2 | cả ba FAIL (V26 93,2 s, V27 58,4 s, V28 67,5 s) |
+| V26–V28 trên wheel dựng từ `fe495c1` (`D:/OneCrewRuns/v24 thu v2x fe495c1`) | `fe495c1` | đạt (lượt của agent công cụ) |
+
+**Hỏng có từ trước, không sửa (bộ 2.2 bị khóa):** `tests.test_g2_install.PackagingTests.test_the_templates_are_package_data_and_the_examples_keep_a_copy` ghim version `2.2.0.dev3`; hỏng y hệt trên `61862e6` và `fe495c1` (`s2/round4/g2-packaging-on-fe495c1.txt`: `Ran 1 test`, `FAILED (failures=1)`). Không có U1 cho test này.
+
+### 8.4 Cách ly
+
+Mọi lượt (implementer, reviewer, hồi quy, probe) chạy với `TEMP`, `LOCALAPPDATA`, `APPDATA` dưới `D:/OneCrewRuns/v24/tmp-int` và dùng `claude` giả hay worker giả. SHA256 sổ hook thật `8ecf0fda5097d187…` bằng nhau trước và sau mỗi lượt agent và mỗi hồi quy (báo cáo implementer, reviewer và log hồi quy đều ghi). Không đụng worktree 2.3, sổ thật, runtime đang dùng, `state-v2-real`; không push, không tag.
+
+### 8.5 Gói dev3
+
+Gói `D:/OneCrewRuns/v24/pkg/onecrew-2.4.0.dev3-beta` (snapshot `5a7a8ef`, 28 bước): wheel SHA256, kết quả kiểm từ gói (28 bước, thời gian), script thử, chạy lại vào cùng thư mục: chưa có.
+
+<!-- v24:dev3-pkg -->
+
+### 8.6 Gate và hồi quy trên dev3
+
+Gate 2.2 trên `5a7a8ef` và hồi quy tích hợp 2.4 trên `5a7a8ef`: chưa có. Hai lượt tích hợp ở §8.3 là trên `830af1a` và `fe495c1`, trước vòng 4–5 của S2 (`f171ac9`, `bb19222`); vòng 4–5 mới có lượt module S2 riêng.
+
+<!-- v24:dev3-gate -->
