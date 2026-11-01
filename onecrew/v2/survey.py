@@ -101,13 +101,29 @@ def states(conn, task_id):
     return out
 
 
+INVALID_INVESTIGATION = ('investigation_unscoped', 'investigation_cap', 'investigation_widened')
+
+
+def effective_investigation(checks):
+    """2.4-C (review C-R02): the investigation bound of the plan from its proposal checks, in order. The first check that declares one
+    AND passes the investigation rules fixes it; a later valid check may only lower the cap (kept as the minimum) and keeps the first
+    paths; a declaration the rules refused never counts. None when no valid declaration exists."""
+    fixed = None
+    for payload in checks:
+        declared = (payload.get('card_fields') or {}).get('investigation')
+        if not declared or any((r.get('code') if isinstance(r, dict) else r[0]) in INVALID_INVESTIGATION for r in payload.get('reasons', [])):
+            continue
+        if fixed is None:
+            fixed = {'cap': dict(declared['cap']), 'paths': list(declared['paths']), 'stop_when': declared['stop_when']}
+        else:
+            fixed['cap'] = {key: min(fixed['cap'][key], declared['cap'][key]) for key in ('minutes', 'calls')}
+    return fixed
+
+
 def investigation_of(conn, task_id):
-    """2.4-C: the investigation (cap, explicit paths, stop_when) declared by the latest proposal check of the plan that states one, or None."""
-    found = None
-    for row in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='proposal.checked' ORDER BY seq", (task_id,)):
-        declared = (json.loads(row['payload']).get('card_fields') or {}).get('investigation')
-        if declared: found = declared
-    return found
+    """2.4-C: the plan's effective step-0 investigation (effective_investigation over its proposal checks), or None."""
+    return effective_investigation([json.loads(row['payload']) for row in conn.execute(
+        "SELECT payload FROM events WHERE task_id=? AND kind='proposal.checked' ORDER BY seq", (task_id,))])
 
 
 def totals(items):

@@ -179,14 +179,15 @@ def validate_proposal(value):
 
 # ---- the rules ------------------------------------------------------------------------------------------------------------------
 
-def _context(ledger, requirement, proposal, spent=None):
+def _context(ledger, requirement, proposal, spent=None, history=None):
     preferred = proposal['preferred']
     changes = [c for c in (preferred['changes'] if preferred else [])]
     planned = [c for c in changes if not c['optional']]
     known = {s['id'] for group in requirement.values() for s in group}
     return {'ledger': ledger, 'requirement': requirement, 'proposal': proposal, 'preferred': preferred, 'planned': planned,
             'optional': [c for c in changes if c['optional']], 'known': known,
-            'declared': all(c['kind'] and c['entries'] for c in planned), 'spent': spent or {'seconds': 0, 'calls': 0}}
+            'declared': all(c['kind'] and c['entries'] for c in planned), 'spent': spent or {'seconds': 0, 'calls': 0},
+            'history': history or {'listed': {}, 'closed': {}, 'investigation': None}}
 
 
 def rule_unknowns(ctx):
@@ -370,7 +371,30 @@ def rule_investigation(ctx):
     spent = ctx['spent']
     if spent.get('seconds', 0) > cap['minutes'] * 60 or spent.get('calls', 0) > cap['calls']:
         out.append(('investigation_over_cap', f'the step-0 surveys spent {spent} - more than the investigation cap {cap}.'))
+    fixed = ctx['history'].get('investigation')
+    if fixed:
+        # review C-R02: the first valid investigation of the plan fixes the bound; a later check may keep or lower it, never widen it
+        wider = [k for k in ('minutes', 'calls') if cap[k] > fixed['cap'][k]]
+        outside = [p for p in value['paths'] if not any(p == q or p.startswith(q.rstrip('/') + '/') for q in fixed['paths'])]
+        if wider or outside:
+            out.append(('investigation_widened', f'the investigation of this plan is fixed at cap {fixed["cap"]} over {", ".join(fixed["paths"])}: '
+                                                 + (f'{", ".join(wider)} raised' if wider else '') + ('; ' if wider and outside else '')
+                                                 + (f'{", ".join(outside)} outside it' if outside else '') + ' (only the owner may widen it, by a new requirement).'))
     return out
+
+
+def rule_unknown_dropped(ctx):
+    """Review C-R01: a decision-changing unknown that an earlier check of the same request listed open may not disappear, or be called
+    closed, in a later check unless the ledger holds its closing evidence (unknown.closed, a survey answered, an owner decision record
+    scoped `unknown:<id>`). A failed or capped investigation therefore keeps it open."""
+    history = ctx['history']
+    current = {u['id']: u for u in ctx['proposal']['unknowns']}
+    gone = [uid for uid, unknown in sorted(history.get('listed', {}).items())
+            if uid not in history.get('closed', {}) and (uid not in current or current[uid]['status'] == 'closed')]
+    if not gone: return []
+    return [('unknown_dropped_without_evidence', f'unknown {", ".join(gone)} was open in an earlier check of this request and is now '
+                                                 'dropped or called closed without closing evidence in the ledger (unknown.closed, an answered '
+                                                 'survey or an owner decision scoped unknown:<id>): it stays open.')]
 
 
 def rule_open_for_approval(ctx):
@@ -381,15 +405,17 @@ def rule_open_for_approval(ctx):
 
 
 RULES = (rule_unknowns, rule_preferred, rule_declaration, rule_linkage, rule_acceptance, rule_semantics, rule_rationale, rule_targets,
-         rule_preserve, rule_estimate, rule_investigation, rule_open_for_approval)
+         rule_preserve, rule_estimate, rule_investigation, rule_open_for_approval, rule_unknown_dropped)
 
 
-def check(ledger, requirement, proposal, rules=None, spent=None):
+def check(ledger, requirement, proposal, rules=None, spent=None, history=None):
     """Hold `proposal` to `requirement`. Returns {ok, result: ok|refused|survey_first, reasons: [(code, text)], table, backlog, ...}.
     `rules` defaults to RULES (a test passes a shorter tuple for the counter-proof). `spent` = what the step-0 surveys of the plan spent
-    ({seconds, calls}), held against the card's investigation cap."""
+    ({seconds, calls}), held against the card's investigation cap. `history` = step0.proposal_history (earlier checks of the same request:
+    the unknowns they listed, the closing evidence in the ledger, the fixed investigation); without it the check sees no history."""
     requirement, proposal = validate_requirement(requirement), validate_proposal(proposal)
-    ctx = _context(ledger, requirement, proposal, spent)
+    if spent is None and history: spent = history.get('spent')
+    ctx = _context(ledger, requirement, proposal, spent, history)
     reasons = []
     for rule in (RULES if rules is None else rules): reasons += rule(ctx)
     waiting = blocking_unknowns(proposal)
