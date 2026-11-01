@@ -62,6 +62,8 @@ README = '''# OneCrew {version} — gói thử 2.4 ({label})
 
 **Đây là bản thử {stage}(prerelease) `{version}`, không phải bản ổn định; chạy trên bản sao project và sổ riêng.** Chưa được Codex review, chưa nghiệm thu. Gói không tự nhận đã giao (`manifest.json` → `claims`).
 
+**Gói nằm dưới `D:\\OneCrewRuns\\v24\\pkg-trial` là bản thử của công cụ dựng và kiểm gói, không phải bản giao.** Bản giao là gói được dựng từ snapshot cuối của nhánh 2.4 (người điều phối dựng); chỉ gói đó được báo là bàn giao.
+
 | Mục | Giá trị |
 |---|---|
 | Code | `{commit}` (nhánh `{branch}`) |
@@ -115,7 +117,7 @@ Dùng trên một **bản sao** project (không dùng sổ đang chạy việc t
 & "$venv\\Scripts\\python.exe" -I -m pip install --no-index --no-build-isolation --force-reinstall "$pkg\\wheel\\{wheel}"; & "$venv\\Scripts\\onecrew.exe" --help
 ```
 
-Bộ kiểm **không** diễn tập việc 2.3.0.dev10 đọc sổ do bản này ghi (xem mục 4). Hồi quy bộ kiểm chạy là quay về 2.2 rồi lên lại (bước V7 và V16 của 2.3). Trước khi quay về với sổ thật, chạy `compat scan` trên bản sao sổ.
+Bộ kiểm của gói **không** diễn tập việc 2.3.0.dev10 đọc sổ do bản này ghi (xem mục 4); test `tests/test_v24_s1_oldreaders.py` của nhánh diễn tập 2.2.0.dev18 và 2.3.0.dev10 đọc sổ có bản ghi support của S1 (chưa có bản ghi S2). Hồi quy bộ kiểm chạy là quay về 2.2 rồi lên lại (bước V7 và V16 của 2.3). Trước khi quay về với sổ thật, chạy `compat scan` trên bản sao sổ.
 
 ## 4. Giới hạn
 
@@ -206,6 +208,9 @@ def main():
     stage_text, expected = steps_text(verifier, included)
     commit = git('rev-parse', 'HEAD')
     branch = git('rev-parse', '--abbrev-ref', 'HEAD')
+    import re
+    shipped = re.findall(r'"([\w.]+)"', re.search(r'py-modules\s*=\s*\[(.*?)\]', (ROOT / 'pyproject.toml').read_text(encoding='utf-8'), re.S).group(1))
+    ships_paging = 'onecrew.paging' in shipped           # what the wheel really ships (the verifier checks it against the wheel)
     temp = Path(wh._runs())
     try:
         wheel, _, _ = wh.build_wheel(temp)
@@ -243,7 +248,7 @@ def main():
                            try_text='\n'.join(tries), limits=Path(args.limits).read_text(encoding='utf-8').strip())
     (out / 'README.md').write_text(readme, encoding='utf-8')
     manifest = {'kind': 'v24-milestone-package', 'milestone': args.milestone, 'label': MILESTONES[args.milestone], 'milestones_included': included,
-                'version': version, 'code_commit': commit, 'branch': branch, 'built_at': built, 'ships_paging': False, 'stage': args.stage or None,
+                'version': version, 'code_commit': commit, 'branch': branch, 'built_at': built, 'ships_paging': ships_paging, 'stage': args.stage or None,
                 'expected_steps': expected,
                 'wheel': {'name': wheel_path.name, 'sha256': sha(wheel_path)},
                 'previous_wheel': {'name': previous.name, 'sha256': args.previous_sha, 'version': previous.name.split('-')[1]},

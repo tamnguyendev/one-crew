@@ -167,6 +167,9 @@ def main(pkg, work):
     if sha256(wheel) != manifest['wheel']['sha256']: problems.append('wheel sha differs from manifest')
     if sha256(rollback) != manifest['previous_wheel']['sha256']: problems.append('previous wheel sha differs from manifest')
     if sha256(previous) != reg['sha256']: problems.append('regression wheel sha differs from manifest')
+    with zipfile.ZipFile(wheel) as archive:
+        if bool(manifest.get('ships_paging')) != ('onecrew/paging.py' in archive.namelist()):
+            problems.append(f'manifest ships_paging is {manifest.get("ships_paging")!r} but the wheel ' + ('has' if 'onecrew/paging.py' in archive.namelist() else 'lacks') + ' onecrew/paging.py')
     if manifest.get('kind') != 'v24-milestone-package': problems.append(f'manifest kind is {manifest.get("kind")!r}, not v24-milestone-package')
     if not included or included != [m for m in MILESTONE_ORDER if m in included] or included != MILESTONE_ORDER[:len(included)]:
         problems.append(f'milestones_included {manifest.get("milestones_included")!r} is not a cumulative prefix of {MILESTONE_ORDER}')
@@ -183,7 +186,7 @@ def main(pkg, work):
                 pip_tail=(a.stdout + a.stderr)[-300:].decode('utf-8', 'replace')): return finish(report, work)
     # V3
     names = ['onecrew.v2.knowledge', 'onecrew.v2.wiki', 'onecrew.v2.context', 'onecrew.common_executor', 'onecrew.artifact_provider_core', 'onecrew.paging']
-    names = [n for n in names if n != 'onecrew.paging' or manifest.get('ships_paging')]
+    names = [n for n in names if n != 'onecrew.paging' or manifest.get('ships_paging') or 'A' in included]     # 2.4-A always needs paging
     names += [n for m in included for n in MILESTONE_MODULES.get(m, [])]            # the modules of the milestones this package contains must load from the venv too
     code = 'import importlib, json; print(json.dumps({n: importlib.import_module(n).__file__ for n in ' + repr(names) + '}))'
     probe = run([py, '-I', '-c', code], text=True, cwd=work, env=env_for(work, scripts))
