@@ -93,6 +93,7 @@ class WorkerMixin:
 
 class SourceFixture(WorkerMixin, Fixture):
     grant = GRANT
+    light = False
 
     def setUp(self):
         super().setUp()
@@ -101,6 +102,7 @@ class SourceFixture(WorkerMixin, Fixture):
         for name, data in FILES.items():
             path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(data)
         self.git('add', '.'); self.git('commit', '-q', '-m', 'sources')
+        if self.light: return                       # source_tools on a repository only: no root, no engine
         authority = {'edit': True, 'commands': True, 'edit_tests': True, 'self_decide': SELF}
         if self.grant: authority['read'] = list(self.grant)
         value = plan_json(scope={'owned': ['a.txt', 'out.txt']}, authority=authority)
@@ -221,10 +223,55 @@ class GrantTests(SourceFixture):
                 self.plan(self.item(patterns=patterns))
         self.plan(self.item(patterns=('src/lib/', 'docs/*.md', 'data/table.csv')))           # inside the grant
 
+
+
+class TreeTests(SourceFixture):
+    """source_tools directly on a repository (no root): the grant rule, links in a tree, cursors bound to a tree."""
+    light = True
+
     def test_sa01c_without_authority_read_the_grant_is_scope_owned_and_target_paths(self):
         grant, basis = st().grant({'scope': {'owned': ['out.txt']}, 'understanding': {'target': {'paths': ['docs/']}}})
         self.assertEqual((grant, basis), (['docs/', 'out.txt'], 'scope.owned + understanding.target.paths'))
         self.assertEqual(st().grant({'scope': {'owned': ['a.txt']}, 'authority': {'read': ['src/**']}})[0], ['src/**'])
+
+    def test_sa02b_a_link_in_the_tree_is_withheld_and_never_followed(self):
+        env = dict(os.environ, GIT_INDEX_FILE=str(Path(self.temp.name) / 'link.index'))
+        def run(*args, **kw):
+            return subprocess.run(['git', '-C', str(self.root), *args], check=True, capture_output=True, env=env, **kw).stdout.decode().strip()
+        target = run('hash-object', '-w', '--stdin', input=b'../other/y.py')
+        run('read-tree', 'HEAD'); run('update-index', '--add', '--cacheinfo', f'120000,{target},src/link')
+        tree = run('write-tree')
+        reader, scope = st().Reader(self.root, tree), st().Scope(GRANT, ['src/'])
+        listed = st().run(reader, scope, {'op': 'list', 'path': 'src'})['result']
+        self.assertNotIn('src/link', [e['path'] for e in listed['entries']])
+        self.assertIn({'path': 'src/link', 'reason': 'link'}, listed['withheld'])
+        read = st().run(reader, scope, {'op': 'read', 'path': 'src/link'})['result']
+        self.assertEqual(read['withheld'], [{'path': 'src/link', 'reason': 'link'}])
+        self.assertNotIn('text', read)
+
+    def test_sa04_new_tree_invalidates_cursor(self):
+        tree1 = st().pin_now(self.root)
+        self.assertEqual(tree1['kind'], 'git-tree')
+        scope = st().Scope(GRANT, ['src/'])
+        reader1 = st().Reader(self.root, tree1['tree'])
+        with patch.object(st(), 'LIST_ENTRIES', 2):
+            first = st().run(reader1, scope, {'op': 'list', 'path': 'src'})['result']
+            cursor = first['next_cursor']
+            self.assertTrue(cursor.startswith('s1.'))
+            (self.root / 'src' / 'new.py').write_text('NEW = 1\n')
+            tree2 = st().pin_now(self.root)
+            self.assertNotEqual(tree1['tree'], tree2['tree'])                       # an uncommitted file is part of the pinned tree
+            reader2 = st().Reader(self.root, tree2['tree'])
+            stale = st().run(reader2, scope, {'op': 'list', 'cursor': cursor})['result']
+            self.assertIn('source changed; list again', stale['refused'])
+            fresh = st().run(reader2, scope, {'op': 'list', 'path': 'src'})['result']
+            self.assertTrue(fresh['entries'])
+            same = st().run(reader1, scope, {'op': 'list', 'cursor': cursor})['result']
+            self.assertEqual(same['coverage']['scanned_from'], 2)
+            moved = st().run(reader1, st().Scope(GRANT, ['src/', 'docs/']), {'op': 'list', 'cursor': cursor})['result']
+            self.assertIn('scope changed', moved['refused'])
+            other = st().run(reader1, scope, {'op': 'read', 'cursor': cursor})['result']
+            self.assertIn('refused', other)
 
 
 class RefusalTests(SourceFixture):
@@ -247,21 +294,6 @@ class RefusalTests(SourceFixture):
         self.assertNotIn('src/.env.local', [e['path'] for e in listed['entries']])
         self.assertIn('secret', [w['reason'] for w in listed['withheld']])
         self.assertFalse(any('.env.local' in str(w['path']) for w in listed['withheld']))     # a secret NAME is not shown either
-
-    def test_sa02b_a_link_in_the_tree_is_withheld_and_never_followed(self):
-        env = dict(os.environ, GIT_INDEX_FILE=str(Path(self.temp.name) / 'link.index'))
-        def run(*args, **kw):
-            return subprocess.run(['git', '-C', str(self.root), *args], check=True, capture_output=True, env=env, **kw).stdout.decode().strip()
-        target = run('hash-object', '-w', '--stdin', input=b'../other/y.py')
-        run('read-tree', 'HEAD'); run('update-index', '--add', '--cacheinfo', f'120000,{target},src/link')
-        tree = run('write-tree')
-        reader, scope = st().Reader(self.root, tree), st().Scope(GRANT, ['src/'])
-        listed = st().run(reader, scope, {'op': 'list', 'path': 'src'})['result']
-        self.assertNotIn('src/link', [e['path'] for e in listed['entries']])
-        self.assertIn({'path': 'src/link', 'reason': 'link'}, listed['withheld'])
-        read = st().run(reader, scope, {'op': 'read', 'path': 'src/link'})['result']
-        self.assertEqual(read['withheld'], [{'path': 'src/link', 'reason': 'link'}])
-        self.assertNotIn('text', read)
 
     @unittest.skipUnless(os.name == 'nt', 'a junction is a Windows link')
     def test_sa02c_a_junction_makes_source_tools_unavailable_and_the_node_runs_as_before(self):
@@ -316,30 +348,6 @@ class PagingTests(SourceFixture):
 
 
 class CursorTests(SourceFixture):
-    def test_sa04_new_tree_invalidates_cursor(self):
-        tree1 = st().pin_now(self.root)
-        self.assertEqual(tree1['kind'], 'git-tree')
-        scope = st().Scope(GRANT, ['src/'])
-        reader1 = st().Reader(self.root, tree1['tree'])
-        with patch.object(st(), 'LIST_ENTRIES', 2):
-            first = st().run(reader1, scope, {'op': 'list', 'path': 'src'})['result']
-            cursor = first['next_cursor']
-            self.assertTrue(cursor.startswith('s1.'))
-            (self.root / 'src' / 'new.py').write_text('NEW = 1\n')
-            tree2 = st().pin_now(self.root)
-            self.assertNotEqual(tree1['tree'], tree2['tree'])                       # an uncommitted file is part of the pinned tree
-            reader2 = st().Reader(self.root, tree2['tree'])
-            stale = st().run(reader2, scope, {'op': 'list', 'cursor': cursor})['result']
-            self.assertIn('source changed; list again', stale['refused'])
-            fresh = st().run(reader2, scope, {'op': 'list', 'path': 'src'})['result']
-            self.assertTrue(fresh['entries'])
-            same = st().run(reader1, scope, {'op': 'list', 'cursor': cursor})['result']
-            self.assertEqual(same['coverage']['scanned_from'], 2)
-            moved = st().run(reader1, st().Scope(GRANT, ['src/', 'docs/']), {'op': 'list', 'cursor': cursor})['result']
-            self.assertIn('scope changed', moved['refused'])
-            other = st().run(reader1, scope, {'op': 'read', 'cursor': cursor})['result']
-            self.assertIn('refused', other)
-
     def test_sa04b_a_cursor_of_an_older_chain_is_refused_in_the_new_chain(self):
         kept = {}
         with patch.object(st(), 'LIST_ENTRIES', 2):
