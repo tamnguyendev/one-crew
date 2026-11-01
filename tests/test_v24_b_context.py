@@ -456,9 +456,11 @@ class ReviewBTests(BFixture):
         event = next(p for k, p in self.events() if k == 'node.held' and p['node'] == 'B')
         self.assertEqual(event['knowledge_changed']['critical'][0]['node'], 'A')
         self.assertEqual(event['knowledge_changed']['critical'][0]['ids'], [rule])
-        self.assertEqual([(x['node'], x['via']) for x in wc().affected_consumers(self.ledger, 'P1', [rule])], [('B', 'A')])
-        report = wc().consumers_report(self.ledger, 'P1')
-        self.assertEqual([(c['node'], c['status']) for c in report['consumers']], [('B', 'input_changed')])
+        listed = [(x['node'], x['via']) for x in wc().affected_consumers(self.ledger, 'P1', [rule])]
+        self.assertIn(('B', 'A'), listed)                                           # listed although A is verified (I would consume A too)
+        self.assertNotIn('A', [n for n, _ in listed])
+        report = {c['node']: c['status'] for c in wc().consumers_report(self.ledger, 'P1')['consumers']}
+        self.assertEqual(report['B'], 'input_changed')
 
     def test_b_r04_a_new_mandatory_entry_reaches_a_node_without_a_record(self):
         self.plan(self.item('C'))
@@ -530,5 +532,5 @@ class ReviewBSourceTests(AllEvents, SourceFixture):
         resumed = next(p for k, p in self.events() if k == 'node.resumed' and p.get('knowledge_changed'))
         self.assertTrue(resumed.get('resume_artifact'))                              # the candidate is carried
         self.assertEqual(self.store.context(results[-1]['artifact'])['out.txt'], 'saw 43\n')
-        receipt = self.receipt(results[-1]['receipt'])
+        receipt = self.receipt(results[-1])
         self.assertEqual(receipt['source']['rounds_total'], 2)                       # the receipts still show the total

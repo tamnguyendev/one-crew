@@ -252,14 +252,29 @@ def _rounds_exhausted(ledger, conn, view, nid, candidate, body):
 
 
 def _knowledge_gate(ledger, conn, view, nid, candidate, attempt_id):
-    """2.4-B: recheck what the candidate of `attempt_id` was given before it is published or verified (working_context.publish_gate). None
-    when it may be published. Otherwise a must/fact entry it relied on is gone or changed, a new mandatory entry concerns it, a file it read
-    changed, or an input it consumed was built on such: the candidate is kept (node.result_retained) and the node continues in a new
-    generation that receives the delta (a changed source: a new chain on a newly pinned tree), inside the root's remaining calls and at most
-    working_context.MAX_RECHECKS times, never with a budget reset; otherwise it is held (`knowledge_changed`). Returns the step result."""
+    """2.4-B: recheck what the candidate of `attempt_id` was given before it is published or verified (working_context.decide, the one
+    decision the consumer views use too). None when it may be published; otherwise the result of _knowledge_apply."""
     from . import working_context
-    gate = working_context.publish_gate(ledger, Snapshots(ledger.state_root), view['selector'], nid, attempt_id)
-    if gate['action'] == 'publish': return None
+    gate = working_context.decide(ledger, Snapshots(ledger.state_root), view['selector'], nid, attempt_id, receipt_key=candidate.get('receipt'))
+    return None if gate['action'] == 'publish' else _knowledge_apply(ledger, conn, view, nid, candidate, attempt_id, gate)
+
+
+def _knowledge_apply(ledger, conn, view, nid, candidate, attempt_id, gate):
+    """2.4-B: act on a decision that is not `publish`, inside the caller's write transaction.
+      * input_changed (only an input it consumed was built on knowledge or sources that changed): held at once (`input_changed`, naming
+        the producers and ids); re-running it on the same input cannot help, re-opening the producer is the existing repair path;
+      * recheck (its own record): the candidate is kept (node.result_retained) and the node continues in a new generation that receives
+        the delta, carrying the candidate (a changed source also re-pins the tree and opens a new round allowance), inside the root's
+        remaining calls and at most working_context.MAX_RECHECKS times, never with a budget reset; otherwise held (`knowledge_changed`)."""
+    from . import working_context
+    if gate['action'] == 'input_changed':
+        summary = {'critical': gate['upstream'][:20], 'notes': gate['notes'][:20], 'delivered_event': gate['row']}
+        text = 'an input was built on knowledge or sources that changed: ' + '; '.join(
+            u['node'] + ' (' + ', '.join(str(i) for i in u['ids'][:5]) + ')' for u in gate['upstream'][:5])
+        _event(ledger, conn, view, nid, 'node.held', reason='2.4-B: ' + text[:900] + '; held without a recheck (the input is fixed): re-open '
+               'the producer to repair', classification='input_changed', knowledge_changed=summary, **({'candidate': candidate} if candidate else {}))
+        return {'node': nid, 'state': 'held', 'classification': 'input_changed', 'knowledge_changed': summary,
+                **({'candidate': candidate} if candidate else {})}
     summary = {'critical': gate['critical'][:20], 'notes': gate['notes'][:20], 'delivered_event': gate['row']}
     item = next(node for node in view['definition']['nodes'] if node['id'] == nid)
     done = sum(1 for row in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='node.resumed' AND json_extract(payload,'$.node')=?",
@@ -268,16 +283,29 @@ def _knowledge_gate(ledger, conn, view, nid, candidate, attempt_id):
     text = 'the knowledge or sources delivered to this candidate changed: ' + '; '.join(
         str(c.get('id') or c.get('path') or c.get('node')) + ' (' + c['reason'] + ')' for c in summary['critical'][:5])
     if done < working_context.MAX_RECHECKS and ip.ceilings(ledger, conn, root)['remaining_calls'] >= item['budget_calls']:
-        fresh = any('path' in c for c in summary['critical'])     # a file it read changed: read it again from a newly pinned tree
+        repin = any('path' in c for c in summary['critical'])     # a file it read changed: a newly pinned tree, a new round allowance
         _retain(ledger, conn, view, nid, 'Candidate not published: ' + text, candidate=candidate, attempt=attempt_id, knowledge_changed=summary)
-        _event(ledger, conn, view, nid, 'node.resumed', **({} if fresh else {'resume_artifact': candidate['artifact']}), continues_attempt=attempt_id,
+        _event(ledger, conn, view, nid, 'node.resumed', resume_artifact=candidate['artifact'], continues_attempt=attempt_id,
                continuation={'remaining': 'recheck the result against the knowledge delta: ' + text[:1800]}, budget_reset=False,
-               reason='2.4-B: ' + text[:900] + '; a new attempt rechecks it', knowledge_changed=summary)
+               reason='2.4-B: ' + text[:900] + '; a new attempt rechecks it', knowledge_changed=summary, **({'repin': True} if repin else {}))
         return {'node': nid, 'state': 'continuing', 'generation': view['nodes'][nid]['generation'] + 1, 'continues_attempt': attempt_id,
-                'knowledge_changed': summary, **({} if fresh else {'resume_artifact': candidate['artifact']})}
+                'knowledge_changed': summary, 'resume_artifact': candidate['artifact']}
     _event(ledger, conn, view, nid, 'node.held', reason='2.4-B: ' + text[:900] + '; held for a decision (no automatic recheck left)',
            classification='knowledge_changed', candidate=candidate, knowledge_changed=summary)
     return {'node': nid, 'state': 'held', 'classification': 'knowledge_changed', 'knowledge_changed': summary, 'candidate': candidate}
+
+
+def _inputs_changed(ledger, selector, nid, inputs):
+    """2.4-B (review B-R03): before a node is dispatched, the inputs it would consume: an artifact built on knowledge or sources that changed
+    since holds it at once (input_changed), without a model call. None otherwise (also for a node without inputs)."""
+    if not inputs: return None
+    from . import working_context
+    gate = working_context.decide(ledger, Snapshots(ledger.state_root), selector, nid, None, inputs=inputs)
+    if gate['action'] != 'input_changed': return None
+    with ledger.transaction(write=True) as conn:
+        current = state(ledger, selector, conn)
+        if current['nodes'][nid]['phase'] != 'pending': return None
+        return _knowledge_apply(ledger, conn, current, nid, None, None, gate)
 
 
 def publish_retained(ledger, selector, *, node=None):
@@ -624,6 +652,8 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
                             'write': definitions[edge['node']]['write'], 'receipt': view['nodes'][edge['node']]['receipt']}
               for edge in item['depends']}
     item['input_artifacts'] = inputs
+    held = _inputs_changed(ledger, root['selector'], nid, inputs)              # 2.4-B: an input built on changed knowledge holds the node
+    if held: return held
     if view['nodes'][nid].get('resume_artifact'):
         item['resume_artifact'] = view['nodes'][nid]['resume_artifact']; item['continues'] = view['nodes'][nid].get('continues')
     ip.decide(ledger, root, contract, sha, {'kind': 'decision', 'q': 'Q2', 'nodes': [nid], 'eligible': True}, ctx, 'onecrew.engine')
@@ -873,10 +903,23 @@ def verify(ledger, selector, nid, checker):
         current = state(ledger, root['selector'], conn)
         publish = (_publication_current(current, view, nid)
                    and current['nodes'][nid]['artifact'] == artifact and current['nodes'][nid]['phase'] != 'held')
+        changed = None
+        if publish and current['nodes'][nid].get('attempt'):
+            # 2.4-B (review B-R02): the knowledge or sources of the candidate are judged again where the verification is written
+            from . import working_context
+            mine = current['nodes'][nid]
+            again = working_context.decide(ledger, Snapshots(ledger.state_root), root['selector'], nid, mine['attempt'], receipt_key=mine.get('receipt'))
+            if again['action'] != 'publish':
+                _retain(ledger, conn, view, nid, 'Knowledge or sources delivered to this candidate changed while the checker ran', receipt=receipt)
+                changed = _knowledge_apply(ledger, conn, current, nid, {'artifact': artifact, 'receipt': mine.get('receipt')}, mine['attempt'], again)
+                publish = False
         if publish:
             _event(ledger, conn, current, nid, 'node.verification', result=body['result'], receipt=receipt)
-        else:
+        elif changed is None:
             _retain(ledger, conn, view, nid, 'Root or node changed while checker ran', receipt=receipt)
+    if changed is not None:
+        raise LedgerError('The knowledge or sources delivered to this candidate changed while its checker ran; the verification was retained, not '
+                          'written (the node is ' + changed['state'] + ').')
     if publish and body['result'] == 'pass':
         # W48a: a verified node is a finished task; the context entry cites the published verifier receipt (code, no model).
         from . import context

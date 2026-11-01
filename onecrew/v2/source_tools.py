@@ -239,10 +239,20 @@ def _started_tree(ledger, selector, attempt_id):
 def pin(ledger, selector, item):
     """engine.step: the `source_tree` of node.started for a node with `sources` (None otherwise). A continuation keeps the tree of its chain."""
     if item.get('sources') is None: return None
-    if item.get('continues'):
+    if item.get('continues') and not _repin(ledger, selector, item['continues']):
         kept = _started_tree(ledger, selector, item['continues'])
         if kept: return kept
     return pin_now(ledger.project)
+
+
+def _repin(ledger, selector, attempt_id):
+    """2.4-B (review B-R06): the continuation of `attempt_id` was started because a file it read changed: it reads a newly pinned tree."""
+    from . import namespaces
+    with ledger.transaction() as conn:
+        root = namespaces.resolve(ledger, conn, selector) if conn else None
+        row = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='node.resumed' AND json_extract(payload,'$.continues_attempt')=? "
+                           "ORDER BY seq DESC LIMIT 1", (root['id'], attempt_id)).fetchone() if root else None
+    return bool(row and json.loads(row['payload']).get('repin'))
 
 
 def identity(tree):
@@ -531,8 +541,9 @@ def _search(reader, scope, args, offset):
     if not exhausted and not matches: conclusion += ': not a proof that the text is absent; follow next_cursor for the rest'
     elif rows and not matches: conclusion += ': not a proof that the text is absent'
     following = {'path': path, 'query': query, **({'m': resume} if resume else {})}
+    hit_blobs = {e['path']: e['blob'] for e in eligible if any(m['path'] == e['path'] for m in matches)}
     return {'source': reader.identity, 'query': query, 'path': path, 'scope': scope.hash, 'match': 'literal, case-insensitive, per line',
-            'matches': matches, 'files_with_matches': files, 'coverage': _coverage(offset, end, len(eligible), reason),
+            'matches': matches, 'files_with_matches': files, 'blobs': hit_blobs, 'coverage': _coverage(offset, end, len(eligible), reason),
             'withheld': rows[:WITHHELD_ROWS], 'withheld_total': len(rows), 'truncated': not exhausted,
             'next_cursor': None if exhausted else cursor(reader.tree, scope, 'search', following, end),
             'conclusion': conclusion}
@@ -671,6 +682,31 @@ def _records(store, receipts):
     return out, None
 
 
+def _seen_blobs(records):
+    """2.4-B (review B-R05): {path: blob} of every file whose content reached a prompt of the chain: reads, search hits and listings (the
+    latest blob of a path wins)."""
+    out = {}
+    for r in records:
+        result = (r or {}).get('result') or {}
+        if r.get('action') == 'read' and isinstance(result.get('text'), str) and result.get('blob'): out[result['path']] = result['blob']
+        elif r.get('action') == 'search': out.update(result.get('blobs') or {})
+        elif r.get('action') == 'list': out.update({e['path']: e['blob'] for e in result.get('entries') or [] if e.get('blob')})
+    return dict(sorted(out.items()))
+
+
+def _rounds_since_repin(ledger, selector, nid, receipts):
+    """Reading rounds that count toward max_rounds: every partial receipt of the node, except those before a recheck caused by a changed
+    source (review B-R06: that recheck reads a newly pinned tree and gets a new allowance; `rounds_total` still counts them all)."""
+    from . import namespaces
+    with ledger.transaction() as conn:
+        root = namespaces.resolve(ledger, conn, selector) if conn else None
+        rows = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='node.resumed' AND json_extract(payload,'$.node')=?",
+                            (root['id'], nid)).fetchall() if root else []
+    repinned = {json.loads(r['payload']).get('continues_attempt') for r in rows if json.loads(r['payload']).get('repin')}
+    last = max((n for n, r in enumerate(receipts) if r.get('attempt') in repinned), default=-1)
+    return sum(1 for r in receipts[last + 1:] if r.get('partial') is True)
+
+
 def _state(ledger, store, selector, node, tree):
     spec = node['sources']
     grants, basis = grant(_contract(ledger, selector))
@@ -681,7 +717,8 @@ def _state(ledger, store, selector, node, tree):
     node_history, unread_blob = _records(store, every)
     problem = broken or lost or unread or unread_blob
     previous = receipts[0] if receipts else None
-    requests = [dict(CATALOGUE)] if previous is None else list(previous.get('source_requests') or [])
+    requests = ([dict(CATALOGUE)] if previous is None or (previous.get('source') or {}).get('tree') not in (None, tree['tree'])
+                else list(previous.get('source_requests') or []))       # a newly pinned tree starts with its catalogue
     known = {r['index']: r for r in history if isinstance(r, dict) and 'index' in r}
     first = max(known, default=-1) + 1
     reader = Reader(ledger.project, tree['tree'], tree.get('head'))
@@ -700,14 +737,14 @@ def _state(ledger, store, selector, node, tree):
     return {'capability': 'git-tree', 'tree': tree['tree'], 'head': tree.get('head'), 'spec': spec, 'scope': scope, 'basis': basis,
             'records': records, 'lookup': lookup, 'results': results, 'first_index': first, 'problem': problem,
             'fingerprints': {r.get('fingerprint') for r in seen if isinstance(r, dict)} - {None},
-            'rounds_used': sum(1 for r in every if r.get('partial') is True), 'node_receipts': keys,
+            'rounds_used': _rounds_since_repin(ledger, selector, node['id'], every), 'node_receipts': keys,
             'previous_tree': trees[-1] if trees and trees[-1] != tree['tree'] else None,
             'chain_changed': any(r.get('changed_paths') for r in receipts),
             'previous_note': ((previous or {}).get('continuation') or {}).get('remaining'),
             'refused_last': list(previous_block.get('refused') or [])[:REQUESTS_PER_ROUND],
             'progress': _progress(seen, tree['tree']),
-            'read_blobs': {r['result']['path']: r['result']['blob'] for r in history + records if isinstance(r, dict) and r.get('action') == 'read'
-                           and isinstance((r.get('result') or {}).get('text'), str) and r['result'].get('blob')}}
+            'read_blobs': _seen_blobs(history + records),
+            'rounds_total': sum(1 for r in every if r.get('partial') is True)}
 
 
 def prepare(ledger, store, selector, node, schema):
@@ -731,7 +768,7 @@ def restate(ledger, store, selector, node):
 
 
 def read_blobs(state):
-    """2.4-B: {tree, blobs: {path: blob}} of the files the chain read as text (None when it read none), for the delivery record."""
+    """2.4-B: {tree, blobs: {path: blob}} of the files whose content reached the chain's prompts (None when none), for the delivery record."""
     if not state or state.get('capability') != 'git-tree' or not state.get('read_blobs'): return None
     return {'tree': state['tree'], 'blobs': dict(sorted(state['read_blobs'].items()))}
 
@@ -924,6 +961,7 @@ def receipt_fields(state, accepted, refused, problem=None, continuation=None):
              'withheld_total': sum((r.get('result') or {}).get('withheld_total', len((r.get('result') or {}).get('withheld') or [])) for r in records),
              'requests': list(accepted), 'refused': list(refused),
              'rounds_used': used + (1 if continuation is not None and not exhausted else 0), 'max_rounds': cap, 'progress': state['progress'],
+             'rounds_total': state.get('rounds_total', used) + (1 if continuation is not None and not exhausted else 0),
              **({'previous_tree': state['previous_tree']} if state.get('previous_tree') else {}),
              **({'chain_problem': state['problem']} if state.get('problem') else {}),
              **({'rounds_exhausted': True, 'chain_receipts': list(state.get('node_receipts') or [])} if exhausted else {}),

@@ -149,7 +149,7 @@ class NativeExecutor(executors.Executor):
             read = source_tools.read_blobs(sources)
             delivered_event = None
             if (knowledge_record or {}).get('delivered') or (knowledge_record or {}).get('delta') or read:
-                delivered_event = working_context.record_delivery(ledger, selector, node, attempt, task, knowledge_record, delivery, read)
+                delivered_event = working_context.record_delivery(ledger, selector, node, attempt, task, knowledge_record, delivery, read, base=base)
         except Exception as error:
             if control.attempt(attempt['id'])['status'] == 'reserved':
                 failure = {'reason': 'native_preflight', 'error': str(error)}
