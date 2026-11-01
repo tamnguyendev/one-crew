@@ -17,6 +17,8 @@ Người lập: Claude (Fable 5.1, đầu mối; agent Opus/Sonnet theo việc),
 
 Tài nguyên đang dùng lúc bắt đầu (01/11 ~02:15, chỉ quan sát): các phiên Claude/Codex khác, KiroCrew, host OneCrew thật. Không dừng, không đọc/ghi sổ `state-v2-real`.
 
+Quan sát 01/11 08:11: sổ đăng ký hook thật `%LOCALAPPDATA%\OneCrew\hook-projects.json` đổi lúc 08:01 (842 byte, SHA256 `23ec9033…`): thêm hai mục `d:\onecrewruns\copies\signsdk-dev10-test` và `…\signsdk-dev10-upgrade` trỏ tới `D:\OneCrewRuns\states\…` — do một phiên khác (thử gói dev10 trên bản sao signsdk, thư mục tạo 07:59–08:04), không phải lượt 2.4 (mọi lượt chạy 2.4 dùng `LOCALAPPDATA` riêng `D:\OneCrewRuns24	mp-int\lad`). Không đụng, không khôi phục; hash này là mốc so sánh cho các lượt sau của 2.4.
+
 ### 1.1 Tồn đọng 2.3 đã biết, phân loại cho 2.4
 
 | Tồn đọng | Phân loại | Xử lý trong 2.4 |
