@@ -3,7 +3,8 @@ of the original error -> resume, with evidence, on a test environment. Missing a
 
 The venv operations of onecrew.v2.hotfix (create a venv, pip install, read its identity, run its `onecrew`, classify kinds with it, list
 processes) are replaced by fakes: the "new runtime" is this checkout's code run in-process, the old venv a folder with an `onecrew.exe` file.
-The fake pip install keeps the wheel's own RECORD as the installed RECORD, so a venv that holds another wheel is visible (S2-R02). The fix
+The fake pip install writes the wheel's files into the venv's site-packages and the real identity of hotfix hashes them (Codex r1
+F1); the fake `onecrew --version` reports the files of that venv as loaded, in the interpreter's own PYTHONVERBOSE format. The fix
 project is a small OneCrew-shaped repository (pyproject with py-modules) and its wheels are real wheels of its commits (tests/wf_wheel),
 so the content of a wheel is checked against the verified commit (S2-R01). The same chain with real venvs runs in test_v24_s2_installed.py.
 
@@ -67,12 +68,25 @@ def craft(wheel, add=None, change=None):
     return out
 
 
+def place(venv, data, change=None):
+    """Write the files of a wheel into venv/Lib/site-packages as pip does (its RECORD, plus INSTALLER), `change` replacing some bytes."""
+    site = Path(venv) / 'Lib' / 'site-packages'
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        for name in archive.namelist():
+            if name.endswith('/'): continue
+            target = site / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((change or {}).get(name, archive.read(name)))
+            if name.endswith('.dist-info/RECORD'): (target.parent / 'INSTALLER').write_text('pip\n')
+
+
 class FakeRuntime:
     """The venv side of hotfix, faked: counts every effect so a test can prove it happened once (or not at all)."""
 
     def __init__(self, case):
         self.case, self.venvs, self.installs, self.calls = case, [], [], []
         self.processes, self.old_reader_ok, self.scan_override, self.old_scan, self.unknown_kinds = [], True, None, None, set()
+        self.entry_override = None
 
     def make_venv(self, base, path):
         path = Path(path)
@@ -82,18 +96,27 @@ class FakeRuntime:
         (path / 'pyvenv.cfg').write_text('home = fake\n')
 
     def pip_install(self, python, wheel):
+        """Like pip: the wheel's files written into the venv's site-packages, plus INSTALLER (the content is what the real identity of
+        hotfix hashes; Codex r1 F1)."""
         data = Path(wheel).read_bytes()
         self.installs.append((str(python), hashlib.sha256(data).hexdigest()))
-        version = Path(wheel).name.split('-')[1]
-        rows = rows_of(data) + [[f'onecrew-{version}.dist-info/INSTALLER', 'sha256=pip']]
-        (Path(python).parent.parent / 'installed.json').write_text(json.dumps({'version': version, 'rows': rows}))
+        place(Path(python).parent.parent, data)
 
-    def identity(self, venv):
-        marker = Path(venv) / 'installed.json'
-        if not marker.is_file(): return {'version': 'unknown', 'rows': [], 'location': None, 'version_line': ''}
-        value = json.loads(marker.read_text())
-        return {'version': value['version'], 'rows': value['rows'], 'location': str(Path(venv) / 'Lib' / 'site-packages' / 'onecrew'),
-                'version_line': f'onecrew {value["version"]}'}
+    def entry_run(self, venv):
+        """The venv's `onecrew --version` under PYTHONVERBOSE, faked: it "loads" every .py of the onecrew folder of THAT venv, written the
+        way the interpreter writes it (so the real parser of hotfix reads it)."""
+        site = Path(venv) / 'Lib' / 'site-packages'
+        if self.entry_override: return self.entry_override(venv)
+        if not (site / 'onecrew' / '__init__.py').is_file(): return 1, '', "ModuleNotFoundError: No module named 'onecrew'"
+        meta = next(site.glob('onecrew-*.dist-info'), None)
+        version = (meta.name.split('-')[1].removesuffix('.dist-info')) if meta else 'unknown'
+        lines = [f'# code object from {str(p)!r}' for p in sorted((site / 'onecrew').rglob('*.py'))]
+        return 0, f'onecrew {version}\n', '\n'.join(lines)
+
+    def interpreter(self, venv, caches):
+        import sys
+        return {'base_prefix': sys.base_prefix, 'base_exec_prefix': sys.base_exec_prefix, 'tag': sys.implementation.cache_tag,
+                'pyc': {str(c): 'same' for c in caches}}
 
     def is_old(self, exe):
         return Path(exe).resolve().is_relative_to(self.case.old_venv.resolve())
@@ -157,7 +180,7 @@ class S2Fixture(Helpers, CandidateFixture):
         self.fix_plan(self.grant)
         self.runtime = FakeRuntime(self)
         self.real = {name: getattr(hotfix(), name) for name in ('processes_under', 'platform')}
-        for name in ('make_venv', 'pip_install', 'identity', 'run_onecrew', 'processes_under', 'event_classes'):
+        for name in ('make_venv', 'pip_install', 'entry_run', 'interpreter', 'run_onecrew', 'processes_under', 'event_classes'):
             target = patch.object(hotfix(), name, getattr(self.runtime, name)); target.start(); self.addCleanup(target.stop)
         self.fb = self.new_fb('Node C fails although a.txt is right')
 
@@ -341,11 +364,13 @@ class IdentityTests(S2Fixture):
         planted = Path(self.new_exe()).parent.parent
         (planted / 'Scripts').mkdir(parents=True)
         for name in ('python.exe', 'onecrew.exe'): (planted / 'Scripts' / name).write_bytes(b'planted')
-        (planted / 'installed.json').write_text(json.dumps({'version': VERSION, 'rows': [['onecrew/v2/fixmod.py', 'sha256=planted']]}))
+        # the bound wheel's files with one changed: the content is compared, not a RECORD (Codex r1 F1)
+        place(planted, Path(self.wheel()[0]).read_bytes(), change={'onecrew/v2/fixmod.py': b'FIXED = False\n'})
         code, refused = self.install()
         self.assertEqual(code, 2, refused); self.assertIn('not the bound wheel', refused['error'])
+        self.assertIn('onecrew/v2/fixmod.py', refused['error'])
         self.assertEqual((self.runtime.installs, self.settings_exe()), ([], {str(self.old_exe.resolve())}))
-        self.assertTrue((planted / 'installed.json').is_file())                       # refused, never deleted
+        self.assertTrue((planted / 'Lib' / 'site-packages' / 'onecrew' / 'v2' / 'fixmod.py').is_file())   # refused, never deleted
         import shutil
         shutil.rmtree(planted)
         code, first = self.install()

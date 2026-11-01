@@ -25,12 +25,14 @@ must name onecrew at the pyproject version of that commit; and the commit's tree
 is not repeated; what is proven is "this wheel holds exactly the files of the verified commit".
 
 Install: always a NEW venv beside the declared one, `<venv>-<version>-<wheel sha8>`, never a change to the old venv; a folder that already
-exists is reused only when the onecrew installed in it holds every file of the bound wheel with the same hash (and `onecrew --version` names
-the version), else refused, never deleted. Drill on a copy of every consuming state root (ledger, plans/ and the blobs those roots
-reference). Switch only at a safe point, inside an exclusive claim, with an intent recorded before each repoint; the window is re-checked
-after it. Rollback only when the OLD runtime reads the current data (see rollback). `installed` and `verified_at_target` are projected against
+exists is reused only when it IS the bound wheel (verify_installed: the content of every file against the verified wheel rows, never the
+venv's own RECORD; the files its `onecrew` executable loads; Codex r1 F1), else refused, never deleted. Drill on a copy of every consuming
+state root (ledger, plans/ and the blobs those roots reference), fenced BEFORE the copy, the copy holding exactly the fenced data. Switch
+only at a safe point (the fence compared again), inside an exclusive claim, with an intent recorded before each repoint; the window, the
+fence and the processes of the runtime being left are re-checked after it (Codex r1 F2). Rollback only when the OLD runtime reads the current data (see rollback). `installed` and `verified_at_target` are projected against
 what the consumers' hook handlers run NOW.
 """
+import ast
 import base64
 import csv
 import hashlib
@@ -118,22 +120,151 @@ def pip_install(python, wheel):
     if code != 0: raise LedgerError(f'pip install of {Path(wheel).name} failed: {(out + err)[-400:]}')
 
 
-IDENTITY = ('import json\nfrom importlib import metadata\nd = metadata.distribution("onecrew")\n'
-            'rows = [[f.as_posix(), (f.hash.mode + "=" + f.hash.value) if f.hash else ""] for f in (d.files or [])]\n'
-            'print(json.dumps({"version": d.version, "location": str(d.locate_file("onecrew")), "rows": rows}))')
+INTERPRETER = ('import importlib.util, json, marshal, sys\n'
+               'out = {"base_prefix": sys.base_prefix, "base_exec_prefix": sys.base_exec_prefix, "tag": sys.implementation.cache_tag, "pyc": {}}\n'
+               'for path in json.loads(sys.argv[1]):\n'
+               '    try:\n'
+               '        source = importlib.util.source_from_cache(path)\n'
+               '        data = open(path, "rb").read()\n'
+               '        if data[:4] != importlib.util.MAGIC_NUMBER:\n'
+               '            out["pyc"][path] = "other interpreter"; continue\n'
+               '        level = 2 if ".opt-2." in path else 1 if ".opt-1." in path else 0\n'
+               '        code = compile(open(source, "rb").read(), source, "exec", dont_inherit=True, optimize=level)\n'
+               '        out["pyc"][path] = "same" if marshal.loads(data[16:]) == code else "differs"\n'
+               '    except ValueError:\n'
+               '        out["pyc"][path] = "other interpreter"\n'
+               '    except Exception as error:\n'
+               '        out["pyc"][path] = "unreadable: " + type(error).__name__\n'
+               'print(json.dumps(out))')
 
 
-def identity(venv):
-    """{version, location, rows, version_line} of the onecrew installed in `venv`, read by that venv's own interpreter (rows: its installed
-    RECORD as [path, hash])."""
-    code, out, err = run([venv_python(venv), '-I', '-c', IDENTITY])
+def interpreter(venv, caches):
+    """What the venv's own interpreter says when started with -I -S (no site, no .pth: no code of the venv runs): its base prefix and cache
+    tag, and for each bytecode cache whether its code is the compile of its source (Python loads a cache instead of the source)."""
+    code, out, err = run([venv_python(venv), '-I', '-S', '-c', INTERPRETER, json.dumps([str(c) for c in caches])], timeout=300)
     try:
-        value = json.loads(out) if code == 0 else {}
+        return json.loads(out) if code == 0 else {'error': (err or out or f'exit {code}')[-300:]}
     except ValueError:
-        value = {}
-    code, line, err2 = run([venv_exe(venv), '--version'])
-    return {'version': value.get('version', 'unknown'), 'location': value.get('location'), 'rows': value.get('rows') or [],
-            'version_line': (line or '').strip()[:300], 'error': None if value else (err or err2 or 'no answer')[-300:]}
+        return {'error': (out or err or 'no answer')[-300:]}
+
+
+def entry_run(venv):
+    """(exit, stdout, stderr) of the venv's `onecrew --version` under PYTHONVERBOSE=1: the interpreter itself writes where every module the
+    executable loads comes from. No bytecode is written into the venv."""
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith('PYTHON')}
+    env.update(PYTHONVERBOSE='1', PYTHONDONTWRITEBYTECODE='1')
+    return run([venv_exe(venv), '--version'], cwd=venv, env=env, timeout=300)
+
+
+LOADED = re.compile(r"^# (?:code object from|extension module '[^']*' loaded from) (.+?)\s*$")
+
+
+def site_packages(venv):
+    """The site-packages folder of a venv, from its layout (no code of the venv runs to find it); None when it is not one folder."""
+    venv = Path(venv)
+    if os.name == 'nt': return venv / 'Lib' / 'site-packages'
+    found = sorted((venv / 'lib').glob('python3*/site-packages'))
+    return found[0] if len(found) == 1 else None
+
+
+def _linked(site, relative):
+    """True when the file, or a folder between site-packages and it, is a link or junction (its content is then somewhere else)."""
+    path = Path(site)
+    for part in relative.split('/'):
+        path = path / part
+        if is_link(path): return True
+    return False
+
+
+def _loaded(text):
+    """The files the interpreter reports loading (PYTHONVERBOSE lines); None for a line whose path cannot be read."""
+    found = []
+    for line in (text or '').splitlines():
+        match = LOADED.match(line)
+        if not match: continue
+        try:
+            found.append(str(ast.literal_eval(match.group(1))))
+        except (ValueError, SyntaxError):
+            found.append(None)
+    return found
+
+
+def _source_of(relative):
+    """The source a bytecode cache path stands for (pkg/__pycache__/m.cpython-313.pyc -> pkg/m.py); other paths unchanged."""
+    if '/__pycache__/' not in relative or not relative.endswith('.pyc'): return relative
+    folder, name = relative.rsplit('/__pycache__/', 1)
+    return f'{folder}/{name.split(".")[0]}.py'
+
+
+def _console_modules(site, rows):
+    """The modules the console scripts of the bound wheel run (its entry_points.txt, whose bytes are compared with the rows first)."""
+    entry = next((p for p, _ in rows if p.endswith('.dist-info/entry_points.txt')), None)
+    if entry is None or not (Path(site) / entry).is_file(): return []
+    section, modules = None, []
+    for line in (Path(site) / entry).read_text(encoding='utf-8', errors='replace').splitlines():
+        line = line.strip()
+        if line.startswith('['): section = line; continue
+        if section == '[console_scripts]' and '=' in line: modules.append(line.split('=', 1)[1].split(':')[0].strip())
+    return modules
+
+
+def identity(venv, art):
+    """Codex r1 F1: what the files of `venv` and its running executable show, against the VERIFIED wheel rows of `art` (art['rows'], the
+    RECORD `support artifact` proved against the commit), never against the venv's own RECORD or metadata: the hash of the content of
+    every installed file of the wheel, links in their place, files of the wheel's package folders that the wheel does not hold, bytecode
+    caches, .pth start-up code, and the files the venv's `onecrew` executable loads when it runs (reported by the interpreter)."""
+    venv = Path(venv)
+    site = site_packages(venv)
+    wanted = {p: h for p, h in art['rows'] if not p.endswith('.dist-info/RECORD')}
+    out = {'site': str(site) if site else None, 'location': str(site / 'onecrew') if site else None, 'files': {}, 'linked': [], 'extras': [],
+           'caches': {}, 'pth': [], 'loaded': [], 'outside': [], 'entry_modules': [], 'exit': None, 'version_line': '', 'version': 'unknown',
+           'present': False, 'error': None}
+    if site is None or not site.is_dir():
+        return dict(out, error=f'no site-packages folder in {venv}')
+    for path in sorted(wanted):
+        if _linked(site, path):
+            out['linked'].append(path); continue
+        out['files'][path] = _hash((site / path).read_bytes()) if (site / path).is_file() else None
+    out['present'] = any(v is not None for v in out['files'].values())
+    sources, caches = {p for p in wanted if p.endswith('.py')}, []
+    for top in sorted({p.split('/')[0] for p in wanted if '/' in p and '.dist-info/' not in p}):
+        folder = site / top
+        if is_link(folder) or not folder.is_dir(): continue                       # already a linked or missing file of the wheel
+        for item in sorted(folder.rglob('*')):
+            relative = item.relative_to(site).as_posix()
+            if relative in wanted: continue
+            if is_link(item): out['linked'].append(relative); continue
+            if item.is_dir(): continue
+            if item.parent.name == '__pycache__' and item.suffix == '.pyc':
+                if _source_of(relative) in sources: caches.append(item)
+                continue                                  # a cache of no wheel source is never loaded without that source
+            out['extras'].append(relative)
+    for pth in sorted(site.glob('*.pth')):
+        lines = pth.read_text(encoding='utf-8', errors='replace').splitlines()
+        if any(line.startswith(('import ', 'import\t')) for line in lines): out['pth'].append(pth.name)
+    meta = next((p for p in wanted if p.endswith('.dist-info/METADATA')), None)
+    if meta and out['files'].get(meta):
+        found = re.search(r'(?m)^Version: *(\S+)\s*$', (site / meta).read_text(encoding='utf-8', errors='replace'))
+        out['version'] = found.group(1) if found else 'unknown'
+    if not any(p.endswith('.dist-info/entry_points.txt') and out['files'].get(p) not in (None, h) for p, h in wanted.items()):
+        out['entry_modules'] = _console_modules(site, art['rows'])
+    facts = interpreter(venv, caches)
+    if facts.get('error'): out['error'] = 'the venv interpreter did not answer: ' + facts['error']
+    for path, verdict in (facts.get('pyc') or {}).items():
+        out['caches'][Path(path).relative_to(site).as_posix()] = verdict
+    code, stdout, stderr = entry_run(venv)
+    out.update(exit=code, version_line=(stdout or '').strip()[:300])
+    bases = [Path(p).resolve() for p in (facts.get('base_prefix'), facts.get('base_exec_prefix')) if p]
+    here, launcher = site.resolve(), venv_exe(venv).resolve()
+    for path in _loaded(stderr):
+        if path is None:
+            out['outside'].append('(a path the interpreter wrote that cannot be read)'); continue
+        file = Path(path).resolve()
+        if file.is_relative_to(here): out['loaded'].append(file.relative_to(here).as_posix())
+        elif file == launcher or file.is_relative_to(launcher): continue                     # the launcher's own __main__
+        elif any(file.is_relative_to(b) for b in bases) and 'site-packages' not in {p.casefold() for p in file.parts}: continue   # stdlib
+        else: out['outside'].append(str(file))
+    return out
 
 
 def run_onecrew(exe, args, cwd=None, env=None):
@@ -456,6 +587,17 @@ def _skip(relative):
 def fence(state_root):
     """A hash of the data of a state root (every SQL row, every file) that must not change between the drill and the switch. The support
     anchor's own rows and the content-addressed blobs (which only ever grow) are left out: S2 writes those itself in between."""
+    return _fenced(state_root)[0]
+
+
+def _fenced(state_root):
+    """(fence, data) from ONE read of the state root: data is the digest of what a drill copy holds (every SQL row but the support
+    anchor's, the files under plans/), so the copy can be compared with the fenced state (Codex r1 F2)."""
+    rows, files = _fence_parts(state_root)
+    return content_hash({'rows': rows, 'files': files}), content_hash({'rows': rows, 'plans': {k: v for k, v in files.items() if k.startswith('plans/')}})
+
+
+def _fence_parts(state_root):
     state_root = Path(state_root)
     rows = {}
     path = state_root / 'ledger.sqlite3'
@@ -463,6 +605,7 @@ def fence(state_root):
         conn = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
         try:
             conn.execute('PRAGMA query_only=ON')
+            conn.execute('BEGIN')                     # every table from one read snapshot
             anchors = {r[0] for r in conn.execute('SELECT id FROM tasks WHERE request_key=?', (support.ANCHOR_KEY,))}
             for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall():
                 found = conn.execute(f'SELECT * FROM "{table}"').fetchall()
@@ -475,7 +618,17 @@ def fence(state_root):
     for item in sorted(state_root.rglob('*')) if state_root.is_dir() else []:
         relative = item.relative_to(state_root)
         if item.is_file() and not _skip(relative): files[relative.as_posix()] = hashlib.sha256(item.read_bytes()).hexdigest()
-    return content_hash({'rows': rows, 'files': files})
+    return rows, files
+
+
+def _drill_copy(state, target, project, fences, datas):
+    """Codex r1 F2: fence a consuming state root BEFORE its first copy (once per state root, so the drill of a second consumer of the
+    same root never moves it), then copy it; (copy, bytes, problems), a problem when the copy does not hold exactly the fenced data."""
+    if state not in fences: fences[state], datas[state] = _fenced(state)
+    copy, size = copy_state(state, target, project=project)
+    moved = [] if _fenced(copy)[1] == datas[state] else [f'fence: the data of {state} changed between its fence and its copy; nothing was '
+                                                          'switched, run it again']
+    return copy, size, moved
 
 
 def _referenced_blobs(source, project):
@@ -685,16 +838,24 @@ def safe_point(entries, fences, venv):
     return problems, ('unknown' if running is None else running)
 
 
-def _window(entries, before):
-    """S2-R09: attempts or actions that appeared or changed in the switch window (after the safe-point check)."""
-    changed = []
+def _window(entries, before, fences, left):
+    """S2-R09 and Codex r1 F2, read after the hooks were rewritten: (problems, fences now). Attempts or actions that appeared or changed
+    in the switch window; data that changed since the fence the drill was bound to (a write between the safe point and the repoint was
+    never drilled); a process of the runtime being left still running (it started before the repoint and may still write)."""
+    changed, now_fences = [], {}
     for state in sorted({c['state_root'] for c in entries}):
         now = _activity(state)[1]
         old = before.get(state) or {'attempts': [], 'actions': []}
         for table in ('attempts', 'actions'):
             fresh = [r for r in now[table] if r not in old[table]]
             changed += [f'{table[:-1]} {r[0]} ({r[1]}) appeared or changed in {state} during the switch' for r in fresh]
-    return changed
+        now_fences[state] = fence(state)
+        if now_fences[state] != fences.get(state):
+            changed.append(f'fence: the data of {state} changed between the safe point and the end of the switch; it was not drilled')
+    running = processes_under(left)
+    if running is None: changed.append('processes: unknown after the switch (they cannot be listed here)')
+    else: changed += [f'process {p["pid"]} of the runtime being left ({p["image"]}) was running during the switch' for p in running]
+    return changed, now_fences
 
 
 # ---- the exclusive claim (S2-R09) ---------------------------------------------------------------------------------------------------
@@ -827,20 +988,37 @@ def _authority(ledger, shown, target_id, what='install'):
 
 
 def verify_installed(venv, art, found=None):
-    """(problems, identity): the onecrew installed in `venv` must hold every file of the bound wheel with the same hash (its installed
-    RECORD), live inside that venv, and answer `onecrew --version` with the version (S2-R02)."""
-    found = found or identity(venv)
-    problems = []
-    if found.get('version') != art['version']: problems.append(f'it holds onecrew {found.get("version")}, not {art["version"]}')
-    location = found.get('location')
-    if not location or not Path(location).resolve().is_relative_to(Path(venv).resolve()):
-        problems.append(f'its onecrew is not inside the venv ({location})')
-    installed = {p: h for p, h in found.get('rows') or []}
+    """(problems, identity): `venv` is the bound wheel only when (S2-R02, Codex r1 F1) the CONTENT of every file of the wheel, read from
+    the venv's site-packages, has the hash the verified wheel's RECORD gives it (art['rows']; the venv's own RECORD and metadata are never
+    the evidence); no link or junction stands for one of them; the wheel's package folders hold no other file and no bytecode cache that
+    is not the compile of its source; no .pth file runs start-up code; and the venv's `onecrew --version` runs, names the version and
+    loads onecrew (and its console-script module) from these files, nothing from outside the venv but the standard library."""
+    found = found or identity(venv, art)
+    problems = [found['error']] if found.get('error') else []
+    files = found.get('files') or {}
     wanted = {p: h for p, h in art['rows'] if not p.endswith('.dist-info/RECORD')}
-    differ = sorted(p for p, h in wanted.items() if installed.get(p) != h)
-    if differ: problems.append(f'its installed files are not the bound wheel: {", ".join(differ[:5])}')
+    linked = sorted(found.get('linked') or [])
+    missing = sorted(p for p in wanted if p not in linked and files.get(p) is None)
+    differ = sorted(p for p, h in wanted.items() if files.get(p) is not None and files[p] != h)
+    if differ: problems.append(f'its installed files are not the bound wheel (the content differs): {", ".join(differ[:5])}')
+    if missing: problems.append(f'files of the bound wheel are missing: {", ".join(missing[:5])}')
+    if linked: problems.append(f'links or junctions stand in the installed tree: {", ".join(linked[:5])}')
+    if found.get('extras'): problems.append(f'files the bound wheel does not hold, in its package folders: {", ".join(found["extras"][:5])}')
+    caches = sorted(p for p, v in (found.get('caches') or {}).items() if v not in ('same', 'other interpreter'))
+    if caches: problems.append(f'bytecode caches that are not the compile of their source (Python loads them instead): {", ".join(caches[:5])}')
+    if found.get('pth'): problems.append(f'.pth files run code at every start of this venv: {", ".join(found["pth"][:5])}')
+    if found.get('version') != art['version']: problems.append(f'it holds onecrew {found.get("version")}, not {art["version"]}')
+    if found.get('exit') != 0: problems.append(f'its onecrew executable did not run (exit {found.get("exit")})')
     if art['version'] not in (found.get('version_line') or ''): problems.append(f'onecrew --version says {found.get("version_line")!r}')
-    return problems, dict(found, record_sha256=record_digest([(p, h) for p, h in installed.items() if p in wanted]) if not differ else None)
+    loaded = {_source_of(p) for p in found.get('loaded') or []}
+    foreign = sorted(p for p in loaded if p not in wanted)
+    if foreign: problems.append(f'its onecrew executable loaded files the bound wheel does not hold: {", ".join(foreign[:5])}')
+    if found.get('outside'):
+        problems.append(f'its onecrew executable loaded code from outside the venv and the standard library: {", ".join(found["outside"][:3])}')
+    required = {'onecrew/__init__.py'} | {m.replace('.', '/') + '.py' for m in found.get('entry_modules') or []}
+    absent = sorted(required - loaded)
+    if absent: problems.append(f'its onecrew executable did not load {", ".join(absent)} from this venv')
+    return problems, dict(found, record_sha256=None if problems else record_digest(files.items()))
 
 
 def _finals(ledger, ident=None, key=None):
@@ -866,6 +1044,9 @@ def install(ledger, ident, target_id, keep=False):
     key = _key(ident, art, target_id)
     finals = _finals(ledger, ident, key)
     if finals and finals[-1]['result'] == 'switched' and finals[-1].get('action') == 'install' and runtime_now(finals[-1])['current']:
+        problems, _ = verify_installed(finals[-1]['new_venv'], art)
+        if problems: raise LedgerError(f'The switched venv {finals[-1]["new_venv"]} is no longer the bound wheel ({"; ".join(problems)}): '
+                                       'nothing was changed; the owner reinstalls or rolls back.')
         return dict(finals[-1], already=True)
     if finals and finals[-1]['result'] == 'switch_window_violation':
         raise LedgerError('A switch window violation is recorded for this install: further steps are refused until the owner reconciles it.')
@@ -889,8 +1070,8 @@ def _install(ledger, ident, target, target_id, art, key, keep):
     wheel = work / 'wheel' / art['wheel_name']
     if venv.exists():
         problems, found = verify_installed(venv, art)
-        if problems:
-            mine = marker.is_file() and json.loads(marker.read_text(encoding='utf-8')).get('venv') == str(venv) and not identity(venv).get('rows')
+        if problems:                                  # Codex r1 F1: judged on the content, before anything is switched
+            mine = marker.is_file() and json.loads(marker.read_text(encoding='utf-8')).get('venv') == str(venv) and not found.get('present')
             if not mine:
                 raise LedgerError(f'{venv} exists and is not the bound wheel ({"; ".join(problems)}): refused, nothing deleted or switched.')
             pip_install(venv_python(venv), _wheel_file(ledger, art, wheel))       # finish this install's own interrupted step
@@ -903,10 +1084,10 @@ def _install(ledger, ident, target, target_id, art, key, keep):
     problems, found = verify_installed(venv, art)
     if problems: raise LedgerError(f'The new venv {venv} is not the bound wheel ({"; ".join(problems)}): refused, nothing switched.')
     entries, unknown = consumers(ledger, old_exe, venv_exe(venv), target.get('consumers'))
-    fences, drill = {}, []
+    fences, datas, drill, moved = {}, {}, [], []
     for index, entry in enumerate(entries):
-        fences[entry['state_root']] = fence(entry['state_root'])
-        copy, size = copy_state(entry['state_root'], work / 'drill' / str(index) / 'state', project=entry['project'])
+        copy, size, shifted = _drill_copy(entry['state_root'], work / 'drill' / str(index) / 'state', entry['project'], fences, datas)
+        moved += shifted
         checked = _read_check(venv_exe(venv), entry['project'], copy, engine=True)
         drill.append(dict(checked, state_root=entry['state_root'], project=entry['project'], copy=str(copy), copy_bytes=size,
                           copy_kept=bool(keep or checked['problems'])))
@@ -932,15 +1113,17 @@ def _install(ledger, ident, target, target_id, art, key, keep):
         why = [f'consumer unknown: {u["file"]}: {u["why"]}' for u in unknown] or ['no project uses this target: nothing to switch']
         return _emit(ledger, 'support.install', dict(outcome, result='refused_unsafe', problems=why))
     unsafe, running = safe_point(entries, fences, old_venv)
+    unsafe = moved + unsafe
     if unsafe:
         return _emit(ledger, 'support.install', dict(outcome, result='refused_unsafe', problems=unsafe, processes=running))
     before = {s: _activity(s)[1] for s in {e['state_root'] for e in entries}}
     files = repoint(ledger, ident, key, entries, venv_exe(venv), old_exe, 'install')
-    changed = _window(entries, before)
+    changed, after = _window(entries, before, fences, old_venv)
+    bound = {'drilled': fences, 'at_switch': after}
     if changed:
-        return _emit(ledger, 'support.install', dict(outcome, result='switch_window_violation', problems=changed, files=files,
-                     note='an attempt or action started while the hooks were repointed: nothing is stopped; later steps are refused'))
-    return _emit(ledger, 'support.install', dict(outcome, result='switched', files=files, processes=running, at=utcnow(),
+        return _emit(ledger, 'support.install', dict(outcome, result='switch_window_violation', problems=changed, files=files, fences=bound,
+                     note='data, an attempt or an action changed while the hooks were repointed: nothing is stopped; later steps are refused'))
+    return _emit(ledger, 'support.install', dict(outcome, result='switched', files=files, processes=running, at=utcnow(), fences=bound,
                                                  max_seq={s: r['max_seq'] for s, r in before.items()}))
 
 
@@ -993,12 +1176,15 @@ def _rollback(ledger, ident, current, keep):
     work = ledger.state_root / WORK / current['key']
     old_venv = Path(current['old_venv'])
     old_exe = venv_exe(old_venv)
-    checks, problems = [], []
+    checks, problems, fences, datas, moved = [], [], {}, {}, []
     for index, entry in enumerate(current['consumers']):
-        copy, size = copy_state(entry['state_root'], work / 'rollback' / str(index) / 'state', project=entry['project'])
+        # Codex r1 F2: the fence is taken BEFORE the copy and the copy must hold exactly the fenced data; the kinds written since the switch
+        # are read from that copy, so the old runtime judges the very data the switch decision is bound to
+        copy, size, shifted = _drill_copy(entry['state_root'], work / 'rollback' / str(index) / 'state', entry['project'], fences, datas)
+        moved += shifted
         checked = _read_check(old_exe, entry['project'], copy, engine=True)
         since = (current.get('max_seq') or {}).get(entry['state_root'], 0)
-        conn = sqlite3.connect((Path(entry['state_root']) / 'ledger.sqlite3').as_uri() + '?mode=ro', uri=True)
+        conn = sqlite3.connect((Path(copy) / 'ledger.sqlite3').as_uri() + '?mode=ro', uri=True)
         try:
             kinds = sorted({r[0] for r in conn.execute("SELECT DISTINCT e.kind FROM events e JOIN tasks t ON t.id=e.task_id WHERE e.seq>? AND "
                                                        "t.request_key!=?", (since, support.ANCHOR_KEY))})
@@ -1012,15 +1198,25 @@ def _rollback(ledger, ident, current, keep):
         problems += checked['problems']
         if not keep and not checked['problems']: shutil.rmtree(copy.parent, ignore_errors=True)
     base['reader_pair'] = checks
+    _crash('rollback_after_drill')
     if problems:
         return _emit(ledger, 'support.install', dict(base, result='refused', problems=problems,
                      reason='the old reader cannot read or derive the current data: rollback refused, the new runtime and the ledger stay as they are'))
-    fences = {e['state_root']: fence(e['state_root']) for e in current['consumers']}
     unsafe, running = safe_point(current['consumers'], fences, current['new_venv'])
-    if unsafe: return _emit(ledger, 'support.install', dict(base, result='refused', problems=unsafe, reason='not a safe point', processes=running))
+    unsafe = moved + unsafe
+    if unsafe:
+        return _emit(ledger, 'support.install', dict(base, result='refused', problems=unsafe, processes=running,
+                     reason='not a safe point, or the data changed since the drill: rollback refused, the new runtime and the ledger stay as they are'))
+    before = {s: _activity(s)[1] for s in {e['state_root'] for e in current['consumers']}}
     files = repoint(ledger, ident, current['key'], current['consumers'], old_exe, venv_exe(current['new_venv']), 'rollback')
     _crash('rollback_after_repoint')
-    return _emit(ledger, 'support.install', dict(base, result='rolled_back', files=files, processes=running, proven=PROVEN))
+    changed, after = _window(current['consumers'], before, fences, current['new_venv'])
+    bound = {'drilled': fences, 'at_switch': after}
+    if changed:
+        return _emit(ledger, 'support.install', dict(base, result='switch_window_violation', problems=changed, files=files, fences=bound,
+                     note='the data changed between the drill and the end of the switch: the hooks run the old runtime on data it did not '
+                          'drill. Nothing is stopped; run support rollback again to drill the current data (install stays refused until then).'))
+    return _emit(ledger, 'support.install', dict(base, result='rolled_back', files=files, processes=running, proven=PROVEN, fences=bound))
 
 
 # ---- the status projection (support._status reads it) ------------------------------------------------------------------------------
@@ -1077,6 +1273,12 @@ def recheck(ledger, ident, keep=False):
     switched = _switched(ledger, ident) if view['installed'] else None
     rows = _records(ledger, 'support.recheck', ident)
     pending = rows[-1] if rows and not rows[-1].get('result') else None
+    chosen = ([r for r in prepared if r.get('key') == switched['key']] or prepared)[-1] if switched else prepared[-1]
+    arts = [a for a in _records(ledger, 'support.artifact', ident) if a['wheel_sha256'] == chosen['wheel_sha256']]
+    if not arts: raise LedgerError('No verified artifact for the prepared runtime of this feedback.')
+    checked, found = verify_installed(Path(switched['new_venv']) if switched else Path(chosen['venv']), arts[-1])
+    if checked:                                       # Codex r1 F1: the recheck runs only the bound wheel, judged on its content now
+        raise LedgerError(f'The runtime {chosen["venv"]} is not the bound wheel now ({"; ".join(checked)}): the recheck is refused.')
     if switched:
         environment, state, venv = 'target', ledger.state_root, Path(switched['new_venv'])
         size = 0
@@ -1105,9 +1307,8 @@ def recheck(ledger, ident, keep=False):
         result, receipt = verification['result'], verification['receipt']
         if environment == 'copy':
             Snapshots(ledger.state_root).blob(Snapshots(state).read_blob(receipt))      # the receipt is kept in the target's store too
-    found = identity(venv) if environment == 'target' else {}
-    at_runtime = {'venv': str(venv), 'version': found.get('version') or prepared[-1].get('version'),
-                  'record_sha256': (prepared[-1].get('identity') or {}).get('record_sha256')}
+    at_runtime = {'venv': str(venv), 'version': found.get('version'), 'record_sha256': found.get('record_sha256'),
+                  'content_checked': 'every file of the bound wheel hashed, executable origins checked, before the run'}
     payload = {'feedback': ident, 'phase': 'result', 'refs': refs, 'environment': environment, 'state_root': str(state), 'venv': str(venv),
                'version': at_runtime['version'], 'at_runtime': at_runtime, 'exit': code, 'receipt': receipt, 'result': result,
                'copy_bytes': size, 'output_tail': (err or out)[-600:] if result == 'inconclusive' else None,

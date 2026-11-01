@@ -9,6 +9,11 @@ granted_actions ['support_install:lab'], whose milestone passed on the committed
 target add (owner) -> classify -> link -> artifact (wheel bytes + manifest bound to FIX1's verified tree) -> install (a NEW venv beside the
 prod one, drill on a copy, safe point, hooks repointed) -> recheck (the original check, run by the new runtime at the target: pass) -> status.
 The new venv is created by the product itself. Module origins of the new venv are checked with boundary.violations.
+
+Codex review r1 (D:/OneCrewRuns/v24/codex-r1/plan.md): F1, REAL runtime with fixture tampering: the product's own new venv (left by an
+install refused for an unreadable registry) gets one file changed with its installed RECORD kept -> the reuse path refuses before any
+repoint; restored -> reused and switched. F2, REAL runtime (the old prod executable drills a copy of the real temporary ledger) with FAULT
+INJECTION of the write timing: a write on P1 right after the drill -> rollback refused; run again -> rolled_back on data holding the write.
 """
 import hashlib
 import json
@@ -178,6 +183,28 @@ class InstalledS2(unittest.TestCase):
         code, artifact = self.run_prod('artifact', fb, '--wheel', str(self.fix_wheel), '--manifest', str(manifest))
         self.assertEqual(code, 0, artifact)
         self.assertGreater(artifact['files_checked'], 100)                        # every shipped file equals the bound commit
+        # Codex r1 F1, REAL runtime: the product creates the new venv; an install refused for another reason (an unreadable hook
+        # registry) leaves that venv in place. A file of it is then changed with its installed RECORD kept (fixture tampering): the
+        # reuse path must refuse before any repoint; with the bytes restored the same venv is reused and switched.
+        registry = Path(self.environment['LOCALAPPDATA']) / 'OneCrew' / 'hook-projects.json'
+        saved = registry.read_bytes()
+        registry.write_text('{not json', encoding='utf-8')
+        code, first = self.run_prod('install', fb, '--target', 'lab')
+        registry.write_bytes(saved)
+        self.assertEqual((code, first['result']), (0, 'refused_unsafe'), first)
+        made = Path(first['new_venv'])
+        self.assertTrue((made / 'Scripts' / 'onecrew.exe').is_file())
+        tampered = made / 'Lib' / 'site-packages' / 'onecrew' / 'v2' / 'diagnostics.py'
+        record = next((made / 'Lib' / 'site-packages').glob('onecrew-*.dist-info')) / 'RECORD'
+        original, record_bytes = tampered.read_bytes(), record.read_bytes()
+        tampered.write_bytes(original + b'\n# isolated corruption probe\n')
+        code, refused = self.run_prod('install', fb, '--target', 'lab')
+        self.assertEqual(code, 2, refused); self.assertIn('not the bound wheel', json.dumps(refused))
+        self.assertIn('onecrew/v2/diagnostics.py', json.dumps(refused))
+        hooks = json.loads((self.project / '.claude' / 'settings.local.json').read_text(encoding='utf-8'))
+        self.assertEqual({h['command'] for entries in hooks['hooks'].values() for e in entries for h in e['hooks']}, {str(self.prod_exe.resolve())})
+        self.assertEqual(record.read_bytes(), record_bytes)
+        tampered.write_bytes(original)
         code, installed = self.run_prod('install', fb, '--target', 'lab')
         self.assertEqual(code, 0, installed)
         self.assertEqual(installed['result'], 'switched', json.dumps(installed)[:3000])
@@ -205,6 +232,38 @@ class InstalledS2(unittest.TestCase):
         for name, info in dump['end'].items():
             if name.startswith('onecrew') and info.get('file'):
                 self.assertTrue(Path(info['file']).resolve().is_relative_to(new_venv.resolve()), (name, info['file']))
+        self.rollback_window(fb, new_venv)
+
+    def rollback_window(self, fb, new_venv):
+        """Codex r1 F2. REAL runtime: the rollback runs in this process (checkout code) and drives the real old runtime (the prod
+        `onecrew` executable) on a copy of the real temporary ledger; FAULT INJECTION: a write on P1 right after that drill. The decision
+        must be bound to the drilled data: refused, the hooks stay on the new runtime; run again without the write, the real old runtime
+        drills data that holds the write and the hooks go back to the prod venv."""
+        from onecrew.v2 import hotfix, plan as plans
+        ledger = Ledger(self.project, self.state)
+        real = hotfix._read_check
+        def drill_then_write(*args, **kwargs):
+            done = real(*args, **kwargs)
+            with ledger.transaction(write=True) as conn:
+                task = plans.derive(ledger, conn, 'P1')['task_id']
+                plans.emit(ledger, conn, task, 'notice.exception', {'version': 1, 'category': 'deadline', 'cause': 'fault injection',
+                                                                    'reason': 'written after the drill', 'evidence': ['fixture'], 'plan': 'P1'})
+            return done
+        isolated = {k: self.environment[k] for k in ('LOCALAPPDATA', 'APPDATA', 'TEMP', 'TMP')}
+        settings = self.project / '.claude' / 'settings.local.json'
+        commands = lambda: {h['command'] for entries in json.loads(settings.read_text(encoding='utf-8'))['hooks'].values() for e in entries
+                            for h in e['hooks']}
+        with patch.dict(os.environ, isolated), patch.object(hotfix, '_read_check', drill_then_write):
+            refused = hotfix.rollback(ledger, fb)
+        self.assertEqual(refused['result'], 'refused', json.dumps(refused)[:3000])
+        self.assertIn('changed', json.dumps(refused['problems']))
+        self.assertEqual(commands(), {str((new_venv / 'Scripts' / 'onecrew.exe').resolve())})
+        with patch.dict(os.environ, isolated):
+            back = hotfix.rollback(ledger, fb)
+        self.assertEqual(back['result'], 'rolled_back', json.dumps(back)[:3000])
+        self.assertIn('notice.exception', json.dumps(back['reader_pair']))       # the real old runtime drilled data holding the write
+        self.assertEqual(back['fences']['drilled'], back['fences']['at_switch'])
+        self.assertEqual(commands(), {str(self.prod_exe.resolve())})
 
     def _shipped(self):
         import re
