@@ -239,7 +239,7 @@ Giờ lấy từ `git log --date=format:%H:%M` trong `wf-v24-pkg`, giờ ghi fil
 | 02/11 02:43 | Commit `0b4f539` (P1), `704857c` (P3 + V29/V30), snapshot `4f03e54` (`2.4.0.dev4`); `claude/onecrew-2.4` fast-forward | git |
 | 02/11 02:43–03:18 | Hồi quy 2.4 trên `4f03e54` sạch 259/259; gói dev4 30/30, script thử DAT, hash 62/62 | `logs/reg-v24-all-4f03e54.txt`, `logs/pkg-*-2.4.0.dev4.txt` |
 | 02/11 03:10 | Probe Codex trên wheel dev4: `marker_created false`, `entrypoint_exit null` | `D:/OneCrewRuns/v24/codex-probe-dev4b/bytecode-result.json` |
-| 02/11 03:19 | Gate 2.2 trên `4f03e54` (chạy một mình) | <!-- v24:dev4-gate --> |
+| 02/11 03:18–06:02 | Gate 2.2 trên `4f03e54` (chạy một mình): 286/286 check thực thi đạt, 2.097/2.097 test, 0 skip; `refused` chỉ vì 23 khoảng trống nghiệm thu như gate `61862e6` | `logs/gate-snapshot-4f03e54.txt`, `gates-tmp/wf-snapshot-gate-20261102-4f03e54/decision.json` |
 
 ## 8. Quyết định vượt quyền và điều cần Codex hay chủ sở hữu
 

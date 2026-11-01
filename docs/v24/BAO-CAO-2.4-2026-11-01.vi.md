@@ -281,7 +281,7 @@ Chạy xong thấy dòng `DAT: goi 2.4.0.dev4 ... 30/30 buoc ...` là đạt.
 
 ### 9.5 Gate 2.2 trên dev4
 
-<!-- dev4:gate -->
+Gate snapshot 2.2 trên `4f03e54` (`D:/OneCrewRuns/wf-dev-tools/v24/run_gate.sh`, 02/11 03:18:18–06:02:28, chạy một mình; output `D:/OneCrewRuns/v24/gates-tmp/wf-snapshot-gate-20261102-4f03e54`, log `D:/OneCrewRuns/v24/logs/gate-snapshot-4f03e54.txt`): **286/286 check thực thi đạt, `failed []`**, snapshot nguyên vẹn (`snapshot.intact true`, worktree tách sạch tại commit, fingerprint thư mục tài liệu và python `3.13.15`), kit-guard đạt. 217 lượt module riêng biệt: 2.097 test chạy, 2.097 đạt, 0 hỏng, 0 lỗi, 0 skip, 0 expected failure, 0 unexpected success (cộng theo log riêng biệt). Quyết định `refused`, `release_delivery false`, chỉ vì 23 khoảng trống nghiệm thu (13 partial, 10 blocked: provider thật, pilot, bản giao trước thật), trùng từng mục với gate `61862e6`. Gate là bộ kiểm 2.2; test 2.4 chạy ở hồi quy §9.3 (259/259). Sổ hook thật không đổi trong lượt gate (`8d339faddcf7881…` trước và sau).
 
 ### 9.6 Cách ly
 
