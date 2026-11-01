@@ -37,7 +37,7 @@ Trước khi một candidate được công bố là kết quả của node (`en
 | mục `must` có bản mới | kiểm lại |
 | có mục bắt buộc mới liên quan tới node (node không được giao gì: mục bắt buộc trong sổ ghi sau khi attempt bắt đầu) | kiểm lại |
 | file có nội dung đã vào prompt qua 2.4-A (đọc, dòng search, danh sách) đổi trong project | kiểm lại: ghim lại cây, mang theo candidate, có lượt đọc mới |
-| chỉ artifact đầu vào được dựng trên thay đổi như trên | **giữ ngay** (`input_changed`, nêu node sinh và id), không gọi model |
+| chỉ artifact đầu vào được dựng trên thay đổi như trên, trực tiếp hay qua bất kỳ chuỗi đầu vào nào; hay chuỗi đầu vào không kiểm hết được (biên nhận thiếu hoặc không đọc được, attempt sinh hay bản ghi bắt đầu không có trong sổ, vòng lặp, quá `MAX_WALK`) | **giữ ngay** (`input_changed`, nêu node sinh và id, hay điều không kiểm được), không gọi model |
 | mục `lead` đổi hay bị thu hồi; lead thành fact | chỉ ghi chú |
 | không có gì đổi | công bố như cũ (thế giới không đổi luôn cho `publish`) |
 
