@@ -60,7 +60,7 @@ def load_verifier():
 
 README = '''# OneCrew {version} — gói thử 2.4 ({label})
 
-**Đây là bản thử {stage}(prerelease) `{version}`, không phải bản ổn định; chạy trên bản sao project và sổ riêng.** Chưa được Codex review, chưa nghiệm thu. Gói không tự nhận đã giao (`manifest.json` → `claims`).
+**Đây là bản thử {stage}(prerelease) `{version}`, không phải bản ổn định; chạy trên bản sao project và sổ riêng.** Chưa nghiệm thu; trạng thái review của bản này ghi ở dòng đầu mục Giới hạn. Gói không tự nhận đã giao (`manifest.json` → `claims`).
 
 **Gói nằm dưới `D:\\OneCrewRuns\\v24\\pkg-trial` là bản thử của công cụ dựng và kiểm gói, không phải bản giao.** Bản giao là gói được dựng từ snapshot cuối của nhánh 2.4 (người điều phối dựng); chỉ gói đó được báo là bàn giao.
 

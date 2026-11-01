@@ -97,6 +97,14 @@ the installed venv with python -I, a cwd outside the checkout, an isolated env a
                   (stops after the drill, hooks stay on the new runtime), one event is written into the live ledger, `support rollback` runs again in a new
                   process (in-process if the build refuses on the dead holder's claim): rolled_back only
                   after drilling data that holds the write (reader_pair names it, fences drilled == at switch). A build without that crash point FAILS V28
+  V29 S2 bytecode Codex review of dev3, P1, from the installed wheel (the Codex bytecode_probe): a second venv with the package wheel, judged by the INSTALLED
+                  hotfix against its creation baseline: intact -> accepted, `onecrew --version` ran (control); its onecrew/v2/messages.py cache replaced by the
+                  compile of that source plus a line that writes a marker file (header kept) -> refused naming the .pyc, the marker is NOT created, no
+                  `onecrew` program of that venv was started, exit unknown; the same cache in the OLD runtime of a rollback -> refused before any of its
+                  programs. A build that runs `onecrew --version` before refusing creates the marker: V29 FAILS on it (the dev3 wheel does)
+  V30 docs        Codex review of dev3, P3, from the package files: every milestone section of docs/limits-final.md is, line for line, that milestone's
+                  docs/limits-<m>.md; the README holds every line of docs/limits-final.md (FINAL packages) and names the manifest's version, code commit
+                  and wheel SHA256; the claim line names the pid + process-creation-time check and the renewal. The dev3 package FAILS V30 (S2, B sections)
   V3 also checks that the modules of the included milestones (support, diagnostics, support_cli, support_spool for S1) load from the venv.
 Exit 0 when every step passes, 1 otherwise. `verify_milestone.py <package dir> <work dir> --only STEP_ID` runs V1-V3 (identity, install, origins) and that one
 milestone step only, for diagnosis: its report says `partial`, its result is `partial-pass` or `fail`, never `pass`, and thu-goi.ps1 does not use it. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
@@ -1400,6 +1408,128 @@ def v27_runtime_identity(ctx):
     return not problems, dict(facts, problems=problems, feedback=fb)
 
 
+V29_PROBE = r'''
+import csv, io, json, marshal, sys, zipfile
+from pathlib import Path
+from unittest.mock import patch
+from onecrew.v2 import hotfix as h
+a = json.loads(sys.argv[1])
+venv, wheel, marker = Path(a['venv']), Path(a['wheel']), Path(a['marker'])
+with zipfile.ZipFile(wheel) as z:
+    name = next(n for n in z.namelist() if n.endswith('.dist-info/RECORD'))
+    art = {'version': a['version'], 'rows': [r[:2] for r in csv.reader(io.StringIO(z.read(name).decode()))]}
+started, real = [], h.run
+def spy(argv, *x, **k):
+    started.append(str(argv[0])); return real(argv, *x, **k)
+def entry(rows):
+    return [s for s in rows if Path(s).resolve().is_relative_to(venv.resolve()) and Path(s).name.lower().startswith('onecrew')]
+out = {}
+baseline = h.venv_baseline(venv, art)
+with patch.object(h, 'run', spy):
+    problems, found = h.verify_installed(venv, art, baseline=baseline)
+out['control'] = {'problems': problems, 'exit': found.get('exit'), 'entry_started': entry(started)}
+site = venv / 'Lib' / 'site-packages'
+source = site / 'onecrew' / 'v2' / 'messages.py'
+cache = source.parent / '__pycache__' / ('messages.' + sys.implementation.cache_tag + '.pyc')
+original = cache.read_bytes()
+payload = source.read_bytes() + ('\nfrom pathlib import Path as _P\n_P(' + repr(str(marker)) + ').write_text("executed during the identity check")\n').encode()
+cache.write_bytes(original[:16] + marshal.dumps(compile(payload, str(source), 'exec')))
+try:
+    started.clear()
+    with patch.object(h, 'run', spy):
+        problems, found = h.verify_installed(venv, art, baseline=baseline)
+    out['planted'] = {'problems': problems, 'exit': found.get('exit'), 'entry_started': entry(started), 'marker_created': marker.exists(),
+                      'cache_verdict': (found.get('caches') or {}).get('onecrew/v2/__pycache__/' + cache.name)}
+    old = getattr(h, '_old_runtime', None)
+    if old is not None:                       # the rollback's old runtime with the same planted cache
+        tree = h.venv_tree(venv)
+        rows = [{'key': 'k', 'seq': 1, 'old_runtime': {'digest': h.content_hash(tree)}}]
+        started.clear()
+        with patch.object(h, '_records', return_value=rows), patch.object(h, 'run', spy):
+            refused = old(None, 'FB-probe', {'key': 'k', 'old_venv': str(venv)})
+        out['old_runtime'] = {'problems': refused, 'entry_started': entry(started), 'marker_created': marker.exists()}
+finally:
+    cache.write_bytes(original)
+started.clear()
+with patch.object(h, 'run', spy):
+    problems, found = h.verify_installed(venv, art, baseline=baseline)
+out['restored'] = {'problems': problems, 'exit': found.get('exit')}
+print('@@' + json.dumps(out, default=str))
+'''
+
+
+def v29_bytecode(ctx):
+    """2.4-S2, Codex review of dev3, P1, from the INSTALLED wheel: a venv whose bytecode cache is not the compile of its source is refused BEFORE its
+    `onecrew --version` (or anything that could load that cache) runs; the intact venv is still run and accepted; the rollback's old runtime with the
+    same cache is refused before any of its programs. The planted code only writes a marker file in this step's folder."""
+    folder = ctx.case('s2 bytecode')
+    target, marker = folder / 'target venv', folder / 'bytecode-executed.txt'
+    marker.unlink(missing_ok=True)
+    wheel = ctx.pkg / 'wheel' / ctx.manifest['wheel']['name']
+    run([sys.executable, '-m', 'venv', target], check=True)
+    made = run([target / 'Scripts' / 'python.exe', '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', wheel])
+    if made.returncode != 0: return False, {'problems': ['the second venv could not be made: ' + (made.stdout + made.stderr).decode('utf-8', 'replace')[-300:]]}
+    done = run([ctx.py, '-I', '-c', V29_PROBE, json.dumps({'venv': str(target), 'wheel': str(wheel), 'marker': str(marker), 'version': ctx.manifest['version']})],
+               cwd=folder, env=env_for(folder, ctx.scripts, TEMP=str(folder / 'temp'), TMP=str(folder / 'temp')))
+    text = done.stdout.decode('utf-8', 'replace')
+    facts = json.loads(text.split('@@', 1)[1]) if '@@' in text else {'error': (text + done.stderr.decode('utf-8', 'replace'))[-400:]}
+    problems = []
+    control, planted, old, restored = (facts.get(k) or {} for k in ('control', 'planted', 'old_runtime', 'restored'))
+    if not (control.get('problems') == [] and control.get('exit') == 0 and control.get('entry_started')):
+        problems.append('control: the intact venv was not run and accepted: ' + json.dumps(control)[:300])
+    if planted.get('marker_created'): problems.append('DEFECT (Codex dev3 P1): the planted bytecode ran during the identity check (marker created)')
+    if planted.get('entry_started'): problems.append('onecrew --version of the venv was started although its bytecode cache was not the compile of its source')
+    if not any('.pyc' in p for p in planted.get('problems') or []): problems.append('the planted cache was not refused naming the .pyc: ' + json.dumps(planted)[:300])
+    if planted.get('exit') is not None: problems.append(f'the identity check reports an exit ({planted.get("exit")}) of a program that must not have run')
+    if not old: problems.append('the old-runtime check of a rollback was not available in the installed hotfix')
+    elif old.get('marker_created') or old.get('entry_started') or not old.get('problems'):
+        problems.append('the rollback old runtime with the planted cache was not refused before its programs: ' + json.dumps(old)[:300])
+    if not (restored.get('problems') == [] and restored.get('exit') == 0): problems.append('control: with the cache restored the venv was not accepted: ' + json.dumps(restored)[:300])
+    if marker.exists(): problems.append('the marker file exists after the step')
+    return not problems, dict(facts, problems=problems)
+
+
+def _bullets(text):
+    return [line.rstrip() for line in text.splitlines() if line.startswith('- ')]
+
+
+def _limit_sections(text):
+    out, current = {}, None
+    for line in text.splitlines():
+        found = re.fullmatch(r'\*\*(2\.4-[A-Z0-9]+)\*\*\s*', line)
+        if found: current = found.group(1); out[current] = []; continue
+        if current and line.startswith('- '): out[current].append(line.rstrip())
+    return out
+
+
+def v30_docs(ctx):
+    """Codex review of dev3, P3, from the PACKAGE FILES: the combined limits, the per-milestone limits and the README say the same thing, and the
+    README names this package's version, code commit and wheel. A package whose combined limits drifted from a milestone's file FAILS."""
+    docs, problems, facts = ctx.pkg / 'docs', [], {}
+    combined_text = (docs / 'limits-final.md').read_text(encoding='utf-8')
+    combined = _limit_sections(combined_text)
+    included = [m for m in ctx.manifest.get('milestones_included') or []]
+    for milestone in included:
+        name = docs / f'limits-{milestone.lower()}.md'
+        section = '2.4-' + milestone
+        if not name.is_file(): problems.append(f'{name.name} is missing'); continue
+        if combined.get(section) != _bullets(name.read_text(encoding='utf-8')):
+            problems.append(f'docs/limits-final.md section {section} differs from docs/{name.name}')
+    facts['sections_checked'] = included
+    readme = (ctx.pkg / 'README.md').read_text(encoding='utf-8')
+    if ctx.manifest.get('milestone') == 'FINAL':
+        missing = [b[:80] for b in _bullets(combined_text) if b not in readme]
+        if missing: problems.append(f'README lacks {len(missing)} line(s) of docs/limits-final.md: {missing[:2]}')
+    for label, value in (('version', ctx.manifest['version']), ('code commit', ctx.manifest.get('code_commit')), ('wheel sha256', ctx.manifest['wheel']['sha256'])):
+        if not value or value not in readme: problems.append(f'README does not name the {label} {value!r} of manifest.json')
+    if 'S2' in included:
+        for name in ('limits-s2.md', 'limits-final.md'):
+            claim = next((l for l in (docs / name).read_text(encoding='utf-8').splitlines() if l.startswith('- **Claim chỉ loại trừ nhau')), '')
+            if 'pid và thời điểm tạo tiến trình' not in claim or 'gia hạn' not in claim:
+                problems.append(f'docs/{name}: the claim line does not name the pid + process-creation-time check and the renewal')
+    return not problems, dict(facts, problems=problems)
+
+
 V28_HELPER = r'''
 import json, os, sys
 from pathlib import Path
@@ -2085,7 +2215,9 @@ MILESTONE_STEPS = {         # milestone -> [(step id, title, check)]; ONE entry 
            ('V21-s2-install', 'không có quyền support_install thì blocked_by_authority; có quyền thì venv mới, điểm an toàn, intent rồi xác nhận, installed theo hook đang chạy', v21_support_install),
            ('V22-s2-recheck-rollback', 'recheck tại đích là node.verification thật, verified_at_target; rollback bị từ chối trong phiên AI; sau rollback của chủ: installed false, rolled_back, still_blocked', v22_support_recheck_rollback),
            ('V27-s2-runtime-identity', 'venv của lần cài bị sửa một file (RECORD giữ nguyên) thì lần cài sau bị từ chối nêu diagnostics.py, hook và file không đổi; trả file về thì dùng lại được', v27_runtime_identity),
-           ('V28-s2-switch-window', 'rollback dừng sau drill, ghi một sự kiện vào sổ thật, chạy lại: chỉ rolled_back sau khi drill lại dữ liệu có ghi đó (fences drilled = lúc chuyển)', v28_switch_window)],
+           ('V28-s2-switch-window', 'rollback dừng sau drill, ghi một sự kiện vào sổ thật, chạy lại: chỉ rolled_back sau khi drill lại dữ liệu có ghi đó (fences drilled = lúc chuyển)', v28_switch_window),
+           ('V29-s2-bytecode', 'venv có .pyc khác bản biên dịch của nguồn bị từ chối trước khi onecrew --version chạy (file đánh dấu không xuất hiện), runtime cũ khi quay lui cũng vậy; venv nguyên vẹn vẫn chạy và được nhận', v29_bytecode),
+           ('V30-s2-docs', 'tài liệu trong gói khớp nhau: mỗi mục của limits-final là đúng file giới hạn của mốc, README có mọi dòng giới hạn và đúng version/commit/wheel, dòng claim nêu kiểm pid + thời điểm tạo và gia hạn', v30_docs)],
     'A': [('V23-a-sources', 'node có sources đọc file ngoài read qua hai lượt trên cây đã ghim; ngoài phạm vi bị từ chối; cursor cây khác bị từ chối; max_rounds giữ node; node không khai sources giữ đúng khóa 2.3', v23_sources)],
     'B': [('V24-b-context', 'knowledge.delivered cho attempt; must bị thu hồi lúc đang chạy thì candidate không được công bố, wiki consumers nêu node; node độc lập vẫn công bố; sau khởi động lại mục chỉ còn trong delta.withdrawn', v24_context),
            ('V26-b-chain', 'chuỗi 6 node A→F chỉ A nhận quy tắc bắt buộc: rút quy tắc thì wiki consumers nêu B–F input_changed, engine verify F bị từ chối (F bị giữ input_changed, không gọi model, không đặt lại ngân sách), node X độc lập vẫn được kiểm', v26_chain)],
