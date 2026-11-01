@@ -184,12 +184,12 @@ Giờ lấy từ commit (`git log --format="%h %ci"`), lúc tạo nhánh (`git r
 | 12:16–12:31 | Probe review B thành test (đỏ 7/21) → sửa B-R01…R08; 11 module đạt trên `c5b78e9` | `v24b-review-red`; `4eb72bf`, `c5b78e9`; `aff-*-br` |
 | 12:40 | Gộp A/B (`bde505b`): cả năm mốc trên một cây | `bde505b` |
 | 12:40–12:47 | Test hạn root 4/4 hỏng dưới tải trên `bde505b` → U1 DEADLINE-1 → 2/2 và module 4/4 đạt | `probe-mv.json`; `deadline-*-dirty`; `7767982` |
-| 12:41–13:34 | Hồi quy tích hợp trên `bde505b`: 170/170 test 2.4 (xong 13:20); 448 test của 34 module 2.2/2.3, 1 skip (xong 13:34) | `int-v24-bde505b`, `int-aff-bde505b` |
+| 12:41–13:34 | Hồi quy tích hợp trên `bde505b`: 170/170 test 2.4 (xong 13:20); 448 test của 34 module 2.2/2.3: 447 đạt, 1 skip, 0 fail (xong 13:34) | `int-v24-bde505b`, `int-aff-bde505b` |
 | 13:02 | Bước gói V23–V25 (A, B, C), giới hạn A/B/C và bản gộp | `a039d1f` |
 | 13:20 | Giới hạn S1 viết lại theo code hiện hành; `ships_paging` đọc từ `py-modules`; README nói rõ gói `pkg-trial` là bản thử công cụ | `d9d3075`, gộp `d5f0815` |
 | 13:34 | Snapshot cuối `61862e6`: version `2.4.0.dev2` (chỉ đổi version và CHANGELOG so với `d5f0815`) | `61862e6` |
 | 13:34–13:45 | Gói `D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev2-beta` (wheel `383df81d…`, `SHA256SUMS` 62/62); kiểm từ gói 25/25 (13:34–13:39, máy rảnh); script thử `DAT`/0 (13:39–13:45); chạy lại cùng thư mục → mã 2 | `pkg-build-2.4.0.dev2`, `pkg-verify-2.4.0.dev2`, `pkg-wrapper-2.4.0.dev2`, `pkg-wrapper-2.4.0.dev2-reuse` |
-| 13:46:05–16:39:35 | Gate snapshot 2.2 trên `61862e6`, chạy một mình: 286/286 check thực thi đạt, 2.097 test, `refused` chỉ vì 23 khoảng trống nghiệm thu (trùng dev10); kit-guard `ok` | `gate-snapshot-61862e6`, `gates-tmp\wf-snapshot-gate-20261101-61862e6\gate\decision.json` |
+| 13:46:05–16:39:35 | Gate snapshot 2.2 trên `61862e6`, chạy một mình: 286/286 check thực thi đạt, 2.097 test đạt (0 skip, 0 expected failure), `refused` chỉ vì 23 khoảng trống nghiệm thu (trùng dev10); kit-guard `ok` | `gate-snapshot-61862e6`, `gates-tmp\wf-snapshot-gate-20261101-61862e6\gate\decision.json` |
 | 14:08:57 | Sổ hook thật đổi lần hai bởi phiên khác (thêm bản sao `signsdk-dev10-thu-20261101`); không phải lượt 2.4, không khôi phục | §1 |
 
 ## 8. Quyết định vượt quyền và điều cần Codex hay chủ sở hữu
