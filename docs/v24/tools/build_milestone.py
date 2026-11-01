@@ -131,6 +131,14 @@ MILESTONE_TRY = {
            '  - Khi sổ hỏng: `& "$venv\\Scripts\\python.exe" -I -m onecrew.v2.support_spool --project <project> --state-root <sổ> report --text "…" --json` ghi vào `support-spool\\`; sửa sổ xong chạy `support import-spool`.\n'
            '  - `support confirm` là lệnh của riêng chủ dự án, bị từ chối trong phiên AI.\n'
            '  - Bộ kiểm chạy đúng các lệnh này từ gói (bước V17–V19), nên có thể làm theo log của nó.'),
+    'S2': ('- **2.4-S2, bản vá OneCrew từ báo cáo tới tiếp tục việc cũ:** hướng dẫn ở `docs/HUONG-DAN-SUPPORT.vi.md` mục 5. Chỉ trên bản sao project và sổ thử, sau khi cài ở mục 2:\n'
+           '  - Chủ dự án khai báo đích cài, trong terminal riêng (lệnh bị từ chối trong phiên AI): `& "$venv\\Scripts\\onecrew.exe" --project <project> --state-root <sổ thử> support target add --id lab --venv <venv thử>`.\n'
+           '  - Báo cáo được phân loại `onecrew_runtime` và nối với plan sửa của project OneCrew (`support classify`, `support link FB-… --plan FIX1 --project-id <id>`); plan sửa đã duyệt phải ghi `authority.granted_actions: ["support_install:lab"]`.\n'
+           '  - `support artifact FB-… --wheel <file.whl> --manifest <manifest.json>`: wheel phải chứa đúng các file của commit đã kiểm của plan sửa; một file lạ là bị từ chối.\n'
+           '  - `support install FB-… --target lab`: venv mới cạnh venv cũ, diễn tập trên bản sao, chuyển hook chỉ tại điểm an toàn. Không có quyền thì kết quả là `blocked_by_authority`, không phải đạt.\n'
+           '  - `support recheck FB-…` chạy lại đúng check gốc bằng runtime mới; `support status FB-… --json` nói `installed` và `verified_at_target` theo hook đang chạy lúc này.\n'
+           '  - `support rollback FB-…` là lệnh của chủ (bị từ chối trong phiên AI); sau đó trạng thái là `installed: false`, `rolled_back: true`, còn bị chặn.\n'
+           '  - Bộ kiểm chạy chuỗi này từ gói trên một repo OneCrew dựng tạm từ chính wheel của gói (bước V20–V22), nên có thể làm theo log của nó.'),
 }
 TRY_REGRESSION = ('- **Hồi quy 2.3, task đầu tiên:** làm theo `examples/first-task/README.vi.md`. Thư mục đó có trang wiki mẫu `docs/wiki/rules.md`, hợp đồng `contract.json`, định nghĩa node `nodes.json`, '
                   '`fake-policy.json`, các lệnh `onecrew` cụ thể và đường dẫn nằm trong gói. Phần A diễn tập với `claude` giả (không gọi model); phần B dùng Claude Code CLI thật '

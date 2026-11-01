@@ -58,6 +58,16 @@ the installed venv with python -I, a cwd outside the checkout, an isolated env a
   V19 S1 counter  `support confirm` with CLAUDE_CODE_CHILD_SESSION=1 is refused and writes no support.user_confirmed (control: without it, it works on the
                   temporary ledger); a report naming an attempt id that does not exist keeps it as user-declared only (refs_unresolved says so, nothing
                   derived) and creates no attempt row
+  V20 S2 target   `support target add` with CLAUDE_CODE_CHILD_SESSION=1 is refused (no support.target), without it accepted; a OneCrew-shaped fix
+                  repository is built in the case folder from the package wheel's own files and committed; `support artifact` refuses a crafted wheel
+                  (one extra file onecrew/evil.py) by name and binds the wheel built from that commit (files_checked = every shipped file, bound to
+                  the fix plan's milestone.passed)
+  V21 S2 install  an install for a feedback linked to a fix plan WITHOUT `support_install:lab` ends blocked_by_authority and leaves the hooks; with the
+                  grant: a new venv beside the target (the verifier's venv), processes listed, an intent record before the confirmation of each
+                  hook rewrite, the hook settings now name the new venv, `support status` says installed true
+  V22 S2 recheck  `support recheck` at the target adds exactly one node.verification (pass, the new version) and status says verified_at_target true;
+                  `support rollback` with CLAUDE_CODE_CHILD_SESSION=1 is refused (hooks unchanged); the owner rollback (no marker) repoints the hooks to
+                  the target and status says installed false, rolled_back true, still_blocked true, verified_at_target false
   V3 also checks that the modules of the included milestones (support, diagnostics, support_cli, support_spool for S1) load from the venv.
 Exit 0 when every step passes, 1 otherwise. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
 import base64
@@ -738,7 +748,8 @@ def oldwork_problems(f, manifest):
 # refuses a package of a milestone that has no entry here; this verifier fails a package that includes one.
 MILESTONE_ORDER = ['S1', 'S2', 'A', 'B', 'C']
 REGRESSION_STEPS = 16                      # V1-V16: the 2.3 verifier, unchanged
-MILESTONE_MODULES = {'S1': ['onecrew.v2.support', 'onecrew.v2.diagnostics', 'onecrew.v2.support_cli', 'onecrew.v2.support_spool']}
+MILESTONE_MODULES = {'S1': ['onecrew.v2.support', 'onecrew.v2.diagnostics', 'onecrew.v2.support_cli', 'onecrew.v2.support_spool'],
+                     'S2': ['onecrew.v2.hotfix']}
 FEEDBACK_ID = re.compile(r'^FB-[0-9a-f]{32}$')
 BUNDLE_STATUSES = ('included', 'missing', 'truncated', 'withheld', 'unreadable', 'not_applicable', 'unknown')      # onecrew.v2.diagnostics.STATUSES
 REPORT_TEXT = 'Bước kiểm M1 báo sai dù file đúng — lỗi được báo từ bản cài, không từ checkout'      # Vietnamese on purpose: the text must round-trip byte for byte
@@ -950,10 +961,294 @@ def v19_support_counter(ctx):
     return not problems, dict(facts, problems=problems, feedback=ident)
 
 
+# ---- 2.4-S2 steps (V20-V22): one self-contained scenario, set up once and shared by the three steps --------------------------------------
+# The fix project is a OneCrew-shaped git repository built in the case folder from the package wheel's own files (so the hotfix wheel built from
+# it is a real, working OneCrew whose every file comes from that commit); the "old" runtime and install target is the verifier's own venv.
+
+S2_SETUP = r'''
+import json, os, subprocess, sys
+from pathlib import Path
+from onecrew.ledger import Ledger, canonical
+from onecrew.snapshots import Snapshots
+from onecrew.control_core import Control, migrate
+from onecrew.v2 import plan, engine, internal_plan, verdict, hook_cli, where
+args = json.loads(sys.argv[1])
+root, state, repo = Path(args['customer']), Path(args['state']), Path(args['repo'])
+def git(where_, *a): return subprocess.run(['git', '-C', str(where_), *a], check=True, capture_output=True, text=True).stdout.strip()
+root.mkdir()
+git(root, 'init', '-q'); git(root, 'config', 'user.name', 'T'); git(root, 'config', 'user.email', 't@localhost')
+(root / 'a.txt').write_text('base\n'); git(root, 'add', '.'); git(root, 'commit', '-qm', 'base')
+ledger = Ledger(root, state)
+caps = ['namespaced-storage', 'root-budget', 'internal-plan', 'sequential-engine']
+plan.propose(ledger, 'P1', args['contract'], 'codex', workflow=True, capabilities=caps)
+plan.approve(ledger, 'P1', 'owner', 'verifier fixture: the customer root, on a temporary ledger')
+fix = Ledger(repo, state)
+for name, grant in (('FIX1', ['support_install:lab']), ('FIX0', [])):
+    value = dict(args['fix_contract'], authority=dict(args['fix_contract']['authority'], granted_actions=grant))
+    plan.propose(fix, name, value, 'claude', workflow=True)
+    plan.approve(fix, name, 'owner', 'verifier fixture: the OneCrew fix plan, on a temporary ledger')
+    assert verdict.run(fix, name, 'M1', repo)['milestones'][0]['state'] == 'passed'
+os.environ['ONECREW_ACTOR'] = 'codex'
+migrate(ledger)
+internal_plan.revise(ledger, 'P1', args['nodes'], reason='one producer and the integration', evidence=['a.txt:1'])
+store = Snapshots(ledger.state_root)
+def execute(ledger, control, task, item, attempt):
+    control.launched(attempt['id'], attempt['generation'], {'fixture': True})
+    artifact = store.overlay(store.capture(root, ['a.txt']), {'a.txt': b'candidate\n'}, ['a.txt'])
+    receipt = store.blob(canonical({'kind': 'fixture-producer', 'artifact': artifact}).encode())
+    control.finish(attempt['id'], attempt['generation'], {'artifact': artifact})
+    return {'artifact': artifact, 'receipt': receipt}
+def defect(item, artifact):           # the reported runtime defect: the check of a right file fails
+    return {'artifact': artifact, 'checks': [{'id': c['id'], 'result': 'fail', 'evidence': store.blob(b'the old runtime failed this check')}
+                                            for c in item['checks']]}
+assert engine.step(ledger, 'P1', execute, control=Control(ledger))['state'] == 'produced'
+first = engine.verify(ledger, 'P1', 'C', defect)['result']
+settings = root / '.claude' / 'settings.local.json'
+settings.parent.mkdir()
+settings.write_text(json.dumps(hook_cli.portable_settings(Path(args['target_exe']), state), indent=2), encoding='utf-8')
+where.register_project(root, state)
+print(json.dumps({'first_verify': first, 'fix_project_id': fix.project_id, 'root': engine.state(ledger, 'P1')['root']}))
+'''
+
+
+def _plan(milestones, authority, paths=('a.txt',)):
+    return {'schema_version': 2, 'title': 'S2 package fixture', 'size': 'S',
+            'understanding': {'restated_goal': 'Prove the S2 hotfix chain on a temporary ledger.', 'target': {'repo': '.', 'ref': 'HEAD', 'paths': list(paths)},
+                              'assumptions': [], 'confidence': 'high', 'unknowns': []},
+            'preconditions': [{'id': 'P1', 'check': 'path_exists', 'args': {'path': 'a.txt'}, 'why': 'the file to work on is there'}],
+            'output': ['The sample exists'], 'scope': {'owned': list(paths)}, 'non_goals': ['Nothing else'],
+            'items': [{'id': 'I1', 'title': 'Do it', 'tier': 'must', 'milestone': 'M1'}],
+            'milestones': milestones, 'budget': {'max_calls': 100, 'time': 120}, 'attention': {'questions': 1}, 'profile_version': None,
+            'authority': authority}
+
+
+def _node(nid, depends=(), integration=False, write=('a.txt',)):
+    return {'id': nid, 'goal': 'Produce evidence for O1', 'input': [], 'output': ['Evidence for O1'], 'acceptance': ['O1'],
+            'depends': [{'node': d, 'requires': 'verified'} for d in depends], 'read': ['a.txt'], 'write': list(write), 'resources': [],
+            'estimate_seconds': [1, 2], 'execution_cap_seconds': 60, 'budget_calls': 1,
+            'checks': [{'id': 'M1', 'spec': 'The exact approved root command M1'}], 'integration': integration}
+
+
+def _record_line(name, data):
+    return f'{name},sha256={base64.urlsafe_b64encode(hashlib.sha256(data).digest()).decode().rstrip("=")},{len(data)}'
+
+
+def _write_wheel(path, files):
+    record = next(n for n in files if n.endswith('.dist-info/RECORD'))
+    lines = [_record_line(n, d) for n, d in files.items() if n != record]
+    files = dict(files); files[record] = ('\n'.join(lines + [f'{record},,']) + '\n').encode()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as archive:
+        for name, data in files.items(): archive.writestr(name, data)
+    return path
+
+
+def _s2_repo_and_wheels(ctx, folder):
+    """(repo, version, good wheel, crafted wheel, manifests): a git repository holding exactly the package wheel's onecrew/ files and a pyproject that
+    declares them, committed; a hotfix wheel built from that commit (version +hotfix) and a crafted copy with one extra file."""
+    with zipfile.ZipFile(ctx.pkg / 'wheel' / ctx.manifest['wheel']['name']) as archive:
+        members = {n: archive.read(n) for n in archive.namelist() if not n.endswith('/')}
+    sources = {n: d for n, d in members.items() if n.startswith('onecrew/')}
+    old_dist = next(n for n in members if n.endswith('.dist-info/METADATA')).split('/')[0]
+    version = ctx.manifest['version'] + '+hotfix'       # a local version: a valid PEP 440 version of its own, whatever the package version is
+    modules = sorted(n[:-3].replace('/', '.') for n in sources if n.endswith('.py') and not n.endswith('/__init__.py'))
+    packages = ['onecrew.templates'] if any(n.startswith('onecrew/templates/') for n in sources) else []
+    repo = folder / 'onecrew-repo'
+    for name, data in sources.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True); (repo / name).write_bytes(data)
+    (repo / 'pyproject.toml').write_text('[project]\nname = "onecrew"\nversion = "' + version + '"\n\n[project.scripts]\nonecrew = "onecrew.console:main"\n\n'
+                                         '[tool.setuptools]\npackages = ' + json.dumps(packages) + '\npy-modules = [\n'
+                                         + ''.join(f'    "{m}",\n' for m in modules) + ']\n', encoding='utf-8')
+    (repo / 'a.txt').write_text('the fix\n'); (repo / '.gitignore').write_text('.onecrew/\n')
+    for args in (('init', '-q'), ('config', 'user.name', 'T'), ('config', 'user.email', 't@localhost'), ('add', '-A'), ('commit', '-qm', 'the hotfix')):
+        run(['git', '-C', repo, *args], check=True)
+    commit = run(['git', '-C', repo, 'rev-parse', 'HEAD'], check=True).stdout.decode().strip()
+    dist = f'onecrew-{version}.dist-info'
+    files = {n: (repo / n).read_bytes() for n in sources}
+    files[f'{dist}/METADATA'] = f'Metadata-Version: 2.1\nName: onecrew\nVersion: {version}\nRequires-Python: >=3.10\n'.encode()
+    files[f'{dist}/WHEEL'] = b'Wheel-Version: 1.0\nGenerator: verify_milestone\nRoot-Is-Purelib: true\nTag: py3-none-any\n'
+    if f'{old_dist}/entry_points.txt' in members: files[f'{dist}/entry_points.txt'] = members[f'{old_dist}/entry_points.txt']
+    files[f'{dist}/RECORD'] = b''
+    name = f'onecrew-{version}-py3-none-any.whl'
+    good = _write_wheel(folder / 'hotfix' / name, files)
+    crafted = _write_wheel(folder / 'crafted' / name, dict(files, **{'onecrew/evil.py': b'import os  # in no commit of the fix project\n'}))
+    manifests = {}
+    for label, wheel in (('good', good), ('crafted', crafted)):
+        manifests[label] = wheel.parent / 'manifest.json'
+        manifests[label].write_text(json.dumps({'kind': 'verifier-hotfix', 'version': version, 'code_commit': commit,
+                                                'wheel': {'name': wheel.name, 'sha256': sha256(wheel)}}), encoding='utf-8')
+    return repo, version, good, crafted, manifests, commit, len(sources)
+
+
+def _s2(ctx):
+    """The shared S2 scenario (built by V20, read by V21/V22)."""
+    if getattr(ctx, 's2', None) is not None: return ctx.s2
+    folder = ctx.case('s2 hotfix')
+    repo, version, good, crafted, manifests, commit, shipped = _s2_repo_and_wheels(ctx, folder)
+    customer, state = folder / 'customer', folder / 'state'
+    check = [str(ctx.py), '-c', 'from pathlib import Path; assert Path("a.txt").read_text() == "candidate\\n"; print("candidate tested")']
+    args = {'customer': str(customer), 'state': str(state), 'repo': str(repo), 'target_exe': str(ctx.scripts / 'onecrew.exe'),
+            'contract': _plan([{'id': 'M1', 'title': 'Milestone M1', 'verifier': {'type': 'command', 'config': {'argv': check}}, 'covers': ['O1']}],
+                              {'edit': True, 'commands': True, 'apply_to_project': True, 'unconfined_commands': True,
+                               'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']}),
+            'fix_contract': _plan([{'id': 'M1', 'title': 'Milestone M1', 'verifier': {'type': 'command', 'config': {'argv': [str(ctx.py), '-c', 'print("ok")']}},
+                                    'covers': ['O1']}], {'edit': True, 'commands': True}),
+            'nodes': [_node('C'), _node('I', ['C'], integration=True, write=())]}
+    done = run([ctx.py, '-I', '-c', S2_SETUP, json.dumps(args)], cwd=folder,
+               env=env_for(folder, ctx.scripts, TEMP=str(folder / 'temp'), TMP=str(folder / 'temp')))
+    setup = _first_json(done.stdout) or {}
+    if done.returncode != 0 or setup.get('first_verify') != 'fail':
+        raise RuntimeError('the S2 scenario could not be set up: ' + (done.stdout + done.stderr).decode('utf-8', 'replace')[-400:])
+    ctx.s2 = dict(folder=folder, repo=repo, version=version, good=good, crafted=crafted, manifests=manifests, commit=commit, shipped=shipped,
+                  customer=customer, state=state, fix=setup['fix_project_id'], root=setup['root'],
+                  settings=customer / '.claude' / 'settings.local.json', target_exe=str((ctx.scripts / 'onecrew.exe').resolve()))
+    return ctx.s2
+
+
+def _s2_cli(ctx, s, *args, **env):
+    return ctx.onecrew(s['folder'], s['customer'], s['state'], *args, **env)
+
+
+def _hook_programs(path):
+    data = json.loads(Path(path).read_text(encoding='utf-8'))
+    return sorted({h['command'] for entries in data['hooks'].values() for e in entries for h in e['hooks']})
+
+
+def _support_installs(state):
+    conn = _ledger(state)
+    try:
+        return [dict(json.loads(r['payload']), seq=r['seq']) for r in conn.execute("SELECT seq, payload FROM events WHERE kind='support.install' ORDER BY seq")]
+    finally:
+        conn.close()
+
+
+def _feedback(ctx, s, text, plan_name):
+    code, made, out = _s2_cli(ctx, s, 'report', '--text', text, '--plan', 'P1', '--json')
+    ident = (made or {}).get('id')
+    if code != 0 or not FEEDBACK_ID.match(str(ident)): raise RuntimeError('report: ' + out[-300:])
+    for argv in (('classify', ident, '--class', 'onecrew_runtime', '--basis', 'the node C receipt'),
+                 ('link', ident, '--plan', plan_name, '--project-id', s['fix'])):
+        code, _, out = _s2_cli(ctx, s, *argv)
+        if code != 0: raise RuntimeError(' '.join(argv[:1]) + ': ' + out[-300:])
+    return ident
+
+
+def v20_support_target_artifact(ctx):
+    """S2 target and artifact: `support target add` refused under CLAUDE_CODE_CHILD_SESSION=1 and accepted without it; `support artifact` refuses a
+    crafted wheel (one extra file) and binds the wheel built from the verified commit (every shipped file compared to it)."""
+    s = _s2(ctx)
+    problems, facts = [], {'fix_commit': s['commit'], 'hotfix_version': s['version'], 'shipped_files': s['shipped']}
+    s['fb'] = _feedback(ctx, s, 'Node C fails although a.txt is right (reported from the installed package)', 'FIX1')
+    code, refused, out = _s2_cli(ctx, s, 'target', 'add', '--id', 'lab', '--venv', ctx.scripts.parent, CLAUDE_CODE_CHILD_SESSION='1')
+    targets = _kinds(s['state']).get('support.target', 0)
+    facts['target_in_ai_session'] = {'exit': code, 'error': str((refused or {}).get('error', out))[:160], 'target_records': targets}
+    if not (code != 0 and 'refused' in str((refused or {}).get('error', out)) and targets == 0): problems.append('target add in an AI session: ' + str(facts['target_in_ai_session']))
+    code, made, out = _s2_cli(ctx, s, 'target', 'add', '--id', 'lab', '--venv', ctx.scripts.parent)
+    facts['target_owner'] = {'exit': code, 'venv': (made or {}).get('venv'), 'target_records': _kinds(s['state']).get('support.target', 0)}
+    if not (code == 0 and facts['target_owner']['target_records'] == 1): problems.append('target add without the marker: ' + str(facts['target_owner']) + ' ' + out[-200:])
+    code, refused, out = _s2_cli(ctx, s, 'artifact', s['fb'], '--wheel', s['crafted'], '--manifest', s['manifests']['crafted'])
+    facts['crafted'] = {'exit': code, 'error': str((refused or {}).get('error', out))[:200], 'artifact_records': _kinds(s['state']).get('support.artifact', 0)}
+    if not (code != 0 and 'onecrew/evil.py' in facts['crafted']['error'] and facts['crafted']['artifact_records'] == 0):
+        problems.append('the crafted wheel was not refused by name: ' + str(facts['crafted']))
+    code, bound, out = _s2_cli(ctx, s, 'artifact', s['fb'], '--wheel', s['good'], '--manifest', s['manifests']['good'])
+    bound = bound or {}
+    facts['bound'] = {'exit': code, 'files_checked': bound.get('files_checked'), 'bound_to': (bound.get('bound_to') or {}).get('record'),
+                      'code_commit': bound.get('code_commit'), 'wheel_sha256': bound.get('wheel_sha256'), 'version': bound.get('version')}
+    if not (code == 0 and bound.get('files_checked') == s['shipped'] and facts['bound']['bound_to'] == 'milestone.passed' and bound.get('code_commit') == s['commit']
+            and bound.get('wheel_sha256') == sha256(s['good']) and bound.get('version') == s['version']):
+        problems.append('the wheel of the verified commit was not bound: ' + str(facts['bound']) + ' ' + out[-200:])
+    return not problems, dict(facts, problems=problems, feedback=s['fb'])
+
+
+def v21_support_install(ctx):
+    """S2 install: without the support_install:<id> grant the install ends blocked_by_authority and switches nothing; with it, a NEW venv beside the
+    target, the safe point, an intent record before and a confirmation after each hook rewrite, and `support status` says installed against the
+    live hook settings."""
+    s = _s2(ctx)
+    if not s.get('fb'): return False, {'problems': ['V20 did not bind the artifact this step needs']}
+    problems, facts = [], {}
+    fb0 = _feedback(ctx, s, 'The same defect, linked to a fix plan without the install grant', 'FIX0')
+    code, bound, out = _s2_cli(ctx, s, 'artifact', fb0, '--wheel', s['good'], '--manifest', s['manifests']['good'])
+    if code != 0: return False, {'problems': ['artifact for the no-grant feedback: ' + out[-200:]]}
+    before = _hook_programs(s['settings'])
+    code, blocked, out = _s2_cli(ctx, s, 'install', fb0, '--target', 'lab', ONECREW_ACTOR='codex')
+    blocked = blocked or {}
+    facts['without_grant'] = {'exit': code, 'result': blocked.get('result'), 'reason': str(blocked.get('reason'))[:160], 'hooks_unchanged': _hook_programs(s['settings']) == before}
+    if not (code == 0 and blocked.get('result') == 'blocked_by_authority' and facts['without_grant']['hooks_unchanged'] and 'support_install:lab' in str(blocked.get('reason'))):
+        problems.append('the install without the grant: ' + str(facts['without_grant']) + ' ' + out[-200:])
+    code, state0, _ = _s2_cli(ctx, s, 'status', fb0, '--json')
+    if (((state0 or {}).get('installed') or {}).get('value') is not False): problems.append('the blocked install shows installed: ' + str((state0 or {}).get('installed')))
+    code, made, out = _s2_cli(ctx, s, 'install', s['fb'], '--target', 'lab', ONECREW_ACTOR='codex')
+    made = made or {}
+    new_venv = Path(made['new_venv']) if made.get('new_venv') else None
+    installs = [r for r in _support_installs(s['state']) if r.get('feedback') == s['fb']]
+    intents = [r['seq'] for r in installs if r.get('phase') == 'intent']
+    confirmed = [r['seq'] for r in installs if r.get('phase') == 'switched_one']
+    hooks = _hook_programs(s['settings'])
+    facts['install'] = {'exit': code, 'result': made.get('result'), 'new_venv': str(new_venv) if new_venv else None, 'version': (made.get('identity') or {}).get('version'),
+                        'processes': made.get('processes'), 'intents': intents, 'confirmations': confirmed, 'hooks_now': hooks,
+                        'beside_target': bool(new_venv) and new_venv.parent == ctx.scripts.parent.parent and new_venv != ctx.scripts.parent}
+    if not (code == 0 and made.get('result') == 'switched' and facts['install']['beside_target'] and facts['install']['version'] == s['version']
+            and intents and confirmed and min(intents) < min(confirmed) and made.get('processes') not in (None, 'unknown')
+            and hooks == [str((new_venv / 'Scripts' / 'onecrew.exe').resolve())]):
+        problems.append('the granted install: ' + str(facts['install']) + ' ' + out[-300:])
+    code, status, _ = _s2_cli(ctx, s, 'status', s['fb'], '--json')
+    facts['status'] = {'exit': code, 'installed': ((status or {}).get('installed') or {}).get('value'), 'trial_build': ((status or {}).get('trial_build') or {}).get('value')}
+    if facts['status']['installed'] is not True: problems.append('support status after the switch: ' + str(facts['status']))
+    s['new_venv'] = new_venv
+    return not problems, dict(facts, problems=problems, feedback=s['fb'])
+
+
+def _verifications(state, root):
+    conn = _ledger(state)
+    try:
+        return conn.execute("SELECT COUNT(*) FROM events WHERE task_id=? AND kind='node.verification'", (root,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def v22_support_recheck_rollback(ctx):
+    """S2 recheck and rollback: the recheck at the target is a real node.verification (pass) and status says verified_at_target; rollback is refused
+    under an AI marker; after the owner's rollback status says installed false, rolled_back true, still_blocked true."""
+    s = _s2(ctx)
+    if not s.get('new_venv'): return False, {'problems': ['V21 did not switch the target this step needs']}
+    problems, facts = [], {}
+    before = _verifications(s['state'], s['root'])
+    code, made, out = _s2_cli(ctx, s, 'recheck', s['fb'], ONECREW_ACTOR='codex')
+    made = made or {}
+    after = _verifications(s['state'], s['root'])
+    facts['recheck'] = {'exit': code, 'environment': made.get('environment'), 'result': made.get('result'), 'version': made.get('version'),
+                        'receipt': made.get('receipt'), 'node_verifications': [before, after]}
+    if not (code == 0 and made.get('environment') == 'target' and made.get('result') == 'pass' and after == before + 1 and made.get('version') == s['version']):
+        problems.append('the recheck at the target: ' + str(facts['recheck']) + ' ' + out[-300:])
+    code, status, _ = _s2_cli(ctx, s, 'status', s['fb'], '--json')
+    facts['verified'] = ((status or {}).get('verified_at_target') or {}).get('value')
+    if facts['verified'] is not True: problems.append('verified_at_target after the recheck: ' + str((status or {}).get('verified_at_target')))
+    hooks = _hook_programs(s['settings'])
+    code, refused, out = _s2_cli(ctx, s, 'rollback', s['fb'], CLAUDE_CODE_CHILD_SESSION='1')
+    facts['rollback_in_ai_session'] = {'exit': code, 'error': str((refused or {}).get('error', out))[:160], 'hooks_unchanged': _hook_programs(s['settings']) == hooks}
+    if not (code != 0 and 'refused' in facts['rollback_in_ai_session']['error'] and facts['rollback_in_ai_session']['hooks_unchanged']):
+        problems.append('rollback in an AI session: ' + str(facts['rollback_in_ai_session']))
+    code, back, out = _s2_cli(ctx, s, 'rollback', s['fb'])
+    back = back or {}
+    facts['rollback'] = {'exit': code, 'result': back.get('result'), 'proven': back.get('proven'), 'hooks_now': _hook_programs(s['settings'])}
+    if not (code == 0 and back.get('result') == 'rolled_back' and facts['rollback']['hooks_now'] == [s['target_exe']]):
+        problems.append('the owner rollback: ' + str(facts['rollback']) + ' ' + out[-300:])
+    code, status, _ = _s2_cli(ctx, s, 'status', s['fb'], '--json')
+    status = status or {}
+    facts['after_rollback'] = {k: (status.get(k) or {}).get('value') for k in ('installed', 'rolled_back', 'still_blocked', 'verified_at_target')}
+    if facts['after_rollback'] != {'installed': False, 'rolled_back': True, 'still_blocked': True, 'verified_at_target': False}:
+        problems.append('status after the rollback: ' + str(facts['after_rollback']))
+    return not problems, dict(facts, problems=problems, feedback=s['fb'])
+
+
 MILESTONE_STEPS = {         # milestone -> [(step id, title, check)]; ONE entry per milestone's steps, in the order they run
     'S1': [('V17-s1-report', 'một lần báo lỗi: cùng key cùng một mã, đúng một sự kiện, bundle có trạng thái hợp lệ, show nói reported/unknown', v17_support_report),
            ('V18-s1-spool', 'sổ hỏng: báo cáo vào spool (cả python -I -m lẫn onecrew.exe), import-spool nhập đúng một lần', v18_support_spool),
            ('V19-s1-counter', 'phản chứng: support confirm bị từ chối trong phiên AI, attempt không tồn tại không tạo attempt', v19_support_counter)],
+    'S2': [('V20-s2-target-artifact', 'đích cài là lệnh của chủ (bị từ chối trong phiên AI); wheel có file lạ bị từ chối, wheel của commit đã kiểm được ràng', v20_support_target_artifact),
+           ('V21-s2-install', 'không có quyền support_install thì blocked_by_authority; có quyền thì venv mới, điểm an toàn, intent rồi xác nhận, installed theo hook đang chạy', v21_support_install),
+           ('V22-s2-recheck-rollback', 'recheck tại đích là node.verification thật, verified_at_target; rollback bị từ chối trong phiên AI; sau rollback của chủ: installed false, rolled_back, still_blocked', v22_support_recheck_rollback)],
 }
 
 
