@@ -18,6 +18,7 @@ INJECTION of the write timing: a write on P1 right after the drill -> rollback r
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -39,7 +40,9 @@ def tree_copy(into, version=None, defect=False):
     """The files the wheel builder reads (pyproject + onecrew/), optionally with another version or the verifier defect."""
     shutil.copytree(REPO / 'onecrew', into / 'onecrew', ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '.onecrew'))
     text = (REPO / 'pyproject.toml').read_text(encoding='utf-8')
-    if version: text = text.replace('version = "2.4.0.dev1"', f'version = "{version}"')
+    if version:                                # the hotfix wheel always gets its own version, whatever this checkout's version is
+        text, count = re.subn(r'(?m)^version = "[^"]+"$', f'version = "{version}"', text, count=1)
+        assert count == 1, 'pyproject.toml has no version line'
     (into / 'pyproject.toml').write_text(text, encoding='utf-8')
     if defect:
         command = into / 'onecrew' / 'v2' / 'verifiers' / 'command.py'

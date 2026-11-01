@@ -109,9 +109,10 @@ def _refuse_ai(what):
 # ---- the venv side (replaceable in tests) -------------------------------------------------------------------------------------
 
 def run(argv, cwd=None, env=None, timeout=900, data=None):
+    """(exit, stdout, stderr); `data` (text) is the child's stdin, else stdin is closed."""
     try:
         done = subprocess.run([str(a) for a in argv], cwd=str(cwd) if cwd else None, env=env, capture_output=True, text=True, encoding='utf-8',
-                              errors='replace', timeout=timeout, stdin=subprocess.DEVNULL)
+                              errors='replace', timeout=timeout, **({'input': data} if data is not None else {'stdin': subprocess.DEVNULL}))
         return done.returncode, done.stdout, done.stderr
     except (OSError, subprocess.SubprocessError) as error:
         return None, '', f'{type(error).__name__}: {error}'
@@ -141,7 +142,7 @@ def pip_install(python, wheel):
 
 INTERPRETER = ('import importlib.util, json, marshal, sys\n'
                'out = {"base_prefix": sys.base_prefix, "base_exec_prefix": sys.base_exec_prefix, "tag": sys.implementation.cache_tag, "pyc": {}}\n'
-               'for path in json.loads(sys.argv[1]):\n'
+               'for path in json.loads(sys.stdin.read()):\n'
                '    try:\n'
                '        source = importlib.util.source_from_cache(path)\n'
                '        data = open(path, "rb").read()\n'
@@ -160,7 +161,8 @@ INTERPRETER = ('import importlib.util, json, marshal, sys\n'
 def interpreter(venv, caches):
     """What the venv's own interpreter says when started with -I -S (no site, no .pth: no code of the venv runs): its base prefix and cache
     tag, and for each bytecode cache whether its code is the compile of its source (Python loads a cache instead of the source)."""
-    code, out, err = run([venv_python(venv), '-I', '-S', '-c', INTERPRETER, json.dumps([str(c) for c in caches])], timeout=300)
+    # the list goes on stdin: an old runtime has thousands of caches (the Windows command line holds 32k characters) and no file is needed
+    code, out, err = run([venv_python(venv), '-I', '-S', '-c', INTERPRETER], timeout=300, data=json.dumps([str(c) for c in caches]))
     try:
         return json.loads(out) if code == 0 else {'error': (err or out or f'exit {code}')[-300:]}
     except ValueError:
@@ -169,10 +171,47 @@ def interpreter(venv, caches):
 
 def entry_run(venv):
     """(exit, stdout, stderr) of the venv's `onecrew --version` under PYTHONVERBOSE=1: the interpreter itself writes where every module the
-    executable loads comes from. No bytecode is written into the venv."""
+    executable loads comes from. No bytecode is written into the venv. Called only after every bytecode cache of the venv's wheel sources
+    was proven the compile of its source (identity); in addition (Codex dev3 P1, defence in depth for a cache replaced after that proof)
+    PYTHONPYCACHEPREFIX points at an empty folder of its own, so this run reads no bytecode from the venv's __pycache__ at all: it compiles
+    the verified sources. The folder is removed afterwards."""
+    import tempfile
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith('PYTHON')}
-    env.update(PYTHONVERBOSE='1', PYTHONDONTWRITEBYTECODE='1')
-    return run([venv_exe(venv), '--version'], cwd=venv, env=env, timeout=300)
+    here = next((d for d in (os.environ.get('TEMP'), os.environ.get('TMP')) if d and os.path.isdir(d)), None)   # not a stale tempfile.tempdir
+    prefix = tempfile.mkdtemp(prefix='onecrew-identity-pyc-', dir=here)
+    env.update(PYTHONVERBOSE='1', PYTHONDONTWRITEBYTECODE='1', PYTHONPYCACHEPREFIX=prefix)
+    try:
+        return run([venv_exe(venv), '--version'], cwd=venv, env=env, timeout=300)
+    finally:
+        shutil.rmtree(prefix, ignore_errors=True)
+
+
+CACHE_OK = ('same', 'other interpreter')     # 'other interpreter': another tag or magic number, which this interpreter never loads
+
+
+def unproven_caches(caches, facts, site=None):
+    """Codex dev3 P1: the bytecode caches (relative to `site` when given) that are NOT proven to be the compile of their source by the
+    interpreter's answer `facts`: a verdict other than CACHE_OK, or no verdict at all (a partial or missing answer is not a proof)."""
+    answered = {str(Path(k).resolve()).casefold(): v for k, v in ((facts or {}).get('pyc') or {}).items()}
+    out = []
+    for cache in caches:
+        verdict = answered.get(str(Path(cache).resolve()).casefold())
+        if verdict in CACHE_OK: continue
+        name = Path(cache).relative_to(site).as_posix() if site is not None and Path(cache).is_relative_to(site) else str(cache)
+        out.append(f'{name} ({verdict or "no answer"})')
+    return out
+
+
+def venv_caches(venv):
+    """Every bytecode cache under the venv's site-packages that stands for a source file present next to it (pkg/__pycache__/m.*.pyc with
+    pkg/m.py): the caches Python may load instead of a source of that venv. Links are not followed."""
+    site = site_packages(venv)
+    if site is None or not site.is_dir(): return []
+    out = []
+    for item, link in _walk(site):
+        if link or item.parent.name != '__pycache__' or item.suffix != '.pyc': continue
+        if (item.parent.parent / (item.name.split('.', 1)[0] + '.py')).is_file(): out.append(item)
+    return sorted(out)
 
 
 LOADED = re.compile(r"^# (?:code object from|extension module '[^']*' loaded from) (.+?)\s*$")
@@ -367,6 +406,13 @@ def identity(venv, art, baseline=None, home=None, run_programs=True):
     if facts.get('error'): out['error'] = 'the venv interpreter did not answer: ' + facts['error']
     for path, verdict in (facts.get('pyc') or {}).items():
         out['caches'][Path(path).relative_to(site).as_posix()] = verdict
+    # Codex dev3 P1: the entrypoint runs ONLY when every cache is proven the compile of its source. A cache that differs, cannot be read or
+    # got no verdict, or an interpreter that did not answer, stops here: nothing of the venv that could load that bytecode is started.
+    unproven = unproven_caches(out['cache_files'], facts, site)
+    if facts.get('error') or unproven:
+        out['entry_blocked'] = (['the venv interpreter did not answer'] if facts.get('error') else []) + \
+            ([f'bytecode caches not proven the compile of their source: {", ".join(unproven[:5])}'] if unproven else [])
+        return out
     code, stdout, stderr = entry_run(venv)
     out.update(exit=code, version_line=(stdout or '').strip()[:300])
     bases = [Path(p).resolve() for p in (facts.get('base_prefix'), facts.get('base_exec_prefix')) if p]
@@ -1261,6 +1307,10 @@ def verify_installed(venv, art, found=None, baseline=None, home=None, run_progra
     wanted = {p: h for p, h in art['rows'] if not p.endswith('.dist-info/RECORD')}
     caches = sorted(p for p, v in (found.get('caches') or {}).items() if v not in ('same', 'other interpreter'))
     if caches: problems.append(f'bytecode caches that are not the compile of their source (Python loads them instead): {", ".join(caches[:5])}')
+    if found.get('entry_blocked'):                    # Codex dev3 P1: refused BEFORE its executable ran; nothing else to judge
+        problems += [p for p in found['entry_blocked'] if not (caches and p.startswith('bytecode caches'))]
+        problems.append('its onecrew executable was not run: the runtime is not verified')
+        return problems, dict(found, record_sha256=None)
     if found.get('exit') != 0: problems.append(f'its onecrew executable did not run (exit {found.get("exit")})')
     if art['version'] not in (found.get('version_line') or ''): problems.append(f'onecrew --version says {found.get("version_line")!r}')
     loaded = {_source_of(p) for p in found.get('loaded') or []}
@@ -1503,6 +1553,15 @@ def _old_runtime(ledger, ident, current):
     if content_hash(venv_tree(current['old_venv'])) != recorded['digest']:
         return [f'the old runtime {current["old_venv"]} changed since the install (its files differ from the record of event '
                 f'{prepared[-1]["seq"]}): rollback refused, nothing switched']
+    # Codex dev3 P1, same class: the recorded digest leaves bytecode caches out, and the rollback then runs the old runtime (drill reader,
+    # event classifier). Its interpreter (-I -S: nothing of the venv runs) must find every cache the compile of its source first.
+    caches = venv_caches(current['old_venv'])
+    facts = interpreter(current['old_venv'], caches)
+    unproven = unproven_caches(caches, facts, site_packages(current['old_venv']))
+    if facts.get('error') or unproven:
+        why = 'its interpreter did not answer' if facts.get('error') else f'bytecode caches not the compile of their source: {", ".join(unproven[:5])}'
+        return [f'the old runtime {current["old_venv"]} cannot be trusted to run ({why}): rollback refused before any of its programs ran, '
+                'nothing switched']
     return []
 
 
