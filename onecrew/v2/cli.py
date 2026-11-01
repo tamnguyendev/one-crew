@@ -7,7 +7,7 @@ import sys
 
 from .messages import t
 
-GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson', 'issue', 'unknown', 'engine', 'wiki')
+GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson', 'issue', 'unknown', 'engine', 'wiki', 'support')
 OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
                   '  verdict    record / run (v2 milestone verdicts with receipts)\n'
                   '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
@@ -29,7 +29,8 @@ OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enfo
                   '  notifications pull / ack (plan notices; delivery never answers or accepts)\n'
                   '  desktop    enable / disable / status / show / retry (shared local outbox)\n'
                   '  executor   list / observe / summary (declared capabilities and observed runs)\n'
-                  '  executor   state / pause / stop / recover / isolate (managed attempts)\n')
+                  '  executor   state / pause / stop / recover / isolate (managed attempts)\n'
+                  '  support    report / show / status / list / classify / link / bundle / import-spool / confirm (report an error once, 2.4-S1)\n')
 
 
 def help_lines():
@@ -43,6 +44,9 @@ HELP_LINES = help_lines()       # the full v1 router (onecrew/cli.py) imports th
 def route(args, index):
     """Run the v2 group named by args[index]; `args` still holds the global options (--project, --state-root) before it."""
     from .ownership import refuse_argv  # C3: the owner's verbs are refused inside an AI tool session
+    if args[index] == 'support':                     # 2.4-S1: the spool path first, so a report survives a broken runtime or ledger
+        from .support_spool import entry
+        return entry(args, index)
     refused = refuse_argv(args[index:])
     if refused: return refused
     if args[index:index + 2] == ['eval', 'plan-metrics']:
@@ -126,6 +130,9 @@ def main(argv=None):
         print('OneCrew: --project <path> <group> <command> [options]\n' + help_lines() +
               'Use <group> <command> --help for options. Durable commands accept --state-root before group.')
         return 0
+    if args[index] == 'support':                     # before route(): route imports ownership -> ledger, which a broken install may not have
+        from .support_spool import entry
+        return entry(args, index)
     if args[index] in GROUPS or args[index:index + 2] == ['eval', 'plan-metrics']: return route(args, index)
     print(f'onecrew: unknown group "{args[index]}". This install has: {", ".join(GROUPS)}. The other groups run from a checkout (onecrew_cli.py).',
           file=sys.stderr)

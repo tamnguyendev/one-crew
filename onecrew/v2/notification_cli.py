@@ -5,13 +5,22 @@ from pathlib import Path
 
 from .. import desktop_core, notification_core
 from ..ledger import Ledger, LedgerError
-from . import exceptions
+from . import exceptions, support
 from .where import state_root_for
+
+
+def message(conn, row):
+    """Plan notices first, then 2.4-S1 support notices (a status transition of a feedback); never an answer or an acceptance."""
+    return exceptions.message(conn, row) or support.message(conn, row)
+
+
+def desktop_snapshots(ledger, after=0, task=None):
+    return exceptions.desktop_snapshots(ledger, after, task) + support.desktop_snapshots(ledger, after, task)
 
 
 def pull(ledger, consumer, all_projects=False, from_now=False):
     return notification_core.pull(ledger, consumer, all_projects, from_now,
-        message=exceptions.message, projection='plan-only', allow_unbound=False,
+        message=message, projection='plan-only', allow_unbound=False,
         reconcile=lambda current, all_projects: exceptions.observe_project(current, all_projects=all_projects),
         refresh=lambda current, batch: notification_core.refresh_plan_notices(current, batch, message=exceptions.message))
 
@@ -29,7 +38,7 @@ def text_report(item):
 
 
 def publish(ledger, task=None):
-    return desktop_core.publish(ledger, task, snapshots=exceptions.desktop_snapshots,
+    return desktop_core.publish(ledger, task, snapshots=desktop_snapshots,
         text_report=text_report, launcher=desktop_core.launch, observe=exceptions.observe_project)
 
 
