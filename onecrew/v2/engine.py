@@ -15,7 +15,7 @@ from .. import dependency_core
 from ..ledger import LedgerError, canonical, content_hash
 from ..snapshots import Snapshots
 from ..task_intake import submit
-from . import authority, estimates, executors, internal_plan as ip, namespaces, plan as plans, progress_track
+from . import authority, estimates, executors, internal_plan as ip, namespaces, plan as plans, progress_track, source_tools
 
 STATES = {'produced': 1, 'verified': 2, 'accepted': 3}
 KINDS = ('plan.revised', 'node.started', 'node.produced', 'node.verification', 'node.accepted', 'node.held', 'node.resumed')
@@ -588,6 +588,9 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
     # ONE baseline the candidate verifier judges paths outside the write scope against. The executor receives it as `source_snapshot`.
     source, source_error = _source_capture(ledger, item)
     if source: item['source_snapshot'] = source
+    # 2.4-A: a node with `sources` reads the project by request on the whole working tree pinned here (its chain keeps it); None otherwise
+    source_tree = source_tools.pin(ledger, root['selector'], item)
+    if source_tree: item['source_tree'] = source_tree
     admitted = []
 
     def reserve(conn, attempt):
@@ -597,7 +600,7 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
             raise LedgerError('The root slot or internal node changed before admission.')
         _event(ledger, conn, current, nid, 'node.started', attempt=attempt['id'], child=task['id'],
                early_dependencies=eligible(current, nid).get('early_dependencies', []), inputs=inputs,
-               source=source, **({'source_error': source_error} if source_error else {}))
+               source=source, **({'source_error': source_error} if source_error else {}), **({'source_tree': source_tree} if source_tree else {}))
         admitted.append(attempt['id'])
 
     attempt = control.reserve(task['id'], execution['revision'], 'node-run', {'unit': 'task:' + nid, 'stage': nid}, on_reserved=reserve)
