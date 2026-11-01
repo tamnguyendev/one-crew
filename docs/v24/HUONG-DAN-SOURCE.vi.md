@@ -65,6 +65,8 @@ Yêu cầu chạy ở lượt sau, trên **cùng cây đã ghim** ở lần ch�
 
 - Một lượt đọc = một lần chạy CLI của worker (không có vòng tool trong một attempt); nên gom yêu cầu.
 - Cây ghim một lần cho cả chuỗi; muốn thấy nguồn mới thì node cần thế hệ mới (revise plan) — cursor cũ khi đó bị từ chối.
+- Chuỗi là chuỗi continuation (`continues`). Node bị giữ rồi được chủ dự án cho chạy tiếp, hay được thay sau khi controller chết (`executor recover`), bắt đầu chuỗi mới như 2.3 (bản dở cũng bị bỏ): cây ghim lại, bộ đếm `max_rounds` tính lại từ đầu; ngân sách chung của root vẫn giới hạn.
+- Khôi phục "chết giữa yêu cầu và kết quả" là chạy lại đúng attempt đã đặt chỗ (như T08b điểm a); engine chưa tự chạy lại một attempt native còn ở trạng thái `reserved` (giới hạn có từ 2.3).
 - Bộ theo dõi tiến độ của node thấy các lượt đọc không đổi file như "không có thay đổi"; engine chỉ xét nó ở kết quả cuối.
 - Adapter nguồn hiện chỉ có cây Git; log/dữ liệu ngoài repo (manifest blob) để sau.
 - Mọi kiểm ở mốc này dùng worker giả; chưa chứng minh model thật dùng tốt giao thức.
