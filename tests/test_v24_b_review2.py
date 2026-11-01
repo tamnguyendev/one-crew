@@ -172,7 +172,8 @@ class ShapeTests(Chains):
         leaf = self.decision('D')
         self.assertEqual(leaf['action'], 'input_changed', leaf)
         why = ' '.join(x for u in leaf['upstream'] for x in [u['reason']] + u.get('unchecked', []))
-        self.assertIn('could not be completed', why)
+        self.assertIn('the input from', why)
+        self.assertIn('could not be checked', why)
         self.assertIn('receipt of input A', why)
         self.assertIn('A', self.refused('D'))
 
@@ -236,14 +237,41 @@ class MisattributedReceiptTests(Chains):
         why = ' '.join(x for u in held['knowledge_changed']['critical'] for x in [u['reason']] + u.get('unchecked', []))
         self.assertIn(self.attempts()['X'], why)                                   # both ids are named
         self.assertIn(self.attempts()['B'], why)
+        hold = next(p for k, p in self.events() if k == 'node.held' and p['node'] == 'C')['reason']   # the text engine builds for the owner
+        self.assertIn('B (not checked: the receipt of input B of C names attempt ' + self.attempts()['X'], hold)
+        self.assertIn('ledger places it on attempt ' + self.attempts()['B'], hold)
+        self.assertNotIn('B ()', hold)
         self.withdraw(rule)
         self.assertEqual(self.actions(['X', 'A', 'B']), {'X': 'publish', 'A': 'recheck', 'B': 'input_changed'})
         bound = {'B': {'receipt': self.engine.state(self.ledger, 'P1')['nodes']['B']['receipt'], 'generation': 0}}
         self.assertEqual(wc().decide(self.ledger, self.store, 'P1', 'C', None, inputs=bound)['action'], 'input_changed')
-        with self.assertRaises(LedgerError):
-            self.check('C')
+        with self.assertRaisesRegex(LedgerError, 'Only the current produced node can be verified'):
+            self.check('C')                                                         # held before dispatch: nothing to verify
         self.assertNotIn('C', [p['node'] for k, p in self.events() if k == 'node.verification'])
         self.assertNotEqual(self.engine.state(self.ledger, 'P1')['nodes']['C'].get('state'), 'verified')
+
+    def test_f3_o_a_missed_pre_dispatch_hold_is_caught_by_the_produce_gate(self):
+        """The gate on C's own attempt (not the pre-dispatch check) refuses the misattributed edge. Reaching verify's gate instead would
+        need C produced on a bound receipt that is misattributed later: receipts are content-addressed and events append-only, so that
+        needs a hand-edited ledger (not built here)."""
+        items = self.chain(['X'], head=('b.txt',)) + self.chain(['A', 'B', 'C'])
+        self.plan(*items)
+        claim = lambda ledger, attempt, produced: Snapshots(ledger.state_root).blob(
+            json.dumps({'kind': 'other-executor', 'attempt': self.attempts()['X']}).encode())
+        executor = self.wrapped(claim)
+        self.values += [auto] * len(items)
+        for _ in range(3):
+            r = self.step(executor)
+            self.check(r['node'])
+        with patch.object(self.engine, '_inputs_changed', return_value=None):      # the pre-dispatch check misses it (simulated)
+            held = self.step(executor)
+        self.assertEqual((held.get('node'), held['state'], held.get('classification')), ('C', 'held', 'input_changed'), held)
+        self.assertNotIn('C', [p['node'] for k, p in self.events() if k == 'node.produced'])
+        self.assertIn('C', [p['node'] for k, p in self.events() if k == 'node.started'])   # it ran: the attempt's own gate held it
+        hold = next(p for k, p in self.events() if k == 'node.held' and p['node'] == 'C')['reason']
+        self.assertIn('names attempt ' + self.attempts()['X'], hold)
+        self.assertIn('on attempt ' + self.attempts()['B'], hold)
+        self.assertEqual(wc().decide(self.ledger, self.store, 'P1', 'C', self.attempts()['C'])['action'], 'input_changed')
 
     def test_f3_n_control_the_native_receipt_through_the_same_executor_is_unchanged(self):
         items = self.chain(['X'], head=('b.txt',)) + self.chain(['A', 'B', 'C'])
