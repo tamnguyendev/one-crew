@@ -140,7 +140,9 @@ MILESTONE_TRY = {
            '  - `support install FB-… --target lab`: venv mới cạnh venv cũ, diễn tập trên bản sao, chuyển hook chỉ tại điểm an toàn. Không có quyền thì kết quả là `blocked_by_authority`, không phải đạt.\n'
            '  - `support recheck FB-…` chạy lại đúng check gốc bằng runtime mới; `support status FB-… --json` nói `installed` và `verified_at_target` theo hook đang chạy lúc này.\n'
            '  - `support rollback FB-…` là lệnh của chủ (bị từ chối trong phiên AI); sau đó trạng thái là `installed: false`, `rolled_back: true`, còn bị chặn.\n'
-           '  - Bộ kiểm chạy chuỗi này từ gói trên một repo OneCrew dựng tạm từ chính wheel của gói (bước V20–V22), nên có thể làm theo log của nó.'),
+           '  - Bộ kiểm chạy chuỗi này từ gói trên một repo OneCrew dựng tạm từ chính wheel của gói (bước V20–V22), nên có thể làm theo log của nó.\n'
+           '  - Bước V27: venv của lần cài bị sửa một file (diagnostics.py, RECORD giữ nguyên) thì `support install` và `support recheck` đều bị từ chối, hook và file không đổi; trả file về thì dùng lại được.\n'
+           '  - Bước V28: `support rollback` dừng sau diễn tập (`ONECREW_SUPPORT_CRASH=rollback_after_drill`), ghi một sự kiện vào sổ thật, chạy lại: chỉ rolled_back sau khi diễn tập lại dữ liệu có sự kiện đó.'),
     'A': ('- **2.4-A, worker tự đọc nguồn theo quyền:** hướng dẫn ở `docs/HUONG-DAN-SOURCE.vi.md`. Trên bản sao project:\n'
           '  - Root khai `authority.read` (ví dụ `["src/**"]`) trong hợp đồng; node khai `sources` `{"read": ["src/"], "max_rounds": 4}` trong plan nội bộ.\n'
           '  - Worker xin `list`/`search`/`read`/`page` kèm `continuation`; lượt sau nhận trang kết quả trên cùng cây đã ghim. Receipt có `source` (cây, kết quả, số lượt).\n'
@@ -151,7 +153,8 @@ MILESTONE_TRY = {
           '  - Mỗi attempt được giao tri thức có một sự kiện `knowledge.delivered`.\n'
           '  - Tri thức đã giao bị thu hồi lúc node đang chạy thì candidate không được công bố; node chạy tiếp ở thế hệ mới nhận `delta`.\n'
           '  - `& "$venv\\Scripts\\onecrew.exe" --project <project> --state-root <sổ thử> wiki consumers --plan <plan> --json` liệt kê node bị ảnh hưởng (chỉ đọc).\n'
-          '  - Bộ kiểm chạy đúng trường hợp này từ gói, cả qua một lần khởi động lại (bước V24).'),
+          '  - Bộ kiểm chạy đúng trường hợp này từ gói, cả qua một lần khởi động lại (bước V24).\n'
+          '  - Bước V26: chuỗi 6 node A→F chỉ A nhận quy tắc bắt buộc; rút quy tắc thì `wiki consumers` nêu F là `input_changed`, `engine verify <plan> F` bị từ chối (F bị giữ, không gọi model, không đặt lại ngân sách), node X độc lập vẫn được kiểm.'),
     'C': ('- **2.4-C, bước 0 đủ để làm và cách chạy node:** hướng dẫn ở `docs/HUONG-DAN-BUOC-0.vi.md`.\n'
           '  - `plan proposal check <plan> --file <f.json>` với `preserve`, `estimate`, `investigation`; `plan step0 show <plan> [--json]` nói đủ để làm chưa và vì sao.\n'
           '  - Khảo sát vượt trần điều tra bị từ chối; unknown đổi được quyết định chỉ đóng khi có bằng chứng (`plan unknown close`).\n'

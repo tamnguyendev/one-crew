@@ -83,8 +83,23 @@ the installed venv with python -I, a cwd outside the checkout, an isolated env a
                   a new check, enough true (and the text card says so). A root with execution-mode + parallel-engine runs two independent nodes in two
                   slots (managed executor, a local worker process): both node.started carry mode, mode_reasons, mode_inputs_sha; `engine measure` names
                   unobserved values unknown. Control: the same nodes on a root without execution-mode have no mode fields
+  V26 B chain     Codex review round 1, F3, from the installed wheel (installed CLI + fake claude, no model): a chain A -> B -> C -> D -> E -> F (each needs the
+                  previous verified; only A is given the mandatory wiki rule about a.txt) and an independent node X; A..E stepped and verified, F and X produced;
+                  the rule is withdrawn -> `wiki consumers` names B..F input_changed; `engine verify P1 F` is REFUSED (an input built on knowledge that changed),
+                  F is held input_changed, no node.verification / node.started of F, no new fake claude call, used_calls and budget_reset unchanged; X, which does
+                  not depend on A, is verified. A build whose input walk stops after three levels verifies F: V26 FAILS on it (the counterexample)
+  V27 S2 identity Codex review round 1, S2 F1, from the installed wheel: after an install refused for another reason left the new venv, one file of it
+                  (onecrew/v2/diagnostics.py) gets bytes appended with its RECORD kept: the next `support install` is refused (exit 2, 'not the bound wheel',
+                  naming that file), the hook settings keep their bytes, nothing is deleted; bytes restored -> the same venv is reused and switched; the
+                  owner rollback returns the hooks; the same change in the switched venv is refused by `support recheck` and a second install, and the
+                  recheck passes again with the bytes restored. A build that trusts the RECORD accepts the tampered venv: V27 FAILS on it
+  V28 S2 window   Codex review round 1, S2 F2, from the installed wheel: after a switched install `support rollback` runs with ONECREW_SUPPORT_CRASH=rollback_after_drill
+                  (stops after the drill, hooks stay on the new runtime), one event is written into the live ledger, `support rollback` runs again in a new
+                  process (in-process if the build refuses on the dead holder's claim): rolled_back only
+                  after drilling data that holds the write (reader_pair names it, fences drilled == at switch). A build without that crash point FAILS V28
   V3 also checks that the modules of the included milestones (support, diagnostics, support_cli, support_spool for S1) load from the venv.
-Exit 0 when every step passes, 1 otherwise. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
+Exit 0 when every step passes, 1 otherwise. `verify_milestone.py <package dir> <work dir> --only STEP_ID` runs V1-V3 (identity, install, origins) and that one
+milestone step only, for diagnosis: its report says `partial`, its result is `partial-pass` or `fail`, never `pass`, and thu-goi.ps1 does not use it. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
 import base64
 import re
 import hashlib
@@ -132,7 +147,7 @@ def run(argv, **kw):
     return subprocess.run([str(a) for a in argv], capture_output=True, **kw)
 
 
-def main(pkg, work):
+def main(pkg, work, only=None):
     pkg, work = Path(pkg).resolve(), Path(work).resolve()
     work.mkdir(parents=True, exist_ok=True)
     os.chdir(work)               # every child starts in the neutral work folder: a checkout or egg-info in the caller's folder never answers
@@ -143,6 +158,7 @@ def main(pkg, work):
         now = time.monotonic()
         steps.append(dict(id=sid, result='pass' if ok else 'fail', seconds=round(now - clock[0], 1), **facts)); clock[0] = now
         print(sid, 'pass' if ok else 'FAIL', f'{steps[-1]["seconds"]}s', flush=True)
+        for problem in (facts.get('problems') or []) if not ok and isinstance(facts.get('problems'), list) else []: print('   -', str(problem)[:500], flush=True)
         return ok
     manifest = json.loads((pkg / 'manifest.json').read_text(encoding='utf-8'))
     report['manifest'] = {k: manifest.get(k) for k in ('kind', 'milestone', 'milestones_included', 'stage', 'version', 'code_commit', 'wheel', 'previous_wheel',
@@ -199,6 +215,8 @@ def main(pkg, work):
     outside = {n: f for n, f in origins.items() if not str(f).casefold().startswith(str(venv).casefold())}
     helped = run([scripts / 'onecrew.exe', '--help'], cwd=work, env=env_for(work, scripts))
     step('V3-origins', not outside and helped.returncode == 0 and b'wiki' in helped.stdout, origins=origins, outside=outside)
+    if only:                                    # a partial run to look at one milestone step on the installed wheel; never a package acceptance
+        return run_only(report, work, only, included, Ctx(pkg=pkg, work=work, py=py, scripts=scripts, manifest=manifest), step)
     # V4 / V5
     scenario = pkg / 'verify' / 'scenario_a1.py'
     results = {}
@@ -354,6 +372,24 @@ def main(pkg, work):
             except Exception as error:          # an environment failure is a failed step, never a crash of the verifier
                 ok, facts = False, {'error': f'{type(error).__name__}: {str(error)[:300]}'}
             step(sid, ok, milestone=milestone, title=title, **facts)
+    return finish(report, work)
+
+
+def run_only(report, work, only, included, ctx, step):
+    """`--only STEP_ID`: after V1-V3, run just that milestone step (the milestone must be in the package). The report says `partial`."""
+    known = {sid: (m, title, check) for m in included for sid, title, check in MILESTONE_STEPS.get(m, [])}
+    report['partial'] = {'only': only, 'note': 'a diagnostic run (V1-V3 and one step): not a package acceptance'}
+    report['expected_steps'] = len(report['steps']) + 1
+    if only not in known:
+        report['partial']['error'] = f'no step {only!r} among the milestones of this package: {sorted(known)}'
+        print(report['partial']['error'], flush=True)
+        return finish(report, work)
+    milestone, title, check = known[only]
+    try:
+        ok, facts = check(ctx)
+    except Exception as error:
+        ok, facts = False, {'error': f'{type(error).__name__}: {str(error)[:300]}'}
+    step(only, ok, milestone=milestone, title=title, **facts)
     return finish(report, work)
 
 
@@ -774,6 +810,11 @@ BUNDLE_STATUSES = ('included', 'missing', 'truncated', 'withheld', 'unreadable',
 REPORT_TEXT = 'Bước kiểm M1 báo sai dù file đúng — lỗi được báo từ bản cài, không từ checkout'      # Vietnamese on purpose: the text must round-trip byte for byte
 
 
+def _make_writable(function, path, _info):
+    os.chmod(path, 0o700)
+    function(path)
+
+
 class Ctx:
     """What a milestone step gets: the package, the work folder, the venv's python and Scripts folder, the manifest."""
     def __init__(self, pkg, work, py, scripts, manifest):
@@ -782,7 +823,7 @@ class Ctx:
     def case(self, name):
         """A fresh folder for one case (its own LOCALAPPDATA/APPDATA/TEMP under it), never reused."""
         folder = self.work / name
-        if folder.exists(): shutil.rmtree(folder)
+        if folder.exists(): shutil.rmtree(folder, onerror=_make_writable)       # a rerun in the same work folder: git objects are read-only on Windows
         folder.mkdir(parents=True)
         (folder / 'temp').mkdir()
         return folder
@@ -1141,8 +1182,8 @@ def _support_installs(state):
         conn.close()
 
 
-def _feedback(ctx, s, text, plan_name):
-    code, made, out = _s2_cli(ctx, s, 'report', '--text', text, '--plan', 'P1', '--json')
+def _feedback(ctx, s, text, plan_name, attempt=None):
+    code, made, out = _s2_cli(ctx, s, 'report', '--text', text, '--plan', 'P1', *(['--attempt', attempt] if attempt else []), '--json')
     ident = (made or {}).get('id')
     if code != 0 or not FEEDBACK_ID.match(str(ident)): raise RuntimeError('report: ' + out[-300:])
     for argv in (('classify', ident, '--class', 'onecrew_runtime', '--basis', 'the node C receipt'),
@@ -1259,6 +1300,181 @@ def v22_support_recheck_rollback(ctx):
     if facts['after_rollback'] != {'installed': False, 'rolled_back': True, 'still_blocked': True, 'verified_at_target': False}:
         problems.append('status after the rollback: ' + str(facts['after_rollback']))
     return not problems, dict(facts, problems=problems, feedback=s['fb'])
+
+
+def _s2_feedback_ready(ctx, s, text):
+    """A new feedback linked to FIX1 (which grants support_install:lab) with the good wheel bound; the owner's target `lab` is added first when V20
+    did not run (a diagnostic --only run)."""
+    if not s.get('target_ready'):
+        if not s.get('fb'):
+            code, _, out = _s2_cli(ctx, s, 'target', 'add', '--id', 'lab', '--venv', ctx.scripts.parent)
+            if code != 0: raise RuntimeError('target add: ' + out[-300:])
+        s['target_ready'] = True
+    started = _v26_events(s['state'], 'C', ('node.started',))       # after V22's recheck node C no longer has a failing verification to derive the report's refs from: name its attempt
+    fb = _feedback(ctx, s, text, 'FIX1', attempt=started[0][1].get('attempt') if started else None)
+    code, _, out = _s2_cli(ctx, s, 'artifact', fb, '--wheel', s['good'], '--manifest', s['manifests']['good'])
+    if code != 0: raise RuntimeError('artifact: ' + out[-300:])
+    return fb
+
+
+def _venv_files(venv):
+    return {p.relative_to(venv).as_posix() for p in Path(venv).rglob('*') if p.is_file()}
+
+
+def v27_runtime_identity(ctx):
+    """2.4-S2, Codex review round 1, finding F1, from the INSTALLED wheel (the flow of tests/test_v24_s2_installed.py): an install refused for another
+    reason (an unreadable hook registry) leaves the product's new venv in place; one file of it (onecrew/v2/diagnostics.py) gets bytes appended with
+    the installed RECORD kept. The next install must be REFUSED (exit 2, 'not the bound wheel', naming onecrew/v2/diagnostics.py), the hook settings
+    keep their bytes, nothing in the venv is deleted; with the bytes restored the same venv is reused and the hooks are switched (control). The owner
+    rollback then returns the hooks to the target. The same change in the SWITCHED venv is refused by `support recheck` and by a second install
+    (exit 2, 'bound wheel', diagnostics.py), and the recheck passes again once the bytes are restored. A build that judges the venv by its RECORD accepts
+    the tampered venv: this step then FAILS."""
+    s = _s2(ctx)
+    problems, facts = [], {}
+    fb = _s2_feedback_ready(ctx, s, 'S2 runtime identity: the venv of an install is judged by its files, not by its RECORD')
+    registry = s['folder'] / 'localappdata' / 'OneCrew' / 'hook-projects.json'
+    saved = registry.read_bytes()
+    registry.write_text('{not json', encoding='utf-8')
+    try:
+        code, first, out = _s2_cli(ctx, s, 'install', fb, '--target', 'lab', ONECREW_ACTOR='codex')
+    finally:
+        registry.write_bytes(saved)
+    first = first or {}
+    facts['first_install'] = {'exit': code, 'result': first.get('result'), 'new_venv': first.get('new_venv')}
+    new_venv = Path(first['new_venv']) if first.get('new_venv') else None
+    if not (code == 0 and first.get('result') == 'refused_unsafe' and new_venv and (new_venv / 'Scripts' / 'onecrew.exe').is_file()):
+        return False, dict(facts, problems=['the install refused for an unreadable hook registry did not leave the new venv: ' + str(facts['first_install']) + ' ' + out[-300:]])
+    tampered = new_venv / 'Lib' / 'site-packages' / 'onecrew' / 'v2' / 'diagnostics.py'
+    record = next((new_venv / 'Lib' / 'site-packages').glob('onecrew-*.dist-info')) / 'RECORD'
+    original, record_bytes = tampered.read_bytes(), record.read_bytes()
+    tampered.write_bytes(original + b'\n# isolated corruption probe\n')
+    hooks_before, settings_before, files_before = _hook_programs(s['settings']), sha256(s['settings']), _venv_files(new_venv)
+    code, refused, out = _s2_cli(ctx, s, 'install', fb, '--target', 'lab', ONECREW_ACTOR='codex')
+    facts['tampered_install'] = {'exit': code, 'result': (refused or {}).get('result'), 'text': out.strip()[:400]}
+    unchanged = _hook_programs(s['settings']) == hooks_before and sha256(s['settings']) == settings_before
+    facts['hooks_unchanged'] = unchanged
+    accepted = code == 0 and (refused or {}).get('result') == 'switched'
+    if accepted:
+        problems.append('DEFECT (Codex S2 F1): the install ACCEPTED the venv whose onecrew/v2/diagnostics.py was changed (its RECORD kept) and switched the hooks to it')
+    elif not (code == 2 and 'not the bound wheel' in out and 'onecrew/v2/diagnostics.py' in out):
+        problems.append('the tampered venv was not refused with the reason (exit 2, "not the bound wheel", onecrew/v2/diagnostics.py): ' + str(facts['tampered_install']))
+    if not unchanged and not accepted: problems.append('the hook settings changed although the venv was tampered: ' + str(_hook_programs(s['settings'])))
+    if not files_before <= _venv_files(new_venv) or record.read_bytes() != record_bytes:
+        problems.append('the refused install deleted or rewrote files of the venv')
+    if accepted:                    # nothing more to prove on a build that accepts it; put the hooks back for the next step
+        _s2_cli(ctx, s, 'rollback', fb)
+        return False, dict(facts, problems=problems)
+    tampered.write_bytes(original)
+    code, again, out = _s2_cli(ctx, s, 'install', fb, '--target', 'lab', ONECREW_ACTOR='codex')
+    again = again or {}
+    facts['restored_install'] = {'exit': code, 'result': again.get('result'), 'new_venv': again.get('new_venv'), 'hooks_now': _hook_programs(s['settings'])}
+    if not (code == 0 and again.get('result') == 'switched' and Path(again.get('new_venv', '')) == new_venv
+            and facts['restored_install']['hooks_now'] == [str((new_venv / 'Scripts' / 'onecrew.exe').resolve())]):
+        problems.append('control: with the bytes restored the same venv was not reused and switched: ' + str(facts['restored_install']) + ' ' + out[-300:])
+    # the same file of the SWITCHED venv changed with its RECORD kept: `support recheck` and a second `support install` both refuse, the hooks keep their bytes
+    if facts['restored_install']['result'] == 'switched':
+        tampered.write_bytes(original + b'\n# isolated corruption probe\n')
+        settings_switched = sha256(s['settings'])
+        for verb, argv in (('recheck', ('recheck', fb)), ('install', ('install', fb, '--target', 'lab'))):
+            code, refused, out = _s2_cli(ctx, s, *argv, ONECREW_ACTOR='codex')
+            facts['switched_tampered_' + verb] = {'exit': code, 'text': out.strip()[:300]}
+            if not (code == 2 and 'bound wheel' in out and 'onecrew/v2/diagnostics.py' in out):
+                problems.append(f'support {verb} on the switched venv with a changed file was not refused with the reason (exit 2, "bound wheel", onecrew/v2/diagnostics.py): '
+                                + str(facts['switched_tampered_' + verb]))
+        if sha256(s['settings']) != settings_switched: problems.append('the hook settings changed while the switched venv was tampered')
+        tampered.write_bytes(original)
+        code, rechecked, out = _s2_cli(ctx, s, 'recheck', fb, ONECREW_ACTOR='codex')
+        facts['restored_recheck'] = {'exit': code, 'environment': (rechecked or {}).get('environment'), 'result': (rechecked or {}).get('result')}
+        # `pass` when this is the first recheck of the feedback's node; after V22 the node is already verified, so the engine answers inconclusive ("Only the
+        # current produced node can be verified") - either way the recheck RAN at the target, which it refused to do while the file was changed
+        if not (code == 0 and (rechecked or {}).get('environment') == 'target' and (rechecked or {}).get('result') in ('pass', 'inconclusive')):
+            problems.append('control: with the bytes restored the recheck at the target was refused or failed: ' + str(facts['restored_recheck']) + ' ' + out[-300:])
+        code, accepted, out = _s2_cli(ctx, s, 'install', fb, '--target', 'lab', ONECREW_ACTOR='codex')
+        facts['restored_second_install'] = {'exit': code, 'result': (accepted or {}).get('result')}
+        if not (code == 0 and (accepted or {}).get('result') == 'switched'):
+            problems.append('control: with the bytes restored a second install did not accept the switched venv: ' + str(facts['restored_second_install']) + ' ' + out[-300:])
+    code, back, out = _s2_cli(ctx, s, 'rollback', fb)
+    facts['rollback'] = {'exit': code, 'result': (back or {}).get('result'), 'hooks_now': _hook_programs(s['settings'])}
+    if not (code == 0 and (back or {}).get('result') == 'rolled_back' and facts['rollback']['hooks_now'] == [s['target_exe']]):
+        problems.append('the owner rollback after the control: ' + str(facts['rollback']) + ' ' + out[-300:])
+    return not problems, dict(facts, problems=problems, feedback=fb)
+
+
+V28_HELPER = r'''
+import json, os, sys
+from pathlib import Path
+from onecrew.ledger import Ledger
+from onecrew.v2 import hotfix, plan as plans
+a = json.loads(sys.argv[1])
+ledger = Ledger(Path(a['customer']), Path(a['state']))
+out = {}
+if a['mode'] == 'write':                 # one benign event on the customer's live ledger, between the crash and the retry
+    with ledger.transaction(write=True) as conn:
+        task = plans.derive(ledger, conn, 'P1')['task_id']
+        plans.emit(ledger, conn, task, 'notice.exception', {'version': 1, 'category': 'deadline', 'cause': 'fault injection',
+                                                            'reason': 'written between the crash and the retry', 'evidence': ['fixture'], 'plan': 'P1'})
+    out['written'] = True
+elif a['mode'] == 'rollback':            # the fallback when the CLI rerun is refused by the claim of the crashed process: the same call, in this process
+    os.environ.pop('ONECREW_SUPPORT_CRASH', None)
+    out['record'] = json.loads(json.dumps(hotfix.rollback(ledger, a['fb']), default=str))
+out['fence'] = hotfix.fence(ledger.state_root)
+print('@@' + json.dumps(out, default=str))
+'''
+
+
+def _v28_helper(ctx, s, mode, fb):
+    done = run([ctx.py, '-I', '-c', V28_HELPER, json.dumps({'customer': str(s['customer']), 'state': str(s['state']), 'fb': fb, 'mode': mode})], cwd=s['folder'],
+               env=env_for(s['folder'], ctx.scripts, TEMP=str(s['folder'] / 'temp'), TMP=str(s['folder'] / 'temp')))
+    seen = _first_json(done.stdout.split(b'@@', 1)[1]) if b'@@' in done.stdout else None
+    if seen is None: raise RuntimeError(f'helper {mode}: ' + (done.stdout + done.stderr).decode('utf-8', 'replace')[-400:])
+    return seen
+
+
+def v28_switch_window(ctx):
+    """2.4-S2, Codex review round 1, finding F2, from the INSTALLED wheel (tests/test_v24_s2_review2.py, test_f2_crash_after_the_drill_then_a_write_then_retry):
+    after a switched install, `support rollback` is run once with the product's fixture crash point ONECREW_SUPPORT_CRASH=rollback_after_drill (the process
+    stops after the old runtime drilled the copy of the live ledger; the hooks stay on the new runtime), one event is written into the live ledger, then
+    `support rollback` runs again in a NEW process without the crash (a dead holder's claim is taken over; if a build refuses on the claim the same call is made
+    in-process): it rolls back only after drilling data that HOLDS the write (reader_pair names notice.exception, fences drilled == at switch). A build with
+    no such crash point (the rollback runs to the end at once, on a copy drilled before the write) FAILS this step."""
+    s = _s2(ctx)
+    problems, facts = [], {}
+    fb = _s2_feedback_ready(ctx, s, 'S2 switch window: a write between the drill and the switch must not become the undrilled baseline')
+    code, made, out = _s2_cli(ctx, s, 'install', fb, '--target', 'lab', ONECREW_ACTOR='codex')
+    made = made or {}
+    new_exe = str((Path(made['new_venv']) / 'Scripts' / 'onecrew.exe').resolve()) if made.get('new_venv') else None
+    if not (code == 0 and made.get('result') == 'switched' and _hook_programs(s['settings']) == [new_exe]):
+        return False, {'problems': ['the install this step needs did not switch: ' + str(made.get('result')) + ' ' + out[-300:]]}
+    code, first, out = _s2_cli(ctx, s, 'rollback', fb, ONECREW_SUPPORT_CRASH='rollback_after_drill')
+    crashed = code != 0 and 'fixture crash at rollback_after_drill' in out
+    facts['first'] = {'exit': code, 'crashed': crashed, 'result': (first or {}).get('result'), 'tail': out.strip()[-200:]}
+    if not crashed:
+        problems.append(f'this build has no crash point rollback_after_drill: the rollback ran to the end at once (exit {code}, result {(first or {}).get("result")!r}) on a '
+                        'copy drilled before any later write, so a write between the drill and the switch cannot be tested (Codex S2 F2)')
+    else:
+        facts['hooks_after_first'] = _hook_programs(s['settings'])
+        if facts['hooks_after_first'] != [new_exe]: problems.append('the crash after the drill moved the hooks: ' + str(facts['hooks_after_first']))
+        _v28_helper(ctx, s, 'write', fb)
+        code, again, out = _s2_cli(ctx, s, 'rollback', fb)
+        facts['second'] = {'form': 'cli', 'exit': code, 'result': (again or {}).get('result')}
+        if code != 0 and 'in progress' in out:       # the claim of the crashed process is still live in this build: the same call, in one process
+            facts['second_cli_refused'] = out.strip()[-300:]
+            again = _v28_helper(ctx, s, 'rollback', fb)['record']
+            facts['second'] = {'form': 'in-process', 'result': again.get('result')}
+        again = again or {}
+        pair, fences = json.dumps(again.get('reader_pair'), default=str), again.get('fences') or {}
+        now = _v28_helper(ctx, s, 'fence', fb)['fence']
+        facts['second'].update(write_drilled='notice.exception' in pair, fences_agree=bool(fences) and fences.get('drilled') == fences.get('at_switch'),
+                               fence_now_is_at_switch=(fences.get('at_switch') or {}).get(str((s['state']).resolve())) == now, problems=again.get('problems'))
+        second = facts['second']
+        if second['result'] != 'rolled_back' or not second['write_drilled'] or not second['fences_agree'] or not second['fence_now_is_at_switch']:
+            problems.append('the rerun did not roll back on data holding the write (rolled_back, reader_pair names notice.exception, fences drilled == at switch): ' + str(second))
+        facts['hooks_after_second'] = _hook_programs(s['settings'])
+        if facts['hooks_after_second'] != [s['target_exe']]: problems.append('after the rerun the hooks are not back on the target: ' + str(facts['hooks_after_second']))
+    code, status, _ = _s2_cli(ctx, s, 'status', fb, '--json')
+    facts['status'] = {k: ((status or {}).get(k) or {}).get('value') for k in ('installed', 'rolled_back', 'still_blocked')}
+    if crashed and (facts['status']['installed'], facts['status']['rolled_back']) != (False, True): problems.append('support status after the rerun: ' + str(facts['status']))
+    return not problems, dict(facts, problems=problems, feedback=fb)
 
 
 # ---- 2.4-A, B, C steps (V23-V25): scenario bodies run by the INSTALLED venv's python -I from the case folder ------------------------------
@@ -1568,6 +1784,164 @@ def v24_context(ctx):
     return not problems, {'phase1': first, 'phase2': second, 'problems': problems}
 
 
+V26_NODES = ('A', 'B', 'C', 'D', 'E', 'F')                    # the chain A -> B -> ... -> F; X is independent of it
+V26_ASSERT = ('from pathlib import Path; outs = sorted(Path(".").glob("out_*.txt")); '
+              'assert all(p.read_text().strip() == "right" for p in outs) and (outs or Path("a.txt").read_text().strip() == "right"), outs; print("value verified")')
+V26_STATE = r'''
+import json, sys
+from pathlib import Path
+from onecrew.ledger import Ledger
+from onecrew.v2 import engine
+from onecrew.budget_core import group
+ledger = Ledger(Path(sys.argv[1]), Path(sys.argv[2]))
+view = engine.state(ledger, 'P1')
+with ledger.transaction() as conn:
+    used = group(conn, view['root'])['used_calls']
+print('@@' + json.dumps({'used_calls': used, 'nodes': {n: {k: r.get(k) for k in ('state', 'phase', 'classification', 'generation')} for n, r in view['nodes'].items()}}))
+'''
+
+
+def _v26_item(nid, depends=(), integration=False, write=(), read=('b.txt',)):
+    return {'id': nid, 'goal': 'Write a.txt with the value the project requires.' if write else 'Report on b.txt for O1.', 'input': [],
+            'output': ['a.txt holds the required value'], 'acceptance': ['O1'], 'depends': [{'node': d, 'requires': 'verified'} for d in depends],
+            'read': list(read), 'write': list(write), 'resources': [], 'estimate_seconds': [5, 120], 'execution_cap_seconds': 180, 'budget_calls': 1,
+            'checks': [{'id': 'M1', 'spec': 'a.txt holds the value the project wiki requires.'}], 'integration': integration,
+            'executor': {'role': 'worker', 'provider': 'claude', 'model': 'claude-haiku-5-5'}}
+
+
+def _v26_events(state, node=None, kinds=None):
+    """The events of a ledger as (kind, payload dict), oldest first, optionally of one node and of some kinds (read-only)."""
+    conn = _ledger(state)
+    if conn is None: return []
+    try:
+        out = []
+        for row in conn.execute('SELECT kind, payload FROM events ORDER BY seq'):
+            if kinds and row['kind'] not in kinds: continue
+            try:
+                body = json.loads(row['payload'] or '{}')
+            except ValueError:
+                continue
+            if isinstance(body, dict) and (node is None or body.get('node') == node): out.append((row['kind'], body))
+        return out
+    finally:
+        conn.close()
+
+
+def v26_chain(ctx):
+    """2.4-B, Codex review round 1, finding F3, from the INSTALLED wheel: a plan with the chain A -> B -> C -> D -> E -> F (each needs the previous
+    verified; only A reads a.txt, so only A is given the mandatory wiki rule about a.txt) and an independent node X. A..E are stepped (real
+    NativeExecutor -> fake claude) and verified (the contract's command check), F and X are produced and left open; then the rule is withdrawn.
+    Expected: `wiki consumers` names B..F input_changed (A withdrawn, X none); `engine verify P1 F` is REFUSED with the reason (an input was built on
+    knowledge that changed), writes no node.verification for F, starts no new attempt of F (no node.started, no new fake claude call), resets no
+    budget (used_calls and node.resumed unchanged); `engine state` shows F held input_changed; X, which does not depend on A, is verified normally.
+    A build whose input walk stops after three levels verifies F: this step then FAILS (that is the counterexample)."""
+    folder = ctx.case('b chain')
+    project, state = ctx.project(folder), folder / 'state'
+    for args in (['config', 'user.name', 'v26'], ['config', 'user.email', 'v26@localhost'], ['config', 'core.autocrlf', 'false']):
+        run(['git', '-C', project, *args], check=True)
+    (project / 'a.txt').write_text('base\n', encoding='utf-8'); (project / 'b.txt').write_text('base\n', encoding='utf-8')
+    (project / '.gitignore').write_text('.onecrew/\n.claude/\n', encoding='utf-8')
+    run(['git', '-C', project, 'add', '.'], check=True); run(['git', '-C', project, 'commit', '-qm', 'base'], check=True)
+    policy, log = folder / 'policy.json', folder / 'fake.jsonl'
+    policy.write_text(json.dumps({'default': 'right', 'careful': True}), encoding='utf-8')            # every node writes `right` into its own first write path
+    env = env_for(folder, ctx.scripts, TEMP=str(folder / 'temp'), TMP=str(folder / 'temp'), ONECREW_FAKE_POLICY=str(policy), ONECREW_FAKE_LOG=str(log))
+    exe = ctx.scripts / 'onecrew.exe'
+    cli = lambda *args: run([exe, '--project', project, '--state-root', state, *args], cwd=folder, env=env)
+    text_of = lambda done: (done.stdout + done.stderr).decode('utf-8', 'replace')
+    problems, facts = [], {}
+    contract = json.loads((ctx.pkg / 'examples' / 'first-task' / 'contract.json').read_text(encoding='utf-8').replace('PYTHON_EXE', 'unused'))
+    contract['milestones'][0]['verifier']['config']['argv'] = [str(ctx.py).replace(chr(92), '/'), '-c', V26_ASSERT]
+    contract['scope'] = {'owned': ['a.txt', 'b.txt'] + [f'out_{n}.txt' for n in V26_NODES[1:] + ('X',)]}
+    (folder / 'contract.json').write_text(json.dumps(contract, ensure_ascii=False), encoding='utf-8')
+    items = [_v26_item('A', write=('a.txt',), read=('a.txt',))]
+    items += [_v26_item(n, [p], write=(f'out_{n}.txt',)) for p, n in zip(V26_NODES, V26_NODES[1:])]       # a node that writes nothing leaves no artifact to verify
+    items += [_v26_item('X', write=('out_X.txt',)), _v26_item('I', [*V26_NODES, 'X'], integration=True)]            # the integration node requires every other node
+    (folder / 'nodes.json').write_text(json.dumps({'reason': 'V26 chain', 'evidence': ['a.txt:1'], 'nodes': items}), encoding='utf-8')
+    approve = ('import sys; from pathlib import Path; from onecrew.ledger import Ledger; from onecrew.v2 import plan; '
+               'print(plan.approve(Ledger(Path(sys.argv[1]), Path(sys.argv[2])), "P1", "owner", "package step V26 fixture on a temporary ledger, not an owner approval")["status"])')
+    setup = {'propose': cli('plan', 'propose', 'P1', '--file', folder / 'contract.json', '--author', 'v26-chain', '--workflow', '--capability', 'namespaced-storage',
+                            '--capability', 'root-budget', '--capability', 'internal-plan', '--capability', 'sequential-engine').returncode,
+             'approve': run([ctx.py, '-I', '-c', approve, project, state], cwd=folder, env=env, text=True).stdout.strip(),
+             'revise': (revised := cli('engine', 'revise', 'P1', '--file', folder / 'nodes.json')).returncode}
+    facts['setup'] = setup
+    if (setup['propose'], setup['approve'], setup['revise']) != (0, 'approved', 0):
+        return False, dict(facts, problems=['the plan was not set up: ' + str(setup) + ' ' + text_of(revised)[-400:]])
+    conn = _ledger(state)
+    try:
+        last = conn.execute('SELECT MAX(seq) FROM events').fetchone()[0]
+    finally:
+        conn.close()
+    made = cli('wiki', 'record', '--plan', 'P1', '--kind', 'decision', '--text', 'a.txt must hold VALUE: right', '--status', 'verified', '--property', 'decided in review',
+               '--source', f'event:{last}', '--applies-to', 'a.txt', '--must')
+    rule = (_first_json(made.stdout) or {}).get('id')
+    facts['rule'] = rule
+    if made.returncode != 0 or not rule: return False, dict(facts, problems=['wiki record: ' + text_of(made)[-300:]])
+    # produce the nodes in the engine's own order; verify all but F and X
+    open_nodes, order, produced = ('F', 'X'), [], set()
+    for _ in range(14):
+        stepped = cli('engine', 'step', 'P1')
+        value = _first_json(stepped.stdout) or {}
+        node, outcome = value.get('node'), value.get('state')
+        order.append([node, outcome])
+        if outcome != 'produced':
+            problems.append(f'engine step ended {node} {outcome}: ' + text_of(stepped)[-300:]); break
+        produced.add(node)
+        if node not in open_nodes:
+            checked = _first_json(cli('engine', 'verify', 'P1', node).stdout) or {}
+            if checked.get('result') != 'pass':
+                problems.append(f'before the withdrawal, verify of {node}: {checked.get("result")!r} {str(checked)[:200]}'); break
+        if set(open_nodes) <= produced: break
+    facts['order'] = order
+    if not set(open_nodes) <= produced: return False, dict(facts, problems=problems or ['F and X were not both produced'])
+
+    def snapshot():
+        shown = run([ctx.py, '-I', '-c', V26_STATE, project, state], cwd=folder, env=env)
+        value = _first_json(shown.stdout.split(b'@@', 1)[1]) if b'@@' in shown.stdout else None
+        return {'used_calls': (value or {}).get('used_calls'), 'nodes': (value or {}).get('nodes'),
+                'fake_calls': len(log.read_text(encoding='utf-8').splitlines()) if log.exists() else 0,
+                'budget_resets': sum(1 for _, b in _v26_events(state, kinds=('node.resumed',)) if b.get('budget_reset')),
+                'f_started': len(_v26_events(state, 'F', ('node.started',))), 'f_verifications': len(_v26_events(state, 'F', ('node.verification',)))}
+    before = snapshot()
+    facts['before'] = before
+    delivered = lambda n: [b for _, b in _v26_events(state, n, ('knowledge.delivered',)) if rule in str(b.get('delivered'))]
+    if not delivered('A'): problems.append('the rule was not delivered to A')
+    if any(delivered(n) for n in V26_NODES[1:] + ('X',)): problems.append('the rule reached a node other than A (the scenario would not test the chain)')
+    withdrawn = cli('wiki', 'withdraw', rule, '--plan', 'P1', '--reason', 'a.txt keeps its value now', '--source', f'event:{last}')
+    facts['withdraw_exit'] = withdrawn.returncode
+    if withdrawn.returncode != 0: return False, dict(facts, problems=problems + ['wiki withdraw: ' + text_of(withdrawn)[-300:]])
+    consumers = {c.get('node'): c.get('status') for c in (_first_json(cli('wiki', 'consumers', '--plan', 'P1', '--json').stdout) or {}).get('consumers', [])}
+    facts['consumers'] = consumers
+    if consumers.get('F') != 'input_changed' or consumers.get('X') not in (None, 'none'):         # `wiki consumers` lists the OPEN nodes: F, X and the pending I
+        problems.append(f'wiki consumers after the withdrawal: {consumers} (expected F input_changed, X none)')
+    refused = cli('engine', 'verify', 'P1', 'F')
+    refused_text = text_of(refused).strip()
+    facts['verify_f'] = {'exit': refused.returncode, 'text': refused_text[:600]}
+    if refused.returncode == 0:
+        problems.append('DEFECT (Codex F3): `engine verify P1 F` VERIFIED F (result ' + repr((_first_json(refused.stdout) or {}).get('result')) + ') although the mandatory '
+                        'rule given only to A was withdrawn five inputs upstream: the input walk stops before the head of the chain')
+    elif not ('nothing was verified' in refused_text and 'E an input was built on knowledge or sources that changed' in refused_text):
+        problems.append('verify of F was refused without the reason (an input built on knowledge that changed, naming E): ' + refused_text[:300])
+    after = snapshot()
+    facts['after'] = after
+    held = ((after.get('nodes') or {}).get('F') or {})
+    if refused.returncode != 0 and (held.get('phase'), held.get('classification')) != ('held', 'input_changed'):
+        problems.append('F in engine state after the refusal: ' + str(held))
+    if after['f_verifications'] != before['f_verifications'] or held.get('state') == 'verified':
+        problems.append(f'F has a verification after the withdrawal: {before["f_verifications"]}->{after["f_verifications"]}, state {held.get("state")}')
+    if after['f_started'] != before['f_started'] or after['fake_calls'] != before['fake_calls']:
+        problems.append(f'a model call or a new attempt of F after the withdrawal: node.started {before["f_started"]}->{after["f_started"]}, '
+                        f'fake claude calls {before["fake_calls"]}->{after["fake_calls"]}')
+    if after['used_calls'] != before['used_calls'] or after['budget_resets'] or before['budget_resets']:
+        problems.append(f'root budget: used_calls {before["used_calls"]}->{after["used_calls"]}, node.resumed with budget_reset {before["budget_resets"]}->{after["budget_resets"]}')
+    held_rows = _v26_events(state, 'F', ('node.held',))
+    facts['f_held_events'] = [{'classification': b.get('classification'), 'reason': str(b.get('reason'))[:200]} for _, b in held_rows]
+    if refused.returncode != 0 and not any(b.get('classification') == 'input_changed' for _, b in held_rows): problems.append('no node.held input_changed event for F')
+    independent = _first_json(cli('engine', 'verify', 'P1', 'X').stdout) or {}
+    facts['verify_x'] = independent.get('result')
+    if independent.get('result') != 'pass': problems.append('control: the independent node X was not verified: ' + str(independent)[:200])
+    return not problems, dict(facts, problems=problems)
+
+
 C_BODY = SCENARIO_COMMON + r'''
 import contextlib, io
 from onecrew.control_core import migrate
@@ -1709,9 +2083,12 @@ MILESTONE_STEPS = {         # milestone -> [(step id, title, check)]; ONE entry 
            ('V19-s1-counter', 'phản chứng: support confirm bị từ chối trong phiên AI, attempt không tồn tại không tạo attempt', v19_support_counter)],
     'S2': [('V20-s2-target-artifact', 'đích cài là lệnh của chủ (bị từ chối trong phiên AI); wheel có file lạ bị từ chối, wheel của commit đã kiểm được ràng', v20_support_target_artifact),
            ('V21-s2-install', 'không có quyền support_install thì blocked_by_authority; có quyền thì venv mới, điểm an toàn, intent rồi xác nhận, installed theo hook đang chạy', v21_support_install),
-           ('V22-s2-recheck-rollback', 'recheck tại đích là node.verification thật, verified_at_target; rollback bị từ chối trong phiên AI; sau rollback của chủ: installed false, rolled_back, still_blocked', v22_support_recheck_rollback)],
+           ('V22-s2-recheck-rollback', 'recheck tại đích là node.verification thật, verified_at_target; rollback bị từ chối trong phiên AI; sau rollback của chủ: installed false, rolled_back, still_blocked', v22_support_recheck_rollback),
+           ('V27-s2-runtime-identity', 'venv của lần cài bị sửa một file (RECORD giữ nguyên) thì lần cài sau bị từ chối nêu diagnostics.py, hook và file không đổi; trả file về thì dùng lại được', v27_runtime_identity),
+           ('V28-s2-switch-window', 'rollback dừng sau drill, ghi một sự kiện vào sổ thật, chạy lại: chỉ rolled_back sau khi drill lại dữ liệu có ghi đó (fences drilled = lúc chuyển)', v28_switch_window)],
     'A': [('V23-a-sources', 'node có sources đọc file ngoài read qua hai lượt trên cây đã ghim; ngoài phạm vi bị từ chối; cursor cây khác bị từ chối; max_rounds giữ node; node không khai sources giữ đúng khóa 2.3', v23_sources)],
-    'B': [('V24-b-context', 'knowledge.delivered cho attempt; must bị thu hồi lúc đang chạy thì candidate không được công bố, wiki consumers nêu node; node độc lập vẫn công bố; sau khởi động lại mục chỉ còn trong delta.withdrawn', v24_context)],
+    'B': [('V24-b-context', 'knowledge.delivered cho attempt; must bị thu hồi lúc đang chạy thì candidate không được công bố, wiki consumers nêu node; node độc lập vẫn công bố; sau khởi động lại mục chỉ còn trong delta.withdrawn', v24_context),
+           ('V26-b-chain', 'chuỗi 6 node A→F chỉ A nhận quy tắc bắt buộc: rút quy tắc thì wiki consumers nêu B–F input_changed, engine verify F bị từ chối (F bị giữ input_changed, không gọi model, không đặt lại ngân sách), node X độc lập vẫn được kiểm', v26_chain)],
     'C': [('V25-c-step0-mode', 'thẻ bước 0: unknown mở thì chưa đủ, khảo sát quá trần bị từ chối, có bằng chứng đóng thì đủ; execution-mode: hai node độc lập có trường chế độ, measure giữ unknown; root không khai thì không có trường', v25_step0_mode)],
 }
 
@@ -1719,12 +2096,15 @@ MILESTONE_STEPS = {         # milestone -> [(step id, title, check)]; ONE entry 
 def finish(report, work):
     report['finished'] = time.strftime('%Y-%m-%dT%H:%M:%S')
     expected = report.get('expected_steps') or REGRESSION_STEPS
-    report['result'] = ('pass' if report['steps'] and all(s['result'] == 'pass' for s in report['steps']) and len(report['steps']) == expected
-                        and not report.get('unchecked_milestones') else 'fail')
+    good = report['steps'] and all(s['result'] == 'pass' for s in report['steps']) and len(report['steps']) == expected and not report.get('unchecked_milestones')
+    if report.get('partial') and report['partial'].get('error'): good = False
+    report['result'] = ('partial-pass' if good else 'fail') if report.get('partial') else ('pass' if good else 'fail')
     (work / 'verify-report.json').write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding='utf-8')
-    print('RESULT', report['result'], f'{sum(s["result"] == "pass" for s in report["steps"])}/{expected}')
-    return 0 if report['result'] == 'pass' else 1
+    print('RESULT', report['result'], f'{sum(s["result"] == "pass" for s in report["steps"])}/{expected}', '(--only: not a package acceptance)' if report.get('partial') else '')
+    return 0 if report['result'] in ('pass', 'partial-pass') else 1
 
 
 if __name__ == '__main__':
-    sys.exit(main(sys.argv[1], sys.argv[2]))
+    rest = sys.argv[3:]
+    if rest and (len(rest) != 2 or rest[0] != '--only'): raise SystemExit('usage: verify_milestone.py <package dir> <work dir> [--only STEP_ID]')
+    sys.exit(main(sys.argv[1], sys.argv[2], rest[1] if rest else None))
