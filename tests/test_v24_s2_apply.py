@@ -93,7 +93,7 @@ class FakeRuntime:
         self.venvs.append(str(path))
         (path / 'Scripts').mkdir(parents=True)
         for name in ('python.exe', 'onecrew.exe'): (path / 'Scripts' / name).write_bytes(b'fake')
-        (path / 'pyvenv.cfg').write_text('home = fake\n')
+        (path / 'pyvenv.cfg').write_text(f'home = {Path(base).parent}\ninclude-system-site-packages = false\n')   # as python -m venv writes it
 
     def pip_install(self, python, wheel):
         """Like pip: the wheel's files written into the venv's site-packages, plus INSTALLER (the content is what the real identity of

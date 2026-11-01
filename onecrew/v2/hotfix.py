@@ -29,7 +29,13 @@ exists is reused only when it IS the bound wheel (verify_installed: the content 
 venv's own RECORD; the files its `onecrew` executable loads; Codex r1 F1), else refused, never deleted. Drill on a copy of every consuming
 state root (ledger, plans/ and the blobs those roots reference), fenced BEFORE the copy, the copy holding exactly the fenced data. Switch
 only at a safe point (the fence compared again), inside an exclusive claim, with an intent recorded before each repoint; the window, the
-fence and the processes of the runtime being left are re-checked after it (Codex r1 F2). Rollback only when the OLD runtime reads the current data (see rollback). `installed` and `verified_at_target` are projected against
+fence and the processes of the runtime being left are re-checked after it (Codex r1 F2).
+
+Round 2 (review-s2-r2): a venv OneCrew makes gets a creation baseline (every file the wheel does not give: pyvenv.cfg, Scripts/, the rest of
+site-packages) recorded right after its first passing check; every later judgement matches it, and no program of a venv runs before its
+static checks pass. The fence, the new venv and the claim are checked again right before the first hook file is written; the claim is a
+lease renewed before each phase and taken over only from an expired lease or a holder process that is gone on this host. An install that
+ends in switch_window_violation can be rolled back; the rollback checks the old venv is the one recorded at the install. Rollback only when the OLD runtime reads the current data (see rollback). `installed` and `verified_at_target` are projected against
 what the consumers' hook handlers run NOW.
 """
 import ast
@@ -41,6 +47,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -67,6 +74,7 @@ NOT_ENUMERATED = ['the OneCrew host service, MCP or Codex configurations and scr
                   '(only Claude Code hook handlers and the target\'s declared consumers are)']
 FINALS = ('switched', 'rolled_back', 'refused', 'refused_by_drill', 'refused_unsafe', 'blocked_by_authority', 'switch_window_violation')
 _ACTIVE = set()                                     # claim tokens held by this process (a crashed holder's token is not here)
+_TAKEN = {}                                         # token -> the claim it took over (claim_taken_over_from of the final record)
 
 
 class Crash(RuntimeError):
@@ -182,8 +190,11 @@ def _loaded(text):
     for line in (text or '').splitlines():
         match = LOADED.match(line)
         if not match: continue
+        text = match.group(1)
+        if text[:1] not in ('"', "'"):                # R2-04: a module loaded from source is written without quotes
+            found.append(text); continue
         try:
-            found.append(str(ast.literal_eval(match.group(1))))
+            found.append(str(ast.literal_eval(text)))
         except (ValueError, SyntaxError):
             found.append(None)
     return found
@@ -208,39 +219,98 @@ def _console_modules(site, rows):
     return modules
 
 
-def identity(venv, art):
-    """Codex r1 F1: what the files of `venv` and its running executable show, against the VERIFIED wheel rows of `art` (art['rows'], the
-    RECORD `support artifact` proved against the commit), never against the venv's own RECORD or metadata: the hash of the content of
-    every installed file of the wheel, links in their place, files of the wheel's package folders that the wheel does not hold, bytecode
-    caches, .pth start-up code, and the files the venv's `onecrew` executable loads when it runs (reported by the interpreter)."""
+DATA_DIR = '.onecrew'                                 # site-packages/.onecrew: the runtime's own data (desktop outbox), not code
+PYC_LEFTOVER = re.compile(r'\.pyc\.\d+\Z')            # R2-11: an importlib temporary file left by an interrupted compile
+
+
+def _walk(root):
+    """(path, is_link) of every file under `root`, never entering a link or junction."""
+    stack = [Path(root)]
+    while stack:
+        folder = stack.pop()
+        try:
+            items = sorted(folder.iterdir())
+        except OSError:
+            continue
+        for item in items:
+            if is_link(item): yield item, True
+            elif item.is_dir(): stack.append(item)
+            else: yield item, False
+
+
+def venv_tree(venv, art=None):
+    """R2-01/R2-08: {relative path: sha256 | 'link'} of the files of a venv the bound wheel does not give: pyvenv.cfg, Scripts/ (python.exe,
+    pythonw.exe, onecrew.exe, the pip launchers), pip and every other entry of site-packages. With `art`, the wheel's row files and the
+    files under its package folders (judged one by one by identity) are left out; without it (the old runtime), bytecode caches are. The
+    runtime's own data folder site-packages/.onecrew is left out in both."""
+    venv, site = Path(venv), site_packages(venv)
+    rows = {p for p, _ in art['rows']} if art else set()
+    tops = {p.split('/')[0] for p in rows if '/' in p and '.dist-info/' not in p}
+    out = {}
+    for item, link in _walk(venv):
+        relative = item.relative_to(venv).as_posix()
+        if site is not None and item.is_relative_to(site):
+            inner = item.relative_to(site).as_posix()
+            if inner == DATA_DIR or inner.startswith(DATA_DIR + '/') or inner in rows or inner.split('/')[0] in tops: continue
+        if not art and '__pycache__' in relative.split('/'): continue
+        out[relative] = 'link' if link else hashlib.sha256(item.read_bytes()).hexdigest()
+    return out
+
+
+def _pyvenv(venv):
+    """{home, system_site} of a venv's pyvenv.cfg, None when it cannot be read."""
+    try:
+        text = (Path(venv) / 'pyvenv.cfg').read_text(encoding='utf-8-sig')
+    except (OSError, UnicodeDecodeError):
+        return None
+    values = {}
+    for line in text.splitlines():
+        if '=' in line:
+            name, value = line.split('=', 1)
+            values[name.strip().casefold()] = value.strip()
+    return {'home': values.get('home'), 'system_site': values.get('include-system-site-packages', '').casefold()}
+
+
+def venv_baseline(venv, art):
+    """R2-01: what the product records right after it made a venv, installed the wheel and the venv passed the creation check: every file
+    the wheel does not give, with its sha256, and the pyvenv.cfg values. Every later judgement of that venv must match it exactly."""
+    tree = venv_tree(venv, art)
+    return {'digest': content_hash(tree), 'tree': tree, 'pyvenv': _pyvenv(venv), 'files': len(tree)}
+
+
+def _static(venv, art, baseline=None, home=None):
+    """The checks that run NO program of the venv (R2-03): (facts, problems)."""
     venv = Path(venv)
     site = site_packages(venv)
     wanted = {p: h for p, h in art['rows'] if not p.endswith('.dist-info/RECORD')}
     out = {'site': str(site) if site else None, 'location': str(site / 'onecrew') if site else None, 'files': {}, 'linked': [], 'extras': [],
-           'caches': {}, 'pth': [], 'loaded': [], 'outside': [], 'entry_modules': [], 'exit': None, 'version_line': '', 'version': 'unknown',
-           'present': False, 'error': None}
+           'caches': {}, 'cache_files': [], 'pth': [], 'loaded': [], 'outside': [], 'entry_modules': [], 'exit': None, 'version_line': '',
+           'version': 'unknown', 'present': False, 'error': None, 'ran': False, 'pyvenv': _pyvenv(venv)}
     if site is None or not site.is_dir():
-        return dict(out, error=f'no site-packages folder in {venv}')
+        out['error'] = f'no site-packages folder in {venv}'
+        return out, [out['error']]
     for path in sorted(wanted):
         if _linked(site, path):
             out['linked'].append(path); continue
         out['files'][path] = _hash((site / path).read_bytes()) if (site / path).is_file() else None
     out['present'] = any(v is not None for v in out['files'].values())
-    sources, caches = {p for p in wanted if p.endswith('.py')}, []
+    sources = {p for p in wanted if p.endswith('.py')}
     for top in sorted({p.split('/')[0] for p in wanted if '/' in p and '.dist-info/' not in p}):
         folder = site / top
         if is_link(folder) or not folder.is_dir(): continue                       # already a linked or missing file of the wheel
-        for item in sorted(folder.rglob('*')):
+        for item, link in _walk(folder):
             relative = item.relative_to(site).as_posix()
             if relative in wanted: continue
-            if is_link(item): out['linked'].append(relative); continue
-            if item.is_dir(): continue
-            if item.parent.name == '__pycache__' and item.suffix == '.pyc':
-                if _source_of(relative) in sources: caches.append(item)
-                continue                                  # a cache of no wheel source is never loaded without that source
+            if link: out['linked'].append(relative); continue
+            if item.parent.name == '__pycache__' and (item.suffix == '.pyc' or PYC_LEFTOVER.search(item.name)):
+                if item.suffix == '.pyc' and _source_of(relative) in sources: out['cache_files'].append(str(item))
+                continue                                  # never loaded: a leftover, or a cache of no wheel source
             out['extras'].append(relative)
     for pth in sorted(site.glob('*.pth')):
-        lines = pth.read_text(encoding='utf-8', errors='replace').splitlines()
+        try:
+            lines = pth.read_bytes().decode('utf-8-sig').splitlines()           # R2-01: as site.py reads it
+        except (OSError, UnicodeDecodeError):
+            out['pth'].append(f'{pth.name} (cannot be decoded as UTF-8)'); continue
         if any(line.startswith(('import ', 'import\t')) for line in lines): out['pth'].append(pth.name)
     meta = next((p for p in wanted if p.endswith('.dist-info/METADATA')), None)
     if meta and out['files'].get(meta):
@@ -248,7 +318,41 @@ def identity(venv, art):
         out['version'] = found.group(1) if found else 'unknown'
     if not any(p.endswith('.dist-info/entry_points.txt') and out['files'].get(p) not in (None, h) for p, h in wanted.items()):
         out['entry_modules'] = _console_modules(site, art['rows'])
-    facts = interpreter(venv, caches)
+    problems = []
+    files, linked = out['files'], sorted(out['linked'])
+    missing = sorted(p for p in wanted if p not in linked and files.get(p) is None)
+    differ = sorted(p for p, h in wanted.items() if files.get(p) is not None and files[p] != h)
+    if differ: problems.append(f'its installed files are not the bound wheel (the content differs): {", ".join(differ[:5])}')
+    if missing: problems.append(f'files of the bound wheel are missing: {", ".join(missing[:5])}')
+    if linked: problems.append(f'links or junctions stand in the installed tree: {", ".join(linked[:5])}')
+    if out['extras']: problems.append(f'files the bound wheel does not hold, in its package folders: {", ".join(out["extras"][:5])}')
+    if out['pth']: problems.append(f'.pth files run code at every start of this venv: {", ".join(out["pth"][:5])}')
+    if out['version'] != art['version']: problems.append(f'it holds onecrew {out["version"]}, not {art["version"]}')
+    cfg = out['pyvenv']
+    if cfg is None: problems.append('pyvenv.cfg cannot be read')
+    elif cfg['system_site'] != 'false': problems.append(f'pyvenv.cfg: include-system-site-packages is {cfg["system_site"] or "unset"}, not false')
+    elif home is not None and (not cfg['home'] or not _same(cfg['home'], home)):
+        problems.append(f'pyvenv.cfg: home is {cfg["home"]}, not {home} (the base python the venv was made with)')
+    if baseline is not None:
+        now = venv_tree(venv, art)
+        then = baseline.get('tree') or {}
+        changed = sorted(p for p in set(now) | set(then) if now.get(p) != then.get(p))
+        if changed: problems.append(f'the venv differs from the baseline recorded when OneCrew made it: {", ".join(changed[:5])}')
+    return out, problems
+
+
+def identity(venv, art, baseline=None, home=None, run_programs=True):
+    """Codex r1 F1 + round 2: what the files of `venv` and its running executable show, against the VERIFIED wheel rows of `art` (never the
+    venv's own RECORD or metadata) and against the creation baseline (`baseline`, or `home` when the venv is being made). Static checks
+    first (R2-03): wheel file content, links, extra files, .pth start-up code (read as UTF-8 with BOM, like site.py), pyvenv.cfg, every
+    other file of the venv. Only when all pass, programs of the venv run: its interpreter (-I -S) compares bytecode caches with their
+    source, and its `onecrew --version` shows what it loads. `static` holds the static problems."""
+    out, static = _static(venv, art, baseline, home)
+    out['static'] = static
+    if static or not run_programs: return out
+    venv, site = Path(venv), Path(out['site'])
+    out['ran'] = True
+    facts = interpreter(venv, out['cache_files'])
     if facts.get('error'): out['error'] = 'the venv interpreter did not answer: ' + facts['error']
     for path, verdict in (facts.get('pyc') or {}).items():
         out['caches'][Path(path).relative_to(site).as_posix()] = verdict
@@ -838,74 +942,155 @@ def safe_point(entries, fences, venv):
     return problems, ('unknown' if running is None else running)
 
 
-def _window(entries, before, fences, left):
-    """S2-R09 and Codex r1 F2, read after the hooks were rewritten: (problems, fences now). Attempts or actions that appeared or changed
-    in the switch window; data that changed since the fence the drill was bound to (a write between the safe point and the repoint was
-    never drilled); a process of the runtime being left still running (it started before the repoint and may still write)."""
-    changed, now_fences = [], {}
+def _events_after(state_root, seq):
+    """The events of a state root after `seq`, the support anchor's own records left out."""
+    path = Path(state_root) / 'ledger.sqlite3'
+    if not path.is_file(): return 0
+    conn = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
+    try:
+        return conn.execute('SELECT COUNT(*) FROM events e JOIN tasks t ON t.id=e.task_id WHERE e.seq>? AND t.request_key!=?',
+                            (seq, support.ANCHOR_KEY)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _window(entries, before, fences, left, strict, ledger=None, token=None, venv=None):
+    """S2-R09, Codex r1 F2 and round 2 (R2-02), read right after the hooks were rewritten: (problems, fences now, events added). Always:
+    attempts or actions that appeared or changed in the switch window (work started there, by the runtime being left), a process of that
+    runtime still running (it started before the repoint and may still write), a claim no longer ours. With `strict` (rollback), also
+    data changed since the drilled fence: the old runtime must read the data it was drilled on. Without it (install), events written after
+    the repoint are counted, not judged: the drill proved the new runtime reads the data; the fence before the first write already bound
+    the switch to the drilled data."""
+    changed, now_fences, added = [], {}, 0
     for state in sorted({c['state_root'] for c in entries}):
         now = _activity(state)[1]
-        old = before.get(state) or {'attempts': [], 'actions': []}
+        old = before.get(state) or {'attempts': [], 'actions': [], 'max_seq': 0}
         for table in ('attempts', 'actions'):
             fresh = [r for r in now[table] if r not in old[table]]
             changed += [f'{table[:-1]} {r[0]} ({r[1]}) appeared or changed in {state} during the switch' for r in fresh]
+        added += _events_after(state, old.get('max_seq', 0))
         now_fences[state] = fence(state)
-        if now_fences[state] != fences.get(state):
+        if strict and now_fences[state] != fences.get(state):
             changed.append(f'fence: the data of {state} changed between the safe point and the end of the switch; it was not drilled')
     running = processes_under(left)
     if running is None: changed.append('processes: unknown after the switch (they cannot be listed here)')
     else: changed += [f'process {p["pid"]} of the runtime being left ({p["image"]}) was running during the switch' for p in running]
-    return changed, now_fences
+    if ledger is not None and not still_ours(ledger, token, venv): changed.append('the claim of the target was lost during the switch')
+    return changed, now_fences, added
 
 
 # ---- the exclusive claim (S2-R09) ---------------------------------------------------------------------------------------------------
 
+def _claim_rows(conn):
+    return [dict(json.loads(r['payload']), seq=r['seq']) for r in conn.execute(
+        "SELECT e.seq, e.payload FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.request_key=? AND e.kind='support.install' "
+        "AND json_extract(e.payload,'$.phase') IN ('claim','renew','release') ORDER BY e.seq", (support.ANCHOR_KEY,)).fetchall()]
+
+
 def _claims(conn):
-    """The open claims (no release of the same token) of every support anchor of this ledger."""
-    rows = conn.execute("SELECT e.seq, e.payload FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.request_key=? AND e.kind='support.install' "
-                        "AND json_extract(e.payload,'$.phase') IN ('claim','release') ORDER BY e.seq", (support.ANCHOR_KEY,)).fetchall()
+    """The open claims (no release of the same token) of every support anchor of this ledger, with their latest lease (R2-06)."""
     open_ = {}
-    for row in rows:
-        payload = json.loads(row['payload'])
-        if payload['phase'] == 'claim': open_[payload['token']] = dict(payload, seq=row['seq'])
+    for payload in _claim_rows(conn):
+        if payload['phase'] == 'claim': open_[payload['token']] = payload
+        elif payload['phase'] == 'renew' and payload.get('token') in open_: open_[payload['token']]['expires_at'] = payload['expires_at']
         else: open_.pop(payload.get('token'), None)
     return list(open_.values())
 
 
-def _live(claim):
+def _holder():
+    """{pid, created, host} of this process (process_core.identity), None where it cannot be known."""
+    try:
+        from ..process_core import identity as process_identity
+        return process_identity(os.getpid())
+    except Exception:
+        return None
+
+
+def _holder_dead(claim):
+    """True only when the claim names a holder process on THIS host and that exact process (pid and creation time) is not running."""
+    holder = claim.get('holder')
+    if not isinstance(holder, dict) or holder.get('host') != socket.gethostname() or not holder.get('pid') or holder.get('created') is None:
+        return False
+    try:
+        from ..process_core import probe
+        return probe(holder) == 'dead'
+    except Exception:
+        return False
+
+
+def _expired(claim):
     import datetime as dt
-    if dt.datetime.fromisoformat(claim['expires_at']) <= dt.datetime.now(dt.timezone.utc): return False
+    return dt.datetime.fromisoformat(claim['expires_at']) <= dt.datetime.now(dt.timezone.utc)
+
+
+def _live(claim):
+    if _expired(claim): return False
     if claim.get('pid') == os.getpid(): return claim['token'] in _ACTIVE
-    return True                                       # another process: held until it releases or the claim expires
+    return not _holder_dead(claim)                    # another process: held until it releases, it is gone, or the lease expires
+
+
+def _lease():
+    import datetime as dt
+    return (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=CLAIM_SECONDS)).isoformat()
 
 
 def claim(ledger, venv, key, what, target):
     """Take the exclusive claim of target venv `venv` (one install, rollback or switch at a time, across the support anchors of this
-    ledger). A live claim of another run refuses; a claim of a dead holder (or of this key, interrupted) is taken over."""
-    import datetime as dt
-    token = uuid.uuid4().hex
+    ledger). A live claim of another run refuses. A claim is taken over (and the takeover recorded in the new claim, `taken_over_from`)
+    when its lease expired, when it is this process's own interrupted claim, or when its holder process, recorded with its host and
+    creation time, is not running on this host; a claim of another host or without a holder is honoured until its lease expires."""
+    token, taken = uuid.uuid4().hex, []
     with ledger.transaction(write=True) as conn:
         for held in _claims(conn):
-            if _same(held['venv'], venv) and _live(held):
+            if not _same(held['venv'], venv): continue
+            if _live(held):
                 raise LedgerError(f'another {held["what"]} of target {held["target"]} is in progress (claim {held["token"][:8]}, until '
                                   f'{held["expires_at"]}); nothing was done')
-        expires = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=CLAIM_SECONDS)).isoformat()
-        _emit(ledger, 'support.install', {'phase': 'claim', 'token': token, 'key': key, 'venv': str(venv), 'target': target,
-                                          'what': what, 'pid': os.getpid(), 'expires_at': expires}, conn=conn)
+            why = ('its lease expired' if _expired(held) else 'an interrupted claim of this process' if held.get('pid') == os.getpid() else 'its holder process is not running')
+            taken.append({'token': held['token'], 'key': held.get('key'), 'what': held.get('what'), 'pid': held.get('pid'),
+                          'holder': held.get('holder'), 'expires_at': held['expires_at'], 'why': why})
+            _emit(ledger, 'support.install', {'phase': 'release', 'token': held['token'], 'taken_over_by': token}, conn=conn)
+        _emit(ledger, 'support.install', {'phase': 'claim', 'token': token, 'key': key, 'venv': str(venv), 'target': target, 'what': what,
+                                          'pid': os.getpid(), 'holder': _holder(), 'expires_at': _lease(),
+                                          'taken_over_from': taken or None}, conn=conn)
     _ACTIVE.add(token)
+    _TAKEN[token] = taken[-1] if taken else None
     return token
+
+
+def renew(ledger, token, venv, before):
+    """R2-06: renew the lease of this run's claim before the next phase, after checking it is still ours: not released or taken over, and no
+    claim of the same venv taken after it. A lost claim refuses the run before anything else is switched."""
+    with ledger.transaction(write=True) as conn:
+        if not _ours(conn, token, venv):
+            raise LedgerError(f'the claim of {venv} held by this run was lost before {before} (its lease ran out and another run claimed '
+                              'the target): refused, nothing more is switched')
+        _emit(ledger, 'support.install', {'phase': 'renew', 'token': token, 'before': before, 'expires_at': _lease()}, conn=conn)
+
+
+def _ours(conn, token, venv):
+    rows = _claim_rows(conn)
+    mine = next((r for r in rows if r['phase'] == 'claim' and r['token'] == token), None)
+    if mine is None or token not in _ACTIVE or any(r['phase'] == 'release' and r.get('token') == token for r in rows): return False
+    return not any(r['phase'] == 'claim' and r['seq'] > mine['seq'] and _same(r['venv'], venv) for r in rows)
+
+
+def still_ours(ledger, token, venv):
+    with ledger.transaction() as conn:
+        return _ours(conn, token, venv)
 
 
 def release(ledger, token):
     _ACTIVE.discard(token)
+    _TAKEN.pop(token, None)
     _emit(ledger, 'support.install', {'phase': 'release', 'token': token})
 
 
 def _claimed(ledger, venv, key, what, target, work):
-    """Run work() inside the claim; a fixture Crash leaves the claim as a killed process would (its holder is then dead)."""
+    """Run work(token) inside the claim; a fixture Crash leaves the claim as a killed process would (its holder is then dead)."""
     token = claim(ledger, venv, key, what, target)
     try:
-        result = work()
+        result = work(token)
     except Crash:
         _ACTIVE.discard(token)
         raise
@@ -916,18 +1101,35 @@ def _claimed(ledger, venv, key, what, target, work):
     return result
 
 
-def repoint(ledger, ident, key, entries, new_exe, old_exe, action):
+class Refused(LedgerError):
+    """A pre-switch check failed right before the first hook file is rewritten: nothing was switched."""
+
+    def __init__(self, problems):
+        super().__init__('; '.join(problems))
+        self.problems = problems
+
+
+def repoint(ledger, ident, key, entries, new_exe, old_exe, action, check=None):
     """Rewrite the OneCrew hook handlers of every consuming settings file from old_exe to new_exe (as `onecrew init` writes them): an intent
-    record before each write, a switched_one record after it (S2-R08)."""
-    done = []
+    record before each write, a switched_one record after it (S2-R08). `check()` runs right before the FIRST write and returns problems
+    (the fence, the content, the claim): any problem raises Refused with nothing written. A file that now runs a THIRD program (neither
+    old_exe nor new_exe) is never overwritten (R2-12)."""
+    done, first = [], True
     for entry in entries:
         for name in entry['files']:
             path = Path(name)
             unknown = []
             programs = _programs(path, unknown)
             if unknown: raise LedgerError(f'{name} became unreadable during the switch: {unknown[0]["why"]}')
+            third = sorted(p for p in programs if not _same(p, old_exe) and not _same(p, new_exe))
+            if third: raise LedgerError(f'{name} now runs {third[0]}, neither {old_exe} nor {new_exe}: it is not overwritten; nothing more '
+                                        'is switched (the files already switched are in the record)')
             if not any(_same(p, old_exe) for p in programs) and any(_same(p, new_exe) for p in programs):
                 done.append({'file': name, 'changed': False}); continue
+            if first and check is not None:
+                problems = check()
+                if problems: raise Refused(problems)
+            first = False
             data, bad = installer.read_settings(path)
             merged = installer.merge_settings(data, hook_cli.portable_settings(Path(new_exe).resolve(), entry['state_root']))
             before = path.read_bytes()
@@ -987,27 +1189,19 @@ def _authority(ledger, shown, target_id, what='install'):
     return result, fix, state
 
 
-def verify_installed(venv, art, found=None):
-    """(problems, identity): `venv` is the bound wheel only when (S2-R02, Codex r1 F1) the CONTENT of every file of the wheel, read from
-    the venv's site-packages, has the hash the verified wheel's RECORD gives it (art['rows']; the venv's own RECORD and metadata are never
-    the evidence); no link or junction stands for one of them; the wheel's package folders hold no other file and no bytecode cache that
-    is not the compile of its source; no .pth file runs start-up code; and the venv's `onecrew --version` runs, names the version and
-    loads onecrew (and its console-script module) from these files, nothing from outside the venv but the standard library."""
-    found = found or identity(venv, art)
-    problems = [found['error']] if found.get('error') else []
-    files = found.get('files') or {}
+def verify_installed(venv, art, found=None, baseline=None, home=None, run_programs=True):
+    """(problems, identity): `venv` is the bound wheel only when (S2-R02, Codex r1 F1, round 2) every static check of identity passes (the
+    CONTENT of every wheel file against the verified wheel rows, never the venv's own RECORD; links; extra files; .pth start-up code;
+    pyvenv.cfg; every other file of the venv against the creation `baseline`, or pyvenv.cfg `home` when OneCrew is making it) and then,
+    only then, its interpreter finds every bytecode cache equal to the compile of its source and its `onecrew --version` runs, names the
+    version and loads onecrew (and its console-script module) from these files, nothing from outside the venv but the standard library."""
+    found = found or identity(venv, art, baseline, home, run_programs)
+    problems = list(found.get('static') or [])
+    if problems or not found.get('ran'): return problems, dict(found, record_sha256=None)
+    if found.get('error'): problems.append(found['error'])
     wanted = {p: h for p, h in art['rows'] if not p.endswith('.dist-info/RECORD')}
-    linked = sorted(found.get('linked') or [])
-    missing = sorted(p for p in wanted if p not in linked and files.get(p) is None)
-    differ = sorted(p for p, h in wanted.items() if files.get(p) is not None and files[p] != h)
-    if differ: problems.append(f'its installed files are not the bound wheel (the content differs): {", ".join(differ[:5])}')
-    if missing: problems.append(f'files of the bound wheel are missing: {", ".join(missing[:5])}')
-    if linked: problems.append(f'links or junctions stand in the installed tree: {", ".join(linked[:5])}')
-    if found.get('extras'): problems.append(f'files the bound wheel does not hold, in its package folders: {", ".join(found["extras"][:5])}')
     caches = sorted(p for p, v in (found.get('caches') or {}).items() if v not in ('same', 'other interpreter'))
     if caches: problems.append(f'bytecode caches that are not the compile of their source (Python loads them instead): {", ".join(caches[:5])}')
-    if found.get('pth'): problems.append(f'.pth files run code at every start of this venv: {", ".join(found["pth"][:5])}')
-    if found.get('version') != art['version']: problems.append(f'it holds onecrew {found.get("version")}, not {art["version"]}')
     if found.get('exit') != 0: problems.append(f'its onecrew executable did not run (exit {found.get("exit")})')
     if art['version'] not in (found.get('version_line') or ''): problems.append(f'onecrew --version says {found.get("version_line")!r}')
     loaded = {_source_of(p) for p in found.get('loaded') or []}
@@ -1018,7 +1212,7 @@ def verify_installed(venv, art, found=None):
     required = {'onecrew/__init__.py'} | {m.replace('.', '/') + '.py' for m in found.get('entry_modules') or []}
     absent = sorted(required - loaded)
     if absent: problems.append(f'its onecrew executable did not load {", ".join(absent)} from this venv')
-    return problems, dict(found, record_sha256=None if problems else record_digest(files.items()))
+    return problems, dict(found, record_sha256=None if problems else record_digest((found.get('files') or {}).items()))
 
 
 def _finals(ledger, ident=None, key=None):
@@ -1030,6 +1224,35 @@ def _intents(ledger, key):
     rows = [r for r in _records(ledger, 'support.install') if r.get('key') == key]
     last_final = max((r['seq'] for r in rows if r.get('result') in FINALS), default=0)
     return [r for r in rows if r.get('phase') in ('intent', 'switched_one') and r['seq'] > last_final]
+
+
+def _baseline_of(ledger, venv, art):
+    """The creation baseline (R2-01) OneCrew recorded for `venv` holding `art`'s wheel, its tree read back from the evidence store and
+    checked against the recorded digest; None when there is none (a venv OneCrew did not make, or did not finish checking)."""
+    rows = [r for r in _records(ledger, 'support.install') if r.get('phase') == 'baseline' and r.get('wheel_sha256') == art['wheel_sha256']
+            and _same(r.get('venv'), venv)]
+    if not rows: return None
+    try:
+        tree = json.loads(Snapshots(ledger.state_root).read_evidence(rows[-1]['tree_blob']))
+    except (LedgerError, OSError, ValueError, KeyError):
+        return None
+    return dict(rows[-1], tree=tree) if content_hash(tree) == rows[-1]['digest'] else None
+
+
+def _record_baseline(ledger, key, venv, art, base):
+    made = venv_baseline(venv, art)
+    record = {'phase': 'baseline', 'key': key, 'venv': str(venv), 'wheel_sha256': art['wheel_sha256'], 'digest': made['digest'],
+              'files': made['files'], 'pyvenv': made['pyvenv'], 'base_python': str(base),
+              'tree_blob': Snapshots(ledger.state_root).evidence(canonical(made['tree']).encode('utf-8'))}
+    _emit(ledger, 'support.install', record)
+    return dict(record, tree=made['tree'])
+
+
+def _judge_switched(ledger, final, art):
+    """The problems of the venv a switched install runs, against its creation baseline (none recorded: not judged the bound wheel)."""
+    known = _baseline_of(ledger, final['new_venv'], art)
+    if known is None: return ['OneCrew has no creation baseline for this venv']
+    return verify_installed(final['new_venv'], art, baseline=known)[0]
 
 
 def install(ledger, ident, target_id, keep=False):
@@ -1044,16 +1267,18 @@ def install(ledger, ident, target_id, keep=False):
     key = _key(ident, art, target_id)
     finals = _finals(ledger, ident, key)
     if finals and finals[-1]['result'] == 'switched' and finals[-1].get('action') == 'install' and runtime_now(finals[-1])['current']:
-        problems, _ = verify_installed(finals[-1]['new_venv'], art)
+        problems = _judge_switched(ledger, finals[-1], art)
         if problems: raise LedgerError(f'The switched venv {finals[-1]["new_venv"]} is no longer the bound wheel ({"; ".join(problems)}): '
-                                       'nothing was changed; the owner reinstalls or rolls back.')
+                                       'nothing was changed; the owner rolls back (support rollback).')
         return dict(finals[-1], already=True)
     if finals and finals[-1]['result'] == 'switch_window_violation':
-        raise LedgerError('A switch window violation is recorded for this install: further steps are refused until the owner reconciles it.')
-    return _claimed(ledger, target['venv'], key, 'install', target_id, lambda: _install(ledger, ident, target, target_id, art, key, keep))
+        raise LedgerError('A switch window violation is recorded for this install: the owner runs support rollback first (it drills the '
+                          'current data with the old runtime), then installs again.')
+    return _claimed(ledger, target['venv'], key, 'install', target_id,
+                    lambda token: _install(ledger, ident, target, target_id, art, key, keep, token))
 
 
-def _install(ledger, ident, target, target_id, art, key, keep):
+def _install(ledger, ident, target, target_id, art, key, keep, token):
     shown, feedback = _feedback(ledger, ident)
     old_venv, old_exe = Path(target['venv']), Path(target['exe'])
     interrupted = _intents(ledger, key)
@@ -1068,21 +1293,32 @@ def _install(ledger, ident, target, target_id, art, key, keep):
     venv = Path(f'{old_venv}-{art["version"]}-{art["wheel_sha256"][:8]}') if allowed else work / 'trial-venv'
     marker = work / ('venv-' + content_hash(str(venv))[:12] + '.json')
     wheel = work / 'wheel' / art['wheel_name']
-    if venv.exists():
-        problems, found = verify_installed(venv, art)
-        if problems:                                  # Codex r1 F1: judged on the content, before anything is switched
-            mine = marker.is_file() and json.loads(marker.read_text(encoding='utf-8')).get('venv') == str(venv) and not found.get('present')
-            if not mine:
-                raise LedgerError(f'{venv} exists and is not the bound wheel ({"; ".join(problems)}): refused, nothing deleted or switched.')
-            pip_install(venv_python(venv), _wheel_file(ledger, art, wheel))       # finish this install's own interrupted step
+    base = _base_python(target)
+    known = _baseline_of(ledger, venv, art) if venv.exists() else None
+    if known is not None:                             # round 2 (R2-01): an existing venv is judged against the baseline of its creation
+        problems, found = verify_installed(venv, art, baseline=known)
+        if problems: raise LedgerError(f'{venv} exists and is not the bound wheel ({"; ".join(problems)}): refused, nothing deleted or switched.')
+    elif venv.exists():                               # R2-03: nothing of it runs unless it is this install's own interrupted venv
+        static, facts = verify_installed(venv, art, run_programs=False)
+        cfg = facts.get('pyvenv') or {}
+        mine = (marker.is_file() and json.loads(marker.read_text(encoding='utf-8')).get('venv') == str(venv) and not facts.get('present')
+                and cfg.get('system_site') == 'false' and _same(cfg.get('home') or '', Path(base).parent))
+        if not mine:
+            raise LedgerError(f'{venv} exists and is not the bound wheel: OneCrew has no creation baseline for it (it did not make it, or '
+                              f'did not finish checking it){": " + "; ".join(static) if static else ""}. Refused; nothing was deleted, '
+                              'switched or run from it.')
+        pip_install(venv_python(venv), _wheel_file(ledger, art, wheel))       # finish this install's own interrupted step
     else:
         work.mkdir(parents=True, exist_ok=True)
         marker.write_text(json.dumps({'venv': str(venv), 'key': key, 'at': utcnow()}), encoding='utf-8')
-        make_venv(_base_python(target), venv)
+        make_venv(base, venv)
         _crash('after_venv')
         pip_install(venv_python(venv), _wheel_file(ledger, art, wheel))
-    problems, found = verify_installed(venv, art)
-    if problems: raise LedgerError(f'The new venv {venv} is not the bound wheel ({"; ".join(problems)}): refused, nothing switched.')
+    if known is None:
+        problems, found = verify_installed(venv, art, home=Path(base).parent)
+        if problems: raise LedgerError(f'The new venv {venv} is not the bound wheel ({"; ".join(problems)}): refused, nothing switched.')
+        known = _record_baseline(ledger, key, venv, art, base)
+    renew(ledger, token, target['venv'], 'the drill')
     entries, unknown = consumers(ledger, old_exe, venv_exe(venv), target.get('consumers'))
     fences, datas, drill, moved = {}, {}, [], []
     for index, entry in enumerate(entries):
@@ -1092,10 +1328,15 @@ def _install(ledger, ident, target, target_id, art, key, keep):
         drill.append(dict(checked, state_root=entry['state_root'], project=entry['project'], copy=str(copy), copy_bytes=size,
                           copy_kept=bool(keep or checked['problems'])))
         if not keep and not checked['problems']: shutil.rmtree(copy.parent, ignore_errors=True)
+    renew(ledger, token, target['venv'], 'the safe point')
     problems = [p for d in drill for p in d['problems']]
     blocked = ('authority' if not allowed else 'drill' if problems else 'consumers' if unknown or not entries else None)
+    old_tree = venv_tree(old_venv)
     prepared = {'key': key, 'feedback': ident, 'target': target_id, 'wheel_sha256': art['wheel_sha256'], 'version': art['version'],
                 'venv': str(venv), 'trial': not allowed, 'identity': {k: found.get(k) for k in ('version', 'location', 'version_line', 'record_sha256')},
+                'baseline': {'digest': known['digest'], 'files': known['files'], 'event': known.get('seq')},
+                'old_runtime': {'venv': str(old_venv), 'digest': content_hash(old_tree), 'files': len(old_tree),
+                                'note': 'every file of the old venv but bytecode caches and site-packages/.onecrew (R2-08)'},
                 'consumers': entries, 'consumers_unknown': unknown, 'not_enumerated': NOT_ENUMERATED, 'fences': fences, 'drill': drill,
                 'authority': {k: result.get(k) for k in ('in_authority', 'class', 'reason')}, 'blocked_by': blocked,
                 'desktop_outbox': {'old': str(old_venv / 'Lib' / 'site-packages' / '.onecrew' / 'desktop'), 'carried': False,
@@ -1103,7 +1344,8 @@ def _install(ledger, ident, target, target_id, art, key, keep):
     _emit(ledger, 'support.install_prepared', prepared)
     _crash('after_prepared')
     outcome = {'key': key, 'feedback': ident, 'action': 'install', 'target': target_id, 'version': art['version'], 'old_venv': str(old_venv),
-               'new_venv': str(venv), 'identity': prepared['identity'], 'consumers': entries, 'not_enumerated': NOT_ENUMERATED}
+               'new_venv': str(venv), 'identity': prepared['identity'], 'consumers': entries, 'not_enumerated': NOT_ENUMERATED,
+               **({'claim_taken_over_from': _TAKEN[token]} if _TAKEN.get(token) else {})}
     if blocked == 'authority':
         return dict(outcome, result='blocked_by_authority', reason=result.get('reason'), authority=prepared['authority'],
                     note='Prepared in a trial venv (not the target); nothing switched. This is not a PASS.')
@@ -1116,15 +1358,31 @@ def _install(ledger, ident, target, target_id, art, key, keep):
     unsafe = moved + unsafe
     if unsafe:
         return _emit(ledger, 'support.install', dict(outcome, result='refused_unsafe', problems=unsafe, processes=running))
-    before = {s: _activity(s)[1] for s in {e['state_root'] for e in entries}}
-    files = repoint(ledger, ident, key, entries, venv_exe(venv), old_exe, 'install')
-    changed, after = _window(entries, before, fences, old_venv)
+    states = sorted({e['state_root'] for e in entries})
+
+    def check():                                      # right before the first hook file is rewritten (R2-02, R2-06, R2-13)
+        found = [f'fence: the data of {s} changed since the drill; drill again' for s in states if fences.get(s) != fence(s)]
+        found += [f'the new runtime: {p}' for p in verify_installed(venv, art, baseline=known)[0]]
+        try:
+            renew(ledger, token, target['venv'], 'the repoint')
+        except LedgerError as error:
+            found.append(str(error))
+        return found
+    before = {s: _activity(s)[1] for s in states}
+    try:
+        files = repoint(ledger, ident, key, entries, venv_exe(venv), old_exe, 'install', check=check)
+    except Refused as refused:
+        return _emit(ledger, 'support.install', dict(outcome, result='refused_unsafe', problems=refused.problems, processes=running))
+    changed, after, added = _window(entries, before, fences, old_venv, False, ledger, token, target['venv'])
     bound = {'drilled': fences, 'at_switch': after}
+    max_seq = {s: r['max_seq'] for s, r in before.items()}
     if changed:
         return _emit(ledger, 'support.install', dict(outcome, result='switch_window_violation', problems=changed, files=files, fences=bound,
-                     note='data, an attempt or an action changed while the hooks were repointed: nothing is stopped; later steps are refused'))
+                     max_seq=max_seq, events_after_repoint=added,
+                     note='an attempt or action started, or a process of the old runtime ran, while the hooks were repointed: nothing is '
+                          'stopped; support rollback drills the current data with the old runtime and puts the hooks back'))
     return _emit(ledger, 'support.install', dict(outcome, result='switched', files=files, processes=running, at=utcnow(), fences=bound,
-                                                 max_seq={s: r['max_seq'] for s, r in before.items()}))
+                                                 max_seq=max_seq, events_after_repoint=added))
 
 
 def runtime_now(final):
@@ -1147,14 +1405,19 @@ def _switched(ledger, ident):
 
 
 def rollback(ledger, ident, keep=False):
-    """Repoint the hooks back to the old venv. The owner's verb, under the same support_install:<target> grant. Only when the OLD runtime,
-    on a copy of the current data, reads every root (compat scan without read blocks, plan show), derives the state of every open engine
-    root (engine state + engine ready), and knows every event kind written since the switch. What is proven is recorded; continuation of
-    the old work by the old runtime is not proven (S2-R03, S2-R06)."""
+    """Repoint the hooks back to the old venv. The owner's verb, under the same support_install:<target> grant. Only when the old venv is
+    still the runtime recorded at the install (R2-08) and the OLD runtime, on a copy of the current data, reads every root (compat scan
+    without read blocks, plan show), derives the state of every open engine root (engine state + engine ready), and knows every event kind
+    written since the switch. A switched install, a partially switched one and an install that ended in switch_window_violation (R2-02:
+    the hooks may run the new runtime on data written in the window) are rolled back alike. What is proven is recorded; continuation of the
+    old work by the old runtime is not proven (S2-R03, S2-R06)."""
     _refuse_ai('support rollback')
     ownership.refuse_in_ai_session('support rollback')
-    current = _switched(ledger, ident)
-    partial = None
+    ends = [r for r in _finals(ledger, ident) if r.get('result') in ('switched', 'rolled_back', 'switch_window_violation')]
+    if ends and ends[-1]['result'] == 'switch_window_violation' and ends[-1].get('action') == 'install':
+        current = dict(ends[-1], from_violation=True)
+    else:
+        current = _switched(ledger, ident)
     if current is None:
         intents = [r for r in _records(ledger, 'support.install', ident) if r.get('phase') == 'switched_one' and r.get('action') == 'install']
         partial = intents and _intents(ledger, intents[-1]['key']) and intents[-1]
@@ -1163,16 +1426,32 @@ def rollback(ledger, ident, keep=False):
         current = {'key': partial['key'], 'target': prepared['target'], 'old_venv': str(Path(targets(ledger)[prepared['target']]['venv'])),
                    'new_venv': prepared['venv'], 'consumers': prepared['consumers'], 'max_seq': {}, 'partial': True}
     target = targets(ledger).get(current['target'])
-    return _claimed(ledger, target['venv'], current['key'], 'rollback', current['target'], lambda: _rollback(ledger, ident, current, keep))
+    return _claimed(ledger, target['venv'], current['key'], 'rollback', current['target'],
+                    lambda token: _rollback(ledger, ident, current, keep, token, target['venv']))
 
 
-def _rollback(ledger, ident, current, keep):
+def _old_runtime(ledger, ident, current):
+    """R2-08: [] when the old venv is still the runtime recorded at the install (every file but caches and its data folder), else why not."""
+    prepared = [r for r in _records(ledger, 'support.install_prepared', ident) if r.get('key') == current['key'] and r.get('old_runtime')]
+    if not prepared: return ['the old runtime was not recorded at the install: rollback refused']
+    recorded = prepared[-1]['old_runtime']
+    if content_hash(venv_tree(current['old_venv'])) != recorded['digest']:
+        return [f'the old runtime {current["old_venv"]} changed since the install (its files differ from the record of event '
+                f'{prepared[-1]["seq"]}): rollback refused, nothing switched']
+    return []
+
+
+def _rollback(ledger, ident, current, keep, token, claimed):
     shown, feedback = _feedback(ledger, ident)
     base = {'key': current['key'], 'feedback': ident, 'action': 'rollback', 'target': current['target'], 'old_venv': current['old_venv'],
-            'new_venv': current['new_venv'], 'consumers': current['consumers'], 'partial': bool(current.get('partial'))}
+            'new_venv': current['new_venv'], 'consumers': current['consumers'], 'partial': bool(current.get('partial')),
+            'from_violation': bool(current.get('from_violation')), **({'claim_taken_over_from': _TAKEN[token]} if _TAKEN.get(token) else {})}
     result, fix, state = _authority(ledger, shown, current['target'], 'rollback')
     if not result.get('in_authority'):
         return _emit(ledger, 'support.install', dict(base, result='blocked_by_authority', reason=result.get('reason')))
+    changed_old = _old_runtime(ledger, ident, current)
+    if changed_old:                                   # checked before any program of the old venv runs
+        return _emit(ledger, 'support.install', dict(base, result='refused', problems=changed_old, reason=changed_old[0]))
     work = ledger.state_root / WORK / current['key']
     old_venv = Path(current['old_venv'])
     old_exe = venv_exe(old_venv)
@@ -1199,6 +1478,7 @@ def _rollback(ledger, ident, current, keep):
         if not keep and not checked['problems']: shutil.rmtree(copy.parent, ignore_errors=True)
     base['reader_pair'] = checks
     _crash('rollback_after_drill')
+    renew(ledger, token, claimed, 'the safe point')
     if problems:
         return _emit(ledger, 'support.install', dict(base, result='refused', problems=problems,
                      reason='the old reader cannot read or derive the current data: rollback refused, the new runtime and the ledger stay as they are'))
@@ -1207,16 +1487,32 @@ def _rollback(ledger, ident, current, keep):
     if unsafe:
         return _emit(ledger, 'support.install', dict(base, result='refused', problems=unsafe, processes=running,
                      reason='not a safe point, or the data changed since the drill: rollback refused, the new runtime and the ledger stay as they are'))
-    before = {s: _activity(s)[1] for s in {e['state_root'] for e in current['consumers']}}
-    files = repoint(ledger, ident, current['key'], current['consumers'], old_exe, venv_exe(current['new_venv']), 'rollback')
+    states = sorted({e['state_root'] for e in current['consumers']})
+
+    def check():                                      # right before the first hook file is rewritten
+        found = [f'fence: the data of {s} changed since the drill; drill again' for s in states if fences.get(s) != fence(s)]
+        found += _old_runtime(ledger, ident, current)
+        try:
+            renew(ledger, token, claimed, 'the repoint')
+        except LedgerError as error:
+            found.append(str(error))
+        return found
+    before = {s: _activity(s)[1] for s in states}
+    try:
+        files = repoint(ledger, ident, current['key'], current['consumers'], old_exe, venv_exe(current['new_venv']), 'rollback', check=check)
+    except Refused as refused:
+        return _emit(ledger, 'support.install', dict(base, result='refused', problems=refused.problems, processes=running,
+                     reason='the data, the old runtime or the claim changed right before the repoint: rollback refused, nothing switched'))
     _crash('rollback_after_repoint')
-    changed, after = _window(current['consumers'], before, fences, current['new_venv'])
+    changed, after, added = _window(current['consumers'], before, fences, current['new_venv'], True, ledger, token, claimed)
     bound = {'drilled': fences, 'at_switch': after}
     if changed:
         return _emit(ledger, 'support.install', dict(base, result='switch_window_violation', problems=changed, files=files, fences=bound,
+                     events_after_repoint=added,
                      note='the data changed between the drill and the end of the switch: the hooks run the old runtime on data it did not '
                           'drill. Nothing is stopped; run support rollback again to drill the current data (install stays refused until then).'))
-    return _emit(ledger, 'support.install', dict(base, result='rolled_back', files=files, processes=running, proven=PROVEN, fences=bound))
+    return _emit(ledger, 'support.install', dict(base, result='rolled_back', files=files, processes=running, proven=PROVEN, fences=bound,
+                                                 events_after_repoint=added))
 
 
 # ---- the status projection (support._status reads it) ------------------------------------------------------------------------------
@@ -1231,15 +1527,20 @@ def projection(ledger, ident):
         out.update(installed=now['current'], current_runtime=now, installed_evidence=[f'event:{last["seq"]} switched to {last["new_venv"]}'])
     elif last and last['result'] == 'rolled_back':
         out.update(rolled_back=True, installed_evidence=[f'event:{last["seq"]} rolled back to {last["old_venv"]}'])
-    elif last:
+    elif last:                                        # R2-02: a violation is shown, and what the hooks run NOW is still told truthfully
+        now = runtime_now(last)
         out['violation'] = f'event:{last["seq"]} switch_window_violation'
+        if last.get('action') == 'install':
+            out.update(installed=now['current'], current_runtime=now,
+                       installed_evidence=[f'event:{last["seq"]} switch_window_violation; the hooks run {last["new_venv"]}'] if now['current'] else [])
     keys = {r.get('key') for r in _records(ledger, 'support.install', ident) if r.get('phase') == 'switched_one'}
     for key in keys:
         if _intents(ledger, key): out['partially_switched'] += [r['file'] for r in _intents(ledger, key) if r.get('phase') == 'switched_one']
     rechecks = _records(ledger, 'support.recheck', ident)
     done = [r for r in rechecks if r.get('result')]
     passed = done[-1] if done and done[-1]['environment'] == 'target' and done[-1]['result'] == 'pass' and done[-1].get('receipt') else None
-    current = bool(passed) and out['installed'] and (passed.get('at_runtime') or {}).get('venv') == (last or {}).get('new_venv')
+    current = (bool(passed) and out['installed'] and not out['violation'] and passed['seq'] > (last or {}).get('seq', 0)
+               and (passed.get('at_runtime') or {}).get('venv') == (last or {}).get('new_venv'))     # a pass after the switch it judges
     out['verified'] = {'value': current, 'recheck': passed, 'current': current,
                        'at_runtime': (passed or {}).get('at_runtime'), 'last': done[-1] if done else None}
     return out
@@ -1276,8 +1577,11 @@ def recheck(ledger, ident, keep=False):
     chosen = ([r for r in prepared if r.get('key') == switched['key']] or prepared)[-1] if switched else prepared[-1]
     arts = [a for a in _records(ledger, 'support.artifact', ident) if a['wheel_sha256'] == chosen['wheel_sha256']]
     if not arts: raise LedgerError('No verified artifact for the prepared runtime of this feedback.')
-    checked, found = verify_installed(Path(switched['new_venv']) if switched else Path(chosen['venv']), arts[-1])
-    if checked:                                       # Codex r1 F1: the recheck runs only the bound wheel, judged on its content now
+    judged = Path(switched['new_venv']) if switched else Path(chosen['venv'])
+    known = _baseline_of(ledger, judged, arts[-1])
+    checked, found = (verify_installed(judged, arts[-1], baseline=known) if known is not None
+                      else (['OneCrew has no creation baseline for this venv'], {}))
+    if checked:                                      # Codex r1 F1: the recheck runs only the bound wheel, judged on its content now
         raise LedgerError(f'The runtime {chosen["venv"]} is not the bound wheel now ({"; ".join(checked)}): the recheck is refused.')
     if switched:
         environment, state, venv = 'target', ledger.state_root, Path(switched['new_venv'])
