@@ -238,6 +238,19 @@ def _retain(ledger, conn, original, nid, reason, **evidence):
            contract_sha=original['contract_sha'], grants_delivery=False, **evidence)
 
 
+def _rounds_exhausted(ledger, conn, view, nid, candidate, body):
+    """2.4-A (review A-R02): a node with `sources` that answers another continuation past its max_rounds (or on chain evidence that cannot be
+    read) is not continued again: it is held (`rounds_exhausted`) with the chain's receipts as evidence. None for any other partial result."""
+    block = (body or {}).get('source') if isinstance(body, dict) else None
+    if not isinstance(block, dict) or not block.get('rounds_exhausted'): return None
+    reason = ('2.4-A: the node asked for another round after its ' + str(block.get('max_rounds')) + ' reading rounds'
+              + (' (the chain evidence cannot be read: ' + str(block.get('chain_problem'))[:300] + ')' if block.get('chain_problem') else '')
+              + '; held, not continued')
+    _event(ledger, conn, view, nid, 'node.held', reason=reason, classification='rounds_exhausted', candidate=candidate,
+           evidence=list(block.get('chain_receipts') or [])[:200])
+    return {'node': nid, 'state': 'held', 'classification': 'rounds_exhausted', 'candidate': candidate}
+
+
 def _knowledge_gate(ledger, conn, view, nid, candidate, attempt_id):
     """2.4-B: recheck what the candidate of `attempt_id` was given before it is published or verified (working_context.publish_gate). None
     when it may be published. Otherwise a must/fact entry it relied on is gone or changed, a new mandatory entry concerns it, a file it read
@@ -294,6 +307,8 @@ def publish_retained(ledger, selector, *, node=None):
                 if isinstance(body, dict) and body.get('partial') is True:
                     # W36 (T07b E16): the retained candidate is partial (the worker paused with work left): it is never published as the
                     # node's result; a new attempt continues from it once the hold is clear
+                    exhausted = _rounds_exhausted(ledger, conn, view, nid, candidate, body)
+                    if exhausted: return dict(exhausted, released_retained=True)
                     _continue(ledger, conn, view, nid, candidate, record['attempt'], body.get('continuation'))
                     return {'node': nid, 'state': 'continuing', 'generation': record['generation'] + 1, 'resume_artifact': candidate['artifact'],
                             'continues_attempt': record['attempt'], 'released_retained': True}
@@ -355,6 +370,8 @@ def _adopt(ledger, conn, root, view, row):
         _retain(ledger, conn, view, nid, 'Managed candidate adopted after a crash while its inputs are held', candidate=candidate, attempt=attempt_id)
         return {'node': nid, 'state': 'retained', 'adopted_after_crash': True, **candidate}
     if isinstance(body, dict) and body.get('partial') is True:
+        exhausted = _rounds_exhausted(ledger, conn, view, nid, candidate, body)
+        if exhausted: return dict(exhausted, adopted_after_crash=True)
         _retain(ledger, conn, view, nid, 'Partial candidate: work remains after the safe point', candidate=candidate, attempt=attempt_id)
         _continue(ledger, conn, view, nid, candidate, attempt_id, body.get('continuation'))
         return {'node': nid, 'state': 'continuing', 'generation': record['generation'] + 1, 'resume_artifact': candidate['artifact'],
@@ -623,7 +640,7 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
     if source: item['source_snapshot'] = source
     # 2.4-A: a node with `sources` reads the project by request on the whole working tree pinned here (its chain keeps it); None otherwise
     source_tree = source_tools.pin(ledger, root['selector'], item)
-    if source_tree: item['source_tree'] = source_tree
+    if source_tree: item['source_tree'] = source_tools.identity(source_tree)
     admitted = []
 
     def reserve(conn, attempt):
@@ -679,6 +696,8 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
                 if not _publication_current(current, view, nid):
                     _retain(ledger, conn, view, nid, 'Root changed during execution', candidate=produced, attempt=attempt['id'])
                     return {'node': nid, 'state': 'retained', 'reason': 'Root changed; partial candidate retained', **produced}
+                exhausted = _rounds_exhausted(ledger, conn, current, nid, produced, receipt_body)      # 2.4-A review A-R02
+                if exhausted: return exhausted
                 _retain(ledger, conn, current, nid, 'Partial candidate: work remains after the safe point', candidate=produced, attempt=attempt['id'])
                 _continue(ledger, conn, current, nid, produced, attempt['id'], receipt_body.get('continuation'))
             return {'node': nid, 'state': 'continuing', 'generation': view['nodes'][nid]['generation'] + 1,
@@ -779,6 +798,8 @@ def release_paused(ledger,selector,nid,executor):
         if body.get('partial') is True:
             # W36 (T07b E16): the paused worker had work left -> continue with a NEW attempt from this candidate; the old attempt is
             # not reused for execution and the budget it spent stays spent.
+            exhausted=_rounds_exhausted(ledger,conn,view,nid,candidate,body)
+            if exhausted:return exhausted
             _continue(ledger,conn,view,nid,candidate,record['attempt'],body.get('continuation'))
             return {'node':nid,'state':'continuing','generation':record['generation']+1,'resume_artifact':candidate['artifact'],
                     'continues_attempt':record['attempt'],'reused_safe_candidate':False}

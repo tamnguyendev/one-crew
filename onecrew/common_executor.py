@@ -214,6 +214,9 @@ class NativeExecutor(executors.Executor):
             resume = node.get('resume_artifact')
             # R9: a resumed attempt that answers files: [] (and no continuation) says the partial candidate is complete
             nothing_more = bool(resume) and continuation is None and isinstance(value, dict) and value.get('files') == []
+            # 2.4-A review A-R08: after reading rounds that changed no file, a final answer must still write one (as in 2.3)
+            if sourced and nothing_more and source_state and source_state.get('capability') == 'git-tree' and not source_state.get('chain_changed'):
+                nothing_more = False
             # 2.4-A: a reading round (continuation + source requests) may carry no file yet
             reading = sourced and continuation is not None and asked is not None
             changes = artifacts(value, node['write'], allow_empty=nothing_more or reading)
@@ -255,7 +258,7 @@ class NativeExecutor(executors.Executor):
                 'continues_attempt': node.get('continues'), 'resume_artifact': node.get('resume_artifact'),
                 'scope_enforced_by': 'shared workflow.artifacts + snapshots.overlay; no project apply',
                 **_knowledge_fields(store, prepared.get('knowledge'), declared, continuation, claims, refused_claims, declaration_problem),
-                **(source_tools.receipt_fields(source_state, accepted, refused, source_problem) if sourced else {}),
+                **(source_tools.receipt_fields(source_state, accepted, refused, source_problem, continuation) if sourced else {}),
                 **({'rebuilt_from': rebuilt_from} if rebuilt_from else {}),
                 # R10 D7: the measured final prompt size (absent for a context rebuilt after a crash: that prompt was not re-measured)
                 **({'prompt_chars': prepared['prompt_chars'], 'producer_chars': prepared['producer_chars']} if prepared.get('prompt_chars') is not None else {})}

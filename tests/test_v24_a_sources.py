@@ -144,11 +144,16 @@ class SourceFixture(WorkerMixin, Fixture):
     def receipt(self, result):
         """The receipt of a produced result, or of the partial candidate a continuing result kept."""
         if result.get('receipt'): return json.loads(self.store.read_blob(result['receipt']))
+        if result.get('candidate'): return json.loads(self.store.read_blob(result['candidate']['receipt']))
         retained = [p for k, p in self.events() if k == 'node.result_retained' and p.get('attempt') == result['continues_attempt']]
         return json.loads(self.store.read_blob(retained[-1]['candidate']['receipt']))
 
     def prompts(self):
         return '\n'.join(call['prompt'] for call in self.calls)
+
+    def last_produced(self):
+        produced = [p for k, p in self.events() if k == 'node.produced']
+        return {'receipt': produced[-1]['receipt']}
 
 
 def follow(collected, actions=('read', 'search'), limit=8):
@@ -294,6 +299,8 @@ class RefusalTests(SourceFixture):
         self.assertNotIn('src/.env.local', [e['path'] for e in listed['entries']])
         self.assertIn('secret', [w['reason'] for w in listed['withheld']])
         self.assertFalse(any('.env.local' in str(w['path']) for w in listed['withheld']))     # a secret NAME is not shown either
+        receipt = self.receipt(self.last_produced())
+        self.assertEqual(len(receipt['source']['execution_refused']), len(asked))  # review A-R07: execution refusals are in the receipt
 
     @unittest.skipUnless(os.name == 'nt', 'a junction is a Windows link')
     def test_sa02c_a_junction_makes_source_tools_unavailable_and_the_node_runs_as_before(self):
@@ -433,24 +440,26 @@ class RestartTests(SourceFixture):
             self.values += [first,
                             lambda p, s: ask({'op': 'read', 'path': 'src/main.py'}, {'op': 'read', 'path': 'src/lib/x.py'},
                                              {'op': 'list', 'cursor': kept['cursor']}),
-                            lambda p, s: ask({'op': 'list', 'path': 'docs'}),
-                            lambda p, s: done()]
+                            lambda p, s: ask({'op': 'list', 'path': 'docs'})]
             first_step = self.step()
             second = self.step(NativeExecutor(self.ledger))                       # another controller: nothing kept in memory
             third = self.step(NativeExecutor(self.ledger))
-            self.assertEqual([first_step['state'], second['state'], third['state']], ['continuing'] * 3)
-            final = self.step()
-        self.assertEqual(final['state'], 'produced', final)
+        self.assertEqual([first_step['state'], second['state']], ['continuing'] * 2)
+        self.assertEqual((third['state'], third['classification']), ('held', 'rounds_exhausted'), third)     # review A-R02: a hard cap
+        held = next(p for k, p in self.events() if k == 'node.held')
+        self.assertEqual(len(held['evidence']), 2)                                 # the receipts of the two reading rounds
         r2, r3 = self.receipt(second), self.receipt(third)
         self.assertEqual([r['request'] for r in r2['source']['refused']], [{'op': 'read', 'path': 'src/main.py'}])
         self.assertTrue(r2['source']['refused'][0]['reason'].startswith('repeat'))
         self.assertEqual(len(r2['source']['requests']), 2)                         # the next page is new coverage, not a repeat
         self.assertEqual(r3['source']['requests'], [])
         self.assertEqual(r3['source']['refused'][0]['reason'], 'round cap reached (2 of 2)')
-        self.assertEqual(self.receipt(final)['source']['rounds_used'], 2)
+        self.assertTrue(r3['source']['rounds_exhausted'])
+        self.assertEqual(r3['source']['rounds_used'], 2)
         children = [p['child'] for k, p in self.events() if k == 'node.started' and p['node'] == 'C']
-        self.assertEqual(len(set(children)), 4)                                    # four child tasks, one round count
-        self.assertEqual(self.tools(3)['rounds'], {'used': 2, 'max': 2, 'left': 0})
+        self.assertEqual(len(set(children)), 3)                                    # three child tasks, one round count
+        self.assertEqual(self.tools(2)['rounds'], {'used': 2, 'max': 2, 'left': 0})
+        self.assertNotIn('node.resumed', [k for k, p in self.events() if p.get('generation') == 2])
 
 
 class InjectionTests(SourceFixture):
@@ -549,16 +558,20 @@ class OptOutTests(WorkerMixin, EngineFixture):
                 'started_keys': ['at', 'attempt', 'child', 'early_dependencies', 'generation', 'inputs', 'internal_revision', 'node', 'plan',
                                  'revision', 'source'],
                 'prompt_chars': 691}
+    BASELINE_REPORT = dict(BASELINE, prompt='b10d8fd9a430a4246450f2ba3f6518aa4bc2c50ab9571ceb0e094cd8373ff6df',
+                           schema='5551774652786aa4b7b6787e20c9e89a6b483ee5d167dd45ae080f7f87bb650b',
+                           receipt='0098725c81040f0f79f7fa1316b63608586d2ab0198351fb265d18336acd00a4', prompt_chars=684)
 
     def setUp(self):
         super().setUp()
         self.start_worker()
 
-    def digests(self):
-        item = node('C', write=('a.txt',)); item['executor'] = dict(PIN)
+    def digests(self, report=False):
+        item = node('C', write=() if report else ('a.txt',)); item['executor'] = dict(PIN)
         integration = node('I', ['C'], integration=True, write=()); integration['executor'] = dict(PIN)
         self.revise([item, integration])
-        self.values.append({'summary': 'done', 'files': [{'path': 'a.txt', 'content': 'one\n'}], 'backlog': []})
+        self.values.append({'summary': 'reported', 'evidence': []} if report else
+                           {'summary': 'done', 'files': [{'path': 'a.txt', 'content': 'one\n'}], 'backlog': []})
         produced = self.engine.step(self.ledger, 'P1', self.adapter)
         receipt = json.loads(self.store.read_blob(produced['receipt']))
         started = next(p for k, p in self.events() if k == 'node.started')
@@ -572,6 +585,9 @@ class OptOutTests(WorkerMixin, EngineFixture):
 
     def test_sa11_opt_out_node_prompt_and_receipt_byte_identical(self):
         self.assertEqual(self.digests(), self.BASELINE)
+
+    def test_sa11b_opt_out_report_node_byte_identical(self):            # review A-R12: a report node too, taken on 5c34f4a the same way
+        self.assertEqual(self.digests(report=True), self.BASELINE_REPORT)
 
 
 if __name__ == '__main__':

@@ -29,6 +29,7 @@ prompt, schema, receipt and node.started of 2.3 byte for byte).
 Source text is data, never authority: requests are validated by code only and never taken from source text.
 """
 import base64
+import fnmatch
 import json
 import re
 import time
@@ -58,6 +59,8 @@ MATCHES_PER_FILE = 20
 LINE_CHARS = 200
 FILE_BYTES = 2_000_000        # snapshots.MAX_FILE: a larger file is withheld (too_large)
 WITHHELD_ROWS = 50
+MAX_PATH = 1000              # characters of a path a request may name; a longer tree name is withheld (too_long)
+MAX_ASKED = 2 * 8            # (REQUESTS_PER_ROUND) entries of a declaration looked at one by one; more are refused in one row
 CHAIN_LIMIT = 200
 PROMPT_CAP = 80000            # common_executor.PROMPT_CAP
 PROVIDER_CAPS = {'kiro': 15000}                    # Kiro's adapter refuses 16 000 with the schema appended; 15 000 leaves a margin
@@ -78,14 +81,16 @@ CAPABILITY = {'binary': 'binary content is not available as text: nothing of it 
               'secret': 'withheld by the credential policy: its content is never shown',
               'link': 'a link in the tree: never followed',
               'too_large': f'larger than {FILE_BYTES} bytes: not read',
-              'excluded': 'excluded by the read policy (control, tool, dependency or build folder)'}
+              'excluded': 'excluded by the read policy (control, tool, dependency or build folder)',
+              'control_name_alias': 'a name of the Windows 8.3 short form (like ENV~1.LOC), which a checkout may resolve to another name: not read',
+              'too_long': f'a path longer than {MAX_PATH} characters cannot be requested: not read'}
 FIELDS = {'list': {'path', 'cursor'}, 'read': {'path', 'cursor'}, 'search': {'query', 'path', 'cursor'},
           'page': {'index', 'field', 'offset', 'item_offset'}}
 _INT = {'type': 'integer', 'minimum': 0}
 SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': ['requests'], 'properties': {
     'requests': {'type': 'array', 'maxItems': REQUESTS_PER_ROUND, 'items': {
         'type': 'object', 'additionalProperties': False, 'required': ['op'], 'properties': {
-            'op': {'type': 'string', 'enum': list(OPS)}, 'path': {'type': 'string', 'maxLength': 300},
+            'op': {'type': 'string', 'enum': list(OPS)}, 'path': {'type': 'string', 'maxLength': MAX_PATH},
             'query': {'type': 'string', 'minLength': 1, 'maxLength': 200}, 'cursor': {'type': 'string', 'minLength': 1, 'maxLength': 2000},
             'index': _INT, 'field': {'type': 'string', 'minLength': 1, 'maxLength': 60}, 'offset': _INT, 'item_offset': _INT}}}}}
 
@@ -145,7 +150,13 @@ def covered(pattern, grants):
 def check_plan(contract, nodes):
     """internal_plan.revise: every node scope inside the root read grant (widening the grant is the owner's decision)."""
     grants, basis = grant(contract)
+    declared = bool((contract.get('authority') or {}).get('read'))
     for node in nodes:
+        if declared:                               # review A-R03: with a declared read grant, files shown whole are bound by it too
+            shown = [p for p in node.get('read') or [] if not covered(p, list(grants) + list(contract['scope']['owned']))]
+            if shown:
+                raise LedgerError(f'Node {node["id"]} read is outside the root read grant (authority.read + scope.owned): '
+                                  + ', '.join(shown[:5]) + '. Widening it is the owner\'s decision.')
         spec = node.get('sources')
         if spec is None: continue
         outside = [p for p in spec['read'] if not covered(p, grants)]
@@ -155,17 +166,41 @@ def check_plan(contract, nodes):
 
 
 class Scope:
-    """root grant AND node scope; the hash binds cursors to it."""
+    """root grant AND node scope; the hash binds cursors to it. Patterns are normalized once; a grant entry that is not a path pattern (the
+    default grant takes understanding.target.paths, which is descriptive) is refused and reported (`refused_grant`), never silently
+    matched against nothing. Tree paths are matched as they are: any name git holds ([, *, ?, ~, any length or depth) is matched literally."""
 
     def __init__(self, grants, patterns):
         self.grants, self.patterns = sorted(grants), sorted(patterns)
         self.hash = content_hash({'grant': self.grants, 'read': self.patterns})[:16]
+        self.refused_grant = []
+        self._grants = self._normal(self.grants, self.refused_grant)
+        self._patterns = self._normal(self.patterns, [])
+
+    @staticmethod
+    def _normal(values, refused):
+        out = []
+        for value in values:
+            try:
+                out.append(authority._scope_path(value, pattern=True))
+            except LedgerError as error:
+                refused.append({'entry': str(value)[:300], 'reason': str(error)[:200]})
+        return out
 
     def allows(self, path):
-        try:
-            return authority.owned_match(path, self.patterns) and authority.owned_match(path, self.grants)
-        except LedgerError:
-            return False
+        return _match(path, self._patterns) and _match(path, self._grants)
+
+
+def _match(path, patterns):
+    """authority.owned_match's rule (exact, folder prefix or glob, case-folded) without validating the matched path itself."""
+    rel = path.casefold()
+    for pattern in patterns:
+        if pattern in ('.', '*', '**'): return True
+        if WILD.search(pattern):
+            if fnmatch.fnmatchcase(rel, pattern) or fnmatch.fnmatchcase(rel + '/', pattern): return True
+        elif rel == pattern or rel.startswith(pattern + '/'):
+            return True
+    return False
 
 
 # ---- the pinned tree ---------------------------------------------------------------------------------------------------------
@@ -208,6 +243,11 @@ def pin(ledger, selector, item):
         kept = _started_tree(ledger, selector, item['continues'])
         if kept: return kept
     return pin_now(ledger.project)
+
+
+def identity(tree):
+    """The pinned tree as the node definition carries it: without the time it took (review A-R10: the node identity is hashed)."""
+    return {k: v for k, v in tree.items() if k != 'seconds'} if tree else tree
 
 
 class Reader:
@@ -255,8 +295,10 @@ def _withheld(path, mode, size):
     parts = path.split('/')
     if any(p.lower().startswith('.env') or p.lower() in SECRET_NAMES or PRIVATE.search(p) for p in parts): return 'secret'
     if any(control_part(p) or p.lower() in EXCLUDED for p in parts): return 'excluded'
+    if any(SHORT_NAME.fullmatch(p) for p in parts): return 'control_name_alias'
     if mode == '120000': return 'link'
     if mode == '160000' or mode not in ('100644', '100755'): return 'excluded'
+    if len(path) > MAX_PATH: return 'too_long'
     if size is not None and size > FILE_BYTES: return 'too_large'
     return None
 
@@ -267,7 +309,7 @@ def _row(path, reason):
     for n, part in enumerate(parts):
         if part.lower().startswith('.env') or part.lower() in SECRET_NAMES or PRIVATE.search(part):
             return {'path': '/'.join(parts[:n] + ['(name withheld)']), 'reason': reason}
-    return {'path': path, 'reason': reason}
+    return {'path': path if len(path) <= MAX_PATH else path[:MAX_PATH] + '...', 'reason': reason}
 
 
 def _rows(rows):
@@ -303,24 +345,36 @@ def uncursor(value):
 
 
 def fingerprint(tree, request):
-    """Identity of a request for repeat detection: a cursor counts by the position it names."""
-    form = dict(request)
-    if 'cursor' in form:
-        try:
-            form = dict(uncursor(form['cursor']), op=form.get('op'))
-        except Refused:
-            pass
-    elif form.get('op') in ('list', 'search'):
-        form['path'] = (form.get('path') or '').rstrip('/')
+    """Identity of a request for repeat detection: the EFFECTIVE request (op, path, case-folded query, position), whether it was written by
+    hand or as a cursor, so a hand-made cursor at offset 0 or another case of the same search is the same request."""
+    try:
+        clean = normalize(request)
+    except Refused:
+        return content_hash({'tree': tree, 'raw': request})[:32]
+    op = clean['op']
+    if op == 'page':
+        form = {'op': 'page', 'index': clean['index'], 'field': clean.get('field'), 'offset': clean.get('offset', 0),
+                'item_offset': clean.get('item_offset', 0)}
+    else:
+        args, offset = clean, 0
+        if 'cursor' in clean:
+            try:
+                data = uncursor(clean['cursor'])
+                args, offset = data['a'], data['n']
+            except Refused:
+                return content_hash({'tree': tree, 'raw': clean})[:32]
+        path = args.get('path') or ''
+        form = {'op': op, 'path': path.rstrip('/') if op != 'read' else path, 'query': (args.get('query') or '').casefold(),
+                'skip': args.get('m', 0), 'offset': offset}
     return content_hash({'tree': tree, 'request': form})[:32]
 
 
 def normalize(request):
-    """The request as code accepts it (Refused otherwise): its fields only, offsets of 0 left out."""
+    """The request as code accepts it (Refused otherwise): its fields only, offsets of 0 left out, lengths bounded."""
     if not isinstance(request, dict) or request.get('op') not in OPS: raise Refused('op: list, search, read or page')
     op = request['op']
     extra = set(request) - {'op'} - FIELDS[op]
-    if extra: raise Refused(f'{op} takes ' + ', '.join(sorted(FIELDS[op])) + '; not ' + ', '.join(sorted(map(str, extra))))
+    if extra: raise Refused(f'{op} takes ' + ', '.join(sorted(FIELDS[op])) + '; not ' + ', '.join(sorted(map(str, extra)))[:200])
     if op == 'page':
         out = {'op': 'page', 'index': request.get('index')}
         if type(out['index']) is not int or out['index'] < 0: raise Refused('page needs the index of a result (copy page.next)')
@@ -333,12 +387,12 @@ def normalize(request):
             if value: out[key] = value
         return out
     if 'cursor' in request:
-        if not isinstance(request['cursor'], str) or not request['cursor']: raise Refused('cursor: copy next_cursor exactly')
+        if not isinstance(request['cursor'], str) or not 0 < len(request['cursor']) <= 2000: raise Refused('cursor: copy next_cursor exactly')
         return {'op': op, 'cursor': request['cursor']}
     out = {'op': op}
-    for key in ('path', 'query'):
+    for key, limit in (('path', MAX_PATH), ('query', 200)):
         if key in request:
-            if not isinstance(request[key], str): raise Refused(f'{key}: text')
+            if not isinstance(request[key], str) or len(request[key]) > limit: raise Refused(f'{key}: text of at most {limit} characters')
             out[key] = request[key]
     if op == 'read' and not out.get('path'): raise Refused('read needs a file path')
     if op == 'search' and not out.get('query'): raise Refused('search needs a query')
@@ -346,18 +400,19 @@ def normalize(request):
 
 
 def _clean(path, folder):
+    """A path a request names, as the tree spells names (`/` between folders). Glob characters are literal; the name is looked up exactly."""
     path = '' if path is None else path
-    if not isinstance(path, str) or len(path) > 300: raise Refused('path: a relative POSIX path')
+    if not isinstance(path, str) or len(path) > MAX_PATH: raise Refused(f'path: a relative path of at most {MAX_PATH} characters')
+    if '\\' in path: raise Refused('unsafe path: use / between folders (a backslash is not a separator in the tree)')
     if folder:
         path = path.rstrip('/')
         if path == '': return ''
     if path == '': raise Refused('read needs a file path')
-    try:
-        scoped_path(path)
-    except LedgerError as error:
-        raise Refused('unsafe, control or credential path (' + str(error) + ')') from None
-    if any(SHORT_NAME.fullmatch(part) for part in path.split('/')):
-        raise Refused('a Windows 8.3 short name is refused: name the long path')
+    if path.startswith('/') or re.match(r'[A-Za-z]:', path): raise Refused('an absolute or drive path is refused: name a path relative to the project')
+    parts = path.split('/')
+    if any(part in ('', '.', '..') for part in parts) or re.search(r'[\x00-\x1f]', path):
+        raise Refused('unsafe path: an empty, . or .. part, or a control character')
+    if any(control_part(part) for part in parts): raise Refused('a control or credential path is refused')
     return path
 
 
@@ -384,10 +439,11 @@ def _list(reader, scope, args, offset):
     page = visible[offset:offset + LIST_ENTRIES]
     end = offset + len(page)
     more = end < len(visible)
+    conclusion = ('more files remain: follow next_cursor' if more else 'every readable file of the scope under this path is listed') + (
+        f'; {len(withheld)} withheld (not readable as text, listed in withheld)' if withheld else '')
     return {'source': reader.identity, 'path': path, 'scope': scope.hash,
             'entries': [{'path': e['path'], 'bytes': e['size'], 'blob': e['blob']} for e in page],
-            'coverage': _coverage(offset, end, len(visible), 'more files remain: follow next_cursor' if more else
-                                  'every readable file of the scope under this path is listed'),
+            'coverage': _coverage(offset, end, len(visible), conclusion),
             'withheld': withheld[:WITHHELD_ROWS], 'withheld_total': len(withheld), 'truncated': more,
             'next_cursor': cursor(reader.tree, scope, 'list', {'path': path}, end) if more else None}
 
@@ -395,9 +451,13 @@ def _list(reader, scope, args, offset):
 def _read(reader, scope, args, offset):
     path = _clean(args.get('path'), folder=False)
     if not scope.allows(path): raise Refused('outside the read scope')
-    entry = reader.entries().get(path)
+    entries = reader.entries()
+    entry = entries.get(path)
     if entry is None:
-        if any(p.startswith(path + '/') for p in reader.entries()): raise Refused('a folder: use list')
+        if any(p.startswith(path + '/') for p in entries): raise Refused('a folder: use list')
+        same = [p for p in entries if p.casefold() == path.casefold() and scope.allows(p)]
+        if len(same) == 1:
+            raise Refused('not found in the pinned tree: tree names are case-sensitive; case_sensitive_tree: ' + same[0])
         raise Refused('not found in the pinned tree')
     base = {'source': reader.identity, 'path': path, 'scope': scope.hash, 'blob': entry['blob'], 'bytes': entry['size']}
     reason = _withheld(path, entry['mode'], entry['size'])
@@ -422,33 +482,43 @@ def _read(reader, scope, args, offset):
 
 
 def _search(reader, scope, args, offset):
+    """Literal, case-insensitive search line by line. The position is (file, matches already shown in that file): a file with more than
+    MATCHES_PER_FILE matching lines is continued by next_cursor in the same file, so every match is reachable."""
     query = args.get('query')
     if not isinstance(query, str) or not 1 <= len(query) <= 200 or '\n' in query:
         raise Refused('search needs 1-200 literal characters on one line')
     path = _clean(args.get('path', ''), folder=True)
+    skip = args.get('m', 0) if type(args.get('m', 0)) is int and args.get('m', 0) >= 0 else 0
     eligible, withheld = _inside(reader, scope, path)
-    needle, matches, files, pos, scanned, read = query.casefold(), [], 0, offset, 0, 0
-    content = []
-    while pos < len(eligible) and scanned < SEARCH_FILES and read < SEARCH_BYTES and len(matches) < MATCH_ROWS:
+    needle, matches, files, pos, scanned, read, content, resume = query.casefold(), [], 0, offset, 0, 0, [], 0
+    while pos < len(eligible) and scanned < SEARCH_FILES and read < SEARCH_BYTES and len(matches) < MATCH_ROWS and not resume:
         chosen, planned = [], read
         for entry in eligible[pos:pos + min(SEARCH_FILES - scanned, 100)]:
             if chosen and planned + (entry['size'] or 0) > SEARCH_BYTES: break
             chosen.append(entry); planned += entry['size'] or 0
         data = reader.blobs([e['blob'] for e in chosen])
         for entry in chosen:
-            pos += 1; scanned += 1; read += entry['size'] or 0
+            scanned += 1; read += entry['size'] or 0
             text, reason = _text(data.get(entry['blob'], b''))
             if reason:
-                content.append(_row(entry['path'], reason)); continue
-            hits = [(n, line) for n, line in enumerate(text.splitlines(), 1) if needle in line.casefold()]
-            if hits:
-                files += 1
-                matches += [{'path': entry['path'], 'line': n, 'text': line[:LINE_CHARS]} for n, line in hits[:MATCHES_PER_FILE]]
-                if len(hits) > MATCHES_PER_FILE: matches[-1]['more_in_file'] = len(hits) - MATCHES_PER_FILE
+                content.append(_row(entry['path'], reason)); pos += 1; skip = 0; continue
+            hits = [(n, line) for n, line in enumerate(text.splitlines(), 1) if needle in line.casefold()][skip:]
+            shown = hits[:MATCHES_PER_FILE]
+            if shown: files += 1
+            for n, line in shown:
+                row = {'path': entry['path'], 'line': n, 'text': line[:LINE_CHARS]}
+                if len(line) > LINE_CHARS: row['text_truncated'] = {'delivered': LINE_CHARS, 'total': len(line)}
+                matches.append(row)
+            if len(hits) > MATCHES_PER_FILE:
+                resume = skip + MATCHES_PER_FILE                     # more matches in this file: the cursor continues here
+                matches[-1]['more_in_file'] = len(hits) - MATCHES_PER_FILE
+                break
+            pos += 1; skip = 0
             if len(matches) >= MATCH_ROWS: break
     end, rows = pos, _rows(withheld + content)
-    exhausted = end >= len(eligible)
+    exhausted = end >= len(eligible) and not resume
     reason = ('searched every readable file of the scope under this path' if exhausted else
+              'more matches in the same file: follow next_cursor' if resume else
               'match rows of one request reached' if len(matches) >= MATCH_ROWS else
               'file budget of one request reached' if scanned >= SEARCH_FILES else 'byte budget of one request reached')
     if matches:
@@ -456,12 +526,15 @@ def _search(reader, scope, args, offset):
     elif exhausted and not rows:
         conclusion = 'not found in the whole read scope under this path at this tree (every file searched as text; nothing withheld)'
     else:
-        conclusion = (f'not found in the covered part (files {offset}..{end} of {len(eligible)}; {len(rows)} withheld, never searched as '
-                      'text): not a proof that the text is absent' + ('; follow next_cursor for the rest' if not exhausted else ''))
+        conclusion = 'not found in the covered part'
+    if rows: conclusion += f'; not every file searched: {len(rows)} withheld, never searched as text'
+    if not exhausted and not matches: conclusion += ': not a proof that the text is absent; follow next_cursor for the rest'
+    elif rows and not matches: conclusion += ': not a proof that the text is absent'
+    following = {'path': path, 'query': query, **({'m': resume} if resume else {})}
     return {'source': reader.identity, 'query': query, 'path': path, 'scope': scope.hash, 'match': 'literal, case-insensitive, per line',
             'matches': matches, 'files_with_matches': files, 'coverage': _coverage(offset, end, len(eligible), reason),
             'withheld': rows[:WITHHELD_ROWS], 'withheld_total': len(rows), 'truncated': not exhausted,
-            'next_cursor': None if exhausted else cursor(reader.tree, scope, 'search', {'path': path, 'query': query}, end),
+            'next_cursor': None if exhausted else cursor(reader.tree, scope, 'search', following, end),
             'conclusion': conclusion}
 
 
@@ -498,7 +571,8 @@ def run(reader, scope, request, *, index=0, lookup=None):
 # ---- a round of a node chain ----------------------------------------------------------------------------------------------------
 
 def chain(ledger, store, selector, attempt_id):
-    """Receipts of the continuation chain that ends at `attempt_id` (newest first), from the retained candidates in the ledger."""
+    """(receipts, problem) of the continuation chain that ends at `attempt_id` (newest first), from the retained candidates in the ledger.
+    A receipt that cannot be read is a `problem` (the round is refused), never a shorter chain."""
     from . import namespaces
     out, seen = [], set()
     with ledger.transaction() as conn:
@@ -507,15 +581,38 @@ def chain(ledger, store, selector, attempt_id):
             seen.add(attempt_id)
             row = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='node.result_retained' "
                                "AND json_extract(payload,'$.attempt')=? ORDER BY seq DESC LIMIT 1", (root['id'], attempt_id)).fetchone()
-            if row is None: break
+            if row is None: return out, f'no retained candidate of the continued attempt {attempt_id}'
             try:
                 receipt = json.loads(store.read_blob((json.loads(row['payload']).get('candidate') or {})['receipt']))
-            except (KeyError, LedgerError, OSError, ValueError, TypeError):
-                break
-            if not isinstance(receipt, dict) or receipt.get('attempt') != attempt_id: break
+            except (KeyError, LedgerError, OSError, ValueError, TypeError) as error:
+                return out, f'the receipt of attempt {attempt_id} cannot be read ({type(error).__name__})'
+            if not isinstance(receipt, dict) or receipt.get('attempt') != attempt_id:
+                return out, f'the receipt of attempt {attempt_id} does not bind that attempt'
             out.append(receipt)
             attempt_id = receipt.get('continues_attempt')
-    return out
+    return out, None
+
+
+def node_receipts(ledger, store, selector, nid):
+    """(receipts, keys, problem): every retained receipt of node `nid` in the root that carries a `source` block (all chains, holds and
+    replays), oldest first. The round count and the repeat memory come from these, so no new chain or controller resets them."""
+    from . import namespaces
+    with ledger.transaction() as conn:
+        root = namespaces.resolve(ledger, conn, selector) if conn else None
+        rows = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='node.result_retained' AND json_extract(payload,'$.node')=? "
+                            "ORDER BY seq", (root['id'], nid)).fetchall() if root else []
+    receipts, keys, seen = [], [], set()
+    for row in rows:
+        key = (json.loads(row['payload']).get('candidate') or {}).get('receipt')
+        if not key or key in seen: continue
+        seen.add(key)
+        try:
+            receipt = json.loads(store.read_blob(key))
+        except (LedgerError, OSError, ValueError, TypeError) as error:
+            return receipts, keys, f'a retained receipt of node {nid} cannot be read ({type(error).__name__})'
+        if isinstance(receipt, dict) and isinstance(receipt.get('source'), dict) and receipt['source'].get('capability') == 'git-tree':
+            receipts.append(receipt); keys.append(key)
+    return receipts, keys, None
 
 
 def _contract(ledger, selector):
@@ -561,19 +658,28 @@ def _progress(records, tree):
     return {'observations': counters.get('observations', 0), 'repeated_results': len(counters.get('repeats') or {}), 'stopped': stopped}
 
 
+def _records(store, receipts):
+    """(records of the results blobs of `receipts`, oldest first; problem or None)."""
+    out = []
+    for receipt in receipts:
+        block = receipt.get('source') or {}
+        if block.get('results'):
+            try:
+                out += json.loads(store.read_blob(block['results']))['records']
+            except (KeyError, LedgerError, OSError, ValueError, TypeError) as error:
+                return out, f'the results blob of attempt {receipt.get("attempt")} cannot be read ({type(error).__name__})'
+    return out, None
+
+
 def _state(ledger, store, selector, node, tree):
     spec = node['sources']
     grants, basis = grant(_contract(ledger, selector))
     scope = Scope(grants, spec['read'])
-    receipts = chain(ledger, store, selector, node.get('continues'))
-    history = []
-    for receipt in reversed(receipts):
-        block = receipt.get('source') or {}
-        if block.get('results'):
-            try:
-                history += json.loads(store.read_blob(block['results']))['records']
-            except (KeyError, LedgerError, OSError, ValueError, TypeError):
-                pass
+    receipts, broken = chain(ledger, store, selector, node.get('continues'))
+    history, lost = _records(store, list(reversed(receipts)))
+    every, keys, unread = node_receipts(ledger, store, selector, node['id'])
+    node_history, unread_blob = _records(store, every)
+    problem = broken or lost or unread or unread_blob
     previous = receipts[0] if receipts else None
     requests = [dict(CATALOGUE)] if previous is None else list(previous.get('source_requests') or [])
     known = {r['index']: r for r in history if isinstance(r, dict) and 'index' in r}
@@ -583,19 +689,23 @@ def _state(ledger, store, selector, node, tree):
         record = known.get(index)
         return known.get(record.get('page_of')) if record and record.get('action') == 'page' else record
     records = []
-    for n, request in enumerate(requests):
+    for n, request in enumerate([] if problem else requests):
         record = run(reader, scope, request, index=first + n, lookup=lookup)
         records.append(record); known[record['index']] = record
     results = store.blob(canonical({'kind': 'source-results', 'version': VERSION, 'tree': tree['tree'], 'first_index': first,
                                     'records': records}).encode('utf-8'))
     previous_block = (previous or {}).get('source') or {}
+    trees = [r['source'].get('tree') for r in every if r['source'].get('tree')]
+    seen = history + [r for r in node_history if r not in history] + records
     return {'capability': 'git-tree', 'tree': tree['tree'], 'head': tree.get('head'), 'spec': spec, 'scope': scope, 'basis': basis,
-            'records': records, 'lookup': lookup, 'results': results, 'first_index': first,
-            'fingerprints': {r.get('fingerprint') for r in history + records if isinstance(r, dict)} - {None},
-            'rounds_used': sum(1 for r in receipts if (r.get('source') or {}).get('requests')),
+            'records': records, 'lookup': lookup, 'results': results, 'first_index': first, 'problem': problem,
+            'fingerprints': {r.get('fingerprint') for r in seen if isinstance(r, dict)} - {None},
+            'rounds_used': sum(1 for r in every if r.get('partial') is True), 'node_receipts': keys,
+            'previous_tree': trees[-1] if trees and trees[-1] != tree['tree'] else None,
+            'chain_changed': any(r.get('changed_paths') for r in receipts),
             'previous_note': ((previous or {}).get('continuation') or {}).get('remaining'),
             'refused_last': list(previous_block.get('refused') or [])[:REQUESTS_PER_ROUND],
-            'progress': _progress(history + records, tree['tree']),
+            'progress': _progress(seen, tree['tree']),
             'read_blobs': {r['result']['path']: r['result']['blob'] for r in history + records if isinstance(r, dict) and r.get('action') == 'read'
                            and isinstance((r.get('result') or {}).get('text'), str) and r['result'].get('blob')}}
 
@@ -646,7 +756,8 @@ def frame(state):
     spec, used = state['spec'], state['rounds_used']
     return {'kind': 'source-tools', 'version': VERSION, 'data_not_authority': True, 'notice': NOTICE, 'guide': GUIDE,
             'source': {'tree': state['tree'], 'head': state['head']},
-            'scope': {'read': spec['read'], 'grant': state['scope'].grants, 'basis': state['basis']},
+            'scope': {'read': spec['read'], 'grant': state['scope'].grants, 'basis': state['basis'],
+                      **({'refused_grant': state['scope'].refused_grant} if state['scope'].refused_grant else {})},
             'rounds': {'used': used, 'max': spec['max_rounds'], 'left': max(0, spec['max_rounds'] - used)},
             'limits': {'requests_per_round': REQUESTS_PER_ROUND, 'chars_per_round': spec['max_chars_per_round'], 'list_entries': LIST_ENTRIES,
                        'read_chars': READ_CHARS, 'search_files': SEARCH_FILES, 'match_rows': MATCH_ROWS},
@@ -728,6 +839,7 @@ def fill(state, view, left):
         raise LedgerError(f'Source results do not fit the prompt budget ({budget} characters for {len(records)} results); '
                           'do not run with partial evidence.')
     state['delivered_chars'] = len(canonical(items))
+    state['not_delivered'] = [item.get('index') for item in items if 'not_delivered' in item]
     state['pages'] = [{'index': item.get('index'), **{k: p[k] for k in ('field', 'offset', 'delivered', 'total', 'eof')}}
                       for item in items for p in item.get('page', [])]
     state['round_chars'] = budget
@@ -751,14 +863,15 @@ def _brief(request):
 
 
 def seal(state, asked, continuation):
-    """(accepted, refused): the requests the next round of the chain executes, decided by code only."""
+    """(accepted, refused): the requests the next round of the chain executes, decided by code only. Past REQUESTS_PER_ROUND the requests
+    are refused; past MAX_ASKED they are refused in one row with their count (the receipt does not grow with what the worker asks)."""
     if state is None or not asked: return [], []
     if state.get('capability') != 'git-tree':
-        return [], [{'request': _brief(r), 'reason': 'source tools are unavailable for this node: ' + state['reason']} for r in asked]
+        return [], [{'request': _brief(r), 'reason': 'source tools are unavailable for this node: ' + state['reason']} for r in asked[:MAX_ASKED]]
     accepted, refused = [], []
     seen, used, cap = set(state['fingerprints']), state['rounds_used'], state['spec']['max_rounds']
     total = state['first_index'] + len(state['records'])
-    for n, request in enumerate(asked):
+    for n, request in enumerate(asked[:MAX_ASKED]):
         why, clean = None, request
         try:
             clean = normalize(request)
@@ -766,6 +879,7 @@ def seal(state, asked, continuation):
             why = str(error)
         if why is None and n >= REQUESTS_PER_ROUND: why = f'more than {REQUESTS_PER_ROUND} requests in one round'
         if why is None and continuation is None: why = 'requests run in the next round: answer with a continuation'
+        if why is None and state.get('problem'): why = 'the chain evidence cannot be read, no further round: ' + state['problem']
         if why is None and used >= cap: why = f'round cap reached ({used} of {cap})'
         if why is None and state['progress']['stopped']: why = 'progress: ' + state['progress']['stopped']
         if why is None and 'cursor' in clean:
@@ -780,24 +894,38 @@ def seal(state, asked, continuation):
             why = 'no result with this index in this chain'
         if why is None:
             mark = fingerprint(state['tree'], clean)
-            if mark in seen: why = 'repeat: this request already ran in this chain; use page.next or next_cursor for new content'
+            if mark in seen: why = 'repeat: this request already ran on this tree for this node; use page.next or next_cursor for new content'
             else: seen.add(mark)
         if why: refused.append({'request': _brief(clean), 'reason': why})
         else: accepted.append(clean)
+    if len(asked) > MAX_ASKED:
+        refused.append({'request': None, 'reason': f'more than {MAX_ASKED} entries in the declaration: not looked at', 'count': len(asked) - MAX_ASKED})
     return accepted, refused
 
 
-def receipt_fields(state, accepted, refused, problem=None):
-    """The receipt fields of a node with `sources`: `source` (what was executed, delivered, sealed and refused) and `source_requests`."""
+def receipt_fields(state, accepted, refused, problem=None, continuation=None):
+    """The receipt fields of a node with `sources`: `source` (what was executed, delivered, not delivered, sealed and refused; the round
+    count of the node) and `source_requests`. A continuation past max_rounds (or on chain evidence that cannot be read) is marked
+    `rounds_exhausted`: the engine holds the node instead of starting another round."""
     if state is None: return {}
     if state.get('capability') != 'git-tree':
         return {'source': dict({'capability': 'unavailable', 'reason': state['reason']}, **({'refused': refused} if refused else {}),
                                **({'problem': problem} if problem else {}))}
+    cap, used = state['spec']['max_rounds'], state['rounds_used']
+    exhausted = continuation is not None and (used >= cap or bool(state.get('problem')))
+    records = state['records']
     block = {'capability': 'git-tree', 'tree': state['tree'], 'head': state['head'],
-             'scope': {'read': state['spec']['read'], 'grant': state['scope'].grants, 'basis': state['basis'], 'hash': state['scope'].hash},
-             'results': state['results'], 'first_index': state['first_index'], 'count': len(state['records']),
+             'scope': {'read': state['spec']['read'], 'grant': state['scope'].grants, 'basis': state['basis'], 'hash': state['scope'].hash,
+                       **({'refused_grant': state['scope'].refused_grant} if state['scope'].refused_grant else {})},
+             'results': state['results'], 'first_index': state['first_index'], 'count': len(records),
              'delivered_chars': state.get('delivered_chars'), 'round_chars': state.get('round_chars'), 'pages': state.get('pages', []),
-             'requests': list(accepted), 'refused': list(refused), 'rounds_used': state['rounds_used'] + (1 if accepted else 0),
-             'max_rounds': state['spec']['max_rounds'], 'progress': state['progress'],
+             'not_delivered': state.get('not_delivered', []),
+             'execution_refused': [{'index': r['index'], 'reason': r['result']['refused']} for r in records if 'refused' in (r.get('result') or {})],
+             'withheld_total': sum((r.get('result') or {}).get('withheld_total', len((r.get('result') or {}).get('withheld') or [])) for r in records),
+             'requests': list(accepted), 'refused': list(refused),
+             'rounds_used': used + (1 if continuation is not None and not exhausted else 0), 'max_rounds': cap, 'progress': state['progress'],
+             **({'previous_tree': state['previous_tree']} if state.get('previous_tree') else {}),
+             **({'chain_problem': state['problem']} if state.get('problem') else {}),
+             **({'rounds_exhausted': True, 'chain_receipts': list(state.get('node_receipts') or [])} if exhausted else {}),
              **({'problem': problem} if problem else {}), **({'rebuilt': True} if state.get('rebuilt') else {})}
-    return {'source': block, **({'source_requests': list(accepted)} if accepted else {})}
+    return {'source': block, **({'source_requests': list(accepted)} if accepted and not exhausted else {})}
