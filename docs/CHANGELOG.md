@@ -1,8 +1,10 @@
 # CHANGELOG
 
-## v2.4.0.dev1 (đang phát triển, 01/11/2026) — 2.4-S1: báo lỗi một lần
+## v2.4.0.dev2 (01/11/2026) — bản thử 2.4 đủ năm mốc S1, S2, A, B, C (ứng viên beta, chưa nghiệm thu)
 
-**Chưa phải gói alpha:** chưa build gói, chưa nghiệm thu. Hướng dẫn: `docs/v24/HUONG-DAN-SUPPORT.vi.md`.
+**Gói thử dựng từ snapshot này** (các gói `2.4.0.dev1` trong `D:\OneCrewRuns24\pkg-trial` chỉ là lượt thử công cụ dựng/kiểm). Hướng dẫn: `docs/v24/HUONG-DAN-SUPPORT.vi.md`, `HUONG-DAN-SOURCE.vi.md`, `HUONG-DAN-CONTEXT.vi.md`, `HUONG-DAN-BUOC-0.vi.md`; báo cáo `docs/v24/BAO-CAO-2.4-2026-11-01.vi.md`.
+
+**2.4-S1 — báo lỗi một lần:**
 - `onecrew support report`: một mã `FB-…`, idempotent theo `--key`; tự gắn plan/revision/attempt/node/phiên bản khi chứng minh được; không tạo lỗi giả.
 - `support bundle`: hồ sơ chẩn đoán local theo allow-list, manifest từng nguồn (included/missing/truncated/withheld/not_applicable…), lọc từng dòng, giới hạn 256 KB/file, 200 sự kiện/task, 8 MB/hồ sơ; không upload, không chạy chương trình.
 - Sổ/runtime hỏng: báo cáo vào spool (`support-spool/`, `python -I -m onecrew.v2.support_spool`), `support import-spool` nhập đúng một lần; không ghi được thì báo NOT recorded.
