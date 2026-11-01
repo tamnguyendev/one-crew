@@ -14,8 +14,12 @@ and who must recheck. No new store: the ledger (one class-A kind) and the packag
       - own: a delivered must/fact entry gone or changed, a new mandatory entry, or a file whose content reached the prompt that changed in
         the project since (what the next attempt would pin) -> `recheck` (the engine continues the node in a new generation with the delta,
         within the root budget and MAX_RECHECKS; a changed source re-pins the tree, carries the candidate and opens a new round allowance);
-      - upstream only: an input artifact was built by an attempt whose own record changed so -> `input_changed`: the dependent is held at
-        once, without a model call (re-running it on the same input cannot help; re-opening the producer is the existing repair path);
+      - upstream only: an input artifact was built, directly or through any chain of inputs, by an attempt whose own record changed so
+        -> `input_changed`: the dependent is held at once, without a model call (re-running it on the same input cannot help; re-opening
+        the producer is the existing repair path). The walk over the inputs is complete (Codex review F3): every producer attempt
+        reachable through node.started inputs is judged once (memo), with an explicit stack (no depth limit), and an input whose check
+        cannot be completed (no or unreadable receipt, a producing attempt or start record not in the ledger, a cycle, more than
+        MAX_WALK attempts) is also `input_changed`, naming what could not be checked - never a default publish;
       - a lead that changed is only noted.
 Nothing here proves that a model understood or forgot knowledge: records and deltas prove delivery only.
 """
@@ -27,7 +31,8 @@ from . import knowledge, namespaces, plan as plans
 
 KIND = 'knowledge.delivered'
 MAX_RECHECKS = 2                 # automatic rechecks of one node for changed knowledge; then it is held
-INPUT_DEPTH = 3
+MAX_WALK = 10000                 # producer attempts one decision walks at most; beyond that it is incomplete, so never `publish`
+UNCHECKED = 'the dependency check could not be completed'
 EMPTY = {'withdrawn': [], 'changed': [], 'added_mandatory': []}
 
 
@@ -220,36 +225,137 @@ def _own(ledger, store, conn_data, plan, nid, attempt_id, row, started, receipt,
     return critical, notes
 
 
-def decide(ledger, store, selector, nid, attempt_id=None, *, receipt_key=None, inputs=None, memo=None, _depth=0):
+def _decision(critical, notes, upstream, event):
+    return {'action': 'recheck' if critical else 'input_changed' if upstream else 'publish', 'critical': critical, 'upstream': upstream,
+            'notes': notes, 'row': event}
+
+
+def _unchecked(node, attempt, problems):
+    """An upstream item for inputs whose dependency check could not be completed (no id is known to have changed)."""
+    more = f' (and {len(problems) - 1} more)' if len(problems) > 1 else ''
+    return {'node': node, 'attempt': attempt, 'reason': UNCHECKED + ': ' + problems[0] + more, 'ids': [], 'unchecked': problems[:20]}
+
+
+def _attempt_of(conn, root_id, producer, binding, key):
+    """The attempt that produced `producer`'s opaque receipt `key` (another executor's receipt names none): the node.produced event with
+    that receipt (in the bound generation when the binding names one), then its adopted attempt or the node.started of that generation
+    before it. None when the ledger does not place it."""
+    sql = ("SELECT seq,payload FROM events WHERE task_id=? AND kind='node.produced' AND json_extract(payload,'$.node')=? "
+           "AND json_extract(payload,'$.receipt')=?")
+    args = [root_id, producer, key]
+    generation = (binding or {}).get('generation')
+    if isinstance(generation, int) and not isinstance(generation, bool):
+        sql += " AND json_extract(payload,'$.generation')=?"; args.append(generation)
+    row = conn.execute(sql + ' ORDER BY seq DESC LIMIT 1', args).fetchone()
+    if row is None: return None
+    produced = json.loads(row['payload'])
+    if isinstance(produced.get('adopted_attempt'), str): return produced['adopted_attempt']
+    start = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='node.started' AND json_extract(payload,'$.node')=? "
+                         "AND json_extract(payload,'$.generation')=? AND seq<? ORDER BY seq DESC LIMIT 1",
+                         (root_id, producer, produced.get('generation'), row['seq'])).fetchone()
+    attempt = json.loads(start['payload']).get('attempt') if start else None
+    return attempt if isinstance(attempt, str) and attempt else None
+
+
+def _edge(ledger, store, root_id, consumer, producer, binding):
+    """(producer, attempt, receipt, problem) of one input of `consumer`: the attempt that built the bound artifact (named by its receipt,
+    or by the ledger for an opaque one), or attempt None and a problem naming what cannot be checked."""
+    key = binding.get('receipt') if isinstance(binding, dict) else None
+    if not isinstance(key, str) or not key:
+        return producer, None, None, f'input {producer} of {consumer} names no receipt'
+    body = _receipt(store, key)
+    if isinstance(body, dict) and isinstance(body.get('attempt'), str) and body['attempt']:
+        return producer, body['attempt'], key, None
+    try:
+        store.read_blob(key)
+    except (LedgerError, OSError, ValueError, TypeError) as error:
+        return producer, None, key, f'the receipt of input {producer} of {consumer} cannot be read ({str(error)[:160]})'
+    with ledger.transaction() as conn:
+        attempt = _attempt_of(conn, root_id, producer, binding, key) if conn else None
+    if attempt: return producer, attempt, key, None
+    return producer, None, key, f'the attempt that produced input {producer} of {consumer} is not in the ledger'
+
+
+def _facts(ledger, store, root_id, plan, nid, attempt_id, receipt_key, memo):
+    """(critical, notes, delivery event, edges) of one attempt, from the ledger: its own changes (_own) and the inputs it consumed."""
+    with ledger.transaction() as conn:
+        row = _row(conn, root_id, "json_extract(payload,'$.attempt')=?", (attempt_id,)) if conn else None
+        started = _started(conn, root_id, attempt_id) if conn else None
+    critical, notes = _own(ledger, store, None, plan, nid, attempt_id, row, started, _receipt(store, receipt_key), memo)
+    inputs = (started or {}).get('inputs') or {}
+    if started is None or not isinstance(inputs, dict):
+        what = 'the start record' if started is None else 'the inputs'
+        edges = [(nid, attempt_id, None, f'{what} of attempt {attempt_id} of {nid} is not in the ledger')]
+    else:
+        edges = [_edge(ledger, store, root_id, nid, producer, binding) for producer, binding in sorted(inputs.items())]
+    return critical, notes, (row or {}).get('event'), edges
+
+
+def _upstream(nid, edges, memo):
+    """The upstream part of `nid`'s decision from its settled inputs (memo of _walk)."""
+    upstream = []
+    for producer, attempt, key, problem in edges:
+        if problem:
+            upstream.append(_unchecked(producer, attempt, [problem])); continue
+        sub = memo.get(('decision', producer, attempt, key))
+        if sub is None:                                # still open on the walk's own path: the attempt depends on itself
+            upstream.append(_unchecked(producer, attempt, [f'input {producer} (attempt {attempt}) of {nid} depends on itself (a cycle)']))
+            continue
+        # what the producer's artifact was built on changed (a new mandatory entry for the producer does not change its artifact)
+        built = [c for c in sub['critical'] if c.get('reason') != 'a new mandatory entry concerns this node']
+        if not (built or sub['upstream']): continue
+        ids = sorted({c.get('id') or c.get('path') for c in built} | {i for u in sub['upstream'] for i in u['ids']})
+        problems = [p for u in sub['upstream'] for p in u.get('unchecked', [])]
+        entry = _unchecked(producer, attempt, problems) if problems else {'node': producer, 'attempt': attempt}
+        if ids: entry['reason'] = 'an input was built on knowledge or sources that changed'
+        entry['ids'] = ids
+        upstream.append(entry)
+    return upstream
+
+
+def _walk(ledger, store, root_id, plan, edges, memo):
+    """Settle memo[('decision', producer, attempt, receipt)] for every producer attempt reachable from `edges` through the inputs each
+    consumed: depth first on an explicit stack (no recursion or depth limit), each attempt judged once, an attempt met again on its own
+    path left unsettled (a cycle: its consumer is not published), at most MAX_WALK new attempts (the rest: not checked, not published)."""
+    stack = [('enter', e[:3]) for e in reversed(edges) if not e[3]]
+    path, pending, walked = set(), {}, 0
+    while stack:
+        phase, ident = stack.pop()
+        key = ('decision',) + ident
+        if phase == 'exit':
+            path.discard(ident)
+            critical, notes, event, inner = pending.pop(ident)
+            memo[key] = _decision(critical, notes, _upstream(ident[0], inner, memo), event)
+            continue
+        if key in memo or ident in path: continue
+        if walked >= MAX_WALK:
+            memo[key] = _decision([], [], [_unchecked(ident[0], ident[1], [f'the inputs reach more than {MAX_WALK} producer attempts '
+                                                                          '(the walk guard)'])], None)
+            continue
+        walked += 1
+        pending[ident] = facts = _facts(ledger, store, root_id, plan, ident[0], ident[1], ident[2], memo)
+        path.add(ident)
+        stack.append(('exit', ident))
+        stack.extend(('enter', e[:3]) for e in reversed(facts[3]) if not e[3] and ('decision',) + e[:3] not in memo)
+
+
+def decide(ledger, store, selector, nid, attempt_id=None, *, receipt_key=None, inputs=None, memo=None):
     """The one decision (see the module doc): {'action': publish | recheck | input_changed, 'critical', 'upstream', 'notes', 'row'}.
     `attempt_id`: the attempt whose candidate is judged (its record, its base, the inputs it consumed); None with `inputs` (a dependency
-    binding {producer: {receipt, ...}}): what a node about to be dispatched would consume (only the upstream part is judged)."""
+    binding {producer: {receipt, ...}}): what a node about to be dispatched would consume (only the upstream part is judged).
+    `memo` may be shared between decisions: every entry is a complete decision, so the order of the questions does not change answers."""
     memo = {} if memo is None else memo
     with ledger.transaction() as conn:
         root = namespaces.resolve(ledger, conn, selector) if conn else None
-        if root is None: return {'action': 'publish', 'critical': [], 'upstream': [], 'notes': [], 'row': None}
-        row = _row(conn, root['id'], "json_extract(payload,'$.attempt')=?", (attempt_id,)) if attempt_id else None
-        started = _started(conn, root['id'], attempt_id) if attempt_id else None
+    if root is None: return _decision([], [], [], None)
     plan = namespaces.parse(root['request_key'])[0]
-    critical, notes = ([], [])
     if attempt_id:
-        critical, notes = _own(ledger, store, None, plan, nid, attempt_id, row, started, _receipt(store, receipt_key), memo)
-    upstream = []
-    if _depth < INPUT_DEPTH:
-        for producer, binding in sorted(((started or {}).get('inputs') if attempt_id else inputs or {}).items()):
-            body = _receipt(store, (binding or {}).get('receipt'))
-            if not body or not body.get('attempt'): continue
-            key = ('decision', producer, body['attempt'])
-            if key not in memo:
-                memo[key] = decide(ledger, store, selector, producer, body['attempt'], receipt_key=binding.get('receipt'), memo=memo, _depth=_depth + 1)
-            sub = memo[key]
-            # what the producer's artifact was built on changed (a new mandatory entry for the producer does not change its artifact)
-            built = [c for c in sub['critical'] if c.get('reason') != 'a new mandatory entry concerns this node']
-            if built or sub['upstream']:
-                upstream.append({'node': producer, 'attempt': body['attempt'], 'reason': 'an input was built on knowledge or sources that changed',
-                                 'ids': sorted({c.get('id') or c.get('path') for c in built} | {i for u in sub['upstream'] for i in u['ids']})})
-    action = 'recheck' if critical else 'input_changed' if upstream else 'publish'
-    return {'action': action, 'critical': critical, 'upstream': upstream, 'notes': notes, 'row': (row or {}).get('event')}
+        critical, notes, event, edges = _facts(ledger, store, root['id'], plan, nid, attempt_id, receipt_key, memo)
+    else:
+        critical, notes, event = [], [], None
+        edges = [_edge(ledger, store, root['id'], nid, producer, binding) for producer, binding in sorted((inputs or {}).items())]
+    _walk(ledger, store, root['id'], plan, edges, memo)
+    return _decision(critical, notes, _upstream(nid, edges, memo), event)
 
 
 def publish_gate(ledger, store, selector, nid, attempt_id, *, receipt_key=None, memo=None):
