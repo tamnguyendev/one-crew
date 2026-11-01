@@ -875,7 +875,27 @@ class Round4(Window, S2Fixture):
                 self.assertEqual(ownership.refuse_argv(['support', 'cleanup', '--venv', 'x']), 2)
                 self.assertEqual(ownership.refuse_argv(['support', 'cleanup', '--venv=x']), 2)
             self.assertIsNone(ownership.refuse_argv(['support', 'cleanup']))          # finished copies: still open to an AI session
-        self.assertIn('Bash(*support cleanup*--venv*)', hook_cli.deny_rules(self.ledger.state_root))
+        self.assertIn('Bash(*support cleanup*--v*)', hook_cli.deny_rules(self.ledger.state_root))
+
+    def test_R5_01_option_abbreviations_cannot_bypass_the_owner_guard(self):
+        """Round 5 (R5-01): `--ven X` / `--v X` are refused exactly like `--venv X`, in the argv guard, in the hook deny pattern and by the
+        parser itself (no abbreviations); plain `support cleanup` stays open."""
+        import fnmatch, io, contextlib
+        from onecrew.v2 import hook_cli, ownership, support_cli
+        rules = [r for r in hook_cli.deny_rules(self.ledger.state_root) if r.startswith('Bash(')]
+        for argv in (['support', 'cleanup', '--venv', 'X'], ['support', 'cleanup', '--ven', 'X'], ['support', 'cleanup', '--v', 'X'],
+                     ['support', 'cleanup', '--ve=X']):
+            with patch.dict(os.environ, {'CLAUDE_CODE_CHILD_SESSION': '1'}), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(ownership.refuse_argv(argv), 2, argv)
+            line = 'Bash(onecrew --project P ' + ' '.join(argv) + ')'
+            self.assertTrue(any(fnmatch.fnmatchcase(line, r) for r in rules), argv)
+        with patch.dict(os.environ, {'CLAUDE_CODE_CHILD_SESSION': '1'}):
+            self.assertIsNone(ownership.refuse_argv(['support', 'cleanup']))
+        self.assertFalse(any(fnmatch.fnmatchcase('Bash(onecrew --project P support cleanup)', r) for r in rules))
+        for argv in (['support', 'cleanup', '--ven', 'X'], ['support', 'target', 'add', '--i', 'lab', '--ve', 'X'],
+                     ['support', 'confirm', 'FB', '--ref', 'x']):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                support_cli._parser().parse_args(argv)
 
     def test_R4_06_cleanup_takes_the_target_claim(self):
         venv = self.interrupted()

@@ -1820,7 +1820,8 @@ def cleanup_venv(ledger, venv):
     shape = _cleanable(ledger).get(_norm(given))
     if shape is None:
         raise LedgerError(f'support cleanup --venv {given} refused, nothing removed: it is not a venv folder an install of this ledger makes '
-                          '(<target venv>-<version>-<sha8>-<state root8>, or support-work/<key>/trial-venv); a declared target venv is never removed')
+                          '(<target venv>-<version>-<sha8>-<state root8>, or support-work/<key>/trial-venv); a declared target venv is never removed. '
+                          'Give the path exactly as support install printed it (no \\\\?\\ prefix, 8.3 short names or subst drives).')
     path, target_id, target, key, marker, base = shape
 
     def work(token):

@@ -22,7 +22,8 @@ OWNER_VERBS = {('plan', 'approve'), ('plan', 'accept'), ('plan', 'enforce'), ('h
                ('owner', 'approve'), ('owner', 'accept'), ('owner', 'enforce'), ('owner', 'record'),
                ('support', 'confirm'), ('support', 'target'), ('support', 'rollback')}                    # 2.4-S1: the user's own confirmation of a feedback     # G2: `onecrew owner ...` is the same verbs under one name
 OWNER_FORMS = {('verdict', 'record'), ('plan', 'unknown', 'close'), ('unknown', 'resolve'), ('plan', 'poc', 'record'), ('plan', 'retention', 'cleanup')}   # owner verbs only with --by owner (C13); an AI may close an unknown with --by doc|poc
-OWNER_FLAG_FORMS = {('support', 'cleanup'): '--venv'}     # 2.4-S2 round 4 (R4-04): an owner verb only with this flag; plain cleanup stays open
+OWNER_FLAG_FORMS = {('support', 'cleanup'): '--v'}        # 2.4-S2 R4-04/R5-01: an owner verb with any option starting --v (--venv and every
+                                                          # abbreviation of it); plain cleanup stays open
 OWNER_ACTORS = ('user', 'owner')
 
 
@@ -58,9 +59,9 @@ def refuse_argv(argv):
     words = tuple(w for w in argv if not w.startswith('-'))
     owner_form = any(words[:len(form)] == form for form in OWNER_FORMS) and by_value(argv) == 'owner'
     flag = OWNER_FLAG_FORMS.get(words[:2])
-    flag_form = bool(flag) and any(w == flag or w.startswith(flag + '=') for w in argv)
+    flag_form = bool(flag) and any(w.startswith(flag) for w in argv)
     verb = words[:2] if words[:2] in OWNER_VERBS else words[:3] if owner_form and words[:3] in OWNER_FORMS else words[:2]
-    if flag_form: verb = (*words[:2], flag)
+    if flag_form: verb = (*words[:2], '--venv')
     if not (words[:2] in OWNER_VERBS or owner_form or flag_form) or not in_ai_session(): return None
     print(json.dumps({'error': f'{" ".join(verb)} refused: this process runs inside an AI tool session (CLAUDE_CODE_CHILD_SESSION is set). The owner runs it in a terminal of their own.',
                       'type': 'LedgerError'}))

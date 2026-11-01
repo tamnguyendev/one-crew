@@ -17,13 +17,21 @@ from .ownership import refuse_argv
 from .where import state_root_for
 
 
+class _Strict(argparse.ArgumentParser):
+    """R5-01: no option abbreviations in any support subcommand (argparse subparsers do not inherit allow_abbrev=False)."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs['allow_abbrev'] = False
+        super().__init__(*args, **kwargs)
+
+
 def _parser():
     parser = argparse.ArgumentParser(prog='onecrew', allow_abbrev=False)
     parser.add_argument('--project', type=Path, default=Path.cwd())
     parser.add_argument('--state-root', type=Path)
-    groups = parser.add_subparsers(dest='group', required=True)
+    groups = parser.add_subparsers(dest='group', required=True, parser_class=_Strict)
     commands = groups.add_parser('support', help='report an error once; feedback id, status and a local diagnostic bundle').add_subparsers(
-        dest='command', required=True)
+        dest='command', required=True, parser_class=_Strict)
     p = commands.add_parser('report', help='record what went wrong; prints the feedback id (spools it when the ledger is broken)')
     p.add_argument('--text', required=True); p.add_argument('--expected'); p.add_argument('--image', type=Path)
     p.add_argument('--plan'); p.add_argument('--task'); p.add_argument('--attempt'); p.add_argument('--key')
@@ -43,7 +51,7 @@ def _parser():
     p = commands.add_parser('confirm', help='owner only: the problem is gone for you')
     p.add_argument('feedback'); p.add_argument('--reference', required=True)
     # 2.4-S2 (hotfix.py)
-    target = commands.add_parser('target', help='owner only: declare an install target venv').add_subparsers(dest='target_command', required=True)
+    target = commands.add_parser('target', help='owner only: declare an install target venv').add_subparsers(dest='target_command', required=True, parser_class=_Strict)
     p = target.add_parser('add'); p.add_argument('--id', required=True); p.add_argument('--venv', type=Path, required=True)
     p.add_argument('--python', type=Path)
     p.add_argument('--consumers', nargs='+', default=(), help='projects that use this venv outside the hook registry (checked too)')
