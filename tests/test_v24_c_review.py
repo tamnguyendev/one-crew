@@ -227,7 +227,8 @@ class Tools(ModeFixture):
         for _ in range(4):
             out = engine.run_batch(self.ledger, 'P1', self.isolated(), slots=2, checker=Broken(self))      # never raises
             self.assertIn('results', out)
-        self.assertEqual(len(calls), execution_mode.TOOLS_TRIES)                                # bounded retries, then manual verify
+        self.assertEqual(calls.count('A'), execution_mode.TOOLS_TRIES)                         # bounded per node, then manual verify
+        self.assertLessEqual(calls.count('B'), execution_mode.TOOLS_TRIES)
         self.assertEqual(engine.state(self.ledger, 'P1')['nodes']['B']['state'], 'produced')   # the worker side ran
 
     def test_r10_tools_do_not_run_on_a_stale_internal_definition(self):

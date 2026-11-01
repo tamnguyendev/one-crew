@@ -55,6 +55,9 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
         project = opts.project.resolve()
         ledger_class = ReadOnlyLedger if opts.command in ('state', 'ready', 'measure') else Ledger
         ledger = ledger_class(project, state_root_for(project, opts.state_root))
+        if getattr(opts, 'checks', False) and 'execution-mode' not in engine.state(ledger, opts.plan)['capabilities']:
+            # review C-R11: --checks never falls back to a plain step or batch that starts a model worker
+            raise LedgerError('--checks needs the root capability execution-mode; nothing was run (no check, no worker).')
         if opts.command in node_actions_cli.ACTIONS: result = node_actions_cli.execute(opts, ledger)
         elif opts.command == 'state': result = engine.state(ledger, opts.plan)
         elif opts.command == 'ready': result = engine.ready(ledger, opts.plan)

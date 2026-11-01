@@ -12,7 +12,8 @@ from onecrew.v2 import plan as plans, proposal, step0, survey
 from tests.test_v2_l3 import Step0, step0_json
 from tests.test_wf_r01_step0_proposal import KEEP, REQUIREMENT, change, sample
 from tests.test_wf_r01_step0_survey import Clock
-from tests.test_wf_engine import EngineFixture, node
+from tests.test_wf_engine import node
+from tests.test_v24_c_execution_mode import ModeFixture
 
 PRESERVE = [{'id': 'K1', 'text': 'The new report and its API stay unchanged'}]
 ESTIMATE = {'range': [600, 1800], 'evidence': ['routes.py:1']}
@@ -204,12 +205,12 @@ class Cli(CardFixture):
         self.assertEqual(self.kinds('P1'), before)                                              # nothing written
 
 
-class RuntimeUnknownHold(EngineFixture):
+class RuntimeUnknownHold(ModeFixture):
     """An open high-risk unknown found after approval holds the nodes that need it (required_by), and only them."""
     def test_open_unknown_holds_its_dependent_node_only(self):
         from onecrew.v2 import engine, runtime_unknowns
         fixture = self
-        fixture.revise([node('C'), node('D', write=('b.txt',)), node('I', ['C', 'D'], integration=True, write=())])
+        fixture.revise([node('C'), node('D', write=('b.txt',)), node('I', ['C', 'D'], integration=True, write=())])   # root with execution-mode
         runtime_unknowns.open_unknown(fixture.ledger, 'P1', 'risk', question='Does C break the export contract?', affected=['C', 'I'],
                                       required_by=['C'], resolver='doc', evidence=['a.txt:1'])
         self.assertEqual([c['id'] for c in engine.ready(fixture.ledger, 'P1')], ['D'])

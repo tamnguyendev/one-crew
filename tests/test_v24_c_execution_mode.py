@@ -191,7 +191,7 @@ class ParallelTools(ModeFixture):
         undeclared = execution_mode.choose(a, view, slots=1, checker=lambda item, artifact: None, check_types={'check-A': None})
         self.assertEqual(undeclared['reasons'], ['checker_not_declared_model_free'])
         self.assertEqual(execution_mode.choose(a, view, slots=1, checker=Free(), check_types={'check-A': 'command'})['mode'], 'tools')
-        self.assertIsNone(engine._tools(self.ledger, {'selector': 'plan-ns:P1'}, None, view, None, None))   # no checker: nothing
+        self.assertEqual(engine._tools(self.ledger, {'selector': 'plan-ns:P1'}, None, view, None, None), (None, None))   # no checker
 
 
 class ExclusiveResources(ModeFixture):
@@ -243,7 +243,8 @@ class NoSessionReuse(ModeFixture):
                              ['source_snapshot', 'input_artifacts', 'resume_artifact', 'knowledge'])
         self.assertNotIn('resume_pack', json.dumps(execution_mode.restored_from(b, {'resume_artifact': 'x'}, ManagedExecutor.declaration)))
 
-    def test_an_adapter_claiming_a_session_gets_reuse_only_for_the_same_id_it_launched_with(self):
+    def test_one_attempt_echoing_its_own_session_id_is_not_reuse(self):
+        # review C-R06: reuse needs the previous attempt of the chain (tests/test_v24_c_review.SessionEvidence covers the positive case)
         self.revise([worker('A', ['a.txt']), worker('B', ['b.txt']), worker('C', ['c.txt']), integration(['A', 'B', 'C'])])
         returned = {'A': None, 'B': 'S-other', 'C': 'S-1'}
         def claims(ledger, control, task, item, attempt):
@@ -253,8 +254,8 @@ class NoSessionReuse(ModeFixture):
         executor = self.isolated(claims, capabilities=('start', 'resume_session'), name='fixture-session-claim')
         for _ in range(3): engine.step(self.ledger, 'P1', executor)
         produced = {p['node']: p['session'] for p in self.payloads('node.produced')}
-        self.assertEqual({k: v['reuse'] for k, v in produced.items()}, {'A': False, 'B': False, 'C': True})
-        self.assertEqual(produced['C']['evidence'], {'launched': 'S-1', 'returned': 'S-1'})
+        self.assertEqual({k: v['reuse'] for k, v in produced.items()}, {'A': False, 'B': False, 'C': False})
+        self.assertIn('no earlier attempt', produced['C']['basis'])
         self.assertTrue(all(p['session']['reuse'] is False for p in self.started()))       # never claimed before the adapter proves it
 
 
@@ -420,10 +421,12 @@ class Measure(ModeFixture):
         self.assertEqual(x['prompt_chars'], 'unknown')                       # an opaque receipt: not 0
         self.assertEqual({a['mode'] for a in report['attempts'] if a['node'] in ('X', 'B')}, {'overlap'})
         i = next(a for a in report['attempts'] if a['node'] == 'I')
-        self.assertEqual(i['execution_seconds'], i['execution_seconds'])
+        self.assertIsInstance(i['execution_seconds'], float)
         spans = [a['span_seconds'] for a in report['attempts']]
         self.assertTrue(all(isinstance(v, float) for v in spans))
-        self.assertLessEqual(report['attempts_wall_seconds'], sum(spans) + 1e-6)   # union, never the sum of overlapping branches
+        import datetime as dt
+        joined = executors.union_seconds([(dt.datetime.fromisoformat(a['reserved_at']), dt.datetime.fromisoformat(a['settled_at'])) for a in report['attempts']])
+        self.assertEqual(report['attempts_wall_seconds'], round(joined, 6))         # the union, computed independently (strict: test_v24_c_review)
         self.assertEqual(report['rework'], {'resumed': 0, 'verification_failed': 0, 'retained': 0})
         import contextlib, io
         from onecrew.v2 import engine_cli

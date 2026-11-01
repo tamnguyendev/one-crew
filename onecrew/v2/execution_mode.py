@@ -32,7 +32,9 @@ MODES = ('continue_worker', 'overlap', 'run_now', 'tools', 'wait')
 UNKNOWN = 'unknown'
 SESSION_CAPABILITY = 'resume_session'
 KNOWLEDGE_ADAPTERS = ('common-native-artifact', 'managed-native-artifact')     # adapters whose prepare() adds knowledge.for_native
-MODEL_FREE = ('command',)                                                     # milestone verifier types that need no model (adapters: port)
+MODEL_FREE = ('command', 'adapter')        # check kinds that need no model: command milestones, read-only port adapters (no calls/commands)
+TOOLS_TRIES = 2                             # automatic tools tries per (node, generation, artifact) that end in an error; then `engine verify`
+TOOLS_CLAIM = 'tools_in_progress'
 
 
 def enabled(view):
@@ -52,11 +54,18 @@ def conflicts(a, b):
     return out
 
 
+def holders(view):
+    """Node ids that hold their resources now: active worker attempts and open tools claims (review C-R04)."""
+    return [a['node'] for a in view.get('active_nodes', [])] + [c['node'] for c in view.get('tool_claims', [])]
+
+
 def exclusive_blocks(view):
-    """Pending nodes that conflict with an ACTIVE node by read<->write or a shared resource (write overlap is already refused by _ready)."""
+    """Pending nodes that conflict with an ACTIVE node or an open tools run by read<->write or a shared resource (write overlap with an
+    active worker is already refused by _ready)."""
     nodes = {n['id']: n for n in (view.get('definition') or {}).get('nodes', [])}
     blocked = {}
-    for active in view.get('active_nodes', []):
+    for holder in holders(view):
+        active = {'node': holder}
         other = nodes.get(active['node'])
         if other is None: continue
         for nid, node in nodes.items():
@@ -76,23 +85,42 @@ def restored_from(node, record, declaration=None):
     return out
 
 
-def session(declaration=None, launched=None, returned=None):
-    """reuse True only when the adapter DECLARES resume_session and returned the same session id it launched with (the identity check of
-    v1 native_audit). Every shipped adapter declares nothing of the kind, so it is always False today."""
+def session(declaration=None, launched=None, returned=None, *, previous=None, pin=None, role=None):
+    """reuse True only when (review C-R06) the adapter DECLARES resume_session, this attempt CONTINUES an earlier attempt of the same node
+    chain (`previous`: {session_id, pin} of that attempt), the earlier attempt's recorded session id equals the one this attempt launched
+    with AND the one its receipt returns, the pin (provider, model, role) is unchanged, and the role is worker (never a reviewer). One
+    attempt echoing its own id is not reuse. Every shipped adapter declares nothing of the kind, so it is always False today."""
     declared = declaration is not None and declaration.supports(SESSION_CAPABILITY)
     if not declared:
         return {'reuse': False, 'evidence': None, 'basis': 'the adapter declares no resume_session: the context is rebuilt, not a warm start'}
+    evidence = {'launched': launched, 'returned': returned, 'previous': (previous or {}).get('session_id')}
     if not (isinstance(launched, str) and launched and isinstance(returned, str) and returned):
         return {'reuse': False, 'evidence': None, 'basis': 'resume_session declared but no launched/returned session id was reported'}
     if launched != returned:
-        return {'reuse': False, 'evidence': {'launched': launched, 'returned': returned}, 'basis': 'the returned session id differs from the launched one'}
-    return {'reuse': True, 'evidence': {'launched': launched, 'returned': returned}, 'basis': 'the adapter returned the session id it launched with'}
+        return {'reuse': False, 'evidence': evidence, 'basis': 'the returned session id differs from the launched one'}
+    if not previous or not previous.get('session_id'):
+        return {'reuse': False, 'evidence': evidence, 'basis': 'no earlier attempt of this node chain recorded a session: a new session, not a reuse'}
+    if previous['session_id'] != launched:
+        return {'reuse': False, 'evidence': evidence, 'basis': 'the earlier attempt recorded another session id'}
+    if role != 'worker':
+        return {'reuse': False, 'evidence': evidence, 'basis': 'only a worker may continue its session; a reviewer never uses the author session'}
+    same = lambda a, b: all((a or {}).get(k) == (b or {}).get(k) for k in ('provider', 'model', 'role'))
+    if not same(previous.get('pin'), pin):
+        return {'reuse': False, 'evidence': evidence, 'basis': 'the pin (provider, model, role) changed since the earlier attempt'}
+    return {'reuse': True, 'evidence': evidence, 'basis': 'the attempt continued the session the earlier attempt of this node chain recorded, same pin'}
 
 
 # ---- the choice ------------------------------------------------------------------------------------------------------------------
 
 def _wait(reasons, inputs, record, node, declaration, **extra):
     return _result('wait', reasons, inputs, record, node, declaration, **extra)
+
+
+def rewrite(decision, mode, reasons):
+    """The same decision with another mode and reasons, its inputs_sha recomputed so the hash covers what is recorded (review C-R12)."""
+    out = dict(decision, mode=mode, reasons=list(reasons))
+    out['inputs_sha'] = content_hash(dict(decision['inputs'], mode=mode, reasons=list(reasons)))
+    return out
 
 
 def _result(mode, reasons, inputs, record, node, declaration, **extra):
@@ -103,21 +131,34 @@ def _result(mode, reasons, inputs, record, node, declaration, **extra):
     return out
 
 
-def _tools(node, record, inputs, *, checker, check_types, declaration):
+def _tools(node, record, inputs, view, *, checker, check_types, declaration, tries):
     types = check_types or {}
-    needs_model = sorted(cid for cid, kind in types.items() if kind == 'reviewer')
-    unmapped = sorted(c['id'] for c in node.get('checks', []) if types.get(c['id']) is None)
+    ids = [c['id'] for c in node.get('checks', [])]
+    needs_model = sorted(cid for cid in ids if types.get(cid) == 'reviewer')
+    other = sorted(f'{cid}={types[cid]}' for cid in ids if types.get(cid) not in (None, 'reviewer') + MODEL_FREE)
+    unmapped = sorted(cid for cid in ids if types.get(cid) is None)
     if checker is None:
         return _wait(['no_model_free_checker'], inputs, record, node, declaration)
     if needs_model:
         return _wait(['review_needs_model:' + ','.join(needs_model)], inputs, record, node, declaration)
+    if other:                                                       # review C-R07: an allowlist; owner-manual is never tools
+        return _wait(['not_model_free:' + ','.join(other)], inputs, record, node, declaration)
     if unmapped and getattr(checker, 'model_free', False) is not True:
         return _wait(['checker_not_declared_model_free'], inputs, record, node, declaration)
+    if tries >= TOOLS_TRIES:                                        # review C-R08: bounded automatic retries; `engine verify` stays
+        return _wait([f'tools_tries_spent:{tries}'], inputs, record, node, declaration)
+    nodes = {n['id']: n for n in (view.get('definition') or {}).get('nodes', [])}
+    if node['id'] in [c['node'] for c in view.get('tool_claims', [])]:
+        return _wait([TOOLS_CLAIM], inputs, record, node, declaration)
+    for holder in holders(view):                                    # review C-R04: exactly the overlap rule against what runs now
+        if holder == node['id'] or holder not in nodes: continue
+        found = conflicts(node, nodes[holder])
+        if found: return _wait(['exclusive_resource:' + holder + ':' + '+'.join(found)], inputs, record, node, declaration)
     return _result('tools', ['produced_not_verified', 'checks_need_no_model'], inputs, record, node, declaration)
 
 
 def choose(node, view, *, slots, declaration=None, ceilings=None, previous=None, handover=None, peer=None, filling=False,
-           capacity=None, checker=None, check_types=None):
+           capacity=None, checker=None, check_types=None, tries=0):
     """The mode for `node` now. `peer`: the other worker node this one would run beside (the batch partner or an active node);
     `filling`: this node is the one that would take the SECOND slot (the overlap rule applies to it). `handover`: facts()['handover'];
     `capacity`: facts()['capacity']; `previous`: facts()['previous']; `ceilings`: internal_plan.ceilings. Returns
@@ -132,8 +173,8 @@ def choose(node, view, *, slots, declaration=None, ceilings=None, previous=None,
               'executor': declaration.view() if declaration is not None else None}
     if record.get('state') == 'produced' and record.get('phase') == 'complete':
         stable = {key: inputs[key] for key in ('node', 'generation', 'internal_revision', 'contract_sha')}
-        stable.update(artifact=record.get('artifact'), checks=[c['id'] for c in node.get('checks', [])], check_types=check_types or {})
-        return _tools(node, record, stable, checker=checker, check_types=check_types, declaration=None)
+        stable.update(artifact=record.get('artifact'), checks=[c['id'] for c in node.get('checks', [])], check_types=check_types or {}, tries=tries)
+        return _tools(node, record, stable, view, checker=checker, check_types=check_types, declaration=None, tries=tries)
     # (1) role, dependency, exclusive resources, budget, previous attempt, capacity
     if role != 'worker':
         return _wait(['not_a_worker_node'], inputs, record, node, declaration)
@@ -148,10 +189,11 @@ def choose(node, view, *, slots, declaration=None, ceilings=None, previous=None,
             return _wait(['exclusive_resource:' + active['node'] + ':' + '+'.join(found)], inputs, record, node, declaration)
     if previous and previous.get('attempt_status') in ('reserved', 'running', 'unknown'):
         return _wait(['previous_attempt_unresolved:' + str(previous['attempt_status'])], inputs, record, node, declaration)
+    tight = []
     if ceilings is not None:
+        # review C-R05: no wait of its own - the 2.3 admission (submit min(node, root), Control.reserve) decides; the record says it is tight
         inputs['remaining_calls'] = ceilings.get('remaining_calls')
-        if type(ceilings.get('remaining_calls')) is int and ceilings['remaining_calls'] < node['budget_calls']:
-            return _wait(['budget_exhausted'], inputs, record, node, declaration)
+        if type(ceilings.get('remaining_calls')) is int and ceilings['remaining_calls'] < node['budget_calls']: tight = ['budget_tight']
     if capacity is not None:
         inputs['capacity'] = {'active': capacity.get('active'), 'limit': capacity.get('limit')}
         if capacity.get('active', 0) >= capacity.get('limit', 2):
@@ -163,39 +205,51 @@ def choose(node, view, *, slots, declaration=None, ceilings=None, previous=None,
     missing = sorted(edge['node'] for edge in node.get('depends', []) if not view['nodes'].get(edge['node'], {}).get('artifact'))
     if missing:
         return _wait(['context_missing:' + ','.join(missing)], inputs, record, node, declaration)
-    reasons = ['context_package_present']
-    # (3) the mode
-    if record.get('resume_artifact') or record.get('continues'):
-        return _result('continue_worker', reasons + ['continues_own_attempt_chain', 'root_budget_not_reset', 'evidence_kept', 'not_a_model_session'],
-                       inputs, record, node, declaration)
+    reasons = ['context_package_present'] + tight
+    # (3) the mode. A continuation is recorded as continue_worker when it runs; taking the second slot follows the same overlap rule.
+    continuing = bool(record.get('resume_artifact') or record.get('continues'))
+    chain = ['continues_own_attempt_chain', 'root_budget_not_reset', 'evidence_kept', 'not_a_model_session']
+
+    def run(mode, why, **extra):
+        if continuing and mode == 'run_now' and filling:
+            return _result('run_now', reasons + why + ['continuation_deferred'], inputs, record, node, declaration, **extra)
+        if continuing:
+            return _result('continue_worker', reasons + chain + why, inputs, record, node, declaration, overlap=mode == 'overlap', **extra)
+        return _result(mode, reasons + why, inputs, record, node, declaration, **extra)
+
     concurrent = peer is not None
     if not concurrent:
-        return _result('run_now', reasons + (['single_slot'] if slots == 1 else ['no_independent_peer']), inputs, record, node, declaration)
+        return run('run_now', ['single_slot'] if slots == 1 else ['no_independent_peer'])
     if slots != 2 or declaration is None or not declaration.supports('isolate'):
-        return _result('run_now', reasons + ['no_isolated_second_slot'], inputs, record, node, declaration)
+        return run('run_now', ['no_isolated_second_slot'])
     found = conflicts(node, peer)
     if found:
-        return _result('run_now', reasons + ['exclusive_resource:' + peer['id'] + ':' + '+'.join(found)], inputs, record, node, declaration)
+        return run('run_now', ['exclusive_resource:' + peer['id'] + ':' + '+'.join(found)])
     if not filling:
-        return _result('overlap', reasons + ['beside:' + peer['id']], inputs, record, node, declaration)
+        return run('overlap', ['beside:' + peer['id']])
     if capacity is not None and capacity.get('active', 0) + 1 >= capacity.get('limit', 2) and not others:
-        return _result('run_now', reasons + ['capacity_one_slot'], inputs, record, node, declaration)
+        return run('run_now', ['capacity_one_slot'])
     gain = [node['estimate_seconds'][0]] + ([peer['estimate_seconds'][0]] if peer.get('estimate_seconds') else [])
     gain_seconds = min(gain)
     handover = handover or {'chars': UNKNOWN, 'seconds': UNKNOWN, 'basis': 'not measured'}
     inputs['handover'] = handover
     inputs['gain_seconds'] = gain_seconds
     if not node.get('depends'):
-        return _result('overlap', reasons + ['independent_branch', 'no_handover'], inputs, record, node, declaration,
-                       assumptions=['startup and integration costs are not measured; a branch that receives nothing from another node may '
-                                    'overlap under the simple policy (the mandatory integration node rechecks the whole)'])
+        return run('overlap', ['independent_branch', 'no_handover'],
+                   assumptions=['startup and integration costs are not measured; a branch that receives nothing from another node may '
+                                'overlap under the simple policy (the mandatory integration node rechecks the whole)'])
     if handover.get('seconds') == UNKNOWN or handover.get('seconds') is None:
-        return _result('run_now', reasons + ['handover_unknown'], inputs, record, node, declaration)
+        return run('run_now', ['handover_unknown'])
     if handover['seconds'] >= gain_seconds:
         upstream = handover.get('largest') or (node['depends'][0]['node'] if node.get('depends') else None)
-        return _result('run_now', reasons + ['handover_exceeds_gain'], inputs, record, node, declaration,
-                       recommendation=f'merge {nid} into {upstream} at plan time (engine revise, Q1): a worker does not outlive its attempt')
-    return _result('overlap', reasons + ['gain_exceeds_handover'], inputs, record, node, declaration)
+        return run('run_now', ['handover_exceeds_gain'],
+                   recommendation=f'merge {nid} into {upstream} at plan time (engine revise, Q1): a worker does not outlive its attempt')
+    return run('overlap', ['gain_exceeds_handover'])
+
+
+def fills(decision):
+    """Does this decision take the second slot (overlap, or a continuation that runs beside its partner)?"""
+    return decision['mode'] == 'overlap' or (decision['mode'] == 'continue_worker' and decision.get('overlap'))
 
 
 def idle(view):
@@ -305,7 +359,18 @@ def facts(ledger, conn, view, nid):
 def check_types(contract, node):
     """check id -> the verifier type of the approved milestone it names (None when it names none: a fixture or a direct checker)."""
     milestones = {m['id']: m for m in (contract or {}).get('milestones', [])}
-    return {c['id']: (milestones[c['id']]['verifier']['type'] if c['id'] in milestones else None) for c in node.get('checks', [])}
+    out = {}
+    for check in node.get('checks', []):
+        milestone = milestones.get(check['id'])
+        if milestone is None: out[check['id']] = None; continue
+        kind = milestone['verifier']['type']
+        if kind not in ('command', 'reviewer'):
+            from .verifiers import port
+            if port.known(kind):
+                granted = (milestone['verifier'].get('config') or {}).get('authority') or {}
+                kind = 'adapter_metered' if granted.get('calls') or granted.get('commands') else 'adapter'
+        out[check['id']] = kind
+    return out
 
 
 # ---- measurement (read-only) -----------------------------------------------------------------------------------------------
@@ -355,7 +420,9 @@ def measure(ledger, selector):
             if payload.get('result') == 'fail': rework['verification_failed'] += 1
         elif kind == 'node.resumed': rework['resumed'] += 1
         elif kind == 'node.result_retained': rework['retained'] += 1
+    corrected = {p['corrects']: p for _, kind, p, _ in rows if kind == 'workflow.mode' and p.get('corrects')}   # review C-R12
     for attempt_id, item in attempts.items():
+        if attempt_id in corrected: item['mode'] = corrected[attempt_id]['mode']
         decided = [t for t in q2.get(item['node'], []) if t and item['started'] and t <= item['started']]
         body = None
         for _, kind, payload, _ in rows:
@@ -366,14 +433,25 @@ def measure(ledger, selector):
                             'preparation_seconds': _span(item['reserved'], item['launched']),
                             'execution_seconds': _span(item['launched'], item['settled']),
                             'span_seconds': _span(item['reserved'], item['settled']),
+                            'reserved_at': item['reserved'].isoformat() if item['reserved'] else UNKNOWN,
+                            'settled_at': item['settled'].isoformat() if item['settled'] else UNKNOWN,
                             'prompt_chars': (body or {}).get('prompt_chars', UNKNOWN)})
-    # waits: a persisted mode wait lasts until the next record (or node.started) of the same node; still open -> until unknown
-    mode_rows = [(at, payload) for _, kind, payload, at in rows if kind in ('workflow.mode', 'node.started')]
-    for index, (at, payload) in enumerate(mode_rows):
-        if payload.get('mode') != 'wait': continue
-        later = next((t for t, p in mode_rows[index + 1:] if p.get('node') == payload.get('node') and p.get('mode') != 'wait'
-                      or (payload.get('node') is None and p.get('mode') != 'wait')), None)
-        waits.append({'node': payload.get('node'), 'reasons': payload.get('mode_reasons', payload.get('reasons')), 'at': at.isoformat() if at else UNKNOWN,
+    # waits (review C-R14): a recorded wait, or a second slot not filled (run_now while filling), lasts until the node's next record that
+    # is not a wait (node.started, a tools run); a root wait until any node starts or is checked, or - the last wait of the root - until
+    # the root's last event when that is later; still open otherwise -> until unknown, never 0
+    def waiting(kind, payload):
+        return kind == 'workflow.mode' and not payload.get('corrects') and (
+            payload.get('mode') == 'wait' or (payload.get('mode') == 'run_now' and (payload.get('inputs') or {}).get('filling')))
+    mode_rows = [(at, kind, payload) for _, kind, payload, at in rows if kind in ('workflow.mode', 'node.started') and not payload.get('corrects')]
+    last_event = rows[-1][3] if rows else None
+    for index, (at, kind, payload) in enumerate(mode_rows):
+        if not waiting(kind, payload): continue
+        nid = payload.get('node')
+        if nid is None:                                              # the next record of any node ends it (union keeps it continuous)
+            later = next((t for t, _, _ in mode_rows[index + 1:]), None) or (last_event if last_event and at and last_event > at else None)
+        else:
+            later = next((t for t, k, p in mode_rows[index + 1:] if not waiting(k, p) and p.get('node') == nid), None)
+        waits.append({'node': nid, 'reasons': payload.get('mode_reasons', payload.get('reasons')), 'at': at.isoformat() if at else UNKNOWN,
                       'until': later.isoformat() if later else UNKNOWN, 'seconds': _span(at, later) if later else UNKNOWN})
     from .executors import summary
     observed_waits = [w for a in summary(ledger, root['selector'])['attempts'] for w in a['waits']]
