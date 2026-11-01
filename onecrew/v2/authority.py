@@ -29,6 +29,10 @@ BOOL_FIELDS = ('edit', 'commands', 'apply_to_project', 'edit_tests', 'unconfined
 FIELDS = BOOL_FIELDS + ('local_branches', 'branch_at', 'granted_actions', 'self_decide', 'auto_accept')
 GRANTED_ACTION = re.compile(r'[a-z][a-z0-9_]{0,40}(:[a-z0-9_.-]{1,40})?')
 MAX_GRANTED = 20
+# 2.4-A: the optional read grant of a root (folders, files or globs its workers may read by request, v2/source_tools). It is not one of the
+# O2 decision fields above: it delegates no decision and ranks nobody; a contract without it is byte-identical to before.
+READ = 'read'
+MAX_READ = 40
 
 
 # ---- path helpers ------------------------------------------------------------------------------------------------------
@@ -86,8 +90,8 @@ def owned_match(path, patterns):
 
 def normalize(raw):
     """The `authority` object of a root contract, normalized, or LedgerError ('authority: ...'). Unknown fields are refused: no rank, no class."""
-    if not isinstance(raw, dict) or set(raw) - set(FIELDS) - {'push'}:
-        extra = sorted(set(raw) - set(FIELDS) - {'push'}) if isinstance(raw, dict) else []
+    if not isinstance(raw, dict) or set(raw) - set(FIELDS) - {'push', READ}:
+        extra = sorted(set(raw) - set(FIELDS) - {'push', READ}) if isinstance(raw, dict) else []
         raise LedgerError('authority: unknown fields ' + ','.join(map(str, extra)) + '; the grant is ' + ', '.join(FIELDS) + '.' if extra
                           else 'authority: expected an object.')
     v1 = work_contract.normalize_authority({k: v for k, v in raw.items() if k in work_contract.AUTHORITY})
@@ -100,7 +104,31 @@ def normalize(raw):
         raise LedgerError('authority.self_decide: a list of ' + ', '.join(Q_IDS) + ' (the table is fixed in code).')
     if raw.get('auto_accept', []) != []:
         raise LedgerError('authority.auto_accept: root self-acceptance is not enabled (decision O4 is the owner\'s); the list stays empty.')
-    return dict(v1, granted_actions=sorted(set(granted)), self_decide=sorted(set(decide_list), key=Q_IDS.index), auto_accept=[])
+    out = dict(v1, granted_actions=sorted(set(granted)), self_decide=sorted(set(decide_list), key=Q_IDS.index), auto_accept=[])
+    if READ in raw: out[READ] = read_patterns(raw[READ])
+    return out
+
+
+def read_pattern(value, what='authority.read'):
+    """One relative folder, file or glob a worker may read (2.4-A): the grant path rules (no traversal, no absolute or device names) and no
+    control or credential component (.git, .onecrew, .ssh, .aws, .env*)."""
+    if not isinstance(value, str): raise LedgerError(f'{what}: a relative folder, file or glob.')
+    text = value.replace('\\', '/')
+    while text.startswith('./'): text = text[2:]
+    try:
+        _scope_path(text, pattern=True)
+    except LedgerError as error:
+        raise LedgerError(f'{what}: ' + str(error).split(': ', 1)[-1]) from None
+    from ..snapshots import control_part
+    if any(control_part(part) for part in text.rstrip('/').split('/')):
+        raise LedgerError(f'{what}: a control or credential path is never granted for reading: {text}')
+    return text
+
+
+def read_patterns(value, what='authority.read'):
+    if not isinstance(value, list) or not 1 <= len(value) <= MAX_READ:
+        raise LedgerError(f'{what}: 1-{MAX_READ} folders, files or globs the workers of this root may read.')
+    return sorted({read_pattern(p, what) for p in value})
 
 
 def seal(contract):

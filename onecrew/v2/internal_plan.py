@@ -8,7 +8,7 @@ import re
 from ..ledger import LedgerError, canonical, content_hash, text_field, utcnow
 from ..snapshots import Snapshots, scope_list
 from .. import budget_core
-from . import authority, contract as contracts, estimates, namespaces, plan as plans
+from . import authority, contract as contracts, estimates, namespaces, plan as plans, source_tools
 
 KIND = 'plan.revised'
 
@@ -154,7 +154,7 @@ def _validate(nodes, outputs):
               'estimate_seconds', 'execution_cap_seconds', 'budget_calls', 'checks', 'integration'}
     result, known = copy.deepcopy(nodes), set()
     for node in result:
-        if not isinstance(node, dict) or not fields <= set(node) or set(node) - fields - {'executor', 'indivisible'}:
+        if not isinstance(node, dict) or not fields <= set(node) or set(node) - fields - {'executor', 'indivisible', 'sources'}:
             raise LedgerError('Internal node fields must explicitly declare goal, inputs/outputs, acceptance, dependencies, scope, resources, estimate, cap, budget and checks.')
         contracts._id(node['id'], 'node id')
         if 'executor' in node:
@@ -178,6 +178,8 @@ def _validate(nodes, outputs):
             if any(SHORT_NAME.fullmatch(part) for path in node[field] for part in path.split('/')):
                 raise LedgerError('A Windows 8.3 short-name component (like LONGNA~1.TXT) is refused in node read/write scopes: name the long '
                                   'path, so two spellings of one file can never hold two scopes (2.3-B Q6).')
+        if 'sources' in node:                       # 2.4-A: read the project by request (v2/source_tools); the root grant is checked in revise
+            node['sources'] = source_tools.validate_spec(node['sources'])
         node['estimate_seconds'] = estimates.interval(node['estimate_seconds'])
         cap = node['execution_cap_seconds']
         exception = node.get('indivisible')
@@ -303,6 +305,7 @@ def revise(ledger, selector, nodes, *, reason, evidence, expected_revision=None)
         decide(ledger, state, contract, sha, {'kind': 'change_acceptance', 'nodes': [n.get('id') for n in nodes],
                                               'changes': diff['changes'][:20], 'summary': diff['summary']}, ctx, 'onecrew.internal_plan')
     normalized = _validate(nodes, outputs)
+    source_tools.check_plan(contract, normalized)      # 2.4-A: a node's read scope stays inside the root read grant
     if old_nodes:
         # W19 (T38c): a node whose generation this revision moves cannot keep a repair marker bound to its old generation.
         from . import repair_tasks

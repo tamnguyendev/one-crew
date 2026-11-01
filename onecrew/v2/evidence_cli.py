@@ -62,6 +62,9 @@ def _parser():
     p = wk.add_parser('export', help='2.3-A2: write the live project knowledge as a derived Markdown page (copies keep their ledger id).')
     p.add_argument('--out', required=True, type=Path)
     wk.add_parser('history', help='2.3-A2: every knowledge record with its status (active, withdrawn, archived, superseded, contested).')
+    p = wk.add_parser('consumers', help='2.4-B: per open node, the package last delivered to it and what changed since (none, withdrawn, changed, '
+                     'added_mandatory, source_changed, input_changed). Read-only; it grants or refuses nothing.')
+    p.add_argument('--plan', required=True); p.add_argument('--json', action='store_true', help='JSON output (the default)')
     return parser
 
 
@@ -117,6 +120,9 @@ def _run(args):
         ledger = _ledger(args, True)
         if args.command == 'pages': return knowledge.pages_report(ledger)
         if args.command == 'history': return {'data_not_authority': True, 'records': knowledge.records(ledger, history=True)}
+        if args.command == 'consumers':
+            from . import working_context
+            return working_context.consumers_report(ledger, args.plan)
         if args.command in ('record', 'withdraw', 'archive', 'summarize', 'export'):
             writer = _ledger(args, False)
             if args.command == 'record':

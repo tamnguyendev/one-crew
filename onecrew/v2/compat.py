@@ -39,6 +39,7 @@ CLASS_A = (
     'plan.baseline_recorded',                         # P1-D (review a2476ab): the owner records the base tree of a root approved by a build that kept none
     'support.feedback', 'support.classified', 'support.linked', 'support.bundle', 'support.user_confirmed',   # 2.4-S1: on the support anchor only
     'support.target', 'support.artifact', 'support.install_prepared', 'support.install', 'support.recheck', 'support.resumed',   # 2.4-S2
+    'knowledge.delivered',                            # 2.4-B: what one attempt was given (v2/working_context); nothing reads it as status or gate for the old version
 )
 CLASS_B = (
     'solution.linked',
