@@ -102,6 +102,7 @@ py-modules = [
     "onecrew.v2.notification_window",
     "onecrew.v2.internal_plan",
     "onecrew.v2.engine",
+    "onecrew.v2.execution_mode",
     "onecrew.v2.engine_cli",
     "onecrew.v2.node_actions_cli",
     "onecrew.v2.incidents",

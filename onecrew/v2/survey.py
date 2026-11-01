@@ -48,6 +48,10 @@ class CapReached(LedgerError):
     """The survey reached its time or call cap: nothing more may run."""
 
 
+class InvestigationCapReached(LedgerError):
+    """2.4-C: the step-0 investigation declared on the proposal has no room left for this survey (the stop point)."""
+
+
 # ---- the spec -----------------------------------------------------------------------------------------------------------------
 
 def _int(value, name, low, high):
@@ -97,21 +101,81 @@ def states(conn, task_id):
     return out
 
 
+INVALID_INVESTIGATION = ('investigation_unscoped', 'investigation_cap', 'investigation_widened')
+
+
+def effective_investigation(checks):
+    """2.4-C (review C-R02): the investigation bound of the plan from its proposal checks, in order. The first check that declares one
+    AND passes the investigation rules fixes it; a later valid check may only lower the cap (kept as the minimum) and keeps the first
+    paths; a declaration the rules refused never counts. None when no valid declaration exists."""
+    fixed = None
+    for payload in checks:
+        declared = (payload.get('card_fields') or {}).get('investigation')
+        if not declared or any((r.get('code') if isinstance(r, dict) else r[0]) in INVALID_INVESTIGATION for r in payload.get('reasons', [])):
+            continue
+        if fixed is None:
+            fixed = {'cap': dict(declared['cap']), 'paths': list(declared['paths']), 'stop_when': declared['stop_when']}
+        else:
+            fixed['cap'] = {key: min(fixed['cap'][key], declared['cap'][key]) for key in ('minutes', 'calls')}
+    return fixed
+
+
+def investigation_of(conn, task_id):
+    """2.4-C: the plan's effective step-0 investigation (effective_investigation over its proposal checks), or None."""
+    return effective_investigation([json.loads(row['payload']) for row in conn.execute(
+        "SELECT payload FROM events WHERE task_id=? AND kind='proposal.checked' ORDER BY seq", (task_id,))])
+
+
+def totals(items):
+    """What the plan's step-0 surveys reserved (sum of opened caps) and spent (sum of finished `spent`). The sum runs over the whole plan,
+    not one revision: an answered survey closes its unknown by an amendment, which moves the revision."""
+    opened = {'minutes': 0, 'calls': 0}
+    spent = {'seconds': 0, 'calls': 0}
+    for item in items.values():
+        opened['minutes'] += item['opened']['cap']['minutes']; opened['calls'] += item['opened']['cap']['calls']
+        if item['finished']:
+            spent['seconds'] += (item['finished'].get('spent') or {}).get('seconds', 0) or 0
+            spent['calls'] += (item['finished'].get('spent') or {}).get('calls', 0) or 0
+    return opened, spent
+
+
+def _within(path, roots):
+    return any(path == root or path.startswith(root.rstrip('/') + '/') for root in roots)
+
+
 def _next_id(known, unknown_id):
     base, n = f'S-{unknown_id}', 1
     while (base if n == 1 else f'{base}-{n}') in known: n += 1
     return base if n == 1 else f'{base}-{n}'
 
 
-def open_in(ledger, conn, state, unknown, spec=None):
+def open_in(ledger, conn, state, unknown, spec=None, investigation=None):
     """Write `survey.opened` for `unknown` (a dict with id, question, affected, required_by) inside the caller's write transaction. A survey for the same
-    unknown that is still open is returned instead of opening a second one. Returns the opened payload."""
+    unknown that is still open is returned instead of opening a second one. Returns the opened payload.
+    2.4-C: under a declared step-0 investigation (`investigation`, else the one of the plan's latest proposal check) the survey reads only
+    the investigation's explicit paths, ends by its stop_when, and is refused (InvestigationCapReached, nothing written) when the caps
+    already opened on the plan leave no room for it: the investigation stops there."""
     from . import plan as plans
     _scoped_unknown(unknown)
     existing = states(conn, state['task_id'])
     for sid, item in existing.items():
         if item['opened']['unknown'] == unknown['id'] and item['opened']['revision'] == state['latest'] and item['finished'] is None: return item['opened']
-    spec = validate_spec(dict(DEFAULT_SPEC, **(spec or {})))
+    investigation = investigation or investigation_of(conn, state['task_id'])
+    if investigation:
+        opened, _ = totals(existing)
+        room = {'minutes': investigation['cap']['minutes'] - opened['minutes'], 'calls': investigation['cap']['calls'] - opened['calls']}
+        if room['minutes'] < 1 or room['calls'] < 1:
+            raise InvestigationCapReached(f'the step-0 investigation cap {investigation["cap"]} is used up by the surveys already opened ({opened}): '
+                                          f'no survey for {unknown["id"]}; it stays open and what waits for it stays held.')
+        base = {'cap': {'minutes': min(DEFAULT_SPEC['cap']['minutes'], room['minutes']), 'calls': min(DEFAULT_SPEC['cap']['calls'], room['calls'])},
+                'end_condition': investigation['stop_when'], 'scope': {'mode': 'read_only', 'paths': list(investigation['paths'])}}
+        spec = validate_spec(dict(base, **(spec or {})))
+        if spec['cap']['minutes'] > room['minutes'] or spec['cap']['calls'] > room['calls']:
+            raise InvestigationCapReached(f'survey cap {spec["cap"]} exceeds what the step-0 investigation has left ({room}).')
+        if any(p == '.' or not _within(p, investigation['paths']) for p in spec['scope']['paths']):
+            raise LedgerError('survey scope.paths must stay inside the investigation paths ' + ', '.join(investigation['paths']) + '.')
+    else:
+        spec = validate_spec(dict(DEFAULT_SPEC, **(spec or {})))
     payload = {'plan': state['name'], 'revision': state['latest'], 'survey': _next_id(existing, unknown['id']), 'unknown': unknown['id'],
                'question': spec.get('question') or unknown['question'], 'affected': list(unknown['affected']), 'required_by': unknown['required_by'],
                'hypothesis': spec.get('hypothesis'), 'cap': spec['cap'], 'end_condition': spec['end_condition'], 'scope': spec['scope']}

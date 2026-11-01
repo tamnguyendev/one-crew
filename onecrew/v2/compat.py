@@ -50,6 +50,7 @@ CLASS_B = (
     'finding.registered',
     'plan.revoked', 'plan.revised', 'plan.closed', 'request.applied',
     'decision.hold', 'decision.defer', 'milestone.held',              # W26 rule-based decisions / W36 pauses (named here for the boundary)
+    'workflow.mode',                                  # 2.4-C: the recorded execution-mode choice of a node (waits included); plan-ns roots only
 )
 
 # The fields the OLD version reads for each class-0 kind. A class-0 write that drops one, or stores it as the wrong type, is a read

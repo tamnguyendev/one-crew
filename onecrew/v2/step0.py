@@ -434,9 +434,15 @@ def review_proposal(ledger, name, requirement, proposal):
     refused as 'requirement changed' (recorded, so the hold stays) - the caller cannot drop an acceptance to make a proposal pass.
     Writes no request to the owner."""
     from . import plan as plans, proposal as proposals, survey
-    result = proposals.check(ledger, requirement, proposal)
     requirement_sha = content_hash(proposals.validate_requirement(requirement))
+    history = proposal_history(ledger, name, requirement_sha)        # 2.4-C: spent, earlier unknowns and their closing evidence, the fixed bound
+    result = proposals.check(ledger, requirement, proposal, history=history)
     body = {'requirement': requirement, 'proposal': proposal}
+    declared = (result.get('card_fields') or {}).get('investigation')
+    current = {'card_fields': {'investigation': declared}, 'reasons': [{'code': c} for c, _ in result['reasons']]}
+    investigation = survey.effective_investigation(history['checks'] + [current]) if declared or history['investigation'] else None
+    # a card that declares no valid investigation opens no survey (never a default scan of the whole project); old proposals keep W31a
+    opens = not result.get('card_fields') or investigation is not None
     with ledger.transaction(write=True) as conn:
         state = plans.anchor_events(ledger, conn, name)
         bound = next((p.get('requirement_sha') for p in _proposal_checks(conn, state['task_id']) if p.get('requirement_sha')), None)
@@ -445,15 +451,169 @@ def review_proposal(ledger, name, requirement, proposal):
                           reasons=[('requirement_changed', 'the request differs from the one the first proposal check of this plan was held to '
                                                            f'({bound[:12]}); the request is the owner\'s and cannot be changed by the check file.')] + list(result['reasons']))
         for unknown in result['unknowns']:
-            if unknown['id'] in result['survey_required']:
-                survey.open_in(ledger, conn, state, unknown, unknown.get('survey'))
-        plans.emit(ledger, conn, state['task_id'], 'proposal.checked',
-                   {'plan': name, 'revision': state['latest'], 'result': result['result'], 'ok': result['ok'],
-                    'reasons': [{'code': c, 'text': t} for c, t in result['reasons']], 'table': result['table'], 'backlog': result['backlog'],
-                    'preferred': result['preferred'], 'unknowns': result['unknowns'], 'survey_required': result['survey_required'],
-                    'extras': result['extras'], 'owner_requests': 0, 'input_sha': content_hash(body),
-                    'requirement_sha': bound or requirement_sha, 'destructive': _destructive(proposals.validate_requirement(requirement), result)})
+            if unknown['id'] in result['survey_required'] and opens:
+                try:
+                    survey.open_in(ledger, conn, state, unknown, unknown.get('survey'), investigation=investigation)
+                except survey.InvestigationCapReached as error:       # 2.4-C stop point: the unknown stays open, approval stays held
+                    result = dict(result, ok=False, reasons=list(result['reasons']) + [('investigation_cap_spent', str(error))])
+                except LedgerError as error:                           # review C-R16: recorded as a refusal, never an aborted check
+                    result = dict(result, ok=False, reasons=list(result['reasons']) + [('survey_refused', str(error)[:300])])
+        payload = {'plan': name, 'revision': state['latest'], 'result': result['result'], 'ok': result['ok'],
+                   'reasons': [{'code': c, 'text': t} for c, t in result['reasons']], 'table': result['table'], 'backlog': result['backlog'],
+                   'preferred': result['preferred'], 'unknowns': result['unknowns'], 'survey_required': result['survey_required'],
+                   'extras': result['extras'], 'owner_requests': 0, 'input_sha': content_hash(body),
+                   'requirement_sha': bound or requirement_sha, 'destructive': _destructive(proposals.validate_requirement(requirement), result)}
+        if 'card_fields' in result:
+            # 2.4-C: the card summary and its hash ride the same class-A event (no new kind, no second approval)
+            payload.update(card_fields=dict(result['card_fields'], before=result['before'], after=result['after'], rationale=result['rationale']))
+            contract, _ = plans.load(ledger, state)
+            view = card(contract, payload, survey.states(conn, state['task_id']), _baseline(conn, state['task_id']),
+                        history=dict(history, investigation=investigation))
+            payload.update(card={k: view[k] for k in ('enough', 'not_enough', 'estimate', 'investigation', 'unknowns_open')}, card_sha=content_hash(view))
+            result = dict(result, card=view, card_sha=payload['card_sha'])
+        plans.emit(ledger, conn, state['task_id'], 'proposal.checked', payload)
     return result
+
+
+def proposal_history(ledger, name, requirement_sha=None, conn=None):
+    """2.4-C (review C-R01/C-R02): what earlier proposal checks of the plan's request established. `listed`: the decision-changing unknowns
+    (required_by option_choice / estimate / approval) an earlier check listed open; `closed`: those with closing evidence in the ledger
+    (unknown.closed, a survey answered for it, an owner decision record scoped `unknown:<id>`); `investigation`: the fixed bound
+    (survey.effective_investigation); `spent`: what the plan's surveys spent. Only checks bound to the same request count."""
+    from . import plan as plans, proposal as proposals, survey
+    if conn is None:
+        with ledger.transaction() as connection:
+            return proposal_history(ledger, name, requirement_sha, connection)
+    state = plans.anchor_events(ledger, conn, name)
+    checks = _proposal_checks(conn, state['task_id'])
+    bound = next((p.get('requirement_sha') for p in checks if p.get('requirement_sha')), None) or requirement_sha
+    checks = [p for p in checks if p.get('requirement_sha') in (None, bound)]
+    listed = {}
+    for payload in checks:
+        for unknown in payload.get('unknowns', []):
+            if unknown.get('status') == 'open' and unknown.get('required_by') in proposals.REQUIRED_BY: listed[unknown['id']] = unknown
+    items = survey.states(conn, state['task_id'])
+    closed = {uid: 'unknown.closed' for uid in closed_events(conn, state['task_id'])}
+    for item in items.values():
+        if item['finished'] and item['finished']['status'] == 'answered': closed.setdefault(item['opened']['unknown'], 'survey.answered')
+    for row in conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='decision.recorded'", (state['task_id'],)):
+        payload = json.loads(row['payload'])
+        scope = str(payload.get('scope') or '')
+        if payload.get('actor') == 'owner' and scope.startswith('unknown:'): closed.setdefault(scope[len('unknown:'):], 'owner_decision')
+    _, spent = survey.totals(items)
+    return {'listed': listed, 'closed': closed, 'investigation': survey.effective_investigation(checks), 'spent': spent, 'checks': checks}
+
+
+# ---- the step-0 card (2.4-C) ---------------------------------------------------------------------------------------------
+
+NOT_ENOUGH_DATA = 'chưa đủ dữ liệu'
+
+
+def _baseline(conn, task_id):
+    row = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='estimate.baseline' ORDER BY seq DESC LIMIT 1", (task_id,)).fetchone()
+    return json.loads(row['payload']) if row else None
+
+
+def card(contract, proposal_check, surveys, baseline=None, history=None):
+    """The step-0 card: a derived, read-only view (nothing is written here). Goal, before -> after, the preferred option and why, what stays
+    unchanged, the acceptance, the unknowns that can still change the decision (required_by option_choice / estimate / approval), the
+    estimate as a sourced range or "chưa đủ dữ liệu", and the investigation (cap, what the surveys spent, why it stopped). `enough` is the
+    check's own verdict plus the open unknowns and the cap: no rule here that the gate (proposal.RULES via evaluate) does not apply."""
+    from . import proposal as proposals, survey as surveys_
+    check = proposal_check or {}
+    fields = check.get('card_fields') or {}
+    understanding = contract['understanding']
+    answered = {item['opened']['unknown'] for item in surveys.values() if item['finished'] and item['finished']['status'] == 'answered'}
+    blocked = {item['opened']['unknown'] for item in surveys.values() if item['finished'] and item['finished']['status'] == 'blocked'}
+    open_now = [{'id': u['id'], 'question': u['question'], 'required_by': u.get('required_by'), 'affected': u.get('affected'), 'source': 'proposal'}
+                for u in check.get('unknowns', [])
+                if u.get('status') == 'open' and u.get('required_by') in proposals.REQUIRED_BY and u['id'] not in answered]
+    seen = {u['id'] for u in open_now}
+    for uid, u in sorted(((history or {}).get('listed') or {}).items()):      # review C-R01: dropped or self-closed without evidence stays open
+        if uid not in seen and uid not in (history.get('closed') or {}) and uid not in answered:
+            open_now.append({'id': uid, 'question': u.get('question'), 'required_by': u.get('required_by'), 'affected': u.get('affected'),
+                             'source': 'earlier_check'})
+            seen.add(uid)
+    open_now += [{'id': u['id'], 'question': u['question'], 'required_by': u.get('required_by'), 'affected': u.get('affected'), 'source': 'contract'}
+                 for u in understanding['unknowns'] if u['status'] == 'open' and u.get('required_by') in proposals.REQUIRED_BY and u['id'] not in seen]
+    estimate = fields.get('estimate')
+    waits_estimate = [u['id'] for u in open_now if u['required_by'] == 'estimate']
+    if estimate and estimate.get('range') and not waits_estimate:
+        shown = {'range': estimate['range'], 'evidence': estimate.get('evidence', []), 'source': 'proposal'}
+    elif not estimate and baseline and baseline.get('execution_seconds') and not waits_estimate:
+        shown = {'range': baseline['execution_seconds'], 'evidence': baseline.get('evidence', []), 'source': 'estimate.baseline'}
+    else:
+        missing = (estimate or {}).get('missing') or ('unknown ' + ', '.join(waits_estimate) if waits_estimate else 'no sourced range was given')
+        shown = {'status': NOT_ENOUGH_DATA, 'missing': missing}
+    opened, spent = surveys_.totals(surveys)
+    declared = ((history or {}).get('investigation') or fields.get('investigation')) if history is not None else fields.get('investigation')
+    if declared:
+        cap = declared['cap']
+        over = spent['seconds'] > cap['minutes'] * 60 or spent['calls'] > cap['calls']
+        used_up = opened['minutes'] >= cap['minutes'] or opened['calls'] >= cap['calls']
+        decision_open = [u['id'] for u in open_now if u['required_by'] in ('option_choice', 'approval')]
+        stopped = ('no_open_unknown' if not decision_open else 'survey_blocked' if set(decision_open) & blocked
+                   else 'cap_spent' if used_up or over or any(r.get('code') == 'investigation_cap_spent' for r in check.get('reasons', [])) else None)
+        investigation = {'cap': cap, 'paths': declared['paths'], 'stop_when': declared['stop_when'], 'opened': opened, 'spent': spent,
+                         'over_cap': over, 'stopped_because': stopped}
+    else:
+        investigation = {'cap': None, 'opened': opened, 'spent': spent, 'stopped_because': None}
+    not_enough = [r.get('code') for r in check.get('reasons', [])] if check.get('result') != 'ok' else []
+    not_enough += ['unknown_open:' + u['id'] for u in open_now if u['required_by'] in ('option_choice', 'approval')]
+    if investigation.get('over_cap'): not_enough.append('investigation_over_cap')
+    if not check: not_enough.append('no_proposal_check')
+    return {'goal': understanding['restated_goal'], 'before': fields.get('before') or check.get('before'),
+            'after': fields.get('after') or check.get('after'), 'preferred': check.get('preferred'), 'summary': fields.get('summary'),
+            'why': fields.get('rationale') or check.get('rationale'),
+            'preserve': fields.get('preserve') or [], 'non_goals': contract.get('non_goals') or [],
+            'acceptance': fields.get('acceptance') or [{'id': f'O{n}', 'text': text} for n, text in enumerate(contract['output'], 1)],
+            'unknowns_open': open_now, 'estimate': shown, 'investigation': investigation,
+            'result': check.get('result'), 'in_authority': check.get('in_authority'), 'owner_requests': check.get('owner_requests', 0),
+            'enough': bool(check) and not not_enough, 'not_enough': list(dict.fromkeys(not_enough)),
+            'checked_revision': check.get('revision'), 'card_sha_recorded': check.get('card_sha')}
+
+
+def show_card(ledger, name):
+    """`plan step0 show`: the card of the plan's latest revision, from the ledger (read-only)."""
+    from . import plan as plans, survey
+    with ledger.transaction() as conn:
+        state = plans.anchor_events(ledger, conn, name)
+        contract, _ = plans.load(ledger, state)
+        check = latest_proposal_check(conn, state['task_id'], state['latest'])
+        if check is None:                                   # the latest check of any revision (an answered survey amends the revision)
+            checks = _proposal_checks(conn, state['task_id'])
+            check = checks[-1] if checks else None
+        history = proposal_history(ledger, name, check.get('requirement_sha') if check else None, conn)
+        view = card(contract, check, survey.states(conn, state['task_id']), _baseline(conn, state['task_id']), history=history)
+    return dict(view, plan=name, revision=state['latest'])
+
+
+def render_card(view):
+    """The card as a few Vietnamese lines for the owner."""
+    def items(rows): return '; '.join(f'{r["id"]} {r["text"]}' for r in rows) or 'không nêu'
+    est = view['estimate']
+    estimate = (f'{est["range"][0]}–{est["range"][1]} giây (căn cứ: {", ".join(est["evidence"]) or "không có"}; nguồn {est["source"]})'
+                if 'range' in est else f'{NOT_ENOUGH_DATA} (thiếu: {est["missing"]})')
+    inv = view['investigation']
+    if inv['cap']:
+        investigation = (f'trần {inv["cap"]["minutes"]} phút / {inv["cap"]["calls"]} lượt, chỉ đọc {", ".join(inv["paths"])}; đã dùng '
+                         f'{inv["spent"]["seconds"]:g} giây / {inv["spent"]["calls"]} lượt; dừng vì: {inv["stopped_because"] or "chưa dừng"}')
+    else:
+        investigation = f'không khai trần; đã dùng {inv["spent"]["seconds"]:g} giây / {inv["spent"]["calls"]} lượt'
+    unknowns = '; '.join(f'{u["id"]} ({u["required_by"]}): {u["question"]}' for u in view['unknowns_open']) or 'không còn'
+    lines = [f'BƯỚC 0 {view["plan"]} (revision {view["revision"]}) — đủ để làm: {"có" if view["enough"] else "chưa"}',
+             f'Mục tiêu: {view["goal"]}',
+             f'Trước: {view["before"] or "không nêu"}',
+             f'Sau: {view["after"] or "không nêu"}',
+             f'Phương án ưu tiên: {view["preferred"] or "chưa có"}' + (f' — {view["summary"]}' if view.get('summary') else ''),
+             f'Vì sao: {view["why"] or "không nêu"}',
+             f'Giữ nguyên: {items(view["preserve"])}',
+             f'Nghiệm thu: {items(view["acceptance"])}',
+             f'Điều chưa biết có thể đổi quyết định: {unknowns}',
+             f'Ước lượng: {estimate}',
+             f'Điều tra: {investigation}']
+    if view['not_enough']: lines.append('Chưa đủ vì: ' + ', '.join(view['not_enough']))
+    return '\n'.join(lines)
 
 
 # ---- decision cards (W30a) ----------------------------------------------------------------------------------------------

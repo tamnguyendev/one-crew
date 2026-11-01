@@ -20,6 +20,14 @@ bounded survey (`survey_first`).
 
 `check` returns {ok, result, reasons, table, backlog, ...}; `RULES` is the ordered list of rules, so a test can remove one and show
 that the sample it should catch then passes (the counter-proof).
+
+2.4-C, the step-0 card ("enough to act on"): three OPTIONAL fields - `preserve` [{id, text}] (what stays unchanged), `investigation`
+{cap {minutes, calls}, paths [explicit], stop_when} (the bound of the step-0 surveys) and `estimate` ({range [lo, hi] seconds,
+evidence [...]} or {status: not_enough_data, missing}). A proposal that uses none of them is checked exactly as before. One that uses any of
+them opts into the card rules: what a modify/delete change keeps is stated (`preserve_missing`); the estimate is a sourced range or an
+explicit "not enough data", never 0 or a bare number (`estimate_*`); the investigation names explicit paths ('.' is the whole project) and
+spends no more than its cap (`investigation_*`); an open unknown the approval waits for holds it (`unknown_open`). Estimates never become
+caps or budgets.
 """
 from pathlib import Path
 
@@ -34,6 +42,9 @@ CLOSES = {'delete': lambda entries: set(entries),             # a deleted route/
           'hide': lambda entries: set(entries) & {'menu'},    # a hidden menu entry leaves the URL and the API usable
           'modify': lambda entries: set()}                    # a modification closes nothing by itself
 REQUIRED_BY = ('option_choice', 'estimate', 'approval')
+CARD_FIELDS = ('preserve', 'investigation', 'estimate')        # 2.4-C: optional; any one present opts the proposal into the card rules
+MAX_MINUTES, MAX_CALLS = 120, 50                                # the survey bounds (survey.validate_spec)
+WHOLE_PROJECT = ('.', './', '')
 
 
 def _id_list(value, name, low=0, high=MAX_LINKS):
@@ -109,9 +120,31 @@ def _unknown(value):
     return out
 
 
+def _investigation(value):
+    """The shape only; explicit paths and the cap against what was spent are judged by rule_investigation."""
+    if not isinstance(value, dict) or set(value) - {'cap', 'paths', 'stop_when'} or not {'cap', 'paths', 'stop_when'} <= set(value):
+        raise LedgerError('proposal.investigation: {"cap": {"minutes", "calls"}, "paths": [...], "stop_when": "..."}.')
+    cap, paths = value['cap'], value['paths']
+    if (not isinstance(cap, dict) or set(cap) != {'minutes', 'calls'} or any(type(cap[k]) is not int for k in cap)):
+        raise LedgerError('proposal.investigation.cap: {"minutes": integer, "calls": integer}.')
+    if not isinstance(paths, list) or not 1 <= len(paths) <= 20 or any(not isinstance(x, str) for x in paths):
+        raise LedgerError('proposal.investigation.paths: 1-20 relative paths.')
+    return {'cap': dict(cap), 'paths': list(paths), 'stop_when': text_field(value['stop_when'], 'investigation.stop_when', 500)}
+
+
+def _estimate(value):
+    """The shape only (a dict, or a bare number kept so rule_estimate can refuse it by name)."""
+    if type(value) in (int, float): return {'bare': value}
+    if not isinstance(value, dict) or set(value) - {'range', 'evidence', 'status', 'missing'}:
+        raise LedgerError('proposal.estimate: {"range": [lo, hi], "evidence": [...]} or {"status": "not_enough_data", "missing": "..."}.')
+    out = dict(value)
+    if 'evidence' in out and (not isinstance(out['evidence'], list) or len(out['evidence']) > 20): raise LedgerError('proposal.estimate.evidence: a list of at most 20 references.')
+    return out
+
+
 def validate_proposal(value):
     """The shape of a proposal. What is MISSING from a change (kind, entries, links) is not a shape error: it is a reason the check reports."""
-    allowed = {'preferred', 'covers', 'acceptance', 'backlog', 'alternatives', 'mockups', 'in_authority', 'unknowns'}
+    allowed = {'preferred', 'covers', 'acceptance', 'backlog', 'alternatives', 'mockups', 'in_authority', 'unknowns', *CARD_FIELDS}
     if not isinstance(value, dict) or set(value) - allowed:
         raise LedgerError('proposal: unknown fields ' + ', '.join(sorted(set(value) - allowed)) if isinstance(value, dict) else 'proposal: expected an object.')
     out = {'in_authority': bool(value.get('in_authority', False)), 'covers': None, 'preferred': None,
@@ -120,6 +153,10 @@ def validate_proposal(value):
     if len(out['unknowns']) > 10 or len({u['id'] for u in out['unknowns']}) != len(out['unknowns']): raise LedgerError('proposal.unknowns: at most 10, distinct ids.')
     if value.get('covers') is not None: out['covers'] = _id_list(value['covers'], 'proposal.covers', 0, 12)
     if value.get('acceptance') is not None: out['acceptance'] = _statements(value['acceptance'], 'proposal.acceptance', 1, semantic=True)
+    out['card'] = any(field in value for field in CARD_FIELDS)
+    out['preserve'] = _statements(value['preserve'], 'proposal.preserve', 0) if value.get('preserve') is not None else None
+    out['investigation'] = _investigation(value['investigation']) if value.get('investigation') is not None else None
+    out['estimate'] = _estimate(value['estimate']) if 'estimate' in value else None
     backlog = value.get('backlog', [])
     if not isinstance(backlog, list) or len(backlog) > MAX_BACKLOG: raise LedgerError(f'proposal.backlog: a list of at most {MAX_BACKLOG} items.')
     out['backlog'] = [{'id': key_field(b.get('id')) if isinstance(b, dict) else key_field(None), 'title': text_field(b.get('title'), 'backlog title', 300)}
@@ -142,14 +179,15 @@ def validate_proposal(value):
 
 # ---- the rules ------------------------------------------------------------------------------------------------------------------
 
-def _context(ledger, requirement, proposal):
+def _context(ledger, requirement, proposal, spent=None, history=None):
     preferred = proposal['preferred']
     changes = [c for c in (preferred['changes'] if preferred else [])]
     planned = [c for c in changes if not c['optional']]
     known = {s['id'] for group in requirement.values() for s in group}
     return {'ledger': ledger, 'requirement': requirement, 'proposal': proposal, 'preferred': preferred, 'planned': planned,
             'optional': [c for c in changes if c['optional']], 'known': known,
-            'declared': all(c['kind'] and c['entries'] for c in planned)}
+            'declared': all(c['kind'] and c['entries'] for c in planned), 'spent': spent or {'seconds': 0, 'calls': 0},
+            'history': history or {'listed': {}, 'closed': {}, 'investigation': None}}
 
 
 def rule_unknowns(ctx):
@@ -254,14 +292,130 @@ def rule_preferred(ctx):
     return []
 
 
-RULES = (rule_unknowns, rule_preferred, rule_declaration, rule_linkage, rule_acceptance, rule_semantics, rule_rationale, rule_targets)
+# ---- 2.4-C: the card rules (only for a proposal that uses preserve / investigation / estimate) ---------------------------------
+
+def rule_preserve(ctx):
+    """A change that modifies or deletes something says what it keeps unchanged."""
+    proposal = ctx['proposal']
+    if not proposal['card']: return []
+    touching = [c['id'] for c in ctx['planned'] if c['kind'] in ('modify', 'delete')]
+    if touching and not proposal['preserve']:
+        return [('preserve_missing', f'change {", ".join(touching)} modifies or deletes: say what stays unchanged (proposal.preserve [{{id, text}}]), '
+                                     'so the check and the reviewer can hold the work to it.')]
+    return []
 
 
-def check(ledger, requirement, proposal, rules=None):
+def _sourced(ctx, ref):
+    if not isinstance(ref, str) or not ref.strip(): return False
+    if ctx['ledger'] is None: return True
+    from . import step0
+    try:
+        step0.evidence_kind(ctx['ledger'], ref, 'poc')
+    except LedgerError:
+        return False
+    return True
+
+
+def rule_estimate(ctx):
+    """A sourced range, or an explicit "not enough data" that names what is missing; never 0, never a bare number."""
+    proposal = ctx['proposal']
+    if not proposal['card']: return []
+    value = proposal['estimate']
+    if value is None:
+        return [('estimate_missing', 'give the estimate as a sourced range {"range": [lo, hi], "evidence": [...]} or say {"status": "not_enough_data", '
+                                     '"missing": "..."} - it is never left implicit.')]
+    if 'bare' in value:
+        return [('estimate_unsourced', f'estimate {value["bare"]!r} is a bare number: give a range [lo, hi] with its evidence, or not_enough_data.')]
+    if value.get('status') is not None:
+        if value['status'] != 'not_enough_data' or not isinstance(value.get('missing'), str) or not value['missing'].strip() or 'range' in value:
+            return [('estimate_unsourced', 'estimate.status is "not_enough_data" with the missing data named (missing), and no range.')]
+        return []
+    span = value.get('range')
+    if (not isinstance(span, list) or len(span) != 2 or any(type(v) not in (int, float) or v != v for v in span) or span[0] > span[1]):
+        return [('estimate_unsourced', 'estimate.range is [lo, hi] seconds with lo <= hi.')]
+    if span[0] <= 0:
+        return [('estimate_zero', f'estimate.range {span} starts at 0: a cost that was not measured is unknown, never 0 (say not_enough_data).')]
+    refs = value.get('evidence') or []
+    if not refs or not all(_sourced(ctx, ref) for ref in refs):
+        return [('estimate_unsourced', 'estimate.range needs evidence that resolves (a blob, a URL or a file:line) for every reference.')]
+    open_for_estimate = [u['id'] for u in proposal['unknowns'] if u['status'] == 'open' and u['required_by'] == 'estimate']
+    if open_for_estimate:
+        return [('estimate_unsourced', f'unknown {", ".join(open_for_estimate)} is open and the estimate waits for it: say not_enough_data until it is closed.')]
+    return []
+
+
+def rule_investigation(ctx):
+    """The step-0 investigation is bounded: explicit read paths (never the whole project), a cap inside the survey bounds, an end
+    condition, and no more spent than the cap. A card with an unknown that blocks the choice states its investigation."""
+    proposal = ctx['proposal']
+    value = proposal['investigation']
+    if value is None:
+        if proposal['card'] and blocking_unknowns(proposal):
+            return [('investigation_missing', 'an unknown blocks the choice: state the investigation (cap, explicit paths, stop_when) instead of '
+                                              'a survey of the whole project.')]
+        return []
+    out = []
+    whole = [p for p in value['paths'] if p.strip().rstrip('/') in WHOLE_PROJECT or p.strip() in WHOLE_PROJECT]
+    if whole:
+        out.append(('investigation_unscoped', 'investigation.paths names the whole project (".": a scan of every file): name the paths the unknown is about.'))
+    else:
+        from ..snapshots import scoped_path
+        for path in value['paths']:
+            try:
+                scoped_path(path)
+            except LedgerError as error:
+                out.append(('investigation_unscoped', f'investigation path {path!r}: {error}'))
+    cap = value['cap']
+    if not (1 <= cap['minutes'] <= MAX_MINUTES and 1 <= cap['calls'] <= MAX_CALLS):
+        out.append(('investigation_cap', f'investigation.cap: 1-{MAX_MINUTES} minutes and 1-{MAX_CALLS} calls.'))
+    spent = ctx['spent']
+    if spent.get('seconds', 0) > cap['minutes'] * 60 or spent.get('calls', 0) > cap['calls']:
+        out.append(('investigation_over_cap', f'the step-0 surveys spent {spent} - more than the investigation cap {cap}.'))
+    fixed = ctx['history'].get('investigation')
+    if fixed:
+        # review C-R02: the first valid investigation of the plan fixes the bound; a later check may keep or lower it, never widen it
+        wider = [k for k in ('minutes', 'calls') if cap[k] > fixed['cap'][k]]
+        outside = [p for p in value['paths'] if not any(p == q or p.startswith(q.rstrip('/') + '/') for q in fixed['paths'])]
+        if wider or outside:
+            out.append(('investigation_widened', f'the investigation of this plan is fixed at cap {fixed["cap"]} over {", ".join(fixed["paths"])}: '
+                                                 + (f'{", ".join(wider)} raised' if wider else '') + ('; ' if wider and outside else '')
+                                                 + (f'{", ".join(outside)} outside it' if outside else '') + ' (only the owner may widen it, by a new requirement).'))
+    return out
+
+
+def rule_unknown_dropped(ctx):
+    """Review C-R01: a decision-changing unknown that an earlier check of the same request listed open may not disappear, or be called
+    closed, in a later check unless the ledger holds its closing evidence (unknown.closed, a survey answered, an owner decision record
+    scoped `unknown:<id>`). A failed or capped investigation therefore keeps it open."""
+    history = ctx['history']
+    current = {u['id']: u for u in ctx['proposal']['unknowns']}
+    gone = [uid for uid, unknown in sorted(history.get('listed', {}).items())
+            if uid not in history.get('closed', {}) and (uid not in current or current[uid]['status'] == 'closed')]
+    if not gone: return []
+    return [('unknown_dropped_without_evidence', f'unknown {", ".join(gone)} was open in an earlier check of this request and is now '
+                                                 'dropped or called closed without closing evidence in the ledger (unknown.closed, an answered '
+                                                 'survey or an owner decision scoped unknown:<id>): it stays open.')]
+
+
+def rule_open_for_approval(ctx):
+    """An open unknown the approval waits for (required_by approval) holds it; it is never closed by default."""
+    if not ctx['proposal']['card']: return []
+    waiting = [u['id'] for u in ctx['proposal']['unknowns'] if u['status'] == 'open' and u['required_by'] == 'approval' and u['affected']]
+    return [('unknown_open', f'unknown {", ".join(waiting)} is open and the approval waits for it: close it with evidence (survey, PoC or the owner).')] if waiting else []
+
+
+RULES = (rule_unknowns, rule_preferred, rule_declaration, rule_linkage, rule_acceptance, rule_semantics, rule_rationale, rule_targets,
+         rule_preserve, rule_estimate, rule_investigation, rule_open_for_approval, rule_unknown_dropped)
+
+
+def check(ledger, requirement, proposal, rules=None, spent=None, history=None):
     """Hold `proposal` to `requirement`. Returns {ok, result: ok|refused|survey_first, reasons: [(code, text)], table, backlog, ...}.
-    `rules` defaults to RULES (a test passes a shorter tuple for the counter-proof)."""
+    `rules` defaults to RULES (a test passes a shorter tuple for the counter-proof). `spent` = what the step-0 surveys of the plan spent
+    ({seconds, calls}), held against the card's investigation cap. `history` = step0.proposal_history (earlier checks of the same request:
+    the unknowns they listed, the closing evidence in the ledger, the fixed investigation); without it the check sees no history."""
     requirement, proposal = validate_requirement(requirement), validate_proposal(proposal)
-    ctx = _context(ledger, requirement, proposal)
+    if spent is None and history: spent = history.get('spent')
+    ctx = _context(ledger, requirement, proposal, spent, history)
     reasons = []
     for rule in (RULES if rules is None else rules): reasons += rule(ctx)
     waiting = blocking_unknowns(proposal)
@@ -275,4 +429,7 @@ def check(ledger, requirement, proposal, rules=None):
             'backlog': backlog, 'preferred': preferred['id'] if preferred else None,
             'before': preferred['before'] if preferred else None, 'after': preferred['after'] if preferred else None,
             'rationale': preferred['rationale'] if preferred else None, 'in_authority': proposal['in_authority'], 'extras': proposal['extras'],
-            'unknowns': proposal['unknowns'], 'survey_required': [u['id'] for u in waiting], 'owner_requests': 0}
+            'unknowns': proposal['unknowns'], 'survey_required': [u['id'] for u in waiting], 'owner_requests': 0,
+            **({'card_fields': {'preserve': proposal['preserve'], 'investigation': proposal['investigation'], 'estimate': proposal['estimate'],
+                                'summary': preferred['summary'] if preferred else None, 'acceptance': requirement['acceptance']}}
+               if proposal['card'] else {})}

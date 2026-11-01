@@ -11,6 +11,12 @@
 - **2.4-S2:** `support target add` (lệnh của chủ), `artifact` (byte wheel = sha manifest, commit = cây đã kiểm của plan sửa), `install` (venv mới cạnh venv cũ, diễn tập trên bản sao, chuyển hook chỉ tại điểm an toàn, thiếu quyền `support_install:<id>` thì `blocked_by_authority`), `recheck` (check gốc chạy lại qua engine, tại đích hoặc bản sao có tên), `resume` (qua guard engine), `rollback` (chỉ khi runtime cũ đọc được dữ liệu hiện tại), `learn` (bài học trên root plan sửa).
 - Sửa sau review độc lập S1 (R01–R08, P3): lọc bí mật thay đúng phần bí mật (header, URL, `export`, `--password`, dạng khóa, PEM) cả trong `feedback.json`; `--task` chỉ nhận root/task con, hồ sơ không chứa báo cáo khác; giới hạn 8 MB áp cho mọi nguồn (`over_cap`); "đang xử lý" chỉ khi plan đã duyệt và còn mở; spool giữ phiên bản lúc báo, file spool hỏng vào `rejected/`, spool từ thư mục con được nhập; luật chặn `support confirm` trong hook, `--by owner` bị từ chối trong phiên AI; gửi lại cùng nội dung không `--key` nhận lại đúng mã; task support không bao giờ chạy được; bản 2.2.0.dev18/2.3.0.dev10 vẫn đọc được sổ có bản ghi support.
 
+**Mốc 2.4-C** (hướng dẫn: `docs/v24/HUONG-DAN-BUOC-0.vi.md`):
+- Đề xuất bước 0 (W47) có ba trường tùy chọn `preserve`, `investigation`, `estimate`; dùng một trường là bật luật thẻ (điều giữ nguyên khi sửa/xoá, ước lượng có căn cứ hoặc "chưa đủ dữ liệu", điều tra có đường dẫn rõ và trần, unknown mà việc duyệt chờ). Đề xuất không dùng thì kiểm như cũ. `plan step0 show <plan> [--json]` xem thẻ, chỉ đọc.
+- Khảo sát bước 0 bị từ chối khi trần điều tra đã hết, và chỉ đọc trong đường dẫn điều tra; unknown còn mở thì vẫn giữ việc duyệt.
+- Capability tùy chọn `execution-mode`: engine chọn và ghi `run_now` / `overlap` / `continue_worker` / `tools` / `wait` kèm lý do (Q2, `node.started`, sự kiện mới `workflow.mode` lớp B); đọc↔ghi cùng file và nhãn `resources` chung không được chạy song song; chi phí bàn giao chưa đo là `unknown`, không phải 0; kiểm không cần model chạy cạnh worker không tạo task con. Không adapter nào giữ phiên model (`session.reuse: false`). Root không khai capability chạy như 2.3.
+- `engine measure <plan>`: số đo từ sổ (chỉ đọc), thiếu quan sát là `unknown`.
+
 ## v2.3.0.dev10 (31/10/2026) — beta 2.3 sau review Codex trên dev9
 
 **Bản beta (prerelease), chưa nghiệm thu, chưa được Codex review lại; không phải bản ổn định `2.3.0`.** Kết quả, giới hạn và lệnh thử: `docs/v23/BAO-CAO-2.3-DEV10-2026-10-31.vi.md`.
