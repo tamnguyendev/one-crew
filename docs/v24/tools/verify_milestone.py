@@ -68,6 +68,21 @@ the installed venv with python -I, a cwd outside the checkout, an isolated env a
   V22 S2 recheck  `support recheck` at the target adds exactly one node.verification (pass, the new version) and status says verified_at_target true;
                   `support rollback` with CLAUDE_CODE_CHILD_SESSION=1 is refused (hooks unchanged); the owner rollback (no marker) repoints the hooks to
                   the target and status says installed false, rolled_back true, still_blocked true, verified_at_target false
+  V23 A sources   a node with `sources` under a root with authority.read reads src/lib/value.txt (not in its read list) by request in two rounds through
+                  the real Supervisor path and the v24 fake claude (verify/onecrew_fake_claude_v24.py in a venv of its own, first on PATH): receipt source
+                  results, source_tree in node.started; with a scripted worker, three requests outside the scope are refused rows without text and no secret
+                  reaches a prompt, a max_rounds=1 node that keeps continuing is held rounds_exhausted after two model calls, and a cursor of another pinned
+                  tree is refused ("source changed; list again"). Control: a node without `sources` has exactly the 2.3 receipt and node.started keys and
+                  no source_tools in its prompt
+  V24 B context   a decision `must` on a.txt delivered to node C (one knowledge.delivered for its attempt) is withdrawn while the worker runs: the step
+                  ends continuing (knowledge_changed names it), C is not published, `wiki consumers --plan P1 --json` lists C withdrawn; in a NEW process
+                  the rechecked C is produced with the entry absent from its package entries and present in delta.withdrawn, node.resumed has
+                  budget_reset false. Control: node D (b.txt, independent) is published
+  V25 C step 0    `plan proposal check` with preserve, estimate, investigation and an open option_choice unknown -> `plan step0 show --json` enough false
+                  with unknown_open:U1; `plan survey open` over the investigation cap is refused and writes nothing; after `plan unknown close --by doc` and
+                  a new check, enough true (and the text card says so). A root with execution-mode + parallel-engine runs two independent nodes in two
+                  slots (managed executor, a local worker process): both node.started carry mode, mode_reasons, mode_inputs_sha; `engine measure` names
+                  unobserved values unknown. Control: the same nodes on a root without execution-mode have no mode fields
   V3 also checks that the modules of the included milestones (support, diagnostics, support_cli, support_spool for S1) load from the venv.
 Exit 0 when every step passes, 1 otherwise. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
 import base64
@@ -749,7 +764,8 @@ def oldwork_problems(f, manifest):
 MILESTONE_ORDER = ['S1', 'S2', 'A', 'B', 'C']
 REGRESSION_STEPS = 16                      # V1-V16: the 2.3 verifier, unchanged
 MILESTONE_MODULES = {'S1': ['onecrew.v2.support', 'onecrew.v2.diagnostics', 'onecrew.v2.support_cli', 'onecrew.v2.support_spool'],
-                     'S2': ['onecrew.v2.hotfix']}
+                     'S2': ['onecrew.v2.hotfix'], 'A': ['onecrew.v2.source_tools', 'onecrew.paging'], 'B': ['onecrew.v2.working_context'],
+                     'C': ['onecrew.v2.execution_mode', 'onecrew.v2.step0', 'onecrew.v2.survey']}
 FEEDBACK_ID = re.compile(r'^FB-[0-9a-f]{32}$')
 BUNDLE_STATUSES = ('included', 'missing', 'truncated', 'withheld', 'unreadable', 'not_applicable', 'unknown')      # onecrew.v2.diagnostics.STATUSES
 REPORT_TEXT = 'Bước kiểm M1 báo sai dù file đúng — lỗi được báo từ bản cài, không từ checkout'      # Vietnamese on purpose: the text must round-trip byte for byte
@@ -1242,6 +1258,448 @@ def v22_support_recheck_rollback(ctx):
     return not problems, dict(facts, problems=problems, feedback=s['fb'])
 
 
+# ---- 2.4-A, B, C steps (V23-V25): scenario bodies run by the INSTALLED venv's python -I from the case folder ------------------------------
+
+def _scenario(ctx, folder, code, args, **env):
+    """Run `code` with the venv's python -I (argv[1] = args as JSON) from `folder`; the body prints one line '@@' + JSON. Returns (facts, tail)."""
+    done = run([ctx.py, '-I', '-c', code, json.dumps(args)], cwd=folder,
+               env=env_for(folder, ctx.scripts, TEMP=str(folder / 'temp'), TMP=str(folder / 'temp'), **env))
+    text = done.stdout.decode('utf-8', 'replace')
+    line = next((l for l in text.splitlines() if l.startswith('@@')), None)
+    return (json.loads(line[2:]) if line else None), (text + done.stderr.decode('utf-8', 'replace'))[-1500:]
+
+
+SCENARIO_COMMON = r'''
+import copy, json, os, subprocess, sys
+from pathlib import Path
+from unittest.mock import patch
+args = json.loads(sys.argv[1])
+work = Path(args['work'])
+def git(root, *a): return subprocess.run(['git', '-C', str(root), *a], check=True, capture_output=True, text=True).stdout.strip()
+def project(name, files):
+    root = work / name; root.mkdir()
+    git(root, 'init', '-q'); git(root, 'config', 'user.name', 'fixture'); git(root, 'config', 'user.email', 'fixture@localhost')
+    for rel, text in files.items():
+        path = root / rel; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(text.encode('utf-8'))
+    git(root, 'add', '.'); git(root, 'commit', '-qm', 'base')
+    return root
+def node(nid, depends=(), integration=False, write=('a.txt',), read=('a.txt',), checks=None):
+    return {'id': nid, 'goal': 'Produce evidence for O1', 'input': [], 'output': ['Evidence for O1'], 'acceptance': ['O1'],
+            'depends': [{'node': d, 'requires': 'verified'} for d in depends], 'read': list(read), 'write': list(write), 'resources': [],
+            'estimate_seconds': [1, 2], 'execution_cap_seconds': 60, 'budget_calls': 1,
+            'checks': checks or [{'id': 'M1', 'spec': 'Check the declared O1 output of ' + nid}], 'integration': integration,
+            'executor': {'role': 'worker', 'provider': 'claude', 'model': 'claude-haiku-5-5'}}
+def contract(owned=('a.txt',), authority=None, title='Package fixture'):
+    return {'schema_version': 2, 'title': title, 'size': 'S',
+            'understanding': {'restated_goal': 'Prove the package fixture.', 'target': {'repo': '.', 'ref': 'HEAD', 'paths': ['a.txt']},
+                              'assumptions': [], 'confidence': 'high', 'unknowns': []},
+            'preconditions': [{'id': 'P1', 'check': 'path_exists', 'args': {'path': 'a.txt'}, 'why': 'the file to work on is there'}],
+            'output': ['The sample exists'], 'scope': {'owned': list(owned)}, 'non_goals': ['Nothing else'],
+            'items': [{'id': 'I1', 'title': 'Do it', 'tier': 'must', 'milestone': 'M1'}],
+            'milestones': [{'id': 'M1', 'title': 'Milestone M1', 'verifier': {'type': 'command', 'config': {'argv': [sys.executable, '-c', 'print("ok")']}},
+                            'covers': ['O1']}],
+            'budget': {'max_calls': 100, 'time': 120}, 'attention': {'questions': 1}, 'profile_version': None,
+            'authority': dict({'edit': True, 'commands': True, 'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']}, **(authority or {}))}
+from onecrew.ledger import Ledger, content_hash
+from onecrew.snapshots import Snapshots
+from onecrew.v2 import plan, engine, internal_plan
+CAPS = ['namespaced-storage', 'root-budget', 'internal-plan', 'sequential-engine']
+def root(ledger, name, value, caps=CAPS):
+    os.environ.pop('ONECREW_ACTOR', None)
+    plan.propose(ledger, name, value, 'codex', workflow=True, capabilities=caps)
+    plan.approve(ledger, name, 'owner', 'verifier fixture on a temporary ledger')
+    os.environ['ONECREW_ACTOR'] = 'codex'
+def events(ledger, kind=None):
+    with ledger.transaction() as conn:
+        rows = conn.execute('SELECT seq, task_id, kind, payload FROM events ORDER BY seq').fetchall()
+    return [dict(json.loads(r['payload']), _seq=r['seq'], _task=r['task_id'], _kind=r['kind']) for r in rows if kind is None or r['kind'] == kind]
+def emit(out):
+    print('@@' + json.dumps(out, ensure_ascii=False, default=str))
+class Fixture:
+    """A scripted worker (no model, no process): `values` are answers or callables(prompt, schema); the real NativeExecutor runs around it."""
+    def __init__(self):
+        self.calls, self.values = [], []
+    def factory(self, control, provider):
+        case = self
+        class Worker:
+            def capability(self): return {'provider': provider, 'mode': 'fixture-no-tools'}
+            def run(self, attempt, prompt, schema, profile):
+                case.calls.append({'prompt': prompt, 'schema': schema})
+                control.launched(attempt['id'], attempt['generation'], {'fixture': True})
+                control.finish(attempt['id'], attempt['generation'], {'exit_code': 0, 'fixture': True})
+            def result(self, attempt):
+                value = case.values.pop(0)
+                value = value(case.calls[-1]['prompt'], case.calls[-1]['schema']) if callable(value) else value
+                return copy.deepcopy(value), [{'source': 'fixture'}]
+        return Worker()
+'''
+
+A_BODY = SCENARIO_COMMON + r'''
+from onecrew.common_executor import NativeExecutor
+from onecrew.control_core import migrate
+from onecrew.v2 import source_tools
+files = {'a.txt': 'base\n', 'out.txt': 'base\n', '.gitignore': '.onecrew/\n', 'src/main.py': 'from lib import value\n',
+         'src/lib/value.txt': 'The configured VALUE: green\n', 'src/.env.local': 'TOKEN=never-shown\n', 'other/y.py': 'OUTSIDE = True\n'}
+proj = project('project', files)
+ledger = Ledger(proj, work / 'state')
+migrate(ledger)
+store = Snapshots(ledger.state_root)
+out = {}
+# 1. the real path: NativeExecutor -> ClaudeArtifact -> Supervisor -> the fake claude (v24) process; two rounds, a file read by request
+item = node('C', write=('out.txt',), read=('src/main.py',), checks=[{'id': 'M1', 'spec': 'out.txt holds the configured value.'}])
+item['sources'] = {'read': ['src/'], 'max_rounds': 2, 'max_chars_per_round': 8000}
+root(ledger, 'P1', contract(owned=('a.txt', 'out.txt'), authority={'read': ['src/**']}))
+internal_plan.revise(ledger, 'P1', [item, node('I', ['C'], integration=True, write=(), read=())], reason='source fixture', evidence=['a.txt:1'])
+steps = [engine.step(ledger, 'P1', NativeExecutor(ledger))]
+while steps[-1]['state'] == 'continuing' and len(steps) < 5: steps.append(engine.step(ledger, 'P1', NativeExecutor(ledger)))
+receipt = json.loads(store.read_blob(steps[-1]['receipt'])) if steps[-1].get('receipt') else {}
+started = [e for e in events(ledger, 'node.started') if e['node'] == 'C']
+out['main'] = {'states': [s['state'] for s in steps], 'source': {k: (receipt.get('source') or {}).get(k) for k in ('capability', 'rounds_used', 'max_rounds', 'count')},
+               'result_actions': [r.get('action') for r in (receipt.get('source') or {}).get('results') or []] if isinstance((receipt.get('source') or {}).get('results'), list) else None,
+               'results_blob': (receipt.get('source') or {}).get('results') if isinstance((receipt.get('source') or {}).get('results'), str) else None,
+               'candidate': store.context(steps[-1]['artifact'])['out.txt'] if steps[-1].get('artifact') else None,
+               'source_tree_in_started': [bool(e.get('source_tree')) for e in started],
+               'fake': [json.loads(l) for l in Path(args['log']).read_text(encoding='utf-8').splitlines()] if Path(args['log']).exists() else []}
+# 2. scripted worker: outside-scope requests are refused rows; max_rounds=1 holds the node; an opt-out node has no source fields
+fixture = Fixture()
+with patch('onecrew.artifact_provider_core.make_worker', side_effect=fixture.factory):
+    asked = [{'op': 'read', 'path': '../outside.txt'}, {'op': 'read', 'path': 'other/y.py'}, {'op': 'read', 'path': 'src/.env.local'}]
+    d = node('D', write=('out.txt',), read=('src/main.py',)); d['sources'] = {'read': ['src/'], 'max_rounds': 4, 'max_chars_per_round': 8000}
+    root(ledger, 'P2', contract(owned=('a.txt', 'out.txt'), authority={'read': ['src/**']}))
+    internal_plan.revise(ledger, 'P2', [d, node('I', ['D'], integration=True, write=(), read=())], reason='refusals', evidence=['a.txt:1'])
+    fixture.values += [{'summary': 'reading', 'files': [], 'backlog': [], 'continuation': {'remaining': 'more'}, 'source': {'requests': asked}},
+                       {'summary': 'done', 'files': [{'path': 'out.txt', 'content': 'done\n'}], 'backlog': []}]
+    states = [engine.step(ledger, 'P2', NativeExecutor(ledger))['state'], engine.step(ledger, 'P2', NativeExecutor(ledger))['state']]
+    second = json.loads(fixture.calls[1]['prompt'].split('\n', 1)[1])['source_tools']['results']
+    out['refused'] = {'states': states, 'rows': [{'action': r.get('action'), 'refused': (r.get('result') or {}).get('refused'),
+                                                  'has_text': 'text' in (r.get('result') or {})} for r in second],
+                      'secret_in_prompts': any('never-shown' in c['prompt'] or 'OUTSIDE = True' in c['prompt'] for c in fixture.calls)}
+    e = node('E', write=('out.txt',), read=('src/main.py',)); e['sources'] = {'read': ['src/'], 'max_rounds': 1, 'max_chars_per_round': 8000}
+    root(ledger, 'P3', contract(owned=('a.txt', 'out.txt'), authority={'read': ['src/**']}))
+    internal_plan.revise(ledger, 'P3', [e, node('I', ['E'], integration=True, write=(), read=())], reason='round cap', evidence=['a.txt:1'])
+    calls = len(fixture.calls)
+    fixture.values += [{'summary': 'reading', 'files': [], 'backlog': [], 'continuation': {'remaining': 'more'}, 'source': {'requests': []}}] * 6
+    rounds = []
+    for _ in range(4):
+        result = engine.step(ledger, 'P3', NativeExecutor(ledger)); rounds.append(result['state'])
+        if result['state'] != 'continuing': break
+    out['rounds'] = {'states': rounds, 'classification': result.get('classification'), 'model_calls': len(fixture.calls) - calls}
+    f = node('F', write=('a.txt',))
+    root(ledger, 'P4', contract())
+    internal_plan.revise(ledger, 'P4', [f, node('I', ['F'], integration=True, write=(), read=())], reason='opt-out control', evidence=['a.txt:1'])
+    fixture.values[:] = [{'summary': 'done', 'files': [{'path': 'a.txt', 'content': 'one\n'}], 'backlog': []}]
+    produced = engine.step(ledger, 'P4', NativeExecutor(ledger))
+    if not produced.get('receipt'): emit({'error': 'opt-out node not produced', 'result': produced}); sys.exit(0)
+    receipt = json.loads(store.read_blob(produced['receipt']))
+    started = [x for x in events(ledger, 'node.started') if x['node'] == 'F'][0]
+    out['opt_out'] = {'state': produced['state'], 'receipt_keys': sorted(receipt), 'started_keys': sorted(k for k in started if not k.startswith('_')),
+                      'prompt_has_source_tools': 'source_tools' in fixture.calls[-1]['prompt']}
+# 3. a cursor of another pinned tree is refused
+tree1 = source_tools.pin_now(proj)
+scope = source_tools.Scope(['src/**'], ['src/'])
+with patch.object(source_tools, 'LIST_ENTRIES', 1):
+    first = source_tools.run(source_tools.Reader(proj, tree1['tree']), scope, {'op': 'list', 'path': 'src'})['result']
+    (proj / 'src' / 'new.py').write_text('NEW = 1\n')
+    tree2 = source_tools.pin_now(proj)
+    stale = source_tools.run(source_tools.Reader(proj, tree2['tree']), scope, {'op': 'list', 'cursor': first.get('next_cursor')})['result']
+out['cursor'] = {'had_cursor': bool(first.get('next_cursor')), 'trees_differ': tree1['tree'] != tree2['tree'], 'stale': stale.get('refused')}
+out['origins'] = {n: getattr(sys.modules.get(n), '__file__', None) for n in ('onecrew.v2.source_tools', 'onecrew.paging', 'onecrew.common_executor')}
+emit(out)
+'''
+
+OPT_OUT_RECEIPT_KEYS = ['artifact', 'attempt', 'base', 'changed_paths', 'content_sha', 'continuation', 'continues_attempt', 'elapsed_seconds', 'inputs',
+                        'internal_model_call_cap', 'kind', 'knowledge', 'knowledge_use', 'model', 'node', 'partial', 'producer_chars', 'profile',
+                        'prompt_chars', 'provider', 'response', 'resume_artifact', 'role', 'scope_enforced_by', 'task', 'usage']      # the 2.3 receipt (tests sa11)
+OPT_OUT_STARTED_KEYS = ['at', 'attempt', 'child', 'early_dependencies', 'generation', 'inputs', 'internal_revision', 'node', 'plan', 'revision', 'source']
+
+
+def _fake_v24_venv(ctx):
+    """A separate venv holding only the v24 fake `claude` (verify/onecrew_fake_claude_v24.py) whose Scripts go first on PATH for V23: the v23 fake
+    the other steps use stays as it is."""
+    if getattr(ctx, 'fake_v24', None): return ctx.fake_v24
+    folder = ctx.work / 'fake claude v24'
+    if folder.exists(): shutil.rmtree(folder)
+    folder.mkdir()
+    source = Path(__file__).resolve().parent / 'onecrew_fake_claude_v24.py'
+    info = 'onecrew_fake_claude_v24-0.1.dist-info'
+    files = {'onecrew_fake_claude_v24.py': source.read_bytes(),
+             f'{info}/METADATA': b'Metadata-Version: 2.1\nName: onecrew-fake-claude-v24\nVersion: 0.1\n',
+             f'{info}/WHEEL': b'Wheel-Version: 1.0\nGenerator: verify_milestone\nRoot-Is-Purelib: true\nTag: py3-none-any\n',
+             f'{info}/entry_points.txt': b'[console_scripts]\nclaude = onecrew_fake_claude_v24:main\n', f'{info}/RECORD': b''}
+    wheel = _write_wheel(folder / 'onecrew_fake_claude_v24-0.1-py3-none-any.whl', files)
+    run([sys.executable, '-m', 'venv', folder / 'venv'], check=True)
+    scripts = folder / 'venv' / ('Scripts' if os.name == 'nt' else 'bin')
+    done = run([scripts / ('python.exe' if os.name == 'nt' else 'python'), '-m', 'pip', 'install', '--no-index', '--no-deps', '--disable-pip-version-check', wheel])
+    if done.returncode != 0: raise RuntimeError('the v24 fake claude did not install: ' + done.stdout.decode('utf-8', 'replace')[-300:])
+    ctx.fake_v24 = scripts
+    return scripts
+
+
+def v23_sources(ctx):
+    """2.4-A: a node with `sources` under a root with authority.read reads a file not in its `read` list by request, in two rounds, on the pinned
+    tree (receipt source results, source_tree in node.started) through the real Supervisor path and the v24 fake claude; requests outside scope
+    are refused rows without bytes; a cursor of another tree is refused; max_rounds=1 holds the node rounds_exhausted after max_rounds+1 calls.
+    Control: a node without `sources` has the 2.3 receipt and node.started keys and no source_tools in its prompt."""
+    folder = ctx.case('a sources')
+    fake = _fake_v24_venv(ctx)
+    policy, log = folder / 'policy.json', folder / 'fake.jsonl'
+    policy.write_text(json.dumps({'read': 'value.txt'}))
+    facts, tail = _scenario(ctx, folder, A_BODY, {'work': str(folder), 'log': str(log)},
+                            PATH=str(fake) + os.pathsep + str(ctx.scripts) + os.pathsep + os.environ.get('PATH', ''),
+                            ONECREW_FAKE_POLICY=str(policy), ONECREW_FAKE_LOG=str(log))
+    if facts is None or 'error' in facts: return False, {'problems': ['the scenario did not finish: ' + tail], 'facts': facts}
+    problems, main = [], facts['main']
+    if main['states'] != ['continuing', 'produced']: problems.append('two rounds expected: ' + str(main['states']))
+    if [(r.get('how'), r.get('value')) for r in main['fake']] != [('ask', None), ('read', 'green')]: problems.append('the fake did not ask then read: ' + str(main['fake']))
+    if main['candidate'] != 'green\n': problems.append('the value read by request was not written: ' + str(main['candidate']))
+    if main['source'].get('capability') != 'git-tree' or main['source'].get('rounds_used') != 1: problems.append('receipt source: ' + str(main['source']))
+    if not (main['result_actions'] or main['results_blob']): problems.append('the receipt carries no source results')
+    if not main['source_tree_in_started'] or not all(main['source_tree_in_started']): problems.append('node.started without source_tree: ' + str(main['source_tree_in_started']))
+    refused = facts['refused']
+    if refused['states'] != ['continuing', 'produced'] or len(refused['rows']) != 3 or not all(r['refused'] and not r['has_text'] for r in refused['rows']) \
+            or refused['secret_in_prompts']:
+        problems.append('requests outside the scope: ' + str(refused))
+    rounds = facts['rounds']
+    if rounds['states'] != ['continuing', 'held'] or rounds['classification'] != 'rounds_exhausted' or rounds['model_calls'] != 2:
+        problems.append('max_rounds=1: ' + str(rounds))
+    cursor = facts['cursor']
+    if not (cursor['had_cursor'] and cursor['trees_differ'] and 'source changed; list again' in str(cursor['stale'])): problems.append('cursor of another tree: ' + str(cursor))
+    opt = facts['opt_out']
+    if opt['state'] != 'produced' or opt['receipt_keys'] != OPT_OUT_RECEIPT_KEYS or opt['started_keys'] != OPT_OUT_STARTED_KEYS or opt['prompt_has_source_tools']:
+        problems.append('opt-out control (2.3 keys expected): ' + str(opt))
+    venv = str(ctx.scripts.parent).casefold()
+    bad = {n: o for n, o in facts['origins'].items() if not (o and o.casefold().startswith(venv))}
+    if bad: problems.append('modules not from the installed venv: ' + str(bad))
+    return not problems, dict(facts, problems=problems)
+
+
+B_BODY = SCENARIO_COMMON + r'''
+from onecrew.common_executor import NativeExecutor
+from onecrew.control_core import migrate
+from onecrew.v2 import knowledge
+phase = args['phase']
+proj = work / 'project'
+ledger = Ledger(proj, work / 'state') if phase == 2 else None
+out = {'pid': os.getpid()}
+if phase == 1:
+    proj = project('project', {'a.txt': 'base\n', 'b.txt': 'base\n', '.gitignore': '.onecrew/\n'})
+    ledger = Ledger(proj, work / 'state')
+    migrate(ledger)
+    root(ledger, 'P1', contract(owned=('a.txt', 'b.txt')))
+    with ledger.transaction() as conn:
+        event = conn.execute('SELECT MAX(seq) FROM events').fetchone()[0]
+    rule = knowledge.record(ledger, 'P1', kind='decision', text='a.txt must hold VALUE: right', applies_to=['a.txt'], must=True,
+                            evidence={'status': 'verified', 'property': 'decided in review', 'sources': [{'type': 'event', 'id': event}]})['id']
+    nodes = [node('C', checks=[{'id': 'M1', 'spec': 'a.txt holds the value the knowledge requires.'}]),
+             node('D', write=('b.txt',), read=('b.txt',), checks=[{'id': 'M1', 'spec': 'b.txt is written.'}]),
+             node('I', ['C', 'D'], integration=True, write=(), read=(), checks=[{'id': 'M1', 'spec': 'Integration.'}])]
+    internal_plan.revise(ledger, 'P1', nodes, reason='working-context fixture', evidence=['a.txt:1'])
+    class Concurrent(NativeExecutor):
+        withdrawn = False
+        def finish(self, *a, **k):
+            if not Concurrent.withdrawn:                    # another writer withdraws the delivered must while the worker runs
+                Concurrent.withdrawn = True
+                knowledge.withdraw(ledger, 'P1', rule, reason='a.txt keeps its value now', evidence={'sources': [{'type': 'event', 'id': event}]})
+            return super().finish(*a, **k)
+    first = engine.step(ledger, 'P1', Concurrent(ledger))
+    attempt = [e for e in events(ledger, 'node.started') if e['node'] == 'C'][0]['attempt']
+    delivered = [e for e in events(ledger, 'knowledge.delivered') if e.get('attempt') == attempt]
+    cli = subprocess.run([str(Path(sys.executable).parent / ('onecrew.exe' if os.name == 'nt' else 'onecrew')), '--project', str(proj), '--state-root',
+                          str(ledger.state_root), 'wiki', 'consumers', '--plan', 'P1', '--json'], capture_output=True, cwd=str(work))
+    out.update(rule=rule, first={'node': first.get('node'), 'state': first.get('state'), 'critical': [c.get('id') for c in (first.get('knowledge_changed') or {}).get('critical') or []]},
+               delivered=[{'attempt': e.get('attempt'), 'delivered': e.get('delivered')} for e in delivered],
+               produced_after_first=[e['node'] for e in events(ledger, 'node.produced')],
+               cli={'code': cli.returncode, 'consumers': [(c.get('node'), c.get('status')) for c in json.loads(cli.stdout.decode('utf-8')).get('consumers', [])]
+                    if cli.returncode == 0 else cli.stderr.decode('utf-8', 'replace')[-300:]})
+else:
+    store = Snapshots(ledger.state_root)
+    rule = args['rule']
+    results = []
+    for _ in range(4):
+        result = engine.step(ledger, 'P1', NativeExecutor(ledger))
+        results.append({'node': result.get('node'), 'state': result.get('state')})
+        if result.get('node') == 'C' and result.get('receipt'):
+            receipt = json.loads(store.read_blob(result['receipt']))
+            package = json.loads(store.read_blob(receipt['knowledge']['package'])) if (receipt.get('knowledge') or {}).get('package') else {}
+            out['c'] = {'state': result['state'], 'entries': [e.get('id') for e in package.get('entries', [])],
+                        'requested': [e.get('id') for e in package.get('requested', [])],
+                        'withdrawn': [w.get('id') for w in ((receipt.get('knowledge') or {}).get('delta') or {}).get('withdrawn', [])],
+                        'candidate': store.context(result['artifact'])['a.txt'] if result.get('artifact') else None}
+        if all(any(r['node'] == n and r['state'] == 'produced' for r in results) for n in ('C', 'D')): break
+    retained = [e['node'] for e in events(ledger, 'node.result_retained')]
+    out.update(results=results, produced=[e['node'] for e in events(ledger, 'node.produced')], retained=retained,
+               resumed=[{'node': e.get('node'), 'budget_reset': e.get('budget_reset')} for e in events(ledger, 'node.resumed')])
+out['origins'] = {n: getattr(sys.modules.get(n), '__file__', None) for n in ('onecrew.v2.working_context', 'onecrew.v2.knowledge')}
+emit(out)
+'''
+
+
+def v24_context(ctx):
+    """2.4-B: knowledge delivered to an attempt is a knowledge.delivered event of that attempt; a must withdrawn while the worker runs keeps the candidate
+    from being published (rechecked) and `wiki consumers --plan P1 --json` lists the node as withdrawn; control: an independent node publishes; after a
+    restart (a new process) the rechecked attempt gets the withdrawn entry only in delta.withdrawn, never in its entries."""
+    folder = ctx.case('b context')
+    policy, log = folder / 'policy.json', folder / 'fake.jsonl'
+    policy.write_text(json.dumps({'default': 'naive', 'careful': True}))
+    env = dict(ONECREW_FAKE_POLICY=str(policy), ONECREW_FAKE_LOG=str(log))
+    first, tail = _scenario(ctx, folder, B_BODY, {'work': str(folder), 'phase': 1}, **env)
+    if first is None: return False, {'problems': ['phase 1 did not finish: ' + tail]}
+    second, tail = _scenario(ctx, folder, B_BODY, {'work': str(folder), 'phase': 2, 'rule': first['rule']}, **env)
+    if second is None: return False, {'problems': ['phase 2 (a new process) did not finish: ' + tail], 'phase1': first}
+    problems = []
+    if not (first['first']['node'] == 'C' and first['first']['state'] == 'continuing' and first['first']['critical'] == [first['rule']]):
+        problems.append('the withdrawn must did not keep the candidate from publication: ' + str(first['first']))
+    if not (len(first['delivered']) == 1 and first['rule'] in (first['delivered'][0]['delivered'] or [])):
+        problems.append('knowledge.delivered of the attempt: ' + str(first['delivered']))
+    if 'C' in first['produced_after_first']: problems.append('the candidate built on the withdrawn fact was published')
+    cli = first['cli']
+    if cli['code'] != 0 or isinstance(cli['consumers'], str) or ('C', 'withdrawn') not in [tuple(x) for x in cli['consumers']]:
+        problems.append('wiki consumers: ' + str(cli))
+    c = second.get('c') or {}
+    if not (c.get('state') == 'produced' and first['rule'] not in c.get('entries', []) + c.get('requested', []) and c.get('withdrawn') == [first['rule']]):
+        problems.append('after the restart, the rechecked attempt: ' + str(c))
+    if second['pid'] == first['pid']: problems.append('phase 2 ran in the same process')
+    if 'D' not in second['produced'] or 'D' in second['retained']: problems.append('control: the independent node D did not publish: ' + str(second['results']))
+    if second['produced'].count('C') != 1: problems.append('C must be published exactly once (the rechecked candidate): ' + str(second['produced']))
+    if any(r['budget_reset'] for r in second['resumed']) or not second['resumed']: problems.append('node.resumed: ' + str(second['resumed']))
+    return not problems, {'phase1': first, 'phase2': second, 'problems': problems}
+
+
+C_BODY = SCENARIO_COMMON + r'''
+import contextlib, io
+from onecrew.control_core import migrate
+from onecrew.v2.cli import main as cli_main
+from onecrew.v2 import step0
+def cli(*a):
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer): code = cli_main(['--project', str(proj), '--state-root', str(work / 'state'), *a])
+    text = buffer.getvalue()
+    try: return code, json.loads(text)
+    except ValueError: return code, text
+files = {'a.txt': 'one\n', 'b.txt': 'two\n', 'routes.py': 'x\n', 'api.py': 'x\n', 'menu.js': 'x\n', 'reports_new.py': 'x\n', 'data/old_report.json': 'x\n',
+         'x/y.py': 'x = 1\n' * 3, 'onecrew/conversations.py': 'x = 1\n' * 170, '.gitignore': '.onecrew/\n'}
+proj = project('project', files)
+ledger = Ledger(proj, work / 'state')
+out = {}
+# 1. step 0: the three optional card fields and a decision-changing unknown -> not enough; a survey over the cap refused; closing evidence -> enough
+value = contract(owned=('a.txt',))
+value['understanding']['unknowns'] = [{'id': 'U1', 'question': 'Is the old report data used by another job?', 'status': 'open', 'closed_by': None,
+                                       'evidence': None, 'affected': ['O1'], 'required_by': 'option_choice'}]
+os.environ.pop('ONECREW_ACTOR', None)
+plan.propose(ledger, 'S0', value, 'codex')
+os.environ['ONECREW_ACTOR'] = 'codex'
+requirement = {'acceptance': [{'id': 'A1', 'text': 'No user can export the old report by any path (menu, URL, API)', 'semantic': {'unreachable_via': ['menu', 'url', 'api']}},
+                              {'id': 'A2', 'text': 'The old report data is deleted permanently', 'semantic': {'removal': 'permanent'}}],
+               'constraints': [{'id': 'K1', 'text': 'Keep the new report'}], 'dependencies': []}
+def change(cid, kind, entries, links, target, **extra): return dict({'id': cid, 'title': f'{kind} {target}', 'kind': kind, 'entries': entries, 'links': links, 'target': target}, **extra)
+def proposal_value(status):
+    return {'preferred': {'id': 'P1', 'summary': 'Remove the old report route, handler, menu entry and data; leave the new report alone',
+                          'before': 'The old report can be exported from the menu, by URL and by API; its data is stored.',
+                          'after': 'No path exports the old report; its data is gone; the new report is unchanged.',
+                          'rationale': 'Deleting the three entries and the data meets A1 and A2 and touches nothing else.',
+                          'changes': [change('X1', 'delete', ['url'], ['A1'], 'routes.py'), change('X2', 'delete', ['api'], ['A1'], 'api.py'),
+                                      change('X3', 'delete', ['menu'], ['A1'], 'menu.js'), change('X4', 'delete', ['storage'], ['A2'], 'data/old_report.json'),
+                                      change('X5', 'modify', ['api'], ['K1'], 'reports_new.py')]},
+            'covers': ['A1', 'A2'], 'in_authority': True, 'backlog': [],
+            'preserve': [{'id': 'K1', 'text': 'The new report and its API stay unchanged'}],
+            'estimate': {'range': [600, 1800], 'evidence': ['routes.py:1']},
+            'investigation': {'cap': {'minutes': 4, 'calls': 4}, 'paths': ['x', 'onecrew'], 'stop_when': 'an answer citing file:line, or the cap'},
+            'unknowns': [{'id': 'U1', 'question': 'Is the old report data used by another job?', 'affected': ['A2', 'X4'], 'required_by': 'option_choice', 'status': status}]}
+body = work / 'proposal.json'
+body.write_text(json.dumps({'requirement': requirement, 'proposal': proposal_value('open')}), encoding='utf-8')
+code, checked = cli('plan', 'proposal', 'check', 'S0', '--file', str(body))
+code, card = cli('plan', 'step0', 'show', 'S0', '--json')
+out['open'] = {'check_exit': code, 'enough': card.get('enough') if isinstance(card, dict) else None, 'not_enough': card.get('not_enough') if isinstance(card, dict) else card}
+before = len(events(ledger))
+from onecrew.v2 import survey
+question = {'id': 'U9', 'question': 'Another question beyond the investigation cap?', 'affected': ['A1'], 'required_by': 'option_choice', 'status': 'open'}
+try:                                                 # the check opened the survey of U1 with the whole cap: a second one has no room left
+    with ledger.transaction(write=True) as conn:
+        survey.open_in(ledger, conn, plan.anchor_events(ledger, conn, 'S0'), question, {'cap': {'minutes': 5, 'calls': 1},
+                       'end_condition': 'an answer citing file:line', 'scope': {'mode': 'read_only', 'paths': ['x']}})
+    refused, code = 'opened', 0
+except survey.InvestigationCapReached as error:
+    refused, code = 'InvestigationCapReached: ' + str(error), 2
+out['survey_over_cap'] = {'exit': code, 'answer': refused, 'events_added': len(events(ledger)) - before,
+                          'surveys': [x.get('survey') for x in events(ledger, 'survey.opened')]}
+code, closed = cli('plan', 'unknown', 'close', 'S0', 'U1', '--by', 'doc', '--evidence', 'x/y.py:1')
+body.write_text(json.dumps({'requirement': requirement, 'proposal': proposal_value('closed')}), encoding='utf-8')
+code2, checked2 = cli('plan', 'proposal', 'check', 'S0', '--file', str(body))
+code3, card2 = cli('plan', 'step0', 'show', 'S0', '--json')
+out['closed'] = {'close_exit': code, 'check_exit': code2, 'enough': card2.get('enough') if isinstance(card2, dict) else None,
+                 'not_enough': card2.get('not_enough') if isinstance(card2, dict) else card2}
+code, text = cli('plan', 'step0', 'show', 'S0')
+out['text_card'] = {'exit': code, 'says_enough': 'đủ để làm: có' in str(text)}
+# 2. execution mode: two independent nodes in two slots with the managed executor (a local worker process), then measure; control without the capability
+from onecrew.v2.managed_executor import ManagedExecutor
+from onecrew.process_core import Supervisor, native_python
+from onecrew.subscription import environment
+os.environ['ONECREW_HOST_HOME'] = str(work / 'host-home')
+migrate(ledger)
+def factory(control, provider):
+    class LocalWorker:
+        def capability(self): return {'provider': provider, 'mode': 'local-test-artifact-no-tools'}
+        def run(self, attempt, prompt, schema, profile):
+            directory = ledger.state_root / 'worker-io' / attempt['id']; directory.mkdir(parents=True)
+            path = json.loads(prompt.split('\n', 1)[1])['node']['write'][0]
+            value = {'summary': 'fixture', 'files': [{'path': path, 'content': 'candidate ' + path + '\n'}], 'backlog': []}
+            script = 'import pathlib,sys\npathlib.Path("answer.json").write_text(sys.argv[1])\n'
+            return Supervisor(control).run(attempt, [native_python(), '-c', script, json.dumps(value)], cwd=directory,
+                                           timeout=min(20, profile['step_seconds']), env=environment())
+        def result(self, attempt):
+            return json.loads((ledger.state_root / 'worker-io' / attempt['id'] / 'answer.json').read_text()), []
+    return LocalWorker()
+def mode_root(name, caps):
+    root(ledger, name, contract(owned=('a.txt', 'b.txt')), caps=caps)
+    internal_plan.revise(ledger, name, [node('A', read=('a.txt',)), node('B', write=('b.txt',), read=('b.txt',)),
+                                        node('I', ['A', 'B'], integration=True, write=(), read=())], reason='two independent nodes', evidence=['a.txt:1'])
+    batch = engine.run_batch(ledger, name, ManagedExecutor(ledger, worker_factory=factory), slots=2)
+    with ledger.transaction() as conn:
+        task = plan.derive(ledger, conn, name)['task_id']
+    started = [e for e in events(ledger, 'node.started') if e['_task'] == task]
+    return {'results': {r.get('node'): r.get('state') for r in batch['results']},
+            'started': [{'node': e['node'], 'mode': e.get('mode'), 'mode_reasons': e.get('mode_reasons'), 'has_mode_fields': bool({'mode', 'mode_reasons', 'mode_inputs_sha'} & set(e))}
+                        for e in started]}
+PARALLEL = CAPS + ['parallel-engine']
+out['mode'] = mode_root('M1', PARALLEL + ['execution-mode'])
+code, measured = cli('engine', 'measure', 'M1')
+attempts = measured.get('attempts', []) if isinstance(measured, dict) else []
+out['measure'] = {'exit': code, 'attempts': len(attempts), 'unknown_fields': sorted({k for a in attempts for k, v in a.items() if v == 'unknown'}
+                                                                                  | {k for k, v in (measured.items() if isinstance(measured, dict) else []) if v == 'unknown'})}
+out['control'] = mode_root('M0', PARALLEL)
+out['origins'] = {n: getattr(sys.modules.get(n), '__file__', None) for n in ('onecrew.v2.execution_mode', 'onecrew.v2.step0', 'onecrew.v2.survey')}
+emit(out)
+'''
+
+
+def v25_step0_mode(ctx):
+    """2.4-C: `plan proposal check` with the three optional card fields and an open decision-changing unknown -> `plan step0 show` enough no with the
+    reason; a survey over the investigation cap is refused and writes nothing; after closing evidence (plan unknown close) and a new check, enough
+    yes. A root with `execution-mode` runs two independent nodes in two slots (managed executor, a local worker process): node.started carries the
+    mode fields (overlap or run_now with reasons); `engine measure` keeps unobserved values `unknown`. Control: the same root without the
+    capability has no mode fields."""
+    folder = ctx.case('c step0 mode')
+    facts, tail = _scenario(ctx, folder, C_BODY, {'work': str(folder)})
+    if facts is None: return False, {'problems': ['the scenario did not finish: ' + tail]}
+    problems = []
+    if not (facts['open']['enough'] is False and any('unknown_open:U1' == r for r in facts['open']['not_enough'] or [])):
+        problems.append('with U1 open the card must say not enough because of it: ' + str(facts['open']))
+    if not (facts['survey_over_cap']['exit'] != 0 and facts['survey_over_cap']['events_added'] == 0 and 'cap' in str(facts['survey_over_cap']['answer'])): problems.append('a survey over the cap: ' + str(facts['survey_over_cap']))
+    if not (facts['closed']['close_exit'] == 0 and facts['closed']['enough'] is True): problems.append('after closing evidence: ' + str(facts['closed']))
+    if not facts['text_card']['says_enough']: problems.append('the text card does not say enough: ' + str(facts['text_card']))
+    mode = facts['mode']
+    rows = {r['node']: r for r in mode['started']}
+    if not (mode['results'].get('A') == 'produced' and mode['results'].get('B') == 'produced' and all(rows.get(n, {}).get('has_mode_fields') for n in ('A', 'B'))
+            and {rows['A']['mode'], rows['B']['mode']} <= {'overlap', 'run_now'} and all(rows[n]['mode_reasons'] for n in ('A', 'B'))):
+        problems.append('execution-mode root: ' + str(mode))
+    if not (facts['measure']['exit'] == 0 and facts['measure']['attempts'] >= 2 and facts['measure']['unknown_fields']):
+        problems.append('engine measure: ' + str(facts['measure']))
+    control = facts['control']
+    if not (control['results'].get('A') == 'produced' and control['started'] and not any(r['has_mode_fields'] for r in control['started'])):
+        problems.append('control without the capability: ' + str(control))
+    return not problems, dict(facts, problems=problems)
+
+
 MILESTONE_STEPS = {         # milestone -> [(step id, title, check)]; ONE entry per milestone's steps, in the order they run
     'S1': [('V17-s1-report', 'một lần báo lỗi: cùng key cùng một mã, đúng một sự kiện, bundle có trạng thái hợp lệ, show nói reported/unknown', v17_support_report),
            ('V18-s1-spool', 'sổ hỏng: báo cáo vào spool (cả python -I -m lẫn onecrew.exe), import-spool nhập đúng một lần', v18_support_spool),
@@ -1249,6 +1707,9 @@ MILESTONE_STEPS = {         # milestone -> [(step id, title, check)]; ONE entry 
     'S2': [('V20-s2-target-artifact', 'đích cài là lệnh của chủ (bị từ chối trong phiên AI); wheel có file lạ bị từ chối, wheel của commit đã kiểm được ràng', v20_support_target_artifact),
            ('V21-s2-install', 'không có quyền support_install thì blocked_by_authority; có quyền thì venv mới, điểm an toàn, intent rồi xác nhận, installed theo hook đang chạy', v21_support_install),
            ('V22-s2-recheck-rollback', 'recheck tại đích là node.verification thật, verified_at_target; rollback bị từ chối trong phiên AI; sau rollback của chủ: installed false, rolled_back, still_blocked', v22_support_recheck_rollback)],
+    'A': [('V23-a-sources', 'node có sources đọc file ngoài read qua hai lượt trên cây đã ghim; ngoài phạm vi bị từ chối; cursor cây khác bị từ chối; max_rounds giữ node; node không khai sources giữ đúng khóa 2.3', v23_sources)],
+    'B': [('V24-b-context', 'knowledge.delivered cho attempt; must bị thu hồi lúc đang chạy thì candidate không được công bố, wiki consumers nêu node; node độc lập vẫn công bố; sau khởi động lại mục chỉ còn trong delta.withdrawn', v24_context)],
+    'C': [('V25-c-step0-mode', 'thẻ bước 0: unknown mở thì chưa đủ, khảo sát quá trần bị từ chối, có bằng chứng đóng thì đủ; execution-mode: hai node độc lập có trường chế độ, measure giữ unknown; root không khai thì không có trường', v25_step0_mode)],
 }
 
 

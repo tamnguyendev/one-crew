@@ -139,6 +139,22 @@ MILESTONE_TRY = {
            '  - `support recheck FB-…` chạy lại đúng check gốc bằng runtime mới; `support status FB-… --json` nói `installed` và `verified_at_target` theo hook đang chạy lúc này.\n'
            '  - `support rollback FB-…` là lệnh của chủ (bị từ chối trong phiên AI); sau đó trạng thái là `installed: false`, `rolled_back: true`, còn bị chặn.\n'
            '  - Bộ kiểm chạy chuỗi này từ gói trên một repo OneCrew dựng tạm từ chính wheel của gói (bước V20–V22), nên có thể làm theo log của nó.'),
+    'A': ('- **2.4-A, worker tự đọc nguồn theo quyền:** hướng dẫn ở `docs/HUONG-DAN-SOURCE.vi.md`. Trên bản sao project:\n'
+          '  - Root khai `authority.read` (ví dụ `["src/**"]`) trong hợp đồng; node khai `sources` `{"read": ["src/"], "max_rounds": 4}` trong plan nội bộ.\n'
+          '  - Worker xin `list`/`search`/`read`/`page` kèm `continuation`; lượt sau nhận trang kết quả trên cùng cây đã ghim. Receipt có `source` (cây, kết quả, số lượt).\n'
+          '  - Ngoài phạm vi, `..`, tên bí mật bị từ chối; cursor của cây khác bị từ chối; quá `max_rounds` thì node bị giữ `rounds_exhausted`.\n'
+          '  - Node không khai `sources` chạy y như 2.3.\n'
+          '  - Bộ kiểm chạy đúng các trường hợp này từ gói (bước V23).'),
+    'B': ('- **2.4-B, working context theo consumer:** hướng dẫn ở `docs/HUONG-DAN-CONTEXT.vi.md`.\n'
+          '  - Mỗi attempt được giao tri thức có một sự kiện `knowledge.delivered`.\n'
+          '  - Tri thức đã giao bị thu hồi lúc node đang chạy thì candidate không được công bố; node chạy tiếp ở thế hệ mới nhận `delta`.\n'
+          '  - `& "$venv\\Scripts\\onecrew.exe" --project <project> --state-root <sổ thử> wiki consumers --plan <plan> --json` liệt kê node bị ảnh hưởng (chỉ đọc).\n'
+          '  - Bộ kiểm chạy đúng trường hợp này từ gói, cả qua một lần khởi động lại (bước V24).'),
+    'C': ('- **2.4-C, bước 0 đủ để làm và cách chạy node:** hướng dẫn ở `docs/HUONG-DAN-BUOC-0.vi.md`.\n'
+          '  - `plan proposal check <plan> --file <f.json>` với `preserve`, `estimate`, `investigation`; `plan step0 show <plan> [--json]` nói đủ để làm chưa và vì sao.\n'
+          '  - Khảo sát vượt trần điều tra bị từ chối; unknown đổi được quyết định chỉ đóng khi có bằng chứng (`plan unknown close`).\n'
+          '  - Root khai capability `execution-mode`: `node.started` ghi chế độ chạy và lý do; `engine batch <plan> --slots 2`; `engine measure <plan>` chỉ đọc, thiếu quan sát là `unknown`.\n'
+          '  - Bộ kiểm chạy đúng các trường hợp này từ gói (bước V25).'),
 }
 TRY_REGRESSION = ('- **Hồi quy 2.3, task đầu tiên:** làm theo `examples/first-task/README.vi.md`. Thư mục đó có trang wiki mẫu `docs/wiki/rules.md`, hợp đồng `contract.json`, định nghĩa node `nodes.json`, '
                   '`fake-policy.json`, các lệnh `onecrew` cụ thể và đường dẫn nằm trong gói. Phần A diễn tập với `claude` giả (không gọi model); phần B dùng Claude Code CLI thật '
@@ -206,6 +222,7 @@ def main():
     shutil.copy2(ROOT / 'docs/v24/tools/verify_milestone.py', verify / 'verify_milestone.py')
     for name in SCENARIOS: shutil.copy2(ROOT / 'docs/v23/tools' / name, verify / name)         # the 2.3 scenarios, unchanged (V4-V14)
     shutil.copy2(ROOT / 'tests/v23_fake_claude.py', verify / 'onecrew_fake_claude.py')
+    shutil.copy2(ROOT / 'tests/v24_fake_claude.py', verify / 'onecrew_fake_claude_v24.py')     # 2.4-A V23: the fake that reads by request
     for name in SHARED_TOOLS: shutil.copy2(ROOT / 'docs/v23/tools' / name, verify / name)
     shutil.copy2(ROOT / 'docs/v24/tools/thu_goi.ps1', verify / 'thu-goi.ps1')      # the owner's one-command test: runs the verifier, the drill and the alpha flow and accepts only reports of THIS run
     docs = out / 'docs'; docs.mkdir()

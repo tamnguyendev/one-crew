@@ -1,0 +1,8 @@
+- **2.4-C, bước 0 đủ để làm và cách chạy node:** thẻ bước 0 là cách xem chỉ đọc của `plan proposal check`; capability `execution-mode` ghi chế độ chạy và lý do (hướng dẫn: `docs/HUONG-DAN-BUOC-0.vi.md`).
+- **Fixture chứng minh luật và bản ghi,** không chứng minh model thật đề xuất đúng hay chạy nhanh hơn; chưa đo trên provider thật.
+- **`size` và `in_authority` vẫn do AI tự khai;** thẻ không coi đó là bằng chứng "nhỏ nhất". Ước lượng trên thẻ không bao giờ thành trần chạy hay ngân sách.
+- **Nhãn `resources` là độc quyền trong một root;** hai root khác nhau không thấy nhãn của nhau.
+- **Fixture và kịch bản cũ dùng `list(namespaces.CAPABILITIES)`** nay bật cả `execution-mode`; đường không capability (mọi root thật hiện nay) được giữ bằng các test riêng của 2.3.
+- **Chi phí bàn giao là mô hình** (tốc độ chuẩn bị quan sát × context của worker trước), không phải đo trực tiếp phần node sau nhận; chưa đo thì là `unknown`, không phải 0.
+- **Capacity tính theo state root** (tối đa 2 attempt); không xét CPU/RAM. Pipeline theo dependency là mốc 2.5-B. Không adapter nào giữ phiên model (`session.reuse: false`).
+- **Bộ kiểm (bước V25)** chạy hai node độc lập trong hai slot bằng executor có quản lý và một worker là process cục bộ (không gọi model), qua `engine.run_batch` của bản cài; `engine measure` được gọi qua CLI của bản cài.

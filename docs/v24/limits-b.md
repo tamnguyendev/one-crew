@@ -1,0 +1,9 @@
+- **2.4-B, working context theo consumer:** mỗi attempt được giao tri thức có một `knowledge.delivered`; thay đổi tri thức hay nguồn đã giao chỉ đến node ở điểm an toàn (hướng dẫn: `docs/HUONG-DAN-CONTEXT.vi.md`).
+- **Bản ghi giao, delta và ACK chỉ chứng minh đã giao gì,** không chứng minh worker đã hiểu hay đã dùng đúng; checks của node mới phán kết quả.
+- **Không có phiên model giữ lâu.** Không tuyên bố xóa được thứ model đã "nhớ" trong lượt chạy cũ; chỉ bảo đảm lượt sau không nhận lại mục đã thu hồi và kết quả cũ không được công bố như hiện hành.
+- **Tri thức được xét trên snapshot worker đã thấy;** file đã đọc qua 2.4-A được so với cây làm việc hiện tại. Cổng chạy trong giao dịch ghi sự kiện công bố; sửa trang wiki hay file nguồn không bị khóa chung (khoảng dưới một giây).
+- **`MAX_RECHECKS` đếm mọi lần kiểm lại của node trong đời root** (kể cả trước một lần revise hay chủ dự án cho chạy tiếp); ghi bản giao lỗi thì attempt dừng trước khi chạy (đóng an toàn).
+- **Mục chỉ có trong `omitted.index`** (tiêu đề) không được ghi, nên thu hồi chúng không gây kiểm lại. Commit trang wiki thêm mục `must` có thể làm mọi node đang chạy liên quan kiểm lại tới 2 lần rồi giữ.
+- **Mẫu quyền đọc có `[` chữ** vẫn được đọc như glob.
+- **`wiki consumers` và `affected_consumers` chỉ để xem,** không phải kênh báo tự động.
+- **Mọi kiểm ở mốc này dùng worker giả** (bước V24 dùng `claude` giả); chưa có bằng chứng với model thật.

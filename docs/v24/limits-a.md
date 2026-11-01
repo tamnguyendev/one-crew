@@ -1,0 +1,9 @@
+- **2.4-A, worker tự đọc nguồn theo quyền:** node khai `sources` xin `list`/`search`/`read`/`page` trên cây đã ghim, trong `authority.read` của root (hướng dẫn: `docs/HUONG-DAN-SOURCE.vi.md`).
+- **Một lượt đọc là một lần chạy CLI của worker.** Không có vòng tool trong một attempt; worker nên gom yêu cầu (tối đa 8 mỗi lượt). Mỗi lượt là một attempt mới, tính vào ngân sách chung của root.
+- **Cây được ghim một lần cho cả chuỗi.** Muốn thấy nguồn mới thì node cần thế hệ mới (revise plan); cursor cũ khi đó bị từ chối. Node bị giữ rồi được cho chạy tiếp, hay được thay sau khi controller chết, bắt đầu chuỗi mới như 2.3 (bản dở bị bỏ), nhưng bộ đếm lượt và bộ nhớ lặp vẫn theo node.
+- **Quay về 2.3 trên sổ có root khai `authority.read`:** wheel 2.3 từ chối hợp đồng đó (`authority: unknown fields read`); quay về cần root không có khóa này.
+- **Khôi phục "chết giữa yêu cầu và kết quả"** là chạy lại đúng attempt đã đặt chỗ; engine chưa tự chạy lại một attempt native còn ở trạng thái `reserved` (giới hạn có từ 2.3).
+- **Bộ theo dõi tiến độ** thấy các lượt đọc không đổi file như "không có thay đổi"; engine chỉ xét nó ở kết quả cuối.
+- **Adapter nguồn hiện chỉ có cây Git;** log hay dữ liệu ngoài repo để sau. Project không phải cây Git thì `source_tools` là `unavailable` và node chạy như 2.3.
+- **Nội dung nguồn là dữ liệu, không phải quyền;** lọc bí mật theo tên và nội dung là theo mẫu, không phải bảo đảm.
+- **Mọi kiểm ở mốc này dùng worker giả** (bước V23 dùng `claude` giả đọc theo yêu cầu và một worker theo kịch bản); chưa chứng minh model thật dùng tốt giao thức.
