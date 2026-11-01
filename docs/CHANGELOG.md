@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v2.4.0.dev4 (02/11/2026) — bản thử 2.4 sau review Codex trên dev3 (ứng viên beta, chưa nghiệm thu)
+
+Sửa hai finding của Codex trên `2.4.0.dev3` (`5a7a8ef`, wheel `35c78a49…`): 1 P1, 1 P3; mỗi finding có phản chứng đỏ trên baseline trước khi sửa (test của checkout và bước kiểm chạy trên chính gói dev3).
+
+**P1 (2.4-S2) — bytecode sai vẫn được thực thi trước khi bị từ chối:** `hotfix.identity` nhận kết quả so `.pyc` của trình thông dịch rồi vẫn chạy `onecrew --version`, nên bytecode bị thay đã chạy trước khi `verify_installed` báo lỗi. Nay `onecrew --version` chỉ chạy khi mọi `.pyc` của nguồn trong wheel có câu trả lời và giống bản biên dịch (`unproven_caches`); trình thông dịch không trả lời, trả lời thiếu hay `.pyc` không đọc được cũng dừng ở đó (`entry_blocked`). Lần chạy của phép kiểm đọc bytecode từ thư mục trống riêng (`PYTHONPYCACHEPREFIX`), nên `.pyc` bị thay ngay sau phép so cũng không chạy. Cùng lớp lỗi ở quay lui: mọi `.pyc` của runtime cũ (mốc runtime cũ bỏ qua cache) được so trước khi chạy runtime cũ (`_old_runtime`, `venv_caches`); danh sách dài đi qua file thay cho dòng lệnh.
+**P3 — tài liệu trong gói không đồng bộ:** gói dev3 có `docs/limits-final.md` (mục S2, B) khác `limits-s2.md`/`limits-b.md` và câu claim cũ; README ghi "chưa được Codex review" trong khi giới hạn ghi khác. Nay gói dựng từ snapshot có tài liệu đã sửa; test `test_v24_docs_sync` buộc mỗi mục của giới hạn tổng hợp đúng từng dòng file giới hạn của mốc; README trỏ về dòng trạng thái review trong mục Giới hạn.
+**Bộ kiểm gói:** thêm V29 (từ wheel đã cài: `.pyc` bị thay → từ chối, file đánh dấu không xuất hiện, `onecrew` của venv không được chạy; runtime cũ khi quay lui cũng vậy; venv nguyên vẹn vẫn chạy) và V30 (tài liệu trong gói khớp nhau, README nêu đúng version/commit/wheel). Cả hai FAIL trên gói dev3.
+**Giữ nguyên:** 2.3.0.dev10, 2.2, sổ/hook/runtime thật; không push/tag/publish.
+
 ## v2.4.0.dev3 (02/11/2026) — bản thử 2.4 sau review Codex vòng 1 trên dev2 (ứng viên beta, chưa nghiệm thu)
 
 Sửa bốn finding của Codex trên `2.4.0.dev2` (`61862e6`): 2 P1, 1 P2, 1 P3; mỗi finding có phản chứng đỏ trên baseline trước khi sửa, và bốn vòng review độc lập trên S2 sau review Codex (vòng sửa thứ năm, `bb19222`, chỉ có test, chưa review lại riêng), hai vòng trên B (hồ sơ: `D:/OneCrewRuns/v24/codex-r1/`).
