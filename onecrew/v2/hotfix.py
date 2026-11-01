@@ -41,7 +41,11 @@ Round 3 (review-s2-r3): no final record is a dead end: after a violation on eith
 current data); status says what the hooks run now and why. The switch window is from the snapshot right before the first hook write to the
 one right after the last. A venv folder without a baseline in this ledger is never reused or run (the owner removes an interrupted one of
 this ledger with `support cleanup --venv`); each ledger has its own venv (`-<state root8>`); the target's base python is resolved without
-fallback and its `home` is re-checked at every judgement. Rollback only when the OLD runtime reads the current data (see rollback). `installed` and `verified_at_target` are projected against
+fallback and its `home` is re-checked at every judgement.
+
+Round 4 (review-s2-r4): `support cleanup --venv` works on the path as given (no link followed), only on the two folder shapes an install of
+this ledger makes, inside the target's claim, and is an owner verb in the hook deny layer; the pre-write check reads fence and activity in one
+read at its start and again before the first write, and refuses on any change between them. Rollback only when the OLD runtime reads the current data (see rollback). `installed` and `verified_at_target` are projected against
 what the consumers' hook handlers run NOW.
 """
 import ast
@@ -55,6 +59,7 @@ import re
 import shutil
 import socket
 import sqlite3
+import stat
 import subprocess
 import sys
 import tomllib
@@ -707,7 +712,15 @@ def _fenced(state_root):
     return content_hash({'rows': rows, 'files': files}), content_hash({'rows': rows, 'plans': {k: v for k, v in files.items() if k.startswith('plans/')}})
 
 
-def _fence_parts(state_root):
+def snapshot(state_root):
+    """R4-02: (fence, attempt/action rows) of a state root from ONE sqlite read transaction, so the data fence and the activity a window is
+    judged from are the same instant."""
+    activity = {'attempts': [], 'actions': [], 'max_seq': 0}
+    rows, files = _fence_parts(state_root, activity)
+    return content_hash({'rows': rows, 'files': files}), activity
+
+
+def _fence_parts(state_root, activity=None):
     state_root = Path(state_root)
     rows = {}
     path = state_root / 'ledger.sqlite3'
@@ -722,6 +735,12 @@ def _fence_parts(state_root):
                 if table == 'events': found = [r for r in found if r[1] not in anchors]
                 if table == 'tasks': found = [r for r in found if r[0] not in anchors]
                 rows[table] = sorted(json.dumps(list(r), default=str) for r in found)
+            if activity is not None:                  # in the same read transaction (R4-02)
+                activity['max_seq'] = conn.execute(                                   # the support anchor's own records left out,
+                    'SELECT COALESCE(MAX(e.seq),0) FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.request_key!=?',  # like the fence
+                    (support.ANCHOR_KEY,)).fetchone()[0] if 'events' in rows and 'tasks' in rows else 0
+                if 'attempts' in rows: activity['attempts'] = [list(r) for r in conn.execute('SELECT id, status, created_at FROM attempts')]
+                if 'actions' in rows: activity['actions'] = [list(r) for r in conn.execute('SELECT id, status FROM actions')]
         finally:
             conn.close()
     files = {}
@@ -961,28 +980,41 @@ def _events_after(state_root, seq):
 
 
 def _post(states):
-    """R3-03: {state root: (attempt/action rows, fence)} read right after the last hook write."""
-    return {s: (_activity(s)[1], fence(s)) for s in states}
+    """R3-03: {state root: (attempt/action rows, fence)} read right after the last hook write (one read each, R4-02)."""
+    return {s: tuple(reversed(snapshot(s))) for s in states}
 
 
-def _window(states, pre, post, fences, left, strict, ledger=None, token=None, venv=None):
+def _settled(states, first, pre):
+    """R4-02: read again right before the first hook write; anything that changed during the pre-write check (it verifies the venv and
+    renews the claim, which takes seconds) refuses, nothing written. Else the second read becomes `pre`, the start of the window."""
+    second = {s: snapshot(s) for s in states}
+    changed = [f'the data of {s} changed during the pre-write check (fence or attempts/actions); nothing was written, run it again'
+               for s in states if second[s] != first[s]]
+    if not changed: pre.update(rows={s: second[s][1] for s in states}, fences={s: second[s][0] for s in states})
+    return changed
+
+
+def _window(states, pre, post, fences, left, strict, ledger=None, token=None, venv=None, pre_fences=None):
     """S2-R09, Codex r1 F2, round 2 (R2-02) and round 3 (R3-03): (problems, fences right after the last write, counts). The window is
     from the snapshot right before the first hook write (`pre`) to the one right after the last (`post`): attempts or actions that appear
     or change between them started while hooks of both runtimes were live (a violation); rows before `pre` were judged by the safe
     point; rows after `post` belong to the runtime the hooks now run (counted: `events_after_repoint`, `attempts_after_repoint`). Also
     a violation: a process of the runtime being left still running, a claim no longer ours, and with `strict` (rollback) data changed
     between the drilled fence and `post` (the old runtime must run on the data it was drilled on)."""
-    changed, now_fences, counts = [], {}, {'events_in_window': 0, 'events_after_repoint': 0, 'attempts_after_repoint': 0}
+    changed, now_fences = [], {}
+    counts = {'events_in_window': 0, 'attempts_in_window': 0, 'fence_changed_in_window': False, 'events_after_repoint': 0, 'attempts_after_repoint': 0}
     for state in states:
         rows, now_fences[state] = post[state]
         old = pre.get(state) or {'attempts': [], 'actions': [], 'max_seq': 0}
         for table in ('attempts', 'actions'):
             fresh = [r for r in rows[table] if r not in old[table]]
             changed += [f'{table[:-1]} {r[0]} ({r[1]}) appeared or changed in {state} between the first and the last hook write' for r in fresh]
+            counts['attempts_in_window'] += len(fresh)
         counts['events_in_window'] += _events_after(state, old.get('max_seq', 0)) - _events_after(state, rows['max_seq'])
         counts['events_after_repoint'] += _events_after(state, rows['max_seq'])
         later = _activity(state)[1]
         counts['attempts_after_repoint'] += len([r for t in ('attempts', 'actions') for r in later[t] if r not in rows[t]])
+        if pre_fences and now_fences[state] != pre_fences.get(state): counts['fence_changed_in_window'] = True   # R4-02: plain events, counted
         if strict and now_fences[state] != fences.get(state):
             changed.append(f'fence: the data of {state} changed between the drill and the last hook write; the old runtime did not drill it')
     running = processes_under(left)
@@ -1390,20 +1422,20 @@ def _install(ledger, ident, target, target_id, art, key, keep, token):
     pre = {'rows': before}
 
     def check():                                      # right before the first hook file is rewritten (R2-02, R2-06, R2-13)
-        found = [f'fence: the data of {s} changed since the drill; drill again' for s in states if fences.get(s) != fence(s)]
+        first = {s: snapshot(s) for s in states}      # R4-02: fence and activity from one read, at the start of the check
+        found = [f'fence: the data of {s} changed since the drill; drill again' for s in states if fences.get(s) != first[s][0]]
         found += [f'the new runtime: {p}' for p in verify_installed(venv, art, baseline=known, home=Path(base).parent)[0]]
         try:
             renew(ledger, token, target['venv'], 'the repoint')
         except LedgerError as error:
             found.append(str(error))
-        if not found: pre['rows'] = {s: _activity(s)[1] for s in states}       # R3-03: the snapshot right before the first write
-        return found
+        return found + _settled(states, first, pre)
     try:
         files = repoint(ledger, ident, key, entries, venv_exe(venv), old_exe, 'install', check=check)
     except Refused as refused:
         return _emit(ledger, 'support.install', dict(outcome, result='refused_unsafe', problems=refused.problems, processes=running))
     post = _post(states)                              # R3-03: the snapshot right after the last write
-    changed, after, counts = _window(states, pre['rows'], post, fences, old_venv, False, ledger, token, target['venv'])
+    changed, after, counts = _window(states, pre['rows'], post, fences, old_venv, False, ledger, token, target['venv'], pre.get('fences'))
     bound = {'drilled': fences, 'at_switch': after}
     max_seq = {s: r['max_seq'] for s, r in pre['rows'].items()}
     if changed:
@@ -1525,14 +1557,14 @@ def _rollback(ledger, ident, current, keep, token, claimed):
     pre = {'rows': {s: _activity(s)[1] for s in states}}
 
     def check():                                      # right before the first hook file is rewritten
-        found = [f'fence: the data of {s} changed since the drill; drill again' for s in states if fences.get(s) != fence(s)]
+        first = {s: snapshot(s) for s in states}
+        found = [f'fence: the data of {s} changed since the drill; drill again' for s in states if fences.get(s) != first[s][0]]
         found += _old_runtime(ledger, ident, current)
         try:
             renew(ledger, token, claimed, 'the repoint')
         except LedgerError as error:
             found.append(str(error))
-        if not found: pre['rows'] = {s: _activity(s)[1] for s in states}
-        return found
+        return found + _settled(states, first, pre)
     try:
         files = repoint(ledger, ident, current['key'], current['consumers'], old_exe, venv_exe(current['new_venv']), 'rollback', check=check)
     except Refused as refused:
@@ -1540,7 +1572,7 @@ def _rollback(ledger, ident, current, keep, token, claimed):
                      reason='the data, the old runtime or the claim changed right before the repoint: rollback refused, nothing switched'))
     post = _post(states)
     _crash('rollback_after_repoint')
-    changed, after, counts = _window(states, pre['rows'], post, fences, current['new_venv'], True, ledger, token, claimed)
+    changed, after, counts = _window(states, pre['rows'], post, fences, current['new_venv'], True, ledger, token, claimed, pre.get('fences'))
     bound = {'drilled': fences, 'at_switch': after}
     if changed:
         return _emit(ledger, 'support.install', dict(base, result='switch_window_violation', problems=changed, files=files, fences=bound, **counts,
@@ -1572,8 +1604,9 @@ def projection(ledger, ident):
         out.update(installed=new_now['current'], current_runtime=new_now if new_now['current'] else old_now,
                    installed_evidence=[f'event:{last["seq"]} switch_window_violation; the hooks run {last["new_venv"]}'] if new_now['current'] else [])
     if last:
-        out['restart_sessions'] = ('Claude Code sessions opened before this switch may still run the previous onecrew.exe: restart them '
-                                   f'(events after the repoint: {last.get("events_after_repoint", "unknown")})')
+        out['restart_sessions'] = ('Claude Code sessions opened before this switch may still run the previous onecrew.exe: restart them. '
+                                   f'In the switch window (first to last hook write): {last.get("events_in_window", "unknown")} events, '
+                                   f'{last.get("attempts_in_window", "unknown")} attempts or actions; what ran after it is not counted here')
     keys = {r.get('key') for r in _records(ledger, 'support.install', ident) if r.get('phase') == 'switched_one'}
     for key in keys:
         if _intents(ledger, key): out['partially_switched'] += [r['file'] for r in _intents(ledger, key) if r.get('phase') == 'switched_one']
@@ -1738,38 +1771,91 @@ def _hook_users(ledger, venv):
     return files, unknown
 
 
+def _norm(path):
+    """A path as given, made absolute and normalised, never resolved (R4-01: a link is not followed to name what it points to)."""
+    return os.path.normcase(os.path.normpath(os.path.abspath(str(path))))
+
+
+def _reparse(path):
+    """True when `path` itself is a symlink, a junction or any other reparse point (os.lstat: never followed); False when it is absent."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(getattr(info, 'st_file_attributes', 0) & 0x400)     # FILE_ATTRIBUTE_REPARSE_POINT
+
+
+def _cleanable(ledger):
+    """R4-03: {normalised path: (path, target id, target, key, marker, base)} of the only folders `support cleanup --venv` may remove: the
+    venv an install of this ledger makes (new_venv_path of a declared target and an artifact of this ledger, under the key of a claim this
+    ledger recorded) and the trial venv in this ledger's work folder under such a key. A declared target venv is never one of them."""
+    declared = targets(ledger)
+    keys = {(r.get('key'), r.get('target')) for r in _records(ledger, 'support.install') if r.get('phase') == 'claim' and r.get('what') == 'install'}
+    arts = _records(ledger, 'support.artifact')
+    found = {}
+    for key, target_id in keys:
+        target = declared.get(target_id)
+        if not key or target is None: continue
+        work = ledger.state_root / WORK / key
+        shapes = [(work / 'trial-venv', ledger.state_root)]
+        shapes += [(new_venv_path(target, art, ledger.state_root), Path(target['venv']).parent) for art in arts
+                   if _key(art['feedback'], art, target_id) == key]
+        for path, base in shapes:
+            marker = work / ('venv-' + content_hash(str(path))[:12] + '.json')
+            found[_norm(path)] = (path, target_id, target, key, marker, base)
+    for target in declared.values(): found.pop(_norm(target['venv']), None)
+    return found
+
+
 def cleanup_venv(ledger, venv):
-    """R3-02: the owner's way out of a venv folder this ledger began but never recorded a creation baseline for (an install stopped
-    between python -m venv and the first passing check). Removed only when a marker in this ledger's support-work names it, no baseline
-    of it exists in this ledger, no process runs from it and no OneCrew hook file points into it; the removal is recorded first."""
+    """R3-02 + round 4: the owner's way out of a venv folder this ledger began but never recorded a creation baseline for (an install
+    stopped between python -m venv and the first passing check). Works on the path AS GIVEN (R4-01): refused when it is not exactly a folder
+    this ledger's installs make (R4-03), when it or a folder between it and its base is a link or junction, when it resolves elsewhere, when
+    the marker this ledger wrote for it is missing or names something else, when a baseline of it exists, when a process runs from it, when
+    a OneCrew hook file points into it, or when its tree holds a link or junction. Removal happens inside the target's claim (R4-06) and is
+    recorded first; rmtree is given the unresolved path."""
     _refuse_ai('support cleanup --venv')
     ownership.refuse_in_ai_session('support cleanup --venv')
-    venv = Path(venv).resolve()
-    markers = []
-    for marker in sorted((ledger.state_root / WORK).glob('*/venv-*.json')) if (ledger.state_root / WORK).is_dir() else []:
+    given = Path(os.path.abspath(str(venv)))
+    shape = _cleanable(ledger).get(_norm(given))
+    if shape is None:
+        raise LedgerError(f'support cleanup --venv {given} refused, nothing removed: it is not a venv folder an install of this ledger makes '
+                          '(<target venv>-<version>-<sha8>-<state root8>, or support-work/<key>/trial-venv); a declared target venv is never removed')
+    path, target_id, target, key, marker, base = shape
+
+    def work(token):
+        problems = []
+        chain, here = [], given
+        while _norm(here) != _norm(base) and here.parent != here:
+            chain.append(here); here = here.parent
+        linked = [str(p) for p in chain if _reparse(p)]
+        if linked: problems.append(f'a link or junction stands on the way: {", ".join(linked)}')
+        elif not given.is_dir(): problems.append('it is not a folder')
+        elif os.path.normcase(str(given.resolve())) != _norm(given): problems.append(f'it resolves to {given.resolve()}, not to itself')
         try:
-            if _same(json.loads(marker.read_text(encoding='utf-8')).get('venv') or '', venv): markers.append(marker)
+            noted = json.loads(marker.read_text(encoding='utf-8')) if marker.is_file() and not _reparse(marker) else None
         except (OSError, ValueError):
-            continue
-    problems = []
-    if not markers: problems.append('no marker of this ledger names it: OneCrew of this ledger did not begin it')
-    if is_link(venv) or not venv.is_dir(): problems.append('it is not a folder (or it is a link)')
-    if any(r.get('phase') == 'baseline' and _same(r.get('venv') or '', venv) for r in _records(ledger, 'support.install')):
-        problems.append('a creation baseline of it exists in this ledger: it is a checked runtime, not an interrupted one')
-    running = processes_under(venv) if venv.is_dir() else []
-    if running is None: problems.append('processes: unknown (they cannot be listed here)')
-    elif running: problems += [f'process {p["pid"]} runs {p["image"]}' for p in running]
-    files, unknown = _hook_users(ledger, venv)
-    problems += [f'the hook file {f} runs a program of it' for f in files] + [f'hook file unknown: {u}' for u in unknown]
-    with ledger.transaction() as conn:
-        if any(_live(c) for c in _claims(conn)): problems.append('an install, rollback or switch is in progress (a live claim)')
-    if problems: raise LedgerError(f'support cleanup --venv {venv} refused, nothing removed: {"; ".join(problems)}')
+            noted = None
+        if not noted or noted.get('venv') != str(path) or noted.get('key') != key:
+            problems.append(f'the marker this ledger writes for it ({marker}) is missing or names something else')
+        if any(r.get('phase') == 'baseline' and _norm(r.get('venv') or '') == _norm(given) for r in _records(ledger, 'support.install')):
+            problems.append('a creation baseline of it exists in this ledger: it is a checked runtime, not an interrupted one')
+        if not problems:
+            inner = [str(p) for p, link in _walk(given) if link]
+            if inner: problems.append(f'its tree holds links or junctions: {", ".join(inner[:3])}')
+            running = processes_under(given)
+            if running is None: problems.append('processes: unknown (they cannot be listed here)')
+            elif running: problems += [f'process {p["pid"]} runs {p["image"]}' for p in running]
+            files, unknown = _hook_users(ledger, given)
+            problems += [f'the hook file {f} runs a program of it' for f in files] + [f'hook file unknown: {u}' for u in unknown]
+        if problems: raise LedgerError(f'support cleanup --venv {given} refused, nothing removed: {"; ".join(problems)}')
+        _emit(ledger, 'support.install', {'phase': 'cleanup', 'venv': str(given), 'key': key, 'target': target_id, 'marker': str(marker),
+                                          'by': 'owner', 'session': ownership.session_info(), 'at': utcnow()})
+        shutil.rmtree(given)                          # the given path, never a resolved one
+        marker.unlink(missing_ok=True)
+        return {'removed': str(given), 'marker': str(marker), 'note': 'support install creates the venv again'}
     _anchor(ledger)
-    _emit(ledger, 'support.install', {'phase': 'cleanup', 'venv': str(venv), 'markers': [str(m) for m in markers], 'by': 'owner',
-                                      'session': ownership.session_info(), 'at': utcnow()})
-    shutil.rmtree(venv)
-    for marker in markers: marker.unlink(missing_ok=True)
-    return {'removed': str(venv), 'markers': [str(m) for m in markers], 'note': 'support install creates the venv again'}
+    return _claimed(ledger, target['venv'], key, 'cleanup', target_id, work)
 
 
 def cleanup(ledger):

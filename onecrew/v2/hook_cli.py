@@ -837,7 +837,7 @@ HOOK_EVENTS = (('PreToolUse', 'check', 15, 'Edit|Write|MultiEdit|NotebookEdit|Ba
                ('SessionStart', 'session', 30, 'startup|resume|clear|compact', 'continue'))
 OWNER_DENY = ('plan approve', 'plan accept', 'plan enforce', 'verdict record', 'hook mode', 'plan unknown close*owner', 'plan poc record*owner',
               'owner approve', 'owner accept', 'owner enforce', 'owner record', 'owner answer', 'question answer',
-              'support confirm', 'support target add', 'support rollback')    # owner-only entry points
+              'support confirm', 'support target add', 'support rollback', 'support cleanup*--venv')    # owner-only entry points
 
 
 def build_settings(handler, state_root):

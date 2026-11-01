@@ -738,7 +738,8 @@ class Round3(Window, S2Fixture):
         self.assertEqual(code, 2, no); self.assertIn('baseline', no['error'])
         stranger = Path(self.temp.name) / 'stranger-venv'; (stranger / 'Scripts').mkdir(parents=True)
         code, no = self.owner('support', 'cleanup', '--venv', str(stranger))
-        self.assertEqual(code, 2, no); self.assertIn('marker', no['error']); self.assertTrue(stranger.is_dir())
+        self.assertEqual(code, 2, no); self.assertTrue(stranger.is_dir())
+        self.assertIn('not a venv folder an install of this ledger makes', no['error'])     # round 4 (R4-03): refused by its shape first
 
     def test_R3_04_two_ledgers_install_the_same_wheel_to_one_target(self):
         from onecrew.ledger import Ledger
@@ -795,6 +796,125 @@ class Round3(Window, S2Fixture):
         cfg.write_text('no home here\n', encoding='utf-8')
         code, refused = self.cli('support', 'recheck', self.fb)
         self.assertEqual(code, 2, refused); self.assertIn('pyvenv.cfg', refused['error'])
+
+
+class Round4(Window, S2Fixture):
+    """Round 4 review (review-s2-r4.md R4-01..R4-07): FAULT INJECTION on the fake runtime (S2Fixture); the ledger, engine, authority check,
+    claim, hook files and the folders cleanup removes (junctions included) are real."""
+
+    new_venv = Round2.new_venv
+    foreign_claim = Round2.foreign_claim
+    child = Round2.child
+
+    def setUp(self):
+        super().setUp()
+        self.injected = []
+        self.ready()
+        self.old = {str(self.old_exe.resolve())}
+
+    def interrupted(self):
+        with patch.dict(os.environ, {'ONECREW_SUPPORT_CRASH': 'after_venv'}):
+            with self.assertRaises(hotfix().Crash):
+                hotfix().install(self.ledger, self.fb, 'lab')
+        return self.new_venv()
+
+    def victim(self):
+        folder = Path(self.temp.name) / 'victim-data'; folder.mkdir()
+        (folder / 'precious.txt').write_text('keep me', encoding='utf-8')
+        return folder
+
+    def cleanup(self, path):
+        return self.owner('support', 'cleanup', '--venv', str(path))
+
+    def test_R4_01a_junction_in_place_of_the_venv_is_refused_and_its_target_kept(self):
+        import _winapi
+        venv, victim = self.interrupted(), self.victim()
+        shutil.rmtree(venv)
+        _winapi.CreateJunction(str(victim), str(venv))
+        self.addCleanup(lambda: os.rmdir(venv) if os.path.lexists(venv) else None)
+        code, refused = self.cleanup(venv)
+        self.assertEqual(code, 2, refused); self.assertIn('junction', refused['error'])
+        self.assertEqual((victim / 'precious.txt').read_text(encoding='utf-8'), 'keep me')
+
+    def test_R4_01b_junction_inside_the_venv_is_refused(self):
+        import _winapi
+        venv, victim = self.interrupted(), self.victim()
+        _winapi.CreateJunction(str(victim), str(venv / 'Scripts' / 'evil'))
+        self.addCleanup(lambda: os.rmdir(venv / 'Scripts' / 'evil') if os.path.lexists(venv / 'Scripts' / 'evil') else None)
+        code, refused = self.cleanup(venv)
+        self.assertEqual(code, 2, refused); self.assertIn('junction', refused['error'])
+        self.assertTrue(venv.is_dir()); self.assertEqual((victim / 'precious.txt').read_text(encoding='utf-8'), 'keep me')
+
+    def test_R4_01c_plain_interrupted_venv_is_removed(self):
+        venv = self.interrupted()
+        code, removed = self.cleanup(venv)
+        self.assertEqual(code, 0, removed); self.assertFalse(venv.exists())
+
+    def test_R4_03a_forged_marker_naming_the_target_venv_is_refused(self):
+        code, made = self.install()
+        self.assertEqual(made['result'], 'switched', made)
+        forged = self.ledger.state_root / 'support-work' / 'forged'; forged.mkdir(parents=True)
+        (forged / 'venv-000000000000.json').write_text(json.dumps({'venv': str(self.old_venv), 'key': 'forged'}), encoding='utf-8')
+        code, refused = self.cleanup(self.old_venv)
+        self.assertEqual(code, 2, refused); self.assertIn('declared target venv is never removed', refused['error'])
+        self.assertTrue(self.old_exe.is_file())
+
+    def test_R4_03b_folder_outside_both_shapes_is_refused(self):
+        venv = self.interrupted()
+        stranger = venv.parent / (venv.name + '-copy'); shutil.copytree(venv, stranger)
+        marker = next((self.ledger.state_root / 'support-work').glob('*/venv-*.json'))
+        (marker.parent / ('venv-' + __import__('onecrew.ledger', fromlist=['x']).content_hash(str(stranger))[:12] + '.json')).write_text(
+            json.dumps({'venv': str(stranger), 'key': marker.parent.name}), encoding='utf-8')
+        code, refused = self.cleanup(stranger)
+        self.assertEqual(code, 2, refused); self.assertIn('not a venv folder', refused['error']); self.assertTrue(stranger.is_dir())
+
+    def test_R4_04_cleanup_venv_is_an_owner_verb_in_the_deny_layer(self):
+        from onecrew.v2 import hook_cli, ownership
+        with patch.dict(os.environ, {'CLAUDE_CODE_CHILD_SESSION': '1'}):
+            with __import__('contextlib').redirect_stdout(__import__('io').StringIO()):
+                self.assertEqual(ownership.refuse_argv(['support', 'cleanup', '--venv', 'x']), 2)
+                self.assertEqual(ownership.refuse_argv(['support', 'cleanup', '--venv=x']), 2)
+            self.assertIsNone(ownership.refuse_argv(['support', 'cleanup']))          # finished copies: still open to an AI session
+        self.assertIn('Bash(*support cleanup*--venv*)', hook_cli.deny_rules(self.ledger.state_root))
+
+    def test_R4_06_cleanup_takes_the_target_claim(self):
+        venv = self.interrupted()
+        process, holder = self.child()
+        self.foreign_claim(holder, process.pid)
+        code, refused = self.cleanup(venv)
+        self.assertEqual(code, 2, refused); self.assertIn('in progress', refused['error']); self.assertTrue(venv.is_dir())
+
+    def armed(self, write):
+        """Inject `write` while the pre-write check verifies the new venv (after the safe point, before the first hook write)."""
+        state = {'armed': False}
+        real_safe, real_verify = hotfix().safe_point, hotfix().verify_installed
+        def safe(*args, **kwargs):
+            done = real_safe(*args, **kwargs); state['armed'] = True; return done
+        def verify(*args, **kwargs):
+            if state['armed'] and not self.injected: write()
+            return real_verify(*args, **kwargs)
+        return patch.object(hotfix(), 'safe_point', safe), patch.object(hotfix(), 'verify_installed', verify)
+
+    def test_R4_02a_attempt_started_during_the_pre_write_check_is_refused(self):
+        def write():
+            with self.ledger.transaction(write=True) as conn:
+                conn.execute("UPDATE attempts SET status='running', updated_at='during the check'")
+            self.injected.append('attempt')
+        one, two = self.armed(write)
+        with one, two:
+            code, made = self.install()
+        self.assertEqual(made['result'], 'refused_unsafe', made); self.assertIn('pre-write check', json.dumps(made['problems']))
+        self.assertEqual(self.settings_exe(), self.old)
+
+    def test_R4_02b_event_written_during_the_pre_write_check_is_refused(self):
+        one, two = self.armed(lambda: self.write('during the check'))
+        with one, two:
+            code, made = self.install()
+        self.assertEqual(made['result'], 'refused_unsafe', made)
+        self.assertEqual(self.settings_exe(), self.old)
+        code, again = self.install()                                                    # control: nothing injected
+        self.assertEqual(again['result'], 'switched', again)
+        self.assertIn('In the switch window', json.dumps(self.status()['installed']))   # R4-07
 
 
 if __name__ == '__main__':
