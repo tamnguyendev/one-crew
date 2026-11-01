@@ -33,7 +33,6 @@ from . import knowledge, namespaces, plan as plans
 KIND = 'knowledge.delivered'
 MAX_RECHECKS = 2                 # automatic rechecks of one node for changed knowledge; then it is held
 MAX_WALK = 10000                 # producer attempts one decision walks at most; beyond that it is incomplete, so never `publish`
-UNCHECKED = 'the dependency check could not be completed'
 EMPTY = {'withdrawn': [], 'changed': [], 'added_mandatory': []}
 
 
@@ -231,10 +230,13 @@ def _decision(critical, notes, upstream, event):
             'notes': notes, 'row': event}
 
 
-def _unchecked(node, attempt, problems):
-    """An upstream item for inputs whose dependency check could not be completed (no id is known to have changed)."""
+def _unchecked(node, attempt, problems, changed=()):
+    """An upstream item for inputs whose dependency check could not be completed. `ids` carries the changed ids (`changed`), then one
+    `not checked: ...` item per problem (at most 3), so a hold that lists the ids names what could not be checked (review F3 r2 P3-1);
+    such an item never equals a knowledge id or path, so the consumer views that match ids are unaffected."""
     more = f' (and {len(problems) - 1} more)' if len(problems) > 1 else ''
-    return {'node': node, 'attempt': attempt, 'reason': UNCHECKED + ': ' + problems[0] + more, 'ids': [], 'unchecked': problems[:20]}
+    return {'node': node, 'attempt': attempt, 'reason': f'the input from {node} could not be checked: {problems[0]}{more}',
+            'ids': sorted(changed) + ['not checked: ' + p[:240] for p in problems[:3]], 'changed': sorted(changed), 'unchecked': problems[:20]}
 
 
 def _attempt_of(conn, root_id, producer, binding, key):
@@ -310,11 +312,10 @@ def _upstream(nid, edges, memo):
         # what the producer's artifact was built on changed (a new mandatory entry for the producer does not change its artifact)
         built = [c for c in sub['critical'] if c.get('reason') != 'a new mandatory entry concerns this node']
         if not (built or sub['upstream']): continue
-        ids = sorted({c.get('id') or c.get('path') for c in built} | {i for u in sub['upstream'] for i in u['ids']})
+        changed = sorted({c.get('id') or c.get('path') for c in built} | {i for u in sub['upstream'] for i in u.get('changed', u['ids'])})
         problems = [p for u in sub['upstream'] for p in u.get('unchecked', [])]
-        entry = _unchecked(producer, attempt, problems) if problems else {'node': producer, 'attempt': attempt}
-        if ids: entry['reason'] = 'an input was built on knowledge or sources that changed'
-        entry['ids'] = ids
+        entry = _unchecked(producer, attempt, problems, changed) if problems else {'node': producer, 'attempt': attempt, 'ids': changed}
+        if changed: entry['reason'] = 'an input was built on knowledge or sources that changed'
         upstream.append(entry)
     return upstream
 
