@@ -129,7 +129,7 @@ Log ở `D:\OneCrewRuns\v24\logs\` (tên ghi ngắn, bỏ `reg-` và `.txt`). "�
 | 2.1 | Thẻ bước 0: mục tiêu, cách nhỏ nhất, điều giữ, phép kiểm, unknown, ước lượng hay "chưa đủ dữ liệu"; trần điều tra có điểm dừng | step0, proposal, survey | T24-C | `test_v24_c_step0_card` (13); `test_v24_c_review` r01 ×3, r02, r02_r16 | `c-after-review-extra-fix1` (63 OK, `21b6a56`); đỏ review `c-review-red-a67bb19` (20/23) |
 | 2.2 | Chọn tiếp tục worker, chồng lấp, tool hay chờ, có lý do; không reset ngân sách hay pin; không giả giữ phiên; opt-in | engine, Control, executors | T24-C | `test_v24_c_execution_mode` (15); `test_v24_c_review` r03–r18 (19) | đỏ trước ca 4 `c-case4-baseline5c34f4a-red` (3/3 trên `5c34f4a`); `merge-c-65ef023` (72 OK sau gộp) |
 | U1 | Hai test của bộ kiểm cần đổi cho 2.4 | `wfkit/u1` | T24-0, T24-U1-DL | `test_g1_core` (ghim version); `test_wf_metered_verifier` (hạn root) | `u1-pin-red` → `u1-pin-green`; `D:\OneCrewRuns\v24\probe-mv\bde505b\probe-mv.json` (4/4 hỏng) → `deadline-green1-dirty`, `deadline-green2-dirty`, `deadline-module-dirty` (4/4) |
-| Tích hợp | Cả năm mốc trên một cây; hồi quy 2.3 và 2.2 liên quan | — | T24-INT | `tests/test_v24_*` (170 test) và module bị ảnh hưởng | <!-- v24:TODO kết quả reg-int-v24-bde505b và reg-int-aff-bde505b --> |
+| Tích hợp | Cả năm mốc trên một cây; hồi quy 2.3 và 2.2 liên quan | — | T24-INT | `tests/test_v24_*` (170 test) và 34 module 2.2/2.3 bị ảnh hưởng | `int-v24-bde505b`: `Ran 170 tests in 2346.975s`, `OK`; `int-aff-bde505b`: `Ran 448 tests in 3151.847s`, `OK (skipped=1)`; gói cuối `2.4.0.dev2` 25/25 từ artifact (`D:\OneCrewRuns\v24 thu 2.4.0.dev2\verify\verify-report.json`) |
 
 ## 6. Task, dependency, thực tế
 
@@ -150,8 +150,8 @@ Giờ lấy từ commit (`git log --format="%h %ci"`), lúc tạo nhánh (`git r
 | T24-CR | Review độc lập + sửa | T24-C | review: agent độc lập (báo cáo không ghi model); sửa: `wf-v24-c` | không ghi | review ghi 10:14 (P1 1, P2 5, P3 12); `4648f21` 10:33; `21b6a56` 10:54 |
 | T24-PKG | Bộ dựng và kiểm gói 2.4; gói thử S1 và S2 | T24-S1 (S2 cho V20–V22) | `wf-v24-pkg` / `claude/onecrew-2.4-pkg` (tạo 09:06 từ `1c81f5d`) | không ghi | `1cc0940` 09:16; gói S1 09:16, kiểm 09:17–09:31 (19/19), script thử 09:32–09:44; `281747a` 09:32; `0c94f9a` 12:13; gói S2 12:13, kiểm 12:13–12:18 (22/22) |
 | T24-U1-DL | U1 cho test hạn root | T24-INT | `wf-v24` | không ghi | probe đỏ 12:40–12:42; xanh 12:45–12:47; `7767982` 12:47 |
-| T24-INT | Gộp, hồi quy tích hợp | mọi task trên | `wf-v24` | không ghi | `ba42e22`, `65ef023` 11:01 (72 OK, 11:01–11:04); `bde505b` 12:40; hồi quy từ 12:41 <!-- v24:TODO giờ xong và kết quả --> |
-| T24-FINAL | Gói cuối, gate 2.2 một lần, hồ sơ bàn giao | T24-INT | `wf-v24-pkg` | không ghi | <!-- v24:TODO gói cuối, gate, giờ xong --> |
+| T24-INT | Gộp, hồi quy tích hợp | mọi task trên | `wf-v24` | không ghi | `ba42e22`, `65ef023` 11:01 (72 OK, 11:01–11:04); `bde505b` 12:40; hai lượt song song trên `bde505b`: 2.4 12:41–13:20 (170/170), module ảnh hưởng 12:41–13:34 (448, 1 skip) |
+| T24-FINAL | Gói cuối, gate 2.2 một lần, hồ sơ bàn giao | T24-INT | `wf-v24-pkg` (gộp vào `claude/onecrew-2.4` bởi người điều phối) | không ghi | bước V23–V25 `a039d1f` 13:02; sửa giới hạn và `ships_paging` `d9d3075` 13:20 (gộp `d5f0815`); snapshot `61862e6` (`2.4.0.dev2`) 13:34; dựng, kiểm 25/25 và script thử `DAT`/0 13:34–13:45; gate 2.2 bắt đầu 13:46:05 trên `61862e6`, kết quả ghi ở BAO-CAO-2.4 §4 (đang chạy lúc ghi) |
 
 ## 7. Nhật ký
 
@@ -184,8 +184,12 @@ Giờ lấy từ commit (`git log --format="%h %ci"`), lúc tạo nhánh (`git r
 | 12:16–12:31 | Probe review B thành test (đỏ 7/21) → sửa B-R01…R08; 11 module đạt trên `c5b78e9` | `v24b-review-red`; `4eb72bf`, `c5b78e9`; `aff-*-br` |
 | 12:40 | Gộp A/B (`bde505b`): cả năm mốc trên một cây | `bde505b` |
 | 12:40–12:47 | Test hạn root 4/4 hỏng dưới tải trên `bde505b` → U1 DEADLINE-1 → 2/2 và module 4/4 đạt | `probe-mv.json`; `deadline-*-dirty`; `7767982` |
-| từ 12:41 | Hồi quy tích hợp trên `bde505b` | <!-- v24:TODO reg-int-v24-bde505b, reg-int-aff-bde505b --> |
-| | Gói cuối, gate 2.2 | <!-- v24:TODO --> |
+| 12:41–13:34 | Hồi quy tích hợp trên `bde505b`: 170/170 test 2.4 (xong 13:20); 448 test của 34 module 2.2/2.3, 1 skip (xong 13:34) | `int-v24-bde505b`, `int-aff-bde505b` |
+| 13:02 | Bước gói V23–V25 (A, B, C), giới hạn A/B/C và bản gộp | `a039d1f` |
+| 13:20 | Giới hạn S1 viết lại theo code hiện hành; `ships_paging` đọc từ `py-modules`; README nói rõ gói `pkg-trial` là bản thử công cụ | `d9d3075`, gộp `d5f0815` |
+| 13:34 | Snapshot cuối `61862e6`: version `2.4.0.dev2` (chỉ đổi version và CHANGELOG so với `d5f0815`) | `61862e6` |
+| 13:34–13:45 | Gói `D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev2-beta` (wheel `383df81d…`, `SHA256SUMS` 62/62); kiểm từ gói 25/25 (13:34–13:39, máy rảnh); script thử `DAT`/0 (13:39–13:45); chạy lại cùng thư mục → mã 2 | `pkg-build-2.4.0.dev2`, `pkg-verify-2.4.0.dev2`, `pkg-wrapper-2.4.0.dev2`, `pkg-wrapper-2.4.0.dev2-reuse` |
+| từ 13:46:05 | Gate snapshot 2.2 trên `61862e6`, chạy một mình; kết quả chưa có lúc ghi | `gate-snapshot-61862e6` |
 
 ## 8. Quyết định vượt quyền và điều cần Codex hay chủ sở hữu
 
@@ -196,5 +200,5 @@ Giờ lấy từ commit (`git log --format="%h %ci"`), lúc tạo nhánh (`git r
 - **Khóa mặc định của báo cáo** (S1-R08, reviewer ghi là việc của chủ sở hữu): đã chọn khóa theo nội dung, phiên bản và ảnh (§4) theo quyền tự quyết kỹ thuật; đây chưa phải quyết định của chủ.
 - **Capability `execution-mode` trong fixture:** 7 bộ test 2.3 tạo root bằng `list(namespaces.CAPABILITIES)` nay chạy đường 2.4-C (C-R17); đường không capability giữ bằng test riêng và `OptIn`. Không sửa các test 2.3 đó.
 - **Hai U1 hẹp trên nhánh 2.4,** theo mục 6 chỉ thị 01/11: `U1-20261101-V24-PIN-1` (`tests/test_g1_core.py`, một regex version) và `U1-20261101-V24-DEADLINE-1` (`tests/test_wf_metered_verifier.py`, cửa sổ hạn đo từ một lượt định danh; không bỏ assertion, không đổi guard runtime). Không cấp U1 nào khác; test ghim template `2.2.0.dev3` của `test_g2_install` không sửa.
-- **Version:** hai gói thử cùng `2.4.0.dev1`, khác §2 ("mỗi gói alpha tăng N"). Gói cuối: <!-- v24:TODO version gói cuối -->.
+- **Version:** hai gói thử cùng `2.4.0.dev1`, khác §2 ("mỗi gói alpha tăng N"). Gói bàn giao: `2.4.0.dev2` (`61862e6`); hai gói `2.4.0.dev1` trong `pkg-trial` là bản thử công cụ, không bàn giao.
 - **Cần Codex hoặc chủ sở hữu:** Codex review gói cuối (danh sách điểm rủi ro ở báo cáo bàn giao); quyết định phát hành; thử với model thật trong quyền; nghiệm thu. Lượt này không ghi review hay nghiệm thu nào thay họ.
