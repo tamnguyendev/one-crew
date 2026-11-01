@@ -851,7 +851,7 @@ def run_batch(ledger,selector,executor,*,slots=1,control=None,checker=None):
     if 'execution-mode' in view['capabilities']:
         # 2.4-C: one choice per batch - is the second ready node worth the second slot? - and the produced nodes whose checks need no model
         choices,peers,skipped=_batch_choice(ledger,view,choices,executor,slots)
-        tools=_tool_nodes(ledger,view,checker)
+        tools=_tool_nodes(ledger,view,checker)[:2]     # bounded: model-free checks still use the machine
         if not choices and not tools:
             return {'slots':slots,'results':[skipped] if skipped else [_wait(ledger,view,None,None,swept)],
                     'state':'waiting',**({'reconciled':swept} if swept else {})}
