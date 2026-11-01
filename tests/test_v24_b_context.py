@@ -205,16 +205,21 @@ class InvalidationTests(BFixture):
             plans.approve(self.ledger, 'P2', 'owner', 'fixture approval of root B')
         finally:
             if actor is not None: os.environ['ONECREW_ACTOR'] = actor
+        self.plan(self.item('A1'), name='P1')                                       # root A has a consumer of its own
         self.plan(self.item('C'), name='P2')
-        self.values += [lambda p, s: partial(used=[rule]), auto]
+        self.values += [lambda p, s: partial(used=[rule]), lambda p, s: partial(used=[rule]), auto]
+        self.assertEqual(self.step(name='P1')['state'], 'continuing')
         self.assertEqual(self.step(name='P2')['state'], 'continuing')
-        self.assertIn(rule, self.ids(self.package(0)))
+        self.assertIn(rule, self.ids(self.package(1)))
         self.withdraw(rule, plan='P1')                                              # root A withdraws its project knowledge
-        affected = wc().affected_consumers(self.ledger, None, [rule])
-        self.assertEqual([(a['plan'], a['node']) for a in affected], [('P2', 'C')])
+        both = wc().affected_consumers(self.ledger, None, [rule])
+        self.assertEqual(sorted((a['plan'], a['node']) for a in both), [('P1', 'A1'), ('P2', 'C')])
+        self.assertEqual([(a['plan'], a['node']) for a in wc().affected_consumers(self.ledger, 'P2', [rule])], [('P2', 'C')])
+        self.assertEqual([(a['plan'], a['node']) for a in wc().affected_consumers(self.ledger, 'P1', [rule])], [('P1', 'A1')])
+        self.assertEqual([c['node'] for c in wc().consumers_report(self.ledger, 'P2')['consumers']], ['C'])
         restarted = NativeExecutor(self.ledger)
         self.assertEqual(self.step(restarted, name='P2')['state'], 'produced')
-        pkg = self.package(1)
+        pkg = self.package(2)
         self.assertNotIn(rule, self.ids(pkg))
         self.assertEqual([w['id'] for w in pkg['delta']['withdrawn']], [rule])
 
@@ -270,6 +275,7 @@ class GateTests(BFixture):
         self.assertFalse(resumed['budget_reset'])
         second = self.step()
         self.assertEqual(second['state'], 'produced')
+        self.assertEqual(len(self.calls), 2)                                         # the run and one recheck
         pkg = self.package(1)
         self.assertNotIn(rule, self.ids(pkg))
         self.assertEqual(pkg['delta']['withdrawn'][0]['id'], rule)
@@ -322,15 +328,16 @@ class GateTests(BFixture):
         self.plan(self.item('C'))
         def late(prompt, schema):
             self.withdraw(rule)
-            with self.ledger.transaction(write=True) as conn:
-                root = plans.anchor_events(self.ledger, conn, 'P1')
-                plans.emit(self.ledger, conn, root['task_id'], 'plan.closed', {'revision': root['approved']['revision'], 'reason': 'owner stopped'})
+            with self.ledger.transaction(write=True) as conn:            # another controller moved the generation while this one ran
+                view = self.engine.state(self.ledger, 'P1', conn)
+                self.engine._event(self.ledger, conn, view, 'C', 'node.resumed', reason='taken over by another controller', budget_reset=False)
             return auto(prompt, schema)
         self.values.append(late)
         result = self.step()
         self.assertEqual(result['state'], 'retained', result)
         self.assertNotIn('node.produced', self.kinds())
-        self.assertFalse([p for k, p in self.events() if k == 'node.resumed'])
+        self.assertFalse([p for k, p in self.events() if k == 'node.resumed' and p.get('knowledge_changed')])
+        self.assertEqual(self.engine.state(self.ledger, 'P1')['nodes']['C']['generation'], 1)
 
 
 class SourceChangeTests(AllEvents, SourceFixture):
@@ -388,3 +395,140 @@ class CliTests(BFixture):
 if __name__ == '__main__':
     import unittest
     unittest.main()
+
+
+def claimed(text, path='a.txt', content='right\n', check='check-C'):
+    claim = {'kind': 'finding', 'text': text, 'applies_to': [path], 'sources': [path], 'check': check}
+    return {'summary': 'done', 'files': [{'path': path, 'content': content}], 'backlog': [],
+            'knowledge': {'used': [], 'rejected': [], 'requests': [], 'new': [claim]}}
+
+
+class ReviewBTests(BFixture):
+    """The independent review of 26a86e7..58b863f (D:/OneCrewRuns/v24/review-b/review-b.md): its probes as tests."""
+
+    def test_b_r01_a_consumer_of_a_verified_upstream_claim_is_published_at_once(self):
+        c = self.item('C', read=('a.txt', 'b.txt'), write=('a.txt',))
+        d = self.item('D', read=('a.txt', 'b.txt'), write=('b.txt',))
+        d['depends'] = [{'node': 'C', 'requires': 'verified'}]
+        self.plan(c, d)
+        self.values.append(claimed('a.txt must hold VALUE: right'))
+        self.assertEqual(self.step()['state'], 'produced')
+        self.check('C')
+        learned = [r['id'] for r in knowledge.records(self.ledger) if r['text'] == 'a.txt must hold VALUE: right' and r['visibility'] == 'project']
+        self.assertTrue(learned)
+        self.values += [auto] * 3
+        before = len(self.calls)
+        result = self.step()
+        self.assertEqual((result.get('node'), result['state']), ('D', 'produced'), result)
+        self.assertEqual(len(self.calls) - before, 1)
+        row = next(r for r in self.delivered() if r['node'] == 'D')
+        self.assertIn((learned[0], 'fact'), [(e['id'], e['use']) for e in row['entries']])
+
+    def test_b_r02_a_withdrawal_while_the_checker_runs_is_not_verified(self):
+        rule = self.fact('Keep a.txt to one line', must=True)
+        self.plan(self.item('C'))
+        self.values += [auto, auto]
+        self.assertEqual(self.step()['state'], 'produced')
+        def checker(item, artifact):
+            self.withdraw(rule)
+            return self.checker(item, artifact)
+        with self.assertRaisesRegex(LedgerError, 'knowledge'):
+            self.engine.verify(self.ledger, 'P1', 'C', checker)
+        self.assertNotIn('node.verification', self.kinds())
+        retained = [p for k, p in self.events() if k == 'node.result_retained' and p.get('receipt')]
+        self.assertTrue(retained and 'checker ran' in retained[-1]['reason'], retained)
+        self.assertNotEqual(self.engine.state(self.ledger, 'P1')['nodes']['C']['state'], 'verified')
+
+    def test_b_r03_a_verified_producer_withdrawn_holds_the_dependent_without_a_model_call(self):
+        rule = self.fact('Keep a.txt to one line', must=True)
+        a = self.item('A')
+        b = self.item('B', read=('b.txt',), write=('b.txt',))
+        b['depends'] = [{'node': 'A', 'requires': 'verified'}]
+        self.plan(a, b)
+        self.values += [auto] * 4
+        self.assertEqual(self.step()['state'], 'produced')
+        self.check('A')
+        self.withdraw(rule)
+        before = len(self.calls)
+        held = self.step()
+        self.assertEqual((held.get('node'), held['state'], held.get('classification')), ('B', 'held', 'input_changed'), held)
+        self.assertEqual(len(self.calls), before)                                   # no model call for a recheck that cannot help
+        event = next(p for k, p in self.events() if k == 'node.held' and p['node'] == 'B')
+        self.assertEqual(event['knowledge_changed']['critical'][0]['node'], 'A')
+        self.assertEqual(event['knowledge_changed']['critical'][0]['ids'], [rule])
+        self.assertEqual([(x['node'], x['via']) for x in wc().affected_consumers(self.ledger, 'P1', [rule])], [('B', 'A')])
+        report = wc().consumers_report(self.ledger, 'P1')
+        self.assertEqual([(c['node'], c['status']) for c in report['consumers']], [('B', 'input_changed')])
+
+    def test_b_r04_a_new_mandatory_entry_reaches_a_node_without_a_record(self):
+        self.plan(self.item('C'))
+        def recording(prompt, schema):
+            self.fact('a.txt must end with a newline', must=True)
+            return auto(prompt, schema)
+        self.values += [recording, auto]
+        result = self.step()
+        self.assertEqual(result['state'], 'continuing', result)
+        self.assertEqual(result['knowledge_changed']['critical'][0]['reason'], 'a new mandatory entry concerns this node')
+        self.assertEqual(self.step()['state'], 'produced')
+
+    def test_b_r04b_a_node_that_receives_nothing_still_writes_no_record(self):
+        self.plan(self.item('C'))
+        self.values.append(auto)
+        self.assertEqual(self.step()['state'], 'produced')
+        self.assertEqual(self.delivered(), [])
+
+    def test_b_r07_a_dependent_of_an_older_producer_generation_stays_listed(self):
+        rule = self.fact('Keep a.txt to one line', must=True)
+        advance = {'limit': 1, 'discard_on_failure': True}
+        p1 = self.item('P1n')
+        k = self.item('K', read=('b.txt',), write=())
+        k['depends'] = [{'node': 'P1n', 'requires': 'produced', 'advance': advance}]
+        self.plan(p1, k)
+        self.values += [auto] * 4
+        for _ in range(2): self.assertEqual(self.step()['state'], 'produced')
+        self.withdraw(rule)
+        with self.assertRaisesRegex(LedgerError, 'knowledge'):
+            self.check('P1n')                                                        # P1n is rechecked ...
+        self.assertEqual(self.step()['state'], 'produced')                           # ... into a clean generation
+        listed = {(a['node'], a['via']) for a in wc().affected_consumers(self.ledger, 'P1', [rule])}
+        self.assertIn(('K', 'P1n'), listed)                                          # K still holds the artifact built on the rule
+
+
+class ReviewBSourceTests(AllEvents, SourceFixture):
+    def run_nodes(self, script, steps):
+        self.values += [script] * (steps + 2)
+        return [self.step() for _ in range(steps)]
+
+    def test_b_r05_a_changed_search_hit_rechecks_the_reader(self):
+        self.plan(self.item('R1', patterns=('src/',)))
+        rounds = {'n': 0}
+        def script(prompt, schema):
+            rounds['n'] += 1
+            if rounds['n'] == 1: return ask({'op': 'search', 'query': 'helper', 'path': 'src'})
+            if rounds['n'] == 2: (self.root / 'src' / 'lib' / 'x.py').write_text('def helper():\n    return 43\n')
+            return {'summary': 'done', 'files': [{'path': 'out.txt', 'content': 'R1\n'}], 'backlog': []}
+        states = [r['state'] for r in self.run_nodes(script, 2)]
+        self.assertEqual(states, ['continuing', 'continuing'])
+        resumed = [p for k, p in self.events() if k == 'node.resumed' and p.get('knowledge_changed')]
+        self.assertEqual(resumed[0]['knowledge_changed']['critical'][0]['path'], 'src/lib/x.py')
+
+    def test_b_r06_a_source_recheck_carries_the_candidate_and_may_read_again(self):
+        self.plan(self.item('R1', patterns=('src/',), rounds=1))
+        rounds = {'n': 0}
+        def script(prompt, schema):
+            rounds['n'] += 1
+            results = body_of(prompt)['source_tools']['results']
+            if rounds['n'] == 1: return ask({'op': 'read', 'path': 'src/lib/x.py'})
+            if rounds['n'] == 2:
+                (self.root / 'src' / 'lib' / 'x.py').write_text('def helper():\n    return 43\n')
+                return {'summary': 'done', 'files': [{'path': 'out.txt', 'content': 'saw 42\n'}], 'backlog': []}
+            if rounds['n'] == 3: return ask({'op': 'read', 'path': 'src/lib/x.py'})
+            seen = [r['result'].get('text') for r in results if r['action'] == 'read']
+            return {'summary': 'done', 'files': [{'path': 'out.txt', 'content': 'saw ' + ('43' if '43' in str(seen) else '?') + '\n'}], 'backlog': []}
+        results = self.run_nodes(script, 4)
+        self.assertEqual([r['state'] for r in results], ['continuing', 'continuing', 'continuing', 'produced'], results)
+        resumed = next(p for k, p in self.events() if k == 'node.resumed' and p.get('knowledge_changed'))
+        self.assertTrue(resumed.get('resume_artifact'))                              # the candidate is carried
+        self.assertEqual(self.store.context(results[-1]['artifact'])['out.txt'], 'saw 43\n')
+        receipt = self.receipt(results[-1]['receipt'])
+        self.assertEqual(receipt['source']['rounds_total'], 2)                       # the receipts still show the total
