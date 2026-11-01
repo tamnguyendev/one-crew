@@ -163,12 +163,13 @@ def _derive(ledger, conn, plan, task, attempt):
             put('attempt_status', row['status'], 'derived:attempts.status')
             child(row, 'derived:attempts.task_id')
     if task is not None and 'task' not in refs:
-        put('task', task, 'user')
         row = conn.execute('SELECT id, project_id, request_key FROM tasks WHERE id=?', (task,)).fetchone() if conn else None
         if row is None or row['project_id'] != ledger.project_id:
             unresolved['task'] = 'no such task in this project'
-            del refs['task'], source['task']
+        elif not (CHILD_KEY.match(row['request_key']) or row['request_key'].startswith((namespaces.LEGACY, namespaces.NAMESPACED))):
+            unresolved['task'] = 'not a plan root or one of its child tasks: not attached'      # the support anchor, a v1 job, ...
         else:
+            put('task', task, 'user')
             child(row, 'derived:tasks.request_key')
     elif task is not None and refs.get('task') != task:
         unresolved['task'] = f'the attempt belongs to task {refs["task"]}, not {task}'
@@ -230,22 +231,36 @@ def _validate(text, expected, plan, task, attempt, client_key, feedback_id):
     if task is not None and not TASK_ID.match(str(task)): raise ReportRefused('--task: a task id looks like TASK-<32 hex>.')
 
 
-def report(ledger, *, text, expected=None, image=None, plan=None, task=None, attempt=None, client_key=None, feedback_id=None, spooled=None,
-           image_facts=None):
-    """Record one user report on the support anchor; idempotent by client_key (same key + other content -> ReportRefused).
+def _recurrence(text):
+    return content_hash({'text': re.sub(r'[^0-9a-z#]+', ' ', _normalized(text)).strip()})[:32]
 
-    Returns {recorded, id, duplicate, spooled: False, refs, refs_source, refs_unresolved, possible_duplicates, runtime, status}."""
+
+def report(ledger, *, text, expected=None, image=None, plan=None, task=None, attempt=None, client_key=None, feedback_id=None, spooled=None,
+           image_facts=None, runtime_at_report=None):
+    """Record one user report on the support anchor; idempotent by client_key (same key + other content -> ReportRefused). Without a key
+    the key is support_spool.content_key(text, expected, explicit refs): the same report sent again in this project is the same feedback
+    (S1-R08). A spooled report keeps the runtime it was reported under (runtime_at_report) and adds runtime_at_import (S1-R05).
+
+    Returns {recorded, id, duplicate, spooled: False, refs, refs_source, refs_unresolved, possible_duplicates, recurrence_of, runtime, status}."""
+    from . import support_spool
     _validate(text, expected, plan, task, attempt, client_key, feedback_id)
     picture = _image(image, image_facts)
     given = {k: v for k, v in (('plan', plan), ('task', task), ('attempt', attempt)) if v is not None}
-    content_sha = content_hash({'text': text, 'expected': expected, 'image': picture and picture['sha256'], 'refs': given})
+    content_sha = content_hash({'text': support_spool.lite(text), 'expected': support_spool.lite(expected), 'image': picture and picture['sha256'],
+                                'refs': given})
     with ledger.transaction() as conn:
         refs, source, unresolved = _derive(ledger, conn, plan, task, attempt)
-    runtime = runtime_probe()
-    fingerprint = content_hash({'text': _normalized(text), 'dist_version': runtime['dist_version'], 'plan': refs.get('plan'),
+    live = runtime_probe()
+    if runtime_at_report is not None:
+        runtime = dict(runtime_at_report, source='spool')
+        if runtime.get('installed_vs_running') not in (None, 'same'): runtime['dist_version'] = 'unknown'
+    else:
+        runtime = dict(live, source='live')
+    fingerprint = content_hash({'text': _normalized(text), 'dist_version': runtime.get('dist_version', 'unknown'), 'plan': refs.get('plan'),
                                 'node': refs.get('node')})[:32]
+    recurrence = _recurrence(text)
     ident = feedback_id or 'FB-' + uuid.uuid4().hex
-    key = client_key or ident
+    key = client_key or support_spool.content_key(text, expected, given)
     outcome = {}
 
     def then(conn, anchor):
@@ -258,11 +273,17 @@ def report(ledger, *, text, expected=None, image=None, plan=None, task=None, att
             outcome.update(payload=payload, duplicate=True, duplicates=[])
             return
         if _feedback(conn, anchor, ident): raise ReportRefused(f'Feedback id {ident} already exists under another key.')
-        duplicates = [r['payload']['id'] for r in _rows(conn, anchor, 'support.feedback') if r['payload'].get('fingerprint') == fingerprint]
+        earlier = _rows(conn, anchor, 'support.feedback')
+        duplicates = [r['payload']['id'] for r in earlier if r['payload'].get('fingerprint') == fingerprint]
+        handled = {r['payload'].get('feedback') for r in _rows(conn, anchor) if r['kind'] in ('support.install', 'support.recheck')}
+        recurs = [r['payload']['id'] for r in earlier if r['payload']['id'] in handled and r['payload'].get('recurrence') == recurrence
+                  and (r['payload'].get('refs') or {}).get('plan') == refs.get('plan')]
         payload = {'id': ident, 'client_key': key, 'content_sha': content_sha, 'text': text, 'expected': expected, 'image': picture,
                    'project_id': ledger.project_id, 'project_path': ledger.project_path, 'refs': refs, 'refs_source': source,
-                   'refs_unresolved': unresolved, 'runtime': runtime, 'fingerprint': fingerprint, 'possible_duplicates': duplicates,
+                   'refs_unresolved': unresolved, 'runtime': runtime, 'runtime_at_report': runtime, 'fingerprint': fingerprint,
+                   'possible_duplicates': duplicates, 'recurrence': recurrence, 'recurrence_of': recurs,
                    'status': 'reported', 'reproduced': 'unknown', 'spooled': spooled}
+        if runtime_at_report is not None: payload['runtime_at_import'] = dict(live, source='import')
         plans.emit(ledger, conn, anchor, 'support.feedback', payload)
         outcome.update(payload=payload, duplicate=False, duplicates=duplicates)
 
@@ -271,37 +292,64 @@ def report(ledger, *, text, expected=None, image=None, plan=None, task=None, att
     payload = outcome['payload']
     return {'recorded': True, 'id': payload['id'], 'duplicate': outcome['duplicate'], 'spooled': False, 'refs': payload['refs'],
             'refs_source': payload['refs_source'], 'refs_unresolved': payload['refs_unresolved'],
-            'possible_duplicates': outcome['duplicates'], 'runtime': payload['runtime'], 'status': 'reported',
-            'note': 'A report is not a reproduced finding: nothing was marked failed.'}
+            'possible_duplicates': outcome['duplicates'], 'recurrence_of': payload.get('recurrence_of', []), 'runtime': payload['runtime'],
+            'client_key': payload['client_key'], 'status': 'reported',
+            'note': 'A report is not a reproduced finding: nothing was marked failed. Sending the same report again gives the same id.'}
 
 
 def import_spool(ledger):
-    """Import every spool file of this project into the ledger, once (by its id = client key); move each imported file to imported/."""
+    """Import every spool file of this project once (by its client key); a malformed file is moved to rejected/ with its reason and the
+    others are still imported (S1-R06). Only the bounded fields support_spool.validate checks are read. Each imported file moves to
+    imported/ after the commit. Returns {imported, already_recorded, rejected, skipped, counts, other_projects}."""
     from . import support_spool
-    imported, already, skipped = [], [], []
-    for path, document in support_spool.spooled_files(ledger.project, ledger.state_root):
-        refs = document.get('refs') or {}
-        try:
-            result = report(ledger, text=document.get('text'), expected=document.get('expected'), image_facts=document.get('image'),
-                            plan=refs.get('plan'), task=refs.get('task'), attempt=refs.get('attempt'), client_key=document.get('client_key'),
-                            feedback_id=document.get('id'),
-                            spooled={'spool_id': document.get('id'), 'reason': document.get('reason'), 'created_at': document.get('created_at'),
-                                     'error': document.get('error'), 'ledger': document.get('ledger'), 'runtime_probe': document.get('runtime_probe')})
-        except ReportRefused as error:
-            skipped.append({'path': str(path), 'why': str(error)})
+    imported, already, rejected, skipped = [], [], [], []
+    found, others = support_spool.spooled_files(ledger.project, ledger.state_root)
+    for path, document in found:
+        why = support_spool.validate(document) if document is not None else 'not a JSON object'
+        if why is None:
+            refs = document.get('refs') or {}
+            try:
+                result = report(ledger, text=document['text'], expected=document.get('expected'), image_facts=document.get('image'),
+                                plan=refs.get('plan'), task=refs.get('task'), attempt=refs.get('attempt'), client_key=document['client_key'],
+                                feedback_id=document['id'], runtime_at_report=document.get('runtime_probe') or {'dist_version': 'unknown'},
+                                spooled={'spool_id': document['id'], 'reason': document.get('reason'), 'created_at': document.get('created_at'),
+                                         'error': document.get('error'), 'ledger': document.get('ledger'),
+                                         'provenance': 'spool file (unauthenticated: written by whoever could write the spool folder)'})
+            except ReportRefused as error:
+                skipped.append({'path': str(path), 'why': str(error)})        # e.g. the same key with other content: kept, never merged
+                continue
+            (already if result['duplicate'] else imported).append(result['id'])
+            try:
+                support_spool.mark_imported(path)
+            except OSError as error:
+                skipped.append({'path': str(path), 'why': f'imported, but the file could not be moved ({type(error).__name__}); a later import skips it'})
             continue
-        (already if result['duplicate'] else imported).append(result['id'])
         try:
-            support_spool.mark_imported(path)
+            moved = support_spool.mark_rejected(path, why)
+            rejected.append({'path': str(moved), 'why': why})
         except OSError as error:
-            skipped.append({'path': str(path), 'why': f'imported, but the file could not be moved ({type(error).__name__}); a later import skips it'})
-    return {'imported': imported, 'already_recorded': already, 'skipped': skipped}
+            rejected.append({'path': str(path), 'why': why + f' (could not be moved: {type(error).__name__})'})
+    return {'imported': imported, 'already_recorded': already, 'rejected': rejected, 'skipped': skipped, 'other_projects': others,
+            'counts': {'imported': len(imported), 'already': len(already), 'rejected': len(rejected), 'skipped': len(skipped)}}
 
 
 # ---- SF-03: classify and link -----------------------------------------------------------------------------------------------------
 
+OWNER_WORDS = ('owner', 'user', 'human')
+
+
+def _ai_session():
+    import os
+    return any(name in os.environ for name in ('CLAUDE_CODE_CHILD_SESSION', 'CLAUDECODE'))
+
+
 def _actor(by):
-    if by is not None: return text_field(by, 'by', 100)
+    """Who records: the --by text, but a claim to be the owner/user is refused inside an AI session (S1-R07); the session is recorded too."""
+    if by is not None:
+        text_field(by, 'by', 100)
+        if by.strip().casefold() in OWNER_WORDS and _ai_session():
+            raise LedgerError(f'--by {by} refused: this process runs inside an AI tool session (CLAUDE_CODE_CHILD_SESSION or CLAUDECODE is set).')
+        return by
     from ..interventions import actor
     return actor()
 
@@ -320,7 +368,8 @@ def classify(ledger, ident, cls, basis, by=None):
     with ledger.transaction(write=True) as conn:
         anchor, found = _require(conn, ledger, ident)
         previous = classification(_about(conn, anchor, ident))
-        payload = {'feedback': ident, 'class': cls, 'basis': basis, 'by': who, 'supersedes': previous['class'] if previous else None}
+        payload = {'feedback': ident, 'class': cls, 'basis': basis, 'by': who, 'session': ownership.session_info(),
+                   'supersedes': previous['class'] if previous else None}
         plans.emit(ledger, conn, anchor, 'support.classified', payload)
     return payload
 
@@ -382,7 +431,7 @@ def link(ledger, ident, *, finding=None, plan=None, project_id=None, request=Non
                 value.update(kind='finding', id=finding, receipt=receipt, finding_status=item['status'])
         if any(r['kind'] == 'support.linked' and r['payload']['target'] == value for r in rows):
             return next(r['payload'] for r in rows if r['kind'] == 'support.linked' and r['payload']['target'] == value)
-        payload = {'feedback': ident, 'target': value, 'by': who, 'class_at_link': cls}
+        payload = {'feedback': ident, 'target': value, 'by': who, 'session': ownership.session_info(), 'class_at_link': cls}
         plans.emit(ledger, conn, anchor, 'support.linked', payload)
     return payload
 
@@ -413,15 +462,17 @@ def _status(ledger, conn, anchor, found):
     proofs = [r for r in links if r['payload']['target']['kind'] == 'finding']
     out['reproduced'] = (_field('yes', [f'finding:{p["payload"]["target"]["selector"]}#{p["payload"]["target"]["id"]}' for p in proofs] +
                                 [f'receipt:{p["payload"]["target"]["receipt"]}' for p in proofs]) if proofs else _field('unknown'))
-    open_plans = []
+    open_plans, linked = [], []
     for r in links:
         target = r['payload']['target']
         if target['kind'] not in ('plan', 'finding'): continue
-        row = conn.execute('SELECT id, project_id, project_path, request_key FROM tasks WHERE id=?', (target['root_task'],)).fetchone()
-        state = plans.derive(_reader(ledger, row), conn, row['request_key']) if row else None
-        if state and state['status'] not in ENDED:
-            open_plans.append(f'plan:{target["project_id"]}/{target["selector"]} status {state["status"]} (event:{r["seq"]})')
+        status_now = _plan_status(ledger, conn, target['root_task'])
+        linked.append({'kind': target['kind'], 'project_id': target['project_id'], 'selector': target['selector'], 'status': status_now,
+                       'event': r['seq']})
+        if status_now == 'approved':                   # S1-R04: approved and open; proposed, stopped, accepted or closed is not in progress
+            open_plans.append(f'plan:{target["project_id"]}/{target["selector"]} status approved (event:{r["seq"]})')
     out['in_progress'] = _field(bool(open_plans), open_plans)
+    out['linked'] = linked
     for name in LATER:
         out[name] = _field(False, [], note='not recorded by S1 (2.4-S2 adds the install and recheck records)')
     refs = feedback['refs']
@@ -445,6 +496,18 @@ def _status(ledger, conn, anchor, found):
     latest = classification(rows)
     out['class'] = latest['class'] if latest else None
     return out
+
+
+def _plan_status(ledger, conn, root_task):
+    row = conn.execute('SELECT id, project_id, project_path, request_key FROM tasks WHERE id=?', (root_task,)).fetchone()
+    if row is None: return None
+    if ledger is None:                             # a notice: only the open connection is known
+        root = Path(next(r[2] for r in conn.execute('PRAGMA database_list') if r[1] == 'main')).resolve().parent
+        reader = reports._Reader(root, row['project_id'], row['project_path'])
+    else:
+        reader = _reader(ledger, row)
+    state = plans.derive(reader, conn, row['request_key'])
+    return state['status'] if state else None
 
 
 def status(ledger, ident):
@@ -485,14 +548,17 @@ def _transition(conn, row, payload):
         if later: return None                    # superseded before delivery: the newer class is the notice
         return 'classified:' + payload['class']
     if row['kind'] == 'support.linked':
-        name = {'plan': 'in_progress', 'finding': 'reproduced'}.get(payload['target']['kind'], 'linked:' + payload['target']['kind'])
-        earlier = [r for r in before if r['kind'] == 'support.linked'
-                   and {'plan': 'in_progress', 'finding': 'reproduced'}.get(r['payload']['target']['kind'], 'linked:' + r['payload']['target']['kind']) == name]
+        def named(target):
+            if target['kind'] == 'finding': return 'reproduced'
+            if target['kind'] == 'plan':
+                return 'in_progress' if _plan_status(None, conn, target['root_task']) == 'approved' else 'linked:plan'
+            return 'linked:' + target['kind']
+        name = named(payload['target'])
+        earlier = [r for r in before if r['kind'] == 'support.linked' and named(r['payload']['target']) == name]
         return None if earlier else name
     if row['kind'] == 'support.user_confirmed':
         return None if any(r['kind'] == 'support.user_confirmed' for r in before) else 'user_confirmed'
     return None
-
 
 def message(conn, row):
     """One notice for a useful support status change, else None. Identity: content_hash({task, 'support', feedback, status})[:32]."""

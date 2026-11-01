@@ -10,8 +10,9 @@ onecrew support report --text "Bước kiểm M1 báo sai dù file đúng" --exp
 
 - Lệnh in ra mã `FB-…`. Thêm `--json` để nhận kết quả dạng máy đọc.
 - Các tùy chọn khác: `--task TASK-…`, `--attempt ATT-…`, `--image anh.png`, `--key K`.
-- Gửi lại cùng `--key` thì không tạo bản ghi mới, mà trả về đúng mã cũ.
-- Cùng `--key` nhưng nội dung khác thì lệnh từ chối.
+- Gửi lại cùng `--key` thì không tạo bản ghi mới, mà trả về đúng mã cũ. Cùng `--key` nhưng nội dung khác thì lệnh từ chối.
+- Không có `--key`: cùng nội dung (chữ mô tả và kết quả mong đợi, không phân biệt hoa thường và khoảng trắng, cùng `--plan/--task/--attempt`) trong một project được coi là **cùng một báo cáo** và nhận lại đúng mã cũ, kể cả khi lần trước nằm trong spool. Nội dung khác là báo cáo mới.
+- `--task` chỉ nhận root của plan hoặc task con của nó; task "support" và task khác bị ghi vào `refs_unresolved`, không gắn.
 - Không có task, hoặc root đã đóng, vẫn báo được. Báo cáo được ghi trên một task "support" riêng của project. Root đã đóng không bị ghi thêm gì.
 
 **OneCrew tự gắn những gì đã chứng minh được:**
@@ -38,7 +39,9 @@ Các lỗi giống nhau chỉ được *gợi ý* là có thể trùng (`possibl
   - `--request REQ-…`: nối với một câu hỏi.
 - Lỗi thuộc runtime OneCrew (`onecrew_runtime`) chỉ được nối với plan của project OneCrew, có duyệt và ngân sách riêng. Nó không bao giờ được nối với plan, finding hay ngân sách của project đang báo lỗi.
 - Chữ trong báo cáo hay trong log chỉ là dữ liệu. Không có đường code nào biến chữ đó thành quyền, pin hay câu trả lời.
-- `onecrew support confirm FB-… --reference "…"` là tín hiệu riêng của chủ dự án: "với tôi, lỗi đã hết". Lệnh bị từ chối khi chạy trong phiên AI. Xác nhận này không có nghĩa là OneCrew đã kiểm tại đích.
+- `onecrew support confirm FB-… --reference "…"` là tín hiệu riêng của chủ dự án: "với tôi, lỗi đã hết". Lệnh bị từ chối khi chạy trong phiên AI, và `onecrew init` ghi thêm luật chặn `support confirm` cho Claude Code (project đã init trước đó: `doctor` báo hook khác bản hiện hành cho tới khi chạy lại `init`). Xác nhận này không có nghĩa là OneCrew đã kiểm tại đích.
+- `--by owner` (hay `user`) của `classify`/`link` bị từ chối trong phiên AI (`CLAUDE_CODE_CHILD_SESSION` hoặc `CLAUDECODE`).
+- "Đang xử lý" chỉ đúng khi plan được nối đã được duyệt và còn mở; plan mới đề xuất, đã dừng, đã nghiệm thu hay đã đóng hiện trong `linked` với trạng thái thật.
 
 Thông báo (`notifications pull`, cửa sổ desktop) chỉ phát khi trạng thái thật sự đổi: phân loại mới, đang xử lý, đã tái hiện, đã xác nhận. Việc nhận lại thông báo, khởi động lại, ACK hay đóng cửa sổ không trả lời câu hỏi nào, không nghiệm thu gì, và không làm mất thông báo mới hơn.
 
@@ -58,9 +61,9 @@ Hồ sơ chỉ lấy những nguồn suy ra từ refs của báo cáo:
 
 `manifest.json` ghi từng nguồn với trạng thái `included`, `missing`, `truncated`, `withheld`, `unreadable`, `not_applicable` hoặc `unknown`, kèm số byte và sha256 của bản gốc. Log của runner/host v1 có trạng thái `not_applicable`, vì thành phần đó không có trong bản cài.
 
-Từng dòng được lọc bằng mẫu (`display_core.safe`): dòng có dạng bí mật bị thay, URL có mật khẩu bị che, các dòng khác giữ nguyên. **Bộ lọc theo mẫu không phải là bảo đảm**, nên hãy đọc file trước khi gửi cho ai.
+Từng dòng được lọc bằng mẫu: phần bí mật được thay bằng `[withheld]`, phần còn lại của dòng giữ nguyên. Mẫu gồm header `Authorization`/`Cookie`/`X-Api-Key`, giá trị `Bearer`/`Basic`, user-info trong URL (có hay không có mật khẩu), phép gán có tên kiểu `*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*API_KEY*`, `sig=` (kể cả `export X=`, `$env:X =`, query string), giá trị của `--password`/`--token`, dạng khóa AWS/GCP/GitHub/Slack/OpenAI/Anthropic và JWT, và cả khối PEM private key. Báo cáo (`feedback.json`) cũng được lọc như vậy. Số dòng bị che nằm ở `lines_withheld` trong manifest. **Bộ lọc theo mẫu không phải là bảo đảm**, nên hãy đọc file trước khi gửi cho ai.
 
-Ảnh không bao giờ được chép vào hồ sơ; chỉ có sha256 của ảnh. Thư mục `--out` không được nằm trong state root, không được là link, và không được chứa `..`. Hồ sơ lớn hơn 8 MB thì nguồn cũ nhất bị bỏ và được đánh dấu `truncated`.
+Ảnh không bao giờ được chép vào hồ sơ; chỉ có sha256 của ảnh. Thư mục `--out` không được nằm trong state root, không được là link, và không được chứa `..`. Hồ sơ lớn hơn 8 MB thì OneCrew bỏ cả nguồn, nguồn cũ nhất trước (sự kiện, attempts, requests, log, receipt, hook đều tính), và đánh dấu nguồn đó `truncated` kèm lý do. Chỉ bốn file nhỏ (runtime, báo cáo, bản ghi support của chính báo cáo này, doctor) không bao giờ bị bỏ; nếu chỉ chúng thôi đã vượt giới hạn thì manifest ghi `over_cap: true`. Hồ sơ chỉ chứa bản ghi support của chính báo cáo này, không chứa báo cáo khác.
 
 OneCrew không đọc toàn bộ source, sổ, biến môi trường hay hội thoại. Hồ sơ không chạy chương trình nào, không gọi model và không gửi gì lên mạng.
 
@@ -79,7 +82,9 @@ Khi chính file `onecrew.exe` hỏng, chạy:
 python -I -m onecrew.v2.support_spool --project <project> report --text "…"
 ```
 
-Sửa xong sổ thì chạy `onecrew support import-spool`. Mỗi file spool được nhập đúng một lần, với chính mã `FB-…` đã in lúc báo, rồi được chuyển vào `imported\`. Spool chỉ là chỗ ghi dự phòng, không phải nơi giữ trạng thái thứ hai.
+Sửa xong sổ thì chạy `onecrew support import-spool`. Mỗi file spool được nhập đúng một lần, với chính mã `FB-…` đã in lúc báo, rồi được chuyển vào `imported\`. Phiên bản lúc báo được giữ (`runtime_at_report`), phiên bản lúc nhập ghi riêng (`runtime_at_import`). File hỏng hoặc trường quá cỡ bị chuyển vào `rejected\` kèm file `.reason.txt`; các file khác vẫn được nhập. File spool là dữ liệu không xác thực (ai ghi được thư mục spool thì ghi được file), nên chỉ những trường có giới hạn mới được nhập. Báo cáo spool từ thư mục con của repo vẫn được tìm thấy khi nhập từ gốc repo. Spool chỉ là chỗ ghi dự phòng, không phải nơi giữ trạng thái thứ hai.
+
+Lý do spool nêu đúng loại lỗi: `DatabaseError` (sổ không đọc được), `LedgerError`, `OSError` (đĩa, quyền, đường dẫn), `ImportError` (runtime không import được) hoặc `RuntimeError` (lỗi code; báo cáo vẫn được giữ).
 
 ## 5. S1 chưa làm
 

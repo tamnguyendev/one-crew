@@ -58,6 +58,15 @@ def _text_status(state):
     return '\n'.join(lines)
 
 
+def _family(error):
+    """The class of failure, named (S1 review P3c): DatabaseError (an unreadable or foreign ledger file), LedgerError (a ledger OneCrew refuses),
+    OSError (disk, permissions, a path), else RuntimeError (a fault of the code: still spooled, never lost)."""
+    if isinstance(error, sqlite3.DatabaseError): return 'DatabaseError'
+    if isinstance(error, LedgerError): return 'LedgerError'
+    if isinstance(error, OSError): return 'OSError'
+    return 'RuntimeError'
+
+
 def _report(args, argv, ledger):
     try:
         result = support.report(ledger, text=args.text, expected=args.expected, image=args.image, plan=args.plan, task=args.task,
@@ -65,10 +74,10 @@ def _report(args, argv, ledger):
     except support.ReportRefused as error:
         _say({'error': str(error), 'type': type(error).__name__, 'recorded': False})
         return 2
-    except Exception as error:                  # the ledger could not be opened or written: the report goes to the spool, never lost
+    except Exception as error:                  # any failure past the input checks: the report goes to the spool, never lost
         tried = [{'path': str(ledger.path), 'error': f'{type(error).__name__}: {error}'[:300]}]
-        return support_spool.spool_report(argv, reason=f'the ledger could not be opened or written ({type(error).__name__}: {error})'[:500],
-                                          error=error, tried=tried)
+        return support_spool.spool_report(argv, reason=f'{_family(error)}: the report could not be written to the ledger '
+                                                        f'({type(error).__name__}: {error})'[:500], error=error, tried=tried)
     if args.json: _say(result)
     else:
         print(f'{result["id"]}: ' + ('already recorded' if result['duplicate'] else 'recorded') +

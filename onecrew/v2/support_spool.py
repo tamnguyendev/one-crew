@@ -18,6 +18,7 @@ import hashlib
 import importlib
 import json
 import os
+import re
 import sys
 import tempfile
 import uuid
@@ -64,10 +65,24 @@ def state_root_for(project, explicit=None):
     return Path(explicit) if explicit else (configured_state_root(project) or default_state_root())
 
 
+def git_root(project):
+    """The folder at or above `project` that holds a .git (where.git_root, copied), else `project` itself."""
+    try:
+        start = Path(project).resolve()
+        return next((d for d in (start, *start.parents) if (d / '.git').exists()), start)
+    except OSError:
+        return Path(project)
+
+
+def _norm(path):
+    return os.path.normcase(str(Path(path).resolve()))
+
+
 def locations(project, state_root):
-    """The spool folders in the order they are tried (duplicates removed)."""
+    """The spool folders in the order they are tried (duplicates removed). The project one is at the git root, so a report spooled from a
+    subfolder is found by an import run from the repository (S1-R13)."""
     found = []
-    for place in (Path(state_root) / FOLDER, Path(project) / '.onecrew' / FOLDER, Path(tempfile.gettempdir()) / ('onecrew-' + FOLDER)):
+    for place in (Path(state_root) / FOLDER, git_root(project) / '.onecrew' / FOLDER, Path(tempfile.gettempdir()) / ('onecrew-' + FOLDER)):
         try:
             key = os.path.normcase(str(place.absolute()))
         except OSError:
@@ -77,18 +92,49 @@ def locations(project, state_root):
 
 
 def runtime_probe():
-    """What this process can say about the code it runs without importing the package's other modules."""
-    probe = {'executable': sys.executable, 'python': sys.version.split()[0], 'platform': sys.platform}
+    """What this process can say about the code it runs without importing the package's other modules (S1-R05): the interpreter, the
+    installed distribution's version and RECORD sha256 when the running code IS that distribution (else unknown, with the installed
+    version kept apart), and the sha256 of this very file as code_probe."""
+    probe = {'executable': sys.executable, 'python': sys.version.split()[0], 'platform': sys.platform, 'source': 'spool'}
+    here = Path(__file__).resolve()
+    try:
+        probe['code_probe'] = {'file': str(here), 'sha256': hashlib.sha256(here.read_bytes()).hexdigest()}
+    except OSError as error:
+        probe['code_probe'] = {'file': str(here), 'sha256': 'unknown', 'reason': type(error).__name__}
     try:
         from importlib import metadata
         dist = metadata.distribution('onecrew')
-        probe['dist_version'] = dist.version
+        installed = Path(dist.locate_file('onecrew')).resolve()
+        running = here.parent.parent
+        same = installed == running
+        probe['installed_vs_running'] = 'same' if same else 'different'
         record = dist.read_text('RECORD')
-        probe['record_sha256'] = hashlib.sha256(record.encode('utf-8')).hexdigest() if record else 'unknown'
+        if same:
+            probe['dist_version'] = dist.version
+            probe['record_sha256'] = hashlib.sha256(record.encode('utf-8')).hexdigest() if record else 'unknown'
+        else:
+            probe.update(dist_version='unknown', record_sha256='unknown', dist_version_installed=dist.version,
+                         dist_version_reason=f'the running code ({running}) is not the installed distribution ({installed})')
     except Exception as error:                     # not installed, or broken metadata: say so, never guess
-        probe['dist_version'] = 'unknown'
-        probe['dist_version_reason'] = f'{type(error).__name__}: {error}'[:300]
+        probe.update(dist_version='unknown', record_sha256='unknown', installed_vs_running='unknown',
+                     dist_version_reason=f'{type(error).__name__}: {error}'[:300])
     return probe
+
+
+def lite(text):
+    """Case and whitespace folded: what makes two sendings of one report the same report."""
+    return ' '.join(str(text).casefold().split()) if text is not None else None
+
+
+def _canonical(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
+def content_key(text, expected, refs):
+    """S1-R08: the client key of a report sent without --key: the same text, expected result and explicit refs in one project are the
+    same report (resent: the same id); anything else is a new report. support.report uses this same function."""
+    value = {'text': lite(text), 'expected': lite(expected), 'refs': refs or {}}
+    return 'auto-' + hashlib.sha256(_canonical(value).encode('utf-8')).hexdigest()[:40]
 
 
 def _image(path):
@@ -96,8 +142,8 @@ def _image(path):
     image = Path(path)
     if image.is_symlink() or not image.is_file():
         raise ValueError(f'--image {path}: not a regular file')
+    if image.stat().st_size > IMAGE_MAX: raise ValueError('--image: larger than 32 MB')
     data = image.read_bytes()
-    if len(data) > IMAGE_MAX: raise ValueError('--image: larger than 32 MB')
     return {'name': image.name[:200], 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data), 'stored': False}
 
 
@@ -117,9 +163,10 @@ def record(*, text, expected=None, image=None, plan=None, task=None, attempt=Non
     if expected is not None and (not isinstance(expected, str) or len(expected) > TEXT_MAX):
         raise ValueError(f'--expected: at most {TEXT_MAX} characters')
     ident = new_id()
-    return {'format': FORMAT, 'id': ident, 'client_key': key or ident, 'text': text, 'expected': expected, 'image': _image(image),
-            'refs': {k: v for k, v in (('plan', plan), ('task', task), ('attempt', attempt)) if v is not None},
-            'project': os.path.normcase(str(Path(project).resolve())), 'state_root': str(Path(state_root)),
+    refs = {k: v for k, v in (('plan', plan), ('task', task), ('attempt', attempt)) if v is not None}
+    return {'format': FORMAT, 'id': ident, 'client_key': key or content_key(text, expected, refs), 'text': text, 'expected': expected,
+            'image': _image(image), 'refs': refs,
+            'project': _norm(project), 'git_root': _norm(git_root(project)), 'state_root': str(Path(state_root)),
             'runtime_probe': runtime_probe(), 'error': error, 'reason': reason, 'ledger': _ledger_facts(state_root), 'created_at': _now()}
 
 
@@ -158,10 +205,52 @@ def spool(document, *, project, state_root, tried=()):
             'message': 'NOT recorded: no place could be written (' + '; '.join(t['path'] + ' -> ' + t['error'] for t in tried) + ').'}
 
 
+KEY = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z')
+FEEDBACK = re.compile(r'FB-[0-9a-f]{32}\Z')
+
+
+def _text(value, name, maximum, optional=False):
+    if value is None and optional: return None
+    if not isinstance(value, str) or len(value) > maximum or (not optional and not value.strip()):
+        return f'{name}: expected text of at most {maximum} characters'
+    return None
+
+
+def validate(document):
+    """None when a spool document has the shape and sizes `record` writes; else why not (S1-R06, S1-R12: a spool file is unauthenticated
+    input; only these bounded fields are ever imported)."""
+    if not isinstance(document, dict) or document.get('format') != FORMAT: return 'not a OneCrew support spool document'
+    if not isinstance(document.get('id'), str) or not FEEDBACK.match(document['id']): return 'id: expected FB-<32 hex>'
+    if not isinstance(document.get('client_key'), str) or not KEY.match(document['client_key']): return 'client_key: 1-128 letters, digits, _ . : -'
+    for name, maximum, optional in (('text', TEXT_MAX, False), ('expected', TEXT_MAX, True), ('reason', 600, True), ('created_at', 64, True),
+                                    ('project', 1000, False), ('git_root', 1000, True), ('state_root', 1000, True)):
+        why = _text(document.get(name), name, maximum, optional)
+        if why: return why
+    refs = document.get('refs', {})
+    if not isinstance(refs, dict) or set(refs) - {'plan', 'task', 'attempt'} or any(not isinstance(v, str) or len(v) > 200 for v in refs.values()):
+        return 'refs: an object of plan / task / attempt texts'
+    image = document.get('image')
+    if image is not None and (not isinstance(image, dict) or not re.fullmatch(r'[0-9a-f]{64}', str(image.get('sha256')))
+                              or type(image.get('bytes')) is not int or not 0 <= image['bytes'] <= IMAGE_MAX
+                              or not isinstance(image.get('name', ''), str) or len(image.get('name', '')) > 200):
+        return 'image: {name, sha256, bytes} expected'
+    error = document.get('error')
+    if error is not None and (not isinstance(error, dict) or _text(error.get('type'), 'error.type', 100)
+                              or _text(error.get('text'), 'error.text', 1000, True)):
+        return 'error: {type, text} of bounded size expected'
+    for name, maximum in (('runtime_probe', 4000), ('ledger', 1000)):
+        value = document.get(name)
+        if value is not None and (not isinstance(value, dict) or len(_canonical(value)) > maximum):
+            return f'{name}: an object of at most {maximum} characters'
+    return None
+
+
 def spooled_files(project, state_root):
-    """[(path, document)] of the spool files of this project in every spool folder (documents of other projects are left alone)."""
-    mine = os.path.normcase(str(Path(project).resolve()))
-    found = []
+    """([(path, document)], other_projects): the spool files of this project (by path, or by the same git root: a report spooled from a
+    subfolder) in every spool folder. A file that is not a JSON object comes with document None (the import rejects it); documents of
+    other projects are counted and left alone."""
+    mine, top = _norm(project), _norm(git_root(project))
+    found, others = [], 0
     for folder in locations(project, state_root):
         try:
             names = sorted(folder.glob('FB-*.json'))
@@ -171,9 +260,21 @@ def spooled_files(project, state_root):
             try:
                 document = json.loads(path.read_text(encoding='utf-8'))
             except (OSError, ValueError):
+                document = None
+            if isinstance(document, dict) and document.get('project') != mine and document.get('git_root') != top:
+                others += 1
                 continue
-            if isinstance(document, dict) and document.get('format') == FORMAT and document.get('project') == mine: found.append((path, document))
-    return found
+            found.append((path, document if isinstance(document, dict) else None))
+    return found, others
+
+
+def mark_rejected(path, why):
+    """Move a malformed spool file to <folder>/rejected/ with a sidecar .reason.txt; the other files are still imported."""
+    target = Path(path).parent / 'rejected'
+    target.mkdir(exist_ok=True)
+    os.replace(path, target / Path(path).name)
+    (target / (Path(path).name + '.reason.txt')).write_text(why[:1000] + '\n', encoding='utf-8')
+    return target / Path(path).name
 
 
 def mark_imported(path):

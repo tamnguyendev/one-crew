@@ -8,6 +8,7 @@
 - Sổ/runtime hỏng: báo cáo vào spool (`support-spool/`, `python -I -m onecrew.v2.support_spool`), `support import-spool` nhập đúng một lần; không ghi được thì báo NOT recorded.
 - `support classify/link/status/show/confirm` và thông báo chuyển trạng thái qua outbox sẵn có; `support confirm` là lệnh của chủ, bị từ chối trong phiên AI.
 - `install.doctor_facts()` tách khỏi `doctor` (output `doctor` không đổi).
+- Sửa sau review độc lập S1 (R01–R08, P3): lọc bí mật thay đúng phần bí mật (header, URL, `export`, `--password`, dạng khóa, PEM) cả trong `feedback.json`; `--task` chỉ nhận root/task con, hồ sơ không chứa báo cáo khác; giới hạn 8 MB áp cho mọi nguồn (`over_cap`); "đang xử lý" chỉ khi plan đã duyệt và còn mở; spool giữ phiên bản lúc báo, file spool hỏng vào `rejected/`, spool từ thư mục con được nhập; luật chặn `support confirm` trong hook, `--by owner` bị từ chối trong phiên AI; gửi lại cùng nội dung không `--key` nhận lại đúng mã; task support không bao giờ chạy được; bản 2.2.0.dev18/2.3.0.dev10 vẫn đọc được sổ có bản ghi support.
 
 ## v2.3.0.dev10 (31/10/2026) — beta 2.3 sau review Codex trên dev9
 

@@ -43,10 +43,10 @@ HELP_LINES = help_lines()       # the full v1 router (onecrew/cli.py) imports th
 
 def route(args, index):
     """Run the v2 group named by args[index]; `args` still holds the global options (--project, --state-root) before it."""
-    from .ownership import refuse_argv  # C3: the owner's verbs are refused inside an AI tool session
     if args[index] == 'support':                     # 2.4-S1: the spool path first, so a report survives a broken runtime or ledger
         from .support_spool import entry
         return entry(args, index)
+    from .ownership import refuse_argv  # C3: the owner's verbs are refused inside an AI tool session
     refused = refuse_argv(args[index:])
     if refused: return refused
     if args[index:index + 2] == ['eval', 'plan-metrics']:

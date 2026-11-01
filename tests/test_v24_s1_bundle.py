@@ -145,7 +145,7 @@ class BundleTests(FailedNodeFixture):
         self.assertGreaterEqual(entry['redaction']['lines_withheld'], 2)
         text = next(v for k, v in self.exported(made).items() if 'stdout' in k).decode('utf-8')
         self.assertIn('line ok one', text); self.assertIn('line ok two', text)
-        self.assertIn('[sensitive content withheld]', text); self.assertIn('[credential URL withheld]', text)
+        self.assertIn('API_KEY=[withheld]', text); self.assertIn('clone https://[withheld]@git.example/x.git', text)
         whole = b''.join(self.exported(made).values())
         self.assertNotIn(b'abcdefghijk1234567', whole); self.assertNotIn(b'hunter22', whole)
 

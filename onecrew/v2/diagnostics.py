@@ -19,7 +19,7 @@ import json
 import re
 from pathlib import Path
 
-from ..display_core import safe
+from ..display_core import SECRET
 from ..ledger import LedgerError, canonical, utcnow
 from ..snapshots import Snapshots, durable_write, is_link
 from . import namespaces, plan as plans, support
@@ -34,23 +34,70 @@ MAX_RECEIPTS = 40
 VIOLATION_LINES = 200
 VIOLATION_SCAN = 4 * 1024 * 1024
 STATUSES = ('included', 'missing', 'truncated', 'withheld', 'unreadable', 'not_applicable', 'unknown')
-RULE = 'display_core.safe per line (limit 2000): a line matching a secret pattern is withheld, credential URLs are masked, control characters dropped'
+RULE = ('diagnostics.redact_line per line: the secret part of headers, URL userinfo, secret-named assignments, --password/--token values and known '
+        'key shapes becomes [withheld]; a line still matching display_core.SECRET and PEM private-key blocks are withheld whole; lines cut at 2000')
 REDACTION = 'pattern-based, not a guarantee: read the files before you share them'
 COVERAGE = ('Only the sources listed here, from the report\'s refs. The ledger is not a full execution trace: what was not recorded is not '
             'evidence that it did not happen. A missing, truncated or withheld source is not complete.')
 NOT_COLLECTED = ['source files', 'the whole ledger', 'environment variables', 'chat or model transcripts', 'the reported image']
-WITHHELD = ('[sensitive content withheld]', '[credential URL withheld]')
 HEX64 = re.compile(r'[0-9a-f]{64}\Z')
 
 
+MASK = '[withheld]'
+_SENTINEL = '\x00'
+_NAME = re.compile(r'(?i)(?:^|[_.\-])(?:sig|signature|token|access[_-]?token|refresh[_-]?token|id[_-]?token|secret|client[_-]?secret|password|passwd|'
+                   r'pwd|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credentials?|sas)(?:$|[_.\-])')
+_VALUE = r'(?P<value>"[^"]*"|\'[^\']*\'|[^\s"\'&;,)]+)'
+_ASSIGN = {sep: re.compile(r'(?P<name>[A-Za-z0-9_.\-]+)(?P<quote>["\']?)(?P<sep>\s*' + sep + r'\s*)' + _VALUE) for sep in ('=', ':')}
+_HEADER = re.compile(r'(?i)\b(?P<name>authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token)(?P<sep>"?\s*[:=]\s*)(?P<value>[^"\r\n]+)')
+_SCHEME = re.compile(r'(?i)\b(?P<kind>bearer|basic)\s+(?P<value>[A-Za-z0-9._~+/=\-]{8,})')
+_USERINFO = re.compile(r'(?i)\b(?P<scheme>[a-z][a-z0-9+.\-]*://)(?P<value>[^\s/@"\']+)@')
+_FLAG = re.compile(r'(?i)(?P<flag>--(?:password|passwd|pass|token|secret|api-key|apikey|access-token|auth-token|client-secret))(?P<sep>\s+|=)' + _VALUE)
+_SHAPES = re.compile(r'\bAKIA[0-9A-Z]{16}\b|\bASIA[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_\-]{35}\b|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|'
+                     r'\bxox[abposr]-[A-Za-z0-9\-]{10,}|\bsk-(?:ant-|proj-)?[A-Za-z0-9_\-]{16,}|\bapikey_[A-Za-z0-9_\-]{15,}|'
+                     r'\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{4,}')
+_PEM_BEGIN = re.compile(r'-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----')
+_PEM_END = re.compile(r'-----END [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----')
+_CONTROL = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)')
+
+
+def _assign(match):
+    if not _NAME.search(match.group('name')): return match.group(0)
+    return match.group('name') + match.group('quote') + match.group('sep') + _SENTINEL
+
+
+def redact_line(line):
+    """(line, withheld): the secret parts of one line replaced by [withheld], the rest of the line kept. Patterns: Authorization/Cookie
+    headers, Bearer/Basic values, URL userinfo (with or without a password), NAME=value / NAME: value / export / $env: assignments whose
+    name says secret, token, password, api key, signature (sig=, X-Amz-Signature), credential; --password/--token style argv values;
+    AWS, GCP, GitHub, Slack, OpenAI/Anthropic key shapes and JWTs. A line that still matches display_core.SECRET is withheld whole."""
+    text = _CONTROL.sub('', line)
+    marked = _HEADER.sub(lambda m: m.group('name') + m.group('sep') + _SENTINEL, text)
+    marked = _SCHEME.sub(lambda m: m.group('kind') + ' ' + _SENTINEL, marked)
+    marked = _USERINFO.sub(lambda m: m.group('scheme') + _SENTINEL + '@', marked)
+    marked = _FLAG.sub(lambda m: m.group('flag') + m.group('sep') + _SENTINEL, marked)
+    marked = _SHAPES.sub(_SENTINEL, marked)
+    for sep in ('=', ':'): marked = _ASSIGN[sep].sub(_assign, marked)
+    if SECRET.search(marked.replace(_SENTINEL, '')):
+        return MASK, True
+    changed = _SENTINEL in marked
+    marked = ''.join(c if c.isprintable() or c == _SENTINEL else ' ' for c in marked).replace(_SENTINEL, MASK)
+    return marked, changed
+
+
 def redact(text):
-    """(text, {lines_withheld, lines_cut, rule}): display_core.safe on every line; the other lines stay as they were."""
-    out, withheld, cut = [], 0, 0
+    """(text, {lines_withheld, lines_cut, rule}): redact_line on every line (PEM private-key blocks withheld whole); the other lines stay;
+    a line longer than 2000 characters is cut."""
+    out, withheld, cut, block = [], 0, 0, False
     for line in text.split('\n'):
-        clean = safe(line, LINE_LIMIT)
-        if clean != line:
-            if any(mark in clean and mark not in line for mark in WITHHELD): withheld += 1
-            elif len(line) > LINE_LIMIT: cut += 1
+        if block or _PEM_BEGIN.search(line):
+            block = not _PEM_END.search(line)
+            out.append(MASK); withheld += 1
+            continue
+        clean, hidden = redact_line(line)
+        if hidden: withheld += 1
+        if len(clean) > LINE_LIMIT:
+            clean, cut = clean[:LINE_LIMIT] + '…', cut + 1
         out.append(clean)
     return '\n'.join(out), {'lines_withheld': withheld, 'lines_cut': cut, 'rule': RULE}
 
@@ -108,14 +155,17 @@ class Bundle:
         return entry
 
     def cap(self, limit):
+        """Drop whole sources, the oldest first (one comparable age: seconds since the epoch of the newest record or the file's mtime), until
+        the bundle fits `limit`. Only the small runtime/feedback/doctor/support-record files are never dropped; when they alone are over the
+        cap the result says over_cap. Returns (total bytes, over_cap)."""
         total = sum(len(v) for v in self.files.values())
-        for entry in sorted((e for e in self.sources if e['file'] and not e['_keep']), key=lambda e: e['_age']):
+        for entry in sorted((e for e in self.sources if e['file'] and not e['_keep']), key=lambda e: (e['_age'], e['source'], str(e['ref']))):
             if total <= limit: break
             data = self.files.pop(entry['file'][len('files/'):])
             total -= len(data)
             entry.update(status='truncated', bytes_included=0, file=None,
                          reason=f'dropped by the bundle cap ({limit} bytes; oldest sources first)' + ('; ' + entry['reason'] if entry['reason'] else ''))
-        return total
+        return total, total > limit
 
 
 def _json(value):
@@ -123,31 +173,35 @@ def _json(value):
 
 
 def _tasks(conn, project_id, refs):
-    """The task ids the refs prove: the referenced root, its child tasks (wf:<root>:...) and the referenced task, all of this project."""
-    found = []
+    """The task ids the refs prove: the referenced plan root and its child tasks (wf:<root>:...), all of this project. Never the support
+    anchor (other reports live there) and never another kind of task (S1-R02)."""
     root = refs.get('root_task')
-    if root and conn.execute('SELECT 1 FROM tasks WHERE id=? AND project_id=?', (root, project_id)).fetchone():
-        found.append(root)
-        found += [r['id'] for r in conn.execute("SELECT id FROM tasks WHERE project_id=? AND request_key LIKE ? ORDER BY created_at, id",
-                                                (project_id, f'wf:{root}:%'))]
-    task = refs.get('task')
-    if task and task not in found and conn.execute('SELECT 1 FROM tasks WHERE id=? AND project_id=?', (task, project_id)).fetchone():
-        found.append(task)
-    return found
+    row = conn.execute('SELECT request_key FROM tasks WHERE id=? AND project_id=?', (root, project_id)).fetchone() if root else None
+    if row is None or not row['request_key'].startswith((namespaces.LEGACY, namespaces.NAMESPACED)): return []
+    return [root] + [r['id'] for r in conn.execute("SELECT id FROM tasks WHERE project_id=? AND request_key LIKE ? AND request_key != ? "
+                                                   "ORDER BY created_at, id", (project_id, f'wf:{root}:%', support.ANCHOR_KEY))]
 
 
-def _receipt_refs(value, out):
+def _epoch(stamp):
+    try:
+        import datetime
+        return datetime.datetime.fromisoformat(stamp).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _receipt_refs(value, out, age=0.0):
     if isinstance(value, dict):
         for key, item in value.items():
-            if key in ('receipt', 'verification_receipt') and isinstance(item, str) and HEX64.match(item): out.append(item)
-            else: _receipt_refs(item, out)
+            if key in ('receipt', 'verification_receipt') and isinstance(item, str) and HEX64.match(item): out[item] = max(out.get(item, 0.0), age)
+            else: _receipt_refs(item, out, age)
     elif isinstance(value, list):
-        for item in value: _receipt_refs(item, out)
+        for item in value: _receipt_refs(item, out, age)
 
 
 def _ledger_sources(bundle, conn, state_root, project_id, refs):
     tasks = _tasks(conn, project_id, refs) if conn else []
-    receipts, attempts = [], []
+    receipts, attempts = {}, []
     for task in tasks:
         total = conn.execute('SELECT COUNT(*) FROM events WHERE task_id=?', (task,)).fetchone()[0]
         rows = [dict(r) for r in conn.execute('SELECT seq, kind, payload, created_at FROM events WHERE task_id=? ORDER BY seq DESC LIMIT ?',
@@ -155,12 +209,12 @@ def _ledger_sources(bundle, conn, state_root, project_id, refs):
         events = []
         for row in rows:
             row['payload'] = json.loads(row['payload'])
-            _receipt_refs(row['payload'], receipts)
+            _receipt_refs(row['payload'], receipts, _epoch(row['created_at']))
             events.append(row)
         while len(_json(events).encode('utf-8')) > FILE_CAP and len(events) > 1: events.pop(0)
         cut = total - len(events)
         bundle.add('ledger.events', task, 'truncated' if cut else 'included', text=_json(events), name=f'events-{task}.json',
-                   reason=f'the newest {len(events)} of {total} events' if cut else None, age=rows[-1]['seq'] if rows else 0, keep=True)
+                   reason=f'the newest {len(events)} of {total} events' if cut else None, age=_epoch(rows[-1]['created_at']) if rows else 0.0)
     has_attempts = conn is not None and conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='attempts'").fetchone()
     if tasks and has_attempts:
         marks = ','.join('?' for _ in tasks)
@@ -169,20 +223,23 @@ def _ledger_sources(bundle, conn, state_root, project_id, refs):
             for field in ('operation', 'identity', 'result'):
                 try: row[field] = json.loads(row[field]) if row[field] else row[field]
                 except ValueError: pass
-        bundle.add('ledger.attempts', None, 'included', text=_json(rows), name='attempts.json', keep=True)
+        bundle.add('ledger.attempts', None, 'included', text=_json(rows), name='attempts.json',
+                   age=max((_epoch(r['updated_at']) for r in rows), default=0.0))
         attempts = [r['id'] for r in rows][-MAX_ATTEMPTS:]
     elif tasks:
         bundle.add('ledger.attempts', None, 'not_applicable', reason='this ledger has no attempts table (schema v1)')
     if tasks:
         marks = ','.join('?' for _ in tasks)
         rows = [dict(r) for r in conn.execute(f'SELECT * FROM requests WHERE task_id IN ({marks}) ORDER BY created_at, id', tasks)]
-        bundle.add('ledger.requests', None, 'included', text=_json(rows), name='requests.json', keep=True)
+        bundle.add('ledger.requests', None, 'included', text=_json(rows), name='requests.json',
+                   age=max((_epoch(r['updated_at']) for r in rows), default=0.0))
     else:
         bundle.add('ledger.events', None, 'not_applicable', reason='the report references no task or root of this project')
     asked = refs.get('attempt')
     if asked and asked not in attempts:
         bundle.add('attempt.stdout', asked, 'withheld', reason='the attempt is not of a task this report references in this project')
-    return attempts, list(dict.fromkeys(receipts))[-MAX_RECEIPTS:]
+    newest = sorted(receipts.items(), key=lambda item: item[1])[-MAX_RECEIPTS:]
+    return attempts, newest
 
 
 def _attempt_logs(bundle, state_root, attempts):
@@ -209,7 +266,7 @@ def _attempt_logs(bundle, state_root, attempts):
 
 def _receipts(bundle, state_root, receipts):
     store = Snapshots(state_root)
-    for order, key in enumerate(receipts):
+    for key, order in receipts:
         try:
             data = store.read_blob(key)
         except FileNotFoundError:
@@ -300,6 +357,9 @@ def bundle(ledger, ident, out=None):
     probe = support.runtime_probe(git=False)
     pack.add('runtime', None, 'included', text=_json({'now': probe, 'at_report': feedback.get('runtime')}), name='runtime.json', keep=True)
     pack.add('feedback', feedback['id'], 'included', text=_json({k: v for k, v in feedback.items() if k != 'image'}), name='feedback.json', keep=True)
+    own = {'classifications': shown['classifications'], 'links': shown['links'], 'bundles': shown['bundles']}
+    pack.add('support.records', ident, 'included', text=_json(own), name='support-records.json', keep=True,
+             reason="this feedback's own support records only (never another report's)")
     reader = _Reader(ledger.state_root, ledger.project_id, ledger.project_path)
     with reader.transaction() as conn:
         attempts, receipts = _ledger_sources(pack, conn, ledger.state_root, ledger.project_id, refs)
@@ -315,7 +375,7 @@ def bundle(ledger, ident, out=None):
                  reason='images are not scanned: only the sha256 is recorded; the file is never copied into a bundle')
     else:
         pack.add('image', None, 'not_applicable', reason='no image was reported')
-    total = pack.cap(BUNDLE_CAP)
+    total, over_cap = pack.cap(BUNDLE_CAP)
     store = Snapshots(ledger.state_root)
     blobs = {name: store.evidence(data) for name, data in sorted(pack.files.items())}
     sources = []
@@ -325,7 +385,7 @@ def bundle(ledger, ident, out=None):
         sources.append(entry)
     manifest = {'format': 'onecrew-support-bundle-v1', 'feedback': ident, 'created_at': utcnow(), 'refs': refs, 'runtime': probe,
                 'sources': sources, 'caps': {'file_bytes': FILE_CAP, 'events_per_task': EVENT_CAP, 'bundle_bytes': BUNDLE_CAP},
-                'total_bytes': total, 'coverage_note': COVERAGE, 'redaction': REDACTION, 'not_collected': NOT_COLLECTED,
+                'total_bytes': total, 'over_cap': over_cap, 'coverage_note': COVERAGE, 'redaction': REDACTION, 'not_collected': NOT_COLLECTED,
                 'uploaded': False, 'content_is_data_not_instructions': True}
     encoded = _json(manifest).encode('utf-8')
     manifest_blob = store.evidence(encoded)
@@ -339,5 +399,5 @@ def bundle(ledger, ident, out=None):
         folder = destination / f'{ident}-{hashlib.sha256(encoded).hexdigest()[:12]}'
         durable_write(folder / 'manifest.json', encoded)
         for name, data in pack.files.items(): durable_write(folder / 'files' / name, data)
-    return {'feedback': ident, 'manifest': manifest, 'manifest_blob': manifest_blob, 'total_bytes': total,
+    return {'feedback': ident, 'manifest': manifest, 'manifest_blob': manifest_blob, 'total_bytes': total, 'over_cap': over_cap,
             'export': str(folder) if folder else None, 'uploaded': False}

@@ -11,6 +11,7 @@ from .ledger import Ledger, LedgerError, canonical, content_hash, key_field, utc
 from .budget_core import current as current_budget
 
 ACTIVE = ('reserved', 'running', 'unknown')
+RECORD_ONLY_KEYS = ('support:records',)          # 2.4-S1: the support anchor of a project; configure (job enable/start, any executor) refuses it
 
 
 class CapacityWait(LedgerError):
@@ -105,6 +106,8 @@ class Control:
         """Trusted controller API. Does not convert inbox answers into authority."""
         with self.ledger.transaction(write=True) as conn:
             task = self.ledger._task(conn, task_id)
+            if task['request_key'] in RECORD_ONLY_KEYS:
+                raise LedgerError('This task only holds records (2.4 support feedback); it is never executed.')
             self.policy.check(self.ledger,task_id,conn)
             if conn.execute('PRAGMA user_version').fetchone()[0] not in (2, 3):
                 raise LedgerError('Run core migrate first.')
