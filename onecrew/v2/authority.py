@@ -287,6 +287,19 @@ def _preference(grant, action, ctx):
             else _res(False, 'U3', 'preference', 'a preference or business choice nobody delegated and policy has no default for'))
 
 
+def _support_install(grant, action, ctx):
+    """2.4-S2: installing a OneCrew hotfix at a declared target. Only a grant that names support_install:<target> allows it (a project edit grant,
+    a report or a log line never does), and only with budget left on the root that grants it."""
+    wanted = 'support_install:' + str(action.get('target'))
+    if wanted not in grant.get('granted_actions', []):
+        return _res(False, 'U2', 'support_install', f'the grant does not name {wanted} (an edit or command grant does not allow a OneCrew install)')
+    if ctx.get('remaining_calls') is not None and ctx['remaining_calls'] <= 0:
+        return _res(False, 'U2', 'support_install', 'the root budget is exhausted (no calls left)')
+    over = _over(action, ctx)
+    if over: return _res(False, 'U2', 'support_install', 'budget: ' + over)
+    return _res(True, None, 'support_install', 'the grant names this install target, inside the root budget')
+
+
 _HANDLERS = {
     'write': lambda grant, action, ctx: _write(grant, action, ctx),
     'test_edit': lambda grant, action, ctx: (_write(grant, action, ctx, field='edit_tests') if grant.get('edit') else
@@ -303,6 +316,7 @@ _HANDLERS = {
     'owner_manual': _always('U4', 'the contract names an action only the owner can do'),
     'device_install': _always('U4', 'installing on a real device is the owner\'s'),
     'preference': _preference,
+    'support_install': _support_install,
 }
 
 

@@ -25,8 +25,9 @@ from . import namespaces, ownership, plan as plans, report as reports
 
 ANCHOR_KEY = 'support:records'        # not a valid plan name: a plan called "support" can never bind this anchor to its root budget
 GOAL = 'OneCrew support records (user feedback; no execution)'
-KINDS = ('support.feedback', 'support.classified', 'support.linked', 'support.bundle', 'support.user_confirmed')
-NOTICE_KINDS = ('support.classified', 'support.linked', 'support.user_confirmed')
+KINDS = ('support.feedback', 'support.classified', 'support.linked', 'support.bundle', 'support.user_confirmed',
+         'support.target', 'support.artifact', 'support.install_prepared', 'support.install', 'support.recheck', 'support.resumed')   # S2: hotfix.py
+NOTICE_KINDS = ('support.classified', 'support.linked', 'support.user_confirmed', 'support.install_prepared', 'support.install', 'support.recheck')
 CLASSES = ('task_result', 'environment', 'provider', 'onecrew_runtime', 'new_requirement', 'unclear')
 TEXT_MAX = 4000
 FEEDBACK_ID = re.compile(r'FB-[0-9a-f]{32}\Z')
@@ -473,8 +474,23 @@ def _status(ledger, conn, anchor, found):
             open_plans.append(f'plan:{target["project_id"]}/{target["selector"]} status approved (event:{r["seq"]})')
     out['in_progress'] = _field(bool(open_plans), open_plans)
     out['linked'] = linked
-    for name in LATER:
-        out[name] = _field(False, [], note='not recorded by S1 (2.4-S2 adds the install and recheck records)')
+    out['workaround'] = _field(False, [], note='no workaround record exists in this version')
+    prepared = [r for r in rows if r['kind'] == 'support.install_prepared' and (r['payload'].get('identity') or {}).get('version') == r['payload'].get('version')]
+    out['trial_build'] = _field(bool(prepared), [f'venv {r["payload"]["venv"]} holds onecrew {r["payload"]["version"]} (event:{r["seq"]})' for r in prepared[-1:]],
+                                artifact=[f'event:{r["seq"]}' for r in rows if r['kind'] == 'support.artifact'][-1:])
+    installs = [r for r in rows if r['kind'] == 'support.install' and r['payload'].get('result') in ('switched', 'rolled_back')]
+    switched = bool(installs) and installs[-1]['payload']['result'] == 'switched'
+    out['installed'] = _field(switched, [f'event:{installs[-1]["seq"]} hooks run {installs[-1]["payload"]["new_venv"]}'] if switched else [])
+    rechecks = [r for r in rows if r['kind'] == 'support.recheck']
+    last = rechecks[-1] if rechecks else None
+    at_target = bool(last) and last['payload']['environment'] == 'target' and last['payload']['result'] == 'pass' and bool(last['payload'].get('receipt'))
+    out['verified_at_target'] = _field(at_target, [f'receipt:{last["payload"]["receipt"]} (event:{last["seq"]})'] if at_target else [],
+                                       **({'note': f'last recheck: {last["payload"]["result"]} on the {last["payload"]["environment"]}'} if last and not at_target else {}))
+    gates = [r for r in rows if (r['kind'] == 'support.install_prepared' and r['payload'].get('blocked_by'))
+             or (r['kind'] == 'support.install' and r['payload'].get('result', '').startswith(('refused', 'blocked')))]
+    gate = gates[-1] if gates and (not installs or gates[-1]['seq'] > installs[-1]['seq']) else None
+    out['install_blocked'] = _field(None if gate is None else ('blocked_by_' + gate['payload']['blocked_by'] if gate['kind'] == 'support.install_prepared'
+                                                              else gate['payload']['result']), [f'event:{gate["seq"]}'] if gate else [])
     refs = feedback['refs']
     blocked = _field('unknown', [], note='no node of a root is referenced')
     if refs.get('node') and refs.get('plan'):
@@ -486,6 +502,10 @@ def _status(ledger, conn, anchor, found):
         if record is not None:
             bad = record.get('phase') == 'held' or record.get('verification_result') == 'fail'
             blocked = _field(bad, [f'node:{refs["plan"]}/{refs["node"]} phase {record.get("phase")} verification {record.get("verification_result")}'])
+    if last and last['payload']['result'] != 'pass':
+        blocked = _field(True, [f'receipt:{last["payload"].get("receipt")} result {last["payload"]["result"]} on the {last["payload"]["environment"]}'])
+    elif at_target:
+        blocked = _field(False, [f'receipt:{last["payload"]["receipt"]} pass at the target'])
     out['still_blocked'] = blocked
     confirmed = [r for r in rows if r['kind'] == 'support.user_confirmed']
     out['user_confirmed'] = _field(bool(confirmed), [f'event:{r["seq"]}' for r in confirmed[:1]])
@@ -558,7 +578,18 @@ def _transition(conn, row, payload):
         return None if earlier else name
     if row['kind'] == 'support.user_confirmed':
         return None if any(r['kind'] == 'support.user_confirmed' for r in before) else 'user_confirmed'
-    return None
+    def s2(r):
+        p = r['payload']
+        if r['kind'] == 'support.install_prepared': return 'blocked_by_' + p['blocked_by'] if p.get('blocked_by') == 'authority' else None
+        if r['kind'] == 'support.install': return {'switched': 'installed', 'rolled_back': 'rolled_back'}.get(p.get('result'), p.get('result'))
+        if r['kind'] == 'support.recheck':
+            if p.get('result') != 'pass': return 'still_blocked'
+            return 'verified_at_target' if p.get('environment') == 'target' else 'passed_on_copy'
+        return None
+    name = s2(row)
+    if name is None: return None
+    return None if any(s2(r) == name for r in before if r['kind'] in NOTICE_KINDS) else name
+
 
 def message(conn, row):
     """One notice for a useful support status change, else None. Identity: content_hash({task, 'support', feedback, status})[:32]."""

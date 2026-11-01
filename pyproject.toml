@@ -142,6 +142,7 @@ py-modules = [
     "onecrew.v2.support_cli",
     "onecrew.v2.support_spool",
     "onecrew.v2.diagnostics",
+    "onecrew.v2.hotfix",
     "onecrew.v2.verifiers.advisor",
     "onecrew.v2.verifiers.command",
     "onecrew.v2.verifiers.reviewer",

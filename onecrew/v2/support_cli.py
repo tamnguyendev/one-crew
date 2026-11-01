@@ -42,6 +42,20 @@ def _parser():
     commands.add_parser('import-spool', help='import the spooled reports of this project, once each')
     p = commands.add_parser('confirm', help='owner only: the problem is gone for you')
     p.add_argument('feedback'); p.add_argument('--reference', required=True)
+    # 2.4-S2 (hotfix.py)
+    target = commands.add_parser('target', help='owner only: declare an install target venv').add_subparsers(dest='target_command', required=True)
+    p = target.add_parser('add'); p.add_argument('--id', required=True); p.add_argument('--venv', type=Path, required=True)
+    p.add_argument('--python', type=Path)
+    commands.add_parser('targets', help='list the declared install targets')
+    p = commands.add_parser('artifact', help='bind a hotfix wheel to the feedback: wheel bytes + manifest + the fix plan verified tree')
+    p.add_argument('feedback'); p.add_argument('--wheel', type=Path, required=True); p.add_argument('--manifest', type=Path, required=True)
+    p = commands.add_parser('install', help='install the artifact in a new venv at a target, drill on a copy, switch at a safe point')
+    p.add_argument('feedback'); p.add_argument('--target', required=True)
+    for name, text in (('recheck', 're-run the original node check with the new runtime (target, else a named copy)'),
+                       ('resume', 'continue the old work through the engine guards'), ('rollback', 'repoint the hooks back when the old reader is checked')):
+        commands.add_parser(name, help=text).add_argument('feedback')
+    p = commands.add_parser('learn', help="a lesson on the fix plan's root after a passing recheck at the target")
+    p.add_argument('feedback'); p.add_argument('--text', required=True)
     return parser
 
 
@@ -113,6 +127,14 @@ def main(argv, index=None):
             _say(diagnostics.bundle(ledger, args.feedback, args.out))
         elif args.command == 'import-spool': _say(support.import_spool(ledger))
         elif args.command == 'confirm': _say(support.confirm(ledger, args.feedback, args.reference))
+        elif args.command in ('target', 'targets', 'artifact', 'install', 'recheck', 'resume', 'rollback', 'learn'):
+            from . import hotfix
+            if args.command == 'target': _say(hotfix.target_add(ledger, args.id, args.venv, args.python))
+            elif args.command == 'targets': _say(hotfix.targets(ledger))
+            elif args.command == 'artifact': _say(hotfix.artifact(ledger, args.feedback, args.wheel, args.manifest))
+            elif args.command == 'install': _say(hotfix.install(ledger, args.feedback, args.target))
+            elif args.command == 'learn': _say(hotfix.learn(ledger, args.feedback, args.text))
+            else: _say(getattr(hotfix, args.command)(ledger, args.feedback))
         return 0
     except (LedgerError, OSError, ValueError, sqlite3.Error) as error:
         print(json.dumps({'error': str(error), 'type': type(error).__name__}, ensure_ascii=False))

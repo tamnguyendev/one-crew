@@ -86,9 +86,51 @@ Sửa xong sổ thì chạy `onecrew support import-spool`. Mỗi file spool đ�
 
 Lý do spool nêu đúng loại lỗi: `DatabaseError` (sổ không đọc được), `LedgerError`, `OSError` (đĩa, quyền, đường dẫn), `ImportError` (runtime không import được) hoặc `RuntimeError` (lỗi code; báo cáo vẫn được giữ).
 
-## 5. S1 chưa làm
+## 5. Bản vá OneCrew (2.4-S2): sửa, cài tại đích, kiểm lại lỗi gốc, tiếp tục
+
+Dùng khi lỗi được phân loại `onecrew_runtime`. Việc sửa nằm trong một plan của project OneCrew, có duyệt và ngân sách riêng. Plan và ngân sách của project báo lỗi không bao giờ được dùng cho việc này.
+
+1. **Chủ dự án khai báo đích cài** (lệnh của chủ, bị từ chối trong phiên AI):
+   ```
+   onecrew support target add --id lab --venv D:\venvs\onecrew [--python C:\...\python.exe]
+   ```
+2. **Nối plan sửa:** `onecrew support link FB-… --plan FIX1 --project-id <id project OneCrew>`. Quyền cài chỉ có khi hợp đồng đã duyệt của plan sửa ghi `authority.granted_actions: ["support_install:lab"]`. Quyền sửa project, một báo cáo, một dòng log hay một mã hash viết trong chữ đều không cho quyền cài.
+3. **Gắn bản vá:** `onecrew support artifact FB-… --wheel <file.whl> --manifest <manifest.json>`. OneCrew kiểm:
+   - sha256 tính từ byte của wheel phải khớp sha trong manifest;
+   - version trong wheel phải khớp version của manifest;
+   - `code_commit` của manifest phải có cây git đúng là cây OneCrew đã kiểm cho plan sửa. Bản ghi được ràng là `plan.accepted.artifact_sha` nếu plan đã nghiệm thu; nếu chưa, là `milestone.passed.artifact_sha` của **mọi** milestone thuộc revision đã duyệt.
+
+   Giới hạn: wheel không được build lại từ commit đó, nên OneCrew chỉ ràng được manifest → commit → cây đã kiểm.
+4. **Cài:** `onecrew support install FB-… --target lab`.
+   - Venv **mới** nằm cạnh venv cũ (`<venv>-<version>`). Venv cũ không bị sửa. Lệnh cài là `pip install --no-index --no-deps`, sau đó OneCrew đọc version và sha RECORD từ chính venv mới.
+   - Diễn tập trên **bản sao** của mọi state root dùng chung bản cài: runtime mới chạy `compat scan` và `plan show` mọi root của project. Hai trường hợp bị từ chối: scan không phải của bản sao này (ledger sha khác), hoặc scan có `read` block. `continue` block được chấm cho reader baseline của scan (d3120c6), không cho cặp phiên bản đang chuyển, nên chỉ được ghi lại: không cấp phép và không chặn.
+   - **Chỉ chuyển tại điểm an toàn**, khi mọi điều sau đều đúng:
+     - trong mọi state root dùng chung, không còn attempt `reserved|running|unknown` và không còn action `executing|unknown`;
+     - không còn process nào chạy từ venv cũ (trừ chính tiến trình đang cài). Không liệt kê được process thì kết quả là `processes: unknown` và việc chuyển bị từ chối; OneCrew không dừng process nào;
+     - dữ liệu không đổi so với lúc diễn tập (fence).
+
+     Chuyển nghĩa là ghi lại dòng hook OneCrew của mọi project dùng venv cũ (như `onecrew init` ghi).
+   - Thiếu quyền hoặc hết ngân sách: phần chuẩn bị vẫn làm xong (venv thử dưới `<state-root>\support-work\`, diễn tập, hồ sơ). Kết quả là `blocked_by_authority`, **không phải PASS**. OneCrew không hỏi lại và không tạo câu hỏi.
+   - Bị ngắt giữa chừng thì chạy lại đúng lệnh đó. OneCrew tiếp từ bản ghi cuối (khóa = báo cáo + sha wheel + đích); không tạo venv thứ hai và không cài hai lần.
+5. **Kiểm lại lỗi gốc:** `onecrew support recheck FB-…`. Runtime mới chạy lại đúng check của node đã báo, qua engine (một `node.verification` thật). Nếu đã chuyển, recheck chạy tại đích; nếu chưa, chạy trên một bản sao có tên và `environment: copy`. Chỉ recheck đạt **tại đích** mới làm cột "đã kiểm tại đích" thành đúng. Test của bản vá xanh không có nghĩa là đã cài, đã hết lỗi hay đã được chấp nhận.
+6. **Tiếp tục:** `onecrew support resume FB-…`, chỉ sau khi recheck đạt tại đích.
+   - Node không bị giữ: root tự chạy tiếp bằng các bước engine của nó.
+   - Node bị giữ: chỉ chạy tiếp qua `engine.resume_held`, tức phải có câu trả lời `continue` của chủ, attempt đã settle, còn ngân sách và không còn finding mở.
+   - Root đã kết thúc hoặc đã dừng không bao giờ được mở lại hay gia hạn. Ngân sách không bị đặt lại.
+7. **Quay lui:** `onecrew support rollback FB-…`. Chỉ trỏ hook về venv cũ khi runtime cũ đọc được bản sao của dữ liệu hiện tại (compat scan và `plan show` của chính runtime cũ). Đọc không được thì từ chối, giữ nguyên runtime mới và sổ mới.
+8. **Bài học:** `onecrew support learn FB-… --text "…"`, chỉ sau recheck đạt tại đích. Bài học ghi trên root của **plan sửa**, kèm receipt của recheck, mức `verified`, nguyên nhân `not_established`. Không có luật nào tự nâng lên.
+
+Một báo cáo mới cùng nội dung với lỗi đã cài hoặc đã kiểm lại được ghi `recurrence_of` trỏ về báo cáo cũ.
+
+**Giới hạn S2:**
+- Cổng outbox desktop của venv cũ (`site-packages\.onecrew\desktop`) ở lại với venv cũ. Đặt `ONECREW_DESKTOP_HOME` để hai runtime dùng chung một outbox.
+- Việc liệt kê process chỉ có trên Windows (Toolhelp). Trên hệ khác kết quả là `unknown`, nên việc chuyển bị từ chối.
+- Một process chạy code của venv cũ bằng python gốc (không qua launcher của venv) không nhận ra được.
+- Bản sao diễn tập là bản sao đầy đủ của state root, nên state root lớn thì tốn chỗ.
+
+## 6. Chưa làm
 
 - Không tải hồ sơ lên đâu cả và không tự gửi log ra ngoài.
-- Không cài hay đổi bản OneCrew (hotfix), không chuyển venv, không tiếp tục root; phần này thuộc 2.4-S2.
+- Không build lại wheel từ commit (không có build tái lập); không cài ngoài đích đã khai báo; không publish.
 - Không đổi pin, quyền hay ngân sách, và không gia hạn root cũ.
 - Không tự mở plan sửa lỗi. Việc sửa vẫn đi qua plan có duyệt của project tương ứng.
