@@ -46,7 +46,14 @@ class Crash(BaseException):
     """The controller dies (os._exit in a real run)."""
 
 
-class BFixture(WorkerMixin, KnowledgeFixture):
+class AllEvents:
+    def events(self, name='P1'):                                                    # every event of the root (ledger.events pages 200)
+        with self.ledger.transaction() as conn:
+            task = plans.derive(self.ledger, conn, name)['task_id']
+            return [(r['kind'], json.loads(r['payload'])) for r in conn.execute('SELECT kind,payload FROM events WHERE task_id=? ORDER BY seq', (task,))]
+
+
+class BFixture(AllEvents, WorkerMixin, KnowledgeFixture):
     managed = False
 
     def setUp(self):
@@ -127,8 +134,9 @@ class RecordTests(BFixture):
         self.assertRegex(entry['sources'][0]['blob'], r'^[0-9a-f]{40}$')
         self.assertEqual(row['consumer_paths'], ['a.txt'])
         self.assertEqual(compat.event_class('knowledge.delivered'), 'A')
+        seq = wc().row_for_attempt(self.ledger, 'P1', row['attempt'])['event']
         self.assertEqual(wc().record_delivery(self.ledger, 'P1', self.ip.current(self.ledger, 'P1')['definition']['nodes'][0],
-                                              {'id': row['attempt']}, {'id': row['task']}, receipt['knowledge'], None), row['event'])
+                                              {'id': row['attempt']}, {'id': row['task']}, receipt['knowledge'], None), seq)
         self.assertEqual(len(self.delivered()), 1)                                 # idempotent per attempt
 
     def test_sb01b_a_root_without_knowledge_writes_no_record(self):
@@ -325,7 +333,7 @@ class GateTests(BFixture):
         self.assertFalse([p for k, p in self.events() if k == 'node.resumed'])
 
 
-class SourceChangeTests(SourceFixture):
+class SourceChangeTests(AllEvents, SourceFixture):
     def test_sb07_source_change_marks_recheck_for_readers_of_that_file_only(self):
         reader = self.item('R1', patterns=('src/',))
         other = self.item('R2', read=('a.txt',), write=('a.txt',), patterns=('docs/',))

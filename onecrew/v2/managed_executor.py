@@ -362,7 +362,8 @@ class ManagedExecutor(executors.Executor):
         # Durable launch intent (W37b crash point b): the base snapshot and the exact node are what a rebuild needs after a
         # crash between the settled process and the candidate checkpoint. Written before the provider launch.
         self._write(attempt['id'], 'dispatching', base=prepared['base'], node_definition=node,
-                    prompt_sha=content_hash(prepared['prompt']), profile=prepared['profile'], knowledge=prepared.get('knowledge'))
+                    prompt_sha=content_hash(prepared['prompt']), profile=prepared['profile'], knowledge=prepared.get('knowledge'),
+                    **({'knowledge_delivered': prepared['delivered_event']} if prepared.get('delivered_event') else {}))   # 2.4-B: the delivery record
         started = time.monotonic()
         with self.native.liveness(ledger, control, task, node, attempt):          # W51: liveness while the command runs
             prepared['worker'].run(attempt, prepared['prompt'], prepared['schema'], prepared['profile'])

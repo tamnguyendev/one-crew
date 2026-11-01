@@ -125,6 +125,7 @@ py-modules = [
     "onecrew.v2.context",
     "onecrew.v2.knowledge",
     "onecrew.v2.source_tools",
+    "onecrew.v2.working_context",
     "onecrew.v2.wiki",
     "onecrew.v2.outcome",
     "onecrew.v2.resume_pack",

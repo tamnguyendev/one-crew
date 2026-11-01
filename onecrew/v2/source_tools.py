@@ -595,7 +595,9 @@ def _state(ledger, store, selector, node, tree):
             'rounds_used': sum(1 for r in receipts if (r.get('source') or {}).get('requests')),
             'previous_note': ((previous or {}).get('continuation') or {}).get('remaining'),
             'refused_last': list(previous_block.get('refused') or [])[:REQUESTS_PER_ROUND],
-            'progress': _progress(history + records, tree['tree'])}
+            'progress': _progress(history + records, tree['tree']),
+            'read_blobs': {r['result']['path']: r['result']['blob'] for r in history + records if isinstance(r, dict) and r.get('action') == 'read'
+                           and isinstance((r.get('result') or {}).get('text'), str) and r['result'].get('blob')}}
 
 
 def prepare(ledger, store, selector, node, schema):
@@ -616,6 +618,12 @@ def restate(ledger, store, selector, node):
     _, state = prepare(ledger, store, selector, node, {'properties': {}})
     if state is not None: state['rebuilt'] = True
     return state
+
+
+def read_blobs(state):
+    """2.4-B: {tree, blobs: {path: blob}} of the files the chain read as text (None when it read none), for the delivery record."""
+    if not state or state.get('capability') != 'git-tree' or not state.get('read_blobs'): return None
+    return {'tree': state['tree'], 'blobs': dict(sorted(state['read_blobs'].items()))}
 
 
 def prompt_cap(provider, schema):

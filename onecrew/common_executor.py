@@ -13,7 +13,7 @@ from .control_core import Control, migrate
 from .ledger import LedgerError, canonical, content_hash
 from .snapshots import Snapshots
 from .artifact_core import artifact_schema, artifacts, continuation_of
-from .v2 import executors, knowledge, progress_track, source_tools
+from .v2 import executors, knowledge, progress_track, source_tools, working_context
 
 PROMPT_CAP = 80000          # R10 D7: the final native prompt, measured where the cap is checked; nothing is truncated to fit
 REPORT_SCHEMA = {'type': 'object', 'properties': {'summary': {'type': 'string'},
@@ -130,7 +130,9 @@ class NativeExecutor(executors.Executor):
             # do not fit hold the node); #6: it is judged on the files the worker sees here (`context`), not on the working tree.
             room = cap - len(header) - len(canonical(body)) - len(',"knowledge":')
             knowledge_view, knowledge_record = knowledge.for_native(ledger, store, selector, node, pin, view=context,
-                                                                    room=room if sources is None else source_tools.knowledge_room(sources, room))
+                                                                    room=room if sources is None else source_tools.knowledge_room(sources, room),
+                                                                    attempt_id=attempt['id'])
+            delivery = knowledge_record.pop('_delivery', None) if isinstance(knowledge_record, dict) else None
             if knowledge_view is not None: body['knowledge'] = knowledge_view
             if sources is not None:                 # the source results take what the round and the cap leave after knowledge
                 body['source_tools'] = source_tools.fill(sources, body['source_tools'], cap - len(header) - len(canonical(body)))
@@ -143,6 +145,11 @@ class NativeExecutor(executors.Executor):
                                   + ' (prompt ' + str(prompt_chars) + ' chars; producer outputs: '
                                   + (', '.join(f'{source}={chars}' for source, chars in sorted(sizes.items())) or 'none')
                                   + '); do not run with partial evidence.')
+            # 2.4-B: what this attempt was given (knowledge entries, files read by request), recorded before the launch, once per attempt
+            read = source_tools.read_blobs(sources)
+            delivered_event = None
+            if (knowledge_record or {}).get('delivered') or (knowledge_record or {}).get('delta') or read:
+                delivered_event = working_context.record_delivery(ledger, selector, node, attempt, task, knowledge_record, delivery, read)
         except Exception as error:
             if control.attempt(attempt['id'])['status'] == 'reserved':
                 failure = {'reason': 'native_preflight', 'error': str(error)}
@@ -151,7 +158,8 @@ class NativeExecutor(executors.Executor):
             raise
         profile = {'provider': pin['provider'], 'model': pin['model'], 'step_seconds': int(node['execution_cap_seconds'])}
         return {'worker': worker, 'store': store, 'pin': pin, 'base': base, 'context': context, 'schema': schema, 'prompt': prompt, 'profile': profile,
-                'prompt_chars': prompt_chars, 'producer_chars': sizes, 'knowledge': knowledge_record, 'source': sources}
+                'prompt_chars': prompt_chars, 'producer_chars': sizes, 'knowledge': knowledge_record, 'source': sources,
+                **({'delivered_event': delivered_event} if delivered_event else {})}
 
     @contextlib.contextmanager
     def liveness(self, ledger, control, task, node, attempt):

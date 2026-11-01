@@ -929,10 +929,26 @@ def _coverage_view(coverage):
     return view
 
 
-def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None, view=None):
+def judge_map(candidates):
+    """2.4-B: id -> what the selection decided about each candidate (excluded, use, must, origin event/sha256, cited files with blobs)."""
+    out = {}
+    for c in candidates:
+        origin, seen, sources = c['origin'], set(), []
+        for s in c.get('sources') or []:
+            if s.get('path') and s['path'] not in seen:
+                seen.add(s['path']); sources.append({'path': s['path'], 'blob': s.get('blob')})
+        out[c['id']] = {'excluded': c.get('excluded'), 'use': c.get('use'), 'must': bool(c.get('mandatory')),
+                        'event': origin.get('event') if origin.get('type') == 'ledger' else None,
+                        'sha256': origin.get('sha256') if origin.get('type') != 'ledger' else None,
+                        'applicability': (c.get('applicability') or {}).get('state'), 'sources': sources}
+    return out
+
+
+def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None, view=None, judged=None):
     if type(cap_chars) is not int or cap_chars < 0: raise LedgerError('cap_chars: an integer of at least 0.')
     started = time.perf_counter()
     candidates, eligible, problems, coverage = _collect(ledger, cons, view)
+    if judged is not None: judged.update(judge_map(candidates))      # 2.4-B: the dependency form of this selection (for_native)
     _established(cons, coverage, ledger)
     revision = _state_hash(cons, candidates)
     wiki_view = _coverage_view(coverage)
@@ -1029,9 +1045,9 @@ def _build(ledger, cons, cap_chars, offset=0, requested=(), expect_revision=None
     return package
 
 
-def package(ledger, cons, *, cap_chars=NATIVE_CAP_CHARS, requested=(), view=None):
+def package(ledger, cons, *, cap_chars=NATIVE_CAP_CHARS, requested=(), view=None, judged=None):
     """The first page for `cons` (judged on `view`, the files its worker sees). KnowledgeOverflow when mandatory knowledge does not fit."""
-    return _build(ledger, cons, cap_chars, requested=tuple(requested), view=view)
+    return _build(ledger, cons, cap_chars, requested=tuple(requested), view=view, judged=judged)
 
 
 def read(ledger, cons, cursor, *, cap_chars=NATIVE_CAP_CHARS, view=None):
@@ -1175,7 +1191,7 @@ def previous_requests(ledger, store, selector, attempt_id):
     return []
 
 
-def for_native(ledger, store, selector, node, pin, *, view=None, room=None):
+def for_native(ledger, store, selector, node, pin, *, view=None, room=None, attempt_id=None):
     """(view, record) for one native attempt: `view` goes in the prompt (None when nothing is delivered), `record` in the receipt.
     `view` (argument) is the files the worker sees; `room` the characters the prompt cap leaves for the knowledge key. KnowledgeOverflow
     propagates (the caller stops before the model call); any other failure of this layer is recorded and the node runs on its own inputs."""
@@ -1184,7 +1200,8 @@ def for_native(ledger, store, selector, node, pin, *, view=None, room=None):
     try:
         cons = consumer(ledger, selector, node=node, pin=pin)
         requested = previous_requests(ledger, store, selector, node.get('continues'))
-        pkg = package(ledger, cons, cap_chars=cap, requested=requested, view=view)
+        judged = {}
+        pkg = package(ledger, cons, cap_chars=cap, requested=requested, view=view, judged=judged)
     except KnowledgeOverflow:
         raise
     except KnowledgeNoRoom as error:               # the prompt is full without knowledge: run on the inputs, say so in the receipt
@@ -1201,7 +1218,20 @@ def for_native(ledger, store, selector, node, pin, *, view=None, room=None):
                   problems=pkg['problems'], revision=pkg['revision'], requested=[e['id'] for e in pkg['requested']],
                   requests_refused=pkg['requests_refused'], cost=pkg['cost'], **({'wiki': pkg['wiki']} if pkg.get('wiki') else {}))
     if pkg['cost'].get('problems_not_in_the_package'): record['problems'] = pkg['cost']['problems_not_in_the_package']
-    if not record['delivered']:
+    # 2.4-B: at a safe point (a continuation, a resumed generation) the package says what changed since the previous attempt of the node
+    # received its package: ids and reasons only (a withdrawn entry is only named there). `_delivery` is the dependency form of what is
+    # delivered, for the delivery record; the caller takes it out before anything is sealed.
+    delta = None
+    try:
+        from . import working_context
+        delta = working_context.safe_point_delta(ledger, selector, node, attempt_id, judged, record['delivered'])
+        record['_delivery'] = {'entries': working_context.delivery_entries(judged, record['delivered'])}
+    except Exception as error:                     # the knowledge layer never takes the node down; the publish gate rechecks anyway
+        record['delta_error'] = f'{type(error).__name__}: {str(error)[:300]}'
+    if delta:
+        prompt['delta'] = delta
+        record['delta'] = delta
+    if not record['delivered'] and not delta:
         return None, record
     text = canonical(prompt)
     record.update(package=store.blob(text.encode('utf-8')), chars=len(text))
@@ -1526,6 +1556,24 @@ GONE = ('withdrawn', 'archived', 'superseded', 'source_withdrawn')
 
 
 LIFECYCLE_REASONS = ('contested', 'contradicted', 'superseded by')
+
+
+def delta(ledger, store, delivered_row, view=None, memo=None):
+    """2.4-B: a `knowledge.delivered` record judged again now (v2/working_context.delta)."""
+    from . import working_context
+    return working_context.delta(ledger, store, delivered_row, view, memo)
+
+
+def affected_consumers(ledger, scope, changed_ids):
+    """2.4-B: the open consumers of changed knowledge ids (v2/working_context.affected_consumers)."""
+    from . import working_context
+    return working_context.affected_consumers(ledger, scope, changed_ids)
+
+
+def publish_gate(ledger, store, selector, nid, attempt_id):
+    """2.4-B: recheck a candidate's delivered knowledge and read sources before it is published or verified (v2/working_context)."""
+    from . import working_context
+    return working_context.publish_gate(ledger, store, selector, nid, attempt_id)
 
 
 def for_root(ledger, plan, *, memo=None, revision=None):
