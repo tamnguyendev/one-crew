@@ -4,7 +4,7 @@ Người viết: Claude (đầu mối 2.4), 01/11/2026, theo chỉ thị ngườ
 
 **Tóm tắt (quyết định trước):**
 - Cả năm mốc đã có code và test trên một cây (gộp `bde505b`; snapshot cuối `61862e6`, version `2.4.0.dev2`); mỗi mốc có review độc lập, ca review được viết thành test đỏ trước khi sửa.
-- Gói cuối gồm cả năm mốc: `D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev2-beta` (wheel SHA256 `383df81d…`); kiểm từ gói 25/25 bước; script thử `DAT`/0 (bộ kiểm 25/25, task đầu tiên 25/25, luồng alpha 5/5). Gate 2.2: <!-- v24:gate -->.
+- Gói cuối gồm cả năm mốc: `D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev2-beta` (wheel SHA256 `383df81d…`); kiểm từ gói 25/25 bước; script thử `DAT`/0 (bộ kiểm 25/25, task đầu tiên 25/25, luồng alpha 5/5). Gate 2.2 trên `61862e6`: 286/286 check thực thi đạt; `refused` chỉ vì 23 khoảng trống nghiệm thu, trùng danh sách beta 2.3 (§4).
 - Hồi quy tích hợp trên `bde505b`: 170/170 test 2.4; 448 test của module 2.2/2.3 bị ảnh hưởng đạt, 1 skip.
 - Việc của chủ sở hữu: cho Codex review gói cuối; quyết định phát hành; cho thử với model thật nếu muốn; nghiệm thu. Lượt này không push, không tag, không nâng runtime đang dùng.
 
@@ -94,7 +94,7 @@ $venv = "D:\OneCrewRuns\v24 thu tay 2.4.0.dev2\venv"; & $py -m venv $venv; & "$v
 
 **Từ `bde505b` tới snapshot cuối `61862e6`** chỉ đổi `tests/test_wf_metered_verifier.py` và `wfkit/u1/U1-20261101-V24-DEADLINE-1.json` (`7767982`), dòng version trong `pyproject.toml` (`61862e6`), tài liệu và công cụ gói (`a039d1f`, `d9d3075`) (`git diff --stat bde505b 61862e6`). Kết quả tích hợp trên `bde505b` dùng cho code của `61862e6` theo đúng điều kiện này; gate dưới đây chạy trên chính `61862e6`.
 
-**Gate snapshot 2.2** (bắt đầu 13:46:05 trên `61862e6`, log `gate-snapshot-61862e6`): <!-- v24:gate -->
+**Gate snapshot 2.2** (bắt đầu 13:46:05 trên `61862e6`, log `gate-snapshot-61862e6`): 286/286 check thực thi đạt, `failed []` (2.097 test unittest trong 217 lượt module, 0 fail; gate đếm exit code nên không tách skip/expected failure); quyết định `refused` chỉ vì 23 khoảng trống nghiệm thu/phát hành (13 `acceptance-partial`, 10 `acceptance-blocked`; loại `release-evidence`/`acceptance-audit`/`external-pilot`), danh sách trùng hẳn với gate beta 2.3 dev10 `fb3333b` run 2 (so bằng release/testcase/kind): đòi chủ sở hữu chạy verb nghiệm thu, biên nhận phát hành thật và pilot ngoài; kit-guard `ok` với hai U1 2.4; chạy 13:46:05–16:39:35 (2 h 53, một mình); wheel dựng lại trong gate `304615a7…` khác wheel gói `383df81d…` vì builder không tái lập byte (đã biết từ 2.2), cùng code `61862e6`; hồ sơ `D:\OneCrewRuns\v24\gates-tmp\wf-snapshot-gate-20261101-61862e6\gate\decision.json`, log `gate-snapshot-61862e6`. Trong lúc gate chạy, sổ hook thật đổi lần hai lúc 14:08:57 (SHA256 `23ec9033…` → `8ecf0fda…`, thêm một dòng bản sao `d:\onecrewruns\copies\signsdk-dev10-thu-20261101` → `D:\OneCrewRuns\states\signsdk-dev10-thu-20261101`): là phiên khác thử dev10 trên bản sao, không phải lượt 2.4 (log gate không chạm registry, đường dẫn là bản sao dev10); không khôi phục.
 
 **U1 test hạn root:** trên `bde505b` dưới tải, test cũ hỏng 4/4 (`D:\OneCrewRuns\v24\probe-mv\bde505b\probe-mv.json`); sau U1-DEADLINE-1: 2/2 (`deadline-green1-dirty`, `-green2-dirty`) và cả module 4/4 (`deadline-module-dirty`).
 

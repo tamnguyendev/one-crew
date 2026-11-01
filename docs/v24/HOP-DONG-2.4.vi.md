@@ -151,7 +151,7 @@ Giờ lấy từ commit (`git log --format="%h %ci"`), lúc tạo nhánh (`git r
 | T24-PKG | Bộ dựng và kiểm gói 2.4; gói thử S1 và S2 | T24-S1 (S2 cho V20–V22) | `wf-v24-pkg` / `claude/onecrew-2.4-pkg` (tạo 09:06 từ `1c81f5d`) | không ghi | `1cc0940` 09:16; gói S1 09:16, kiểm 09:17–09:31 (19/19), script thử 09:32–09:44; `281747a` 09:32; `0c94f9a` 12:13; gói S2 12:13, kiểm 12:13–12:18 (22/22) |
 | T24-U1-DL | U1 cho test hạn root | T24-INT | `wf-v24` | không ghi | probe đỏ 12:40–12:42; xanh 12:45–12:47; `7767982` 12:47 |
 | T24-INT | Gộp, hồi quy tích hợp | mọi task trên | `wf-v24` | không ghi | `ba42e22`, `65ef023` 11:01 (72 OK, 11:01–11:04); `bde505b` 12:40; hai lượt song song trên `bde505b`: 2.4 12:41–13:20 (170/170), module ảnh hưởng 12:41–13:34 (448, 1 skip) |
-| T24-FINAL | Gói cuối, gate 2.2 một lần, hồ sơ bàn giao | T24-INT | `wf-v24-pkg` (gộp vào `claude/onecrew-2.4` bởi người điều phối) | không ghi | bước V23–V25 `a039d1f` 13:02; sửa giới hạn và `ships_paging` `d9d3075` 13:20 (gộp `d5f0815`); snapshot `61862e6` (`2.4.0.dev2`) 13:34; dựng, kiểm 25/25 và script thử `DAT`/0 13:34–13:45; gate 2.2 bắt đầu 13:46:05 trên `61862e6`, kết quả ghi ở BAO-CAO-2.4 §4 (đang chạy lúc ghi) |
+| T24-FINAL | Gói cuối, gate 2.2 một lần, hồ sơ bàn giao | T24-INT | `wf-v24-pkg` (gộp vào `claude/onecrew-2.4` bởi người điều phối) | không ghi | bước V23–V25 `a039d1f` 13:02; sửa giới hạn và `ships_paging` `d9d3075` 13:20 (gộp `d5f0815`); snapshot `61862e6` (`2.4.0.dev2`) 13:34; dựng, kiểm 25/25 và script thử `DAT`/0 13:34–13:45; gate 2.2 13:46:05–16:39:35 trên `61862e6`: 286/286 check thực thi, `refused` chỉ vì 23 khoảng trống nghiệm thu trùng dev10 (BAO-CAO-2.4 §4) |
 
 ## 7. Nhật ký
 
@@ -189,7 +189,8 @@ Giờ lấy từ commit (`git log --format="%h %ci"`), lúc tạo nhánh (`git r
 | 13:20 | Giới hạn S1 viết lại theo code hiện hành; `ships_paging` đọc từ `py-modules`; README nói rõ gói `pkg-trial` là bản thử công cụ | `d9d3075`, gộp `d5f0815` |
 | 13:34 | Snapshot cuối `61862e6`: version `2.4.0.dev2` (chỉ đổi version và CHANGELOG so với `d5f0815`) | `61862e6` |
 | 13:34–13:45 | Gói `D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev2-beta` (wheel `383df81d…`, `SHA256SUMS` 62/62); kiểm từ gói 25/25 (13:34–13:39, máy rảnh); script thử `DAT`/0 (13:39–13:45); chạy lại cùng thư mục → mã 2 | `pkg-build-2.4.0.dev2`, `pkg-verify-2.4.0.dev2`, `pkg-wrapper-2.4.0.dev2`, `pkg-wrapper-2.4.0.dev2-reuse` |
-| từ 13:46:05 | Gate snapshot 2.2 trên `61862e6`, chạy một mình; kết quả chưa có lúc ghi | `gate-snapshot-61862e6` |
+| 13:46:05–16:39:35 | Gate snapshot 2.2 trên `61862e6`, chạy một mình: 286/286 check thực thi đạt, 2.097 test, `refused` chỉ vì 23 khoảng trống nghiệm thu (trùng dev10); kit-guard `ok` | `gate-snapshot-61862e6`, `gates-tmp\wf-snapshot-gate-20261101-61862e6\gate\decision.json` |
+| 14:08:57 | Sổ hook thật đổi lần hai bởi phiên khác (thêm bản sao `signsdk-dev10-thu-20261101`); không phải lượt 2.4, không khôi phục | §1 |
 
 ## 8. Quyết định vượt quyền và điều cần Codex hay chủ sở hữu
 
