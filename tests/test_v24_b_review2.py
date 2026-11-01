@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from onecrew.ledger import Ledger, LedgerError
 from onecrew.snapshots import Snapshots
-from onecrew.v2 import knowledge
+from onecrew.v2 import executors, knowledge
 from tests.test_v24_b_context import BFixture, auto, wc
 from tests.test_wf_engine import EngineFixture, node
 
@@ -195,6 +195,65 @@ class OpaqueReceiptTests(EngineFixture):
         self.assertEqual(walked, {'A': view['nodes']['A']['attempt'], 'B': view['nodes']['B']['attempt']})
 
 
+class MisattributedReceiptTests(Chains):
+    """Independent review of F3, P1-1 (D:/OneCrewRuns/v24/codex-r1/review-b/review-f3.md, probes/probe_misattributed.py): a receipt that
+    names another node's attempt must not decide which attempt built the input."""
+
+    def wrapped(self, receipt_for_b):
+        real, case = self.adapter, self
+        class Other:                                   # another executor: the native run, then its own receipt for B
+            def __call__(self, ledger, control, task, item, attempt):
+                produced = (executors.Dispatcher().send(real, 'start', ledger, control, task, item, attempt)
+                            if hasattr(real, 'declaration') else real(ledger, control, task, item, attempt))
+                if item['id'] != 'B': return produced
+                return {'artifact': produced['artifact'], 'receipt': receipt_for_b(ledger, attempt, produced)}
+        other = Other(); other.control = real.control
+        return other
+
+    def run_with(self, executor, items):
+        self.values += [auto] * len(items)
+        for _ in items:
+            r = self.step(executor)
+            self.assertEqual(r['state'], 'produced', r)
+            if r['node'] != 'C': self.check(r['node'])
+
+    def test_f3_m_a_receipt_naming_another_nodes_attempt_is_not_published(self):
+        rule = self.fact('Keep a.txt to one line', must=True)
+        items = self.chain(['X'], head=('b.txt',)) + self.chain(['A', 'B', 'C'])
+        self.plan(*items)
+        claim = lambda ledger, attempt, produced: Snapshots(ledger.state_root).blob(
+            json.dumps({'kind': 'other-executor', 'attempt': self.attempts()['X']}).encode())
+        executor = self.wrapped(claim)
+        self.values += [auto] * len(items)
+        for _ in range(3):
+            r = self.step(executor)
+            self.assertEqual(r['state'], 'produced', r)
+            self.check(r['node'])
+        before = len(self.calls)
+        held = self.step(executor)                                                  # C is held before dispatch, without a model call
+        self.assertEqual((held.get('node'), held['state'], held.get('classification')), ('C', 'held', 'input_changed'), held)
+        self.assertEqual(len(self.calls), before)
+        why = ' '.join(x for u in held['knowledge_changed']['critical'] for x in [u['reason']] + u.get('unchecked', []))
+        self.assertIn(self.attempts()['X'], why)                                   # both ids are named
+        self.assertIn(self.attempts()['B'], why)
+        self.withdraw(rule)
+        self.assertEqual(self.actions(['X', 'A', 'B']), {'X': 'publish', 'A': 'recheck', 'B': 'input_changed'})
+        bound = {'B': {'receipt': self.engine.state(self.ledger, 'P1')['nodes']['B']['receipt'], 'generation': 0}}
+        self.assertEqual(wc().decide(self.ledger, self.store, 'P1', 'C', None, inputs=bound)['action'], 'input_changed')
+        with self.assertRaises(LedgerError):
+            self.check('C')
+        self.assertNotIn('C', [p['node'] for k, p in self.events() if k == 'node.verification'])
+        self.assertNotEqual(self.engine.state(self.ledger, 'P1')['nodes']['C'].get('state'), 'verified')
+
+    def test_f3_n_control_the_native_receipt_through_the_same_executor_is_unchanged(self):
+        items = self.chain(['X'], head=('b.txt',)) + self.chain(['A', 'B', 'C'])
+        self.plan(*items)
+        self.run_with(self.wrapped(lambda ledger, attempt, produced: produced['receipt']), items)
+        self.assertEqual(self.actions(['X', 'A', 'B', 'C']), {n: 'publish' for n in 'XABC'})
+        self.check('C')
+        self.assertIn('C', [p['node'] for k, p in self.events() if k == 'node.verification' and p['result'] == 'pass'])
+
+
 # ---- the walk alone (ledger reads patched, as Codex's depth_probe) ------------------------------------------------------------------
 
 def walk(parents, critical=(), missing_start=(), opaque=(), memo=None):
@@ -210,7 +269,8 @@ def walk(parents, critical=(), missing_start=(), opaque=(), memo=None):
          patch.object(w.namespaces, 'parse', return_value=('P', None)), patch.object(w, '_row', return_value=None), \
          patch.object(w, '_started', side_effect=started), \
          patch.object(w, '_receipt', side_effect=lambda s, k: None if k in opaque else {'attempt': k} if k else None), \
-         patch.object(w, '_attempt_of', return_value=None, create=True), patch.object(w, '_own', side_effect=own):
+         patch.object(w, '_attempt_of', side_effect=lambda conn, root, producer, binding, key: None if key in opaque else key,
+                      create=True), patch.object(w, '_own', side_effect=own):
         return {n: w.decide(ledger, store, 'P', n, n, receipt_key=n, memo=memo) for n in parents}
 
 
