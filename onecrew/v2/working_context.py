@@ -17,9 +17,10 @@ and who must recheck. No new store: the ledger (one class-A kind) and the packag
       - upstream only: an input artifact was built, directly or through any chain of inputs, by an attempt whose own record changed so
         -> `input_changed`: the dependent is held at once, without a model call (re-running it on the same input cannot help; re-opening
         the producer is the existing repair path). The walk over the inputs is complete (Codex review F3): every producer attempt
-        reachable through node.started inputs is judged once (memo), with an explicit stack (no depth limit), and an input whose check
-        cannot be completed (no or unreadable receipt, a producing attempt or start record not in the ledger, a cycle, more than
-        MAX_WALK attempts) is also `input_changed`, naming what could not be checked - never a default publish;
+        reachable through node.started inputs is judged once (memo), with an explicit stack (no depth limit), the producing attempt
+        always placed by the ledger, and an input whose check cannot be completed (no or unreadable receipt, a producing attempt or
+        start record not in the ledger, a receipt naming another attempt, a cycle, more than MAX_WALK attempts) is also
+        `input_changed`, naming what could not be checked - never a default publish;
       - a lead that changed is only noted.
 Nothing here proves that a model understood or forgot knowledge: records and deltas prove delivery only.
 """
@@ -258,22 +259,27 @@ def _attempt_of(conn, root_id, producer, binding, key):
 
 
 def _edge(ledger, store, root_id, consumer, producer, binding):
-    """(producer, attempt, receipt, problem) of one input of `consumer`: the attempt that built the bound artifact (named by its receipt,
-    or by the ledger for an opaque one), or attempt None and a problem naming what cannot be checked."""
+    """(producer, attempt, receipt, problem) of one input of `consumer`: the attempt that built the bound artifact, always placed by the
+    ledger (the node.produced of THAT producer with that receipt, in the bound generation; review F3 P1-1); an attempt the receipt names
+    must be that one. Otherwise attempt None and a problem naming what cannot be checked."""
     key = binding.get('receipt') if isinstance(binding, dict) else None
     if not isinstance(key, str) or not key:
         return producer, None, None, f'input {producer} of {consumer} names no receipt'
     body = _receipt(store, key)
-    if isinstance(body, dict) and isinstance(body.get('attempt'), str) and body['attempt']:
-        return producer, body['attempt'], key, None
-    try:
-        store.read_blob(key)
-    except (LedgerError, OSError, ValueError, TypeError) as error:
-        return producer, None, key, f'the receipt of input {producer} of {consumer} cannot be read ({str(error)[:160]})'
+    if body is None:
+        try:
+            store.read_blob(key)                       # an opaque receipt of another executor reads; a missing or damaged one does not
+        except (LedgerError, OSError, ValueError, TypeError) as error:
+            return producer, None, key, f'the receipt of input {producer} of {consumer} cannot be read ({str(error)[:160]})'
     with ledger.transaction() as conn:
         attempt = _attempt_of(conn, root_id, producer, binding, key) if conn else None
-    if attempt: return producer, attempt, key, None
-    return producer, None, key, f'the attempt that produced input {producer} of {consumer} is not in the ledger'
+    if not attempt:
+        return producer, None, key, f'the attempt that produced input {producer} of {consumer} is not in the ledger'
+    claimed = body.get('attempt') if isinstance(body, dict) else None
+    if claimed is not None and claimed != attempt:
+        return producer, None, key, (f'the receipt of input {producer} of {consumer} names attempt {str(claimed)[:80]}, but the ledger '
+                                     f'places it on attempt {attempt} of {producer}')
+    return producer, attempt, key, None
 
 
 def _facts(ledger, store, root_id, plan, nid, attempt_id, receipt_key, memo):
@@ -283,8 +289,8 @@ def _facts(ledger, store, root_id, plan, nid, attempt_id, receipt_key, memo):
         started = _started(conn, root_id, attempt_id) if conn else None
     critical, notes = _own(ledger, store, None, plan, nid, attempt_id, row, started, _receipt(store, receipt_key), memo)
     inputs = (started or {}).get('inputs') or {}
-    if started is None or not isinstance(inputs, dict):
-        what = 'the start record' if started is None else 'the inputs'
+    if started is None or not isinstance(inputs, dict) or started.get('node', nid) != nid:
+        what = 'the start record' if started is None or started.get('node', nid) != nid else 'the inputs'
         edges = [(nid, attempt_id, None, f'{what} of attempt {attempt_id} of {nid} is not in the ledger')]
     else:
         edges = [_edge(ledger, store, root_id, nid, producer, binding) for producer, binding in sorted(inputs.items())]
@@ -392,7 +398,8 @@ def _decisions(ledger, store, selector, memo):
             decision = decide(ledger, store, selector, item['id'], attempt, receipt_key=record.get('receipt'), memo=memo)
         else:
             # what it would consume now: only producers whose result already satisfies the edge (a producer still to come is not an input yet)
-            inputs = {e['node']: {'receipt': view['nodes'][e['node']].get('receipt')} for e in item['depends']
+            inputs = {e['node']: {'receipt': view['nodes'][e['node']].get('receipt'), 'generation': view['nodes'][e['node']]['generation']}
+                      for e in item['depends']
                       if view['nodes'][e['node']].get('receipt') and engine._rank(view['nodes'][e['node']]) >= engine.STATES[e['requires']]}
             decision = decide(ledger, store, selector, item['id'], None, inputs=inputs, memo=memo)
         out.append((item, record, attempt, decision))
