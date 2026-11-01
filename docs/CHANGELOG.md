@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.4.0.dev1 (đang làm) — mốc 2.4-C: bước 0 đủ để làm, chọn cách chạy node
+
+**Chưa phải bản giao; chưa chạy gate 2.2.** Hướng dẫn: `docs/v24/HUONG-DAN-BUOC-0.vi.md`.
+- Đề xuất bước 0 (W47) có ba trường tùy chọn `preserve`, `investigation`, `estimate`; dùng một trường là bật luật thẻ (điều giữ nguyên khi sửa/xoá, ước lượng có căn cứ hoặc "chưa đủ dữ liệu", điều tra có đường dẫn rõ và trần, unknown mà việc duyệt chờ). Đề xuất không dùng thì kiểm như cũ. `plan step0 show <plan> [--json]` xem thẻ, chỉ đọc.
+- Khảo sát bước 0 bị từ chối khi trần điều tra đã hết, và chỉ đọc trong đường dẫn điều tra; unknown còn mở thì vẫn giữ việc duyệt.
+- Capability tùy chọn `execution-mode`: engine chọn và ghi `run_now` / `overlap` / `continue_worker` / `tools` / `wait` kèm lý do (Q2, `node.started`, sự kiện mới `workflow.mode` lớp B); đọc↔ghi cùng file và nhãn `resources` chung không được chạy song song; chi phí bàn giao chưa đo là `unknown`, không phải 0; kiểm không cần model chạy cạnh worker không tạo task con. Không adapter nào giữ phiên model (`session.reuse: false`). Root không khai capability chạy như 2.3.
+- `engine measure <plan>`: số đo từ sổ (chỉ đọc), thiếu quan sát là `unknown`.
+
 ## v2.3.0.dev10 (31/10/2026) — beta 2.3 sau review Codex trên dev9
 
 **Bản beta (prerelease), chưa nghiệm thu, chưa được Codex review lại; không phải bản ổn định `2.3.0`.** Kết quả, giới hạn và lệnh thử: `docs/v23/BAO-CAO-2.3-DEV10-2026-10-31.vi.md`.
