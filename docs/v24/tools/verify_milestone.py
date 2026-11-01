@@ -91,9 +91,11 @@ the installed venv with python -I, a cwd outside the checkout, an isolated env a
   V27 S2 identity Codex review round 1, S2 F1, from the installed wheel: after an install refused for another reason left the new venv, one file of it
                   (onecrew/v2/diagnostics.py) gets bytes appended with its RECORD kept: the next `support install` is refused (exit 2, 'not the bound wheel',
                   naming that file), the hook settings keep their bytes, nothing is deleted; bytes restored -> the same venv is reused and switched; the
-                  owner rollback returns the hooks. A build that trusts the RECORD accepts the tampered venv: V27 FAILS on it
-  V28 S2 window   Codex review round 1, S2 F2, from the installed wheel: after a switched install `rollback` runs with ONECREW_SUPPORT_CRASH=rollback_after_drill
-                  (stops after the drill, hooks stay on the new runtime), one event is written into the live ledger, `rollback` runs again: rolled_back only
+                  owner rollback returns the hooks; the same change in the switched venv is refused by `support recheck` and a second install, and the
+                  recheck passes again with the bytes restored. A build that trusts the RECORD accepts the tampered venv: V27 FAILS on it
+  V28 S2 window   Codex review round 1, S2 F2, from the installed wheel: after a switched install `support rollback` runs with ONECREW_SUPPORT_CRASH=rollback_after_drill
+                  (stops after the drill, hooks stay on the new runtime), one event is written into the live ledger, `support rollback` runs again in a new
+                  process (in-process if the build refuses on the dead holder's claim): rolled_back only
                   after drilling data that holds the write (reader_pair names it, fences drilled == at switch). A build without that crash point FAILS V28
   V3 also checks that the modules of the included milestones (support, diagnostics, support_cli, support_spool for S1) load from the venv.
 Exit 0 when every step passes, 1 otherwise. `verify_milestone.py <package dir> <work dir> --only STEP_ID` runs V1-V3 (identity, install, origins) and that one
@@ -1180,8 +1182,8 @@ def _support_installs(state):
         conn.close()
 
 
-def _feedback(ctx, s, text, plan_name):
-    code, made, out = _s2_cli(ctx, s, 'report', '--text', text, '--plan', 'P1', '--json')
+def _feedback(ctx, s, text, plan_name, attempt=None):
+    code, made, out = _s2_cli(ctx, s, 'report', '--text', text, '--plan', 'P1', *(['--attempt', attempt] if attempt else []), '--json')
     ident = (made or {}).get('id')
     if code != 0 or not FEEDBACK_ID.match(str(ident)): raise RuntimeError('report: ' + out[-300:])
     for argv in (('classify', ident, '--class', 'onecrew_runtime', '--basis', 'the node C receipt'),
@@ -1308,7 +1310,8 @@ def _s2_feedback_ready(ctx, s, text):
             code, _, out = _s2_cli(ctx, s, 'target', 'add', '--id', 'lab', '--venv', ctx.scripts.parent)
             if code != 0: raise RuntimeError('target add: ' + out[-300:])
         s['target_ready'] = True
-    fb = _feedback(ctx, s, text, 'FIX1')
+    started = _v26_events(s['state'], 'C', ('node.started',))       # after V22's recheck node C no longer has a failing verification to derive the report's refs from: name its attempt
+    fb = _feedback(ctx, s, text, 'FIX1', attempt=started[0][1].get('attempt') if started else None)
     code, _, out = _s2_cli(ctx, s, 'artifact', fb, '--wheel', s['good'], '--manifest', s['manifests']['good'])
     if code != 0: raise RuntimeError('artifact: ' + out[-300:])
     return fb
@@ -1323,7 +1326,9 @@ def v27_runtime_identity(ctx):
     reason (an unreadable hook registry) leaves the product's new venv in place; one file of it (onecrew/v2/diagnostics.py) gets bytes appended with
     the installed RECORD kept. The next install must be REFUSED (exit 2, 'not the bound wheel', naming onecrew/v2/diagnostics.py), the hook settings
     keep their bytes, nothing in the venv is deleted; with the bytes restored the same venv is reused and the hooks are switched (control). The owner
-    rollback then returns the hooks to the target. A build that judges the venv by its RECORD accepts the tampered venv: this step then FAILS."""
+    rollback then returns the hooks to the target. The same change in the SWITCHED venv is refused by `support recheck` and by a second install
+    (exit 2, 'bound wheel', diagnostics.py), and the recheck passes again once the bytes are restored. A build that judges the venv by its RECORD accepts
+    the tampered venv: this step then FAILS."""
     s = _s2(ctx)
     problems, facts = [], {}
     fb = _s2_feedback_ready(ctx, s, 'S2 runtime identity: the venv of an install is judged by its files, not by its RECORD')
@@ -1366,6 +1371,28 @@ def v27_runtime_identity(ctx):
     if not (code == 0 and again.get('result') == 'switched' and Path(again.get('new_venv', '')) == new_venv
             and facts['restored_install']['hooks_now'] == [str((new_venv / 'Scripts' / 'onecrew.exe').resolve())]):
         problems.append('control: with the bytes restored the same venv was not reused and switched: ' + str(facts['restored_install']) + ' ' + out[-300:])
+    # the same file of the SWITCHED venv changed with its RECORD kept: `support recheck` and a second `support install` both refuse, the hooks keep their bytes
+    if facts['restored_install']['result'] == 'switched':
+        tampered.write_bytes(original + b'\n# isolated corruption probe\n')
+        settings_switched = sha256(s['settings'])
+        for verb, argv in (('recheck', ('recheck', fb)), ('install', ('install', fb, '--target', 'lab'))):
+            code, refused, out = _s2_cli(ctx, s, *argv, ONECREW_ACTOR='codex')
+            facts['switched_tampered_' + verb] = {'exit': code, 'text': out.strip()[:300]}
+            if not (code == 2 and 'bound wheel' in out and 'onecrew/v2/diagnostics.py' in out):
+                problems.append(f'support {verb} on the switched venv with a changed file was not refused with the reason (exit 2, "bound wheel", onecrew/v2/diagnostics.py): '
+                                + str(facts['switched_tampered_' + verb]))
+        if sha256(s['settings']) != settings_switched: problems.append('the hook settings changed while the switched venv was tampered')
+        tampered.write_bytes(original)
+        code, rechecked, out = _s2_cli(ctx, s, 'recheck', fb, ONECREW_ACTOR='codex')
+        facts['restored_recheck'] = {'exit': code, 'environment': (rechecked or {}).get('environment'), 'result': (rechecked or {}).get('result')}
+        # `pass` when this is the first recheck of the feedback's node; after V22 the node is already verified, so the engine answers inconclusive ("Only the
+        # current produced node can be verified") - either way the recheck RAN at the target, which it refused to do while the file was changed
+        if not (code == 0 and (rechecked or {}).get('environment') == 'target' and (rechecked or {}).get('result') in ('pass', 'inconclusive')):
+            problems.append('control: with the bytes restored the recheck at the target was refused or failed: ' + str(facts['restored_recheck']) + ' ' + out[-300:])
+        code, accepted, out = _s2_cli(ctx, s, 'install', fb, '--target', 'lab', ONECREW_ACTOR='codex')
+        facts['restored_second_install'] = {'exit': code, 'result': (accepted or {}).get('result')}
+        if not (code == 0 and (accepted or {}).get('result') == 'switched'):
+            problems.append('control: with the bytes restored a second install did not accept the switched venv: ' + str(facts['restored_second_install']) + ' ' + out[-300:])
     code, back, out = _s2_cli(ctx, s, 'rollback', fb)
     facts['rollback'] = {'exit': code, 'result': (back or {}).get('result'), 'hooks_now': _hook_programs(s['settings'])}
     if not (code == 0 and (back or {}).get('result') == 'rolled_back' and facts['rollback']['hooks_now'] == [s['target_exe']]):
@@ -1373,48 +1400,43 @@ def v27_runtime_identity(ctx):
     return not problems, dict(facts, problems=problems, feedback=fb)
 
 
-V28_ROLLBACK = r'''
+V28_HELPER = r'''
 import json, os, sys
 from pathlib import Path
 from onecrew.ledger import Ledger
 from onecrew.v2 import hotfix, plan as plans
 a = json.loads(sys.argv[1])
 ledger = Ledger(Path(a['customer']), Path(a['state']))
-settings = Path(a['settings'])
-def commands():
-    data = json.loads(settings.read_text(encoding='utf-8'))
-    return sorted({h['command'] for entries in data['hooks'].values() for e in entries for h in e['hooks']})
 out = {}
-os.environ['ONECREW_SUPPORT_CRASH'] = 'rollback_after_drill'
-try:
-    done = hotfix.rollback(ledger, a['fb'])
-    out['first'] = {'crashed': False, 'result': done.get('result')}
-except hotfix.Crash as error:
-    out['first'] = {'crashed': True, 'text': str(error)}
-os.environ.pop('ONECREW_SUPPORT_CRASH', None)
-out['hooks_after_first'] = commands()
-if out['first']['crashed']:
+if a['mode'] == 'write':                 # one benign event on the customer's live ledger, between the crash and the retry
     with ledger.transaction(write=True) as conn:
         task = plans.derive(ledger, conn, 'P1')['task_id']
         plans.emit(ledger, conn, task, 'notice.exception', {'version': 1, 'category': 'deadline', 'cause': 'fault injection',
                                                             'reason': 'written between the crash and the retry', 'evidence': ['fixture'], 'plan': 'P1'})
-    again = hotfix.rollback(ledger, a['fb'])
-    pair = json.dumps(again.get('reader_pair'), default=str)
-    fences = again.get('fences') or {}
-    out['second'] = {'result': again.get('result'), 'problems': again.get('problems'), 'write_drilled': 'notice.exception' in pair,
-                     'fences_agree': bool(fences) and fences.get('drilled') == fences.get('at_switch'),
-                     'fence_now_is_at_switch': (fences.get('at_switch') or {}).get(str(ledger.state_root.resolve())) == hotfix.fence(ledger.state_root)}
-    out['hooks_after_second'] = commands()
+    out['written'] = True
+elif a['mode'] == 'rollback':            # the fallback when the CLI rerun is refused by the claim of the crashed process: the same call, in this process
+    os.environ.pop('ONECREW_SUPPORT_CRASH', None)
+    out['record'] = json.loads(json.dumps(hotfix.rollback(ledger, a['fb']), default=str))
+out['fence'] = hotfix.fence(ledger.state_root)
 print('@@' + json.dumps(out, default=str))
 '''
 
 
+def _v28_helper(ctx, s, mode, fb):
+    done = run([ctx.py, '-I', '-c', V28_HELPER, json.dumps({'customer': str(s['customer']), 'state': str(s['state']), 'fb': fb, 'mode': mode})], cwd=s['folder'],
+               env=env_for(s['folder'], ctx.scripts, TEMP=str(s['folder'] / 'temp'), TMP=str(s['folder'] / 'temp')))
+    seen = _first_json(done.stdout.split(b'@@', 1)[1]) if b'@@' in done.stdout else None
+    if seen is None: raise RuntimeError(f'helper {mode}: ' + (done.stdout + done.stderr).decode('utf-8', 'replace')[-400:])
+    return seen
+
+
 def v28_switch_window(ctx):
     """2.4-S2, Codex review round 1, finding F2, from the INSTALLED wheel (tests/test_v24_s2_review2.py, test_f2_crash_after_the_drill_then_a_write_then_retry):
-    after a switched install, `rollback` is run once with the product's fixture crash point ONECREW_SUPPORT_CRASH=rollback_after_drill (the process stops
-    after the old runtime drilled the copy of the live ledger; the hooks stay on the new runtime), one event is written into the live ledger, then the
-    rollback runs again without the crash: it rolls back only after drilling data that HOLDS the write (reader_pair names notice.exception, fences drilled ==
-    at switch). A build with no such crash point (the rollback runs to the end at once, on a copy drilled before the write) FAILS this step."""
+    after a switched install, `support rollback` is run once with the product's fixture crash point ONECREW_SUPPORT_CRASH=rollback_after_drill (the process
+    stops after the old runtime drilled the copy of the live ledger; the hooks stay on the new runtime), one event is written into the live ledger, then
+    `support rollback` runs again in a NEW process without the crash (a dead holder's claim is taken over; if a build refuses on the claim the same call is made
+    in-process): it rolls back only after drilling data that HOLDS the write (reader_pair names notice.exception, fences drilled == at switch). A build with
+    no such crash point (the rollback runs to the end at once, on a copy drilled before the write) FAILS this step."""
     s = _s2(ctx)
     problems, facts = [], {}
     fb = _s2_feedback_ready(ctx, s, 'S2 switch window: a write between the drill and the switch must not become the undrilled baseline')
@@ -1423,25 +1445,35 @@ def v28_switch_window(ctx):
     new_exe = str((Path(made['new_venv']) / 'Scripts' / 'onecrew.exe').resolve()) if made.get('new_venv') else None
     if not (code == 0 and made.get('result') == 'switched' and _hook_programs(s['settings']) == [new_exe]):
         return False, {'problems': ['the install this step needs did not switch: ' + str(made.get('result')) + ' ' + out[-300:]]}
-    args = {'customer': str(s['customer']), 'state': str(s['state']), 'settings': str(s['settings']), 'fb': fb}
-    done = run([ctx.py, '-I', '-c', V28_ROLLBACK, json.dumps(args)], cwd=s['folder'],
-               env=env_for(s['folder'], ctx.scripts, TEMP=str(s['folder'] / 'temp'), TMP=str(s['folder'] / 'temp')))
-    seen = _first_json(done.stdout.split(b'@@', 1)[1]) if b'@@' in done.stdout else None
-    if seen is None: return False, {'problems': ['the rollback scenario did not finish: ' + (done.stdout + done.stderr).decode('utf-8', 'replace')[-500:]]}
-    facts.update(seen)
-    first = seen['first']
-    if not first['crashed']:
-        problems.append(f'this build has no crash point rollback_after_drill: the rollback ran to the end at once (result {first.get("result")!r}) on a copy drilled before '
-                        'any later write, so a write between the drill and the switch cannot be tested (Codex S2 F2)')
+    code, first, out = _s2_cli(ctx, s, 'rollback', fb, ONECREW_SUPPORT_CRASH='rollback_after_drill')
+    crashed = code != 0 and 'fixture crash at rollback_after_drill' in out
+    facts['first'] = {'exit': code, 'crashed': crashed, 'result': (first or {}).get('result'), 'tail': out.strip()[-200:]}
+    if not crashed:
+        problems.append(f'this build has no crash point rollback_after_drill: the rollback ran to the end at once (exit {code}, result {(first or {}).get("result")!r}) on a '
+                        'copy drilled before any later write, so a write between the drill and the switch cannot be tested (Codex S2 F2)')
     else:
-        if seen['hooks_after_first'] != [new_exe]: problems.append('the crash after the drill moved the hooks: ' + str(seen['hooks_after_first']))
-        second = seen['second']
+        facts['hooks_after_first'] = _hook_programs(s['settings'])
+        if facts['hooks_after_first'] != [new_exe]: problems.append('the crash after the drill moved the hooks: ' + str(facts['hooks_after_first']))
+        _v28_helper(ctx, s, 'write', fb)
+        code, again, out = _s2_cli(ctx, s, 'rollback', fb)
+        facts['second'] = {'form': 'cli', 'exit': code, 'result': (again or {}).get('result')}
+        if code != 0 and 'in progress' in out:       # the claim of the crashed process is still live in this build: the same call, in one process
+            facts['second_cli_refused'] = out.strip()[-300:]
+            again = _v28_helper(ctx, s, 'rollback', fb)['record']
+            facts['second'] = {'form': 'in-process', 'result': again.get('result')}
+        again = again or {}
+        pair, fences = json.dumps(again.get('reader_pair'), default=str), again.get('fences') or {}
+        now = _v28_helper(ctx, s, 'fence', fb)['fence']
+        facts['second'].update(write_drilled='notice.exception' in pair, fences_agree=bool(fences) and fences.get('drilled') == fences.get('at_switch'),
+                               fence_now_is_at_switch=(fences.get('at_switch') or {}).get(str((s['state']).resolve())) == now, problems=again.get('problems'))
+        second = facts['second']
         if second['result'] != 'rolled_back' or not second['write_drilled'] or not second['fences_agree'] or not second['fence_now_is_at_switch']:
             problems.append('the rerun did not roll back on data holding the write (rolled_back, reader_pair names notice.exception, fences drilled == at switch): ' + str(second))
-        if seen['hooks_after_second'] != [s['target_exe']]: problems.append('after the rerun the hooks are not back on the target: ' + str(seen['hooks_after_second']))
+        facts['hooks_after_second'] = _hook_programs(s['settings'])
+        if facts['hooks_after_second'] != [s['target_exe']]: problems.append('after the rerun the hooks are not back on the target: ' + str(facts['hooks_after_second']))
     code, status, _ = _s2_cli(ctx, s, 'status', fb, '--json')
     facts['status'] = {k: ((status or {}).get(k) or {}).get('value') for k in ('installed', 'rolled_back', 'still_blocked')}
-    if first['crashed'] and (facts['status']['installed'], facts['status']['rolled_back']) != (False, True): problems.append('support status after the rerun: ' + str(facts['status']))
+    if crashed and (facts['status']['installed'], facts['status']['rolled_back']) != (False, True): problems.append('support status after the rerun: ' + str(facts['status']))
     return not problems, dict(facts, problems=problems, feedback=fb)
 
 
