@@ -19,9 +19,16 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
     parser.add_argument('--state-root', type=Path)
     parser.add_argument('group', choices=['engine'])
     sub = parser.add_subparsers(dest='command', required=True)
-    for verb in ('state', 'ready', 'step', 'handoff'):
+    for verb in ('state', 'ready', 'handoff'):
         sub.add_parser(verb).add_argument('plan')
+    p = sub.add_parser('step'); p.add_argument('plan')
+    p.add_argument('--checks', action='store_true', help='2.4-C (root capability execution-mode): first run the checks of a produced node that need '
+                                                         'no model (command/adapter milestones) through the connected checker; no child task, no attempt.')
     p=sub.add_parser('batch');p.add_argument('plan');p.add_argument('--slots',type=int,choices=(1,2),default=2)
+    p.add_argument('--checks',action='store_true',help='2.4-C: model-free checks of produced nodes run beside the worker slots.')
+    p = sub.add_parser('measure', help='2.4-C: time to first useful action, admission/preparation/execution spans, waits, verification, rework '
+                                       'from the ledger (read-only; unknown stays unknown, overlapping attempts are joined by union).')
+    p.add_argument('plan')
     p=sub.add_parser('resume-paused');p.add_argument('plan');p.add_argument('node')
     p = sub.add_parser('revise'); p.add_argument('plan'); p.add_argument('--file', type=Path, required=True)
     for verb in ('verify', 'accept-node'):
@@ -35,18 +42,18 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
         if opts.command == 'step' and native_executor is _AUTO:
             from ..common_executor import NativeExecutor
             native_executor = NativeExecutor
-        if opts.command in ('verify', 'review-optional') and checker is _AUTO:
+        if (opts.command in ('verify', 'review-optional') or getattr(opts, 'checks', False)) and checker is _AUTO:
             from ..common_verification import CandidateChecker
             checker = CandidateChecker
         if opts.command == 'handoff' and handoff is _AUTO:
             from ..common_handoff import handoff as apply_candidate
             handoff = apply_candidate
         if ((opts.command == 'step' and native_executor is None)
-                or (opts.command in ('verify', 'review-optional') and checker is None)
+                or ((opts.command in ('verify', 'review-optional') or getattr(opts, 'checks', False)) and checker is None)
                 or (opts.command == 'handoff' and handoff is None)):
             raise LedgerError('This operation needs a connected native host adapter; the supplied host port is disabled.')
         project = opts.project.resolve()
-        ledger_class = ReadOnlyLedger if opts.command in ('state', 'ready') else Ledger
+        ledger_class = ReadOnlyLedger if opts.command in ('state', 'ready', 'measure') else Ledger
         ledger = ledger_class(project, state_root_for(project, opts.state_root))
         if opts.command in node_actions_cli.ACTIONS: result = node_actions_cli.execute(opts, ledger)
         elif opts.command == 'state': result = engine.state(ledger, opts.plan)
@@ -56,10 +63,14 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
             if not isinstance(body, dict) or set(body) - {'nodes', 'reason', 'evidence', 'expected_revision'}:
                 raise LedgerError('Internal revision file takes nodes, reason, evidence and optional expected_revision.')
             result = internal_plan.revise(ledger, opts.plan, **body)
-        elif opts.command == 'step': result = engine.step(ledger, opts.plan, native_executor(ledger))
+        elif opts.command == 'measure':
+            from . import execution_mode
+            result = execution_mode.measure(ledger, opts.plan)
+        elif opts.command == 'step':
+            result = engine.step(ledger, opts.plan, native_executor(ledger), **({'checker': checker(ledger, opts.plan)} if opts.checks else {}))
         elif opts.command == 'batch':
             from .managed_executor import ManagedExecutor
-            result=engine.run_batch(ledger,opts.plan,ManagedExecutor(ledger),slots=opts.slots)
+            result=engine.run_batch(ledger,opts.plan,ManagedExecutor(ledger),slots=opts.slots,**({'checker':checker(ledger,opts.plan)} if opts.checks else {}))
         elif opts.command == 'resume-paused':
             from .managed_executor import ManagedExecutor
             result=engine.release_paused(ledger,opts.plan,opts.node,ManagedExecutor(ledger,initialize=False))

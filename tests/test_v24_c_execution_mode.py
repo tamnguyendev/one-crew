@@ -425,6 +425,17 @@ class Measure(ModeFixture):
         self.assertTrue(all(isinstance(v, float) for v in spans))
         self.assertLessEqual(report['attempts_wall_seconds'], sum(spans) + 1e-6)   # union, never the sum of overlapping branches
         self.assertEqual(report['rework'], {'resumed': 0, 'verification_failed': 0, 'retained': 0})
+        import contextlib, io
+        from onecrew.v2 import engine_cli
+        out, kinds = io.StringIO(), self.kinds()
+        with contextlib.redirect_stdout(out):
+            code = engine_cli.main(['--project', str(self.root), '--state-root', str(self.ledger.state_root), 'engine', 'measure', 'P1'])
+        self.assertEqual(code, 0, out.getvalue())
+        shown = json.loads(out.getvalue())
+        self.assertEqual([a['attempt'] for a in shown['attempts']], [a['attempt'] for a in report['attempts']])
+        self.assertEqual(self.kinds(), kinds)                                 # read-only
+        (Path(self.temp.name) / 'measure-sample.json').write_text(out.getvalue(), encoding='utf-8')
+        self.sample = shown
 
 
 if __name__ == '__main__':
