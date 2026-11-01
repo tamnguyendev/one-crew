@@ -7,10 +7,11 @@ LEGACY = 'plan:'
 NAMESPACED = 'plan-ns:'
 WORKFLOW_VERSION = 1
 DEFAULT_CAPABILITIES = ('namespaced-storage', 'finding-register', 'root-budget')
-CAPABILITIES = (*DEFAULT_CAPABILITIES, 'internal-plan', 'sequential-engine','parallel-engine')
+CAPABILITIES = (*DEFAULT_CAPABILITIES, 'internal-plan', 'sequential-engine','parallel-engine', 'execution-mode')
 DEPENDENCIES = {'internal-plan': {'namespaced-storage', 'root-budget'},
                 'sequential-engine': {'namespaced-storage', 'root-budget', 'internal-plan'},
-                'parallel-engine': {'namespaced-storage','root-budget','internal-plan','sequential-engine'}}
+                'parallel-engine': {'namespaced-storage','root-budget','internal-plan','sequential-engine'},
+                'execution-mode': {'namespaced-storage', 'root-budget', 'internal-plan', 'sequential-engine'}}   # 2.4-C, opt-in
 
 
 def parse(value):

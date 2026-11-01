@@ -170,6 +170,17 @@ def _ready(view,slots=1):
             if not eligible(view, nid)['ready'] or not available or dependency_core.owned_overlap(owned, node['write']):
                 blocked[nid] = True
             tasks.append({'id': nid, 'owned': node['write'], 'depends_on': dependencies})
+    if 'execution-mode' in view.get('capabilities', ()):
+        # 2.4-C (opt-in): an exclusive resource is not only a shared write - one node's read of a file another writes, or a shared
+        # `resources` label, also keeps two nodes apart (against the active nodes and between the two of a batch)
+        from . import execution_mode
+        blocked.update(execution_mode.exclusive_blocks(view))
+        definitions = {node['id']: node for node in view['definition']['nodes']} if view['definition'] else {}
+        batch = dependency_core.ready_batch({'plan': {'tasks': tasks}, 'done': done, 'branch_errors': blocked})
+        while len(batch) == 2 and execution_mode.conflicts(definitions[batch[0]['id']], definitions[batch[1]['id']]):
+            blocked = dict(blocked, **{batch[1]['id']: True})
+            batch = dependency_core.ready_batch({'plan': {'tasks': tasks}, 'done': done, 'branch_errors': blocked})
+        return batch[:available]
     return dependency_core.ready_batch({'plan': {'tasks': tasks}, 'done': done, 'branch_errors': blocked})[:available]
 
 
@@ -540,7 +551,117 @@ def reconcile_orphans(ledger, selector, executor=None, *, control=None):
     return report
 
 
-def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _swept=False):
+# ---- 2.4-C: the execution-mode record (opt-in root capability `execution-mode`; roots without it never reach these) -------------
+
+def _mode_fields(mode):
+    from . import execution_mode
+    return execution_mode.record_fields(mode)
+
+
+def _record_mode(ledger, view, nid, mode):
+    """Persist one mode decision as `workflow.mode` (class B, plan-ns roots only). The same decision (same node, same inputs_sha) is
+    written once: repeated waits with nothing changed do not grow the ledger."""
+    payload = {'plan': namespaces.parse(view['selector'])[0], 'revision': view['contract_revision'], 'internal_revision': view['internal_revision'],
+               'node': nid, 'generation': view['nodes'][nid]['generation'] if nid in view['nodes'] else None,
+               'inputs': mode['inputs'], **_mode_fields(mode), **({'assumptions': mode['assumptions']} if mode.get('assumptions') else {})}
+    with ledger.transaction(write=True) as conn:
+        last = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='workflow.mode' AND json_extract(payload,'$.node') IS ? "
+                            "ORDER BY seq DESC LIMIT 1", (view['root'], nid)).fetchone()
+        if last and json.loads(last['payload']).get('mode_inputs_sha') == mode['inputs_sha']: return False
+        plans.emit(ledger, conn, view['root'], 'workflow.mode', payload)
+    return True
+
+
+def _wait(ledger, view, nid, mode, swept):
+    """A wait (or a second slot not worth filling) is recorded, not only returned; then the caller gets `waiting` as before."""
+    from . import execution_mode
+    mode = mode or execution_mode.idle(view)
+    _record_mode(ledger, view, nid, mode)
+    return {**({'node': nid} if nid else {}), 'state': 'waiting', 'internal_revision': view['internal_revision'], 'mode': mode['mode'],
+            'reasons': mode['reasons'], **({'recommendation': mode['recommendation']} if mode.get('recommendation') else {}),
+            **({'reconciled': swept} if swept else {})}
+
+
+def _choose(ledger, view, item, executor, slots, ctx, peer_hint):
+    from . import execution_mode
+    with ledger.transaction() as conn:
+        facts = execution_mode.facts(ledger, conn, view, item['id'])
+    definitions = {node['id']: node for node in view['definition']['nodes']}
+    others = [active for active in view['active_nodes'] if active['node'] != item['id']]
+    if peer_hint: peer, filling = definitions[peer_hint['id']], peer_hint['filling']
+    elif others: peer, filling = definitions.get(others[0]['node']), True
+    else: peer, filling = None, False
+    return execution_mode.choose(item, view, slots=slots, declaration=getattr(executor, 'declaration', None), ceilings=ctx,
+                                 previous=facts['previous'], handover=facts['handover'], peer=peer, filling=filling, capacity=facts['capacity'])
+
+
+def _batch_choice(ledger, view, choices, executor, slots):
+    """run_batch: ONE choice per batch - is the second ready node worth the second slot? (choices, peers, skipped record)."""
+    from . import execution_mode
+    if len(choices) < 2: return choices, {}, None
+    first, second = choices[0]['id'], choices[1]['id']
+    definitions = {node['id']: node for node in view['definition']['nodes']}
+    with ledger.transaction() as conn:
+        root, _, _ = ip.context(ledger, conn, view['selector'], 'sequential-engine')
+        ctx = ip.ceilings(ledger, conn, root)
+        facts = execution_mode.facts(ledger, conn, view, second)
+    decision = execution_mode.choose(definitions[second], view, slots=slots, declaration=getattr(executor, 'declaration', None), ceilings=ctx,
+                                     previous=facts['previous'], handover=facts['handover'], peer=definitions[first], filling=True,
+                                     capacity=facts['capacity'])
+    if decision['mode'] == 'overlap':
+        return choices, {first: {'id': second, 'filling': False}, second: {'id': first, 'filling': True}}, None
+    return choices[:1], {}, _wait(ledger, view, second, decision, None)
+
+
+def _tool_choices(ledger, view, checker, target=None, contract=None):
+    """Produced, unchecked, unblocked nodes whose mandatory checks need no model -> [(node, decision)]. A tools decision already
+    recorded for the same inputs is not tried again (a failing checker cannot starve the worker dispatch)."""
+    if checker is None or not view['definition']: return []
+    from . import execution_mode
+    with ledger.transaction() as conn:
+        if contract is None: contract = ip.context(ledger, conn, view['selector'], 'sequential-engine')[1]
+        tried = {json.loads(row['payload']).get('mode_inputs_sha') for row in conn.execute(
+            "SELECT payload FROM events WHERE task_id=? AND kind='workflow.mode' AND json_extract(payload,'$.mode')='tools'", (view['root'],))}
+    out = []
+    for node in view['definition']['nodes']:
+        nid, record = node['id'], view['nodes'][node['id']]
+        if target is not None and nid != target: continue
+        if (record.get('state') != 'produced' or record['phase'] != 'complete' or record.get('verification_receipt')
+                or _input_blocks(view, nid)): continue
+        decision = execution_mode.choose(node, view, slots=1, checker=checker, check_types=execution_mode.check_types(contract, node))
+        if decision['mode'] == 'tools' and decision['inputs_sha'] not in tried: out.append((nid, decision))
+    return out
+
+
+def _tool_nodes(ledger, view, checker):
+    return [nid for nid, _ in _tool_choices(ledger, view, checker)]
+
+
+def _tools(ledger, root, contract, view, checker, target):
+    """Run the model-free checks of one produced node (engine.verify with the connected checker): no child task, no Control attempt."""
+    found = _tool_choices(ledger, view, checker, target, contract)
+    if not found: return None
+    nid, decision = found[0]
+    _record_mode(ledger, view, nid, decision)
+    try:
+        body = verify(ledger, root['selector'], nid, checker)
+    except LedgerError as error:
+        return {'node': nid, 'state': 'waiting', 'mode': 'tools', 'reason': str(error)[:500]}
+    return {'node': nid, 'state': 'verified' if body['result'] == 'pass' else 'produced', 'mode': 'tools', 'verification': body['result']}
+
+
+def _session(executor, receipt_body, observed):
+    """node.produced `session` for an adapter that DECLARES resume_session: the id recorded at launch (Control identity) against the
+    id its receipt returns. Nothing for every other adapter (session reuse is never claimed)."""
+    from . import execution_mode
+    declaration = getattr(executor, 'declaration', None)
+    if declaration is None or not declaration.supports(execution_mode.SESSION_CAPABILITY): return {}
+    launched = _row_json(observed, 'identity').get('session_id') if observed else None
+    returned = receipt_body.get('session_id') if isinstance(receipt_body, dict) else None
+    return {'session': execution_mode.session(declaration, launched, returned)}
+
+
+def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _swept=False, checker=None, _peer=None):
     from . import answer_effects
     answer_effects.reconcile(ledger, selector)
     control = control or getattr(executor, 'control', None)
@@ -559,6 +680,10 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
         view = state(ledger, root['selector'], conn)
         choices = _ready(view,slots)
         ctx = ip.ceilings(ledger, conn, root)
+    if 'execution-mode' in view['capabilities']:
+        tools = _tools(ledger, root, contract, view, checker, _target)              # 2.4-C: model-free checks of a produced node first
+        if tools is not None: return tools
+        if not choices: return _wait(ledger, view, _target, None, swept)
     if not choices: return {'state': 'waiting', 'internal_revision': view['internal_revision'], **({'reconciled': swept} if swept else {})}
     if view['definition_contract_sha'] != sha:
         raise LedgerError('Revise the internal plan against the current approved contract before dispatch.')
@@ -576,7 +701,14 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
     item['input_artifacts'] = inputs
     if view['nodes'][nid].get('resume_artifact'):
         item['resume_artifact'] = view['nodes'][nid]['resume_artifact']; item['continues'] = view['nodes'][nid].get('continues')
-    ip.decide(ledger, root, contract, sha, {'kind': 'decision', 'q': 'Q2', 'nodes': [nid], 'eligible': True}, ctx, 'onecrew.engine')
+    mode = None
+    if 'execution-mode' in view['capabilities']:
+        mode = _choose(ledger, view, item, executor, slots, ctx, _peer)
+        if mode['mode'] == 'wait' or (mode['mode'] == 'run_now' and mode['inputs'].get('filling')):
+            return _wait(ledger, view, nid, mode, swept)                     # a wait, or a second slot not worth filling, is recorded
+    action = {'kind': 'decision', 'q': 'Q2', 'nodes': [nid], 'eligible': True}
+    if mode: action.update(mode=mode['mode'], mode_reasons=mode['reasons'], inputs_sha=mode['inputs_sha'])
+    ip.decide(ledger, root, contract, sha, action, ctx, 'onecrew.engine', key=('mode-' + mode['inputs_sha'][:48]) if mode else None)
     pin = item.get('executor', {})
     task = submit(ledger, item['goal'], f'wf:{root["task_id"]}:{nid}:g{view["nodes"][nid]["generation"]}',
                   plan_selector=root['selector'], plan_revision=root['approved']['revision'],
@@ -597,10 +729,16 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
             raise LedgerError('The root slot or internal node changed before admission.')
         _event(ledger, conn, current, nid, 'node.started', attempt=attempt['id'], child=task['id'],
                early_dependencies=eligible(current, nid).get('early_dependencies', []), inputs=inputs,
-               source=source, **({'source_error': source_error} if source_error else {}))
+               source=source, **({'source_error': source_error} if source_error else {}),
+               **(_mode_fields(mode) if mode else {}))
         admitted.append(attempt['id'])
 
-    attempt = control.reserve(task['id'], execution['revision'], 'node-run', {'unit': 'task:' + nid, 'stage': nid}, on_reserved=reserve)
+    try:
+        attempt = control.reserve(task['id'], execution['revision'], 'node-run', {'unit': 'task:' + nid, 'stage': nid}, on_reserved=reserve)
+    except LedgerError as error:
+        from ..control_core import CapacityWait
+        if mode is None or not isinstance(error, CapacityWait): raise
+        return _wait(ledger, view, nid, dict(mode, mode='wait', reasons=['capacity_full: ' + str(error)[:200]]), swept)
     if attempt['id'] not in admitted:
         # T15c E8 / T08a: Control.reserve is idempotent per key, so a concurrent caller that read the node as ready before this node's
         # node.started was committed receives the attempt ANOTHER caller admitted (possibly already running). It must never be dispatched
@@ -688,12 +826,13 @@ def step(ledger, selector, executor, *, control=None, slots=1, _target=None, _sw
             return {'node': nid, 'state': 'retained', 'reason': 'Root changed; candidate delivery is refused', **produced}
         from .retention import pin_evidence
         pin_evidence(ledger, root['selector'], produced['artifact'])
-        _event(ledger, conn, current, nid, 'node.produced', progress_status=progress_status, **produced)
+        _event(ledger, conn, current, nid, 'node.produced', progress_status=progress_status, **produced,
+               **(_session(executor, receipt_body, observed) if mode else {}))
     _forecast(ledger, state(ledger, root['selector']), f'node-{nid}-g{view["nodes"][nid]["generation"]}-produced', 'Node produced an artifact; verification remains separate')
     return {'node': nid, 'state': 'produced', **produced}
 
 
-def run_batch(ledger,selector,executor,*,slots=1,control=None):
+def run_batch(ledger,selector,executor,*,slots=1,control=None,checker=None):
     """Run the existing scheduler's bounded batch through the same step port."""
     swept=[row for row in reconcile_orphans(ledger,selector,executor,control=control) if row.get('state')]   # 2.3-B: cleanup before takeover
     adopted=[]
@@ -708,13 +847,24 @@ def run_batch(ledger,selector,executor,*,slots=1,control=None):
         declaration=getattr(executor,'declaration',None)
         if declaration is None or not declaration.supports('isolate'):
             raise LedgerError('Parallel execution requires a declared isolate capability.')
-    if not choices:return {'slots':slots,'results':[],'state':'waiting',**({'reconciled':swept} if swept else {})}
+    peers,tools,skipped=({},[],None)
+    if 'execution-mode' in view['capabilities']:
+        # 2.4-C: one choice per batch - is the second ready node worth the second slot? - and the produced nodes whose checks need no model
+        choices,peers,skipped=_batch_choice(ledger,view,choices,executor,slots)
+        tools=_tool_nodes(ledger,view,checker)
+        if not choices and not tools:
+            return {'slots':slots,'results':[skipped] if skipped else [_wait(ledger,view,None,None,swept)],
+                    'state':'waiting',**({'reconciled':swept} if swept else {})}
+    if not choices and not tools:return {'slots':slots,'results':[],'state':'waiting',**({'reconciled':swept} if swept else {})}
     def execute(choice):
-        try:return step(ledger,selector,executor,control=control,slots=slots,_target=choice['id'],_swept=True)
+        try:return step(ledger,selector,executor,control=control,slots=slots,_target=choice['id'],_swept=True,_peer=peers.get(choice['id']))
         except LedgerError as error:return {'node':choice['id'],'state':'waiting','reason':str(error)}
-    with ThreadPoolExecutor(max_workers=slots) as pool:
-        futures=[pool.submit(execute,choice) for choice in choices]
-        results=[future.result() for future in futures]
+    def check(nid):
+        try:return step(ledger,selector,executor,control=control,slots=slots,_target=nid,_swept=True,checker=checker)
+        except LedgerError as error:return {'node':nid,'state':'waiting','mode':'tools','reason':str(error)}
+    with ThreadPoolExecutor(max_workers=slots+len(tools)) as pool:      # tools take no worker slot and start no child task
+        futures=[pool.submit(check,nid) for nid in tools]+[pool.submit(execute,choice) for choice in choices]
+        results=[future.result() for future in futures]+([skipped] if skipped else [])
     return {'slots':slots,'results':results,**({'reconciled':swept} if swept else {})}
 
 

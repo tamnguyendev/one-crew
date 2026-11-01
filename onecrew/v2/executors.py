@@ -22,7 +22,7 @@ from pathlib import Path
 from ..ledger import LedgerError, text_field, utcnow
 from . import plan as plans
 
-CAPABILITIES = ('start', 'stop', 'pause_at_safe_point', 'isolate', 'measure', 'recover')
+CAPABILITIES = ('start', 'stop', 'pause_at_safe_point', 'isolate', 'measure', 'recover', 'resume_session')   # 2.4-C: no shipped adapter declares resume_session
 MEASURES = ('time', 'calls')
 KINDS = ('external_hook', 'managed', 'verifier')
 WHATS = ('start', 'end', 'wait')
