@@ -45,12 +45,16 @@ def tree_copy(into, version=None, defect=False):
     return into
 
 
-def build(runs, name, **kw):
+def build(runs, name, repo=False, **kw):
     source = tree_copy(runs / ('src-' + name), **kw)
+    if repo:                                  # S2-R01: the hotfix wheel is built from a commit of the OneCrew repository it is bound to
+        (source / 'a.txt').write_text('the fix\n')
+        for args in (('init', '-q'), ('config', 'user.name', 'T'), ('config', 'user.email', 't@localhost'), ('add', '-A'), ('commit', '-qm', 'the fix')):
+            subprocess.run(['git', '-C', str(source), *args], check=True, capture_output=True)
     out = runs / ('wheel-' + name); out.mkdir()
     with patch.object(wh, 'REPO', source):
         wheel, version, _ = wh.build_wheel(out)
-    return wheel, version
+    return (wheel, version, source) if repo else (wheel, version)
 
 
 PROD = r'''
@@ -63,11 +67,9 @@ from onecrew.common_verification import CandidateChecker
 from onecrew.v2 import plan, engine, internal_plan, verdict
 root, state, repo = Path(PROJECT), Path(STATE), Path(REPOX)
 def git(where, *args): return subprocess.run(['git', '-C', str(where), *args], check=True, capture_output=True, text=True).stdout.strip()
-for where_ in (root, repo):
-    where_.mkdir()
-    git(where_, 'init', '-q'); git(where_, 'config', 'user.name', 'T'); git(where_, 'config', 'user.email', 't@localhost')
+root.mkdir()
+git(root, 'init', '-q'); git(root, 'config', 'user.name', 'T'); git(root, 'config', 'user.email', 't@localhost')
 (root / 'a.txt').write_text('base\n'); git(root, 'add', '.'); git(root, 'commit', '-qm', 'base')
-(repo / 'a.txt').write_text('the fix\n'); git(repo, 'add', '.'); git(repo, 'commit', '-qm', 'fix')
 ledger = Ledger(root, state)
 caps = ['namespaced-storage', 'root-budget', 'internal-plan', 'sequential-engine']
 plan.propose(ledger, 'P1', json.loads(CONTRACT), 'codex', workflow=True, capabilities=caps)
@@ -106,7 +108,7 @@ class InstalledS2(unittest.TestCase):
     def setUpClass(cls):
         cls.runs = Path(wh._runs())
         cls.prod_wheel, _ = build(cls.runs, 'prod', defect=True)
-        cls.fix_wheel, cls.fix_version = build(cls.runs, 'fix', version='2.4.0.dev2')
+        cls.fix_wheel, cls.fix_version, cls.fix_repo = build(cls.runs, 'fix', repo=True, version='2.4.0.dev2')
         cls.prod_python = wh.make_venv(cls.runs / 'venvs prod')
         wh.install(cls.prod_python, cls.prod_wheel)
         cls.prod_venv = cls.prod_python.parent.parent
@@ -136,7 +138,7 @@ class InstalledS2(unittest.TestCase):
     def test_s2_chain_from_the_installed_runtime_outside_the_checkout(self):
         base = self.runs / 'chain'; base.mkdir()
         self.cwd = base / 'cwd'; self.cwd.mkdir()
-        self.project, self.state, repo = base / 'customer', base / 'state', base / 'onecrew-repo'
+        self.project, self.state, repo = base / 'customer', base / 'state', self.fix_repo
         self.environment = self.env(base)
         check = [sys.executable, '-c', 'import os; from pathlib import Path; assert Path("a.txt").read_text() == "candidate\\n"; '
                                        'assert "ONECREW_FIXTURE_DEFECT" not in os.environ, "the runtime leaked a variable"; print("candidate tested")']
@@ -175,6 +177,7 @@ class InstalledS2(unittest.TestCase):
                                         'wheel': {'name': self.fix_wheel.name, 'sha256': hashlib.sha256(self.fix_wheel.read_bytes()).hexdigest()}}))
         code, artifact = self.run_prod('artifact', fb, '--wheel', str(self.fix_wheel), '--manifest', str(manifest))
         self.assertEqual(code, 0, artifact)
+        self.assertGreater(artifact['files_checked'], 100)                        # every shipped file equals the bound commit
         code, installed = self.run_prod('install', fb, '--target', 'lab')
         self.assertEqual(code, 0, installed)
         self.assertEqual(installed['result'], 'switched', json.dumps(installed)[:3000])

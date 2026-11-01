@@ -46,14 +46,19 @@ def _parser():
     target = commands.add_parser('target', help='owner only: declare an install target venv').add_subparsers(dest='target_command', required=True)
     p = target.add_parser('add'); p.add_argument('--id', required=True); p.add_argument('--venv', type=Path, required=True)
     p.add_argument('--python', type=Path)
+    p.add_argument('--consumers', nargs='+', default=(), help='projects that use this venv outside the hook registry (checked too)')
+    p.add_argument('--replace', action='store_true', help='owner: replace an existing declaration (the previous one is recorded)')
     commands.add_parser('targets', help='list the declared install targets')
+    commands.add_parser('cleanup', help='remove finished drill, rollback and recheck copies under support-work')
     p = commands.add_parser('artifact', help='bind a hotfix wheel to the feedback: wheel bytes + manifest + the fix plan verified tree')
     p.add_argument('feedback'); p.add_argument('--wheel', type=Path, required=True); p.add_argument('--manifest', type=Path, required=True)
     p = commands.add_parser('install', help='install the artifact in a new venv at a target, drill on a copy, switch at a safe point')
-    p.add_argument('feedback'); p.add_argument('--target', required=True)
+    p.add_argument('feedback'); p.add_argument('--target', required=True); p.add_argument('--keep', action='store_true', help='keep the drill copies')
     for name, text in (('recheck', 're-run the original node check with the new runtime (target, else a named copy)'),
-                       ('resume', 'continue the old work through the engine guards'), ('rollback', 'repoint the hooks back when the old reader is checked')):
-        commands.add_parser(name, help=text).add_argument('feedback')
+                       ('resume', 'continue the old work through the engine guards'),
+                       ('rollback', 'owner only: repoint the hooks back when the old runtime reads the current data')):
+        p = commands.add_parser(name, help=text); p.add_argument('feedback')
+        if name != 'resume': p.add_argument('--keep', action='store_true', help='keep the copies')
     p = commands.add_parser('learn', help="a lesson on the fix plan's root after a passing recheck at the target")
     p.add_argument('feedback'); p.add_argument('--text', required=True)
     return parser
@@ -127,14 +132,16 @@ def main(argv, index=None):
             _say(diagnostics.bundle(ledger, args.feedback, args.out))
         elif args.command == 'import-spool': _say(support.import_spool(ledger))
         elif args.command == 'confirm': _say(support.confirm(ledger, args.feedback, args.reference))
-        elif args.command in ('target', 'targets', 'artifact', 'install', 'recheck', 'resume', 'rollback', 'learn'):
+        elif args.command in ('target', 'targets', 'artifact', 'install', 'recheck', 'resume', 'rollback', 'learn', 'cleanup'):
             from . import hotfix
-            if args.command == 'target': _say(hotfix.target_add(ledger, args.id, args.venv, args.python))
+            if args.command == 'target': _say(hotfix.target_add(ledger, args.id, args.venv, args.python, args.consumers, args.replace))
             elif args.command == 'targets': _say(hotfix.targets(ledger))
+            elif args.command == 'cleanup': _say(hotfix.cleanup(ledger))
             elif args.command == 'artifact': _say(hotfix.artifact(ledger, args.feedback, args.wheel, args.manifest))
-            elif args.command == 'install': _say(hotfix.install(ledger, args.feedback, args.target))
+            elif args.command == 'install': _say(hotfix.install(ledger, args.feedback, args.target, args.keep))
             elif args.command == 'learn': _say(hotfix.learn(ledger, args.feedback, args.text))
-            else: _say(getattr(hotfix, args.command)(ledger, args.feedback))
+            elif args.command == 'resume': _say(hotfix.resume(ledger, args.feedback))
+            else: _say(getattr(hotfix, args.command)(ledger, args.feedback, args.keep))
         return 0
     except (LedgerError, OSError, ValueError, sqlite3.Error) as error:
         print(json.dumps({'error': str(error), 'type': type(error).__name__}, ensure_ascii=False))

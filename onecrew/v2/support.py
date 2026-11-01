@@ -261,28 +261,38 @@ def report(ledger, *, text, expected=None, image=None, plan=None, task=None, att
                                 'node': refs.get('node')})[:32]
     recurrence = _recurrence(text)
     ident = feedback_id or 'FB-' + uuid.uuid4().hex
-    key = client_key or support_spool.content_key(text, expected, given)
+    key = client_key or support_spool.content_key(text, expected, given, runtime.get('dist_version'), picture and picture['sha256'])
     outcome = {}
 
     def then(conn, anchor):
-        prior = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='support.feedback' AND json_extract(payload,'$.client_key')=?",
-                             (anchor, key)).fetchone()
+        nonlocal key
+        chain = [p for p in (r['payload'] for r in _rows(conn, anchor, 'support.feedback'))
+                 if p.get('client_key') == key or re.fullmatch(re.escape(key) + r':r\d+', str(p.get('client_key')))]
+        prior = chain[-1] if chain else None
+        recurred = []
         if prior:
-            payload = json.loads(prior['payload'])
-            if payload['content_sha'] != content_sha:
-                raise ReportRefused(f'Report key {key} was already used for a different report ({payload["id"]}); use another --key.')
-            outcome.update(payload=payload, duplicate=True, duplicates=[])
-            return
+            if prior['content_sha'] != content_sha:
+                raise ReportRefused(f'Report key {key} was already used for a different report ({prior["id"]}); use another --key.')
+            fixed = conn.execute("SELECT 1 FROM events WHERE task_id=? AND kind='support.recheck' AND json_extract(payload,'$.feedback')=? AND "
+                                 "json_extract(payload,'$.result')='pass' AND json_extract(payload,'$.environment')='target'",
+                                 (anchor, prior['id'])).fetchone()
+            if not fixed:
+                outcome.update(payload=prior, duplicate=True, duplicates=[])
+                return
+            recurred = [prior['id']]                      # S2-R05: the same report after its fix passed at the target: a NEW feedback
+            key = f'{key.split(":r")[0]}:r{len(chain)}'
         if _feedback(conn, anchor, ident): raise ReportRefused(f'Feedback id {ident} already exists under another key.')
         earlier = _rows(conn, anchor, 'support.feedback')
         duplicates = [r['payload']['id'] for r in earlier if r['payload'].get('fingerprint') == fingerprint]
         handled = {r['payload'].get('feedback') for r in _rows(conn, anchor) if r['kind'] in ('support.install', 'support.recheck')}
-        recurs = [r['payload']['id'] for r in earlier if r['payload']['id'] in handled and r['payload'].get('recurrence') == recurrence
-                  and (r['payload'].get('refs') or {}).get('plan') == refs.get('plan')]
+        recurs = list(dict.fromkeys(recurred + [r['payload']['id'] for r in earlier if r['payload']['id'] in handled
+                                                and r['payload'].get('recurrence') == recurrence and (r['payload'].get('refs') or {}).get('plan') == refs.get('plan')]))
+        other_runtime = [r['payload']['id'] for r in earlier if r['payload'].get('recurrence') == recurrence
+                         and (r['payload'].get('runtime') or {}).get('dist_version') != runtime.get('dist_version')]
         payload = {'id': ident, 'client_key': key, 'content_sha': content_sha, 'text': text, 'expected': expected, 'image': picture,
                    'project_id': ledger.project_id, 'project_path': ledger.project_path, 'refs': refs, 'refs_source': source,
                    'refs_unresolved': unresolved, 'runtime': runtime, 'runtime_at_report': runtime, 'fingerprint': fingerprint,
-                   'possible_duplicates': duplicates, 'recurrence': recurrence, 'recurrence_of': recurs,
+                   'possible_duplicates': duplicates, 'same_text_other_runtime': other_runtime, 'recurrence': recurrence, 'recurrence_of': recurs,
                    'status': 'reported', 'reproduced': 'unknown', 'spooled': spooled}
         if runtime_at_report is not None: payload['runtime_at_import'] = dict(live, source='import')
         plans.emit(ledger, conn, anchor, 'support.feedback', payload)
@@ -293,7 +303,8 @@ def report(ledger, *, text, expected=None, image=None, plan=None, task=None, att
     payload = outcome['payload']
     return {'recorded': True, 'id': payload['id'], 'duplicate': outcome['duplicate'], 'spooled': False, 'refs': payload['refs'],
             'refs_source': payload['refs_source'], 'refs_unresolved': payload['refs_unresolved'],
-            'possible_duplicates': outcome['duplicates'], 'recurrence_of': payload.get('recurrence_of', []), 'runtime': payload['runtime'],
+            'possible_duplicates': outcome['duplicates'], 'recurrence_of': payload.get('recurrence_of', []),
+            'same_text_other_runtime': payload.get('same_text_other_runtime', []), 'runtime': payload['runtime'],
             'client_key': payload['client_key'], 'status': 'reported',
             'note': 'A report is not a reproduced finding: nothing was marked failed. Sending the same report again gives the same id.'}
 
@@ -478,14 +489,21 @@ def _status(ledger, conn, anchor, found):
     prepared = [r for r in rows if r['kind'] == 'support.install_prepared' and (r['payload'].get('identity') or {}).get('version') == r['payload'].get('version')]
     out['trial_build'] = _field(bool(prepared), [f'venv {r["payload"]["venv"]} holds onecrew {r["payload"]["version"]} (event:{r["seq"]})' for r in prepared[-1:]],
                                 artifact=[f'event:{r["seq"]}' for r in rows if r['kind'] == 'support.artifact'][-1:])
+    from . import hotfix
+    view = hotfix.projection(ledger, feedback['id'])          # S2-R04: against what the hook handlers run NOW
     installs = [r for r in rows if r['kind'] == 'support.install' and r['payload'].get('result') in ('switched', 'rolled_back')]
-    switched = bool(installs) and installs[-1]['payload']['result'] == 'switched'
-    out['installed'] = _field(switched, [f'event:{installs[-1]["seq"]} hooks run {installs[-1]["payload"]["new_venv"]}'] if switched else [])
-    rechecks = [r for r in rows if r['kind'] == 'support.recheck']
-    last = rechecks[-1] if rechecks else None
-    at_target = bool(last) and last['payload']['environment'] == 'target' and last['payload']['result'] == 'pass' and bool(last['payload'].get('receipt'))
-    out['verified_at_target'] = _field(at_target, [f'receipt:{last["payload"]["receipt"]} (event:{last["seq"]})'] if at_target else [],
-                                       **({'note': f'last recheck: {last["payload"]["result"]} on the {last["payload"]["environment"]}'} if last and not at_target else {}))
+    now = view['current_runtime']
+    out['installed'] = _field(view['installed'], view['installed_evidence'] if view['installed'] else [],
+                              **({'note': 'switched, but the hooks no longer run it', 'runs_now': now['files']} if now and not now['current'] else {}))
+    out['rolled_back'] = _field(view['rolled_back'], view['installed_evidence'] if view['rolled_back'] else [])
+    out['partially_switched'] = _field(bool(view['partially_switched']), view['partially_switched'])
+    verified, last = view['verified'], (view['verified']['last'] or None)
+    at_target = verified['value']
+    history = verified['recheck']
+    out['verified_at_target'] = _field(at_target, [f'receipt:{history["receipt"]} (event:{history["seq"]})'] if at_target else [],
+                                       **({'history': {'receipt': history['receipt'], 'at_runtime': history.get('at_runtime'), 'current': False}}
+                                          if history and not at_target else {}),
+                                       **({'note': f'last recheck: {last["result"]} on the {last["environment"]}'} if last and not at_target else {}))
     gates = [r for r in rows if (r['kind'] == 'support.install_prepared' and r['payload'].get('blocked_by'))
              or (r['kind'] == 'support.install' and r['payload'].get('result', '').startswith(('refused', 'blocked')))]
     gate = gates[-1] if gates and (not installs or gates[-1]['seq'] > installs[-1]['seq']) else None
@@ -502,10 +520,14 @@ def _status(ledger, conn, anchor, found):
         if record is not None:
             bad = record.get('phase') == 'held' or record.get('verification_result') == 'fail'
             blocked = _field(bad, [f'node:{refs["plan"]}/{refs["node"]} phase {record.get("phase")} verification {record.get("verification_result")}'])
-    if last and last['payload']['result'] != 'pass':
-        blocked = _field(True, [f'receipt:{last["payload"].get("receipt")} result {last["payload"]["result"]} on the {last["payload"]["environment"]}'])
+    if view['violation']:
+        blocked = _field(True, [view['violation']], note='an attempt or action started during the switch: later steps are refused')
+    elif last and last['result'] != 'pass':
+        blocked = _field(True, [f'receipt:{last.get("receipt")} result {last["result"]} on the {last["environment"]}'])
     elif at_target:
-        blocked = _field(False, [f'receipt:{last["payload"]["receipt"]} pass at the target'])
+        blocked = _field(False, [f'receipt:{last["receipt"]} pass at the target, which runs it now'])
+    elif history:
+        blocked = _field(True, [f'receipt:{history["receipt"]}'], note='the fix that passed is not the runtime the hooks run now')
     out['still_blocked'] = blocked
     confirmed = [r for r in rows if r['kind'] == 'support.user_confirmed']
     out['user_confirmed'] = _field(bool(confirmed), [f'event:{r["seq"]}' for r in confirmed[:1]])
@@ -579,16 +601,23 @@ def _transition(conn, row, payload):
     if row['kind'] == 'support.user_confirmed':
         return None if any(r['kind'] == 'support.user_confirmed' for r in before) else 'user_confirmed'
     def s2(r):
-        p = r['payload']
+        p = r['payload'] if isinstance(r['payload'], dict) else json.loads(r['payload'])
         if r['kind'] == 'support.install_prepared': return 'blocked_by_' + p['blocked_by'] if p.get('blocked_by') == 'authority' else None
-        if r['kind'] == 'support.install': return {'switched': 'installed', 'rolled_back': 'rolled_back'}.get(p.get('result'), p.get('result'))
+        if r['kind'] == 'support.install':
+            if p.get('phase'): return None                    # claim / release / intent / switched_one are not notices
+            return {'switched': 'installed', 'rolled_back': 'rolled_back'}.get(p.get('result'), p.get('result'))
         if r['kind'] == 'support.recheck':
+            if p.get('phase') == 'intent': return None
             if p.get('result') != 'pass': return 'still_blocked'
             return 'verified_at_target' if p.get('environment') == 'target' else 'passed_on_copy'
         return None
+    def round_(r):
+        return sum(1 for x in rows if x['seq'] <= r['seq'] and x['kind'] == 'support.install' and x['payload'].get('result') in ('switched', 'rolled_back'))
     name = s2(row)
     if name is None: return None
-    return None if any(s2(r) == name for r in before if r['kind'] in NOTICE_KINDS) else name
+    if row['kind'] == 'support.recheck' and payload.get('phase') == 'intent': return None
+    if any(s2(r) == name and round_(r) == round_(row) for r in before if r['kind'] in NOTICE_KINDS): return None
+    return name if round_(row) <= 1 else f'{name}:round{round_(row)}'
 
 
 def message(conn, row):

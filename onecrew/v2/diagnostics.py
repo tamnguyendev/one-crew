@@ -45,8 +45,10 @@ HEX64 = re.compile(r'[0-9a-f]{64}\Z')
 
 MASK = '[withheld]'
 _SENTINEL = '\x00'
-_NAME = re.compile(r'(?i)(?:^|[_.\-])(?:sig|signature|token|access[_-]?token|refresh[_-]?token|id[_-]?token|secret|client[_-]?secret|password|passwd|'
-                   r'pwd|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credentials?|sas)(?:$|[_.\-])')
+_NAME = re.compile(r'(?i)(?:^|[_.\-])(?:sig|signature|token|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|secret|client[_-]?secret|'
+                   r'password|passwd|pass|pwd|api[_-]?key|apikey|access[_-]?key|account[_-]?key|shared[_-]?access[_-]?key|private[_-]?key|'
+                   r'credentials?|sas)(?:$|[_.\-])')
+_CAMEL = re.compile(r'(?<=[a-z0-9])(?=[A-Z])')
 _VALUE = r'(?P<value>"[^"]*"|\'[^\']*\'|[^\s"\'&;,)]+)'
 _ASSIGN = {sep: re.compile(r'(?P<name>[A-Za-z0-9_.\-]+)(?P<quote>["\']?)(?P<sep>\s*' + sep + r'\s*)' + _VALUE) for sep in ('=', ':')}
 _HEADER = re.compile(r'(?i)\b(?P<name>authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token)(?P<sep>"?\s*[:=]\s*)(?P<value>[^"\r\n]+)')
@@ -55,18 +57,30 @@ _USERINFO = re.compile(r'(?i)\b(?P<scheme>[a-z][a-z0-9+.\-]*://)(?P<value>[^\s/@
 _FLAG = re.compile(r'(?i)(?P<flag>--(?:password|passwd|pass|token|secret|api-key|apikey|access-token|auth-token|client-secret))(?P<sep>\s+|=)' + _VALUE)
 _SHAPES = re.compile(r'\bAKIA[0-9A-Z]{16}\b|\bASIA[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_\-]{35}\b|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|'
                      r'\bxox[abposr]-[A-Za-z0-9\-]{10,}|\bsk-(?:ant-|proj-)?[A-Za-z0-9_\-]{16,}|\bapikey_[A-Za-z0-9_\-]{15,}|'
-                     r'\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{4,}')
+                     r'\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{4,}|\bnpm_[A-Za-z0-9]{36,}|\bglpat-[A-Za-z0-9_\-]{20,}')
+_MYSQL = re.compile(r'(?i)\b(?P<cmd>mysql|mysqldump|mysqladmin|mariadb)\b(?P<mid>[^\n]*?\s)-p(?P<value>[^\s]+)')
 _PEM_BEGIN = re.compile(r'-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----')
 _PEM_END = re.compile(r'-----END [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----')
 _CONTROL = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)')
 
 
 def _assign(match):
-    if not _NAME.search(match.group('name')): return match.group(0)
+    name = match.group('name')
+    if not (_NAME.search(name) or _NAME.search(_CAMEL.sub('_', name))): return match.group(0)      # authToken, AccountKey, DB_PASS
     return match.group('name') + match.group('quote') + match.group('sep') + _SENTINEL
 
 
 def redact_line(line):
+    """S2-R11: also on the unescaped text of a JSON-escaped line (a secret inside a string value): when that finds more, the unescaped
+    redacted line is kept."""
+    clean, hidden = _redact_line(line)
+    if '\\"' in line:
+        unescaped, more = _redact_line(line.replace('\\"', '"'))
+        if more and unescaped.count(MASK) > clean.count(MASK): return unescaped, True
+    return clean, hidden
+
+
+def _redact_line(line):
     """(line, withheld): the secret parts of one line replaced by [withheld], the rest of the line kept. Patterns: Authorization/Cookie
     headers, Bearer/Basic values, URL userinfo (with or without a password), NAME=value / NAME: value / export / $env: assignments whose
     name says secret, token, password, api key, signature (sig=, X-Amz-Signature), credential; --password/--token style argv values;
@@ -76,6 +90,7 @@ def redact_line(line):
     marked = _SCHEME.sub(lambda m: m.group('kind') + ' ' + _SENTINEL, marked)
     marked = _USERINFO.sub(lambda m: m.group('scheme') + _SENTINEL + '@', marked)
     marked = _FLAG.sub(lambda m: m.group('flag') + m.group('sep') + _SENTINEL, marked)
+    marked = _MYSQL.sub(lambda m: m.group('cmd') + m.group('mid') + '-p' + _SENTINEL, marked)
     marked = _SHAPES.sub(_SENTINEL, marked)
     for sep in ('=', ':'): marked = _ASSIGN[sep].sub(_assign, marked)
     if SECRET.search(marked.replace(_SENTINEL, '')):

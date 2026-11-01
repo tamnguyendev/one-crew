@@ -130,10 +130,11 @@ def _canonical(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False)
 
 
-def content_key(text, expected, refs):
-    """S1-R08: the client key of a report sent without --key: the same text, expected result and explicit refs in one project are the
-    same report (resent: the same id); anything else is a new report. support.report uses this same function."""
-    value = {'text': lite(text), 'expected': lite(expected), 'refs': refs or {}}
+def content_key(text, expected, refs, version=None, image=None):
+    """S1-R08 / S2-R05: the client key of a report sent without --key: the same text, expected result, explicit refs, reporting runtime
+    version and image in one project are the same sending (resent: the same id); anything else is a new report. A spooled report keeps its
+    spool id as its key instead, so a planted spool file can never take a direct report's key."""
+    value = {'text': lite(text), 'expected': lite(expected), 'refs': refs or {}, 'version': version, 'image': image}
     return 'auto-' + hashlib.sha256(_canonical(value).encode('utf-8')).hexdigest()[:40]
 
 
@@ -164,7 +165,7 @@ def record(*, text, expected=None, image=None, plan=None, task=None, attempt=Non
         raise ValueError(f'--expected: at most {TEXT_MAX} characters')
     ident = new_id()
     refs = {k: v for k, v in (('plan', plan), ('task', task), ('attempt', attempt)) if v is not None}
-    return {'format': FORMAT, 'id': ident, 'client_key': key or content_key(text, expected, refs), 'text': text, 'expected': expected,
+    return {'format': FORMAT, 'id': ident, 'client_key': key or ident, 'text': text, 'expected': expected,
             'image': _image(image), 'refs': refs,
             'project': _norm(project), 'git_root': _norm(git_root(project)), 'state_root': str(Path(state_root)),
             'runtime_probe': runtime_probe(), 'error': error, 'reason': reason, 'ledger': _ledger_facts(state_root), 'created_at': _now()}
@@ -222,6 +223,7 @@ def validate(document):
     if not isinstance(document, dict) or document.get('format') != FORMAT: return 'not a OneCrew support spool document'
     if not isinstance(document.get('id'), str) or not FEEDBACK.match(document['id']): return 'id: expected FB-<32 hex>'
     if not isinstance(document.get('client_key'), str) or not KEY.match(document['client_key']): return 'client_key: 1-128 letters, digits, _ . : -'
+    if document['client_key'].startswith('auto-'): return 'client_key: a spool document never carries a derived (auto-) key (S2-R05)'
     for name, maximum, optional in (('text', TEXT_MAX, False), ('expected', TEXT_MAX, True), ('reason', 600, True), ('created_at', 64, True),
                                     ('project', 1000, False), ('git_root', 1000, True), ('state_root', 1000, True)):
         why = _text(document.get(name), name, maximum, optional)

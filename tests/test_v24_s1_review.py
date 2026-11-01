@@ -151,8 +151,11 @@ class StatusReviewTests(S1Fixture):
         support_spool.spool(lone, project=self.root, state_root=self.ledger.state_root)
         code, direct = self.report('--text', 'spooled first, then sent again')
         code, imported = self.cli('support', 'import-spool')
-        self.assertEqual(imported['already_recorded'], [direct['id']])           # spool + direct with the same (derived) key: one feedback
-        self.assertEqual(len([e for e in self.support_events() if e['text'] == 'spooled first, then sent again']), 1)
+        # S2-R05 (decision 01/11): a spooled report keeps its spool id as its key, so a planted spool file can never take a direct report's
+        # key; the two are suggested as possible duplicates, never merged
+        self.assertEqual(imported['imported'], [lone['id']])
+        same = [e for e in self.support_events() if e['text'] == 'spooled first, then sent again']
+        self.assertEqual(len(same), 2); self.assertIn(direct['id'], same[1]['possible_duplicates'])
 
     def test_p3a_the_support_anchor_is_never_executable(self):
         self.report('--text', 'records only')
@@ -229,3 +232,32 @@ class SpoolReviewTests(S1Fixture):
             self.ledger.path.unlink()
             code, made = self.report('--text', 'code broken')
         self.assertTrue(made['spooled']); self.assertTrue(made['reason'].startswith('RuntimeError'), made['reason'])
+
+
+class ReviewS2RedactionAndSpoolTests(S1Fixture):
+    def test_s2_r11_more_secret_forms_withheld_rest_kept(self):
+        from onecrew.v2.diagnostics import redact_line
+        lines = {'DB_PASS=dbpasssecret123': 'DB_PASS=',
+                 'DefaultEndpointsProtocol=https;AccountName=acct;AccountKey=AZUREACCOUNTKEYSECRET==;EndpointSuffix=core.windows.net': 'EndpointSuffix=core.windows.net',
+                 'Endpoint=sb://x.servicebus.windows.net/;SharedAccessKey=SBKEYSECRET123=': 'Endpoint=sb://x.servicebus.windows.net/',
+                 '"output": "{\\"password\\": \\"escapedjsonsecret1\\"}"': '"output"',
+                 'mysql -u root -pMYSQLINLINESECRET db': 'mysql -u root -p',
+                 'authToken: authtokensecret123': 'authToken:',
+                 'npm_TOKENSECRETnpmABCDEFGHIJKLMNOPQRSTUVWXYZ0123 in .npmrc': 'in .npmrc',
+                 'glpat-GITLABSECRET1234567890 for the CI': 'for the CI'}
+        for line, kept in lines.items():
+            clean, hidden = redact_line(line)
+            self.assertTrue(hidden, line); self.assertIn(kept, clean)
+            for marker in ('dbpasssecret', 'AZUREACCOUNTKEY', 'SBKEYSECRET', 'escapedjsonsecret', 'MYSQLINLINE', 'authtokensecret', 'TOKENSECRETnpm', 'GITLABSECRET'):
+                self.assertNotIn(marker, clean)
+        self.assertEqual(redact_line('"author": "claude", "exit_code": 0, "client_key": "k1"'), ('"author": "claude", "exit_code": 0, "client_key": "k1"', False))
+
+    def test_s2_r05_a_planted_spool_file_never_takes_a_direct_report_key(self):
+        from onecrew.v2 import support_spool, support
+        victim = support_spool.content_key('my real report', None, {}, support.runtime_probe()['dist_version'], None)
+        planted = support_spool.record(text='planted text', key=victim, project=self.root, state_root=self.ledger.state_root, reason='planted')
+        support_spool.spool(planted, project=self.root, state_root=self.ledger.state_root)
+        code, imported = self.cli('support', 'import-spool')
+        self.assertEqual(imported['counts']['rejected'], 1, imported)
+        code, real = self.report('--text', 'my real report')
+        self.assertEqual(code, 0, real)
