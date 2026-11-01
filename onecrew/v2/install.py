@@ -519,7 +519,9 @@ def check_hooks(root, state, exe):
     return 'PASS', ' / '.join(detail for _, detail in results)
 
 
-def doctor(project=None, state_root=None, exe=None, claude=claude_status):
+def doctor_facts(project=None, state_root=None, exe=None, claude=claude_status):
+    """The doctor checks as [(level, name, detail)], printing nothing. claude=None skips the two Claude CLI checks (they start a program);
+    the support bundle (diagnostics.py) uses that form."""
     start = Path(project) if project else where.project_from_environment()
     root = where.git_root(start)
     lines = []
@@ -530,8 +532,10 @@ def doctor(project=None, state_root=None, exe=None, claude=claude_status):
     git = shutil.which('git')
     if git: add('PASS', 'doctor.git', t('doctor.git_ok', path=git))
     else: add('FAIL', 'doctor.git', t('doctor.git_missing'))
-    state_name, path, why = claude()
-    if state_name == 'missing':
+    state_name, path, why = claude() if claude is not None else ('not_probed', None, '')
+    if state_name == 'not_probed':
+        pass
+    elif state_name == 'missing':
         add('WARN', 'doctor.claude', t('doctor.claude_missing'))
         add('WARN', 'doctor.login', t('doctor.login_skip'))
     else:
@@ -571,6 +575,11 @@ def doctor(project=None, state_root=None, exe=None, claude=claude_status):
             plan, bad = hook_cli.load_plan(plan_file)
             if bad: add('FAIL', 'doctor.plan', t('doctor.plan_bad', why=bad.split(':')[0]))
             else: add('PASS', 'doctor.plan', t('doctor.plan_ok', name=plan.get('plan'), revision=plan.get('revision'), mode=plan.get('mode')))
+    return lines
+
+
+def doctor(project=None, state_root=None, exe=None, claude=claude_status):
+    lines = doctor_facts(project, state_root, exe, claude)
     for level, name, detail in lines: say(f'{level} {name}: {detail}')
     counts = {level: sum(1 for l in lines if l[0] == level) for level in ('FAIL', 'WARN', 'PASS')}
     say(t('doctor.summary', fails=counts['FAIL'], warns=counts['WARN'], passes=counts['PASS']))
