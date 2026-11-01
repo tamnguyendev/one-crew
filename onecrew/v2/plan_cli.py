@@ -75,6 +75,10 @@ def _parser():
     p = survey.add_parser('open'); p.add_argument('name'); p.add_argument('unknown'); p.add_argument('--file', required=True, type=Path)
     p = survey.add_parser('show'); p.add_argument('name')
     p = survey.add_parser('run'); p.add_argument('name'); p.add_argument('survey'); p.add_argument('--file', required=True, type=Path)
+    step0_ = plan.add_parser('step0', help='2.4-C: the step-0 view of the latest revision (read-only, no model).').add_subparsers(dest='action', required=True)
+    p = step0_.add_parser('show', help='Goal, before/after, preferred option and why, what stays unchanged, acceptance, open decision-changing unknowns, '
+                                       'estimate or "chưa đủ dữ liệu", investigation cap/spent/stop. Writes nothing.')
+    p.add_argument('name'); p.add_argument('--json', action='store_true')
     brainstorm = plan.add_parser('brainstorm', help='Options of the plan.').add_subparsers(dest='action', required=True)
     p = brainstorm.add_parser('table', help='Print the options as a table of at most 30 lines.'); p.add_argument('name')
     p = plan.add_parser('enforce', help='Owner only: require an approved plan before any job of this state root can run.')
@@ -158,6 +162,9 @@ def _dispatch(ledger, args):
                 from . import survey_worker
                 return survey_worker.run(ledger, args.name, args.survey, read_json(args.file))
             return survey.show(ledger, args.name) if args.action == 'show' else survey.open_survey(ledger, args.name, args.unknown, read_json(args.file))
+        if args.command == 'step0':
+            view = step0.show_card(ledger, args.name)
+            return view if args.json else step0.render_card(view)
         if args.command == 'card':
             return step0.present_decisions(ledger, args.name, read_json(args.file).get('choices'), {'component': args.component, 'model': args.model})
         if args.command == 'brainstorm':
@@ -209,7 +216,7 @@ def main(argv=None):
     args.state_root = where.state_root_for(args.project, args.state_root)      # G2: <project>/.onecrew/config.json when no --state-root is given
     if args.group == 'plan' and args.command == 'lint': return _lint(args)
     read_retention = args.group == 'plan' and args.command == 'retention' and args.action == 'list'
-    read_survey = args.group == 'plan' and args.command == 'survey' and args.action == 'show'
+    read_survey = args.group == 'plan' and ((args.command == 'survey' and args.action == 'show') or args.command == 'step0')
     if read_survey or read_retention or (args.group == 'verdict' and args.command in ('diff', 'artifact')):      # the ledger of a run that must write nothing: a write is an error, not a convention
         from . import lint
         ledger = lint.ReadOnlyLedger(args.project, args.state_root)
