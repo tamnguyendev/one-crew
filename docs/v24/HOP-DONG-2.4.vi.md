@@ -226,6 +226,21 @@ Giờ lấy từ `git log --date=format:%H:%M` trong `wf-v24-pkg`, giờ ghi fil
 | chưa có | Gói `onecrew-2.4.0.dev3-beta` (28 bước), kiểm từ gói, script thử | <!-- v24:dev3-pkg --> |
 | chưa có | Gate 2.2 và hồi quy 2.4 trên `5a7a8ef` | <!-- v24:dev3-gate --> |
 
+### Review Codex trên dev3 → dev4 (02/11, Claude Opus 5.5, tài khoản mới)
+
+| Lúc | Việc | Bằng chứng |
+|---|---|---|
+| 02/11 ~01:55 | Chỉ thị chủ: sửa 1 P1 (bytecode sai chạy trước khi bị từ chối) và 1 P3 (tài liệu trong gói dev3 không đồng bộ). Tiếp quản từ wiki, `wf-v24-pkg` HEAD `7e61b46` (tài liệu sau `5a7a8ef`), không tiến trình kiểm 2.4 nào đang chạy | bằng chứng Codex `D:/OneCrewRuns/codex-dev3-review-c2a9a088/` |
+| 02/11 02:03 | Phản chứng P1 trên venv thật: 7/8 đỏ trên `7e61b46` | `logs/reg-p1-bytecode-red-7e61b46.txt` |
+| 02/11 02:04–02:06 | Sửa P1 (`identity` dừng trước `entry_run`, runtime cũ khi quay lui), 8/8 xanh | `logs/reg-p1-bytecode-green-p1fix3.txt` |
+| 02/11 02:09–02:10 | V30, V29 viết; cả hai FAIL trên gói dev3 | `logs/pkg-red-dev3-V30-s2-docs.txt`, `pkg-red-dev3-V29-s2-bytecode.txt` |
+| 02/11 02:20:51 | Sổ hook thật đổi: thêm mục `d:\tamnt\workspace\1.vimes\9.signsdk\sources\signsdk` → `D:\OneCrewRuns\projects\signsdk-9SignSDK\state-23`, của phiên khác (lượt 2.4 ghi bản riêng `tmp-int\lad`, lần ghi cuối 01:26). Không khôi phục | `logs/reg-v24-all-p1fix3.txt` (hash trước/sau) |
+| 02/11 02:38–02:43 | `test_v24_s2_installed` hỏng (bản fix không đổi version từ dev3); sửa test; danh sách cache qua stdin (tempfile dir cũ của tiến trình); 12/12 | `logs/reg-s2-installed-fix-stdin.txt` |
+| 02/11 02:43 | Commit `0b4f539` (P1), `704857c` (P3 + V29/V30), snapshot `4f03e54` (`2.4.0.dev4`); `claude/onecrew-2.4` fast-forward | git |
+| 02/11 02:43–03:18 | Hồi quy 2.4 trên `4f03e54` sạch 259/259; gói dev4 30/30, script thử DAT, hash 62/62 | `logs/reg-v24-all-4f03e54.txt`, `logs/pkg-*-2.4.0.dev4.txt` |
+| 02/11 03:10 | Probe Codex trên wheel dev4: `marker_created false`, `entrypoint_exit null` | `D:/OneCrewRuns/v24/codex-probe-dev4b/bytecode-result.json` |
+| 02/11 03:19 | Gate 2.2 trên `4f03e54` (chạy một mình) | <!-- v24:dev4-gate --> |
+
 ## 8. Quyết định vượt quyền và điều cần Codex hay chủ sở hữu
 
 - **Không phát hành 2.4.** Không push nhánh, không tag, không publish gói 2.4 nào; không nâng runtime đang dùng (`%LOCALAPPDATA%\OneCrew`, venv và hook thật); không đọc/ghi `state-v2-real`. Phát hành là quyết định của chủ sở hữu sau Codex review.

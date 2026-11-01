@@ -228,3 +228,61 @@ Gói `D:/OneCrewRuns/v24/pkg/onecrew-2.4.0.dev3-beta` (snapshot `5a7a8ef`, 28 b�
 Gate 2.2 trên `5a7a8ef` và hồi quy tích hợp 2.4 trên `5a7a8ef`: chưa có. Hai lượt tích hợp ở §8.3 là trên `830af1a` và `fe495c1`, trước vòng 4–5 của S2 (`f171ac9`, `bb19222`); vòng 4–5 mới có lượt module S2 riêng.
 
 <!-- v24:dev3-gate -->
+
+## 9. Review Codex trên dev3 → dev4 (02/11)
+
+Mốc Codex review: code `5a7a8ef`, `2.4.0.dev3`, gói `D:/OneCrewRuns/v24/pkg/onecrew-2.4.0.dev3-beta`, wheel `35c78a4927dabc5a30ea2f6394362537731abac54e7ed240b4f5fc6188f92c29`; tài liệu checkout `c6f83e3`, `7e61b46` sau snapshot gói. Bằng chứng của Codex: `D:/OneCrewRuns/codex-dev3-review-c2a9a088/` (`bytecode_probe.py`, `bytecode-result.json`: `marker_created true`, `entrypoint_exit 0`). Gói dev3 giữ nguyên, không sửa.
+
+### 9.1 Bảng finding
+
+| Finding | Nguyên nhân | Sửa (file:line ở snapshot dev4) | Phản chứng đỏ trước → xanh sau |
+|---|---|---|---|
+| P1 (S2) bytecode sai chạy trước khi bị từ chối | `identity` ghi verdict `.pyc` của trình thông dịch rồi vẫn gọi `entry_run` (`onecrew --version`); `verify_installed` chỉ thêm lỗi sau khi đã chạy. Cùng lớp: quay lui so runtime cũ theo mốc **bỏ qua cache** rồi chạy runtime cũ (drill, `event_classes`) | `onecrew/v2/hotfix.py`: `unproven_caches` :192, `identity` dừng trước `entry_run` :411–416, `verify_installed` báo `entry_blocked` :1310, `entry_run` với `PYTHONPYCACHEPREFIX` riêng :172–188, quay lui `_old_runtime` + `venv_caches` :205, :1558–1564, danh sách cache qua stdin :165 | `tests/test_v24_s2_bytecode.py` trên venv thật (wheel của checkout, pip): 7/8 đỏ trên `7e61b46` (`reg-p1-bytecode-red-7e61b46.txt`: file đánh dấu được tạo, `onecrew` của venv được chạy), 8/8 xanh sau sửa (`reg-p1-bytecode-green-p1fix3.txt`). Bước gói V29 trên chính gói dev3: FAIL (`pkg-red-dev3-V29-s2-bytecode.txt`) |
+| P3 tài liệu trong gói không đồng bộ | Gói dev3 dựng từ `5a7a8ef`; tài liệu tổng hợp sửa sau snapshot (`c6f83e3`) không vào gói. Trong gói: mục S2, B của `limits-final.md` khác `limits-s2.md`, `limits-b.md`; dòng claim cũ; README "chưa được Codex review" khác dòng đầu giới hạn | snapshot dev4 chứa tài liệu đã sửa; câu `.pyc` ở dòng "Ranh giới tin cậy" (`limits-s2.md`, `limits-final.md`), `HUONG-DAN-SUPPORT.vi.md`; README trỏ dòng review của mục Giới hạn (`build_milestone.py`) | `tests/test_v24_docs_sync.py` (mỗi mục giới hạn tổng hợp = file của mốc; claim nêu pid + thời điểm tạo + gia hạn; dòng tin cậy nêu `.pyc`). Bước gói V30 trên gói dev3: FAIL ba lý do (`pkg-red-dev3-V30-s2-docs.txt`) |
+
+### 9.2 Hành vi mới
+
+- `onecrew --version` của phép kiểm danh tính chỉ chạy khi mọi `.pyc` của nguồn trong wheel có câu trả lời `same` (hoặc `other interpreter`: tag/magic khác, Python này không nạp). `.pyc` khác, không đọc được, không có câu trả lời, hay trình thông dịch không trả lời → `entry_blocked`, venv bị từ chối, `exit` để trống (không có chương trình nào chạy để có exit).
+- Lần chạy `onecrew --version` đó đọc bytecode từ một thư mục trống riêng (`PYTHONPYCACHEPREFIX`), xóa sau khi chạy: `.pyc` bị thay ngay sau phép so cũng không chạy trong phép kiểm; lần xét kế tiếp (ngay trước khi ghi hook, recheck) thấy nó.
+- Quay lui: sau khi mốc runtime cũ khớp, mọi `.pyc` có nguồn bên cạnh trong `site-packages` của runtime cũ được trình thông dịch `-I -S` của nó so với nguồn; không đạt thì từ chối trước khi chạy runtime cũ. Danh sách dài đi qua file tạm thay cho dòng lệnh (giới hạn 32k ký tự của Windows).
+- Giới hạn còn lại: phép so cần code `.pyc` giống hệt code biên dịch từ nguồn; nó không bắt mã độc nằm ngay trong nguồn của runtime cũ (nguồn đó chỉ được so với mốc lúc cài). Python gốc và thư viện chuẩn vẫn được tin như trước.
+
+### 9.3 Kiểm
+
+Do Claude chạy trong lượt này (log dưới `D:/OneCrewRuns/v24/logs/`, trừ khi ghi khác):
+
+| Kiểm | Snapshot / artifact | Kết quả |
+|---|---|---|
+| P1 phản chứng, code chưa sửa | `7e61b46` (code = `5a7a8ef`) | `reg-p1-bytecode-red-7e61b46.txt`: 7 hỏng / 8 (hành vi: file đánh dấu được tạo, `onecrew` của venv được chạy); 1 đối chứng đạt |
+| P1 phản chứng, sau sửa | checkout | `reg-p1-bytecode-green-p1fix3.txt` 8/8; cùng tiến trình với S2 cài và tài liệu `reg-s2-installed-fix-stdin.txt` 12/12 |
+| V29, V30 trên chính gói dev3 | gói dev3 | `pkg-red-dev3-V29-s2-bytecode.txt`, `pkg-red-dev3-V30-s2-docs.txt`: cả hai FAIL đúng lý do |
+| Probe của Codex, chỉ đổi đường dẫn wheel + version | wheel dev4, venv sạch | `D:/OneCrewRuns/v24/codex-probe-dev4b/bytecode-result.json`: `before_problems []`, `cache_verdict differs`, **`marker_created false`, `entrypoint_exit null`** (dev3: `true`, `0`). Thư mục `codex-probe-dev4` là lượt sai đường dẫn wheel (so với RECORD dev3), không tính |
+| Hồi quy mọi module `tests/test_v24_*` | `4f03e54`, `wf-v24` sạch | `reg-v24-all-4f03e54.txt`: **259/259 đạt, 0 skip** (02:43:40–03:18:06) |
+| Kiểm từ gói | gói dev4 | `pkg-verify-2.4.0.dev4.txt` **30/30** (V1–V16 hồi quy 2.3, V17–V30 năm mốc; V29 19,5 s, V30 đạt); `pkg-wrapper-2.4.0.dev4.txt` `DAT` (task đầu tiên 25/25, alpha 5/5); chạy lại cùng thư mục `KHONG DAT` exit 2 (đúng thiết kế); `SHA256SUMS` 62/62 khớp (`pkg-run-2.4.0.dev4.txt`) |
+
+Lượt hồi quy trên cây đang sửa (`reg-v24-all-p1fix3.txt`, 255/256) không dùng làm bằng chứng: tài liệu, bộ kiểm gói và version đã đổi trong lúc nó chạy. Lỗi duy nhất của lượt đó là `test_v24_s2_installed` (bản fix không được đổi version), có từ khi nâng lên dev3: test chỉ đổi version khi `pyproject.toml` ghi đúng `2.4.0.dev1`; đã sửa ở `0b4f539` (regex thay mọi dòng version).
+
+Không chạy: provider/model thật (không cần cho hai finding); POSIX.
+
+### 9.4 Gói dev4
+
+`D:/OneCrewRuns/v24/pkg/onecrew-2.4.0.dev4-beta` — snapshot `4f03e543118d4795578f5e90d8f4b7b36acbbb54`, version `2.4.0.dev4`, wheel `onecrew-2.4.0.dev4-py3-none-any.whl`
+SHA256 `8fa0dfde7698ca135dc591989e2c923b4ce4eb3b0a318c3f62322af90d3c8587`. Dựng bằng `D:/OneCrewRuns/wf-dev-tools/v24/run_final_package.sh 4f03e54 2.4.0.dev4` trong worktree tách `wf-v24-final` (02:43:42). Gói dev3 giữ nguyên để truy vết.
+
+Tài liệu đồng bộ trong chính gói: `docs/limits-final.md` (mỗi mục = `docs/limits-<mốc>.md`, kiểm bằng V30), `docs/limits-s2.md` và `docs/HUONG-DAN-SUPPORT.vi.md` (quy tắc `.pyc`), README (mục Giới hạn = `limits-final.md`, version/commit/wheel đúng manifest, câu review trỏ dòng đầu Giới hạn), `docs/CHANGELOG.md` (dev4), báo cáo và hợp đồng ở bản của snapshot (mục này được thêm sau snapshot; xem bản checkout).
+
+Lệnh thử (PowerShell, terminal của chủ):
+
+```
+powershell -ExecutionPolicy Bypass -File "D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev4-beta\verify\thu-goi.ps1"
+```
+
+Chạy xong thấy dòng `DAT: goi 2.4.0.dev4 ... 30/30 buoc ...` là đạt.
+
+### 9.5 Gate 2.2 trên dev4
+
+<!-- dev4:gate -->
+
+### 9.6 Cách ly
+
+Mọi lượt dùng `TEMP`, `LOCALAPPDATA`, `APPDATA` dưới `D:/OneCrewRuns/v24/tmp-int` (hồi quy), thư mục của từng bước kiểm gói, hoặc `D:/OneCrewRuns/v24/gates-tmp` (gate). SHA256 sổ hook thật `8ecf0fda5097d18…` bằng nhau trước và sau mỗi lượt (log ghi). Không đụng `wf-v23`, 2.2, runtime đang dùng, `state-v2-real`; không push, không tag; không gọi provider/model.
