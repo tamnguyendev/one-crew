@@ -494,7 +494,8 @@ def _status(ledger, conn, anchor, found):
     installs = [r for r in rows if r['kind'] == 'support.install' and r['payload'].get('result') in ('switched', 'rolled_back')]
     now = view['current_runtime']
     out['installed'] = _field(view['installed'], view['installed_evidence'] if view['installed'] else [],
-                              **({'note': 'switched, but the hooks no longer run it', 'runs_now': now['files']} if now and not now['current'] else {}))
+                              **({'note': 'switched, but the hooks no longer run it', 'runs_now': now['files']} if now and not now['current'] else {}),
+                              **({'restart_sessions': view['restart_sessions']} if view.get('restart_sessions') else {}))
     out['rolled_back'] = _field(view['rolled_back'], view['installed_evidence'] if view['rolled_back'] else [])
     out['partially_switched'] = _field(bool(view['partially_switched']), view['partially_switched'])
     verified, last = view['verified'], (view['verified']['last'] or None)
@@ -521,7 +522,7 @@ def _status(ledger, conn, anchor, found):
             bad = record.get('phase') == 'held' or record.get('verification_result') == 'fail'
             blocked = _field(bad, [f'node:{refs["plan"]}/{refs["node"]} phase {record.get("phase")} verification {record.get("verification_result")}'])
     if view['violation']:
-        blocked = _field(True, [view['violation']], note='an attempt or action started during the switch: later steps are refused')
+        blocked = _field(True, [view['violation']], note='a switch window violation (reason in the evidence): support install or support rollback drills the current data again')
     elif last and last['result'] != 'pass':
         blocked = _field(True, [f'receipt:{last.get("receipt")} result {last["result"]} on the {last["environment"]}'])
     elif at_target:

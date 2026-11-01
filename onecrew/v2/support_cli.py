@@ -49,7 +49,8 @@ def _parser():
     p.add_argument('--consumers', nargs='+', default=(), help='projects that use this venv outside the hook registry (checked too)')
     p.add_argument('--replace', action='store_true', help='owner: replace an existing declaration (the previous one is recorded)')
     commands.add_parser('targets', help='list the declared install targets')
-    commands.add_parser('cleanup', help='remove finished drill, rollback and recheck copies under support-work')
+    p = commands.add_parser('cleanup', help='remove finished drill, rollback and recheck copies under support-work')
+    p.add_argument('--venv', type=Path, help='owner only: remove a venv this ledger began but never recorded a creation baseline for')
     p = commands.add_parser('artifact', help='bind a hotfix wheel to the feedback: wheel bytes + manifest + the fix plan verified tree')
     p.add_argument('feedback'); p.add_argument('--wheel', type=Path, required=True); p.add_argument('--manifest', type=Path, required=True)
     p = commands.add_parser('install', help='install the artifact in a new venv at a target, drill on a copy, switch at a safe point')
@@ -136,7 +137,7 @@ def main(argv, index=None):
             from . import hotfix
             if args.command == 'target': _say(hotfix.target_add(ledger, args.id, args.venv, args.python, args.consumers, args.replace))
             elif args.command == 'targets': _say(hotfix.targets(ledger))
-            elif args.command == 'cleanup': _say(hotfix.cleanup(ledger))
+            elif args.command == 'cleanup': _say(hotfix.cleanup_venv(ledger, args.venv) if args.venv else hotfix.cleanup(ledger))
             elif args.command == 'artifact': _say(hotfix.artifact(ledger, args.feedback, args.wheel, args.manifest))
             elif args.command == 'install': _say(hotfix.install(ledger, args.feedback, args.target, args.keep))
             elif args.command == 'learn': _say(hotfix.learn(ledger, args.feedback, args.text))

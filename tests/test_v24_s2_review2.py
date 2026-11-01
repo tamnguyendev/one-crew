@@ -453,11 +453,12 @@ class Round2(Window, S2Fixture):
         with patch.object(hotfix(), 'repoint', self.once(real, 'written by the new runtime after the repoint', after=True)):
             code, made = self.install()
         self.assertEqual(made['result'], 'switched', made)
-        self.assertEqual(made['events_after_repoint'], 1)                             # the one write, counted (support records excluded)
+        # round 3 (R3-03): the write lands before the snapshot right after the last hook write: a plain event in the window, counted
+        self.assertEqual(made['events_in_window'], 1)                                 # (support records excluded), not a violation
 
     def test_R2_02c_old_runtime_attempt_in_the_window_is_a_violation(self):
         made = self.violation()
-        self.assertIn('during the switch', json.dumps(made['problems']))
+        self.assertIn('between the first and the last hook write', json.dumps(made['problems']))
 
     def test_R2_02d_old_runtime_process_still_running_after_the_repoint_is_a_violation(self):
         real = hotfix().repoint
@@ -616,6 +617,184 @@ class Round2(Window, S2Fixture):
         self.assertNotEqual(made.get('result') if isinstance(made, dict) else None, 'switched', made)
         self.assertIn('fixmod.py', json.dumps(made))
         self.assertEqual(self.settings_exe(), self.old)
+
+
+class Round3(Window, S2Fixture):
+    """Round 3 review (review-s2-r3.md R3-01..R3-06): FAULT INJECTION on the fake runtime (S2Fixture); the ledger, engine, authority check,
+    claim and hook files are real."""
+
+    new_venv = Round2.new_venv
+    violation = Round2.violation
+
+    def setUp(self):
+        super().setUp()
+        self.injected = []
+        self.ready()
+        self.old = {str(self.old_exe.resolve())}
+
+    def rollback_violation(self):
+        real = hotfix().repoint
+        with patch.object(hotfix(), 'repoint', self.once(real, 'written right after the rollback repoint', after=True)):
+            code, made = self.owner('support', 'rollback', self.fb)
+        self.assertEqual(made['result'], 'switch_window_violation', made)
+        return made
+
+    def test_R3_01a_install_violation_then_rollback_violation_then_rollback_again(self):
+        self.violation()
+        self.assertTrue(self.status()['installed']['value'])
+        self.rollback_violation()
+        self.assertEqual(self.settings_exe(), self.old)
+        state = self.status()
+        self.assertFalse(state['installed']['value']); self.assertTrue(state['still_blocked']['value'])
+        self.assertIn('rollback', json.dumps(state['still_blocked'])); self.assertIn('the old runtime', json.dumps(state['still_blocked']))
+        self.assertIn('fence', json.dumps(state['still_blocked']))                         # the real reason, not "an attempt started"
+        code, back = self.owner('support', 'rollback', self.fb)
+        self.assertEqual((code, back['result']), (0, 'rolled_back'), back)
+        self.assertIn('notice.exception', json.dumps(back['reader_pair']))            # the rerun drilled the write
+        state = self.status()
+        self.assertTrue(state['rolled_back']['value']); self.assertFalse(state['installed']['value'])
+        self.assertEqual(self.settings_exe(), self.old)
+
+    def test_R3_01b_rollback_violation_then_install_again(self):
+        code, made = self.install()
+        self.assertEqual(made['result'], 'switched', made)
+        self.assertIn('restart', json.dumps(self.status()['installed']))               # R3-09: one line about open sessions
+        self.rollback_violation()
+        code, again = self.install()
+        self.assertEqual((code, again['result']), (0, 'switched'), again)
+        self.assertEqual(self.settings_exe(), {self.new_exe()})
+        self.assertTrue(self.status()['installed']['value'])
+        self.assertIsNone(hotfix().projection(self.ledger, self.fb)['violation'])
+
+    def test_R3_01c_install_violation_then_install_again_binds_to_the_current_data(self):
+        self.violation()
+        code, again = self.install()
+        self.assertEqual((code, again['result']), (0, 'switched'), again)
+        self.assertIsNone(hotfix().projection(self.ledger, self.fb)['violation'])
+
+    def test_R3_03a_new_runtime_attempt_right_after_the_last_write_is_counted_not_a_violation(self):
+        real = hotfix()._post
+        def after(*args, **kwargs):
+            done = real(*args, **kwargs)
+            with self.ledger.transaction(write=True) as conn:
+                conn.execute("UPDATE attempts SET status='running', updated_at='after the repoint'")
+            return done
+        with patch.object(hotfix(), '_post', after):
+            code, made = self.install()
+        self.assertEqual(made['result'], 'switched', made)
+        self.assertGreaterEqual(made['attempts_after_repoint'], 1)
+
+    def test_R3_03b_attempt_between_two_hook_writes_is_a_violation(self):
+        second = Path(self.temp.name) / 'second-r3'; second.mkdir()
+        __import__('subprocess').run(['git', '-C', str(second), 'init', '-q'], check=True)
+        self.hook(second, self.old_exe)
+        real, fired = hotfix()._crash, []
+        def crash(point):
+            if point == 'mid_switch' and not fired:
+                fired.append(point)
+                with self.ledger.transaction(write=True) as conn:
+                    conn.execute("UPDATE attempts SET status='running', updated_at='between the writes'")
+            return real(point)
+        with patch.object(hotfix(), '_crash', crash):
+            code, made = self.install()
+        self.assertEqual(made['result'], 'switch_window_violation', made)
+        self.assertIn('between the first and the last hook write', json.dumps(made['problems']))
+
+    def test_R3_02_interrupted_venv_without_baseline_is_never_resumed(self):
+        with patch.dict(os.environ, {'ONECREW_SUPPORT_CRASH': 'after_venv'}):
+            with self.assertRaises(hotfix().Crash):
+                hotfix().install(self.ledger, self.fb, 'lab')
+        venv = self.new_venv()
+        (venv / 'Scripts' / 'python.exe').write_bytes(b'tampered while nobody looked')
+        calls = []
+        for name in ('entry_run', 'interpreter', 'pip_install'):
+            real = getattr(hotfix(), name)
+            def spy(first, *a, _real=real, _name=name, **k):
+                calls.append((_name, str(first))); return _real(first, *a, **k)
+            target = patch.object(hotfix(), name, spy); target.start(); self.addCleanup(target.stop)
+        code, refused = self.install()
+        self.assertEqual(code, 2, refused); self.assertIn('no creation baseline', refused['error']); self.assertIn(str(venv), refused['error'])
+        self.assertEqual(calls, []); self.assertTrue((venv / 'Scripts' / 'python.exe').is_file())    # nothing ran, nothing deleted
+        for markers in ({'CLAUDE_CODE_CHILD_SESSION': '1'}, {'CLAUDECODE': '1'}):
+            with patch.dict(os.environ, markers):
+                code, no = self.cli('support', 'cleanup', '--venv', str(venv))
+            self.assertEqual(code, 2, no); self.assertTrue(venv.is_dir())
+        user = Path(self.temp.name) / 'uses-it'; user.mkdir(); __import__('subprocess').run(['git', '-C', str(user), 'init', '-q'], check=True)
+        self.hook(user, venv / 'Scripts' / 'onecrew.exe')
+        code, no = self.owner('support', 'cleanup', '--venv', str(venv))
+        self.assertEqual(code, 2, no); self.assertIn('hook file', no['error']); self.assertTrue(venv.is_dir())
+        (user / '.claude' / 'settings.local.json').unlink()
+        code, removed = self.owner('support', 'cleanup', '--venv', str(venv))
+        self.assertEqual(code, 0, removed); self.assertFalse(venv.exists())
+        self.assertTrue([e for e in self.support_events('support.install') if e.get('phase') == 'cleanup'])
+        code, made = self.install()
+        self.assertEqual(made['result'], 'switched', made)
+        self.assertNotEqual(hashlib.sha256((venv / 'Scripts' / 'python.exe').read_bytes()).hexdigest(),
+                            hashlib.sha256(b'tampered while nobody looked').hexdigest())
+
+    def test_R3_02_cleanup_refuses_a_checked_venv_or_one_this_ledger_did_not_begin(self):
+        code, made = self.install()
+        code, no = self.owner('support', 'cleanup', '--venv', str(self.new_venv()))
+        self.assertEqual(code, 2, no); self.assertIn('baseline', no['error'])
+        stranger = Path(self.temp.name) / 'stranger-venv'; (stranger / 'Scripts').mkdir(parents=True)
+        code, no = self.owner('support', 'cleanup', '--venv', str(stranger))
+        self.assertEqual(code, 2, no); self.assertIn('marker', no['error']); self.assertTrue(stranger.is_dir())
+
+    def test_R3_04_two_ledgers_install_the_same_wheel_to_one_target(self):
+        from onecrew.ledger import Ledger
+        from tests.test_v2_l1 import plan_json
+        code, first = self.install()
+        self.assertEqual(first['result'], 'switched', first)
+        venv_a = self.new_venv()
+        tree_a = hotfix().venv_tree(venv_a)
+        other, state_b = Path(self.temp.name) / 'project-b', Path(self.temp.name) / 'state-b'
+        other.mkdir(); git = lambda *a: __import__('subprocess').run(['git', '-C', str(other), *a], check=True, capture_output=True)
+        git('init', '-q')
+        self.hook(other, self.old_exe, state_b)
+        fix_b = Ledger(self.repo, state_b)
+        actor = os.environ.pop('ONECREW_ACTOR', None)
+        try:
+            plans.propose(fix_b, 'FIX1', plan_json(authority={'edit': True, 'commands': True, 'apply_to_project': True,
+                                                           'granted_actions': ['support_install:lab']}), 'claude', workflow=True)
+            plans.approve(fix_b, 'FIX1', 'owner', 'fixture owner approves the fix plan in the second ledger')
+            from onecrew.v2 import verdict
+            self.assertEqual(verdict.run(fix_b, 'FIX1', 'M1', self.repo)['milestones'][0]['state'], 'passed')
+            on_b = dict(project=other, state=state_b)
+            code, made = self.cli('support', 'report', '--json', '--text', 'second project, same runtime defect', **on_b)
+            self.assertEqual(code, 0, made); fb_b = made['id']
+            self.cli('support', 'classify', fb_b, '--class', 'onecrew_runtime', '--basis', 'same defect', **on_b)
+            self.assertEqual(self.cli('support', 'link', fb_b, '--plan', 'FIX1', '--project-id', fix_b.project_id, **on_b)[0], 0)
+            self.assertEqual(self.cli('support', 'target', 'add', '--id', 'lab', '--venv', str(self.old_venv), **on_b)[0], 0)
+        finally:
+            if actor is not None: os.environ['ONECREW_ACTOR'] = actor
+        bound = self.support_events('support.artifact')[-1]                            # the SAME wheel bytes as the first ledger's
+        wheel = Path(self.temp.name) / 'same-wheel' / bound['wheel_name']; wheel.parent.mkdir()
+        wheel.write_bytes(__import__('onecrew.snapshots', fromlist=['x']).Snapshots(self.ledger.state_root).read_evidence(bound['wheel_blob']))
+        manifest = self.manifest(wheel)
+        code, art = self.cli('support', 'artifact', fb_b, '--wheel', str(wheel), '--manifest', str(manifest), **on_b)
+        self.assertEqual(art['wheel_sha256'], bound['wheel_sha256'])
+        self.assertEqual(code, 0, art)
+        code, second = self.cli('support', 'install', fb_b, '--target', 'lab', **on_b)
+        self.assertEqual((code, second['result']), (0, 'switched'), second)
+        self.assertNotEqual(Path(second['new_venv']), venv_a)                          # its own venv, its own baseline
+        self.assertEqual(hotfix().venv_tree(venv_a), tree_a)                           # the first ledger's venv untouched
+        self.assertIsNone(hotfix()._baseline_of(Ledger(other, state_b), venv_a, self.support_events('support.artifact')[-1]))
+        self.assertEqual(self.settings_exe(other), {str((Path(second['new_venv']) / 'Scripts' / 'onecrew.exe').resolve())})
+        self.assertEqual(self.settings_exe(), {self.new_exe()})
+
+    def test_R3_06_unreadable_target_pyvenv_refuses_and_home_is_rechecked(self):
+        cfg = self.old_venv / 'pyvenv.cfg'
+        saved = cfg.read_bytes()
+        cfg.write_bytes(b'\xef\xbb\xbf' + saved)                                       # a BOM: read as site.py reads it
+        code, made = self.install()
+        self.assertEqual(made['result'], 'switched', made)
+        other = Path(self.temp.name) / 'other-python'; other.mkdir(); (other / 'python.exe').write_bytes(b'another base python')
+        cfg.write_text(f'home = {other}\ninclude-system-site-packages = false\n', encoding='utf-8')
+        code, refused = self.cli('support', 'recheck', self.fb)
+        self.assertEqual(code, 2, refused); self.assertIn('home', refused['error'])
+        cfg.write_text('no home here\n', encoding='utf-8')
+        code, refused = self.cli('support', 'recheck', self.fb)
+        self.assertEqual(code, 2, refused); self.assertIn('pyvenv.cfg', refused['error'])
 
 
 if __name__ == '__main__':

@@ -167,6 +167,9 @@ class S2Fixture(Helpers, CandidateFixture):
         self.old_venv = Path(self.temp.name) / 'venvs' / 'prod'
         (self.old_venv / 'Scripts').mkdir(parents=True)
         self.old_exe = self.old_venv / 'Scripts' / 'onecrew.exe'; self.old_exe.write_bytes(b'old')
+        from onecrew.process_core import native_python
+        (self.old_venv / 'pyvenv.cfg').write_text(f'home = {Path(native_python()).parent}\ninclude-system-site-packages = false\n',
+                                                  encoding='utf-8')            # R3-06: the target's base python is read from here
         self.hook(self.root, self.old_exe)
         self.repo = Path(self.temp.name) / 'onecrew-repo'; self.repo.mkdir()
         git(self.repo, 'init', '-q'); git(self.repo, 'config', 'user.name', 'T'); git(self.repo, 'config', 'user.email', 't@localhost')
@@ -260,7 +263,8 @@ class S2Fixture(Helpers, CandidateFixture):
     def new_exe(self, fb=None):
         art = self.support_events('support.artifact')
         art = [a for a in art if a['feedback'] == (fb or self.fb)][-1]
-        return str((Path(f'{self.old_venv}-{VERSION}-{art["wheel_sha256"][:8]}') / 'Scripts' / 'onecrew.exe').resolve())
+        target = hotfix().targets(self.ledger)['lab']
+        return str((hotfix().new_venv_path(target, art, self.ledger.state_root) / 'Scripts' / 'onecrew.exe').resolve())
 
     def settings_exe(self, project=None):
         data = json.loads(((project or self.root) / '.claude' / 'settings.local.json').read_text(encoding='utf-8'))
@@ -508,10 +512,17 @@ class InstallTests(S2Fixture):
         self.ready()
         second = Path(self.temp.name) / 'second'; second.mkdir(); git(second, 'init', '-q')
         self.hook(second, self.old_exe)
-        for point in ('after_venv', 'after_prepared'):
-            with patch.dict(os.environ, {'ONECREW_SUPPORT_CRASH': point}):
-                with self.assertRaises(hotfix().Crash):
-                    hotfix().install(self.ledger, self.fb, 'lab')
+        with patch.dict(os.environ, {'ONECREW_SUPPORT_CRASH': 'after_venv'}):
+            with self.assertRaises(hotfix().Crash):
+                hotfix().install(self.ledger, self.fb, 'lab')
+        # round 3 (R3-02): a venv folder without a creation baseline is never resumed; the owner removes it, the install makes it again
+        code, refused = self.install()
+        self.assertEqual(code, 2, refused); self.assertIn('cleanup --venv', refused['error'])
+        code, removed = self.owner('support', 'cleanup', '--venv', str(Path(self.new_exe()).parent.parent))
+        self.assertEqual(code, 0, removed)
+        with patch.dict(os.environ, {'ONECREW_SUPPORT_CRASH': 'after_prepared'}):
+            with self.assertRaises(hotfix().Crash):
+                hotfix().install(self.ledger, self.fb, 'lab')
         with patch.dict(os.environ, {'ONECREW_SUPPORT_CRASH': 'mid_switch'}):
             with self.assertRaises(hotfix().Crash):
                 hotfix().install(self.ledger, self.fb, 'lab')
@@ -525,7 +536,7 @@ class InstallTests(S2Fixture):
         self.assertIn('completing an interrupted switch', json.dumps(self.support_events('support.install_prepared')[-1]['authority']))
         code, again = self.install()
         self.assertTrue(again.get('already'))
-        self.assertEqual(len(self.runtime.venvs), 1); self.assertEqual(len(self.runtime.installs), 1)
+        self.assertEqual(len(self.runtime.venvs), 2); self.assertEqual(len(self.runtime.installs), 1)    # the removed one never got pip
         self.assertEqual(len([e for e in self.support_events('support.install') if e.get('result') == 'switched']), 1)
         self.assertEqual((self.settings_exe(), self.settings_exe(second)), ({self.new_exe()}, {self.new_exe()}))
         self.assertFalse(self.status()['partially_switched']['value'])
