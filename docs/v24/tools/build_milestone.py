@@ -51,6 +51,7 @@ def sha(path):
 
 def load_verifier():
     """docs/v24/tools/verify_milestone.py as a module (its MILESTONE_STEPS table); importing it runs nothing."""
+    sys.dont_write_bytecode = True               # importing the verifier must not leave a __pycache__ in the tree being checked for cleanliness
     spec = importlib.util.spec_from_file_location('v24_verify_milestone', ROOT / 'docs/v24/tools/verify_milestone.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
