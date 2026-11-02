@@ -286,3 +286,74 @@ Gate snapshot 2.2 trên `4f03e54` (`D:/OneCrewRuns/wf-dev-tools/v24/run_gate.sh`
 ### 9.6 Cách ly
 
 Mọi lượt dùng `TEMP`, `LOCALAPPDATA`, `APPDATA` dưới `D:/OneCrewRuns/v24/tmp-int` (hồi quy), thư mục của từng bước kiểm gói, hoặc `D:/OneCrewRuns/v24/gates-tmp` (gate). SHA256 sổ hook thật `8ecf0fda5097d18…` bằng nhau trước và sau mỗi lượt (log ghi). Không đụng `wf-v23`, 2.2, runtime đang dùng, `state-v2-real`; không push, không tag; không gọi provider/model.
+
+## 10. Review Codex trên dev4 → dev5 (02/11)
+
+Mốc Codex review: snapshot `4f03e54`, `2.4.0.dev4`, gói `D:/OneCrewRuns/v24/pkg/onecrew-2.4.0.dev4-beta`, wheel `8fa0dfde7698ca135dc591989e2c923b4ce4eb3b0a318c3f62322af90d3c8587`. Bằng chứng của Codex: `D:/OneCrewRuns/codex-dev4-review-af11587c/` (`rollback_caller_probe.py` → `rollback-caller-result.json`: `all_proven true`, `marker_created true`, `reader_pair[0].problems []`; `rollback_race_probe.py` → `rollback-race-result.json`: `guard_problems []`, `marker_after_classifier true`). Phép thử của Codex dùng wheel/process/SQLite thật, giả feedback/quyền/lease, dừng trước khi ghi hook; không phải rollback trên runtime thật. Gói dev4 giữ nguyên, không sửa.
+
+### 10.1 Việc local còn thiếu (lập đầu lượt, từ hợp đồng §2 và finding)
+
+| Việc local | Tiêu chí hoàn tất | Bằng chứng |
+|---|---|---|
+| P1: bytecode bị thay sau phép kiểm chạy khi quay lui | Bước đọc sổ và phân loại sự kiện của rollback không thực thi `.pyc` bị thay; runtime cũ nguyên vẹn vẫn đọc/phân loại; thiếu câu trả lời không thành đường chạy; phép kiểm trước khi ghi hook từ chối | `reg-p1rb-red-final-a0ac49d.txt` 4/14 đỏ (marker) → `reg-p1rb-green2-p1rb-fix1.txt` 14/14; V31 FAIL trên gói dev4, đạt trên gói dev5; probe Codex trên wheel dev5: `marker_created false` |
+| Cùng lớp lỗi trực tiếp | Cùng cửa chạy chương trình của venv đã kiểm: bước đọc sổ khi diễn tập cài, recheck; `PYTHONPATH` của terminal không thay runtime đã kiểm | `test_drill_reader_never_loads_the_venv_caches`, `test_drill_reader_runs_the_checked_venv_not_a_package_on_pythonpath` (đỏ trên dev4, xanh); install drill và recheck đi qua cùng `_onecrew` |
+| Hồi quy S2 và cả 2.4 (S1, A, B, C không đổi code nhưng snapshot đổi) | `tests/test_v24_*` đạt trên snapshot dev5 sạch | `reg-s2-group-p1rb-fix1.txt` 93/93 (checkout); `reg-v24-all-387d3cb.txt` **265/265, 0 skip** trên `387d3cb` sạch |
+| Gói beta mới, kiểm từ artifact | Bước kiểm gói (thêm V31) đạt hết; script thử của chủ `DAT`; chạy lại cùng thư mục bị từ chối; `SHA256SUMS` khớp; tài liệu trong gói đồng bộ (V30) | `pkg-verify-2.4.0.dev5.txt` **31/31**; `pkg-wrapper-2.4.0.dev5.txt` `DAT`; chạy lại cùng thư mục `KHONG DAT` exit 2; `SHA256SUMS` 62/62 (`pkg-run-2.4.0.dev5.txt`) |
+| Wheel cuối trong venv sạch, đường dẫn có khoảng trắng | Phản chứng và đối chứng từ wheel; module origin, entrypoint, version, hash; không dùng nguồn checkout | `codex-probes-dev5.txt`: SHA256 wheel = manifest; `onecrew` nạp từ `D:/OneCrewRuns/v24/codex probe dev5/venv/Lib/site-packages`; `onecrew --version` = `2.4.0.dev5`; ba probe của Codex (bản sao không đổi) như §10.4 |
+| Gate 2.2 trên snapshot cuối | Mọi check thực thi đạt; `refused` chỉ vì các khoảng trống nghiệm thu đã biết, đối chiếu từng mục | §10.6 |
+| Hồ sơ | README, giới hạn, hướng dẫn, changelog trong gói; báo cáo/hợp đồng/wiki sau snapshot gắn hash gói | mục này, hợp đồng §7, wiki CURRENT/LESSONS |
+
+### 10.2 Finding
+
+| Finding | Nguyên nhân | Sửa (file:line ở snapshot dev5) | Phản chứng đỏ trước → xanh sau |
+|---|---|---|---|
+| P1 (S2) bytecode bị thay sau phép kiểm chạy khi quay lui | `_old_runtime` so `.pyc` của runtime cũ, rồi `_read_check` (`onecrew compat scan`, `plan show`, `engine …`) và `event_classes` chạy runtime cũ với `__pycache__` của venv. Chỉ lần chạy `onecrew --version` của identity có thư mục bytecode trống riêng (dev4). Cùng lớp: `_onecrew` kế thừa mọi biến của terminal, nên một `PYTHONPATH` làm bước đọc sổ nạp onecrew khác runtime đã kiểm | `onecrew/v2/hotfix.py`: `checked_run` :174–188, `entry_run` dùng nó :191–196, `_onecrew` (bước đọc sổ khi diễn tập, recheck) :445–448, `event_classes` (`-I -B -X pycache_prefix`) :455–459. Test: `tests/test_v24_s2_bytecode.py` :166–270. Bộ kiểm gói: `V31_PROBE` :1499, `v31_rollback_bytecode` :1564 (`docs/v24/tools/verify_milestone.py`) | Venv thật (wheel của checkout, pip), qua caller `_rollback` thật trên sổ thật có một task ghi sau khi chuyển; giả: feedback, quyền, tra bản ghi, lease, sự kiện cuối; `safe_point` dừng trước khi ghi hook (như Codex). Đỏ trên `hotfix.py` của `a0ac49d` (= dev4) với file test cuối: 4/14 hỏng đúng vì marker (bước đọc sổ, `PYTHONPATH`, bước phân loại, caller); 3 đối chứng và 7 ca dev4 đạt (`reg-p1rb-red-final-a0ac49d.txt`). Xanh 14/14 (`reg-p1rb-green2-p1rb-fix1.txt`). V31 trên chính gói dev4: FAIL `DEFECT (Codex dev4 P1)` (`pkg-red-dev4-V31-s2-rollback-bytecode.txt`) |
+
+### 10.3 Hành vi mới
+
+- Mọi chương trình của venv đã kiểm mà `hotfix` chạy (`onecrew --version` của identity, bước đọc sổ khi diễn tập cài/quay lui và recheck, bước phân loại sự kiện) chạy trong `checked_run`: bytecode chỉ từ một thư mục trống riêng (`PYTHONPYCACHEPREFIX`; lần chạy `-I` của bước phân loại dùng `-X pycache_prefix` và `-B`, vì `-I` bỏ qua biến `PYTHON*`), không ghi bytecode, không nhận biến `PYTHON*` của terminal; đầu ra `utf-8` (đúng cách `run` đọc). Thư mục bị xóa sau khi chạy.
+- `.pyc` bị thay ngay sau phép so không chạy; các chương trình đó biên dịch nguồn đã kiểm. Phép kiểm ngay trước khi ghi hook (`_old_runtime` trong `check()`) thấy `.pyc` bị thay và từ chối: "rollback refused, nothing switched".
+- Quyền, dữ liệu và trạng thái: không đổi đường nào của quyền hay sổ; runtime nguyên vẹn vẫn đọc và phân loại được (đối chứng); bản ghi quay lui nêu đúng việc đã làm (drill đã đọc nguồn đã kiểm; từ chối trước khi ghi hook nếu cache đổi).
+- Giới hạn: nguồn `.py` bị sửa giữa phép so và lúc chạy chỉ bị bắt ở phép kiểm kế tiếp (trước khi ghi hook). Sau khi hook đã chuyển, hook chạy runtime như Python thường chạy (có `__pycache__`), không được canh liên tục. Python gốc và thư viện chuẩn vẫn được tin.
+- Đính chính §9.2: dòng "danh sách dài đi qua file tạm" mô tả bản trung gian; snapshot dev4 (và dev5) đưa danh sách cache qua stdin của trình thông dịch, không qua file.
+
+### 10.4 Kiểm
+
+Do Claude chạy trong lượt này (log dưới `D:/OneCrewRuns/v24/logs/`):
+
+| Kiểm | Snapshot / artifact | Kết quả |
+|---|---|---|
+| Phản chứng P1, code dev4 | `a0ac49d` (code = `4f03e54`) + test mới | `reg-p1rb-red-final-a0ac49d.txt`: 4 hỏng / 14, đều vì file đánh dấu được tạo |
+| Phản chứng P1, sau sửa | checkout | `reg-p1rb-green2-p1rb-fix1.txt` 14/14 |
+| Nhóm S2 + tài liệu | checkout (code = snapshot) | `reg-s2-group-p1rb-fix1.txt` 93/93 (07:32–07:47) |
+| V31 trên chính gói dev4 | gói dev4, bộ kiểm có V31 | `pkg-red-dev4-V31-s2-rollback-bytecode.txt`: FAIL đúng lý do, đối chứng đạt |
+| Hồi quy mọi `tests/test_v24_*` | `387d3cb`, `wf-v24` sạch | `reg-v24-all-387d3cb.txt`: **265/265, 0 skip** (07:48–08:22) |
+| Kiểm từ gói | gói dev5 | **31/31** (V29 20,7 s, V30, V31 25,0 s đạt); script thử `DAT` (task đầu tiên 25/25, alpha 5/5); chạy lại cùng thư mục `KHONG DAT` exit 2; `SHA256SUMS` 62/62 |
+| Probe Codex trên wheel dev5, venv sạch có khoảng trắng | wheel `6ed8ab8a…` | `codex-probes-dev5.txt`, `D:/OneCrewRuns/v24/codex probe dev5/`: rollback caller `all_proven true`, **`marker_created false`**, `reader_pair[0].problems []`, dừng ở điểm an toàn; race `guard_problems []`, **`marker_after_classifier false`**, phép kiểm kế tiếp từ chối `compat.pyc`; probe bytecode dev3 `marker_created false`, `entrypoint_exit null` |
+
+Chuỗi `real_paths` trong `rollback-caller-result.json` ghi "installed dev4 wheel": đó là chữ cố định trong script của Codex (giữ nguyên), wheel thật là dev5 (dòng `origin`/`version` của log). Không chạy: provider/model thật; POSIX; rollback trên runtime/hook thật.
+
+### 10.5 Gói dev5
+
+`D:/OneCrewRuns/v24/pkg/onecrew-2.4.0.dev5-beta` — snapshot `387d3cbff8e74bebc760a2a178d95b58273f1d2e`, version `2.4.0.dev5`, wheel `onecrew-2.4.0.dev5-py3-none-any.whl`
+SHA256 `6ed8ab8a8568d271d4fd7d4b89f7bbb5ed98c8b387898f109c2f9b73ae409655`. Dựng bằng `D:/OneCrewRuns/wf-dev-tools/v24/run_final_package.sh 387d3cb 2.4.0.dev5` trong worktree tách `wf-v24-final` (07:48). Gói dev4 giữ nguyên.
+
+Tài liệu đồng bộ trong gói: `docs/limits-s2.md`, `docs/limits-final.md` (dòng "Ranh giới tin cậy": mọi chương trình của venv đã kiểm đọc bytecode từ thư mục trống riêng, giới hạn còn lại; dòng đầu: trạng thái review dev4/dev5; V30 kiểm khớp), `docs/HUONG-DAN-SUPPORT.vi.md`, README (version, commit, wheel theo manifest), `docs/CHANGELOG.md` (dev5). Mục này và nhật ký hợp đồng viết sau snapshot, không có trong gói.
+
+Lệnh thử (PowerShell, terminal của chủ; bản sao và sổ riêng trong thư mục kết quả mới):
+
+```
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/v24/pkg/onecrew-2.4.0.dev5-beta/verify/thu-goi.ps1"
+```
+
+Chạy xong thấy dòng `DAT: goi 2.4.0.dev5 ... 31/31 buoc ...` là đạt.
+
+### 10.6 Gate 2.2 trên dev5
+
+Gate snapshot 2.2 trên `387d3cb` (`run_gate.sh`, 02/11 08:22:39–11:27:30; output `D:/OneCrewRuns/v24/gates-tmp/wf-snapshot-gate-20261102-387d3cb`, log `D:/OneCrewRuns/v24/logs/gate-snapshot-387d3cb.txt`): **286/286 check thực thi đạt, `failed 0`, `receipted 286`**, snapshot nguyên vẹn (`intact true`, python `3.13.15`). Đếm cùng một cách trên hai thư mục gate (mọi file có dòng `Ran`): dev5 219 log, 2.107 test, 0 hỏng, 0 lỗi, 0 skip; dev4 (`4f03e54`) cũng 219 log, 2.107 test (báo cáo §9.5 ghi 217/2.097 theo cách gộp log trùng; con số ở đây so cùng cách đếm). Quyết định `refused`, `release_delivery false`, `pilot_passed false`, `owner_acceptance false`: **23 vấn đề trùng từng mục với gate dev4** (so chuỗi `problems` của hai `decision.json`: bằng nhau), tức chỉ các khoảng trống nghiệm thu đã biết (provider thật, pilot, bản giao trước thật), không có vấn đề mới. Lượt này chạy lâu hơn dev4 (3 h 05 so với 2 h 44) vì chủ chọn dựng gói hotfix 2.3 song song (10:17–10:40); không test nào hỏng vì tải. Sổ hook thật không đổi (`8d339faddcf7881…` trước và sau).
+
+### 10.7 Cách ly và điều kiện bên ngoài
+
+Mọi lượt dùng `TEMP`, `LOCALAPPDATA`, `APPDATA` riêng (`D:/OneCrewRuns/v24/tmp-int`, thư mục từng bước kiểm gói, `D:/OneCrewRuns/v24/codex probe dev5`, `D:/OneCrewRuns/v24/gates-tmp`). SHA256 sổ hook thật `8d339faddcf7881…` bằng nhau trước và sau mọi lượt của dev5 (log ghi; lần đổi cuối 02:20:51, của phiên khác, §9). `wf-v23` vẫn ở `fe0a044`; không đụng 2.2, runtime đang dùng, `state-v2-real`; không push, không tag; không gọi provider/model. Một tiến trình python (pid 21388, tạo 03:57:50, chờ file `D:/OneCrewRuns/v24/gate`) có từ trước lượt này; không rõ của lượt nào, không dừng nó.
+
+Điều kiện bên ngoài còn lại (không thuộc quyền lượt này): Codex review dev5; quyết định phát hành; thử với model thật; pilot; nghiệm thu của chủ. Các khoảng trống nghiệm thu của gate đối chiếu ở §10.6.

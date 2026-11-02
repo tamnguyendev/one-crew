@@ -241,6 +241,19 @@ Giờ lấy từ `git log --date=format:%H:%M` trong `wf-v24-pkg`, giờ ghi fil
 | 02/11 03:10 | Probe Codex trên wheel dev4: `marker_created false`, `entrypoint_exit null` | `D:/OneCrewRuns/v24/codex-probe-dev4b/bytecode-result.json` |
 | 02/11 03:18–06:02 | Gate 2.2 trên `4f03e54` (chạy một mình): 286/286 check thực thi đạt, 2.097/2.097 test, 0 skip; `refused` chỉ vì 23 khoảng trống nghiệm thu như gate `61862e6` | `logs/gate-snapshot-4f03e54.txt`, `gates-tmp/wf-snapshot-gate-20261102-4f03e54/decision.json` |
 
+### Review Codex trên dev4 → dev5 (02/11, Claude Opus 5.5)
+
+| Lúc | Việc | Bằng chứng |
+|---|---|---|
+| 02/11 ~07:15 | Chỉ thị chủ: khép P1 rollback (bytecode bị thay sau phép kiểm chạy trong bước đọc sổ/phân loại), hoàn tất checklist local, gói beta mới. HEAD `a0ac49d` sạch ở `wf-v24-pkg`, `wf-v24`; không lượt kiểm 2.4 nào đang chạy | `D:/OneCrewRuns/codex-dev4-review-af11587c/` |
+| 02/11 07:26–07:32 | Phản chứng qua caller `_rollback` thật; 4/14 đỏ trên `hotfix.py` dev4 (marker). Lộ thêm cùng lớp: `PYTHONPATH` của terminal làm bước đọc sổ nạp onecrew khác | `logs/reg-p1rb-red-final-a0ac49d.txt` |
+| 02/11 07:31 | Sửa (`checked_run` cho mọi chương trình của venv đã kiểm), 14/14 | `logs/reg-p1rb-green2-p1rb-fix1.txt` |
+| 02/11 07:32–07:47 | Nhóm S2 + tài liệu 93/93; V31 FAIL trên gói dev4 | `logs/reg-s2-group-p1rb-fix1.txt`, `logs/pkg-red-dev4-V31-s2-rollback-bytecode.txt` |
+| 02/11 07:48 | Commit `ad3b970` (P1), snapshot `387d3cb` (`2.4.0.dev5`, V31, tài liệu); `claude/onecrew-2.4` fast-forward | git |
+| 02/11 07:48–08:22 | Hồi quy 2.4 trên `387d3cb` sạch 265/265; gói dev5 31/31, script thử DAT, hash 62/62 | `logs/reg-v24-all-387d3cb.txt`, `logs/pkg-*-2.4.0.dev5.txt` |
+| 02/11 ~08:15 | Probe Codex trên wheel dev5 (venv sạch, đường dẫn có khoảng trắng): `marker_created false`, `marker_after_classifier false` | `logs/codex-probes-dev5.txt` |
+| 02/11 08:22–11:27 | Gate 2.2 trên `387d3cb` (từ 10:17 chạy song song gói hotfix 2.3 theo lựa chọn của chủ): 286/286 check thực thi đạt, 2.107/2.107 test, 0 skip; `refused` với 23 vấn đề trùng từng mục gate dev4 | `logs/gate-snapshot-387d3cb.txt`, `gates-tmp/wf-snapshot-gate-20261102-387d3cb/decision.json` |
+
 ## 8. Quyết định vượt quyền và điều cần Codex hay chủ sở hữu
 
 - **Không phát hành 2.4.** Không push nhánh, không tag, không publish gói 2.4 nào; không nâng runtime đang dùng (`%LOCALAPPDATA%\OneCrew`, venv và hook thật); không đọc/ghi `state-v2-real`. Phát hành là quyết định của chủ sở hữu sau Codex review.
