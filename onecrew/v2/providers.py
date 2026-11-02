@@ -165,10 +165,16 @@ def quota_error(provider, text):
     return f'{QUOTA}: {provider} reported a usage limit: {str(text)[:200]}'
 
 
+CREDENTIAL_MISSING = 'credential_missing'    # the provider_error kind, and the prefix of the error text, of an api call refused before any process: no key
+
+
 def error_kind(error):
-    """The provider_error kind of an error text: quota_exhausted, or provider_unavailable for any other error; None when there is none."""
+    """The provider_error kind of an error text: quota_exhausted, credential_missing (2.3 hotfix: api chosen, no key, nothing run), or
+    provider_unavailable for any other error; None when there is none."""
     if not error: return None
-    return QUOTA if str(error).startswith(QUOTA + ':') else 'provider_unavailable'
+    for kind in (QUOTA, CREDENTIAL_MISSING):
+        if str(error).startswith(kind + ':'): return kind
+    return 'provider_unavailable'
 
 
 def _events(text):

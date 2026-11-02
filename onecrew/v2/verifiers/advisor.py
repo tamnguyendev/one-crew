@@ -116,22 +116,29 @@ def parse_answer(text):
     return answers, problems
 
 
-def call(prompt, model, env, scratch, limit, provider=PROVIDER):
+def call(prompt, model, env, scratch, limit, provider=PROVIDER, auth=None):
     """The one place the model is called (tests replace it). Same path as the reviewer: reviewer.call -> (answer, usage, error, timed_out, raw).
-    `provider` (W43) is claude, codex or kiro; a replacement that does not take it is called without it when the provider is claude."""
-    return reviewer.call(prompt, {'model': model} if provider == PROVIDER else {'provider': provider, 'model': model}, env, scratch, limit)     # claude: the config it always was
+    `provider` (W43) is claude, codex or kiro; `auth` (2.3 hotfix) is api when the owner chose the key of this process, else the subscription
+    login. A replacement that takes neither is called without them when the provider is claude and the credential is the subscription."""
+    config = {'model': model} if provider == PROVIDER else {'provider': provider, 'model': model}
+    if auth == 'api': config['auth'] = auth
+    return reviewer.call(prompt, config, env, scratch, limit)     # claude, subscription: the config it always was
 
 
 # ---- plan advise ------------------------------------------------------------------------------------------------------------
 
-def advise(ledger, name, model=None, provider=None):
+def advise(ledger, name, model=None, provider=None, auth=None):
     """Ask the advisor about the latest revision and record `plan.advised`. Returns plan.show. The independence check runs first, so a refusal
     costs no call and records nothing. A missing rules file records advice that is `inconclusive` on all three questions and is not usable.
     Provider and model: what is given, else the contract's `advisor` {provider, model}, else claude with the default model (W43). A usage limit or any
-    other failure of that provider is advice that is inconclusive, with the reason; no other provider is tried."""
+    other failure of that provider is advice that is inconclusive, with the reason; no other provider is tried. `auth` (2.3 hotfix): subscription
+    (the CLI's login, the default) or api (ANTHROPIC_API_KEY of this process, claude only): what is given, else the contract advisor's `auth`
+    when the provider is the pinned one. Missing key: inconclusive, `credential_missing`, no process started; a rejected key: the provider's
+    error, inconclusive; neither credential is tried in place of the other."""
     from .. import plan as plans
     if model is not None and (not isinstance(model, str) or not contracts.MODEL.fullmatch(model)): raise LedgerError('model: expected a model id such as claude-sonnet-5-5.')
     if provider is not None and provider not in providers.PROVIDERS: raise LedgerError('provider: one of ' + ', '.join(providers.PROVIDERS) + '.')
+    if auth is not None and auth not in contracts.AUTHS: raise LedgerError('auth: subscription or api.')
     with ledger.transaction() as conn:
         state = plans.anchor_events(ledger, conn, name)
     revision = state['latest']
@@ -143,6 +150,9 @@ def advise(ledger, name, model=None, provider=None):
         elif provider == PROVIDER: model = default_model()
         else: raise LedgerError(f'model: the {provider} advisor needs a model; give --model or pin it in the contract advisor.')
     if not contracts.MODEL.fullmatch(model): raise LedgerError('model: expected a model id such as claude-sonnet-5-5.')
+    if auth is None and pinned and provider == pinned['provider']: auth = pinned.get('auth')
+    auth = auth or 'subscription'
+    if auth == 'api' and provider != PROVIDER: raise LedgerError(f'auth: api is offered for the claude advisor only (the {provider} advisor keeps its own login).')
     level = reviewer.check_independence(state['revisions'][revision], {'provider': provider, 'model': model})
     store = Snapshots(ledger.state_root)
     rules = rules_path(ledger)
@@ -157,7 +167,8 @@ def advise(ledger, name, model=None, provider=None):
         try:
             calls = 1
             answer, usage, error, timed_out, raw = call(prompt, model, command.verifier_env(ledger.project), scratch, MAX_MINUTES,
-                                                        **({} if provider == PROVIDER else {'provider': provider}))
+                                                        **({} if provider == PROVIDER else {'provider': provider}), **({'auth': auth} if auth == 'api' else {}))
+            if providers.error_kind(error) == providers.CREDENTIAL_MISSING: calls = 0      # refused before any process: not a model call
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
         if error or timed_out or not answer:
@@ -169,7 +180,7 @@ def advise(ledger, name, model=None, provider=None):
             error_kind = 'invalid_response' if problems else None              # W27a: the advisor answered but the JSON was not the shape asked for
     usable = text is not None and not problems and all(a['verdict'] in VERDICTS for a in answers)
     receipt = store.blob(canonical({
-        'kind': 'advisor-receipt', 'plan': name, 'revision': revision, 'plan_sha': sha, 'provider': provider, 'model': model, 'role': 'advisor', 'independence': level,
+        'kind': 'advisor-receipt', 'plan': name, 'revision': revision, 'plan_sha': sha, 'provider': provider, 'model': model, 'auth': auth, 'role': 'advisor', 'independence': level,
         'rules_sha': store.blob(text.encode('utf-8')) if text is not None else None, 'prompt': store.blob(prompt.encode('utf-8')) if prompt else None,
         'answer': store.blob(answer.encode('utf-8')) if answer else None, 'raw': store.blob(raw[-1_000_000:]) if raw else None,
         'calls': calls, 'usage': usage, 'error': error, 'timed_out': timed_out, 'problems': problems, 'answers': answers, 'provider_error': error_kind,
@@ -179,7 +190,7 @@ def advise(ledger, name, model=None, provider=None):
         if current['latest'] != revision or current['revisions'][revision]['sha'] != sha:
             raise LedgerError('The plan changed while the advisor was answering; run plan advise again.')
         plans.emit(ledger, conn, current['task_id'], 'plan.advised',
-                   {'plan': name, 'revision': revision, 'sha': sha, 'provider': provider, 'model': model, 'independence': level['level'], 'answers': answers,
+                   {'plan': name, 'revision': revision, 'sha': sha, 'provider': provider, 'model': model, 'auth': auth, 'independence': level['level'], 'answers': answers,
                     'usable': usable, 'problems': problems, 'note': NO_RULES if text is None else None, 'receipt': receipt, 'calls': calls,
                     'provider_error': error_kind})      # W27a: a typed provider error (unavailable/timeout/invalid_response) is inconclusive, not advice_missing
     return plans.show(ledger, name)

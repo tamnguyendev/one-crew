@@ -245,11 +245,31 @@ def expected_result(receipt):
 
 # ---- the call -----------------------------------------------------------------------------------------------------------
 
+KEY = 'ANTHROPIC_API_KEY'
+
+
+def provider_env(env, auth):
+    """(environment for the Claude CLI process, error): the verifier environment (no ANTHROPIC_* variable: the project's checks never see a key)
+    plus, for auth api, ANTHROPIC_API_KEY of THIS onecrew process (the owner set it for the call); that copy goes to the provider process alone,
+    never into the evidence-bound verifier environment, a receipt or argv. api without a key: a `credential_missing:` error, nothing is run.
+    subscription (the default): the key is left out even when the terminal holds one, so the CLI uses the login it holds, as before."""
+    env = {k: v for k, v in env.items() if k.upper() != KEY}
+    if auth != 'api': return env, None
+    key = (os.environ.get(KEY) or '').strip()
+    if not key:
+        return None, (f'{providers.CREDENTIAL_MISSING}: auth api was chosen but {KEY} is not set in the environment of this onecrew process; '
+                      'the Claude CLI was not run (set the key in the terminal that runs this command, or choose auth subscription)')
+    return dict(env, **{KEY: key}), None
+
+
 def call(prompt, config, env, scratch, limit):
     """One read-only CLI call of the provider the config names (default claude): prompt in, JSON out, no tools, no session file, an empty working
-    directory (so no project hook or CLAUDE.md is loaded). Returns (answer_text, usage, error, timed_out, raw_stdout). Claude is `claude -p` as ever;
-    codex and kiro are built in providers.py. A usage limit is an error that starts `quota_exhausted:`; no other provider is tried."""
+    directory (so no project hook or CLAUDE.md is loaded). Returns (answer_text, usage, error, timed_out, raw_stdout). Claude is `claude -p` as ever,
+    with the credential `auth` names (2.3 hotfix: subscription, the default, or api; provider_env); codex and kiro are built in providers.py.
+    A usage limit is an error that starts `quota_exhausted:`; no other provider and no other credential is tried."""
     if config.get('provider', 'claude') != 'claude': return providers.call(config['provider'], prompt, config['model'], env, scratch, limit)
+    env, refused = provider_env(env, config.get('auth', 'subscription'))
+    if refused: return '', {}, refused, False, b''
     argv = [*cli_argv(env), '-p', '--output-format', 'json', '--model', config['model'], '--tools', '', '--no-session-persistence',
             '--disable-slash-commands', '--setting-sources', 'user']
     out, err, code, timed_out, os_error = providers.run_process(argv, prompt, scratch, env, limit)
@@ -317,6 +337,7 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
             try:
                 calls = 1
                 answer, usage, error, timed_out, raw = (call_port or call)(prompt, config, env, scratch, config['max_minutes'])
+                if providers.error_kind(error) == providers.CREDENTIAL_MISSING: calls = 0      # refused before any process: not a model call
             finally:
                 shutil.rmtree(scratch, ignore_errors=True)
     rows, outside, problems = parse_answer(answer, config['criteria']) if answer else (
@@ -327,7 +348,8 @@ def run(ledger, name, revision, plan_sha, milestone, directory, independence_res
     except LedgerError:
         after = None                         # not the same as before: never a pass
     receipt = {'kind': 'reviewer-receipt', 'plan': name, 'revision': revision, 'plan_sha': plan_sha, 'milestone': milestone['id'],
-               'provider': config['provider'], 'model': config['model'], 'role': 'reviewer', 'provider_error': None if not calls else 'timeout' if timed_out else providers.error_kind(error) or ('invalid_response' if problems else None),
+               'provider': config['provider'], 'model': config['model'], 'role': 'reviewer', 'auth': config.get('auth', 'subscription'),
+               'provider_error': providers.CREDENTIAL_MISSING if providers.error_kind(error) == providers.CREDENTIAL_MISSING else None if not calls else 'timeout' if timed_out else providers.error_kind(error) or ('invalid_response' if problems else None),
                'config': config, 'cwd': str(directory), 'started': started, 'seconds': round(time.monotonic() - begin, 2),
                'artifact_sha': before, 'artifact_sha_after': after, 'base_artifact': base, 'base_source': base_source, 'tracked_tree': tracked,
                'base_tracked': base_tracked, 'not_shown': hidden + unshown + binary, 'diff': store.blob(diff.encode('utf-8')), 'prompt': store.blob(prompt.encode('utf-8')) if prompt else None,

@@ -82,17 +82,31 @@ def _verifier(value, name):
 def _reviewer(config, name):
     """One verifier per milestone (a command and a reviewer are two milestones): the schema stays one {type, config} pair. A criterion is a
     narrow question the reviewer can answer with file:line, so a question that names no file or kind of change is refused here, at propose."""
-    if not isinstance(config, dict) or set(config) - {'provider', 'model', 'criteria', 'max_minutes'} or {'provider', 'model', 'criteria'} - set(config):
-        raise LedgerError(name + ': reviewer verifier takes provider, model, criteria and max_minutes.')
+    if not isinstance(config, dict) or set(config) - {'provider', 'model', 'criteria', 'max_minutes', 'auth'} or {'provider', 'model', 'criteria'} - set(config):
+        raise LedgerError(name + ': reviewer verifier takes provider, model, criteria and max_minutes (and auth: subscription or api, claude only).')
     from .providers import PROVIDERS
     if config['provider'] not in PROVIDERS:
         raise LedgerError(f'{name}.provider: one of {", ".join(PROVIDERS)} (each takes a model).')
+    auth = _auth(config.get('auth'), config['provider'], name)
     model = config['model']
     if not isinstance(model, str) or not MODEL.fullmatch(model): raise LedgerError(name + '.model: expected a model id such as claude-haiku-5-5.')
     criteria = _list(config['criteria'], name + '.criteria', 1, MAX_CRITERIA, lambda c: _criterion(c, name))
     if len({c['id'] for c in criteria}) != len(criteria): raise LedgerError(name + '.criteria: duplicate id.')
     return {'provider': config['provider'], 'model': model, 'criteria': criteria,
-            'max_minutes': _int(config.get('max_minutes', 10), name + '.max_minutes', 1, REVIEWER_MAX_MINUTES)}
+            'max_minutes': _int(config.get('max_minutes', 10), name + '.max_minutes', 1, REVIEWER_MAX_MINUTES), **({'auth': auth} if auth else {})}
+
+
+AUTHS = ('subscription', 'api')
+
+
+def _auth(value, provider, name):
+    """2.3 hotfix (02/11): the credential the Claude CLI call uses, chosen by the owner: subscription (the CLI's own login, the default) or api
+    (ANTHROPIC_API_KEY of the onecrew process, handed to that provider process alone). Not given: nothing is recorded (the contract and its sha
+    stay as they were). api is offered for claude only; codex/kiro are unchanged."""
+    if value is None: return None
+    if value not in AUTHS: raise LedgerError(f'{name}.auth: subscription or api.')
+    if value == 'api' and provider != 'claude': raise LedgerError(f'{name}.auth: api is offered for the claude provider only (this {provider} call keeps its own login).')
+    return value
 
 
 FIELDS = FIELDS | {'advisor'}
@@ -101,10 +115,12 @@ FIELDS = FIELDS | {'advisor'}
 def _advisor(value):
     """The advisor `plan advise` uses when no model is given on the command line: {provider, model}, the same providers and model ids as a reviewer."""
     from .providers import PROVIDERS
-    if not isinstance(value, dict) or set(value) != {'provider', 'model'}: raise LedgerError('advisor: expected {"provider": ..., "model": ...}.')
+    if not isinstance(value, dict) or not {'provider', 'model'} <= set(value) <= {'provider', 'model', 'auth'}:
+        raise LedgerError('advisor: expected {"provider": ..., "model": ...} (and optionally "auth": subscription or api).')
     if value['provider'] not in PROVIDERS: raise LedgerError(f'advisor.provider: one of {", ".join(PROVIDERS)} (each takes a model).')
     if not isinstance(value['model'], str) or not MODEL.fullmatch(value['model']): raise LedgerError('advisor.model: expected a model id such as claude-haiku-5-5.')
-    return {'provider': value['provider'], 'model': value['model']}
+    auth = _auth(value.get('auth'), value['provider'], 'advisor')
+    return {'provider': value['provider'], 'model': value['model'], **({'auth': auth} if auth else {})}
 
 
 def _criterion(value, name):

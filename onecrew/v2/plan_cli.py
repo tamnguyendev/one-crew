@@ -50,6 +50,8 @@ def _parser():
     p = plan.add_parser('advise', help='One independent model call: three fixed questions about the latest revision, judged against the owner rules. Advice only.')
     p.add_argument('name'); p.add_argument('--model', help='Must differ from the model that wrote the plan (default: the contract advisor, else ONECREW_DEFAULT_MODEL, or DEFAULT_MODEL in claude_cli).')
     p.add_argument('--provider', choices=['claude', 'codex', 'kiro'], help='The advisor CLI (default: the contract advisor, else claude). Read-only; never changed on a quota error.')
+    p.add_argument('--auth', choices=['subscription', 'api'], help='The credential of the claude call: subscription (the CLI login, default) or api '
+                   '(ANTHROPIC_API_KEY of this onecrew process, given to the claude process only; default: the contract advisor auth). Neither replaces the other on failure.')
     rules = plan.add_parser('rules', help='The owner-rules file the advisor reads (<state-root>/plans/owner-rules.md).').add_subparsers(dest='action', required=True)
     rules.add_parser('init', help='Copy examples/owner-rules.vi.md there if absent (never overwrites).')
     rules.add_parser('show', help='Print the owner-rules file.')
@@ -142,7 +144,7 @@ def _dispatch(ledger, args):
                                         ready=not args.not_ready, unknowns=args.unknown, evidence=args.evidence)
         if args.command == 'advise':
             from .verifiers import advisor
-            return advisor.advise(ledger, args.name, args.model, args.provider)
+            return advisor.advise(ledger, args.name, args.model, args.provider, args.auth)
         if args.command == 'rules':
             from .verifiers import advisor
             return advisor.init_rules(ledger) if args.action == 'init' else advisor.show_rules(ledger)
