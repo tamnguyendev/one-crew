@@ -248,6 +248,16 @@ def expected_result(receipt):
 KEY = 'ANTHROPIC_API_KEY'
 
 
+WITHHELD = '[withheld]'
+
+
+def withhold(data, key):
+    """`data` (bytes or str) with every occurrence of the credential `key` replaced by [withheld]; unchanged when there is no key."""
+    if not key or not data: return data
+    if isinstance(data, bytes): return data.replace(key.encode('utf-8'), WITHHELD.encode('utf-8'))
+    return data.replace(key, WITHHELD)
+
+
 def provider_env(env, auth):
     """(environment for the Claude CLI process, error): the verifier environment (no ANTHROPIC_* variable: the project's checks never see a key)
     plus, for auth api, ANTHROPIC_API_KEY of THIS onecrew process (the owner set it for the call); that copy goes to the provider process alone,
@@ -273,7 +283,10 @@ def call(prompt, config, env, scratch, limit):
     argv = [*cli_argv(env), '-p', '--output-format', 'json', '--model', config['model'], '--tools', '', '--no-session-persistence',
             '--disable-slash-commands', '--setting-sources', 'user']
     out, err, code, timed_out, os_error = providers.run_process(argv, prompt, scratch, env, limit)
-    if os_error: return '', {}, os_error, False, b''
+    # 2.4 (hotfix auth, Codex): a provider may reflect the key back (an error envelope quoting the x-api-key, stderr, a non-JSON stdout); it is
+    # withheld from everything recorded (error text, raw blob) BEFORE any of it is read, so no receipt, blob or problem line holds the value
+    out, err = withhold(out, env.get(KEY)), withhold(err, env.get(KEY))
+    if os_error: return '', {}, withhold(os_error, env.get(KEY)), False, b''
     if timed_out: return '', {}, None, True, out
     try:
         body = json.loads(out.decode('utf-8', 'replace'))
