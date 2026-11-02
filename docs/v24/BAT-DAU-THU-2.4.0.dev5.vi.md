@@ -28,22 +28,26 @@ Hai thứ **không** có trong dev5 (mục 8): xác thực API cho advisor/revie
 
 ## 2. Chuẩn bị môi trường cách ly (một lệnh)
 
-`onecrew init` ghi registry hook vào `%LOCALAPPDATA%\OneCrew\hook-projects.json` của **tài khoản đang chạy** (chọn theo `LOCALAPPDATA`, không theo `--state-root`). Để bài thử không chạm registry thật, script dưới đây đổi `LOCALAPPDATA`, `APPDATA`, `TEMP`, `TMP` **chỉ trong cửa sổ PowerShell đang chạy** sang `<lab>\env\…` (không đổi biến cấp User/Machine), tạo venv thử, bản sao project độc lập, `init`, `doctor`, rồi kiểm: registry thử được tạo trong `<lab>\env`, registry thật không đổi hash, hook của bản sao trỏ vào exe thử.
+`onecrew init` ghi registry hook vào `%LOCALAPPDATA%\OneCrew\hook-projects.json` của **tài khoản đang chạy** (chọn theo `LOCALAPPDATA`, không theo `--state-root`). Để bài thử không chạm registry thật, script `chuan-bi.ps1` đổi `LOCALAPPDATA`, `APPDATA`, `TEMP`, `TMP` **chỉ trong cửa sổ PowerShell sẽ gõ lệnh thử** sang `<lab>\env\…` (không đổi biến cấp User/Machine; không đụng `CLAUDECODE`/`CLAUDE_CODE_CHILD_SESSION`, nên guard owner của OneCrew vẫn hoạt động), ghi dấu sở hữu lab (`<lab>\.lab-thu-dev5.json` + mục trong `thu-tay-dev5\labs.json`), tạo venv thử, bản sao project độc lập, `init`, `doctor`, rồi kiểm: registry thử trong `<lab>\env`, registry thật không đổi hash, hook bản sao trỏ exe thử; cuối cùng để cửa sổ ở trong môi trường thử.
+
+Vì môi trường chỉ sống trong **tiến trình PowerShell** đã nạp script, phải **dot-source** (dấu chấm và khoảng trắng đầu dòng), không chạy `powershell -File` (tiến trình con kết thúc, cửa sổ của bạn không nhận gì). Dán vào cửa sổ PowerShell bạn sẽ dùng cho mọi bài thử:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "D:\OneCrewRuns\v24\pkg\thu-tay-dev5\chuan-bi.ps1"
+. "D:\OneCrewRuns\v24\pkg\thu-tay-dev5\chuan-bi.ps1"
 ```
 
-- Mặc định lab = `D:\OneCrewRuns\v24 thu tay dev5` (phải chưa tồn tại; muốn tên khác: `-Lab "<thư mục mới>"`), project mẫu Git một file do script tạo. Muốn thử trên bản sao project của bạn: thêm `-Source "<repo Git>"` — script `git clone --no-hardlinks`, bỏ remote, xóa `.onecrew` và `.claude\settings.local.json` nếu chúng được commit (bản sao không dùng lại config/hook/remote của bản gốc).
-- **ĐẠT** = dòng `DAT: moi truong thu san sang tai <lab> (onecrew 2.4.0.dev5)`, mã thoát 0. `KHONG DAT:` + mã 1 = một bước hỏng (dừng ngay tại đó, không chạy tiếp); mã 2 = từ chối chạy (lab đã có, `-Source` không phải repo Git).
+(Cách khác, nếu muốn một lệnh bấm chạy: `powershell -NoExit -ExecutionPolicy Bypass -Command ". 'D:\OneCrewRuns\v24\pkg\thu-tay-dev5\chuan-bi.ps1'"` mở một PowerShell lồng trong cùng terminal, đã ở trong môi trường thử; gõ các bài thử trong đó, `exit` để rời.)
+
+- Mặc định lab = `D:\OneCrewRuns\v24 thu tay dev5` (phải chưa tồn tại; tên khác: `-Lab "<thư mục mới>"`; cần ít nhất ba mức `D:\<thư mục>\<lab>`), project mẫu Git một file do script tạo. Muốn thử trên bản sao project của bạn: thêm `-Source "<repo Git>"` — script `git clone --no-hardlinks`, bỏ remote, xóa `.onecrew` và `.claude\settings.local.json` nếu chúng được commit (bản sao không dùng lại config/hook/remote của bản gốc).
+- **ĐẠT** = hai dòng cuối `DAT: dang o moi truong thu (cua so nay): lab=…, onecrew 2.4.0.dev5` và `DAT: moi truong thu san sang tai <lab>…`; `$labOk` là `True`; `$exe $proj $state $lab $venv` đã đặt. **KHÔNG ĐẠT** = dòng `KHONG DAT: …` và "Dung tai day": script dừng ngay tại bước hỏng, không chạy bước sau, `$labOk` là `False`, các biến bị xóa — không gõ lệnh thử trong cửa sổ đó (cửa sổ không bị đóng).
 - `init` hỏi `claude auth status` của CLI thật (chỉ đọc, không đăng nhập) để in dòng "Claude CLI: found … logged in"; không gọi model.
-- **Mọi lệnh thử sau đó gõ trong cùng cửa sổ.** Mở cửa sổ mới: dot-source để vào lại đúng môi trường (đặt sẵn `$py $pkg $lab $venv $proj $state $exe`):
+- **Mở cửa sổ mới hoặc tiếp tục phiên thử:** dot-source `vao-moi-truong.ps1`; nó chỉ nhận lab do `chuan-bi.ps1` tạo (có dấu sở hữu), kiểm `onecrew.exe`, `project\.onecrew\config.json`, `so\ledger.sqlite3`, registry thử, rồi đặt lại các biến; thư mục khác bị từ chối và không bao giờ bị biến thành lab:
 
 ```powershell
 . "D:\OneCrewRuns\v24\pkg\thu-tay-dev5\vao-moi-truong.ps1" -Lab "D:\OneCrewRuns\v24 thu tay dev5"
 ```
 
-Dòng in `LOCALAPPDATA=<lab>\env\LocalAppData` xác nhận cửa sổ đang ở môi trường thử; thiếu dòng đó là đang ở registry thật — đừng gõ `init`.
+Dấu hiệu đúng: `DAT: dang o moi truong thu (cua so nay)` và `LOCALAPPDATA=<lab>\env\LocalAppData`. Thấy `KHONG DAT` là cửa sổ vẫn ở registry thật — đừng gõ `init` hay lệnh thử.
 
 ## 3. Kiểm gói (tự động, CLI giả, không gọi model)
 
@@ -65,7 +69,7 @@ Ký hiệu: **[TĐ]** tự động, CLI/model giả · **[TT]** bạn thao tác,
 | # | Bài | Loại | Thao tác | Kết quả mong đợi | Bằng chứng cần xem |
 |---|---|---|---|---|---|
 | 1 | Kiểm gói | TĐ | mục 3 | `DAT … 31/31` | `verify-report.json` |
-| 2 | Môi trường thử + `init` bản sao | TT (script) | mục 2 | `DAT: moi truong thu san sang`; `doctor` 0 FAIL; registry thật không đổi | `<lab>\env\LocalAppData\OneCrew\hook-projects.json` có mục của bản sao; `<lab>\project\.onecrew\config.json` |
+| 2 | Môi trường thử + `init` bản sao | TT (script, dot-source) | mục 2 | `DAT: dang o moi truong thu` + `DAT: moi truong thu san sang`; `$labOk` True; `doctor` 0 FAIL; registry thật không đổi | `<lab>\env\LocalAppData\OneCrew\hook-projects.json` có mục của bản sao; `<lab>\project\.onecrew\config.json`; `<lab>\.lab-thu-dev5.json` |
 | 3 | S1 báo lỗi một lần | TT | `& $exe --project $proj --state-root $state support report --text "Bước kiểm M1 báo sai dù file đúng" --key k1 --json` (hai lần); `support show FB-… --json`; `support bundle FB-… --out "$lab\bundle"` | cùng một mã `FB-…` cả hai lần (lần hai `duplicate: true`); `status: reported`, tái hiện `unknown`; `bundle` in JSON có `export` = `<lab>\bundle\<FB-…>-<12 ký tự>` và `uploaded: false`; `support confirm` bị từ chối trong phiên AI | mã `FB-…`; trong thư mục `export`: `manifest.json`, `files\feedback.json`, `files\doctor.txt` (đã lọc bí mật) |
 | 4 | Task đầu tiên | TĐ phần A · MT phần B | `examples\first-task\README.vi.md` (A: `claude` giả trên đầu PATH của **một** cửa sổ; đã chạy tự động trong bài 1) · B: model thật, chưa thực hiện | A: node C chạy, receipt, check đạt; B: xem README §6B | `first-task-drill-log.json` (A) |
 | 5 | Xem bước 0, đo, consumer trên sổ diễn tập | TT | trên `<kết quả bài 1>\task dau tien\task dau tien thu`: `onecrew.exe` trong `venv\Scripts`, `--project "project mau" --state-root "so thu"`: `plan show P1`, `plan step0 show P1`, `engine measure P1`, `wiki consumers --plan P1 --json`, `support list --json` | thẻ bước 0 in "đủ để làm: chưa" kèm lý do (plan mẫu không khai bước 0); `measure` in `time_to_first_useful_action_seconds`; `consumers: []`; `support list` `[]` | đầu ra JSON; không lệnh nào ghi gì ngoài sổ thử |
@@ -77,7 +81,13 @@ Khi một bài sai: ghi lệnh đã gõ, đầu ra, và kèm file bằng chứng
 ## 5. Kết thúc, tiếp tục, quay về (chỉ trong môi trường cách ly)
 
 - **Tiếp tục phiên thử:** cửa sổ mới → dot-source `vao-moi-truong.ps1 -Lab "<lab>"` (mục 2); sổ thử ở `<lab>\so` giữ nguyên.
-- **Kết thúc:** `powershell -ExecutionPolicy Bypass -File "D:\OneCrewRuns\v24\pkg\thu-tay-dev5\don-dep.ps1" -Lab "<lab>"` xóa cả lab (venv, bản sao, sổ thử, registry thử) và in registry thật không đổi. Không sửa tay registry thật. Thư mục kết quả bài 1 giữ hay xóa tùy bạn.
+- **Kết thúc:** từ một cửa sổ PowerShell **mới, chưa dot-source** (cửa sổ đang ở trong lab bị từ chối, vì nó sẽ xóa dưới chân mình):
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File "D:\OneCrewRuns\v24\pkg\thu-tay-dev5\don-dep.ps1" -Lab "<lab>"
+  ```
+
+  `don-dep.ps1` chỉ xóa đúng lab mà `chuan-bi.ps1` đã tạo: đường dẫn tuyệt đối sau khi chuẩn hóa, không nằm trong/chứa gói, sâu ít nhất ba mức, không đi qua link/junction ở lab hay thư mục cha, có `.lab-thu-dev5.json` ghi đúng đường dẫn này với nonce trùng mục trong `labs.json` (script này không bao giờ tạo hai thứ đó), đúng cấu trúc lab. Không qua kiểm → `KHONG DAT … (khong xoa gi)` mã 2. **ĐẠT** = `DAT: da xoa <lab> (kiem: khong con); registry that … khong doi`, mã 0 (kiểm thư mục đã mất, registry thật giữ hash, mục lab bỏ khỏi `labs.json`). Không sửa tay registry thật. Thư mục kết quả bài 1 giữ hay xóa tùy bạn (nó không phải lab; `don-dep.ps1` từ chối xóa nó).
 - **Quay về 2.3.0.dev10 — hai trường hợp khác nhau, không dùng chung một lệnh:**
   - **A. Chỉ cài wheel để thử (bài 2–5, chưa chạy `support install`):** hook của bản sao vẫn trỏ vào `$venv`; cài đè dev10 vào chính venv đó là đủ. Đã kiểm: dev10 đọc được sổ có bản ghi S1 (`test_v24_s1_oldreaders`); **chưa** diễn tập dev10 đọc sổ có bản ghi S2.
 
@@ -113,7 +123,8 @@ Khi một bài sai: ghi lệnh đã gõ, đầu ra, và kèm file bằng chứng
 | Gate 2.2 trên `387d3cb` (`gate-snapshot-387d3cb.txt`) | 286/286 check, 2.107/2.107 test; `refused` chỉ vì 23 khoảng trống nghiệm thu đã biết, trùng dev4 |
 | Probe của Codex trên wheel dev5 (`D:\OneCrewRuns\v24\codex probe dev5`) | bytecode bị thay không chạy ở identity, bước đọc sổ, bước phân loại |
 | Diễn tập bài 3 trên lab riêng, 02/11 15:23 (`guide-drill-bai3.txt`) | `report` → `FB-…`, `bundle` exit 0, `export` = `<lab>\bundle\FB-…-920127c03e51` với `manifest.json` (`uploaded: false`, 3 nguồn `included`, 5 `not_applicable` có lý do), không tải đi đâu |
-| Diễn tập mục 2 và 5 của trang này, 02/11 14:06 (`guide-drill-chuan-bi.txt`) | `chuan-bi.ps1` → `DAT` trên lab mới: registry thử tạo trong `<lab>\env`, registry thật giữ hash, hook bản sao trỏ exe thử; cửa sổ mới dot-source `vao-moi-truong.ps1` → `doctor` 0 FAIL, `support list` `[]`; `don-dep.ps1` → `DAT`, registry thật giữ hash |
+| Diễn tập mục 2 và 5 của trang này, 02/11 14:06 (`guide-drill-chuan-bi.txt`, bản script trước review) | `chuan-bi.ps1` → `DAT` trên lab mới: registry thử tạo trong `<lab>\env`, registry thật giữ hash, hook bản sao trỏ exe thử; cửa sổ mới dot-source `vao-moi-truong.ps1` → `doctor` 0 FAIL, `support list` `[]`; `don-dep.ps1` → `DAT`, registry thật giữ hash |
+| **Review Codex bộ script (1 P1 + 2 P2) và test của bản script cuối**, 02/11 15:44–15:50 (`thu-tay-tests-old.txt`, `thu-tay-tests-new.txt`; `D:\OneCrewRuns\v24\thu-tay-tests new\results.json`) | 11 ca thật (tiến trình PowerShell con, filesystem thật dưới thư mục kiểm riêng; giả chỉ: giá trị marker AI `fixture-marker` và các thư mục "giống lab"): script cũ `c17e465` **2/11** (xóa thư mục không phải lab, xóa marker AI, dot-source đóng tiến trình); script cuối **11/11**: từ chối thư mục giống lab không có dấu sở hữu / dấu sở hữu giả không có mục `labs.json` / đường dẫn nông, trong gói / qua junction / từ cửa sổ đang ở trong lab; dot-source `chuan-bi` để cửa sổ ở trong lab (`$exe`, `$labOk`); cửa sổ mới `vao-moi-truong` + `support report` vô hại vào sổ thử; thư mục không phải lab bị `vao-moi-truong` từ chối, biến không đặt; marker AI giữ nguyên và `support confirm` bị guard owner từ chối trước khi ghi; dọn đúng lab, kiểm đã mất, lần hai từ chối; registry thật giữ hash suốt lượt test (`aacad058…` trước và sau) |
 | Quay lui từ gói | Thành công: bước V22 trong **bài 1 của bạn** (kế thừa; `support rollback` → `rolled_back`, `installed: false`). V22 chỉ chạy được sau V21 trong cùng lượt, nên không chạy riêng được (lượt `--only V22` 02/11 14:05 bị từ chối đúng lý do, không tính). Từ chối: bước V31 chạy riêng 02/11 14:06 (`pkg-only-V31-s2-rollback-bytecode-dev5-guide.txt`, `partial-pass 4/4`): `.pyc` runtime cũ bị thay sau phép kiểm → quay lui từ chối trước khi chạy chương trình nào của nó |
 | **Review Codex trên dev5** (02/11) | Codex đã kiểm: gói 62/62 hash; gate 286/286, 23 mục `refused` giống dev4; nội dung từng file trong wheel gate và wheel bàn giao giống nhau; log hồi quy 265 OK, kiểm gói 31/31; ba phản chứng độc lập trên wheel dev5 chặn lỗi bytecode/rollback cũ; snapshot code không đổi sau kiểm, HEAD sau snapshot chỉ cập nhật hồ sơ. Kết luận của Codex: P1 rollback dev4 đã khép trong các kịch bản được kiểm; chưa phát hiện blocker mới trong phần thay đổi được review; dev5 có thể bàn giao để thử cách ly. **Không phải** nghiệm thu toàn bộ sản phẩm, kiểm provider thật hay chứng nhận an toàn tuyệt đối. Review hướng dẫn thử (02/11): 2 P2 (bài thủ công chưa cách ly registry; lệnh quay về không phân biệt cài lại venv với quay lui sau S2) và 1 P3 (tên thư mục kết quả) — đã sửa ở bản này |
 
