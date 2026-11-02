@@ -112,6 +112,10 @@ the installed venv with python -I, a cwd outside the checkout, an isolated env a
                   (control); console.pyc and compat.pyc replaced right AFTER the interpreter comparison by code that writes a marker -> the reader
                   and the classifier still run but the marker is NOT created, and the old-runtime check before the repoint refuses those caches.
                   A build whose reader or classifier loads the venv's caches creates the marker: V31 FAILS on it (the dev4 wheel does)
+  V32 S2 auth     (dev6) the api credential of the advisor/reviewer Claude CLI from the INSTALLED wheel (verify/auth_probe.py, a CLI double that records
+                  whether it saw the key, never the value): subscription never sees the terminal's key; api gives the key to the CLI process only
+                  (not argv, not the verifier environment, not the ledger/blobs/prompt); api without a key -> credential_missing, no process; a
+                  rejected key -> the CLI's 401, one call, no fallback; `plan advise --auth api` works and codex refuses api. The dev5 wheel FAILS V32
   V3 also checks that the modules of the included milestones (support, diagnostics, support_cli, support_spool for S1) load from the venv.
 Exit 0 when every step passes, 1 otherwise. `verify_milestone.py <package dir> <work dir> --only STEP_ID` runs V1-V3 (identity, install, origins) and that one
 milestone step only, for diagnosis: its report says `partial`, its result is `partial-pass` or `fail`, never `pass`, and thu-goi.ps1 does not use it. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
@@ -1592,6 +1596,28 @@ def v31_rollback_bytecode(ctx):
     return not problems, dict(facts, problems=problems)
 
 
+def v32_auth(ctx):
+    """2.4 (dev6): the 2.3 hotfix auth as shipped in this wheel, run by the venv's own interpreter against verify/auth_probe.py (5 cases)."""
+    folder = ctx.case('s2 auth')
+    target = folder / 'auth venv'
+    wheel = ctx.pkg / 'wheel' / ctx.manifest['wheel']['name']
+    run([sys.executable, '-m', 'venv', target], check=True)
+    made = run([target / 'Scripts' / 'python.exe', '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', wheel])
+    if made.returncode != 0: return False, {'problems': ['the auth venv could not be made: ' + (made.stdout + made.stderr).decode('utf-8', 'replace')[-300:]]}
+    probe = ctx.pkg / 'verify' / 'auth_probe.py'
+    if not probe.is_file(): return False, {'problems': ['verify/auth_probe.py is not in the package']}
+    done = run([target / 'Scripts' / 'python.exe', '-I', '-X', 'utf8', probe, folder / 'cases'], cwd=folder,
+               env=env_for(folder, ctx.scripts, TEMP=str(folder / 'temp'), TMP=str(folder / 'temp')))
+    text = done.stdout.decode('utf-8', 'replace') + done.stderr.decode('utf-8', 'replace')
+    result = folder / 'cases' / 'wheel-auth-probe.json'
+    facts = json.loads(result.read_text(encoding='utf-8')) if result.is_file() else {'error': text[-600:]}
+    problems = []
+    if facts.get('result') != 'pass': problems.append('auth cases on the installed wheel: ' + json.dumps({k: v.get('error') or v.get('ok') for k, v in (facts.get('cases') or {}).items()})[:400] + (' ' + facts['error'] if facts.get('error') else ''))
+    if facts.get('version') != ctx.manifest['version']: problems.append(f'the probe ran {facts.get("version")}, not the manifest version')
+    if done.returncode != 0 and not problems: problems.append('the probe exited ' + str(done.returncode) + ': ' + text[-300:])
+    return not problems, dict(facts, problems=problems)
+
+
 def _bullets(text):
     return [line.rstrip() for line in text.splitlines() if line.startswith('- ')]
 
@@ -2321,6 +2347,7 @@ MILESTONE_STEPS = {         # milestone -> [(step id, title, check)]; ONE entry 
            ('V28-s2-switch-window', 'rollback dừng sau drill, ghi một sự kiện vào sổ thật, chạy lại: chỉ rolled_back sau khi drill lại dữ liệu có ghi đó (fences drilled = lúc chuyển)', v28_switch_window),
            ('V29-s2-bytecode', 'venv có .pyc khác bản biên dịch của nguồn bị từ chối trước khi onecrew --version chạy (file đánh dấu không xuất hiện), runtime cũ khi quay lui cũng vậy; venv nguyên vẹn vẫn chạy và được nhận', v29_bytecode),
            ('V31-s2-rollback-bytecode', 'rollback: .pyc của runtime cũ bị thay ngay sau phép so không được chạy bởi bước đọc sổ hay phân loại sự kiện (file đánh dấu không xuất hiện), kiểm trước khi chuyển hook từ chối; runtime cũ nguyên vẹn vẫn đọc và phân loại được', v31_rollback_bytecode),
+           ('V32-s2-auth', 'xác thực API từ wheel đã cài: subscription không thấy key; api đưa key chỉ vào tiến trình CLI (không argv/sổ/blob/prompt); thiếu key credential_missing không chạy; key sai 401 một lời gọi; plan advise --auth api; codex không nhận api', v32_auth),
            ('V30-s2-docs', 'tài liệu trong gói khớp nhau: mỗi mục của limits-final là đúng file giới hạn của mốc, README có mọi dòng giới hạn và đúng version/commit/wheel, dòng claim nêu kiểm pid + thời điểm tạo và gia hạn', v30_docs)],
     'A': [('V23-a-sources', 'node có sources đọc file ngoài read qua hai lượt trên cây đã ghim; ngoài phạm vi bị từ chối; cursor cây khác bị từ chối; max_rounds giữ node; node không khai sources giữ đúng khóa 2.3', v23_sources)],
     'B': [('V24-b-context', 'knowledge.delivered cho attempt; must bị thu hồi lúc đang chạy thì candidate không được công bố, wiki consumers nêu node; node độc lập vẫn công bố; sau khởi động lại mục chỉ còn trong delta.withdrawn', v24_context),

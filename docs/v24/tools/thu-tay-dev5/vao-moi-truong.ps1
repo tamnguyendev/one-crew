@@ -8,8 +8,13 @@
 param([string]$Lab = 'D:\OneCrewRuns\v24 thu tay dev5')
 $labOk = $false
 $py  = 'C:\Users\NUC\AppData\Local\Programs\Python\Python313\python.exe'
-$pkg = 'D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev5-beta'
-$labsFile = Join-Path $PSScriptRoot 'labs.json'
+$pkg = $null
+foreach ($cand in @((Split-Path -Parent (Split-Path -Parent $PSScriptRoot)), 'D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev5-beta')) {   # <package>\verify\thu-tay -> <package>; else the known package
+    if ($cand -and (Test-Path -LiteralPath (Join-Path $cand 'manifest.json') -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $cand 'wheel') -PathType Container)) { $pkg = [System.IO.Path]::GetFullPath($cand).TrimEnd('\'); break }
+}
+if (-not $pkg) { Write-Host 'KHONG DAT: khong tim thay goi (manifest.json) canh script hay o duong dan da biet' -ForegroundColor Red }
+$man = if ($pkg) { Get-Content -LiteralPath (Join-Path $pkg 'manifest.json') -Raw | ConvertFrom-Json } else { $null }
+$labsFile = Join-Path $env:USERPROFILE '.onecrew-thu-tay\labs.json'       # ngoai goi, ngoai lab: bang chung thu hai cua don-dep.ps1
 function Script:Lab-Refuse([string]$t) { Write-Host ('KHONG DAT: ' + $t) -ForegroundColor Red; Write-Host 'Khong vao moi truong thu; khong go lenh thu trong cua so nay.' }
 function Script:Lab-Record([string]$path) {
     # the marker inside the lab AND the entry in labs.json must agree on the absolute path and the nonce; made only by chuan-bi.ps1
@@ -46,7 +51,8 @@ if (-not $env:ONECREW_LAB_REAL_LOCALAPPDATA) {   # gia tri that cua cua so nay, 
 $registryThat = Join-Path $env:ONECREW_LAB_REAL_LOCALAPPDATA 'OneCrew\hook-projects.json'
 $registryThu = "$lab\env\LocalAppData\OneCrew\hook-projects.json"
 $why = $null
-if (($lab + '\').StartsWith($pkg + '\', [StringComparison]::OrdinalIgnoreCase)) { $why = "lab nam trong goi: $lab" }
+if (-not $pkg) { $why = 'khong tim thay goi' }
+elseif (($lab + '\').StartsWith($pkg + '\', [StringComparison]::OrdinalIgnoreCase)) { $why = "lab nam trong goi: $lab" }
 elseif (-not (Test-Path -LiteralPath $lab -PathType Container)) { $why = "lab chua co: $lab (chay chuan-bi.ps1 truoc)" }
 elseif (-not (Lab-NoLinks $lab)) { $why = "duong dan lab di qua link/junction: $lab" }
 elseif (-not (Lab-Record $lab)) { $why = "$lab khong phai lab do chuan-bi.ps1 tao (thieu .lab-thu-dev5.json hop le hoac muc trong labs.json)" }
@@ -61,7 +67,7 @@ if ($why) {
     $env:LOCALAPPDATA = "$lab\env\LocalAppData"; $env:APPDATA = "$lab\env\AppData"; $env:TEMP = "$lab\env\Temp"; $env:TMP = "$lab\env\Temp"
     foreach ($d in @($env:APPDATA, $env:TEMP)) { if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null } }
     $ver = (& $exe --version 2>&1)
-    if ($LASTEXITCODE -ne 0 -or "$ver" -notmatch '2\.4\.0\.dev5') {
+    if ($LASTEXITCODE -ne 0 -or "$ver" -notmatch [regex]::Escape($man.version)) {
         Lab-Refuse "onecrew cua lab khong chay: $ver"
         Remove-Variable -Name exe, proj, state, venv, lab, registryThu -ErrorAction SilentlyContinue
     } else {

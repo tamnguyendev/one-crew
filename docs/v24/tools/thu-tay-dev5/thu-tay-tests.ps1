@@ -1,7 +1,7 @@
 # thu-tay-tests.ps1 -Scripts <folder with chuan-bi/vao-moi-truong/don-dep> -Work <new test root> - the three Codex findings on the dev5 lab scripts.
 # Every case runs REAL PowerShell child processes and the real filesystem under <Work> (disposable); the only fakes: a fake AI marker value and
 # fake "lab-like" folders. Expected: red on the old scripts (c17e465), green on the current ones. Writes <Work>\results.json; exit 0 when all pass.
-param([Parameter(Mandatory=$true)][string]$Scripts, [Parameter(Mandatory=$true)][string]$Work)
+param([Parameter(Mandatory=$true)][string]$Scripts, [Parameter(Mandatory=$true)][string]$Work, [string]$PackageDir = 'D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev5-beta')
 $ErrorActionPreference = 'Continue'
 $Work = [System.IO.Path]::GetFullPath($Work).TrimEnd('\')
 if (Test-Path -LiteralPath $Work) { Write-Host "work exists: $Work"; exit 3 }
@@ -39,9 +39,9 @@ Case 'p1_refuses_lab_like_folder_not_made_by_chuan_bi' {
 }
 Case 'p1_refuses_shallow_and_package_paths' {
     $a = DonDep 'D:\OneCrewRuns'
-    $b = DonDep 'D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev5-beta\not-a-lab'
-    $c = DonDep 'D:\OneCrewRuns\v24\pkg'
-    [ordered]@{ ok = ($a.code -ne 0 -and $b.code -ne 0 -and $c.code -ne 0 -and (Test-Path 'D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev5-beta\manifest.json')); exits = @($a.code, $b.code, $c.code); tails = @(($a.out | Select-Object -Last 1), ($b.out | Select-Object -Last 1), ($c.out | Select-Object -Last 1)) }
+    $b = DonDep (Join-Path $PackageDir 'not-a-lab')
+    $c = DonDep (Split-Path -Parent $PackageDir)
+    [ordered]@{ ok = ($a.code -ne 0 -and $b.code -ne 0 -and $c.code -ne 0 -and (Test-Path (Join-Path $PackageDir 'manifest.json'))); exits = @($a.code, $b.code, $c.code); tails = @(($a.out | Select-Object -Last 1), ($b.out | Select-Object -Last 1), ($c.out | Select-Object -Last 1)) }
 }
 Case 'p1_refuses_fabricated_marker_without_ledger_entry' {
     $fake = "$Work\forged-lab"; New-Item -ItemType Directory -Path "$fake\env\LocalAppData", "$fake\venv", "$fake\so" -Force | Out-Null

@@ -1,4 +1,4 @@
-# chuan-bi.ps1 - bai 2 cua huong dan thu OneCrew 2.4.0.dev5. DOT-SOURCE trong cua so PowerShell se go cac lenh thu:
+# chuan-bi.ps1 - bai 2 cua huong dan thu OneCrew 2.4 (goi chua script nay, hoac goi dev5 da biet). DOT-SOURCE trong cua so PowerShell se go cac lenh thu:
 #   . "D:\OneCrewRuns\v24\pkg\thu-tay-dev5\chuan-bi.ps1" [-Lab <thu muc moi>] [-Source <repo Git cua ban>]
 # (khong chay bang `powershell -File`: tien trinh con ket thuc thi cua so cua ban khong o trong moi truong thu).
 # Lam: tao <lab> moi, ghi dau so huu <lab>\.lab-thu-dev5.json + muc trong labs.json canh script (chi don-dep.ps1 xoa duoc lab co ca hai),
@@ -11,8 +11,13 @@
 param([string]$Lab = 'D:\OneCrewRuns\v24 thu tay dev5', [string]$Source = '')
 $labOk = $false
 $py  = 'C:\Users\NUC\AppData\Local\Programs\Python\Python313\python.exe'
-$pkg = 'D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev5-beta'
-$labsFile = Join-Path $PSScriptRoot 'labs.json'
+$pkg = $null
+foreach ($cand in @((Split-Path -Parent (Split-Path -Parent $PSScriptRoot)), 'D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev5-beta')) {   # <package>\verify\thu-tay -> <package>; else the known package
+    if ($cand -and (Test-Path -LiteralPath (Join-Path $cand 'manifest.json') -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $cand 'wheel') -PathType Container)) { $pkg = [System.IO.Path]::GetFullPath($cand).TrimEnd('\'); break }
+}
+if (-not $pkg) { Write-Host 'KHONG DAT: khong tim thay goi (manifest.json) canh script hay o duong dan da biet' -ForegroundColor Red }
+$man = if ($pkg) { Get-Content -LiteralPath (Join-Path $pkg 'manifest.json') -Raw | ConvertFrom-Json } else { $null }
+$labsFile = Join-Path $env:USERPROFILE '.onecrew-thu-tay\labs.json'       # ngoai goi, ngoai lab: bang chung thu hai cua don-dep.ps1
 function Script:CB-Fail([string]$t) { Write-Host ('KHONG DAT: ' + $t) -ForegroundColor Red; Write-Host 'Dung tai day; khong go lenh thu trong cua so nay.' }
 function Script:CB-Hash([string]$p) { if (Test-Path -LiteralPath $p) { (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash } else { 'absent' } }
 $cbOk = $true
@@ -23,20 +28,22 @@ if (-not $env:ONECREW_LAB_REAL_LOCALAPPDATA) {   # gia tri that cua cua so nay, 
 }
 $registryThat = Join-Path $env:ONECREW_LAB_REAL_LOCALAPPDATA 'OneCrew\hook-projects.json'
 $registryThu = "$lab\env\LocalAppData\OneCrew\hook-projects.json"
-$wheel = "$pkg\wheel\onecrew-2.4.0.dev5-py3-none-any.whl"
-$sha = '6ed8ab8a8568d271d4fd7d4b89f7bbb5ed98c8b387898f109c2f9b73ae409655'
+$version = if ($man) { $man.version } else { '' }
+$wheel = if ($man) { "$pkg\wheel\$($man.wheel.name)" } else { '' }
+$sha = if ($man) { $man.wheel.sha256 } else { '' }
 $oldEAP = $ErrorActionPreference; $ErrorActionPreference = 'Stop'
 try {
+    if (-not $pkg) { throw 'khong tim thay goi' }
     if (($lab + '\').StartsWith($pkg + '\', [StringComparison]::OrdinalIgnoreCase)) { throw "lab nam trong goi: $lab" }
     if ((($lab -split '\\') | Where-Object { $_ }).Count -lt 3) { throw "lab qua nong (can it nhat D:\<thu muc>\<lab>): $lab" }
     if (Test-Path -LiteralPath $lab) { throw "lab da co: $lab (chon -Lab ten moi, hoac don-dep.ps1 lab cu)" }
     if ($Source -and -not (Test-Path -LiteralPath (Join-Path $Source '.git'))) { throw "-Source khong phai repo Git: $Source" }
     $registryThatTruoc = CB-Hash $registryThat
-    Write-Host "== 1. wheel"; if ((CB-Hash $wheel).ToLower() -ne $sha) { throw "SHA256 wheel khac $sha" }; Write-Host "   sha256 dung"
+    Write-Host "== 1. goi $pkg ($version)"; if ((CB-Hash $wheel).ToLower() -ne $sha.ToLower()) { throw "SHA256 wheel khac $sha" }; Write-Host "   wheel $($man.wheel.name) sha256 dung"
     Write-Host "== 2. lab moi + dau so huu"
     New-Item -ItemType Directory -Path "$lab\env\LocalAppData", "$lab\env\AppData", "$lab\env\Temp" -Force | Out-Null
     $nonce = [guid]::NewGuid().ToString('N')
-    $marker = @{ created_by = 'chuan-bi.ps1'; lab = $lab; nonce = $nonce; created_at = (Get-Date).ToString('o'); package = $pkg; version = '2.4.0.dev5' }
+    $marker = @{ created_by = 'chuan-bi.ps1'; lab = $lab; nonce = $nonce; created_at = (Get-Date).ToString('o'); package = $pkg; version = $version }
     ($marker | ConvertTo-Json) | Set-Content -LiteralPath "$lab\.lab-thu-dev5.json" -Encoding utf8
     $all = New-Object System.Collections.Generic.List[object]
     if (Test-Path -LiteralPath $labsFile) {
@@ -45,6 +52,7 @@ try {
         foreach ($e in @($old)) { if ($e -and $e.lab -and $e.lab.ToLowerInvariant() -ne $lab.ToLowerInvariant()) { $all.Add([pscustomobject]@{ lab = $e.lab; nonce = $e.nonce; created_at = $e.created_at }) } }
     }
     $all.Add([pscustomobject]@{ lab = $lab; nonce = $nonce; created_at = $marker.created_at })
+    New-Item -ItemType Directory -Path (Split-Path -Parent $labsFile) -Force | Out-Null
     (ConvertTo-Json -InputObject $all.ToArray() -Depth 3) | Set-Content -LiteralPath $labsFile -Encoding utf8
     Write-Host "   $lab\.lab-thu-dev5.json + muc trong $labsFile"
     Write-Host "== 3. bien moi truong cua cua so nay -> $lab\env"
@@ -52,7 +60,7 @@ try {
     Write-Host "== 4. venv thu + cai wheel"
     & $py -m venv $venv; if ($LASTEXITCODE -ne 0) { throw 'python -m venv' }
     & "$venv\Scripts\python.exe" -I -m pip install --no-index --no-build-isolation --disable-pip-version-check -q $wheel; if ($LASTEXITCODE -ne 0) { throw 'pip install wheel' }
-    $ver = (& $exe --version 2>&1); if ($LASTEXITCODE -ne 0 -or "$ver" -notmatch '2\.4\.0\.dev5') { throw "onecrew --version: $ver" }; Write-Host "   $ver"
+    $ver = (& $exe --version 2>&1); if ($LASTEXITCODE -ne 0 -or "$ver" -notmatch [regex]::Escape($version)) { throw "onecrew --version: $ver (can $version)" }; Write-Host "   $ver"
     Write-Host "== 5. ban sao project doc lap"
     if ($Source) {
         git clone -q --no-hardlinks $Source $proj; if ($LASTEXITCODE -ne 0) { throw 'git clone' }

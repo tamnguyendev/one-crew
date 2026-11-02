@@ -6,12 +6,18 @@
 # khong xoa gi. Sau khi xoa: kiem thu muc da mat (neu con -> KHONG DAT ma 1) va registry that khong doi hash; moi xoa muc khoi labs.json.
 param([string]$Lab = 'D:\OneCrewRuns\v24 thu tay dev5')
 $ErrorActionPreference = 'Stop'
-$pkg = 'D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev5-beta'
-$labsFile = Join-Path $PSScriptRoot 'labs.json'
+$pkg = $null
+foreach ($cand in @((Split-Path -Parent (Split-Path -Parent $PSScriptRoot)), 'D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev5-beta')) {   # <package>\verify\thu-tay -> <package>; else the known package
+    if ($cand -and (Test-Path -LiteralPath (Join-Path $cand 'manifest.json') -PathType Leaf) -and (Test-Path -LiteralPath (Join-Path $cand 'wheel') -PathType Container)) { $pkg = [System.IO.Path]::GetFullPath($cand).TrimEnd('\'); break }
+}
+if (-not $pkg) { Write-Host 'KHONG DAT: khong tim thay goi (manifest.json) canh script hay o duong dan da biet' -ForegroundColor Red }
+$man = if ($pkg) { Get-Content -LiteralPath (Join-Path $pkg 'manifest.json') -Raw | ConvertFrom-Json } else { $null }
+$labsFile = Join-Path $env:USERPROFILE '.onecrew-thu-tay\labs.json'       # ngoai goi, ngoai lab: bang chung thu hai cua don-dep.ps1
 function Refuse([string]$t) { Write-Host ('KHONG DAT: ' + $t + ' (khong xoa gi)') -ForegroundColor Red; exit 2 }
 function Hash([string]$p) { if (Test-Path -LiteralPath $p) { (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash } else { 'absent' } }
 $lab = [System.IO.Path]::GetFullPath($Lab).TrimEnd('\')
 if (-not [System.IO.Path]::IsPathRooted($lab)) { Refuse "duong dan khong tuyet doi: $lab" }
+if (-not $pkg) { Refuse 'khong tim thay goi' }
 if (($lab + '\').StartsWith($pkg + '\', [StringComparison]::OrdinalIgnoreCase) -or ($pkg + '\').StartsWith($lab + '\', [StringComparison]::OrdinalIgnoreCase)) { Refuse "lab trung hoac chua goi: $lab" }
 if ((($lab -split '\\') | Where-Object { $_ }).Count -lt 3) { Refuse "duong dan qua nong, khong phai lab: $lab" }
 if (-not (Test-Path -LiteralPath $lab -PathType Container)) { Refuse "khong co thu muc: $lab" }

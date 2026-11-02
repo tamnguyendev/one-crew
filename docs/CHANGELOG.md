@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## v2.4.0.dev6 (02/11/2026) — beta 2.4: S1/S2/A/B/C, xác thực API cho advisor/reviewer, bộ thử trong gói
+
+**Bản beta (prerelease) `2.4.0.dev6` của 2.4, không phải bản ổn định `2.4.0`; chưa nghiệm thu production.** Dùng trên bản sao project và sổ riêng; không tự cài lên runtime/sổ thật. Điểm vào thử: `BAT-DAU-THU.vi.md` trong gói (script `verify/thu-tay/`).
+
+- **Mới (so với 2.3.0.dev10/dev11):** S1 báo lỗi một lần + hồ sơ chẩn đoán (`support report|show|status|bundle|…`); S2 bản vá OneCrew từ báo cáo tới tiếp tục việc cũ (`support target|artifact|install|recheck|rollback`, diễn tập trên bản sao, chuyển hook ở điểm an toàn, quay lui có điều kiện, không chạy bytecode `.pyc` chưa kiểm); A worker tự đọc nguồn theo quyền (`authority.read`, `sources`); B working context theo consumer (`knowledge.delivered`, delta, cổng kiểm lại, `wiki consumers`); C thẻ bước 0 và cách chạy node (`plan step0 show`, `execution-mode`, `engine measure`).
+- **Xác thực API cho advisor/reviewer Claude CLI** (hotfix 2.3 `2.3.0.dev11`, tích hợp nguyên bản sửa + phản chứng): `auth: subscription|api` trên hợp đồng, `plan advise --auth api`; key chỉ vào tiến trình CLI; `credential_missing`; không fallback; **thêm ở 2.4:** key mà provider phản chiếu lại bị che `[withheld]` trong lỗi/blob/problem. Chưa gọi API thật trong lượt dựng (CLI giả); `~/.claude/settings.json` của máy có thể đổi cách CLI xác thực.
+- **Lỗi đã sửa qua các bản dev2→dev6:** F1 danh tính venv theo nội dung và mốc tạo; F2 quyết định chuyển/quay lui gắn dữ liệu đã diễn tập, cửa sổ chuyển hai phía; F3 duyệt đủ chuỗi phụ thuộc, không mặc định publish; P1 dev3 bytecode `.pyc` sai chạy trước khi bị từ chối; P1 dev4 quay lui chạy bytecode bị thay sau phép kiểm (mọi chương trình của venv đã kiểm đọc bytecode từ thư mục trống riêng, không nhận `PYTHON*`); P3 tài liệu trong gói; review bộ thử (cách ly registry, quay về A/B, tên thư mục kết quả, dọn dẹp chỉ xóa lab có dấu sở hữu, dot-source, giữ marker phiên AI).
+- **Cài/nâng cấp/quay về:** README của gói §2–3; `BAT-DAU-THU.vi.md` §2 (lab cách ly), §5 (quay về: A cài lại wheel; B sau S2 chỉ `support rollback`, từ chối là đúng). Nâng từ 2.3 (dev10/dev11) giữ sổ, plan, lịch sử; plan có `auth` đọc được ở cả hai chiều (dev10 bỏ qua `auth`).
+- **Giới hạn / chưa thử thật:** model/provider thật (worker giả trong mọi kiểm), pilot, nghiệm thu; bài S2 thủ công trên máy người dùng; chi tiết `docs/limits-final.md`.
+
 ## v2.4.0.dev5 (02/11/2026) — bản thử 2.4 sau review Codex trên dev4 (ứng viên beta, chưa nghiệm thu)
 
 Sửa một finding của Codex trên `2.4.0.dev4` (`4f03e54`, wheel `8fa0dfde…`): 1 P1, phản chứng đỏ trên code dev4 trước khi sửa (test của checkout và bước kiểm chạy trên chính gói dev4).

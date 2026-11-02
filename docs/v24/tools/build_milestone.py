@@ -38,7 +38,9 @@ DEFAULT_REGRESSION = ('D:/OneCrewRuns/v23/pkg/onecrew-2.3.0.dev10-beta/wheel/pre
 CODE_PATHS = ('onecrew', 'tests', 'pyproject.toml', 'docs/v23', 'docs/v24', 'docs/CHANGELOG.md')      # the tree the package is made of must be committed
 REGRESSION_STEPS = 16                                                  # V1-V16 of 2.3, run for every 2.4 package (verify_milestone.REGRESSION_STEPS)
 SCENARIOS = ('scenario_a1.py', 'scenario_a2.py', 'scenario_b.py', 'scenario_codex.py')       # V4-V14 need all of them, whatever the 2.4 milestone
-SHARED_TOOLS = ('make_fake_claude_wheel.py', 'first_task_drill.py', 'alpha_flow.py')         # what examples/first-task/README.vi.md names under verify/
+SHARED_TOOLS = ('make_fake_claude_wheel.py', 'first_task_drill.py', 'alpha_flow.py')
+TRIAL_KIT = ('chuan-bi.ps1', 'vao-moi-truong.ps1', 'roi-lab.ps1', 'don-dep.ps1')          # docs/v24/tools/thu-tay-dev5 -> <package>/verify/thu-tay (dev6)
+TRIAL_GUIDE = 'BAT-DAU-THU.vi.md'                                                          # template in docs/v24, rendered to <package>/BAT-DAU-THU.vi.md         # what examples/first-task/README.vi.md names under verify/
 
 
 def git(*args):
@@ -232,9 +234,13 @@ def main():
     shutil.copy2(ROOT / 'tests/v23_fake_claude.py', verify / 'onecrew_fake_claude.py')
     shutil.copy2(ROOT / 'tests/v24_fake_claude.py', verify / 'onecrew_fake_claude_v24.py')     # 2.4-A V23: the fake that reads by request
     for name in SHARED_TOOLS: shutil.copy2(ROOT / 'docs/v23/tools' / name, verify / name)
-    shutil.copy2(ROOT / 'docs/v24/tools/thu_goi.ps1', verify / 'thu-goi.ps1')      # the owner's one-command test: runs the verifier, the drill and the alpha flow and accepts only reports of THIS run
+    shutil.copy2(ROOT / 'docs/v24/tools/thu_goi.ps1', verify / 'thu-goi.ps1')
+    shutil.copy2(ROOT / 'docs/v24/tools/auth_probe.py', verify / 'auth_probe.py')          # V32: the api-auth cases from the installed wheel (dev6)
+    (verify / 'thu-tay').mkdir()
+    for name in TRIAL_KIT: shutil.copy2(ROOT / 'docs/v24/tools/thu-tay-dev5' / name, verify / 'thu-tay' / name)   # the owner's isolated-lab scripts (dev6)      # the owner's one-command test: runs the verifier, the drill and the alpha flow and accepts only reports of THIS run
     docs = out / 'docs'; docs.mkdir()
-    for path in sorted((ROOT / 'docs/v24').glob('*.md')): shutil.copy2(path, docs / path.name)
+    for path in sorted((ROOT / 'docs/v24').glob('*.md')):
+        if path.name != TRIAL_GUIDE: shutil.copy2(path, docs / path.name)                  # the trial guide is rendered into the package root instead
     shutil.copy2(ROOT / 'docs/CHANGELOG.md', docs / 'CHANGELOG.md')
     history = docs / 'v23'; history.mkdir()
     for path in sorted((ROOT / 'docs/v23').glob('*.md')): shutil.copy2(path, history / path.name)
@@ -250,6 +256,13 @@ def main():
                            built=built, out=str(out.resolve()), tag=f'{args.milestone.lower()} {version}', steps_text=stage_text,
                            try_text='\n'.join(tries), limits=Path(args.limits).read_text(encoding='utf-8').strip())
     (out / 'README.md').write_text(readme, encoding='utf-8')
+    guide = (ROOT / 'docs/v24' / TRIAL_GUIDE).read_text(encoding='utf-8')
+    for token, value in (('@@PACKAGE@@', str(out.resolve())), ('@@VERSION@@', version), ('@@COMMIT@@', commit[:7]), ('@@WHEEL@@', wheel_path.name),
+                         ('@@WHEEL_SHA@@', sha(wheel_path)), ('@@PREVIOUS@@', previous.name), ('@@PREVIOUS_SHA@@', args.previous_sha),
+                         ('@@STEPS@@', str(expected))):
+        guide = guide.replace(token, value)
+    if '@@' in guide: raise SystemExit('the trial guide template has an unrendered token')
+    (out / TRIAL_GUIDE).write_text(guide, encoding='utf-8')
     manifest = {'kind': 'v24-milestone-package', 'milestone': args.milestone, 'label': MILESTONES[args.milestone], 'milestones_included': included,
                 'version': version, 'code_commit': commit, 'branch': branch, 'built_at': built, 'ships_paging': ships_paging, 'stage': args.stage or None,
                 'expected_steps': expected,
