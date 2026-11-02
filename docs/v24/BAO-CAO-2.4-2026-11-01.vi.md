@@ -383,3 +383,76 @@ Không chạy lại gate, hồi quy hay bài 1; gói dev5 và kết quả bài 1
 | P2 `vao-moi-truong.ps1:18` xóa `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION` (dấu hiệu phiên AI của `ownership.py`) | marker bị xóa (Codex: `AI_MARKER_AFTER=False`) | Bỏ dòng đó; script chỉ đổi 4 biến thư mục (và nhớ `ONECREW_LAB_REAL_LOCALAPPDATA` để đối chiếu) | test `p2_ai_markers_kept_and_owner_verb_refused` (marker giả `fixture-marker` giữ nguyên; `support confirm` trên sổ thử bị từ chối "runs inside an AI tool session", mã 2, trước khi ghi); diễn tập shell lồng: `MARKER=fixture-marker` |
 
 Phần giả trong test: giá trị marker AI và các thư mục "giống lab"; phần thật: tiến trình PowerShell con, filesystem, `onecrew init/doctor/support report/support confirm` của wheel dev5 trên sổ thử. Không chạy lại gate/hồi quy/bài 1; gói dev5 `SHA256SUMS` 62/62 và kết quả bài 1 của chủ (`…20261102-132042`) không đổi; registry thật `aacad058…` giữ hash trước–sau mỗi lượt (quan sát hiện tại, không suy ra "không đổi suốt lịch sử"). Nguồn script: `docs/v24/tools/thu-tay-dev5/` (kèm `thu-tay-tests.ps1`), bản ngoài gói `D:/OneCrewRuns/v24/pkg/thu-tay-dev5/`.
+
+## 11. Beta 2.4.0.dev6: tích hợp xác thực API của hotfix 2.3, bộ thử trong gói, phát hành (02/11)
+
+Chỉ thị chủ 02/11 ~19:10: hoàn tất và phát hành beta 2.4 (ủy quyền một lần; không phải nghiệm thu production; không cài lên runtime/sổ thật).
+
+### 11.1 Checklist release (chốt trước khi sửa)
+
+| # | Việc | Tiêu chí | Kết quả |
+|---|---|---|---|
+| R1 | Tích hợp hotfix 2.3 đúng bản đã kiểm | commit code+test của hotfix (`a3d6a15`, nhánh `claude/onecrew-2.3-hotfix-auth` ở `9e022fe`, không sửa nhánh đó) vào 2.4; thêm phần 2.4: key bị provider phản chiếu lại không vào bằng chứng; kiểm advisor/reviewer và bundle | đạt: `ddec0e3` (cherry-pick `a3d6a15`), `8dbaf1c` (che key phản chiếu); 17/17 test auth trên 2.4 (`reg-auth-redaction-green-redact-fix.txt`) |
+| R2 | Bộ thử trong gói | `BAT-DAU-THU.vi.md` render vào gốc gói; `verify/thu-tay/*.ps1` tìm gói qua `manifest.json`; `labs.json` ngoài gói | đạt: gói có `BAT-DAU-THU.vi.md` (render, không còn token), `verify/thu-tay/` 4 script; test script trên bản trong gói 11/11 (`thu-tay-tests-pkg-dev6.txt`); `labs.json` ở `%USERPROFILE%\.onecrew-thu-tay` |
+| R3 | Version/snapshot/gói | `2.4.0.dev6`, snapshot một lần sau khi test tập trung xanh; gói dựng từ snapshot, kiểm từ artifact (V1–V32) | đạt: snapshot `01b6f62` (sau `dafbb87`: V32 trả facts sai khóa → sửa, dựng lại; gói `dafbb87` để riêng `-superseded-dafbb87`); gói `onecrew-2.4.0.dev6-beta` V1–V32 **32/32**, script thử `DAT` (task đầu tiên 25/25, alpha 5/5), chạy lại cùng thư mục bị từ chối, `SHA256SUMS` 68/68 (`pkg-*-2.4.0.dev6.txt`) |
+| R4 | Nâng cấp/quay về trên bản sao từ wheel cuối | cài mới (V2); nâng từ 2.3.0.dev11 có plan `auth: api` → đọc plan/sổ/ngân sách, hook exe giữ, `compat scan` không read block; quay về dev11 đọc lại; quay lui S2 có điều kiện (V22 thành công, V31 từ chối) | đạt: V2 cài mới; diễn tập `upgrade_dev11_drill.py` (`upgrade-dev11-to-dev6.txt`, `D:/OneCrewRuns/v24/upgrade dev11 to dev6/upgrade-dev11.json`): dev11 init + plan `auth: api` đã duyệt → dev6 cài đè cùng venv: `init` giữ config/sổ, lệnh hook không đổi (chỉ thêm các mục chặn verb owner của S2 vào deny-list), `plan show` hai plan (approved, revision 1), `compat scan` read 0, `plan step0 show`, `support list`, `doctor` đạt, sổ không đổi sau các lệnh đọc → dev11 cài lại đọc được cả hai plan, `compat scan` read 0 → dev6 lại; quay lui S2 có điều kiện: V22 `rolled_back`, V31 từ chối `.pyc` bị thay (trong 32/32) |
+| R5 | Hồi quy | `tests/test_v24_*` và module 2.3 ảnh hưởng trên snapshot sạch | đạt trên `01b6f62` sạch: `tests/test_v24_*` **270/270**, 0 skip (`reg-v24-all-01b6f62.txt`, 21:02–21:46); module 2.3 ảnh hưởng (advisor/reviewer/evidence/providers/metered/l3/hotfix/subscription) `reg-affected23-01b6f62.txt`: 282 test, OK, 1 skip (`RealCliTests`: CLI thật, subscription bị tổ chức tắt), 21:47–22:19; trước đó trên `dafbb87` (chỉ khác bộ kiểm gói): 270/270 và 282 (1 skip: test gọi CLI thật) |
+| R6 | Gate 2.2 trên snapshot ứng viên | mọi check thực thi đạt; `refused` chỉ vì khoảng trống nghiệm thu đã biết, đối chiếu từng mục | đạt: gate 2.2 trên `01b6f62` sạch 22:19–01:48: **286/286** check có receipt, 0 fail, 2.097 test / 217 lượt, 0 skip (cùng cách đếm trên gate dev5: 2.097); `refused` chỉ vì **23** khoảng trống nghiệm thu, so từng mục **trùng** gate dev5 (`gates-tmp/wf-snapshot-gate-20261102-01b6f62/decision.json`) |
+| R7 | Phát hành | quét bí mật/sổ/log trong gói và trong các dòng push; tag `v2.4.0.dev6` trên snapshot, push nhánh `claude/onecrew-2.4` + tag lên `origin` (repo private) như `v2.3.0.dev10`; không GitHub Release/registry (chưa cấu hình) | **đã phát hành 03/11 01:50**: tag annotated `v2.4.0.dev6` (`5ebd3bc` → `01b6f62`) và nhánh `claude/onecrew-2.4` = `01b6f62` trên origin `git@github.com:tamnguyendev/one-crew.git` (private, không GitHub Release — như 2.3), không force; `D:/OneCrewRuns/v24/release/release-{check,tag,push,verify}.json` |
+
+### 11.2 Tích hợp hotfix (R1)
+
+- Nguồn: `a3d6a15` (hotfix 2.3: `auth: subscription|api`, `plan advise --auth`, `reviewer.provider_env`, `credential_missing`, không fallback) cherry-pick nguyên văn thành `ddec0e3` (chỉ `plan_cli.py` khác giữa 2.3 và 2.4, không xung đột). Nhánh hotfix 2.3 không bị sửa.
+- Bổ sung ở 2.4 (`8dbaf1c`): `reviewer.withhold` thay key trong stdout/stderr/lỗi OS của CLI **trước** khi đọc hay ghi (`reviewer.py` :251–258, :275–278) — trước đó lỗi 401 trích x-api-key, stderr hay stdout không phải JSON đi thẳng vào `receipt.error`, blob `raw`, `plan.advised.problems`. Phản chứng `tests/test_v24_s2_auth_redaction.py`: 3/5 đỏ trên `ddec0e3` (`reg-auth-redaction-red-ddec0e3.txt`), 5/5 xanh (`reg-auth-redaction-green-redact-fix.txt`, cùng 12/12 hotfix); đối chứng subscription không bị che; `diagnostics.redact_line` che dạng key và dòng gán `ANTHROPIC_API_KEY` (đường `support bundle`).
+- Tài liệu: `docs/providers.vi.md` mục credential; `limits-s2`/`limits-final` dòng xác thực; CHANGELOG dev6.
+
+### 11.3 Kiểm (R3–R5)
+
+Do Claude chạy trong lượt này (log `D:/OneCrewRuns/v24/logs/`):
+
+| Kiểm | Snapshot / artifact | Kết quả |
+|---|---|---|
+| Phản chứng key phản chiếu | `ddec0e3` | 3/5 đỏ → `8dbaf1c` 5/5; hotfix 12/12 trên 2.4 (`reg-auth-redaction-*.txt`) |
+| Test tập trung cây đang sửa | dev6 | 54/54 (`reg-focused-dev6-wt.txt`: docs sync, installed, g1 pin, s1 bundle, auth, redaction) |
+| Hồi quy `tests/test_v24_*` | `dafbb87` → `01b6f62` sạch | 270/270 cả hai (`reg-v24-all-*.txt`) |
+| Module 2.3 ảnh hưởng | `dafbb87`: 282, 1 skip; `01b6f62`: 282 test, OK, 1 skip (`RealCliTests`: CLI thật, subscription bị tổ chức tắt), 21:47–22:19 |
+| Gói từ artifact | `onecrew-2.4.0.dev6-beta` (`01b6f62`, wheel `a5ad4525…`) | **32/32** (V32 xác thực API từ wheel đã cài 5/5), script thử `DAT` (task đầu tiên 25/25, alpha 5/5), chạy lại cùng thư mục `KHONG DAT` exit 2, `SHA256SUMS` 68/68 (`pkg-*-2.4.0.dev6.txt`). Lượt dựng đầu từ `dafbb87`: V32 lỗi khóa facts (`TypeError`), V27 hỏng khi chạy cùng hồi quy nhưng đạt khi chạy riêng (`pkg-only-V27-dev6.txt`, 119 s) → sửa V32, dựng lại một mình từ `01b6f62`; gói `dafbb87` để riêng `-superseded-dafbb87` |
+| Script lab trong gói | `verify/thu-tay/` | 11/11 (`thu-tay-tests-pkg-dev6.txt`) |
+| Nâng cấp dev11 → dev6 → dev11 → dev6 | wheel cuối, venv có khoảng trắng | **đạt** (`upgrade-dev11-to-dev6.txt`) |
+| **Smoke test model thật** (chủ duyệt 21:2x, `claude-sonnet-5-5`, key User, lab `D:/OneCrewRuns/v24 smoke sonnet`) | wheel dev6 | advisor `--auth api`: `usable`, Q1–Q3 `ok`, receipt `auth: api`, $0,012; reviewer mốc `auth: api`: `pass`, R1 pass có bằng chứng hunk, $0,015; **worker `engine step` (node C và node có `sources`): `held`** — CLI trả "organization has disabled Claude subscription access" (adapter worker chỉ subscription); 0 file trong lab chứa key; tổng $0,027 (`smoke-sonnet*-dev6.txt`, `smoke/smoke-summary.json`) |
+
+Không chạy: pilot, nghiệm thu; worker thật (bị chặn như trên); POSIX.
+
+### 11.4 Gate 2.2 (R6)
+
+Gate 2.2 (`run_gate.sh`, snapshot `01b6f62` checkout sạch, Python 3.13.15, TEMP riêng) chạy 02/11 22:19:53 → 03/11 01:48:47, sau khi chuỗi hồi quy kết thúc, không song song với lượt kiểm khác:
+
+| Mục | dev6 `01b6f62` | dev5 `387d3cb` |
+|---|---|---|
+| `implementation_checks` | expected 286, receipted 286, failed [] | 286 / 286 / [] |
+| Test trong `gate/runs/*.log` | 2.097 test, 217 lượt, 0 skip | 2.097, 217, 0 (cùng cách đếm; báo cáo dev5 ghi 2.107 theo cách đếm khác) |
+| `decision` | `refused`, 23 problems | `refused`, 23 problems |
+| So 23 problems (JSON chuẩn hóa) | **trùng từng mục** | — |
+| `pilot_passed` / `owner_acceptance` | false / false | false / false |
+| Wheel gate tự dựng | `6557abb2…` | `45bc8e91…` |
+
+Wheel gate dựng từ cùng snapshot khác hash với wheel giao (`a5ad4525…`) vì bộ dựng không tái lập theo byte (đã biết từ R14b); với dev5 Codex đã so từng file; dev6 chưa so lại (việc của Codex review). Registry hook thật `aacad058f478898…` giữ hash trước/sau gate. Log: `D:/OneCrewRuns/v24/logs/gate-snapshot-01b6f62.txt`, `D:/OneCrewRuns/v24/gates-tmp/wf-snapshot-gate-20261102-01b6f62/{decision.json,gate-run.log,gate/}`.
+
+### 11.5 Phát hành (R7)
+
+Theo đúng cách 2.3 beta (`release_beta2.py`): `release_beta_24.py 01b6f62 check|tag|push|verify` từ `wf-v24` (HEAD = snapshot, sạch, nhánh `claude/onecrew-2.4`):
+
+| Bước | Lúc (03/11) | Kết quả |
+|---|---|---|
+| `check` (chạy trước gate và lại trong `tag`) | 01:49 | origin đúng URL; version tại snapshot `2.4.0.dev6`; manifest gói = snapshot + wheel `a5ad4525…` (hash tính lại khớp); tag chưa có local/origin; nhánh chưa có trên origin; quét bí mật 183.625 dòng thêm so với `4d03587` (gốc chung với main): 0 hit (fixture PEM `PEMBODY` trong `tests/test_v24_s1_review.py` đã xem và cho qua); quét gói: 0 |
+| `tag` | 01:49:43 | annotated `v2.4.0.dev6` = `5ebd3bc` trỏ `01b6f62` |
+| `push` | 01:49:55 | `[new branch] claude/onecrew-2.4`, `[new tag] v2.4.0.dev6`; không force |
+| `verify` | 01:50:20 | origin: tag peel `01b6f62`, nhánh `01b6f62`; `gh repo view`: **PRIVATE**; `gh release list`: trống (không tạo GitHub Release, không mở visibility) |
+
+Artifact phát hành = gói đóng băng `D:/OneCrewRuns/v24/pkg/onecrew-2.4.0.dev6-beta` (manifest `code_commit` = `01b6f62`, wheel `onecrew-2.4.0.dev6-py3-none-any.whl` SHA256 `a5ad452554c8cd2f9e1486264943185dffebd0f9a8438b1daf577e6ee0afe149`, `claims` đều false); không có registry/kho artifact nào khác được cấu hình. Sau phát hành chỉ commit hồ sơ (báo cáo §11, hợp đồng, wiki) trên `claude/onecrew-2.4-pkg` → fast-forward `claude/onecrew-2.4` và push nhánh lần nữa; tag giữ nguyên trên snapshot.
+
+### 11.6 Cách ly và giới hạn
+
+Mọi lượt dùng TEMP/LOCALAPPDATA/APPDATA riêng; registry hook thật `aacad058…` quan sát giữ hash trước–sau từng lượt (hash khác hôm sáng vì phiên SignSDK đăng ký project, không do việc này); `wf-v23-hf` ở `9e022fe` không đổi; runtime SDK `venv-23` (2.3.0.dev11) không đổi; không cài gì lên sổ/project thật. Lab smoke giữ lại làm bằng chứng (không chứa key); dọn bằng `don-dep.ps1`.
+
+Giới hạn còn lại của beta: worker native (`engine step`) chỉ xác thực subscription — trên máy có tổ chức tắt subscription, node không chạy được (bằng chứng smoke); mở API cho worker là việc ngoài phạm vi 2.4 beta. Model thật mới chứng minh ở advisor/reviewer (một lượt mỗi loại); pilot, nghiệm thu, POSIX chưa. 23 khoảng trống nghiệm thu của gate như dev4/dev5.

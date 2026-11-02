@@ -254,6 +254,22 @@ Giờ lấy từ `git log --date=format:%H:%M` trong `wf-v24-pkg`, giờ ghi fil
 | 02/11 ~08:15 | Probe Codex trên wheel dev5 (venv sạch, đường dẫn có khoảng trắng): `marker_created false`, `marker_after_classifier false` | `logs/codex-probes-dev5.txt` |
 | 02/11 08:22–11:27 | Gate 2.2 trên `387d3cb` (từ 10:17 chạy song song gói hotfix 2.3 theo lựa chọn của chủ): 286/286 check thực thi đạt, 2.107/2.107 test, 0 skip; `refused` với 23 vấn đề trùng từng mục gate dev4 | `logs/gate-snapshot-387d3cb.txt`, `gates-tmp/wf-snapshot-gate-20261102-387d3cb/decision.json` |
 
+### Beta 2.4.0.dev6 (02/11 19:10–03/11 ~02:00, Claude Fable 5.1)
+
+| Lúc | Việc | Bằng chứng |
+|---|---|---|
+| 02/11 ~19:10 | Chỉ thị chủ (ủy quyền một lần): tích hợp hotfix 2.3, gói beta kèm bộ thử, diễn tập nâng cấp/quay về, snapshot một lần, gate, phát hành; kết thúc ở trạng thái A hoặc B | chat |
+| 19:2x–20:0x | Cherry-pick `a3d6a15` → `ddec0e3`; phản chứng key phản chiếu 3/5 đỏ → `8dbaf1c` 5/5, auth 17/17 | `logs/reg-auth-redaction-*.txt` |
+| 20:xx | Bộ thử tổng quát hóa vào gói, template hướng dẫn, V32; snapshot `dafbb87`; gói lần 1: V32 lỗi khóa facts, V27 hỏng khi chạy cùng hồi quy (đạt khi chạy riêng) → sửa V32, snapshot cuối **`01b6f62`** | `logs/pkg-*-dev6*.txt` |
+| 21:02–22:19 | Hồi quy trên `01b6f62` sạch: `tests/test_v24_*` 270/270; module 2.3 ảnh hưởng 282, 1 skip (CLI thật) | `logs/reg-v24-all-01b6f62.txt`, `reg-affected23-01b6f62.txt` |
+| ~21:20 | **Chủ duyệt** smoke model thật (`claude-sonnet-5-5`, key User): advisor usable, reviewer pass, worker `held` (tổ chức tắt subscription; adapter worker chỉ subscription); 0 file chứa key; $0,027 | `logs/smoke-sonnet*-dev6.txt`, lab `D:/OneCrewRuns/v24 smoke sonnet/smoke/` |
+| 2x:xx | Gói `onecrew-2.4.0.dev6-beta` 32/32 (chạy riêng), script thử DAT, chạy lại bị từ chối, SHA256SUMS 68/68; script lab trong gói 11/11; diễn tập dev11→dev6→dev11→dev6 đạt; `release check` ok | `logs/pkg-*-2.4.0.dev6.txt`, `thu-tay-tests-pkg-dev6.txt`, `upgrade-dev11-to-dev6.txt`, `release/release-check.json` |
+| 22:19–01:48 | Gate 2.2 trên `01b6f62`: 286/286, 2.097 test, 0 skip; `refused` với 23 problems trùng dev5 | `logs/gate-snapshot-01b6f62.txt`, `gates-tmp/wf-snapshot-gate-20261102-01b6f62/` |
+| 03/11 01:49–01:50 | **Phát hành**: tag `v2.4.0.dev6` → `01b6f62`, push nhánh + tag lên origin private; verify đạt; không GitHub Release | `release/release-{tag,push,verify}.json` |
+| 03/11 ~02:00 | Hồ sơ: báo cáo §11, mục này, wiki CURRENT + LL-42; commit docs, fast-forward, push nhánh | git |
+
+Không đụng: gói/snapshot/receipt đã đóng băng (dev4, dev5, hotfix 2.3), nhánh `claude/onecrew-2.3-hotfix-auth` (`9e022fe`), runtime SDK `venv-23` (2.3.0.dev11), venv/hook/registry/sổ thật, cấu hình tài khoản; không reset/stash của phiên khác (OBS-1 chạy song song trên `wf-obs1`).
+
 ## 8. Quyết định vượt quyền và điều cần Codex hay chủ sở hữu
 
 - **Không phát hành 2.4.** Không push nhánh, không tag, không publish gói 2.4 nào; không nâng runtime đang dùng (`%LOCALAPPDATA%\OneCrew`, venv và hook thật); không đọc/ghi `state-v2-real`. Phát hành là quyết định của chủ sở hữu sau Codex review.
