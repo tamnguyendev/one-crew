@@ -51,6 +51,7 @@ what the consumers' hook handlers run NOW.
 import ast
 import base64
 import csv
+import contextlib
 import hashlib
 import io
 import json
@@ -169,21 +170,30 @@ def interpreter(venv, caches):
         return {'error': (out or err or 'no answer')[-300:]}
 
 
-def entry_run(venv):
-    """(exit, stdout, stderr) of the venv's `onecrew --version` under PYTHONVERBOSE=1: the interpreter itself writes where every module the
-    executable loads comes from. No bytecode is written into the venv. Called only after every bytecode cache of the venv's wheel sources
-    was proven the compile of its source (identity); in addition (Codex dev3 P1, defence in depth for a cache replaced after that proof)
-    PYTHONPYCACHEPREFIX points at an empty folder of its own, so this run reads no bytecode from the venv's __pycache__ at all: it compiles
-    the verified sources. The folder is removed afterwards."""
+@contextlib.contextmanager
+def checked_run(**extra):
+    """(env, prefix) for a program of a checked venv (Codex dev3 and dev4 P1: identity, the drill and recheck reader, the event classifier).
+    The checks prove the venv's sources and caches at one moment; the program runs later. So it reads no bytecode from the venv's
+    __pycache__ at all: PYTHONPYCACHEPREFIX (or -X pycache_prefix for an -I run) is an empty folder of its own and the verified sources are
+    compiled; a cache replaced after the check is never loaded. No PYTHON* variable of the caller is passed on (a PYTHONPATH would import
+    another onecrew than the checked one), no bytecode is written. The folder is removed afterwards."""
     import tempfile
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith('PYTHON')}
     here = next((d for d in (os.environ.get('TEMP'), os.environ.get('TMP')) if d and os.path.isdir(d)), None)   # not a stale tempfile.tempdir
-    prefix = tempfile.mkdtemp(prefix='onecrew-identity-pyc-', dir=here)
-    env.update(PYTHONVERBOSE='1', PYTHONDONTWRITEBYTECODE='1', PYTHONPYCACHEPREFIX=prefix)
+    prefix = tempfile.mkdtemp(prefix='onecrew-checked-pyc-', dir=here)
+    env.update(PYTHONIOENCODING='utf-8', PYTHONDONTWRITEBYTECODE='1', PYTHONPYCACHEPREFIX=prefix, **extra)   # run() reads utf-8
     try:
-        return run([venv_exe(venv), '--version'], cwd=venv, env=env, timeout=300)
+        yield env, prefix
     finally:
         shutil.rmtree(prefix, ignore_errors=True)
+
+
+def entry_run(venv):
+    """(exit, stdout, stderr) of the venv's `onecrew --version` under PYTHONVERBOSE=1: the interpreter itself writes where every module the
+    executable loads comes from. Called only after every bytecode cache of the venv's wheel sources was proven the compile of its source
+    (identity), and run under checked_run (no bytecode of the venv is read)."""
+    with checked_run(PYTHONVERBOSE='1') as (env, _):
+        return run([venv_exe(venv), '--version'], cwd=venv, env=env, timeout=300)
 
 
 CACHE_OK = ('same', 'other interpreter')     # 'other interpreter': another tag or magic number, which this interpreter never loads
@@ -433,7 +443,9 @@ def run_onecrew(exe, args, cwd=None, env=None):
 
 
 def _onecrew(exe, args):
-    return run_onecrew(exe, [str(a) for a in args])
+    """onecrew of a checked venv (drill reader, recheck): under checked_run, never the venv's bytecode caches or a PYTHONPATH of the caller."""
+    with checked_run() as (env, _):
+        return run_onecrew(exe, [str(a) for a in args], env=env)
 
 
 CLASSES = ('import json, sys\nfrom onecrew.v2 import compat\n'
@@ -441,8 +453,10 @@ CLASSES = ('import json, sys\nfrom onecrew.v2 import compat\n'
 
 
 def event_classes(venv, kinds):
-    """{kind: '0' | 'A' | 'B' | None} as the runtime of `venv` itself classifies them (None: a kind that runtime does not know)."""
-    code, out, err = run([venv_python(venv), '-I', '-c', CLASSES, json.dumps(sorted(kinds))])
+    """{kind: '0' | 'A' | 'B' | None} as the runtime of `venv` itself classifies them (None: a kind that runtime does not know). Under
+    checked_run; -I ignores PYTHON* variables, so the empty prefix and no-write are given as -X pycache_prefix and -B."""
+    with checked_run() as (env, prefix):
+        code, out, err = run([venv_python(venv), '-I', '-B', '-X', f'pycache_prefix={prefix}', '-c', CLASSES, json.dumps(sorted(kinds))], env=env)
     try:
         return json.loads(out) if code == 0 else None
     except ValueError:
