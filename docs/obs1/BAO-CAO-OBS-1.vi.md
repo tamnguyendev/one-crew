@@ -6,12 +6,12 @@ phiên phát hành 2.4. Chưa Codex review, chưa nghiệm thu, không push/tag.
 ## 1. Kết quả ngắn
 
 - **Nhánh** `claude/onecrew-obs1` (worktree `D:\TamNT\Workspace\11.OneCrew\wf-obs1`) tách từ `01b6f62` (2.4.0.dev6, đã xác minh là HEAD của `claude/onecrew-2.4`).
-  Snapshot bàn giao: `@@COMMIT@@`, version `2.4.0.dev6+obs1` (nhãn local của lát; nhánh/gói 2.4 không đổi).
+  Snapshot bàn giao: `bf6994f` (code; tài liệu bàn giao ở commit sau đó trên cùng nhánh)`, version `2.4.0.dev6+obs1` (nhãn local của lát; nhánh/gói 2.4 không đổi).
 - **Điểm vào**: `onecrew track list|show|evidence|serve|open` (nhóm `track` của CLI cài). Một lệnh mở màn hình: `onecrew --project <p> --state-root <sổ> track open`.
-- **Gói thử độc lập**: `@@PACKAGE@@` (wheel `@@WHEEL@@`, SHA256 `@@WHEEL_SHA@@`), kiểm từ gói `@@VERIFY@@`, báo cáo `@@REPORT@@`.
-- **Test**: `tests/test_obs1_tracking.py` (18), `tests/test_obs1_web.py` (7, có trình duyệt headless), `tests/test_obs1_installed.py` (1, wheel ngoài checkout): đạt. Module liên quan sẵn có: `@@REGRESS@@`.
-- **Số đo** (sổ thử, máy đang chạy gate 2.4 song song): độ trễ ghi sổ → trang `@@LATENCY@@` s (trần 5 s); đọc overview `@@READ_MS@@` ms/lần poll (poll 2 s mặc định).
-- **Không đổi**: `claude/onecrew-2.4` vẫn ở `01b6f62`; gói `D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev6-beta` không đụng; registry hook thật giữ hash `@@REGISTRY@@` trước/sau mọi lượt; `wf-v23-hf`, SDK, sổ thật không đụng.
+- **Gói thử độc lập**: `D:\OneCrewRuns\obs1\pkg-trial\onecrew-obs1-trial-bf6994f` (wheel `onecrew-2.4.0.dev6+obs1-py3-none-any.whl`, SHA256 `dfd2365b4ca468a1ad463af8884b6e886b89f1040f878b471e5ce0c65d70b114`), kiểm từ gói `verify_obs1.py` 12/12 (V1 identity → V12 isolation; 23:34:25–23:35:42 02/11, trình duyệt Chrome headless) và script chủ `verify	hu-goi-obs1.ps1` in `DAT`, báo cáo `D:\OneCrewRuns\obs1verify-trial-6verify-report.json`, ảnh `D:\OneCrewRuns\obs1verify-trial-6\evidence\obs1-list.png`, `obs1-detail-P1.png`, `obs1-disconnected.png`.
+- **Test**: `tests/test_obs1_tracking.py` (18), `tests/test_obs1_web.py` (7, trình duyệt headless Chrome), `tests/test_obs1_installed.py` (1, wheel ngoài checkout, task thật với `claude` giả): đạt trên snapshot cuối (log `D:\OneCrewRuns\obs1\logs\`). Module liên quan sẵn có: `test_g1_core`, `test_wf_r10_console_utf8`, `test_wf_r14_console_entry`, `test_v24_docs_sync`: 46/46 đạt (gate 2.2 đầy đủ không chạy lại, đang được phiên 2.4 dùng)`.
+- **Số đo** (sổ thử, máy đang chạy gate 2.4 song song): độ trễ ghi sổ → trang `0.51 (lượt trước 0.48; gồm cả thời gian khởi động tiến trình ghi)` s (trần 5 s); đọc overview `7.7 (≈200 ms khi máy đang chạy bộ test khác song song; sổ 2 plan, 56 sự kiện)` ms/lần poll (poll 2 s mặc định).
+- **Không đổi**: `claude/onecrew-2.4` vẫn ở `01b6f62`; gói `D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev6-beta` không đụng; registry hook thật giữ hash `aacad058f478898d…` trước/sau mọi lượt; `wf-v23-hf`, SDK, sổ thật không đụng.
 
 ## 2. Giải pháp (tóm tắt; chi tiết ở GIAI-PHAP-OBS-1.vi.md)
 
@@ -34,7 +34,7 @@ Một mô hình trạng thái đọc chung `onecrew/v2/tracking.py` (`overview`,
 | B. Phân biệt hoạt động / đã tạo / đã kiểm / đã nghiệm thu | `status.kind` (hoạt động) tách khỏi `level.kind` (`none/produced/verified/accepted`) | `test_running_attempt…` (child checkpoint completed không đánh xong), `test_verified…` | đạt |
 | B. Mở/xem bằng chứng trong phạm vi | `evidence()` chỉ blob mà sự kiện của root nêu (403 nếu khác), lọc từng dòng, 64 KiB; `/api/evidence`, `track evidence` | `test_evidence_only_for_keys…`, `test_get_only_and_the_evidence_door` | đạt |
 | B. Thời gian chờ, ETA có căn cứ hoặc "chưa xác định" | `waits` (mode wait + executor wait mở), `measure.wait_seconds` (union), `_eta` (khoảng, lý do, không %) | `test_eta_comes_from…`, root không engine → "chưa xác định" | đạt |
-| C. Cập nhật trong trần độ trễ | poll 2 s (cấu hình 0.5–60), mỗi request đọc sổ mới | `test_a_new_ledger_event_shows_within_the_latency_ceiling` (≤ 5 s), V6 đo `@@LATENCY@@` s | đạt (sổ nhỏ) |
+| C. Cập nhật trong trần độ trễ | poll 2 s (cấu hình 0.5–60), mỗi request đọc sổ mới | `test_a_new_ledger_event_shows_within_the_latency_ceiling` (≤ 5 s), V6 đo `0.51 (lượt trước 0.48; gồm cả thời gian khởi động tiến trình ghi)` s | đạt (sổ nhỏ) |
 | C. Mở lại/reconnect từ nguồn bền | không trạng thái phía server/trang; timeline định danh `seq` | `test_restart_shows_the_same_timeline_without_duplicates`, V7 | đạt |
 | C. Không nhân đôi sự kiện/attempt, không cộng đôi overlap | định danh `seq`; `observe` cùng key không ghi; union (`execution_mode.measure`) | `test_duplicate_observation…`, `test_overlapping_attempts…` | đạt |
 | C. Đóng UI không dừng worker | server tiến trình riêng, chỉ đọc, không giữ khóa | `test_closing_the_server_leaves_a_running_worker_alone`, V8 (tắt server giữa bước 6 s của worker thật) | đạt |
@@ -44,6 +44,8 @@ Một mô hình trạng thái đọc chung `onecrew/v2/tracking.py` (`overview`,
 | Kiểm UI trực tiếp từ artifact ngoài checkout | Chrome headless `--dump-dom`/`--screenshot` qua gói | `BrowserTests`, `test_obs1_installed`, V11 | đạt trên Chrome; Edge headless không dump (ghi ở limits) |
 | Lọc dữ liệu nhạy cảm | `tracking.clean` (redact_line S1) mọi chuỗi; evidence `redact` | `test_secret_in_the_goal…`, `test_unknown_attempt…`, V9 | đạt (theo mẫu) |
 | Không điều khiển task từ UI | không endpoint ghi; POST/PUT/DELETE → 405 | `test_get_only…`, V6 | đạt |
+
+Ngoài bộ tự động, trang đã được mở thật trong trình duyệt của app Claude trên sổ thử của lượt kiểm 6 (`track serve --port 47311`, `?plan=P1`): danh sách hai plan, ô cần bạn với mật khẩu đã che, chi tiết node C `verified (pass)`, timeline 27 sự kiện; server tắt bằng tay sau đó, sổ không đổi.
 
 ## 4. Cách tạo một task thử và xem trạng thái đổi
 
