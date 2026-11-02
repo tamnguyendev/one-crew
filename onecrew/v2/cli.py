@@ -7,7 +7,7 @@ import sys
 
 from .messages import t
 
-GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson', 'issue', 'unknown', 'engine', 'wiki', 'support')
+GROUPS = ('plan', 'verdict', 'hook', 'init', 'doctor', 'owner', 'compat', 'findings', 'executor', 'outcome', 'continue', 'context', 'question', 'estimate', 'notifications', 'desktop', 'incident', 'lesson', 'issue', 'unknown', 'engine', 'wiki', 'support', 'track')
 OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enforce (v2 AI work contract; owner-only approval and acceptance)\n'
                   '  verdict    record / run (v2 milestone verdicts with receipts)\n'
                   '  hook       check / prompt / stop / session / sync / export / mode / install --print (v2 Claude Code hooks)\n'
@@ -30,7 +30,8 @@ OLD_HELP_LINES = ('  plan       propose / show / approve / accept / amend / enfo
                   '  desktop    enable / disable / status / show / retry (shared local outbox)\n'
                   '  executor   list / observe / summary (declared capabilities and observed runs)\n'
                   '  executor   state / pause / stop / recover / isolate (managed attempts)\n'
-                  '  support    report / show / status / list / classify / link / bundle / import-spool / confirm (report an error once, 2.4-S1)\n')
+                  '  support    report / show / status / list / classify / link / bundle / import-spool / confirm (report an error once, 2.4-S1)\n'
+                  '  track      list / show / evidence / serve / open (read-only tracking: task list, detail/timeline, local web page; OBS-1)\n')
 
 
 def help_lines():
@@ -91,6 +92,9 @@ def route(args, index):
     if args[index] == 'engine':
         from .engine_cli import main as engine_main
         return engine_main(args)
+    if args[index] == 'track':
+        from .tracking_cli import main as track_main
+        return track_main(args)
     if args[index] in ('notifications', 'desktop'):
         from .notification_cli import main as notification_main
         return notification_main(args)

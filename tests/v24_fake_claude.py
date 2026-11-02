@@ -5,7 +5,7 @@ on stdin and `--json-schema`) through the real Supervisor path. For a node with 
 asks to read the catalogue entry named by the policy; once a read result shows `VALUE: <x>` it writes <x> to the node's write file. It
 proves the plumbing only, never that a real model uses the protocol. Every run appends one JSON line to $ONECREW_FAKE_LOG.
 
-Policy ($ONECREW_FAKE_POLICY, JSON): {"read": "<path suffix to read from the catalogue>"}.
+Policy ($ONECREW_FAKE_POLICY, JSON): {"read": "<path suffix to read from the catalogue>", "sleep": <seconds the worker stays busy before answering; OBS-1 uses it as a long-running step>}.
 """
 import json
 import os
@@ -52,6 +52,8 @@ def main():
     prompt = sys.stdin.buffer.read().decode('utf-8')
     body = json.loads(prompt.split('\n', 1)[1])
     policy = json.loads(Path(os.environ['ONECREW_FAKE_POLICY']).read_text(encoding='utf-8'))
+    if policy.get('sleep'):
+        import time; time.sleep(float(policy['sleep']))       # a long-running step (OBS-1): the worker is busy, the viewer may come and go
     value, trace = decide(body, schema, policy)
     log = os.environ.get('ONECREW_FAKE_LOG')
     if log:
