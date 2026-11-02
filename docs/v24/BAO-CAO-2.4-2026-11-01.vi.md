@@ -363,3 +363,13 @@ Mọi lượt dùng `TEMP`, `LOCALAPPDATA`, `APPDATA` riêng (`D:/OneCrewRuns/v2
 Codex đã kiểm: gói dev5 62/62 hash khớp; gate 286/286 check không lỗi, 23 mục `refused` giống dev4; nội dung từng file trong wheel của gate và wheel bàn giao giống nhau; log hồi quy 265 test OK, kiểm gói 31/31; ba phản chứng độc lập trên wheel dev5 chặn lỗi bytecode/rollback cũ; snapshot code không đổi sau lần kiểm, HEAD sau snapshot chỉ cập nhật hồ sơ.
 
 Kết luận của Codex, đúng phạm vi: P1 rollback của dev4 đã khép trong các kịch bản được kiểm; chưa phát hiện blocker mới trong phần thay đổi được review; dev5 có thể bàn giao để thử cách ly. Đây **không** phải nghiệm thu toàn bộ sản phẩm, kiểm provider thật hay chứng nhận an toàn tuyệt đối. Gói dev5 (`docs/limits-final.md` trong gói ghi "dev5 chưa được Codex review lại" lúc dựng) giữ nguyên, không sửa đè; điểm vào thử `docs/v24/BAT-DAU-THU-2.4.0.dev5.vi.md` (ngoài gói) ghi kết luận này và các giới hạn: dev5 chưa có xác thực API của hotfix 2.3 (`plan advise --auth api` chưa hỗ trợ), không dùng dev5 nâng runtime SDK, hotfix 2.3 tích hợp bằng task riêng, không cherry-pick `a3d6a15` trong lượt này.
+
+### 10.9 Review Codex trên hướng dẫn thử (02/11): 2 P2 + 1 P3, đã sửa
+
+| Finding | Sửa | Bằng chứng |
+|---|---|---|
+| P2 bài thủ công chưa cách ly registry (`init` ghi `%LOCALAPPDATA%\OneCrew\hook-projects.json` thật; `where.py` chọn theo `LOCALAPPDATA`) | script ngoài gói `thu-tay-dev5/chuan-bi.ps1` (đổi `LOCALAPPDATA/APPDATA/TEMP/TMP` của cửa sổ sang `<lab>/env`, venv thử, bản sao project độc lập, `init`, `doctor`, kiểm registry thử/thật), `vao-moi-truong.ps1` (cửa sổ mới), `don-dep.ps1`; nguồn `docs/v24/tools/thu-tay-dev5/`; hướng dẫn §2, §5 | `logs/guide-drill-chuan-bi.txt` 14:06: `DAT`, registry thử trong lab, registry thật giữ hash `aacad058…`, cửa sổ mới `doctor` 0 FAIL, dọn dẹp `DAT` |
+| P2 lệnh quay về không phân biệt cài lại venv với quay lui sau S2 (`hotfix.py` so runtime cũ với mốc trước khi quay lui) | hướng dẫn §5 tách A (chỉ cài wheel: pip đè dev10) và B (đã `switched`: chỉ `support rollback`, đọc hook/`support status`; từ chối là kết quả đúng, không cài đè); bài 6 ghi "thủ công chưa sẵn sàng" | thành công: V22 của bài 1 chủ (kế thừa; `--only V22` không chạy được vì cần V21); từ chối: V31 chạy riêng `logs/pkg-only-V31-s2-rollback-bytecode-dev5-guide.txt` `partial-pass 4/4` |
+| P3 tên thư mục kết quả | §3: `D:\OneCrewRuns\v24 thu cua anh 2.4.0.dev5 <yyyyMMdd-HHmmss>` như `thu-goi.ps1` in ở dòng `thu muc ket qua:` | đối chiếu `thu_goi.ps1` và lượt chạy của chủ 13:20 |
+
+Không chạy lại gate, hồi quy hay bài 1; gói dev5 và kết quả bài 1 của chủ giữ nguyên (`SHA256SUMS` 62/62 sau lượt).
