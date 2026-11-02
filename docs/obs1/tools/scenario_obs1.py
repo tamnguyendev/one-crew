@@ -73,7 +73,7 @@ def main():
                           'evidence_keys': len(detail['evidence_keys']), 'timeline_kinds': [e['kind'] for e in detail['timeline']],
                           'last_seq': detail['source']['last_seq'], 'worktree_out': (root / 'out.txt').read_text(),
                           'origins': {n: getattr(sys.modules.get(n), '__file__', None) for n in ('onecrew.v2.tracking', 'onecrew.v2.engine', 'onecrew.common_executor')}},
-                         ensure_ascii=False))
+                         ensure_ascii=True))   # ASCII: the caller's console may be cp1252
         return 0
     ledger = Ledger(root, state)
     if case == 'request':
