@@ -1611,8 +1611,9 @@ def v32_auth(ctx):
     text = done.stdout.decode('utf-8', 'replace') + done.stderr.decode('utf-8', 'replace')
     result = folder / 'cases' / 'wheel-auth-probe.json'
     facts = json.loads(result.read_text(encoding='utf-8')) if result.is_file() else {'error': text[-600:]}
+    facts = {('probe_' + k if k in ('result', 'id', 'seconds', 'milestone', 'title') else k): v for k, v in facts.items()}   # step() owns these keys
     problems = []
-    if facts.get('result') != 'pass': problems.append('auth cases on the installed wheel: ' + json.dumps({k: v.get('error') or v.get('ok') for k, v in (facts.get('cases') or {}).items()})[:400] + (' ' + facts['error'] if facts.get('error') else ''))
+    if facts.get('probe_result') != 'pass': problems.append('auth cases on the installed wheel: ' + json.dumps({k: v.get('error') or v.get('ok') for k, v in (facts.get('cases') or {}).items()})[:400] + (' ' + facts['error'] if facts.get('error') else ''))
     if facts.get('version') != ctx.manifest['version']: problems.append(f'the probe ran {facts.get("version")}, not the manifest version')
     if done.returncode != 0 and not problems: problems.append('the probe exited ' + str(done.returncode) + ': ' + text[-300:])
     return not problems, dict(facts, problems=problems)
