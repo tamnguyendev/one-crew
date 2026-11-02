@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v2.4.0.dev5 (02/11/2026) — bản thử 2.4 sau review Codex trên dev4 (ứng viên beta, chưa nghiệm thu)
+
+Sửa một finding của Codex trên `2.4.0.dev4` (`4f03e54`, wheel `8fa0dfde…`): 1 P1, phản chứng đỏ trên code dev4 trước khi sửa (test của checkout và bước kiểm chạy trên chính gói dev4).
+
+**P1 (2.4-S2) — bytecode bị thay sau phép kiểm vẫn chạy khi quay lui:** `_old_runtime` so `.pyc` của runtime cũ, nhưng bước đọc sổ (`_read_check`, `onecrew compat scan`/`plan show`/`engine …`) và bước phân loại sự kiện (`event_classes`) chạy runtime cũ sau đó với `__pycache__` của venv, nên `.pyc` bị thay ngay sau phép so được thực thi (Codex: `marker_created true`, `reader_pair[0].problems []`). Nay mọi chương trình của venv đã kiểm mà `hotfix` chạy (phép kiểm danh tính, bước đọc sổ khi diễn tập cài/quay lui và recheck, bước phân loại sự kiện) chạy trong `checked_run`: bytecode chỉ từ một thư mục trống riêng (`PYTHONPYCACHEPREFIX`, `-X pycache_prefix` + `-B` cho lần chạy `-I`), không ghi bytecode, không nhận biến `PYTHON*` của terminal (cùng lớp: một `PYTHONPATH` làm bước đọc sổ nạp onecrew khác runtime đã kiểm). Phép kiểm ngay trước khi ghi hook vẫn thấy và từ chối `.pyc` bị thay.
+**Bộ kiểm gói:** thêm V31 (từ wheel đã cài, qua caller `_rollback` thật trên sổ thật: `.pyc` bị thay ngay sau phép so → bước đọc sổ và phân loại vẫn chạy nhưng file đánh dấu không xuất hiện, phép kiểm trước khi ghi hook từ chối; runtime cũ nguyên vẹn đọc và phân loại được). V31 FAIL trên gói dev4.
+**Giữ nguyên:** 2.3.0.dev10, 2.2, sổ/hook/runtime thật; không push/tag/publish.
+
 ## v2.4.0.dev4 (02/11/2026) — bản thử 2.4 sau review Codex trên dev3 (ứng viên beta, chưa nghiệm thu)
 
 Sửa hai finding của Codex trên `2.4.0.dev3` (`5a7a8ef`, wheel `35c78a49…`): 1 P1, 1 P3; mỗi finding có phản chứng đỏ trên baseline trước khi sửa (test của checkout và bước kiểm chạy trên chính gói dev3).

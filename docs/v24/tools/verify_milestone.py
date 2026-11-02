@@ -105,6 +105,13 @@ the installed venv with python -I, a cwd outside the checkout, an isolated env a
   V30 docs        Codex review of dev3, P3, from the package files: every milestone section of docs/limits-final.md is, line for line, that milestone's
                   docs/limits-<m>.md; the README holds every line of docs/limits-final.md (FINAL packages) and names the manifest's version, code commit
                   and wheel SHA256; the claim line names the pid + process-creation-time check and the renewal. The dev3 package FAILS V30 (S2, B sections)
+  V31 S2 rollback bytecode Codex review of dev4, P1, from the installed wheel (the Codex rollback_caller_probe): a second venv with the package
+                  wheel is the OLD runtime of a rollback of a real ledger (one task written since the switch). Through the real caller _rollback ->
+                  _old_runtime -> _drill_copy -> _read_check -> event_classes (fixture boundaries as Codex: feedback, authority, record lookup,
+                  lease, final event; safe_point stops before any hook is written): intact -> the drill reads and classifies, no problems
+                  (control); console.pyc and compat.pyc replaced right AFTER the interpreter comparison by code that writes a marker -> the reader
+                  and the classifier still run but the marker is NOT created, and the old-runtime check before the repoint refuses those caches.
+                  A build whose reader or classifier loads the venv's caches creates the marker: V31 FAILS on it (the dev4 wheel does)
   V3 also checks that the modules of the included milestones (support, diagnostics, support_cli, support_spool for S1) load from the venv.
 Exit 0 when every step passes, 1 otherwise. `verify_milestone.py <package dir> <work dir> --only STEP_ID` runs V1-V3 (identity, install, origins) and that one
 milestone step only, for diagnosis: its report says `partial`, its result is `partial-pass` or `fail`, never `pass`, and thu-goi.ps1 does not use it. The fake claude is a test double (no model): V4/V5 prove the plumbing, not model use."""
@@ -1489,6 +1496,102 @@ def v29_bytecode(ctx):
     return not problems, dict(facts, problems=problems)
 
 
+V31_PROBE = r'''
+import json, marshal, subprocess, sys
+from contextlib import ExitStack
+from pathlib import Path
+from unittest.mock import patch
+from onecrew import task_intake
+from onecrew.ledger import Ledger
+from onecrew.v2 import hotfix as h
+a = json.loads(sys.argv[1])
+venv, marker, work = Path(a['venv']), Path(a['marker']), Path(a['work'])
+site = venv / 'Lib' / 'site-packages'
+def cache_of(module):
+    source = site / Path(*module.split('/'))
+    return source, source.parent / '__pycache__' / (source.stem + '.' + sys.implementation.cache_tag + '.pyc')
+def fixture(name):
+    project = work / name / 'project'; project.mkdir(parents=True)
+    (project / 'a.txt').write_text('fixture')
+    for args in (('init', '-q'), ('add', 'a.txt'), ('-c', 'user.name=Probe', '-c', 'user.email=probe@example.invalid', 'commit', '-qm', 'fixture')):
+        subprocess.run(['git', '-C', str(project), *args], check=True, capture_output=True)
+    ledger = Ledger(project, state_root=work / name / 'state')
+    task_intake.submit(ledger, 'Work written since the switch', 'since-switch', mode='audit')
+    current = {'key': 'rb', 'target': 'test-only', 'old_venv': str(venv), 'new_venv': str(venv), 'max_seq': {},
+               'consumers': [{'project': str(project), 'state_root': str(ledger.state_root)}]}
+    return ledger, current
+prepared = [{'key': 'rb', 'seq': 7, 'old_runtime': {'digest': h.content_hash(h.venv_tree(venv))}}]
+saved = {m: cache_of(m)[1].read_bytes() for m in ('onecrew/console.py', 'onecrew/v2/compat.py')}
+def plant():
+    for module, original in saved.items():
+        source, cache = cache_of(module)
+        payload = source.read_bytes() + ('\nfrom pathlib import Path as _P\n_P(' + repr(str(marker)) + ').write_text("executed by the rollback")\n').encode()
+        cache.write_bytes(original[:16] + marshal.dumps(compile(payload, str(source), 'exec')))
+def roll_back(name, interpreter=None):
+    ledger, current = fixture(name)
+    started, real = [], h.run
+    def spy(argv, *x, **k):
+        started.append([str(v) for v in argv]); return real(argv, *x, **k)
+    with ExitStack() as stack:
+        for attr, value in (('_feedback', lambda *x: ({}, {})), ('_authority', lambda *x: ({'in_authority': True}, None, None)),
+                            ('_records', lambda *x: prepared), ('_emit', lambda ledger, kind, payload: payload), ('renew', lambda *x: None),
+                            ('safe_point', lambda *x: (['probe: stop before writing hooks'], [])), ('run', spy)):
+            stack.enter_context(patch.object(h, attr, value))
+        if interpreter: stack.enter_context(patch.object(h, 'interpreter', interpreter))
+        result = h._rollback(ledger, 'FB-probe', current, True, 'token', str(venv))
+    inside = [x for x in started if Path(x[0]).resolve().is_relative_to(venv.resolve())]
+    pair = (result.get('reader_pair') or [{}])[0]
+    return {'result': result.get('result'), 'problems': result.get('problems'), 'reader_problems': pair.get('problems'),
+            'kinds': pair.get('kinds_since_switch'), 'reader_ran': any(Path(x[0]).name.lower().startswith('onecrew') for x in inside),
+            'classifier_ran': any(Path(x[0]).name.lower().startswith('python') and '-S' not in x for x in inside), 'marker_created': marker.exists()}
+out = {'control': roll_back('control')}
+real, swapped = h.interpreter, []
+def check_then_swap(v, caches):
+    facts = real(v, caches)
+    if not swapped:
+        swapped.append(h.unproven_caches(caches, facts) == []); plant()
+    return facts
+try:
+    out['swapped'] = dict(roll_back('swapped', check_then_swap), check_saw_intact=swapped == [True])
+    with patch.object(h, '_records', return_value=prepared):
+        out['swapped']['check_before_repoint'] = h._old_runtime(None, 'FB-probe', {'key': 'rb', 'old_venv': str(venv)})
+finally:
+    for module, original in saved.items(): cache_of(module)[1].write_bytes(original)
+print('@@' + json.dumps(out, default=str))
+'''
+
+
+def v31_rollback_bytecode(ctx):
+    """2.4-S2, Codex review of dev4, P1, from the INSTALLED wheel: bytecode replaced right after the rollback checked the old runtime is not executed
+    by the programs of that runtime the rollback runs (drill reader, event classifier); the intact old runtime still reads and classifies; the
+    check before the repoint refuses the replaced caches. The planted code only writes a marker file in this step's folder."""
+    folder = ctx.case('s2 rollback bytecode')
+    target, marker = folder / 'old runtime venv', folder / 'rollback-bytecode-executed.txt'
+    marker.unlink(missing_ok=True)
+    wheel = ctx.pkg / 'wheel' / ctx.manifest['wheel']['name']
+    run([sys.executable, '-m', 'venv', target], check=True)
+    made = run([target / 'Scripts' / 'python.exe', '-I', '-m', 'pip', 'install', '--no-index', '--no-build-isolation', wheel])
+    if made.returncode != 0: return False, {'problems': ['the old-runtime venv could not be made: ' + (made.stdout + made.stderr).decode('utf-8', 'replace')[-300:]]}
+    done = run([ctx.py, '-I', '-c', V31_PROBE, json.dumps({'venv': str(target), 'marker': str(marker), 'work': str(folder / 'ledgers')})],
+               cwd=folder, env=env_for(folder, ctx.scripts, TEMP=str(folder / 'temp'), TMP=str(folder / 'temp')))
+    text = done.stdout.decode('utf-8', 'replace')
+    facts = json.loads(text.split('@@', 1)[1]) if '@@' in text else {'error': (text + done.stderr.decode('utf-8', 'replace'))[-400:]}
+    problems = []
+    control, swapped = facts.get('control') or {}, facts.get('swapped') or {}
+    if not (control.get('reader_problems') == [] and control.get('kinds') and control.get('reader_ran') and control.get('classifier_ran')
+            and control.get('problems') == ['probe: stop before writing hooks'] and not control.get('marker_created')):
+        problems.append('control: the intact old runtime did not read and classify the drill copy: ' + json.dumps(control)[:300])
+    if not swapped.get('check_saw_intact'): problems.append('the old-runtime check did not see intact caches before the swap: ' + json.dumps(swapped)[:300])
+    if not (swapped.get('reader_ran') and swapped.get('classifier_ran')):
+        problems.append('the reader or the classifier did not run after the swap (the step proves nothing): ' + json.dumps(swapped)[:300])
+    if swapped.get('marker_created'):
+        problems.append('DEFECT (Codex dev4 P1): bytecode replaced after the check ran in the rollback reader or classifier (marker created)')
+    if not any('bytecode' in p for p in swapped.get('check_before_repoint') or []):
+        problems.append('the check before the repoint did not refuse the replaced caches: ' + json.dumps(swapped.get('check_before_repoint'))[:300])
+    if facts.get('error'): problems.append('the probe did not answer: ' + facts['error'])
+    return not problems, dict(facts, problems=problems)
+
+
 def _bullets(text):
     return [line.rstrip() for line in text.splitlines() if line.startswith('- ')]
 
@@ -2217,6 +2320,7 @@ MILESTONE_STEPS = {         # milestone -> [(step id, title, check)]; ONE entry 
            ('V27-s2-runtime-identity', 'venv của lần cài bị sửa một file (RECORD giữ nguyên) thì lần cài sau bị từ chối nêu diagnostics.py, hook và file không đổi; trả file về thì dùng lại được', v27_runtime_identity),
            ('V28-s2-switch-window', 'rollback dừng sau drill, ghi một sự kiện vào sổ thật, chạy lại: chỉ rolled_back sau khi drill lại dữ liệu có ghi đó (fences drilled = lúc chuyển)', v28_switch_window),
            ('V29-s2-bytecode', 'venv có .pyc khác bản biên dịch của nguồn bị từ chối trước khi onecrew --version chạy (file đánh dấu không xuất hiện), runtime cũ khi quay lui cũng vậy; venv nguyên vẹn vẫn chạy và được nhận', v29_bytecode),
+           ('V31-s2-rollback-bytecode', 'rollback: .pyc của runtime cũ bị thay ngay sau phép so không được chạy bởi bước đọc sổ hay phân loại sự kiện (file đánh dấu không xuất hiện), kiểm trước khi chuyển hook từ chối; runtime cũ nguyên vẹn vẫn đọc và phân loại được', v31_rollback_bytecode),
            ('V30-s2-docs', 'tài liệu trong gói khớp nhau: mỗi mục của limits-final là đúng file giới hạn của mốc, README có mọi dòng giới hạn và đúng version/commit/wheel, dòng claim nêu kiểm pid + thời điểm tạo và gia hạn', v30_docs)],
     'A': [('V23-a-sources', 'node có sources đọc file ngoài read qua hai lượt trên cây đã ghim; ngoài phạm vi bị từ chối; cursor cây khác bị từ chối; max_rounds giữ node; node không khai sources giữ đúng khóa 2.3', v23_sources)],
     'B': [('V24-b-context', 'knowledge.delivered cho attempt; must bị thu hồi lúc đang chạy thì candidate không được công bố, wiki consumers nêu node; node độc lập vẫn công bố; sau khởi động lại mục chỉ còn trong delta.withdrawn', v24_context),
