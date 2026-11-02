@@ -397,7 +397,7 @@ def main(pkg, work):
             for plan_name in ('P1', 'P2'):
                 if plan_name not in dom: problems.append('plan missing ' + plan_name)
             if '<span class="st waiting">đang chờ</span>' not in dom: problems.append('status word missing')
-            if 'chưa được theo dõi' not in dom.split('</script>')[-1]: problems.append('untracked section missing')
+            if 'chưa được theo dõi' not in re.sub(r'<script>.*?</script>', '', dom, flags=re.S): problems.append('untracked section missing')   # the rendered body, not the page script
             detail_dom = dump_dom(browser, record['url'] + '?plan=P1', profile)
             if 'Timeline (' not in detail_dom or 'node.produced' not in detail_dom or '<b>C</b>' not in detail_dom: problems.append('detail/timeline of P1 did not render')
             if 'hunter2-must-not-show' in dom + detail_dom: problems.append('password in the page')
