@@ -470,7 +470,7 @@ def _eta(rd, selector, now):
     if remaining is None:
         eta['label'] = 'chưa xác định' + ('' if out.get('baseline') else ' (không có ước lượng ban đầu)')
     else:
-        eta['label'] = f'công còn lại {remaining[0] / 3600:g}–{remaining[1] / 3600:g} giờ (công, không phải thời gian lịch; chưa hiệu chỉnh)'
+        eta['label'] = f'công còn lại {_hms(remaining[0])}–{_hms(remaining[1])} (công, không phải thời gian lịch; chưa hiệu chỉnh)'
     return eta
 
 
@@ -612,8 +612,8 @@ def evidence(state_root, selector, key, *, project_id=None):
 
 def _hms(seconds):
     if not isinstance(seconds, (int, float)): return 'chưa xác định'
-    s = int(seconds)
-    return f'{s // 3600}h{(s % 3600) // 60:02d}m' if s >= 3600 else f'{s // 60}m{s % 60:02d}s'
+    s = int(round(seconds))
+    return f'{s // 3600}h{(s % 3600) // 60:02d}m' if s >= 3600 else (f'{s // 60}m{s % 60:02d}s' if s >= 60 else f'{s}s')
 
 
 def render_overview(value):

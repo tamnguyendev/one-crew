@@ -255,7 +255,7 @@ class EngineTests(EngineFixture):
         estimates.observe_internal(self.ledger, 'P1', reason='re-projected after the replan', evidence=['a.txt:1'])
         d = self.detail()
         self.assertEqual(d['eta']['remaining_seconds'], [1801, 3602])
-        self.assertIn('giờ', d['eta']['label']); self.assertIn('larger than thought', d['eta']['last_change'])   # the same basis reuses its record
+        self.assertIn('30m01s–1h00m', d['eta']['label']); self.assertIn('larger than thought', d['eta']['last_change'])   # the same basis reuses its record
         self.assertNotIn('%', json.dumps(d['eta'], ensure_ascii=False))
 
     def test_overlapping_attempts_are_joined_by_union_not_summed(self):

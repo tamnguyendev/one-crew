@@ -165,6 +165,9 @@ class _Proxy:
 
 
 def main(pkg, work):
+    for stream in (sys.stdout, sys.stderr):                 # the caller's console may be cp1252: never die on a Vietnamese word
+        try: stream.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, ValueError, OSError): pass
     pkg, work = Path(pkg).resolve(), Path(work).resolve()
     work.mkdir(parents=True, exist_ok=True); os.chdir(work)
     real_registry = Path(os.environ.get('LOCALAPPDATA', '')) / 'OneCrew' / 'hook-projects.json'
@@ -306,7 +309,6 @@ def main(pkg, work):
         stop_server(process)
     if not step('V6-server-latency', not problems, problems=problems, url=url, latency_seconds=measures.get('latency_write_to_overview_seconds'), read_ms=measures.get('overview_read_ms')): return finish()
     # V7
-    code, body, _ = get(url + 'api/health', timeout=3) if False else (None, None, None)
     try:
         urllib.request.urlopen(url + 'api/health', timeout=3); down = False
     except (OSError, urllib.error.URLError): down = True
