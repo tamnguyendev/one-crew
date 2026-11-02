@@ -67,11 +67,12 @@ def text_of(done):
 
 
 def first_json(text):
-    for line in (text or '').splitlines():
-        line = line.strip()
-        if line.startswith('{'):
-            try: return json.loads(line)
-            except ValueError: continue
+    """The first JSON object in `text` (one line or pretty-printed over many lines), or None."""
+    text = text or ''
+    start = text.find('{')
+    while start >= 0:
+        try: return json.JSONDecoder().raw_decode(text[start:])[0]
+        except ValueError: start = text.find('{', start + 1)
     return None
 
 
