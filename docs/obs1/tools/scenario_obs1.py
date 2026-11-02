@@ -43,7 +43,7 @@ def contract(title='OBS-1 trial task'):
             'items': [{'id': 'I1', 'title': 'Do it', 'tier': 'must', 'milestone': 'M1'}],
             'milestones': [{'id': 'M1', 'title': 'out.txt written', 'verifier': {'type': 'command', 'config': {'argv': [sys.executable, '-c', 'print("ok")']}}, 'covers': ['O1']}],
             'budget': {'max_calls': 100, 'time': 120}, 'attention': {'questions': 1}, 'profile_version': None,
-            'authority': {'edit': True, 'commands': True, 'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']}}
+            'authority': {'edit': True, 'commands': True, 'unconfined_commands': True, 'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']}}   # as scenario_a1 of 2.3: a temporary fixture ledger, the command check needs it
 
 
 def main():
