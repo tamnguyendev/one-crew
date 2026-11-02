@@ -26,7 +26,9 @@ try { $m = Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json } catch { Re
 if ($m.created_by -ne 'chuan-bi.ps1' -or -not $m.nonce -or -not $m.lab) { Refuse 'dau so huu khong hop le' }
 if ($m.lab.TrimEnd('\').ToLowerInvariant() -ne $lab.ToLowerInvariant()) { Refuse "dau so huu ghi lab khac ($($m.lab)): khong xoa $lab" }
 if (-not (Test-Path -LiteralPath $labsFile -PathType Leaf)) { Refuse "khong co ${labsFile}: khong co bang chung chuan-bi.ps1 da tao lab nay" }
-try { $all = @(Get-Content -LiteralPath $labsFile -Raw | ConvertFrom-Json) } catch { Refuse 'labs.json khong doc duoc' }
+try { $raw = Get-Content -LiteralPath $labsFile -Raw | ConvertFrom-Json } catch { Refuse 'labs.json khong doc duoc' }
+if ($raw -ne $null -and $raw.PSObject.Properties['value'] -and -not ($raw -is [array])) { $raw = $raw.value }   # a wrapped list written by an older build
+$all = @($raw)
 $hit = @($all | Where-Object { $_.lab -and $_.lab.TrimEnd('\').ToLowerInvariant() -eq $lab.ToLowerInvariant() -and $_.nonce -eq $m.nonce })
 if ($hit.Count -ne 1) { Refuse "labs.json khong co muc cua $lab voi nonce cua dau so huu: khong phai lab da dang ky" }
 foreach ($need in @("$lab\env\LocalAppData", "$lab\venv", "$lab\so")) { if (-not (Test-Path -LiteralPath $need -PathType Container)) { Refuse "thieu ${need}: khong giong lab" } }
@@ -40,7 +42,8 @@ Remove-Item -LiteralPath $lab -Recurse -Force
 if (Test-Path -LiteralPath $lab) { Write-Host "KHONG DAT: $lab van con sau khi xoa" -ForegroundColor Red; exit 1 }
 $sau = Hash $registryThat
 if ($sau -ne $truoc) { Write-Host "KHONG DAT: registry that doi trong luc don dep ($truoc -> $sau)" -ForegroundColor Red; exit 1 }
-$rest = @($all | Where-Object { -not ($_.lab -and $_.lab.TrimEnd('\').ToLowerInvariant() -eq $lab.ToLowerInvariant()) })
-(ConvertTo-Json @($rest)) | Set-Content -LiteralPath $labsFile -Encoding utf8
+$rest = New-Object System.Collections.Generic.List[object]
+foreach ($e in $all) { if ($e -and $e.lab -and $e.lab.TrimEnd('\').ToLowerInvariant() -ne $lab.ToLowerInvariant()) { $rest.Add([pscustomobject]@{ lab = $e.lab; nonce = $e.nonce; created_at = $e.created_at }) } }
+(ConvertTo-Json -InputObject $rest.ToArray() -Depth 3) | Set-Content -LiteralPath $labsFile -Encoding utf8
 Write-Host "DAT: da xoa $lab (kiem: khong con); registry that $registryThat khong doi ($truoc); muc lab da bo khoi labs.json."
 exit 0

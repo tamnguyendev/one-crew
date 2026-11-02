@@ -18,7 +18,9 @@ function Script:CB-Hash([string]$p) { if (Test-Path -LiteralPath $p) { (Get-File
 $cbOk = $true
 $lab = [System.IO.Path]::GetFullPath($Lab).TrimEnd('\')
 $venv = "$lab\venv"; $proj = "$lab\project"; $state = "$lab\so"; $exe = "$venv\Scripts\onecrew.exe"
-if (-not $env:ONECREW_LAB_REAL_LOCALAPPDATA) { $env:ONECREW_LAB_REAL_LOCALAPPDATA = $env:LOCALAPPDATA }
+if (-not $env:ONECREW_LAB_REAL_LOCALAPPDATA) {   # gia tri that cua cua so nay, nho mot lan (doi chieu registry that; roi-lab.ps1 tra lai)
+    $env:ONECREW_LAB_REAL_LOCALAPPDATA = $env:LOCALAPPDATA; $env:ONECREW_LAB_REAL_APPDATA = $env:APPDATA; $env:ONECREW_LAB_REAL_TEMP = $env:TEMP; $env:ONECREW_LAB_REAL_TMP = $env:TMP
+}
 $registryThat = Join-Path $env:ONECREW_LAB_REAL_LOCALAPPDATA 'OneCrew\hook-projects.json'
 $registryThu = "$lab\env\LocalAppData\OneCrew\hook-projects.json"
 $wheel = "$pkg\wheel\onecrew-2.4.0.dev5-py3-none-any.whl"
@@ -36,9 +38,14 @@ try {
     $nonce = [guid]::NewGuid().ToString('N')
     $marker = @{ created_by = 'chuan-bi.ps1'; lab = $lab; nonce = $nonce; created_at = (Get-Date).ToString('o'); package = $pkg; version = '2.4.0.dev5' }
     ($marker | ConvertTo-Json) | Set-Content -LiteralPath "$lab\.lab-thu-dev5.json" -Encoding utf8
-    $all = @(); if (Test-Path -LiteralPath $labsFile) { try { $all = @(Get-Content -LiteralPath $labsFile -Raw | ConvertFrom-Json) } catch { $all = @() } }
-    $all = @($all | Where-Object { $_.lab -and $_.lab.ToLowerInvariant() -ne $lab.ToLowerInvariant() }) + @([pscustomobject]@{ lab = $lab; nonce = $nonce; created_at = $marker.created_at })
-    (ConvertTo-Json @($all)) | Set-Content -LiteralPath $labsFile -Encoding utf8
+    $all = New-Object System.Collections.Generic.List[object]
+    if (Test-Path -LiteralPath $labsFile) {
+        try { $old = Get-Content -LiteralPath $labsFile -Raw | ConvertFrom-Json } catch { $old = $null }
+        if ($old -ne $null -and $old.PSObject.Properties['value'] -and -not ($old -is [array])) { $old = $old.value }   # a wrapped list written by an older build
+        foreach ($e in @($old)) { if ($e -and $e.lab -and $e.lab.ToLowerInvariant() -ne $lab.ToLowerInvariant()) { $all.Add([pscustomobject]@{ lab = $e.lab; nonce = $e.nonce; created_at = $e.created_at }) } }
+    }
+    $all.Add([pscustomobject]@{ lab = $lab; nonce = $nonce; created_at = $marker.created_at })
+    (ConvertTo-Json -InputObject $all.ToArray() -Depth 3) | Set-Content -LiteralPath $labsFile -Encoding utf8
     Write-Host "   $lab\.lab-thu-dev5.json + muc trong $labsFile"
     Write-Host "== 3. bien moi truong cua cua so nay -> $lab\env"
     $env:LOCALAPPDATA = "$lab\env\LocalAppData"; $env:APPDATA = "$lab\env\AppData"; $env:TEMP = "$lab\env\Temp"; $env:TMP = "$lab\env\Temp"

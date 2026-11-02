@@ -19,7 +19,9 @@ function Script:Lab-Record([string]$path) {
     if (-not $m.lab -or -not $m.nonce -or $m.created_by -ne 'chuan-bi.ps1') { return $null }
     if ($m.lab.TrimEnd('\').ToLowerInvariant() -ne $path.ToLowerInvariant()) { return $null }
     if (-not (Test-Path -LiteralPath $labsFile -PathType Leaf)) { return $null }
-    try { $all = @(Get-Content -LiteralPath $labsFile -Raw | ConvertFrom-Json) } catch { return $null }
+    try { $raw = Get-Content -LiteralPath $labsFile -Raw | ConvertFrom-Json } catch { return $null }
+    if ($raw -ne $null -and $raw.PSObject.Properties['value'] -and -not ($raw -is [array])) { $raw = $raw.value }   # a wrapped list written by an older build
+    $all = @($raw)
     $hit = @($all | Where-Object { $_.lab -and $_.lab.TrimEnd('\').ToLowerInvariant() -eq $path.ToLowerInvariant() -and $_.nonce -eq $m.nonce })
     if ($hit.Count -ne 1) { return $null }
     return $m
@@ -38,7 +40,9 @@ function Script:Lab-NoLinks([string]$path) {
 }
 $lab = [System.IO.Path]::GetFullPath($Lab).TrimEnd('\')
 $venv = "$lab\venv"; $proj = "$lab\project"; $state = "$lab\so"; $exe = "$venv\Scripts\onecrew.exe"
-if (-not $env:ONECREW_LAB_REAL_LOCALAPPDATA) { $env:ONECREW_LAB_REAL_LOCALAPPDATA = $env:LOCALAPPDATA }   # registry that, chi de doi chieu (doc)
+if (-not $env:ONECREW_LAB_REAL_LOCALAPPDATA) {   # gia tri that cua cua so nay, nho mot lan: de doi chieu registry that (doc) va de roi-lab.ps1 tra lai
+    $env:ONECREW_LAB_REAL_LOCALAPPDATA = $env:LOCALAPPDATA; $env:ONECREW_LAB_REAL_APPDATA = $env:APPDATA; $env:ONECREW_LAB_REAL_TEMP = $env:TEMP; $env:ONECREW_LAB_REAL_TMP = $env:TMP
+}
 $registryThat = Join-Path $env:ONECREW_LAB_REAL_LOCALAPPDATA 'OneCrew\hook-projects.json'
 $registryThu = "$lab\env\LocalAppData\OneCrew\hook-projects.json"
 $why = $null
