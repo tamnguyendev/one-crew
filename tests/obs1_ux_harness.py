@@ -490,6 +490,8 @@ if(S==='slow_detail'){
     if(mode==='slow')return p.then(r=>new Promise(res=>w.setTimeout(()=>res(r),slow)));                    // the reply arrives 2.5 poll intervals later
     if(mode==='bad'&&u.indexOf(encodeURIComponent(P8))>=0)return p.then(()=>new w.Response('{}',{status:200,headers:{'Content-Type':'application/json'}}));   // a 200 the page cannot render
     if(mode==='fail')return p.then(()=>Promise.reject(new w.TypeError('Failed to fetch')));                // a network failure of every detail read
+    if(mode==='partial'&&u.indexOf(encodeURIComponent(st().selected.plan))>=0)return p.then(r=>r.json()).then(j=>{j.source=Object.assign({},j.source,{last_seq:(j.source&&j.source.last_seq||0)+1000});j.needs_user=[];j.gantt={rows:null,plan_marks:null,axis:{}};
+      return new w.Response(JSON.stringify(j),{status:200,headers:{'Content-Type':'application/json'}})});   // a newer reply without the open question whose Gantt cannot be drawn
     return p};
   await select('P1');
   // (a) every detail read takes 2.5 poll intervals: the selected task must still appear (pre-fix: each poll superseded the read in flight)
@@ -526,6 +528,15 @@ if(S==='slow_detail'){
   check('setup: a stale task with need cards that carry no reply template', cards0.length>0 && plain.length>0, {task:tplless, cards:cards0.length, plain:plain.length});
   check('a card without a reply template never claims a --revision template is stale', plain.every(n=>!n.querySelector('[data-stale-template]') && !/--revision/.test(n.textContent) && n.querySelector('[data-stale-data]')), plain.map(n=>n.textContent.slice(0,200)));
   mode=null; await waitFor(()=>dst()==='ok', iv*6, tplless+' recovered');
+  // (g) a newer reply that drops the open question and cannot be drawn: it is never applied, so it leaves no 'no longer pending' note and the
+  //     error streak keeps its start across repeated failures (merge-lens review of the integrated candidate)
+  await select('P1'); const qcard=$('#detail details.need'); if(qcard)qcard.open=true; await morePolls(1);
+  check('setup (g): P1 shows an open question card and no stale-question note', !!qcard && !$('#detail .stale-need'), {cards:$$('#detail details.need').length});
+  mode='partial'; await waitFor(()=>dst()==='stale', iv*6, 'P1 stale after an unrenderable newer reply'); const since1=st().detailError&&st().detailError.since; await morePolls(2); const since2=st().detailError&&st().detailError.since;
+  check('(g) the unrenderable newer reply leaves P1 data shown as stale', dst()==='stale' && shown('P1'), {state:dst()});
+  check('(g) no "no longer pending" note for a reply that was never applied', !$('#detail .stale-need'), $('#detail .stale-need')&&$('#detail .stale-need').textContent.slice(0,200));
+  check('(g) the error streak keeps its start time across repeated failures', !!since1 && since1===since2, {since1, since2});
+  mode=null; await waitFor(()=>dst()==='ok', iv*6, 'P1 recovered after (g)');
   w.fetch=real;
   check('no unhandled rejection or page error during the whole scenario', rejections.length===0, rejections.slice(0,5));
 }
