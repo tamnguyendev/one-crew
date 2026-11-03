@@ -254,7 +254,8 @@ def main():
                     plan.emit(ledger, conn, task, 'plan.accepted', {'plan': name, 'revision': 1, 'by': 'owner', 'artifact_sha': 'x'})
             out['P6' if name == names[0] else 'P7'] = tracking.detail(state, name)['status']
         # P8: two phần việc without dependency, both running at once
-        plan.propose(ledger, 'P8', contract('OBS-1 UX: hai phan viec chay song song'), 'codex', workflow=True, capabilities=caps + ['parallel-engine'])
+        c8 = contract('OBS-1 UX: hai phan viec chay song song'); c8['scope'] = {'owned': ['a.txt', 'b.txt', 'out.txt']}      # node B writes b.txt
+        plan.propose(ledger, 'P8', c8, 'codex', workflow=True, capabilities=caps + ['parallel-engine'])
         plan.approve(ledger, 'P8', 'owner', 'temporary fixture only (not a real ledger)')
         internal_plan.revise(ledger, 'P8', [node('A', write=('a.txt',)), node('B', write=('b.txt',)), node('I', ['A', 'B'], write=(), integration=True)], reason='parallel', evidence=['a.txt:1'])
         class Isolated(executors.Executor):
