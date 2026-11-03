@@ -142,6 +142,16 @@ class Provenance(EngineFixture):
         d = tracking.detail(self.ledger.state_root, 'P1')
         return keys, next(e['seq'] for e in d['timeline'] if e['kind'] == 'decision.recorded' and 'r1-fixture' in e['summary'])
 
+    def test_h_the_cli_text_of_a_cut_timeline_names_where_older_evidence_is(self):
+        """Integration (R1 same-class review round 2): `track show` prints no evidence section, so the note of a cut timeline must
+        point at `--json` (evidence_index) and the tracking page, not at a section the text does not have."""
+        artifact, receipt, att0, att1 = self.two_generations()
+        self.append_observations(310, att1)
+        text = tracking.render_detail(tracking.detail(self.ledger.state_root, 'P1', timeline_limit=300))
+        line = next(l for l in text.splitlines() if l.startswith('Timeline ('))
+        self.assertIn('--json', line, line)
+        self.assertNotIn('vẫn ở mục bằng chứng', line, line)
+
     def test_c_an_event_naming_more_than_six_keys_keeps_all_of_them(self):
         keys, seq = self.eight_keys()
         for limit in (50, 5000):
