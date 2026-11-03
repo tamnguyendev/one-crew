@@ -124,7 +124,7 @@ class InstalledTracking(unittest.TestCase):
             if browser:
                 dom = dump_dom(browser, started['url'], self.runs / 'browser profile')
                 cls, text = badge(dom)
-                self.assertEqual(cls, 'ok', text); self.assertIn('P1', dom); self.assertIn('<span class="st waiting">đang chờ</span>', dom)
+                self.assertEqual(cls, 'ok', text); self.assertIn('P1', dom); self.assertIn('class="st waiting"', dom); self.assertIn('đang chờ</span>', dom)
                 import os
                 evidence = os.environ.get('OBS1_EVIDENCE_DIR')
                 if evidence: screenshot(browser, started['url'], self.runs / 'browser profile', Path(evidence) / 'obs1-installed-page.png')

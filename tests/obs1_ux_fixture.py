@@ -57,8 +57,11 @@ def populate(case):
     # P1: the fixture's root, question with options
     case.revise([node('A'), node('I', ['A'], integration=True, write=())])
     case.request = case.ledger.create_request(case.root_view['anchor_task'], 'retention', QUESTION)
+    case.ledger.create_request(case.root_view['anchor_task'], 'q-second', dict(QUESTION, question='Có dùng lại cấu hình cũ của máy chủ ký số cho môi trường thử không (câu hỏi thứ hai, dài để thử xuống dòng)?',
+                                                                            options=[{'id': 'reuse', 'label': 'Dùng lại'}, {'id': 'fresh', 'label': 'Tạo mới'}], recommendation='fresh'))
+    case.ledger.create_request(case.root_view['anchor_task'], 'q-third', dict(QUESTION, question='Giữ log hai tuần hay một tháng?', options=[{'id': 'two', 'label': '2 tuần'}, {'id': 'month', 'label': '1 tháng'}], recommendation='two'))
     # P2 produced
-    make_root(case, 'P2', 'Viết out.txt qua worker (một phần việc đã tạo đầu ra)'); approve_and_revise(case, 'P2'); step('P2')
+    make_root(case, 'P2', 'Rà soát và viết lại tài liệu hướng dẫn cài đặt SDK ký số cho khách hàng mới (tên dài tự nhiên để thử danh sách)'); approve_and_revise(case, 'P2'); step('P2')
     # P3 closed, nothing ran
     make_root(case, 'P3', 'Plan bị chủ sở hữu đóng trước khi chạy'); approve_and_revise(case, 'P3')
     with case.ledger.transaction(write=True) as conn:
@@ -76,7 +79,7 @@ def populate(case):
     with case.ledger.transaction(write=True) as conn:
         plans.emit(case.ledger, conn, task_of(case, 'P7'), 'plan.accepted', {'plan': 'P7', 'revision': 1, 'by': 'owner', 'artifact_sha': 'x'})
     # PB: another project in the same ledger
-    other = case.root.parent / 'project B'; other.mkdir(exist_ok=True); (other / 'a.txt').write_text('base\n')
+    other = case.root.parent / 'du an thu nghiem voi ten thu muc rat dai de kiem tra bo loc project va tran chieu ngang 2026'; other.mkdir(exist_ok=True); (other / 'a.txt').write_text('base\n')
     case.ledger_b = Ledger(other, case.ledger.state_root)
     make_root(case, 'PB', 'PROJECT B PRIVATE GOAL', ledger=case.ledger_b)
     # P4: attempt 1 produced, a new generation, attempt 2 running and blocked by ITS observation; a late observation of attempt 1
@@ -84,7 +87,14 @@ def populate(case):
     old = tracking.detail(case.ledger.state_root, 'P4')['nodes']['C']['attempt']
     with case.ledger.transaction(write=True) as conn:
         view = engine.state(case.ledger, 'P4', conn); engine._event(case.ledger, conn, view, 'C', 'node.resumed')
-    worker = _Blocking(case)
+    class _Patient(_Blocking):                                # stays running for the whole browser run (the base releases itself after 20 s)
+        def __call__(self, ledger, control, task, item, attempt):
+            control.launched(attempt['id'], attempt['generation'], {'fixture': True}); self.started.set(); self.release.wait(900)
+            store = self.case.store
+            artifact, receipt = store.blob(('artifact-' + item['id']).encode()), store.blob(b'{"kind":"fixture-receipt"}')
+            control.finish(attempt['id'], attempt['generation'], {'fixture': True, 'artifact': artifact})
+            return {'artifact': artifact, 'receipt': receipt}
+    worker = _Patient(case)
     thread = threading.Thread(target=engine.step, args=(case.ledger, 'P4', worker), kwargs={'control': case.control}, daemon=True); thread.start()
     case.addCleanup(thread.join, 30); case.addCleanup(worker.release.set)
     assert worker.started.wait(20), 'P4: the second attempt did not start'

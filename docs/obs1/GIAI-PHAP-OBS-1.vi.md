@@ -78,3 +78,15 @@ Bằng chứng review: `D:\OneCrewRuns\codex-obs1-ux-review-20261103\observation
 | UX-07 | danh sách dày kỹ thuật, bằng chứng chỉ hash | dòng: trạng thái · tên · mục tiêu · bước hiện tại (`current_step`) · cập nhật tương đối · "cần bạn"; ID/đường dẫn/adapter mờ; `evidence_index` (tên/loại/thời điểm/phần việc) | `test_obs1_ux.EvidenceIndex`, harness `ux07` |
 | UX-08 | 390 px: trang rộng 1103 px | một cột < 900 px, danh sách ↔ chi tiết, bảng kỹ thuật `overflow:auto` riêng, không cuộn ngang trang | harness `ux08` ở 1280/640/390 (đo `scrollWidth`) |
 | P2 server | `track open` dùng lại server wheel cũ / sai sổ khi cổng bị dùng lại | `instance` + `version` + `state_root` + `project_id` + `pid` trong marker và `/api/health`; `reusable()`; khóa mở đồng thời; `track status|stop`; script mở/dừng đi qua `track open|stop` | `test_obs1_ux.ServerIdentity/DetachedOpen`, V15 |
+
+## 7. Review Codex UX trên `2.4.0.dev8` (03/11 ~11:15): hai P2 + UX A–D và cách khép (dev9, local)
+
+| ID | Vấn đề | Nguyên nhân | Khép | Kiểm |
+|---|---|---|---|---|
+| P2-A | "Từ khi duyệt" 16m44s không đổi qua các poll, reload mới nhảy | đồng hồ cộng `(now − poll cuối)` vào giá trị đã dựng; poll không đổi seq không dựng lại nhưng dời mốc | mốc dựng `data-live-at` gắn với giá trị; tiến theo đồng hồ máy từ mốc; dựng lại/đổi task/reload = giá trị có nguồn mới + mốc mới; kết thúc/chưa duyệt không chạy | harness `clock` (đỏ trên dev8, xanh dev9: ±2 s qua 3 poll, reload, đổi task, P3 đứng, PB chưa xác định); `ElapsedClock` giờ giả |
+| P2-B | lệnh trả lời thiếu `--reference` (bắt buộc), thiếu project/sổ | model sinh lệnh tối thiểu | mẫu lệnh đầy đủ với placeholder đánh dấu; `reply_note`; nút "Sao chép mẫu lệnh"; copy hỏng báo hỏng | unit `QuestionCommands` (parser thật từ cwd có khoảng trắng: thiếu → 2, điền → ghi sổ thử); V16 từ wheel; harness `ux03` (clipboard thật) |
+| 402 px | `scrollWidth` 402 ở 390 px khi đường dẫn project dài | `label` flex `min-width:auto` + select rộng theo option | `label{min-width:0;max-width:100%}`, `select{min-width:0}` | `ux08` liệt kê phần tử tràn; fixture tên thư mục dài; `ux08` cả khi mở mẫu lệnh |
+| A | danh sách dày, không nhận nhóm | — | chip "cần bạn / bị chặn / đang thực hiện (n)"; cột danh sách thu gọn khi đọc chi tiết (ẩn ID/đường dẫn) | `ux07`, `ux03b` |
+| B | nhiều câu hỏi đẩy tóm tắt xuống | câu hỏi trước thẻ số liệu, luôn mở | vùng đầu: bước hiện tại + "n câu hỏi chờ bạn"; thẻ số liệu trước; mục "Cần bạn (n)" gập từng câu, không gộp, giữ mở qua poll | `ux03b` (1280 và 390) |
+| C | timeline/bằng chứng thiếu trực quan | — | thanh thời lượng attempt khi có mốc kết thúc + số đo; đang chạy "chưa xác định"; không ETA/phần trăm | `ux06` |
+| D | held/pending/none là lời giải thích duy nhất | nhãn thô | pha/đầu ra tiếng Việt, mã gốc ở `title`; "lý do (engine)"; badge có ký hiệu | `ux05` |

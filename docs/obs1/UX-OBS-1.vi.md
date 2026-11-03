@@ -22,3 +22,15 @@ Ba lớp kiểm, tách nhau: **(F)** chức năng = unittest trên model/HTTP; *
 | P2-srv | `track open` gặp marker cũ / cổng bị tiến trình khác dùng / server của wheel khác / hai lần mở cùng lúc | chạy `track open` (script hằng ngày, script SignSDK) | chỉ dùng lại server khi `/api/health` trả đúng `instance` (nonce marker) + version wheel + state-root + phạm vi project; sai → không coi là thành công, không kill tiến trình lạ, mở server mới; hai lần mở cùng lúc → một server, marker không mất; `track stop` chỉ dừng server đã khớp định danh | F: `tests/test_obs1_ux.py` (marker giả, server khác trên cùng cổng, wheel cũ không có `instance`, 2 thread); gói: V15 |
 | Mất kết nối / sự kiện muộn / trả ngược thứ tự | server tắt rồi bật; hai request chi tiết về ngược thứ tự | badge "MẤT KẾT NỐI" rồi tự nối lại, dữ liệu cũ giữ nguyên; phản hồi của task đã bỏ chọn không ghi đè task đang chọn | T: harness (proxy chặn `/api/*`, token theo lựa chọn) |
 | Đóng UI không dừng worker | tắt server giữa attempt | worker tiếp tục, node vẫn produced | F có sẵn (V8, test web) — giữ |
+
+## 2. Vòng dev9 (review Codex trên dev8, 03/11 ~11:15) — bảng acceptance viết trước khi sửa
+
+| # | Tình huống | Expected | Phản chứng / kiểm |
+|---|---|---|---|
+| P2-A | task đang chạy, nhiều poll mà seq không đổi | thẻ "Từ khi duyệt (lịch)" tiến theo thời gian thật (sai số ≤ 2 s sau ≥ 3 poll); reload/đổi task/mất-nối lại không cộng đôi; task đã kết thúc (accepted/closed) đứng yên; thiếu `elapsed.since` → "chưa xác định" | T `clock` (đo giá trị giây qua 3 poll, so với đồng hồ harness; đỏ trên dev8); F `_elapsed(now=…)` với giờ giả |
+| P2-B | câu hỏi chờ trả lời | mẫu lệnh đầy đủ: `onecrew --project "<p>" --state-root "<s>" question answer <id> --revision <rev> --choice <id> --reference "<…>"`; phần người dùng phải điền được đánh dấu rõ và gọi là mẫu; parser của wheel chấp nhận khi điền reference, từ chối khi thiếu; đường dẫn có khoảng trắng, cwd khác, nhiều project/sổ | F `QuestionCommands`; gói V16 (CLI cài từ wheel: thiếu `--reference` → exit 2, có → ghi sổ thử; cwd khác); T `ux03` (sao chép đúng mẫu; copy thất bại không báo thành công) |
+| UX-08b | đường dẫn project dài (tên thư mục > 40 ký tự) ở 390 px | không phần tử nào vượt mép phải; harness liệt kê phần tử tràn | T `ux08` liệt kê `right > innerWidth`; fixture dùng tên thư mục dài (tái hiện 402 px của lượt 11:06) |
+| A | danh sách khi đang đọc chi tiết | cột danh sách thu gọn (≥ 900 px), dòng gọn; bộ lọc nhanh "cần bạn / bị chặn / đang chạy" có số đếm | T `ux07` (chip đếm, bấm chip lọc) |
+| B | task có ≥ 3 câu hỏi | vùng đầu: tên, trạng thái, bước hiện tại, "n câu hỏi chờ bạn"; thẻ số liệu không bị đẩy xuống; từng câu gập, mở ra thấy lý do/tác động/lựa chọn/mẫu lệnh; không gộp request | T `ux03b` (3 request: 3 mục gập, tiêu đề mỗi mục khác nhau, stats ở trên câu hỏi) |
+| C | attempt có `reserved_at`/`settled_at` | thanh thời gian attempt chỉ khi có cả hai mốc; thiếu → chữ "chưa xác định", không thanh | T `ux06` (bar có ở P2, không ở attempt đang chạy) |
+| D | nhãn pha/trạng thái phần việc | tiếng Việt (đang chạy / bị giữ / chờ / xong…), mã gốc ở title; badge có ký hiệu kèm màu | T `ux05` |

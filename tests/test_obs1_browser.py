@@ -17,7 +17,8 @@ from tests.test_obs1_web import find_browser
 from tests.test_wf_engine import EngineFixture
 
 SCENARIOS = [('ux01', 'desktop'), ('ux02', 'desktop'), ('ux03', 'desktop'), ('ux04', 'desktop'), ('ux05', 'desktop'), ('ux06', 'desktop'), ('ux07', 'desktop'),
-             ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop')]
+             ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop'),
+             ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile')]
 
 
 class BrowserUX(EngineFixture):
@@ -49,7 +50,7 @@ class BrowserUX(EngineFixture):
     def test_every_scenario_at_its_sizes(self):
         failures = []
         for scenario, size in SCENARIOS:
-            result = self.run_one(scenario, size, budget=45000 if scenario in ('ux01', 'disc') else 30000)
+            result = self.run_one(scenario, size, budget=45000 if scenario in ('ux01', 'disc', 'clock') else 30000)
             if not result.get('ok'): failures.append((scenario, size, result.get('error'), result.get('notes'), result.get('checks')))
             elif scenario == 'ux01': self.assertGreaterEqual(result.get('polls', 0), 5, result)
         self.assertEqual(failures, [], json.dumps(failures, ensure_ascii=False, indent=1))
@@ -57,7 +58,7 @@ class BrowserUX(EngineFixture):
 
     def test_screenshots_of_the_states(self):
         shots = {}
-        for name, scenario, size, extra in (('overview-desktop', 'shot-list', 'desktop', ''), ('detail-P4-desktop', 'shot-detail', 'desktop', '&plan=P4'),
+        for name, scenario, size, extra in (('overview-desktop', 'shot-list', 'desktop', ''), ('detail-P4-desktop', 'shot-detail', 'desktop', '&plan=P4'), ('detail-P1-questions-desktop', 'shot-detail', 'desktop', '&plan=P1&open=need'), ('detail-P1-questions-mobile', 'shot-detail', 'mobile', '&plan=P1&open=need'),
                                             ('detail-P1-split', 'shot-detail', 'split', '&plan=P1'), ('overview-mobile', 'shot-list', 'mobile', ''), ('detail-P4-mobile', 'shot-detail', 'mobile', '&plan=P4')):
             width, height = ux.SIZES[size]
             shots[name] = ux.screenshot(self.browser, self.proxy.url, scenario, width, height, self.profile, self.out / f'ux-{name}.png', extra=extra)

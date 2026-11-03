@@ -47,7 +47,7 @@ def main():
         elif not args.allow_missing_docs: raise SystemExit('missing document ' + name)
     built = time.strftime('%Y-%m-%dT%H:%M:%S')
     manifest = {'kind': 'obs1-trial-package', 'label': 'OBS-1 beta', 'version': version, 'code_commit': commit, 'branch': branch, 'built': built,
-                'wheel': {'name': wheel.name, 'sha256': sha(wheel)}, 'base': '2.4.0.dev6 (01b6f62, tag v2.4.0.dev6): the 2.4 release line is NOT changed by this package',
+                'wheel': {'name': wheel.name, 'sha256': sha(wheel)}, 'base': '2.4.0.dev8 (e9c02de, tag v2.4.0.dev8) on 2.4.0.dev6 (01b6f62): the 2.4 release line is NOT changed by this package',
                 'claims': {'delivered': False, 'accepted': False, 'reviewed_by_codex': False, 'real_provider_tested': False,
                            'note': 'OBS-1 beta package: the tracking view/CLI/page, the four Codex P2 fixes, the UX round (UX-01..08) and the track open identity checked from this package with the fake claude; see docs/limits-obs1.md and docs/RELEASE-NOTES-OBS-1.vi.md'}}
     guide = (ROOT / 'docs' / 'obs1' / 'BAT-DAU-THU-OBS1.vi.md').read_text(encoding='utf-8')

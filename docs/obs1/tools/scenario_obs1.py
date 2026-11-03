@@ -226,6 +226,17 @@ def main():
         def checker(item, artifact):                                 # the quick executor's artifact is a blob, not a candidate tree: a fixture verdict with evidence
             return {'artifact': artifact, 'checks': [{'id': c['id'], 'result': 'pass', 'evidence': store.blob(b'fixture check passed')} for c in item['checks']]}
         out = {}
+        with ledger.transaction() as conn:
+            task1 = plan.derive(ledger, conn, 'P1')['task_id']
+        for key, text, opts in (('ux-q2', 'Co dung lai cau hinh cu cua may chu ky so cho moi truong thu khong (cau hoi thu hai, dai de thu xuong dong)?', [{'id': 'reuse', 'label': 'Dung lai'}, {'id': 'fresh', 'label': 'Tao moi'}]),
+                                ('ux-q3', 'Giu log hai tuan hay mot thang?', [{'id': 'two', 'label': '2 tuan'}, {'id': 'month', 'label': '1 thang'}])):
+            ledger.create_request(task1, key, {'schema_version': 1, 'question': text, 'reason': 'Can chot truoc khi chay tiep.', 'impact': 'Phan viec ke tiep cho cau tra loi.',
+                                               'options': opts, 'recommendation': opts[0]['id'], 'action': {'type': 'clarify', 'parameters': {}}})
+        long_dir = work / 'du an thu nghiem voi ten thu muc rat dai de kiem tra bo loc project va tran chieu ngang 2026'
+        long_dir.mkdir(parents=True, exist_ok=True); (long_dir / 'a.txt').write_text('base\n')
+        for args in (('init', '-q'), ('config', 'user.name', 'fixture'), ('config', 'user.email', 'fixture@localhost'), ('add', '.'), ('commit', '-qm', 'base')):
+            subprocess.run(['git', '-C', str(long_dir), *args], check=True, capture_output=True)
+        plan.propose(Ledger(long_dir, state), 'PC', contract('Ra soat va viet lai tai lieu huong dan cai dat SDK ky so cho khach hang moi (ten dai tu nhien)'), 'codex', workflow=True, capabilities=caps)
         names = (os.environ.get('OBS1_UX_NAMES') or 'P6,P7').split(',')
         for name, title in ((names[0], 'OBS-1 UX: moi phan viec da kiem, cho nghiem thu'), (names[1], 'OBS-1 UX: plan da duoc nghiem thu')):
             task = make_root(name, title)

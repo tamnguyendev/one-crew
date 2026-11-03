@@ -31,6 +31,9 @@ Steps (every one from the installed venv, python -I, cwd = <work>, isolated LOCA
   V15 open-identity `track open` from the installed wheel: a second open reuses the same instance; a marker whose instance does not match the server
                     answering on its port is NOT reused (a new server starts, the other one is not killed); two concurrent opens share one server;
                     `track stop` stops only the matching server and removes the marker; a second stop refuses
+  V16 reply-template (dev9, P2-B) the reply template the page offers for a pending question, run through the installed `onecrew` from a terminal in
+                    another folder (with a space): without --reference the parser refuses (exit 2, ledger untouched); with the placeholder filled the
+                    answer is recorded on the TRIAL ledger and the question leaves "cần bạn" (fixture owner, never a real ledger)
 Writes <work>/verify-report.json; prints RESULT pass|partial|fail. Exit 0 only on pass.
 """
 import hashlib
@@ -515,16 +518,18 @@ def main(pkg, work):
         results = {}
         try:
             scenarios = [('ux01', 'desktop'), ('ux02', 'desktop'), ('ux03', 'desktop'), ('ux04', 'desktop'), ('ux05', 'desktop'), ('ux06', 'desktop'), ('ux07', 'desktop'),
-                         ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop')]
+                         ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop'),
+                         ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile')]
             for name, size in scenarios:
                 width, height = ux.SIZES[size]
-                result = ux.run(browser, proxy.url, name, width, height, profile, budget=45000 if name in ('ux01', 'disc') else 30000)
+                result = ux.run(browser, proxy.url, name, width, height, profile, budget=45000 if name in ('ux01', 'disc', 'clock') else 30000)
                 results[f'{name}@{size}'] = {'ok': result.get('ok'), 'polls': result.get('polls'), 'checks': result.get('checks'), 'notes': result.get('notes'), 'error': result.get('error'),
                                              'scrollWidth': result.get('scrollWidth'), 'innerWidth': result.get('innerWidth')}
                 if not result.get('ok'): problems.append(f'{name}@{size}: ' + str(result.get('error') or result.get('notes'))[:300])
             if len(writes) != 2 or not all(writes): problems.append(f'the ledger writes during ux01 did not happen: {writes}')
             shots = {}
             for name, scen_name, size, extra in (('overview-desktop', 'shot-list', 'desktop', ''), ('detail-P4-desktop', 'shot-detail', 'desktop', '&plan=P4'), ('detail-P1-desktop', 'shot-detail', 'desktop', '&plan=P1'),
+                                                 ('detail-P1-questions-desktop', 'shot-detail', 'desktop', '&plan=P1&open=need'), ('detail-P1-questions-mobile', 'shot-detail', 'mobile', '&plan=P1&open=need'),
                                                  ('detail-P1-split', 'shot-detail', 'split', '&plan=P1'), ('overview-mobile', 'shot-list', 'mobile', ''), ('detail-P4-mobile', 'shot-detail', 'mobile', '&plan=P4')):
                 width, height = ux.SIZES[size]
                 shots[name] = ux.screenshot(browser, proxy.url, scen_name, width, height, profile, evidence_dir / f'ux-{name}.png', extra=extra)
@@ -594,6 +599,30 @@ def main(pkg, work):
             try: marker.unlink()
             except OSError: pass
     if not step('V15-open-identity', not problems, problems=problems, **facts): return finish()
+    # V16 (P2-B): the reply template the page offers, through the INSTALLED onecrew from a terminal elsewhere (cwd with a space)
+    problems, facts = [], {}
+    shown = first_json(cli('track', 'show', 'P1', '--json').stdout) or {}
+    needs = [n for n in shown.get('needs_user', []) if n.get('kind') == 'request']
+    elsewhere = work / 'terminal cua chu'; elsewhere.mkdir(exist_ok=True)
+    def owner_shell(command):
+        return subprocess.run(command, shell=True, capture_output=True, text=True, encoding='utf-8', errors='replace', env=env, cwd=str(elsewhere), timeout=120)
+    if not needs: problems.append('no pending question on P1 to answer')
+    else:
+        template = needs[0]['options'][0]['reply_command']; placeholder = needs[0].get('reference_placeholder') or ''
+        facts['template'] = template
+        if not (template.startswith('onecrew --project "') and ' --state-root "' in template and ' --reference "' in template and placeholder and placeholder in template):
+            problems.append('template incomplete: ' + template)
+        missing = owner_shell(template.split(' --reference ')[0])                                  # the dev8 shape: refused by the parser, nothing written
+        if missing.returncode != 2 or '--reference' not in missing.stdout + missing.stderr: problems.append(f'without --reference: exit {missing.returncode}: ' + (missing.stdout + missing.stderr)[-300:])
+        still = first_json(cli('track', 'show', 'P1', '--json').stdout) or {}
+        if len([n for n in still.get('needs_user', []) if n.get('kind') == 'request']) != len(needs): problems.append('a refused command changed the ledger')
+        filled = owner_shell(template.replace(placeholder, 'chu chon sau khi doc ho so (fixture, so thu)'))
+        after = first_json(cli('track', 'show', 'P1', '--json').stdout) or {}
+        left = [n for n in after.get('needs_user', []) if n.get('kind') == 'request']
+        if filled.returncode != 0 or len(left) != len(needs) - 1 or any(n['id'] == needs[0]['id'] for n in left):
+            problems.append(f'filled template: exit {filled.returncode}, questions left {len(left)}/{len(needs)}: ' + (filled.stdout + filled.stderr)[-400:])
+        facts.update(questions_before=len(needs), questions_after=len(left), cwd=str(elsewhere))
+    if not step('V16-reply-template', not problems, problems=problems, **facts): return finish()
     # V11
     profile = work / 'browser profile'
     browser = find_browser(profile)
@@ -609,7 +638,7 @@ def main(pkg, work):
             if cls != 'ok' or 'kết nối OK' not in (text or ''): problems.append(f'badge {cls} {text}')
             for plan_name in ('P1', 'P2'):
                 if plan_name not in dom: problems.append('plan missing ' + plan_name)
-            if '<span class="st waiting">đang chờ</span>' not in dom: problems.append('status word missing')
+            if 'class="st waiting"' not in dom or 'đang chờ</span>' not in dom: problems.append('status word missing')
             if 'chưa được theo dõi' not in re.sub(r'<script>.*?</script>', '', dom, flags=re.S): problems.append('untracked section missing')   # the rendered body, not the page script
             detail_dom = dump_dom(browser, record['url'] + '?plan=P1', profile)
             if 'Timeline' not in detail_dom or 'node.produced' not in detail_dom or '<b>C</b>' not in detail_dom: problems.append('detail/timeline of P1 did not render')

@@ -64,17 +64,54 @@ class OutcomeWords(EngineFixture):
 
 
 class QuestionCommands(EngineFixture):
-    def test_each_option_has_its_own_reply_command_and_the_question_context(self):             # UX-03
+    def test_each_option_has_a_complete_template_with_project_state_root_and_reference(self):  # UX-03 + P2-B (dev8: the command lacked --reference)
         self.revise([node('A'), node('I', ['A'], integration=True, write=())])
         request = self.ledger.create_request(self.root_view['anchor_task'], 'retention', QUESTION)
         need = first_task(tracking.overview(self.ledger.state_root))['needs_user'][0]
         self.assertEqual([o['id'] for o in need['options']], ['seven', 'thirty'])
         for o in need['options']:
-            self.assertEqual(o['reply_command'], f"question answer {request['id']} --revision {request['revision']} --choice {o['id']}")
+            self.assertEqual(o['reply_command'], f'onecrew --project "{self.ledger.project_path}" --state-root "{self.ledger.state_root}" question answer {request["id"]} '
+                                                 f'--revision {request["revision"]} --choice {o["id"]} --reference "{tracking.REFERENCE_PLACEHOLDER}"')
+        self.assertEqual(need['placeholders'], ['reference']); self.assertIn('mẫu lệnh', need['reply_note'])
+        self.assertIn('--reference', need['reply_command']); self.assertIn('<option-id>', need['reply_command'])
         self.assertEqual(need['recommendation'], 'seven'); self.assertEqual(need['reason'], 'Cần chốt thời hạn.')
         self.assertNotIn('hunter2', json.dumps(need, ensure_ascii=False))
         self.assertEqual(self.ledger.request(request['id'])['state'], 'pending')
         self.assertIn('chờ bạn trả lời câu hỏi ' + request['id'], first_task(tracking.overview(self.ledger.state_root))['current_step'])
+
+    def test_the_template_is_what_the_real_parser_wants_and_the_placeholder_must_be_filled(self):   # P2-B through onecrew.console, from a cwd with a space
+        self.revise([node('A'), node('I', ['A'], integration=True, write=())])
+        request = self.ledger.create_request(self.root_view['anchor_task'], 'retention', QUESTION)
+        need = first_task(tracking.overview(self.ledger.state_root))['needs_user'][0]
+        template = need['options'][1]['reply_command']
+        elsewhere = Path(self.temp.name) / 'terminal cua chu'; elsewhere.mkdir()
+        env = {k: v for k, v in os.environ.items() if k not in ('ONECREW_ACTOR', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION')}
+        env['PYTHONPATH'] = str(Path(__file__).resolve().parents[1]) + os.pathsep + env.get('PYTHONPATH', '')
+        def run(cmd):
+            line = cmd.replace('onecrew ', f'"{sys.executable}" -X utf8 -m onecrew.console ', 1)
+            return subprocess.run(line, shell=True, capture_output=True, text=True, encoding='utf-8', errors='replace', env=env, cwd=str(elsewhere), timeout=120)
+        missing = run(template.split(' --reference ')[0])                     # dev8's command (no --reference): the wheel's parser refuses it before any write
+        self.assertEqual(missing.returncode, 2, missing.stdout + missing.stderr); self.assertIn('--reference', missing.stderr + missing.stdout)
+        self.assertEqual(self.ledger.request(request['id'])['state'], 'pending')
+        filled = run(template.replace(tracking.REFERENCE_PLACEHOLDER, 'chủ chọn 30 ngày sau khi đọc hồ sơ'))
+        self.assertEqual(filled.returncode, 0, filled.stdout[-600:] + filled.stderr[-600:])
+        self.assertNotEqual(self.ledger.request(request['id'])['state'], 'pending')
+        self.assertEqual(first_task(tracking.overview(self.ledger.state_root))['needs_user'], [])
+
+
+class ElapsedClock(EngineFixture):
+    def test_elapsed_follows_the_clock_given_to_the_model_and_stops_at_the_end(self):         # P2-A, model side with a fake clock
+        self.revise([node('A'), node('I', ['A'], integration=True, write=())])
+        import datetime as dt
+        t0 = dt.datetime.now(dt.timezone.utc)
+        a = first_task(tracking.overview(self.ledger.state_root, now=t0))['elapsed']
+        b = first_task(tracking.overview(self.ledger.state_root, now=t0 + dt.timedelta(seconds=90)))['elapsed']
+        self.assertAlmostEqual(b['seconds'] - a['seconds'], 90.0, delta=0.01); self.assertIsNone(a['until'])
+        with self.ledger.transaction(write=True) as conn:
+            plans.emit(self.ledger, conn, self.root_view['anchor_task'], 'plan.closed', {'revision': 1, 'reason': 'done'})
+        c = first_task(tracking.overview(self.ledger.state_root, now=t0 + dt.timedelta(seconds=200)))['elapsed']
+        d = first_task(tracking.overview(self.ledger.state_root, now=t0 + dt.timedelta(seconds=900)))['elapsed']
+        self.assertIsNotNone(c['until']); self.assertEqual(c['seconds'], d['seconds'])          # ended: the clock no longer runs
 
 
 class EvidenceIndex(EngineFixture):

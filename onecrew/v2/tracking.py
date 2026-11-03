@@ -183,17 +183,32 @@ def _waits(events, attempts):
     return [rows[k] for k in order]
 
 
-def _needs_user(state, requests, views, level, engine_view):
+REFERENCE_PLACEHOLDER = '<lý do hoặc bằng chứng của bạn>'
+
+
+def _quote(value):
+    """One shell argument for the owner's terminal: double-quoted (paths with spaces), any inner double quote dropped (a path never has one)."""
+    return '"' + str(value).replace('"', '') + '"'
+
+
+def _needs_user(state, requests, views, level, engine_view, project=None, state_root=None):
     needs = []
     for r in requests:
         if r['state'] != 'pending': continue
         q = r['question'] or {}
-        command = f"question answer {r['id']} --revision {r['revision']} --choice "
+        # P2-B (03/11): the command the owner runs must be complete for the wheel's parser: project, state root, request, revision, choice AND the
+        # mandatory --reference. The reference is the owner's own words: a marked placeholder, so this is a TEMPLATE to complete, never "ready to run".
+        prefix = 'onecrew' + (f' --project {_quote(project)}' if project else '') + (f' --state-root {_quote(state_root)}' if state_root else '')
+        command = f"{prefix} question answer {r['id']} --revision {r['revision']} --choice "
+        suffix = f' --reference {_quote(REFERENCE_PLACEHOLDER)}'
         needs.append({'kind': 'request', 'id': r['id'], 'revision': r['revision'], 'question': clean(q.get('question')),
                       'reason': clean(q.get('reason'), 300), 'impact': clean(q.get('impact'), 300), 'recommendation': clean(q.get('recommendation'), 60),
-                      'options': [{'id': clean(o.get('id'), 60), 'label': clean(o.get('label'), 200), 'reply_command': command + clean(o.get('id'), 60)}
-                                  for o in (q.get('options') or [])[:6]],          # UX-03: one ready command per option; the page copies, never runs
-                      'reply_command': command + '<option-id>',
+                      'options': [{'id': clean(o.get('id'), 60), 'label': clean(o.get('label'), 200), 'reply_command': command + clean(o.get('id'), 60) + suffix}
+                                  for o in (q.get('options') or [])[:6]],          # UX-03: one template per option; the page copies, never runs
+                      'reply_command': command + '<option-id>' + suffix,
+                      'placeholders': ['reference'], 'reference_placeholder': REFERENCE_PLACEHOLDER,
+                      'reply_note': 'mẫu lệnh: thay ' + REFERENCE_PLACEHOLDER + ' bằng lý do/bằng chứng của bạn (tối đa 500 ký tự) rồi chạy trong terminal của bạn; '
+                                    'quyền chủ sở hữu, bản (revision) và các guard hiện có vẫn áp dụng; trang này không chạy lệnh',
                       'note': 'đọc, đóng cửa sổ hay bỏ qua không phải là trả lời; request vẫn chờ', 'source': ['request:' + r['id']]})
     if state['status'] == 'proposed':
         needs.append({'kind': 'approve', 'question': f"Duyệt bản {state['latest']} của plan {state['name']} (plan approve, lệnh của chủ sở hữu)",
@@ -315,6 +330,8 @@ def _current_step(kind, state, engine_view, active, requests, nodes_progress):
     """One short line for the list: what the task is at right now (never a guess: each branch names the source it rests on)."""
     if state['status'] == 'accepted': return 'kết thúc: đã nghiệm thu'
     if state['status'] == 'closed': return 'kết thúc: plan đã đóng'
+    pending_count = sum(1 for r in requests if r['state'] == 'pending')
+    if pending_count > 1: return f'chờ bạn trả lời {pending_count} câu hỏi'
     if state['status'] == 'proposed': return f"chờ bạn duyệt bản {state['latest']}"
     if state['status'] == 'stopped_with_report': return 'dừng có báo cáo: chờ bạn quyết định'
     pending = [r['id'] for r in requests if r['state'] == 'pending']
@@ -374,7 +391,7 @@ def _summary(kind, p):
         return f"quan sát {p.get('what')}" + (f" node {n}: {cp.get('status')} ({cp.get('reason') or ''})" if p.get('what') == 'progress' else '') + (f" chờ {p.get('wait', {}).get('reason')}" if p.get('what') == 'wait' else '')
     if kind == 'executor.managed': return f"worker được quản lý: {p.get('phase')} (attempt {p.get('attempt')})"
     if kind in ('attempt.reserved', 'attempt.launched', 'attempt.settled'): return f"attempt {p.get('id')} {kind.split('.')[1]}"
-    if kind in ('request.created', 'request.revised'): return f"câu hỏi {p.get('id')} bản {p.get('revision')}: {(p.get('question') or {}).get('question') if isinstance(p.get('question'), dict) else p.get('question') or ''}"
+    if kind in ('request.created', 'request.revised'): return f"câu hỏi {p.get('id')} bản {str(p.get('revision') or '')[:12]}…: {(p.get('question') or {}).get('question') if isinstance(p.get('question'), dict) else p.get('question') or ''}"
     if kind == 'request.consumed': return f"câu hỏi {p.get('id')} đã được trả lời và dùng"
     if kind == 'notice.exception': return f"thông báo {p.get('category')}: {p.get('reason') or ''}"
     if kind == 'verdict.recorded': return f"verdict mốc {p.get('milestone')}: {p.get('result')} bởi {p.get('by')}"
@@ -496,7 +513,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             'current_step': clean(_current_step(kind, state, engine_view, active_rows, requests, progress), 200),
             'last_update': {'seq': last[0], 'kind': last[1], 'at': last[3], 'summary': clean(_summary(last[1], last[2]), 200)} if last else None,
             'last_evidence': _last_evidence(events),
-            'needs_user': _needs_user(state, requests, views, level, engine_view),
+            'needs_user': _needs_user(state, requests, views, level, engine_view, project=row['project_path'], state_root=str(reader.state_root)),
             'active': active_rows,
             'nodes_summary': counts,
             'tracking': {'adapter': 'engine' if engine_root else 'milestones',

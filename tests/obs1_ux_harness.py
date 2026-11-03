@@ -151,16 +151,23 @@ if(S==='ux02'){
   sel.value=''; sel.dispatchEvent(new w.Event('change',{bubbles:true})); await sleep(100); check('all projects again', $$('li.task').length>=3);
 }
 if(S==='ux03'){
-  await select('P1'); const need=$('.need'); check('question card', need);
-  const opts=Array.from(need.querySelectorAll('.opt')); check('two options with label and id', opts.length===2 && opts.every(o=>o.querySelector('b').textContent && /\(.+\)/.test(o.textContent)), opts.map(o=>o.textContent.slice(0,60)));
-  const cmds=opts.map(o=>o.querySelector('code').textContent); check('each option has its own command with --choice <id>', cmds.length===2 && cmds.every(c=>/question answer REQ-\S+ --revision \S+ --choice \S+$/.test(c)) && cmds[0]!==cmds[1], cmds);
+  await select('P1'); const need=$('details.need'); check('question card (folded)', need && !need.open);
+  need.open=true; const opts=Array.from(need.querySelectorAll('.opt'));
+  check('two options with label and id', opts.length===2 && opts.every(o=>o.querySelector('b').textContent && /\(.+\)/.test(o.textContent)), opts.map(o=>o.textContent.slice(0,60)));
+  const cmds=opts.map(o=>o.querySelector('code').textContent);
+  check('each option is a complete template: onecrew --project --state-root question answer --revision --choice --reference', cmds.length===2 && cmds.every(c=>/^onecrew --project ".+" --state-root ".+" question answer REQ-\S+ --revision \S+ --choice \S+ --reference "<[^"]+>"$/.test(c)) && cmds[0]!==cmds[1], cmds);
+  check('the reference placeholder is marked as the part the owner fills', opts.every(o=>o.querySelector('code mark.ph')) && /BẠN tự điền/.test(need.textContent));
   check('the question text is readable', /\?/.test(need.querySelector('.q').textContent) && need.textContent.indexOf('[withheld]')>=0, need.querySelector('.q').textContent);
   check('no element answers the question (no answer/approve button)', !$$('#detail button').some(b=>/trả lời|duyệt|answer|approve/i.test(b.textContent)));
   const btn=opts[1].querySelector('button.copy'); btn.focus(); btn.click(); const done=await waitFor(()=>$('.copied'),5000,'copied status');
-  check('copy reports exactly the second option command', done && done.getAttribute('data-copied')===cmds[1], {copied:done&&done.getAttribute('data-copied'), want:cmds[1]});
+  let clip=null; try{clip=await w.navigator.clipboard.readText()}catch(e){clip='(readText unavailable: '+e.name+')'} out.clipboard_read=clip;
+  if(done && done.hasAttribute('data-copied')){check('copy reports exactly the second option template', done.getAttribute('data-copied')===cmds[1], {copied:done.getAttribute('data-copied'), want:cmds[1]});
+    check('the clipboard really holds the template (or readText is unavailable here)', clip===cmds[1] || /unavailable/.test(String(clip)), clip);
+    check('the copied status says the template is not filled yet', /chưa điền/.test(done.textContent));}
+  else{check('a failed copy is reported as failure with the text to copy by hand', done && done.hasAttribute('data-copy-failed') && done.querySelector('textarea') && done.querySelector('textarea').value===cmds[1], done&&done.textContent.slice(0,120));}
   check('focus stays on the copy button after the re-render', d.activeElement && d.activeElement.classList.contains('copy'));
-  const before=seqOf(); await morePolls(2); check('copying wrote nothing to the ledger', seqOf()===before, {before, now:seqOf()});
-  check('the request is still pending on the page', $('.need') && st().selected.plan);
+  const nBefore=$$('details.need').length; await morePolls(2); check('copying answered nothing (the questions are all still pending)', $$('details.need').length===nBefore && new RegExp('Cần bạn \\('+nBefore+'\\)').test($('#needs').textContent), {nBefore, now:$$('details.need').length});
+  check('the request is still pending on the page', $('details.need') && st().selected.plan);
 }
 if(S==='ux04'){
   const rows=$$('li.task'); check('rows are keyboard reachable (tabindex=0, role=option)', rows.length>=2 && rows.every(r=>r.getAttribute('tabindex')==='0'&&r.getAttribute('role')==='option'));
@@ -181,7 +188,7 @@ if(S==='ux04'){
   w.history.back(); await waitFor(()=>st().selected===null, 8000, 'back to list'); check('Back again returns to the list', st().selected===null && $('#nodetail'));
 }
 if(S==='ux05'){
-  const badge=p=>{const r=rowOf(p);return r?{cls:r.querySelector('.st').className, text:r.querySelector('.st').textContent}:null};
+  const badge=p=>{const r=rowOf(p);if(!r)return null;const s=r.querySelector('.st'),g=s.querySelector('.g');return {cls:s.className, text:s.textContent.replace(g?g.textContent:'','').trim()}};
   check('closed plan: grey "đã đóng", not "hoàn tất"', badge('P3') && badge('P3').cls==='st done closed' && badge('P3').text==='đã đóng', badge('P3'));
   check('verified plan: "đã kiểm, chờ nghiệm thu"', badge('P6') && badge('P6').cls==='st done verified' && badge('P6').text==='đã kiểm, chờ nghiệm thu', badge('P6'));
   check('accepted plan: "đã nghiệm thu"', badge('P7') && badge('P7').cls==='st done accepted' && badge('P7').text==='đã nghiệm thu', badge('P7'));
@@ -192,6 +199,9 @@ if(S==='ux05'){
   check('no "đã chạy" label anywhere', !/đã chạy/.test(d.body.textContent));
   check('the closed plan says it has no output and that closing is not accepting', /chưa có đầu ra/.test($('#detail').textContent) && /không phải nghiệm thu/.test($('#detail').textContent));
   check('the list has no percentage and no ETA number', !/\d+ ?%/.test($('#list').textContent));
+  check('badges carry a glyph besides the colour', $$('li.task .st .g').length===$$('li.task .st').length && $$('li.task .st .g').every(g=>g.textContent.trim().length===1));
+  await select('P4'); const cells=Array.from($('#detail table').querySelectorAll('td')).map(td=>td.textContent.trim());
+  check('phase and output words are Vietnamese (raw code in title)', cells.some(c=>/^(đang chạy|bị giữ|chờ đến lượt|xong)/.test(c)) && cells.some(c=>/^(chưa có đầu ra|đã tạo|đã kiểm|đã nghiệm thu)/.test(c)) && !cells.some(c=>/^(running|held|pending|none|produced)$/.test(c)), cells.slice(0,8));
 }
 if(S==='ux06'){
   await select('P4'); const grp=$$('section.grp').find(g=>/phần việc C/.test(g.querySelector('h4').textContent)); check('a group for phần việc C', grp);
@@ -205,6 +215,9 @@ if(S==='ux06'){
   check('clicking the step shows its evidence with label, kind and time', box && box.querySelector('b') && box.querySelector('b').textContent.length>3 && /\b\w+\.\w+\b/.test(box.querySelector('.mut').textContent) && !/thời điểm chưa rõ/.test(box.querySelector('div').textContent), box&&box.textContent.slice(0,200));
   const btn=box&&box.querySelector('.ev-open'); btn.click(); const pre=await waitFor(()=>$('.evbox pre'),8000,'evidence content'); check('evidence content opens inline, redacted', pre && pre.textContent.length>0 && pre.textContent.indexOf('hunter2')<0 && pre.textContent.indexOf('sk-fixture-secret')<0, pre&&pre.textContent.slice(0,80));
   $('[data-k="ev:'+seq+'"]').click(); check('clicking the same step again folds it', !$('.evbox'));
+  const att=$('details[data-k="attempts"]'); att.open=true; check('a settled attempt shows a measured duration bar', att.querySelector('.dur') && /\d+s/.test(att.textContent));
+  await select('P4'); const att4=$('details[data-k="attempts"]'); att4.open=true; const rows=Array.from(att4.querySelectorAll('tbody tr'));
+  check('every attempt row either has a measured bar or says chưa xác định (never a guessed bar)', rows.length>0 && rows.every(r=>(r.querySelector('.dur') && /\d+s|\d+m/.test(r.textContent)) || (!r.querySelector('.dur') && /chưa xác định/.test(r.textContent))), rows.map(r=>r.textContent.slice(0,80)));
 }
 if(S==='ux07'){
   const rows=$$('li.task'); check('rows exist', rows.length>=5);
@@ -212,17 +225,24 @@ if(S==='ux07'){
   check('rows carry status, name, current step and a relative update time', rows.every(r=>r.querySelector('.st')&&r.querySelector('.name')&&r.querySelector('.r2')&&/trước|vừa xong/.test(r.querySelector('.r2').textContent)), rows.map(r=>r.querySelector('.r2').textContent));
   check('full paths and ids are muted secondary text', rows.every(r=>r.querySelector('.r3.mut')) && !rows.some(r=>/^[a-z]:\\/i.test(r.querySelector('.r1').textContent)));
   check('the needs-you rows are marked', rowOf('P1').querySelector('.needb'));
-  check('the header counts tasks and needs', /\d+ task/.test($('#count').textContent) && /cần bạn/.test($('#count').textContent), $('#count').textContent);
+  check('the header counts tasks and the chips count needs', /\d+ task/.test($('#count').textContent) && /cần bạn \(\d+\)/.test($('#chips').textContent), $('#count').textContent+' | '+$('#chips').textContent);
+  const chips=$$('#chips button'); check('quick-filter chips with counts', chips.length>=3 && chips.every(c=>/\(\d+\)/.test(c.textContent)), chips.map(c=>c.textContent));
+  chips.find(c=>c.dataset.kind==='blocked').click(); check('the blocked chip keeps only blocked rows', $$('li.task').length>=1 && $$('li.task').every(r=>r.querySelector('.st').classList.contains('blocked')) && $('#chips button[data-kind="blocked"]').getAttribute('aria-pressed')==='true');
+  $('#chips button[data-kind=""]').click(); check('tất cả chip restores the list', $$('li.task').length>=5);
   $('#kind').value='blocked'; $('#kind').dispatchEvent(new w.Event('change',{bubbles:true})); check('status filter keeps only blocked', $$('li.task').length>=1 && $$('li.task').every(r=>r.querySelector('.st').classList.contains('blocked')));
   $('#kind').value='need'; $('#kind').dispatchEvent(new w.Event('change',{bubbles:true})); check('"cần bạn" filter keeps only rows with a need', $$('li.task').length>=1 && $$('li.task').every(r=>r.querySelector('.needb')));
   $('#kind').value=''; $('#q').value='P4'; $('#q').dispatchEvent(new w.Event('input',{bubbles:true})); check('search narrows to P4', $$('li.task').length===1 && rowOf('P4'));
   $('#q').value='nothing-matches-xyz'; $('#q').dispatchEvent(new w.Event('input',{bubbles:true})); check('no match says so', $$('li.task').length===0 && /không có task nào khớp/i.test($('#empty').textContent));
   $('#q').value=''; $('#q').dispatchEvent(new w.Event('input',{bubbles:true}));
 }
+function clipped(e){for(let p=e.parentElement;p&&p!==d.body;p=p.parentElement){const o=w.getComputedStyle(p).overflow;if(o==='hidden'||o==='auto'||o==='scroll')return true}return false}
+function overflowing(){return $$('body *').filter(e=>{const r=e.getBoundingClientRect();return r.width>0 && r.right>w.innerWidth+1 && !clipped(e) && !e.closest('.evbox pre')}).slice(0,8).map(e=>e.tagName+(e.id?'#'+e.id:'')+(e.className&&typeof e.className==='string'?'.'+e.className.split(' ')[0]:'')+'@'+Math.round(e.getBoundingClientRect().right))}
 if(S==='ux08'){
-  const de=d.documentElement; check('no horizontal page scroll on the list', de.scrollWidth<=w.innerWidth+1, {scrollWidth:de.scrollWidth, inner:w.innerWidth});
+  const de=d.documentElement; out.overflow_list=overflowing(); check('no horizontal page scroll on the list', de.scrollWidth<=w.innerWidth+1 && out.overflow_list.length===0, {scrollWidth:de.scrollWidth, inner:w.innerWidth, elements:out.overflow_list});
+  check('the project filter never widens the page (long folder names)', $('#proj').getBoundingClientRect().right<=w.innerWidth+1 && $$('#proj option').some(o=>o.textContent.length>40), {right:$('#proj').getBoundingClientRect().right, longest:Math.max(...$$('#proj option').map(o=>o.textContent.length))});
   const narrow=w.innerWidth<900; check('narrow layout detected when the window is narrow', narrow===w.matchMedia('(max-width:899px)').matches);
-  await select('P4'); check('no horizontal page scroll on the detail', de.scrollWidth<=w.innerWidth+1, {scrollWidth:de.scrollWidth, inner:w.innerWidth});
+  await select('P4'); out.overflow_detail=overflowing(); check('no horizontal page scroll on the detail', de.scrollWidth<=w.innerWidth+1 && out.overflow_detail.length===0, {scrollWidth:de.scrollWidth, inner:w.innerWidth, elements:out.overflow_detail});
+  await select('P1'); const nd=$('details.need'); if(nd){nd.open=true} out.overflow_question=overflowing(); check('no overflow with the question templates open', de.scrollWidth<=w.innerWidth+1 && out.overflow_question.length===0, {scrollWidth:de.scrollWidth, elements:out.overflow_question});
   if(narrow){check('narrow: the list is hidden and the detail shown', $('#listpane').offsetParent===null && $('#detailpane').offsetParent!==null && $('#back').offsetParent!==null);
     check('narrow: the detail starts in the upper part of the page (below the compact header)', w.scrollY===0 && $('#detailpane').getBoundingClientRect().top<w.innerHeight/3 && $('#dtitle').getBoundingClientRect().bottom<w.innerHeight/2, {y:w.scrollY, top:$('#detailpane').getBoundingClientRect().top, title:$('#dtitle').getBoundingClientRect().bottom});
     $('#back').click(); await sleep(100); check('narrow: back shows the list again', $('#listpane').offsetParent!==null && st().selected===null);}
@@ -242,7 +262,33 @@ if(S==='disc'){
   await fetch('/__drop?on=0'); const ok=await waitFor(()=>$('#conn').className==='ok', 20000, 'ok badge again');
   check('reconnects by itself and shows the same seq', ok && seqOf()===seq && $('#dtitle').textContent.indexOf('P2')===0, {seq, now:seqOf()});
 }
-if(S==='shot-detail'){await select(qs.get('plan')||'P1'); const ev=$$('ol.ev > li').find(li=>li.querySelector('.clip')); if(ev){ev.click(); await waitFor(()=>$('.evbox'),3000)}}
+if(S==='clock'){
+  await select('P2'); const tile=()=>$('.tile .v[data-live]'); check('the running task has a live calendar clock', tile(), $$('.tile .v').map(e=>e.textContent));
+  const parse=t=>{const m=/(?:(\d+)h)?(?:(\d+)m)?(\d+)s?/.exec(t.replace(/\s/g,''));return m?(+(m[1]||0))*3600+(+(m[2]||0))*60+(+m[3]):NaN};
+  async function serverNow(){const h=await (await fetch('/api/health',{cache:'no-store'})).json();return new Date(h.generated_at).getTime()/1000}
+  const s0=parse(tile().textContent), t0=Date.now(), seq0=seqOf(), srv0=await serverNow(); await morePolls(3); await sleep(1200);
+  const s1=parse(tile().textContent), real=(Date.now()-t0)/1000;
+  check('seq did not move during the wait (no re-render involved)', seqOf()===seq0 && st().detailSeq===seq0, {seq0, now:seqOf()});
+  check('the clock advanced with real time across polls (±2 s)', Math.abs((s1-s0)-real)<=2 && s1>s0, {s0,s1,real});
+  w.location.reload(); await new Promise(r=>f.addEventListener('load',r,{once:true})); await loaded(); await waitFor(()=>$('.tile .v[data-live]'),8000,'detail after reload');
+  const s2=parse(tile().textContent), real2=(await serverNow())-srv0; check('reload continues from the sourced value (no double counting; compared with server time)', Math.abs((s2-s0)-real2)<=3, {s0,s2,real2});
+  await select('P3'); check('a closed task has no live clock', !$('.tile .v[data-live]') && /\d+s|\d+m/.test($$('.tile .v')[2].textContent)); const c0=$$('.tile .v')[2].textContent; await morePolls(2); check('and its value does not move', $$('.tile .v')[2].textContent===c0, {c0, now:$$('.tile .v')[2].textContent});
+  await select('P2'); const s3=parse(tile().textContent), real3=(await serverNow())-srv0; check('switching back resumes the right task clock (compared with server time)', Math.abs((s3-s0)-real3)<=3, {s0,s3,real3});
+  await select('PB'); check('an unapproved plan says chưa xác định, no clock', !$('.tile .v[data-live]') && /chưa xác định/.test($$('.tile .v')[2].textContent));
+}
+if(S==='ux03b'){
+  await select('P1'); const needs=$$('details.need'), N=needs.length; check('at least three questions, each folded', N>=3 && needs.every(n=>!n.open), N);
+  check('the heading counts them and the summary strip links to them', new RegExp('Cần bạn \\('+N+'\\)').test($('#needs').textContent) && new RegExp(N+' câu hỏi chờ bạn').test($('.dsum').textContent), $('#needs').textContent.slice(0,30)+' | '+$('.dsum').textContent);
+  check('the summary strip shows the current step', new RegExp('chờ bạn trả lời '+N+' câu hỏi').test($('.dsum .step').textContent), $('.dsum .step').textContent);
+  const stats=$('.stats'), nh=$('#needs'); check('the status tiles come before the questions', stats && nh && (stats.compareDocumentPosition(nh) & Node.DOCUMENT_POSITION_FOLLOWING), 0);
+  const titles=needs.map(n=>n.querySelector('summary').textContent); check('each question keeps its own title (no merging)', new Set(titles).size===N, titles);
+  check('the summary strip and the status tiles are above the fold (questions do not push the summary down)', $('.dsum').getBoundingClientRect().bottom < w.innerHeight && stats.getBoundingClientRect().bottom < (w.innerWidth<900? w.innerHeight*2 : w.innerHeight), {strip:$('.dsum').getBoundingClientRect().bottom, stats:stats.getBoundingClientRect().bottom, inner:w.innerHeight});
+  check('folded questions take one line each', needs[N-1].getBoundingClientRect().bottom - needs[0].getBoundingClientRect().top < 44*N+20, needs[N-1].getBoundingClientRect().bottom - needs[0].getBoundingClientRect().top);
+  needs[1].open=true; check('opening one shows reason, impact, options and templates', /Vì:/.test(needs[1].textContent) && /Ảnh hưởng:/.test(needs[1].textContent) && needs[1].querySelectorAll('.opt').length===2 && needs[1].querySelectorAll('mark.ph').length>=2);
+  await morePolls(2); check('the opened question stays open across polls', $$('details.need')[1].open && !$$('details.need')[0].open);
+  check('the list column is narrower than the detail while reading (wide)', w.innerWidth<900 || $('#listpane').getBoundingClientRect().width < $('#detailpane').getBoundingClientRect().width*0.6, {l:$('#listpane').getBoundingClientRect().width, r:$('#detailpane').getBoundingClientRect().width});
+}
+if(S==='shot-detail'){await select(qs.get('plan')||'P1'); if(qs.get('open')==='need'){const n=$('details.need'); if(n)n.open=true} else {const ev=$$('ol.ev > li').find(li=>li.querySelector('.clip')); if(ev){ev.click(); await waitFor(()=>$('.evbox'),3000)}}}
 if(S==='shot-list'){}
 out.ok=Object.values(out.checks).every(Boolean)&&Object.keys(out.checks).length>0;
 }catch(e){out.error=String(e&&e.stack||e); out.ok=false}
