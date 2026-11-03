@@ -249,6 +249,254 @@ def reusable(record, health, state_root, project_id, here=None):
     return True, None
 
 
+# ---- process identity (R5 round 4, 03/11) -----------------------------------------------------------------------------------------------------
+# A pid alone is not an identity: Windows reuses pids. Every decision below holds the process by HANDLE first (no other process can get that pid
+# while a handle to it is open), tells a recycled pid from the server by creation time (a server writes its own `started_at` after its process
+# was created, so a process created later is another one) and terminates through that same handle. Elsewhere the pid is used as is (os.kill)
+# and a creation time is unknown.
+_LOOPBACK_URL = re.compile(r'http://(?:127\.0\.0\.1|localhost|\[::1\]):[0-9]{1,5}/')
+_INSTANCE = re.compile(r'[0-9a-f]{8,64}')
+_K32 = None
+
+
+def _int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_time(value):
+    """An ISO 8601 time with its zone (as `utcnow()` writes `started_at`) as an aware datetime; None for anything else."""
+    import datetime as _dt
+    if not isinstance(value, str) or not value.strip(): return None
+    try:
+        when = _dt.datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    return when if when.tzinfo else None
+
+
+def _k32():
+    """kernel32 with the signatures used here, and the PROCESSENTRY32W structure (Windows only)."""
+    global _K32
+    if _K32 is None:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.WinDLL('kernel32', use_last_error=True)
+
+        class Entry(ctypes.Structure):
+            _fields_ = [('dwSize', wintypes.DWORD), ('cntUsage', wintypes.DWORD), ('th32ProcessID', wintypes.DWORD), ('th32DefaultHeapID', ctypes.c_void_p),
+                        ('th32ModuleID', wintypes.DWORD), ('cntThreads', wintypes.DWORD), ('th32ParentProcessID', wintypes.DWORD),
+                        ('pcPriClassBase', wintypes.LONG), ('dwFlags', wintypes.DWORD), ('szExeFile', wintypes.WCHAR * 260)]
+        for name, res, args in (('OpenProcess', wintypes.HANDLE, (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)),
+                                ('GetProcessTimes', wintypes.BOOL, (wintypes.HANDLE,) + (ctypes.POINTER(wintypes.FILETIME),) * 4),
+                                ('TerminateProcess', wintypes.BOOL, (wintypes.HANDLE, wintypes.UINT)),
+                                ('WaitForSingleObject', wintypes.DWORD, (wintypes.HANDLE, wintypes.DWORD)),
+                                ('CloseHandle', wintypes.BOOL, (wintypes.HANDLE,)),
+                                ('CreateToolhelp32Snapshot', wintypes.HANDLE, (wintypes.DWORD, wintypes.DWORD)),
+                                ('Process32FirstW', wintypes.BOOL, (wintypes.HANDLE, ctypes.POINTER(Entry))),
+                                ('Process32NextW', wintypes.BOOL, (wintypes.HANDLE, ctypes.POINTER(Entry)))):
+            fn = getattr(k, name); fn.restype = res; fn.argtypes = args
+        _K32 = (k, Entry)
+    return _K32
+
+
+class _Proc:
+    """One process, held. On Windows by a HANDLE opened before any check, so its pid cannot pass to another process while we decide."""
+    QUERY, SYNC, TERMINATE = 0x1000, 0x00100000, 0x0001          # PROCESS_QUERY_LIMITED_INFORMATION, SYNCHRONIZE, PROCESS_TERMINATE
+
+    def __init__(self, pid, handle=None, can_terminate=True):
+        self.pid, self.handle, self.can_terminate = pid, handle, can_terminate
+
+    @classmethod
+    def open(cls, pid):
+        """The process that has `pid` now, held; None when no process has it (or one we may not even query: never a server of ours)."""
+        pid = _int(pid)
+        if not pid or pid <= 0: return None
+        if os.name != 'nt':
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return None
+            return cls(pid)
+        k = _k32()[0]
+        handle = k.OpenProcess(cls.QUERY | cls.SYNC | cls.TERMINATE, False, pid)
+        if handle: return cls(pid, handle)
+        handle = k.OpenProcess(cls.QUERY | cls.SYNC, False, pid)            # e.g. an elevated server seen from a normal shell: identified, not stoppable
+        return cls(pid, handle, can_terminate=False) if handle else None
+
+    def alive(self):
+        if os.name != 'nt':
+            try:
+                os.kill(self.pid, 0); return True
+            except OSError:
+                return False
+        return bool(self.handle) and _k32()[0].WaitForSingleObject(self.handle, 0) == 0x102     # WAIT_TIMEOUT: still running
+
+    def created(self):
+        """When the process was created (aware UTC datetime); None where unknown."""
+        if os.name != 'nt' or not self.handle: return None
+        import ctypes
+        import datetime as _dt
+        from ctypes import wintypes
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not _k32()[0].GetProcessTimes(self.handle, *(ctypes.byref(t) for t in times)): return None
+        ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+        return _dt.datetime(1601, 1, 1, tzinfo=_dt.timezone.utc) + _dt.timedelta(microseconds=ticks // 10)
+
+    def terminate(self):
+        if os.name != 'nt':
+            try:
+                os.kill(self.pid, signal.SIGTERM); return True
+            except OSError:
+                return False
+        return bool(self.handle and self.can_terminate and _k32()[0].TerminateProcess(self.handle, 15))
+
+    def wait(self, seconds):
+        """True once the process has exited (waiting at most `seconds`)."""
+        if os.name != 'nt':
+            end = time.monotonic() + seconds
+            while self.alive() and time.monotonic() < end: time.sleep(0.1)
+            return not self.alive()
+        return bool(self.handle) and _k32()[0].WaitForSingleObject(self.handle, int(max(0.0, seconds) * 1000)) == 0
+
+    def close(self):
+        if os.name == 'nt' and self.handle:
+            _k32()[0].CloseHandle(self.handle)
+        self.handle = None
+
+
+def _same_process(proc, since):
+    """True: `proc` runs and was created no later than `since` (the start stamp a server wrote itself), so it IS that server's process.
+    False: it does not run, could not be held (no such pid), or is a newer process that got the pid. None: cannot tell (no stamp/creation time)."""
+    if proc is None or not proc.alive(): return False
+    if since is None: return None
+    created = proc.created()
+    if created is None: return None
+    return created <= since
+
+
+def _answer(url, proc=None, since=None, quick=2.0, patient=(5.0, 10.0)):
+    """/api/health of `url`, asked again with longer timeouts while the process that should answer is exactly still the one that wrote `since`
+    (R5 round 4: a server slowed down by load is not a dead server). A pid that no longer runs needs no second try."""
+    health = identity(url, timeout=quick)
+    for timeout in patient:
+        if health is not None or _same_process(proc, since) is not True: break
+        time.sleep(0.3)
+        health = identity(url, timeout=timeout)
+    return health
+
+
+def _descendants(root, depth=4):
+    """Windows: the processes `root` created (and theirs), held. A process counts only when its recorded parent pid is the parent's AND it was
+    created no earlier than that parent: a process whose recorded parent pid is a recycled number is older than the parent and is left alone."""
+    if os.name != 'nt' or root is None: return []
+    import ctypes
+    k, Entry = _k32()
+    snap = k.CreateToolhelp32Snapshot(0x2, 0)                               # TH32CS_SNAPPROCESS
+    if not snap or snap == ctypes.c_void_p(-1).value: return []
+    pairs = []
+    try:
+        entry = Entry(); entry.dwSize = ctypes.sizeof(Entry)
+        more = k.Process32FirstW(snap, ctypes.byref(entry))
+        while more:
+            pairs.append((entry.th32ProcessID, entry.th32ParentProcessID))
+            more = k.Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        k.CloseHandle(snap)
+    found, level = [], [root]
+    for _ in range(depth):
+        nxt = []
+        for parent in level:
+            born = parent.created()
+            for pid, ppid in pairs:
+                if ppid != parent.pid or pid in (parent.pid, root.pid) or any(p.pid == pid for p in found + nxt): continue
+                kid = _Proc.open(pid)
+                if kid is None: continue
+                created = kid.created()
+                if born is None or created is None or created < born:
+                    kid.close(); continue
+                nxt.append(kid)
+        found += nxt; level = nxt
+        if not nxt: break
+    return found
+
+
+def _brief(health):
+    return {k: health.get(k) for k in ('server', 'instance', 'pid', 'state_root', 'version', 'project_id')} if health else None
+
+
+def _marker_now(marker):
+    current = _read_marker(marker)
+    return {k: current.get(k) for k in ('url', 'pid', 'instance', 'project_id', 'started_at')} if current else None
+
+
+def _remove_marker_of(marker, lock, instance):
+    """Remove the marker only when it names `instance` — under the open lock, so a marker another `track open` writes meanwhile is never lost."""
+    end = time.monotonic() + 3.0
+    fd = _lock(lock)
+    while fd is None and time.monotonic() < end:
+        time.sleep(0.1); fd = _lock(lock)
+    if fd is None: return False
+    try:
+        current = _read_marker(marker)
+        if current is None or current.get('instance') != instance: return False
+        try:
+            Path(marker).unlink(); return True
+        except OSError:
+            return False
+    finally:
+        _unlock(fd, lock)
+
+
+def _end(proc, url, instance, wait):
+    """Terminate the held process, then wait until it has exited and `url` no longer answers as `instance`. Returns (stopped, reason)."""
+    if proc is None: return False, 'không giữ được tiến trình đó để dừng'
+    if not proc.terminate():
+        return False, 'không gửi được tín hiệu dừng (tiến trình chạy với quyền khác, hoặc đã thoát)'
+    proc.wait(wait)
+    still = identity(url, timeout=0.5)
+    stopped = not proc.alive() and not (still and still.get('instance') == instance)
+    return stopped, None if stopped else 'server vẫn trả lời sau tín hiệu dừng'
+
+
+def _abandon(child, marker, old_instance):
+    """Undo a `track open` that fails after starting a server (R5 round 4): the whole tree it started ends — our own Popen and what it created
+    (on Windows the venv launcher runs the real python as its child) — and the marker is removed only when that tree wrote it, or when it names a
+    server whose process is gone. Runs under the open lock (no other `track open` writes the marker meanwhile)."""
+    root = _Proc.open(child.pid) if child.poll() is None else None      # the same process: Popen holds its handle, its pid is not reusable
+    tree = _descendants(root)
+    if root: root.close()
+    if child.poll() is None:
+        try:
+            child.kill()
+        except OSError:
+            pass
+    try:
+        child.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+    ended, running = ([child.pid], []) if child.poll() is not None else ([], [child.pid])
+    for proc in tree:                                    # the venv launcher's job usually ends them with it; made sure through the handles taken before
+        if proc.alive(): proc.terminate()
+        (ended if proc.wait(10) else running).append(proc.pid)
+        proc.close()
+    record, removed = _read_marker(marker), False
+    if record and record.get('instance') != old_instance and record.get('pid') not in running:
+        held = _Proc.open(record.get('pid')) if record.get('pid') not in ended else None
+        try:
+            gone = record.get('pid') in ended or _same_process(held, _parse_time(record.get('started_at'))) is False
+        finally:
+            if held: held.close()
+        if gone:
+            try:
+                marker.unlink(); removed = True
+            except OSError:
+                pass
+    return {'ended': ended, 'still_running': running, 'marker_removed': removed}
+
+
 def _lock(path):
     """Create the open lock exclusively; a lock older than LOCK_STALE_SECONDS is a leftover and is taken over. Returns the fd or None."""
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
@@ -272,16 +520,27 @@ def _unlock(fd, path):
 
 
 def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, project=None, explicit_state_root=None, idle_exit=1800,
-              browser=True, spawn=True, wait=8.0):
+              browser=True, spawn=True, wait=30.0):
     """Reuse the live detached server of this state root when its identity matches (see `reusable`), else start one; then open the page.
-    `spawn=False` only reports (no server is started). Concurrent calls serialise on the open lock."""
+    `spawn=False` only reports (no server is started). Concurrent calls serialise on the open lock.
+    R5 round 4: the marker's server is asked again with longer timeouts while its process is exactly still running (a slow server is reused,
+    not replaced); a started server has `wait` seconds (30: a loaded machine needs 4-10 s) to answer with its identity; and a failed open never
+    leaves a server running — on a timeout, an early exit or an error the tree it started is ended and a marker that tree wrote is removed."""
     state_root = Path(state_root).resolve()
     marker, lock = marker_paths(state_root)
     here = version()
 
-    def check():
+    def check(patient=False):
         record = _read_marker(marker)
-        health = identity(record['url']) if record else None
+        health = None
+        if record and patient:
+            proc = _Proc.open(record.get('pid'))
+            try:
+                health = _answer(record['url'], proc, _parse_time(record.get('started_at')))
+            finally:
+                if proc: proc.close()
+        elif record:
+            health = identity(record['url'])
         ok, why = reusable(record, health, state_root, project_id, here)
         return record, health, ok, why
 
@@ -290,7 +549,7 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
             import webbrowser; webbrowser.open(record['url'])
         return dict(record, reused=reused, version_here=here, **more)
 
-    record, health, ok, why = check()
+    record, health, ok, why = check(patient=True)
     if ok: return opened(record, True)
     refused = {'marker': record, 'reason': why}
     fd = _lock(lock)
@@ -317,15 +576,25 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
         import tempfile
         child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, creationflags=flags, env=env,
                                  cwd=tempfile.gettempdir())
-        end = time.monotonic() + wait
-        while time.monotonic() < end:
-            record, health, ok, why = check()
-            if record and record.get('instance') and record['instance'] != old_instance and ok:
-                return opened(record, False, idle_exit_seconds=idle_exit, refused=refused if refused['marker'] else None)
-            if child.poll() is not None:
-                return {'error': 'server theo dõi thoát ngay khi khởi động', 'exit_code': child.returncode, 'refused': refused}
-            time.sleep(0.1)
-        return {'error': f'server theo dõi không trả lời đúng định danh trong {wait:g} giây', 'pid': child.pid, 'last_reason': why, 'refused': refused}
+        try:
+            end = time.monotonic() + wait
+            while True:
+                record, health, ok, why = check()
+                if record and record.get('instance') and record['instance'] != old_instance and ok:
+                    return opened(record, False, idle_exit_seconds=idle_exit, refused=refused if refused['marker'] else None)
+                if child.poll() is not None:
+                    failure = {'error': 'server theo dõi thoát ngay khi khởi động', 'exit_code': child.returncode, 'refused': refused}
+                    break
+                if time.monotonic() >= end:
+                    failure = {'error': f'server theo dõi không trả lời đúng định danh trong {wait:g} giây', 'pid': child.pid, 'last_reason': why, 'refused': refused}
+                    break
+                time.sleep(0.1)
+        except BaseException:
+            _abandon(child, marker, old_instance)
+            raise
+        failure['undone'] = _abandon(child, marker, old_instance)
+        failure['note'] = 'track open thất bại không để lại server nào: cây tiến trình nó vừa khởi động đã dừng; marker do cây đó ghi (nếu có) đã xóa'
+        return failure
     finally:
         _unlock(fd, lock)
 
@@ -348,32 +617,95 @@ def _same_server(record, health, state_root):
                 and (not record.get('instance') or health.get('instance') == record['instance']))
 
 
-def stop_page(state_root, wait=5.0):
+def stop_page(state_root, wait=10.0):
     """Stop the detached tracking server of this state root — only the process whose /api/health matches the marker. Never another process.
-    A marker whose URL answers with another identity, or does not answer, is removed as stale (a file of ours; nothing is killed)."""
+    A marker whose URL answers with another identity, or does not answer while its process is gone, is removed as stale (a file of ours;
+    nothing is killed). R5 round 4: a server that does not answer while its process exactly still runs (the marker's pid, created before the
+    marker's `started_at`) is slow, not dead — nothing is stopped and its marker is kept; the process is held by handle from before the check
+    to the termination, so its pid cannot pass to another process in between."""
     state_root = Path(state_root).resolve()
-    marker, _ = marker_paths(state_root)
+    marker, lock = marker_paths(state_root)
     record = _read_marker(marker)
     if not record:
         return {'stopped': False, 'reason': 'không có marker: không có server nào được `track open` mở cho sổ này (server của `track serve` dừng bằng Ctrl+C)'}
-    health = identity(record['url'])
-    if not _same_server(record, health, state_root):
-        try: marker.unlink(); removed = True
-        except OSError: removed = False
-        why = 'server trong marker không trả lời' if not health else 'tiến trình trả lời ở cổng đó không phải server của marker này (định danh/PID/sổ khác): không dừng tiến trình lạ'
-        return {'stopped': False, 'reason': why, 'marker_removed': removed, 'marker': record, 'health': health}
+    proc = _Proc.open(record.get('pid'))
     try:
-        os.kill(int(record['pid']), signal.SIGTERM)
-    except (OSError, ValueError) as error:
-        return {'stopped': False, 'reason': 'không gửi được tín hiệu dừng: ' + str(error), 'marker': record}
-    end = time.monotonic() + wait
-    while time.monotonic() < end and identity(record['url'], timeout=0.5): time.sleep(0.1)
-    gone = identity(record['url'], timeout=0.5) is None
-    if gone:
-        try: marker.unlink()
-        except OSError: pass
-    return {'stopped': gone, 'pid': record['pid'], 'url': record['url'], 'instance': record.get('instance'), 'version': record.get('version'),
-            'note': 'chỉ trang theo dõi dừng; worker không bị ảnh hưởng' if gone else 'server vẫn trả lời sau tín hiệu dừng'}
+        since = _parse_time(record.get('started_at'))
+        health = _answer(record['url'], proc, since)
+        if not _same_server(record, health, state_root):
+            if health is None and _same_process(proc, since) is True:
+                return {'stopped': False, 'reason': 'server trong marker không trả lời /api/health (đã hỏi lại lâu hơn) nhưng tiến trình của nó vẫn chạy: '
+                                                    'không dừng gì, giữ marker; thử lại sau', 'marker_removed': False, 'marker': record, 'health': None}
+            removed = _remove_marker_of(marker, lock, record.get('instance'))
+            why = 'server trong marker không trả lời' if not health else 'tiến trình trả lời ở cổng đó không phải server của marker này (định danh/PID/sổ khác): không dừng tiến trình lạ'
+            return {'stopped': False, 'reason': why, 'marker_removed': removed, 'marker': record, 'health': health}
+        stopped, why = _end(proc, record['url'], record.get('instance'), wait)
+        if stopped: _remove_marker_of(marker, lock, record.get('instance'))
+        return {'stopped': stopped, 'pid': record['pid'], 'url': record['url'], 'instance': record.get('instance'), 'version': record.get('version'),
+                'note': 'chỉ trang theo dõi dừng; worker không bị ảnh hưởng' if stopped else why}
+    finally:
+        if proc: proc.close()
+
+
+def _is_target(health, state_root, instance, pid):
+    if not health: return False, 'không có server nào trả lời /api/health ở url đó (đã hỏi lại lâu hơn khi tiến trình còn chạy)'
+    if not str(health.get('server', '')).startswith('OneCrewTrack/'): return False, 'url đó không phải server theo dõi OneCrew'
+    if os.path.normcase(str(health.get('state_root') or '')) != os.path.normcase(str(Path(state_root).resolve())):
+        return False, 'server ở url đó đọc sổ khác, không phải sổ này'
+    if health.get('instance') != instance: return False, f"định danh khác: url đó do server instance {health.get('instance')} trả lời"
+    if health.get('pid') != pid: return False, f"PID khác: server ở url đó báo pid {health.get('pid')}"
+    return True, None
+
+
+def stop_target(state_root, url, instance, pid, started_at=None, wait=10.0):
+    """`track stop --url U --instance I --pid P [--started-at T]` (R5 round 4): stop exactly the tracking server that answers at U as instance I
+    with pid P for THIS state root, even when the marker of the state root names another server; nothing else. P is held (Windows: by handle)
+    BEFORE /api/health is asked, so the pid cannot pass to another process between the check and the stop. U must answer as a OneCrewTrack
+    server of this state root with instance I and pid P (asked again with longer timeouts while P is exactly still the process that started at
+    T); then P is terminated and U must stop answering as I. The marker is removed only when it names I. Anything else stops nothing and says
+    why. `gone` (for a caller holding a pin): True = that server is certainly over (P no longer runs, or now belongs to a process created after
+    T), False = its process still runs, None = cannot tell (P runs and no T is known: neither --started-at nor a marker naming I)."""
+    state_root = Path(state_root).resolve()
+    marker, lock = marker_paths(state_root)
+    target = {'url': url, 'instance': instance, 'pid': pid}
+
+    def refuse(reason, **more):
+        return dict({'stopped': False, 'reason': reason, **target, 'gone': None, 'marker_removed': False}, **more)
+
+    if not isinstance(url, str) or not _LOOPBACK_URL.fullmatch(url):
+        return refuse('--url phải là http://127.0.0.1:<cổng>/ (hoặc localhost, [::1]) của một server theo dõi: không dừng gì')
+    if not isinstance(instance, str) or not _INSTANCE.fullmatch(instance):
+        return refuse('--instance phải là định danh hex (8-64 ký tự) mà server báo ở /api/health: không dừng gì')
+    pid = _int(pid)
+    if not pid or pid <= 0:
+        return refuse('--pid phải là số dương: không dừng gì')
+    target['pid'] = pid
+    since = _parse_time(started_at) if started_at else None
+    if started_at and since is None:
+        return refuse('--started-at phải là thời điểm ISO 8601 có múi giờ (started_at mà server tự ghi): không dừng gì')
+    record = _read_marker(marker)
+    if since is None and record and record.get('instance') == instance and record.get('pid') == pid:
+        since = _parse_time(record.get('started_at'))
+    proc = _Proc.open(pid)
+    try:
+        health = _answer(url, proc, since)
+        ok, why = _is_target(health, state_root, instance, pid)
+        if not ok:
+            same = _same_process(proc, since)
+            gone = None if same is None else not same
+            removed = bool(gone and record and record.get('instance') == instance and _remove_marker_of(marker, lock, instance))
+            return refuse(why + ': không dừng gì', gone=gone, marker_removed=removed, health=_brief(health), marker_now=_marker_now(marker))
+        created, reported = (proc.created() if proc else None), _parse_time(health.get('started_at'))
+        if proc is None or (created and reported and created > reported):
+            return refuse('tiến trình đang mang PID đó không phải server vừa trả lời ở url (không mở được, hoặc tạo sau khi server đó khởi động): không dừng gì',
+                          marker_now=_marker_now(marker))
+        stopped, why = _end(proc, url, instance, wait)
+        removed = bool(stopped and _remove_marker_of(marker, lock, instance))
+        return {'stopped': stopped, 'gone': True if stopped else None, **target, 'version': health.get('version'), 'project_id': health.get('project_id'),
+                'marker_removed': removed, 'marker_now': _marker_now(marker), 'reason': why,
+                'note': 'chỉ đúng server theo dõi này dừng; worker không bị ảnh hưởng' if stopped else why}
+    finally:
+        if proc: proc.close()
 
 
 PAGE = r'''<!doctype html>

@@ -5,6 +5,10 @@ in this process (Ctrl+C closes the VIEWER, never a worker); `open` starts that s
 or reuses the one already running for this state root when its identity (instance, wheel version, state root, scope) matches; `status` shows
 that identity check; `stop` stops only the matching server (never another process). Every command reads the ledger read-only; none approves,
 answers, pauses or resumes anything — `stop` ends the page's server, not a task.
+
+`stop --url U --instance I --pid P [--started-at T]` (R5 round 4, 03/11) stops exactly the server that answers at U as instance I with pid P
+for this state root, even when the marker names another server (a pinned viewer whose marker moved), and nothing else; without these
+arguments `stop` is unchanged (the marker's server). See tracking_web.stop_target.
 """
 import argparse
 import json
@@ -41,7 +45,11 @@ def _parser():
         else:
             a.add_argument('--no-browser', action='store_true', help='Khởi động/dùng lại server và in URL, không mở trình duyệt.')
     sub.add_parser('status', help='Server theo dõi của sổ này (marker + /api/health): có dùng lại được không, vì sao không.')
-    sub.add_parser('stop', help='Dừng server theo dõi mà `track open` đã mở cho sổ này (chỉ tiến trình khớp định danh; không dừng task).')
+    a = sub.add_parser('stop', help='Dừng server theo dõi mà `track open` đã mở cho sổ này (chỉ tiến trình khớp định danh; không dừng task).')
+    a.add_argument('--url', help='Dừng ĐÚNG server này (đi cùng --instance và --pid): http://127.0.0.1:<cổng>/, kể cả khi marker của sổ đã trỏ sang server khác.')
+    a.add_argument('--instance', help='Định danh (instance) của server cần dừng; /api/health ở --url phải báo đúng nó.')
+    a.add_argument('--pid', type=int, help='PID của server cần dừng; /api/health ở --url phải báo đúng nó.')
+    a.add_argument('--started-at', help='started_at mà server đó tự ghi (marker/ghim): phân biệt tiến trình đã thoát với một PID đã bị tiến trình khác dùng lại.')
     return p
 
 
@@ -76,7 +84,14 @@ def main(argv=None):
         if opts.command == 'status':
             print(json.dumps(tracking_web.status_page(state_root), ensure_ascii=False, indent=1)); return 0
         if opts.command == 'stop':
-            result = tracking_web.stop_page(state_root)
+            named = [value is not None for value in (opts.url, opts.instance, opts.pid)]
+            if any(named) or opts.started_at is not None:
+                if not all(named):
+                    raise LedgerError('track stop: --url, --instance và --pid phải đi cùng nhau (dừng đúng một server đã biết định danh); '
+                                      '--started-at chỉ đi kèm ba tham số đó. Không dừng gì.')
+                result = tracking_web.stop_target(state_root, opts.url, opts.instance, opts.pid, started_at=opts.started_at)
+            else:
+                result = tracking_web.stop_page(state_root)
             print(json.dumps(result, ensure_ascii=False, indent=1)); return 0 if result.get('stopped') else 2
         if not 0.5 <= opts.interval <= 60: raise LedgerError('--interval: 0.5-60 giây.')
         scope = project_id if opts.project_only else None
