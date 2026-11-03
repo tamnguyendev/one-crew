@@ -489,10 +489,13 @@ if(S==='slow_detail'){
   w.fetch=function(u,o){const p=real.call(w,u,o); if(typeof u!=='string'||u.indexOf('/api/task')!==0||!mode)return p; issued++;
     if(mode==='slow')return p.then(r=>new Promise(res=>w.setTimeout(()=>res(r),slow)));                    // the reply arrives 2.5 poll intervals later
     if(mode==='bad'&&u.indexOf(encodeURIComponent(P8))>=0)return p.then(()=>new w.Response('{}',{status:200,headers:{'Content-Type':'application/json'}}));   // a 200 the page cannot render
+    if(mode==='fail')return p.then(()=>Promise.reject(new w.TypeError('Failed to fetch')));                // a network failure of every detail read
     return p};
   await select('P1');
   // (a) every detail read takes 2.5 poll intervals: the selected task must still appear (pre-fix: each poll superseded the read in flight)
   mode='slow'; issued=0; const p0=polls; rowOf('P8').click();
+  const P1cmds=()=>$$('#detail code').map(c=>c.textContent).filter(c=>/question answer/.test(c)).length;
+  check('right after the click, before any reply: P8 loading pane, nothing of P1', $('#dtitle') && $('#dtitle').textContent.indexOf('P8')===0 && dst()==='loading' && ds() && ds().getAttribute('data-state')==='loading' && !P1cmds() && !$$('#detail details.need').length, {head:$('#dtitle')&&$('#dtitle').textContent, state:dst(), cmds:P1cmds()});
   const a=await waitFor(()=>shown('P8') && dst()==='ok' && st().detailFor && st().detailFor.plan===P8, iv*14, 'P8 painted with slow detail reads');
   check('a detail read slower than the poll interval still paints the selected task', a, {state:dst(), issued, polls:polls-p0, head:$('#dtitle')&&$('#dtitle').textContent});
   const p1=polls, i1=issued; await morePolls(6);
@@ -510,6 +513,18 @@ if(S==='slow_detail'){
   await select('P1'); const btn=$('#detail details.need button.copy'); if(btn){$('#detail details.need').open=true; btn.click(); rowOf('P8').click()}
   await waitFor(()=>shown('P8'), iv*8, 'P8 after the copy'); await morePolls(2);
   check('setup: a copy button was clicked on P1 just before selecting P8', !!btn);
+  // (e) the live elapsed tile never jumps backwards when the detail turns stale (it used to re-anchor at the re-render with the older data)
+  await select('P1'); const tv=()=>{const e=$('.tile [data-live]');return e?parseFloat(e.getAttribute('data-live'))+(w.Date.now()-parseFloat(e.getAttribute('data-live-at')))/1000:null};
+  await morePolls(2); const v0=tv(); mode='fail'; await waitFor(()=>dst()==='stale', iv*6, 'P1 stale'); const v1=tv(); await morePolls(1); const v2=tv();
+  check('the live elapsed tile does not jump backwards when the detail turns stale', v0!==null && v1!==null && v1>=v0-0.2 && v2>=v1-0.2, {v0, v1, v2});
+  mode=null; await waitFor(()=>dst()==='ok', iv*6, 'P1 recovered');
+  // (f) a need without a reply template gets a plain data-time note while stale, never the --revision template note
+  const tplless=['P6','P7','P2','P3'].find(n=>rowOf(n)); await select(tplless); const cards0=$$('#detail details.need');
+  mode='fail'; await waitFor(()=>dst()==='stale', iv*6, tplless+' stale');
+  const plain=$$('#detail details.need').filter(n=>!n.querySelector('.cmd code'));
+  check('setup: a stale task with need cards that carry no reply template', cards0.length>0 && plain.length>0, {task:tplless, cards:cards0.length, plain:plain.length});
+  check('a card without a reply template never claims a --revision template is stale', plain.every(n=>!n.querySelector('[data-stale-template]') && !/--revision/.test(n.textContent) && n.querySelector('[data-stale-data]')), plain.map(n=>n.textContent.slice(0,200)));
+  mode=null; await waitFor(()=>dst()==='ok', iv*6, tplless+' recovered');
   w.fetch=real;
   check('no unhandled rejection or page error during the whole scenario', rejections.length===0, rejections.slice(0,5));
 }
