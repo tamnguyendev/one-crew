@@ -465,7 +465,7 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
 </main>
 <script>
 (function(){
-var INTERVAL=@@INTERVAL@@, last=null, lastOk=null, lostSince=null, selected=null, lastViewed=null, detailData=null, detailSeq=null, detailToken=0, listSig=null, selEv=null, evState={}, copied=null;
+var INTERVAL=@@INTERVAL@@, last=null, lastOk=null, lostSince=null, selected=null, lastViewed=null, detailData=null, detailSeq=null, detailToken=0, detailInflight=null, listSig=null, selEv=null, evState={}, copied=null;
 var selStep=null, gRange='all', gFold={}, staleNotes=[], knownNeeds={};
 var detailFor=null, detailError=null, detailOkAt=null;   // R4: the selection detailData was fetched for; the current failure streak {since,last,message}; when it last loaded
 var TECH=['attempt.','executor.managed','decision.recorded','execution.configured','budget.group','precondition.recorded','task.submitted','knowledge.delivered','estimate.','plan.step0_closed'];
@@ -539,7 +539,9 @@ function needTitle(n){return n.kind==='request'?'Câu hỏi: '+(n.question||'').
 function needKey(n){return n.kind==='request'?'need:'+n.id+':'+n.revision:'need:'+n.kind}
 function needCard(n,i){var ph=n.reference_placeholder,nk=needKey(n);var h='<details data-k="'+esc(nk)+'" class="need" data-need-id="'+esc(n.id||'')+'" data-need-rev="'+esc(n.revision||'')+'"><summary>'+esc(needTitle(n))+(n.options&&n.options.length?' <span class="small">('+n.options.length+' lựa chọn)</span>':'')+(n.id?' <span class="small mut">· '+esc(String(n.id).slice(0,12))+'</span>':'')+'</summary><div class="q">'+esc(n.question||n.kind)+'</div>';
   if(n.reason)h+='<div class="small">Vì: '+esc(n.reason)+'</div>';if(n.impact)h+='<div class="small">Ảnh hưởng: '+esc(n.impact)+'</div>';
-  if(detailError)h+='<div class="small stale-tpl" data-stale-template="1">Mẫu lệnh này lấy từ dữ liệu lúc '+clockMs(detailOkAt)+' (chi tiết chưa cập nhật): câu hỏi có thể đã được trả lời hoặc đổi bản; khi đó OneCrew từ chối lệnh nhờ --revision cũ.</div>';
+  var cmds=(n.options||[]).map(function(o){return o.reply_command||''}).concat([n.reply_command||'']).filter(Boolean);
+  if(detailError){if(cmds.some(function(c){return /--revision/.test(c)}))h+='<div class="small stale-tpl" data-stale-template="1">Mẫu lệnh này lấy từ dữ liệu lúc '+clockMs(detailOkAt)+' (chi tiết chưa cập nhật): câu hỏi có thể đã được trả lời hoặc đổi bản; khi đó OneCrew từ chối lệnh nhờ --revision cũ.</div>';
+    else h+='<div class="small stale-tpl" data-stale-data="1">Dữ liệu lúc '+clockMs(detailOkAt)+' (chi tiết chưa cập nhật)'+(cmds.length?': kiểm lại trạng thái trước khi chạy lệnh.':'.')+'</div>'}
   if(n.kind==='request')h+='<div class="small">Mẫu lệnh — phần <mark class="ph">'+esc(ph||'<…>')+'</mark> là lý do/bằng chứng BẠN tự điền; chưa điền thì lệnh chưa chạy được:</div>';
   (n.options||[]).forEach(function(o,j){h+='<div class="opt" data-k="opt:'+esc(nk)+':'+j+'"><b>'+esc(o.label)+'</b> <span class="small mut">('+esc(o.id)+')</span>'+(n.recommendation===o.id?' <span class="small">· khuyến nghị</span>':'')
     +'<div class="cmd"><code>'+cmdHtml(o.reply_command,ph)+'</code><button type="button" class="copy" data-copy="'+esc(o.reply_command)+'">Sao chép mẫu lệnh</button></div></div>'});
@@ -588,7 +590,7 @@ function renderDetail(d){
   function brief(t,n){t=String(t||'');return t.length>n?'<span title="'+esc(t)+'">'+esc(t.slice(0,n))+'…</span>':esc(t)}
   h.push('<div class="stats"><div class="tile"><div class="l">Trạng thái</div><div class="v">'+esc(d.status.label)+'</div><div class="s">'+brief(d.status.reason,140)+'</div></div>'
     +'<div class="tile"><div class="l">Đầu ra</div><div class="v">'+esc(d.level.label)+'</div><div class="s">'+brief(d.current_step||'',140)+'</div></div>'
-    +'<div class="tile"><div class="l">Từ khi duyệt (lịch)</div><div class="v"'+(!done&&!d.elapsed.until&&typeof d.elapsed.seconds==='number'?' data-live="'+d.elapsed.seconds+'" data-live-at="'+Date.now()+'"':'')+'>'+hms(d.elapsed.seconds)+'</div><div class="s">'+(typeof d.elapsed.seconds==='number'?'gồm cả thời gian chờ'+(d.elapsed.until?' · kết thúc '+when(d.elapsed.until):' · đang tính theo đồng hồ máy này'):'chưa duyệt: chưa có mốc bắt đầu')+'</div></div>'
+    +'<div class="tile"><div class="l">Từ khi duyệt (lịch)</div><div class="v"'+(!done&&!d.elapsed.until&&typeof d.elapsed.seconds==='number'?' data-live="'+d.elapsed.seconds+'" data-live-at="'+(detailOkAt||Date.now())+'"':'')+'>'+hms(d.elapsed.seconds)+'</div><div class="s">'+(typeof d.elapsed.seconds==='number'?'gồm cả thời gian chờ'+(d.elapsed.until?' · kết thúc '+when(d.elapsed.until):' · đang tính theo đồng hồ máy này'):'chưa duyệt: chưa có mốc bắt đầu')+'</div></div>'
     +'<div class="tile"><div class="l">Thực hiện (attempt)</div><div class="v">'+hms(d.measure.attempts_wall_seconds)+'</div><div class="s">hợp các khoảng attempt, không cộng đôi</div></div>'
     +'<div class="tile"><div class="l">Chờ</div><div class="v">'+hms(d.measure.wait_seconds)+'</div><div class="s">'+((d.waits||[]).filter(function(w){return w.open}).length?'đang có khoảng chờ mở':'khoảng chờ đã đo; thiếu nguồn = chưa xác định')+'</div></div>'
     +'<div class="tile"><div class="l">Còn lại (ước lượng)</div><div class="v">'+esc(d.eta.label)+'</div><div class="s">'+brief(d.eta.reason||'',140)+(d.eta.deadline?' · hạn '+when(d.eta.deadline):'')+'</div></div></div>');
@@ -701,14 +703,19 @@ function restore(s){if(!s)return;Object.keys(s.open).forEach(function(k){var x=d
 function paint(d,sel,why){var s=snapshot();detailData=d;detailFor={plan:sel.plan,project:sel.project};renderDetail(d);restore(s);if(why==='select')afterSelect()}
 function afterSelect(){setView();if(narrow())window.scrollTo(0,0);else{var r=$('#detailpane').getBoundingClientRect();if(r.top<0||r.top>window.innerHeight*0.8)$('#detailpane').scrollIntoView({block:'start'})}
   if(selected&&selected.focusDetail){selected.focusDetail=false;var t=$('#dtitle');if(t)t.focus({preventScroll:true})}}
-function loadDetail(why){if(!selected)return;var token=++detailToken,sel={plan:selected.plan,project:selected.project};
-  function current(){return token===detailToken&&sameSel(sel,selected)}      // a reply OR a failure of a superseded request / a task no longer selected never touches the page
+function loadDetail(why){if(!selected)return;
+  if(why==='poll'&&detailInflight&&sameSel(detailInflight.sel,selected)&&Date.now()-detailInflight.since<20000)return;   // a read slower than the poll interval is waited for: superseding it on every poll never painted
+  var token=++detailToken,sel={plan:selected.plan,project:selected.project};detailInflight={token:token,sel:sel,since:Date.now()};
+  function current(){return token===detailToken&&sameSel(sel,selected)}
+  function settle(){if(detailInflight&&detailInflight.token===token)detailInflight=null}      // a reply OR a failure of a superseded request / a task no longer selected never touches the page
   fetch('/api/task?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):'')+'&timeline=300',{cache:'no-store'})
   .then(function(r){return r.text().then(function(t){var j=null;try{j=JSON.parse(t)}catch(e){}return {ok:r.ok,status:r.status,j:j}})})
-  .then(function(x){if(!current())return;
+  .then(function(x){settle();if(!current())return;
       if(!x.ok||!x.j||typeof x.j!=='object')return detailFailed(sel,'HTTP '+x.status+(x.j&&x.j.error?': '+x.j.error:x.ok?': trả lời không đọc được':''));
-      detailLoaded(sel,x.j,why)},
-    function(){if(!current())return;detailFailed(sel,'mất kết nối khi tải chi tiết')})}
+      var prev=mine(),prevFor=detailFor,prevOk=detailOkAt,prevSeq=detailSeq;
+      try{detailLoaded(sel,x.j,why)}catch(e){if(!current())return;                 // a reply the page cannot show: the error path with what was shown before, never 'đang tải' forever
+        detailData=prev;detailFor=prev?prevFor:null;detailOkAt=prevOk;detailSeq=prevSeq;detailFailed(sel,'không hiển thị được chi tiết: '+String(e&&e.message||e).slice(0,160))}},
+    function(){settle();if(!current())return;detailFailed(sel,'mất kết nối khi tải chi tiết')})}
 function detailLoaded(sel,j,why){var had=mine(),wasErr=!!detailError,seq=j.source&&j.source.last_seq;detailError=null;detailOkAt=Date.now();
   if(had&&!wasErr&&why!=='select'&&why!=='force'&&seq===detailSeq&&had.selector===j.selector&&had.project_id===j.project_id){detailData=j;if(j.gantt&&j.gantt.axis&&(j.gantt.axis.extends_to_now||$('#gstale')))repaintGantt();dind();return}   // nothing moved in the ledger: keep what the reader is looking at; only the server clock parts of the timeline move (P2-A)
   detailSeq=seq;paint(j,sel,had?why:'select');dind()}      // recovery from a stale state re-renders once (warning and template marks go; snapshot/restore keep the reader's place)
@@ -733,9 +740,9 @@ function poll(){fetch('/api/overview',{cache:'no-store'}).then(function(r){retur
     $('#src').textContent='Sổ: '+(s.ledger||'')+' · poll '+(INTERVAL/1000)+' s · wheel '+(j.server&&j.server.version||'?');render();if(selected)loadDetail('poll');
   }).catch(function(e){if(!lostSince){lostSince=new Date();repaintGantt()}conn('bad','MẤT KẾT NỐI với server theo dõi từ '+lostSince.toLocaleTimeString()+(lastOk?' — đang hiện dữ liệu cũ lúc '+new Date(lastOk).toLocaleTimeString():' — chưa có dữ liệu')+'; worker không bị ảnh hưởng; trang tự thử lại')})
   .then(function(){setTimeout(poll,INTERVAL)})}
-function copyText(text,k){copied={k:k,text:text,ok:false};var s=snapshot(),sel0=selected;           // the reader's focus at click time, restored after the re-render
+function copyText(text,k){var c=copied={k:k,text:text,ok:false};var s=snapshot(),sel0=selected;     // c: this copy's own record (copied is reset when the selection changes)           // the reader's focus at click time, restored after the re-render
   function done(){var d=mine();if(!d||!sameSel(selected,sel0))return;renderDetail(d);restore(s)}
-  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){copied.ok=true;done()},function(){copied.ok=fallback();done()})}else{copied.ok=fallback();done()}
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){c.ok=true;done()},function(){c.ok=fallback();done()})}else{c.ok=fallback();done()}
   function fallback(){var was=document.activeElement,ta=document.createElement('textarea'),ok=false;ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.left='-1000px';document.body.appendChild(ta);ta.select();try{ok=document.execCommand('copy')===true}catch(e){ok=false}document.body.removeChild(ta);if(was&&was.focus)was.focus({preventScroll:true});return ok}}
 function openEvidence(key,btn){var d0=mine(),sel0=selected;if(!d0)return;if(evState[key]){delete evState[key];var s=snapshot();renderDetail(d0);restore(s);return}
   function show(text){var d=mine();if(!d||!sameSel(selected,sel0))return;evState[key]={text:text};var s=snapshot();renderDetail(d);restore(s)}   // a late blob of a task no longer selected is dropped
