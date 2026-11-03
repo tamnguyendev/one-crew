@@ -433,7 +433,10 @@ def _marker_now(marker):
 
 
 def _remove_marker_of(marker, lock, instance):
-    """Remove the marker only when it names `instance` — under the open lock, so a marker another `track open` writes meanwhile is never lost."""
+    """Remove the marker only when it names `instance` — under the open lock, so a marker another `track open` writes meanwhile is never lost.
+    No marker naming it: nothing is touched (not even the lock, so a stop never creates the tracking folder)."""
+    first = _read_marker(marker)
+    if first is None or first.get('instance') != instance: return False
     end = time.monotonic() + 3.0
     fd = _lock(lock)
     while fd is None and time.monotonic() < end:
@@ -453,8 +456,8 @@ def _remove_marker_of(marker, lock, instance):
 def _end(proc, url, instance, wait):
     """Terminate the held process, then wait until it has exited and `url` no longer answers as `instance`. Returns (stopped, reason)."""
     if proc is None: return False, 'không giữ được tiến trình đó để dừng'
-    if not proc.terminate():
-        return False, 'không gửi được tín hiệu dừng (tiến trình chạy với quyền khác, hoặc đã thoát)'
+    if not proc.terminate() and proc.alive():                         # a server that exited by itself meanwhile is simply over
+        return False, 'không gửi được tín hiệu dừng (tiến trình chạy với quyền khác)'
     proc.wait(wait)
     still = identity(url, timeout=0.5)
     stopped = not proc.alive() and not (still and still.get('instance') == instance)
