@@ -437,11 +437,14 @@ class ServerIdentity(Fixture):
 
     # ---- R5 round 5 (04/11, risk review of the integrated candidate): proxy, secret-looking paths -------------------------------------------
     def proxied(self):
-        """HTTP(S)_PROXY pointing at a closed local port, NO_PROXY empty: what a user behind a corporate proxy (or with pip's proxy) has."""
+        """HTTP(S)_PROXY pointing at a closed local port, NO_PROXY empty: what a user behind a corporate proxy (or with pip's proxy) has.
+        urllib.request.urlopen keeps ONE opener per process whose ProxyHandler read the proxies when it was built; a fresh `onecrew` process
+        builds it under these variables, so the cached opener is reset here (and again after the test) to make this process behave the same."""
         from unittest import mock
         dead = _closed_url().rstrip('/')
         patch = mock.patch.dict(os.environ, {'HTTP_PROXY': dead, 'HTTPS_PROXY': dead, 'ALL_PROXY': dead, 'NO_PROXY': ''})
         patch.start(); self.addCleanup(patch.stop)
+        urllib.request.install_opener(None); self.addCleanup(urllib.request.install_opener, None)
 
     def test_identity_ignores_an_http_proxy_for_loopback(self):                               # (1)
         srv = _Server(self.state); self.addCleanup(srv.stop)
@@ -602,22 +605,27 @@ class DetachedOpen(Fixture):
         self.assertEqual(_viewer_pids(self.state), [])
 
     # ---- R5 round 5 (04/11): proxy, relative paths, secret-looking paths, the lock race, an honest failure note -----------------------------
-    def test_open_and_stop_ignore_an_http_proxy_for_loopback(self):                          # (1) end to end, the server is a real child
+    def test_open_and_stop_ignore_an_http_proxy_for_loopback(self):                          # (1) end to end: fresh `onecrew track` processes, as the user runs them
         self.own_viewers()
-        from unittest import mock
         dead = _closed_url().rstrip('/')
-        with mock.patch.dict(os.environ, {'HTTP_PROXY': dead, 'HTTPS_PROXY': dead, 'ALL_PROXY': dead, 'NO_PROXY': ''}):
-            kw = dict(browser=False, project=self.root, explicit_state_root=self.state, idle_exit=60, interval=1.0)
-            first = tracking_web.open_page(self.state, **kw)
-            self.assertTrue(first.get('url'), first)
-            again = tracking_web.open_page(self.state, **kw)
-            self.assertTrue(again.get('reused'), again)
-            stopped = tracking_web.stop_page(self.state)
-            self.assertTrue(stopped['stopped'], stopped)
-            second = tracking_web.open_page(self.state, **kw)
-            self.assertTrue(second.get('url'), second)
-            by_identity = tracking_web.stop_target(self.state, second['url'], second['instance'], second['pid'], started_at=second['started_at'])
-            self.assertTrue(by_identity['stopped'], by_identity)
+        env = dict(self.env, HTTP_PROXY=dead, HTTPS_PROXY=dead, ALL_PROXY=dead, NO_PROXY='')
+        def cli(*args):
+            done = subprocess.run([sys.executable, '-X', 'utf8', '-m', 'onecrew.v2.tracking_cli', '--project', str(self.root), '--state-root', str(self.state), 'track', *args],
+                                  capture_output=True, text=True, encoding='utf-8', env=env, cwd=str(Path(__file__).resolve().parents[1]), timeout=120)
+            return done.returncode, done.stdout
+        code, out = cli('open', '--no-browser')
+        self.assertEqual(code, 0, out); first = json.loads(out)
+        code, out = cli('status')
+        self.assertEqual(code, 0, out); self.assertTrue(json.loads(out)['reusable'], out)
+        code, out = cli('open', '--no-browser')
+        self.assertEqual(code, 0, out); self.assertTrue(json.loads(out)['reused'], out)
+        code, out = cli('stop')
+        self.assertEqual(code, 0, out); self.assertTrue(json.loads(out)['stopped'], out)
+        code, out = cli('open', '--no-browser')
+        self.assertEqual(code, 0, out); second = json.loads(out)
+        self.assertNotEqual(second['instance'], first['instance'])
+        code, out = cli('stop', '--url', second['url'], '--instance', second['instance'], '--pid', str(second['pid']), '--started-at', second['started_at'])
+        self.assertEqual(code, 0, out); self.assertTrue(json.loads(out)['stopped'], out)
         self.assertEqual(_viewer_pids(self.state), [])
 
     def test_open_with_a_relative_state_root_and_project_from_their_parent_folder(self):     # (2) the child must not resolve them against TEMP
