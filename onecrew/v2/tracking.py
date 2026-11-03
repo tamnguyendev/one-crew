@@ -11,16 +11,29 @@ generation never move the current one (engine.state drops them; the timeline sho
 union (execution_mode.measure), never summed. Sessions of Claude/Codex that did not run through OneCrew have no source here and are reported as
 NOT tracked; nothing turns a chat session into a monitored task.
 
-Secrets: every string that leaves this module goes through `clean` (the S1 line redaction of diagnostics.redact_line, control characters
-dropped, length capped). Environments, prompts and transcripts are never read.
+Secrets: every display string is built with `clean` (the S1 line redaction of diagnostics.redact_line, control characters dropped, length
+capped), and on top of that ONE outbound guard, `outward`, walks everything the public functions return (overview, detail, evidence, the text
+renders; tracking_web and tracking_cli send nothing else) and applies diagnostics.redact_line to every string value and key, line by line, with
+no length cap: a string in which nothing is withheld comes out byte-identical (ids, paths, 64-hex keys, reply templates stay usable), a string
+that matches a known secret shape comes out with that part `[withheld]` (R3 of 03/11: a field projected raw, such as an observation's basis
+ref, can never carry a secret past the boundary, whichever field a later change adds). It is idempotent and memoised per short string, so the
+1-2 s poll stays cheap. The ledger itself is never changed. Environments, prompts and transcripts are never read.
+
+Scope: a project scope (`project_id`, the ledger's own identity = digest of the normcase'd resolved project path) applies to the WHOLE
+returned model — tasks, untracked v1 tasks, hook sessions AND the registry list — so a project-only view never names another project's
+path, state root or id (R2 of 03/11). Registry paths are compared with the scope, and with the projects that have a plan, by that identity,
+never by string or prefix. All-projects mode lists every registry project without a plan.
 """
 import datetime as dt
+import functools
 import json
+import os
 import re
 import sqlite3
 from pathlib import Path
 
 from ..ledger import LedgerError, utcnow
+from ..specs import digest
 from . import namespaces, plan as plans, report
 
 VERSION = 1
@@ -45,13 +58,50 @@ EVIDENCE_CAP = 65536
 # ---- text and time ------------------------------------------------------------------------------------------------------------------
 
 def clean(value, limit=LIMIT):
-    """One line of text safe to show: the secret parts withheld (diagnostics.redact_line), control characters dropped, at most `limit` chars."""
+    """One line of text safe to show: the secret parts withheld (diagnostics.redact_line), control characters dropped, at most `limit` chars
+    (None: no cap — for references and ids, which must never be cut)."""
     if value is None: return None
     from .diagnostics import redact_line
     text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
     text = ''.join(c if c.isprintable() or c == ' ' else ' ' for c in text.replace('\n', ' '))
     text, _ = redact_line(text)
+    if limit is None: return text
     return text[:limit] + ('…' if len(text) > limit else '')
+
+
+GUARD_CACHED = 2048          # strings up to this length are memoised (ids, times, kinds, labels repeat on every poll); longer ones are not kept
+
+
+def _guard_line(line):
+    from .diagnostics import redact_line
+    out, hidden = redact_line(line)
+    return out if hidden else line
+
+
+_guard_line_cached = functools.lru_cache(maxsize=65536)(_guard_line)
+
+
+def _guard(text):
+    """One outward string: each line through diagnostics.redact_line; unchanged (byte for byte) unless a known secret shape was withheld."""
+    if '\n' in text: return '\n'.join(_guard(line) for line in text.split('\n'))
+    return _guard_line_cached(text) if len(text) <= GUARD_CACHED else _guard_line(text)
+
+
+def outward(value):
+    """The outbound guard (R3): `value` (a model dict, list or string) with every string value and key passed through `_guard`, no length cap.
+    Applied at the boundary of overview / detail / evidence / the renders; idempotent, so a second pass (tracking_web, tracking_cli) changes nothing."""
+    if isinstance(value, str): return _guard(value)
+    if isinstance(value, dict): return {(_guard(k) if isinstance(k, str) else k): outward(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)): return [outward(v) for v in value]
+    return value
+
+
+def project_identity(path):
+    """The ledger's identity of a project path (Ledger.project_id = digest of the normcase'd resolved path), or None when it cannot be resolved."""
+    try:
+        return digest(os.path.normcase(str(Path(path).resolve())))
+    except (OSError, ValueError, TypeError, RuntimeError):
+        return None
 
 
 def _at(text):
@@ -131,9 +181,9 @@ def _progress_rows(events):
         if kind == 'executor.observed' and p.get('what') == 'progress' and p.get('node'):
             cp = p.get('checkpoint') or {}
             latest.setdefault(p['node'], {})[p.get('attempt')] = {
-                'seq': seq, 'attempt': p.get('attempt'), 'status': cp.get('status', UNKNOWN), 'reason': clean(cp.get('reason')),
-                'observed_at': p.get('observed_at'), 'received_at': p.get('received_at') or at, 'time_source': p.get('time_source'),
-                'kind': (p.get('observation') or {}).get('kind'), 'elapsed_seconds': (p.get('observation') or {}).get('elapsed_seconds'),
+                'seq': seq, 'attempt': p.get('attempt'), 'status': clean(cp.get('status', UNKNOWN), 40), 'reason': clean(cp.get('reason')),
+                'observed_at': p.get('observed_at'), 'received_at': p.get('received_at') or at, 'time_source': clean(p.get('time_source'), 60),
+                'kind': clean((p.get('observation') or {}).get('kind'), 60), 'elapsed_seconds': (p.get('observation') or {}).get('elapsed_seconds'),
                 'command_cap_seconds': p.get('command_cap_seconds')}
     return latest
 
@@ -162,7 +212,7 @@ def _waits(events, attempts):
             wait = p.get('wait') or {}
             key = ('executor', p.get('attempt'), (p.get('basis') or {}).get('ref'))
             if key not in rows:
-                rows[key] = {'seq': seq, 'ref': key[2], 'reason': wait.get('reason'), 'since': p.get('observed_at') or at, 'attempt': p.get('attempt'),
+                rows[key] = {'seq': seq, 'ref': clean(key[2], None), 'reason': clean(wait.get('reason'), 200), 'since': p.get('observed_at') or at, 'attempt': p.get('attempt'),
                              'node': None, 'source': 'executor.observed', 'until': None, 'end_seq': None, 'open': True}
                 order.append(key)
             if wait.get('until') and rows[key]['until'] is None:
@@ -490,7 +540,7 @@ def _timeline_spans(events, attempts, nodes, current_attempt, waits, now, node_v
         if kind == 'attempt.launched' and p.get('id'): launched[p['id']] = T(at)
         if aid and aid in by_attempt and when: last_mark[aid] = later(last_mark.get(aid), when)
         if kind in MARK_KINDS and when:
-            label = MARK_KINDS[kind] + (f": {p.get('result')}" if kind == 'node.verification' else '') + (f": {clean(p.get('reason'), 60)}" if kind == 'node.held' else '')
+            label = MARK_KINDS[kind] + (f": {clean(p.get('result'), 40)}" if kind == 'node.verification' else '') + (f": {clean(p.get('reason'), 60)}" if kind == 'node.held' else '')
             mark = {'seq': seq, 'at': iso(when), 'kind': kind, 'label': label, 'generation': p.get('generation')}
             if p.get('node') is not None: node_marks.setdefault((p['node'], p.get('generation')), []).append(mark)
             elif aid and aid in by_attempt: marks_by_attempt.setdefault(aid, []).append(mark)
@@ -499,7 +549,7 @@ def _timeline_spans(events, attempts, nodes, current_attempt, waits, now, node_v
             marks_by_attempt.setdefault(aid, []).append({'seq': seq, 'at': iso(when), 'kind': 'executor.observed', 'label': 'quan sát: blocked', 'generation': p.get('generation')})
         if kind == 'node.produced': produced_at[(p.get('node'), p.get('generation'))] = T(at)
         if kind == 'node.verification' and (p.get('node'), p.get('generation')) in produced_at and T(at):
-            verifs.setdefault((p.get('node'), p.get('generation')), []).append({'from': iso(produced_at[(p.get('node'), p.get('generation'))]), 'to': iso(T(at)), 'result': p.get('result')})
+            verifs.setdefault((p.get('node'), p.get('generation')), []).append({'from': iso(produced_at[(p.get('node'), p.get('generation'))]), 'to': iso(T(at)), 'result': clean(p.get('result'), 40)})
     waits_by_attempt = {}
     for w in waits:
         if w['source'] == 'executor.observed' and w.get('attempt') and T(w['since']):
@@ -603,7 +653,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     if engine_view is not None:
         for nid, r in engine_view['nodes'].items():
             nodes[nid] = {'generation': r.get('generation'), 'phase': r.get('phase'), 'state': r.get('state') or 'none', 'attempt': r.get('attempt'), 'child': r.get('child'),
-                          'reason': clean(r.get('reason'), 200), 'classification': r.get('classification'),
+                          'reason': clean(r.get('reason'), 200), 'classification': clean(r.get('classification'), 100),
                           'receipt': r.get('receipt'), 'verification_receipt': r.get('verification_receipt'), 'verification_result': r.get('verification_result'),
                           'continues': r.get('continues'), 'resume_artifact': r.get('resume_artifact'), 'retained_candidate': r.get('retained_candidate'),
                           'progress': progress.get(nid)}
@@ -639,7 +689,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     item['requests'] = [{'id': r['id'], 'revision': r['revision'], 'state': r['state'], 'created_at': r['created_at'], 'updated_at': r['updated_at'],
                          'question': clean((r['question'] or {}).get('question'), 300)} for r in requests]
     item['waits'] = [dict(w, reason=clean(w.get('reason'), 200)) for w in waits]
-    item['notices'] = [{'seq': seq, 'at': at, 'category': p.get('category'), 'reason': clean(p.get('reason'), 300), 'user_action': clean(p.get('user_action'), 200),
+    item['notices'] = [{'seq': seq, 'at': at, 'category': clean(p.get('category'), 100), 'reason': clean(p.get('reason'), 300), 'user_action': clean(p.get('user_action'), 200),
                         'evidence': [clean(e, 120) for e in (p.get('evidence') or [])[:6]]} for seq, kind, p, at in events if kind == 'notice.exception']
     item['progress'] = progress
     current = {nid: r['generation'] for nid, r in nodes.items()}
@@ -678,8 +728,9 @@ def _measure(rd, selector):
                 'rework': m.get('rework'), 'method': m.get('method'),
                 'attempts': [{k: a.get(k) for k in ('attempt', 'node', 'generation', 'mode', 'execution_seconds', 'span_seconds', 'reserved_at', 'settled_at')} for a in m.get('attempts', [])],
                 'waits': [dict(w, reasons=clean(w.get('reasons'), 200)) for w in m.get('waits', [])],
-                'executor_waits': [{k: w.get(k) for k in ('at', 'until', 'reason', 'ref', 'time_source')} for w in m.get('executor_waits', [])],
-                'verification': m.get('verification')}
+                'executor_waits': [{'at': w.get('at'), 'until': w.get('until'), 'reason': clean(w.get('reason'), 200), 'ref': clean(w.get('ref'), None),
+                                    'time_source': clean(w.get('time_source'), 60)} for w in m.get('executor_waits', [])],
+                'verification': [dict(v, result=clean(v.get('result'), 40)) if isinstance(v, dict) else clean(v) for v in (m.get('verification') or [])]}
     except (LedgerError, OSError, ValueError, KeyError, TypeError) as error:
         return {'error': clean(str(error), 200), 'attempts_wall_seconds': UNKNOWN, 'wait_seconds': UNKNOWN}
 
@@ -705,7 +756,7 @@ def _eta(rd, selector, now):
 def _holds(rd, selector, conn):
     try:
         from . import managed_executor
-        return [{'node': h['node'], 'attempt': h['attempt'], 'findings': h['findings'], 'text': clean(h.get('text'), 300), 'requested': h.get('requested'), 'confirmed': h.get('confirmed')}
+        return [{'node': h['node'], 'attempt': h['attempt'], 'findings': [clean(f, None) for f in h['findings'] or []], 'text': clean(h.get('text'), 300), 'requested': h.get('requested'), 'confirmed': h.get('confirmed')}
                 for h in managed_executor.hold_views(rd, selector, conn)]
     except (LedgerError, OSError, ValueError, KeyError) as error:
         return [{'error': clean(str(error), 200)}]
@@ -713,7 +764,10 @@ def _holds(rd, selector, conn):
 
 # ---- what is NOT tracked ----------------------------------------------------------------------------------------------------------------
 
-def _untracked(conn, rows, state_root, projects_seen, children=frozenset()):
+def _untracked(conn, rows, state_root, projects_seen, children=frozenset(), *, project_id=None, seen_ids=frozenset()):
+    """What is not tracked, inside the scope: the other tasks of the scoped rows, the hook sessions of the projects seen, and the registry
+    projects without a plan in this ledger. Under a project scope the registry contributes only the scoped project's own entry (R2); a
+    registry path is matched by the ledger identity (project_identity), so another spelling of a project that has a plan is not listed."""
     v1 = []
     for row in rows:
         if row['request_key'].startswith((namespaces.LEGACY, namespaces.NAMESPACED)) or row['id'] in children: continue
@@ -727,9 +781,11 @@ def _untracked(conn, rows, state_root, projects_seen, children=frozenset()):
         from . import where
         path = where.registry_file()
         for project, root in where._read_registry(path).items():
-            if project.casefold() not in projects_seen:
-                registry.append({'project': project, 'state_root': root, 'same_state_root': Path(root).resolve() == Path(state_root).resolve() if root else False,
-                                 'note': 'project đã init (registry hook) nhưng không có plan trong sổ này: ' + NOT_TRACKED})
+            identity = project_identity(project)
+            if project_id and identity != project_id: continue             # R2: another project's path / state root never enters a scoped model
+            if identity in seen_ids or project.casefold() in projects_seen: continue
+            registry.append({'project': project, 'state_root': root, 'same_state_root': Path(root).resolve() == Path(state_root).resolve() if root else False,
+                             'note': 'project đã init (registry hook) nhưng không có plan trong sổ này: ' + NOT_TRACKED})
         registry_note = str(path)
     except (OSError, ValueError, TypeError):
         registry_note = 'registry hook không đọc được'
@@ -749,7 +805,12 @@ def _untracked(conn, rows, state_root, projects_seen, children=frozenset()):
 # ---- public -------------------------------------------------------------------------------------------------------------------------
 
 def overview(state_root, *, project_id=None, now=None):
-    """The list: every plan root of the state root (or of one project), grouped by project, with its sourced status; plus what is not tracked."""
+    """The list: every plan root of the state root (or of one project), grouped by project, with its sourced status; plus what is not tracked.
+    A project scope covers the whole model (untracked registry included); everything returned passed the outbound guard."""
+    return outward(_overview(state_root, project_id=project_id, now=now))
+
+
+def _overview(state_root, *, project_id=None, now=None):
     now = _now(now)
     reader, source = _source(state_root)
     result = {'kind': 'onecrew-tracking-overview', 'version': VERSION, 'generated_at': _iso(now), 'state_root': str(Path(state_root).resolve()),
@@ -780,7 +841,8 @@ def overview(state_root, *, project_id=None, now=None):
                 projects.setdefault(row['project_path'], []).append(item)
             result['projects'] = [{'path': path, 'tasks': items} for path, items in projects.items()]
             result['tasks_total'] = sum(len(p['tasks']) for p in result['projects'])
-            result['untracked'] = _untracked(conn, rows, reader.state_root, {p.casefold() for p in projects}, children)
+            seen_ids = {item.get('project_id') for items in projects.values() for item in items}
+            result['untracked'] = _untracked(conn, rows, reader.state_root, {p.casefold() for p in projects}, children, project_id=project_id, seen_ids=seen_ids)
             try:
                 source['ledger_mtime'] = dt.datetime.fromtimestamp(reader.path.stat().st_mtime, dt.timezone.utc).isoformat()
             except OSError:
@@ -804,7 +866,12 @@ def _find(conn, reader, selector, project_id):
 
 
 def detail(state_root, selector, *, project_id=None, now=None, timeline_limit=200):
-    """One root in full: nodes, attempts, requests, waits, notices, measured spans (union), ETA or unknown, holds, timeline, evidence keys."""
+    """One root in full: nodes, attempts, requests, waits, notices, measured spans (union), ETA or unknown, holds, timeline, evidence keys.
+    Everything returned passed the outbound guard."""
+    return outward(_detail(state_root, selector, project_id=project_id, now=now, timeline_limit=timeline_limit))
+
+
+def _detail(state_root, selector, *, project_id=None, now=None, timeline_limit=200):
     now = _now(now)
     reader, source = _source(state_root)
     if source['status'] != 'ok': raise LedgerError(source['detail'])
@@ -833,7 +900,7 @@ def evidence(state_root, selector, key, *, project_id=None):
     except (ValueError, UnicodeDecodeError):
         pass
     clean_text, redaction = redact(text)
-    return {'key': key, 'bytes': len(data), 'truncated': truncated, 'text': clean_text, 'redaction': redaction, 'read_only': True}
+    return outward({'key': key, 'bytes': len(data), 'truncated': truncated, 'text': clean_text, 'redaction': redaction, 'read_only': True})
 
 
 # ---- plain text (the `track list` / `track show` lines) -----------------------------------------------------------------------------
@@ -863,7 +930,7 @@ def render_overview(value):
     for r in u['registry_projects_without_plan'][:10]: lines.append(f"  - {r['project']}: {r['note']}")
     for s in u['hook_sessions'][:10]: lines.append(f"  - phiên hook {s['session']} @ {s['project']}: {s['note']}")
     lines.append('Điều khiển: ' + value['controls'])
-    return '\n'.join(lines) + '\n'
+    return _guard('\n'.join(lines) + '\n')
 
 
 def render_detail(value):
@@ -900,4 +967,4 @@ def render_detail(value):
         when = e['at'] + (f" (quan sát {e['observed_at']})" if e.get('observed_at') and e['observed_at'] != e['at'] else '')
         lines.append(f"  #{e['seq']} {when} {e['kind']}: {e['summary']}" + ('  [thế hệ cũ]' if e['stale_generation'] else '  [attempt cũ]' if e.get('stale_attempt') else ''))
     lines.append(f"Bằng chứng mở được: {len(t['evidence_keys'])} blob · Điều khiển: {t['controls']}")
-    return '\n'.join(lines) + '\n'
+    return _guard('\n'.join(lines) + '\n')

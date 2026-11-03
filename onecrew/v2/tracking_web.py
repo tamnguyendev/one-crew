@@ -89,7 +89,8 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
             pass
 
         def _send(self, status, body, content_type='application/json; charset=utf-8'):
-            data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False, default=str).encode('utf-8')
+            # R3: every JSON body (model, health, error) passes the outbound guard; the model was already guarded, so that part is a no-op
+            data = body if isinstance(body, bytes) else json.dumps(tracking.outward(body), ensure_ascii=False, default=str).encode('utf-8')
             self.send_response(status)
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(data)))

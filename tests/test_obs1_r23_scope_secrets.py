@@ -90,7 +90,7 @@ class R2ScopeCoversEverything(Fixture):
         plans.propose(self.ledger_b, 'P2', plan_json(title='PROJECT B PRIVATE GOAL'), 'claude')
         self.other_project, self.other_ledger = base / 'OTHER-PRIVATE-PROJECT', base / 'OTHER-PRIVATE-LEDGER'
         self.sibling = Path(str(self.root) + '-sibling-private')
-        self.c_path = base / 'projectC-registered-no-plan'
+        self.c_path = base / 'registered-C-no-plan'
         self.c_id = Ledger(git_project(self.c_path), self.ledger.state_root).project_id
         self.a_spelled = str(base / 'zz' / '..' / 'project')                  # not the ledger's string, the same project
         os.environ['LOCALAPPDATA'] = str(base / 'lad')
@@ -104,7 +104,7 @@ class R2ScopeCoversEverything(Fixture):
     def outside_a(self):
         """Everything that belongs to another project than A: paths, state roots, ids (full and the 12-char prefix the messages use), titles."""
         return [self.ledger_b.project_path, self.b, self.b[:12], 'PROJECT B PRIVATE', str(self.other_project), str(self.other_ledger), 'OTHER-PRIVATE',
-                str(self.sibling), 'sibling-private', str(self.c_path), self.c_id, self.c_id[:12], 'projectC-registered']
+                str(self.sibling), 'sibling-private', str(self.c_path), self.c_id, self.c_id[:12], 'registered-C-no-plan']
 
     def registry_list(self, value):
         return sorted(os.path.normcase(r['project']) for r in value['untracked']['registry_projects_without_plan'])
@@ -266,9 +266,9 @@ class R3Sweep(R3Fixture):
                                    source='tool_call', ref=text[:200])                                                         # progress basis ref
         joined = ' | '.join(text for text, _ in SHAPES.values())
         # raw ledger events in free-text fields the model projects (the ledger may hold text written by any version or writer)
-        self.emit('executor.observed', {'plan': 'P1', 'attempt': attempt, 'what': 'wait', 'observed_at': '2026-11-03T11:00:00+00:00', 'time_source': 'tool_call',
+        self.emit('executor.observed', {**Managed.declaration.view(), 'received_at': '2026-11-03T11:05:00+00:00', 'plan': 'P1', 'attempt': attempt, 'what': 'wait', 'observed_at': '2026-11-03T11:00:00+00:00', 'time_source': 'tool_call',
                                         'basis': {'type': 'tool_call', 'ref': 'wait-raw-1'}, 'wait': {'reason': 'reason ' + joined, 'until': '2026-11-03T11:00:05+00:00'}})
-        self.emit('executor.observed', {'plan': 'P1', 'attempt': attempt, 'what': 'progress', 'node': 'A', 'generation': 0, 'observed_at': '2026-11-03T11:01:00+00:00',
+        self.emit('executor.observed', {**Managed.declaration.view(), 'received_at': '2026-11-03T11:05:00+00:00', 'plan': 'P1', 'attempt': attempt, 'what': 'progress', 'node': 'A', 'generation': 0, 'observed_at': '2026-11-03T11:01:00+00:00',
                                         'time_source': 'tool_call', 'basis': {'type': 'tool_call', 'ref': 'basis ' + joined},
                                         'observation': {'kind': 'kind ' + SHAPES['password'][0]},
                                         'checkpoint': {'status': 'progressing', 'reason': 'progress ' + joined}})
@@ -302,7 +302,7 @@ class R3Sweep(R3Fixture):
             outputs['http error ' + path] = get(base_url + path)[1]
         self.assertNoSecret(outputs)
         d = json.loads(outputs['detail.json'])
-        self.assertTrue(d['waits'] and d['measure']['executor_waits'] and d['notices'] and d['requests'] and d['needs_user'], 'the sweep reached the projected fields')
+        self.assertTrue(d['waits'] and d['measure'].get('executor_waits') and d['notices'] and d['requests'] and d['needs_user'], 'the sweep reached the projected fields: ' + json.dumps(d['measure'], ensure_ascii=False)[:600])
 
 
 class R3NormalValuesStay(R3Fixture):

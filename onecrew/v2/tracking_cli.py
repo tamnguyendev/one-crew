@@ -89,9 +89,9 @@ def main(argv=None):
         print(json.dumps(result, ensure_ascii=False, indent=1))
         return 0 if result.get('url') else 2
     except PermissionError as error:
-        print(json.dumps({'error': str(error), 'type': 'refused'}, ensure_ascii=False)); return 3
+        print(json.dumps(tracking.outward({'error': str(error), 'type': 'refused'}), ensure_ascii=False)); return 3
     except (LedgerError, OSError, ValueError) as error:
-        print(json.dumps({'error': str(error), 'type': type(error).__name__}, ensure_ascii=False)); return 2
+        print(json.dumps(tracking.outward({'error': str(error), 'type': type(error).__name__}), ensure_ascii=False)); return 2
 
 
 if __name__ == '__main__':
