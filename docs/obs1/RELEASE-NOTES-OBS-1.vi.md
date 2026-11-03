@@ -1,5 +1,7 @@
 # Ghi chú — OneCrew `2.4.0.dev12` (OBS-1 beta: các bản sửa R1–R5 theo review phát hành độc lập của Codex trên dev11; chưa nghiệm thu)
 
+**Phát hành:** ĐÃ PHÁT HÀNH beta 04/11/2026 03:30 — tag `v2.4.0.dev12` (annotated `838b780`) → snapshot `4cdb384`; nhánh `claude/onecrew-obs1` trên origin = `148873c` (trước đó `6050b89`; push không force), sau đó là commit hồ sơ này; tag `v2.4.0.dev6`/`dev7`/`dev8` và nhánh `claude/onecrew-2.4` không đổi (xác minh bằng `git ls-remote` sau khi push: `D:\OneCrewRuns\obs1\release-dev12\release-verify.json`). Chưa nghiệm thu; không phải stable; không nâng runtime nào; Codex chưa review lại dev12.
+
 Snapshot, wheel và SHA256 của gói này: `manifest.json` cạnh file này (và dòng đầu `BAT-DAU-THU.vi.md`). Ghi chú này chỉ đúng cho đúng snapshot/wheel đó.
 
 ## Có gì
