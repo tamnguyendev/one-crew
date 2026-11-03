@@ -111,7 +111,7 @@ class EndpointTests(WebFixture):
     def test_a_refused_method_with_a_body_always_reads_a_clean_405(self):
         """Integration regression 04/11: a 405 sent before the request body was read made Windows reset the connection (WinError 10053
         on the client). Each refused request with a large body must still read a complete 405 answer."""
-        body = b'x' * (768 * 1024)
+        body = b'x' * (4 * 1024 * 1024)
         for i, method in enumerate(('POST', 'PUT', 'DELETE', 'PATCH') * 2):
             status, text, _ = self.get('/api/overview', method=method, data=body)
             self.assertEqual(status, 405, (i, method)); self.assertIn('read-only', text)

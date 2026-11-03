@@ -490,8 +490,8 @@ if(S==='slow_detail'){
     if(mode==='slow')return p.then(r=>new Promise(res=>w.setTimeout(()=>res(r),slow)));                    // the reply arrives 2.5 poll intervals later
     if(mode==='bad'&&u.indexOf(encodeURIComponent(P8))>=0)return p.then(()=>new w.Response('{}',{status:200,headers:{'Content-Type':'application/json'}}));   // a 200 the page cannot render
     if(mode==='fail')return p.then(()=>Promise.reject(new w.TypeError('Failed to fetch')));                // a network failure of every detail read
-    if(mode==='partial'&&u.indexOf(encodeURIComponent(st().selected.plan))>=0)return p.then(r=>r.json()).then(j=>{j.source=Object.assign({},j.source,{last_seq:(j.source&&j.source.last_seq||0)+1000});j.needs_user=[];j.gantt={rows:null,plan_marks:null,axis:{}};
-      return new w.Response(JSON.stringify(j),{status:200,headers:{'Content-Type':'application/json'}})});   // a newer reply without the open question whose Gantt cannot be drawn
+    if(mode==='partial'&&u.indexOf(encodeURIComponent(st().selected.plan))>=0)return p.then(r=>r.json()).then(j=>{j.source=Object.assign({},j.source,{last_seq:(j.source&&j.source.last_seq||0)+1000});j.needs_user=[];delete j.elapsed;
+      return new w.Response(JSON.stringify(j),{status:200,headers:{'Content-Type':'application/json'}})});   // a newer reply without the open question whose tiles cannot be drawn (no elapsed)
     return p};
   await select('P1');
   // (a) every detail read takes 2.5 poll intervals: the selected task must still appear (pre-fix: each poll superseded the read in flight)
