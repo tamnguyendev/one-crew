@@ -1,8 +1,10 @@
-"""`onecrew track list|show|serve|open` — the OBS-1 read-only tracking view (onecrew/v2/tracking.py) as text, JSON or a local web page.
+"""`onecrew track list|show|evidence|serve|open|status|stop` — the OBS-1 read-only tracking view (onecrew/v2/tracking.py) as text, JSON or a local web page.
 
 `list` and `show --json` print exactly the JSON the web page reads (one state model, no second source). `serve` runs the page on 127.0.0.1
-in this process (Ctrl+C closes the VIEWER, never a worker); `open` starts that server detached and opens the page in the default browser.
-Every command reads the ledger read-only; none approves, answers, pauses or resumes anything.
+in this process (Ctrl+C closes the VIEWER, never a worker); `open` starts that server detached and opens the page in the default browser —
+or reuses the one already running for this state root when its identity (instance, wheel version, state root, scope) matches; `status` shows
+that identity check; `stop` stops only the matching server (never another process). Every command reads the ledger read-only; none approves,
+answers, pauses or resumes anything — `stop` ends the page's server, not a task.
 """
 import argparse
 import json
@@ -36,6 +38,10 @@ def _parser():
         if verb == 'serve':
             a.add_argument('--announce', help=argparse.SUPPRESS)
             a.add_argument('--idle-exit', type=float, default=None, help='Tự thoát sau N giây không có request (mặc định: không; `track open` đặt 1800).')
+        else:
+            a.add_argument('--no-browser', action='store_true', help='Khởi động/dùng lại server và in URL, không mở trình duyệt.')
+    sub.add_parser('status', help='Server theo dõi của sổ này (marker + /api/health): có dùng lại được không, vì sao không.')
+    sub.add_parser('stop', help='Dừng server theo dõi mà `track open` đã mở cho sổ này (chỉ tiến trình khớp định danh; không dừng task).')
     return p
 
 
@@ -67,6 +73,11 @@ def main(argv=None):
             print(value['text'])
             return 0
         from . import tracking_web
+        if opts.command == 'status':
+            print(json.dumps(tracking_web.status_page(state_root), ensure_ascii=False, indent=1)); return 0
+        if opts.command == 'stop':
+            result = tracking_web.stop_page(state_root)
+            print(json.dumps(result, ensure_ascii=False, indent=1)); return 0 if result.get('stopped') else 2
         if not 0.5 <= opts.interval <= 60: raise LedgerError('--interval: 0.5-60 giây.')
         scope = project_id if opts.project_only else None
         if opts.command == 'serve':
@@ -74,7 +85,7 @@ def main(argv=None):
             idle = opts.idle_exit if opts.idle_exit is not None else (float(os.environ['ONECREW_TRACK_IDLE_EXIT']) if os.environ.get('ONECREW_TRACK_IDLE_EXIT') else None)
             return tracking_web.serve(state_root, host=opts.host, port=opts.port, project_id=scope, interval=opts.interval, announce=opts.announce, idle_exit=idle)
         result = tracking_web.open_page(state_root, host=opts.host, port=opts.port, project_id=scope, interval=opts.interval,
-                                        project=opts.project.resolve(), explicit_state_root=opts.state_root)
+                                        project=opts.project.resolve(), explicit_state_root=opts.state_root, browser=not opts.no_browser)
         print(json.dumps(result, ensure_ascii=False, indent=1))
         return 0 if result.get('url') else 2
     except PermissionError as error:

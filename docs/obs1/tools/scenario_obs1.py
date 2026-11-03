@@ -15,6 +15,10 @@ Cases:
             OBS1_P2_HOLD seconds twice: first with only the old observation, then with one of the current attempt); P5 with a wait that was
             closed on a settled attempt (P2-03); a second project B in the same ledger with a private plan PB and evidence blob (P2-04).
             Prints one JSON line per phase (p4-window, p4-current, done); the verifier reads the server/CLI during the windows.
+  ux        (after `p2`) the states the page must tell apart that the earlier cases do not leave behind: P6 every node verified (waiting for
+            acceptance) and P7 accepted, through engine.step + engine.verify with the real CandidateChecker; then P4 is re-opened: a second
+            attempt kept running by an in-process worker and blocked by an observation of THAT attempt (a late observation of the first attempt
+            is in the timeline). Prints `ready` and holds P4 running until stdin is closed or OBS1_UX_HOLD seconds pass; then prints `done`.
 """
 import json
 import os
@@ -188,6 +192,63 @@ def main():
         worker.release.set(); thread.join(120)
         out['p4'] = {'old': old, 'new': new, 'final': tracking.detail(state, 'P4')['status']}
         print(json.dumps(dict(out, phase='done'), ensure_ascii=True, default=str), flush=True)
+        return 0
+    if case == 'ux':
+        import threading
+        from onecrew.common_verification import CandidateChecker
+        from onecrew.snapshots import Snapshots
+        from onecrew.control_core import Control, migrate
+        from onecrew.v2 import engine, executors, internal_plan, plan, progress_track
+        store, caps = Snapshots(state), ['namespaced-storage', 'root-budget', 'internal-plan', 'sequential-engine']
+        migrate(ledger); control = Control(ledger)
+        hold = float(os.environ.get('OBS1_UX_HOLD', '120'))
+
+        class Managed(executors.Executor):
+            declaration = executors.Declaration('fixture-managed', 'managed', ('measure',), ('time',))
+
+        def quick(ledger_, control, task, item, attempt):
+            control.launched(attempt['id'], attempt['generation'], {'fixture': True})
+            artifact, receipt = store.blob(('artifact-' + item['id']).encode()), store.blob(b'{"kind":"fixture-receipt","note":"api_key=sk-fixture-secret"}')
+            control.finish(attempt['id'], attempt['generation'], {'fixture': True, 'artifact': artifact})
+            return {'artifact': artifact, 'receipt': receipt}
+
+        class Blocking:
+            def __init__(self): self.started, self.release = threading.Event(), threading.Event()
+            def __call__(self, ledger_, control, task, item, attempt):
+                control.launched(attempt['id'], attempt['generation'], {'fixture': True}); self.started.set(); self.release.wait(hold + 60)
+                return quick(ledger_, control, task, item, attempt)
+
+        def make_root(name, title):
+            plan.propose(ledger, name, contract(title), 'codex', workflow=True, capabilities=caps)
+            plan.approve(ledger, name, 'owner', 'temporary fixture only (not a real ledger)')
+            internal_plan.revise(ledger, name, [node('C'), node('I', ['C'], write=(), integration=True)], reason='OBS-1 UX data', evidence=['a.txt:1'])
+            with ledger.transaction() as conn:
+                return plan.anchor_events(ledger, conn, name)['task_id']
+        out = {}
+        for name, title in (('P6', 'OBS-1 UX: moi phan viec da kiem, cho nghiem thu'), ('P7', 'OBS-1 UX: plan da duoc nghiem thu')):
+            task = make_root(name, title)
+            engine.step(ledger, name, quick, control=control); engine.verify(ledger, name, 'C', CandidateChecker(ledger, name))
+            engine.step(ledger, name, quick, control=control); engine.verify(ledger, name, 'I', CandidateChecker(ledger, name))
+            if name == 'P7':
+                with ledger.transaction(write=True) as conn:
+                    plan.emit(ledger, conn, task, 'plan.accepted', {'plan': name, 'revision': 1, 'by': 'owner', 'artifact_sha': 'x'})
+            out[name] = tracking.detail(state, name)['status']
+        # P4 again: a new generation, a second attempt that stays running and is blocked by its own observation; the first attempt's late observation
+        with ledger.transaction(write=True) as conn:
+            view = engine.state(ledger, 'P4', conn); engine._event(ledger, conn, view, 'C', 'node.resumed')
+        old = tracking.detail(state, 'P4')['nodes']['C']['attempt'] or ''
+        worker = Blocking(); thread = threading.Thread(target=engine.step, args=(ledger, 'P4', worker), kwargs={'control': control}, daemon=True); thread.start()
+        if not worker.started.wait(60): raise SystemExit('P4: the attempt did not start')
+        new = tracking.detail(state, 'P4')['nodes']['C']['attempt']
+        progress_track.observe(ledger, 'P4', 'C', Managed(), new, 'ux-current-command', {'kind': 'command', 'elapsed_seconds': 60}, source='tool_call', ref='ux-current-receipt', command_cap_seconds=60)
+        out['p4'] = {'old': old, 'new': new, 'status': tracking.detail(state, 'P4')['status']}
+        print(json.dumps(dict(out, phase='ready'), ensure_ascii=True, default=str), flush=True)
+        t0 = time.time()
+        while time.time() - t0 < hold:
+            line = sys.stdin.readline() if not sys.stdin.closed else ''
+            if not line: break
+        worker.release.set(); thread.join(120)
+        print(json.dumps({'phase': 'done', 'final': tracking.detail(state, 'P4')['status']}, ensure_ascii=True), flush=True)
         return 0
     raise SystemExit('unknown case ' + case)
 

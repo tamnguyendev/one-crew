@@ -23,6 +23,14 @@ Steps (every one from the installed venv, python -I, cwd = <work>, isolated LOCA
                     is `partial` (the page was not seen rendered on this machine)
   V12 isolation     the ledger's last event seq is the same after every read of V5-V7 viewers/CLIs (the viewer wrote nothing); the REAL registry
                     (%LOCALAPPDATA%\\OneCrew\\hook-projects.json of the caller) has the same hash before and after; the package tree is unchanged
+  V13 p2-findings   the four Codex P2 counterexamples of 03/11 through the installed CLI and server (scenario `p2`)
+  V14 ux            (03/11 UX round) the page driven in a headless browser by the same-origin harness (verify/obs1_ux_harness.py) over the states of
+                    scenario `ux` (P6 verified, P7 accepted, P4 running+blocked with a stale attempt) plus P1..P5/PB: UX-01..08, race and disconnect
+                    scenarios at 1280x720, 640x720 and 390x844 with real clicks, keyboard, >=3 polls, a ledger write while reading, reload and back;
+                    screenshots to <work>/evidence/ux-*.png. No browser -> skipped (partial)
+  V15 open-identity `track open` from the installed wheel: a second open reuses the same instance; a marker whose instance does not match the server
+                    answering on its port is NOT reused (a new server starts, the other one is not killed); two concurrent opens share one server;
+                    `track stop` stops only the matching server and removes the marker; a second stop refuses
 Writes <work>/verify-report.json; prints RESULT pass|partial|fail. Exit 0 only on pass.
 """
 import hashlib
@@ -30,6 +38,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -126,6 +135,13 @@ def screenshot(exe, url, profile, path, budget=4000):
 def badge(dom):
     found = re.search(r'id="conn" class="([a-z]*)">([^<]*)<', dom)
     return (found.group(1), found.group(2)) if found else (None, None)
+
+
+def load_harness():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('obs1_ux_harness', Path(__file__).with_name('obs1_ux_harness.py'))
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    return module
 
 
 def start_server(exe, project, state, env, work, port=0, project_only=False):
@@ -456,6 +472,118 @@ def main(pkg, work):
         finally:
             stop_server(process)
     if not step('V13-p2-findings', not problems, problems=problems, **facts): return finish()
+    # V14 (03/11 UX round): the page driven in a real headless browser by the same-origin harness, over the full UX data set
+    profile = work / 'browser profile'
+    browser = find_browser(profile)
+    evidence_dir = work / 'evidence'; evidence_dir.mkdir(exist_ok=True)
+    ux_env = dict(env, OBS1_UX_HOLD='900')
+    scen = subprocess.Popen([str(py), '-I', str(scenario), str(work), 'ux'], env=ux_env, cwd=str(work), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
+    ready, problems, facts = None, [], {}
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 300:
+        line = scen.stdout.readline()
+        if not line: break
+        value = first_json(line)
+        if value and value.get('phase') == 'ready': ready = value; break
+    if not ready: problems.append('ux scenario did not get ready: ' + (scen.stderr.read()[-400:] if scen.poll() is not None else 'no ready line'))
+    else:
+        facts['states'] = {'P6': ready['P6'], 'P7': ready['P7'], 'P4': ready['p4']['status']}
+        if ready['P6'].get('outcome') != 'verified' or ready['P7'].get('outcome') != 'accepted' or ready['p4']['status'].get('kind') != 'blocked':
+            problems.append(f"ux data set is not in the expected states: {facts['states']}")
+    if not browser:
+        step('V14-ux', None if not problems else False, problems=problems, note='no headless Chrome/Edge executes a page script on this machine: the interactions were NOT checked here', **facts)
+    elif not problems:
+        ux = load_harness()
+        process, record = start_server(exe, project, state, env, work)
+        writes = []
+        def on_signal(name):
+            if name == 'write':
+                done = run([py, '-I', scenario, work, 'request'], env=env, cwd=work, text=True, encoding='utf-8', errors='replace', timeout=120)
+                writes.append((first_json(done.stdout) or {}).get('request')); return writes[-1]
+            return None
+        proxy = ux.Proxy(record['url'], on_signal=on_signal)
+        results = {}
+        try:
+            scenarios = [('ux01', 'desktop'), ('ux02', 'desktop'), ('ux03', 'desktop'), ('ux04', 'desktop'), ('ux05', 'desktop'), ('ux06', 'desktop'), ('ux07', 'desktop'),
+                         ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop')]
+            for name, size in scenarios:
+                width, height = ux.SIZES[size]
+                result = ux.run(browser, proxy.url, name, width, height, profile, budget=45000 if name in ('ux01', 'disc') else 30000)
+                results[f'{name}@{size}'] = {'ok': result.get('ok'), 'polls': result.get('polls'), 'checks': result.get('checks'), 'notes': result.get('notes'), 'error': result.get('error'),
+                                             'scrollWidth': result.get('scrollWidth'), 'innerWidth': result.get('innerWidth')}
+                if not result.get('ok'): problems.append(f'{name}@{size}: ' + str(result.get('error') or result.get('notes'))[:300])
+            if len(writes) != 2 or not all(writes): problems.append(f'the ledger writes during ux01 did not happen: {writes}')
+            shots = {}
+            for name, scen_name, size, extra in (('overview-desktop', 'shot-list', 'desktop', ''), ('detail-P4-desktop', 'shot-detail', 'desktop', '&plan=P4'), ('detail-P1-desktop', 'shot-detail', 'desktop', '&plan=P1'),
+                                                 ('detail-P1-split', 'shot-detail', 'split', '&plan=P1'), ('overview-mobile', 'shot-list', 'mobile', ''), ('detail-P4-mobile', 'shot-detail', 'mobile', '&plan=P4')):
+                width, height = ux.SIZES[size]
+                shots[name] = ux.screenshot(browser, proxy.url, scen_name, width, height, profile, evidence_dir / f'ux-{name}.png', extra=extra)
+            if not all(shots.values()): problems.append(f'screenshots missing: {shots}')
+            facts['screenshots'] = {k: str(evidence_dir / f'ux-{k}.png') for k, v in shots.items() if v}
+        finally:
+            proxy.stop(); stop_server(process)
+        (work / 'ux-results.json').write_text(json.dumps(results, ensure_ascii=False, indent=1), encoding='utf-8')
+        facts['results'] = str(work / 'ux-results.json'); facts['scenarios'] = {k: v['ok'] for k, v in results.items()}
+        step('V14-ux', not problems, problems=problems, browser=browser, **facts)
+    else:
+        step('V14-ux', False, problems=problems, **facts)
+    try:
+        scen.stdin.close()
+    except OSError: pass
+    try:
+        scen.wait(180)
+    except subprocess.TimeoutExpired:
+        scen.kill()
+    if steps[-1]['result'] == 'fail': return finish()
+    # V15: `track open` identity from the installed wheel (the daily open scripts go through this path)
+    problems, facts = [], {}
+    marker = Path(state) / 'tracking' / 'server.json'
+    pids = []
+    def opened(*extra):
+        done = cli('track', 'open', '--no-browser', '--interval', '1', *extra)
+        value = first_json(done.stdout) or {}
+        if value.get('pid'): pids.append(value['pid'])
+        return done.returncode, value
+    try:
+        code, first = opened()
+        if code != 0 or not first.get('url') or first.get('reused') or not first.get('instance'): problems.append(f'first open: {code} {first}')
+        code, again = opened()
+        if code != 0 or not again.get('reused') or again.get('instance') != first.get('instance') or again.get('url') != first.get('url'): problems.append(f'second open did not reuse: {again}')
+        status = first_json(cli('track', 'status').stdout) or {}
+        if not status.get('reusable') or (status.get('health') or {}).get('version') != manifest['version']: problems.append(f'status: {status}')
+        facts['first'] = {k: first.get(k) for k in ('url', 'pid', 'instance', 'version')}
+        # a marker whose instance is not the one answering on that port: the real server keeps running, it is NOT reused, a new one starts, nothing is killed
+        tampered = json.loads(marker.read_text(encoding='utf-8')); tampered['instance'] = 'deadbeefdeadbeef'
+        marker.write_text(json.dumps(tampered), encoding='utf-8')
+        code, third = opened()
+        alive = get(first['url'] + 'api/health')[0] == 200
+        if code != 0 or third.get('reused') or third.get('url') == first.get('url') or not alive or not (third.get('refused') or {}).get('reason', '').startswith('định danh khác'):
+            problems.append(f'tampered marker: {third} alive={alive}')
+        facts['tampered'] = {'new_url': third.get('url'), 'refused': (third.get('refused') or {}).get('reason'), 'old_server_alive': alive}
+        # stop: only the server the marker names (the new one); the first one is still alive afterwards
+        stopped = first_json(cli('track', 'stop').stdout) or {}
+        if not stopped.get('stopped') or stopped.get('pid') != third.get('pid') or marker.exists() or get(first['url'] + 'api/health')[0] != 200 or get(third['url'] + 'api/health')[0] == 200:
+            problems.append(f'stop: {stopped}')
+        facts['stop'] = stopped
+        # concurrent opens (the first server has no marker any more): one server, one marker
+        procs = [subprocess.Popen([str(exe), '--project', project, '--state-root', state, 'track', 'open', '--no-browser', '--interval', '1'], env=env, cwd=str(work), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace') for _ in range(2)]
+        outs = [first_json(p.communicate(timeout=120)[0]) or {} for p in procs]
+        for o in outs:
+            if o.get('pid'): pids.append(o['pid'])
+        if not all(o.get('url') for o in outs) or outs[0].get('url') != outs[1].get('url') or sorted(bool(o.get('reused')) for o in outs) != [False, True]: problems.append(f'concurrent opens: {outs}')
+        facts['concurrent'] = [{k: o.get(k) for k in ('url', 'pid', 'reused', 'waited_for_other_open')} for o in outs]
+        stopped2 = first_json(cli('track', 'stop').stdout) or {}
+        if not stopped2.get('stopped') or marker.exists(): problems.append(f'stop after concurrent: {stopped2}')
+        done = cli('track', 'stop')
+        if done.returncode != 2 or 'không có marker' not in done.stdout: problems.append('a second stop did not refuse: ' + done.stdout[-200:])
+    finally:
+        for pid in set(pids):
+            try: os.kill(pid, signal.SIGTERM)
+            except OSError: pass
+        if marker.exists():
+            try: marker.unlink()
+            except OSError: pass
+    if not step('V15-open-identity', not problems, problems=problems, **facts): return finish()
     # V11
     profile = work / 'browser profile'
     browser = find_browser(profile)
@@ -474,7 +602,7 @@ def main(pkg, work):
             if '<span class="st waiting">đang chờ</span>' not in dom: problems.append('status word missing')
             if 'chưa được theo dõi' not in re.sub(r'<script>.*?</script>', '', dom, flags=re.S): problems.append('untracked section missing')   # the rendered body, not the page script
             detail_dom = dump_dom(browser, record['url'] + '?plan=P1', profile)
-            if 'Timeline (' not in detail_dom or 'node.produced' not in detail_dom or '<b>C</b>' not in detail_dom: problems.append('detail/timeline of P1 did not render')
+            if 'Timeline' not in detail_dom or 'node.produced' not in detail_dom or '<b>C</b>' not in detail_dom: problems.append('detail/timeline of P1 did not render')
             if 'hunter2-must-not-show' in dom + detail_dom: problems.append('password in the page')
             shots['list'] = screenshot(browser, record['url'], profile, evidence_dir / 'obs1-list.png')
             shots['detail'] = screenshot(browser, record['url'] + '?plan=P1', profile, evidence_dir / 'obs1-detail-P1.png')

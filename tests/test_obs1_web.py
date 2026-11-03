@@ -185,8 +185,11 @@ class BrowserTests(WebFixture):
         cls, text = badge(dom)
         self.assertEqual(cls, 'ok', text); self.assertIn('kết nối OK', text); self.assertIn('seq', text)
         body = dom.split('</script>')[-1] if '</script>' in dom else dom
-        self.assertIn('P1', dom); self.assertIn('<span class="st waiting">đang chờ</span>', dom); self.assertIn('class="need">', dom)
-        self.assertIn('question answer', dom); self.assertNotIn('hunter2', dom)
+        self.assertIn('P1', dom); self.assertIn('<span class="st waiting">đang chờ</span>', dom); self.assertIn('class="needb">cần bạn', dom)
+        self.assertNotIn('hunter2', dom)
+        detail = dump_dom(self.browser, self.url + '?plan=P1', self.profile)              # the reply commands live in the task detail (UX-03), one per option
+        self.assertIn('question answer', detail); self.assertIn('--choice seven', detail); self.assertIn('--choice thirty', detail); self.assertNotIn('hunter2', detail)
+        self.assertIn('Sao chép lệnh', detail)
         self.assertIn('chưa được theo dõi', dom)
         evidence = Path(os.environ.get('OBS1_EVIDENCE_DIR') or self.temp.name)
         if screenshot(self.browser, self.url, self.profile, evidence / 'obs1-page.png'): pass

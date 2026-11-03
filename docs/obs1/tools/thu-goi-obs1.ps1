@@ -1,7 +1,7 @@
 # thu-goi-obs1.ps1 - owner check of an OBS-1 trial package, run FROM THE PACKAGE (shipped as <package>\verify\thu-goi-obs1.ps1).
 #   powershell -ExecutionPolicy Bypass -File "<package>\verify\thu-goi-obs1.ps1" [-Package <folder>] [-Work <new folder>] [-Python <python.exe>]
 # Steps: 1 read manifest.json, check the wheel hash and that manifest/wheel/verifier match SHA256SUMS;
-#        2 run verify\verify_obs1.py -> <work>\verify-report.json (V1..V12; the page in a headless browser when one is on the machine).
+#        2 run verify\verify_obs1.py -> <work>\verify-report.json (V1..V15; the page and its interactions in a headless browser when one is on the machine).
 # Prints "DAT: ..." and exits 0 ONLY when the verifier exited 0 in THIS run and wrote a report (new, by this run) that names this package, its version
 # and code commit with result "pass". Everything else prints "KHONG DAT: ..." and exits non-zero. The real ledger, hook-projects.json, PATH and
 # provider settings are never touched (the verifier redirects LOCALAPPDATA/APPDATA/TEMP into <work>).
@@ -22,7 +22,7 @@ $sha = (Get-FileHash -LiteralPath $wheel -Algorithm SHA256).Hash.ToLower()
 if ($sha -ne $man.wheel.sha256.ToLower()) { Fail "SHA256 wheel $sha khac manifest $($man.wheel.sha256)" }
 $sums = @{}
 foreach ($line in Get-Content -LiteralPath "$pkg\SHA256SUMS") { $parts = $line -split '  ', 2; if ($parts.Count -eq 2) { $sums[$parts[1]] = $parts[0].ToLower() } }
-foreach ($rel in @('manifest.json', "wheel/$($man.wheel.name)", 'verify/verify_obs1.py', 'verify/scenario_obs1.py', 'verify/onecrew_fake_claude_v24.py')) {
+foreach ($rel in @('manifest.json', "wheel/$($man.wheel.name)", 'verify/verify_obs1.py', 'verify/scenario_obs1.py', 'verify/onecrew_fake_claude_v24.py', 'verify/obs1_ux_harness.py')) {
     $h = (Get-FileHash -LiteralPath ("$pkg\" + $rel.Replace('/', '\')) -Algorithm SHA256).Hash.ToLower()
     if (-not $sums.ContainsKey($rel) -or $sums[$rel] -ne $h) { Fail "SHA256SUMS khong khop: $rel" }
 }

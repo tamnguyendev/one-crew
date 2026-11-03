@@ -17,8 +17,9 @@ from tests import wf_wheel as wh      # noqa: E402
 
 CODE_PATHS = ('onecrew', 'tests', 'pyproject.toml', 'docs/obs1')
 VERIFY = (('docs/obs1/tools/verify_obs1.py', 'verify/verify_obs1.py'), ('docs/obs1/tools/scenario_obs1.py', 'verify/scenario_obs1.py'),
-          ('tests/v24_fake_claude.py', 'verify/onecrew_fake_claude_v24.py'), ('docs/obs1/tools/thu-goi-obs1.ps1', 'verify/thu-goi-obs1.ps1'))
-DOCS = ('GIAI-PHAP-OBS-1.vi.md', 'BAO-CAO-OBS-1.vi.md', 'limits-obs1.md', 'RELEASE-NOTES-OBS-1.vi.md')
+          ('tests/v24_fake_claude.py', 'verify/onecrew_fake_claude_v24.py'), ('docs/obs1/tools/thu-goi-obs1.ps1', 'verify/thu-goi-obs1.ps1'),
+          ('tests/obs1_ux_harness.py', 'verify/obs1_ux_harness.py'), ('docs/obs1/tools/mo-trang-obs1.ps1', 'verify/mo-trang-obs1.ps1'), ('docs/obs1/tools/dung-trang-obs1.ps1', 'verify/dung-trang-obs1.ps1'))
+DOCS = ('GIAI-PHAP-OBS-1.vi.md', 'BAO-CAO-OBS-1.vi.md', 'limits-obs1.md', 'RELEASE-NOTES-OBS-1.vi.md', 'UX-OBS-1.vi.md')
 
 
 def git(*args):
@@ -48,7 +49,7 @@ def main():
     manifest = {'kind': 'obs1-trial-package', 'label': 'OBS-1 beta', 'version': version, 'code_commit': commit, 'branch': branch, 'built': built,
                 'wheel': {'name': wheel.name, 'sha256': sha(wheel)}, 'base': '2.4.0.dev6 (01b6f62, tag v2.4.0.dev6): the 2.4 release line is NOT changed by this package',
                 'claims': {'delivered': False, 'accepted': False, 'reviewed_by_codex': False, 'real_provider_tested': False,
-                           'note': 'OBS-1 beta package: the tracking view/CLI/page and the four Codex P2 fixes checked from this package with the fake claude; see docs/limits-obs1.md and docs/RELEASE-NOTES-OBS-1.vi.md'}}
+                           'note': 'OBS-1 beta package: the tracking view/CLI/page, the four Codex P2 fixes, the UX round (UX-01..08) and the track open identity checked from this package with the fake claude; see docs/limits-obs1.md and docs/RELEASE-NOTES-OBS-1.vi.md'}}
     guide = (ROOT / 'docs' / 'obs1' / 'BAT-DAU-THU-OBS1.vi.md').read_text(encoding='utf-8')
     for key, value in (('@@PACKAGE@@', str(out)), ('@@VERSION@@', version), ('@@COMMIT@@', commit[:7]), ('@@WHEEL@@', wheel.name), ('@@WHEEL_SHA@@', manifest['wheel']['sha256']), ('@@BRANCH@@', branch)):
         guide = guide.replace(key, value)

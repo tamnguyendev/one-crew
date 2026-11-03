@@ -29,6 +29,9 @@ KINDS = ('running', 'waiting', 'blocked', 'done', 'unknown')
 WORDS = {'running': 'đang thực hiện', 'waiting': 'đang chờ', 'blocked': 'bị chặn', 'done': 'hoàn tất', 'unknown': 'chưa xác định'}
 LEVELS = ('none', 'produced', 'verified', 'accepted')
 LEVEL_WORDS = {'none': 'chưa có đầu ra', 'produced': 'đã tạo đầu ra', 'verified': 'đã kiểm', 'accepted': 'đã nghiệm thu'}
+# UX-05: a "done" root is one of three different things, and the word (and the colour the page gives it) says which
+OUTCOME_WORDS = {'accepted': 'đã nghiệm thu', 'verified': 'đã kiểm, chờ nghiệm thu', 'closed': 'đã đóng'}
+ELAPSED_LABEL = 'từ khi duyệt (thời gian lịch, gồm cả chờ)'
 NOISE = ('learning.outcome', 'control.intervention', 'context.entry', 'learning.incident', 'learning.lesson')
 NOT_TRACKED = 'chưa được theo dõi'
 STATEMENT = ('Phiên Claude/Codex không chạy qua OneCrew không có nguồn trong sổ này: ' + NOT_TRACKED +
@@ -185,9 +188,12 @@ def _needs_user(state, requests, views, level, engine_view):
     for r in requests:
         if r['state'] != 'pending': continue
         q = r['question'] or {}
+        command = f"question answer {r['id']} --revision {r['revision']} --choice "
         needs.append({'kind': 'request', 'id': r['id'], 'revision': r['revision'], 'question': clean(q.get('question')),
-                      'options': [{'id': clean(o.get('id'), 60), 'label': clean(o.get('label'), 200)} for o in (q.get('options') or [])[:6]],
-                      'reply_command': f"question answer {r['id']} --revision {r['revision']} --choice <option-id>",
+                      'reason': clean(q.get('reason'), 300), 'impact': clean(q.get('impact'), 300), 'recommendation': clean(q.get('recommendation'), 60),
+                      'options': [{'id': clean(o.get('id'), 60), 'label': clean(o.get('label'), 200), 'reply_command': command + clean(o.get('id'), 60)}
+                                  for o in (q.get('options') or [])[:6]],          # UX-03: one ready command per option; the page copies, never runs
+                      'reply_command': command + '<option-id>',
                       'note': 'đọc, đóng cửa sổ hay bỏ qua không phải là trả lời; request vẫn chờ', 'source': ['request:' + r['id']]})
     if state['status'] == 'proposed':
         needs.append({'kind': 'approve', 'question': f"Duyệt bản {state['latest']} của plan {state['name']} (plan approve, lệnh của chủ sở hữu)",
@@ -288,13 +294,47 @@ def _elapsed(state, events, now):
     approved = state.get('approved') or {}
     start = _at(approved.get('at') or approved.get('recorded_at'))
     if start is None:
-        return {'since': None, 'seconds': UNKNOWN, 'basis': 'chưa duyệt: thời gian đã chạy đo từ lúc duyệt'}
+        return {'since': None, 'seconds': UNKNOWN, 'label': ELAPSED_LABEL, 'basis': 'chưa duyệt: thời gian đã chạy đo từ lúc duyệt'}
     end = None
     for seq, kind, p, at in events:
         if kind in ('plan.accepted', 'plan.closed'): end = _at(p.get('at') or at)
     stop = end or now
-    return {'since': _iso(start), 'until': _iso(end), 'seconds': _seconds(start, stop),
+    return {'since': _iso(start), 'until': _iso(end), 'seconds': _seconds(start, stop), 'label': ELAPSED_LABEL,
             'basis': 'plan.approved → ' + ('plan.accepted/closed' if end else 'bây giờ') + ' (thời gian lịch, gồm cả chờ)'}
+
+
+def _outcome(state, kind, level):
+    """UX-05: which "done" this is — accepted by the owner, verified and waiting for acceptance, or closed (an end, not an acceptance)."""
+    if state['status'] == 'accepted': return 'accepted'
+    if state['status'] == 'closed': return 'closed'
+    if kind == 'done' and level == 'verified': return 'verified'
+    return None
+
+
+def _current_step(kind, state, engine_view, active, requests, nodes_progress):
+    """One short line for the list: what the task is at right now (never a guess: each branch names the source it rests on)."""
+    if state['status'] == 'accepted': return 'kết thúc: đã nghiệm thu'
+    if state['status'] == 'closed': return 'kết thúc: plan đã đóng'
+    if state['status'] == 'proposed': return f"chờ bạn duyệt bản {state['latest']}"
+    if state['status'] == 'stopped_with_report': return 'dừng có báo cáo: chờ bạn quyết định'
+    pending = [r['id'] for r in requests if r['state'] == 'pending']
+    if pending: return 'chờ bạn trả lời câu hỏi ' + ', '.join(pending)
+    if active:
+        parts = []
+        for a in active:
+            p = nodes_progress.get(a.get('node')) if a.get('node') else None
+            parts.append(f"phần việc {a['node']}" if a.get('node') else f"attempt {a['attempt'][:12]}")
+            if p: parts[-1] += f" ({p['status']})"
+        return ('đang chạy ' if kind != 'blocked' else 'bị chặn ở ') + ', '.join(parts)
+    if engine_view is not None:
+        held = [n for n, r in engine_view['nodes'].items() if r.get('phase') == 'held']
+        if held: return 'bị giữ: ' + ', '.join(held)
+        produced = [n for n, r in engine_view['nodes'].items() if r.get('state') == 'produced']
+        if produced: return 'chờ kiểm phần việc ' + ', '.join(produced)
+        pending_nodes = [n for n, r in engine_view['nodes'].items() if r.get('phase') == 'pending']
+        if kind == 'done': return 'mọi phần việc đã kiểm: chờ bạn nghiệm thu'
+        if pending_nodes: return 'chưa bắt đầu phần việc ' + ', '.join(pending_nodes)
+    return None
 
 
 def _last_evidence(events):
@@ -373,6 +413,8 @@ def _timeline(conn, root_id, children, current_generation, limit, current_attemp
     noise = ','.join('?' for _ in NOISE)
     total = conn.execute(f'SELECT COUNT(*) FROM events WHERE task_id IN ({marks}) AND kind NOT IN ({noise})', task_ids + list(NOISE)).fetchone()[0]
     keys = set()
+    attempt_node = {p.get('attempt'): p.get('node') for (p,) in ((json.loads(r['payload']),) for r in conn.execute(
+        f"SELECT payload FROM events WHERE task_id IN ({marks}) AND kind='node.started'", task_ids)) if p.get('attempt') and p.get('node')}
     for r in conn.execute(f'SELECT seq, task_id, kind, payload, created_at FROM events WHERE task_id IN ({marks}) AND kind NOT IN ({noise}) ORDER BY seq DESC LIMIT ?',
                           task_ids + list(NOISE) + [limit]):
         p = json.loads(r['payload'])
@@ -380,9 +422,11 @@ def _timeline(conn, root_id, children, current_generation, limit, current_attemp
         node, gen = p.get('node'), p.get('generation')
         stale = node is not None and gen is not None and node in current_generation and gen != current_generation[node]
         attempt = p.get('attempt') or (p.get('id') if r['kind'].startswith('attempt.') else None)
-        stale_attempt = node is not None and attempt is not None and node in current_attempt and attempt != current_attempt[node]
+        node_of_attempt = attempt_node.get(attempt) if attempt and node is None else None     # the event names no node, but its attempt was started for one
+        owner = node if node is not None else node_of_attempt
+        stale_attempt = owner is not None and attempt is not None and owner in current_attempt and attempt != current_attempt[owner]
         rows.append({'seq': r['seq'], 'task': 'root' if r['task_id'] == root_id else r['task_id'], 'at': r['created_at'], 'kind': r['kind'],
-                     'node': node, 'generation': gen, 'attempt': attempt,
+                     'node': node, 'node_of_attempt': node_of_attempt, 'generation': gen, 'attempt': attempt,
                      'summary': clean(_summary(r['kind'], p), 240),
                      'observed_at': p.get('observed_at'), 'received_at': p.get('received_at'),
                      'stale_generation': stale, 'stale_attempt': stale_attempt,
@@ -440,17 +484,20 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     for r in nodes.values():
         if r['phase'] in counts: counts[r['phase']] += 1
         if r['state'] in counts: counts[r['state']] += 1
+    outcome = _outcome(state, kind, level)
+    active_rows = [{'attempt': a['id'], 'status': a['status'], 'since': a['created_at'], 'unit': a['unit'], 'stage': a['stage'],
+                    'node': next((nid for nid, r in nodes.items() if r['attempt'] == a['id']), None)} for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
     item = {'id': row['id'], 'plan': state['name'], 'selector': row['request_key'], 'project': row['project_path'], 'project_id': row['project_id'],
             'goal': _goal(contract, payload), 'title': clean(payload.get('title'), 200), 'contract_revision': state['latest'],
             'root_status': state['status'],
-            'status': {'kind': kind, 'label': WORDS[kind], 'reason': clean(reason, 600), 'source': sources},
+            'status': {'kind': kind, 'label': OUTCOME_WORDS[outcome] if outcome else WORDS[kind], 'outcome': outcome, 'reason': clean(reason, 600), 'source': sources},
             'level': {'kind': level, 'label': LEVEL_WORDS[level]},
             'elapsed': _elapsed(state, events, now),
+            'current_step': clean(_current_step(kind, state, engine_view, active_rows, requests, progress), 200),
             'last_update': {'seq': last[0], 'kind': last[1], 'at': last[3], 'summary': clean(_summary(last[1], last[2]), 200)} if last else None,
             'last_evidence': _last_evidence(events),
             'needs_user': _needs_user(state, requests, views, level, engine_view),
-            'active': [{'attempt': a['id'], 'status': a['status'], 'since': a['created_at'], 'unit': a['unit'], 'stage': a['stage'],
-                        'node': next((nid for nid, r in nodes.items() if r['attempt'] == a['id']), None)} for a in attempts if a['status'] in ('reserved', 'running', 'unknown')],
+            'active': active_rows,
             'nodes_summary': counts,
             'tracking': {'adapter': 'engine' if engine_root else 'milestones',
                          'coverage': ('root sequential-engine: node / thế hệ / attempt / quan sát tiến độ' if engine_root
@@ -471,10 +518,19 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     current = {nid: r['generation'] for nid, r in nodes.items()}
     current_attempt = {nid: r['attempt'] for nid, r in nodes.items() if r['attempt']}
     item['timeline'], item['timeline_total'], keys = _timeline(conn, row['id'], children, current, timeline_limit, current_attempt)
-    for r in nodes.values():
-        for key in (r['receipt'], r['verification_receipt'], r['resume_artifact'], r['retained_candidate']):
-            if isinstance(key, str) and HEX64.fullmatch(key): keys.add(key)
+    index = {}                                   # UX-07: every evidence blob with a name, a kind and a time — the first event that named it
+    for e in item['timeline']:
+        for key in e['evidence']:
+            if key not in index:
+                index[key] = {'key': key, 'seq': e['seq'], 'kind': e['kind'], 'at': e['observed_at'] or e['at'], 'node': e['node'], 'attempt': e['attempt'],
+                              'label': e['summary'], 'stale': bool(e['stale_generation'] or e['stale_attempt'])}
+    for nid, r in nodes.items():
+        for key, what in ((r['receipt'], 'receipt đầu ra'), (r['verification_receipt'], 'receipt kiểm'), (r['resume_artifact'], 'đầu ra dở được tiếp tục'), (r['retained_candidate'], 'ứng viên được giữ lại')):
+            if isinstance(key, str) and HEX64.fullmatch(key):
+                keys.add(key)
+                if key not in index: index[key] = {'key': key, 'seq': None, 'kind': 'node.' + what.split()[0], 'at': None, 'node': nid, 'attempt': r['attempt'], 'label': f'{what} của phần việc {nid}', 'stale': False}
     item['evidence_keys'] = sorted(keys)
+    item['evidence_index'] = sorted(index.values(), key=lambda x: (x['seq'] is None, x['seq'] or 0))
     item['measure'] = _measure(rd, row['request_key']) if engine_root else {'note': 'root không có engine: không có attempt để đo'}
     item['eta'] = _eta(rd, row['request_key'], now)
     item['holds'] = _holds(rd, row['request_key'], conn) if engine_root else []
@@ -663,7 +719,7 @@ def render_overview(value):
     for project in value['projects']:
         lines += ['', project['path']]
         for t in project['tasks']:
-            lines.append(f"  [{t['status']['label']}] {t['plan']} ({t['id'][:12]}) · {t['level']['label']} · đã chạy {_hms(t['elapsed'].get('seconds'))} · {t['tracking']['adapter']}")
+            lines.append(f"  [{t['status']['label']}] {t['plan']} ({t['id'][:12]}) · {t['level']['label']} · từ khi duyệt {_hms(t['elapsed'].get('seconds'))} (lịch) · {t['tracking']['adapter']}")
             if t.get('goal'): lines.append('    mục tiêu: ' + t['goal'][:160])
             lines.append('    vì: ' + (t['status']['reason'] or '') + ' [' + ', '.join(t['status']['source']) + ']')
             if t.get('last_update'): lines.append(f"    cập nhật cuối: {t['last_update']['at']} #{t['last_update']['seq']} {t['last_update']['summary']}")
@@ -682,7 +738,7 @@ def render_detail(value):
     t = value
     lines = [f"PLAN {t['plan']} ({t['id']}) — {t['project']} — lúc {t['generated_at']} (chỉ đọc)",
              f"Trạng thái: {t['status']['label']} — {t['status']['reason']} [{', '.join(t['status']['source'])}]",
-             f"Mức đầu ra: {t['level']['label']} · root: {t['root_status']} · đã chạy: {_hms(t['elapsed'].get('seconds'))} ({t['elapsed'].get('basis')})",
+             f"Mức đầu ra: {t['level']['label']} · root: {t['root_status']} · từ khi duyệt: {_hms(t['elapsed'].get('seconds'))} ({t['elapsed'].get('basis')})",
              f"ETA: {t['eta'].get('label')}" + (f" — {t['eta']['reason']}" if t['eta'].get('reason') else ''),
              f"Thời gian attempt (union): {_hms(t['measure'].get('attempts_wall_seconds'))} · chờ (union): {_hms(t['measure'].get('wait_seconds'))}"]
     if t.get('goal'): lines.append('Mục tiêu: ' + t['goal'])
