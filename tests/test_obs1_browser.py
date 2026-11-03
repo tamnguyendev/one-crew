@@ -19,7 +19,7 @@ from tests.test_wf_engine import EngineFixture
 SCENARIOS = [('ux01', 'desktop'), ('ux02', 'desktop'), ('ux03', 'desktop'), ('ux04', 'desktop'), ('ux05', 'desktop'), ('ux06', 'desktop'), ('ux07', 'desktop'),
              ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop'),
              ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile'), ('gantt', 'desktop'), ('gantt', 'mobile'), ('p2a', 'desktop'), ('gantt_now', 'desktop'), ('evid', 'desktop'),
-             ('stale_detail', 'desktop'), ('stale_detail', 'mobile')]
+             ('stale_detail', 'desktop'), ('stale_detail', 'mobile'), ('prov', 'desktop')]   # prov LAST: it writes into P9
 
 
 class BrowserUX(EngineFixture):
@@ -48,6 +48,27 @@ class BrowserUX(EngineFixture):
                 os.environ.pop('ONECREW_ACTOR', None); os.environ.pop('CLAUDE_CODE_CHILD_SESSION', None)
                 questions.answer(self.ledger, params['id'], row['revision'], (row['question'].get('options') or [{'id': 'seven'}])[0]['id'], 'fixture owner answered while reading')
             return params['id']
+        if name == 'prov_history':                            # R1: 310 observations of P9's current attempt (as Codex's audit.py): the page window (300) loses generation 0
+            from onecrew.ledger import utcnow
+            from onecrew.v2 import plan as plans, tracking
+            from tests.obs1_ux_fixture import Managed
+            attempt = tracking.detail(self.ledger.state_root, 'P9')['nodes']['C']['attempt']
+            with self.ledger.transaction(write=True) as conn:
+                root = plans.anchor_events(self.ledger, conn, 'P9')['task_id']
+                for i in range(310):
+                    plans.emit(self.ledger, conn, root, 'executor.observed', {**Managed.declaration.view(), 'plan': 'P9', 'attempt': attempt, 'what': 'progress', 'observed_at': None, 'time_source': 'tool_call', 'received_at': utcnow(),
+                                                                             'basis': {'type': 'tool_call', 'ref': f'r1-history-fixture-{i}'}, 'checkpoint': {'status': 'running'},
+                                                                             'node': 'C', 'generation': 1})
+            return attempt
+        if name == 'prov_same':                               # R1: generation 2 resumes from generation 1's artifact and produces the very same bytes again
+            from onecrew.v2 import engine, tracking
+            from tests.obs1_ux_fixture import quick_executor
+            artifact, attempt = self.store.blob(b'artifact-C'), tracking.detail(self.ledger.state_root, 'P9')['nodes']['C']['attempt']
+            with self.ledger.transaction(write=True) as conn:
+                view = engine.state(self.ledger, 'P9', conn)
+                engine._event(self.ledger, conn, view, 'C', 'node.resumed', resume_artifact=artifact, continues_attempt=attempt)
+            engine.step(self.ledger, 'P9', quick_executor(self), control=self.control)
+            return artifact
         return None
 
     def run_one(self, scenario, size, **kw):
@@ -61,7 +82,7 @@ class BrowserUX(EngineFixture):
         only = [x for x in (os.environ.get('OBS1_UX_ONLY') or '').split(',') if x]          # e.g. OBS1_UX_ONLY=gantt_now,evid while developing
         for scenario, size in SCENARIOS:
             if only and scenario not in only: continue
-            result = self.run_one(scenario, size, budget=150000 if scenario == 'stale_detail' else 45000 if scenario in ('ux01', 'disc', 'clock', 'gantt', 'p2a', 'gantt_now', 'evid') else 30000)
+            result = self.run_one(scenario, size, budget=150000 if scenario == 'stale_detail' else 45000 if scenario in ('ux01', 'disc', 'clock', 'gantt', 'p2a', 'gantt_now', 'evid', 'prov') else 30000)
             if not result.get('ok'): failures.append((scenario, size, result.get('error'), result.get('notes'), result.get('checks')))
             elif scenario == 'ux01': self.assertGreaterEqual(result.get('polls', 0), 5, result)
         self.assertEqual(failures, [], json.dumps(failures, ensure_ascii=False, indent=1))

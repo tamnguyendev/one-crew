@@ -479,6 +479,38 @@ if(S==='stale_detail'){
   await fault('detail=ok');
 }
 // ==== end R4 stale_detail ====
+// ---- R1 provenance (lane R1, Codex release review of dev11) begin ----
+if(S==='prov'){                                        // R1: evidence is attributed per occurrence (event, key), never per blob key; a long history never reads as "no output"; inherited + produced coexist
+  await select('P9'); const api=async lim=>await (await fetch('/api/task?plan='+encodeURIComponent(st().selected.plan)+'&project_id='+encodeURIComponent(st().selected.project)+'&timeline='+lim,{cache:'no-store'})).json();
+  const side=()=>$('#gside').textContent, outs=()=>$$('#gside [data-k^="evk:"]'); let J=await api(5000);
+  const prod=J.timeline.filter(e=>e.kind==='node.produced'&&e.node==='C'), p0=prod.find(e=>e.generation===0), p1=prod.find(e=>e.generation===1);
+  check('setup: P9 produced in generations 0 and 1 with byte-identical output (the same blob keys)', p0 && p1 && p0.evidence.length>=2 && p0.evidence.join()===p1.evidence.join(), prod.map(e=>[e.seq,e.generation,e.evidence]));
+  if(p0&&p1){
+  $('details[data-k="log"]').open=true; const oldBox=$('details[data-k="old:n:C"]'); if(oldBox)oldBox.open=true;
+  $('[data-k="ev:'+p0.seq+'"]').click(); const box=await waitFor(()=>$('[data-k="evbox:'+p0.seq+'"]'),5000,'evbox of generation 0 node.produced');
+  const rows0=box?Array.from(box.querySelectorAll('[data-k^="evk:"]')):[];
+  check('the event log: node.produced of generation 0 lists each of its keys with generation-0 labels (not those of generation 1, which shares the bytes)', rows0.length===p0.evidence.length && rows0.every(r=>/thế hệ 0/.test(r.textContent) && !/thế hệ 1/.test(r.textContent)), rows0.map(r=>r.textContent.slice(0,160)));
+  $('[data-k="ev:'+p0.seq+'"]').click(); await sleep(50);
+  const seq0=seqOf(); await signal('prov_history'); await waitFor(()=>seqOf()>seq0 && st().detailSeq===seqOf(), 20000, 'the page re-read P9 after 310 new events');
+  J=await api(300); check('setup: the page window (300) no longer holds generation 0 production', J.timeline_total>300 && !J.timeline.some(e=>e.seq===p0.seq), {total:J.timeline_total, shown:J.timeline.length});
+  const oldRow=J.gantt.rows.find(r=>r.node==='C'&&r.generation===0); const hb=$('.gtree .hist button.tg'); if(hb&&hb.getAttribute('aria-expanded')==='false'){hb.click(); await sleep(50)}
+  const oseg=oldRow&&$('.seg[data-attempt="'+oldRow.attempt+'"]'); if(oseg){oseg.focus(); key(oseg,'Enter'); await sleep(50)}
+  check('the old generation row (outside the 300-event window) lists its outputs with thế hệ 0, never "không có đầu ra"', oseg && !$('#evnone') && !/không có đầu ra/.test(side()) && outs().filter(e=>/thế hệ 0/.test(e.textContent) && /node\.produced/.test(e.textContent)).length>=p0.evidence.length, side().slice(0,600));
+  const log=$('details[data-k="log"]'); check('the event log says older events are not loaded, and where their evidence still is', log && /đang hiện 300\/\d+ sự kiện mới nhất/.test(log.textContent) && /Gantt/.test(log.textContent) && /Bằng chứng/.test(log.textContent), log&&log.querySelector('summary').textContent);
+  const mark=$$('.mk').find(m=>parseInt(m.dataset.seq,10)===p0.seq); if(mark){mark.focus(); key(mark,'Enter'); await sleep(50)}
+  check('the produced mark of generation 0 (outside the window) shows exactly that event\'s evidence', mark && outs().length===p0.evidence.length && outs().every(e=>/thế hệ 0/.test(e.textContent) && /node\.produced/.test(e.textContent)), side().slice(0,500));
+  const seq1=seqOf(); const K=(await signal('prov_same')).result;
+  await waitFor(()=>seqOf()>seq1 && st().detailSeq===seqOf(), 30000, 'the page re-read P9 after generation 2');
+  J=await api(300); const cur=J.gantt.rows.find(r=>r.current);
+  check('setup: generation 2 resumed from generation 1 artifact and produced the same key (model)', cur && cur.generation===2 && cur.inherits.some(x=>x.key===K && x.kind==='resume_artifact' && x.from_generation===1), cur&&cur.inherits);
+  const s2=cur&&await waitFor(()=>$('.seg[data-attempt="'+cur.attempt+'"]'), 10000, 'the generation-2 bar'); if(s2){s2.focus(); key(s2,'Enter'); await sleep(50)}
+  const inh=$('#gside [data-k="inh:'+K+'"]');
+  check('same artifact: the current row lists it under "Đầu ra của lượt này" (thế hệ 2) AND under "Kế thừa" with its source (thế hệ 1, the production event)', $$('#gside [data-k^="evk:'+K+'"]').some(e=>/thế hệ 2/.test(e.textContent) && /node\.produced/.test(e.textContent)) && $('#inherit') && inh && /từ thế hệ 1/.test(inh.textContent) && inh.textContent.indexOf('#'+p1.seq)>=0, side().slice(-700));
+  const ev=$('details[data-k="evidence"]'); if(ev)ev.open=true; const g=ev&&ev.querySelector('[data-k="evk:'+K+'"]');
+  check('the evidence list groups the uses of one blob: generations 0, 1 and 2 under one key', g && /thế hệ 0/.test(g.textContent) && /thế hệ 1/.test(g.textContent) && /thế hệ 2/.test(g.textContent), g&&g.textContent.slice(0,400));
+  }
+}
+// ---- R1 provenance (lane R1) end ----
 if(S==='shot-detail'){await select(qs.get('plan')||'P1'); if(qs.get('open')==='need'){const n=$('details.need'); if(n)n.open=true} else {const ev=$$('ol.ev > li').find(li=>li.querySelector('.clip')); if(ev){ev.click(); await waitFor(()=>$('.evbox'),3000)}}}
 if(S==='shot-list'){}
 out.ok=Object.values(out.checks).every(Boolean)&&Object.keys(out.checks).length>0;
