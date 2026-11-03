@@ -93,7 +93,7 @@ def main():
                     'impact': 'The next node waits for this answer.', 'options': [{'id': 'keep', 'label': 'Keep it'}, {'id': 'drop', 'label': 'Drop it'}],
                     'recommendation': 'keep', 'action': {'type': 'clarify_config', 'parameters': {}}}
         written = time.time()
-        request = ledger.create_request(task, 'obs1-question', question)
+        request = ledger.create_request(task, os.environ.get('OBS1_REQUEST_KEY') or 'obs1-question', question)   # a new key = a new request (same key + content is a no-op)
         print(json.dumps({'request': request['id'], 'revision': request['revision'], 'written_at': written}))
         return 0
     if case == 'verify':

@@ -297,8 +297,10 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
         args += ['track', 'serve', '--host', host, '--port', str(port), '--interval', str(interval), '--announce', str(marker)]
         if project_id: args.append('--project-only')
         flags = (subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, 'DETACHED_PROCESS', 0)) if os.name == 'nt' else 0
-        env = dict(os.environ, ONECREW_TRACK_IDLE_EXIT=str(idle_exit))
-        child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, creationflags=flags, env=env)
+        env = dict(os.environ, ONECREW_TRACK_IDLE_EXIT=str(idle_exit), PYTHONSAFEPATH='1')     # `-m` must not pick a stray `onecrew` from the caller's cwd
+        import tempfile
+        child = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, creationflags=flags, env=env,
+                                 cwd=tempfile.gettempdir())
         end = time.monotonic() + wait
         while time.monotonic() < end:
             record, health, ok, why = check()

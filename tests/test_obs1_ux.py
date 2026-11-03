@@ -215,6 +215,17 @@ class DetachedOpen(Fixture):
                               capture_output=True, text=True, encoding='utf-8', env=self.env, cwd=str(Path(__file__).resolve().parents[1]), timeout=60)
         return done.returncode, done.stdout
 
+    def test_open_from_a_cwd_holding_a_decoy_onecrew_package_still_starts_the_real_server(self):
+        decoy = Path(self.temp.name) / 'elsewhere' / 'onecrew'; decoy.mkdir(parents=True)
+        (decoy / '__init__.py').write_text('raise RuntimeError("decoy onecrew imported from the cwd")\n')
+        before = os.getcwd(); os.chdir(decoy.parent); self.addCleanup(os.chdir, before)
+        result = tracking_web.open_page(self.state, browser=False, project=self.root, explicit_state_root=self.state, idle_exit=60, interval=1.0)
+        try:
+            self.assertTrue(result.get('url'), result)
+            self.assertEqual(tracking_web.identity(result['url'])['instance'], result['instance'])
+        finally:
+            tracking_web.stop_page(self.state)
+
     def test_two_concurrent_opens_share_one_server_and_stop_ends_only_it(self):
         results = [None, None]
         env = self.env; original = os.environ.copy()

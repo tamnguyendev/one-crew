@@ -139,6 +139,7 @@ def badge(dom):
 
 def load_harness():
     import importlib.util
+    sys.dont_write_bytecode = True                      # never write __pycache__ into the package being checked (package_unchanged)
     spec = importlib.util.spec_from_file_location('obs1_ux_harness', Path(__file__).with_name('obs1_ux_harness.py'))
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     return module
@@ -501,7 +502,7 @@ def main(pkg, work):
         writes = []
         def on_signal(name):
             if name == 'write':
-                done = run([py, '-I', scenario, work, 'request'], env=env, cwd=work, text=True, encoding='utf-8', errors='replace', timeout=120)
+                done = run([py, '-I', scenario, work, 'request'], env=dict(env, OBS1_REQUEST_KEY=f'ux-write-{len(writes) + 1}'), cwd=work, text=True, encoding='utf-8', errors='replace', timeout=120)
                 writes.append((first_json(done.stdout) or {}).get('request')); return writes[-1]
             return None
         proxy = ux.Proxy(record['url'], on_signal=on_signal)
