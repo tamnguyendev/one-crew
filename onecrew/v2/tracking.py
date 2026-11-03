@@ -522,13 +522,20 @@ def _provenance(events, attempts, nodes, current_generation, current_attempt):
     (the event's; for a node event that names none, the attempt node.started bound to that node and generation before it, with that
     node.started as `attempt_basis`; else null: not determined) and role. Engine node-record keys (receipt, verification_receipt,
     resume_artifact, retained_candidate) are added as `engine.state` entries only when no event names that key for that node (and, for
-    the receipts, that generation)."""
-    attempt_gen = {a['id']: a['generation'] for a in attempts}
-    started, attempt_node = {}, {}
+    the receipts, that generation).
+
+    Generation = NODE generation. A payload `generation` counts only next to its `node`: attempt.reserved/launched carry the attempt's
+    CONTROL generation (the task's attempt counter, 1 on every child task) and the attempts table holds that same counter, so an event
+    without a node takes the generation of the node.started that bound its attempt (`generation_basis` 'node.started:#seq'); only an
+    attempt no node.started binds falls back to the attempts-table counter, the value its Gantt row shows (`generation_basis`
+    'attempts.counter'); else null."""
+    attempt_counter = {a['id']: a['generation'] for a in attempts}
+    started, attempt_node, bound = {}, {}, {}
     for seq, kind, p, at in events:
         if kind == 'node.started' and p.get('attempt') and p.get('node') is not None:
             started.setdefault((p['node'], p.get('generation')), []).append((seq, p['attempt']))
             attempt_node[p['attempt']] = p['node']
+            bound[p['attempt']] = (p['node'], p.get('generation'), seq)
     out, keys, cleaned = [], set(), {}
     def once(text, limit):                       # observations repeat their summary and every payload repeats its paths: clean each text once
         if (text, limit) not in cleaned: cleaned[(text, limit)] = clean(text, limit)
@@ -538,20 +545,23 @@ def _provenance(events, attempts, nodes, current_generation, current_attempt):
         for key, role in _walk(p): found.setdefault(key, []).append(role)
         if not found: continue
         keys |= set(found)
-        node, gen = p.get('node'), p.get('generation')
+        node = p.get('node')
+        gen = p.get('generation') if node is not None else None          # never the control generation of attempt.reserved/launched
+        gbasis = 'event' if gen is not None else None
         attempt = p.get('attempt') or (p.get('id') if kind.startswith('attempt.') else None)
         basis = 'event' if attempt else None
         if attempt is None and node is not None:
             prior = [(s, a) for s, a in started.get((node, gen), []) if s <= seq]
             if prior: attempt, basis = prior[-1][1], f'node.started:#{prior[-1][0]}'
         owner = node if node is not None else attempt_node.get(attempt)
-        if gen is None and attempt: gen = attempt_gen.get(attempt)
+        if gen is None and attempt:
+            gen, gbasis = _attempt_generation(attempt, node, bound, attempt_counter)
         stale = (p.get('node') is not None and p.get('generation') is not None and node in current_generation and p.get('generation') != current_generation[node]) \
             or (owner is not None and attempt is not None and owner in current_attempt and attempt != current_attempt[owner])
         label, when = once(_summary(kind, p), 160), p.get('observed_at') or at
         for key, roles in found.items():
             entry = {'key': key, 'seq': seq, 'kind': kind, 'role': once(roles[0], 80), 'at': when, 'node': owner, 'generation': gen, 'attempt': attempt,
-                     'attempt_basis': basis, 'label': label, 'output': kind in OUTPUT_KINDS, 'stale': bool(stale)}
+                     'attempt_basis': basis, 'generation_basis': gbasis, 'label': label, 'output': kind in OUTPUT_KINDS, 'stale': bool(stale)}
             if len(roles) > 1: entry['other_roles'] = [once(r, 80) for r in roles[1:6]]
             out.append(entry)
     named = {(o['key'], o['node']) for o in out}
@@ -564,8 +574,18 @@ def _provenance(events, attempts, nodes, current_generation, current_attempt):
             receipt = field in ('receipt', 'verification_receipt')
             if ((key, nid, r['generation']) if receipt else (key, nid)) in (named_gen if receipt else named): continue
             out.append({'key': key, 'seq': None, 'kind': 'engine.state', 'role': field, 'at': None, 'node': nid, 'generation': r['generation'], 'attempt': r['attempt'],
-                        'attempt_basis': 'engine.state', 'label': f'{what} của phần việc {nid} (trạng thái engine; không sự kiện nào nêu nó)', 'output': receipt, 'stale': False})
+                        'attempt_basis': 'engine.state', 'generation_basis': 'engine.state', 'label': f'{what} của phần việc {nid} (trạng thái engine; không sự kiện nào nêu nó)', 'output': receipt, 'stale': False})
     return out, keys
+
+
+def _attempt_generation(attempt, node, bound, attempt_counter):
+    """(node generation, basis) of an event that names an attempt but no generation of its own: the generation of the node.started that bound
+    the attempt (when the event names a node, only if it is that node); else, for an attempt no node.started binds, the attempts-table
+    counter (what its Gantt row shows); else (None, None)."""
+    b = bound.get(attempt)
+    if b and b[1] is not None and (node is None or node == b[0]): return b[1], f'node.started:#{b[2]}'
+    if b is None and attempt in attempt_counter: return attempt_counter[attempt], 'attempts.counter'
+    return None, None
 
 
 def _source_of(occurrences, key, node, generation, attempt, before):
@@ -590,21 +610,25 @@ def _timeline(conn, root_id, children, current_generation, limit, current_attemp
     marks = ','.join('?' for _ in task_ids)
     noise = ','.join('?' for _ in NOISE)
     total = conn.execute(f'SELECT COUNT(*) FROM events WHERE task_id IN ({marks}) AND kind NOT IN ({noise})', task_ids + list(NOISE)).fetchone()[0]
-    attempt_gen = {a['id']: a['generation'] for a in _attempts(conn, task_ids)} if task_ids else {}       # P2-B: attempt.* events carry no generation; their attempt row does
-    attempt_node = {p.get('attempt'): p.get('node') for (p,) in ((json.loads(r['payload']),) for r in conn.execute(
-        f"SELECT payload FROM events WHERE task_id IN ({marks}) AND kind='node.started'", task_ids)) if p.get('attempt') and p.get('node')}
+    attempt_counter = {a['id']: a['generation'] for a in _attempts(conn, task_ids)} if task_ids else {}
+    bound = {}                                   # attempt -> (node, node generation, seq of its node.started): the generation an attempt.* row shows
+    for r in conn.execute(f"SELECT seq, payload FROM events WHERE task_id IN ({marks}) AND kind='node.started'", task_ids):
+        p = json.loads(r['payload'])
+        if p.get('attempt') and p.get('node') is not None: bound[p['attempt']] = (p['node'], p.get('generation'), r['seq'])
+    attempt_node = {a: b[0] for a, b in bound.items()}
     for r in conn.execute(f'SELECT seq, task_id, kind, payload, created_at FROM events WHERE task_id IN ({marks}) AND kind NOT IN ({noise}) ORDER BY seq DESC LIMIT ?',
                           task_ids + list(NOISE) + [limit]):
         p = json.loads(r['payload'])
         named = _keys_of(p)
-        node, gen = p.get('node'), p.get('generation')
+        node = p.get('node')
+        gen = p.get('generation') if node is not None else None          # attempt.reserved/launched: control generation, not the node's
         stale = node is not None and gen is not None and node in current_generation and gen != current_generation[node]
         attempt = p.get('attempt') or (p.get('id') if r['kind'].startswith('attempt.') else None)
         node_of_attempt = attempt_node.get(attempt) if attempt and node is None else None     # the event names no node, but its attempt was started for one
         owner = node if node is not None else node_of_attempt
         stale_attempt = owner is not None and attempt is not None and owner in current_attempt and attempt != current_attempt[owner]
         rows.append({'seq': r['seq'], 'task': 'root' if r['task_id'] == root_id else r['task_id'], 'at': r['created_at'], 'kind': r['kind'],
-                     'node': node, 'node_of_attempt': node_of_attempt, 'generation': gen if gen is not None else (attempt_gen.get(attempt) if attempt else None), 'attempt': attempt,
+                     'node': node, 'node_of_attempt': node_of_attempt, 'generation': gen if gen is not None else (_attempt_generation(attempt, node, bound, attempt_counter)[0] if attempt else None), 'attempt': attempt,
                      'summary': clean(_summary(r['kind'], p), 240),
                      'observed_at': p.get('observed_at'), 'received_at': p.get('received_at'),
                      'stale_generation': stale, 'stale_attempt': stale_attempt,
