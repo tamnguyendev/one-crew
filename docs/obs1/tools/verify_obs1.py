@@ -94,6 +94,12 @@ def get(url, method='GET', data=None, timeout=20):
         return error.code, error.read().decode('utf-8', 'replace'), error.headers.get('Content-Type') or ''
 
 
+def up(url):
+    """True when something answers /api/health at url (a stopped server refuses the connection)."""
+    try: return get(url + 'api/health', timeout=3)[0] == 200
+    except OSError: return False
+
+
 def fake_wheel(source, into):
     info = 'onecrew_fake_claude_v24-0.1.dist-info'
     files = {'onecrew_fake_claude_v24.py': Path(source).read_bytes(),
@@ -560,13 +566,13 @@ def main(pkg, work):
         tampered = json.loads(marker.read_text(encoding='utf-8')); tampered['instance'] = 'deadbeefdeadbeef'
         marker.write_text(json.dumps(tampered), encoding='utf-8')
         code, third = opened()
-        alive = get(first['url'] + 'api/health')[0] == 200
+        alive = up(first['url'])
         if code != 0 or third.get('reused') or third.get('url') == first.get('url') or not alive or not (third.get('refused') or {}).get('reason', '').startswith('định danh khác'):
             problems.append(f'tampered marker: {third} alive={alive}')
         facts['tampered'] = {'new_url': third.get('url'), 'refused': (third.get('refused') or {}).get('reason'), 'old_server_alive': alive}
         # stop: only the server the marker names (the new one); the first one is still alive afterwards
         stopped = first_json(cli('track', 'stop').stdout) or {}
-        if not stopped.get('stopped') or stopped.get('pid') != third.get('pid') or marker.exists() or get(first['url'] + 'api/health')[0] != 200 or get(third['url'] + 'api/health')[0] == 200:
+        if not stopped.get('stopped') or stopped.get('pid') != third.get('pid') or marker.exists() or not up(first['url']) or up(third['url']):
             problems.append(f'stop: {stopped}')
         facts['stop'] = stopped
         # concurrent opens (the first server has no marker any more): one server, one marker
