@@ -283,6 +283,14 @@ def main():
         new = tracking.detail(state, 'P4')['nodes']['C']['attempt']
         progress_track.observe(ledger, 'P4', 'C', Managed(), new, 'ux-current-command', {'kind': 'command', 'elapsed_seconds': 60}, source='tool_call', ref='ux-current-receipt', command_cap_seconds=60)
         out['p4'] = {'old': old, 'new': new, 'status': tracking.detail(state, 'P4')['status']}
+        # P9: generation 1 continues from the artifact of generation 0 and produced its own output (P2-B inheritance)
+        p9 = make_root(names[2] if len(names) > 2 else 'P9', 'OBS-1 P2-B: the hien 1 tiep tuc tu dau ra do cua the hien 0')
+        name9 = names[2] if len(names) > 2 else 'P9'
+        engine.step(ledger, name9, quick, control=control); old9 = tracking.detail(state, name9)['nodes']['C']['attempt']
+        with ledger.transaction(write=True) as conn:
+            view = engine.state(ledger, name9, conn); engine._event(ledger, conn, view, 'C', 'node.resumed', resume_artifact=store.blob(b'artifact-C partial of generation 0'), continues_attempt=old9)
+        engine.step(ledger, name9, quick, control=control)
+        out['p9'] = {'old': old9, 'new': tracking.detail(state, name9)['nodes']['C']['attempt'], 'status': tracking.detail(state, name9)['status']}
         print(json.dumps(dict(out, phase='ready'), ensure_ascii=True, default=str), flush=True)
         t0 = time.time()
         while time.time() - t0 < hold:

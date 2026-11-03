@@ -102,3 +102,12 @@ Bằng chứng review: `D:\OneCrewRuns\codex-obs1-ux-review-20261103\observation
 | Ngăn chi tiết | lượt: đặt chỗ/bắt đầu/kết thúc/thực thi/chờ/kiểm/lý do giữ/quan sát/bằng chứng (evidence_index theo attempt hoặc node); dấu mốc: sự kiện + bằng chứng của seq | T chọn + 3 poll + resize |
 | P2-A | `data-k = need:<id>:<revision>`; `knownNeeds` + ghi chú `stale-need` khi request mở biến mất/đổi bản; bỏ `copied` | T `p2a` (trả lời qua CLI thật trong lúc đọc), đỏ dev9 |
 | P2-B | `_quote` nháy đơn PowerShell, `_runtime()` = `& '<venv>\Scripts\onecrew.exe'`, `reply_shell` | unit qua `powershell.exe` thật (`$SDK = "CHANGED"`), V16 đường dẫn `demo$SDK 'q' (a)&b``t`, đỏ dev9 |
+
+## 9. Review Codex trên `2.4.0.dev10` (`5e66903`, 03/11 ~16:00): ba P2 + một P3 và cách khép (dev11, local)
+
+| # | Finding (Codex) | Nguyên nhân | Cách khép | Kiểm / phản chứng |
+|---|---|---|---|---|
+| P2-A | đoạn "tới hiện tại" đứng khi seq không đổi (`tracking_web.py` `loadDetail` bỏ qua dựng lại) | phần đồng hồ của timeline phụ thuộc `axis.now` của reply, nhưng reply không đổi seq bị bỏ | poll không đổi seq: nhận `detailData` mới + `repaintGantt()` (giữ chọn/gập/focus/cuộn); mất kết nối → đóng băng + nhãn; nối lại → theo reply; không dùng đồng hồ máy | harness `gantt_now` (đo `data-to`/pixel qua 3 mẫu, chặn/mở `/api/*`); đỏ dev10 `red-on-dev10` |
+| P2-B | lượt hiện hành thế hệ mới hiện "thế hệ 0 đã tạo đầu ra" (`gside` lọc theo node khi `current`) | `evidence_index` không có thế hệ, một mục mỗi khóa (khóa nội dung chung giữa thế hệ), lọc theo node | mục theo (khóa, phần việc, thế hệ, lượt) + `generation` ở mọi mục; lọc theo lượt / (phần việc, thế hệ); tách đầu ra ↔ bằng chứng khác; "chưa có đầu ra"; `rows[].inherits` từ `resume_artifact`/`retained_candidate`/`continues` của view với nguồn | fixture P9; harness `evid`; unit `EvidenceByGeneration`; đỏ dev10 |
+| P2-C | so chuỗi ISO khác offset (`tracking.py` `_timeline_spans`) | `max()`/`>` trên chuỗi | mọi so sánh/min/max/sắp xếp trên `_at()` (UTC); phát ra `_iso`; mốc hỏng bỏ | unit `TimelineClock` (trộn `+07:00`/UTC/âm/qua ngày/cùng thời điểm/observed≠received); đỏ dev10 (cuối trục = chuỗi +07:00) |
+| P3-D | 1280×720 chật/cắt, P8 cần cuộn ngang | danh sách 1fr/2.4fr + cây 210 + `min-width` 640 + ngăn phải 280 ở ≥ 1100 | 1fr/3.4fr; cây 170; bỏ min-width ≥ 900; ngăn dưới tới 1400; nhãn vạch đầu/cuối trong biểu đồ | harness `gantt` desktop (`scrollWidth ≤ clientWidth`); ảnh 1280/640/390; đỏ dev10 (667 > 540) |

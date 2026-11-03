@@ -385,8 +385,9 @@ li.task,.r2 span,.dhead,.dsum,#detail,#untracked{overflow-wrap:anywhere}.r2 span
 .sw.execution,.seg.execution{background:var(--run)}.sw.reserved,.seg.reserved{background:repeating-linear-gradient(45deg,#9fb0cc 0 3px,#e3e9f3 3px 6px)}
 .sw.wait,.seg.wait{background:var(--wait)}.sw.verification,.seg.verification{background:var(--ver)}
 .sw.to_now,.seg.to_now{background:repeating-linear-gradient(-45deg,#c3c9d2 0 3px,#f2f4f7 3px 6px);border:1px dashed var(--mut);box-sizing:border-box}
-.gscroll{overflow-x:auto;overflow-y:hidden}.gbody{display:grid;grid-template-columns:210px minmax(420px,1fr);min-width:640px}
-.gaxis{height:22px;position:relative;border-bottom:1px solid var(--line);font-size:11px;color:var(--mut)}.gaxis span{position:absolute;top:3px;transform:translateX(-50%);white-space:nowrap}.gaxis i{position:absolute;top:0;bottom:0;border-left:1px solid var(--line)}
+.gscroll{overflow-x:auto;overflow-y:hidden}.gbody{display:grid;grid-template-columns:170px minmax(0,1fr)}
+.gstale{color:var(--blk);font-weight:600}
+.gaxis{height:22px;position:relative;border-bottom:1px solid var(--line);font-size:11px;color:var(--mut)}.gaxis span{position:absolute;top:3px;transform:translateX(-50%);white-space:nowrap}.gaxis span.first{transform:none}.gaxis span.last{transform:translateX(-100%)}.gchart{padding-right:8px;box-sizing:border-box}.gaxis i{position:absolute;top:0;bottom:0;border-left:1px solid var(--line)}
 .grow{position:relative;height:28px;border-top:1px solid var(--line);box-sizing:border-box}.gtree .grow{padding:5px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
 .gtree .gh0{height:22px;border-top:0;color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:4px 6px}
 .gtree .nodehead{font-weight:600;cursor:pointer}.gtree .att{padding-left:24px}.gtree .hist{padding-left:24px;color:var(--mut);cursor:pointer}.gtree .cur{color:var(--run)}
@@ -398,7 +399,7 @@ li.task,.r2 span,.dhead,.dsum,#detail,#untracked{overflow-wrap:anywhere}.r2 span
 .nowline{position:absolute;top:0;bottom:0;border-left:2px dashed var(--mut);pointer-events:none}
 .gside{border:1px solid var(--line);border-radius:8px;padding:8px;font-size:13px;min-width:0}.gside h4{margin:0 0 4px}.gside dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:4px 0;font-size:12px}.gside dt{color:var(--mut)}.gside dd{margin:0;overflow-wrap:anywhere}
 .stale-need{background:#fde2e2;color:#7a1f1f;padding:6px 8px;border-radius:6px;margin:6px 0;font-size:12px}.stale-need button{margin-left:8px;font-size:12px;padding:1px 6px}
-@media (min-width:1100px){.gantt{grid-template-columns:minmax(0,1fr) 280px}.gside{align-self:start;max-height:60vh;overflow:auto}}
+@media (min-width:1400px){.gantt{grid-template-columns:minmax(0,1fr) 300px}.gside{align-self:start;max-height:60vh;overflow:auto}}
 button{cursor:pointer}button.pri{background:var(--run);color:#fff;border-color:var(--run)}
 .small{font-size:12px}.mut{color:var(--mut)}.note{margin:6px 0 0}code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:rgba(120,140,180,.14);padding:0 4px;border-radius:3px;word-break:break-all}
 main{padding:12px 16px;display:grid;grid-template-columns:minmax(300px,2fr) minmax(360px,3fr);gap:12px;align-items:start}
@@ -425,10 +426,10 @@ ol.ev{list-style:none;margin:4px 0 0;padding:0}.ev li{padding:3px 4px;border-top
 details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visible{outline:3px solid var(--focus)}
 .dhead{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.dhead h2{margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--fg)}
 #back{display:none}#empty,#nodetail{padding:8px;color:var(--mut)}.err{color:var(--blk)}.note .brief{display:none}
-@media (min-width:900px){main[data-view=detail]{grid-template-columns:minmax(240px,1fr) minmax(420px,2.4fr)}main[data-view=detail] .task .r3{display:none}main[data-view=detail] .task{padding:6px 8px}}
+@media (min-width:900px){main[data-view=detail]{grid-template-columns:minmax(220px,1fr) minmax(420px,3.4fr)}main[data-view=detail] .task .r3{display:none}main[data-view=detail] .task{padding:6px 8px}}
 @media (max-width:899px){main{display:block}main[data-view=list] #detailpane{display:none}main[data-view=detail] #listpane{display:none}#detailpane{position:static;max-height:none}#back{display:inline-block}
   .ttl{white-space:normal}.r3{white-space:normal}header{padding:6px 12px}main{padding:8px 12px}.note .long,#src{display:none}.note .brief{display:inline}.tools label span{display:none}
-  .gbody{grid-template-columns:150px minmax(380px,1fr);min-width:540px}.gtree .grow{font-size:11px}}
+  .gbody{grid-template-columns:150px minmax(380px,1fr);min-width:540px}.gtree .grow{font-size:12px}.gaxis span.t1,.gaxis span.t3{display:none}}
 </style></head><body>
 <header>
 <div class="bar"><h1>OneCrew · theo dõi công việc</h1><span id="conn">đang kết nối…</span><span id="count" class="small mut"></span><span id="chips" role="group" aria-label="lọc nhanh"></span></div>
@@ -595,9 +596,9 @@ function gantt(d){var g=d.gantt||{rows:[],plan_marks:[],axis:{}},W=gWindow(g);
   var legend='<span class="legend"><span><i class="sw execution"></i>thực thi</span><span><i class="sw reserved"></i>đặt chỗ</span><span><i class="sw wait"></i>chờ (có mốc kết thúc)</span><span><i class="sw verification"></i>kiểm</span><span><i class="sw to_now"></i>tới hiện tại, chưa xác nhận</span><span>◆ dấu mốc</span><span style="opacity:.45"><i class="sw execution"></i>lượt cũ</span></span>';
   if(!W){h.push('<div><div class="gtop"><b style="color:var(--fg)">Timeline</b>'+legend+'</div><div class="mut small" id="gempty">'+(g.rows&&g.rows.length?'chưa có mốc thời gian có nguồn':'chưa có lượt thực hiện nào (chưa có mốc thời gian)')+'</div></div><div class="gside" id="gside"><span class="mut">Chọn một thanh hoặc dấu mốc để xem số liệu chính xác.</span></div></section>');return h.join('')}
   var axisSec=(W.w1-W.w0)/1000;
-  h.push('<div><div class="gtop"><b style="color:var(--fg)">Timeline</b><span>'+when(new Date(W.w0).toISOString())+' → '+(g.axis.extends_to_now&&gRange!=='x'?'hiện tại ('+when(g.axis.now)+')':when(new Date(W.w1).toISOString()))+' · '+hms(axisSec)+'</span>'
+  h.push('<div><div class="gtop"><b style="color:var(--fg)">Timeline</b><span>'+when(new Date(W.w0).toISOString())+' → '+(g.axis.extends_to_now&&gRange!=='x'?'hiện tại ('+when(g.axis.now)+' theo server)':when(new Date(W.w1).toISOString()))+' · '+hms(axisSec)+'</span>'+(lostSince?'<span class="gstale" id="gstale">mất kết nối: đang hiện dữ liệu cũ lúc '+(lastOk?new Date(lastOk).toLocaleTimeString():'?')+', đồng hồ dừng</span>':'')
     +'<label>khoảng <select id="grange"><option value="all"'+(gRange==='all'?' selected':'')+'>toàn khoảng</option><option value="1h"'+(gRange==='1h'?' selected':'')+'>1 giờ cuối</option><option value="15m"'+(gRange==='15m'?' selected':'')+'>15 phút cuối</option></select></label>'+legend+'</div>');
-  var ticks=[];for(var i=0;i<=5;i++){var t=W.w0+(W.w1-W.w0)*i/5;ticks.push('<i style="left:'+(i*20)+'%"></i><span style="left:'+(i*20)+'%">'+new Date(t).toLocaleTimeString()+'</span>')}
+  var ticks=[];for(var i=0;i<=5;i++){var t=W.w0+(W.w1-W.w0)*i/5;ticks.push('<i style="left:'+(i*20)+'%"></i><span class="t'+i+(i===0?' first':i===5?' last':'')+'" style="left:'+(i*20)+'%">'+new Date(t).toLocaleTimeString()+'</span>')}
   var tree=['<div class="grow gh0">Phần việc › lượt</div>'],chart=['<div class="gaxis">'+ticks.join('')+'</div>'];
   var nowL=g.axis.extends_to_now?pct(W,g.axis.now):null;
   function chartRow(inner,cls){return '<div class="grow'+(cls?' '+cls:'')+'">'+inner+(nowL!==null&&nowL>=0&&nowL<=100?'<span class="nowline" style="left:'+nowL.toFixed(3)+'%"></span>':'')+'</div>'}
@@ -619,30 +620,37 @@ function gantt(d){var g=d.gantt||{rows:[],plan_marks:[],axis:{}},W=gWindow(g);
   h.push('<div class="gside" id="gside">'+gside(d,g)+'</div></section>');return h.join('')}
 function gside(d,g){if(!selStep)return '<span class="mut">Chọn một thanh hoặc dấu mốc (chuột hoặc Tab + Enter) để xem mốc chính xác, lý do, đầu ra và bằng chứng của bước đó.</span>';
   var idx={};(d.evidence_index||[]).forEach(function(x){idx[x.key]=x});
-  function evRows(list){return list.length?list.map(function(x){return '<div class="small" data-k="evk:'+x.key+'"><b>'+esc(x.label)+'</b> · '+esc(x.kind)+' · '+(x.at?when(x.at):'thời điểm chưa rõ')+' <button type="button" class="ev-open" data-key="'+x.key+'">'+(evState[x.key]?'ẩn nội dung':'xem nội dung')+'</button> <a target="_blank" href="'+evHref(x.key)+'">mở tab mới</a>'+(evState[x.key]?'<pre>'+esc(evState[x.key].text)+'</pre>':'')+'</div>'}).join(''):'<span class="mut small">bước này không nêu bằng chứng</span>'}
+  function evRows(list,empty){return list.length?list.map(function(x){return '<div class="small" data-k="evk:'+x.key+'"><b>'+esc(x.label)+'</b> · '+esc(x.kind)+(typeof x.generation==='number'?' · thế hệ '+x.generation:'')+' · '+(x.at?when(x.at):'thời điểm chưa rõ')+' <button type="button" class="ev-open" data-key="'+x.key+'">'+(evState[x.key]?'ẩn nội dung':'xem nội dung')+'</button> <a target="_blank" href="'+evHref(x.key)+'">mở tab mới</a>'+(evState[x.key]?'<pre>'+esc(evState[x.key].text)+'</pre>':'')+'</div>'}).join(''):'<span class="mut small" id="evnone">'+(empty||'bước này không nêu bằng chứng')+'</span>'}
   var parts=selStep.id.split(':');
   if(parts[0]==='mk'){var seq=parseInt(parts[1],10),m=null;(g.plan_marks||[]).concat.apply([],(g.rows||[]).map(function(r){return r.marks})).forEach(function(x){if(x.seq===seq)m=x});if(!m)return '<span class="mut">dấu mốc không còn trong khoảng đang xem</span>';
     var ev=(d.timeline||[]).find(function(e){return e.seq===seq}),ex=(d.evidence_index||[]).filter(function(x){return x.seq===seq});
     return '<h4>◆ '+esc(m.label)+'</h4><dl><dt>thời điểm</dt><dd>'+when(m.at)+'</dd><dt>sự kiện</dt><dd><code>#'+seq+' '+esc(m.kind)+'</code></dd>'+(ev?'<dt>nội dung</dt><dd>'+esc(ev.summary)+'</dd>':'')+'</dl><div class="small"><b>Bằng chứng</b></div>'+evRows(ex)}
   var r=(g.rows||[]).find(function(x){return x.attempt===parts[1]});if(!r)return '<span class="mut">lượt không còn trong dữ liệu</span>';
   var which=parts[0],i=parseInt(parts[2],10),sg=which==='seg'?r.segments[i]:which==='wait'?r.waits[i]:which==='ver'?r.verification[i]:null;
-  var ex=(d.evidence_index||[]).filter(function(x){return x.attempt===r.attempt||(x.node===r.node&&(x.kind==='node.produced'||x.kind==='node.verification'||x.kind.indexOf('receipt')===0)&&r.current)});
+  var inh=r.inherits||[],inhKeys=inh.map(function(x){return x.key});
+  var ex=(d.evidence_index||[]).filter(function(x){if(inhKeys.indexOf(x.key)>=0)return false;if(x.attempt)return x.attempt===r.attempt;return x.node===r.node&&x.generation===r.generation});   // P2-B: this attempt's own evidence (or its node in ITS generation), never another generation's
   var h='<h4>Lượt <code>'+esc(r.attempt.slice(0,16))+'…</code> · phần việc '+esc(r.node||'?')+' · thế hệ '+r.generation+' · '+esc(r.status)+(r.current?' · hiện hành':r.active?'':' · lượt cũ')+'</h4>';
   if(sg)h+='<div class="small"><b>'+esc(which==='seg'?segWord(sg.kind):which==='wait'?'chờ'+(sg.reason?': '+esc(sg.reason):''):'kiểm ('+esc(sg.result)+')')+'</b> '+when(sg.from)+' → '+(which==='seg'&&sg.kind==='to_now'?'hiện tại (chưa xác nhận)':when(sg.to||sg.until))+(which==='seg'&&sg.kind!=='to_now'?' · '+hms((tms(sg.to)-tms(sg.from))/1000):'')+'</div>';
   h+='<dl><dt>đặt chỗ</dt><dd>'+when(r.reserved_at)+'</dd><dt>bắt đầu chạy</dt><dd>'+(r.launched_at?when(r.launched_at):'chưa xác định')+'</dd><dt>kết thúc</dt><dd>'+(r.settled_at?when(r.settled_at):r.active?'đang chạy · mốc dữ liệu mới nhất '+when(r.latest_mark_at):'chưa xác định')+'</dd><dt>thực thi</dt><dd>'+hms(r.execution_seconds)+'</dd><dt>chờ</dt><dd>'+(r.waits.length?r.waits.map(function(w){return esc(w.reason||'')+' '+when(w.from)+' → '+(w.until?when(w.until):'chưa rõ kết thúc')}).join('; '):'không ghi nhận')+'</dd><dt>kiểm</dt><dd>'+(r.verification.length?r.verification.map(function(v){return esc(v.result)+' ('+hms((tms(v.to)-tms(v.from))/1000)+')'}).join('; '):'chưa')+'</dd></dl>';
   var node=(d.nodes||{})[r.node]||{};if(node.phase==='held'&&r.current)h+='<div class="small" style="color:var(--blk)">bị giữ — lý do (engine): '+esc(node.reason)+'</div>';
   if(node.progress&&r.current)h+='<div class="small">quan sát gần nhất: '+esc(node.progress.status)+' '+when(node.progress.observed_at||node.progress.received_at)+(node.progress.reason?' — '+esc(node.progress.reason):'')+'</div>';
   if(r.marks.length)h+='<div class="small mut">dấu mốc: '+r.marks.map(function(m){return esc(m.label)+' '+clock(m.at)}).join(' · ')+'</div>';
-  h+='<div class="small" style="margin-top:4px"><b>Đầu ra / bằng chứng</b></div>'+evRows(ex);return h}
+  var isOut=function(x){return x.kind==='node.produced'||x.kind==='node.verification'||x.kind==='attempt.settled'||x.kind.indexOf('node.receipt')===0},outs=ex.filter(isOut),rest=ex.filter(function(x){return !isOut(x)});
+  h+='<div class="small" style="margin-top:4px"><b>Đầu ra của lượt này</b> <span class="mut">(thế hệ '+r.generation+')</span></div>'+evRows(outs,r.active?'lượt này chưa có đầu ra (đang chạy)':'lượt này không có đầu ra');
+  if(rest.length)h+='<div class="small" style="margin-top:4px"><b>Bằng chứng khác của lượt này</b></div>'+evRows(rest);
+  if(inh.length)h+='<div class="small" style="margin-top:4px" id="inherit"><b>Kế thừa</b> <span class="mut">(hợp lệ, từ lượt trước)</span></div>'+inh.map(function(x){var e=x.key?idx[x.key]:null;return '<div class="small" data-k="inh:'+esc(x.key||x.kind)+'">'+esc(x.label)+(typeof x.from_generation==='number'?' từ thế hệ '+x.from_generation:'')+(x.from_attempt?' (lượt '+esc(String(x.from_attempt).slice(4,12))+')':'')+' · nguồn <code>'+esc(x.source)+'</code>'+(x.key?' <button type="button" class="ev-open" data-key="'+x.key+'">'+(evState[x.key]?'ẩn nội dung':'xem nội dung')+'</button> <a target="_blank" href="'+evHref(x.key)+'">mở tab mới</a>'+(evState[x.key]?'<pre>'+esc(evState[x.key].text)+'</pre>':''):'')+'</div>'}).join('');
+  return h}
 function repaintGantt(){if(!detailData)return;var s=snapshot();var el=document.querySelector('#detail .gantt');if(el){var t=document.createElement('div');t.innerHTML=gantt(detailData);el.replaceWith(t.firstChild)}restore(s)}
 function snapshot(){var open={};document.querySelectorAll('#detail details[data-k]').forEach(function(x){open[x.getAttribute('data-k')]=x.open});
   var a=document.activeElement,foc=a&&a.closest&&a.closest('[data-k]'),inner=null;
   if(a&&foc){if(a.tagName==='SUMMARY')inner='summary';else if(a.classList.contains('copy'))inner='copy';else if(a.classList.contains('ev-open'))inner='ev-open:'+a.getAttribute('data-key');else if(a.tagName==='A')inner='a'}
-  return {open:open,focus:foc?foc.getAttribute('data-k'):null,inner:inner,pane:$('#detailpane').scrollTop,win:window.scrollY}}
+  var gs=document.querySelector('#detail .gscroll');
+  return {open:open,focus:foc?foc.getAttribute('data-k'):null,inner:inner,pane:$('#detailpane').scrollTop,win:window.scrollY,gs:gs?gs.scrollLeft:0}}
 function restore(s){if(!s)return;Object.keys(s.open).forEach(function(k){var x=document.querySelector('#detail details[data-k="'+k.replace(/"/g,'\\"')+'"]');if(x)x.open=s.open[k]});
   if(s.focus){var f=document.querySelector('[data-k="'+s.focus.replace(/"/g,'\\"')+'"]');if(f){var t=null;
     if(s.inner==='summary'||f.tagName==='DETAILS')t=f.querySelector('summary');else if(s.inner==='copy')t=f.querySelector('button.copy');else if(s.inner&&s.inner.indexOf('ev-open:')===0)t=f.querySelector('.ev-open[data-key="'+s.inner.slice(8)+'"]');else if(s.inner==='a')t=f.querySelector('a');
     (t||f).focus({preventScroll:true})}}
+  var gs=document.querySelector('#detail .gscroll');if(gs&&s.gs)gs.scrollLeft=s.gs;
   $('#detailpane').scrollTop=s.pane;if(Math.abs(window.scrollY-s.win)>2)window.scrollTo(0,s.win)}
 function paint(d,why){var s=snapshot();detailData=d;renderDetail(d);restore(s);if(why==='select')afterSelect()}
 function afterSelect(){setView();if(narrow())window.scrollTo(0,0);else{var r=$('#detailpane').getBoundingClientRect();if(r.top<0||r.top>window.innerHeight*0.8)$('#detailpane').scrollIntoView({block:'start'})}
@@ -651,7 +659,7 @@ function loadDetail(why){if(!selected)return;var token=++detailToken,sel=selecte
   fetch('/api/task?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):'')+'&timeline=300',{cache:'no-store'})
   .then(function(r){return r.json().then(function(j){return [r.ok,j]})}).then(function(x){if(token!==detailToken)return;      // a reply for a task no longer selected never overwrites the selected one
     if(!x[0]){$('#detail').innerHTML='<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" tabindex="-1">'+esc(sel.plan)+'</h2></div><div class="err">'+esc(x[1].error||'lỗi')+'</div>';detailSeq=null;if(why==='select')afterSelect();return}
-    var seq=x[1].source&&x[1].source.last_seq;if(why!=='select'&&why!=='force'&&seq===detailSeq&&detailData&&detailData.selector===x[1].selector&&detailData.project_id===x[1].project_id){detailData=x[1];return}   // nothing moved in the ledger: keep what the reader is looking at
+    var seq=x[1].source&&x[1].source.last_seq;if(why!=='select'&&why!=='force'&&seq===detailSeq&&detailData&&detailData.selector===x[1].selector&&detailData.project_id===x[1].project_id){detailData=x[1];if(x[1].gantt&&x[1].gantt.axis&&(x[1].gantt.axis.extends_to_now||$('#gstale')))repaintGantt();return}   // nothing moved in the ledger: keep what the reader is looking at; only the server clock parts of the timeline move (P2-A)
     detailSeq=seq;paint(x[1],why)}).catch(function(){})}
 function select(sel,opts){opts=opts||{};if(!sel){if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailSeq=null;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);
     if(!opts.silent&&location.search)history.pushState({},'',location.pathname);return}
@@ -664,7 +672,7 @@ function poll(){fetch('/api/overview',{cache:'no-store'}).then(function(r){retur
     last=j;lastOk=Date.now();lostSince=null;var s=j.source||{};
     if(s.status!=='ok'){conn('src','NGUỒN '+(s.status||'?')+': '+(s.detail||''))}else{conn('ok','kết nối OK · dữ liệu lúc '+new Date(j.generated_at).toLocaleTimeString()+' · seq '+s.last_seq+' · đọc '+(j.server&&j.server.read_ms)+' ms')}
     $('#src').textContent='Sổ: '+(s.ledger||'')+' · poll '+(INTERVAL/1000)+' s · wheel '+(j.server&&j.server.version||'?');render();if(selected)loadDetail('poll');
-  }).catch(function(e){if(!lostSince)lostSince=new Date();conn('bad','MẤT KẾT NỐI với server theo dõi từ '+lostSince.toLocaleTimeString()+(lastOk?' — đang hiện dữ liệu cũ lúc '+new Date(lastOk).toLocaleTimeString():' — chưa có dữ liệu')+'; worker không bị ảnh hưởng; trang tự thử lại')})
+  }).catch(function(e){if(!lostSince){lostSince=new Date();repaintGantt()}conn('bad','MẤT KẾT NỐI với server theo dõi từ '+lostSince.toLocaleTimeString()+(lastOk?' — đang hiện dữ liệu cũ lúc '+new Date(lastOk).toLocaleTimeString():' — chưa có dữ liệu')+'; worker không bị ảnh hưởng; trang tự thử lại')})
   .then(function(){setTimeout(poll,INTERVAL)})}
 function copyText(text,k){copied={k:k,text:text,ok:false};var s=snapshot();           // the reader's focus at click time, restored after the re-render
   function done(){renderDetail(detailData);restore(s)}
@@ -702,7 +710,7 @@ window.matchMedia('(max-width:899px)').addEventListener('change',setView);
 setInterval(tick,1000);
 var qs=new URLSearchParams(location.search);if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true});
 poll();
-window.__track={state:function(){return {selected:selected,detailSeq:detailSeq,selEv:selEv,evOpen:Object.keys(evState),copied:copied,lastOk:lastOk,lost:!!lostSince,selStep:selStep,gRange:gRange,stale:staleNotes.map(function(x){return x.id})}}};   // read-only inspection for tests; no control
+window.__track={state:function(){return {selected:selected,detailSeq:detailSeq,selEv:selEv,evOpen:Object.keys(evState),copied:copied,lastOk:lastOk,lost:!!lostSince,selStep:selStep,gRange:gRange,stale:staleNotes.map(function(x){return x.id}),axisNow:detailData&&detailData.gantt&&detailData.gantt.axis?detailData.gantt.axis.now:null}}};   // read-only inspection for tests; no control
 })();
 </script></body></html>
 '''

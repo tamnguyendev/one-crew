@@ -440,6 +440,7 @@ def _timeline(conn, root_id, children, current_generation, limit, current_attemp
     noise = ','.join('?' for _ in NOISE)
     total = conn.execute(f'SELECT COUNT(*) FROM events WHERE task_id IN ({marks}) AND kind NOT IN ({noise})', task_ids + list(NOISE)).fetchone()[0]
     keys = set()
+    attempt_gen = {a['id']: a['generation'] for a in _attempts(conn, task_ids)} if task_ids else {}       # P2-B: attempt.* events carry no generation; their attempt row does
     attempt_node = {p.get('attempt'): p.get('node') for (p,) in ((json.loads(r['payload']),) for r in conn.execute(
         f"SELECT payload FROM events WHERE task_id IN ({marks}) AND kind='node.started'", task_ids)) if p.get('attempt') and p.get('node')}
     for r in conn.execute(f'SELECT seq, task_id, kind, payload, created_at FROM events WHERE task_id IN ({marks}) AND kind NOT IN ({noise}) ORDER BY seq DESC LIMIT ?',
@@ -453,7 +454,7 @@ def _timeline(conn, root_id, children, current_generation, limit, current_attemp
         owner = node if node is not None else node_of_attempt
         stale_attempt = owner is not None and attempt is not None and owner in current_attempt and attempt != current_attempt[owner]
         rows.append({'seq': r['seq'], 'task': 'root' if r['task_id'] == root_id else r['task_id'], 'at': r['created_at'], 'kind': r['kind'],
-                     'node': node, 'node_of_attempt': node_of_attempt, 'generation': gen, 'attempt': attempt,
+                     'node': node, 'node_of_attempt': node_of_attempt, 'generation': gen if gen is not None else (attempt_gen.get(attempt) if attempt else None), 'attempt': attempt,
                      'summary': clean(_summary(r['kind'], p), 240),
                      'observed_at': p.get('observed_at'), 'received_at': p.get('received_at'),
                      'stale_generation': stale, 'stale_attempt': stale_attempt,
@@ -468,75 +469,98 @@ MARK_KINDS = {'node.started': 'bắt đầu', 'node.produced': 'đã tạo đầ
               'plan.closed': 'đóng', 'plan.revised': 'kế hoạch nội bộ', 'request.created': 'câu hỏi', 'request.consumed': 'đã trả lời', 'milestone.stopped': 'dừng'}
 
 
-def _timeline_spans(events, attempts, nodes, current_attempt, waits, now):
+def _timeline_spans(events, attempts, nodes, current_attempt, waits, now, node_views=None):
     """The Gantt rows, from sourced timestamps only: one row per attempt under its node (attempts.created_at = reserved, attempt.launched =
     execution start, attempts.updated_at of a settled attempt = end), executor waits with an `until`, verification spans (node.produced ->
     node.verification of the same generation), instant marks per attempt/node and per plan. A running attempt has a confirmed segment up to
     its latest sourced mark and a separate `to_now` segment (not confirmed) up to `now`; an attempt without a launch has only a reserved
-    segment; nothing is invented: a missing timestamp leaves the segment out. The axis is the min/max of what is on the rows."""
+    segment; nothing is invented: a missing timestamp leaves the segment out. Every comparison, min/max and span is on aware datetimes (an ISO
+    string with any offset is normalised to UTC: P2-C), never on the strings; strings are emitted as `_iso` of the parsed value. A current
+    attempt carries what its node legitimately inherits from an older generation (resume_artifact / retained_candidate / continues: P2-B)."""
+    T = _at
+    def iso(value): return _iso(value) if isinstance(value, dt.datetime) else None
+    def later(a, b): return b if a is None or (b is not None and b > a) else a
     by_attempt = {a['id']: a for a in attempts}
     attempt_node, launched, marks_by_attempt, last_mark = {}, {}, {}, {}
     plan_marks, node_marks, produced_at, verifs = [], {}, {}, {}
     for seq, kind, p, at in events:
-        when = p.get('observed_at') or at
+        when = T(p.get('observed_at')) or T(at)
         aid = p.get('attempt') or (p.get('id') if kind.startswith('attempt.') else None)
         if kind == 'node.started' and p.get('attempt'): attempt_node[p['attempt']] = (p.get('node'), p.get('generation'))
-        if kind == 'attempt.launched' and p.get('id'): launched[p['id']] = at
-        if aid and aid in by_attempt and (last_mark.get(aid) is None or when > last_mark[aid]): last_mark[aid] = when
-        if kind in MARK_KINDS:
+        if kind == 'attempt.launched' and p.get('id'): launched[p['id']] = T(at)
+        if aid and aid in by_attempt and when: last_mark[aid] = later(last_mark.get(aid), when)
+        if kind in MARK_KINDS and when:
             label = MARK_KINDS[kind] + (f": {p.get('result')}" if kind == 'node.verification' else '') + (f": {clean(p.get('reason'), 60)}" if kind == 'node.held' else '')
-            mark = {'seq': seq, 'at': when, 'kind': kind, 'label': label}
+            mark = {'seq': seq, 'at': iso(when), 'kind': kind, 'label': label, 'generation': p.get('generation')}
             if p.get('node') is not None: node_marks.setdefault((p['node'], p.get('generation')), []).append(mark)
             elif aid and aid in by_attempt: marks_by_attempt.setdefault(aid, []).append(mark)
             else: plan_marks.append(mark)
-        if kind == 'executor.observed' and p.get('what') == 'progress' and (p.get('checkpoint') or {}).get('status') == 'blocked' and aid:
-            marks_by_attempt.setdefault(aid, []).append({'seq': seq, 'at': when, 'kind': 'executor.observed', 'label': 'quan sát: blocked'})
-        if kind == 'node.produced': produced_at[(p.get('node'), p.get('generation'))] = at
-        if kind == 'node.verification' and (p.get('node'), p.get('generation')) in produced_at:
-            verifs.setdefault((p.get('node'), p.get('generation')), []).append({'from': produced_at[(p.get('node'), p.get('generation'))], 'to': at, 'result': p.get('result')})
+        if kind == 'executor.observed' and p.get('what') == 'progress' and (p.get('checkpoint') or {}).get('status') == 'blocked' and aid and when:
+            marks_by_attempt.setdefault(aid, []).append({'seq': seq, 'at': iso(when), 'kind': 'executor.observed', 'label': 'quan sát: blocked', 'generation': p.get('generation')})
+        if kind == 'node.produced': produced_at[(p.get('node'), p.get('generation'))] = T(at)
+        if kind == 'node.verification' and (p.get('node'), p.get('generation')) in produced_at and T(at):
+            verifs.setdefault((p.get('node'), p.get('generation')), []).append({'from': iso(produced_at[(p.get('node'), p.get('generation'))]), 'to': iso(T(at)), 'result': p.get('result')})
     waits_by_attempt = {}
     for w in waits:
-        if w['source'] == 'executor.observed' and w.get('attempt'):
-            waits_by_attempt.setdefault(w['attempt'], []).append({'from': w['since'], 'until': w['until'] if w.get('until') not in (None, UNKNOWN) else None, 'reason': clean(w.get('reason'), 120), 'open': w['open']})
+        if w['source'] == 'executor.observed' and w.get('attempt') and T(w['since']):
+            until = T(w['until']) if w.get('until') not in (None, UNKNOWN) else None
+            waits_by_attempt.setdefault(w['attempt'], []).append({'from': iso(T(w['since'])), 'until': iso(until), 'reason': clean(w.get('reason'), 120), 'open': w['open']})
     rows, times = [], []
-    now_iso = _iso(now)
+    now_dt = now if isinstance(now, dt.datetime) else T(now)
+    node_views = node_views or {}
     for nid in list(nodes) + [None]:
         for a in attempts:
             node, gen = attempt_node.get(a['id'], (None, a['generation']))
             if node != nid: continue
             active = a['status'] in ('reserved', 'running', 'unknown')
-            start, launch = a['created_at'], launched.get(a['id'])
-            end = a['updated_at'] if not active else None
-            latest = max([t for t in (last_mark.get(a['id']), launch, start) if t]) if any((last_mark.get(a['id']), launch, start)) else None
+            start, launch = T(a['created_at']), launched.get(a['id'])
+            end = T(a['updated_at']) if not active else None
+            latest = None
+            for candidate in (last_mark.get(a['id']), launch, start): latest = later(latest, candidate)
             segments = []
-            if start and (launch or end or latest): segments.append({'kind': 'reserved', 'from': start, 'to': launch or end or latest, 'confirmed': True})
+            if start and (launch or end or latest): segments.append({'kind': 'reserved', 'from': iso(start), 'to': iso(launch or end or latest), 'confirmed': True})
             if launch:
-                if end: segments.append({'kind': 'execution', 'from': launch, 'to': end, 'confirmed': True})
+                if end: segments.append({'kind': 'execution', 'from': iso(launch), 'to': iso(end), 'confirmed': True})
                 else:
-                    if latest and latest > launch: segments.append({'kind': 'execution', 'from': launch, 'to': latest, 'confirmed': True})
-                    segments.append({'kind': 'to_now', 'from': latest or launch, 'to': now_iso, 'confirmed': False})
-            elif active and start: segments.append({'kind': 'to_now', 'from': latest or start, 'to': now_iso, 'confirmed': False})
+                    if latest and latest > launch: segments.append({'kind': 'execution', 'from': iso(launch), 'to': iso(latest), 'confirmed': True})
+                    segments.append({'kind': 'to_now', 'from': iso(latest or launch), 'to': iso(now_dt), 'confirmed': False})
+            elif active and start: segments.append({'kind': 'to_now', 'from': iso(latest or start), 'to': iso(now_dt), 'confirmed': False})
             key = (node, gen)
-            row = {'node': node, 'attempt': a['id'], 'generation': gen, 'status': a['status'], 'current': current_attempt.get(node) == a['id'] if node else False,
-                   'reserved_at': start, 'launched_at': launch, 'settled_at': end, 'latest_mark_at': latest, 'active': active,
+            current = current_attempt.get(node) == a['id'] if node else False
+            inherits = []
+            view = node_views.get(node) if node else None
+            if current and view:                       # P2-B: what this attempt legitimately starts from, with its origin (engine: node.resumed resume_artifact / continues_attempt)
+                src = view.get('continues') if isinstance(view.get('continues'), str) else None
+                src_gen = attempt_node.get(src, (None, None))[1] if src else None
+                if src_gen is None and isinstance(gen, int) and gen > 0: src_gen = gen - 1
+                for field, what in (('resume_artifact', 'đầu ra dở được tiếp tục'), ('retained_candidate', 'ứng viên được giữ lại')):
+                    key_ = view.get(field); key_ = key_.get('artifact') if isinstance(key_, dict) else key_
+                    if isinstance(key_, str) and HEX64.fullmatch(key_):
+                        inherits.append({'kind': field, 'key': key_, 'label': what, 'from_attempt': src, 'from_generation': src_gen, 'source': f'nodes[{node}].{field}'})
+                if src and not inherits:
+                    inherits.append({'kind': 'continues', 'key': None, 'label': 'tiếp từ lượt trước', 'from_attempt': src, 'from_generation': src_gen, 'source': f'nodes[{node}].continues'})
+            row = {'node': node, 'attempt': a['id'], 'generation': gen, 'status': a['status'], 'current': current,
+                   'reserved_at': iso(start), 'launched_at': iso(launch), 'settled_at': iso(end), 'latest_mark_at': iso(latest), 'active': active,
                    'segments': segments, 'waits': waits_by_attempt.get(a['id'], []),
-                   'verification': verifs.get(key, []) if current_attempt.get(node) == a['id'] or not any(r['attempt'] != a['id'] and (r['node'], r['generation']) == key for r in rows) else [],
-                   'marks': sorted(node_marks.get(key, []) + marks_by_attempt.get(a['id'], []), key=lambda m: m['at'] or ''),
-                   'execution_seconds': _seconds(_at(launch), _at(end)) if launch and end else UNKNOWN,
-                   'span_seconds': _seconds(_at(start), _at(end)) if start and end else UNKNOWN}
+                   'verification': verifs.get(key, []) if current or not any(r['attempt'] != a['id'] and (r['node'], r['generation']) == key for r in rows) else [],
+                   'marks': sorted(node_marks.get(key, []) + marks_by_attempt.get(a['id'], []), key=lambda m: T(m['at'])),
+                   'inherits': inherits,
+                   'execution_seconds': _seconds(launch, end) if launch and end else UNKNOWN,
+                   'span_seconds': _seconds(start, end) if start and end else UNKNOWN}
             rows.append(row)
-            for s in segments: times += [s['from'], s['to']]
-            for w in row['waits']: times += [w['from'], w['until']]
-            for v in row['verification']: times += [v['from'], v['to']]
-            for m in row['marks']: times.append(m['at'])
-    for m in plan_marks: times.append(m['at'])
+            for s_ in segments: times += [T(s_['from']), T(s_['to'])]
+            for w in row['waits']: times += [T(w['from']), T(w['until'])]
+            for v in row['verification']: times += [T(v['from']), T(v['to'])]
+            for m in row['marks']: times.append(T(m['at']))
+    for m in plan_marks: times.append(T(m['at']))
     times = [t for t in times if t]
     extends = any(r['active'] for r in rows)
-    axis = {'start': min(times) if times else None, 'end': max(times) if times else None, 'now': now_iso, 'extends_to_now': extends,
-            'basis': 'attempts.created_at/updated_at, attempt.launched, executor.observed (observed_at), node.*; đoạn to_now = chưa xác nhận'}
-    if axis['start'] and extends and now_iso > axis['end']: axis['end'] = now_iso
-    axis['seconds'] = _seconds(_at(axis['start']), _at(axis['end'])) if axis['start'] else UNKNOWN
-    return {'axis': axis, 'plan_marks': plan_marks, 'rows': rows}
+    axis_start, axis_end = (min(times), max(times)) if times else (None, None)
+    if axis_start and extends and now_dt and now_dt > axis_end: axis_end = now_dt
+    axis = {'start': iso(axis_start), 'end': iso(axis_end), 'now': iso(now_dt), 'extends_to_now': extends,
+            'basis': 'attempts.created_at/updated_at, attempt.launched, executor.observed (observed_at), node.*; mọi mốc so theo giá trị thời gian (UTC), đoạn to_now = chưa xác nhận',
+            'seconds': _seconds(axis_start, axis_end) if axis_start else UNKNOWN}
+    return {'axis': axis, 'plan_marks': sorted(plan_marks, key=lambda m: T(m['at'])), 'rows': rows}
 
 
 def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
@@ -621,21 +645,24 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     current = {nid: r['generation'] for nid, r in nodes.items()}
     current_attempt = {nid: r['attempt'] for nid, r in nodes.items() if r['attempt']}
     item['timeline'], item['timeline_total'], keys = _timeline(conn, row['id'], children, current, timeline_limit, current_attempt)
-    index = {}                                   # UX-07: every evidence blob with a name, a kind and a time — the first event that named it
-    for e in item['timeline']:
+    index = {}                                   # UX-07: every evidence blob with a name, a kind and a time — the first event that named it for each (node, generation, attempt):
+    for e in item['timeline']:                   # blobs are content-addressed, so byte-identical output of two generations shares one key (P2-B: each generation lists its own)
         for key in e['evidence']:
-            if key not in index:
-                index[key] = {'key': key, 'seq': e['seq'], 'kind': e['kind'], 'at': e['observed_at'] or e['at'], 'node': e['node'], 'attempt': e['attempt'],
-                              'label': e['summary'], 'stale': bool(e['stale_generation'] or e['stale_attempt'])}
+            slot = (key, e['node'] or e.get('node_of_attempt'), e['generation'], e['attempt'])
+            if slot not in index:
+                index[slot] = {'key': key, 'seq': e['seq'], 'kind': e['kind'], 'at': e['observed_at'] or e['at'], 'node': e['node'] or e.get('node_of_attempt'), 'attempt': e['attempt'],
+                               'generation': e['generation'], 'label': e['summary'], 'stale': bool(e['stale_generation'] or e['stale_attempt'])}
     for nid, r in nodes.items():
         for key, what in ((r['receipt'], 'receipt đầu ra'), (r['verification_receipt'], 'receipt kiểm'), (r['resume_artifact'], 'đầu ra dở được tiếp tục'), (r['retained_candidate'], 'ứng viên được giữ lại')):
+            key = key.get('artifact') if isinstance(key, dict) else key
             if isinstance(key, str) and HEX64.fullmatch(key):
                 keys.add(key)
-                if key not in index: index[key] = {'key': key, 'seq': None, 'kind': 'node.' + what.split()[0], 'at': None, 'node': nid, 'attempt': r['attempt'], 'label': f'{what} của phần việc {nid}', 'stale': False}
+                if not any(x['key'] == key for x in index.values()):
+                    index[(key, nid, r['generation'], r['attempt'])] = {'key': key, 'seq': None, 'kind': 'node.' + what.split()[0], 'at': None, 'node': nid, 'attempt': r['attempt'], 'generation': r['generation'], 'label': f'{what} của phần việc {nid}', 'stale': False}
     item['evidence_keys'] = sorted(keys)
     item['evidence_index'] = sorted(index.values(), key=lambda x: (x['seq'] is None, x['seq'] or 0))
     child_events = [e for child in sorted(children) for e in _events(conn, child) if e[1] not in NOISE]     # attempt.* events live on the child task
-    item['gantt'] = _timeline_spans(sorted(events + child_events, key=lambda e: e[0]), attempts, list(nodes), current_attempt, waits, now)
+    item['gantt'] = _timeline_spans(sorted(events + child_events, key=lambda e: e[0]), attempts, list(nodes), current_attempt, waits, now, node_views=nodes)
     item['measure'] = _measure(rd, row['request_key']) if engine_root else {'note': 'root không có engine: không có attempt để đo'}
     item['eta'] = _eta(rd, row['request_key'], now)
     item['holds'] = _holds(rd, row['request_key'], conn) if engine_root else []

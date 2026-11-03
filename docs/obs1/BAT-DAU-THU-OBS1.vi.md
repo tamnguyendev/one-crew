@@ -1,7 +1,7 @@
 # Bắt đầu thử OBS-1 — màn hình theo dõi chỉ đọc (beta @@VERSION@@)
 
 Điểm vào duy nhất để thử lát OBS-1. Gói này là beta `@@VERSION@@` của dòng 2.4 dựng từ nhánh `@@BRANCH@@` (snapshot `@@COMMIT@@`) = `2.4.0.dev6` + lát OBS-1
-(màn hình theo dõi chỉ đọc) + bốn bản sửa P2 của Codex 03/11 (dev7) + vòng UI/UX 03/11 theo hướng Blazo (UX-01…UX-08, định danh server của `track open`, `track status|stop`; dev8) + vòng UI/UX thứ hai theo review Codex trên dev8 (đồng hồ, mẫu lệnh trả lời đủ `--reference`, tràn 390 px, câu hỏi gập, chip lọc; dev9) + timeline Gantt/waterfall làm trung tâm màn chi tiết, mẫu lệnh PowerShell, câu hỏi bám định danh (dev10). Nhánh `claude/onecrew-2.4`, tag và gói `2.4.0.dev6`/`dev7`/`dev8` không đổi. Chỉ cài vào venv thử, chỉ đọc sổ thử hoặc bản sao.
+(màn hình theo dõi chỉ đọc) + bốn bản sửa P2 của Codex 03/11 (dev7) + vòng UI/UX 03/11 theo hướng Blazo (UX-01…UX-08, định danh server của `track open`, `track status|stop`; dev8) + vòng UI/UX thứ hai theo review Codex trên dev8 (đồng hồ, mẫu lệnh trả lời đủ `--reference`, tràn 390 px, câu hỏi gập, chip lọc; dev9) + timeline Gantt/waterfall làm trung tâm màn chi tiết, mẫu lệnh PowerShell, câu hỏi bám định danh (dev10) + bốn bản sửa theo review Codex trên dev10: đồng hồ timeline theo server, bằng chứng theo thế hệ/lượt, so thời gian theo giá trị, bố cục 1280 (dev11). Nhánh `claude/onecrew-2.4`, tag và gói `2.4.0.dev6`/`dev7`/`dev8` không đổi. Chỉ cài vào venv thử, chỉ đọc sổ thử hoặc bản sao.
 
 | Mục | Giá trị |
 |---|---|

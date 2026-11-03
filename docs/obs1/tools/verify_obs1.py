@@ -544,10 +544,10 @@ def main(pkg, work):
         try:
             scenarios = [('ux01', 'desktop'), ('ux02', 'desktop'), ('ux03', 'desktop'), ('ux04', 'desktop'), ('ux05', 'desktop'), ('ux06', 'desktop'), ('ux07', 'desktop'),
                          ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop'),
-                         ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile'), ('gantt', 'desktop'), ('gantt', 'mobile'), ('p2a', 'desktop')]
+                         ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile'), ('gantt', 'desktop'), ('gantt', 'mobile'), ('p2a', 'desktop'), ('gantt_now', 'desktop'), ('evid', 'desktop')]
             for name, size in scenarios:
                 width, height = ux.SIZES[size]
-                result = ux.run(browser, proxy.url, name, width, height, profile, budget=45000 if name in ('ux01', 'disc', 'clock', 'gantt', 'p2a') else 30000)
+                result = ux.run(browser, proxy.url, name, width, height, profile, budget=45000 if name in ('ux01', 'disc', 'clock', 'gantt', 'p2a', 'gantt_now', 'evid') else 30000)
                 results[f'{name}@{size}'] = {'ok': result.get('ok'), 'polls': result.get('polls'), 'checks': result.get('checks'), 'notes': result.get('notes'), 'error': result.get('error'),
                                              'scrollWidth': result.get('scrollWidth'), 'innerWidth': result.get('innerWidth')}
                 if not result.get('ok'): problems.append(f'{name}@{size}: ' + str(result.get('error') or result.get('notes'))[:300])

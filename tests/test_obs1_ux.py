@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+import unittest
 import urllib.request
 from pathlib import Path
 
@@ -357,3 +358,73 @@ class DetachedOpen(Fixture):
                 if r and r.get('pid'):
                     try: os.kill(r['pid'], 15)
                     except OSError: pass
+
+
+class TimelineClock(unittest.TestCase):
+    """P2-C (Codex on dev10): the timeline layer compares instants, never ISO strings; an observation written with +07:00 and a `now` in UTC
+    sort by value, the axis reaches the running attempt's now, and two strings of one instant give one geometry."""
+    ATT = [{'id': 'ATT-1', 'task': 't', 'generation': 1, 'status': 'running', 'created_at': '2026-11-03T14:59:00+07:00', 'updated_at': '2026-11-03T14:59:30+07:00', 'unit': 'u', 'stage': 's'}]
+
+    def spans(self, observed, now, launched='2026-11-02T23:59:20-08:00'):
+        events = [(1, 'node.started', {'node': 'C', 'generation': 1, 'attempt': 'ATT-1'}, '2026-11-03T07:59:10+00:00'),
+                  (2, 'attempt.launched', {'id': 'ATT-1', 'generation': 1}, launched),
+                  (3, 'executor.observed', {'attempt': 'ATT-1', 'what': 'progress', 'checkpoint': {'status': 'progressing'}, 'observed_at': observed}, '2026-11-03T08:00:30+00:00')]
+        return tracking._timeline_spans(events, self.ATT, ['C'], {'C': 'ATT-1'}, [], now)
+
+    def test_mixed_offsets_sort_by_instant_and_the_axis_reaches_now(self):
+        g = self.spans('2026-11-03T15:01:00+07:00', '2026-11-03T08:02:00+00:00')
+        at = tracking._at
+        self.assertEqual(at(g['axis']['end']), at('2026-11-03T08:02:00+00:00')); self.assertTrue(g['axis']['extends_to_now'])
+        row = g['rows'][0]; kinds = [s['kind'] for s in row['segments']]
+        self.assertEqual(kinds, ['reserved', 'execution', 'to_now'])
+        self.assertEqual(at(row['segments'][1]['to']), at('2026-11-03T08:01:00+00:00'))            # the +07:00 observation is the latest confirmed mark
+        self.assertEqual(at(row['segments'][2]['from']), at('2026-11-03T08:01:00+00:00')); self.assertEqual(at(row['segments'][2]['to']), at(g['axis']['now']))
+        self.assertEqual(at(row['latest_mark_at']), at('2026-11-03T08:01:00+00:00'))
+        self.assertEqual(at(g['axis']['start']), at('2026-11-03T07:59:00+00:00'))                   # reserved at 14:59+07 = 07:59Z
+        self.assertAlmostEqual(g['axis']['seconds'], 180.0)
+        for s in row['segments']: self.assertLessEqual(at(s['from']), at(s['to']))
+
+    def test_two_strings_of_one_instant_give_the_same_geometry_and_a_negative_offset_crossing_midnight(self):
+        a = self.spans('2026-11-03T15:01:00+07:00', '2026-11-03T08:02:00+00:00')
+        b = self.spans('2026-11-03T08:01:00Z', '2026-11-03T03:02:00-05:00')
+        norm = lambda g: [(s['kind'], tracking._at(s['from']), tracking._at(s['to'])) for s in g['rows'][0]['segments']]
+        self.assertEqual(norm(a), norm(b)); self.assertEqual(a['axis']['seconds'], b['axis']['seconds'])
+        self.assertEqual(tracking._at(a['axis']['end']), tracking._at(b['axis']['end']))
+        self.assertEqual(tracking._at(a['rows'][0]['segments'][1]['from']), tracking._at('2026-11-03T07:59:20+00:00'))   # launched 23:59:20-08:00 the day before = 07:59:20Z
+
+    def test_a_late_observation_counts_at_its_observed_time_and_bad_data_is_left_out(self):
+        g = self.spans('2026-11-03T15:00:10+07:00', '2026-11-03T08:02:00+00:00')                     # observed 08:00:10Z, received 08:00:30Z: the mark is at 08:00:10
+        self.assertEqual(tracking._at(g['rows'][0]['segments'][1]['to']), tracking._at('2026-11-03T08:00:10+00:00'))
+        g = self.spans('not a time', '2026-11-03T08:02:00+00:00')                                      # a bad observed_at: the received time is used, nothing invented
+        self.assertEqual(tracking._at(g['rows'][0]['segments'][1]['to']), tracking._at('2026-11-03T08:00:30+00:00'))
+        g = self.spans('2026-11-03T15:01:00+07:00', '2026-11-03T08:02:00+00:00', launched='garbage')
+        self.assertEqual([s['kind'] for s in g['rows'][0]['segments']], ['reserved', 'to_now']); self.assertIsNone(g['rows'][0]['launched_at'])
+
+
+class EvidenceByGeneration(EngineFixture):
+    """P2-B (Codex on dev10): evidence is attributed per generation and attempt; a current attempt without output has none of its own; what it
+    inherits (node.resumed resume_artifact / continues_attempt) is listed apart with its origin."""
+    def test_generation_on_every_entry_and_inheritance_with_provenance(self):
+        self.revise([node('A'), node('I', ['A'], integration=True, write=())])
+        worker = _Blocking(self); worker.release.set(); self.step(worker)
+        d0 = tracking.detail(self.ledger.state_root, 'P1'); old = d0['nodes']['A']['attempt']; receipt0 = d0['nodes']['A']['receipt']
+        partial = self.store.blob(b'artifact-A partial of generation 0')
+        with self.ledger.transaction(write=True) as conn:
+            view = engine.state(self.ledger, 'P1', conn); engine._event(self.ledger, conn, view, 'A', 'node.resumed', resume_artifact=partial, continues_attempt=old)
+        worker = _Blocking(self); thread = threading.Thread(target=self.step, args=(worker,), daemon=True); thread.start(); self.assertTrue(worker.started.wait(10))
+        d = tracking.detail(self.ledger.state_root, 'P1'); rows = d['gantt']['rows']
+        self.assertTrue(all(isinstance(x['generation'], int) for x in d['evidence_index'] if x['node']), d['evidence_index'])   # task-level evidence (task.submitted) has no generation
+        cur = next(r for r in rows if r['current']); prev = next(r for r in rows if r['attempt'] == old)
+        self.assertEqual((cur['generation'], prev['generation']), (1, 0)); self.assertTrue(cur['active'])
+        own = [x for x in d['evidence_index'] if (x['attempt'] == cur['attempt'] if x['attempt'] else (x['node'] == 'A' and x['generation'] == 1))]
+        self.assertEqual([x for x in own if x['kind'] == 'node.produced'], [])                       # the running attempt has produced nothing
+        old_out = [x for x in d['evidence_index'] if x['key'] == receipt0]
+        self.assertEqual((old_out[0]['generation'], old_out[0]['node']), (0, 'A'))
+        self.assertEqual(len(cur['inherits']), 1); inh = cur['inherits'][0]
+        self.assertEqual((inh['kind'], inh['key'], inh['from_attempt'], inh['from_generation'], inh['source']), ('resume_artifact', partial, old, 0, 'nodes[A].resume_artifact'))
+        self.assertEqual(prev['inherits'], []); self.assertIn(partial, d['evidence_keys'])
+        worker.release.set(); thread.join(20)
+        d = tracking.detail(self.ledger.state_root, 'P1'); cur = next(r for r in d['gantt']['rows'] if r['current'])
+        receipt1 = d['nodes']['A']['receipt']; own = [x for x in d['evidence_index'] if x['key'] == receipt1]
+        self.assertEqual(receipt1, receipt0)                                                        # content-addressed: the same bytes, the same key in both generations
+        self.assertEqual(sorted((x['node'], x['generation']) for x in own), [('A', 0), ('A', 1)]); self.assertEqual(cur['inherits'][0]['key'], partial)

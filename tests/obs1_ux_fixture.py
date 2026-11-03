@@ -125,6 +125,14 @@ def populate(case):
     progress_track.observe(case.ledger, 'P4', 'C', Managed(), old, 'late-old-command', {'kind': 'command', 'elapsed_seconds': 60}, source='tool_call', ref='old-receipt', command_cap_seconds=60)
     progress_track.observe(case.ledger, 'P4', 'C', Managed(), new, 'current-command', {'kind': 'command', 'elapsed_seconds': 60}, source='tool_call', ref='current-receipt', command_cap_seconds=60)
     case.p4 = {'old': old, 'new': new, 'worker': worker}
+    # P9: generation 0 produced; generation 1 continues from its artifact (engine mechanism: node.resumed with resume_artifact/continues_attempt) and produced its own output
+    make_root(case, 'P9', 'Phần việc tiếp tục từ đầu ra dở của thế hệ trước'); approve_and_revise(case, 'P9'); step('P9')
+    d9 = tracking.detail(case.ledger.state_root, 'P9')['nodes']['C']; old9 = d9['attempt']
+    with case.ledger.transaction(write=True) as conn:
+        view = engine.state(case.ledger, 'P9', conn)
+        engine._event(case.ledger, conn, view, 'C', 'node.resumed', resume_artifact=case.store.blob(b'artifact-C partial of generation 0'), continues_attempt=old9)
+    step('P9')
+    case.p9 = {'old': old9, 'new': tracking.detail(case.ledger.state_root, 'P9')['nodes']['C']['attempt']}
     # PS: a project whose path holds the characters a PowerShell template must pass through unchanged
     hostile = case.root.parent / "demo$SDK 'q' (a)&b`t"; hostile.mkdir(exist_ok=True); (hostile / 'a.txt').write_text('base\n')
     case.ledger_ps = Ledger(hostile, case.ledger.state_root)
