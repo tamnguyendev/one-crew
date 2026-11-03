@@ -167,7 +167,8 @@ def powershell_template(line, script):
     """Run one PowerShell template line through the REAL powershell.exe from a script file (the shell the templates are written for), with $SDK set
     to something else first: a correctly quoted path must not change."""
     script = Path(script); script.write_text('$SDK = "CHANGED"\n' + line + '\nexit $LASTEXITCODE\n', encoding='utf-8-sig')
-    return run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script)], env=os.environ.copy() | {k: v for k, v in os.environ.items()} | PS_ENV[0], cwd=str(script.parent), text=True, encoding='utf-8', errors='replace', timeout=180)
+    env = PS_ENV[0] or {k: v for k, v in os.environ.items() if k.upper() not in AI_MARKERS}   # the filtered env ONLY (never the caller's raw one: a shell carrying CLAUDECODE made the owner verb refuse, 03/11)
+    return run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script)], env=env, cwd=str(script.parent), text=True, encoding='utf-8', errors='replace', timeout=180)
 
 
 PS_ENV = [{}]
