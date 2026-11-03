@@ -1,3 +1,4 @@
+from pathlib import Path
 """OBS-1 R1 (Codex release review of dev11, P2): evidence identity, inheritance and bounded history are kept apart.
 
 Blobs are content-addressed: two generations that write byte-identical output share ONE key, and a newer generation may legitimately produce
@@ -151,6 +152,33 @@ class Provenance(EngineFixture):
         line = next(l for l in text.splitlines() if l.startswith('Timeline ('))
         self.assertIn('--json', line, line)
         self.assertNotIn('vẫn ở mục bằng chứng', line, line)
+
+    def manifest_executor(self, ledger, control, task, item, attempt):
+        """As the real engine (common_executor: store.capture/overlay -> Snapshots.save): the artifact is a snapshot MANIFEST key."""
+        control.launched(attempt['id'], attempt['generation'], {'fixture': True})
+        artifact = self.store.save({'version': 1, 'files': {'a.txt': {'working': self.store.blob(b'content of a.txt from ' + item['id'].encode()), 'index': []}}})
+        receipt = self.store.blob(('executor-' + item['id']).encode())
+        control.finish(attempt['id'], attempt['generation'], {'fixture': True, 'artifact': artifact})
+        return {'artifact': artifact, 'receipt': receipt}
+
+    def test_i_a_manifest_artifact_is_stored_evidence_that_opens(self):
+        """R1 closure review round 3 (real ledger): node artifacts are snapshot manifests (snapshots/manifests/<key>.json), not blobs. They are
+        stored evidence that opens; only a key absent from the whole store reads as missing. estimate.* basis references are not evidence uses."""
+        self.revise([node('A'), node('I', ['A'], integration=True, write=())])
+        self.step(self.manifest_executor)
+        d = tracking.detail(self.ledger.state_root, 'P1', timeline_limit=5000)
+        artifact = d['nodes']['A'].get('artifact') or next(x['key'] for x in d['evidence_index'] if x['kind'] == 'node.produced' and x.get('role') == 'artifact')
+        self.assertTrue((Path(self.ledger.state_root) / 'snapshots' / 'manifests' / (artifact + '.json')).is_file(), 'setup: the artifact is a manifest')
+        uses = [x for x in d['evidence_index'] if x['key'] == artifact]
+        self.assertTrue(uses, 'the manifest artifact is an evidence occurrence')
+        self.assertTrue(all(x.get('stored') == 'manifest' and x.get('blob') is not False for x in uses), [(x['kind'], x.get('role'), x.get('stored'), x.get('blob')) for x in uses])
+        self.assertIn(artifact, d['evidence_keys'], 'a stored manifest is counted and opens')
+        opened = tracking.evidence(self.ledger.state_root, 'P1', artifact)
+        self.assertIn('a.txt', opened['text'], 'opening a manifest shows the files of the snapshot')
+        self.assertEqual(opened.get('kind'), 'manifest')
+        self.assertEqual([x for x in d['evidence_index'] if x['kind'].startswith('estimate.')], [], 'estimate basis references are not evidence uses')
+        text = tracking.render_detail(d)
+        self.assertNotIn('không có blob', text)
 
     def test_c_an_event_naming_more_than_six_keys_keeps_all_of_them(self):
         keys, seq = self.eight_keys()

@@ -564,13 +564,12 @@ if(S==='prov'){                                        // R1: evidence is attrib
   for(const r of J.gantt.rows.filter(x=>x.node==='C')){const sg=$('.seg[data-attempt="'+r.attempt+'"]'); if(!sg){wrong.push(['no bar',r.attempt,r.generation]); continue} sg.focus(); key(sg,'Enter'); await sleep(50);
     for(const e of outs()){const gens=(e.textContent.match(/thế hệ \d+/g)||[]); if(/attempt\.settled/.test(e.textContent))settled.push(r.generation); if(gens.some(x=>x!=='thế hệ '+r.generation))wrong.push([r.generation,e.textContent.slice(0,160)])}}
   check('every step pane of node C lists only evidence of its own generation (incl. attempt.settled of the child task)', wrong.length===0 && settled.length>0, {wrong:wrong.slice(0,6), settled_in_rows:settled});
-  const und=J.evidence_index.filter(x=>typeof x.seq==='number' && !x.attempt), inWin=und.filter(x=>J.timeline.some(e=>e.seq===x.seq));   // integration: occurrences with no determined attempt
-  out.notes.push('occurrences without a determined attempt: '+und.length+', inside the loaded window: '+inWin.length);
-  check('setup: an occurrence with no determined attempt is inside the loaded event window', inWin.length>0, {und:und.length});
-  let undRow=null;
-  if(inWin.length){const x=inWin[0]; const lg=$('details[data-k="log"]'); if(lg)lg.open=true; $$('#detail details[data-k^="old:"], #detail details[data-k^="tech:"]').forEach(dd=>dd.open=true); await sleep(50);
-    const row=$('[data-k="ev:'+x.seq+'"]'); if(row){row.click(); undRow=await waitFor(()=>$('[data-k="evbox:'+x.seq+'"] [data-k="evk:'+x.key+':'+x.seq+'"]'),5000,'event box of an undetermined occurrence')}}
-  check('an occurrence whose attempt or generation is not determined says so on the page', !!undRow && /lượt chưa xác định/.test(undRow.textContent) && (typeof inWin[0].generation==='number' || /thế hệ chưa xác định/.test(undRow.textContent)), undRow?undRow.textContent.slice(0,200):null);
+  const und=J.evidence_index.filter(x=>typeof x.seq==='number' && !x.attempt);   // integration: occurrences with no determined attempt, read where every use of a blob is listed
+  const evU=$('details[data-k="evidence"]'); if(evU)evU.open=true; await sleep(50);
+  const undRows=und.map(x=>{const g=evU&&evU.querySelector('[data-k="evk:'+x.key+'"]');return g?Array.from(g.querySelectorAll('ul.uses li')).find(li=>li.textContent.indexOf('#'+x.seq)>=0):null}).filter(Boolean);
+  out.notes.push('occurrences without a determined attempt: '+und.length+', their use rows in the evidence list: '+undRows.length);
+  check('setup: an occurrence with no determined attempt has its own use row in the evidence list', undRows.length>0, {und:und.length});
+  check('an occurrence whose attempt or generation is not determined says so on the page', undRows.length>0 && undRows.every(li=>/lượt chưa xác định/.test(li.textContent)), undRows.slice(0,3).map(li=>li.textContent.slice(0,200)));
   const seq3=seqOf(); await signal('prov_more');        // review round 2: one more plain generation; the generation-2 row (inherited K, produced K) becomes history
   await waitFor(()=>seqOf()>seq3 && st().detailSeq===seqOf(), 30000, 'the page re-read P9 after generation 3');
   J=await api(300); const g2=J.gantt.rows.find(r=>r.node==='C'&&r.generation===2);
@@ -584,7 +583,7 @@ if(S==='prov'){                                        // R1: evidence is attrib
   const listed=ev3?Array.from(ev3.querySelectorAll(':scope > div[data-k^="evk:"]')).map(x=>x.getAttribute('data-k').slice(4)):[], opened=[];
   const door=k=>'/api/evidence?plan='+encodeURIComponent(st().selected.plan)+'&project_id='+encodeURIComponent(st().selected.project)+'&key='+k+'&format=text';
   for(const k of listed){const r=await fetch(door(k),{cache:'no-store'}); opened.push([k.slice(0,12), r.status])}
-  check('the evidence list counts and lists only blobs that open (an identifier such as project_id / revision / plan sha is not a blob)', listed.length>0 && listed.length===J.evidence_keys.length && opened.every(x=>x[1]===200) && ev3.querySelector('summary').textContent.indexOf('('+listed.length+' blob')>=0 && listed.indexOf(J.project_id)<0, {listed:listed.length, keys:J.evidence_keys.length, bad:opened.filter(x=>x[1]!==200), summary:ev3&&ev3.querySelector('summary').textContent});
+  check('the evidence list counts and lists only blobs that open (an identifier such as project_id / revision / plan sha is not a blob)', listed.length>0 && listed.length===J.evidence_keys.length && opened.every(x=>x[1]===200) && ev3.querySelector('summary').textContent.indexOf('('+listed.length+' mục trong kho')>=0 && listed.indexOf(J.project_id)<0, {listed:listed.length, keys:J.evidence_keys.length, bad:opened.filter(x=>x[1]!==200), summary:ev3&&ev3.querySelector('summary').textContent});
   const idr=/^[0-9a-f]{64}$/.test(J.project_id)?(await fetch(door(J.project_id),{cache:'no-store'})).status:null;
   check('an identifier asked at the evidence door is "not in the store" (404), not a source error (503)', idr===404, {project_id:J.project_id, status:idr});
   }
