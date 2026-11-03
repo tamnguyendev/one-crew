@@ -119,8 +119,10 @@ def main():
     if case == 'p2':
         import threading
         from onecrew.snapshots import Snapshots
+        from onecrew.control import Control, migrate
         from onecrew.v2 import engine, executors, internal_plan, plan, progress_track
         store, caps = Snapshots(state), ['namespaced-storage', 'root-budget', 'internal-plan', 'sequential-engine']
+        migrate(ledger); control = Control(ledger)
         hold = float(os.environ.get('OBS1_P2_HOLD', '10'))
 
         class Managed(executors.Executor):
@@ -151,7 +153,7 @@ def main():
             plan.emit(ledger, conn, task3, 'plan.closed', {'revision': 1, 'reason': 'owner cancelled the unfinished task'})
         out['p3'] = {k: tracking.detail(state, 'P3')[k] for k in ('root_status', 'level', 'status')}
         # P2-03: a wait closed on the settled attempt of P5
-        make_root('P5', 'OBS-1 P2-03 closed wait'); engine.step(ledger, 'P5', quick)
+        make_root('P5', 'OBS-1 P2-03 closed wait'); engine.step(ledger, 'P5', quick, control=control)
         att5 = tracking.detail(state, 'P5')['nodes']['C']['attempt']
         kw = dict(source='tool_call', ref='wait-receipt', at='2026-11-03T00:00:00+00:00', wait_reason='external_service')
         executors.observe(ledger, 'P5', Managed(), att5, 'wait', **kw)
@@ -170,11 +172,11 @@ def main():
             plan.emit(ledger_b, conn, task_b, 'workflow.checkpoint', {'phase': 'review', 'message': 'test', 'evidence': key_b})
         out['projects'] = {'a': ledger.project_id, 'b': ledger_b.project_id, 'b_path': str(other), 'b_key': key_b}
         # P2-02: P4, attempt 1 produced, generation 1 opened, attempt 2 running; a late observation of attempt 1
-        make_root('P4', 'OBS-1 P2-02 late observation of an old attempt'); engine.step(ledger, 'P4', quick)
+        make_root('P4', 'OBS-1 P2-02 late observation of an old attempt'); engine.step(ledger, 'P4', quick, control=control)
         old = tracking.detail(state, 'P4')['nodes']['C']['attempt']
         with ledger.transaction(write=True) as conn:
             view = engine.state(ledger, 'P4', conn); engine._event(ledger, conn, view, 'C', 'node.resumed')
-        worker = Blocking(); thread = threading.Thread(target=engine.step, args=(ledger, 'P4', worker), daemon=True); thread.start()
+        worker = Blocking(); thread = threading.Thread(target=engine.step, args=(ledger, 'P4', worker), kwargs={'control': control}, daemon=True); thread.start()
         if not worker.started.wait(60): raise SystemExit('P4: the second attempt did not start')
         new = tracking.detail(state, 'P4')['nodes']['C']['attempt']
         progress_track.observe(ledger, 'P4', 'C', Managed(), old, 'late-old-command', {'kind': 'command', 'elapsed_seconds': 60}, source='tool_call', ref='old-receipt', command_cap_seconds=60)
