@@ -30,7 +30,9 @@ success and the failure paths.
 Evidence on the page (R1): the page never maps a blob key to one entry. An event in the log lists the occurrences of THAT event (seq, key); the
 step pane lists the occurrences of that attempt (outputs, other evidence) and, apart, what it inherits with the source occurrence of each key;
 a mark shows that event's occurrences; the evidence list groups the uses of each blob. `evidence_index` comes from the full history, so an
-event older than the loaded log window keeps its evidence, and the log says how many older events are not loaded.
+event older than the loaded log window keeps its evidence, and the log says how many older events are not loaded. Every row (current or old)
+shows what it inherits, read from the history (review round 2). Only a blob in the store is counted and opened; an identifier is not
+evidence, and an output whose blob is gone stays listed as such without an open button; the door answers 404 for both.
 """
 import json
 import os
@@ -557,11 +559,12 @@ function prov(d){if(d.__prov)return d.__prov;var bySeq={},byKey={},keys=[];     
 function occMeta(x){return esc(x.kind||'')+(x.role?' · '+esc(x.role):'')+(typeof x.generation==='number'?' · thế hệ '+x.generation:'')+(x.attempt?' · lượt '+esc(String(x.attempt).slice(4,12)):'')+' · '+(x.at?when(x.at):'thời điểm chưa rõ')}
 function occLine(x){return '<b>'+esc(x.label||'bằng chứng')+'</b> <span class="small mut">'+occMeta(x)+' · <code>'+x.key.slice(0,12)+'…</code></span>'}
 function openBtn(k){var o=evState[k];return ' <button type="button" class="ev-open" data-key="'+k+'">'+(o?'ẩn nội dung':'xem nội dung')+'</button> <a class="small" target="_blank" href="'+evHref(k)+'">mở tab mới</a>'+(o?'<pre>'+esc(o.text)+'</pre>':'')}
-function occDiv(x){return '<div class="small" data-k="evk:'+x.key+':'+(typeof x.seq==='number'?x.seq:'s')+'">'+occLine(x)+openBtn(x.key)+'</div>'}
+function openOr(x){return x.blob===false?' <span class="small mut nob">không có blob này trong kho: không mở được</span>':openBtn(x.key)}     // R1 round 2: only a blob in the store opens
+function occDiv(x){return '<div class="small" data-k="evk:'+x.key+':'+(typeof x.seq==='number'?x.seq:'s')+'">'+occLine(x)+openOr(x)+'</div>'}
 function evLi(e,P){var exp=selEv===e.seq,occ=P.bySeq[e.seq]||[],n=occ.length||(e.evidence||[]).length;var h='<li tabindex="0" role="button" aria-expanded="'+exp+'" data-seq="'+e.seq+'" data-k="ev:'+e.seq+'" class="'+((e.stale_generation||e.stale_attempt)?'stale':'')+'"><span class="t" title="'+when(e.at)+'">'+clock(e.at)+(e.observed_at&&e.observed_at!==e.at?' (quan sát '+clock(e.observed_at)+')':'')+'</span>'
     +esc(e.summary)+(e.task!=='root'?' <span class="k">(task con)</span>':'')+(n?'<span class="clip">bằng chứng '+n+'</span>':'')+'<span class="k">#'+e.seq+' '+esc(e.kind)+'</span>'+(e.note?' <b class="small">['+esc(e.note)+']</b>':'');
   if(exp){h+='<div class="evbox" data-k="evbox:'+e.seq+'">';if(!n)h+='<span class="mut">bước này không nêu bằng chứng nào</span>';
-    occ.forEach(function(x){h+='<div data-k="evk:'+x.key+':'+e.seq+'">'+occLine(x)+openBtn(x.key)+'</div>'});h+='</div>'}      // each key with THIS event's own occurrence
+    occ.forEach(function(x){h+='<div data-k="evk:'+x.key+':'+e.seq+'">'+occLine(x)+openOr(x)+'</div>'});h+='</div>'}      // each key with THIS event's own occurrence
   return h+'</li>'}
 function evHref(k){var d=mine();if(!d)return '#';return '/api/evidence?plan='+encodeURIComponent(d.selector)+'&project_id='+encodeURIComponent(d.project_id)+'&key='+k+'&format=text'}
 function groups(d){var g={},order=[];function add(key,title,e){if(!g[key]){g[key]={title:title,cur:[],old:[],tech:[]};order.push(key)}var tech=TECH.some(function(p){return e.kind.indexOf(p)===0});
@@ -609,8 +612,11 @@ function renderDetail(d){
     h.push('</section>')});
   h.push('</details>');
   function use(x){return '<li>'+esc(x.label||'')+' <span class="mut">· '+occMeta(x)+(x.seq!=null?' · #'+x.seq:'')+'</span></li>'}
-  h.push('<details data-k="evidence"><summary>Bằng chứng ('+P.keys.length+' blob, '+(d.evidence_index||[]).length+' lần được nêu trong toàn bộ lịch sử; lọc bí mật, chỉ đọc)</summary>'+P.keys.map(function(k){var u=P.byKey[k];   // one blob, its uses (generation / attempt / role)
-    return '<div class="small" data-k="evk:'+k+'"><code>'+k.slice(0,12)+'…</code> · '+u.length+' lần được nêu'+openBtn(k)+'<ul class="uses">'+(u.length>8?u.slice(0,4).map(use).join('')+'<li class="mut">… '+(u.length-8)+' lần khác …</li>'+u.slice(-4).map(use).join(''):u.map(use).join(''))+'</ul></div>'}).join('')+'</details>');
+  var bk=P.keys.filter(function(k){return P.byKey[k][0].blob!==false}),mk=P.keys.filter(function(k){return P.byKey[k][0].blob===false}),nu=0;bk.forEach(function(k){nu+=P.byKey[k].length});
+  function uses(u){return '<ul class="uses">'+(u.length>8?u.slice(0,4).map(use).join('')+'<li class="mut">… '+(u.length-8)+' lần khác …</li>'+u.slice(-4).map(use).join(''):u.map(use).join(''))+'</ul>'}
+  h.push('<details data-k="evidence"><summary>Bằng chứng ('+bk.length+' blob, '+nu+' lần được nêu trong toàn bộ lịch sử'+(mk.length?'; '+mk.length+' khóa đầu ra không có blob trong kho':'')+'; lọc bí mật, chỉ đọc)</summary>'+bk.map(function(k){var u=P.byKey[k];   // one blob, its uses (generation / attempt / role)
+    return '<div class="small" data-k="evk:'+k+'"><code>'+k.slice(0,12)+'…</code> · '+u.length+' lần được nêu'+openBtn(k)+uses(u)+'</div>'}).join('')
+    +mk.map(function(k){var u=P.byKey[k];return '<div class="small" data-k="evm:'+k+'"><code>'+k.slice(0,12)+'…</code> · '+u.length+' lần được nêu · <span class="mut nob">không có blob này trong kho: không mở được</span>'+uses(u)+'</div>'}).join('')+'</details>');
   if(cw.length)h.push('<details data-k="waits"><summary>Đã chờ (lịch sử, '+cw.length+')</summary>'+cw.map(function(w){return '<div class="small">'+esc(w.reason||'không rõ')+' '+when(w.since)+' → '+(w.until==='unknown'?'chưa rõ kết thúc':when(w.until))+' ('+esc(w.source)+')</div>'}).join('')+'</details>');
   if((d.attempts||[]).length){var mx={};((d.measure&&d.measure.attempts)||[]).forEach(function(m){mx[m.attempt]=m});var top=0;Object.keys(mx).forEach(function(k){if(typeof mx[k].execution_seconds==='number')top=Math.max(top,mx[k].execution_seconds)});
     h.push('<details data-k="attempts"><summary>Attempt ('+d.attempts.length+')</summary><div class="scroll"><table><thead><tr><th>Attempt</th><th>Trạng thái</th><th>Thế hệ</th><th>Thời lượng (đo)</th><th>Từ</th><th>Cập nhật</th></tr></thead><tbody>'+d.attempts.map(function(a){var m=mx[a.id],sec=m&&typeof m.execution_seconds==='number'&&m.settled_at?m.execution_seconds:null;
@@ -686,7 +692,7 @@ function gside(d,g){if(!selStep)return '<span class="mut">Chọn một thanh ho�
   if(rest.length)h+='<div class="small" style="margin-top:4px"><b>Bằng chứng khác của lượt này</b></div>'+evRows(rest);
   if(inh.length)h+='<div class="small" style="margin-top:4px" id="inherit"><b>Kế thừa</b> <span class="mut">(hợp lệ, từ lượt trước)</span></div>'+inh.map(function(x){var o=x.source_occurrence;return '<div class="small" data-k="inh:'+esc(x.key||x.kind)+'">'+esc(x.label)+(typeof x.from_generation==='number'?' từ thế hệ '+x.from_generation:'')+(x.from_attempt?' (lượt '+esc(String(x.from_attempt).slice(4,12))+')':'')+' · nguồn <code>'+esc(x.source)+'</code>'
     +(o?' · có từ <code>#'+o.seq+' '+esc(o.kind)+'</code> <span class="mut">('+esc(o.role||'')+(typeof o.generation==='number'?', thế hệ '+o.generation:'')+(o.attempt?', lượt '+esc(String(o.attempt).slice(4,12)):'')+', '+(o.at?when(o.at):'thời điểm chưa rõ')+')</span>':(x.key&&x.source_note?' · <span class="mut">'+esc(x.source_note)+'</span>':''))
-    +(x.key?openBtn(x.key):'')+'</div>'}).join('');
+    +(x.key?openOr(x):'')+'</div>'}).join('');
   return h}
 function repaintGantt(){var d=mine();if(!d)return;var s=snapshot();var el=document.querySelector('#detail .gantt');if(el){var t=document.createElement('div');t.innerHTML=gantt(d);el.replaceWith(t.firstChild)}restore(s)}
 function snapshot(){var open={};document.querySelectorAll('#detail details[data-k]').forEach(function(x){open[x.getAttribute('data-k')]=x.open});
