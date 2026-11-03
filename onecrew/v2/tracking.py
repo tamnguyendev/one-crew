@@ -283,8 +283,9 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
     if open_runs:
         return 'running', 'verdict đang chạy ở mốc ' + ', '.join(clean(r.get('milestone'), 50) for r in open_runs), ['verdict.run_started:' + str(r.get('run_id')) for r in open_runs]
     pending = [r for r in requests if r['state'] == 'pending']
-    if pending:
-        return 'waiting', 'chờ chủ sở hữu trả lời ' + ', '.join(r['id'] for r in pending), ['request:' + r['id'] for r in pending]
+    if pending:                                      # the full ids are the sources; the sentence stays readable when many questions wait (UX round 2)
+        named = ', '.join(r['id'] for r in pending) if len(pending) <= 2 else f"{len(pending)} câu hỏi ({', '.join(r['id'][:12] + '…' for r in pending[:3])}{', …' if len(pending) > 3 else ''})"
+        return 'waiting', 'chờ chủ sở hữu trả lời ' + named, ['request:' + r['id'] for r in pending]
     if waits:
         return 'waiting', 'đang chờ: ' + '; '.join(clean(w.get('reason'), 120) or 'không rõ lý do' for w in waits), [f"{w['source']}:{w['seq']}" for w in waits]
     if level == 'verified':

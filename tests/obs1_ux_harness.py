@@ -157,7 +157,7 @@ if(S==='ux03'){
   const cmds=opts.map(o=>o.querySelector('code').textContent);
   check('each option is a complete template: onecrew --project --state-root question answer --revision --choice --reference', cmds.length===2 && cmds.every(c=>/^onecrew --project ".+" --state-root ".+" question answer REQ-\S+ --revision \S+ --choice \S+ --reference "<[^"]+>"$/.test(c)) && cmds[0]!==cmds[1], cmds);
   check('the reference placeholder is marked as the part the owner fills', opts.every(o=>o.querySelector('code mark.ph')) && /BẠN tự điền/.test(need.textContent));
-  check('the question text is readable', /\?/.test(need.querySelector('.q').textContent) && need.textContent.indexOf('[withheld]')>=0, need.querySelector('.q').textContent);
+  check('the question text is readable and carries no raw secret', /\?/.test(need.querySelector('.q').textContent) && !/hunter2|must-not-show/.test(d.body.textContent) && (!/password=/.test($$('details.need').map(n=>n.textContent).join(' ')) || /\[withheld\]/.test($$('details.need').map(n=>n.textContent).join(' '))), need.querySelector('.q').textContent);
   check('no element answers the question (no answer/approve button)', !$$('#detail button').some(b=>/trả lời|duyệt|answer|approve/i.test(b.textContent)));
   const btn=opts[1].querySelector('button.copy'); btn.focus(); btn.click(); const done=await waitFor(()=>$('.copied'),5000,'copied status');
   let clip=null; try{clip=await w.navigator.clipboard.readText()}catch(e){clip='(readText unavailable: '+e.name+')'} out.clipboard_read=clip;

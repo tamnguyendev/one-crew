@@ -511,12 +511,13 @@ function renderDetail(d){
   h.push('<div class="dsum"><span class="step">'+esc(d.current_step||d.status.reason||'')+'</span>'+(needs.length?'<a href="#needs" class="small">'+(nq?nq+' câu hỏi chờ bạn':'')+(nq&&nother?' · ':'')+(nother?nother+' việc cần bạn':'')+'</a>':'<span class="small mut">không cần bạn lúc này</span>')+'</div>');
   if(d.goal)h.push('<p style="margin:6px 0">'+esc(d.goal)+'</p>');
   var done=d.status.kind==='done';
-  h.push('<div class="stats"><div class="tile"><div class="l">Trạng thái</div><div class="v">'+esc(d.status.label)+'</div><div class="s">'+esc(d.status.reason)+'</div></div>'
-    +'<div class="tile"><div class="l">Đầu ra</div><div class="v">'+esc(d.level.label)+'</div><div class="s">'+esc(d.current_step||'')+'</div></div>'
+  function brief(t,n){t=String(t||'');return t.length>n?'<span title="'+esc(t)+'">'+esc(t.slice(0,n))+'…</span>':esc(t)}
+  h.push('<div class="stats"><div class="tile"><div class="l">Trạng thái</div><div class="v">'+esc(d.status.label)+'</div><div class="s">'+brief(d.status.reason,140)+'</div></div>'
+    +'<div class="tile"><div class="l">Đầu ra</div><div class="v">'+esc(d.level.label)+'</div><div class="s">'+brief(d.current_step||'',140)+'</div></div>'
     +'<div class="tile"><div class="l">Từ khi duyệt (lịch)</div><div class="v"'+(!done&&!d.elapsed.until&&typeof d.elapsed.seconds==='number'?' data-live="'+d.elapsed.seconds+'" data-live-at="'+Date.now()+'"':'')+'>'+hms(d.elapsed.seconds)+'</div><div class="s">'+(typeof d.elapsed.seconds==='number'?'gồm cả thời gian chờ'+(d.elapsed.until?' · kết thúc '+when(d.elapsed.until):' · đang tính theo đồng hồ máy này'):'chưa duyệt: chưa có mốc bắt đầu')+'</div></div>'
     +'<div class="tile"><div class="l">Thực hiện (attempt)</div><div class="v">'+hms(d.measure.attempts_wall_seconds)+'</div><div class="s">hợp các khoảng attempt, không cộng đôi</div></div>'
     +'<div class="tile"><div class="l">Chờ</div><div class="v">'+hms(d.measure.wait_seconds)+'</div><div class="s">'+((d.waits||[]).filter(function(w){return w.open}).length?'đang có khoảng chờ mở':'khoảng chờ đã đo; thiếu nguồn = chưa xác định')+'</div></div>'
-    +'<div class="tile"><div class="l">Còn lại (ước lượng)</div><div class="v">'+esc(d.eta.label)+'</div><div class="s">'+esc(d.eta.reason||'')+(d.eta.deadline?' · hạn '+when(d.eta.deadline):'')+'</div></div></div>');
+    +'<div class="tile"><div class="l">Còn lại (ước lượng)</div><div class="v">'+esc(d.eta.label)+'</div><div class="s">'+brief(d.eta.reason||'',140)+(d.eta.deadline?' · hạn '+when(d.eta.deadline):'')+'</div></div></div>');
   if(needs.length){h.push('<h3 id="needs">Cần bạn ('+needs.length+')</h3>');needs.forEach(function(n,i){h.push(needCard(n,i))})}
   var ow=(d.waits||[]).filter(function(w){return w.open}),cw=(d.waits||[]).filter(function(w){return !w.open});
   if(ow.length)h.push('<div class="small"><b>Đang chờ:</b> '+ow.map(function(w){return esc(w.reason||'không rõ')+' từ '+when(w.since)+(w.node?' (phần việc '+esc(w.node)+')':'')}).join('; ')+'</div>');
