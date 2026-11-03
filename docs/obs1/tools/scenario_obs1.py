@@ -30,8 +30,9 @@ Cases:
             the current attempt (newer than every production: the page window holds none of them); wait observations whose references
             carry synthetic secret shapes and normal references (R3); a pending owner question (reply template); a second project with a
             plan R15B in the same ledger (R2). Prints the facts read from the raw ledger rows (seqs, attempts, keys, times, request id and
-            revision; every 64-hex value the events of R15 name, split into blobs of the store and identifiers such as the project_id, the
-            plan sha and revisions), never from the tracking projection the verifier checks.
+            revision; every 64-hex value the events of R15 name, classified against the whole store - a blob, a snapshot manifest such as
+            the node.started captures, or absent: an identifier such as the project_id, the plan sha and revisions), never from the
+            tracking projection the verifier checks.
   release_more  (V17, after its first R1 checks) one more PLAIN generation of R15 node C: generation 2, which inherited generation 1's
             artifact, becomes history (R1 review round 2: every row keeps what it inherited). Prints the new generation and the last seq.
 """
@@ -177,19 +178,23 @@ def release():
         raise SystemExit('R15: the three generations did not write byte-identical output: ' + json.dumps({'started': started, 'produced': produced}, default=str)[:600])
     if [r.get('resume_artifact') for r in resumed] != [None, produced[1][1]] or resumed[1].get('continues_attempt') != started[1][1]:
         raise SystemExit('R15: generation 2 does not resume from the artifact of generation 1: ' + json.dumps(resumed)[:600])
-    # R1 review round 2: every 64-hex value the events of R15 (root and child tasks) name, split into blobs of the store and identifiers
+    # R1 review rounds 2-3: every 64-hex value the events of R15 (root and child tasks) name, classified against the WHOLE store (its on-disk
+    # layout, not the tracking projection): a blob (snapshots/blobs/<key>), a snapshot manifest (snapshots/manifests/<key>.json: captures,
+    # artifacts of the real engine) or absent (an identifier: project_id, plan sha, revisions ...)
     named = set()
     for text in [json.dumps(p) for s, k, p, a in rows] + list(child_payloads): named |= set(re.findall(r'\b[0-9a-f]{64}\b', text))
-    blobs = store.root / 'blobs'
+    kind_of = lambda h: 'blob' if (store.root / 'blobs' / h).is_file() else 'manifest' if (store.root / 'manifests' / (h + '.json')).is_file() else None
     plan_sha = next((p.get('sha') for s, k, p, a in rows if k == 'plan.approved'), None)
+    captures = sorted({p['source'] for s, k, p, a in rows if k == 'node.started' and isinstance(p.get('source'), str) and re.fullmatch(r'[0-9a-f]{64}', p['source'])})
     print(json.dumps({'project_dir': str(r_root), 'project_path': ledger.project_path, 'project_id': ledger.project_id, 'state_root': str(ledger.state_root), 'plan': 'R15',
                       'task': task, 'artifact': produced[0][1], 'receipt': produced[0][2],
                       'generations': [{'generation': g, 'attempt': started[g][1], 'started_seq': started[g][0], 'produced_seq': produced[g][0], 'produced_at': produced[g][3]}
                                       for g in (0, 1, 2)],
                       'resumed': resumed, 'old_decision': {'seq': decision, 'keys': old_keys}, 'observations': 310, 'ledger_last_seq': last_seq,
                       'request': {'id': request['id'], 'revision': request['revision'], 'options': ['keep', 'drop']}, 'unnamed_key': unnamed,
-                      'identifiers': {'project_id': ledger.project_id, 'plan_sha': plan_sha, 'request_revision': request['revision'], 'task_revision': task_revision,
-                                      'named_non_blobs': sorted(h for h in named if not (blobs / h).is_file()), 'named_blobs': sorted(h for h in named if (blobs / h).is_file())},
+                      'identifiers': {'project_id': ledger.project_id, 'plan_sha': plan_sha, 'request_revision': request['revision'], 'task_revision': task_revision},
+                      'store': {'named_stored': {h: kind_of(h) for h in sorted(named) if kind_of(h)}, 'named_absent': sorted(h for h in named if not kind_of(h)),
+                                'captures': captures, 'capture_kinds': {h: kind_of(h) for h in captures}},
                       'other': {'project_dir': str(other), 'project_path': ledger_b.project_path, 'project_id': ledger_b.project_id, 'plan': 'R15B', 'title': 'R15B OTHER PROJECT PRIVATE GOAL'},
                       'r3': {'shapes': [name for name, _, _ in R15_SECRET_REFS], 'secret_refs': [ref for _, ref, _ in R15_SECRET_REFS], 'raw': [raw for _, _, raw in R15_SECRET_REFS],
                              'normal_refs': list(R15_NORMAL_REFS), 'question_raw': R15_QUESTION_RAW}}, ensure_ascii=True))

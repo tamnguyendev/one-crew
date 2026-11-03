@@ -45,9 +45,11 @@ Steps (every one from the installed venv, python -I, cwd = <work>, isolated LOCA
                     = generation 1's production) AND as its own output; after 310 newer events the windows 300 and 200 say timeline_complete=false
                     while generations 0/1 keep their outputs (never "no output"), an old event's eight keys stay indexed and the evidence door
                     (CLI + /api/evidence) opens them; evidence_index is the same at windows 5/300/5000; the CLI JSON equals /api/task. Review
-                    round 2: only blobs of the store are evidence (the project_id, plan sha and revisions R15's events name are never listed,
-                    every entry is blob: true), every listed key opens, the project_id and the plan sha at the door answer 404 "Không có blob
-                    này" without moving the server's error counter; after one more plain generation (scenario `release_more`) the generation-2
+                    rounds 2-3: what the store holds is evidence - blobs AND snapshot manifests (the node.started captures are listed, stored
+                    'manifest', and open verified with their files) - every entry says what the store holds, every listed key opens as that kind;
+                    the identifiers no store holds (project_id, plan sha, revisions R15's events name) are never listed and answer 404 "Không có
+                    trong kho" at the door without moving the server's error counter; no estimate.* event is an evidence use; a timeline row
+                    lists exactly the keys with an occurrence of that event; after one more plain generation (scenario `release_more`) the generation-2
                     row, now history, still lists its inheritance (resumed_seq, source, source_occurrence) and the plain generation inherits none.
                     R2: an isolated registry (this run's LOCALAPPDATA, never the real one) naming OTHER-PRIVATE-PROJECT -> OTHER-PRIVATE-LEDGER
                     and a sibling path sharing the project's prefix, plus a project R15B in the same ledger: the project-scoped CLI and a
@@ -308,9 +310,11 @@ def _ledger_rows(state_root, sql, args=()):
 
 def _r1(rel, rcli, exe, env, work, **_):
     """R1: evidence identity per occurrence (event, key) with that event's own generation/attempt; inherited and produced roles of one key
-    together; a bounded history that never reads as "no output"; the door opens old keys; CLI JSON = GET /api/task. Review round 2: only blobs
-    of the store are evidence (the identifiers R15's events name - project_id, plan sha, revisions - are never listed), every listed key opens,
-    and a named identifier at the door is a 404 "Không có blob này" that does not count as a server error."""
+    together; a bounded history that never reads as "no output"; the door opens old keys; CLI JSON = GET /api/task. Review rounds 2-3: what
+    the store holds (a blob or a snapshot manifest, such as the node.started captures) is evidence and opens as what it is (a manifest: verified,
+    with its files); the identifiers R15's events name that no store holds (project_id, plan sha, revisions) are never listed and answer 404
+    "Không có trong kho" at the door without counting as a server error; estimate.* events are no evidence uses; a timeline row lists exactly
+    the keys that have an occurrence of that event."""
     problems, facts = [], {}
     plan, K, R, old, ids = rel['plan'], rel['artifact'], rel['receipt'], rel['old_decision'], rel.get('identifiers') or {}
     gens = {g['generation']: g for g in rel['generations']}
@@ -338,18 +342,23 @@ def _r1(rel, rcli, exe, env, work, **_):
         done = rcli('track', 'evidence', plan, rel['unnamed_key'])
         code, body, _ = get(url + f'api/evidence?plan={plan}&key={rel["unnamed_key"]}', timeout=60)
         door['key no event names'] = {'cli_exit': done.returncode, 'cli_refused': '"refused"' in done.stdout, 'http': code}
-        listed, refused = views['api 300'].get('evidence_keys') or [], {}
-        for key in listed:                                                 # review round 2: every listed key is a blob that opens
-            code = get(url + f'api/evidence?plan={plan}&key={key}&format=text', timeout=60)[0]
-            if code != 200: refused[key[:16]] = code
-        door['every listed key'] = {'listed': len(listed), 'not_200': refused}
+        listed, stored_kind, opened_as = views['api 300'].get('evidence_keys') or [], (rel.get('store') or {}).get('named_stored') or {}, {}
+        for key in listed:                                                 # review rounds 2-3: every listed key is stored content that opens as what it is
+            code, body, _ = get(url + f'api/evidence?plan={plan}&key={key}', timeout=60)
+            try: value = json.loads(body) if code == 200 else {}
+            except ValueError: value = {}
+            opened_as[key] = {'http': code, 'kind': value.get('kind'), 'store': stored_kind.get(key)}
+            if value.get('kind') == 'manifest': opened_as[key].update(files=value.get('files'), verified=value.get('verified'))
+        door['every listed key'] = {'listed': len(listed), 'kinds': {k: sum(1 for o in opened_as.values() if o['kind'] == k) for k in ('blob', 'manifest')},
+                                    'not_opened_as_stored': {k[:16]: o for k, o in opened_as.items() if o['http'] != 200 or o['kind'] != o['store']},
+                                    'manifests': {k[:16]: o for k, o in opened_as.items() if o['kind'] == 'manifest'}}
         errors_before, named = (health_of(url) or {}).get('errors'), {}
-        for name in ('project_id', 'plan_sha'):                            # identifiers R15's events name: no blob -> 404, not a server error
+        for name in ('project_id', 'plan_sha'):                            # identifiers R15's events name, in no store: 404, not a server error
             key = ids.get(name)
             if not key: continue
             code, body, _ = get(url + f'api/evidence?plan={plan}&key={key}', timeout=60)
             done = rcli('track', 'evidence', plan, key)
-            named[name] = {'http': code, 'http_no_blob': 'Không có blob' in body, 'cli_exit': done.returncode, 'cli_no_blob': 'Không có blob' in done.stdout}
+            named[name] = {'http': code, 'http_not_stored': 'Không có trong kho' in body, 'cli_exit': done.returncode, 'cli_not_stored': 'Không có trong kho' in done.stdout}
         door['named identifiers'] = named
         door['server_errors'] = {'before': errors_before, 'after': (health_of(url) or {}).get('errors')}
     finally:
@@ -360,11 +369,14 @@ def _r1(rel, rcli, exe, env, work, **_):
             problems.append(f'R1 door: the {name} of the old decision (older than every window) does not open: {d}')
     if door['key no event names'] != {'cli_exit': 3, 'cli_refused': True, 'http': 403}:
         problems.append(f"R1 door: a key no event of {plan} names is not refused: {door['key no event names']}")
-    if not door['every listed key']['listed'] or door['every listed key']['not_200']:
-        problems.append(f"R1 door: every key evidence_keys lists must open (200): {door['every listed key']}")
+    every = door['every listed key']
+    if not every['listed'] or every['not_opened_as_stored']:
+        problems.append(f"R1 door: every key evidence_keys lists must open (200) as what the store holds (blob / manifest): {every['not_opened_as_stored']}")
+    unverified = {k: o for k, o in every['manifests'].items() if o.get('verified') is not True or not isinstance(o.get('files'), int) or o['files'] < 1}
+    if unverified: problems.append(f'R1 door: a snapshot manifest of the store opens without being verified or without its files: {unverified}')
     for name in ('project_id', 'plan_sha'):
-        if door['named identifiers'].get(name) != {'http': 404, 'http_no_blob': True, 'cli_exit': 2, 'cli_no_blob': True}:
-            problems.append(f"R1 door: the {name} R15's events name (an identifier, not a blob) answers {door['named identifiers'].get(name)}; want 404 'Không có blob này' (CLI exit 2)")
+        if door['named identifiers'].get(name) != {'http': 404, 'http_not_stored': True, 'cli_exit': 2, 'cli_not_stored': True}:
+            problems.append(f"R1 door: the {name} R15's events name (an identifier no store holds) answers {door['named identifiers'].get(name)}; want 404 'Không có trong kho' (CLI exit 2)")
     if not isinstance(door['server_errors']['before'], int) or door['server_errors']['after'] != door['server_errors']['before']:
         problems.append(f"R1 door: the server error counter of /api/health moved {door['server_errors']}: a named identifier is a 404, not a server error")
     broken = {k: v.get('_error') for k, v in views.items() if v.get('_error')}
@@ -444,21 +456,37 @@ def _r1(rel, rcli, exe, env, work, **_):
     a, b = fields(views['cli 300']), fields(views['api 300'])
     facts['cli_http_differ'] = [k for k in a if a[k] != b[k]]
     if facts['cli_http_differ']: problems.append(f'R1: the CLI JSON and GET /api/task (window 300) differ in {facts["cli_http_differ"]}')
-    # (f) review round 2: only blobs of the store are evidence; the identifiers R15's events name are never listed
-    non_blobs, blobs = set(ids.get('named_non_blobs') or []), set(ids.get('named_blobs') or [])
+    # (f) review rounds 2-3: what the store holds (a blob OR a snapshot manifest) is evidence; a 64-hex identifier no store holds is never
+    #     listed; estimate.* events are no evidence uses; a timeline row lists exactly the keys that have an occurrence of that event
+    store = rel.get('store') or {}
+    stored_kind, absent, captures = store.get('named_stored') or {}, set(store.get('named_absent') or []), store.get('captures') or []
     for name in ('project_id', 'plan_sha', 'request_revision', 'task_revision'):
-        if not ids.get(name) or ids[name] not in non_blobs: problems.append(f'R1 setup: the {name} is not a 64-hex identifier R15 events name (the identifier check would not bite)')
+        if not ids.get(name) or ids[name] not in absent: problems.append(f'R1 setup: the {name} is not a 64-hex identifier R15 events name that no store holds (the identifier check would not bite)')
+    if not captures or any((store.get('capture_kinds') or {}).get(c) != 'manifest' for c in captures):
+        problems.append(f"R1 setup: R15's node.started captures are not snapshot manifests of the store ({store.get('capture_kinds')}): the manifest check would not bite")
     for label in ('cli 5000', 'api 300'):
         v = views[label]
-        listed, indexed = set(v.get('evidence_keys') or []), {x.get('key') for x in v.get('evidence_index') or []}
-        leaked = sorted(non_blobs & (listed | indexed))
+        idx = v.get('evidence_index') or []
+        listed, indexed = set(v.get('evidence_keys') or []), {x.get('key') for x in idx}
+        leaked = sorted(absent & (listed | indexed))
         which = [n for n in ('project_id', 'plan_sha', 'request_revision', 'task_revision') if ids.get(n) in listed | indexed]
-        if leaked: problems.append(f'R1 blobs ({label}): {len(leaked)} identifiers R15 events name are listed as evidence ({which or "other identifiers"}: {[k[:12] for k in leaked[:6]]})')
-        if listed - blobs or not {K, R, *old['keys']} <= listed:
-            problems.append(f'R1 blobs ({label}): evidence_keys has {len(listed - blobs)} keys that are no blob R15 events name and lacks {len({K, R, *old["keys"]} - listed)} of the artifact/receipt/old blobs')
-        unmarked = [(x.get('key') or '')[:12] for x in v.get('evidence_index') or [] if x.get('blob') is not True]
-        if unmarked: problems.append(f'R1 blobs ({label}): {len(unmarked)} evidence_index entries are not marked blob: true although every key R15 lists is a blob of the store: {unmarked[:6]}')
-        if label == 'api 300': facts['blobs'] = {'evidence_keys': len(listed), 'named_blobs': len(blobs), 'named_identifiers': len(non_blobs), 'identifiers_listed': [k[:12] for k in leaked]}
+        if leaked: problems.append(f'R1 store ({label}): {len(leaked)} identifiers no store holds are listed as evidence ({which or "other identifiers"}: {[k[:12] for k in leaked[:6]]})')
+        if listed - set(stored_kind) or not {K, R, *old['keys'], *captures} <= listed:
+            problems.append(f'R1 store ({label}): evidence_keys has {len(listed - set(stored_kind))} keys the store does not hold for R15 and lacks '
+                            f'{sorted(k[:12] for k in {K, R, *old["keys"], *captures} - listed)} (artifact, receipt, old blobs, captures)')
+        wrong = [((x.get('key') or '')[:12], x.get('stored'), stored_kind.get(x.get('key')), x.get('blob')) for x in idx if x.get('stored') != stored_kind.get(x.get('key')) or x.get('blob') is not True]
+        if wrong: problems.append(f'R1 store ({label}): {len(wrong)} evidence_index entries do not say what the store holds (key, stored, store, blob): {wrong[:6]}')
+        estimates = [x.get('seq') for x in idx if str(x.get('kind') or '').startswith('estimate.')]
+        if estimates: problems.append(f'R1 ({label}): estimate.* events are listed as evidence uses (seqs {estimates[:6]})')
+        per_event = {}
+        for x in idx: per_event.setdefault(x.get('seq'), set()).add(x.get('key'))
+        rows = [(e.get('seq'), e.get('kind'), e.get('evidence_count'), len(per_event.get(e.get('seq'), ()))) for e in v.get('timeline') or []
+                if e.get('evidence_count') != len(per_event.get(e.get('seq'), ())) or not set(e.get('evidence') or []) <= per_event.get(e.get('seq'), set())]
+        if rows: problems.append(f'R1 ({label}): timeline rows that do not list exactly the keys with an occurrence of that event (seq, kind, listed, occurrences): {rows[:6]}')
+        if label == 'api 300':
+            facts['store'] = {'evidence_keys': len(listed), 'blob': sum(1 for k in listed if stored_kind.get(k) == 'blob'), 'manifest': sum(1 for k in listed if stored_kind.get(k) == 'manifest'),
+                              'identifiers_no_store_holds': len(absent), 'identifiers_listed': [k[:12] for k in leaked], 'captures': [c[:12] for c in captures],
+                              'estimate_rows_in_window': sum(1 for e in v.get('timeline') or [] if str(e.get('kind') or '').startswith('estimate.'))}
     return problems, facts
 
 
