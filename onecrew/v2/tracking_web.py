@@ -891,7 +891,7 @@ function kindWord(k){return k.replace('executor.observed','quan sát').replace('
 function prov(d){if(d.__prov)return d.__prov;var bySeq={},byKey={},keys=[];      // R1: occurrences (seq, key) of the model, never key -> one entry
   (d.evidence_index||[]).forEach(function(x){if(typeof x.seq==='number')(bySeq[x.seq]=bySeq[x.seq]||[]).push(x);if(!byKey[x.key]){byKey[x.key]=[];keys.push(x.key)}byKey[x.key].push(x)});
   Object.defineProperty(d,'__prov',{value:{bySeq:bySeq,byKey:byKey,keys:keys},enumerable:false});return d.__prov}
-function occMeta(x){return esc(x.kind||'')+(x.role?' · '+esc(x.role):'')+(typeof x.generation==='number'?' · thế hệ '+x.generation:'')+(x.attempt?' · lượt '+esc(String(x.attempt).slice(4,12)):'')+' · '+(x.at?when(x.at):'thời điểm chưa rõ')}
+function occMeta(x){return esc(x.kind||'')+(x.role?' · '+esc(x.role):'')+(typeof x.generation==='number'?' · thế hệ '+x.generation:' · thế hệ chưa xác định')+(x.attempt?' · lượt '+esc(String(x.attempt).slice(4,12)):' · lượt chưa xác định')+' · '+(x.at?when(x.at):'thời điểm chưa rõ')}
 function occLine(x){return '<b>'+esc(x.label||'bằng chứng')+'</b> <span class="small mut">'+occMeta(x)+' · <code>'+x.key.slice(0,12)+'…</code></span>'}
 function openBtn(k){var o=evState[k];return ' <button type="button" class="ev-open" data-key="'+k+'">'+(o?'ẩn nội dung':'xem nội dung')+'</button> <a class="small" target="_blank" href="'+evHref(k)+'">mở tab mới</a>'+(o?'<pre>'+esc(o.text)+'</pre>':'')}
 function openOr(x){return x.blob===false?' <span class="small mut nob">không có blob này trong kho: không mở được</span>':openBtn(x.key)}     // R1 round 2: only a blob in the store opens
