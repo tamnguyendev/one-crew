@@ -564,9 +564,13 @@ if(S==='prov'){                                        // R1: evidence is attrib
   for(const r of J.gantt.rows.filter(x=>x.node==='C')){const sg=$('.seg[data-attempt="'+r.attempt+'"]'); if(!sg){wrong.push(['no bar',r.attempt,r.generation]); continue} sg.focus(); key(sg,'Enter'); await sleep(50);
     for(const e of outs()){const gens=(e.textContent.match(/thế hệ \d+/g)||[]); if(/attempt\.settled/.test(e.textContent))settled.push(r.generation); if(gens.some(x=>x!=='thế hệ '+r.generation))wrong.push([r.generation,e.textContent.slice(0,160)])}}
   check('every step pane of node C lists only evidence of its own generation (incl. attempt.settled of the child task)', wrong.length===0 && settled.length>0, {wrong:wrong.slice(0,6), settled_in_rows:settled});
-  const und=J.evidence_index.filter(x=>typeof x.seq==='number' && !x.attempt), shownUnd=und.map(x=>({x, el:$('[data-k="evk:'+x.key+':'+x.seq+'"]')})).filter(y=>y.el);   // integration: occurrences with no determined attempt
-  out.notes.push('occurrences without a determined attempt: '+und.length+', shown on the page: '+shownUnd.length);
-  check('an occurrence whose attempt or generation is not determined says so on the page', shownUnd.every(y=>/lượt chưa xác định/.test(y.el.textContent) && (typeof y.x.generation==='number' || /thế hệ chưa xác định/.test(y.el.textContent))), shownUnd.slice(0,3).map(y=>y.el.textContent.slice(0,160)));
+  const und=J.evidence_index.filter(x=>typeof x.seq==='number' && !x.attempt), inWin=und.filter(x=>J.timeline.some(e=>e.seq===x.seq));   // integration: occurrences with no determined attempt
+  out.notes.push('occurrences without a determined attempt: '+und.length+', inside the loaded window: '+inWin.length);
+  check('setup: an occurrence with no determined attempt is inside the loaded event window', inWin.length>0, {und:und.length});
+  let undRow=null;
+  if(inWin.length){const x=inWin[0]; const lg=$('details[data-k="log"]'); if(lg)lg.open=true; $$('#detail details[data-k^="old:"], #detail details[data-k^="tech:"]').forEach(dd=>dd.open=true); await sleep(50);
+    const row=$('[data-k="ev:'+x.seq+'"]'); if(row){row.click(); undRow=await waitFor(()=>$('[data-k="evbox:'+x.seq+'"] [data-k="evk:'+x.key+':'+x.seq+'"]'),5000,'event box of an undetermined occurrence')}}
+  check('an occurrence whose attempt or generation is not determined says so on the page', !!undRow && /lượt chưa xác định/.test(undRow.textContent) && (typeof inWin[0].generation==='number' || /thế hệ chưa xác định/.test(undRow.textContent)), undRow?undRow.textContent.slice(0,200):null);
   const seq3=seqOf(); await signal('prov_more');        // review round 2: one more plain generation; the generation-2 row (inherited K, produced K) becomes history
   await waitFor(()=>seqOf()>seq3 && st().detailSeq===seqOf(), 30000, 'the page re-read P9 after generation 3');
   J=await api(300); const g2=J.gantt.rows.find(r=>r.node==='C'&&r.generation===2);
