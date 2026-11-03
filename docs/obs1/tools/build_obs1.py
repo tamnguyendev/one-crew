@@ -46,10 +46,15 @@ def main():
         if path.is_file(): shutil.copyfile(path, out / 'docs' / name)
         elif not args.allow_missing_docs: raise SystemExit('missing document ' + name)
     built = time.strftime('%Y-%m-%dT%H:%M:%S')
+    nearest = git('describe', '--tags', '--always', commit)            # what this package is built from, read from git at build time (never a hand-written history)
     manifest = {'kind': 'obs1-trial-package', 'label': 'OBS-1 beta', 'version': version, 'code_commit': commit, 'branch': branch, 'built': built,
-                'wheel': {'name': wheel.name, 'sha256': sha(wheel)}, 'base': '2.4.0.dev8 (e9c02de, tag v2.4.0.dev8, released) < dev9 (b070559, local) < dev10 (5e66903 reviewed by Codex, fcd6ecf packaged, local) < dev11 (this, local) on 2.4.0.dev6 (01b6f62): the 2.4 release line is NOT changed by this package',
+                'wheel': {'name': wheel.name, 'sha256': sha(wheel)},
+                'base': f'onecrew {version} built from commit {commit[:7]} on branch {branch} (git describe: {nearest}): a local OBS-1 trial package; '
+                        'the 2.4 release line and its tags are NOT changed by this package; the history of OBS-1 is in docs/RELEASE-NOTES-OBS-1.vi.md',
                 'claims': {'delivered': False, 'accepted': False, 'reviewed_by_codex': False, 'real_provider_tested': False,
-                           'note': 'OBS-1 beta package: the tracking view/CLI/page, the four Codex P2 fixes, the UX round (UX-01..08) and the track open identity checked from this package with the fake claude; see docs/limits-obs1.md and docs/RELEASE-NOTES-OBS-1.vi.md'}}
+                           'note': f'OBS-1 trial package {version} ({commit[:7]}): the tracking view, CLI and page of THIS wheel are checked from this package by '
+                                   'verify/verify_obs1.py with the fake claude (never a real provider); the steps it runs are listed in its docstring and, with '
+                                   'their results, in the verify report; what is and is not proven: docs/limits-obs1.md and docs/RELEASE-NOTES-OBS-1.vi.md'}}
     guide = (ROOT / 'docs' / 'obs1' / 'BAT-DAU-THU-OBS1.vi.md').read_text(encoding='utf-8')
     for key, value in (('@@PACKAGE@@', str(out)), ('@@VERSION@@', version), ('@@COMMIT@@', commit[:7]), ('@@WHEEL@@', wheel.name), ('@@WHEEL_SHA@@', manifest['wheel']['sha256']), ('@@BRANCH@@', branch)):
         guide = guide.replace(key, value)
