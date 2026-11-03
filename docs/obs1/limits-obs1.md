@@ -1,4 +1,4 @@
-# Giới hạn của lát OBS-1 (gói thử)
+# Giới hạn của lát OBS-1 (beta `2.4.0.dev7`)
 
 - **Worker giả.** Mọi kiểm (unit, cài wheel, kiểm từ gói) dùng `claude` giả (`tests/v24_fake_claude.py`): chứng minh đường đi root → node → attempt → sổ → màn hình, không chứng minh model thật làm việc hữu ích. Chưa chạy provider thật (tổ chức tắt subscription cho worker native; API chỉ cho advisor/reviewer).
 - **Chỉ theo dõi những gì có trong sổ.** Root `sequential-engine` có node/thế hệ/attempt/quan sát tiến độ; root không engine chỉ có mốc và verdict; task ngoài plan (v1) chỉ có phase checkpoint. Phiên Claude/Codex không chạy qua OneCrew ghi "chưa được theo dõi" — màn hình không suy, không bịa.
@@ -8,5 +8,6 @@
 - **Trang web**: lắng nghe `127.0.0.1`, không xác thực (máy cá nhân); chỉ GET; HTML một file, không tài nguyên ngoài. Trình duyệt kiểm: Chrome headless (Edge headless trên máy này không dump DOM khi Edge đang mở). Chưa kiểm trên trình duyệt khác hay màn hình nhỏ.
 - **Lọc bí mật** theo mẫu (`diagnostics.redact_line` của S1): không phải bảo đảm; bằng chứng mở qua trang vẫn cần đọc trước khi chia sẻ.
 - **`track open`** mở trình duyệt mặc định của máy và chạy server tách rời (tự thoát sau 30 phút không request); marker `tracking/server.json` ghi trong sổ. Chưa kiểm `track open` với trình duyệt thật trong bộ tự động (chỉ `open_page(browser=False)`).
-- **Version** `2.4.0.dev6+obs1` là nhãn local của lát (PEP 440), không phải version phát hành; nhánh `claude/onecrew-2.4` và gói `2.4.0.dev6` không đổi. Số version chính thức của OBS-1 do chủ/Codex chốt.
-- **Chưa Codex review, chưa nghiệm thu.** Gate 2.2 đầy đủ không chạy lại cho lát này (chỉ các module liên quan).
+- **Version** `2.4.0.dev7` là prerelease kế tiếp còn trống của dòng 2.4 (dev6 đã phát hành 03/11), đặt trên nhánh `claude/onecrew-obs1`; nhánh `claude/onecrew-2.4`, tag `v2.4.0.dev6` và gói dev6 không đổi. OBS-1 không phải toàn bộ roadmap (MR-R, OBS-2 chưa có).
+- **Bốn finding P2 của Codex (03/11) đã khép bằng test và bước V13 từ gói** (`docs/obs1/BAO-CAO-OBS-1.vi.md` §2); bản sửa **chưa được Codex review lại, chưa nghiệm thu**. Gate 2.2 đầy đủ không chạy lại cho lát này (chỉ các module liên quan và bộ OBS-1).
+- **Trạng thái "đang chờ" khi attempt đang chạy** chỉ hiện khi chính executor của attempt đó ghi khoảng chờ còn mở; khoảng chờ của attempt đã kết thúc mà không ghi `until` hiện "chưa rõ kết thúc" trong lịch sử, không phải chờ hiện hành.

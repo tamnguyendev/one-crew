@@ -64,6 +64,9 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
             if stats.get('refuse_api') and url.path.startswith('/api/'):   # tests only: in-process flag, never settable over HTTP
                 self.close_connection = True; self.connection.close(); return
             q = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+            if project_id and q.get('project_id') and q['project_id'] != project_id:       # P2-04: a query may narrow the server's scope, never widen it
+                return self._send(HTTPStatus.FORBIDDEN, {'error': f'ngoài phạm vi: server này chỉ theo dõi project {project_id[:12]}…; project_id khác không được mở',
+                                                         'read_only': True, 'project_id': project_id})
             scope = q.get('project_id') or project_id
             try:
                 if url.path in ('/', '/index.html'):
@@ -268,7 +271,9 @@ function renderDetail(d){
     ns.forEach(function(id){var n=d.nodes[id],p=n.progress;h.push('<tr><td><b>'+esc(id)+'</b>'+(n.phase==='held'?'<div class="small" style="color:var(--blk)">giữ: '+esc(n.reason)+'</div>':'')+'</td><td>'+n.generation+(n.continues?' <span class="small mut">tiếp từ '+esc(n.continues)+'</span>':'')+'</td><td>'+esc(n.phase)+'</td><td>'+esc(n.state)+(n.verification_result?' ('+esc(n.verification_result)+')':'')+'</td><td class="small"><code>'+esc(n.attempt||'—')+'</code>'+(n.child?'<br>con '+esc(n.child.slice(0,12)):'')+'</td><td class="small">'+(p?esc(p.status)+' '+when(p.observed_at||p.received_at)+(p.reason?'<br>'+esc(p.reason):''):'—')+'</td></tr>')});h.push('</tbody></table>')}
   if((d.attempts||[]).length){h.push('<details><summary>Attempt ('+d.attempts.length+')</summary><table><thead><tr><th>Attempt</th><th>Trạng thái</th><th>Thế hệ</th><th>Đơn vị</th><th>Từ</th><th>Cập nhật</th></tr></thead><tbody>');
     d.attempts.forEach(function(a){h.push('<tr><td><code>'+esc(a.id)+'</code></td><td>'+esc(a.status)+'</td><td>'+a.generation+'</td><td>'+esc(a.unit)+'</td><td class="small">'+when(a.created_at)+'</td><td class="small">'+when(a.updated_at)+'</td></tr>')});h.push('</tbody></table></details>')}
-  if((d.waits||[]).length){h.push('<div class="small"><b>Đang chờ:</b> '+d.waits.map(function(w){return esc(w.reason||'không rõ')+' từ '+when(w.since)+' ('+esc(w.source)+')'}).join('; ')+'</div>')}
+  var ow=(d.waits||[]).filter(function(w){return w.open}),cw=(d.waits||[]).filter(function(w){return !w.open});
+  if(ow.length){h.push('<div class="small"><b>Đang chờ:</b> '+ow.map(function(w){return esc(w.reason||'không rõ')+' từ '+when(w.since)+' ('+esc(w.source)+')'}).join('; ')+'</div>')}
+  if(cw.length){h.push('<div class="small mut"><b>Đã chờ (lịch sử):</b> '+cw.map(function(w){return esc(w.reason||'không rõ')+' '+when(w.since)+' → '+(w.until==='unknown'?'chưa rõ kết thúc':when(w.until))+' ('+esc(w.source)+')'}).join('; ')+'</div>')}
   if((d.holds||[]).length){h.push('<div class="small"><b>Giữ (finding):</b> '+d.holds.map(function(x){return esc(x.text||x.error)}).join('; ')+'</div>')}
   if((d.notices||[]).length){h.push('<details><summary>Thông báo ('+d.notices.length+')</summary>'+d.notices.map(function(n){return '<div class="small">'+when(n.at)+' '+esc(n.category)+': '+esc(n.reason)+(n.user_action?' — '+esc(n.user_action):'')+'</div>'}).join('')+'</details>')}
   if((d.evidence_keys||[]).length){h.push('<details><summary>Bằng chứng ('+d.evidence_keys.length+' blob, lọc bí mật, chỉ đọc)</summary>'+d.evidence_keys.map(function(k){return '<div class="small"><a target="_blank" href="/api/evidence?plan='+encodeURIComponent(d.selector)+'&project_id='+encodeURIComponent(d.project_id)+'&key='+k+'&format=text">'+k.slice(0,16)+'…</a></div>'}).join('')+'</details>')}

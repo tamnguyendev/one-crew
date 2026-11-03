@@ -128,9 +128,10 @@ def badge(dom):
     return (found.group(1), found.group(2)) if found else (None, None)
 
 
-def start_server(exe, project, state, env, work, port=0):
+def start_server(exe, project, state, env, work, port=0, project_only=False):
     """`onecrew track serve` as its own process; returns (process, record) from its first JSON line."""
-    process = subprocess.Popen([str(exe), '--project', str(project), '--state-root', str(state), 'track', 'serve', '--port', str(port), '--interval', '1'],
+    process = subprocess.Popen([str(exe), '--project', str(project), '--state-root', str(state), 'track', 'serve', '--port', str(port), '--interval', '1']
+                               + (['--project-only'] if project_only else []),
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=str(work), text=True, encoding='utf-8', errors='replace')
     line = process.stdout.readline()
     record = first_json(line)
@@ -381,6 +382,80 @@ def main(pkg, work):
     if 'không biến một phiên chat' not in u.get('statement', ''): problems.append('statement missing')
     if sorted(t['plan'] for p in listed.get('projects', []) for t in p['tasks']) != ['P1', 'P2']: problems.append('plans listed: ' + str([t['plan'] for p in listed.get('projects', []) for t in p['tasks']]))
     if not step('V10-untracked', not problems, problems=problems): return finish()
+    done = None
+    # V13 (runs here, after V10, because V10 counts the plans): the four Codex P2 counterexamples of 03/11, through the installed CLI and server
+    problems, facts = [], {}
+    process, record = start_server(exe, project, state, env, work)
+    url = record['url']
+    p2_env = dict(env, OBS1_P2_HOLD='8')
+    scen = subprocess.Popen([str(py), '-I', str(scenario), str(work), 'p2'], env=p2_env, cwd=str(work), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
+    try:
+        def phase(name, budget=240):
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < budget:
+                line = scen.stdout.readline()
+                if not line:
+                    break
+                value = first_json(line)
+                if value and value.get('phase') == name: return value
+            return None
+        window = phase('p4-window')
+        if not window: problems.append('p2 scenario: no p4-window line: ' + scen.stderr.read()[-400:] if scen.poll() is not None else 'p2 scenario: no p4-window line')
+        else:
+            d4 = json.loads(get(url + 'api/task?plan=P4')[1])
+            facts['p4_window'] = {'status': d4['status'], 'attempt': d4['nodes']['C']['attempt'], 'progress': d4['nodes']['C']['progress']}
+            if d4['status']['kind'] != 'running': problems.append(f"P2-02: status with only the old attempt's observation is {d4['status']}")
+            if d4['nodes']['C']['attempt'] != window['new'] or d4['nodes']['C']['progress'] is not None or 'C' in d4['progress']: problems.append("P2-02: the old attempt's observation is shown as current progress")
+            stale = [e for e in d4['timeline'] if e['kind'] == 'executor.observed' and e.get('attempt') == window['old']]
+            if not stale or not stale[-1].get('stale_attempt'): problems.append('P2-02: the old observation is not in the timeline as a stale attempt')
+            current = phase('p4-current')
+            if not current: problems.append('p2 scenario: no p4-current line')
+            else:
+                d4 = json.loads(get(url + 'api/task?plan=P4')[1])
+                facts['p4_current'] = d4['status']
+                if d4['status']['kind'] != 'blocked' or not any(s.startswith('executor.observed:') for s in d4['status']['source']): problems.append(f"P2-02: a blocked observation of the CURRENT attempt does not block: {d4['status']}")
+        done = phase('done')
+        scen.wait(300)
+        if scen.returncode != 0 or not done: problems.append('p2 scenario exit ' + str(scen.returncode) + ': ' + scen.stderr.read()[-400:])
+        else:
+            facts['projects'] = done['projects']
+            d3 = first_json(cli('track', 'show', 'P3', '--json').stdout) or {}
+            if d3.get('root_status') != 'closed' or d3.get('level', {}).get('kind') != 'none' or 'không phải nghiệm thu' not in d3.get('status', {}).get('reason', ''):
+                problems.append(f"P2-01: closed plan shows level {d3.get('level')} status {d3.get('status')}")
+            d5 = first_json(cli('track', 'show', 'P5', '--json').stdout) or {}
+            open_waits = [w for w in d5.get('waits', []) if w.get('open')]
+            if open_waits or len(d5.get('waits', [])) != 1 or d5['waits'][0].get('until') != '2026-11-03T00:00:05+00:00': problems.append(f"P2-03: waits {d5.get('waits')}")
+            if d5.get('status', {}).get('kind') == 'waiting' and any(s.startswith('executor.observed') for s in d5['status'].get('source', [])): problems.append(f"P2-03: status still waits on the closed wait: {d5['status']}")
+            if [w.get('until') for w in d5.get('measure', {}).get('executor_waits', [])] != ['2026-11-03T00:00:05+00:00']: problems.append('P2-03: the closed wait is not in the measure')
+            shown = cli('track', 'show', 'P5')
+            if 'Đã chờ (lịch sử)' not in shown.stdout or 'Đang chờ:' in shown.stdout: problems.append('P2-03: the text view still lists the closed wait as current')
+    finally:
+        stop_server(process)
+        if scen.poll() is None: scen.kill()
+    if done:
+        a, b, key_b = done['projects']['a'], done['projects']['b'], done['projects']['b_key']
+        process, record = start_server(exe, project, state, env, work, project_only=True)
+        try:
+            url = record['url']
+            if get(url + 'api/task?plan=PB')[0] != 404: problems.append('P2-04: the project-only server serves PB without override')
+            for path in ('api/overview?project_id=' + b, 'api/task?plan=PB&project_id=' + b, f'api/evidence?plan=PB&key={key_b}&project_id={b}'):
+                code, body, _ = get(url + path)
+                if code != 403 or 'PRIVATE' in body: problems.append(f'P2-04: {path} -> {code}')
+            code, body, _ = get(url + 'api/overview?project_id=' + a)
+            if code != 200 or 'PB' in body or 'P1' not in body: problems.append(f'P2-04: naming the server own project -> {code}')
+            facts['scope'] = {'project_only_server': record.get('project_id'), 'a': a, 'b': b}
+        finally:
+            stop_server(process)
+        process, record = start_server(exe, project, state, env, work)
+        try:
+            url = record['url']
+            code, body, _ = get(url + 'api/task?plan=PB&project_id=' + b)
+            if code != 200: problems.append(f'P2-04: all-projects server with project_id=B -> {code}')
+            code, body, _ = get(url + f'api/evidence?plan=PB&key={key_b}&project_id={b}')
+            if code != 200 or 'PROJECT B PRIVATE EVIDENCE' not in body: problems.append(f'P2-04: all-projects evidence of B -> {code}')
+        finally:
+            stop_server(process)
+    if not step('V13-p2-findings', not problems, problems=problems, **facts): return finish()
     # V11
     profile = work / 'browser profile'
     browser = find_browser(profile)

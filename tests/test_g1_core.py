@@ -199,7 +199,7 @@ class DefaultModelTests(unittest.TestCase):
 class PackagingTests(unittest.TestCase):
     def test_metadata(self):
         text = pyproject()
-        self.assertRegex(text, r'(?m)^version = "2\.4\.0\.dev\d+(\+[a-z0-9]+)?"$')     # a dev build of the 2.4 line; each milestone package bumps the number; a side slice (OBS-1) carries a local label
+        self.assertRegex(text, r'(?m)^version = "2\.4\.0\.dev\d+"$')     # a dev build of the 2.4 line; each milestone package bumps the number
         self.assertRegex(text, r'(?m)^name = "onecrew"$')
         self.assertRegex(text, r'(?m)^onecrew = "onecrew\.console:main"$')
         self.assertRegex(text, r'(?m)^dependencies = \[\]$')

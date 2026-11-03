@@ -122,37 +122,62 @@ def _attempts(conn, task_ids):
 
 
 def _progress_rows(events):
-    """Latest executor.observed progress checkpoint per node (what progress_track.read returns), from the root's events."""
+    """Latest executor.observed progress checkpoint per (node, attempt), from the root's events: every attempt keeps its own last observation."""
     latest = {}
     for seq, kind, p, at in events:
         if kind == 'executor.observed' and p.get('what') == 'progress' and p.get('node'):
             cp = p.get('checkpoint') or {}
-            latest[p['node']] = {'seq': seq, 'attempt': p.get('attempt'), 'status': cp.get('status', UNKNOWN), 'reason': clean(cp.get('reason')),
-                                 'observed_at': p.get('observed_at'), 'received_at': p.get('received_at') or at, 'time_source': p.get('time_source'),
-                                 'kind': (p.get('observation') or {}).get('kind'),
-                                 'elapsed_seconds': (p.get('observation') or {}).get('elapsed_seconds'),
-                                 'command_cap_seconds': p.get('command_cap_seconds')}
+            latest.setdefault(p['node'], {})[p.get('attempt')] = {
+                'seq': seq, 'attempt': p.get('attempt'), 'status': cp.get('status', UNKNOWN), 'reason': clean(cp.get('reason')),
+                'observed_at': p.get('observed_at'), 'received_at': p.get('received_at') or at, 'time_source': p.get('time_source'),
+                'kind': (p.get('observation') or {}).get('kind'), 'elapsed_seconds': (p.get('observation') or {}).get('elapsed_seconds'),
+                'command_cap_seconds': p.get('command_cap_seconds')}
     return latest
 
 
-def _open_waits(events):
-    """Executor waits (what=wait) that have no end, and recorded mode waits without a later record of the same node."""
-    waits = []
+def _current_progress(rows, engine_view):
+    """The progress row of each node's CURRENT attempt (the one engine.state binds to the node), and nothing else: an observation of an
+    older attempt, however late it is written, never speaks for the attempt that runs now (P2-02). It stays readable in the timeline, marked
+    `stale_attempt`. Without an engine view there is no current attempt, so nothing is current."""
+    if engine_view is None: return {}
+    out = {}
+    for nid, r in engine_view['nodes'].items():
+        row = (rows.get(nid) or {}).get(r.get('attempt')) if r.get('attempt') else None
+        if row: out[nid] = row
+    return out
+
+
+def _waits(events, attempts):
+    """Every wait of the root, reconciled the way executors.summary does, each with `open` (current) or not (history, P2-03):
+    an executor wait is ONE row per (attempt, basis ref); any record of that wait carrying `until` closes it, whatever order the records
+    were written in, so a duplicate or late start never reopens a closed wait; an open wait of an attempt that is no longer active has an
+    unknown end and is not current either. A recorded mode wait ends at that node's next non-wait record."""
+    active = {a['id'] for a in attempts if a['status'] in ('reserved', 'running', 'unknown')}
+    rows, order = {}, []
     for seq, kind, p, at in events:
         if kind == 'executor.observed' and p.get('what') == 'wait':
             wait = p.get('wait') or {}
-            if not wait.get('until'):
-                waits.append({'seq': seq, 'reason': wait.get('reason'), 'since': p.get('observed_at') or at, 'attempt': p.get('attempt'), 'source': 'executor.observed'})
+            key = ('executor', p.get('attempt'), (p.get('basis') or {}).get('ref'))
+            if key not in rows:
+                rows[key] = {'seq': seq, 'ref': key[2], 'reason': wait.get('reason'), 'since': p.get('observed_at') or at, 'attempt': p.get('attempt'),
+                             'node': None, 'source': 'executor.observed', 'until': None, 'end_seq': None, 'open': True}
+                order.append(key)
+            if wait.get('until') and rows[key]['until'] is None:
+                rows[key].update(until=wait['until'], end_seq=seq, open=False)
         elif kind == 'workflow.mode' and p.get('mode') == 'wait' and not p.get('corrects'):
-            waits.append({'seq': seq, 'reason': clean(p.get('mode_reasons') or p.get('reasons')), 'since': at, 'node': p.get('node'), 'source': 'workflow.mode'})
-    # a mode wait of a node ends at that node's next non-wait record
-    ended = set()
-    for w in waits:
-        if w['source'] != 'workflow.mode': continue
-        for seq, kind, p, at in events:
-            if seq > w['seq'] and kind in ('workflow.mode', 'node.started') and p.get('node') == w.get('node') and not (kind == 'workflow.mode' and p.get('mode') == 'wait'):
-                ended.add(w['seq']); break
-    return [w for w in waits if w['seq'] not in ended]
+            key = ('mode', seq)
+            rows[key] = {'seq': seq, 'ref': None, 'reason': clean(p.get('mode_reasons') or p.get('reasons')), 'since': at, 'attempt': None, 'node': p.get('node'),
+                         'source': 'workflow.mode', 'until': None, 'end_seq': None, 'open': True}
+            order.append(key)
+    for key in order:
+        w = rows[key]
+        if w['source'] == 'workflow.mode':
+            for seq, kind, p, at in events:
+                if seq > w['seq'] and kind in ('workflow.mode', 'node.started') and p.get('node') == w.get('node') and not (kind == 'workflow.mode' and p.get('mode') == 'wait'):
+                    w.update(until=at, end_seq=seq, open=False); break
+        elif w['open'] and w['attempt'] not in active:
+            w.update(until=UNKNOWN, open=False)
+    return [rows[k] for k in order]
 
 
 def _needs_user(state, requests, views, level, engine_view):
@@ -179,7 +204,9 @@ def _needs_user(state, requests, views, level, engine_view):
 
 
 def _level(state, engine_view, views):
-    if state['status'] in ('accepted', 'closed'): return 'accepted'
+    """The output level is evidence: plan.accepted is the owner's acceptance; plan.closed is NOT (P2-01), the nodes' states still say
+    what was produced, verified or accepted before the plan was closed."""
+    if state['status'] == 'accepted': return 'accepted'
     if engine_view is not None and engine_view.get('nodes'):
         ranks = [{'produced': 1, 'verified': 2, 'accepted': 3}.get(r.get('state'), 0) for r in engine_view['nodes'].values()]
         if ranks and all(r >= 3 for r in ranks): return 'accepted'
@@ -193,8 +220,10 @@ def _level(state, engine_view, views):
 def _status(state, engine_view, attempts, progress, waits, requests, views, verifier_runs, level, first_started):
     """(kind, reason, sources): the sourced status of a root. Order: done > blocked > activity (running / unknown attempt) > waiting > not started."""
     src = []
-    if state['status'] in ('accepted', 'closed'):
-        return 'done', 'đã nghiệm thu' if state['status'] == 'accepted' else 'chủ sở hữu đã đóng', [f"plan.{state['status']}"]
+    if state['status'] == 'accepted':
+        return 'done', 'đã nghiệm thu', ['plan.accepted']
+    if state['status'] == 'closed':
+        return 'done', f"chủ sở hữu đã đóng plan (đóng không phải nghiệm thu; đầu ra: {LEVEL_WORDS[level]})", ['plan.closed']
     if state['status'] == 'stopped_with_report':
         return 'blocked', 'dừng có báo cáo ở mốc ' + clean((state['stopped'].get(state['latest']) or {}).get('milestone'), 50), [f"milestone.stopped:rev{state['latest']}"]
     if state['status'] == 'proposed':
@@ -218,6 +247,10 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
     if unknown:
         return 'unknown', 'attempt ở trạng thái unknown (kết quả tiến trình chưa được xác định): ' + ', '.join(unknown), ['attempt:' + a for a in unknown]
     if active:
+        waiting = [w for w in waits if w['source'] == 'executor.observed' and w.get('attempt') in {a['id'] for a in active}]
+        if waiting:         # the running attempt's own executor reported an open wait: it is waiting, with the reason the executor gave
+            return 'waiting', 'attempt đang chạy nhưng đang chờ: ' + '; '.join(f"{clean(w.get('reason'), 120) or 'không rõ lý do'} (attempt {w['attempt']}, từ {w['since']})" for w in waiting), \
+                [f"executor.observed:{w['seq']}" for w in waiting]
         words = []
         for a in active:
             node = next((nid for nid, r in (engine_view or {}).get('nodes', {}).items() if r.get('attempt') == a['id']), None)
@@ -332,7 +365,8 @@ def _keys_of(payload):
     return set(HEX64.findall(json.dumps(payload, ensure_ascii=False, default=str)))
 
 
-def _timeline(conn, root_id, children, current_generation, limit):
+def _timeline(conn, root_id, children, current_generation, limit, current_attempt=None):
+    current_attempt = current_attempt or {}
     rows = []
     task_ids = [root_id] + sorted(children)
     marks = ','.join('?' for _ in task_ids)
@@ -345,11 +379,14 @@ def _timeline(conn, root_id, children, current_generation, limit):
         keys |= _keys_of(p)
         node, gen = p.get('node'), p.get('generation')
         stale = node is not None and gen is not None and node in current_generation and gen != current_generation[node]
+        attempt = p.get('attempt') or (p.get('id') if r['kind'].startswith('attempt.') else None)
+        stale_attempt = node is not None and attempt is not None and node in current_attempt and attempt != current_attempt[node]
         rows.append({'seq': r['seq'], 'task': 'root' if r['task_id'] == root_id else r['task_id'], 'at': r['created_at'], 'kind': r['kind'],
-                     'node': node, 'generation': gen, 'attempt': p.get('attempt') or (p.get('id') if r['kind'].startswith('attempt.') else None),
+                     'node': node, 'generation': gen, 'attempt': attempt,
                      'summary': clean(_summary(r['kind'], p), 240),
                      'observed_at': p.get('observed_at'), 'received_at': p.get('received_at'),
-                     'stale_generation': stale, 'note': 'thế hệ cũ: không đổi trạng thái hiện tại' if stale else None,
+                     'stale_generation': stale, 'stale_attempt': stale_attempt,
+                     'note': ('thế hệ cũ: không đổi trạng thái hiện tại' if stale else 'attempt cũ: không đổi trạng thái hiện tại' if stale_attempt else None),
                      'evidence': sorted(_keys_of(p))[:6]})
     rows.reverse()
     return rows, total, keys
@@ -379,8 +416,9 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
         except (LedgerError, OSError, ValueError, KeyError): views = []
     children = {p.get('child') for seq, kind, p, at in events if kind == 'node.started' and p.get('child')}
     attempts = _attempts(conn, [row['id']] + sorted(children))
-    progress = _progress_rows(events)
-    waits = _open_waits(events)
+    progress = _current_progress(_progress_rows(events), engine_view)
+    waits = _waits(events, attempts)
+    open_waits = [w for w in waits if w['open']]
     requests = [{'id': r['id'], 'revision': r['revision'], 'state': r['state'], 'created_at': r['created_at'], 'updated_at': r['updated_at'],
                  'question': json.loads(r['payload'])} for r in conn.execute('SELECT * FROM requests WHERE task_id=? ORDER BY created_at, id', (row['id'],))]
     from . import verdict
@@ -388,7 +426,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     except (LedgerError, ValueError, KeyError): runs = []
     level = _level(state, engine_view, views)
     first_started = next((at for seq, kind, p, at in events if kind == 'node.started'), None)
-    kind, reason, sources = _status(state, engine_view, attempts, progress, waits, requests, views, runs, level, first_started)
+    kind, reason, sources = _status(state, engine_view, attempts, progress, open_waits, requests, views, runs, level, first_started)
     last = events[-1] if events else None
     nodes = {}
     if engine_view is not None:
@@ -431,7 +469,8 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
                         'evidence': [clean(e, 120) for e in (p.get('evidence') or [])[:6]]} for seq, kind, p, at in events if kind == 'notice.exception']
     item['progress'] = progress
     current = {nid: r['generation'] for nid, r in nodes.items()}
-    item['timeline'], item['timeline_total'], keys = _timeline(conn, row['id'], children, current, timeline_limit)
+    current_attempt = {nid: r['attempt'] for nid, r in nodes.items() if r['attempt']}
+    item['timeline'], item['timeline_total'], keys = _timeline(conn, row['id'], children, current, timeline_limit, current_attempt)
     for r in nodes.values():
         for key in (r['receipt'], r['verification_receipt'], r['resume_artifact'], r['retained_candidate']):
             if isinstance(key, str) and HEX64.fullmatch(key): keys.add(key)
@@ -451,6 +490,7 @@ def _measure(rd, selector):
                 'rework': m.get('rework'), 'method': m.get('method'),
                 'attempts': [{k: a.get(k) for k in ('attempt', 'node', 'generation', 'mode', 'execution_seconds', 'span_seconds', 'reserved_at', 'settled_at')} for a in m.get('attempts', [])],
                 'waits': [dict(w, reasons=clean(w.get('reasons'), 200)) for w in m.get('waits', [])],
+                'executor_waits': [{k: w.get(k) for k in ('at', 'until', 'reason', 'ref', 'time_source')} for w in m.get('executor_waits', [])],
                 'verification': m.get('verification')}
     except (LedgerError, OSError, ValueError, KeyError, TypeError) as error:
         return {'error': clean(str(error), 200), 'attempts_wall_seconds': UNKNOWN, 'wait_seconds': UNKNOWN}
@@ -656,15 +696,20 @@ def render_detail(value):
     if t['attempts']:
         lines.append('Attempt:')
         for a in t['attempts']: lines.append(f"  - {a['id']} [{a['status']}] thế hệ {a['generation']} · {a['unit']} · {a['created_at']} → {a['updated_at']}")
-    if t['waits']:
+    if any(w['open'] for w in t['waits']):
         lines.append('Đang chờ:')
-        for w in t['waits']: lines.append(f"  - từ {w['since']}: {w.get('reason')} ({w['source']})")
+        for w in t['waits']:
+            if w['open']: lines.append(f"  - từ {w['since']}: {w.get('reason')} ({w['source']})")
+    if any(not w['open'] for w in t['waits']):
+        lines.append('Đã chờ (lịch sử):')
+        for w in t['waits']:
+            if not w['open']: lines.append(f"  - {w['since']} → {w.get('until')}: {w.get('reason')} ({w['source']})")
     if t['holds']:
         lines.append('Giữ (finding):')
         for h in t['holds']: lines.append('  - ' + (h.get('text') or h.get('error') or ''))
     lines.append(f"Timeline ({len(t['timeline'])}/{t['timeline_total']} sự kiện, cũ → mới):")
     for e in t['timeline']:
         when = e['at'] + (f" (quan sát {e['observed_at']})" if e.get('observed_at') and e['observed_at'] != e['at'] else '')
-        lines.append(f"  #{e['seq']} {when} {e['kind']}: {e['summary']}" + ('  [thế hệ cũ]' if e['stale_generation'] else ''))
+        lines.append(f"  #{e['seq']} {when} {e['kind']}: {e['summary']}" + ('  [thế hệ cũ]' if e['stale_generation'] else '  [attempt cũ]' if e.get('stale_attempt') else ''))
     lines.append(f"Bằng chứng mở được: {len(t['evidence_keys'])} blob · Điều khiển: {t['controls']}")
     return '\n'.join(lines) + '\n'

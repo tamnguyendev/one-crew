@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v2.4.0.dev7 (03/11/2026) — beta OBS-1: màn hình theo dõi chỉ đọc (`onecrew track`), nhánh `claude/onecrew-obs1`
+
+**Prerelease `2.4.0.dev7` = `2.4.0.dev6` + lát OBS-1 (roadmap §0.9, thiết kế §2.10); không phải toàn bộ roadmap (MR-R, OBS-2 chưa có); chưa nghiệm thu production.** Đặt trên nhánh `claude/onecrew-obs1` tách từ `01b6f62`; nhánh `claude/onecrew-2.4`, tag `v2.4.0.dev6` và gói dev6 không đổi. Điểm vào thử: `BAT-DAU-THU.vi.md` trong gói OBS-1 (`verify/thu-goi-obs1.ps1`).
+
+- **Mới:** nhóm lệnh `onecrew track list|show|evidence|serve|open` trên một mô hình trạng thái chỉ đọc (`onecrew/v2/tracking.py`: plan.*, `engine.state`, bảng `attempts`, `executor.observed`, `requests`, `notice.exception`, `estimates`, `execution_mode.measure`, `hold_views`; sổ mở `mode=ro`); CLI và trang web local (`tracking_web.py`, `http.server` stdlib trên 127.0.0.1, chỉ GET, HTML một file, poll 2 s) đọc cùng dict. Trạng thái có nguồn (đang thực hiện / đang chờ / bị chặn / hoàn tất / chưa xác định) tách khỏi mức đầu ra (chưa có / đã tạo / đã kiểm / đã nghiệm thu); thế hệ cũ và attempt cũ không đổi trạng thái (timeline đánh dấu); overlap = union; ETA là khoảng hoặc "chưa xác định"; phiên ngoài OneCrew = "chưa được theo dõi"; mọi chuỗi qua `diagnostics.redact_line`. Không nút điều khiển, không sổ tiến độ riêng, không model.
+- **Sửa (review Codex 03/11 trên snapshot `bf6994f`, 4 P2):** P2-01 plan đóng (`plan.closed`) không còn hiện "đã nghiệm thu": mức đầu ra lấy từ node; P2-02 quan sát tiến độ của attempt cũ đến muộn không đổi trạng thái attempt đang chạy (progress ràng theo attempt hiện hành; lịch sử đánh dấu `attempt cũ`); P2-03 khoảng chờ đã ghi `until` (cùng attempt + ref) là lịch sử, không phải chờ hiện hành; sự kiện trùng/đến muộn không mở lại; khoảng chờ của attempt đã kết thúc không ghi `until` = "chưa rõ kết thúc"; P2-04 server `--project-only` từ chối (403) mọi `project_id` khác trên overview/task/evidence; chế độ mọi project vẫn thu hẹp được.
+- **Kiểm:** `tests/test_obs1_p2.py` (10, đỏ trên `bf6994f` → xanh), `test_obs1_tracking` (18), `test_obs1_web` (7, Chrome headless), `test_obs1_installed` (1, wheel ngoài checkout); bước gói V13 (bốn phản chứng từ wheel đã cài qua CLI/HTTP). Gate 2.2 đầy đủ không chạy lại cho lát này.
+- **Giới hạn:** `claude` giả trong mọi kiểm; độ trễ đo trên sổ nhỏ; Chrome headless; không xác thực (127.0.0.1); bản sửa P2 chưa Codex review lại. Chi tiết `docs/obs1/limits-obs1.md`.
+
 ## v2.4.0.dev6 (02/11/2026) — beta 2.4: S1/S2/A/B/C, xác thực API cho advisor/reviewer, bộ thử trong gói
 
 **Bản beta (prerelease) `2.4.0.dev6` của 2.4, không phải bản ổn định `2.4.0`; chưa nghiệm thu production.** Dùng trên bản sao project và sổ riêng; không tự cài lên runtime/sổ thật. Điểm vào thử: `BAT-DAU-THU.vi.md` trong gói (script `verify/thu-tay/`).

@@ -51,3 +51,14 @@ Người lập: Claude (Fable 5.1), 03/11/2026, theo nhiệm vụ OBS-1 (roadmap
 
 - Trần cập nhật: sự kiện ghi vào sổ xuất hiện trên UI trong **≤ 5 s** (poll 2 s + đọc sổ). Đo bằng test 15 và từ gói (`verify_obs1.py` V6).
 - Chi phí quan sát: thời gian `overview()` trên sổ thử ghi vào báo cáo; server không giữ transaction giữa hai lần poll.
+
+## 5. Review Codex 03/11 (snapshot `bf6994f`): bốn P2 và cách khép
+
+Phản chứng: `D:/OneCrewRuns/codex-obs1-review-20261103/probe.py` (chạy trên wheel đã cài). Test đỏ-trước-xanh-sau đi qua sổ/engine (P2-01..03) và HTTP (P2-04): `tests/test_obs1_p2.py`; từ gói: bước `V13-p2-findings` của `verify_obs1.py` (scenario `p2`).
+
+| # | Lỗi | Nguyên nhân | Sửa |
+|---|---|---|---|
+| P2-01 | `plan.closed` hiện "đã nghiệm thu" dù node chưa chạy | `_level` gộp `closed` với `accepted` | `_level`: chỉ `plan.accepted` là nghiệm thu; `closed` lấy mức từ node (none/produced/verified). Trạng thái `done` với lý do "đã đóng (đóng không phải nghiệm thu; đầu ra: …)" |
+| P2-02 | quan sát blocked của attempt cũ đến muộn làm attempt mới hiện "bị chặn" | progress lấy "mới nhất theo node", không ràng attempt | `_progress_rows` giữ mới nhất theo (node, attempt); `_current_progress` chỉ lấy dòng của attempt mà `engine.state` ràng vào node; timeline đánh dấu `stale_attempt` ("attempt cũ"); quan sát của attempt hiện hành vẫn chặn |
+| P2-03 | khoảng chờ đã ghi `until` vẫn là "đang chờ" | mỗi sự kiện wait xét riêng, không đối soát theo (attempt, ref) | `_waits`: một dòng mỗi (attempt, basis ref) như `executors.summary`; bất kỳ bản ghi có `until` đóng nó, trùng/đến muộn không mở lại; attempt đã kết thúc → `until = unknown`, không hiện hành; mỗi dòng có `open`; `measure.executor_waits` giữ số đo; attempt đang chạy có wait mở → "đang chờ" với lý do của executor |
+| P2-04 | server `--project-only` A trả 200 cho `project_id=B` | `scope = query hoặc server` | `project_id` của query ≠ project của server → 403 cho mọi đường `/api/*`; bằng project của server → 200; mọi project (không `--project-only`) vẫn thu hẹp được |
