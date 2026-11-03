@@ -18,7 +18,8 @@ from tests.test_wf_engine import EngineFixture
 
 SCENARIOS = [('ux01', 'desktop'), ('ux02', 'desktop'), ('ux03', 'desktop'), ('ux04', 'desktop'), ('ux05', 'desktop'), ('ux06', 'desktop'), ('ux07', 'desktop'),
              ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop'),
-             ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile'), ('gantt', 'desktop'), ('gantt', 'mobile'), ('p2a', 'desktop'), ('gantt_now', 'desktop'), ('evid', 'desktop')]
+             ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile'), ('gantt', 'desktop'), ('gantt', 'mobile'), ('p2a', 'desktop'), ('gantt_now', 'desktop'), ('evid', 'desktop'),
+             ('stale_detail', 'desktop'), ('stale_detail', 'mobile')]
 
 
 class BrowserUX(EngineFixture):
@@ -60,7 +61,7 @@ class BrowserUX(EngineFixture):
         only = [x for x in (os.environ.get('OBS1_UX_ONLY') or '').split(',') if x]          # e.g. OBS1_UX_ONLY=gantt_now,evid while developing
         for scenario, size in SCENARIOS:
             if only and scenario not in only: continue
-            result = self.run_one(scenario, size, budget=45000 if scenario in ('ux01', 'disc', 'clock', 'gantt', 'p2a', 'gantt_now', 'evid') else 30000)
+            result = self.run_one(scenario, size, budget=150000 if scenario == 'stale_detail' else 45000 if scenario in ('ux01', 'disc', 'clock', 'gantt', 'p2a', 'gantt_now', 'evid') else 30000)
             if not result.get('ok'): failures.append((scenario, size, result.get('error'), result.get('notes'), result.get('checks')))
             elif scenario == 'ux01': self.assertGreaterEqual(result.get('polls', 0), 5, result)
         self.assertEqual(failures, [], json.dumps(failures, ensure_ascii=False, indent=1))

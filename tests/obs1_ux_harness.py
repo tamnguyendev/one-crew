@@ -3,7 +3,9 @@
 `Proxy(target_url, on_signal=None)` serves `/__ux?s=<scenario>` (the harness page) and forwards every other path to the tracking server, so the
 harness and the page share one origin and the harness can click, type, focus, scroll, reload and read the page in its iframe exactly as a
 user would; `/__signal?name=…` calls `on_signal(name)` in the Python process (a ledger write while the reader is looking); `/__drop?on=1|0`
-makes the proxy drop `/api/*` connections (the disconnected state). `run(browser, proxy_url, scenario, width, height, profile, budget)` runs one
+makes the proxy drop `/api/*` connections (the disconnected state); `/__fault?detail=drop|error|ok[&plan=<selector>][&delay=<ms>]` (TEST ONLY,
+answered by the proxy and never by the product server) faults only `/api/task` (of that plan when `plan` is given), optionally after a delay:
+`drop` closes the connection, `error` answers 503 JSON, `ok` forwards; `/__fault?status=1` reports the faulted/delayed requests answered so far. `run(browser, proxy_url, scenario, width, height, profile, budget)` runs one
 scenario with the page laid out at that size (the harness sizes its iframe: headless Chrome clamps its own window at 500 px wide) and returns the
 JSON the harness wrote (`ok`, `checks`, `notes`, `innerWidth`/`scrollWidth` of the page); a scenario counts real polls of the page (the connection
 badge changes on every poll) and waits for at least three before judging what was preserved.
@@ -12,13 +14,15 @@ Scenarios (docs/obs1/UX-OBS-1.vi.md): ux01 (open sections/focus/scroll survive �
 of another project), ux03 (question options with their commands, copy), ux04 (mouse + keyboard selection, detail in view, URL, reload, back),
 ux05 (three done words/badges, time labels), ux06 (timeline groups, old history folded, seq ascending, a step's evidence opens), ux07 (list rows
 carry no hash and no raw path as main text), ux08 (narrow layout: no horizontal page scroll, list/detail switch), race (a late reply for the
-previously selected task never overwrites the selected one), disc (disconnect then reconnect keeps the selection). Shared by the unit tests
+previously selected task never overwrites the selected one), disc (disconnect then reconnect keeps the selection), stale_detail (R4 of 03/11: a failed or late detail request never leaves another task's
+content or reply commands under the selection; the overview badge and the detail freshness are shown apart). Shared by the unit tests
 (tests/test_obs1_browser.py) and the package verifier (V14).
 """
 import json
 import re
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -59,8 +63,9 @@ def screenshot(exe, proxy_url, scenario, width, height, profile, path, budget=15
 
 class Proxy:
     def __init__(self, target, on_signal=None):
-        state = {'drop': False}
+        state = {'drop': False, 'fault': None, 'faulted': 0, 'pending': 0}
         self.state = state
+        lock = threading.Lock()
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = 'HTTP/1.1'
@@ -83,8 +88,32 @@ class Proxy:
                 if url.path == '/__drop':
                     state['drop'] = urllib.parse.parse_qs(url.query).get('on', ['0'])[0] == '1'
                     return self._send(200, b'{"ok":true}', 'application/json')
+                if url.path == '/__fault':                       # ---- R4 (stale_detail): TEST-ONLY detail fault, handled here, never by the product server
+                    params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+                    if not params.get('status'):
+                        mode = params.get('detail', 'ok')
+                        state['fault'] = None if mode == 'ok' and not params.get('delay') else {'mode': mode, 'plan': params.get('plan') or None, 'delay': int(params.get('delay') or 0)}
+                    return self._send(200, json.dumps({'fault': state['fault'], 'faulted': state['faulted'], 'pending': state['pending']}).encode('utf-8'), 'application/json')
                 if state['drop'] and url.path.startswith('/api/'):
                     self.close_connection = True; self.connection.close(); return
+                fault = state['fault']
+                if fault and url.path == '/api/task':
+                    plan = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}.get('plan')
+                    if not fault['plan'] or fault['plan'] == plan:
+                        with lock: state['pending'] += 1
+                        try:
+                            if fault['delay']: time.sleep(fault['delay'] / 1000)
+                            if fault['mode'] == 'drop':
+                                self.close_connection = True; self.connection.close(); return
+                            if fault['mode'] == 'error':
+                                return self._send(503, json.dumps({'error': 'nguồn lỗi: test fault (proxy)'}, ensure_ascii=False).encode('utf-8'), 'application/json; charset=utf-8')
+                            return self._forward()                # mode ok with a delay: the late reply
+                        finally:
+                            with lock: state['pending'] -= 1; state['faulted'] += 1
+                                                                 # ---- end R4
+                return self._forward()
+
+            def _forward(self):
                 try:
                     with urllib.request.urlopen(target + self.path.lstrip('/'), timeout=30) as r:
                         return self._send(r.status, r.read(), r.headers.get('Content-Type') or 'application/octet-stream')
@@ -122,7 +151,8 @@ async function morePolls(n){const base=polls;return await waitFor(()=>polls>=bas
 async function loaded(){w=f.contentWindow;d=w.document;await waitFor(()=>d.readyState==='complete'&&$('#conn')&&$('#conn').className==='ok'&&$$('li.task').length>0, 15000, 'page+first poll');watchPolls();w.focus()}
 function rowOf(plan){return $$('li.task').find(li=>li.querySelector('.name').textContent===plan)}
 function st(){return w.__track.state()}
-async function select(plan){rowOf(plan).click();return await waitFor(()=>$('#dtitle')&&$('#dtitle').textContent.indexOf(plan)===0, 10000, 'detail '+plan)}
+function shown(plan){return $('#dtitle')&&$('#dtitle').textContent.indexOf(plan)===0&&$('#detail .dsum')}   // the LOADED detail of plan (a loading/error pane has a heading but no summary strip)
+async function select(plan){rowOf(plan).click();return await waitFor(()=>shown(plan), 10000, 'detail '+plan)}
 function key(el,k){el.dispatchEvent(new w.KeyboardEvent('keydown',{key:k,bubbles:true,cancelable:true}))}
 function seqOf(){const m=/seq (\d+)/.exec($('#conn').textContent);return m?parseInt(m[1],10):null}
 async function signal(name,params){var q='';Object.keys(params||{}).forEach(function(k){q+='&'+k+'='+encodeURIComponent(params[k])});return await (await fetch('/__signal?name='+encodeURIComponent(name)+q)).json()}
@@ -180,13 +210,13 @@ if(S==='ux03'){
 }
 if(S==='ux04'){
   const rows=$$('li.task'); check('rows are keyboard reachable (tabindex=0, role=option)', rows.length>=2 && rows.every(r=>r.getAttribute('tabindex')==='0'&&r.getAttribute('role')==='option'));
-  const target=rows[rows.length-1]; const plan=target.querySelector('.name').textContent; target.scrollIntoView(); target.click(); await waitFor(()=>$('#dtitle')&&$('#dtitle').textContent.indexOf(plan)===0, 8000, 'detail by click');
+  const target=rows[rows.length-1]; const plan=target.querySelector('.name').textContent; target.scrollIntoView(); target.click(); await waitFor(()=>shown(plan), 8000, 'detail by click');
   const r=$('#detailpane').getBoundingClientRect(); check('the detail is in view right after the click', r.top>=-1 && r.top<w.innerHeight*0.8 && r.height>50, {top:r.top, h:r.height, inner:w.innerHeight});
   check('the clicked row keeps focus (mouse selection)', d.activeElement===rowOf(plan) || d.activeElement===d.body, d.activeElement&&d.activeElement.tagName);
   check('the URL names the task', w.location.search.indexOf('plan=')>=0 && w.location.search.indexOf('project_id=')>=0, w.location.search);
   if(w.innerWidth<900){$('#back').click(); await sleep(100)}                      // narrow: the list must be on screen before the keyboard part
   const first=rowOf('P1'); first.focus(); key(first,'ArrowDown'); const second=d.activeElement; check('ArrowDown moves focus to the next row', second && second.classList.contains('task') && second!==first);
-  const plan2=second.querySelector('.name').textContent; key(second,'Enter'); await waitFor(()=>$('#dtitle')&&$('#dtitle').textContent.indexOf(plan2)===0, 8000, 'detail by Enter');
+  const plan2=second.querySelector('.name').textContent; key(second,'Enter'); await waitFor(()=>shown(plan2), 8000, 'detail by Enter');
   check('Enter selects the focused row and moves focus to the detail title', d.activeElement===$('#dtitle'), d.activeElement&&d.activeElement.id);
   key($('#dtitle'),'Escape'); await sleep(100); check('Escape closes the detail and returns focus to the row', st().selected===null && d.activeElement && d.activeElement.classList.contains('task') && d.activeElement.querySelector('.name').textContent===plan2, d.activeElement&&d.activeElement.textContent.slice(0,30));
   check('the row last viewed is marked', rowOf(plan2).classList.contains('last'));
@@ -260,7 +290,7 @@ if(S==='ux08'){
 }
 if(S==='race'){
   const real=w.fetch; w.fetch=function(u,o){const p=real.apply(this,arguments); if(String(u).indexOf('plan=')>=0 && String(u).indexOf(encodeURIComponent(rowOf('P1').dataset.plan))>=0) return p.then(r=>new Promise(res=>setTimeout(()=>res(r),1500))); return p};
-  rowOf('P1').click(); await sleep(30); rowOf('P2').click(); await waitFor(()=>$('#dtitle')&&$('#dtitle').textContent.indexOf('P2')===0, 8000, 'P2 detail'); await sleep(2200);
+  rowOf('P1').click(); await sleep(30); rowOf('P2').click(); await waitFor(()=>shown('P2'), 8000, 'P2 detail'); await sleep(2200);
   check('the late P1 reply did not overwrite the selected P2', $('#dtitle').textContent.indexOf('P2')===0 && st().selected.plan===rowOf('P2').dataset.plan, $('#dtitle').textContent);
   w.fetch=real;
 }
@@ -383,6 +413,72 @@ if(S==='p2a'){
   check('its old template and copy status are gone', !$('.copied') && !cards().some(c=>c.dataset.needId===secondId) && st().stale.indexOf(secondId)>=0, st().stale);
   note.querySelector('.stale-hide').click(); await sleep(50); check('the note can be hidden', !$('.stale-need'));
 }
+// ==== R4 stale_detail (03/11, Codex release review P2): a failed or late detail request never leaves another task under the selection ====
+if(S==='stale_detail'){
+  const P1=rowOf('P1').dataset.plan, P8=rowOf('P8').dataset.plan;
+  const fault=async q=>await (await fetch('/__fault?'+q,{cache:'no-store'})).json();
+  const vis=el=>!!el && el.offsetParent!==null && el.getBoundingClientRect().height>0;
+  const ds=()=>$('#dstatus'), dst=()=>st().detailState, dfor=()=>st().detailFor;
+  const progress=step=>{out.notes.push('step '+step+' at polls '+polls); document.getElementById('out').textContent=JSON.stringify(Object.assign({}, out, {partial:true, ok:false}))};   // a budget overrun still reports how far it got
+  await fault('detail=ok'); await select('P1');
+  const p1={reqs:$$('#detail details.need').map(n=>n.dataset.needId).filter(Boolean), cmds:$$('#detail .need code').map(c=>c.textContent)};
+  check('setup: P1 shows questions with reply commands', p1.reqs.length>=2 && p1.cmds.length>=2 && p1.cmds.every(c=>/question answer REQ-/.test(c)), p1);
+  function leak(){const t=$('#detail').textContent, h=$('#dtitle')?$('#dtitle').textContent:'';
+    return {req:p1.reqs.filter(id=>t.indexOf(id.slice(0,12))>=0), cmd:$$('#detail code').map(c=>c.textContent).filter(c=>/question answer/.test(c)), copy:$$('#detail button.copy').length,
+            need:$$('#detail details.need').length, head:/(^|\W)P1(\W|$)/.test(h)?h:null, dataOfP1:!!(dfor() && dfor().plan===P1)}}
+  function clean(L){return !L.req.length && !L.cmd.length && !L.copy && !L.need && !L.head && !L.dataOfP1}
+  function selRows(){return $$('li.task[aria-selected="true"]').map(li=>li.querySelector('.name').textContent)}
+  async function noDataError(label){                    // P8 selected while its detail fails: P8's heading + an error, nothing of P1, overview still OK
+    for(let i=1;i<=3;i++){ await morePolls(1);
+      const head=$('#dtitle')?$('#dtitle').textContent:null, rows=selRows(), L=leak();
+      check(label+' poll '+i+': URL, selected row, selection and heading say P8', w.location.search.indexOf(encodeURIComponent(P8))>=0 && rows.length===1 && rows[0]==='P8' && st().selected && st().selected.plan===P8 && head && head.indexOf('P8')===0, {url:w.location.search, rows, head});
+      check(label+' poll '+i+': nothing of P1 in the detail pane (REQ id, reply command, copy button, question card, heading, data)', clean(L), L);
+      check(label+' poll '+i+': a visible detail-error state for P8', vis(ds()) && /không tải được chi tiết/i.test(ds().textContent) && dst()==='error' && st().detailError, {text:ds()&&ds().textContent, state:dst(), err:st().detailError});
+      check(label+' poll '+i+': the overview badge still says OK (it describes the overview only)', $('#conn').className==='ok' && /kết nối OK/.test($('#conn').textContent), $('#conn').textContent);
+      check(label+' poll '+i+': a separate detail indicator says the detail failed', vis($('#dconn')) && /lỗi/i.test($('#dconn').textContent), $('#dconn')&&$('#dconn').textContent);
+    }}
+  async function recovered(plan, label){const ok=await waitFor(()=>shown(plan) && !ds() && dst()==='ok', 12000, label);
+    check(label, ok && dfor() && dfor().plan===rowOf(plan).dataset.plan && !st().detailError && $('#detail .gantt') && (!$('#dconn') || !/lỗi/i.test($('#dconn').textContent)), {head:$('#dtitle')&&$('#dtitle').textContent, state:dst(), dfor:dfor(), dconn:$('#dconn')&&$('#dconn').textContent})}
+  // A. network failure (connection dropped like the Codex probe) for P8, never loaded
+  progress('A drop'); await fault('detail=drop'); rowOf('P8').click(); await noDataError('drop');
+  await fault('detail=ok'); await recovered('P8', 'drop removed: P8 content appears and the error goes');
+  check('recovered P8 carries nothing of P1', clean(leak()), leak());
+  // B. HTTP error status (503) for P8, never loaded
+  progress('B 503'); await select('P1'); await fault('detail=error'); rowOf('P8').click(); await noDataError('http 503');
+  await fault('detail=ok'); await recovered('P8', '503 removed: P8 content appears and the error goes');
+  // C. the same task, already shown, then its detail fails: its data stays, marked stale, the reader's place kept
+  progress('C stale'); await select('P1'); const card=$('#detail details.need'); card.open=true; $('#detail details[data-k="log"]').open=true;
+  const pane=$('#detailpane'); pane.scrollTop=60; const cbtn=card.querySelector('button.copy'); cbtn.focus({preventScroll:true});
+  const place=()=>({open:$$('#detail details[data-k]').filter(x=>x.open).map(x=>x.getAttribute('data-k')).sort().join('|'), focus:(d.activeElement&&d.activeElement.closest('[data-k]')?d.activeElement.closest('[data-k]').getAttribute('data-k'):null)+(d.activeElement&&d.activeElement.classList.contains('copy')?'/copy':''), pane:pane.scrollTop, win:w.scrollY});
+  const before=place(); check('setup: a question open, its copy button focused', before.focus && /\/copy$/.test(before.focus) && before.open.indexOf('log')>=0, before);
+  await fault('detail=drop');
+  for(let i=1;i<=3;i++){ await morePolls(1); const now=place(), cards=$$('#detail details.need').map(n=>n.dataset.needId);
+    check('stale poll '+i+': P1 and its questions stay under the P1 selection', shown('P1') && st().selected.plan===P1 && dfor() && dfor().plan===P1 && p1.reqs.every(id=>cards.indexOf(id)>=0), {cards, dfor:dfor()});
+    check('stale poll '+i+': a visible freshness warning next to the heading (since when, data time)', vis(ds()) && /chưa cập nhật/i.test(ds().textContent) && /\d{1,2}:\d{2}:\d{2}/.test(ds().textContent) && dst()==='stale' && ds().previousElementSibling && ds().previousElementSibling.classList.contains('dhead'), {text:ds()&&ds().textContent, state:dst()});
+    check('stale poll '+i+': every reply template is marked as from that time (the --revision guard is named)', $$('#detail details.need').length>0 && $$('#detail details.need').every(n=>n.querySelector('[data-stale-template]')) && /--revision/.test((ds()?ds().textContent:'')+' '+($('#detail details.need [data-stale-template]')?$('#detail details.need [data-stale-template]').textContent:'')), $$('#detail details.need').map(n=>!!n.querySelector('[data-stale-template]')));
+    check('stale poll '+i+': the overview badge still says OK', $('#conn').className==='ok', $('#conn').textContent);
+    check('stale poll '+i+': open sections, focus and scroll kept', JSON.stringify(now)===JSON.stringify(before), {before, now});
+  }
+  await fault('detail=error'); await morePolls(2);
+  check('stale with HTTP 503: still P1 data with the warning, place kept', shown('P1') && vis(ds()) && /chưa cập nhật/i.test(ds().textContent) && dst()==='stale' && JSON.stringify(place())===JSON.stringify(before), {text:ds()&&ds().textContent, now:place(), before});
+  await fault('detail=ok'); await recovered('P1', 'stale removed: the warning goes on recovery');
+  check('after recovery: no template marked stale, open sections/focus/scroll kept', !$('#detail [data-stale-template]') && JSON.stringify(place())===JSON.stringify(before), {before, now:place()});
+  // D. out of order: a delayed reply for P1 (success, network failure, HTTP error) arrives after P8 was selected and loaded: it never shows
+  async function proxy(){return await fault('status=1')}
+  // virtual time stands still while a page fetch is held by the proxy, so these loops wait on real network round trips, not on sleep()
+  async function waitPending(){for(let i=0;i<4000;i++){const x=await proxy(); if(x.pending>0) return x} return null}
+  async function waitAnswered(n){for(let i=0;i<4000;i++){const x=await proxy(); if(x.pending===0 && x.faulted>=n) return x} return null}
+  for(const mode of ['ok','drop','error']){ progress('D late '+mode);
+    await fault('detail=ok'); await select('P1');
+    const base=(await proxy()).faulted; await fault('detail='+mode+'&plan='+encodeURIComponent(P1)+'&delay=1500');
+    const pend=await waitPending(); rowOf('P8').click(); const p8=await waitFor(()=>shown('P8') && !ds(), 15000, 'P8 loaded while the P1 reply is held');
+    const done=await waitAnswered(base+1); await morePolls(1); await sleep(200);
+    check('late P1 reply ('+mode+') held in flight while P8 was selected', pend && p8 && done, {pend, done});
+    check('late P1 reply ('+mode+') never shows: P8 stays, no error, nothing of P1', shown('P8') && !ds() && st().selected.plan===P8 && clean(leak()), {state:dst(), head:$('#dtitle')&&$('#dtitle').textContent, L:leak()});
+  }
+  await fault('detail=ok');
+}
+// ==== end R4 stale_detail ====
 if(S==='shot-detail'){await select(qs.get('plan')||'P1'); if(qs.get('open')==='need'){const n=$('details.need'); if(n)n.open=true} else {const ev=$$('ol.ev > li').find(li=>li.querySelector('.clip')); if(ev){ev.click(); await waitFor(()=>$('.evbox'),3000)}}}
 if(S==='shot-list'){}
 out.ok=Object.values(out.checks).every(Boolean)&&Object.keys(out.checks).length>0;
