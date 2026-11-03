@@ -12,8 +12,10 @@ tasks, never from the timeline display window; the evidence door checks membersh
     the door opens an old key, an event naming more than 6 keys keeps all of them;
 (d) the provenance is identical for timeline limits 5, 300 and 5000.
 """
+import hashlib
 import json
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -202,3 +204,86 @@ class Provenance(EngineFixture):
             rows_tl = [(e['seq'], e['kind'], e['generation'], rows[e['attempt']]['generation']) for e in d['timeline']
                        if e['kind'].startswith('attempt.') and e.get('attempt') in rows and e['generation'] != rows[e['attempt']]['generation']]
             self.assertEqual(rows_tl, [], 'the event log rows of attempt.* events show the node generation of their attempt')
+
+    def test_f_an_old_row_keeps_what_it_inherited(self):
+        """Review round 2 (R1 closure): inheritance is history, not only the engine's current node record. Generation 1 resumes from K of
+        generation 0 and produces K again; generation 2 continues from generation 1's attempt without an artifact; generation 3 is a plain
+        resume. Once newer generations exist, the generation-1 row still names K as inherited from generation 0 (with the source occurrence)
+        beside its own production of K, the generation-2 row still says it continues from generation 1, and a plain generation inherits
+        nothing; in the model and over HTTP at a small window."""
+        artifact, receipt, att0, att1 = self.two_generations(resume_same=True)
+        produced0 = self.events(tracking.detail(self.ledger.state_root, 'P1', timeline_limit=5000), 'node.produced')[0]
+        def inh(r): return [(x['kind'], x['key'], x['from_attempt'], x['from_generation'], (x.get('source_occurrence') or {}).get('seq')) for x in r['inherits']]
+        while_current = inh(next(r for r in tracking.detail(self.ledger.state_root, 'P1')['gantt']['rows'] if r['attempt'] == att1))
+        self.assertEqual(while_current, [('resume_artifact', artifact, att0, 0, produced0['seq'])], 'setup: the current generation-1 row inherits K')
+        with self.ledger.transaction(write=True) as conn:
+            engine._event(self.ledger, conn, engine.state(self.ledger, 'P1', conn), 'A', 'node.resumed', continues_attempt=att1)
+        self.step()
+        att2 = tracking.detail(self.ledger.state_root, 'P1')['nodes']['A']['attempt']
+        with self.ledger.transaction(write=True) as conn:
+            engine._event(self.ledger, conn, engine.state(self.ledger, 'P1', conn), 'A', 'node.resumed')
+        self.step()
+        for d, where in ((tracking.detail(self.ledger.state_root, 'P1', timeline_limit=5000), 'model'), (self.http_detail(3), 'GET /api/task?timeline=3')):
+            rows = {r['generation']: r for r in d['gantt']['rows'] if r['node'] == 'A'}
+            self.assertEqual(sorted(rows), [0, 1, 2, 3], f'{where}: setup: four generations of A')
+            self.assertFalse(rows[1]['current'] or rows[2]['current'])
+            self.assertEqual(inh(rows[1]), while_current, f'{where}: the generation-1 row, now old, still names K inherited from generation 0 (as while it was current)')
+            self.assertTrue(rows[1]['inherits'][0].get('source'), rows[1]['inherits'])
+            own1 = [(x['kind'], x['role']) for x in d['evidence_index'] if x['key'] == artifact and x['output'] and x['attempt'] == att1]
+            self.assertIn(('node.produced', 'artifact'), own1, f'{where}: and K is still its own output (the roles coexist on a history row)')
+            self.assertEqual([(x['kind'], x['key'], x['from_attempt'], x['from_generation']) for x in rows[2]['inherits']], [('continues', None, att1, 1)],
+                             f'{where}: the generation-2 row, now old, still continues from the generation-1 attempt')
+            self.assertEqual(rows[2]['attempt'], att2)
+            self.assertEqual((rows[0]['inherits'], rows[3]['inherits']), ([], []), f'{where}: the first and a plain generation inherit nothing')
+
+    def http_get(self, path):
+        server = tracking_web.make_server(self.ledger.state_root, interval=1.0)
+        thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.1}, daemon=True); thread.start()
+        try:
+            try:
+                with urllib.request.urlopen(tracking_web.url_of(server) + path, timeout=60) as r:
+                    status, body = r.status, r.read().decode('utf-8')
+            except urllib.error.HTTPError as error:
+                status, body = error.code, error.read().decode('utf-8', 'replace')
+            return status, body, server.track_stats['errors']
+        finally:
+            server.shutdown(); server.server_close()
+
+    def test_g_an_identifier_is_not_blob_evidence_and_a_missing_blob_is_said_so(self):
+        """Review round 2 (R1 same class): blob identity must not be conflated with any 64-hex identifier. A payload naming a project-id-like
+        hex next to a real blob lists only the blob as evidence; identifiers (project_id, revision, plan sha ...) are neither counted, listed
+        nor opened; an output whose blob is not in the store stays listed as an output, marked as not in the store, and the door answers
+        404 'not in the store' for it and for an identifier instead of a 503 source error."""
+        self.revise([node('A'), node('I', ['A'], integration=True, write=())])
+        real = self.store.blob(b'r1 real evidence blob')
+        ident = hashlib.sha256(b'r1 a project id, not a blob').hexdigest()
+        with self.ledger.transaction(write=True) as conn:
+            plans.emit(self.ledger, conn, self.root_task(), 'decision.recorded', {'plan': 'P1', 'subject': {'component': 'r1-ids'}, 'basis': 'one blob beside an id',
+                                                                                  'project_ref': ident, 'evidence': [real]})
+        self.step()
+        receipt = tracking.detail(self.ledger.state_root, 'P1')['nodes']['A']['receipt']
+        (self.store.root / 'blobs' / receipt).unlink()                 # an output whose blob is gone from the store
+        d = tracking.detail(self.ledger.state_root, 'P1', timeline_limit=5000)
+        blobs = self.store.root / 'blobs'
+        self.assertIn(real, d['evidence_keys'])
+        not_blobs = sorted(k for k in d['evidence_keys'] if not (blobs / k).is_file())
+        self.assertEqual(not_blobs, [], f'evidence_keys (the blobs the page counts and opens) holds identifiers / missing blobs: {[k[:12] for k in not_blobs]}')
+        ids = [(x['seq'], x['kind'], x['role']) for x in d['evidence_index'] if x['key'] == ident]
+        self.assertEqual(ids, [], 'an identifier next to a real blob is not an evidence occurrence')
+        listed_ids = [(x['seq'], x['kind'], x['role']) for x in d['evidence_index'] if not (blobs / x['key']).is_file() and not x.get('output')]
+        self.assertEqual(listed_ids, [], 'no non-output occurrence of a key that is not a blob (project_id, revision, sha ...)')
+        seq = next(e['seq'] for e in d['timeline'] if e['kind'] == 'decision.recorded' and 'r1-ids' in e['summary'])
+        row = next(e for e in d['timeline'] if e['seq'] == seq)
+        self.assertEqual((row['evidence'], row['evidence_count']), ([real], 1), 'the event row names only the blob')
+        gone = [x for x in d['evidence_index'] if x['key'] == receipt and x['kind'] == 'node.produced']
+        self.assertEqual([(x['role'], x['output'], x.get('blob')) for x in gone], [('receipt', True, False)],
+                         'an output whose blob is missing stays an output occurrence, marked blob: false (never reads as no output)')
+        self.assertTrue(all(x.get('blob') is True for x in d['evidence_index'] if x['key'] != receipt), 'every other listed occurrence is a blob in the store')
+        self.assertIn(f"Bằng chứng mở được: {len(d['evidence_keys'])} blob", tracking.render_detail(d))
+        for key in (ident, receipt):
+            with self.assertRaises(tracking.LedgerError, msg=key[:12]): tracking.evidence(self.ledger.state_root, 'P1', key)
+            status, body, errors = self.http_get('api/evidence?plan=P1&key=' + key + '&format=text')
+            self.assertEqual((status, errors), (404, 0), f'{key[:12]}: the door says "not in the store" (404) instead of a source error: {body[:200]}')
+            self.assertIn('không có', body)
+        status, body, errors = self.http_get('api/evidence?plan=P1&key=' + real + '&format=text')
+        self.assertEqual((status, errors), (200, 0)); self.assertIn('r1 real evidence blob', body)

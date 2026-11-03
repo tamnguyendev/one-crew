@@ -69,6 +69,13 @@ class BrowserUX(EngineFixture):
                 engine._event(self.ledger, conn, view, 'C', 'node.resumed', resume_artifact=artifact, continues_attempt=attempt)
             engine.step(self.ledger, 'P9', quick_executor(self), control=self.control)
             return artifact
+        if name == 'prov_more':                               # R1 review round 2: one more plain generation of P9's C (no inheritance); generation 2 becomes history
+            from onecrew.v2 import engine
+            from tests.obs1_ux_fixture import quick_executor
+            with self.ledger.transaction(write=True) as conn:
+                engine._event(self.ledger, conn, engine.state(self.ledger, 'P9', conn), 'C', 'node.resumed')
+            engine.step(self.ledger, 'P9', quick_executor(self), control=self.control)
+            return 'C'
         return None
 
     def run_one(self, scenario, size, **kw):

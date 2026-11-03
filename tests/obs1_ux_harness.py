@@ -567,6 +567,22 @@ if(S==='prov'){                                        // R1: evidence is attrib
   const und=J.evidence_index.filter(x=>typeof x.seq==='number' && !x.attempt), shownUnd=und.map(x=>({x, el:$('[data-k="evk:'+x.key+':'+x.seq+'"]')})).filter(y=>y.el);   // integration: occurrences with no determined attempt
   out.notes.push('occurrences without a determined attempt: '+und.length+', shown on the page: '+shownUnd.length);
   check('an occurrence whose attempt or generation is not determined says so on the page', shownUnd.every(y=>/lượt chưa xác định/.test(y.el.textContent) && (typeof y.x.generation==='number' || /thế hệ chưa xác định/.test(y.el.textContent))), shownUnd.slice(0,3).map(y=>y.el.textContent.slice(0,160)));
+  const seq3=seqOf(); await signal('prov_more');        // review round 2: one more plain generation; the generation-2 row (inherited K, produced K) becomes history
+  await waitFor(()=>seqOf()>seq3 && st().detailSeq===seqOf(), 30000, 'the page re-read P9 after generation 3');
+  J=await api(300); const g2=J.gantt.rows.find(r=>r.node==='C'&&r.generation===2);
+  check('setup: generation 3 is current, the generation-2 row is history', g2 && !g2.current && J.gantt.rows.some(r=>r.node==='C'&&r.generation===3&&r.current), J.gantt.rows.filter(r=>r.node==='C').map(r=>[r.generation,r.current]));
+  const hb3=$('.gtree .hist button.tg'); if(hb3&&hb3.getAttribute('aria-expanded')==='false'){hb3.click(); await sleep(50)}
+  let s3=null;                                          // the bar is re-queried each try: a poll may repaint the Gantt between the query and the key press
+  for(let i=0;g2&&i<20;i++){s3=$('.seg[data-attempt="'+g2.attempt+'"]'); if(s3){s3.focus(); key(s3,'Enter'); await sleep(50); if(side().indexOf(g2.attempt.slice(0,16))>=0)break} else await sleep(200)}
+  const inh3=$('#gside [data-k="inh:'+K+'"]');
+  check('the generation-2 row, now history, still lists K under "Đầu ra của lượt này" (thế hệ 2) AND under "Kế thừa" from generation 1 with its source event', !!s3 && $$('#gside [data-k^="evk:'+K+'"]').some(e=>/thế hệ 2/.test(e.textContent) && /node\.produced/.test(e.textContent)) && !!$('#inherit') && !!inh3 && /từ thế hệ 1/.test(inh3.textContent) && inh3.textContent.indexOf('#'+p1.seq)>=0, {bar:!!s3, inherits:g2&&g2.inherits, pane:side().slice(-700)});
+  const ev3=$('details[data-k="evidence"]'); if(ev3)ev3.open=true;
+  const listed=ev3?Array.from(ev3.querySelectorAll(':scope > div[data-k^="evk:"]')).map(x=>x.getAttribute('data-k').slice(4)):[], opened=[];
+  const door=k=>'/api/evidence?plan='+encodeURIComponent(st().selected.plan)+'&project_id='+encodeURIComponent(st().selected.project)+'&key='+k+'&format=text';
+  for(const k of listed){const r=await fetch(door(k),{cache:'no-store'}); opened.push([k.slice(0,12), r.status])}
+  check('the evidence list counts and lists only blobs that open (an identifier such as project_id / revision / plan sha is not a blob)', listed.length>0 && listed.length===J.evidence_keys.length && opened.every(x=>x[1]===200) && ev3.querySelector('summary').textContent.indexOf('('+listed.length+' blob')>=0 && listed.indexOf(J.project_id)<0, {listed:listed.length, keys:J.evidence_keys.length, bad:opened.filter(x=>x[1]!==200), summary:ev3&&ev3.querySelector('summary').textContent});
+  const idr=/^[0-9a-f]{64}$/.test(J.project_id)?(await fetch(door(J.project_id),{cache:'no-store'})).status:null;
+  check('an identifier asked at the evidence door is "not in the store" (404), not a source error (503)', idr===404, {project_id:J.project_id, status:idr});
   }
 }
 // ---- R1 provenance (lane R1) end ----
