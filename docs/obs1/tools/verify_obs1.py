@@ -64,10 +64,15 @@ Steps (every one from the installed venv, python -I, cwd = <work>, isolated LOCA
                     exactly A and leaves C and its marker; `track stop --url` alone exits 2, `--url/--instance/--pid` stops exactly C and removes
                     its marker; the same pin again stops nothing; a stale pin of A leaves the reopened A2 alive; opening state root A with the
                     pin file of the live viewer B (a backup copy of the ledger) is refused and starts no server; then no viewer process is left.
-                    The R15 ledger's last seq is unchanged by all these reads (after R1, and after release_more at the end).
+                    The R15 ledger's last seq is unchanged by all these reads (after R1, and after release_more at the end). Nothing passes
+                    vacuously: a projection whose content is judged (R2, R3) must first answer as intended (exit code / HTTP status and the object
+                    it is for); R5's process listing must see the live viewers (positive control) before "no new server" / "nothing left" count;
+                    a failed `track status`, or a marker file it cannot read, never reads as "no marker".
 Writes <work>/verify-report.json; prints RESULT pass|partial|fail. Exit 0 only on pass.
 `verify_obs1.py --release-review <venv> <new work dir>` runs V17 alone against the onecrew of an EXISTING venv (for example a frozen older wheel:
-red-before-green evidence), with the same isolation; writes <work>/release-review-report.json.
+red-before-green evidence), with the same isolation; writes <work>/release-review-report.json with the distribution it tested (dist-info version,
+the wheel's url + sha256 from direct_url.json, the module files) and refuses (V17 not run, result fail) when onecrew is not imported from that
+venv's site-packages or was not installed from a wheel archive.
 """
 import hashlib
 import json
@@ -547,15 +552,31 @@ def _r3(rel, rcli, exe, env, work, **_):
     plan, r3, req = rel['plan'], rel['r3'], rel['request']
     raw, names = list(r3['raw']) + [r3['question_raw']], list(r3['shapes']) + ['question']
     process, record = start_server(exe, rel['project_dir'], rel['state_root'], env, work)
+    outs, answered = {}, {}                                                # answered: exit 0 / HTTP 200 (the absence of a secret in a failed call proves nothing)
     try:
         url = record['url']
-        outs = {'cli show --json': rcli('track', 'show', plan, '--json').stdout, 'cli show --json --timeline 5000': rcli('track', 'show', plan, '--json', '--timeline', '5000').stdout,
-                'cli show (text)': rcli('track', 'show', plan).stdout, 'cli list --json': rcli('track', 'list', '--json').stdout,
-                'cli list --json --all-projects': rcli('track', 'list', '--json', '--all-projects').stdout, 'cli list (text)': rcli('track', 'list').stdout}
+        for label, args in (('cli show --json', ('show', plan, '--json')), ('cli show --json --timeline 5000', ('show', plan, '--json', '--timeline', '5000')),
+                            ('cli show (text)', ('show', plan)), ('cli list --json', ('list', '--json')), ('cli list --json --all-projects', ('list', '--json', '--all-projects')),
+                            ('cli list (text)', ('list',))):
+            done = rcli('track', *args)
+            outs[label], answered[label] = done.stdout, done.returncode == 0
         for path in (f'api/task?plan={plan}', f'api/task?plan={plan}&timeline=5000', 'api/overview', 'api/health'):
-            outs['GET /' + path] = get(url + path, timeout=60)[1]
+            code, body, _ = get(url + path, timeout=60)
+            outs['GET /' + path], answered['GET /' + path] = body, code == 200
     finally:
         stop_server(process)
+
+    def holds_r15(label, text):                                            # the projection returned the object it is for, with R15 in it
+        value = first_json(text) if 'json' in label or label.startswith('GET /') else None
+        if label.startswith(('cli show --json', 'GET /api/task')): return isinstance(value, dict) and value.get('plan') == plan and isinstance(value.get('waits'), list)
+        if label.startswith('cli list --json') or label == 'GET /api/overview':
+            return isinstance(value, dict) and any(t.get('plan') == plan for p in value.get('projects') or [] for t in p.get('tasks') or [])
+        if label == 'GET /api/health': return isinstance(value, dict) and value.get('ok') is True
+        if label == 'cli show (text)': return f'PLAN {plan} (' in text
+        if label == 'cli list (text)': return f'] {plan} (' in text
+        return False
+    facts['projections_not_answering'] = silent = sorted(label for label in outs if not (answered[label] and holds_r15(label, outs[label])))
+    if silent: problems.append(f'R3: projections that did not answer with R15 (exit 0 / 200 and the object they are for): {silent}; their absence of a secret proves nothing')
     found = {label: [names[i] for i, value in enumerate(raw) if value in text] for label, text in outs.items()}
     facts['raw_secret_found_in'] = found = {k: v for k, v in found.items() if v}
     if found: problems.append(f'R3: a raw secret value leaves through {found} (shape names; the values are not repeated here)')
@@ -612,6 +633,14 @@ def _r2(rel, rcli, exe, env, work, **_):
         for label, done in scoped.items():
             bad = leaks(text_of(done), needles)
             if bad: problems.append(f'R2 project-scoped `{label}` (exit {done.returncode}) names {bad}')
+        expected = {'track list --json': lambda d, v: d.returncode == 0 and isinstance(v, dict) and isinstance(v.get('projects'), list),   # each call answered as intended:
+                    'track list': lambda d, v: d.returncode == 0 and f'] {plan} (' in d.stdout,                                                    # a failed call names nothing
+                    f'track show {plan} --json': lambda d, v: d.returncode == 0 and isinstance(v, dict) and v.get('plan') == plan,                  # and would prove nothing
+                    f'track show {plan}': lambda d, v: d.returncode == 0 and f'PLAN {plan} (' in d.stdout,
+                    f'track show {b["plan"]}': lambda d, v: d.returncode == 2 and isinstance(v, dict) and bool(v.get('error')),
+                    'track evidence (a key no event names)': lambda d, v: d.returncode == 3 and isinstance(v, dict) and v.get('type') == 'refused'}
+        facts['scoped_cli_not_answering'] = silent = sorted(label for label, done in scoped.items() if not expected[label](done, first_json(done.stdout)))
+        if silent: problems.append(f'R2 project-scoped calls that did not answer as intended (exit code and object): {silent}')
         listed = first_json(scoped['track list --json'].stdout) or {}
         plans = [t.get('plan') for p in listed.get('projects') or [] for t in p.get('tasks') or []]
         facts['scoped_cli'] = {'plans': plans, 'registry_projects_without_plan': (listed.get('untracked') or {}).get('registry_projects_without_plan'),
@@ -630,6 +659,10 @@ def _r2(rel, rcli, exe, env, work, **_):
             for path, code_want in want.items():
                 code, body, _ = get(url + path, timeout=60); codes[path] = code
                 if code != code_want: problems.append(f'R2 --project-only server: GET /{path} -> {code}, want {code_want}')
+                value = first_json(body)                                       # the body is the object of that answer: the model asked for, or an error
+                if not isinstance(value, dict) or (code == 200 and not ((path.startswith('api/task') and value.get('plan') == plan) or (path.startswith('api/overview') and isinstance(value.get('projects'), list))
+                                                                        or (path == 'api/health' and value.get('ok') is True))) or (code != 200 and not value.get('error')):
+                    problems.append(f'R2 --project-only server: GET /{path} ({code}) did not answer with the object it is for: {body[:160]}')
                 bad = leaks(body, needles)
                 if bad: problems.append(f'R2 --project-only server: GET /{path} ({code}) names {bad}')
             code, body, _ = get(url + 'api/overview', timeout=60)
@@ -662,6 +695,7 @@ def _r2(rel, rcli, exe, env, work, **_):
             f = facts['all_projects_server']
             if c1 != 200 or not f['lists_other_and_sibling']: problems.append(f'R2 control: the all-projects server does not list OTHER-PRIVATE-PROJECT and the sibling: {f}')
             if c2 != 200 or narrowed != [] or f['narrowed_names'] or c3 != 200 or f['task_own_names']: problems.append(f'R2: the all-projects server narrowed with ?project_id=<own> still names other projects: {f}')
+            if (first_json(b3) or {}).get('plan') != plan: problems.append(f'R2: the all-projects server narrowed with ?project_id=<own> did not answer {plan} for /api/task: {b3[:160]}')
             if c4 != 200: problems.append(f'R2 control: the all-projects server refuses {b["plan"]} named with its own project_id: {c4}')
         finally:
             stop_server(process)
@@ -719,20 +753,36 @@ def _r5(rel, rcli, exe, env, work, venv, **_):
         return bool(h and h.get('instance') == pin.get('instance') and h.get('pid') == pin.get('pid'))
 
     def marker(state):
-        record = (first_json(onecrew(state, 'status').stdout) or {}).get('marker') or {}
-        return (record.get('instance'), record.get('pid')) if record else None
+        """(instance, pid) of the marker of `state`; None ONLY when `track status` answered (exit 0, a status object with `marker`) that there is
+        no marker AND the marker file it names does not exist; else a string that equals no identity and not None: a failed status, or a marker
+        file the status cannot read, never reads as "no marker"."""
+        done = onecrew(state, 'status')
+        value = first_json(done.stdout)
+        if done.returncode != 0 or not isinstance(value, dict) or 'marker' not in value:
+            return f'track status failed (exit {done.returncode}): ' + text_of(done)[-160:]
+        record = value.get('marker')
+        if isinstance(record, dict) and record: return (record.get('instance'), record.get('pid'))
+        if value.get('marker_file') and Path(value['marker_file']).exists(): return f"a marker file track status cannot read: {value['marker_file']}"
+        return None
 
     def listing(): return viewer_processes(roots, ps_env, lister)
 
     def short(pin): return pin and {k: pin.get(k) for k in ('url', 'pid', 'instance', 'state_root', 'server_started_at')}
-    viewers = []                                                           # every viewer opened here: stopped in `finally` if it still answers as itself
-    try:
+    viewers, seen = [], []                                                 # viewers opened here (stopped in `finally` if they still answer as themselves);
+    try:                                                                   # seen: positive controls of the process listing (it saw the live viewers)
         before = listing()
         facts['processes_before'] = sorted(before) if before is not None else None
         if before is None: return problems + ['R5: the viewer processes cannot be listed (PowerShell Get-CimInstance Win32_Process)'], facts
         if before: problems.append(f'R5 setup: viewers of the V17 ledgers already run: {sorted(before)}')
-        # (c) a pin file inside the state root (or inside the venv) is refused before anything starts; nothing is written there
-        inside = {}
+        # open A, pinned
+        code, out = opened(state_a, pa); A = pin_of(pa)
+        if A: viewers.append(A)
+        facts['open_A'] = {'exit': code, 'pin': short(A), 'alive': alive(A), 'marker_is_A': bool(A) and marker(state_a) == (A.get('instance'), A.get('pid'))}
+        if code != 0 or not A or A.get('kind') != 'obs1-viewer-pin' or not A.get('server_started_at') or not facts['open_A']['alive'] or not facts['open_A']['marker_is_A']:
+            return problems + [f"R5: open A with -PinFile: {facts['open_A']}: " + out[-400:]], facts
+        # (c) a pin file inside the state root (or inside the venv) is refused before anything starts; nothing is written there. Positive control:
+        #     the listing sees A, the viewer just started, so an unchanged listing really means "no new server"
+        procs, inside = listing(), {}
         for where, pin, word in (('state root', state_a / 'pin inside the state root.json', 'nam trong so'), ('venv', Path(venv) / 'pin inside the venv.json', 'nam trong venv')):
             code, out = opened(state_a, pin)
             inside[where] = {'exit': code, 'refused': 'KHONG DAT' in out and word in out, 'pin_written': pin.exists()}
@@ -740,24 +790,21 @@ def _r5(rel, rcli, exe, env, work, venv, **_):
                 try: pin.unlink()
                 except OSError: pass
         now = listing()
-        facts['pin_inside_refused'] = dict(inside, processes_after=sorted(now) if now is not None else None)
+        seen.append(procs is not None and A.get('pid') in procs)
+        facts['pin_inside_refused'] = dict(inside, listing_sees_A=seen[-1], processes_before=sorted(procs) if procs is not None else None, processes_after=sorted(now) if now is not None else None)
+        if not seen[-1]: problems.append(f"R5 (c): the process listing does not see the viewer A it just started (pid {A.get('pid')}): {procs}; 'no new server' would prove nothing")
         for where, d in inside.items():
             if d['exit'] == 0 or not d['refused'] or d['pin_written']: problems.append(f'R5 (c): a -PinFile inside the {where} is not refused before anything starts: {d}')
-        if now != before: problems.append(f'R5 (c): viewer processes changed although the open was refused: {sorted(before)} -> {now}')
-        # open A, pinned
-        code, out = opened(state_a, pa); A = pin_of(pa)
-        if A: viewers.append(A)
-        facts['open_A'] = {'exit': code, 'pin': short(A), 'alive': alive(A), 'marker_is_A': bool(A) and marker(state_a) == (A.get('instance'), A.get('pid'))}
-        if code != 0 or not A or A.get('kind') != 'obs1-viewer-pin' or not A.get('server_started_at') or not facts['open_A']['alive'] or not facts['open_A']['marker_is_A']:
-            return problems + [f"R5: open A with -PinFile: {facts['open_A']}: " + out[-400:]], facts
+        if procs is None or now != procs: problems.append(f'R5 (c): viewer processes changed although the open was refused: {procs} -> {now}')
         # (a) a second open of the SAME state root with -ProjectOnly and the same pin file: refused, no new server, the pin and the marker kept
         procs, kept = listing(), pa.read_bytes()
         code, out = opened(state_a, pa, '-ProjectOnly')
         after = listing()
+        seen.append(procs is not None and A.get('pid') in procs)
         fa = facts['second_open_project_only_same_pin'] = {'exit': code, 'refused': 'KHONG DAT' in out and 'pham vi khac' in out, 'pin_A_unchanged': pa.read_bytes() == kept,
-                                                           'A_alive': alive(A), 'marker_is_A': marker(state_a) == (A.get('instance'), A.get('pid')),
+                                                           'A_alive': alive(A), 'marker_is_A': marker(state_a) == (A.get('instance'), A.get('pid')), 'listing_sees_A': seen[-1],
                                                            'processes_before': sorted(procs) if procs is not None else None, 'processes_after': sorted(after) if after is not None else None}
-        if code == 0 or not (fa['refused'] and fa['pin_A_unchanged'] and fa['A_alive'] and fa['marker_is_A']) or procs is None or after != procs:
+        if code == 0 or not (fa['refused'] and fa['pin_A_unchanged'] and fa['A_alive'] and fa['marker_is_A'] and fa['listing_sees_A']) or procs is None or after != procs:
             problems.append(f'R5 (a): a second open of state root A with -ProjectOnly and the pin of the live A: {fa}: ' + out[-300:])
         code, out = opened(state_b, pb); B = pin_of(pb)
         if B: viewers.append(B)
@@ -805,10 +852,11 @@ def _r5(rel, rcli, exe, env, work, venv, **_):
         procs, kept = listing(), pb.read_bytes()                           # state root A opened with the pin file of the live B: refused, nothing started
         code, out = opened(state_a, pb)
         after = listing()
+        seen.append(procs is not None and B.get('pid') in procs and A2.get('pid') in procs)   # positive control: the listing sees both live viewers
         f4 = facts['open_A_with_pin_of_B'] = {'exit': code, 'refused': 'KHONG DAT' in out and 'so khac' in out, 'pin_B_unchanged': pb.read_bytes() == kept, 'B_alive': alive(B),
-                                              'A2_alive': alive(A2), 'marker_is_A2': marker(state_a) == (A2.get('instance'), A2.get('pid')),
+                                              'A2_alive': alive(A2), 'marker_is_A2': marker(state_a) == (A2.get('instance'), A2.get('pid')), 'listing_sees_B_and_A2': seen[-1],
                                               'processes_before': sorted(procs) if procs is not None else None, 'processes_after': sorted(after) if after is not None else None}
-        if code == 0 or not (f4['refused'] and f4['pin_B_unchanged'] and f4['B_alive'] and f4['A2_alive'] and f4['marker_is_A2']) or procs is None or after != procs:
+        if code == 0 or not (f4['refused'] and f4['pin_B_unchanged'] and f4['B_alive'] and f4['A2_alive'] and f4['marker_is_A2'] and f4['listing_sees_B_and_A2']) or procs is None or after != procs:
             problems.append(f'R5: open of state root A with the pin file of the live viewer B: {f4}: ' + out[-300:])
         code_b, out_b = stopped(state_b, pb); code_a, out_a = stopped(state_a, pa2)   # each viewer stopped with its own pin
         facts['stop_B_and_A2'] = {'exit_B': code_b, 'exit_A2': code_a, 'B_alive': alive(B), 'A2_alive': alive(A2), 'pins_removed': not pb.exists() and not pa2.exists()}
@@ -827,6 +875,8 @@ def _r5(rel, rcli, exe, env, work, venv, **_):
     facts['left'] = {'processes': sorted(left) if left is not None else 'cannot be listed', 'markers': {'A': marker(state_a), 'B': marker(state_b)},
                      'answering': [p.get('url') for p in viewers if health_of(p.get('url') or '')]}
     if left != {} or any(facts['left']['markers'].values()) or facts['left']['answering']: problems.append(f"R5: viewers left after the check: {facts['left']}")
+    facts['left']['listing_proven'] = any(seen)                           # the empty listing counts only if the same listing saw running viewers before
+    if not any(seen): problems.append('R5: the process listing never saw a running viewer: "nothing left" (and "no new server") prove nothing')
     return problems, facts
 
 
@@ -879,6 +929,35 @@ def release_review(exe, py, scenario, env, work, venv):
     return problems, facts
 
 
+DIST_PROBE = ('import json, importlib.metadata as m, onecrew, onecrew.v2.tracking as t, onecrew.v2.tracking_cli as c, onecrew.v2.tracking_web as w; '
+              'd = m.distribution("onecrew"); '
+              'print(json.dumps({"version": d.version, "direct_url": d.read_text("direct_url.json"), '
+              '"modules": {"onecrew": onecrew.__file__, "tracking": t.__file__, "tracking_cli": c.__file__, "tracking_web": w.__file__}}))')
+
+
+def tested_distribution(py, venv, env, work):
+    """(distribution, refused): the onecrew the venv's python imports (python -I) - its dist-info version, the wheel it was installed from
+    (direct_url.json: url + archive sha256) and the files of the modules V17 drives - and the reasons to refuse the run: a module imported
+    from outside the venv's site-packages (a checkout, an editable install) or a distribution not installed from a wheel archive (which wheel
+    was tested could not be recorded)."""
+    done = run([py, '-I', '-c', DIST_PROBE], env=env, cwd=work, text=True, encoding='utf-8', errors='replace', timeout=120)
+    value = first_json(done.stdout) or {}
+    try: direct = json.loads(value.get('direct_url') or '{}')
+    except ValueError: direct = {}
+    archive = direct.get('archive_info') if isinstance(direct.get('archive_info'), dict) else {}
+    digest = (archive.get('hashes') or {}).get('sha256') or (archive.get('hash') or '').partition('sha256=')[2] or None
+    site = (Path(venv) / 'Lib' / 'site-packages').resolve()
+    modules = value.get('modules') or {}
+    outside = {name: path for name, path in modules.items() if not path or not str(Path(path).resolve()).casefold().startswith(str(site).casefold() + os.sep)}
+    distribution = {'version': value.get('version'), 'wheel_url': direct.get('url'), 'wheel_sha256': digest, 'editable': bool((direct.get('dir_info') or {}).get('editable')),
+                    'site_packages': str(site), 'modules': modules, 'probe_exit': done.returncode}
+    refused = []
+    if done.returncode != 0 or not modules: refused.append('the venv python cannot import onecrew and its metadata: ' + text_of(done)[-300:])
+    if outside: refused.append(f"onecrew is not imported from this venv's site-packages ({site}): {outside}; the run would not test an installed wheel")
+    if not digest: refused.append(f'onecrew of this venv was not installed from a wheel archive (direct_url.json: {direct or "none"}): which wheel this run tests cannot be recorded')
+    return distribution, refused
+
+
 def release_only(venv, work):
     """`verify_obs1.py --release-review <venv> <new work dir>`: V17 alone against the onecrew of an EXISTING venv (for example a frozen older
     wheel: red-before-green evidence), with the package run's isolation (filtered env, LOCALAPPDATA/APPDATA/TEMP in <work>). The scenario and the
@@ -899,9 +978,13 @@ def release_only(venv, work):
     PS_ENV[0] = env
     version = run([exe, '--version'], env=env, cwd=work, text=True, encoding='utf-8', errors='replace').stdout.strip()
     started = time.monotonic()
-    problems, facts = release_review(exe, py, Path(__file__).resolve().with_name('scenario_obs1.py'), env, work, venv)
+    distribution, refused = tested_distribution(py, venv, env, work)       # which onecrew this run tests, and that it is the venv's installed wheel
+    if refused:
+        problems, facts = refused, {}
+    else:
+        problems, facts = release_review(exe, py, Path(__file__).resolve().with_name('scenario_obs1.py'), env, work, venv)
     registry_after = sha256(real_registry) if real_registry.is_file() else 'absent'
-    report = {'kind': 'obs1-release-review-report', 'venv': str(venv), 'version': version, 'verifier': str(Path(__file__).resolve()), 'work': str(work),
+    report = {'kind': 'obs1-release-review-report', 'venv': str(venv), 'version': version, 'distribution': distribution, 'verifier': str(Path(__file__).resolve()), 'work': str(work),
               'seconds': round(time.monotonic() - started, 1), 'real_registry_unchanged': registry_before == registry_after,
               'result': 'pass' if not problems and registry_before == registry_after else 'fail', 'problems': problems, 'facts': facts}
     (work / 'release-review-report.json').write_text(json.dumps(report, indent=1, ensure_ascii=False, default=str), encoding='utf-8')
