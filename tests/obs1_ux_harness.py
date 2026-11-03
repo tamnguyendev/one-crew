@@ -479,6 +479,41 @@ if(S==='stale_detail'){
   await fault('detail=ok');
 }
 // ==== end R4 stale_detail ====
+// ==== integration R4 x R1 slow_detail (03/11): slow or unrenderable detail replies; a copy that finishes after the selection changed ====
+if(S==='slow_detail'){
+  const P8=rowOf('P8').dataset.plan, iv=w.INTERVAL||1000, slow=Math.round(iv*2.5), real=w.fetch, rejections=[];
+  w.addEventListener('unhandledrejection',ev=>{rejections.push(String(ev.reason&&ev.reason.message||ev.reason))});
+  w.addEventListener('error',ev=>{rejections.push('error: '+String(ev.message))});
+  const ds=()=>$('#dstatus'), dst=()=>st().detailState;
+  let mode=null, issued=0;
+  w.fetch=function(u,o){const p=real.call(w,u,o); if(typeof u!=='string'||u.indexOf('/api/task')!==0||!mode)return p; issued++;
+    if(mode==='slow')return p.then(r=>new Promise(res=>w.setTimeout(()=>res(r),slow)));                    // the reply arrives 2.5 poll intervals later
+    if(mode==='bad'&&u.indexOf(encodeURIComponent(P8))>=0)return p.then(()=>new w.Response('{}',{status:200,headers:{'Content-Type':'application/json'}}));   // a 200 the page cannot render
+    return p};
+  await select('P1');
+  // (a) every detail read takes 2.5 poll intervals: the selected task must still appear (pre-fix: each poll superseded the read in flight)
+  mode='slow'; issued=0; const p0=polls; rowOf('P8').click();
+  const a=await waitFor(()=>shown('P8') && dst()==='ok' && st().detailFor && st().detailFor.plan===P8, iv*14, 'P8 painted with slow detail reads');
+  check('a detail read slower than the poll interval still paints the selected task', a, {state:dst(), issued, polls:polls-p0, head:$('#dtitle')&&$('#dtitle').textContent});
+  const p1=polls, i1=issued; await morePolls(6);
+  check('slow reads are waited for, not re-issued on every poll', (issued-i1) <= Math.ceil((polls-p1)/2)+1, {issued:issued-i1, polls:polls-p1});
+  check('the page stays on P8 data while reads are slow (no loading pane, no error)', shown('P8') && dst()==='ok' && !ds(), {state:dst()});
+  mode=null; await morePolls(2);
+  // (b) a 200 reply the page cannot render: P8 never loaded -> its own heading + an error, not "đang tải" forever
+  await select('P1'); mode='bad'; rowOf('P8').click(); await morePolls(3);
+  check('an unrenderable 200 reply puts the selection in the error state (not loading forever)', dst()==='error' && ds() && /không (hiển thị|tải) được chi tiết/i.test(ds().textContent) && $('#dtitle') && $('#dtitle').textContent.indexOf('P8')===0, {state:dst(), text:ds()&&ds().textContent});
+  check('nothing of P1 under the P8 selection after the unrenderable reply', !$$('#detail details.need').length && !(st().detailFor && st().detailFor.plan!==P8), {needs:$$('#detail details.need').length, dfor:st().detailFor});
+  // (c) recovery
+  mode=null; const c=await waitFor(()=>shown('P8') && dst()==='ok' && !ds(), iv*8, 'P8 recovered');
+  check('recovery after the unrenderable reply: P8 content, no warning', c, {state:dst()});
+  // (d) a copy that finishes after the selection changed (the clipboard promise settles later) throws nothing
+  await select('P1'); const btn=$('#detail details.need button.copy'); if(btn){$('#detail details.need').open=true; btn.click(); rowOf('P8').click()}
+  await waitFor(()=>shown('P8'), iv*8, 'P8 after the copy'); await morePolls(2);
+  check('setup: a copy button was clicked on P1 just before selecting P8', !!btn);
+  w.fetch=real;
+  check('no unhandled rejection or page error during the whole scenario', rejections.length===0, rejections.slice(0,5));
+}
+// ==== end slow_detail ====
 // ---- R1 provenance (lane R1, Codex release review of dev11) begin ----
 if(S==='prov'){                                        // R1: evidence is attributed per occurrence (event, key), never per blob key; a long history never reads as "no output"; inherited + produced coexist
   await select('P9'); const api=async lim=>await (await fetch('/api/task?plan='+encodeURIComponent(st().selected.plan)+'&project_id='+encodeURIComponent(st().selected.project)+'&timeline='+lim,{cache:'no-store'})).json();
