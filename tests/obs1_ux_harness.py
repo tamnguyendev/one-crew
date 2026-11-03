@@ -36,7 +36,11 @@ def chrome_args(exe, profile, width, height, budget):
 def run(exe, proxy_url, scenario, width, height, profile, budget=30000, extra=''):
     """One scenario in a window of width×height; returns the harness result dict (or {'ok': False, 'error': …})."""
     url = f'{proxy_url}__ux?s={scenario}&w={width}&h={height}{extra}'
-    done = subprocess.run(chrome_args(exe, profile, width, height, budget) + ['--dump-dom', url], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=240)
+    done = None
+    for attempt in (1, 2):                         # a hung headless Chrome (seen once in ~40 runs) is retried once
+        try: done = subprocess.run(chrome_args(exe, profile, width, height, budget) + ['--dump-dom', url], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=240); break
+        except subprocess.TimeoutExpired:
+            if attempt == 2: return {'ok': False, 'error': 'headless Chrome did not finish twice (timeout)'}
     found = re.search(r'<pre id="out">(.*?)</pre>', done.stdout, re.S)
     if not found: return {'ok': False, 'error': 'harness wrote no result', 'tail': done.stdout[-600:] + done.stderr[-300:]}
     text = found.group(1).replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&').replace('&quot;', '"')
@@ -46,7 +50,10 @@ def run(exe, proxy_url, scenario, width, height, profile, budget=30000, extra=''
 
 def screenshot(exe, proxy_url, scenario, width, height, profile, path, budget=15000, extra=''):
     url = f'{proxy_url}__ux?s={scenario}&w={width}&h={height}&shot=1{extra}'
-    subprocess.run(chrome_args(exe, profile, width, height, budget) + [f'--screenshot={path}', url], capture_output=True, timeout=240)
+    for attempt in (1, 2):
+        try: subprocess.run(chrome_args(exe, profile, width, height, budget) + [f'--screenshot={path}', url], capture_output=True, timeout=240); break
+        except subprocess.TimeoutExpired:
+            if attempt == 2: return False
     return Path(path).is_file()
 
 

@@ -129,15 +129,24 @@ def find_browser(profile):
     return None
 
 
+def _chrome(argv, timeout=120, **kw):
+    """One headless Chrome run; a hung Chrome (TimeoutExpired, seen once in ~40 runs) is retried once before the step is failed."""
+    for attempt in (1, 2):
+        try: return run(argv, timeout=timeout, **kw)
+        except subprocess.TimeoutExpired:
+            if attempt == 2: raise
+            time.sleep(2)
+
+
 def dump_dom(exe, url, profile, budget=4000):
-    done = run([exe, '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', f'--user-data-dir={profile}', '--window-size=1400,1000',
-                f'--virtual-time-budget={budget}', '--dump-dom', url], text=True, encoding='utf-8', errors='replace', timeout=120)
+    done = _chrome([exe, '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', f'--user-data-dir={profile}', '--window-size=1400,1000',
+                    f'--virtual-time-budget={budget}', '--dump-dom', url], text=True, encoding='utf-8', errors='replace', timeout=120)
     return done.stdout
 
 
 def screenshot(exe, url, profile, path, budget=4000):
-    run([exe, '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', f'--user-data-dir={profile}', '--window-size=1400,1000',
-         f'--virtual-time-budget={budget}', f'--screenshot={path}', url], timeout=120)
+    _chrome([exe, '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', f'--user-data-dir={profile}', '--window-size=1400,1000',
+             f'--virtual-time-budget={budget}', f'--screenshot={path}', url], timeout=120)
     return Path(path).is_file()
 
 
