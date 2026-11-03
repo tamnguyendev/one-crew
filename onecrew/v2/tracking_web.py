@@ -116,6 +116,18 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
             self.wfile.write(data)
 
         def _refuse(self):
+            # the request body is read first (up to 8 MiB): on Windows a socket closed with unread data is reset, and the client then sees
+            # WinError 10053 instead of this 405; a larger body is not read and the connection is closed after the answer
+            try:
+                length = max(int(self.headers.get('Content-Length') or 0), 0)
+            except ValueError:
+                length = 0
+            left = min(length, 1 << 23)
+            while left > 0:
+                chunk = self.rfile.read(min(left, 65536))
+                if not chunk: break
+                left -= len(chunk)
+            if length > (1 << 23) or left > 0: self.close_connection = True
             self._send(HTTPStatus.METHOD_NOT_ALLOWED, {'error': 'read-only: trang theo dõi chỉ nhận GET; không duyệt, trả lời, dừng hay tiếp tục task ở đây', 'read_only': True})
 
         do_POST = do_PUT = do_DELETE = do_PATCH = _refuse
@@ -1054,9 +1066,10 @@ function loadDetail(why){if(!selected)return;
   .then(function(r){return r.text().then(function(t){var j=null;try{j=JSON.parse(t)}catch(e){}return {ok:r.ok,status:r.status,j:j}})})
   .then(function(x){settle();if(!current())return;
       if(!x.ok||!x.j||typeof x.j!=='object')return detailFailed(sel,'HTTP '+x.status+(x.j&&x.j.error?': '+x.j.error:x.ok?': trả lời không đọc được':''));
-      var prev=mine(),prevFor=detailFor,prevOk=detailOkAt,prevSeq=detailSeq;
-      try{detailLoaded(sel,x.j,why)}catch(e){if(!current())return;                 // a reply the page cannot show: the error path with what was shown before, never 'đang tải' forever
-        detailData=prev;detailFor=prev?prevFor:null;detailOkAt=prevOk;detailSeq=prevSeq;detailFailed(sel,'không hiển thị được chi tiết: '+String(e&&e.message||e).slice(0,160))}},
+      var prev=mine(),prevFor=detailFor,prevOk=detailOkAt,prevSeq=detailSeq,prevErr=detailError,prevNotes=staleNotes.slice(),prevKnown=Object.assign({},knownNeeds),prevCopied=copied;
+      try{detailLoaded(sel,x.j,why)}catch(e){if(!current())return;                 // a reply the page cannot show: the error path with everything as it was before it, never 'đang tải' forever
+        detailData=prev;detailFor=prev?prevFor:null;detailOkAt=prevOk;detailSeq=prevSeq;detailError=prevErr;staleNotes=prevNotes;knownNeeds=prevKnown;copied=prevCopied;
+        detailFailed(sel,'không hiển thị được chi tiết: '+String(e&&e.message||e).slice(0,160))}},
     function(){settle();if(!current())return;detailFailed(sel,'mất kết nối khi tải chi tiết')})}
 function detailLoaded(sel,j,why){var had=mine(),wasErr=!!detailError,seq=j.source&&j.source.last_seq;detailError=null;detailOkAt=Date.now();
   if(had&&!wasErr&&why!=='select'&&why!=='force'&&seq===detailSeq&&had.selector===j.selector&&had.project_id===j.project_id){detailData=j;if(j.gantt&&j.gantt.axis&&(j.gantt.axis.extends_to_now||$('#gstale')))repaintGantt();dind();return}   // nothing moved in the ledger: keep what the reader is looking at; only the server clock parts of the timeline move (P2-A)
