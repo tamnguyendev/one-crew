@@ -202,6 +202,90 @@ class _Server:
         except OSError: pass
 
 
+def _viewer_pids(state_root):
+    """pids of every process whose command line runs tracking_cli for this (unique, test-owned) state root: a venv launcher and the python it
+    runs both count. Found by command line, never by a bare pid (R5 round 4)."""
+    if os.name != 'nt':
+        out = subprocess.run(['ps', '-eo', 'pid=,args='], capture_output=True, text=True).stdout
+        return sorted(int(line.split(None, 1)[0]) for line in out.splitlines() if str(state_root) in line and 'tracking_cli' in line)
+    script = ("Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:OBS1_VIEWER_ROOT) -and "
+              "$_.CommandLine -match 'tracking_cli' } | ForEach-Object { $_.ProcessId }")
+    done = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script], capture_output=True, text=True, timeout=120,
+                          env=dict(os.environ, OBS1_VIEWER_ROOT=str(state_root)))
+    return sorted(int(x) for x in done.stdout.split() if x.strip().isdigit())
+
+
+def _end_viewers(state_root):
+    """Test cleanup only: end every viewer process of this test-owned state root (found by command line, see _viewer_pids)."""
+    for pid in _viewer_pids(state_root):
+        if os.name == 'nt':
+            subprocess.run(['taskkill', '/PID', str(pid), '/F'], capture_output=True)
+        else:
+            try: os.kill(pid, 9)
+            except OSError: pass
+
+
+class _SlowStart:
+    """While active, every Python this process starts (a `track open` child, the python a venv launcher runs) sleeps `seconds` at start-up
+    through a sitecustomize put first on PYTHONPATH: a loaded machine, made deterministic."""
+    def __init__(self, base, seconds):
+        from unittest import mock
+        folder = Path(base) / 'slow-start'; folder.mkdir(exist_ok=True)
+        (folder / 'sitecustomize.py').write_text('import os, time\ntime.sleep(float(os.environ.get("OBS1_TEST_START_DELAY") or 0))\n', encoding='utf-8')
+        self.patch = mock.patch.dict(os.environ, {'PYTHONPATH': str(folder) + os.pathsep + os.environ.get('PYTHONPATH', ''), 'OBS1_TEST_START_DELAY': str(seconds)})
+
+    def __enter__(self):
+        self.patch.start(); return self
+
+    def __exit__(self, *exc):
+        self.patch.stop()
+
+
+class _SlowHealth:
+    """An in-process HTTP server that answers /api/health with `body` after `delay` seconds: a live server slowed down by load."""
+    def __init__(self, body, delay):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        data = json.dumps(dict(body, ok=True)).encode('utf-8')
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+
+            def do_GET(self):
+                time.sleep(delay)
+                self.send_response(200); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(data)))
+                self.end_headers(); self.wfile.write(data)
+
+        class Quiet(ThreadingHTTPServer):
+            daemon_threads = True
+
+            def handle_error(self, request, client_address):      # a client that gave up before the delay ended: not an error here
+                pass
+
+        self.server = Quiet(('127.0.0.1', 0), Handler)
+        self.url = f'http://127.0.0.1:{self.server.server_address[1]}/'
+        threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval': 0.1}, daemon=True).start()
+
+    def stop(self):
+        self.server.shutdown(); self.server.server_close()
+
+
+def _dummy(test):
+    """A live process of this test that nothing may stop (a stand-in for "another process" or "a recycled pid")."""
+    proc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def end():
+        if proc.poll() is None: proc.kill()
+        proc.wait(10)
+    test.addCleanup(end)
+    return proc
+
+
+def _closed_url():
+    import socket
+    s = socket.socket(); s.bind(('127.0.0.1', 0)); port = s.getsockname()[1]; s.close()
+    return f'http://127.0.0.1:{port}/'
+
+
 class ServerIdentity(Fixture):
     """P2 (03/11): the reuse decision of `track open`, with real servers answering /api/health, and the marker as `track serve` writes it."""
     def setUp(self):
@@ -301,6 +385,56 @@ class ServerIdentity(Fixture):
         result = self.open(wait=3)
         self.assertTrue(result.get('reused'), result); self.assertTrue(result.get('waited_for_other_open'))
 
+    # ---- R5 round 4 (03/11, independent reviews of round 3): identity stop, patience, exact process identity --------------------------------
+    def test_identity_stop_refuses_malformed_targets_and_stops_nothing(self):                 # (4) --url/--instance/--pid must name one server
+        srv = _Server(self.state); self.addCleanup(srv.stop)
+        dummy = _dummy(self); inst = srv.server.track_identity['instance']
+        for url, instance, pid in (('http://example.com:80/', inst, dummy.pid), (srv.url, 'not hex!', dummy.pid), (srv.url, inst, 0), (srv.url + 'x/', inst, dummy.pid)):
+            result = tracking_web.stop_target(self.state, url, instance, pid)
+            self.assertFalse(result['stopped'], result); self.assertTrue(result['reason'])
+        self.assertIsNone(dummy.poll()); self.assertIsNotNone(tracking_web.identity(srv.url))
+
+    @unittest.skipUnless(os.name == 'nt', 'process creation times are read on Windows only')
+    def test_identity_stop_tells_a_still_running_pinned_process_from_a_gone_one(self):        # (4, 6) gone: True / False / None, nothing killed
+        import datetime as dt
+        url = _closed_url()                                                                   # nothing answers there
+        before = dt.datetime.now(dt.timezone.utc); dummy = _dummy(self); time.sleep(0.5); after = dt.datetime.now(dt.timezone.utc)
+        inst = 'ab' * 8
+        later, earlier = (after + dt.timedelta(seconds=30)).isoformat(), (before - dt.timedelta(seconds=30)).isoformat()
+        self.write({'url': url, 'pid': dummy.pid, 'instance': inst, 'version': self.here, 'state_root': str(self.state), 'project_id': None, 'started_at': later})
+        written = self.marker.read_bytes()
+        running = tracking_web.stop_target(self.state, url, inst, dummy.pid, started_at=later)     # the process existed before the stamp: it IS that server
+        self.assertFalse(running['stopped'], running); self.assertIs(running['gone'], False, running)
+        self.assertEqual(self.marker.read_bytes(), written)                                   # a server whose process still runs keeps its marker
+        unknown = tracking_web.stop_target(self.state, url, 'cd' * 8, dummy.pid)                 # no stamp at all: cannot tell
+        self.assertFalse(unknown['stopped']); self.assertIsNone(unknown['gone'], unknown)
+        recycled = tracking_web.stop_target(self.state, url, inst, dummy.pid, started_at=earlier)  # created after the stamp: a recycled pid
+        self.assertFalse(recycled['stopped']); self.assertIs(recycled['gone'], True, recycled)
+        self.assertTrue(recycled['marker_removed']); self.assertFalse(self.marker.exists())       # its marker names a gone server: removed
+        self.assertIsNone(dummy.poll())                                                       # and nothing was killed
+
+    @unittest.skipUnless(os.name == 'nt', 'process creation times are read on Windows only')
+    def test_stop_keeps_the_marker_of_a_silent_server_whose_process_still_runs(self):          # (6) a slow server is not a dead one
+        import datetime as dt
+        dummy = _dummy(self); time.sleep(0.3)
+        rec = {'url': _closed_url(), 'pid': dummy.pid, 'instance': '12' * 8, 'version': self.here, 'state_root': str(self.state), 'project_id': None,
+               'started_at': (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=5)).isoformat()}
+        self.write(rec)
+        result = tracking_web.stop_page(self.state)
+        self.assertFalse(result['stopped']); self.assertFalse(result['marker_removed'], result); self.assertTrue(self.marker.exists())
+        self.assertIsNone(dummy.poll())
+
+    @unittest.skipUnless(os.name == 'nt', 'process creation times are read on Windows only')
+    def test_a_slow_live_server_is_reused_not_replaced(self):                                  # (6) open asks again before calling a server dead
+        import datetime as dt
+        inst = 'ef' * 8
+        body = {'server': tracking_web.SERVER_NAME, 'instance': inst, 'version': self.here, 'state_root': str(self.state), 'project_id': None, 'pid': os.getpid()}
+        slow = _SlowHealth(body, 3.0); self.addCleanup(slow.stop)
+        self.write({'url': slow.url, 'pid': os.getpid(), 'instance': inst, 'version': self.here, 'state_root': str(self.state), 'project_id': None,
+                    'started_at': dt.datetime.now(dt.timezone.utc).isoformat()})
+        result = self.open()
+        self.assertTrue(result.get('reused'), result); self.assertEqual(result['instance'], inst)
+
 
 class DetachedOpen(Fixture):
     """`track open` for real: the detached `track serve` child, two concurrent opens, status and stop through the CLI module."""
@@ -358,6 +492,79 @@ class DetachedOpen(Fixture):
                 if r and r.get('pid'):
                     try: os.kill(r['pid'], 15)
                     except OSError: pass
+
+    # ---- R5 round 4 (03/11): a failed open leaves nothing running; the identity stop ------------------------------------------------------
+    def assert_nothing_left(self, seconds):
+        """For `seconds` (longer than the slowed start-up): no marker appears and, at the end, no viewer process of this state root runs."""
+        marker = tracking_web.marker_paths(self.state)[0]
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            self.assertFalse(marker.exists(), 'a server the failed `track open` started announced itself afterwards (an unpinned viewer took the marker)')
+            time.sleep(0.5)
+        self.assertEqual(_viewer_pids(self.state), [], 'a viewer process of this state root still runs after `track open` reported failure')
+
+    def own_viewers(self):
+        """The servers this test starts import this checkout (PYTHONPATH; restored by the fixture) and none outlives the test (_end_viewers)."""
+        os.environ['PYTHONPATH'] = self.env['PYTHONPATH']
+        self.addCleanup(_end_viewers, self.state)
+
+    def test_a_timed_out_open_leaves_no_server_and_no_marker(self):                         # (3)
+        self.own_viewers()
+        with _SlowStart(self.temp.name, 8):
+            result = tracking_web.open_page(self.state, browser=False, project=self.root, explicit_state_root=self.state, idle_exit=60, interval=1.0, wait=2)
+        self.assertIn('error', result); self.assertNotIn('url', result)
+        self.assert_nothing_left(14)
+
+    def test_a_timed_out_open_through_a_venv_launcher_ends_the_launcher_and_its_python(self):  # (3) Windows venv: launcher + the python it runs
+        venv = Path(self.temp.name) / 'venv'
+        subprocess.run([sys.executable, '-m', 'venv', '--without-pip', str(venv)], check=True, capture_output=True, timeout=180)
+        launcher = venv / ('Scripts' if os.name == 'nt' else 'bin') / ('python.exe' if os.name == 'nt' else 'python')
+        self.own_viewers()
+        from unittest import mock
+        with _SlowStart(self.temp.name, 8), mock.patch.object(tracking_web.sys, 'executable', str(launcher)):
+            result = tracking_web.open_page(self.state, browser=False, project=self.root, explicit_state_root=self.state, idle_exit=60, interval=1.0, wait=3)
+        self.assertIn('error', result); self.assertNotIn('url', result)
+        self.assert_nothing_left(14)
+
+    def test_the_default_wait_outlasts_a_slow_start(self):                                    # (3) under load the server starts in 4-10 s
+        self.own_viewers()
+        with _SlowStart(self.temp.name, 11):
+            result = tracking_web.open_page(self.state, browser=False, project=self.root, explicit_state_root=self.state, idle_exit=60, interval=1.0)
+        self.assertTrue(result.get('url'), result)
+        self.assertEqual(tracking_web.identity(result['url'])['instance'], result['instance'])
+        stopped = tracking_web.stop_page(self.state)
+        self.assertTrue(stopped['stopped'], stopped); self.assertEqual(_viewer_pids(self.state), [])
+
+    def test_identity_stop_ends_only_its_target_when_the_marker_names_another(self):          # (4) the dead end of round 3
+        self.own_viewers()
+        kw = dict(browser=False, project=self.root, explicit_state_root=self.state, idle_exit=120, interval=1.0)
+        a = tracking_web.open_page(self.state, **kw)
+        b = tracking_web.open_page(self.state, project_id=self.ledger.project_id, **kw)        # other scope: b takes the marker, a keeps running
+        self.assertTrue(a.get('url') and b.get('url'), (a, b)); self.assertNotEqual(a['instance'], b['instance'])
+        marker = tracking_web.marker_paths(self.state)[0]; named_b = marker.read_bytes()
+        self.assertEqual(json.loads(named_b)['instance'], b['instance'])
+        self.assertEqual(tracking_web.identity(a['url'])['instance'], a['instance'])            # a runs with no marker naming it
+        dummy = _dummy(self)
+        for url, instance, pid, word, root in ((b['url'], b['instance'], dummy.pid, 'PID', self.state),
+                                               (b['url'], 'f' * 16, b['pid'], 'định danh', self.state),
+                                               (b['url'], b['instance'], b['pid'], 'sổ', Path(self.temp.name) / 'other state')):
+            result = tracking_web.stop_target(root, url, instance, pid)
+            self.assertFalse(result['stopped'], result); self.assertIn(word, result['reason'])
+            self.assertEqual(tracking_web.identity(b['url'])['instance'], b['instance']); self.assertIsNone(dummy.poll())
+        self.assertEqual(marker.read_bytes(), named_b)
+        result = tracking_web.stop_target(self.state, a['url'], a['instance'], a['pid'], started_at=a['started_at'])
+        self.assertTrue(result['stopped'], result); self.assertFalse(result['marker_removed'])
+        self.assertIsNone(tracking_web.identity(a['url'])); self.assertEqual(tracking_web.identity(b['url'])['instance'], b['instance'])
+        self.assertEqual(marker.read_bytes(), named_b)                                        # the marker names b: untouched
+        again = tracking_web.stop_target(self.state, a['url'], a['instance'], a['pid'], started_at=a['started_at'])
+        self.assertFalse(again['stopped']); self.assertIs(again['gone'], True, again)
+        code, out = self.cli('stop', '--url', b['url'])
+        self.assertEqual(code, 2); self.assertIn('--instance', out); self.assertEqual(tracking_web.identity(b['url'])['instance'], b['instance'])
+        code, out = self.cli('stop', '--url', b['url'], '--instance', b['instance'], '--pid', str(b['pid']), '--started-at', b['started_at'])
+        self.assertEqual(code, 0, out); stopped = json.loads(out)
+        self.assertTrue(stopped['stopped']); self.assertEqual((stopped['pid'], stopped['instance']), (b['pid'], b['instance']))
+        self.assertTrue(stopped['marker_removed']); self.assertFalse(marker.exists())
+        self.assertEqual(_viewer_pids(self.state), [])
 
 
 class TimelineClock(unittest.TestCase):
