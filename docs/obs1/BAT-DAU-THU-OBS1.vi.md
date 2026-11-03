@@ -56,7 +56,7 @@ Sổ thật của 2.4 (ví dụ `D:\OneCrewRuns\v24\state`) chỉ nên xem bằn
 
 Hai việc khác nhau:
 
-- **Chỉ xem sổ** (an toàn, không đổi gì): venv thử OBS-1 (mục 3) + `track list|show|serve|open --project <project> --state-root <sổ>` mở sổ ở chế độ chỉ đọc (`mode=ro`), không ghi, không giữ khóa; runtime đang vận hành của project đó (ví dụ 2.3 `venv-23` của SignSDK) **không bị thay**, hook/registry không đổi. Nên trỏ vào **bản sao** thư mục sổ khi sổ đang có việc chạy; sổ 2.3/2.4 thật đọc được vì mô hình chỉ đọc bảng `tasks/requests/events/attempts` sẵn có.
+- **Chỉ xem sổ** (an toàn, không đổi gì): venv thử OBS-1 (mục 3) + `track list|show|serve|open --project <project> --state-root <sổ>` mở sổ ở chế độ chỉ đọc (`mode=ro`), không ghi, không giữ khóa; riêng `track open|status|stop` ghi marker `tracking\server.json` (+ khóa tạm) — mặc định trong thư mục sổ; với sổ thật đặt `ONECREW_TRACK_MARKER_DIR=<thư mục ngoài sổ>` để thư mục sổ không có thêm file nào (script SignSDK làm vậy); runtime đang vận hành của project đó (ví dụ 2.3 `venv-23` của SignSDK) **không bị thay**, hook/registry không đổi. Nên trỏ vào **bản sao** thư mục sổ khi sổ đang có việc chạy; sổ 2.3/2.4 thật đọc được vì mô hình chỉ đọc bảng `tasks/requests/events/attempts` sẵn có.
 - **Nâng runtime** lên `@@VERSION@@` (để worker/hook của project chạy bản này) là quyết định riêng, **không** nằm trong bài thử này và không được tự làm: dùng đường nâng cấp/quay về của 2.4 (`support …`, `BAT-DAU-THU` của gói 2.4) sau khi Codex review và chủ quyết.
 
 ## 5. Dừng màn hình và quay về bản trước

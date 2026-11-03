@@ -39,6 +39,19 @@ from . import tracking
 
 MARKER = 'tracking/server.json'
 LOCK = 'tracking/open.lock'
+MARKER_DIR_ENV = 'ONECREW_TRACK_MARKER_DIR'      # set: the marker and lock live under <dir>/<sha256 of the state root>[:16]/ instead of inside the state root
+
+
+def marker_paths(state_root):
+    """(marker, lock) of this state root: inside it (`tracking/`) unless ONECREW_TRACK_MARKER_DIR names a folder to keep them elsewhere — for a real
+    ledger that must not be written at all, not even a server marker."""
+    state_root = Path(state_root).resolve()
+    outside = os.environ.get(MARKER_DIR_ENV)
+    if outside:
+        import hashlib
+        base = Path(outside).resolve() / hashlib.sha256(os.path.normcase(str(state_root)).encode('utf-8')).hexdigest()[:16]
+        return base / 'server.json', base / 'open.lock'
+    return state_root / MARKER, state_root / LOCK
 SERVER_NAME = 'OneCrewTrack/2'
 LOCK_STALE_SECONDS = 60
 
@@ -247,7 +260,7 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
     """Reuse the live detached server of this state root when its identity matches (see `reusable`), else start one; then open the page.
     `spawn=False` only reports (no server is started). Concurrent calls serialise on the open lock."""
     state_root = Path(state_root).resolve()
-    marker, lock = state_root / MARKER, state_root / LOCK
+    marker, lock = marker_paths(state_root)
     here = version()
 
     def check():
@@ -302,11 +315,12 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
 def status_page(state_root):
     """What `track open` would find: the marker, what its URL answers, and whether that is reusable (and why not)."""
     state_root = Path(state_root).resolve()
-    record = _read_marker(state_root / MARKER)
+    marker, lock = marker_paths(state_root)
+    record = _read_marker(marker)
     health = identity(record['url']) if record else None
     ok, why = reusable(record, health, state_root, (record or {}).get('project_id'), None)
-    return {'state_root': str(state_root), 'marker': record, 'health': health, 'reusable': ok, 'reason': why, 'version_here': version(),
-            'lock': (state_root / LOCK).exists()}
+    return {'state_root': str(state_root), 'marker_file': str(marker), 'marker': record, 'health': health, 'reusable': ok, 'reason': why, 'version_here': version(),
+            'lock': lock.exists()}
 
 
 def _same_server(record, health, state_root):
@@ -320,7 +334,7 @@ def stop_page(state_root, wait=5.0):
     """Stop the detached tracking server of this state root — only the process whose /api/health matches the marker. Never another process.
     A marker whose URL answers with another identity, or does not answer, is removed as stale (a file of ours; nothing is killed)."""
     state_root = Path(state_root).resolve()
-    marker = state_root / MARKER
+    marker, _ = marker_paths(state_root)
     record = _read_marker(marker)
     if not record:
         return {'stopped': False, 'reason': 'không có marker: không có server nào được `track open` mở cho sổ này (server của `track serve` dừng bằng Ctrl+C)'}

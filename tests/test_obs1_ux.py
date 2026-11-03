@@ -180,6 +180,19 @@ class ServerIdentity(Fixture):
         self.assertFalse(result['stopped']); self.assertIn('không dừng tiến trình lạ', result['reason'])
         self.assertIsNotNone(tracking_web.identity(other.url))
 
+    def test_marker_dir_env_keeps_the_state_root_untouched(self):
+        outside = Path(self.temp.name) / 'markers'
+        with __import__('unittest.mock', fromlist=['patch']).patch.dict(os.environ, {tracking_web.MARKER_DIR_ENV: str(outside)}):
+            marker, lock = tracking_web.marker_paths(self.state)
+            self.assertTrue(str(marker).startswith(str(outside))); self.assertFalse(str(marker).startswith(str(self.state)))
+            srv = _Server(self.state); self.addCleanup(srv.stop)
+            tracking_web._write_marker(marker, self.record(srv))
+            self.assertTrue(self.open().get('reused'))
+            self.assertEqual(tracking_web.status_page(self.state)['marker_file'], str(marker))
+            self.assertFalse((self.state / 'tracking').exists())
+            srv.stop(); result = tracking_web.stop_page(self.state)
+            self.assertTrue(result['marker_removed']); self.assertFalse(marker.exists())
+
     def test_lock_held_by_another_open_waits_for_its_marker(self):
         lock = self.state / tracking_web.LOCK; lock.parent.mkdir(parents=True, exist_ok=True); lock.write_text('')
         srv = _Server(self.state); self.addCleanup(srv.stop)

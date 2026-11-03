@@ -195,7 +195,6 @@ def main():
         return 0
     if case == 'ux':
         import threading
-        from onecrew.common_verification import CandidateChecker
         from onecrew.snapshots import Snapshots
         from onecrew.control_core import Control, migrate
         from onecrew.v2 import engine, executors, internal_plan, plan, progress_track
@@ -224,15 +223,18 @@ def main():
             internal_plan.revise(ledger, name, [node('C'), node('I', ['C'], write=(), integration=True)], reason='OBS-1 UX data', evidence=['a.txt:1'])
             with ledger.transaction() as conn:
                 return plan.anchor_events(ledger, conn, name)['task_id']
+        def checker(item, artifact):                                 # the quick executor's artifact is a blob, not a candidate tree: a fixture verdict with evidence
+            return {'artifact': artifact, 'checks': [{'id': c['id'], 'result': 'pass', 'evidence': store.blob(b'fixture check passed')} for c in item['checks']]}
         out = {}
-        for name, title in (('P6', 'OBS-1 UX: moi phan viec da kiem, cho nghiem thu'), ('P7', 'OBS-1 UX: plan da duoc nghiem thu')):
+        names = (os.environ.get('OBS1_UX_NAMES') or 'P6,P7').split(',')
+        for name, title in ((names[0], 'OBS-1 UX: moi phan viec da kiem, cho nghiem thu'), (names[1], 'OBS-1 UX: plan da duoc nghiem thu')):
             task = make_root(name, title)
-            engine.step(ledger, name, quick, control=control); engine.verify(ledger, name, 'C', CandidateChecker(ledger, name))
-            engine.step(ledger, name, quick, control=control); engine.verify(ledger, name, 'I', CandidateChecker(ledger, name))
-            if name == 'P7':
+            engine.step(ledger, name, quick, control=control); engine.verify(ledger, name, 'C', checker)
+            engine.step(ledger, name, quick, control=control); engine.verify(ledger, name, 'I', checker)
+            if name == names[1]:
                 with ledger.transaction(write=True) as conn:
                     plan.emit(ledger, conn, task, 'plan.accepted', {'plan': name, 'revision': 1, 'by': 'owner', 'artifact_sha': 'x'})
-            out[name] = tracking.detail(state, name)['status']
+            out['P6' if name == names[0] else 'P7'] = tracking.detail(state, name)['status']
         # P4 again: a new generation, a second attempt that stays running and is blocked by its own observation; the first attempt's late observation
         with ledger.transaction(write=True) as conn:
             view = engine.state(ledger, 'P4', conn); engine._event(ledger, conn, view, 'C', 'node.resumed')

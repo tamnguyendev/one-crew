@@ -485,7 +485,10 @@ def main(pkg, work):
         if not line: break
         value = first_json(line)
         if value and value.get('phase') == 'ready': ready = value; break
-    if not ready: problems.append('ux scenario did not get ready: ' + (scen.stderr.read()[-400:] if scen.poll() is not None else 'no ready line'))
+    if not ready:
+        try: scen.wait(30)
+        except subprocess.TimeoutExpired: scen.kill()
+        problems.append('ux scenario did not get ready: ' + (scen.stderr.read() or '')[-600:])
     else:
         facts['states'] = {'P6': ready['P6'], 'P7': ready['P7'], 'P4': ready['p4']['status']}
         if ready['P6'].get('outcome') != 'verified' or ready['P7'].get('outcome') != 'accepted' or ready['p4']['status'].get('kind') != 'blocked':
