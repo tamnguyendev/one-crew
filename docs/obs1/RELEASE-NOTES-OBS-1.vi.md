@@ -27,4 +27,4 @@ Snapshot, wheel và SHA256 của gói này: `manifest.json` cạnh file này (v�
 
 ## Cài, dừng, quay về
 
-`BAT-DAU-THU.vi.md` §3 (cài venv thử, mở màn hình bằng `mo-trang-obs1.ps1`), §4 (đọc sổ của project đang có OneCrew mà không nâng runtime — ví dụ SignSDK giữ runtime 2.3), §5 (dừng màn hình bằng `track stop`/`dung-trang-obs1.ps1`; quay về bản trước có điều kiện).
+`BAT-DAU-THU.vi.md` §3 (cài venv thử, mở màn hình bằng `mo-trang-obs1.ps1 -PinFile` hoặc cặp ghim cứng `mo-trang-obs1-dev12.ps1`), §4 (đọc sổ của project đang có OneCrew mà không nâng runtime — ví dụ SignSDK giữ runtime 2.3), §5 (dừng màn hình bằng `track stop`/`dung-trang-obs1.ps1`; quay về bản trước có điều kiện).

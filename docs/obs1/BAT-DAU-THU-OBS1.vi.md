@@ -1,14 +1,14 @@
 # Bắt đầu thử OBS-1 — màn hình theo dõi chỉ đọc (beta @@VERSION@@)
 
 Điểm vào duy nhất để thử lát OBS-1. Gói này là beta `@@VERSION@@` của dòng 2.4 dựng từ nhánh `@@BRANCH@@` (snapshot `@@COMMIT@@`) = `2.4.0.dev6` + lát OBS-1
-(màn hình theo dõi chỉ đọc) + bốn bản sửa P2 của Codex 03/11 (dev7) + vòng UI/UX 03/11 theo hướng Blazo (UX-01…UX-08, định danh server của `track open`, `track status|stop`; dev8) + vòng UI/UX thứ hai theo review Codex trên dev8 (đồng hồ, mẫu lệnh trả lời đủ `--reference`, tràn 390 px, câu hỏi gập, chip lọc; dev9) + timeline Gantt/waterfall làm trung tâm màn chi tiết, mẫu lệnh PowerShell, câu hỏi bám định danh (dev10) + bốn bản sửa theo review Codex trên dev10: đồng hồ timeline theo server, bằng chứng theo thế hệ/lượt, so thời gian theo giá trị, bố cục 1280 (dev11). Nhánh `claude/onecrew-2.4`, tag và gói `2.4.0.dev6`/`dev7`/`dev8` không đổi. Chỉ cài vào venv thử, chỉ đọc sổ thử hoặc bản sao.
+(màn hình theo dõi chỉ đọc) + bốn bản sửa P2 của Codex 03/11 (dev7) + vòng UI/UX 03/11 theo hướng Blazo (UX-01…UX-08, định danh server của `track open`, `track status|stop`; dev8) + vòng UI/UX thứ hai theo review Codex trên dev8 (đồng hồ, mẫu lệnh trả lời đủ `--reference`, tràn 390 px, câu hỏi gập, chip lọc; dev9) + timeline Gantt/waterfall làm trung tâm màn chi tiết, mẫu lệnh PowerShell, câu hỏi bám định danh (dev10) + bốn bản sửa theo review Codex trên dev10: đồng hồ timeline theo server, bằng chứng theo thế hệ/lượt, so thời gian theo giá trị, bố cục 1280 (dev11) + các bản sửa theo review phát hành độc lập của Codex trên dev11: bằng chứng theo từng lần dùng (thế hệ/lượt đúng, kế thừa và tạo mới cùng hiện, lịch sử dài không thành "không có đầu ra"), phạm vi project cho toàn mô hình, một chốt lọc bí mật cho mọi đầu ra, chi tiết luôn là của task đang chọn khi tải/lỗi/trả muộn, lối mở/dừng ghim cứng và `track stop` theo định danh (dev12). Nhánh `claude/onecrew-2.4`, tag và gói `2.4.0.dev6`/`dev7`/`dev8` không đổi. Chỉ cài vào venv thử, chỉ đọc sổ thử hoặc bản sao.
 
 | Mục | Giá trị |
 |---|---|
 | Gói | `@@PACKAGE@@` (đóng băng; `manifest.json`, `SHA256SUMS`) |
 | Wheel · SHA256 | `wheel\@@WHEEL@@` · `@@WHEEL_SHA@@` |
 | Python | `C:\Users\NUC\AppData\Local\Programs\Python\Python313\python.exe` (không dùng `python` trần) |
-| Trạng thái | beta OBS-1; bản sửa P2 **chưa Codex review lại, chưa nghiệm thu**; `manifest.json` → `claims`; ghi chú phát hành: `docs\RELEASE-NOTES-OBS-1.vi.md`; giới hạn: `docs\limits-obs1.md` |
+| Trạng thái | beta OBS-1 (prerelease, không phải stable, không nâng runtime nào); các bản sửa dev12 **chưa Codex review lại, chưa nghiệm thu**; `manifest.json` → `claims`; ghi chú phát hành: `docs\RELEASE-NOTES-OBS-1.vi.md`; giới hạn: `docs\limits-obs1.md` |
 
 ## 1. Có gì để xem
 
@@ -22,7 +22,7 @@
 | `track serve` / `track open [--no-browser]` | trang web local `http://127.0.0.1:<cổng>/` (chỉ GET; poll 2 s): **tổng quan** (lọc project/trạng thái, tìm, "cần bạn") → **chi tiết task** (mục tiêu, câu hỏi với từng lựa chọn + lệnh để sao chép, thẻ trạng thái/đầu ra/từ khi duyệt/thực hiện/chờ/ước lượng, bảng phần việc) → **timeline nhóm theo phần việc/attempt** (lịch sử cũ và chi tiết kỹ thuật gập lại; bấm một bước để xem bằng chứng của bước đó) → **bằng chứng** có tên/loại/thời điểm, xem ngay trong trang. Chọn bằng chuột hoặc bàn phím (Tab/↑↓/Enter/Esc), URL `?plan=…&project_id=…` giữ ngữ cảnh khi reload/Back; màn hình hẹp (cửa sổ chia đôi, điện thoại) chuyển danh sách ↔ chi tiết. `serve` chạy trong cửa sổ hiện tại (Ctrl+C chỉ đóng trang); `open` chạy server tách rời (tự thoát sau 30 phút không ai mở) và mở trình duyệt mặc định — chỉ **dùng lại** server đang chạy khi `/api/health` trả đúng định danh (instance của marker, version wheel, sổ, phạm vi) |
 | câu hỏi "Cần bạn" | mỗi câu gập trong chi tiết; mở ra có lý do/ảnh hưởng/lựa chọn và **mẫu lệnh PowerShell** `& '<venv>\Scripts\onecrew.exe' --project '…' --state-root '…' question answer … --choice … --reference '<lý do hoặc bằng chứng của bạn>'`: phần `<…>` do bạn điền (chữ của chủ sở hữu, ≤ 500 ký tự) rồi chạy trong **PowerShell** của bạn (nháy đơn giữ nguyên `$`, khoảng trắng, dấu nháy trong đường dẫn); trang không chạy lệnh, không trả lời thay |
 | timeline | trong chi tiết: cây phần việc → lượt (trái), thanh đặt chỗ/thực thi/chờ/kiểm trên cùng trục thời gian (giữa), dấu mốc ◆, đường "hiện tại", đoạn sọc "tới hiện tại, chưa xác nhận" cho lượt đang chạy, lịch sử cũ gập; bấm thanh/dấu mốc → ngăn chi tiết (mốc chính xác, giây, lý do, bằng chứng); chọn khoảng toàn bộ / 1 giờ / 15 phút; cuộn ngang trong vùng riêng |
-| `track status` / `track stop` | `status`: marker `<sổ>\tracking\server.json` + `/api/health` của nó và kết luận có dùng lại được không (vì sao không); `stop`: dừng **chỉ** server khớp marker (PID, sổ, định danh), marker cũ/sai thì chỉ xóa marker, không dừng tiến trình lạ. Dừng màn hình không dừng task |
+| `track status` / `track stop` | `status`: marker `<sổ>\tracking\server.json` + `/api/health` của nó và kết luận có dùng lại được không (vì sao không); `stop`: dừng **chỉ** server khớp marker (PID, sổ, định danh), marker cũ/sai thì chỉ xóa marker, không dừng tiến trình lạ; `stop --url … --instance … --pid …` (dev12) dừng đúng một server theo định danh, kể cả khi marker đã thuộc server khác. Dừng màn hình không dừng task |
 
 Trang web và CLI **không có nút điều khiển**: đọc, bấm, mở bằng chứng không duyệt, không trả lời, không dừng/tiếp tục task. Đóng trang hay tắt server không dừng worker.
 
@@ -34,7 +34,7 @@ Một lệnh: kiểm hash, cài wheel vào venv mới (ngoài checkout), chạy 
 powershell -ExecutionPolicy Bypass -File "@@PACKAGE@@\verify\thu-goi-obs1.ps1"
 ```
 
-Đạt khi in `DAT: …` và thoát 0 (16 bước; V16 = mẫu lệnh trả lời chạy qua CLI cài từ wheel trên sổ thử); báo cáo `verify-report.json` và `ux-results.json` (từng kịch bản UX: checks/notes/số lượt poll) trong thư mục kết quả (mặc định `D:\OneCrewRuns\obs1 thu @@VERSION@@ <giờ>`), ảnh ở `evidence\ux-overview-desktop.png`, `ux-detail-P4-desktop.png`, `ux-detail-P1-desktop.png`, `ux-detail-P1-split.png`, `ux-overview-mobile.png`, `ux-detail-P4-mobile.png` (+ `obs1-list.png`, `obs1-detail-P1.png`, `obs1-disconnected.png`). Không có trình duyệt headless chạy được script thì V11/V14 là `skipped` và kết quả là `partial` (trang và thao tác chưa được thấy trên máy đó). Mất khoảng 4–6 phút.
+Đạt khi in `DAT: …` và thoát 0 (17 bước; V16 = mẫu lệnh trả lời chạy qua CLI cài từ wheel trên sổ thử; V17 = phản chứng R1/R2/R3/R5 của review phát hành Codex chạy từ wheel đã cài — CLI, server thật và script chung với `-PinFile` — cùng đối chứng hợp lệ); báo cáo `verify-report.json` và `ux-results.json` (từng kịch bản UX: checks/notes/số lượt poll) trong thư mục kết quả (mặc định `D:\OneCrewRuns\obs1 thu @@VERSION@@ <giờ>`), ảnh ở `evidence\ux-overview-desktop.png`, `ux-detail-P4-desktop.png`, `ux-detail-P1-desktop.png`, `ux-detail-P1-split.png`, `ux-overview-mobile.png`, `ux-detail-P4-mobile.png` (+ `obs1-list.png`, `obs1-detail-P1.png`, `obs1-disconnected.png`). Không có trình duyệt headless chạy được script thì V11/V14 là `skipped` và kết quả là `partial` (trang và thao tác chưa được thấy trên máy đó). Mất khoảng 15–20 phút (V14 chạy 26 lượt kịch bản trong Chrome headless).
 
 ## 3. Tự xem bằng tay (sổ thử của bạn)
 
@@ -45,10 +45,10 @@ $py = "C:\Users\NUC\AppData\Local\Programs\Python\Python313\python.exe"; $pkg = 
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "@@PACKAGE@@\verify\mo-trang-obs1.ps1" -Venv "D:\OneCrewRuns\obs1 thu tay\venv" -Project <project> -StateRoot <sổ thử>
+powershell -ExecutionPolicy Bypass -File "@@PACKAGE@@\verify\mo-trang-obs1.ps1" -Venv "D:\OneCrewRuns\obs1 thu tay\venv" -Project <project> -StateRoot <sổ thử> -PinFile "<file ghim, đặt ngoài venv, ngoài sổ và ngoài gói>"
 ```
 
-(= `onecrew --project <project> --state-root <sổ thử> track open`; dừng: `dung-trang-obs1.ps1` cùng tham số = `track stop`.)
+(= `onecrew --project <project> --state-root <sổ thử> track open`; dừng đúng phiên vừa mở: `dung-trang-obs1.ps1` cùng tham số và cùng `-PinFile` — dừng theo định danh đã ghim (`track stop --url … --instance … --pid …`: chỉ dừng server trả lời đúng instance + pid đó cho sổ này, kể cả khi marker đã thuộc server khác), không bao giờ dừng tiến trình khác; không có ghim, ghim lệch hay phiên đã hết thì không dừng gì và nói lý do. Script mở có `-PinFile` từ chối, trước khi khởi động gì, khi file ghim đang giữ một phiên còn sống của cùng sổ mà lần mở này không dùng lại được (phạm vi/version khác). Với bản này đã có cặp ghim cứng `mo-trang-obs1-dev12.ps1` / `dung-trang-obs1-dev12.ps1`: nối với đúng gói, wheel đã cài và lần kiểm đạt của bản này; dùng cặp đó, không cần gõ tham số. Không có `-PinFile` thì `dung-trang-obs1.ps1` chạy như cũ: dừng server mà marker của sổ trỏ tới.)
 
 Rồi tạo một task thử trên sổ đó (ví dụ bài `task đầu tiên` của gói 2.4 với `claude` giả, hoặc một plan thật của bạn) và xem dòng của nó đổi: *đang chờ (chờ duyệt)* → *đang chờ (chưa có worker)* → *đang thực hiện (attempt …)* → *đang chờ: đầu ra đã tạo, chờ kiểm* → *đã kiểm, chờ nghiệm thu* → *đã nghiệm thu* (plan bị đóng hiện *đã đóng*, xám, không phải nghiệm thu). Bấm một dòng (hay Tab tới dòng rồi Enter) để xem chi tiết/timeline/bằng chứng; tắt trang rồi mở lại: dữ liệu dựng lại từ sổ, không mất, không trùng.
 
@@ -63,9 +63,9 @@ Hai việc khác nhau:
 
 ## 5. Dừng màn hình và quay về bản trước
 
-- **Dừng**: `track serve` → Ctrl+C hoặc đóng cửa sổ; `track open` → `track stop` (hay `verify\dung-trang-obs1.ps1`): dừng đúng server mà marker `<sổ>\tracking\server.json` trỏ tới sau khi `/api/health` của nó khớp PID/sổ/định danh; marker cũ hay cổng đã bị tiến trình khác dùng thì chỉ xóa marker, không dừng gì. Không dùng nữa cũng tự thoát sau 30 phút không request. Dừng màn hình **không** dừng worker hay task nào.
+- **Dừng**: `track serve` → Ctrl+C hoặc đóng cửa sổ; phiên mở bằng script có `-PinFile` → script dừng cùng `-PinFile` (dừng theo định danh đã ghim); `track open` → `track stop` (hay `verify\dung-trang-obs1.ps1`): dừng đúng server mà marker `<sổ>\tracking\server.json` trỏ tới sau khi `/api/health` của nó khớp PID/sổ/định danh; marker cũ hay cổng đã bị tiến trình khác dùng thì chỉ xóa marker, không dừng gì. Không dùng nữa cũng tự thoát sau 30 phút không request. Dừng màn hình **không** dừng worker hay task nào.
 - **Quay về bản trước** (có điều kiện): nếu chỉ dùng venv thử (mục 3) thì xóa thư mục venv đó là xong, không có gì khác để hoàn; nếu đã cài wheel này đè vào một venv khác thì cài lại wheel cũ bằng `pip install --no-index --force-reinstall <wheel cũ>` rồi chạy `onecrew --version` để xác nhận; sổ không cần quay về vì bản này không ghi vào sổ. Chỉ quay về **sau khi** mọi `track serve/open` của venv đó đã tắt.
 
 ## 6. Giới hạn cần biết
 
-Đọc `docs\limits-obs1.md` và `docs\RELEASE-NOTES-OBS-1.vi.md` trước khi kết luận. Tóm tắt: `claude` giả (không model thật); theo dõi chỉ những root/node/attempt có trong sổ; phiên Claude/Codex ngoài OneCrew ghi "chưa được theo dõi"; ETA chỉ khi sổ có ước lượng; server chỉ lắng nghe 127.0.0.1, không xác thực (máy cá nhân); bản sửa P2 (dev7) và vòng UX (dev8) chưa Codex review lại, chưa nghiệm thu; không thay đổi nhánh/tag/gói 2.4.0.dev6 và dev7.
+Đọc `docs\limits-obs1.md` và `docs\RELEASE-NOTES-OBS-1.vi.md` trước khi kết luận. Tóm tắt: `claude` giả (không model thật); theo dõi chỉ những root/node/attempt có trong sổ; phiên Claude/Codex ngoài OneCrew ghi "chưa được theo dõi"; ETA chỉ khi sổ có ước lượng; server chỉ lắng nghe 127.0.0.1, không xác thực (máy cá nhân); các bản sửa dev12 chưa Codex review lại, chưa nghiệm thu; không thay đổi nhánh/tag/gói 2.4.0.dev6–dev8 hay gói dev9–dev11.
