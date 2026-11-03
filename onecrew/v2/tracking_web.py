@@ -26,6 +26,11 @@ HTTP error status) of a task never loaded shows the selected task's heading, the
 data with a freshness warning next to the heading and marks every reply template as from that time. The header shows the overview connection
 (#conn) and, separately, the freshness of the selected task's detail (#dconn). The out-of-order guard (detailToken + selection) covers the
 success and the failure paths.
+
+Evidence on the page (R1): the page never maps a blob key to one entry. An event in the log lists the occurrences of THAT event (seq, key); the
+step pane lists the occurrences of that attempt (outputs, other evidence) and, apart, what it inherits with the source occurrence of each key;
+a mark shows that event's occurrences; the evidence list groups the uses of each blob. `evidence_index` comes from the full history, so an
+event older than the loaded log window keeps its evidence, and the log says how many older events are not loaded.
 """
 import json
 import os
@@ -433,6 +438,7 @@ h2{font-size:13px;margin:0 0 8px;color:var(--mut);text-transform:uppercase;lette
 .grp{border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin:6px 0}.grp .gh{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
 ol.ev{list-style:none;margin:4px 0 0;padding:0}.ev li{padding:3px 4px;border-top:1px solid var(--line);cursor:pointer;border-radius:4px}.ev li:hover{background:rgba(120,140,180,.08)}.ev li[aria-expanded=true]{background:var(--sel)}
 .ev .t{color:var(--mut);font-size:12px;margin-right:6px;font-variant-numeric:tabular-nums}.ev .k{color:var(--mut);font-size:11px;margin-left:6px}.ev .clip{margin-left:6px;font-size:12px;color:var(--run)}
+ul.uses{margin:2px 0 6px 14px;padding:0}ul.uses li{margin:1px 0}
 .stale{opacity:.7}.evbox{margin:4px 0 4px 10px;padding:6px 8px;border-left:3px solid var(--line);font-size:13px}.evbox pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto;background:rgba(120,140,180,.08);padding:6px;border-radius:6px;font-size:12px;margin:4px 0 0}
 details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visible{outline:3px solid var(--focus)}
 .dhead{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.dhead h2{margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--fg)}
@@ -543,13 +549,17 @@ function needCard(n,i){var ph=n.reference_placeholder,nk=needKey(n);var h='<deta
     else h+='<div class="copied err" data-copy-failed="1">không sao chép được vào clipboard; chọn và sao chép thủ công: <textarea readonly rows="2" style="width:100%">'+esc(copied.text)+'</textarea></div>'}
   return h+'</details>'}
 function kindWord(k){return k.replace('executor.observed','quan sát').replace('node.','phần việc: ').replace('plan.','plan: ').replace('attempt.','attempt: ').replace('request.','câu hỏi: ').replace('verdict.','verdict: ').replace('milestone.','mốc: ')}
-function evLi(e,idx){var exp=selEv===e.seq;var h='<li tabindex="0" role="button" aria-expanded="'+exp+'" data-seq="'+e.seq+'" data-k="ev:'+e.seq+'" class="'+((e.stale_generation||e.stale_attempt)?'stale':'')+'"><span class="t" title="'+when(e.at)+'">'+clock(e.at)+(e.observed_at&&e.observed_at!==e.at?' (quan sát '+clock(e.observed_at)+')':'')+'</span>'
-    +esc(e.summary)+(e.task!=='root'?' <span class="k">(task con)</span>':'')+(e.evidence&&e.evidence.length?'<span class="clip">bằng chứng '+e.evidence.length+'</span>':'')+'<span class="k">#'+e.seq+' '+esc(e.kind)+'</span>'+(e.note?' <b class="small">['+esc(e.note)+']</b>':'');
-  if(exp){h+='<div class="evbox" data-k="evbox:'+e.seq+'">';if(!(e.evidence&&e.evidence.length))h+='<span class="mut">bước này không nêu bằng chứng nào</span>';
-    (e.evidence||[]).forEach(function(k){var x=idx[k]||{label:'',kind:'',at:null};var open=evState[k];
-      h+='<div data-k="evk:'+k+'"><b>'+esc(x.label||'bằng chứng')+'</b> <span class="small mut">'+esc(x.kind||'')+' · '+(x.at?when(x.at):'thời điểm chưa rõ')+' · <code>'+k.slice(0,12)+'…</code></span> '
-        +'<button type="button" class="ev-open" data-key="'+k+'">'+(open?'ẩn nội dung':'xem nội dung')+'</button> <a class="small" target="_blank" href="'+evHref(k)+'">mở tab mới</a>'
-        +(open?'<pre>'+esc(open.text)+'</pre>':'')+'</div>'});h+='</div>'}
+function prov(d){if(d.__prov)return d.__prov;var bySeq={},byKey={},keys=[];      // R1: occurrences (seq, key) of the model, never key -> one entry
+  (d.evidence_index||[]).forEach(function(x){if(typeof x.seq==='number')(bySeq[x.seq]=bySeq[x.seq]||[]).push(x);if(!byKey[x.key]){byKey[x.key]=[];keys.push(x.key)}byKey[x.key].push(x)});
+  Object.defineProperty(d,'__prov',{value:{bySeq:bySeq,byKey:byKey,keys:keys},enumerable:false});return d.__prov}
+function occMeta(x){return esc(x.kind||'')+(x.role?' · '+esc(x.role):'')+(typeof x.generation==='number'?' · thế hệ '+x.generation:'')+(x.attempt?' · lượt '+esc(String(x.attempt).slice(4,12)):'')+' · '+(x.at?when(x.at):'thời điểm chưa rõ')}
+function occLine(x){return '<b>'+esc(x.label||'bằng chứng')+'</b> <span class="small mut">'+occMeta(x)+' · <code>'+x.key.slice(0,12)+'…</code></span>'}
+function openBtn(k){var o=evState[k];return ' <button type="button" class="ev-open" data-key="'+k+'">'+(o?'ẩn nội dung':'xem nội dung')+'</button> <a class="small" target="_blank" href="'+evHref(k)+'">mở tab mới</a>'+(o?'<pre>'+esc(o.text)+'</pre>':'')}
+function occDiv(x){return '<div class="small" data-k="evk:'+x.key+':'+(typeof x.seq==='number'?x.seq:'s')+'">'+occLine(x)+openBtn(x.key)+'</div>'}
+function evLi(e,P){var exp=selEv===e.seq,occ=P.bySeq[e.seq]||[],n=occ.length||(e.evidence||[]).length;var h='<li tabindex="0" role="button" aria-expanded="'+exp+'" data-seq="'+e.seq+'" data-k="ev:'+e.seq+'" class="'+((e.stale_generation||e.stale_attempt)?'stale':'')+'"><span class="t" title="'+when(e.at)+'">'+clock(e.at)+(e.observed_at&&e.observed_at!==e.at?' (quan sát '+clock(e.observed_at)+')':'')+'</span>'
+    +esc(e.summary)+(e.task!=='root'?' <span class="k">(task con)</span>':'')+(n?'<span class="clip">bằng chứng '+n+'</span>':'')+'<span class="k">#'+e.seq+' '+esc(e.kind)+'</span>'+(e.note?' <b class="small">['+esc(e.note)+']</b>':'');
+  if(exp){h+='<div class="evbox" data-k="evbox:'+e.seq+'">';if(!n)h+='<span class="mut">bước này không nêu bằng chứng nào</span>';
+    occ.forEach(function(x){h+='<div data-k="evk:'+x.key+':'+e.seq+'">'+occLine(x)+openBtn(x.key)+'</div>'});h+='</div>'}      // each key with THIS event's own occurrence
   return h+'</li>'}
 function evHref(k){var d=mine();if(!d)return '#';return '/api/evidence?plan='+encodeURIComponent(d.selector)+'&project_id='+encodeURIComponent(d.project_id)+'&key='+k+'&format=text'}
 function groups(d){var g={},order=[];function add(key,title,e){if(!g[key]){g[key]={title:title,cur:[],old:[],tech:[]};order.push(key)}var tech=TECH.some(function(p){return e.kind.indexOf(p)===0});
@@ -558,7 +568,7 @@ function groups(d){var g={},order=[];function add(key,title,e){if(!g[key]){g[key
   Object.keys(d.nodes||{}).forEach(function(id){var n=d.nodes[id];add('n:'+id,'phần việc '+id,{kind:'',seq:-1,summary:''});g['n:'+id].cur=[];g['n:'+id].node=n});
   (d.timeline||[]).forEach(function(e){var n=e.node||e.node_of_attempt;if(n)add('n:'+n,'phần việc '+n,e);else add('plan','Plan '+d.plan,e)});return {g:g,order:order}}
 function renderDetail(d){
-  var idx={};(d.evidence_index||[]).forEach(function(x){idx[x.key]=x});
+  var P=prov(d);
   var h=['<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(d.plan)+' '+st(d.status)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
   if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. Trang tự thử lại.</div>');
   h.push('<div class="small mut">Đang xem task <b>'+esc(d.plan)+'</b> của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
@@ -587,15 +597,18 @@ function renderDetail(d){
   if((d.holds||[]).length)h.push('<div class="small"><b>Giữ (finding):</b> '+d.holds.map(function(x){return esc(x.text||x.error)}).join('; ')+'</div>');
   var ns=Object.keys(d.nodes||{});if(ns.length){h.push('<h3>Phần việc</h3><div class="scroll"><table><thead><tr><th>Phần việc</th><th>Trạng thái</th><th>Đầu ra</th><th>Thế hệ</th><th>Quan sát gần nhất</th></tr></thead><tbody>');
     ns.forEach(function(id){var n=d.nodes[id],p=n.progress;h.push('<tr><td><b>'+esc(id)+'</b></td><td>'+word(PHASE,n.phase)+(n.phase==='held'?'<div class="small" style="color:var(--blk)">lý do (engine): '+esc(n.reason)+'</div>':'')+'</td><td>'+word(NSTATE,n.state)+(n.verification_result?' ('+esc(n.verification_result)+')':'')+'</td><td>'+n.generation+(n.continues?' <span class="small mut">tiếp từ '+esc(n.continues)+'</span>':'')+'</td><td class="wrap small">'+(p?esc(p.status)+' '+rel(p.observed_at||p.received_at)+(p.reason?'<br>'+esc(p.reason):''):'—')+'</td></tr>')});h.push('</tbody></table></div>')}
-  var G=groups(d);h.push('<details data-k="log"><summary>Nhật ký sự kiện ('+d.timeline.length+'/'+d.timeline_total+', cũ → mới; bấm một bước để xem bằng chứng của bước đó)</summary>');
+  var G=groups(d),older=d.timeline_total-d.timeline.length;h.push('<details data-k="log"><summary>Nhật ký sự kiện ('+d.timeline.length+'/'+d.timeline_total+', cũ → mới; bấm một bước để xem bằng chứng của bước đó)</summary>');
+  if(older>0)h.push('<div class="small mut" id="lognote">đang hiện '+d.timeline.length+'/'+d.timeline_total+' sự kiện mới nhất; '+older+' sự kiện cũ hơn chưa tải ở nhật ký này — bằng chứng của chúng vẫn có ở Gantt (chọn lượt hoặc dấu mốc) và mục Bằng chứng (toàn bộ lịch sử)</div>');
   G.order.forEach(function(key){var x=G.g[key];if(!x.cur.length&&!x.old.length&&!x.tech.length)return;
     h.push('<section class="grp" data-k="grp:'+esc(key)+'"><div class="gh"><h4>'+esc(x.title)+'</h4>'+(x.node?'<span class="small mut">thế hệ '+x.node.generation+(x.node.attempt?' · attempt <code>'+esc(x.node.attempt.slice(0,16))+'</code>':'')+'</span>':'')+'</div>');
-    h.push('<ol class="ev">'+x.cur.map(function(e){return evLi(e,idx)}).join('')+'</ol>');
-    if(x.old.length)h.push('<details data-k="old:'+esc(key)+'"><summary>lịch sử cũ ('+x.old.length+' sự kiện của thế hệ/attempt trước; không đổi trạng thái hiện tại)</summary><ol class="ev">'+x.old.map(function(e){return evLi(e,idx)}).join('')+'</ol></details>');
-    if(x.tech.length)h.push('<details data-k="tech:'+esc(key)+'"><summary>chi tiết kỹ thuật ('+x.tech.length+')</summary><ol class="ev">'+x.tech.map(function(e){return evLi(e,idx)}).join('')+'</ol></details>');
+    h.push('<ol class="ev">'+x.cur.map(function(e){return evLi(e,P)}).join('')+'</ol>');
+    if(x.old.length)h.push('<details data-k="old:'+esc(key)+'"><summary>lịch sử cũ ('+x.old.length+' sự kiện của thế hệ/attempt trước; không đổi trạng thái hiện tại)</summary><ol class="ev">'+x.old.map(function(e){return evLi(e,P)}).join('')+'</ol></details>');
+    if(x.tech.length)h.push('<details data-k="tech:'+esc(key)+'"><summary>chi tiết kỹ thuật ('+x.tech.length+')</summary><ol class="ev">'+x.tech.map(function(e){return evLi(e,P)}).join('')+'</ol></details>');
     h.push('</section>')});
   h.push('</details>');
-  h.push('<details data-k="evidence"><summary>Bằng chứng ('+(d.evidence_index||[]).length+' blob, lọc bí mật, chỉ đọc)</summary>'+(d.evidence_index||[]).map(function(x){return '<div class="small" data-k="evk:'+x.key+'"><b>'+esc(x.label)+'</b> · '+esc(x.kind)+' · '+(x.at?when(x.at):'thời điểm chưa rõ')+(x.node?' · phần việc '+esc(x.node):'')+' · <code>'+x.key.slice(0,12)+'…</code> <button type="button" class="ev-open" data-key="'+x.key+'">'+(evState[x.key]?'ẩn nội dung':'xem nội dung')+'</button> <a target="_blank" href="'+evHref(x.key)+'">mở tab mới</a>'+(evState[x.key]?'<pre>'+esc(evState[x.key].text)+'</pre>':'')+'</div>'}).join('')+'</details>');
+  function use(x){return '<li>'+esc(x.label||'')+' <span class="mut">· '+occMeta(x)+(x.seq!=null?' · #'+x.seq:'')+'</span></li>'}
+  h.push('<details data-k="evidence"><summary>Bằng chứng ('+P.keys.length+' blob, '+(d.evidence_index||[]).length+' lần được nêu trong toàn bộ lịch sử; lọc bí mật, chỉ đọc)</summary>'+P.keys.map(function(k){var u=P.byKey[k];   // one blob, its uses (generation / attempt / role)
+    return '<div class="small" data-k="evk:'+k+'"><code>'+k.slice(0,12)+'…</code> · '+u.length+' lần được nêu'+openBtn(k)+'<ul class="uses">'+(u.length>8?u.slice(0,4).map(use).join('')+'<li class="mut">… '+(u.length-8)+' lần khác …</li>'+u.slice(-4).map(use).join(''):u.map(use).join(''))+'</ul></div>'}).join('')+'</details>');
   if(cw.length)h.push('<details data-k="waits"><summary>Đã chờ (lịch sử, '+cw.length+')</summary>'+cw.map(function(w){return '<div class="small">'+esc(w.reason||'không rõ')+' '+when(w.since)+' → '+(w.until==='unknown'?'chưa rõ kết thúc':when(w.until))+' ('+esc(w.source)+')</div>'}).join('')+'</details>');
   if((d.attempts||[]).length){var mx={};((d.measure&&d.measure.attempts)||[]).forEach(function(m){mx[m.attempt]=m});var top=0;Object.keys(mx).forEach(function(k){if(typeof mx[k].execution_seconds==='number')top=Math.max(top,mx[k].execution_seconds)});
     h.push('<details data-k="attempts"><summary>Attempt ('+d.attempts.length+')</summary><div class="scroll"><table><thead><tr><th>Attempt</th><th>Trạng thái</th><th>Thế hệ</th><th>Thời lượng (đo)</th><th>Từ</th><th>Cập nhật</th></tr></thead><tbody>'+d.attempts.map(function(a){var m=mx[a.id],sec=m&&typeof m.execution_seconds==='number'&&m.settled_at?m.execution_seconds:null;
@@ -650,26 +663,28 @@ function gantt(d){var g=d.gantt||{rows:[],plan_marks:[],axis:{}},W=gWindow(g);
   h.push('<div class="gscroll" data-k="gscroll"><div class="gbody"><div class="gtree">'+tree.join('')+'</div><div class="gchart" data-w0="'+new Date(W.w0).toISOString()+'" data-w1="'+new Date(W.w1).toISOString()+'">'+chart.join('')+'</div></div></div></div>');
   h.push('<div class="gside" id="gside">'+gside(d,g)+'</div></section>');return h.join('')}
 function gside(d,g){if(!selStep)return '<span class="mut">Chọn một thanh hoặc dấu mốc (chuột hoặc Tab + Enter) để xem mốc chính xác, lý do, đầu ra và bằng chứng của bước đó.</span>';
-  var idx={};(d.evidence_index||[]).forEach(function(x){idx[x.key]=x});
-  function evRows(list,empty){return list.length?list.map(function(x){return '<div class="small" data-k="evk:'+x.key+'"><b>'+esc(x.label)+'</b> · '+esc(x.kind)+(typeof x.generation==='number'?' · thế hệ '+x.generation:'')+' · '+(x.at?when(x.at):'thời điểm chưa rõ')+' <button type="button" class="ev-open" data-key="'+x.key+'">'+(evState[x.key]?'ẩn nội dung':'xem nội dung')+'</button> <a target="_blank" href="'+evHref(x.key)+'">mở tab mới</a>'+(evState[x.key]?'<pre>'+esc(evState[x.key].text)+'</pre>':'')+'</div>'}).join(''):'<span class="mut small" id="evnone">'+(empty||'bước này không nêu bằng chứng')+'</span>'}
+  var P=prov(d);
+  function evRows(list,empty){return list.length?list.map(occDiv).join(''):'<span class="mut small" id="evnone">'+(empty||'bước này không nêu bằng chứng')+'</span>'}
   var parts=selStep.id.split(':');
   if(parts[0]==='mk'){var seq=parseInt(parts[1],10),m=null;(g.plan_marks||[]).concat.apply([],(g.rows||[]).map(function(r){return r.marks})).forEach(function(x){if(x.seq===seq)m=x});if(!m)return '<span class="mut">dấu mốc không còn trong khoảng đang xem</span>';
-    var ev=(d.timeline||[]).find(function(e){return e.seq===seq}),ex=(d.evidence_index||[]).filter(function(x){return x.seq===seq});
-    return '<h4>◆ '+esc(m.label)+'</h4><dl><dt>thời điểm</dt><dd>'+when(m.at)+'</dd><dt>sự kiện</dt><dd><code>#'+seq+' '+esc(m.kind)+'</code></dd>'+(ev?'<dt>nội dung</dt><dd>'+esc(ev.summary)+'</dd>':'')+'</dl><div class="small"><b>Bằng chứng</b></div>'+evRows(ex)}
+    var ev=(d.timeline||[]).find(function(e){return e.seq===seq}),ex=P.bySeq[seq]||[];       // exactly this event's occurrences (full history, not the loaded log)
+    return '<h4>◆ '+esc(m.label)+'</h4><dl><dt>thời điểm</dt><dd>'+when(m.at)+'</dd><dt>sự kiện</dt><dd><code>#'+seq+' '+esc(m.kind)+'</code></dd>'+(ev?'<dt>nội dung</dt><dd>'+esc(ev.summary)+'</dd>':'<dt>nội dung</dt><dd class="mut">sự kiện cũ hơn phần nhật ký đang tải; bằng chứng bên dưới lấy từ toàn bộ lịch sử</dd>')+'</dl><div class="small"><b>Bằng chứng</b></div>'+evRows(ex)}
   var r=(g.rows||[]).find(function(x){return x.attempt===parts[1]});if(!r)return '<span class="mut">lượt không còn trong dữ liệu</span>';
   var which=parts[0],i=parseInt(parts[2],10),sg=which==='seg'?r.segments[i]:which==='wait'?r.waits[i]:which==='ver'?r.verification[i]:null;
-  var inh=r.inherits||[],inhKeys=inh.map(function(x){return x.key});
-  var ex=(d.evidence_index||[]).filter(function(x){if(inhKeys.indexOf(x.key)>=0)return false;if(x.attempt)return x.attempt===r.attempt;return x.node===r.node&&x.generation===r.generation});   // P2-B: this attempt's own evidence (or its node in ITS generation), never another generation's
+  var inh=r.inherits||[];
+  var ex=(d.evidence_index||[]).filter(function(x){if(x.attempt)return x.attempt===r.attempt;return x.node===r.node&&x.generation===r.generation});   // P2-B/R1: the occurrences of this attempt (or of its node in ITS generation); a key it also inherits stays listed: the roles coexist
   var h='<h4>Lượt <code>'+esc(r.attempt.slice(0,16))+'…</code> · phần việc '+esc(r.node||'?')+' · thế hệ '+r.generation+' · '+esc(r.status)+(r.current?' · hiện hành':r.active?'':' · lượt cũ')+'</h4>';
   if(sg)h+='<div class="small"><b>'+esc(which==='seg'?segWord(sg.kind):which==='wait'?'chờ'+(sg.reason?': '+esc(sg.reason):''):'kiểm ('+esc(sg.result)+')')+'</b> '+when(sg.from)+' → '+(which==='seg'&&sg.kind==='to_now'?'hiện tại (chưa xác nhận)':when(sg.to||sg.until))+(which==='seg'&&sg.kind!=='to_now'?' · '+hms((tms(sg.to)-tms(sg.from))/1000):'')+'</div>';
   h+='<dl><dt>đặt chỗ</dt><dd>'+when(r.reserved_at)+'</dd><dt>bắt đầu chạy</dt><dd>'+(r.launched_at?when(r.launched_at):'chưa xác định')+'</dd><dt>kết thúc</dt><dd>'+(r.settled_at?when(r.settled_at):r.active?'đang chạy · mốc dữ liệu mới nhất '+when(r.latest_mark_at):'chưa xác định')+'</dd><dt>thực thi</dt><dd>'+hms(r.execution_seconds)+'</dd><dt>chờ</dt><dd>'+(r.waits.length?r.waits.map(function(w){return esc(w.reason||'')+' '+when(w.from)+' → '+(w.until?when(w.until):'chưa rõ kết thúc')}).join('; '):'không ghi nhận')+'</dd><dt>kiểm</dt><dd>'+(r.verification.length?r.verification.map(function(v){return esc(v.result)+' ('+hms((tms(v.to)-tms(v.from))/1000)+')'}).join('; '):'chưa')+'</dd></dl>';
   var node=(d.nodes||{})[r.node]||{};if(node.phase==='held'&&r.current)h+='<div class="small" style="color:var(--blk)">bị giữ — lý do (engine): '+esc(node.reason)+'</div>';
   if(node.progress&&r.current)h+='<div class="small">quan sát gần nhất: '+esc(node.progress.status)+' '+when(node.progress.observed_at||node.progress.received_at)+(node.progress.reason?' — '+esc(node.progress.reason):'')+'</div>';
   if(r.marks.length)h+='<div class="small mut">dấu mốc: '+r.marks.map(function(m){return esc(m.label)+' '+clock(m.at)}).join(' · ')+'</div>';
-  var isOut=function(x){return x.kind==='node.produced'||x.kind==='node.verification'||x.kind==='attempt.settled'||x.kind.indexOf('node.receipt')===0},outs=ex.filter(isOut),rest=ex.filter(function(x){return !isOut(x)});
+  var outs=ex.filter(function(x){return x.output}),rest=ex.filter(function(x){return !x.output});
   h+='<div class="small" style="margin-top:4px"><b>Đầu ra của lượt này</b> <span class="mut">(thế hệ '+r.generation+')</span></div>'+evRows(outs,r.active?'lượt này chưa có đầu ra (đang chạy)':'lượt này không có đầu ra');
   if(rest.length)h+='<div class="small" style="margin-top:4px"><b>Bằng chứng khác của lượt này</b></div>'+evRows(rest);
-  if(inh.length)h+='<div class="small" style="margin-top:4px" id="inherit"><b>Kế thừa</b> <span class="mut">(hợp lệ, từ lượt trước)</span></div>'+inh.map(function(x){var e=x.key?idx[x.key]:null;return '<div class="small" data-k="inh:'+esc(x.key||x.kind)+'">'+esc(x.label)+(typeof x.from_generation==='number'?' từ thế hệ '+x.from_generation:'')+(x.from_attempt?' (lượt '+esc(String(x.from_attempt).slice(4,12))+')':'')+' · nguồn <code>'+esc(x.source)+'</code>'+(x.key?' <button type="button" class="ev-open" data-key="'+x.key+'">'+(evState[x.key]?'ẩn nội dung':'xem nội dung')+'</button> <a target="_blank" href="'+evHref(x.key)+'">mở tab mới</a>'+(evState[x.key]?'<pre>'+esc(evState[x.key].text)+'</pre>':''):'')+'</div>'}).join('');
+  if(inh.length)h+='<div class="small" style="margin-top:4px" id="inherit"><b>Kế thừa</b> <span class="mut">(hợp lệ, từ lượt trước)</span></div>'+inh.map(function(x){var o=x.source_occurrence;return '<div class="small" data-k="inh:'+esc(x.key||x.kind)+'">'+esc(x.label)+(typeof x.from_generation==='number'?' từ thế hệ '+x.from_generation:'')+(x.from_attempt?' (lượt '+esc(String(x.from_attempt).slice(4,12))+')':'')+' · nguồn <code>'+esc(x.source)+'</code>'
+    +(o?' · có từ <code>#'+o.seq+' '+esc(o.kind)+'</code> <span class="mut">('+esc(o.role||'')+(typeof o.generation==='number'?', thế hệ '+o.generation:'')+(o.attempt?', lượt '+esc(String(o.attempt).slice(4,12)):'')+', '+(o.at?when(o.at):'thời điểm chưa rõ')+')</span>':(x.key&&x.source_note?' · <span class="mut">'+esc(x.source_note)+'</span>':''))
+    +(x.key?openBtn(x.key):'')+'</div>'}).join('');
   return h}
 function repaintGantt(){var d=mine();if(!d)return;var s=snapshot();var el=document.querySelector('#detail .gantt');if(el){var t=document.createElement('div');t.innerHTML=gantt(d);el.replaceWith(t.firstChild)}restore(s)}
 function snapshot(){var open={};document.querySelectorAll('#detail details[data-k]').forEach(function(x){open[x.getAttribute('data-k')]=x.open});

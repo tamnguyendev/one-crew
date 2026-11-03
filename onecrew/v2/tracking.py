@@ -11,6 +11,12 @@ generation never move the current one (engine.state drops them; the timeline sho
 union (execution_mode.measure), never summed. Sessions of Claude/Codex that did not run through OneCrew have no source here and are reported as
 NOT tracked; nothing turns a chat session into a monitored task.
 
+Evidence provenance (R1 of the dev11 release review): blobs are content-addressed, so one key can be the output of two generations with
+identical bytes, an inheritance AND a new output of the same node, or an evidence item of several events. The model therefore never maps a
+key to one entry: `evidence_index` holds one entry per OCCURRENCE (event seq, key) with that event's own kind, time, node, generation,
+attempt and role (where the key sits in the payload), built from the FULL history of the root and its child tasks — the events the Gantt
+already reads — and never from the timeline display window; the evidence door checks membership against that same full history.
+
 Secrets: every display string is built with `clean` (the S1 line redaction of diagnostics.redact_line, control characters dropped, length
 capped), and on top of that ONE outbound guard, `outward`, walks everything the public functions return (overview, detail, evidence, the text
 renders; tracking_web and tracking_cli send nothing else) and applies diagnostics.redact_line to every string value and key, line by line, with
@@ -53,6 +59,11 @@ CONTROLS = 'không có: màn hình này không duyệt, không trả lời, khô
 LIMIT = 300
 HEX64 = re.compile(r'\b[0-9a-f]{64}\b')
 EVIDENCE_CAP = 65536
+OUTPUT_KINDS = ('node.produced', 'node.verification', 'attempt.settled')    # an occurrence in one of these events is an output of its attempt
+RECORD_FIELDS = (('receipt', 'receipt đầu ra'), ('verification_receipt', 'receipt kiểm'), ('resume_artifact', 'đầu ra dở được tiếp tục'),
+                 ('retained_candidate', 'ứng viên được giữ lại'))
+EVIDENCE_BASIS = ('toàn bộ sự kiện của root và các task con, không phụ thuộc giới hạn timeline: mỗi lần một sự kiện nêu một blob là một mục '
+                  '(seq, key) với loại, thời điểm, phần việc, thế hệ, attempt và vai trò của chính sự kiện đó; cùng nội dung (cùng key) không gộp các lần nêu')
 
 
 # ---- text and time ------------------------------------------------------------------------------------------------------------------
@@ -425,9 +436,10 @@ def _last_evidence(events):
         elif kind == 'support.feedback': ref, label = None, 'báo lỗi S1'
         else: continue
         when = p.get('observed_at') or at
-        item = {'seq': seq, 'kind': kind, 'at': when, 'received_at': at, 'label': clean(label, 120), 'ref': clean(ref, 200),
+        item = {'seq': seq, 'kind': kind, 'at': when, 'received_at': at, 'label': label, 'ref': ref,
                 'provenance': p.get('time_source') or 'ledger_event'}
         if best is None or (_at(when) or _at(at)) >= (_at(best['at']) or _at(best['received_at'])): best = item
+    if best: best.update(label=clean(best['label'], 120), ref=clean(best['ref'], 200))       # only the chosen entry leaves this module
     return best
 
 
@@ -478,8 +490,97 @@ def _summary(kind, p):
     return kind
 
 
+def _walk(value, path=''):
+    """(key, role) of every 64-hex blob key a payload names, in payload order. The role is where the key sits: `artifact`, `receipt`,
+    `resume_artifact`, `candidate.artifact`, `evidence[2]`, `basis.ref` … (a key used as a dict key is `<path>.{key}`)."""
+    if isinstance(value, dict):
+        for k, v in value.items():
+            for key in HEX64.findall(str(k)): yield key, (path + '.' if path else '') + '{key}'
+            yield from _walk(v, (path + '.' if path else '') + str(k))
+    elif isinstance(value, list):
+        for i, v in enumerate(value): yield from _walk(v, f'{path}[{i}]')
+    elif isinstance(value, str) or (isinstance(value, (int, float)) and not isinstance(value, bool)):
+        for key in HEX64.findall(str(value)): yield key, path or 'payload'
+
+
 def _keys_of(payload):
-    return set(HEX64.findall(json.dumps(payload, ensure_ascii=False, default=str)))
+    return {key for key, _ in _walk(payload)}
+
+
+def _history(conn, root_id, events=None):
+    """(root events, child task ids, root + child events by seq): the full non-noise history of a root, the one source of the Gantt and of
+    the evidence provenance (never the timeline display window)."""
+    if events is None: events = [e for e in _events(conn, root_id) if e[1] not in NOISE]
+    children = {p.get('child') for seq, kind, p, at in events if kind == 'node.started' and p.get('child')}
+    child_events = [e for child in sorted(children) for e in _events(conn, child) if e[1] not in NOISE]     # attempt.* events live on the child task
+    return events, children, sorted(events + child_events, key=lambda e: e[0])
+
+
+def _provenance(events, attempts, nodes, current_generation, current_attempt):
+    """(occurrences, keys): one entry per (event seq, key) over the full history `events`, each with ITS event's kind, time (observed_at, else
+    the ledger time), node (the event's, else the node its attempt was started for), generation (the event's, else its attempt's), attempt
+    (the event's; for a node event that names none, the attempt node.started bound to that node and generation before it, with that
+    node.started as `attempt_basis`; else null: not determined) and role. Engine node-record keys (receipt, verification_receipt,
+    resume_artifact, retained_candidate) are added as `engine.state` entries only when no event names that key for that node (and, for
+    the receipts, that generation)."""
+    attempt_gen = {a['id']: a['generation'] for a in attempts}
+    started, attempt_node = {}, {}
+    for seq, kind, p, at in events:
+        if kind == 'node.started' and p.get('attempt') and p.get('node') is not None:
+            started.setdefault((p['node'], p.get('generation')), []).append((seq, p['attempt']))
+            attempt_node[p['attempt']] = p['node']
+    out, keys, cleaned = [], set(), {}
+    def once(text, limit):                       # observations repeat their summary and every payload repeats its paths: clean each text once
+        if (text, limit) not in cleaned: cleaned[(text, limit)] = clean(text, limit)
+        return cleaned[(text, limit)]
+    for seq, kind, p, at in events:
+        found = {}
+        for key, role in _walk(p): found.setdefault(key, []).append(role)
+        if not found: continue
+        keys |= set(found)
+        node, gen = p.get('node'), p.get('generation')
+        attempt = p.get('attempt') or (p.get('id') if kind.startswith('attempt.') else None)
+        basis = 'event' if attempt else None
+        if attempt is None and node is not None:
+            prior = [(s, a) for s, a in started.get((node, gen), []) if s <= seq]
+            if prior: attempt, basis = prior[-1][1], f'node.started:#{prior[-1][0]}'
+        owner = node if node is not None else attempt_node.get(attempt)
+        if gen is None and attempt: gen = attempt_gen.get(attempt)
+        stale = (p.get('node') is not None and p.get('generation') is not None and node in current_generation and p.get('generation') != current_generation[node]) \
+            or (owner is not None and attempt is not None and owner in current_attempt and attempt != current_attempt[owner])
+        label, when = once(_summary(kind, p), 160), p.get('observed_at') or at
+        for key, roles in found.items():
+            entry = {'key': key, 'seq': seq, 'kind': kind, 'role': once(roles[0], 80), 'at': when, 'node': owner, 'generation': gen, 'attempt': attempt,
+                     'attempt_basis': basis, 'label': label, 'output': kind in OUTPUT_KINDS, 'stale': bool(stale)}
+            if len(roles) > 1: entry['other_roles'] = [once(r, 80) for r in roles[1:6]]
+            out.append(entry)
+    named = {(o['key'], o['node']) for o in out}
+    named_gen = {(o['key'], o['node'], o['generation']) for o in out}
+    for nid, r in nodes.items():
+        for field, what in RECORD_FIELDS:
+            key = r.get(field); key = key.get('artifact') if isinstance(key, dict) else key
+            if not (isinstance(key, str) and HEX64.fullmatch(key)): continue
+            keys.add(key)
+            receipt = field in ('receipt', 'verification_receipt')
+            if ((key, nid, r['generation']) if receipt else (key, nid)) in (named_gen if receipt else named): continue
+            out.append({'key': key, 'seq': None, 'kind': 'engine.state', 'role': field, 'at': None, 'node': nid, 'generation': r['generation'], 'attempt': r['attempt'],
+                        'attempt_basis': 'engine.state', 'label': f'{what} của phần việc {nid} (trạng thái engine; không sự kiện nào nêu nó)', 'output': receipt, 'stale': False})
+    return out, keys
+
+
+def _source_of(occurrences, key, node, generation, attempt, before):
+    """Where an inherited key came from: its occurrence in the SOURCE generation (and attempt) of that node — the production first, then any
+    other output, then any use — never "the last occurrence of the key". With no occurrence in the source generation, the nearest older
+    generation that names it; else None."""
+    mine = [o for o in occurrences if o['key'] == key and o['node'] == node and o['seq'] is not None]
+    pool = [o for o in mine if generation is not None and o['generation'] == generation and (attempt is None or o['attempt'] in (attempt, None))]
+    if not pool and isinstance(before, int):
+        older = [o for o in mine if isinstance(o['generation'], int) and o['generation'] < before]
+        top = max((o['generation'] for o in older), default=None)
+        pool = [o for o in older if o['generation'] == top]
+    if not pool: return None
+    best = min(pool, key=lambda o: (0 if o['kind'] == 'node.produced' else 1 if o['output'] else 2, o['seq']))
+    return {k: best[k] for k in ('seq', 'kind', 'role', 'at', 'generation', 'attempt')}
 
 
 def _timeline(conn, root_id, children, current_generation, limit, current_attempt=None):
@@ -489,14 +590,13 @@ def _timeline(conn, root_id, children, current_generation, limit, current_attemp
     marks = ','.join('?' for _ in task_ids)
     noise = ','.join('?' for _ in NOISE)
     total = conn.execute(f'SELECT COUNT(*) FROM events WHERE task_id IN ({marks}) AND kind NOT IN ({noise})', task_ids + list(NOISE)).fetchone()[0]
-    keys = set()
     attempt_gen = {a['id']: a['generation'] for a in _attempts(conn, task_ids)} if task_ids else {}       # P2-B: attempt.* events carry no generation; their attempt row does
     attempt_node = {p.get('attempt'): p.get('node') for (p,) in ((json.loads(r['payload']),) for r in conn.execute(
         f"SELECT payload FROM events WHERE task_id IN ({marks}) AND kind='node.started'", task_ids)) if p.get('attempt') and p.get('node')}
     for r in conn.execute(f'SELECT seq, task_id, kind, payload, created_at FROM events WHERE task_id IN ({marks}) AND kind NOT IN ({noise}) ORDER BY seq DESC LIMIT ?',
                           task_ids + list(NOISE) + [limit]):
         p = json.loads(r['payload'])
-        keys |= _keys_of(p)
+        named = _keys_of(p)
         node, gen = p.get('node'), p.get('generation')
         stale = node is not None and gen is not None and node in current_generation and gen != current_generation[node]
         attempt = p.get('attempt') or (p.get('id') if r['kind'].startswith('attempt.') else None)
@@ -509,9 +609,9 @@ def _timeline(conn, root_id, children, current_generation, limit, current_attemp
                      'observed_at': p.get('observed_at'), 'received_at': p.get('received_at'),
                      'stale_generation': stale, 'stale_attempt': stale_attempt,
                      'note': ('thế hệ cũ: không đổi trạng thái hiện tại' if stale else 'attempt cũ: không đổi trạng thái hiện tại' if stale_attempt else None),
-                     'evidence': sorted(_keys_of(p))[:6]})
+                     'evidence': sorted(named)[:6], 'evidence_count': len(named)})      # display only: evidence_index (full history) is the index
     rows.reverse()
-    return rows, total, keys
+    return rows, total
 
 
 MARK_KINDS = {'node.started': 'bắt đầu', 'node.produced': 'đã tạo đầu ra', 'node.verification': 'kiểm', 'node.held': 'bị giữ', 'node.resumed': 'thế hệ mới',
@@ -635,7 +735,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     if contract and not engine_root:
         try: views = plans.milestone_views(contract, state, state['latest'])
         except (LedgerError, OSError, ValueError, KeyError): views = []
-    children = {p.get('child') for seq, kind, p, at in events if kind == 'node.started' and p.get('child')}
+    events, children, history = _history(conn, row['id'], events)
     attempts = _attempts(conn, [row['id']] + sorted(children))
     progress = _current_progress(_progress_rows(events), engine_view)
     waits = _waits(events, attempts)
@@ -694,25 +794,19 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     item['progress'] = progress
     current = {nid: r['generation'] for nid, r in nodes.items()}
     current_attempt = {nid: r['attempt'] for nid, r in nodes.items() if r['attempt']}
-    item['timeline'], item['timeline_total'], keys = _timeline(conn, row['id'], children, current, timeline_limit, current_attempt)
-    index = {}                                   # UX-07: every evidence blob with a name, a kind and a time — the first event that named it for each (node, generation, attempt):
-    for e in item['timeline']:                   # blobs are content-addressed, so byte-identical output of two generations shares one key (P2-B: each generation lists its own)
-        for key in e['evidence']:
-            slot = (key, e['node'] or e.get('node_of_attempt'), e['generation'], e['attempt'])
-            if slot not in index:
-                index[slot] = {'key': key, 'seq': e['seq'], 'kind': e['kind'], 'at': e['observed_at'] or e['at'], 'node': e['node'] or e.get('node_of_attempt'), 'attempt': e['attempt'],
-                               'generation': e['generation'], 'label': e['summary'], 'stale': bool(e['stale_generation'] or e['stale_attempt'])}
-    for nid, r in nodes.items():
-        for key, what in ((r['receipt'], 'receipt đầu ra'), (r['verification_receipt'], 'receipt kiểm'), (r['resume_artifact'], 'đầu ra dở được tiếp tục'), (r['retained_candidate'], 'ứng viên được giữ lại')):
-            key = key.get('artifact') if isinstance(key, dict) else key
-            if isinstance(key, str) and HEX64.fullmatch(key):
-                keys.add(key)
-                if not any(x['key'] == key for x in index.values()):
-                    index[(key, nid, r['generation'], r['attempt'])] = {'key': key, 'seq': None, 'kind': 'node.' + what.split()[0], 'at': None, 'node': nid, 'attempt': r['attempt'], 'generation': r['generation'], 'label': f'{what} của phần việc {nid}', 'stale': False}
+    item['timeline'], item['timeline_total'] = _timeline(conn, row['id'], children, current, timeline_limit, current_attempt)
+    item['timeline_limit'] = timeline_limit
+    item['timeline_complete'] = len(item['timeline']) >= item['timeline_total']   # False: older events are not in `timeline`; their evidence is still in evidence_index
+    occurrences, keys = _provenance(history, attempts, nodes, current, current_attempt)    # UX-07 + R1: every use of every blob, from the FULL history
     item['evidence_keys'] = sorted(keys)
-    item['evidence_index'] = sorted(index.values(), key=lambda x: (x['seq'] is None, x['seq'] or 0))
-    child_events = [e for child in sorted(children) for e in _events(conn, child) if e[1] not in NOISE]     # attempt.* events live on the child task
-    item['gantt'] = _timeline_spans(sorted(events + child_events, key=lambda e: e[0]), attempts, list(nodes), current_attempt, waits, now, node_views=nodes)
+    item['evidence_index'] = occurrences
+    item['evidence_basis'] = EVIDENCE_BASIS
+    item['gantt'] = _timeline_spans(history, attempts, list(nodes), current_attempt, waits, now, node_views=nodes)
+    for r in item['gantt']['rows']:
+        for x in r['inherits']:
+            if x.get('key'):
+                x['source_occurrence'] = _source_of(occurrences, x['key'], r['node'], x.get('from_generation'), x.get('from_attempt'), r['generation'])
+                if x['source_occurrence'] is None: x['source_note'] = 'sổ không có sự kiện nào nêu blob này ở thế hệ nguồn'
     item['measure'] = _measure(rd, row['request_key']) if engine_root else {'note': 'root không có engine: không có attempt để đo'}
     item['eta'] = _eta(rd, row['request_key'], now)
     item['holds'] = _holds(rd, row['request_key'], conn) if engine_root else []
@@ -884,11 +978,27 @@ def _detail(state_root, selector, *, project_id=None, now=None, timeline_limit=2
         return item
 
 
+def _names(conn, root_id, key):
+    """Does any non-noise event of the root or of its child tasks name `key` (the same membership as `detail`'s evidence_keys), over the
+    FULL history whatever its length? The ledger stores payloads as JSON text, so only the events whose text contains the key are parsed."""
+    children = sorted({r[0] for r in conn.execute("SELECT json_extract(payload,'$.child') FROM events WHERE task_id=? AND kind='node.started'", (root_id,)) if r[0]})
+    tasks = [root_id] + children
+    marks, noise = ','.join('?' for _ in tasks), ','.join('?' for _ in NOISE)
+    for (payload,) in conn.execute(f'SELECT payload FROM events WHERE task_id IN ({marks}) AND kind NOT IN ({noise}) AND instr(payload, ?) > 0', tasks + list(NOISE) + [key]):
+        if key in _keys_of(json.loads(payload)): return True
+    return False
+
+
 def evidence(state_root, selector, key, *, project_id=None):
     """The text of one blob the root's events name (receipt, candidate, evidence), redacted line by line and capped; any other key is refused."""
     if not isinstance(key, str) or not HEX64.fullmatch(key): raise LedgerError('Mã bằng chứng không hợp lệ.')
-    item = detail(state_root, selector, project_id=project_id, timeline_limit=5000)
-    if key not in item['evidence_keys']: raise PermissionError('Bằng chứng này không thuộc root đã chọn; không mở.')
+    reader, source = _source(state_root)
+    if source['status'] != 'ok': raise LedgerError(source['detail'])
+    with reader.transaction() as conn:
+        if conn is None: raise LedgerError('Sổ không mở được.')
+        row = _find(conn, reader, selector, project_id)
+        named = _names(conn, row['id'], key)
+    if not named: raise PermissionError('Bằng chứng này không thuộc root đã chọn; không mở.')
     from ..snapshots import Snapshots
     from .diagnostics import redact
     data = Snapshots(state_root).read_blob(key)
@@ -962,9 +1072,10 @@ def render_detail(value):
     if t['holds']:
         lines.append('Giữ (finding):')
         for h in t['holds']: lines.append('  - ' + (h.get('text') or h.get('error') or ''))
-    lines.append(f"Timeline ({len(t['timeline'])}/{t['timeline_total']} sự kiện, cũ → mới):")
+    lines.append(f"Timeline ({len(t['timeline'])}/{t['timeline_total']} sự kiện, cũ → mới)" + ('' if t.get('timeline_complete', True) else
+                 f" — đang hiện {len(t['timeline'])} sự kiện mới nhất; bằng chứng của sự kiện cũ hơn vẫn ở mục bằng chứng (toàn bộ lịch sử)") + ':')
     for e in t['timeline']:
         when = e['at'] + (f" (quan sát {e['observed_at']})" if e.get('observed_at') and e['observed_at'] != e['at'] else '')
         lines.append(f"  #{e['seq']} {when} {e['kind']}: {e['summary']}" + ('  [thế hệ cũ]' if e['stale_generation'] else '  [attempt cũ]' if e.get('stale_attempt') else ''))
-    lines.append(f"Bằng chứng mở được: {len(t['evidence_keys'])} blob · Điều khiển: {t['controls']}")
+    lines.append(f"Bằng chứng mở được: {len(t['evidence_keys'])} blob ({len(t.get('evidence_index') or [])} lần được nêu, toàn bộ lịch sử) · Điều khiển: {t['controls']}")
     return _guard('\n'.join(lines) + '\n')
