@@ -138,7 +138,7 @@ def main():
                 control.launched(attempt['id'], attempt['generation'], {'fixture': True}); self.started.set(); self.release.wait(hold * 4 + 30)
                 return quick(ledger_, control, task, item, attempt)
 
-        def root(name, title):
+        def make_root(name, title):
             plan.propose(ledger, name, contract(title), 'codex', workflow=True, capabilities=caps)
             plan.approve(ledger, name, 'owner', 'temporary fixture only (not a real ledger)')
             internal_plan.revise(ledger, name, [node('C'), node('I', ['C'], write=(), integration=True)], reason='OBS-1 P2 counterexample', evidence=['a.txt:1'])
@@ -146,12 +146,12 @@ def main():
                 return plan.anchor_events(ledger, conn, name)['task_id']
         out = {}
         # P2-01: closed, nothing ever ran
-        task3 = root('P3', 'OBS-1 P2-01 closed before any node ran')
+        task3 = make_root('P3', 'OBS-1 P2-01 closed before any node ran')
         with ledger.transaction(write=True) as conn:
             plan.emit(ledger, conn, task3, 'plan.closed', {'revision': 1, 'reason': 'owner cancelled the unfinished task'})
         out['p3'] = {k: tracking.detail(state, 'P3')[k] for k in ('root_status', 'level', 'status')}
         # P2-03: a wait closed on the settled attempt of P5
-        root('P5', 'OBS-1 P2-03 closed wait'); engine.step(ledger, 'P5', quick)
+        make_root('P5', 'OBS-1 P2-03 closed wait'); engine.step(ledger, 'P5', quick)
         att5 = tracking.detail(state, 'P5')['nodes']['C']['attempt']
         kw = dict(source='tool_call', ref='wait-receipt', at='2026-11-03T00:00:00+00:00', wait_reason='external_service')
         executors.observe(ledger, 'P5', Managed(), att5, 'wait', **kw)
@@ -170,7 +170,7 @@ def main():
             plan.emit(ledger_b, conn, task_b, 'workflow.checkpoint', {'phase': 'review', 'message': 'test', 'evidence': key_b})
         out['projects'] = {'a': ledger.project_id, 'b': ledger_b.project_id, 'b_path': str(other), 'b_key': key_b}
         # P2-02: P4, attempt 1 produced, generation 1 opened, attempt 2 running; a late observation of attempt 1
-        root('P4', 'OBS-1 P2-02 late observation of an old attempt'); engine.step(ledger, 'P4', quick)
+        make_root('P4', 'OBS-1 P2-02 late observation of an old attempt'); engine.step(ledger, 'P4', quick)
         old = tracking.detail(state, 'P4')['nodes']['C']['attempt']
         with ledger.transaction(write=True) as conn:
             view = engine.state(ledger, 'P4', conn); engine._event(ledger, conn, view, 'C', 'node.resumed')
