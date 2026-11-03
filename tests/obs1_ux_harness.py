@@ -515,8 +515,9 @@ if(S==='slow_detail'){
   check('setup: a copy button was clicked on P1 just before selecting P8', !!btn);
   // (e) the live elapsed tile never jumps backwards when the detail turns stale (it used to re-anchor at the re-render with the older data)
   await select('P1'); const tv=()=>{const e=$('.tile [data-live]');return e?parseFloat(e.getAttribute('data-live'))+(w.Date.now()-parseFloat(e.getAttribute('data-live-at')))/1000:null};
-  await morePolls(2); const v0=tv(); mode='fail'; await waitFor(()=>dst()==='stale', iv*6, 'P1 stale'); const v1=tv(); await morePolls(1); const v2=tv();
-  check('the live elapsed tile does not jump backwards when the detail turns stale', v0!==null && v1!==null && v1>=v0-0.2 && v2>=v1-0.2, {v0, v1, v2});
+  await morePolls(2); const v0=tv(); mode='fail'; await waitFor(()=>dst()==='stale', iv*6, 'P1 stale'); const v1=tv();
+  const tile=$('.tile [data-live]'), at=tile?parseFloat(tile.getAttribute('data-live-at')):NaN, okAt=st().detailOkAt?Date.parse(st().detailOkAt):NaN;   // virtual time: compare anchors, not clock values
+  check('the live elapsed tile stays anchored at the arrival of its data when the detail turns stale (never re-anchored at the re-render)', tile && Math.abs(at-okAt)<=1, {at, okAt, v0, v1});
   mode=null; await waitFor(()=>dst()==='ok', iv*6, 'P1 recovered');
   // (f) a need without a reply template gets a plain data-time note while stale, never the --revision template note
   const tplless=['P6','P7','P2','P3'].find(n=>rowOf(n)); await select(tplless); const cards0=$$('#detail details.need');
