@@ -19,6 +19,18 @@ Cases:
             acceptance) and P7 accepted, through engine.step + engine.verify with the real CandidateChecker; then P4 is re-opened: a second
             attempt kept running by an in-process worker and blocked by an observation of THAT attempt (a late observation of the first attempt
             is in the timeline). Prints `ready` and holds P4 running until stdin is closed or OBS1_UX_HOLD seconds pass; then prints `done`.
+  prov_history  (V14 signal of the `prov` scenario, R1 of the dev11 release review) 310 executor.observed progress events of P9's current
+            attempt, as tests/test_obs1_browser.py writes them on the unit fixture: the page window (300) no longer holds generation 0.
+  prov_same (V14 signal of `prov`, R1) P9 node C resumes from the artifact of its current generation (node.resumed resume_artifact +
+            continues_attempt) and one engine step with the `ux` quick executor (ux_quick: the PACKAGE data set's bytes, not the unit
+            fixture's) produces those very bytes again. Prints the key; exits non-zero when the new generation did not write the same key.
+  release   (V17, the Codex release review of dev11) a root R15 in its OWN project and ledger (`r15 project`, `r15 state`), independent of
+            every other case: an old decision.recorded naming eight blobs; node C produced by generation 0, by a plain new generation 1
+            (byte-identical output) and by generation 2 resumed from generation 1's artifact (the same bytes again); 310 progress events of
+            the current attempt (newer than every production: the page window holds none of them); wait observations whose references
+            carry synthetic secret shapes and normal references (R3); a pending owner question (reply template); a second project with a
+            plan R15B in the same ledger (R2). Prints the facts read from the raw ledger rows (seqs, attempts, keys, times, request id and
+            revision), never from the tracking projection the verifier checks.
 """
 import json
 import os
@@ -55,6 +67,121 @@ def contract(title='OBS-1 trial task'):
             'authority': {'edit': True, 'commands': True, 'unconfined_commands': True, 'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']}}   # as scenario_a1 of 2.3: a temporary fixture ledger, the command check needs it
 
 
+UX_RECEIPT = b'{"kind":"fixture-receipt","note":"api_key=sk-fixture-secret"}'     # the receipt the `ux` quick executor writes (the package data set; the unit fixture's differs)
+
+
+def ux_quick(store):
+    """The `ux` data set's in-process executor (no model, no process): produces at once artifact-<node id> and UX_RECEIPT. `prov_same` and
+    `release` step with this very executor, so a later generation writes byte-identical output (the same blob keys)."""
+    def quick(ledger_, control, task, item, attempt):
+        control.launched(attempt['id'], attempt['generation'], {'fixture': True})
+        artifact, receipt = store.blob(('artifact-' + item['id']).encode()), store.blob(UX_RECEIPT)
+        control.finish(attempt['id'], attempt['generation'], {'fixture': True, 'artifact': artifact})
+        return {'artifact': artifact, 'receipt': receipt}
+    return quick
+
+
+def p9_name():
+    """The name the `ux` case gives its P2-B inheritance root (P9 unless OBS1_UX_NAMES names a third root)."""
+    names = (os.environ.get('OBS1_UX_NAMES') or 'P6,P7').split(',')
+    return names[2] if len(names) > 2 else 'P9'
+
+
+def git_project(path):
+    path.mkdir(parents=True)
+    (path / 'a.txt').write_text('base\n'); (path / 'out.txt').write_text('base\n'); (path / '.gitignore').write_text('.onecrew/\n')
+    for args in (('init', '-q'), ('config', 'user.name', 'fixture'), ('config', 'user.email', 'fixture@localhost'), ('add', '.'), ('commit', '-qm', 'base')):
+        subprocess.run(['git', '-C', str(path), *args], check=True, capture_output=True)
+    return path
+
+
+# V17 (R3): references written into wait observations of R15. The secret-shaped ones carry SYNTHETIC values (never a real credential); the
+# verifier reads them from this case's output and never repeats a raw value in its report.
+R15_SECRET_REFS = (('password', 'password=r15_synthetic_secret_4417', 'r15_synthetic_secret_4417'),          # the shape of the Codex probe
+                   ('token', 'token: R15SYNTHtok8822zz', 'R15SYNTHtok8822zz'),
+                   ('bearer', 'Authorization: Bearer R15SYNTHbearer9933zz', 'R15SYNTHbearer9933zz'),
+                   ('userinfo', 'https://deploy:R15SYNTHurlpw4455@example.invalid/repo.git', 'R15SYNTHurlpw4455'))
+R15_NORMAL_REFS = ('tool_call:toolu_01ABCdef-2', 'codex-history-fixture-12', 'D:/Some Folder/with space/receipt 1.txt', 'https://example.invalid/a/b?x=1&y=2')
+R15_QUESTION_RAW = 'r15-question-secret-5521'
+
+
+def release():
+    """Case `release` (V17, see the module docstring): its own project and ledger; nothing here reads or writes the other cases' ledger."""
+    from onecrew.ledger import Ledger, utcnow
+    from onecrew.snapshots import Snapshots
+    from onecrew.control_core import Control, migrate
+    from onecrew.v2 import engine, executors, internal_plan, plan
+    r_root, r_state = work / 'r15 project', work / 'r15 state'
+    git_project(r_root)
+    ledger = Ledger(r_root, r_state)
+    store, caps = Snapshots(r_state), ['namespaced-storage', 'root-budget', 'internal-plan', 'sequential-engine']
+    migrate(ledger); control = Control(ledger)
+    quick = ux_quick(store)
+
+    class Managed(executors.Executor):
+        declaration = executors.Declaration('fixture-managed', 'managed', ('measure',), ('time',))
+
+    plan.propose(ledger, 'R15', contract('OBS-1 R15: ba the he cung dau ra, lich su dai, tham chieu co bi mat'), 'codex', workflow=True, capabilities=caps)
+    plan.approve(ledger, 'R15', 'owner', 'temporary fixture only (not a real ledger)')
+    internal_plan.revise(ledger, 'R15', [node('C'), node('I', ['C'], write=(), integration=True)], reason='OBS-1 R15 release review', evidence=['a.txt:1'])
+    with ledger.transaction() as conn:
+        task = plan.anchor_events(ledger, conn, 'R15')['task_id']
+    old_keys = [store.blob(f'r15 old evidence blob {i}'.encode()) for i in range(8)]          # named by ONE old event only: the door must still open them
+    with ledger.transaction(write=True) as conn:
+        plan.emit(ledger, conn, task, 'decision.recorded', {'plan': 'R15', 'subject': {'component': 'r15-old-evidence'},
+                                                           'basis': 'eight pieces of evidence, older than the page window', 'evidence': old_keys})
+    steps = [engine.step(ledger, 'R15', quick, control=control)]                                       # generation 0
+    with ledger.transaction(write=True) as conn:                                                        # generation 1: a plain new generation
+        view = engine.state(ledger, 'R15', conn); engine._event(ledger, conn, view, 'C', 'node.resumed')
+    steps.append(engine.step(ledger, 'R15', quick, control=control))
+    with ledger.transaction(write=True) as conn:                                                        # generation 2 resumes from generation 1's artifact
+        view = engine.state(ledger, 'R15', conn); current = view['nodes']['C']
+        engine._event(ledger, conn, view, 'C', 'node.resumed', resume_artifact=current['artifact'], continues_attempt=current['attempt'])
+    steps.append(engine.step(ledger, 'R15', quick, control=control))
+    if [s.get('state') for s in steps] != ['produced'] * 3:
+        raise SystemExit('R15: node C did not produce in three generations: ' + json.dumps(steps, default=str)[:600])
+    current = engine.state(ledger, 'R15')['nodes']['C']
+    with ledger.transaction(write=True) as conn:                                                        # 310 newer events: the page window (300) holds no production
+        for i in range(310):
+            basis = {'type': 'tool_call', 'ref': f'r15-history-fixture-{i}'}
+            plan.emit(ledger, conn, task, 'executor.observed', {**Managed.declaration.view(), 'plan': 'R15', 'attempt': current['attempt'], 'what': 'progress', 'observed_at': None,
+                                                               'time_source': 'tool_call', 'received_at': utcnow(), 'basis': basis, 'checkpoint': {'status': 'running'},
+                                                               'node': 'C', 'generation': current['generation']})
+    for i, ref in enumerate([ref for _, ref, _ in R15_SECRET_REFS] + list(R15_NORMAL_REFS)):          # R3: waits[].ref and measure.executor_waits[].ref
+        executors.observe(ledger, 'R15', Managed(), current['attempt'], 'wait', source='tool_call', ref=ref, at=f'2026-11-03T10:{i:02d}:00+00:00',
+                          until=f'2026-11-03T10:{i:02d}:30+00:00', wait_reason='external_service')
+    request = ledger.create_request(task, 'r15-question', {'schema_version': 1, 'question': f'Giu khoa cu cua may chu ky so khong? (password={R15_QUESTION_RAW})',
+                                                          'reason': 'R15: the reply template must stay byte-identical', 'impact': 'none (fixture)',
+                                                          'options': [{'id': 'keep', 'label': 'Giu'}, {'id': 'drop', 'label': 'Bo'}], 'recommendation': 'keep',
+                                                          'action': {'type': 'clarify', 'parameters': {}}})
+    unnamed = store.blob(b'R15: a blob of this state root that no event of R15 names')
+    other = git_project(work / 'r15 other project')                                                     # R2: another project of the same ledger, with a plan
+    ledger_b = Ledger(other, r_state)
+    plan.propose(ledger_b, 'R15B', contract('R15B OTHER PROJECT PRIVATE GOAL'), 'codex', workflow=True, capabilities=caps)
+    with ledger.transaction() as conn:                                                                  # the facts, from the raw ledger rows
+        rows = [(r['seq'], r['kind'], json.loads(r['payload']), r['created_at']) for r in conn.execute('SELECT seq, kind, payload, created_at FROM events WHERE task_id=? ORDER BY seq', (task,))]
+        last_seq = conn.execute('SELECT COALESCE(MAX(seq),0) FROM events').fetchone()[0]
+    started = {p['generation']: (s, p['attempt']) for s, k, p, a in rows if k == 'node.started' and p.get('node') == 'C'}
+    produced = {p['generation']: (s, p['artifact'], p['receipt'], a) for s, k, p, a in rows if k == 'node.produced' and p.get('node') == 'C'}
+    resumed = [{'seq': s, 'generation': p.get('generation'), 'resume_artifact': p.get('resume_artifact'), 'continues_attempt': p.get('continues_attempt')}
+               for s, k, p, a in rows if k == 'node.resumed' and p.get('node') == 'C']
+    decision = next(s for s, k, p, a in rows if k == 'decision.recorded' and (p.get('subject') or {}).get('component') == 'r15-old-evidence')
+    if sorted(produced) != [0, 1, 2] or sorted(started) != [0, 1, 2] or len({(v[1], v[2]) for v in produced.values()}) != 1:
+        raise SystemExit('R15: the three generations did not write byte-identical output: ' + json.dumps({'started': started, 'produced': produced}, default=str)[:600])
+    if [r.get('resume_artifact') for r in resumed] != [None, produced[1][1]] or resumed[1].get('continues_attempt') != started[1][1]:
+        raise SystemExit('R15: generation 2 does not resume from the artifact of generation 1: ' + json.dumps(resumed)[:600])
+    print(json.dumps({'project_dir': str(r_root), 'project_path': ledger.project_path, 'project_id': ledger.project_id, 'state_root': str(ledger.state_root), 'plan': 'R15',
+                      'task': task, 'artifact': produced[0][1], 'receipt': produced[0][2],
+                      'generations': [{'generation': g, 'attempt': started[g][1], 'started_seq': started[g][0], 'produced_seq': produced[g][0], 'produced_at': produced[g][3]}
+                                      for g in (0, 1, 2)],
+                      'resumed': resumed, 'old_decision': {'seq': decision, 'keys': old_keys}, 'observations': 310, 'ledger_last_seq': last_seq,
+                      'request': {'id': request['id'], 'revision': request['revision'], 'options': ['keep', 'drop']}, 'unnamed_key': unnamed,
+                      'other': {'project_dir': str(other), 'project_path': ledger_b.project_path, 'project_id': ledger_b.project_id, 'plan': 'R15B', 'title': 'R15B OTHER PROJECT PRIVATE GOAL'},
+                      'r3': {'shapes': [name for name, _, _ in R15_SECRET_REFS], 'secret_refs': [ref for _, ref, _ in R15_SECRET_REFS], 'raw': [raw for _, _, raw in R15_SECRET_REFS],
+                             'normal_refs': list(R15_NORMAL_REFS), 'question_raw': R15_QUESTION_RAW}}, ensure_ascii=True))
+    return 0
+
+
 def main():
     from onecrew.ledger import Ledger
     from onecrew.v2 import tracking
@@ -84,6 +211,8 @@ def main():
                           'origins': {n: getattr(sys.modules.get(n), '__file__', None) for n in ('onecrew.v2.tracking', 'onecrew.v2.engine', 'onecrew.common_executor')}},
                          ensure_ascii=True))   # ASCII: the caller's console may be cp1252
         return 0
+    if case == 'release':                                           # V17: its own project and ledger (never `project with space` / `state with space`)
+        return release()
     ledger = Ledger(root, state)
     if case == 'request':
         from onecrew.v2 import plan
@@ -205,11 +334,7 @@ def main():
         class Managed(executors.Executor):
             declaration = executors.Declaration('fixture-managed', 'managed', ('measure',), ('time',))
 
-        def quick(ledger_, control, task, item, attempt):
-            control.launched(attempt['id'], attempt['generation'], {'fixture': True})
-            artifact, receipt = store.blob(('artifact-' + item['id']).encode()), store.blob(b'{"kind":"fixture-receipt","note":"api_key=sk-fixture-secret"}')
-            control.finish(attempt['id'], attempt['generation'], {'fixture': True, 'artifact': artifact})
-            return {'artifact': artifact, 'receipt': receipt}
+        quick = ux_quick(store)                                     # artifact-<node> + UX_RECEIPT (prov_same steps P9 with this very executor)
 
         class Blocking:
             def __init__(self): self.started, self.release = threading.Event(), threading.Event()
@@ -298,6 +423,40 @@ def main():
             if not line: break
         worker.release.set(); thread.join(120)
         print(json.dumps({'phase': 'done', 'final': tracking.detail(state, 'P4')['status']}, ensure_ascii=True), flush=True)
+        return 0
+    if case == 'prov_history':                                      # V14 `prov` (R1): 310 newer events on P9's current attempt (tests/test_obs1_browser.py, prov_history)
+        from onecrew.ledger import utcnow
+        from onecrew.v2 import engine, executors, plan
+        name9 = p9_name()
+
+        class Managed(executors.Executor):
+            declaration = executors.Declaration('fixture-managed', 'managed', ('measure',), ('time',))
+
+        current = engine.state(ledger, name9)['nodes']['C']
+        with ledger.transaction(write=True) as conn:
+            task = plan.anchor_events(ledger, conn, name9)['task_id']
+            for i in range(310):
+                basis = {'type': 'tool_call', 'ref': f'r1-history-fixture-{i}'}
+                plan.emit(ledger, conn, task, 'executor.observed', {**Managed.declaration.view(), 'plan': name9, 'attempt': current['attempt'], 'what': 'progress', 'observed_at': None,
+                                                                   'time_source': 'tool_call', 'received_at': utcnow(), 'basis': basis, 'checkpoint': {'status': 'running'},
+                                                                   'node': 'C', 'generation': current['generation']})
+        print(json.dumps({'plan': name9, 'attempt': current['attempt'], 'generation': current['generation'], 'events': 310}, ensure_ascii=True))
+        return 0
+    if case == 'prov_same':                                         # V14 `prov` (R1): a new generation resumes from the current artifact and writes the same bytes
+        from onecrew.snapshots import Snapshots
+        from onecrew.control_core import Control, migrate
+        from onecrew.v2 import engine
+        name9 = p9_name()
+        migrate(ledger); control = Control(ledger)
+        with ledger.transaction(write=True) as conn:
+            view = engine.state(ledger, name9, conn); current = view['nodes']['C']
+            engine._event(ledger, conn, view, 'C', 'node.resumed', resume_artifact=current['artifact'], continues_attempt=current['attempt'])
+        step = engine.step(ledger, name9, ux_quick(Snapshots(state)), control=control)
+        after = engine.state(ledger, name9)['nodes']['C']
+        if step.get('state') != 'produced' or after.get('artifact') != current['artifact'] or after.get('generation') != current['generation'] + 1:
+            raise SystemExit(f'{name9}: generation {after.get("generation")} did not write the inherited bytes again: ' + json.dumps(step, default=str)[:400])
+        print(json.dumps({'plan': name9, 'key': current['artifact'], 'from_generation': current['generation'], 'from_attempt': current['attempt'],
+                          'generation': after['generation'], 'attempt': after['attempt']}, ensure_ascii=True))
         return 0
     raise SystemExit('unknown case ' + case)
 
