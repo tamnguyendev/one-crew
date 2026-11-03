@@ -173,3 +173,32 @@ class Provenance(EngineFixture):
         self.assertEqual(views[5]['evidence_keys'], views[5000]['evidence_keys'])
         inherits = {n: [r['inherits'] for r in v['gantt']['rows']] for n, v in views.items()}
         self.assertEqual(inherits[5], inherits[5000])
+
+    def test_e_attempt_events_carry_the_node_generation_of_their_attempt(self):
+        """Review round 1 (R1 closure): attempt.reserved/launched carry the attempt's CONTROL generation (the task's attempt counter, 1 for
+        every child task) and the attempts table holds that same counter; neither is the node generation. Every occurrence of an attempt,
+        including attempt.settled (an output kind) on the child task, must carry the node generation that attempt ran for (its node.started
+        and Gantt row), in the model, over HTTP at a small window, in the timeline rows and in each row's outputs."""
+        self.revise([node('A'), node('I', ['A'], integration=True, write=())])
+        self.step()
+        for _ in range(2):
+            with self.ledger.transaction(write=True) as conn:
+                engine._event(self.ledger, conn, engine.state(self.ledger, 'P1', conn), 'A', 'node.resumed')
+            self.step()
+        for d in (tracking.detail(self.ledger.state_root, 'P1', timeline_limit=5000), self.http_detail(3)):
+            rows = {r['attempt']: r for r in d['gantt']['rows'] if r['node'] == 'A'}
+            self.assertEqual(sorted(r['generation'] for r in rows.values()), [0, 1, 2], 'setup: three generations of A, one attempt each')
+            settled = [x for x in d['evidence_index'] if x['kind'] == 'attempt.settled' and x['attempt'] in rows]
+            self.assertTrue(settled and all(x['output'] for x in settled), 'setup: the child attempts settle with a result naming blobs (an output kind)')
+            bad = [(x['seq'], x['kind'], x['role'], 'occurrence gen', x['generation'], 'row gen', rows[x['attempt']]['generation'])
+                   for x in d['evidence_index'] if x['attempt'] in rows and x['generation'] != rows[x['attempt']]['generation']]
+            self.assertEqual(bad, [], 'every occurrence of an attempt carries the node generation of that attempt (its Gantt row)')
+            for aid, r in rows.items():
+                outs = [x for x in d['evidence_index'] if x['output'] and x['attempt'] == aid]
+                self.assertTrue(outs, f'row of generation {r["generation"]} has outputs')
+                self.assertEqual({x['generation'] for x in outs}, {r['generation']}, f'outputs of the generation-{r["generation"]} row')
+                basis = {x['generation_basis'] for x in outs if x['kind'].startswith('attempt.')}
+                self.assertTrue(basis and all(b.startswith('node.started:#') for b in basis), basis)
+            rows_tl = [(e['seq'], e['kind'], e['generation'], rows[e['attempt']]['generation']) for e in d['timeline']
+                       if e['kind'].startswith('attempt.') and e.get('attempt') in rows and e['generation'] != rows[e['attempt']]['generation']]
+            self.assertEqual(rows_tl, [], 'the event log rows of attempt.* events show the node generation of their attempt')

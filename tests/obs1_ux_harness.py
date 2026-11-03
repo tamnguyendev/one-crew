@@ -559,6 +559,11 @@ if(S==='prov'){                                        // R1: evidence is attrib
   check('same artifact: the current row lists it under "Đầu ra của lượt này" (thế hệ 2) AND under "Kế thừa" with its source (thế hệ 1, the production event)', $$('#gside [data-k^="evk:'+K+'"]').some(e=>/thế hệ 2/.test(e.textContent) && /node\.produced/.test(e.textContent)) && $('#inherit') && inh && /từ thế hệ 1/.test(inh.textContent) && inh.textContent.indexOf('#'+p1.seq)>=0, side().slice(-700));
   const ev=$('details[data-k="evidence"]'); if(ev)ev.open=true; const g=ev&&ev.querySelector('[data-k="evk:'+K+'"]');
   check('the evidence list groups the uses of one blob: generations 0, 1 and 2 under one key', g && /thế hệ 0/.test(g.textContent) && /thế hệ 1/.test(g.textContent) && /thế hệ 2/.test(g.textContent), g&&g.textContent.slice(0,400));
+  const hb2=$('.gtree .hist button.tg'); if(hb2&&hb2.getAttribute('aria-expanded')==='false'){hb2.click(); await sleep(50)}
+  const wrong=[], settled=[];                            // review round 1: attempt.* events (attempt.settled is an output) carry the attempt's control generation, never shown as the node generation
+  for(const r of J.gantt.rows.filter(x=>x.node==='C')){const sg=$('.seg[data-attempt="'+r.attempt+'"]'); if(!sg){wrong.push(['no bar',r.attempt,r.generation]); continue} sg.focus(); key(sg,'Enter'); await sleep(50);
+    for(const e of outs()){const gens=(e.textContent.match(/thế hệ \d+/g)||[]); if(/attempt\.settled/.test(e.textContent))settled.push(r.generation); if(gens.some(x=>x!=='thế hệ '+r.generation))wrong.push([r.generation,e.textContent.slice(0,160)])}}
+  check('every step pane of node C lists only evidence of its own generation (incl. attempt.settled of the child task)', wrong.length===0 && settled.length>0, {wrong:wrong.slice(0,6), settled_in_rows:settled});
   }
 }
 // ---- R1 provenance (lane R1) end ----
