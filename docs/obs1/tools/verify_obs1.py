@@ -44,17 +44,24 @@ Steps (every one from the installed venv, python -I, cwd = <work>, isolated LOCA
                     event's own seq, time, generation and attempt; generation 2 lists the artifact it resumed from as inherited (source_occurrence
                     = generation 1's production) AND as its own output; after 310 newer events the windows 300 and 200 say timeline_complete=false
                     while generations 0/1 keep their outputs (never "no output"), an old event's eight keys stay indexed and the evidence door
-                    (CLI + /api/evidence) opens them; evidence_index is the same at windows 5/300/5000; the CLI JSON equals /api/task.
+                    (CLI + /api/evidence) opens them; evidence_index is the same at windows 5/300/5000; the CLI JSON equals /api/task. Review
+                    round 2: only blobs of the store are evidence (the project_id, plan sha and revisions R15's events name are never listed,
+                    every entry is blob: true), every listed key opens, the project_id and the plan sha at the door answer 404 "Không có blob
+                    này" without moving the server's error counter; after one more plain generation (scenario `release_more`) the generation-2
+                    row, now history, still lists its inheritance (resumed_seq, source, source_occurrence) and the plain generation inherits none.
                     R2: an isolated registry (this run's LOCALAPPDATA, never the real one) naming OTHER-PRIVATE-PROJECT -> OTHER-PRIVATE-LEDGER
                     and a sibling path sharing the project's prefix, plus a project R15B in the same ledger: the project-scoped CLI and a
                     --project-only server (overview, task, health, refused evidence, error bodies) name none of them, another project_id -> 403;
                     control: --all-projects and an all-projects server list them, ?project_id=<own> hides them; the registry file is restored.
                     R3: wait references with secret shapes (synthetic values) come out [withheld] in CLI JSON/text and HTTP, a read-only sqlite
                     query still finds the raw reference in the ledger, normal references and the reply template come out byte-identical.
-                    R5: mo-/dung-trang-obs1.ps1 -PinFile (filtered env, -NoBrowser): the stop with pin A stops A only (viewer B on a sqlite backup
-                    copy of the ledger keeps answering), the same pin again stops nothing, a stale pin of A leaves the reopened A2 alive, opening
-                    state root A with the pin file of the live B is refused and starts no server; then no viewer process is left. The R15
-                    ledger's last seq is unchanged by all these reads.
+                    R5 (round 4): mo-/dung-trang-obs1.ps1 -PinFile (filtered env, -NoBrowser): a pin file inside the state root or the venv is
+                    refused before anything starts; a second open of the same state root with -ProjectOnly and the pin of the live A is refused
+                    (no new server); after an unpinned `track open --project-only` took the marker (server C), the pinned stop still stops
+                    exactly A and leaves C and its marker; `track stop --url` alone exits 2, `--url/--instance/--pid` stops exactly C and removes
+                    its marker; the same pin again stops nothing; a stale pin of A leaves the reopened A2 alive; opening state root A with the
+                    pin file of the live viewer B (a backup copy of the ledger) is refused and starts no server; then no viewer process is left.
+                    The R15 ledger's last seq is unchanged by all these reads (after R1, and after release_more at the end).
 Writes <work>/verify-report.json; prints RESULT pass|partial|fail. Exit 0 only on pass.
 `verify_obs1.py --release-review <venv> <new work dir>` runs V17 alone against the onecrew of an EXISTING venv (for example a frozen older wheel:
 red-before-green evidence), with the same isolation; writes <work>/release-review-report.json.
@@ -301,9 +308,11 @@ def _ledger_rows(state_root, sql, args=()):
 
 def _r1(rel, rcli, exe, env, work, **_):
     """R1: evidence identity per occurrence (event, key) with that event's own generation/attempt; inherited and produced roles of one key
-    together; a bounded history that never reads as "no output"; the door opens old keys; CLI JSON = GET /api/task."""
+    together; a bounded history that never reads as "no output"; the door opens old keys; CLI JSON = GET /api/task. Review round 2: only blobs
+    of the store are evidence (the identifiers R15's events name - project_id, plan sha, revisions - are never listed), every listed key opens,
+    and a named identifier at the door is a 404 "Không có blob này" that does not count as a server error."""
     problems, facts = [], {}
-    plan, K, R, old = rel['plan'], rel['artifact'], rel['receipt'], rel['old_decision']
+    plan, K, R, old, ids = rel['plan'], rel['artifact'], rel['receipt'], rel['old_decision'], rel.get('identifiers') or {}
     gens = {g['generation']: g for g in rel['generations']}
     att = {g: gens[g]['attempt'] for g in gens}
     process, record = start_server(exe, rel['project_dir'], rel['state_root'], env, work)
@@ -329,6 +338,20 @@ def _r1(rel, rcli, exe, env, work, **_):
         done = rcli('track', 'evidence', plan, rel['unnamed_key'])
         code, body, _ = get(url + f'api/evidence?plan={plan}&key={rel["unnamed_key"]}', timeout=60)
         door['key no event names'] = {'cli_exit': done.returncode, 'cli_refused': '"refused"' in done.stdout, 'http': code}
+        listed, refused = views['api 300'].get('evidence_keys') or [], {}
+        for key in listed:                                                 # review round 2: every listed key is a blob that opens
+            code = get(url + f'api/evidence?plan={plan}&key={key}&format=text', timeout=60)[0]
+            if code != 200: refused[key[:16]] = code
+        door['every listed key'] = {'listed': len(listed), 'not_200': refused}
+        errors_before, named = (health_of(url) or {}).get('errors'), {}
+        for name in ('project_id', 'plan_sha'):                            # identifiers R15's events name: no blob -> 404, not a server error
+            key = ids.get(name)
+            if not key: continue
+            code, body, _ = get(url + f'api/evidence?plan={plan}&key={key}', timeout=60)
+            done = rcli('track', 'evidence', plan, key)
+            named[name] = {'http': code, 'http_no_blob': 'Không có blob' in body, 'cli_exit': done.returncode, 'cli_no_blob': 'Không có blob' in done.stdout}
+        door['named identifiers'] = named
+        door['server_errors'] = {'before': errors_before, 'after': (health_of(url) or {}).get('errors')}
     finally:
         stop_server(process)
     facts['door'] = door
@@ -337,6 +360,13 @@ def _r1(rel, rcli, exe, env, work, **_):
             problems.append(f'R1 door: the {name} of the old decision (older than every window) does not open: {d}')
     if door['key no event names'] != {'cli_exit': 3, 'cli_refused': True, 'http': 403}:
         problems.append(f"R1 door: a key no event of {plan} names is not refused: {door['key no event names']}")
+    if not door['every listed key']['listed'] or door['every listed key']['not_200']:
+        problems.append(f"R1 door: every key evidence_keys lists must open (200): {door['every listed key']}")
+    for name in ('project_id', 'plan_sha'):
+        if door['named identifiers'].get(name) != {'http': 404, 'http_no_blob': True, 'cli_exit': 2, 'cli_no_blob': True}:
+            problems.append(f"R1 door: the {name} R15's events name (an identifier, not a blob) answers {door['named identifiers'].get(name)}; want 404 'Không có blob này' (CLI exit 2)")
+    if not isinstance(door['server_errors']['before'], int) or door['server_errors']['after'] != door['server_errors']['before']:
+        problems.append(f"R1 door: the server error counter of /api/health moved {door['server_errors']}: a named identifier is a 404, not a server error")
     broken = {k: v.get('_error') for k, v in views.items() if v.get('_error')}
     if broken: return problems + [f'R1: no detail JSON from {broken}'], facts
 
@@ -414,6 +444,68 @@ def _r1(rel, rcli, exe, env, work, **_):
     a, b = fields(views['cli 300']), fields(views['api 300'])
     facts['cli_http_differ'] = [k for k in a if a[k] != b[k]]
     if facts['cli_http_differ']: problems.append(f'R1: the CLI JSON and GET /api/task (window 300) differ in {facts["cli_http_differ"]}')
+    # (f) review round 2: only blobs of the store are evidence; the identifiers R15's events name are never listed
+    non_blobs, blobs = set(ids.get('named_non_blobs') or []), set(ids.get('named_blobs') or [])
+    for name in ('project_id', 'plan_sha', 'request_revision', 'task_revision'):
+        if not ids.get(name) or ids[name] not in non_blobs: problems.append(f'R1 setup: the {name} is not a 64-hex identifier R15 events name (the identifier check would not bite)')
+    for label in ('cli 5000', 'api 300'):
+        v = views[label]
+        listed, indexed = set(v.get('evidence_keys') or []), {x.get('key') for x in v.get('evidence_index') or []}
+        leaked = sorted(non_blobs & (listed | indexed))
+        which = [n for n in ('project_id', 'plan_sha', 'request_revision', 'task_revision') if ids.get(n) in listed | indexed]
+        if leaked: problems.append(f'R1 blobs ({label}): {len(leaked)} identifiers R15 events name are listed as evidence ({which or "other identifiers"}: {[k[:12] for k in leaked[:6]]})')
+        if listed - blobs or not {K, R, *old['keys']} <= listed:
+            problems.append(f'R1 blobs ({label}): evidence_keys has {len(listed - blobs)} keys that are no blob R15 events name and lacks {len({K, R, *old["keys"]} - listed)} of the artifact/receipt/old blobs')
+        unmarked = [(x.get('key') or '')[:12] for x in v.get('evidence_index') or [] if x.get('blob') is not True]
+        if unmarked: problems.append(f'R1 blobs ({label}): {len(unmarked)} evidence_index entries are not marked blob: true although every key R15 lists is a blob of the store: {unmarked[:6]}')
+        if label == 'api 300': facts['blobs'] = {'evidence_keys': len(listed), 'named_blobs': len(blobs), 'named_identifiers': len(non_blobs), 'identifiers_listed': [k[:12] for k in leaked]}
+    return problems, facts
+
+
+def _r1_history(rel, more, rcli, exe, env, work, **_):
+    """R1 review round 2: every Gantt row keeps what it inherited. After one more PLAIN generation (scenario `release_more`) generation 2 is
+    history and still lists the artifact it resumed from (kind, source generation and attempt, the node.resumed that opened it, a source, the
+    source_occurrence); the plain generation inherits no key; no row lists a retained candidate; CLI JSON = GET /api/task."""
+    problems, facts = [], {}
+    plan, K = rel['plan'], rel['artifact']
+    gens = {g['generation']: g for g in rel['generations']}
+    opened2 = rel['resumed'][1]['seq']                                     # the node.resumed (resume_artifact) that opened generation 2
+    process, record = start_server(exe, rel['project_dir'], rel['state_root'], env, work)
+    try:
+        done = rcli('track', 'show', plan, '--json', '--timeline', '300')
+        code, body, _ = get(record['url'] + f'api/task?plan={plan}&timeline=300', timeout=60)
+    finally:
+        stop_server(process)
+    views = {'cli 300': first_json(done.stdout) if done.returncode == 0 else None, 'api 300': None}
+    try: views['api 300'] = json.loads(body) if code == 200 else None
+    except ValueError: pass
+    broken = [k for k, v in views.items() if not isinstance(v, dict)]
+    if broken: return [f'R1 history: no detail JSON from {broken}'], facts
+    want_src = {'seq': gens[1]['produced_seq'], 'kind': 'node.produced', 'role': 'artifact', 'generation': 1, 'attempt': gens[1]['attempt']}
+    for label, v in views.items():
+        rows = (v.get('gantt') or {}).get('rows') or []
+        by = {r.get('attempt'): r for r in rows}
+        r2, r3 = by.get(gens[2]['attempt']) or {}, by.get(more['attempt']) or {}
+        if not (r3.get('current') is True and r3.get('generation') == more['generation']) or r2.get('current') is not False:
+            problems.append(f'R1 history ({label}): want generation {more["generation"]} current and generation 2 history; node C rows {[(r.get("generation"), r.get("current")) for r in rows if r.get("node") == "C"]}')
+        inh = [x for x in r2.get('inherits') or [] if x.get('kind') == 'resume_artifact']
+        got = [(x.get('key'), x.get('from_generation'), x.get('from_attempt'), x.get('resumed_seq')) for x in inh]
+        if got != [(K, 1, gens[1]['attempt'], opened2)]:
+            problems.append(f'R1 history ({label}): the generation-2 row (now history) inherits {got}; want [({K[:12]}…, 1, {gens[1]["attempt"]}, node.resumed #{opened2})]')
+        src = (inh[0].get('source_occurrence') or {}) if inh else {}
+        if {k: src.get(k) for k in want_src} != want_src or not (inh and inh[0].get('source')):
+            problems.append(f'R1 history ({label}): the generation-2 inheritance has source {inh[0].get("source") if inh else None} and source_occurrence {src}; want the production of generation 1 {want_src}')
+        keyed = [x.get('key') for x in r3.get('inherits') or [] if x.get('key')]
+        if keyed: problems.append(f'R1 history ({label}): the plain generation {more["generation"]} lists inherited keys {keyed}')
+        retained = [(r.get('generation'), x.get('kind')) for r in rows for x in r.get('inherits') or [] if x.get('kind') == 'retained_candidate']
+        if retained: problems.append(f'R1 history ({label}): retained candidates listed as an inheritance: {retained}')
+        if label == 'api 300':
+            facts = {'generation_2_row': {'current': r2.get('current'), 'source_occurrence': src,
+                                          'inherits': [{k: x.get(k) for k in ('kind', 'key', 'from_generation', 'from_attempt', 'resumed_seq', 'source')} for x in inh]},
+                     'plain_row': {'generation': r3.get('generation'), 'current': r3.get('current'), 'inherits': r3.get('inherits')}}
+    a, b = ([(r.get('attempt'), r.get('inherits')) for r in (views[k].get('gantt') or {}).get('rows') or []] for k in ('cli 300', 'api 300'))
+    facts['cli_http_inherits_agree'] = a == b
+    if a != b: problems.append('R1 history: the CLI JSON and GET /api/task list different inheritances')
     return problems, facts
 
 
@@ -553,8 +645,9 @@ def _r2(rel, rcli, exe, env, work, **_):
 
 
 def _r5(rel, rcli, exe, env, work, venv, **_):
-    """R5: the packaged open/stop wrappers with -PinFile stop exactly the viewer they opened (instance + pid of the marker and of /api/health),
-    never another one; an open never overwrites the pin of a live viewer of another state root and then starts nothing."""
+    """R5: the packaged open/stop wrappers with -PinFile stop exactly the viewer they opened (by identity: url + instance + pid, even when the
+    marker of the state root moved), never another one; an open refuses before starting anything when the pin file holds a live session it
+    would not reuse (another state root, or this state root in another scope) or lies inside the state root / the venv. Round 4 of 03/11."""
     import sqlite3
     problems, facts = [], {}
     here = Path(__file__).resolve().parent
@@ -574,12 +667,15 @@ def _r5(rel, rcli, exe, env, work, venv, **_):
 
     def ps(script, *args):
         done = run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script), *[str(a) for a in args]], env=ps_env, cwd=str(work),
-                   text=True, encoding='utf-8', errors='replace', timeout=180)
+                   text=True, encoding='utf-8', errors='replace', timeout=240)
         return done.returncode, (done.stdout or '') + (done.stderr or '')
 
-    def opened(state, pin): return ps(mo, '-Venv', venv, '-Project', proj, '-StateRoot', state, '-NoBrowser', '-Interval', '1', '-PinFile', pin)
+    def opened(state, pin, *extra): return ps(mo, '-Venv', venv, '-Project', proj, '-StateRoot', state, '-NoBrowser', '-Interval', '1', *extra, '-PinFile', pin)
 
     def stopped(state, pin): return ps(dung, '-Venv', venv, '-Project', proj, '-StateRoot', state, '-PinFile', pin)
+
+    def onecrew(state, *args):
+        return run([exe, '--project', proj, '--state-root', str(state), 'track', *args], env=env, cwd=work, text=True, encoding='utf-8', errors='replace', timeout=180)
 
     def pin_of(path):
         try: value = json.loads(Path(path).read_text(encoding='utf-8-sig'))
@@ -591,35 +687,79 @@ def _r5(rel, rcli, exe, env, work, venv, **_):
         return bool(h and h.get('instance') == pin.get('instance') and h.get('pid') == pin.get('pid'))
 
     def marker(state):
-        done = run([exe, '--project', proj, '--state-root', str(state), 'track', 'status'], env=env, cwd=work, text=True, encoding='utf-8', errors='replace', timeout=120)
-        record = (first_json(done.stdout) or {}).get('marker') or {}
+        record = (first_json(onecrew(state, 'status').stdout) or {}).get('marker') or {}
         return (record.get('instance'), record.get('pid')) if record else None
 
-    def short(pin): return pin and {k: pin.get(k) for k in ('url', 'pid', 'instance', 'state_root')}
+    def listing(): return viewer_processes(roots, ps_env, lister)
+
+    def short(pin): return pin and {k: pin.get(k) for k in ('url', 'pid', 'instance', 'state_root', 'server_started_at')}
     viewers = []                                                           # every viewer opened here: stopped in `finally` if it still answers as itself
     try:
-        before = viewer_processes(roots, ps_env, lister)
+        before = listing()
         facts['processes_before'] = sorted(before) if before is not None else None
         if before is None: return problems + ['R5: the viewer processes cannot be listed (PowerShell Get-CimInstance Win32_Process)'], facts
         if before: problems.append(f'R5 setup: viewers of the V17 ledgers already run: {sorted(before)}')
+        # (c) a pin file inside the state root (or inside the venv) is refused before anything starts; nothing is written there
+        inside = {}
+        for where, pin, word in (('state root', state_a / 'pin inside the state root.json', 'nam trong so'), ('venv', Path(venv) / 'pin inside the venv.json', 'nam trong venv')):
+            code, out = opened(state_a, pin)
+            inside[where] = {'exit': code, 'refused': 'KHONG DAT' in out and word in out, 'pin_written': pin.exists()}
+            if pin.exists():
+                try: pin.unlink()
+                except OSError: pass
+        now = listing()
+        facts['pin_inside_refused'] = dict(inside, processes_after=sorted(now) if now is not None else None)
+        for where, d in inside.items():
+            if d['exit'] == 0 or not d['refused'] or d['pin_written']: problems.append(f'R5 (c): a -PinFile inside the {where} is not refused before anything starts: {d}')
+        if now != before: problems.append(f'R5 (c): viewer processes changed although the open was refused: {sorted(before)} -> {now}')
+        # open A, pinned
         code, out = opened(state_a, pa); A = pin_of(pa)
         if A: viewers.append(A)
         facts['open_A'] = {'exit': code, 'pin': short(A), 'alive': alive(A), 'marker_is_A': bool(A) and marker(state_a) == (A.get('instance'), A.get('pid'))}
-        if code != 0 or not A or A.get('kind') != 'obs1-viewer-pin' or not facts['open_A']['alive'] or not facts['open_A']['marker_is_A']:
+        if code != 0 or not A or A.get('kind') != 'obs1-viewer-pin' or not A.get('server_started_at') or not facts['open_A']['alive'] or not facts['open_A']['marker_is_A']:
             return problems + [f"R5: open A with -PinFile: {facts['open_A']}: " + out[-400:]], facts
+        # (a) a second open of the SAME state root with -ProjectOnly and the same pin file: refused, no new server, the pin and the marker kept
+        procs, kept = listing(), pa.read_bytes()
+        code, out = opened(state_a, pa, '-ProjectOnly')
+        after = listing()
+        fa = facts['second_open_project_only_same_pin'] = {'exit': code, 'refused': 'KHONG DAT' in out and 'pham vi khac' in out, 'pin_A_unchanged': pa.read_bytes() == kept,
+                                                           'A_alive': alive(A), 'marker_is_A': marker(state_a) == (A.get('instance'), A.get('pid')),
+                                                           'processes_before': sorted(procs) if procs is not None else None, 'processes_after': sorted(after) if after is not None else None}
+        if code == 0 or not (fa['refused'] and fa['pin_A_unchanged'] and fa['A_alive'] and fa['marker_is_A']) or procs is None or after != procs:
+            problems.append(f'R5 (a): a second open of state root A with -ProjectOnly and the pin of the live A: {fa}: ' + out[-300:])
         code, out = opened(state_b, pb); B = pin_of(pb)
         if B: viewers.append(B)
         facts['open_B'] = {'exit': code, 'pin': short(B), 'alive': alive(B)}
         if code != 0 or not B or not facts['open_B']['alive'] or B.get('instance') == A.get('instance') or B.get('url') == A.get('url'):
             return problems + [f"R5: open B (a backup copy of the ledger) with -PinFile: {facts['open_B']}: " + out[-400:]], facts
+        # (b) an unpinned `track open --project-only` of state root A starts its own server C, which takes the marker; the pinned stop still
+        #     stops exactly A (identity stop) and leaves C, B and C's marker alone
+        done = onecrew(state_a, 'open', '--project-only', '--no-browser', '--interval', '1')
+        C = first_json(done.stdout) or {}
+        if C.get('pid'): viewers.append(C)
+        fb = facts['pinned_stop_after_the_marker_moved'] = {'open_C_exit': done.returncode, 'C': short(C), 'C_reused': C.get('reused'), 'C_alive': alive(C), 'A_alive': alive(A),
+                                                             'marker_is_C': marker(state_a) == (C.get('instance'), C.get('pid'))}
+        if done.returncode != 0 or not C.get('url') or C.get('reused') or not fb['C_alive'] or not fb['A_alive'] or not fb['marker_is_C']:
+            return problems + [f'R5 (b) setup: an unpinned `track open --project-only` of state root A did not start its own server that took the marker: {fb}: ' + text_of(done)[-300:]], facts
         stale = pa.read_bytes()
-        code, out = stopped(state_a, pa)                                   # (1) the stop with pin A stops A, and only A
-        facts['stop_A'] = {'exit': code, 'A_alive': alive(A), 'B_alive': alive(B), 'pin_A_removed': not pa.exists()}
-        if facts['stop_A'] != {'exit': 0, 'A_alive': False, 'B_alive': True, 'pin_A_removed': True}: problems.append(f"R5: stop with pin A: {facts['stop_A']}: " + out[-300:])
-        code, out = stopped(state_a, pa)                                   # (2) the same pin again: nothing to stop
+        code, out = stopped(state_a, pa)
+        fb.update(stop_exit=code, A_alive_after=alive(A), B_alive_after=alive(B), C_alive_after=alive(C), pin_A_removed=not pa.exists(),
+                  marker_still_C=marker(state_a) == (C.get('instance'), C.get('pid')))
+        if (code, fb['A_alive_after'], fb['B_alive_after'], fb['C_alive_after'], fb['pin_A_removed'], fb['marker_still_C']) != (0, False, True, True, True, True):
+            problems.append(f'R5 (b): the pinned stop of A after the marker moved to C: {fb}: ' + out[-300:])
+        # the identity stop of the CLI: --url alone is refused (exit 2, nothing stopped); the three together stop exactly C and remove its marker
+        partial = onecrew(state_a, 'stop', '--url', C['url'])
+        c_mid = alive(C)
+        full = onecrew(state_a, 'stop', '--url', C['url'], '--instance', str(C['instance']), '--pid', str(C['pid']))
+        res = first_json(full.stdout) or {}
+        fc = facts['identity_stop_cli'] = {'url_alone_exit': partial.returncode, 'C_alive_after_url_alone': c_mid, 'exit': full.returncode, 'stopped': res.get('stopped'),
+                                           'marker_removed': res.get('marker_removed'), 'C_alive': alive(C), 'marker': marker(state_a)}
+        if (fc['url_alone_exit'], fc['C_alive_after_url_alone'], fc['exit'], fc['stopped'], fc['marker_removed'], fc['C_alive'], fc['marker']) != (2, True, 0, True, True, False, None):
+            problems.append(f'R5: `track stop --url/--instance/--pid` of C: {fc}: ' + text_of(full)[-300:])
+        code, out = stopped(state_a, pa)                                   # the same pin again: nothing to stop
         facts['stop_A_again'] = {'exit': code, 'refused': 'KHONG DUNG GI' in out, 'B_alive': alive(B)}
         if facts['stop_A_again'] != {'exit': 2, 'refused': True, 'B_alive': True}: problems.append(f"R5: a second stop with pin A: {facts['stop_A_again']}: " + out[-300:])
-        code, out = opened(state_a, pa2); A2 = pin_of(pa2)                 # (3) A reopened (A2); the stale pin of A stops nothing and A2 stays
+        code, out = opened(state_a, pa2); A2 = pin_of(pa2)                 # A reopened (A2); the stale pin of A stops nothing and A2 stays
         if A2: viewers.append(A2)
         facts['reopen_A2'] = {'exit': code, 'pin': short(A2), 'alive': alive(A2)}
         if code != 0 or not A2 or not facts['reopen_A2']['alive'] or A2.get('instance') == A.get('instance'):
@@ -630,15 +770,15 @@ def _r5(rel, rcli, exe, env, work, venv, **_):
         if facts['stale_pin'] != {'exit': 2, 'refused': True, 'A2_alive': True, 'B_alive': True, 'marker_is_A2': True}: problems.append(f"R5: stop with the stale pin of A: {facts['stale_pin']}: " + out[-300:])
         try: pa.unlink()                                                   # the stale pin is this check's own fixture file
         except OSError: pass
-        procs, kept = viewer_processes(roots, ps_env, lister), pb.read_bytes()   # (4) state root A opened with the pin file of the live B: refused, nothing started
+        procs, kept = listing(), pb.read_bytes()                           # state root A opened with the pin file of the live B: refused, nothing started
         code, out = opened(state_a, pb)
-        after = viewer_processes(roots, ps_env, lister)
+        after = listing()
         f4 = facts['open_A_with_pin_of_B'] = {'exit': code, 'refused': 'KHONG DAT' in out and 'so khac' in out, 'pin_B_unchanged': pb.read_bytes() == kept, 'B_alive': alive(B),
                                               'A2_alive': alive(A2), 'marker_is_A2': marker(state_a) == (A2.get('instance'), A2.get('pid')),
                                               'processes_before': sorted(procs) if procs is not None else None, 'processes_after': sorted(after) if after is not None else None}
         if code == 0 or not (f4['refused'] and f4['pin_B_unchanged'] and f4['B_alive'] and f4['A2_alive'] and f4['marker_is_A2']) or procs is None or after != procs:
             problems.append(f'R5: open of state root A with the pin file of the live viewer B: {f4}: ' + out[-300:])
-        code_b, out_b = stopped(state_b, pb); code_a, out_a = stopped(state_a, pa2)   # (5) each viewer stopped with its own pin
+        code_b, out_b = stopped(state_b, pb); code_a, out_a = stopped(state_a, pa2)   # each viewer stopped with its own pin
         facts['stop_B_and_A2'] = {'exit_B': code_b, 'exit_A2': code_a, 'B_alive': alive(B), 'A2_alive': alive(A2), 'pins_removed': not pb.exists() and not pa2.exists()}
         if facts['stop_B_and_A2'] != {'exit_B': 0, 'exit_A2': 0, 'B_alive': False, 'A2_alive': False, 'pins_removed': True}:
             problems.append(f"R5: stop B and A2 with their own pins: {facts['stop_B_and_A2']}: " + (out_b + out_a)[-400:])
@@ -647,9 +787,9 @@ def _r5(rel, rcli, exe, env, work, venv, **_):
             if alive(pin):
                 try: os.kill(int(pin['pid']), signal.SIGTERM)
                 except (OSError, ValueError, TypeError): pass
-    left = None                                                            # (6) nothing left: no process, no marker, nothing answering as one of them
+    left = None                                                            # nothing left: no process, no marker, nothing answering as one of them
     for _ in range(20):
-        left = viewer_processes(roots, ps_env, lister)
+        left = listing()
         if left == {}: break
         time.sleep(0.5)
     facts['left'] = {'processes': sorted(left) if left is not None else 'cannot be listed', 'markers': {'A': marker(state_a), 'B': marker(state_b)},
@@ -659,9 +799,10 @@ def _r5(rel, rcli, exe, env, work, venv, **_):
 
 
 def release_review(exe, py, scenario, env, work, venv):
-    """V17 (module docstring): scenario `release` builds R15 in its own project and ledger; then R1, R3, R2 (rewrites this run's isolated registry
-    and restores it) and R5 (opens and stops viewers). Returns (problems, facts); a sub-check that raises is reported as a problem of that
-    sub-check while the others still run; the R15 ledger's last seq must not move while only CLIs and viewers read it."""
+    """V17 (module docstring): scenario `release` builds R15 in its own project and ledger; R1; scenario `release_more` adds one plain generation
+    and R1 history checks that the older row keeps its inheritance; then R3, R2 (rewrites this run's isolated registry and restores it) and R5
+    (opens and stops viewers). Returns (problems, facts); a sub-check that raises is reported as a problem of that sub-check while the others
+    still run; the R15 ledger's last seq must not move while only CLIs and viewers read it (checked after R1 and at the end)."""
     problems, facts = [], {}
     done = run([py, '-I', scenario, work, 'release'], env=env, cwd=work, text=True, encoding='utf-8', errors='replace', timeout=900)
     rel = first_json(done.stdout) or {}
@@ -669,23 +810,40 @@ def release_review(exe, py, scenario, env, work, venv):
         return ['scenario release: exit ' + str(done.returncode) + ': ' + text_of(done)[-600:]], facts
     facts['data'] = {'project': rel['project_dir'], 'state_root': rel['state_root'], 'plan': rel['plan'], 'artifact': rel['artifact'], 'receipt': rel['receipt'],
                      'generations': rel['generations'], 'old_decision': rel['old_decision'], 'observations': rel['observations'], 'request': rel['request'],
+                     'identifiers': {k: (rel.get('identifiers') or {}).get(k) for k in ('project_id', 'plan_sha', 'request_revision', 'task_revision')},
                      'other_project': {k: rel['other'][k] for k in ('project_dir', 'project_id', 'plan')}}
 
     def rcli(*args):
         return run([exe, '--project', rel['project_dir'], '--state-root', rel['state_root'], *args], env=env, cwd=work, text=True, encoding='utf-8', errors='replace', timeout=300)
-    for name, check in (('R1', _r1), ('R3', _r3), ('R2', _r2), ('R5', _r5)):
+
+    def checked(name, check, *args):
         try:
-            found, sub = check(rel, rcli, exe=exe, env=env, work=work, venv=venv)
+            found, sub = check(*args, exe=exe, env=env, work=work, venv=venv)
         except Exception as error:                                         # noqa: BLE001 - a precise problem of that sub-check, never an aborted run
             import traceback
-            found, sub = [f'{name}: the check raised {type(error).__name__}: {str(error)[:300]} | ' + traceback.format_exc()[-600:]], {}
-        problems += found; facts[name.lower()] = sub
-    try:
-        last = _ledger_rows(rel['state_root'], 'SELECT COALESCE(MAX(seq),0) FROM events')[0][0]
-    except Exception as error:                                             # noqa: BLE001
-        last = f'unreadable: {error}'
-    facts['ledger_last_seq'] = {'after_scenario': rel.get('ledger_last_seq'), 'after_the_checks': last}
-    if last != rel.get('ledger_last_seq'): problems.append(f"V17 isolation: the R15 ledger moved from seq {rel.get('ledger_last_seq')} to {last} while only CLIs and viewers read it")
+            found, sub = [f'{name.upper()}: the check raised {type(error).__name__}: {str(error)[:300]} | ' + traceback.format_exc()[-600:]], {}
+        problems.extend(found); facts[name] = sub
+
+    def last_seq():
+        try: return _ledger_rows(rel['state_root'], 'SELECT COALESCE(MAX(seq),0) FROM events')[0][0]
+        except Exception as error: return f'unreadable: {error}'          # noqa: BLE001
+    checked('r1', _r1, rel, rcli)
+    seqs = facts['ledger_last_seq'] = {'after_scenario': rel.get('ledger_last_seq'), 'after_r1': last_seq()}
+    if seqs['after_r1'] != seqs['after_scenario']: problems.append(f"V17 isolation: the R15 ledger moved from seq {seqs['after_scenario']} to {seqs['after_r1']} while only CLIs and viewers read it (R1)")
+    done = run([py, '-I', scenario, work, 'release_more'], env=env, cwd=work, text=True, encoding='utf-8', errors='replace', timeout=600)
+    more = first_json(done.stdout) or {}
+    facts['release_more'] = {k: more.get(k) for k in ('generation', 'attempt', 'from_generation', 'from_attempt', 'resumed_seq', 'produced_seq')}
+    if done.returncode != 0 or more.get('generation') != 3 or more.get('from_generation') != 2:
+        problems.append('scenario release_more: exit ' + str(done.returncode) + f": {facts['release_more']}: " + text_of(done)[-400:])
+    else:
+        checked('r1_history', _r1_history, rel, more, rcli)
+    seqs['after_release_more'] = more.get('ledger_last_seq', seqs['after_r1'])
+    checked('r3', _r3, rel, rcli)
+    checked('r2', _r2, rel, rcli)
+    checked('r5', _r5, rel, rcli)
+    seqs['after_the_checks'] = last_seq()
+    if seqs['after_the_checks'] != seqs['after_release_more']:
+        problems.append(f"V17 isolation: the R15 ledger moved from seq {seqs['after_release_more']} to {seqs['after_the_checks']} while only CLIs and viewers read it (R1 history, R3, R2, R5)")
     return problems, facts
 
 

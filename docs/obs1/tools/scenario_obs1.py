@@ -30,10 +30,14 @@ Cases:
             the current attempt (newer than every production: the page window holds none of them); wait observations whose references
             carry synthetic secret shapes and normal references (R3); a pending owner question (reply template); a second project with a
             plan R15B in the same ledger (R2). Prints the facts read from the raw ledger rows (seqs, attempts, keys, times, request id and
-            revision), never from the tracking projection the verifier checks.
+            revision; every 64-hex value the events of R15 name, split into blobs of the store and identifiers such as the project_id, the
+            plan sha and revisions), never from the tracking projection the verifier checks.
+  release_more  (V17, after its first R1 checks) one more PLAIN generation of R15 node C: generation 2, which inherited generation 1's
+            artifact, becomes history (R1 review round 2: every row keeps what it inherited). Prints the new generation and the last seq.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -160,6 +164,9 @@ def release():
     plan.propose(ledger_b, 'R15B', contract('R15B OTHER PROJECT PRIVATE GOAL'), 'codex', workflow=True, capabilities=caps)
     with ledger.transaction() as conn:                                                                  # the facts, from the raw ledger rows
         rows = [(r['seq'], r['kind'], json.loads(r['payload']), r['created_at']) for r in conn.execute('SELECT seq, kind, payload, created_at FROM events WHERE task_id=? ORDER BY seq', (task,))]
+        children = sorted({p['child'] for s, k, p, a in rows if k == 'node.started' and p.get('child')})
+        child_payloads = [r['payload'] for c in children for r in conn.execute('SELECT payload FROM events WHERE task_id=?', (c,))]
+        task_revision = conn.execute('SELECT revision FROM tasks WHERE id=?', (task,)).fetchone()['revision']
         last_seq = conn.execute('SELECT COALESCE(MAX(seq),0) FROM events').fetchone()[0]
     started = {p['generation']: (s, p['attempt']) for s, k, p, a in rows if k == 'node.started' and p.get('node') == 'C'}
     produced = {p['generation']: (s, p['artifact'], p['receipt'], a) for s, k, p, a in rows if k == 'node.produced' and p.get('node') == 'C'}
@@ -170,15 +177,52 @@ def release():
         raise SystemExit('R15: the three generations did not write byte-identical output: ' + json.dumps({'started': started, 'produced': produced}, default=str)[:600])
     if [r.get('resume_artifact') for r in resumed] != [None, produced[1][1]] or resumed[1].get('continues_attempt') != started[1][1]:
         raise SystemExit('R15: generation 2 does not resume from the artifact of generation 1: ' + json.dumps(resumed)[:600])
+    # R1 review round 2: every 64-hex value the events of R15 (root and child tasks) name, split into blobs of the store and identifiers
+    named = set()
+    for text in [json.dumps(p) for s, k, p, a in rows] + list(child_payloads): named |= set(re.findall(r'\b[0-9a-f]{64}\b', text))
+    blobs = store.root / 'blobs'
+    plan_sha = next((p.get('sha') for s, k, p, a in rows if k == 'plan.approved'), None)
     print(json.dumps({'project_dir': str(r_root), 'project_path': ledger.project_path, 'project_id': ledger.project_id, 'state_root': str(ledger.state_root), 'plan': 'R15',
                       'task': task, 'artifact': produced[0][1], 'receipt': produced[0][2],
                       'generations': [{'generation': g, 'attempt': started[g][1], 'started_seq': started[g][0], 'produced_seq': produced[g][0], 'produced_at': produced[g][3]}
                                       for g in (0, 1, 2)],
                       'resumed': resumed, 'old_decision': {'seq': decision, 'keys': old_keys}, 'observations': 310, 'ledger_last_seq': last_seq,
                       'request': {'id': request['id'], 'revision': request['revision'], 'options': ['keep', 'drop']}, 'unnamed_key': unnamed,
+                      'identifiers': {'project_id': ledger.project_id, 'plan_sha': plan_sha, 'request_revision': request['revision'], 'task_revision': task_revision,
+                                      'named_non_blobs': sorted(h for h in named if not (blobs / h).is_file()), 'named_blobs': sorted(h for h in named if (blobs / h).is_file())},
                       'other': {'project_dir': str(other), 'project_path': ledger_b.project_path, 'project_id': ledger_b.project_id, 'plan': 'R15B', 'title': 'R15B OTHER PROJECT PRIVATE GOAL'},
                       'r3': {'shapes': [name for name, _, _ in R15_SECRET_REFS], 'secret_refs': [ref for _, ref, _ in R15_SECRET_REFS], 'raw': [raw for _, _, raw in R15_SECRET_REFS],
                              'normal_refs': list(R15_NORMAL_REFS), 'question_raw': R15_QUESTION_RAW}}, ensure_ascii=True))
+    return 0
+
+
+def release_more():
+    """Case `release_more` (V17, after its first R1 checks): one more PLAIN generation of R15 node C (node.resumed without resume_artifact, one
+    engine step with ux_quick), so generation 2 - which inherited generation 1's artifact - becomes history. Prints the new generation's facts
+    and the ledger's last seq, from the raw ledger rows."""
+    from onecrew.ledger import Ledger
+    from onecrew.snapshots import Snapshots
+    from onecrew.control_core import Control, migrate
+    from onecrew.v2 import engine, plan
+    r_root, r_state = work / 'r15 project', work / 'r15 state'
+    ledger = Ledger(r_root, r_state)
+    migrate(ledger); control = Control(ledger)
+    with ledger.transaction(write=True) as conn:
+        view = engine.state(ledger, 'R15', conn); before = view['nodes']['C']
+        engine._event(ledger, conn, view, 'C', 'node.resumed')
+    step = engine.step(ledger, 'R15', ux_quick(Snapshots(r_state)), control=control)
+    after = engine.state(ledger, 'R15')['nodes']['C']
+    if step.get('state') != 'produced' or after.get('generation') != before['generation'] + 1:
+        raise SystemExit('R15: the plain generation did not produce: ' + json.dumps(step, default=str)[:400])
+    with ledger.transaction() as conn:
+        task = plan.anchor_events(ledger, conn, 'R15')['task_id']
+        rows = [(r['seq'], r['kind'], json.loads(r['payload'])) for r in conn.execute("SELECT seq, kind, payload FROM events WHERE task_id=? AND kind IN ('node.resumed', 'node.produced') ORDER BY seq", (task,))]
+        last_seq = conn.execute('SELECT COALESCE(MAX(seq),0) FROM events').fetchone()[0]
+    opened = [s for s, k, p in rows if k == 'node.resumed' and p.get('node') == 'C' and p.get('generation') == before['generation']]
+    produced = [s for s, k, p in rows if k == 'node.produced' and p.get('node') == 'C' and p.get('generation') == after['generation']]
+    print(json.dumps({'generation': after['generation'], 'attempt': after['attempt'], 'from_generation': before['generation'], 'from_attempt': before['attempt'],
+                      'resumed_seq': opened[-1] if opened else None, 'produced_seq': produced[-1] if produced else None, 'artifact': after.get('artifact'),
+                      'ledger_last_seq': last_seq}, ensure_ascii=True))
     return 0
 
 
@@ -213,6 +257,8 @@ def main():
         return 0
     if case == 'release':                                           # V17: its own project and ledger (never `project with space` / `state with space`)
         return release()
+    if case == 'release_more':
+        return release_more()
     ledger = Ledger(root, state)
     if case == 'request':
         from onecrew.v2 import plan
