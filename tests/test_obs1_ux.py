@@ -435,6 +435,41 @@ class ServerIdentity(Fixture):
         result = self.open()
         self.assertTrue(result.get('reused'), result); self.assertEqual(result['instance'], inst)
 
+    # ---- R5 round 5 (04/11, risk review of the integrated candidate): proxy, secret-looking paths -------------------------------------------
+    def proxied(self):
+        """HTTP(S)_PROXY pointing at a closed local port, NO_PROXY empty: what a user behind a corporate proxy (or with pip's proxy) has."""
+        from unittest import mock
+        dead = _closed_url().rstrip('/')
+        patch = mock.patch.dict(os.environ, {'HTTP_PROXY': dead, 'HTTPS_PROXY': dead, 'ALL_PROXY': dead, 'NO_PROXY': ''})
+        patch.start(); self.addCleanup(patch.stop)
+
+    def test_identity_ignores_an_http_proxy_for_loopback(self):                               # (1)
+        srv = _Server(self.state); self.addCleanup(srv.stop)
+        self.write(self.record(srv))
+        self.proxied()
+        health = tracking_web.identity(srv.url)
+        self.assertIsNotNone(health, 'identity() went through the proxy for 127.0.0.1')
+        self.assertEqual(health['instance'], srv.server.track_identity['instance'])
+        self.assertTrue(self.open().get('reused'))
+        self.assertTrue(tracking_web.status_page(self.state)['reusable'])
+
+    def test_a_state_root_whose_path_looks_like_a_secret_keeps_its_identity(self):          # (3) the R3 guard masks it in /api/health
+        state = Path(self.temp.name) / 'token=1 Visual Basic Projects' / 'state'; state.mkdir(parents=True)
+        srv = _Server(state); self.addCleanup(srv.stop)
+        inst = srv.server.track_identity['instance']
+        health = tracking_web.identity(srv.url)
+        self.assertIn('[withheld]', health['state_root'])                                    # the outbound guard still masks the path on the wire
+        self.assertNotIn('token=1', json.dumps(health))
+        rec = dict(self.record(srv), state_root=str(state))
+        self.assertEqual(tracking_web.reusable(rec, health, state, None), (True, None))
+        self.assertTrue(tracking_web._same_server(rec, health, state))
+        self.assertEqual(tracking_web._is_target(health, state, inst, os.getpid()), (True, None))
+        twin = Path(self.temp.name) / 'token=2 Visual Basic Projects' / 'state'                # another ledger whose path masks to the same text
+        self.assertEqual(tracking.outward(str(twin.resolve())), tracking.outward(str(state.resolve())))
+        self.assertFalse(tracking_web.reusable(rec, health, twin, None)[0])
+        self.assertFalse(tracking_web._same_server(rec, health, twin))
+        self.assertFalse(tracking_web._is_target(health, twin, inst, os.getpid())[0])
+
 
 class DetachedOpen(Fixture):
     """`track open` for real: the detached `track serve` child, two concurrent opens, status and stop through the CLI module."""
@@ -565,6 +600,92 @@ class DetachedOpen(Fixture):
         self.assertTrue(stopped['stopped']); self.assertEqual((stopped['pid'], stopped['instance']), (b['pid'], b['instance']))
         self.assertTrue(stopped['marker_removed']); self.assertFalse(marker.exists())
         self.assertEqual(_viewer_pids(self.state), [])
+
+    # ---- R5 round 5 (04/11): proxy, relative paths, secret-looking paths, the lock race, an honest failure note -----------------------------
+    def test_open_and_stop_ignore_an_http_proxy_for_loopback(self):                          # (1) end to end, the server is a real child
+        self.own_viewers()
+        from unittest import mock
+        dead = _closed_url().rstrip('/')
+        with mock.patch.dict(os.environ, {'HTTP_PROXY': dead, 'HTTPS_PROXY': dead, 'ALL_PROXY': dead, 'NO_PROXY': ''}):
+            kw = dict(browser=False, project=self.root, explicit_state_root=self.state, idle_exit=60, interval=1.0)
+            first = tracking_web.open_page(self.state, **kw)
+            self.assertTrue(first.get('url'), first)
+            again = tracking_web.open_page(self.state, **kw)
+            self.assertTrue(again.get('reused'), again)
+            stopped = tracking_web.stop_page(self.state)
+            self.assertTrue(stopped['stopped'], stopped)
+            second = tracking_web.open_page(self.state, **kw)
+            self.assertTrue(second.get('url'), second)
+            by_identity = tracking_web.stop_target(self.state, second['url'], second['instance'], second['pid'], started_at=second['started_at'])
+            self.assertTrue(by_identity['stopped'], by_identity)
+        self.assertEqual(_viewer_pids(self.state), [])
+
+    def test_open_with_a_relative_state_root_and_project_from_their_parent_folder(self):     # (2) the child must not resolve them against TEMP
+        self.own_viewers()
+        base = Path(self.temp.name)
+        def cli(*args):
+            done = subprocess.run([sys.executable, '-X', 'utf8', '-m', 'onecrew.v2.tracking_cli', '--project', self.root.name, '--state-root', self.state.name, 'track', *args],
+                                  capture_output=True, text=True, encoding='utf-8', env=self.env, cwd=str(base), timeout=120)
+            return done.returncode, done.stdout
+        code, out = cli('open', '--no-browser')
+        self.assertEqual(code, 0, out); opened = json.loads(out)
+        self.assertEqual(os.path.normcase(opened['state_root']), os.path.normcase(str(self.state.resolve())))
+        self.assertEqual(tracking_web.identity(opened['url'])['instance'], opened['instance'])
+        code, out = cli('open', '--no-browser')
+        self.assertEqual(code, 0, out); self.assertTrue(json.loads(out)['reused'])
+        code, out = cli('stop')
+        self.assertEqual(code, 0, out); self.assertTrue(json.loads(out)['stopped'])
+        self.assertEqual(_viewer_pids(self.state), [])
+
+    def test_a_state_root_whose_path_looks_like_a_secret_opens_and_stops(self):             # (3) end to end
+        self.own_viewers()
+        state = Path(self.temp.name) / 'token=1 Visual Basic Projects' / 'state'; state.mkdir(parents=True)
+        self.addCleanup(_end_viewers, state)
+        kw = dict(browser=False, project=self.root, explicit_state_root=state, idle_exit=60, interval=1.0)
+        first = tracking_web.open_page(state, **kw)
+        self.assertTrue(first.get('url'), first)
+        self.assertTrue(tracking_web.open_page(state, **kw).get('reused'))
+        self.assertTrue(tracking_web.status_page(state)['reusable'])
+        by_identity = tracking_web.stop_target(state, first['url'], first['instance'], first['pid'], started_at=first['started_at'])
+        self.assertTrue(by_identity['stopped'], by_identity); self.assertTrue(by_identity['marker_removed'])
+        second = tracking_web.open_page(state, **kw)
+        self.assertTrue(second.get('url'), second)
+        stopped = tracking_web.stop_page(state)
+        self.assertTrue(stopped['stopped'], stopped)
+        self.assertEqual(_viewer_pids(state), [])
+
+    def test_a_marker_handed_over_while_waiting_for_the_lock_is_reused_not_deleted(self):    # (4) the read-then-lock race
+        self.own_viewers()
+        import datetime as dt
+        from unittest import mock
+        stale = {'url': _closed_url(), 'pid': 0, 'instance': '0d' * 8, 'version': tracking_web.version(), 'state_root': str(self.state), 'project_id': None,
+                 'started_at': 'x'}
+        tracking_web._write_marker(tracking_web.marker_paths(self.state)[0], stale)
+        b = _Server(self.state); self.addCleanup(b.stop)
+        handed = {'url': b.url, 'pid': os.getpid(), 'instance': b.server.track_identity['instance'], 'version': tracking_web.version(), 'state_root': str(self.state),
+                  'project_id': None, 'started_at': dt.datetime.now(dt.timezone.utc).isoformat()}
+        real_lock, calls = tracking_web._lock, []
+        def lock_after_a_concurrent_open(path):                                                # another `track open` finishes and announces B just before this one locks
+            if not calls: tracking_web._write_marker(tracking_web.marker_paths(self.state)[0], handed)
+            calls.append(path)
+            return real_lock(path)
+        with mock.patch.object(tracking_web, '_lock', lock_after_a_concurrent_open):
+            result = tracking_web.open_page(self.state, browser=False, project=self.root, explicit_state_root=self.state, idle_exit=60, interval=1.0, wait=20)
+        self.assertTrue(result.get('reused'), result); self.assertEqual(result.get('instance'), handed['instance'])
+        self.assertEqual(json.loads(tracking_web.marker_paths(self.state)[0].read_text(encoding='utf-8'))['instance'], handed['instance'])
+        self.assertEqual(_viewer_pids(self.state), [], 'a second server was started next to the one just handed over')
+
+    def test_a_failed_open_that_cannot_end_its_tree_says_so(self):                            # (5) the note follows `undone`
+        self.own_viewers()
+        from unittest import mock
+        with _SlowStart(self.temp.name, 8), mock.patch.object(subprocess.Popen, 'kill', lambda proc: None), \
+                mock.patch.object(tracking_web._Proc, 'terminate', lambda proc: False):
+            result = tracking_web.open_page(self.state, browser=False, project=self.root, explicit_state_root=self.state, idle_exit=60, interval=1.0, wait=2)
+        self.assertIn('error', result)
+        running = result['undone']['still_running']
+        self.assertTrue(running, result)
+        self.assertNotIn('không để lại server nào', result['note'])
+        self.assertIn(str(running[0]), result['note'])
 
 
 class TimelineClock(unittest.TestCase):
