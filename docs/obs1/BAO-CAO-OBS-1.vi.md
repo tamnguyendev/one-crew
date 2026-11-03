@@ -6,13 +6,13 @@ bàn giao Claude mục OBS-1) cách ly với bản phát hành 2.4; lượt 2: k
 
 ## 1. Kết quả ngắn
 
-- **Phát hành:** nhánh `claude/onecrew-obs1` (worktree `D:\TamNT\Workspace\11.OneCrew\wf-obs1`, tách từ `01b6f62` = `v2.4.0.dev6`). Snapshot **`@@SNAP@@`** = `2.4.0.dev7`
-  (prerelease kế tiếp còn trống của dòng 2.4; dev6 đã chiếm). Tag `v2.4.0.dev7` + nhánh: @@PUSH@@. Nhánh `claude/onecrew-2.4`, tag `v2.4.0.dev6`, gói dev6 không đổi.
-- **Gói cuối:** `D:\OneCrewRuns\obs1\pkg\onecrew-2.4.0.dev7-obs1-beta` — wheel `onecrew-2.4.0.dev7-py3-none-any.whl`, SHA256 `@@WHEEL_SHA@@`; `manifest.json`, `SHA256SUMS`,
+- **Phát hành:** nhánh `claude/onecrew-obs1` (worktree `D:\TamNT\Workspace\11.OneCrew\wf-obs1`, tách từ `01b6f62` = `v2.4.0.dev6`). Snapshot **`c3c8361`** = `2.4.0.dev7`
+  (prerelease kế tiếp còn trống của dòng 2.4; dev6 đã chiếm). Tag `v2.4.0.dev7` + nhánh: tag `v2.4.0.dev7` trên snapshot `c3c8361` và nhánh (HEAD = commit hồ sơ) đã push lên origin private `git@github.com:tamnguyendev/one-crew.git` 03/11 (không force; `D:\OneCrewRuns\obs1\release\release-{check,tag,push,verify}.json`). Nhánh `claude/onecrew-2.4`, tag `v2.4.0.dev6`, gói dev6 không đổi.
+- **Gói cuối:** `D:\OneCrewRuns\obs1\pkg\onecrew-2.4.0.dev7-obs1-beta` — wheel `onecrew-2.4.0.dev7-py3-none-any.whl`, SHA256 `88063026b54e85391034d90c2f6650fe4042da96725cb648ddca16ef3eb86100`; `manifest.json`, `SHA256SUMS`,
   `BAT-DAU-THU.vi.md` (cài → mở UI → chọn project/sổ → xem task; §4 đọc sổ của project đang có OneCrew ≠ nâng runtime; §5 dừng UI, quay về có điều kiện), `docs\RELEASE-NOTES-OBS-1.vi.md`,
   `docs\limits-obs1.md`, bộ kiểm `verify\` (V1–V13) và script chủ `verify\thu-goi-obs1.ps1`.
-- **Kiểm từ gói (wheel cài vào venv sạch ngoài checkout, `claude` giả):** `thu-goi-obs1.ps1` → `@@VERIFY@@` (`D:\OneCrewRuns\obs1\thu-goi-dev7-@@SNAP@@\verify-report.json`, ảnh `evidence\obs1-list.png`,
-  `obs1-detail-P1.png`, `obs1-disconnected.png`). Số đo: độ trễ ghi sổ → trang `@@LAT@@` s (trần 5 s), đọc overview `@@READMS@@` ms/poll, engine step `@@STEP@@` s, bước dài `@@LONG@@` s.
+- **Kiểm từ gói (wheel cài vào venv sạch ngoài checkout, `claude` giả):** `thu-goi-obs1.ps1` → ``DAT` 13/13 (V1–V13; 08:49:00–08:50:26 03/11)` (`D:\OneCrewRuns\obs1\thu-goi-dev7-c3c8361\verify-report.json`, ảnh `evidence\obs1-list.png`,
+  `obs1-detail-P1.png`, `obs1-disconnected.png`). Số đo: độ trễ ghi sổ → trang `0,27` s (trần 5 s), đọc overview `7,0` ms/poll, engine step `1,39` s, bước dài `7,39` s.
 - **Test:** `tests/test_obs1_p2.py` (10; **9/10 đỏ trên `bf6994f`** — ca thứ 10 là đối chứng `plan.accepted` vẫn "đã nghiệm thu" — → 10/10 xanh), `test_obs1_tracking` (18),
   `test_obs1_web` (7, Chrome headless), `test_obs1_installed` (1, wheel ngoài checkout), `test_g1_core`, `test_wf_r10_console_utf8`, `test_wf_r14_console_entry`,
   `test_v24_docs_sync`: **82/82** trên code của snapshot (log `D:\OneCrewRuns\obs1\logs\test-obs1-all-083740.txt`; các commit sau chỉ sửa scenario kiểm gói và tài liệu).
@@ -30,7 +30,7 @@ bàn giao Claude mục OBS-1) cách ly với bản phát hành 2.4; lượt 2: k
 
 Hồ sơ gốc lượt 1 (snapshot `bf6994f`, gói thử `onecrew-obs1-trial-bf6994f` 12/12) giữ nguyên trong lịch sử nhánh; các dòng "đạt" của lượt 1 ở mục 3 nay đọc là "đạt sau khi sửa P2" ở những hàng có ghi.
 
-## 3. Yêu cầu OBS-1 → code / test / bằng chứng → trạng thái (trên `@@SNAP@@`)
+## 3. Yêu cầu OBS-1 → code / test / bằng chứng → trạng thái (trên `c3c8361`)
 
 | Yêu cầu | Code | Test / bằng chứng | Trạng thái |
 |---|---|---|---|
@@ -43,10 +43,10 @@ Hồ sơ gốc lượt 1 (snapshot `bf6994f`, gói thử `onecrew-obs1-trial-bf6
 | B. Phân biệt hoạt động / đã tạo / đã kiểm / đã nghiệm thu | `status.kind` tách khỏi `level.kind` (`none/produced/verified/accepted`); `closed` không nâng mức | `test_running_attempt…`, `test_verified…`, `ClosedIsNotAccepted` | đạt sau sửa P2-01 |
 | B. Mở/xem bằng chứng trong phạm vi | `evidence()` chỉ blob mà sự kiện của root nêu (403), lọc từng dòng, 64 KiB; server không nới project | `test_evidence_only_for_keys…`, `test_get_only…`, `ProjectScope` | đạt sau sửa P2-04 |
 | B. Thời gian chờ, ETA có căn cứ hoặc "chưa xác định" | `waits` (`open`/lịch sử, `until`), `measure.wait_seconds` + `executor_waits`, `_eta` | `test_eta_comes_from…`, `EndedWaits` | đạt sau sửa P2-03 |
-| C. Cập nhật trong trần độ trễ | poll 2 s, mỗi request đọc sổ mới | `test_a_new_ledger_event…` (≤ 5 s), V6 đo `@@LAT@@` s | đạt (sổ nhỏ) |
+| C. Cập nhật trong trần độ trễ | poll 2 s, mỗi request đọc sổ mới | `test_a_new_ledger_event…` (≤ 5 s), V6 đo `0,27` s | đạt (sổ nhỏ) |
 | C. Mở lại/reconnect từ nguồn bền | không trạng thái phía server; timeline định danh `seq` | `test_restart_shows_the_same_timeline…`, V7 | đạt |
 | C. Không nhân đôi sự kiện/attempt, không cộng đôi overlap | định danh `seq`; `observe` cùng key không ghi; union | `test_duplicate_observation…`, `test_overlapping_attempts…`, `EndedWaits` (wait trùng = một dòng) | đạt |
-| C. Đóng UI không dừng worker | server tiến trình riêng, chỉ đọc, không giữ khóa | `test_closing_the_server…`, V8 (tắt server giữa bước `@@LONG@@` s của worker thật) | đạt |
+| C. Đóng UI không dừng worker | server tiến trình riêng, chỉ đọc, không giữ khóa | `test_closing_the_server…`, V8 (tắt server giữa bước `7,39` s của worker thật) | đạt |
 | C. Nguồn thiếu/lỗi/mất kết nối hiển thị đúng | `source.status`; nhãn "MẤT KẾT NỐI … dữ liệu cũ" | `SourceTests`, `SourceProblemTests`, `test_the_page_says_disconnected…`, V11 proxy, ảnh | đạt |
 | C. Phiên chưa được theo dõi | `untracked` + `statement` cố định | `test_tasks_outside_a_plan…`, V10, ảnh | đạt |
 | UI và CLI cùng mô hình | `track list --json` = `overview()`; trang đọc `/api/overview` cùng hàm | `test_cli_json_is_the_same_model…`, V5, V13 (CLI và HTTP cùng kết luận) | đạt |
@@ -68,6 +68,6 @@ wheel kiểm = wheel giao theo hash SHA256 (một lần dựng, không cần tá
 
 ## 6. Việc thật sự cần chủ quyết
 
-1. Codex review lại nhánh (diff `bf6994f..@@SNAP@@`, trọng tâm `tracking.py` `_waits`/`_current_progress`/`_level`, `tracking_web.py` 403) và nghiệm thu OBS-1 beta.
+1. Codex review lại nhánh (diff `bf6994f..c3c8361`, trọng tâm `tracking.py` `_waits`/`_current_progress`/`_level`, `tracking_web.py` 403) và nghiệm thu OBS-1 beta.
 2. Có gộp `claude/onecrew-obs1` vào dòng 2.4 (sau dev6) hay giữ nhánh riêng; số prerelease kế tiếp của 2.4 là dev8.
 3. Có cho project thật (SignSDK) *đọc* sổ bằng venv OBS-1 hay chờ nâng runtime chung; nâng runtime không nằm trong lượt này.
