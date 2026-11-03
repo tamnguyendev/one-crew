@@ -31,7 +31,8 @@ Steps (every one from the installed venv, python -I, cwd = <work>, isolated LOCA
                     at 1280 and 390 (R4: a dropped, 503 or late detail request never leaves another task's content or reply commands under the
                     selection), slow_detail (a detail read slower than the poll still paints; an unrenderable 200 ends in the error state) and
                     prov LAST (R1 on P9: identical bytes of generations 0/1 keep their own labels; 310 newer events written through scenario
-                    `prov_history` and generation 2 resumed from generation 1's artifact through `prov_same`, both on THIS run's ledger)
+                    `prov_history`, generation 2 resumed from generation 1's artifact through `prov_same` and one more plain generation through
+                    `prov_more`, all on THIS run's ledger; a signal of the harness this verifier does not answer is a V14 problem)
   V15 open-identity `track open` from the installed wheel: a second open reuses the same instance; a marker whose instance does not match the server
                     answering on its port is NOT reused (a new server starts, the other one is not killed); two concurrent opens share one server;
                     `track stop` stops only the matching server and removes the marker; a second stop refuses
@@ -85,6 +86,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 LATENCY_CEILING = 5.0
+# V14 `prov` signals, in the order the harness sends them -> the scenario case of the same name writes into THIS run's P9; the value names the
+# field of the case's JSON the harness reads back (tests/test_obs1_browser.py answers the same signals on the unit fixture)
+PROV_SIGNALS = {'prov_history': 'attempt', 'prov_same': 'key', 'prov_more': 'node'}
 AI_MARKERS = ('CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION', 'ONECREW_ACTOR', 'PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP', 'PYTHONUTF8', 'PYTHONIOENCODING')
 BROWSERS = (r'C:\Program Files\Google\Chrome\Application\chrome.exe', r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
             r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe', r'C:\Program Files\Microsoft\Edge\Application\msedge.exe')
@@ -1223,7 +1227,7 @@ def main(pkg, work):
     elif not problems:
         ux = load_harness()
         process, record = start_server(exe, project, state, env, work)
-        writes, prov = [], []
+        writes, prov, unknown = [], [], []
         def on_signal(name, params=None):
             if name == 'write':
                 done = run([py, '-I', scenario, work, 'request'], env=dict(env, OBS1_REQUEST_KEY=f'ux-write-{len(writes) + 1}'), cwd=work, text=True, encoding='utf-8', errors='replace', timeout=120)
@@ -1233,11 +1237,12 @@ def main(pkg, work):
                 need = next((n for n in shown.get('needs_user', []) if n.get('id') == (params or {}).get('id')), None)
                 if not need: return 'no such pending question'
                 return powershell_template(need['options'][0]['reply_command'].replace(need['reference_placeholder'], 'fixture owner answered while reading'), work / 'answer while reading.ps1').returncode
-            if name in ('prov_history', 'prov_same'):             # R1 (`prov`): written by the scenario into THIS run's P9, as `write` does into P1
+            if name in PROV_SIGNALS:                              # R1 (`prov`): written by the scenario into THIS run's P9, as `write` does into P1
                 done = run([py, '-I', scenario, work, name], env=env, cwd=work, text=True, encoding='utf-8', errors='replace', timeout=300)
                 value = first_json(done.stdout) or {}
                 prov.append(dict(value, signal=name, exit=done.returncode, **({} if done.returncode == 0 else {'tail': text_of(done)[-400:]})))
-                return value.get('attempt') if name == 'prov_history' else value.get('key')
+                return value.get(PROV_SIGNALS[name])                 # what the harness reads back: the attempt, the shared key, the node
+            unknown.append(name)                                     # a harness signal this verifier does not answer is a V14 problem, never a silent None
             return None
         proxy = ux.Proxy(record['url'], on_signal=on_signal)
         results = {}
@@ -1255,8 +1260,9 @@ def main(pkg, work):
                 if not result.get('ok'): problems.append(f'{name}@{size}: ' + str(result.get('error') or result.get('notes'))[:300])
             if len(writes) != 2 or not all(writes): problems.append(f'the ledger writes during ux01 did not happen: {writes}')
             facts['prov_signals'] = prov
-            if [p.get('signal') for p in prov] != ['prov_history', 'prov_same'] or any(p.get('exit') != 0 for p in prov):
+            if [p.get('signal') for p in prov] != list(PROV_SIGNALS) or any(p.get('exit') != 0 for p in prov):
                 problems.append(f'the R1 writes into P9 during prov did not happen as the harness asked: {prov}')
+            if unknown: problems.append(f'the harness sent signals this verifier does not answer: {unknown}')
             shots = {}
             for name, scen_name, size, extra in (('overview-desktop', 'shot-list', 'desktop', ''), ('detail-P4-desktop', 'shot-detail', 'desktop', '&plan=P4'), ('detail-P1-desktop', 'shot-detail', 'desktop', '&plan=P1'),
                                                  ('detail-P1-questions-desktop', 'shot-detail', 'desktop', '&plan=P1&open=need'), ('detail-P1-questions-mobile', 'shot-detail', 'mobile', '&plan=P1&open=need'),

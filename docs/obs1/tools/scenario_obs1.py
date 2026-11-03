@@ -24,6 +24,8 @@ Cases:
   prov_same (V14 signal of `prov`, R1) P9 node C resumes from the artifact of its current generation (node.resumed resume_artifact +
             continues_attempt) and one engine step with the `ux` quick executor (ux_quick: the PACKAGE data set's bytes, not the unit
             fixture's) produces those very bytes again. Prints the key; exits non-zero when the new generation did not write the same key.
+  prov_more (V14 signal of `prov`, R1 review round 2) one more PLAIN generation of P9 node C (node.resumed without resume_artifact, one
+            engine step with ux_quick), so the generation that inherited and produced the same key becomes history. Prints the node ('C').
   release   (V17, the Codex release review of dev11) a root R15 in its OWN project and ledger (`r15 project`, `r15 state`), independent of
             every other case: an old decision.recorded naming eight blobs; node C produced by generation 0, by a plain new generation 1
             (byte-identical output) and by generation 2 resumed from generation 1's artifact (the same bytes again); 310 progress events of
@@ -508,6 +510,22 @@ def main():
             raise SystemExit(f'{name9}: generation {after.get("generation")} did not write the inherited bytes again: ' + json.dumps(step, default=str)[:400])
         print(json.dumps({'plan': name9, 'key': current['artifact'], 'from_generation': current['generation'], 'from_attempt': current['attempt'],
                           'generation': after['generation'], 'attempt': after['attempt']}, ensure_ascii=True))
+        return 0
+    if case == 'prov_more':                                         # V14 `prov` (R1 review round 2): one more PLAIN generation of P9 node C; the previous one becomes history
+        from onecrew.snapshots import Snapshots
+        from onecrew.control_core import Control, migrate
+        from onecrew.v2 import engine
+        name9 = p9_name()
+        migrate(ledger); control = Control(ledger)
+        with ledger.transaction(write=True) as conn:
+            view = engine.state(ledger, name9, conn); before = view['nodes']['C']
+            engine._event(ledger, conn, view, 'C', 'node.resumed')    # no resume_artifact, no continues_attempt: the new generation inherits nothing
+        step = engine.step(ledger, name9, ux_quick(Snapshots(state)), control=control)
+        after = engine.state(ledger, name9)['nodes']['C']
+        if step.get('state') != 'produced' or after.get('generation') != before['generation'] + 1:
+            raise SystemExit(f'{name9}: the plain generation {after.get("generation")} did not produce: ' + json.dumps(step, default=str)[:400])
+        print(json.dumps({'plan': name9, 'node': 'C', 'from_generation': before['generation'], 'from_attempt': before['attempt'], 'generation': after['generation'],
+                          'attempt': after['attempt']}, ensure_ascii=True))
         return 0
     raise SystemExit('unknown case ' + case)
 
