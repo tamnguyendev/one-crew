@@ -264,7 +264,7 @@ class R3Sweep(R3Fixture):
             self.wait(attempt, text[:200], at=f'2026-11-03T10:0{i}:00+00:00', until=f'2026-11-03T10:0{i}:30+00:00')            # waits[].ref, executor_waits[].ref
             progress_track.observe(self.ledger, 'P1', 'A', Managed(), attempt, 'k-' + name, {'kind': 'tool', 'action': 'read', 'args': {'path': 'a.txt'}, 'result': {'text': 'one'}, 'snapshot': 'snap-' + name},
                                    source='tool_call', ref=text[:200])                                                         # progress basis ref
-        joined = ' | '.join(text for text, _ in SHAPES.values())
+        joined = ' | '.join(SHAPES[k][0] for k in ('password', 'token', 'anthropic', 'userinfo', 'bearer'))   # the header shape LAST: it hides the rest of its line
         # raw ledger events in free-text fields the model projects (the ledger may hold text written by any version or writer)
         self.emit('executor.observed', {**Managed.declaration.view(), 'received_at': '2026-11-03T11:05:00+00:00', 'plan': 'P1', 'attempt': attempt, 'what': 'wait', 'observed_at': '2026-11-03T11:00:00+00:00', 'time_source': 'tool_call',
                                         'basis': {'type': 'tool_call', 'ref': 'wait-raw-1'}, 'wait': {'reason': 'reason ' + joined, 'until': '2026-11-03T11:00:05+00:00'}})
@@ -277,6 +277,10 @@ class R3Sweep(R3Fixture):
                                        'evidence': [t for t, _ in SHAPES.values()]})
         self.emit('decision.recorded', {'subject': {'component': 'comp ' + SHAPES['password'][0]}, 'basis': 'Q9 ' + joined, 'scope': 'I'})
         self.emit('workflow.checkpoint', {'phase': 'phase ' + SHAPES['password'][0], 'message': 'checkpoint ' + joined})
+        with self.ledger.transaction(write=True) as conn:                                                        # verification results and verdicts
+            view = engine.state(self.ledger, 'P1', conn)
+            engine._event(self.ledger, conn, view, 'A', 'node.verification', receipt='0' * 64, result='fail ' + joined)
+        self.emit('verdict.recorded', {'milestone': 'M1 ' + SHAPES['token'][0], 'result': 'fail ' + joined, 'by': 'reviewer ' + SHAPES['password'][0], 'receipt': None})
         with self.ledger.transaction(write=True) as conn:
             view = engine.state(self.ledger, 'P1', conn)
             engine._event(self.ledger, conn, view, 'I', 'node.held', reason='held ' + joined, classification='class ' + SHAPES['token'][0])
