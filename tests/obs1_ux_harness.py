@@ -564,6 +564,9 @@ if(S==='prov'){                                        // R1: evidence is attrib
   for(const r of J.gantt.rows.filter(x=>x.node==='C')){const sg=$('.seg[data-attempt="'+r.attempt+'"]'); if(!sg){wrong.push(['no bar',r.attempt,r.generation]); continue} sg.focus(); key(sg,'Enter'); await sleep(50);
     for(const e of outs()){const gens=(e.textContent.match(/thế hệ \d+/g)||[]); if(/attempt\.settled/.test(e.textContent))settled.push(r.generation); if(gens.some(x=>x!=='thế hệ '+r.generation))wrong.push([r.generation,e.textContent.slice(0,160)])}}
   check('every step pane of node C lists only evidence of its own generation (incl. attempt.settled of the child task)', wrong.length===0 && settled.length>0, {wrong:wrong.slice(0,6), settled_in_rows:settled});
+  const und=J.evidence_index.filter(x=>typeof x.seq==='number' && !x.attempt), shownUnd=und.map(x=>({x, el:$('[data-k="evk:'+x.key+':'+x.seq+'"]')})).filter(y=>y.el);   // integration: occurrences with no determined attempt
+  out.notes.push('occurrences without a determined attempt: '+und.length+', shown on the page: '+shownUnd.length);
+  check('an occurrence whose attempt or generation is not determined says so on the page', shownUnd.every(y=>/lượt chưa xác định/.test(y.el.textContent) && (typeof y.x.generation==='number' || /thế hệ chưa xác định/.test(y.el.textContent))), shownUnd.slice(0,3).map(y=>y.el.textContent.slice(0,160)));
   }
 }
 // ---- R1 provenance (lane R1) end ----
