@@ -478,7 +478,7 @@ function render(force){
 }
 function cmdHtml(c,ph){var t=esc(c);if(ph){var p=esc(ph);t=t.split(p).join('<mark class="ph">'+p+'</mark>')}return t}
 function needTitle(n){return n.kind==='request'?'Câu hỏi: '+(n.question||'').slice(0,90)+((n.question||'').length>90?'…':''):n.kind==='approve'?'Duyệt kế hoạch':n.kind==='accept'?'Nghiệm thu':n.kind==='stopped'?'Quyết định sau khi dừng':(n.question||n.kind)}
-function needCard(n,i){var ph=n.reference_placeholder;var h='<details data-k="need:'+i+'" class="need"><summary>'+esc(needTitle(n))+(n.options&&n.options.length?' <span class="small">('+n.options.length+' lựa chọn)</span>':'')+'</summary><div class="q">'+esc(n.question||n.kind)+'</div>';
+function needCard(n,i){var ph=n.reference_placeholder;var h='<details data-k="need:'+i+'" class="need"><summary>'+esc(needTitle(n))+(n.options&&n.options.length?' <span class="small">('+n.options.length+' lựa chọn)</span>':'')+(n.id?' <span class="small mut">· '+esc(String(n.id).slice(0,12))+'</span>':'')+'</summary><div class="q">'+esc(n.question||n.kind)+'</div>';
   if(n.reason)h+='<div class="small">Vì: '+esc(n.reason)+'</div>';if(n.impact)h+='<div class="small">Ảnh hưởng: '+esc(n.impact)+'</div>';
   if(n.kind==='request')h+='<div class="small">Mẫu lệnh — phần <mark class="ph">'+esc(ph||'<…>')+'</mark> là lý do/bằng chứng BẠN tự điền; chưa điền thì lệnh chưa chạy được:</div>';
   (n.options||[]).forEach(function(o,j){h+='<div class="opt" data-k="opt:'+i+':'+j+'"><b>'+esc(o.label)+'</b> <span class="small mut">('+esc(o.id)+')</span>'+(n.recommendation===o.id?' <span class="small">· khuyến nghị</span>':'')
