@@ -1152,7 +1152,7 @@ def render_detail(value):
         lines.append('Giữ (finding):')
         for h in t['holds']: lines.append('  - ' + (h.get('text') or h.get('error') or ''))
     lines.append(f"Timeline ({len(t['timeline'])}/{t['timeline_total']} sự kiện, cũ → mới)" + ('' if t.get('timeline_complete', True) else
-                 f" — đang hiện {len(t['timeline'])} sự kiện mới nhất; bằng chứng của sự kiện cũ hơn vẫn ở mục bằng chứng (toàn bộ lịch sử)") + ':')
+                 f" — đang hiện {len(t['timeline'])} sự kiện mới nhất; bằng chứng của sự kiện cũ hơn vẫn có trong `--json` (evidence_index, toàn bộ lịch sử) và trên trang theo dõi") + ':')
     for e in t['timeline']:
         when = e['at'] + (f" (quan sát {e['observed_at']})" if e.get('observed_at') and e['observed_at'] != e['at'] else '')
         lines.append(f"  #{e['seq']} {when} {e['kind']}: {e['summary']}" + ('  [thế hệ cũ]' if e['stale_generation'] else '  [attempt cũ]' if e.get('stale_attempt') else ''))
