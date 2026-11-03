@@ -18,6 +18,14 @@ Page (UX of 03/11, docs/obs1/UX-OBS-1.vi.md): overview → task detail → timel
 rebuilt only when the ledger seq moved, and open sections, focus and scroll positions survive a rebuild; the project filter, the selection and the
 URL agree; the status words of the model (tracking.OUTCOME_WORDS) are the badges; nothing on the page runs a command — the reply commands are
 text to copy.
+
+Detail state per selection (R4 of 03/11, Codex release review): the detail data is kept together with the selection it was fetched for
+(`detailFor`) and is shown, repainted, copied from or used for evidence links only while that selection is the current one. Selecting another
+task shows that task's heading with "đang tải chi tiết…" at once, never the previous task's content. A failed detail request (network error or
+HTTP error status) of a task never loaded shows the selected task's heading, the error and no reply command; of the task already shown keeps its
+data with a freshness warning next to the heading and marks every reply template as from that time. The header shows the overview connection
+(#conn) and, separately, the freshness of the selected task's detail (#dconn). The out-of-order guard (detailToken + selection) covers the
+success and the failure paths.
 """
 import json
 import os
@@ -399,7 +407,9 @@ li.task,.r2 span,.dhead,.dsum,#detail,#untracked{overflow-wrap:anywhere}.r2 span
 .grow.old .seg,.grow.old .mk{opacity:.45}.mk{position:absolute;top:4px;transform:translateX(-50%);font-size:13px;line-height:1;cursor:pointer;color:var(--fg)}.mk.held{color:var(--blk)}.mk.pass{color:var(--ver)}.mk.fail{color:var(--blk)}.mk.plan{color:var(--mut)}
 .nowline{position:absolute;top:0;bottom:0;border-left:2px dashed var(--mut);pointer-events:none}
 .gside{border:1px solid var(--line);border-radius:8px;padding:8px;font-size:13px;min-width:0}.gside h4{margin:0 0 4px}.gside dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:4px 0;font-size:12px}.gside dt{color:var(--mut)}.gside dd{margin:0;overflow-wrap:anywhere}
-.stale-need{background:#fde2e2;color:#7a1f1f;padding:6px 8px;border-radius:6px;margin:6px 0;font-size:12px}.stale-need button{margin-left:8px;font-size:12px;padding:1px 6px}
+.stale-need{background:#fde2e2;color:#7a1f1f;padding:6px 8px;border-radius:6px;margin:6px 0;font-size:12px}
+#dconn{padding:2px 8px;border-radius:12px;font-size:12px;border:1px solid var(--line);max-width:100%;overflow-wrap:anywhere}#dconn.ok{color:var(--mut)}#dconn.bad{background:#fde2e2;color:#7a1f1f}#dconn.wait{color:var(--mut);border-style:dashed}
+.dstatus{padding:6px 8px;border-radius:6px;margin:6px 0;font-size:12px;background:var(--sel)}.dstatus.err,.dstatus.stale{background:#fde2e2;color:#7a1f1f}.stale-tpl{background:#fde2e2;color:#7a1f1f;padding:2px 6px;border-radius:4px;margin-top:4px}.stale-need button{margin-left:8px;font-size:12px;padding:1px 6px}
 @media (min-width:1400px){.gantt{grid-template-columns:minmax(0,1fr) 300px}.gside{align-self:start;max-height:60vh;overflow:auto}}
 button{cursor:pointer}button.pri{background:var(--run);color:#fff;border-color:var(--run)}
 .small{font-size:12px}.mut{color:var(--mut)}.note{margin:6px 0 0}code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:rgba(120,140,180,.14);padding:0 4px;border-radius:3px;word-break:break-all}
@@ -433,7 +443,7 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
   .gbody{grid-template-columns:150px minmax(380px,1fr);min-width:540px}.gtree .grow{font-size:12px}.gaxis span.t1,.gaxis span.t3{display:none}}
 </style></head><body>
 <header>
-<div class="bar"><h1>OneCrew · theo dõi công việc</h1><span id="conn">đang kết nối…</span><span id="count" class="small mut"></span><span id="chips" role="group" aria-label="lọc nhanh"></span></div>
+<div class="bar"><h1>OneCrew · theo dõi công việc</h1><span id="conn">đang kết nối…</span><span id="dconn" role="status" hidden></span><span id="count" class="small mut"></span><span id="chips" role="group" aria-label="lọc nhanh"></span></div>
 <div class="tools">
 <label>project <select id="proj"><option value="">tất cả</option></select></label>
 <label>trạng thái <select id="kind"><option value="">tất cả</option><option value="need">cần bạn</option><option value="running">đang thực hiện</option><option value="waiting">đang chờ</option><option value="blocked">bị chặn</option><option value="done">đã xong</option><option value="unknown">chưa xác định</option></select></label>
@@ -451,6 +461,7 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
 (function(){
 var INTERVAL=@@INTERVAL@@, last=null, lastOk=null, lostSince=null, selected=null, lastViewed=null, detailData=null, detailSeq=null, detailToken=0, listSig=null, selEv=null, evState={}, copied=null;
 var selStep=null, gRange='all', gFold={}, staleNotes=[], knownNeeds={};
+var detailFor=null, detailError=null, detailOkAt=null;   // R4: the selection detailData was fetched for; the current failure streak {since,last,message}; when it last loaded
 var TECH=['attempt.','executor.managed','decision.recorded','execution.configured','budget.group','precondition.recorded','task.submitted','knowledge.delivered','estimate.','plan.step0_closed'];
 var $=function(s){return document.querySelector(s)};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -471,6 +482,23 @@ function narrow(){return window.matchMedia('(max-width:899px)').matches}
 function setView(){$('#main').setAttribute('data-view',selected?'detail':'list')}
 function sameSel(a,b){return !!a&&!!b&&a.plan===b.plan&&(a.project||'')===(b.project||'')}
 function urlOf(sel){return sel?'?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):''):location.pathname}
+function mine(){return detailData&&sameSel(detailFor,selected)?detailData:null}   // R4: the detail data only while it belongs to the CURRENT selection
+function detailState(){return !selected?'none':mine()?(detailError?'stale':'ok'):(detailError?'error':'loading')}
+function taskOf(sel){return sel?tasks().find(function(t){return t.selector===sel.plan&&(!sel.project||t.project_id===sel.project)})||null:null}
+function nameOf(sel){var t=taskOf(sel);return t?t.plan:String(sel.plan||'').replace(/^plan(-ns)?:/,'')}
+function clockMs(ms){return ms?new Date(ms).toLocaleTimeString():'?'}
+function iso(ms){return ms?new Date(ms).toISOString():null}
+function dind(){var e=$('#dconn'),k=detailState();if(k==='none'){e.hidden=true;e.className='';e.textContent='';return}   // the detail freshness, apart from the overview badge
+  var n=nameOf(selected);e.hidden=false;
+  if(k==='loading'){e.className='wait';e.textContent='chi tiết '+n+': đang tải…'}
+  else if(k==='ok'){e.className='ok';e.textContent='chi tiết '+n+': cập nhật lúc '+clockMs(detailOkAt)}
+  else{e.className='bad';e.textContent='chi tiết '+n+': lỗi tải từ '+clockMs(detailError.since)+(k==='stale'?' · đang hiện dữ liệu lúc '+clockMs(detailOkAt):' · chưa có dữ liệu')}}
+function pendingPane(sel){var t=taskOf(sel),e=detailError;   // the selected task's own heading while its detail is loading or failed; nothing of any other task
+  var h='<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(nameOf(sel))+(t?' '+st(t.status):'')+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>';
+  h+=e?'<div id="dstatus" class="dstatus err" role="status" data-state="error">Không tải được chi tiết task này ('+esc(e.message)+') từ '+clockMs(e.since)+', lần thử gần nhất <span id="dlast">'+clockMs(e.last)+'</span>; trang tự thử lại mỗi '+(INTERVAL/1000)+' s. Chưa có dữ liệu chi tiết nào của task này nên không có câu hỏi hay mẫu lệnh nào để hiện.</div>'
+      :'<div id="dstatus" class="dstatus" role="status" data-state="loading">đang tải chi tiết…</div>';
+  if(t)h+='<div class="small mut">Theo danh sách: '+esc(t.current_step||t.status.reason||'')+'</div>';
+  $('#detail').innerHTML=h}
 function tasks(){var out=[];(last&&last.projects||[]).forEach(function(p){p.tasks.forEach(function(t){out.push(t)})});return out}
 function visible(){var cur=$('#proj').value,kind=$('#kind').value,q=($('#q').value||'').toLowerCase();
   return tasks().filter(function(t){if(cur&&t.project!==cur)return false;
@@ -505,6 +533,7 @@ function needTitle(n){return n.kind==='request'?'Câu hỏi: '+(n.question||'').
 function needKey(n){return n.kind==='request'?'need:'+n.id+':'+n.revision:'need:'+n.kind}
 function needCard(n,i){var ph=n.reference_placeholder,nk=needKey(n);var h='<details data-k="'+esc(nk)+'" class="need" data-need-id="'+esc(n.id||'')+'" data-need-rev="'+esc(n.revision||'')+'"><summary>'+esc(needTitle(n))+(n.options&&n.options.length?' <span class="small">('+n.options.length+' lựa chọn)</span>':'')+(n.id?' <span class="small mut">· '+esc(String(n.id).slice(0,12))+'</span>':'')+'</summary><div class="q">'+esc(n.question||n.kind)+'</div>';
   if(n.reason)h+='<div class="small">Vì: '+esc(n.reason)+'</div>';if(n.impact)h+='<div class="small">Ảnh hưởng: '+esc(n.impact)+'</div>';
+  if(detailError)h+='<div class="small stale-tpl" data-stale-template="1">Mẫu lệnh này lấy từ dữ liệu lúc '+clockMs(detailOkAt)+' (chi tiết chưa cập nhật): câu hỏi có thể đã được trả lời hoặc đổi bản; khi đó OneCrew từ chối lệnh nhờ --revision cũ.</div>';
   if(n.kind==='request')h+='<div class="small">Mẫu lệnh — phần <mark class="ph">'+esc(ph||'<…>')+'</mark> là lý do/bằng chứng BẠN tự điền; chưa điền thì lệnh chưa chạy được:</div>';
   (n.options||[]).forEach(function(o,j){h+='<div class="opt" data-k="opt:'+esc(nk)+':'+j+'"><b>'+esc(o.label)+'</b> <span class="small mut">('+esc(o.id)+')</span>'+(n.recommendation===o.id?' <span class="small">· khuyến nghị</span>':'')
     +'<div class="cmd"><code>'+cmdHtml(o.reply_command,ph)+'</code><button type="button" class="copy" data-copy="'+esc(o.reply_command)+'">Sao chép mẫu lệnh</button></div></div>'});
@@ -522,7 +551,7 @@ function evLi(e,idx){var exp=selEv===e.seq;var h='<li tabindex="0" role="button"
         +'<button type="button" class="ev-open" data-key="'+k+'">'+(open?'ẩn nội dung':'xem nội dung')+'</button> <a class="small" target="_blank" href="'+evHref(k)+'">mở tab mới</a>'
         +(open?'<pre>'+esc(open.text)+'</pre>':'')+'</div>'});h+='</div>'}
   return h+'</li>'}
-function evHref(k){return '/api/evidence?plan='+encodeURIComponent(detailData.selector)+'&project_id='+encodeURIComponent(detailData.project_id)+'&key='+k+'&format=text'}
+function evHref(k){var d=mine();if(!d)return '#';return '/api/evidence?plan='+encodeURIComponent(d.selector)+'&project_id='+encodeURIComponent(d.project_id)+'&key='+k+'&format=text'}
 function groups(d){var g={},order=[];function add(key,title,e){if(!g[key]){g[key]={title:title,cur:[],old:[],tech:[]};order.push(key)}var tech=TECH.some(function(p){return e.kind.indexOf(p)===0});
     if(e.stale_generation||e.stale_attempt)g[key].old.push(e);else if(tech)g[key].tech.push(e);else g[key].cur.push(e)}
   add('plan','Plan '+d.plan,{kind:'',seq:-1,summary:''});g.plan.cur=[];
@@ -530,7 +559,8 @@ function groups(d){var g={},order=[];function add(key,title,e){if(!g[key]){g[key
   (d.timeline||[]).forEach(function(e){var n=e.node||e.node_of_attempt;if(n)add('n:'+n,'phần việc '+n,e);else add('plan','Plan '+d.plan,e)});return {g:g,order:order}}
 function renderDetail(d){
   var idx={};(d.evidence_index||[]).forEach(function(x){idx[x.key]=x});
-  var h=['<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" tabindex="-1">'+esc(d.plan)+' '+st(d.status)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
+  var h=['<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(d.plan)+' '+st(d.status)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
+  if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. Trang tự thử lại.</div>');
   h.push('<div class="small mut">Đang xem task <b>'+esc(d.plan)+'</b> của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
   var needs=d.needs_user||[],nq=needs.filter(function(n){return n.kind==='request'}).length,nother=needs.length-nq;
   h.push('<div class="dsum"><span class="step">'+esc(d.current_step||d.status.reason||'')+'</span>'+(needs.length?'<a href="#needs" class="small">'+(nq?nq+' câu hỏi chờ bạn':'')+(nq&&nother?' · ':'')+(nother?nother+' việc cần bạn':'')+'</a>':'<span class="small mut">không cần bạn lúc này</span>')+'</div>');
@@ -597,7 +627,7 @@ function gantt(d){var g=d.gantt||{rows:[],plan_marks:[],axis:{}},W=gWindow(g);
   var legend='<span class="legend"><span><i class="sw execution"></i>thực thi</span><span><i class="sw reserved"></i>đặt chỗ</span><span><i class="sw wait"></i>chờ (có mốc kết thúc)</span><span><i class="sw verification"></i>kiểm</span><span><i class="sw to_now"></i>tới hiện tại, chưa xác nhận</span><span>◆ dấu mốc</span><span style="opacity:.45"><i class="sw execution"></i>lượt cũ</span></span>';
   if(!W){h.push('<div><div class="gtop"><b style="color:var(--fg)">Timeline</b>'+legend+'</div><div class="mut small" id="gempty">'+(g.rows&&g.rows.length?'chưa có mốc thời gian có nguồn':'chưa có lượt thực hiện nào (chưa có mốc thời gian)')+'</div></div><div class="gside" id="gside"><span class="mut">Chọn một thanh hoặc dấu mốc để xem số liệu chính xác.</span></div></section>');return h.join('')}
   var axisSec=(W.w1-W.w0)/1000;
-  h.push('<div><div class="gtop"><b style="color:var(--fg)">Timeline</b><span>'+when(new Date(W.w0).toISOString())+' → '+(g.axis.extends_to_now&&gRange!=='x'?'hiện tại ('+when(g.axis.now)+' theo server)':when(new Date(W.w1).toISOString()))+' · '+hms(axisSec)+'</span>'+(lostSince?'<span class="gstale" id="gstale">mất kết nối: đang hiện dữ liệu cũ lúc '+(lastOk?new Date(lastOk).toLocaleTimeString():'?')+', đồng hồ dừng</span>':'')
+  h.push('<div><div class="gtop"><b style="color:var(--fg)">Timeline</b><span>'+when(new Date(W.w0).toISOString())+' → '+(g.axis.extends_to_now&&gRange!=='x'?'hiện tại ('+when(g.axis.now)+' theo server)':when(new Date(W.w1).toISOString()))+' · '+hms(axisSec)+'</span>'+(lostSince?'<span class="gstale" id="gstale">mất kết nối: đang hiện dữ liệu cũ lúc '+(lastOk?new Date(lastOk).toLocaleTimeString():'?')+', đồng hồ dừng</span>':detailError?'<span class="gstale" id="gstale">chi tiết chưa cập nhật: đang hiện dữ liệu lúc '+clockMs(detailOkAt)+', đồng hồ dừng</span>':'')
     +'<label>khoảng <select id="grange"><option value="all"'+(gRange==='all'?' selected':'')+'>toàn khoảng</option><option value="1h"'+(gRange==='1h'?' selected':'')+'>1 giờ cuối</option><option value="15m"'+(gRange==='15m'?' selected':'')+'>15 phút cuối</option></select></label>'+legend+'</div>');
   var ticks=[];for(var i=0;i<=5;i++){var t=W.w0+(W.w1-W.w0)*i/5;ticks.push('<i style="left:'+(i*20)+'%"></i><span class="t'+i+(i===0?' first':i===5?' last':'')+'" style="left:'+(i*20)+'%">'+new Date(t).toLocaleTimeString()+'</span>')}
   var tree=['<div class="grow gh0">Phần việc › lượt</div>'],chart=['<div class="gaxis">'+ticks.join('')+'</div>'];
@@ -641,7 +671,7 @@ function gside(d,g){if(!selStep)return '<span class="mut">Chọn một thanh ho�
   if(rest.length)h+='<div class="small" style="margin-top:4px"><b>Bằng chứng khác của lượt này</b></div>'+evRows(rest);
   if(inh.length)h+='<div class="small" style="margin-top:4px" id="inherit"><b>Kế thừa</b> <span class="mut">(hợp lệ, từ lượt trước)</span></div>'+inh.map(function(x){var e=x.key?idx[x.key]:null;return '<div class="small" data-k="inh:'+esc(x.key||x.kind)+'">'+esc(x.label)+(typeof x.from_generation==='number'?' từ thế hệ '+x.from_generation:'')+(x.from_attempt?' (lượt '+esc(String(x.from_attempt).slice(4,12))+')':'')+' · nguồn <code>'+esc(x.source)+'</code>'+(x.key?' <button type="button" class="ev-open" data-key="'+x.key+'">'+(evState[x.key]?'ẩn nội dung':'xem nội dung')+'</button> <a target="_blank" href="'+evHref(x.key)+'">mở tab mới</a>'+(evState[x.key]?'<pre>'+esc(evState[x.key].text)+'</pre>':''):'')+'</div>'}).join('');
   return h}
-function repaintGantt(){if(!detailData)return;var s=snapshot();var el=document.querySelector('#detail .gantt');if(el){var t=document.createElement('div');t.innerHTML=gantt(detailData);el.replaceWith(t.firstChild)}restore(s)}
+function repaintGantt(){var d=mine();if(!d)return;var s=snapshot();var el=document.querySelector('#detail .gantt');if(el){var t=document.createElement('div');t.innerHTML=gantt(d);el.replaceWith(t.firstChild)}restore(s)}
 function snapshot(){var open={};document.querySelectorAll('#detail details[data-k]').forEach(function(x){open[x.getAttribute('data-k')]=x.open});
   var a=document.activeElement,foc=a&&a.closest&&a.closest('[data-k]'),inner=null;
   if(a&&foc){if(a.tagName==='SUMMARY')inner='summary';else if(a.classList.contains('copy'))inner='copy';else if(a.classList.contains('ev-open'))inner='ev-open:'+a.getAttribute('data-key');else if(a.tagName==='A')inner='a'}
@@ -653,19 +683,32 @@ function restore(s){if(!s)return;Object.keys(s.open).forEach(function(k){var x=d
     (t||f).focus({preventScroll:true})}}
   var gs=document.querySelector('#detail .gscroll');if(gs&&s.gs)gs.scrollLeft=s.gs;
   $('#detailpane').scrollTop=s.pane;if(Math.abs(window.scrollY-s.win)>2)window.scrollTo(0,s.win)}
-function paint(d,why){var s=snapshot();detailData=d;renderDetail(d);restore(s);if(why==='select')afterSelect()}
+function paint(d,sel,why){var s=snapshot();detailData=d;detailFor={plan:sel.plan,project:sel.project};renderDetail(d);restore(s);if(why==='select')afterSelect()}
 function afterSelect(){setView();if(narrow())window.scrollTo(0,0);else{var r=$('#detailpane').getBoundingClientRect();if(r.top<0||r.top>window.innerHeight*0.8)$('#detailpane').scrollIntoView({block:'start'})}
   if(selected&&selected.focusDetail){selected.focusDetail=false;var t=$('#dtitle');if(t)t.focus({preventScroll:true})}}
-function loadDetail(why){if(!selected)return;var token=++detailToken,sel=selected;
+function loadDetail(why){if(!selected)return;var token=++detailToken,sel={plan:selected.plan,project:selected.project};
+  function current(){return token===detailToken&&sameSel(sel,selected)}      // a reply OR a failure of a superseded request / a task no longer selected never touches the page
   fetch('/api/task?plan='+encodeURIComponent(sel.plan)+(sel.project?'&project_id='+encodeURIComponent(sel.project):'')+'&timeline=300',{cache:'no-store'})
-  .then(function(r){return r.json().then(function(j){return [r.ok,j]})}).then(function(x){if(token!==detailToken)return;      // a reply for a task no longer selected never overwrites the selected one
-    if(!x[0]){$('#detail').innerHTML='<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" tabindex="-1">'+esc(sel.plan)+'</h2></div><div class="err">'+esc(x[1].error||'lỗi')+'</div>';detailSeq=null;if(why==='select')afterSelect();return}
-    var seq=x[1].source&&x[1].source.last_seq;if(why!=='select'&&why!=='force'&&seq===detailSeq&&detailData&&detailData.selector===x[1].selector&&detailData.project_id===x[1].project_id){detailData=x[1];if(x[1].gantt&&x[1].gantt.axis&&(x[1].gantt.axis.extends_to_now||$('#gstale')))repaintGantt();return}   // nothing moved in the ledger: keep what the reader is looking at; only the server clock parts of the timeline move (P2-A)
-    detailSeq=seq;paint(x[1],why)}).catch(function(){})}
-function select(sel,opts){opts=opts||{};if(!sel){if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailSeq=null;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);
+  .then(function(r){return r.text().then(function(t){var j=null;try{j=JSON.parse(t)}catch(e){}return {ok:r.ok,status:r.status,j:j}})})
+  .then(function(x){if(!current())return;
+      if(!x.ok||!x.j||typeof x.j!=='object')return detailFailed(sel,'HTTP '+x.status+(x.j&&x.j.error?': '+x.j.error:x.ok?': trả lời không đọc được':''));
+      detailLoaded(sel,x.j,why)},
+    function(){if(!current())return;detailFailed(sel,'mất kết nối khi tải chi tiết')})}
+function detailLoaded(sel,j,why){var had=mine(),wasErr=!!detailError,seq=j.source&&j.source.last_seq;detailError=null;detailOkAt=Date.now();
+  if(had&&!wasErr&&why!=='select'&&why!=='force'&&seq===detailSeq&&had.selector===j.selector&&had.project_id===j.project_id){detailData=j;if(j.gantt&&j.gantt.axis&&(j.gantt.axis.extends_to_now||$('#gstale')))repaintGantt();dind();return}   // nothing moved in the ledger: keep what the reader is looking at; only the server clock parts of the timeline move (P2-A)
+  detailSeq=seq;paint(j,sel,had?why:'select');dind()}      // recovery from a stale state re-renders once (warning and template marks go; snapshot/restore keep the reader's place)
+function detailFailed(sel,msg){var now=Date.now(),changed=!detailError||detailError.message!==msg,d=mine(),s;
+  detailError={since:detailError?detailError.since:now,last:now,message:msg};
+  if(d){if(changed){s=snapshot();renderDetail(d);restore(s)}else{var l=$('#dlast');if(l)l.textContent=clockMs(now)}}     // the task already shown: its data stays, marked stale
+  else if(changed||!$('#dstatus')||$('#dstatus').getAttribute('data-state')!=='error'){s=snapshot();pendingPane(sel);restore(s)}   // never loaded: its own heading + the error, nothing else
+  else{var l2=$('#dlast');if(l2)l2.textContent=clockMs(now)}
+  dind()}
+function select(sel,opts){opts=opts||{};if(!sel){if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);dind();
     if(!opts.silent&&location.search)history.pushState({},'',location.pathname);return}
-  if(!sameSel(selected,sel)){selEv=null;evState={};copied=null;detailSeq=null;selStep=null;gFold={};staleNotes=[];knownNeeds={}}
+  var other=!sameSel(selected,sel);
+  if(other){selEv=null;evState={};copied=null;detailSeq=null;selStep=null;gFold={};staleNotes=[];knownNeeds={};detailData=null;detailFor=null;detailError=null;detailOkAt=null}
   selected={plan:sel.plan,project:sel.project||'',focusDetail:!!opts.focusDetail};setView();render(true);
+  if(!mine()){pendingPane(selected);afterSelect()}dind();     // another task: its heading + "đang tải" at once, never the previous task's content
   if(!opts.silent&&location.search!==urlOf(selected))history.pushState({plan:selected.plan,project:selected.project},'',urlOf(selected));
   loadDetail('select')}
 function poll(){fetch('/api/overview',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
@@ -675,23 +718,24 @@ function poll(){fetch('/api/overview',{cache:'no-store'}).then(function(r){retur
     $('#src').textContent='Sổ: '+(s.ledger||'')+' · poll '+(INTERVAL/1000)+' s · wheel '+(j.server&&j.server.version||'?');render();if(selected)loadDetail('poll');
   }).catch(function(e){if(!lostSince){lostSince=new Date();repaintGantt()}conn('bad','MẤT KẾT NỐI với server theo dõi từ '+lostSince.toLocaleTimeString()+(lastOk?' — đang hiện dữ liệu cũ lúc '+new Date(lastOk).toLocaleTimeString():' — chưa có dữ liệu')+'; worker không bị ảnh hưởng; trang tự thử lại')})
   .then(function(){setTimeout(poll,INTERVAL)})}
-function copyText(text,k){copied={k:k,text:text,ok:false};var s=snapshot();           // the reader's focus at click time, restored after the re-render
-  function done(){renderDetail(detailData);restore(s)}
+function copyText(text,k){copied={k:k,text:text,ok:false};var s=snapshot(),sel0=selected;           // the reader's focus at click time, restored after the re-render
+  function done(){var d=mine();if(!d||!sameSel(selected,sel0))return;renderDetail(d);restore(s)}
   if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){copied.ok=true;done()},function(){copied.ok=fallback();done()})}else{copied.ok=fallback();done()}
   function fallback(){var was=document.activeElement,ta=document.createElement('textarea'),ok=false;ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.left='-1000px';document.body.appendChild(ta);ta.select();try{ok=document.execCommand('copy')===true}catch(e){ok=false}document.body.removeChild(ta);if(was&&was.focus)was.focus({preventScroll:true});return ok}}
-function openEvidence(key,btn){if(evState[key]){delete evState[key];var s=snapshot();renderDetail(detailData);restore(s);return}
+function openEvidence(key,btn){var d0=mine(),sel0=selected;if(!d0)return;if(evState[key]){delete evState[key];var s=snapshot();renderDetail(d0);restore(s);return}
+  function show(text){var d=mine();if(!d||!sameSel(selected,sel0))return;evState[key]={text:text};var s=snapshot();renderDetail(d);restore(s)}   // a late blob of a task no longer selected is dropped
   btn.textContent='đang tải…';fetch(evHref(key).replace('&format=text',''),{cache:'no-store'}).then(function(r){return r.json().then(function(j){return [r.ok,j]})}).then(function(x){
-    evState[key]={text:x[0]?x[1].text:'không mở được: '+(x[1].error||'')};var s=snapshot();renderDetail(detailData);restore(s)}).catch(function(){evState[key]={text:'không mở được (mất kết nối)'};var s=snapshot();renderDetail(detailData);restore(s)})}
+    show(x[0]?x[1].text:'không mở được: '+(x[1].error||''))}).catch(function(){show('không mở được (mất kết nối)')})}
 document.addEventListener('click',function(ev){var t=ev.target;
   var li=t.closest&&t.closest('li.task');if(li){select({plan:li.dataset.plan,project:li.dataset.project});return}
   if(t.id==='back'||t.id==='close'){var k=selected;select(null);var again=k&&document.querySelector('[data-k="task:'+k.project+':'+k.plan+'"]');if(again)again.focus();return}
   if(t.classList&&t.classList.contains('copy')){copyText(t.getAttribute('data-copy'),t.closest('.need').getAttribute('data-k'));return}
   if(t.classList&&t.classList.contains('chip')){$('#kind').value=t.getAttribute('data-kind');render(true);return}
-  if(t.classList&&t.classList.contains('stale-hide')){var key=t.getAttribute('data-key');staleNotes=staleNotes.filter(function(x){return x.key!==key});var s0=snapshot();renderDetail(detailData);restore(s0);return}
+  if(t.classList&&t.classList.contains('stale-hide')){var key=t.getAttribute('data-key');staleNotes=staleNotes.filter(function(x){return x.key!==key});var d0=mine();if(d0){var s0=snapshot();renderDetail(d0);restore(s0)}return}
   if(t.classList&&t.classList.contains('tg')){var fk=t.getAttribute('data-fold');if(fk.indexOf('h:')===0)gFold[fk]=gFold[fk]===false?true:false;else gFold[fk]=!gFold[fk];repaintGantt();var b=document.querySelector('[data-fold="'+fk+'"]');if(b)b.focus({preventScroll:true});return}
   var step=t.closest&&t.closest('.seg,.mk');if(step){var sid=step.getAttribute('data-k');selStep=(selStep&&selStep.id===sid)?null:{id:sid};repaintGantt();var again3=document.querySelector('[data-k="'+sid+'"]');if(again3)again3.focus({preventScroll:true});return}
   if(t.classList&&t.classList.contains('ev-open')){openEvidence(t.getAttribute('data-key'),t);return}
-  var e=t.closest&&t.closest('ol.ev > li');if(e&&!(t.closest('.evbox'))){var seq=parseInt(e.dataset.seq,10);selEv=(selEv===seq)?null:seq;var s=snapshot();renderDetail(detailData);restore(s);var again2=document.querySelector('[data-k="ev:'+seq+'"]');if(again2)again2.focus({preventScroll:true})}
+  var e=t.closest&&t.closest('ol.ev > li');if(e&&!(t.closest('.evbox'))){var seq=parseInt(e.dataset.seq,10),d1=mine();if(!d1)return;selEv=(selEv===seq)?null:seq;var s=snapshot();renderDetail(d1);restore(s);var again2=document.querySelector('[data-k="ev:'+seq+'"]');if(again2)again2.focus({preventScroll:true})}
 });
 document.addEventListener('keydown',function(ev){var t=ev.target;
   if(t.classList&&t.classList.contains('task')){var items=Array.prototype.slice.call(document.querySelectorAll('li.task')),i=items.indexOf(t);
@@ -711,7 +755,8 @@ window.matchMedia('(max-width:899px)').addEventListener('change',setView);
 setInterval(tick,1000);
 var qs=new URLSearchParams(location.search);if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true});
 poll();
-window.__track={state:function(){return {selected:selected,detailSeq:detailSeq,selEv:selEv,evOpen:Object.keys(evState),copied:copied,lastOk:lastOk,lost:!!lostSince,selStep:selStep,gRange:gRange,stale:staleNotes.map(function(x){return x.id}),axisNow:detailData&&detailData.gantt&&detailData.gantt.axis?detailData.gantt.axis.now:null}}};   // read-only inspection for tests; no control
+window.__track={state:function(){return {selected:selected,detailSeq:detailSeq,selEv:selEv,evOpen:Object.keys(evState),copied:copied,lastOk:lastOk,lost:!!lostSince,selStep:selStep,gRange:gRange,stale:staleNotes.map(function(x){return x.id}),axisNow:mine()&&mine().gantt&&mine().gantt.axis?mine().gantt.axis.now:null,
+  detailFor:mine()?{plan:detailFor.plan,project:detailFor.project}:null,detailState:detailState(),detailError:detailError?{since:iso(detailError.since),last:iso(detailError.last),message:detailError.message}:null,detailOkAt:iso(detailOkAt)}}};   // read-only inspection for tests; no control
 })();
 </script></body></html>
 '''
