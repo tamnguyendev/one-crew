@@ -1,64 +1,73 @@
-# OBS-1 — báo cáo bàn giao: màn hình theo dõi chỉ đọc
+# OBS-1 — báo cáo bàn giao: màn hình theo dõi chỉ đọc, beta `2.4.0.dev7`
 
-Người lập: Claude (Fable 5.1), 03/11/2026. Nhiệm vụ: triển khai OBS-1 (roadmap §0.9, thiết kế §2.10, bàn giao Claude mục OBS-1) song song và cách ly với
-phiên phát hành 2.4. Chưa Codex review, chưa nghiệm thu, không push/tag.
+Người lập: Claude (Fable 5.1), 03/11/2026 (lượt 1 ~00:00 trên `bf6994f`; lượt 2 ~09:00 sau review Codex). Nhiệm vụ: OBS-1 (roadmap §0.9, thiết kế §2.10,
+bàn giao Claude mục OBS-1) cách ly với bản phát hành 2.4; lượt 2: khép bốn P2 của Codex, kiểm từ wheel, gói cuối, tag + push lên origin private
+(chủ ủy quyền một lần 03/11). Bản sửa **chưa được Codex review lại, chưa nghiệm thu**.
 
 ## 1. Kết quả ngắn
 
-- **Nhánh** `claude/onecrew-obs1` (worktree `D:\TamNT\Workspace\11.OneCrew\wf-obs1`) tách từ `01b6f62` (2.4.0.dev6, đã xác minh là HEAD của `claude/onecrew-2.4`).
-  Snapshot bàn giao: `bf6994f` (code; tài liệu bàn giao ở commit sau đó trên cùng nhánh), version `2.4.0.dev6+obs1` (nhãn local của lát; nhánh/gói 2.4 không đổi).
-- **Điểm vào**: `onecrew track list|show|evidence|serve|open` (nhóm `track` của CLI cài). Một lệnh mở màn hình: `onecrew --project <p> --state-root <sổ> track open`.
-- **Gói thử độc lập**: `D:\OneCrewRuns\obs1\pkg-trial\onecrew-obs1-trial-bf6994f` (wheel `onecrew-2.4.0.dev6+obs1-py3-none-any.whl`, SHA256 `dfd2365b4ca468a1ad463af8884b6e886b89f1040f878b471e5ce0c65d70b114`), kiểm từ gói `verify_obs1.py` 12/12 (V1 identity → V12 isolation; 23:34:25–23:35:42 02/11, trình duyệt Chrome headless; báo cáo `D:\OneCrewRuns\obs1\verify-trial-6\verify-report.json`, ảnh `D:\OneCrewRuns\obs1\verify-trial-6\evidence\obs1-list.png`, `obs1-detail-P1.png`, `obs1-disconnected.png`) và script chủ `verify\thu-goi-obs1.ps1` in `DAT` 12/12, độ trễ 0,49 s (`D:\OneCrewRuns\obs1\thu-goi-trial-bf6994f\verify-report.json`).
-- **Test**: `tests/test_obs1_tracking.py` (18), `tests/test_obs1_web.py` (7, trình duyệt headless Chrome), `tests/test_obs1_installed.py` (1, wheel ngoài checkout, task thật với `claude` giả): đạt trên snapshot cuối (log `D:\OneCrewRuns\obs1\logs\`). Module liên quan sẵn có: `test_g1_core`, `test_wf_r10_console_utf8`, `test_wf_r14_console_entry`, `test_v24_docs_sync`: 46/46 đạt (gate 2.2 đầy đủ không chạy lại; nó đang được phiên 2.4 dùng).
-- **Số đo** (sổ thử 2 plan / 56 sự kiện, máy đang chạy gate 2.4 song song): độ trễ ghi sổ → trang 0,51 s (lượt trước 0,48 s và 0,49 s; gồm cả thời gian khởi động tiến trình ghi; trần 5 s); đọc overview 7,7 ms mỗi lần poll (≈200 ms khi máy đang chạy bộ test khác song song; poll 2 s mặc định).
-- **Không đổi**: `claude/onecrew-2.4` vẫn ở `01b6f62`; gói `D:\OneCrewRuns\v24\pkg\onecrew-2.4.0.dev6-beta` không đụng; registry hook thật giữ hash `aacad058f478898d…` trước/sau mọi lượt; `wf-v23-hf`, SDK, sổ thật không đụng.
+- **Phát hành:** nhánh `claude/onecrew-obs1` (worktree `D:\TamNT\Workspace\11.OneCrew\wf-obs1`, tách từ `01b6f62` = `v2.4.0.dev6`). Snapshot **`@@SNAP@@`** = `2.4.0.dev7`
+  (prerelease kế tiếp còn trống của dòng 2.4; dev6 đã chiếm). Tag `v2.4.0.dev7` + nhánh: @@PUSH@@. Nhánh `claude/onecrew-2.4`, tag `v2.4.0.dev6`, gói dev6 không đổi.
+- **Gói cuối:** `D:\OneCrewRuns\obs1\pkg\onecrew-2.4.0.dev7-obs1-beta` — wheel `onecrew-2.4.0.dev7-py3-none-any.whl`, SHA256 `@@WHEEL_SHA@@`; `manifest.json`, `SHA256SUMS`,
+  `BAT-DAU-THU.vi.md` (cài → mở UI → chọn project/sổ → xem task; §4 đọc sổ của project đang có OneCrew ≠ nâng runtime; §5 dừng UI, quay về có điều kiện), `docs\RELEASE-NOTES-OBS-1.vi.md`,
+  `docs\limits-obs1.md`, bộ kiểm `verify\` (V1–V13) và script chủ `verify\thu-goi-obs1.ps1`.
+- **Kiểm từ gói (wheel cài vào venv sạch ngoài checkout, `claude` giả):** `thu-goi-obs1.ps1` → `@@VERIFY@@` (`D:\OneCrewRuns\obs1\thu-goi-dev7-@@SNAP@@\verify-report.json`, ảnh `evidence\obs1-list.png`,
+  `obs1-detail-P1.png`, `obs1-disconnected.png`). Số đo: độ trễ ghi sổ → trang `@@LAT@@` s (trần 5 s), đọc overview `@@READMS@@` ms/poll, engine step `@@STEP@@` s, bước dài `@@LONG@@` s.
+- **Test:** `tests/test_obs1_p2.py` (10; **9/10 đỏ trên `bf6994f`** — ca thứ 10 là đối chứng `plan.accepted` vẫn "đã nghiệm thu" — → 10/10 xanh), `test_obs1_tracking` (18),
+  `test_obs1_web` (7, Chrome headless), `test_obs1_installed` (1, wheel ngoài checkout), `test_g1_core`, `test_wf_r10_console_utf8`, `test_wf_r14_console_entry`,
+  `test_v24_docs_sync`: **82/82** trên code của snapshot (log `D:\OneCrewRuns\obs1\logs\test-obs1-all-083740.txt`; các commit sau chỉ sửa scenario kiểm gói và tài liệu).
+- **Một lệnh mở UI đã chạy thật** (sổ thử của lượt kiểm, 5 plan + project B): `D:\OneCrewRuns\obs1\mo-trang-obs1.ps1` → `onecrew --project … --state-root … track open`.
+- **Không đổi:** runtime/sổ/hook/registry thật (hash `aacad058f478898d…` trước/sau mọi lượt); project SignSDK vẫn 2.3 `venv-23`; `wf-v24`, `wf-v24-pkg`, `wf-v23-hf` không đụng; không model trả phí.
 
-## 2. Giải pháp (tóm tắt; chi tiết ở GIAI-PHAP-OBS-1.vi.md)
+## 2. Bốn finding P2 của Codex (probe `D:\OneCrewRuns\codex-obs1-review-20261103\probe.py` trên wheel `bf6994f`)
 
-Một mô hình trạng thái đọc chung `onecrew/v2/tracking.py` (`overview`, `detail`, `evidence`) dựng từ sổ qua `report._Reader` (sqlite `mode=ro`,
-`query_only`): plan.* (trạng thái root), `engine.state` (node/thế hệ/attempt, generation cũ bị bỏ), bảng `attempts` (root + task con), `executor.observed`
-(liveness/chờ), `requests` (cần người dùng), `notice.exception`, `estimates.read` (ETA), `execution_mode.measure` (union thời gian attempt/chờ),
-`managed_executor.hold_views`. CLI (`tracking_cli.py`) và trang web (`tracking_web.py`, `http.server` stdlib trên 127.0.0.1, chỉ GET, HTML một file, poll 2 s)
-đọc đúng dict đó. Không sổ tiến độ riêng, không ghi, không model, không nút điều khiển.
+| # | Lỗi (phản chứng) | Nguyên nhân | Sửa | Khép bằng |
+|---|---|---|---|---|
+| P2-01 | `plan.closed` với node chưa chạy hiện "đã nghiệm thu" | `_level` gộp `closed` với `accepted` | chỉ `plan.accepted` là nghiệm thu; `closed` lấy mức từ node (none/produced/verified); trạng thái `hoàn tất` với lý do "đã đóng (đóng không phải nghiệm thu; đầu ra: …)" | `ClosedIsNotAccepted` (3 ca: chưa chạy → `none`; một node produced → `produced`; accepted vẫn accepted); V13 `P3` qua `track show --json` |
+| P2-02 | quan sát blocked của attempt cũ đến muộn làm attempt mới (thế hệ mới) hiện "bị chặn" | progress lấy "mới nhất theo node", không ràng attempt | `_progress_rows` giữ mới nhất theo (node, attempt); `_current_progress` chỉ lấy dòng của attempt mà `engine.state` ràng vào node; timeline đánh dấu `stale_attempt` ("attempt cũ"); quan sát của attempt hiện hành vẫn chặn | `OldAttemptObservation` (2 ca: running giữ nguyên, lịch sử có dấu, rồi quan sát attempt hiện hành → blocked; lý do "chưa có quan sát" chỉ của attempt hiện hành); V13 `P4` qua HTTP trong hai cửa sổ (running → blocked) |
+| P2-03 | ghi bắt đầu chờ rồi ghi kết thúc cùng khoảng, mọi node verified, UI vẫn "đang chờ external_service" | mỗi sự kiện wait xét riêng | `_waits`: một dòng mỗi (attempt, basis ref) như `executors.summary`; bản ghi có `until` đóng nó dù thứ tự nào; trùng/đến muộn không mở lại; attempt đã kết thúc → `until = unknown`, không hiện hành; mỗi dòng có `open`; `measure.executor_waits`; attempt đang chạy có wait mở → "đang chờ" với lý do executor | `EndedWaits` (3 ca: đã đóng → `done` chờ nghiệm thu; hai khoảng độc lập + trùng + đến muộn; attempt đã kết thúc); V13 `P5` qua CLI JSON + text |
+| P2-04 | server `--project-only` A: `?project_id=B` trả 200 kèm bằng chứng của B | `scope = query hoặc server` | `project_id` của query ≠ project của server → 403 trên mọi `/api/*`; = server → 200; chế độ mọi project vẫn thu hẹp được | `ProjectScope` (2 ca HTTP); V13 qua `track serve --project-only` thật rồi server mọi project |
 
-## 3. Yêu cầu OBS-1 → code / test / bằng chứng → trạng thái
+Hồ sơ gốc lượt 1 (snapshot `bf6994f`, gói thử `onecrew-obs1-trial-bf6994f` 12/12) giữ nguyên trong lịch sử nhánh; các dòng "đạt" của lượt 1 ở mục 3 nay đọc là "đạt sau khi sửa P2" ở những hàng có ghi.
+
+## 3. Yêu cầu OBS-1 → code / test / bằng chứng → trạng thái (trên `@@SNAP@@`)
 
 | Yêu cầu | Code | Test / bằng chứng | Trạng thái |
 |---|---|---|---|
-| A. Danh sách: project, mục tiêu, định danh task/root | `tracking._item` (`project`, `goal` = `understanding.restated_goal`, `id`, `selector`) | `test_obs1_tracking` (mọi ca), ảnh `obs1-list.png` | đạt |
-| A. Trạng thái có nguồn: đang thực hiện / đang chờ / bị chặn / hoàn tất / chưa xác định | `tracking._status` → `{kind,label,reason,source[]}` | proposed→chờ duyệt; approved chưa step→chờ; attempt running→đang thực hiện; unknown→chưa xác định; held→bị chặn; verified→hoàn tất; accepted→đã nghiệm thu (`EngineTests`) | đạt |
-| A. Thời gian đã chạy, cập nhật/bằng chứng gần nhất | `_elapsed` (approved→nay/accepted), `last_update`, `_last_evidence` (theo `observed_at`, kèm provenance) | `test_duplicate_observation…`, `test_verified…` | đạt |
-| A. Việc thực sự cần người dùng | `_needs_user`: request pending (+ lệnh trả lời), duyệt, báo cáo dừng, nghiệm thu | `test_pending_request…` (đọc không trả lời), V6 | đạt |
-| B. Node/attempt, root/child | `detail.nodes` (child task), `detail.attempts` (root + con), timeline gộp root + con theo `seq` | `test_running_attempt…`, V4 | đạt |
-| B. Phát sinh, retry/generation mới, lý do có bằng chứng | `node.resumed`/`node.result_retained`/`node.held` trong timeline; `measure.rework`; `eta.last_change`; `notices` | `test_old_generation_event…` (thế hệ cũ không đổi trạng thái, timeline đánh dấu) | đạt |
-| B. Phân biệt hoạt động / đã tạo / đã kiểm / đã nghiệm thu | `status.kind` (hoạt động) tách khỏi `level.kind` (`none/produced/verified/accepted`) | `test_running_attempt…` (child checkpoint completed không đánh xong), `test_verified…` | đạt |
-| B. Mở/xem bằng chứng trong phạm vi | `evidence()` chỉ blob mà sự kiện của root nêu (403 nếu khác), lọc từng dòng, 64 KiB; `/api/evidence`, `track evidence` | `test_evidence_only_for_keys…`, `test_get_only_and_the_evidence_door` | đạt |
-| B. Thời gian chờ, ETA có căn cứ hoặc "chưa xác định" | `waits` (mode wait + executor wait mở), `measure.wait_seconds` (union), `_eta` (khoảng, lý do, không %) | `test_eta_comes_from…`, root không engine → "chưa xác định" | đạt |
-| C. Cập nhật trong trần độ trễ | poll 2 s (cấu hình 0.5–60), mỗi request đọc sổ mới | `test_a_new_ledger_event_shows_within_the_latency_ceiling` (≤ 5 s), V6 đo `0.51 (lượt trước 0.48; gồm cả thời gian khởi động tiến trình ghi)` s | đạt (sổ nhỏ) |
-| C. Mở lại/reconnect từ nguồn bền | không trạng thái phía server/trang; timeline định danh `seq` | `test_restart_shows_the_same_timeline_without_duplicates`, V7 | đạt |
-| C. Không nhân đôi sự kiện/attempt, không cộng đôi overlap | định danh `seq`; `observe` cùng key không ghi; union (`execution_mode.measure`) | `test_duplicate_observation…`, `test_overlapping_attempts…` | đạt |
-| C. Đóng UI không dừng worker | server tiến trình riêng, chỉ đọc, không giữ khóa | `test_closing_the_server_leaves_a_running_worker_alone`, V8 (tắt server giữa bước 6 s của worker thật) | đạt |
-| C. Nguồn thiếu/lỗi/mất kết nối hiển thị đúng | `source.status` missing/unreadable; nhãn "MẤT KẾT NỐI … dữ liệu cũ" | `SourceTests`, `SourceProblemTests`, `test_the_page_says_disconnected…`, V11 proxy, ảnh `obs1-disconnected.png` | đạt |
-| C. Phiên chưa được theo dõi | `untracked`: task ngoài plan, project registry không plan, phiên hook; `statement` cố định | `test_tasks_outside_a_plan…`, V10, ảnh | đạt |
-| UI và CLI cùng mô hình | `track list --json` = `overview()`; trang đọc `/api/overview` cùng hàm | `test_cli_json_is_the_same_model…`, V5 | đạt |
-| Kiểm UI trực tiếp từ artifact ngoài checkout | Chrome headless `--dump-dom`/`--screenshot` qua gói | `BrowserTests`, `test_obs1_installed`, V11 | đạt trên Chrome; Edge headless không dump (ghi ở limits) |
-| Lọc dữ liệu nhạy cảm | `tracking.clean` (redact_line S1) mọi chuỗi; evidence `redact` | `test_secret_in_the_goal…`, `test_unknown_attempt…`, V9 | đạt (theo mẫu) |
+| A. Danh sách: project, mục tiêu, định danh task/root | `tracking._item` (`project`, `goal`, `id`, `selector`) | `test_obs1_tracking` (mọi ca), ảnh `obs1-list.png` | đạt |
+| A. Trạng thái có nguồn: đang thực hiện / đang chờ / bị chặn / hoàn tất / chưa xác định | `tracking._status` → `{kind,label,reason,source[]}` | `EngineTests`, `test_obs1_p2` (đóng ≠ nghiệm thu, attempt cũ không chặn, chờ đã kết thúc) | đạt sau sửa P2-01/02/03 |
+| A. Thời gian đã chạy, cập nhật/bằng chứng gần nhất | `_elapsed`, `last_update`, `_last_evidence` | `test_duplicate_observation…`, `test_verified…` | đạt |
+| A. Việc thực sự cần người dùng | `_needs_user` (request + lệnh trả lời, duyệt, báo cáo dừng, nghiệm thu) | `test_pending_request…`, V6 | đạt |
+| B. Node/attempt, root/child | `detail.nodes`, `detail.attempts`, timeline gộp theo `seq` | `test_running_attempt…`, V4 | đạt |
+| B. Phát sinh, retry/generation mới, lý do có bằng chứng | timeline `node.resumed`/`node.held`…, `measure.rework`, `eta.last_change`, `notices`, dấu `stale_generation`/`stale_attempt` | `test_old_generation_event…`, `OldAttemptObservation` | đạt |
+| B. Phân biệt hoạt động / đã tạo / đã kiểm / đã nghiệm thu | `status.kind` tách khỏi `level.kind` (`none/produced/verified/accepted`); `closed` không nâng mức | `test_running_attempt…`, `test_verified…`, `ClosedIsNotAccepted` | đạt sau sửa P2-01 |
+| B. Mở/xem bằng chứng trong phạm vi | `evidence()` chỉ blob mà sự kiện của root nêu (403), lọc từng dòng, 64 KiB; server không nới project | `test_evidence_only_for_keys…`, `test_get_only…`, `ProjectScope` | đạt sau sửa P2-04 |
+| B. Thời gian chờ, ETA có căn cứ hoặc "chưa xác định" | `waits` (`open`/lịch sử, `until`), `measure.wait_seconds` + `executor_waits`, `_eta` | `test_eta_comes_from…`, `EndedWaits` | đạt sau sửa P2-03 |
+| C. Cập nhật trong trần độ trễ | poll 2 s, mỗi request đọc sổ mới | `test_a_new_ledger_event…` (≤ 5 s), V6 đo `@@LAT@@` s | đạt (sổ nhỏ) |
+| C. Mở lại/reconnect từ nguồn bền | không trạng thái phía server; timeline định danh `seq` | `test_restart_shows_the_same_timeline…`, V7 | đạt |
+| C. Không nhân đôi sự kiện/attempt, không cộng đôi overlap | định danh `seq`; `observe` cùng key không ghi; union | `test_duplicate_observation…`, `test_overlapping_attempts…`, `EndedWaits` (wait trùng = một dòng) | đạt |
+| C. Đóng UI không dừng worker | server tiến trình riêng, chỉ đọc, không giữ khóa | `test_closing_the_server…`, V8 (tắt server giữa bước `@@LONG@@` s của worker thật) | đạt |
+| C. Nguồn thiếu/lỗi/mất kết nối hiển thị đúng | `source.status`; nhãn "MẤT KẾT NỐI … dữ liệu cũ" | `SourceTests`, `SourceProblemTests`, `test_the_page_says_disconnected…`, V11 proxy, ảnh | đạt |
+| C. Phiên chưa được theo dõi | `untracked` + `statement` cố định | `test_tasks_outside_a_plan…`, V10, ảnh | đạt |
+| UI và CLI cùng mô hình | `track list --json` = `overview()`; trang đọc `/api/overview` cùng hàm | `test_cli_json_is_the_same_model…`, V5, V13 (CLI và HTTP cùng kết luận) | đạt |
+| Kiểm UI trực tiếp từ artifact ngoài checkout | Chrome headless `--dump-dom`/`--screenshot` qua gói | `BrowserTests`, `test_obs1_installed`, V11 | đạt trên Chrome (Edge headless không dump; limits) |
+| Lọc dữ liệu nhạy cảm | `tracking.clean` (redact_line S1); evidence `redact` | `test_secret_in_the_goal…`, V9 | đạt (theo mẫu) |
 | Không điều khiển task từ UI | không endpoint ghi; POST/PUT/DELETE → 405 | `test_get_only…`, V6 | đạt |
 
-Ngoài bộ tự động, trang đã được mở thật trong trình duyệt của app Claude trên sổ thử của lượt kiểm 6 (`track serve --port 47311`, `?plan=P1`): danh sách hai plan, ô cần bạn với mật khẩu đã che, chi tiết node C `verified (pass)`, timeline 27 sự kiện; server tắt bằng tay sau đó, sổ không đổi.
+## 4. Cách dùng
 
-## 4. Cách tạo một task thử và xem trạng thái đổi
-
-Trong gói: `verify\thu-goi-obs1.ps1` làm trọn (task thật với `claude` giả trên sổ tạm, mở trang, chụp ảnh). Bằng tay: `BAT-DAU-THU.vi.md` §3 (cài venv thử,
-`track open` trên sổ thử, chạy bài task đầu tiên của 2.4 hoặc một plan thật; dòng của plan đổi theo thứ tự chờ duyệt → chờ worker → đang thực hiện →
-đã tạo, chờ kiểm → đã kiểm, chờ nghiệm thu → đã nghiệm thu).
+- **Thử trọn gói:** `powershell -ExecutionPolicy Bypass -File "D:\OneCrewRuns\obs1\pkg\onecrew-2.4.0.dev7-obs1-beta\verify\thu-goi-obs1.ps1"` → `DAT … 13/13`.
+- **Mở UI trên sổ thử của lượt kiểm:** `powershell -ExecutionPolicy Bypass -File "D:\OneCrewRuns\obs1\mo-trang-obs1.ps1"` (trình duyệt mặc định; P1 đã kiểm, P2 đã tạo, P3 đóng, P4 bị chặn, P5 chờ kiểm; project B chỉ khi `--all-projects`).
+- **Project đang có OneCrew:** `BAT-DAU-THU.vi.md` §3–§5 trong gói: venv thử + `track open --project <p> --state-root <bản sao sổ>`; không nâng runtime thật (quyết định riêng sau Codex review).
 
 ## 5. Giới hạn (không biến thành tuyên bố hoàn tất)
 
-Xem `limits-obs1.md`: worker giả; chỉ root/node/attempt trong sổ; liveness là quan sát; ETA chỉ khi có ước lượng; độ trễ đo trên sổ nhỏ; Chrome headless;
-lọc theo mẫu; `track open` với trình duyệt thật chưa trong bộ tự động; version nhãn local; chưa Codex review; gate 2.2 đầy đủ không chạy lại.
+`docs/obs1/limits-obs1.md` và `RELEASE-NOTES-OBS-1.vi.md`: worker giả; chỉ root/node/attempt trong sổ; liveness là quan sát; ETA chỉ khi có ước lượng; độ trễ đo trên sổ nhỏ; Chrome headless;
+lọc theo mẫu; không xác thực (127.0.0.1); OBS-1 không phải toàn bộ roadmap (MR-R, OBS-2 chưa); bản sửa P2 chưa Codex review lại; gate 2.2 đầy đủ không chạy lại cho lát này;
+wheel kiểm = wheel giao theo hash SHA256 (một lần dựng, không cần tái lập byte).
 
-## 6. Việc của chủ / Codex
+## 6. Việc thật sự cần chủ quyết
 
-Codex review nhánh `claude/onecrew-obs1` (diff từ `01b6f62`); chốt số version/tên gói OBS-1; nghiệm thu bằng `thu-goi-obs1.ps1` và `track open` trên
-một sổ thử; quyết định gộp sau khi 2.4 phát hành (không gộp vào `claude/onecrew-2.4`).
+1. Codex review lại nhánh (diff `bf6994f..@@SNAP@@`, trọng tâm `tracking.py` `_waits`/`_current_progress`/`_level`, `tracking_web.py` 403) và nghiệm thu OBS-1 beta.
+2. Có gộp `claude/onecrew-obs1` vào dòng 2.4 (sau dev6) hay giữ nhánh riêng; số prerelease kế tiếp của 2.4 là dev8.
+3. Có cho project thật (SignSDK) *đọc* sổ bằng venv OBS-1 hay chờ nâng runtime chung; nâng runtime không nằm trong lượt này.

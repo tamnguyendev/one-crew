@@ -119,7 +119,7 @@ def main():
     if case == 'p2':
         import threading
         from onecrew.snapshots import Snapshots
-        from onecrew.control import Control, migrate
+        from onecrew.control_core import Control, migrate
         from onecrew.v2 import engine, executors, internal_plan, plan, progress_track
         store, caps = Snapshots(state), ['namespaced-storage', 'root-budget', 'internal-plan', 'sequential-engine']
         migrate(ledger); control = Control(ledger)
