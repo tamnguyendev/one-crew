@@ -90,3 +90,15 @@ Bằng chứng review: `D:\OneCrewRuns\codex-obs1-ux-review-20261103\observation
 | B | nhiều câu hỏi đẩy tóm tắt xuống | câu hỏi trước thẻ số liệu, luôn mở | vùng đầu: bước hiện tại + "n câu hỏi chờ bạn"; thẻ số liệu trước; mục "Cần bạn (n)" gập từng câu, không gộp, giữ mở qua poll | `ux03b` (1280 và 390) |
 | C | timeline/bằng chứng thiếu trực quan | — | thanh thời lượng attempt khi có mốc kết thúc + số đo; đang chạy "chưa xác định"; không ETA/phần trăm | `ux06` |
 | D | held/pending/none là lời giải thích duy nhất | nhãn thô | pha/đầu ra tiếng Việt, mã gốc ở `title`; "lý do (engine)"; badge có ký hiệu | `ux05` |
+
+## 8. Hướng thiết kế chủ chốt 03/11 ~13:30 (dev10): timeline Gantt/waterfall + hai P2 của dev9
+
+| Mục | Cách làm | Nguồn dữ liệu / kiểm |
+|---|---|---|
+| Cây phần việc → lượt | `detail.gantt.rows` (một hàng mỗi attempt dưới node của nó, `current`/`active`, thế hệ), hàng Plan cho dấu mốc plan; gập từng phần việc, lượt cũ gập "lịch sử (n)" mờ | `attempts` + `node.started` (attempt→node); harness `gantt` (P4 lịch sử) |
+| Cùng trục thời gian | `axis.start/end` = min/max mốc có nguồn; `end` = hiện tại khi còn lượt active (`extends_to_now`); vạch 5 mốc; đường "hiện tại" | T: left/width mỗi đoạn so với mốc JSON ≤ 0,6 % |
+| Đại lượng | `reserved` (created_at→launched), `execution` (launched→updated_at khi settled), `wait` (executor wait có until), `verification` (produced→verification), `to_now` (mốc mới nhất→now, chưa xác nhận) | `_timeline_spans`; unit `GanttSpans`; T P5 chờ, P4 `to_now` |
+| Chồng lấp | P8 hai lượt chạy đồng thời (run_batch slots=2, executor isolate) | T rect giao nhau; model không cộng (union đã có ở measure) |
+| Ngăn chi tiết | lượt: đặt chỗ/bắt đầu/kết thúc/thực thi/chờ/kiểm/lý do giữ/quan sát/bằng chứng (evidence_index theo attempt hoặc node); dấu mốc: sự kiện + bằng chứng của seq | T chọn + 3 poll + resize |
+| P2-A | `data-k = need:<id>:<revision>`; `knownNeeds` + ghi chú `stale-need` khi request mở biến mất/đổi bản; bỏ `copied` | T `p2a` (trả lời qua CLI thật trong lúc đọc), đỏ dev9 |
+| P2-B | `_quote` nháy đơn PowerShell, `_runtime()` = `& '<venv>\Scripts\onecrew.exe'`, `reply_shell` | unit qua `powershell.exe` thật (`$SDK = "CHANGED"`), V16 đường dẫn `demo$SDK 'q' (a)&b``t`, đỏ dev9 |

@@ -184,11 +184,20 @@ def _waits(events, attempts):
 
 
 REFERENCE_PLACEHOLDER = '<lý do hoặc bằng chứng của bạn>'
+REPLY_SHELL = 'PowerShell'
 
 
 def _quote(value):
-    """One shell argument for the owner's terminal: double-quoted (paths with spaces), any inner double quote dropped (a path never has one)."""
-    return '"' + str(value).replace('"', '') + '"'
+    """One PowerShell argument (the supported shell for the templates: the owner's scripts are .ps1): single-quoted, so `$`, backticks, `&`,
+    `(`, spaces and `'` (doubled) inside a path are passed through unchanged; double quotes would let `$SDK` be interpolated (P2-B)."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _runtime():
+    """How the command names THIS runtime: the venv's onecrew.exe next to the interpreter when it exists (`& '<exe>'`), else plain `onecrew`."""
+    import sys
+    exe = Path(sys.executable).parent / ('onecrew.exe' if sys.platform == 'win32' else 'onecrew')
+    return '& ' + _quote(exe) if exe.is_file() else 'onecrew'
 
 
 def _needs_user(state, requests, views, level, engine_view, project=None, state_root=None):
@@ -198,7 +207,7 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
         q = r['question'] or {}
         # P2-B (03/11): the command the owner runs must be complete for the wheel's parser: project, state root, request, revision, choice AND the
         # mandatory --reference. The reference is the owner's own words: a marked placeholder, so this is a TEMPLATE to complete, never "ready to run".
-        prefix = 'onecrew' + (f' --project {_quote(project)}' if project else '') + (f' --state-root {_quote(state_root)}' if state_root else '')
+        prefix = _runtime() + (f' --project {_quote(project)}' if project else '') + (f' --state-root {_quote(state_root)}' if state_root else '')
         command = f"{prefix} question answer {r['id']} --revision {r['revision']} --choice "
         suffix = f' --reference {_quote(REFERENCE_PLACEHOLDER)}'
         needs.append({'kind': 'request', 'id': r['id'], 'revision': r['revision'], 'question': clean(q.get('question')),
@@ -206,9 +215,9 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
                       'options': [{'id': clean(o.get('id'), 60), 'label': clean(o.get('label'), 200), 'reply_command': command + clean(o.get('id'), 60) + suffix}
                                   for o in (q.get('options') or [])[:6]],          # UX-03: one template per option; the page copies, never runs
                       'reply_command': command + '<option-id>' + suffix,
-                      'placeholders': ['reference'], 'reference_placeholder': REFERENCE_PLACEHOLDER,
-                      'reply_note': 'mẫu lệnh: thay ' + REFERENCE_PLACEHOLDER + ' bằng lý do/bằng chứng của bạn (tối đa 500 ký tự) rồi chạy trong terminal của bạn; '
-                                    'quyền chủ sở hữu, bản (revision) và các guard hiện có vẫn áp dụng; trang này không chạy lệnh',
+                      'placeholders': ['reference'], 'reference_placeholder': REFERENCE_PLACEHOLDER, 'reply_shell': REPLY_SHELL,
+                      'reply_note': 'mẫu lệnh cho ' + REPLY_SHELL + ' (nháy đơn giữ nguyên $, khoảng trắng, dấu nháy trong đường dẫn): thay ' + REFERENCE_PLACEHOLDER
+                                    + ' bằng lý do/bằng chứng của bạn (tối đa 500 ký tự) rồi chạy trong PowerShell của bạn; quyền chủ sở hữu, bản (revision) và các guard hiện có vẫn áp dụng; trang này không chạy lệnh',
                       'note': 'đọc, đóng cửa sổ hay bỏ qua không phải là trả lời; request vẫn chờ', 'source': ['request:' + r['id']]})
     if state['status'] == 'proposed':
         needs.append({'kind': 'approve', 'question': f"Duyệt bản {state['latest']} của plan {state['name']} (plan approve, lệnh của chủ sở hữu)",
@@ -454,6 +463,82 @@ def _timeline(conn, root_id, children, current_generation, limit, current_attemp
     return rows, total, keys
 
 
+MARK_KINDS = {'node.started': 'bắt đầu', 'node.produced': 'đã tạo đầu ra', 'node.verification': 'kiểm', 'node.held': 'bị giữ', 'node.resumed': 'thế hệ mới',
+              'node.result_retained': 'giữ kết quả', 'attempt.unknown': 'kết quả chưa xác định', 'plan.approved': 'duyệt', 'plan.accepted': 'nghiệm thu',
+              'plan.closed': 'đóng', 'plan.revised': 'kế hoạch nội bộ', 'request.created': 'câu hỏi', 'request.consumed': 'đã trả lời', 'milestone.stopped': 'dừng'}
+
+
+def _timeline_spans(events, attempts, nodes, current_attempt, waits, now):
+    """The Gantt rows, from sourced timestamps only: one row per attempt under its node (attempts.created_at = reserved, attempt.launched =
+    execution start, attempts.updated_at of a settled attempt = end), executor waits with an `until`, verification spans (node.produced ->
+    node.verification of the same generation), instant marks per attempt/node and per plan. A running attempt has a confirmed segment up to
+    its latest sourced mark and a separate `to_now` segment (not confirmed) up to `now`; an attempt without a launch has only a reserved
+    segment; nothing is invented: a missing timestamp leaves the segment out. The axis is the min/max of what is on the rows."""
+    by_attempt = {a['id']: a for a in attempts}
+    attempt_node, launched, marks_by_attempt, last_mark = {}, {}, {}, {}
+    plan_marks, node_marks, produced_at, verifs = [], {}, {}, {}
+    for seq, kind, p, at in events:
+        when = p.get('observed_at') or at
+        aid = p.get('attempt') or (p.get('id') if kind.startswith('attempt.') else None)
+        if kind == 'node.started' and p.get('attempt'): attempt_node[p['attempt']] = (p.get('node'), p.get('generation'))
+        if kind == 'attempt.launched' and p.get('id'): launched[p['id']] = at
+        if aid and aid in by_attempt and (last_mark.get(aid) is None or when > last_mark[aid]): last_mark[aid] = when
+        if kind in MARK_KINDS:
+            label = MARK_KINDS[kind] + (f": {p.get('result')}" if kind == 'node.verification' else '') + (f": {clean(p.get('reason'), 60)}" if kind == 'node.held' else '')
+            mark = {'seq': seq, 'at': when, 'kind': kind, 'label': label}
+            if p.get('node') is not None: node_marks.setdefault((p['node'], p.get('generation')), []).append(mark)
+            elif aid and aid in by_attempt: marks_by_attempt.setdefault(aid, []).append(mark)
+            else: plan_marks.append(mark)
+        if kind == 'executor.observed' and p.get('what') == 'progress' and (p.get('checkpoint') or {}).get('status') == 'blocked' and aid:
+            marks_by_attempt.setdefault(aid, []).append({'seq': seq, 'at': when, 'kind': 'executor.observed', 'label': 'quan sát: blocked'})
+        if kind == 'node.produced': produced_at[(p.get('node'), p.get('generation'))] = at
+        if kind == 'node.verification' and (p.get('node'), p.get('generation')) in produced_at:
+            verifs.setdefault((p.get('node'), p.get('generation')), []).append({'from': produced_at[(p.get('node'), p.get('generation'))], 'to': at, 'result': p.get('result')})
+    waits_by_attempt = {}
+    for w in waits:
+        if w['source'] == 'executor.observed' and w.get('attempt'):
+            waits_by_attempt.setdefault(w['attempt'], []).append({'from': w['since'], 'until': w['until'] if w.get('until') not in (None, UNKNOWN) else None, 'reason': clean(w.get('reason'), 120), 'open': w['open']})
+    rows, times = [], []
+    now_iso = _iso(now)
+    for nid in list(nodes) + [None]:
+        for a in attempts:
+            node, gen = attempt_node.get(a['id'], (None, a['generation']))
+            if node != nid: continue
+            active = a['status'] in ('reserved', 'running', 'unknown')
+            start, launch = a['created_at'], launched.get(a['id'])
+            end = a['updated_at'] if not active else None
+            latest = max([t for t in (last_mark.get(a['id']), launch, start) if t]) if any((last_mark.get(a['id']), launch, start)) else None
+            segments = []
+            if start and (launch or end or latest): segments.append({'kind': 'reserved', 'from': start, 'to': launch or end or latest, 'confirmed': True})
+            if launch:
+                if end: segments.append({'kind': 'execution', 'from': launch, 'to': end, 'confirmed': True})
+                else:
+                    if latest and latest > launch: segments.append({'kind': 'execution', 'from': launch, 'to': latest, 'confirmed': True})
+                    segments.append({'kind': 'to_now', 'from': latest or launch, 'to': now_iso, 'confirmed': False})
+            elif active and start: segments.append({'kind': 'to_now', 'from': latest or start, 'to': now_iso, 'confirmed': False})
+            key = (node, gen)
+            row = {'node': node, 'attempt': a['id'], 'generation': gen, 'status': a['status'], 'current': current_attempt.get(node) == a['id'] if node else False,
+                   'reserved_at': start, 'launched_at': launch, 'settled_at': end, 'latest_mark_at': latest, 'active': active,
+                   'segments': segments, 'waits': waits_by_attempt.get(a['id'], []),
+                   'verification': verifs.get(key, []) if current_attempt.get(node) == a['id'] or not any(r['attempt'] != a['id'] and (r['node'], r['generation']) == key for r in rows) else [],
+                   'marks': sorted(node_marks.get(key, []) + marks_by_attempt.get(a['id'], []), key=lambda m: m['at'] or ''),
+                   'execution_seconds': _seconds(_at(launch), _at(end)) if launch and end else UNKNOWN,
+                   'span_seconds': _seconds(_at(start), _at(end)) if start and end else UNKNOWN}
+            rows.append(row)
+            for s in segments: times += [s['from'], s['to']]
+            for w in row['waits']: times += [w['from'], w['until']]
+            for v in row['verification']: times += [v['from'], v['to']]
+            for m in row['marks']: times.append(m['at'])
+    for m in plan_marks: times.append(m['at'])
+    times = [t for t in times if t]
+    extends = any(r['active'] for r in rows)
+    axis = {'start': min(times) if times else None, 'end': max(times) if times else None, 'now': now_iso, 'extends_to_now': extends,
+            'basis': 'attempts.created_at/updated_at, attempt.launched, executor.observed (observed_at), node.*; đoạn to_now = chưa xác nhận'}
+    if axis['start'] and extends and now_iso > axis['end']: axis['end'] = now_iso
+    axis['seconds'] = _seconds(_at(axis['start']), _at(axis['end'])) if axis['start'] else UNKNOWN
+    return {'axis': axis, 'plan_marks': plan_marks, 'rows': rows}
+
+
 def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     rd = report._Reader(reader.state_root, row['project_id'], row['project_path'])
     state = plans.derive(rd, conn, row['request_key'])
@@ -549,6 +634,8 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
                 if key not in index: index[key] = {'key': key, 'seq': None, 'kind': 'node.' + what.split()[0], 'at': None, 'node': nid, 'attempt': r['attempt'], 'label': f'{what} của phần việc {nid}', 'stale': False}
     item['evidence_keys'] = sorted(keys)
     item['evidence_index'] = sorted(index.values(), key=lambda x: (x['seq'] is None, x['seq'] or 0))
+    child_events = [e for child in sorted(children) for e in _events(conn, child) if e[1] not in NOISE]     # attempt.* events live on the child task
+    item['gantt'] = _timeline_spans(sorted(events + child_events, key=lambda e: e[0]), attempts, list(nodes), current_attempt, waits, now)
     item['measure'] = _measure(rd, row['request_key']) if engine_root else {'note': 'root không có engine: không có attempt để đo'}
     item['eta'] = _eta(rd, row['request_key'], now)
     item['holds'] = _holds(rd, row['request_key'], conn) if engine_root else []

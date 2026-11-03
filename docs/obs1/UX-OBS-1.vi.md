@@ -34,3 +34,21 @@ Ba lớp kiểm, tách nhau: **(F)** chức năng = unittest trên model/HTTP; *
 | B | task có ≥ 3 câu hỏi | vùng đầu: tên, trạng thái, bước hiện tại, "n câu hỏi chờ bạn"; thẻ số liệu không bị đẩy xuống; từng câu gập, mở ra thấy lý do/tác động/lựa chọn/mẫu lệnh; không gộp request | T `ux03b` (3 request: 3 mục gập, tiêu đề mỗi mục khác nhau, stats ở trên câu hỏi) |
 | C | attempt có `reserved_at`/`settled_at` | thanh thời gian attempt chỉ khi có cả hai mốc; thiếu → chữ "chưa xác định", không thanh | T `ux06` (bar có ở P2, không ở attempt đang chạy) |
 | D | nhãn pha/trạng thái phần việc | tiếng Việt (đang chạy / bị giữ / chờ / xong…), mã gốc ở title; badge có ký hiệu kèm màu | T `ux05` |
+
+## 3. Vòng dev10 (chủ chốt 03/11 ~13:30: timeline Gantt/waterfall làm trung tâm) — bảng acceptance viết trước khi sửa
+
+Hướng thiết kế chốt (áp dụng "frontend design defaults" của tài liệu Anthropic: nêu rõ hướng và kiểu cần tránh, kiểm bằng ảnh): bảng điều khiển dữ liệu dày kiểu Blazo — màn chi tiết = đầu (tên, trạng thái, bước, cần bạn) → **cây phần việc → lượt (trái) · thanh trên CÙNG trục thời gian (giữa) · ngăn chi tiết bước (phải)** → thẻ số liệu → bảng/nhật ký kỹ thuật gập. Tránh: nền kem, chữ nghiêng trang trí, nhãn đánh số 01/02, nút viên thuốc, bảng log có thanh trang trí thay cho waterfall, số liệu không có nguồn.
+
+| # | Tình huống | Expected | Kiểm (F chức năng / T tương tác / V trực quan) |
+|---|---|---|---|
+| G1 trục | task có nhiều lượt, có lượt đang chạy | mọi thanh trên một trục `[axis.start, axis.end]` từ mốc có nguồn (`attempts.created_at/updated_at`, `attempt.launched`, `executor.observed`, `node.*`); `end` = hiện tại khi còn attempt active (`extends_to_now`) | F `timeline_spans/axis` từ fixture; T `gantt`: left/width của thanh so với mốc JSON (±0,6 % trục) |
+| G2 chồng lấp | P8 hai phần việc chạy song song | hai hàng có đoạn thực thi chồng lấp theo thời gian trên trục chung; tổng lịch không cộng | T `gantt` đo rect hai thanh giao nhau |
+| G3 đại lượng | lượt có đặt chỗ/thực thi/chờ/kiểm | đoạn `reserved` (đặt chỗ) ≠ `execution` ≠ `wait` (từ executor wait có `until`) ≠ `verification` (produced→verification); đang chạy: đoạn xác nhận tới mốc dữ liệu mới nhất + đoạn `to_now` khác màu/sọc; thiếu mốc → "chưa xác định", không thanh | F + T (đoạn `to_now` có class riêng, P3/PB không có thanh) |
+| G4 dấu mốc | sự kiện tức thời | ◆ cho node.started/produced/verification/held/resumed, quan sát blocked; plan.approved/accepted/closed trên hàng Plan; title = mốc chính xác | T đếm/so vị trí dấu mốc |
+| G5 lịch sử | thế hệ/lượt cũ | gập dưới "lịch sử (n)", mờ; không đổi hàng hiện hành | T `gantt` (P4) |
+| G6 chọn bước | bấm thanh/dấu mốc, bàn phím | ngăn phải: mốc chính xác, giây, lý do, đầu ra, bằng chứng (xem nội dung); giữ qua poll/đổi kích thước | T (chọn, 3 poll, resize 1280→640) |
+| G7 khoảng | task dài | chọn "toàn khoảng / 1 giờ cuối / 15 phút cuối"; cuộn ngang chỉ trong vùng timeline; 390 px `scrollWidth` = 390 | T `ux08`, `gantt@mobile` |
+| G8 chú giải | — | chú giải đủ loại đoạn/dấu mốc, có ký hiệu ngoài màu | T/V |
+| P2-A | đang mở câu 2, câu 1 được trả lời; rồi chính câu 2 được trả lời/đổi bản | khóa theo `REQ id + revision`; mục mở/focus/trạng thái sao chép không nhảy sang câu khác; request biến mất → ghi chú "không còn chờ, mẫu lệnh cũ hết hiệu lực", không giữ mẫu cũ như hiệu lực | T `p2a` (đỏ dev9: poll với danh sách request thật sự đổi); gói V14 qua CLI cài |
+| P2-B | đường dẫn có khoảng trắng, `'`, `$SDK`, backtick, `&`, `(` | shell hỗ trợ = **PowerShell**; nháy đơn (`'`→`''`), `& '<exe venv>' --project '…' --state-root '…' question answer … --reference '<…>'`; `$SDK='CHANGED'` không đổi đường dẫn; parser nhận, sổ thử ghi; thiếu reference từ chối | F unit qua `powershell -NoProfile -Command` thật; V16 từ wheel với thư mục `demo$SDK 'q' (a)&b``t`; đỏ dev9 trước |
+| giữ | dev8/dev9 | mọi kịch bản cũ (ux01…08, clock, ux03b, race, disc, V15) xanh | T |

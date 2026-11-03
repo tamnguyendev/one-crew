@@ -68,8 +68,10 @@ class Proxy:
                 if url.path == '/__ux':
                     return self._send(200, HARNESS.encode('utf-8'), 'text/html; charset=utf-8')
                 if url.path == '/__signal':
-                    name = urllib.parse.parse_qs(url.query).get('name', [''])[0]
-                    result = on_signal(name) if on_signal else None
+                    params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+                    name = params.get('name', '')
+                    try: result = on_signal(name, params) if on_signal else None
+                    except TypeError: result = on_signal(name) if on_signal else None
                     return self._send(200, json.dumps({'signal': name, 'result': result}, default=str).encode('utf-8'), 'application/json')
                 if url.path == '/__drop':
                     state['drop'] = urllib.parse.parse_qs(url.query).get('on', ['0'])[0] == '1'
@@ -116,12 +118,12 @@ function st(){return w.__track.state()}
 async function select(plan){rowOf(plan).click();return await waitFor(()=>$('#dtitle')&&$('#dtitle').textContent.indexOf(plan)===0, 10000, 'detail '+plan)}
 function key(el,k){el.dispatchEvent(new w.KeyboardEvent('keydown',{key:k,bubbles:true,cancelable:true}))}
 function seqOf(){const m=/seq (\d+)/.exec($('#conn').textContent);return m?parseInt(m[1],10):null}
-async function signal(name){await fetch('/__signal?name='+encodeURIComponent(name))}
+async function signal(name,params){var q='';Object.keys(params||{}).forEach(function(k){q+='&'+k+'='+encodeURIComponent(params[k])});return await (await fetch('/__signal?name='+encodeURIComponent(name)+q)).json()}
 await new Promise(r=>{if(f.contentDocument&&f.contentDocument.readyState==='complete'&&f.contentWindow.location.pathname==='/')r();else f.addEventListener('load',r,{once:true})});
 await loaded();
 try{
 if(S==='ux01'){
-  await select('P1'); const pane=$('#detailpane');
+  await select('P1'); const pane=$('#detailpane'); $('details[data-k="log"]').open=true;
   const ev=$$('ol.ev > li').find(li=>li.querySelector('.clip')); check('an event with evidence exists', ev);
   if(ev){ev.click(); await waitFor(()=>$('.evbox'),5000,'evbox'); const btn=$('.ev-open'); if(btn){btn.click(); await waitFor(()=>$('.evbox pre'),8000,'evidence text')}}
   const att=$('details[data-k="attempts"]'); if(att){att.querySelector('summary').click()}
@@ -155,7 +157,7 @@ if(S==='ux03'){
   need.open=true; const opts=Array.from(need.querySelectorAll('.opt'));
   check('two options with label and id', opts.length===2 && opts.every(o=>o.querySelector('b').textContent && /\(.+\)/.test(o.textContent)), opts.map(o=>o.textContent.slice(0,60)));
   const cmds=opts.map(o=>o.querySelector('code').textContent);
-  check('each option is a complete template: onecrew --project --state-root question answer --revision --choice --reference', cmds.length===2 && cmds.every(c=>/^onecrew --project ".+" --state-root ".+" question answer REQ-\S+ --revision \S+ --choice \S+ --reference "<[^"]+>"$/.test(c)) && cmds[0]!==cmds[1], cmds);
+  check('each option is a complete PowerShell template: & exe --project --state-root question answer --revision --choice --reference', cmds.length===2 && cmds.every(c=>/^(& '.+onecrew(\.exe)?'|onecrew) --project '.+' --state-root '.+' question answer REQ-\S+ --revision \S+ --choice \S+ --reference '<[^']+>'$/.test(c)) && cmds[0]!==cmds[1], cmds);
   check('the reference placeholder is marked as the part the owner fills', opts.every(o=>o.querySelector('code mark.ph')) && /BẠN tự điền/.test(need.textContent));
   check('the question text is readable and carries no raw secret', /\?/.test(need.querySelector('.q').textContent) && !/hunter2|must-not-show/.test(d.body.textContent) && (!/password=/.test($$('details.need').map(n=>n.textContent).join(' ')) || /\[withheld\]/.test($$('details.need').map(n=>n.textContent).join(' '))), need.querySelector('.q').textContent);
   check('no element answers the question (no answer/approve button)', !$$('#detail button').some(b=>/trả lời|duyệt|answer|approve/i.test(b.textContent)));
@@ -204,13 +206,13 @@ if(S==='ux05'){
   check('phase and output words are Vietnamese (raw code in title)', cells.some(c=>/^(đang chạy|bị giữ|chờ đến lượt|xong)/.test(c)) && cells.some(c=>/^(chưa có đầu ra|đã tạo|đã kiểm|đã nghiệm thu)/.test(c)) && !cells.some(c=>/^(running|held|pending|none|produced)$/.test(c)), cells.slice(0,8));
 }
 if(S==='ux06'){
-  await select('P4'); const grp=$$('section.grp').find(g=>/phần việc C/.test(g.querySelector('h4').textContent)); check('a group for phần việc C', grp);
+  await select('P4'); $('details[data-k="log"]').open=true; const grp=$$('section.grp').find(g=>/phần việc C/.test(g.querySelector('h4').textContent)); check('a group for phần việc C', grp);
   const old=grp&&grp.querySelector('details[data-k^="old:"]'); check('old attempt history is folded with a count', old && !old.open && /lịch sử cũ \(\d+/.test(old.querySelector('summary').textContent), old&&old.querySelector('summary').textContent);
   const seqs=grp?Array.from(grp.querySelectorAll(':scope > ol.ev > li')).map(li=>parseInt(li.dataset.seq,10)):[]; check('current events ascend (old → new)', seqs.length>0 && seqs.every((v,i)=>i===0||v>seqs[i-1]), seqs);
   const stale=old?old.querySelectorAll('li.stale').length:0; check('old attempt events are marked stale', stale>0, stale);
   const tech=grp&&grp.querySelector('details[data-k^="tech:"]'); check('technical events (attempt.*) are folded under their node', tech && !tech.open && /chi tiết kỹ thuật/.test(tech.querySelector('summary').textContent) && tech.querySelectorAll('li').length>=2, tech&&tech.textContent.slice(0,120));
   const main=grp?grp.querySelectorAll(':scope > ol.ev > li').length:0; check('the main list has fewer events than the whole group', main>0 && main < grp.querySelectorAll('li').length, {main, all:grp&&grp.querySelectorAll('li').length});
-  const first=$$('li.task')[0]; await select('P2'); const ev=$$('ol.ev > li').find(li=>li.querySelector('.clip')); check('P2 has a step with evidence', ev);
+  const first=$$('li.task')[0]; await select('P2'); $('details[data-k="log"]').open=true; const ev=$$('ol.ev > li').find(li=>li.querySelector('.clip')); check('P2 has a step with evidence', ev);
   const seq=ev.dataset.seq; ev.click(); const box=await waitFor(()=>$('.evbox'),5000,'evbox');
   check('clicking the step shows its evidence with label, kind and time', box && box.querySelector('b') && box.querySelector('b').textContent.length>3 && /\b\w+\.\w+\b/.test(box.querySelector('.mut').textContent) && !/thời điểm chưa rõ/.test(box.querySelector('div').textContent), box&&box.textContent.slice(0,200));
   const btn=box&&box.querySelector('.ev-open'); btn.click(); const pre=await waitFor(()=>$('.evbox pre'),8000,'evidence content'); check('evidence content opens inline, redacted', pre && pre.textContent.length>0 && pre.textContent.indexOf('hunter2')<0 && pre.textContent.indexOf('sk-fixture-secret')<0, pre&&pre.textContent.slice(0,80));
@@ -280,13 +282,55 @@ if(S==='ux03b'){
   await select('P1'); const needs=$$('details.need'), N=needs.length; check('at least three questions, each folded', N>=3 && needs.every(n=>!n.open), N);
   check('the heading counts them and the summary strip links to them', new RegExp('Cần bạn \\('+N+'\\)').test($('#needs').textContent) && new RegExp(N+' câu hỏi chờ bạn').test($('.dsum').textContent), $('#needs').textContent.slice(0,30)+' | '+$('.dsum').textContent);
   check('the summary strip shows the current step', new RegExp('chờ bạn trả lời '+N+' câu hỏi').test($('.dsum .step').textContent), $('.dsum .step').textContent);
-  const stats=$('.stats'), nh=$('#needs'); check('the status tiles come before the questions', stats && nh && (stats.compareDocumentPosition(nh) & Node.DOCUMENT_POSITION_FOLLOWING), 0);
+  const stats=$('.stats'), nh=$('#needs'), gt=$('.gantt'); check('order: summary strip, questions (folded), timeline, tiles', nh && gt && stats && (nh.compareDocumentPosition(gt) & Node.DOCUMENT_POSITION_FOLLOWING) && (gt.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_FOLLOWING), 0);
   const titles=needs.map(n=>n.querySelector('summary').textContent); check('each question keeps its own title (no merging)', new Set(titles).size===N, titles);
-  check('the summary strip and the status tiles are above the fold (questions do not push the summary down)', $('.dsum').getBoundingClientRect().bottom < w.innerHeight && stats.getBoundingClientRect().bottom < (w.innerWidth<900? w.innerHeight*2 : w.innerHeight), {strip:$('.dsum').getBoundingClientRect().bottom, stats:stats.getBoundingClientRect().bottom, inner:w.innerHeight});
+  check('the summary strip and the start of the timeline are above the fold (folded questions do not push them down)', $('.dsum').getBoundingClientRect().bottom < w.innerHeight && gt.getBoundingClientRect().top < (w.innerWidth<900? w.innerHeight*1.5 : w.innerHeight*0.8), {strip:$('.dsum').getBoundingClientRect().bottom, gantt:gt.getBoundingClientRect().top, inner:w.innerHeight});
   check('folded questions take one line each', needs[N-1].getBoundingClientRect().bottom - needs[0].getBoundingClientRect().top < 44*N+20, needs[N-1].getBoundingClientRect().bottom - needs[0].getBoundingClientRect().top);
   needs[1].open=true; check('opening one shows reason, impact, options and templates', /Vì:/.test(needs[1].textContent) && /Ảnh hưởng:/.test(needs[1].textContent) && needs[1].querySelectorAll('.opt').length===2 && needs[1].querySelectorAll('mark.ph').length>=2);
   await morePolls(2); check('the opened question stays open across polls', $$('details.need')[1].open && !$$('details.need')[0].open);
   check('the list column is narrower than the detail while reading (wide)', w.innerWidth<900 || $('#listpane').getBoundingClientRect().width < $('#detailpane').getBoundingClientRect().width*0.6, {l:$('#listpane').getBoundingClientRect().width, r:$('#detailpane').getBoundingClientRect().width});
+}
+if(S==='gantt'){
+  await select('P8'); const J=await (await fetch('/api/task?plan='+encodeURIComponent(st().selected.plan)+'&project_id='+encodeURIComponent(st().selected.project)+'&timeline=300',{cache:'no-store'})).json();
+  const chart=$('.gchart'); check('a shared axis with a window', chart && chart.dataset.w0 && chart.dataset.w1 && $$('.gaxis span').length===6, chart&&chart.dataset);
+  const w0=new Date(chart.dataset.w0).getTime(), w1=new Date(chart.dataset.w1).getTime(), cw=chart.getBoundingClientRect().width;
+  const expPct=t=>(new Date(t).getTime()-w0)/(w1-w0)*100;
+  let worst=0, n=0; J.gantt.rows.forEach(r=>r.segments.forEach((sg,i)=>{const el=$('.seg[data-k="seg:'+r.attempt+':'+i+'"]'); if(!el){worst=999;return} const L=Math.max(0,expPct(sg.from)), Rr=Math.min(100,expPct(sg.to)); const got=[parseFloat(el.style.left), parseFloat(el.style.width)]; worst=Math.max(worst, Math.abs(got[0]-L), Math.abs(got[1]-Math.max(0.15,Rr-L))); n++}));
+  check('every segment left/width matches its sourced timestamps on the axis (≤0.6% of the window)', n>0 && worst<=0.6, {segments:n, worst});
+  const execRows=J.gantt.rows.filter(r=>r.node==='A'||r.node==='B'); check('P8 has the two attempts of A and B, both settled', execRows.length===2 && execRows.every(r=>r.status==='settled'), execRows.map(r=>[r.node,r.status]));
+  const rects=execRows.map(r=>{const el=$('.seg.execution[data-attempt="'+r.attempt+'"]'); const x=el.getBoundingClientRect(); return {node:r.node, left:x.left, right:x.right}});
+  check('their execution bars overlap on the shared axis (they ran at the same time)', rects.length===2 && rects[0].left<rects[1].right && rects[1].left<rects[0].right && execRows.every(r=>new Date(r.launched_at)<new Date(execRows[1-execRows.indexOf(r)].settled_at)), rects);
+  check('no to_now part on settled attempts and no now line when nothing runs', !$('.seg.to_now') && !J.gantt.axis.extends_to_now);
+  check('plan marks are on the plan row', $$('.mk.plan').length>=1 && $$('.mk.plan').every(m=>m.dataset.row==='plan'));
+  check('marks sit where their timestamps say', $$('.mk').every(m=>Math.abs(parseFloat(m.style.left)-expPct(m.dataset.at))<=0.6));
+  const legend=$('.legend'); check('legend names execution/reserved/wait/verification/to_now/marks/old', legend && ['thực thi','đặt chỗ','chờ','kiểm','tới hiện tại','dấu mốc','lượt cũ'].every(w=>legend.textContent.indexOf(w)>=0));
+  check('the timeline box, its side pane and the detail pane stay inside the viewport (the chart scrolls inside its own box)', $('.gantt').getBoundingClientRect().right<=w.innerWidth+1 && $('#gside').getBoundingClientRect().right<=w.innerWidth+1 && $('#detailpane').scrollWidth<=$('#detailpane').clientWidth+1, {gantt:$('.gantt').getBoundingClientRect().right, side:$('#gside').getBoundingClientRect().right, pane:[$('#detailpane').scrollWidth,$('#detailpane').clientWidth], inner:w.innerWidth});
+  const seg=$('.seg.execution'); seg.focus(); key(seg,'Enter'); await sleep(50); check('Enter on a bar selects it and the side pane shows exact times', st().selStep && /Lượt/.test($('#gside').textContent) && /đặt chỗ/.test($('#gside').textContent) && /bắt đầu chạy/.test($('#gside').textContent) && $('.seg.sel'), $('#gside').textContent.slice(0,120));
+  const sel=st().selStep.id; await morePolls(3); check('the selected step survives polls', st().selStep && st().selStep.id===sel && $('.seg.sel'));
+  f.style.width='640px'; await sleep(200); check('the selection survives a resize and the gantt scrolls inside its own box', st().selStep.id===sel && $('.gscroll').scrollWidth>=$('.gscroll').clientWidth && d.documentElement.scrollWidth<=w.innerWidth+1, {sw:$('.gscroll').scrollWidth, cw:$('.gscroll').clientWidth, page:d.documentElement.scrollWidth, inner:w.innerWidth}); f.style.width=W+'px'; await sleep(200);
+  await select('P4'); const hist=$('.gtree .hist'); check('P4: the old attempt is folded under lịch sử (n)', hist && /lịch sử \(1/.test(hist.textContent) && $$('.grow.old').length>=1);
+  hist.querySelector('button.tg').click(); await sleep(50); check('unfolding shows the old attempt row dimmed', $$('.gtree .att').length>=2 && $$('.gchart .grow.old .seg').length>=1);
+  check('P4 shows a blocked mark on the current attempt', $$('.mk').some(m=>/blocked|bị giữ/.test(m.title)));
+  const J4=await (await fetch('/api/task?plan='+encodeURIComponent(st().selected.plan)+'&project_id='+encodeURIComponent(st().selected.project),{cache:'no-store'})).json(); const cur4=J4.gantt.rows.find(r=>r.active);
+  check('P4: the running attempt has a confirmed part and a distinct to_now part up to now, with the now line', cur4 && $('.seg.to_now[data-attempt="'+cur4.attempt+'"]') && $('.seg.to_now').dataset.confirmed==='false' && $$('.nowline').length>0 && Math.abs(new Date($('.gchart').dataset.w1).getTime()-new Date(J4.gantt.axis.now).getTime())<1000, cur4&&cur4.segments.map(s=>s.kind));
+  await select('P3'); check('a closed plan with no attempt draws only its plan marks (approved, closed), no bars, no attempt rows', !$('.seg') && !$('.gtree .att') && $$('.mk.plan').length>=2, {segs:$$('.seg').length, att:$$('.gtree .att').length, marks:$$('.mk').map(m=>m.title)});
+  await select('PB'); check('an unapproved plan draws nothing invented', !$('.seg') && !$('.gtree .att') && ($('#gempty')||$$('.mk').length===0), {gempty:!!$('#gempty'), marks:$$('.mk').map(m=>m.title)});
+  await select('P5'); check('P5: a closed executor wait is a wait bar under the execution bar', $('.seg.wait') && $('.seg.wait').dataset.to);
+  const r5=$('#grange'); r5.value='15m'; r5.dispatchEvent(new w.Event('change',{bubbles:true})); await sleep(50); check('the window select narrows the axis', st().gRange==='15m' && (new Date($('.gchart').dataset.w1).getTime()-new Date($('.gchart').dataset.w0).getTime())<=900000+1);
+}
+if(S==='p2a'){
+  await select('P1'); const cards=()=>$$('details.need'); check('at least two questions', cards().length>=2, cards().length);
+  const firstId=cards()[0].dataset.needId, secondId=cards()[1].dataset.needId; const second=cards()[1]; second.open=true; second.querySelector('summary').focus(); second.querySelector('button.copy').focus(); second.querySelector('button.copy').click(); await sleep(100);
+  const sec=()=>cards().find(c=>c.dataset.needId===secondId);
+  check('the second question is open and focused, its copy status shown', sec().open && d.activeElement.closest('details.need')===sec() && st().copied && st().copied.k.indexOf(secondId)>0, {copied:st().copied&&st().copied.k, open:sec().open});
+  const r1=await signal('answer',{id:firstId}); const nBefore=cards().length; await waitFor(()=>cards().length<nBefore, 20000, 'first question answered and gone'); await morePolls(2);
+  const stillOpen=cards().filter(c=>c.open); check('after the first question was answered, the open one is still the second (by id)', stillOpen.length===1 && stillOpen[0].dataset.needId===secondId && !cards().some(c=>c.dataset.needId===firstId), {open:stillOpen.map(c=>c.dataset.needId), want:secondId, answered:r1});
+  check('focus stayed inside the second question', d.activeElement && d.activeElement.closest('details.need') && d.activeElement.closest('details.need').dataset.needId===secondId, d.activeElement&&d.activeElement.tagName);
+  check('the copy status still belongs to the second question', st().copied && st().copied.k.indexOf(secondId)>0 && $('.copied'));
+  const r2=await signal('answer',{id:secondId}); await waitFor(()=>!cards().some(c=>c.dataset.needId===secondId), 20000, 'second question answered'); await morePolls(1);
+  const note=$('.stale-need'); check('when the question being read is answered, a note says it is no longer pending and the old template is void', note && note.dataset.staleId===secondId && /không còn hiệu lực/.test(note.textContent), note&&note.textContent.slice(0,160));
+  check('its old template and copy status are gone', !$('.copied') && !cards().some(c=>c.dataset.needId===secondId) && st().stale.indexOf(secondId)>=0, st().stale);
+  note.querySelector('.stale-hide').click(); await sleep(50); check('the note can be hidden', !$('.stale-need'));
 }
 if(S==='shot-detail'){await select(qs.get('plan')||'P1'); if(qs.get('open')==='need'){const n=$('details.need'); if(n)n.open=true} else {const ev=$$('ol.ev > li').find(li=>li.querySelector('.clip')); if(ev){ev.click(); await waitFor(()=>$('.evbox'),3000)}}}
 if(S==='shot-list'){}

@@ -237,6 +237,13 @@ def main():
         for args in (('init', '-q'), ('config', 'user.name', 'fixture'), ('config', 'user.email', 'fixture@localhost'), ('add', '.'), ('commit', '-qm', 'base')):
             subprocess.run(['git', '-C', str(long_dir), *args], check=True, capture_output=True)
         plan.propose(Ledger(long_dir, state), 'PC', contract('Ra soat va viet lai tai lieu huong dan cai dat SDK ky so cho khach hang moi (ten dai tu nhien)'), 'codex', workflow=True, capabilities=caps)
+        hostile = work / "demo$SDK 'q' (a)&b`t"; hostile.mkdir(parents=True, exist_ok=True); (hostile / 'a.txt').write_text('base\n')
+        ledger_ps = Ledger(hostile, state)
+        plan.propose(ledger_ps, 'PS', contract('Project co ky tu dac biet trong duong dan ($SDK, dau nhay, backtick, &, ngoac)'), 'codex', workflow=True, capabilities=caps)
+        with ledger_ps.transaction() as conn:
+            ps_task = plan.anchor_events(ledger_ps, conn, 'PS')['task_id']
+        ledger_ps.create_request(ps_task, 'ps-q', {'schema_version': 1, 'question': 'Duong dan co $SDK va dau nhay: mau lenh co giu nguyen khong?', 'reason': 'P2-B', 'impact': 'parser',
+                                                   'options': [{'id': 'yes', 'label': 'Co'}, {'id': 'no', 'label': 'Khong'}], 'recommendation': 'yes', 'action': {'type': 'clarify', 'parameters': {}}})
         names = (os.environ.get('OBS1_UX_NAMES') or 'P6,P7').split(',')
         for name, title in ((names[0], 'OBS-1 UX: moi phan viec da kiem, cho nghiem thu'), (names[1], 'OBS-1 UX: plan da duoc nghiem thu')):
             task = make_root(name, title)
@@ -246,6 +253,26 @@ def main():
                 with ledger.transaction(write=True) as conn:
                     plan.emit(ledger, conn, task, 'plan.accepted', {'plan': name, 'revision': 1, 'by': 'owner', 'artifact_sha': 'x'})
             out['P6' if name == names[0] else 'P7'] = tracking.detail(state, name)['status']
+        # P8: two phần việc without dependency, both running at once
+        plan.propose(ledger, 'P8', contract('OBS-1 UX: hai phan viec chay song song'), 'codex', workflow=True, capabilities=caps + ['parallel-engine'])
+        plan.approve(ledger, 'P8', 'owner', 'temporary fixture only (not a real ledger)')
+        internal_plan.revise(ledger, 'P8', [node('A', write=('a.txt',)), node('B', write=('b.txt',)), node('I', ['A', 'B'], write=(), integration=True)], reason='parallel', evidence=['a.txt:1'])
+        class Isolated(executors.Executor):
+            declaration = executors.Declaration('fixture-isolated', 'managed', ('start', 'isolate'))
+            barrier = threading.Barrier(2)
+            def __init__(self): self.control = control
+            def start(self, ledger_, control_, task, item, attempt):
+                control_.launched(attempt['id'], attempt['generation'], {'fixture': True})
+                try: self.barrier.wait(30)
+                except threading.BrokenBarrierError: pass
+                time.sleep(1.5)
+                artifact, receipt = store.blob(('artifact-' + item['id']).encode()), store.blob(b'{"kind":"fixture-receipt"}')
+                control_.finish(attempt['id'], attempt['generation'], {'fixture': True, 'artifact': artifact})
+                return {'artifact': artifact, 'receipt': receipt}
+            def isolate(self, attempt_id): return {'attempt': attempt_id, 'writes': 'scoped candidate only'}
+        p8 = engine.run_batch(ledger, 'P8', Isolated(), slots=2)
+        if [r.get('state') for r in p8.get('results', [])] != ['produced', 'produced']: raise SystemExit('P8 did not run both nodes: ' + json.dumps(p8, default=str)[:300])
+        out['p8'] = tracking.detail(state, 'P8')['status']
         # P4 again: a new generation, a second attempt that stays running and is blocked by its own observation; the first attempt's late observation
         with ledger.transaction(write=True) as conn:
             view = engine.state(ledger, 'P4', conn); engine._event(ledger, conn, view, 'C', 'node.resumed')

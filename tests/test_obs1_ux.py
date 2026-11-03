@@ -17,6 +17,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+from onecrew.ledger import Ledger
 from onecrew.v2 import engine, plan as plans, tracking, tracking_web
 from tests.test_obs1_tracking import QUESTION, _Blocking, first_task
 from tests.test_v2_l1 import Fixture
@@ -70,8 +71,10 @@ class QuestionCommands(EngineFixture):
         need = first_task(tracking.overview(self.ledger.state_root))['needs_user'][0]
         self.assertEqual([o['id'] for o in need['options']], ['seven', 'thirty'])
         for o in need['options']:
-            self.assertEqual(o['reply_command'], f'onecrew --project "{self.ledger.project_path}" --state-root "{self.ledger.state_root}" question answer {request["id"]} '
-                                                 f'--revision {request["revision"]} --choice {o["id"]} --reference "{tracking.REFERENCE_PLACEHOLDER}"')
+            self.assertTrue(o['reply_command'].endswith(f" --project '{self.ledger.project_path}' --state-root '{self.ledger.state_root}' question answer {request['id']} "
+                                                        f"--revision {request['revision']} --choice {o['id']} --reference '{tracking.REFERENCE_PLACEHOLDER}'"), o['reply_command'])
+            self.assertTrue(o['reply_command'].startswith("& '") or o['reply_command'].startswith('onecrew '))
+        self.assertEqual(need['reply_shell'], 'PowerShell')
         self.assertEqual(need['placeholders'], ['reference']); self.assertIn('mẫu lệnh', need['reply_note'])
         self.assertIn('--reference', need['reply_command']); self.assertIn('<option-id>', need['reply_command'])
         self.assertEqual(need['recommendation'], 'seven'); self.assertEqual(need['reason'], 'Cần chốt thời hạn.')
@@ -88,8 +91,10 @@ class QuestionCommands(EngineFixture):
         env = {k: v for k, v in os.environ.items() if k not in ('ONECREW_ACTOR', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION')}
         env['PYTHONPATH'] = str(Path(__file__).resolve().parents[1]) + os.pathsep + env.get('PYTHONPATH', '')
         def run(cmd):
-            line = cmd.replace('onecrew ', f'"{sys.executable}" -X utf8 -m onecrew.console ', 1)
-            return subprocess.run(line, shell=True, capture_output=True, text=True, encoding='utf-8', errors='replace', env=env, cwd=str(elsewhere), timeout=120)
+            args = cmd.split(' --project ', 1)[1]
+            script = elsewhere / f'lenh {len(os.listdir(elsewhere))}.ps1'
+            script.write_text('$ErrorActionPreference = "Continue"\n& "' + sys.executable + '" -X utf8 -m onecrew.console --project ' + args + '\nexit $LASTEXITCODE\n', encoding='utf-8-sig')
+            return subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script)], capture_output=True, text=True, encoding='utf-8', errors='replace', env=env, cwd=str(elsewhere), timeout=180)
         missing = run(template.split(' --reference ')[0])                     # dev8's command (no --reference): the wheel's parser refuses it before any write
         self.assertEqual(missing.returncode, 2, missing.stdout + missing.stderr); self.assertIn('--reference', missing.stderr + missing.stdout)
         self.assertEqual(self.ledger.request(request['id'])['state'], 'pending')
@@ -97,6 +102,62 @@ class QuestionCommands(EngineFixture):
         self.assertEqual(filled.returncode, 0, filled.stdout[-600:] + filled.stderr[-600:])
         self.assertNotEqual(self.ledger.request(request['id'])['state'], 'pending')
         self.assertEqual(first_task(tracking.overview(self.ledger.state_root))['needs_user'], [])
+
+
+class PowerShellTemplate(EngineFixture):
+    """P2-B: the template is a PowerShell line; a path holding $SDK, a quote, a backtick, & and ( reaches the parser unchanged (dev9's double
+    quotes let $SDK be interpolated). Run through the REAL powershell.exe, from a script file, with $SDK set to something else."""
+    def test_hostile_path_survives_powershell_and_the_answer_is_recorded(self):
+        from tests.obs1_ux_fixture import make_root
+        hostile = Path(self.temp.name) / "demo$SDK 'q' (a)&b`t"; hostile.mkdir(); (hostile / 'a.txt').write_text('base\n')
+        other = Ledger(hostile, self.ledger.state_root)
+        make_root(self, 'PS', 'đường dẫn đặc biệt', ledger=other)
+        with other.transaction() as conn:
+            task = plans.anchor_events(other, conn, 'PS')['task_id']
+        request = other.create_request(task, 'ps-q', QUESTION)
+        need = next(t for p in tracking.overview(self.ledger.state_root)['projects'] for t in p['tasks'] if t['plan'] == 'PS')['needs_user'][0]
+        template = need['options'][1]['reply_command']
+        self.assertEqual(need['reply_shell'], 'PowerShell'); self.assertIn("--project 'd:\\", template.lower()); self.assertIn("''q''", template); self.assertIn('$sdk', template.lower())      # the project path is normcased; PowerShell variables are case-insensitive
+        self.assertTrue(template.startswith("& '") or template.startswith('onecrew '), template)
+        runtime = f'"{sys.executable}" -X utf8 -m onecrew.console'
+        line = template.replace(tracking.REFERENCE_PLACEHOLDER, 'chủ chọn sau khi đọc (fixture)')
+        # the checkout has no onecrew.exe: run the same arguments through the interpreter's console entry
+        args = line.split(' --project ', 1)[1]
+        script = Path(self.temp.name) / 'tra loi.ps1'
+        script.write_text('$SDK = "CHANGED"\n$ErrorActionPreference = "Stop"\n& "' + sys.executable + '" -X utf8 -m onecrew.console --project ' + args + '\nexit $LASTEXITCODE\n', encoding='utf-8-sig')
+        env = {k: v for k, v in os.environ.items() if k not in ('ONECREW_ACTOR', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION')}
+        env['PYTHONPATH'] = str(Path(__file__).resolve().parents[1]) + os.pathsep + env.get('PYTHONPATH', '')
+        done = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script)], capture_output=True, text=True, encoding='utf-8', errors='replace', env=env, cwd=self.temp.name, timeout=180)
+        self.assertEqual(done.returncode, 0, done.stdout[-800:] + done.stderr[-800:])
+        self.assertNotIn('CHANGED', done.stdout + done.stderr)
+        self.assertNotEqual(other.request(request['id'])['state'], 'pending')
+        # dev9's shape (double quotes) is what PowerShell interpolates: the same path arrives changed and the parser refuses
+        bad = script.with_name('dev9 shape.ps1')
+        bad.write_text('$SDK = "CHANGED"\n& "' + sys.executable + '" -X utf8 -m onecrew.console --project "' + str(hostile) + '" --state-root "' + str(self.ledger.state_root) + '" question list --plan PS\nexit $LASTEXITCODE\n', encoding='utf-8-sig')
+        done2 = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(bad)], capture_output=True, text=True, encoding='utf-8', errors='replace', env=env, cwd=self.temp.name, timeout=180)
+        self.assertNotEqual(done2.returncode, 0); self.assertIn('does not exist', done2.stdout + done2.stderr)       # $SDK was interpolated: the path no longer exists
+
+
+class GanttSpans(EngineFixture):
+    def test_rows_come_from_sourced_timestamps_and_a_running_attempt_has_an_unconfirmed_tail(self):
+        import datetime as dt
+        self.revise([node('A'), node('I', ['A'], integration=True, write=())])
+        d = tracking.detail(self.ledger.state_root, 'P1'); g = d['gantt']
+        self.assertEqual(g['rows'], []); self.assertEqual([m['kind'] for m in g['plan_marks']][:2], ['plan.approved', 'plan.revised']); self.assertFalse(g['axis']['extends_to_now'])
+        worker = _Blocking(self); thread = threading.Thread(target=self.step, args=(worker,), daemon=True); thread.start(); self.assertTrue(worker.started.wait(10))
+        now = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=30)
+        g = tracking.detail(self.ledger.state_root, 'P1', now=now)['gantt']
+        row = g['rows'][0]; kinds = [s['kind'] for s in row['segments']]
+        self.assertEqual(row['node'], 'A'); self.assertTrue(row['active']); self.assertIn('to_now', kinds); self.assertEqual(row['segments'][-1]['to'], g['axis']['now'])
+        self.assertFalse(row['segments'][-1]['confirmed']); self.assertTrue(all(s['confirmed'] for s in row['segments'][:-1]))
+        self.assertEqual(row['execution_seconds'], 'unknown'); self.assertTrue(g['axis']['extends_to_now']); self.assertEqual(g['axis']['end'], g['axis']['now'])
+        self.assertEqual(row['reserved_at'], d['attempts'][0]['created_at'] if d['attempts'] else row['reserved_at'])
+        worker.release.set(); thread.join(20)
+        g = tracking.detail(self.ledger.state_root, 'P1')['gantt']; row = g['rows'][0]
+        self.assertEqual([s['kind'] for s in row['segments']], ['reserved', 'execution']); self.assertIsInstance(row['execution_seconds'], float)
+        self.assertEqual(row['settled_at'], row['segments'][-1]['to']); self.assertFalse(g['axis']['extends_to_now'])
+        self.assertIn('đã tạo đầu ra', [m['label'] for m in row['marks']])
+        self.assertLessEqual(g['axis']['start'], row['reserved_at']); self.assertGreaterEqual(g['axis']['end'], row['settled_at'])
 
 
 class ElapsedClock(EngineFixture):

@@ -154,6 +154,16 @@ def load_harness():
     return module
 
 
+def powershell_template(line, script):
+    """Run one PowerShell template line through the REAL powershell.exe from a script file (the shell the templates are written for), with $SDK set
+    to something else first: a correctly quoted path must not change."""
+    script = Path(script); script.write_text('$SDK = "CHANGED"\n' + line + '\nexit $LASTEXITCODE\n', encoding='utf-8-sig')
+    return run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script)], env=os.environ.copy() | {k: v for k, v in os.environ.items()} | PS_ENV[0], cwd=str(script.parent), text=True, encoding='utf-8', errors='replace', timeout=180)
+
+
+PS_ENV = [{}]
+
+
 def start_server(exe, project, state, env, work, port=0, project_only=False):
     """`onecrew track serve` as its own process; returns (process, record) from its first JSON line."""
     process = subprocess.Popen([str(exe), '--project', str(project), '--state-root', str(state), 'track', 'serve', '--port', str(port), '--interval', '1']
@@ -255,6 +265,7 @@ def main(pkg, work):
     policy.write_text('{}', encoding='utf-8')
     env.update(PATH=str(scripts) + os.pathsep + env.get('PATH', ''), LOCALAPPDATA=str(local), APPDATA=str(roaming), TEMP=str(temp), TMP=str(temp),
                ONECREW_FAKE_POLICY=str(policy), ONECREW_FAKE_LOG=str(log), ONECREW_LANG='vi')
+    PS_ENV[0] = env
     version = run([exe, '--version'], env=env, cwd=work, text=True, encoding='utf-8', errors='replace').stdout.strip()
     if not step('V2-install', a.returncode == 0 and b.returncode == 0 and version == f'onecrew {manifest["version"]}', version=version, pip_tail=text_of(a)[-300:] + text_of(b)[-200:]): return finish()
     # V3
@@ -509,20 +520,25 @@ def main(pkg, work):
         ux = load_harness()
         process, record = start_server(exe, project, state, env, work)
         writes = []
-        def on_signal(name):
+        def on_signal(name, params=None):
             if name == 'write':
                 done = run([py, '-I', scenario, work, 'request'], env=dict(env, OBS1_REQUEST_KEY=f'ux-write-{len(writes) + 1}'), cwd=work, text=True, encoding='utf-8', errors='replace', timeout=120)
                 writes.append((first_json(done.stdout) or {}).get('request')); return writes[-1]
+            if name == 'answer':                             # the owner answers THIS question with the page's own template, through the installed CLI in real PowerShell
+                shown = first_json(cli('track', 'show', 'P1', '--json').stdout) or {}
+                need = next((n for n in shown.get('needs_user', []) if n.get('id') == (params or {}).get('id')), None)
+                if not need: return 'no such pending question'
+                return powershell_template(need['options'][0]['reply_command'].replace(need['reference_placeholder'], 'fixture owner answered while reading'), work / 'answer while reading.ps1').returncode
             return None
         proxy = ux.Proxy(record['url'], on_signal=on_signal)
         results = {}
         try:
             scenarios = [('ux01', 'desktop'), ('ux02', 'desktop'), ('ux03', 'desktop'), ('ux04', 'desktop'), ('ux05', 'desktop'), ('ux06', 'desktop'), ('ux07', 'desktop'),
                          ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop'),
-                         ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile')]
+                         ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile'), ('gantt', 'desktop'), ('gantt', 'mobile'), ('p2a', 'desktop')]
             for name, size in scenarios:
                 width, height = ux.SIZES[size]
-                result = ux.run(browser, proxy.url, name, width, height, profile, budget=45000 if name in ('ux01', 'disc', 'clock') else 30000)
+                result = ux.run(browser, proxy.url, name, width, height, profile, budget=45000 if name in ('ux01', 'disc', 'clock', 'gantt', 'p2a') else 30000)
                 results[f'{name}@{size}'] = {'ok': result.get('ok'), 'polls': result.get('polls'), 'checks': result.get('checks'), 'notes': result.get('notes'), 'error': result.get('error'),
                                              'scrollWidth': result.get('scrollWidth'), 'innerWidth': result.get('innerWidth')}
                 if not result.get('ok'): problems.append(f'{name}@{size}: ' + str(result.get('error') or result.get('notes'))[:300])
@@ -605,13 +621,14 @@ def main(pkg, work):
     needs = [n for n in shown.get('needs_user', []) if n.get('kind') == 'request']
     elsewhere = work / 'terminal cua chu'; elsewhere.mkdir(exist_ok=True)
     def owner_shell(command):
-        return subprocess.run(command, shell=True, capture_output=True, text=True, encoding='utf-8', errors='replace', env=env, cwd=str(elsewhere), timeout=120)
+        return powershell_template(command, elsewhere / 'owner.ps1')
     if not needs: problems.append('no pending question on P1 to answer')
     else:
         template = needs[0]['options'][0]['reply_command']; placeholder = needs[0].get('reference_placeholder') or ''
         facts['template'] = template
-        if not (template.startswith('onecrew --project "') and ' --state-root "' in template and ' --reference "' in template and placeholder and placeholder in template):
+        if not ((template.startswith("& '") or template.startswith('onecrew ')) and " --project '" in template and " --state-root '" in template and " --reference '" in template and placeholder and placeholder in template):
             problems.append('template incomplete: ' + template)
+        if needs[0].get('reply_shell') != 'PowerShell': problems.append('reply_shell is not PowerShell')
         missing = owner_shell(template.split(' --reference ')[0])                                  # the dev8 shape: refused by the parser, nothing written
         if missing.returncode != 2 or '--reference' not in missing.stdout + missing.stderr: problems.append(f'without --reference: exit {missing.returncode}: ' + (missing.stdout + missing.stderr)[-300:])
         still = first_json(cli('track', 'show', 'P1', '--json').stdout) or {}
@@ -622,6 +639,18 @@ def main(pkg, work):
         if filled.returncode != 0 or len(left) != len(needs) - 1 or any(n['id'] == needs[0]['id'] for n in left):
             problems.append(f'filled template: exit {filled.returncode}, questions left {len(left)}/{len(needs)}: ' + (filled.stdout + filled.stderr)[-400:])
         facts.update(questions_before=len(needs), questions_after=len(left), cwd=str(elsewhere))
+        # P2-B: the project whose path holds $SDK, a quote, a backtick, & and (: through real PowerShell with $SDK="CHANGED" set first
+        shown_ps = first_json(cli('track', 'show', 'PS', '--json', '--all-projects').stdout) or {}
+        ps_needs = [n for n in shown_ps.get('needs_user', []) if n.get('kind') == 'request']
+        if not ps_needs: problems.append('no pending question on PS (hostile path)')
+        else:
+            t2 = ps_needs[0]['options'][0]['reply_command']
+            if '$sdk' not in t2.lower() or "''q''" not in t2 or "`t" not in t2: problems.append('hostile path not quoted as expected: ' + t2)
+            done_ps = owner_shell(t2.replace(ps_needs[0]['reference_placeholder'], 'fixture owner (hostile path)'))
+            after_ps = first_json(cli('track', 'show', 'PS', '--json', '--all-projects').stdout) or {}
+            if done_ps.returncode != 0 or 'CHANGED' in done_ps.stdout + done_ps.stderr or any(n.get('kind') == 'request' for n in after_ps.get('needs_user', [])):
+                problems.append(f'hostile path through PowerShell: exit {done_ps.returncode}: ' + (done_ps.stdout + done_ps.stderr)[-400:])
+            facts['hostile_path'] = {'template': t2, 'exit': done_ps.returncode}
     if not step('V16-reply-template', not problems, problems=problems, **facts): return finish()
     # V11
     profile = work / 'browser profile'

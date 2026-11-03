@@ -18,7 +18,7 @@ from tests.test_wf_engine import EngineFixture
 
 SCENARIOS = [('ux01', 'desktop'), ('ux02', 'desktop'), ('ux03', 'desktop'), ('ux04', 'desktop'), ('ux05', 'desktop'), ('ux06', 'desktop'), ('ux07', 'desktop'),
              ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop'),
-             ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile')]
+             ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile'), ('gantt', 'desktop'), ('gantt', 'mobile'), ('p2a', 'desktop')]
 
 
 class BrowserUX(EngineFixture):
@@ -35,10 +35,18 @@ class BrowserUX(EngineFixture):
         self.proxy = ux.Proxy(tracking_web.url_of(self.server), on_signal=self.signal); self.addCleanup(self.proxy.stop)
         self.out = Path(os.environ.get('OBS1_UX_DIR') or self.temp.name); self.out.mkdir(parents=True, exist_ok=True)
 
-    def signal(self, name):
+    def signal(self, name, params=None):
         if name == 'write':                                   # a second owner question on P1 while the page shows P1: the ledger seq moves
             request = self.ledger.create_request(self.root_view['anchor_task'], f'retention-{len(self.writes) + 2}', dict(QUESTION, question=f'Câu hỏi thứ {len(self.writes) + 2} (đến trong lúc đang đọc)?'))
             self.writes.append(request['id']); return request['id']
+        if name == 'answer':                                  # the owner answers one question (fixture owner on the trial ledger) while the page is open
+            from onecrew.v2 import questions
+            from unittest.mock import patch
+            row = self.ledger.request(params['id'])
+            with patch.dict(os.environ):
+                os.environ.pop('ONECREW_ACTOR', None); os.environ.pop('CLAUDE_CODE_CHILD_SESSION', None)
+                questions.answer(self.ledger, params['id'], row['revision'], (row['question'].get('options') or [{'id': 'seven'}])[0]['id'], 'fixture owner answered while reading')
+            return params['id']
         return None
 
     def run_one(self, scenario, size, **kw):
@@ -50,7 +58,7 @@ class BrowserUX(EngineFixture):
     def test_every_scenario_at_its_sizes(self):
         failures = []
         for scenario, size in SCENARIOS:
-            result = self.run_one(scenario, size, budget=45000 if scenario in ('ux01', 'disc', 'clock') else 30000)
+            result = self.run_one(scenario, size, budget=45000 if scenario in ('ux01', 'disc', 'clock', 'gantt', 'p2a') else 30000)
             if not result.get('ok'): failures.append((scenario, size, result.get('error'), result.get('notes'), result.get('checks')))
             elif scenario == 'ux01': self.assertGreaterEqual(result.get('polls', 0), 5, result)
         self.assertEqual(failures, [], json.dumps(failures, ensure_ascii=False, indent=1))

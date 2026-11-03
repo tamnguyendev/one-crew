@@ -8,6 +8,7 @@ closed; P6 every node verified, waiting for acceptance; P7 accepted; PB a plan o
 """
 import os
 import threading
+import time
 from unittest.mock import patch
 
 from onecrew.ledger import Ledger
@@ -82,6 +83,28 @@ def populate(case):
     other = case.root.parent / 'du an thu nghiem voi ten thu muc rat dai de kiem tra bo loc project va tran chieu ngang 2026'; other.mkdir(exist_ok=True); (other / 'a.txt').write_text('base\n')
     case.ledger_b = Ledger(other, case.ledger.state_root)
     make_root(case, 'PB', 'PROJECT B PRIVATE GOAL', ledger=case.ledger_b)
+    # P8: two phần việc with no dependency, both running at once (overlap on the shared axis)
+    value8 = plan_json(scope={'owned': ['a.txt', 'b.txt']}, authority={'edit': True, 'commands': True, 'edit_tests': True, 'self_decide': ['Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q9', 'Q12']})
+    value8['title'] = 'Hai phần việc chạy song song: tách tài liệu và dựng bộ thử'
+    plans.propose(case.ledger, 'P8', value8, 'codex', workflow=True, capabilities=case.engine_caps + ['parallel-engine'])
+    with patch.dict(os.environ):
+        os.environ.pop('ONECREW_ACTOR', None); plans.approve(case.ledger, 'P8', 'owner', 'fixture approval')
+    internal_plan.revise(case.ledger, 'P8', [node('A', write=('a.txt',)), node('B', write=('b.txt',)), node('I', ['A', 'B'], integration=True, write=())], reason='parallel', evidence=['a.txt:1'])
+    class _Isolated(executors.Executor):                      # the engine's own two-slot path: both starts meet at a barrier, run 1.5 s together, then settle
+        declaration = executors.Declaration('fixture-isolated', 'managed', ('start', 'isolate'))
+        control = case.control
+        barrier = threading.Barrier(2)
+        def start(self, ledger, control, task, item, attempt):
+            control.launched(attempt['id'], attempt['generation'], {'fixture': True})
+            try: self.barrier.wait(20)
+            except threading.BrokenBarrierError: pass
+            time.sleep(1.5)
+            artifact = case.store.blob(('artifact-' + item['id']).encode()); receipt = case.store.blob(b'{"kind":"fixture-receipt"}')
+            control.finish(attempt['id'], attempt['generation'], {'fixture': True, 'artifact': artifact})
+            return {'artifact': artifact, 'receipt': receipt}
+        def isolate(self, attempt_id): return {'attempt': attempt_id, 'writes': 'scoped candidate only'}
+    case.p8 = engine.run_batch(case.ledger, 'P8', _Isolated(), slots=2)
+    assert [r.get('state') for r in case.p8.get('results', [])] == ['produced', 'produced'], case.p8
     # P4: attempt 1 produced, a new generation, attempt 2 running and blocked by ITS observation; a late observation of attempt 1
     make_root(case, 'P4', 'Phần việc chạy lại: attempt cũ có quan sát đến muộn, attempt mới bị chặn'); approve_and_revise(case, 'P4'); step('P4')
     old = tracking.detail(case.ledger.state_root, 'P4')['nodes']['C']['attempt']
@@ -102,4 +125,11 @@ def populate(case):
     progress_track.observe(case.ledger, 'P4', 'C', Managed(), old, 'late-old-command', {'kind': 'command', 'elapsed_seconds': 60}, source='tool_call', ref='old-receipt', command_cap_seconds=60)
     progress_track.observe(case.ledger, 'P4', 'C', Managed(), new, 'current-command', {'kind': 'command', 'elapsed_seconds': 60}, source='tool_call', ref='current-receipt', command_cap_seconds=60)
     case.p4 = {'old': old, 'new': new, 'worker': worker}
+    # PS: a project whose path holds the characters a PowerShell template must pass through unchanged
+    hostile = case.root.parent / "demo$SDK 'q' (a)&b`t"; hostile.mkdir(exist_ok=True); (hostile / 'a.txt').write_text('base\n')
+    case.ledger_ps = Ledger(hostile, case.ledger.state_root)
+    make_root(case, 'PS', 'Project có ký tự đặc biệt trong đường dẫn', ledger=case.ledger_ps)
+    with case.ledger_ps.transaction() as conn:
+        ps_task = plans.anchor_events(case.ledger_ps, conn, 'PS')['task_id']
+    case.ps_request = case.ledger_ps.create_request(ps_task, 'ps-q', dict(QUESTION, question='Đường dẫn có $SDK và dấu nháy: mẫu lệnh có giữ nguyên không?'))
     return worker
