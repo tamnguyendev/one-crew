@@ -64,9 +64,11 @@ RECORD_FIELDS = (('receipt', 'receipt đầu ra'), ('verification_receipt', 'rec
                  ('retained_candidate', 'ứng viên được giữ lại'))
 EVIDENCE_BASIS = ('toàn bộ sự kiện của root và các task con, không phụ thuộc giới hạn timeline: mỗi lần một sự kiện nêu một blob là một mục '
                   '(seq, key) với loại, thời điểm, phần việc, thế hệ, attempt và vai trò của chính sự kiện đó; cùng nội dung (cùng key) không gộp các lần nêu. '
-                  'Chỉ khóa có blob trong kho (snapshots/blobs) là bằng chứng; mã định danh 64-hex (project_id, revision, sha của plan, khóa capture…) không '
-                  'được đếm, liệt kê hay mở; một khóa ở trường blob của engine (artifact, receipt, resume_artifact, verification_receipt, '
-                  'precondition_receipt) mà không có blob trong kho vẫn được liệt kê, đánh dấu blob: false, không mở được')
+                  'Chỉ khóa có trong kho là bằng chứng: blob (snapshots/blobs) hoặc ảnh chụp (snapshots/manifests: đầu ra, đầu ra kế thừa, ứng viên giữ lại, '
+                  'ảnh chụp đầu vào của engine); mã định danh 64-hex khác (project_id, revision, sha của plan…) không được đếm, liệt kê hay mở; '
+                  'sự kiện estimate.* không phải lần dùng bằng chứng (nền của ước lượng); một khóa ở trường đầu ra của sự kiện engine mà không còn '
+                  'trong kho vẫn được liệt kê, đánh dấu stored: null / blob: false, không mở được')
+NOT_EVIDENCE = ('estimate.',)   # event kinds whose keys are bookkeeping (the basis an estimate was computed from), not evidence uses
 BLOB_FIELDS = ('artifact', 'receipt', 'resume_artifact', 'verification_receipt', 'precondition_receipt')   # engine fields that hold a blob key
 
 
@@ -582,12 +584,17 @@ def _provenance(events, attempts, nodes, current_generation, current_attempt):
     return out, keys
 
 
-def _blobs_present(state_root, keys):
-    """The keys that are blobs in the snapshot store (one stat per distinct key): only those are evidence that can be counted and opened.
-    Any other 64-hex value a payload names is an identifier (project_id, revision, plan sha, capture key ...) or a blob gone from the store."""
+def _stored(state_root, keys):
+    """{key: 'blob' | 'manifest'} for the keys the snapshot store holds (at most two stats per distinct key). The real engine stores node
+    artifacts, inherited artifacts, retained candidates and captures as snapshot MANIFESTS (R1 closure review round 3); receipts and small
+    evidence as blobs. Both are content that opens. Any other 64-hex value is an identifier (project_id, revision, plan sha ...) or gone."""
     from ..snapshots import Snapshots
-    blobs = Snapshots(state_root).root / 'blobs'
-    return {k for k in keys if (blobs / k).is_file()}
+    root = Snapshots(state_root).root
+    out = {}
+    for k in keys:
+        if (root / 'blobs' / k).is_file(): out[k] = 'blob'
+        elif (root / 'manifests' / (k + '.json')).is_file(): out[k] = 'manifest'
+    return out
 
 
 def _evidence_like(occurrence):
@@ -596,6 +603,7 @@ def _evidence_like(occurrence):
     an output whose blob is missing never reads as "no output"; it is marked blob: false. A 64-hex value anywhere else (project_id,
     revision, sha, basis_sha, a free-form evidence[i] string ...) is an identifier, not evidence."""
     if occurrence['kind'] == 'engine.state': return True
+    if not occurrence['kind'].startswith(('node.', 'attempt.')): return False     # round 3: only an engine event's output field keeps a missing key
     names = re.findall(r'[a-z_]+', occurrence.get('role') or '')
     return bool(names) and names[-1] in BLOB_FIELDS
 
@@ -626,8 +634,8 @@ def _source_of(occurrences, key, node, generation, attempt, before):
 
 
 def _timeline(conn, root_id, children, current_generation, limit, current_attempt=None, shown=None):
-    """(rows, total): the newest `limit` non-noise events of the root and its children (display window). `shown`: the keys that are evidence
-    (evidence_index); a row names only those (an identifier the payload carries is not evidence)."""
+    """(rows, total): the newest `limit` non-noise events of the root and its children (display window). `shown`: the (seq, key) occurrences of
+    evidence_index; a row names exactly the keys that have an occurrence OF THAT EVENT (an identifier, or a key of a non-evidence event, is not listed)."""
     current_attempt = current_attempt or {}
     rows = []
     task_ids = [root_id] + sorted(children)
@@ -643,7 +651,7 @@ def _timeline(conn, root_id, children, current_generation, limit, current_attemp
     for r in conn.execute(f'SELECT seq, task_id, kind, payload, created_at FROM events WHERE task_id IN ({marks}) AND kind NOT IN ({noise}) ORDER BY seq DESC LIMIT ?',
                           task_ids + list(NOISE) + [limit]):
         p = json.loads(r['payload'])
-        named = {k for k in _keys_of(p) if shown is None or k in shown}
+        named = {k for k in _keys_of(p) if shown is None or (r['seq'], k) in shown}       # exactly the occurrences of THIS event
         node = p.get('node')
         gen = p.get('generation') if node is not None else None          # attempt.reserved/launched: control generation, not the node's
         stale = node is not None and gen is not None and node in current_generation and gen != current_generation[node]
@@ -868,19 +876,22 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     current = {nid: r['generation'] for nid, r in nodes.items()}
     current_attempt = {nid: r['attempt'] for nid, r in nodes.items() if r['attempt']}
     occurrences, keys = _provenance(history, attempts, nodes, current, current_attempt)    # UX-07 + R1: every use of every blob, from the FULL history
-    present = _blobs_present(reader.state_root, keys)                                     # R1 review round 2: a 64-hex identifier is not a blob
-    occurrences = [dict(o, blob=o['key'] in present) for o in occurrences if o['key'] in present or _evidence_like(o)]
-    item['timeline'], item['timeline_total'] = _timeline(conn, row['id'], children, current, timeline_limit, current_attempt, shown={o['key'] for o in occurrences})
+    stored = _stored(reader.state_root, keys)                                             # R1 rounds 2-3: identifiers are not evidence; blobs AND manifests are
+    occurrences = [dict(o, stored=stored.get(o['key']), blob=o['key'] in stored) for o in occurrences
+                   if not o['kind'].startswith(NOT_EVIDENCE) and (o['key'] in stored or _evidence_like(o))]
+    present = {o['key'] for o in occurrences if o['key'] in stored}
+    item['timeline'], item['timeline_total'] = _timeline(conn, row['id'], children, current, timeline_limit, current_attempt, shown={(o['seq'], o['key']) for o in occurrences})
     item['timeline_limit'] = timeline_limit
     item['timeline_complete'] = len(item['timeline']) >= item['timeline_total']   # False: older events are not in `timeline`; their evidence is still in evidence_index
-    item['evidence_keys'] = sorted(present)                                        # the blobs the page counts and the door opens
+    item['evidence_keys'] = sorted(present)                                        # the stored keys (blob or manifest) the page counts and the door opens
     item['evidence_index'] = occurrences
     item['evidence_basis'] = EVIDENCE_BASIS
     item['gantt'] = _timeline_spans(history, attempts, list(nodes), current_attempt, waits, now, node_views=nodes)
     for r in item['gantt']['rows']:
         for x in r['inherits']:
             if x.get('key'):
-                x['blob'] = x['key'] in present
+                x['blob'] = x['key'] in stored
+                x['stored'] = stored.get(x['key'])
                 x['source_occurrence'] = _source_of(occurrences, x['key'], r['node'], x.get('from_generation'), x.get('from_attempt'), r['generation'])
                 if x['source_occurrence'] is None: x['source_note'] = 'sổ không có sự kiện nào nêu blob này ở thế hệ nguồn'
     item['measure'] = _measure(rd, row['request_key']) if engine_root else {'note': 'root không có engine: không có attempt để đo'}
@@ -1077,9 +1088,23 @@ def evidence(state_root, selector, key, *, project_id=None):
     if not named: raise PermissionError('Bằng chứng này không thuộc root đã chọn; không mở.')
     from ..snapshots import Snapshots
     from .diagnostics import redact
-    if not _blobs_present(state_root, {key}):
-        raise LedgerError('Không có blob này trong kho bằng chứng: sổ nêu khóa này nhưng nó không phải nội dung đã lưu (mã định danh như project_id, '
-                          'revision, sha của plan, hoặc blob đã bị xóa khỏi kho); không có gì để mở.')
+    kind = _stored(state_root, {key}).get(key)
+    if kind is None:
+        raise LedgerError('Không có trong kho bằng chứng: sổ nêu khóa này nhưng nó không phải nội dung đã lưu (blob hay ảnh chụp) — mã định danh như '
+                          'project_id, revision, sha của plan, hoặc nội dung đã bị xóa khỏi kho; không có gì để mở.')
+    if kind == 'manifest':                                                        # a snapshot: its files and their blob keys
+        store = Snapshots(state_root)
+        raw = (store.root / 'manifests' / (key + '.json')).read_bytes()
+        try:
+            value, verified = store.load(key), True
+        except (LedgerError, OSError, ValueError) as error:
+            value, verified = {'unverified': clean(str(error), 200), 'manifest': json.loads(raw.decode('utf-8', 'replace'))}, False
+        files = len((value.get('files') if verified else (value['manifest'] or {}).get('files')) or {})
+        text = json.dumps(value, ensure_ascii=False, indent=1, sort_keys=True)
+        truncated = len(text) > EVIDENCE_CAP
+        clean_text, redaction = redact(text[:EVIDENCE_CAP])
+        return outward({'key': key, 'kind': 'manifest', 'files': files, 'verified': verified, 'bytes': len(raw), 'truncated': truncated,
+                        'text': clean_text, 'redaction': redaction, 'read_only': True})
     data = Snapshots(state_root).read_blob(key)
     truncated = len(data) > EVIDENCE_CAP
     text = data[:EVIDENCE_CAP].decode('utf-8', 'replace')
@@ -1089,7 +1114,7 @@ def evidence(state_root, selector, key, *, project_id=None):
     except (ValueError, UnicodeDecodeError):
         pass
     clean_text, redaction = redact(text)
-    return outward({'key': key, 'bytes': len(data), 'truncated': truncated, 'text': clean_text, 'redaction': redaction, 'read_only': True})
+    return outward({'key': key, 'kind': 'blob', 'bytes': len(data), 'truncated': truncated, 'text': clean_text, 'redaction': redaction, 'read_only': True})
 
 
 # ---- plain text (the `track list` / `track show` lines) -----------------------------------------------------------------------------
@@ -1158,6 +1183,6 @@ def render_detail(value):
         lines.append(f"  #{e['seq']} {when} {e['kind']}: {e['summary']}" + ('  [thế hệ cũ]' if e['stale_generation'] else '  [attempt cũ]' if e.get('stale_attempt') else ''))
     index = t.get('evidence_index') or []
     missing = sorted({x['key'] for x in index if x.get('blob') is False})
-    lines.append(f"Bằng chứng mở được: {len(t['evidence_keys'])} blob ({sum(1 for x in index if x.get('blob') is not False)} lần được nêu, toàn bộ lịch sử)"
-                 + (f" · {len(missing)} khóa đầu ra không có blob trong kho (không mở được)" if missing else '') + f" · Điều khiển: {t['controls']}")
+    lines.append(f"Bằng chứng mở được: {len(t['evidence_keys'])} mục trong kho (blob hoặc ảnh chụp; {sum(1 for x in index if x.get('blob') is not False)} lần được nêu, toàn bộ lịch sử)"
+                 + (f" · {len(missing)} khóa đầu ra không còn trong kho (không mở được)" if missing else '') + f" · Điều khiển: {t['controls']}")
     return _guard('\n'.join(lines) + '\n')

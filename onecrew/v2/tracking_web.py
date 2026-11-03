@@ -155,7 +155,8 @@ def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interv
                     if not q.get('plan') or not q.get('key'): return self._send(HTTPStatus.BAD_REQUEST, {'error': 'thiếu plan hoặc key'})
                     value = tracking.evidence(state_root, q['plan'], q['key'], project_id=scope)
                     if q.get('format') == 'text':
-                        head = f"# blob {value['key']} ({value['bytes']} bytes{', cắt' if value['truncated'] else ''}); lọc bí mật: {value['redaction']['rule']}\n\n"
+                        head = (f"# {'ảnh chụp' if value.get('kind') == 'manifest' else 'blob'} {value['key']} ({value['bytes']} bytes"
+                                + (f", {value.get('files')} tệp" if value.get('kind') == 'manifest' else '') + f"{', cắt' if value['truncated'] else ''}); lọc bí mật: {value['redaction']['rule']}\n\n")
                         return self._send(HTTPStatus.OK, (head + value['text']).encode('utf-8'), 'text/plain; charset=utf-8')
                     return self._send(HTTPStatus.OK, value)
                 return self._send(HTTPStatus.NOT_FOUND, {'error': 'không có đường dẫn này', 'paths': ['/', '/api/health', '/api/overview', '/api/task?plan=', '/api/evidence?plan=&key=']})
@@ -894,7 +895,7 @@ function prov(d){if(d.__prov)return d.__prov;var bySeq={},byKey={},keys=[];     
 function occMeta(x){return esc(x.kind||'')+(x.role?' · '+esc(x.role):'')+(typeof x.generation==='number'?' · thế hệ '+x.generation:' · thế hệ chưa xác định')+(x.attempt?' · lượt '+esc(String(x.attempt).slice(4,12)):' · lượt chưa xác định')+' · '+(x.at?when(x.at):'thời điểm chưa rõ')}
 function occLine(x){return '<b>'+esc(x.label||'bằng chứng')+'</b> <span class="small mut">'+occMeta(x)+' · <code>'+x.key.slice(0,12)+'…</code></span>'}
 function openBtn(k){var o=evState[k];return ' <button type="button" class="ev-open" data-key="'+k+'">'+(o?'ẩn nội dung':'xem nội dung')+'</button> <a class="small" target="_blank" href="'+evHref(k)+'">mở tab mới</a>'+(o?'<pre>'+esc(o.text)+'</pre>':'')}
-function openOr(x){return x.blob===false?' <span class="small mut nob">không có blob này trong kho: không mở được</span>':openBtn(x.key)}     // R1 round 2: only a blob in the store opens
+function openOr(x){return x.blob===false?' <span class="small mut nob">không có trong kho: không mở được</span>':(x.stored==='manifest'?' <span class="small mut">ảnh chụp</span>':'')+openBtn(x.key)}     // R1 round 2: only a blob in the store opens
 function occDiv(x){return '<div class="small" data-k="evk:'+x.key+':'+(typeof x.seq==='number'?x.seq:'s')+'">'+occLine(x)+openOr(x)+'</div>'}
 function evLi(e,P){var exp=selEv===e.seq,occ=P.bySeq[e.seq]||[],n=occ.length||(e.evidence||[]).length;var h='<li tabindex="0" role="button" aria-expanded="'+exp+'" data-seq="'+e.seq+'" data-k="ev:'+e.seq+'" class="'+((e.stale_generation||e.stale_attempt)?'stale':'')+'"><span class="t" title="'+when(e.at)+'">'+clock(e.at)+(e.observed_at&&e.observed_at!==e.at?' (quan sát '+clock(e.observed_at)+')':'')+'</span>'
     +esc(e.summary)+(e.task!=='root'?' <span class="k">(task con)</span>':'')+(n?'<span class="clip">bằng chứng '+n+'</span>':'')+'<span class="k">#'+e.seq+' '+esc(e.kind)+'</span>'+(e.note?' <b class="small">['+esc(e.note)+']</b>':'');
@@ -949,9 +950,9 @@ function renderDetail(d){
   function use(x){return '<li>'+esc(x.label||'')+' <span class="mut">· '+occMeta(x)+(x.seq!=null?' · #'+x.seq:'')+'</span></li>'}
   var bk=P.keys.filter(function(k){return P.byKey[k][0].blob!==false}),mk=P.keys.filter(function(k){return P.byKey[k][0].blob===false}),nu=0;bk.forEach(function(k){nu+=P.byKey[k].length});
   function uses(u){return '<ul class="uses">'+(u.length>8?u.slice(0,4).map(use).join('')+'<li class="mut">… '+(u.length-8)+' lần khác …</li>'+u.slice(-4).map(use).join(''):u.map(use).join(''))+'</ul>'}
-  h.push('<details data-k="evidence"><summary>Bằng chứng ('+bk.length+' blob, '+nu+' lần được nêu trong toàn bộ lịch sử'+(mk.length?'; '+mk.length+' khóa đầu ra không có blob trong kho':'')+'; lọc bí mật, chỉ đọc)</summary>'+bk.map(function(k){var u=P.byKey[k];   // one blob, its uses (generation / attempt / role)
-    return '<div class="small" data-k="evk:'+k+'"><code>'+k.slice(0,12)+'…</code> · '+u.length+' lần được nêu'+openBtn(k)+uses(u)+'</div>'}).join('')
-    +mk.map(function(k){var u=P.byKey[k];return '<div class="small" data-k="evm:'+k+'"><code>'+k.slice(0,12)+'…</code> · '+u.length+' lần được nêu · <span class="mut nob">không có blob này trong kho: không mở được</span>'+uses(u)+'</div>'}).join('')+'</details>');
+  h.push('<details data-k="evidence"><summary>Bằng chứng ('+bk.length+' mục trong kho, '+nu+' lần được nêu trong toàn bộ lịch sử'+(mk.length?'; '+mk.length+' khóa đầu ra không còn trong kho':'')+'; lọc bí mật, chỉ đọc)</summary>'+bk.map(function(k){var u=P.byKey[k];   // one stored key (blob or snapshot), its uses (generation / attempt / role)
+    return '<div class="small" data-k="evk:'+k+'"><code>'+k.slice(0,12)+'…</code>'+(u[0].stored==='manifest'?' · ảnh chụp':'')+' · '+u.length+' lần được nêu'+openBtn(k)+uses(u)+'</div>'}).join('')
+    +mk.map(function(k){var u=P.byKey[k];return '<div class="small" data-k="evm:'+k+'"><code>'+k.slice(0,12)+'…</code> · '+u.length+' lần được nêu · <span class="mut nob">không có trong kho: không mở được</span>'+uses(u)+'</div>'}).join('')+'</details>');
   if(cw.length)h.push('<details data-k="waits"><summary>Đã chờ (lịch sử, '+cw.length+')</summary>'+cw.map(function(w){return '<div class="small">'+esc(w.reason||'không rõ')+' '+when(w.since)+' → '+(w.until==='unknown'?'chưa rõ kết thúc':when(w.until))+' ('+esc(w.source)+')</div>'}).join('')+'</details>');
   if((d.attempts||[]).length){var mx={};((d.measure&&d.measure.attempts)||[]).forEach(function(m){mx[m.attempt]=m});var top=0;Object.keys(mx).forEach(function(k){if(typeof mx[k].execution_seconds==='number')top=Math.max(top,mx[k].execution_seconds)});
     h.push('<details data-k="attempts"><summary>Attempt ('+d.attempts.length+')</summary><div class="scroll"><table><thead><tr><th>Attempt</th><th>Trạng thái</th><th>Thế hệ</th><th>Thời lượng (đo)</th><th>Từ</th><th>Cập nhật</th></tr></thead><tbody>'+d.attempts.map(function(a){var m=mx[a.id],sec=m&&typeof m.execution_seconds==='number'&&m.settled_at?m.execution_seconds:null;

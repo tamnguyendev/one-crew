@@ -303,12 +303,13 @@ class Provenance(EngineFixture):
         (self.store.root / 'blobs' / receipt).unlink()                 # an output whose blob is gone from the store
         d = tracking.detail(self.ledger.state_root, 'P1', timeline_limit=5000)
         blobs = self.store.root / 'blobs'
+        def stored(k): return (blobs / k).is_file() or (self.store.root / 'manifests' / (k + '.json')).is_file()   # round 3: a snapshot manifest is stored content
         self.assertIn(real, d['evidence_keys'])
-        not_blobs = sorted(k for k in d['evidence_keys'] if not (blobs / k).is_file())
-        self.assertEqual(not_blobs, [], f'evidence_keys (the blobs the page counts and opens) holds identifiers / missing blobs: {[k[:12] for k in not_blobs]}')
+        not_stored = sorted(k for k in d['evidence_keys'] if not stored(k))
+        self.assertEqual(not_stored, [], f'evidence_keys (the stored keys the page counts and opens) holds identifiers / missing content: {[k[:12] for k in not_stored]}')
         ids = [(x['seq'], x['kind'], x['role']) for x in d['evidence_index'] if x['key'] == ident]
         self.assertEqual(ids, [], 'an identifier next to a real blob is not an evidence occurrence')
-        listed_ids = [(x['seq'], x['kind'], x['role']) for x in d['evidence_index'] if not (blobs / x['key']).is_file() and not x.get('output')]
+        listed_ids = [(x['seq'], x['kind'], x['role']) for x in d['evidence_index'] if not stored(x['key']) and not x.get('output')]
         self.assertEqual(listed_ids, [], 'no non-output occurrence of a key that is not a blob (project_id, revision, sha ...)')
         seq = next(e['seq'] for e in d['timeline'] if e['kind'] == 'decision.recorded' and 'r1-ids' in e['summary'])
         row = next(e for e in d['timeline'] if e['seq'] == seq)
@@ -317,7 +318,7 @@ class Provenance(EngineFixture):
         self.assertEqual([(x['role'], x['output'], x.get('blob')) for x in gone], [('receipt', True, False)],
                          'an output whose blob is missing stays an output occurrence, marked blob: false (never reads as no output)')
         self.assertTrue(all(x.get('blob') is True for x in d['evidence_index'] if x['key'] != receipt), 'every other listed occurrence is a blob in the store')
-        self.assertIn(f"Bằng chứng mở được: {len(d['evidence_keys'])} blob", tracking.render_detail(d))
+        self.assertIn(f"Bằng chứng mở được: {len(d['evidence_keys'])} mục trong kho", tracking.render_detail(d))
         for key in (ident, receipt):
             with self.assertRaises(tracking.LedgerError, msg=key[:12]): tracking.evidence(self.ledger.state_root, 'P1', key)
             status, body, errors = self.http_get('api/evidence?plan=P1&key=' + key + '&format=text')
