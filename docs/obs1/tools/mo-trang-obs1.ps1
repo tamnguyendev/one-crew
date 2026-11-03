@@ -7,6 +7,10 @@
 #   wheel khac, hoac marker cua so khong con tro toi phien do) thi script tu choi, khong mo server nao, khong ghi de ghim: dung phien do truoc bang
 #   dung-trang-obs1.ps1 -PinFile <file>. "Con song" duoc hoi kien nhan: /api/health khong tra loi thi hoi lai voi thoi han dai hon; phien chi duoc coi
 #   la da het khi tien trinh da ghim khong con chay (hoac PID do nay thuoc mot tien trinh moi hon). Tien trinh van chay ma khong tra loi: cung tu choi.
+#   Vong 5: <file> phai ghi duoc TRUOC khi mo (thu ghi mot file tam canh no); ngay truoc khi ghi, file ghim duoc doc lai: neu mot lan chay khac vua ghim
+#   mot phien con song khac thi khong ghi de; server ma lan nay vua khoi dong ma khong ghim duoc thi duoc dung lai theo dinh danh (khong de lai trang
+#   khong ghim). -Venv/-Project/-StateRoot/-PinFile tuong doi duoc doi ra duong dan tuyet doi theo thu muc hien tai. Hoi /api/health truc tiep, khong
+#   qua proxy (HTTP_PROXY hay proxy he thong khong lam mat dau mot trang dang chay).
 # Chi doc so (sqlite mode=ro); khong init project, khong doi hook, khong nang runtime cua project. Server chay tach roi, tu thoat sau 30 phut khong ai mo;
 # dong trinh duyet hay dung server (dung-trang-obs1.ps1) khong dung worker hay task nao. Khong bao gio dung tien trinh la: `track open` chi dung lai server
 # khi /api/health tra dung instance + version wheel + state-root + pham vi; sai thi mo server moi va bao ly do trong JSON.
@@ -14,11 +18,13 @@ param([Parameter(Mandatory=$true)][string]$Venv, [Parameter(Mandatory=$true)][st
       [switch]$ProjectOnly, [switch]$NoBrowser, [double]$Interval = 2, [string]$PinFile)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+[System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy       # loopback health checks go direct, never through a proxy
+$Direct = @{}; if ((Get-Command Invoke-RestMethod).Parameters.ContainsKey('NoProxy')) { $Direct = @{ NoProxy = $true } }     # PowerShell 6+
 function Fail([string]$t) { Write-Host ('KHONG DAT: ' + $t) -ForegroundColor Red; exit 1 }
 function Norm([string]$p) { if (-not $p) { return '' }; [IO.Path]::GetFullPath($p).TrimEnd('\').ToLowerInvariant() }
 function Inside([string]$child, [string]$parent) { $c = Norm $child; $p = Norm $parent; ($p -ne '') -and (($c -eq $p) -or $c.StartsWith($p + '\')) }
 function Iso($v) { if ($v -is [datetime]) { return $v.ToUniversalTime().ToString('o') }; return [string]$v }
-function Health([string]$url, [int]$seconds) { try { Invoke-RestMethod -Uri ($url + 'api/health') -TimeoutSec $seconds } catch { $null } }
+function Health([string]$url, [int]$seconds) { try { Invoke-RestMethod -Uri ($url + 'api/health') -TimeoutSec $seconds @Direct } catch { $null } }
 function Utc($v) {
     if (-not $v) { return $null }
     if ($v -is [datetime]) { return $v.ToUniversalTime() }
@@ -44,23 +50,35 @@ function Pin-State($pin) {         # 'live' | 'gone' | 'unknown': a slow /api/he
     }
     return 'unknown'
 }
+function Read-PinText([string]$file) { if (Test-Path -LiteralPath $file) { [IO.File]::ReadAllText($file) } else { $null } }
 $exe = Join-Path $Venv 'Scripts\onecrew.exe'
 if (-not (Test-Path -LiteralPath $exe)) { Fail "khong thay $exe (venv chua cai wheel OBS-1)" }
 if (-not (Test-Path -LiteralPath $Project)) { Fail "khong thay project $Project" }
 if (-not (Test-Path -LiteralPath (Join-Path $StateRoot 'ledger.sqlite3'))) { Fail "khong thay so $StateRoot\ledger.sqlite3" }
+$Venv = (Resolve-Path -LiteralPath $Venv).ProviderPath; $exe = Join-Path $Venv 'Scripts\onecrew.exe'          # absolute from here on
+$Project = (Resolve-Path -LiteralPath $Project).ProviderPath
+$StateRoot = (Resolve-Path -LiteralPath $StateRoot).ProviderPath
 if ($PinFile) {                    # the pin lives outside the venv, the state root and the package (in a checkout: the tools folder) of this script
+    $PinFile = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PinFile)
     $pkg = Split-Path -Parent $PSScriptRoot
     if (-not (Test-Path -LiteralPath (Join-Path $pkg 'manifest.json'))) { $pkg = $PSScriptRoot }
     foreach ($place in @(@('venv', $Venv), @('so', $StateRoot), @('thu muc goi', $pkg))) {
         if (Inside $PinFile $place[1]) { Fail "file ghim $PinFile nam trong $($place[0]) ($($place[1])): dat no ra ngoai venv, so va thu muc goi. Khong mo gi." }
     }
+    $pinDir = Split-Path -Parent $PinFile
+    try {                          # the pin must be writable BEFORE anything starts: a server that cannot be pinned would be left running unpinned
+        [void][IO.Directory]::CreateDirectory($pinDir)
+        $probe = Join-Path $pinDir ('.ghim-thu-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.tmp')
+        [IO.File]::WriteAllText($probe, 'probe'); [IO.File]::Delete($probe)
+    } catch { Fail "khong ghi duoc file ghim vao $pinDir ($($_.Exception.Message)): khong mo gi." }
 }
 $ver = (& $exe --version) -join ' '
 Write-Host "== $ver | project $Project | so $StateRoot"
 $here = ($ver -replace '^\s*onecrew\s+', '').Trim()
-$old = $null
+$old = $null; $pinText0 = $null
 if ($PinFile -and (Test-Path -LiteralPath $PinFile)) {
-    try { $old = Get-Content -Raw -Encoding UTF8 -LiteralPath $PinFile | ConvertFrom-Json } catch { Fail "file ghim $PinFile co san nhung khong doc duoc: khong biet con phien nao dang mo khong. Khong mo gi; xoa tay file do neu chac khong con phien." }
+    $pinText0 = Read-PinText $PinFile
+    try { $old = $pinText0 | ConvertFrom-Json } catch { Fail "file ghim $PinFile co san nhung khong doc duoc: khong biet con phien nao dang mo khong. Khong mo gi; xoa tay file do neu chac khong con phien." }
     if (-not $old -or $old.kind -ne 'obs1-viewer-pin' -or -not $old.url -or -not $old.instance -or -not $old.pid) { Fail "file ghim $PinFile co san nhung khong phai ban ghi ghim hop le. Khong mo gi; xoa tay file do neu chac khong con phien." }
     $state = Pin-State $old
     if ($state -eq 'gone') { $old = $null }                                  # the pinned session is over: its pin may be replaced
@@ -95,25 +113,39 @@ Write-Host ($out -join "`n")
 if ($code -ne 0) { Fail "track open thoat $code (xem JSON tren: 'refused' la ly do khong dung lai server cu)" }
 $rec = ($out -join "`n") | ConvertFrom-Json
 $how = if ($rec.reused) { 'dung lai server dang chay' } else { 'server moi' }
+function Stop-Started($r) {        # end exactly the server THIS call started (identity stop), so no unpinned viewer stays behind; a reused server is never touched
+    if ($r.reused) { return '' }
+    $sa = @('--project', $Project, '--state-root', $StateRoot, 'track', 'stop', '--url', [string]$r.url, '--instance', [string]$r.instance, '--pid', [string]$r.pid)
+    if ($r.started_at) { $sa += @('--started-at', (Iso $r.started_at)) }
+    $so = & $exe @sa
+    if ($LASTEXITCODE -eq 0) { return " Server lan nay vua khoi dong (pid $($r.pid)) da duoc dung lai." }
+    return " Server lan nay vua khoi dong (pid $($r.pid)) KHONG dung duoc: " + ($so -join ' ')
+}
 if ($PinFile) {
     if (-not $rec.instance -or -not $rec.pid) { Fail 'track open khong tra instance/pid: khong ghim duoc phien' }
     if ($old -and $old.instance -ne $rec.instance) {
-        $note = ''
-        if (-not $rec.reused) {        # the marker moved meanwhile and this call started a server: stop exactly that one, so no unpinned viewer stays behind
-            $sa = @('--project', $Project, '--state-root', $StateRoot, 'track', 'stop', '--url', [string]$rec.url, '--instance', [string]$rec.instance, '--pid', [string]$rec.pid)
-            if ($rec.started_at) { $sa += @('--started-at', (Iso $rec.started_at)) }
-            $so = & $exe @sa
-            $note = if ($LASTEXITCODE -eq 0) { " Server lan nay vua khoi dong (pid $($rec.pid)) da duoc dung lai." } else { " Server lan nay vua khoi dong (pid $($rec.pid)) KHONG dung duoc: " + ($so -join ' ') }
-        }
+        $note = Stop-Started $rec
         Fail "file ghim $PinFile van giu phien con song instance $($old.instance) (pid $($old.pid)), khac server cua lan mo nay (instance $($rec.instance)): khong ghi de ghim.$note Dung phien cu truoc."
+    }
+    $pinText1 = Read-PinText $PinFile                                         # read again just before writing: another run may have pinned meanwhile
+    if ($pinText1 -ne $pinText0) {
+        $cur = $null; try { $cur = $pinText1 | ConvertFrom-Json } catch {}
+        if (-not $cur -or ($cur.instance -ne $rec.instance -and (Pin-State $cur) -ne 'gone')) {
+            $note = Stop-Started $rec
+            Fail "file ghim $PinFile vua duoc mot lan chay khac ghi (instance $($cur.instance), pid $($cur.pid)) trong luc lan nay mo: khong ghi de ghim.$note"
+        }
     }
     $pin = [ordered]@{ kind = 'obs1-viewer-pin'; url = $rec.url; pid = [int]$rec.pid; instance = $rec.instance; version = $rec.version; state_root = $rec.state_root
         project = $Project; project_scope = $rec.project_id; venv = $Venv; server_started_at = (Iso $rec.started_at); reused = [bool]$rec.reused
         opened_at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
-    $pinDir = Split-Path -Parent ([IO.Path]::GetFullPath($PinFile)); New-Item -ItemType Directory -Force -Path $pinDir | Out-Null
-    $tmp = $PinFile + '.' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.tmp'
-    [IO.File]::WriteAllText($tmp, ($pin | ConvertTo-Json), (New-Object System.Text.UTF8Encoding $false))
-    Move-Item -LiteralPath $tmp -Destination $PinFile -Force
+    try {
+        $tmp = $PinFile + '.' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.tmp'
+        [IO.File]::WriteAllText($tmp, ($pin | ConvertTo-Json), (New-Object System.Text.UTF8Encoding $false))
+        Move-Item -LiteralPath $tmp -Destination $PinFile -Force
+    } catch {
+        $note = Stop-Started $rec
+        Fail "khong ghi duoc file ghim $PinFile ($($_.Exception.Message)).$note"
+    }
     Write-Host "Da ghim phien (pid $($rec.pid), instance $($rec.instance)) vao $PinFile"
 }
 Write-Host ("DAT: trang theo doi (chi doc) o " + $rec.url + " (" + $how + ", wheel " + $rec.version + ", pid " + $rec.pid + "). Dung: dung-trang-obs1.ps1 cung tham so.") -ForegroundColor Green

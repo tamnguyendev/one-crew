@@ -7,12 +7,17 @@
 #   ghi dung instance do. Khong co file ghim -> khong dung gi ("khong co phien nao do script mo nay mo"). Lech dinh danh (cong do server khac tra loi,
 #   PID khac) -> khong dung gi, giu file ghim. Phien da ghim chac chan da het (tien trinh khong con, hoac PID nay thuoc tien trinh moi hon) -> xoa file ghim,
 #   tru khi marker cua so dang tro toi server khac (giu file ghim de doc). Khong quet thu muc, khong tu giet tien trinh nao. Khong co -PinFile thi chay y nhu truoc.
+#   Vong 5: -Venv/-Project/-StateRoot/-PinFile tuong doi duoc doi ra duong dan tuyet doi theo thu muc hien tai (nhu mo-trang-obs1.ps1).
 param([Parameter(Mandatory=$true)][string]$Venv, [Parameter(Mandatory=$true)][string]$Project, [Parameter(Mandatory=$true)][string]$StateRoot,
       [string]$PinFile)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 $exe = Join-Path $Venv 'Scripts\onecrew.exe'
 if (-not (Test-Path -LiteralPath $exe)) { Write-Host "KHONG DAT: khong thay $exe" -ForegroundColor Red; exit 1 }
+$Venv = (Resolve-Path -LiteralPath $Venv).ProviderPath; $exe = Join-Path $Venv 'Scripts\onecrew.exe'          # absolute from here on
+if (Test-Path -LiteralPath $Project) { $Project = (Resolve-Path -LiteralPath $Project).ProviderPath }
+if (Test-Path -LiteralPath $StateRoot) { $StateRoot = (Resolve-Path -LiteralPath $StateRoot).ProviderPath }
+if ($PinFile) { $PinFile = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PinFile) }
 function Norm([string]$p) { if (-not $p) { return '' }; [IO.Path]::GetFullPath($p).TrimEnd('\').ToLowerInvariant() }
 function Iso($v) { if ($v -is [datetime]) { return $v.ToUniversalTime().ToString('o') }; return [string]$v }
 function Refuse([string]$t) { Write-Host ('KHONG DUNG GI: ' + $t) -ForegroundColor Yellow; exit 2 }

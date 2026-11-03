@@ -67,6 +67,14 @@ def marker_paths(state_root):
         base = Path(outside).resolve() / hashlib.sha256(os.path.normcase(str(state_root)).encode('utf-8')).hexdigest()[:16]
         return base / 'server.json', base / 'open.lock'
     return state_root / MARKER, state_root / LOCK
+
+
+def root_id(state_root):
+    """The identity of a state root on the wire (R5 round 5): sha256 of its normcase'd resolved path. /api/health passes the R3 outbound guard,
+    which masks a path that looks like it holds a secret ('token=1', 'Visual Basic Projects'), and two masked paths can be the same text; this
+    fingerprint is exact, reveals nothing and is left as it is by the guard (plain hex)."""
+    import hashlib
+    return hashlib.sha256(os.path.normcase(str(Path(state_root).resolve())).encode('utf-8')).hexdigest()
 SERVER_NAME = 'OneCrewTrack/2'
 LOCK_STALE_SECONDS = 60
 
@@ -92,7 +100,8 @@ def _page(interval):
 
 def make_server(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0, idle_exit=None, instance=None):
     state_root = Path(state_root).resolve()
-    identity = {'instance': instance or secrets.token_hex(8), 'version': version(), 'state_root': str(state_root), 'project_id': project_id, 'pid': os.getpid()}
+    identity = {'instance': instance or secrets.token_hex(8), 'version': version(), 'state_root': str(state_root), 'state_root_id': root_id(state_root),
+                'project_id': project_id, 'pid': os.getpid()}
     stats = {'requests': 0, 'last_read_ms': None, 'last_request': time.monotonic(), 'started_at': utcnow(), 'errors': 0}
     page = _page(interval).encode('utf-8')
 
@@ -218,7 +227,7 @@ def serve(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0
     """Run in this process until Ctrl+C. Prints one JSON line with the URL first; with `announce`, also writes it to that marker file (atomically)."""
     server = make_server(state_root, host=host, port=port, project_id=project_id, interval=interval, idle_exit=idle_exit)
     record = {'url': url_of(server), 'pid': os.getpid(), 'instance': server.track_identity['instance'], 'version': server.track_identity['version'],
-              'state_root': str(Path(state_root).resolve()), 'project_id': project_id, 'poll_seconds': interval,
+              'state_root': str(Path(state_root).resolve()), 'state_root_id': server.track_identity['state_root_id'], 'project_id': project_id, 'poll_seconds': interval,
               'read_only': True, 'started_at': utcnow(), 'note': 'Ctrl+C hay đóng cửa sổ này chỉ đóng trang theo dõi; worker không dừng.'}
     print(json.dumps(record, ensure_ascii=False), flush=True)
     if announce:
@@ -238,13 +247,22 @@ def serve(state_root, *, host='127.0.0.1', port=0, project_id=None, interval=2.0
 
 
 def identity(url, timeout=1.5):
-    """The /api/health record of whatever answers at `url`, or None."""
+    """The /api/health record of whatever answers at `url`, or None. Asked directly, never through a proxy (R5 round 5): urllib's default opener
+    sends 127.0.0.1 to HTTP(S)_PROXY / a manual system proxy, which would hide every local viewer from open, status and stop."""
     try:
-        with urllib.request.urlopen(url + 'api/health', timeout=timeout) as r:
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url + 'api/health', timeout=timeout) as r:
             value = json.loads(r.read().decode('utf-8'))
             return value if isinstance(value, dict) and value.get('ok') is True else None
     except (OSError, ValueError):
         return None
+
+
+def _same_root(health, state_root):
+    """Does the server that sent `health` read `state_root`? By the fingerprint `state_root_id` (root_id) when it sends one: its `state_root`
+    passed the R3 outbound guard, so a path that looks like a secret arrives masked, and masked paths can be equal for two ledgers (R5 round 5).
+    A server without the fingerprint (an older wheel) is compared by its path, as before."""
+    if health.get('state_root_id'): return health.get('state_root_id') == root_id(state_root)
+    return os.path.normcase(str(health.get('state_root') or '')) == os.path.normcase(str(Path(state_root).resolve()))
 
 
 def reusable(record, health, state_root, project_id, here=None):
@@ -256,7 +274,7 @@ def reusable(record, health, state_root, project_id, here=None):
     if not health: return False, 'server trong marker không trả lời'
     if health.get('instance') != record['instance']: return False, 'định danh khác: cổng trong marker đang do tiến trình khác trả lời; không dùng lại, không dừng tiến trình đó'
     if health.get('version') != here: return False, f"version khác: server chạy {health.get('version')}, lệnh này là {here}"
-    if os.path.normcase(str(health.get('state_root') or '')) != os.path.normcase(str(Path(state_root).resolve())): return False, 'state-root khác'
+    if not _same_root(health, state_root): return False, 'state-root khác'
     if (health.get('project_id') or None) != (project_id or None): return False, 'phạm vi project khác'
     if health.get('pid') != record.get('pid'): return False, 'PID khác với marker'
     return True, None
@@ -541,7 +559,9 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
     `spawn=False` only reports (no server is started). Concurrent calls serialise on the open lock.
     R5 round 4: the marker's server is asked again with longer timeouts while its process is exactly still running (a slow server is reused,
     not replaced); a started server has `wait` seconds (30: a loaded machine needs 4-10 s) to answer with its identity; and a failed open never
-    leaves a server running — on a timeout, an early exit or an error the tree it started is ended and a marker that tree wrote is removed."""
+    leaves a server running — on a timeout, an early exit or an error the tree it started is ended and a marker that tree wrote is removed.
+    R5 round 5: under the lock the marker is read again (a concurrent open may have handed over a reusable server meanwhile: reuse it) and only
+    the marker that failed is removed; the child gets absolute paths; a failure note says which pids could not be ended, if any."""
     state_root = Path(state_root).resolve()
     marker, lock = marker_paths(state_root)
     here = version()
@@ -577,14 +597,22 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
             time.sleep(0.2)
         return {'error': 'một lần `track open` khác đang chạy và chưa để lại server dùng lại được', 'refused': refused}
     try:
+        current = _read_marker(marker)               # R5 round 5: the marker may have changed between the check above and this lock (another open finished)
+        if (current or {}).get('instance') != (record or {}).get('instance') or (current is None) != (record is None):
+            record, health, ok, why = check(patient=True)
+            if ok: return opened(record, True, waited_for_other_open=True)
+            refused = {'marker': record, 'reason': why}
         if not spawn:
             return {'error': 'không có server dùng lại được', 'refused': refused, 'version_here': here}
         old_instance = (record or {}).get('instance')
-        if marker.exists():                          # a marker that failed `reusable` is stale for this call; the lock is held, nobody else writes it now
+        current = _read_marker(marker)               # the lock is held: only a server can write it now; remove exactly the marker that failed `reusable`
+        if (current is None and marker.exists()) or (current is not None and record is not None and current.get('instance') == old_instance):
             try: marker.unlink()
             except OSError: pass
-        args = [sys.executable, '-X', 'utf8', '-m', 'onecrew.v2.tracking_cli', '--project', str(project or Path.cwd())]
-        args += ['--state-root', str(explicit_state_root if explicit_state_root is not None else state_root)]
+        # R5 round 5: the child runs with cwd=TEMP, so it gets absolute paths (a relative --state-root/--project would name a folder under TEMP);
+        # it always serves the state root resolved here, which the marker, the lock and the identity checks of this call are computed from
+        args = [sys.executable, '-X', 'utf8', '-m', 'onecrew.v2.tracking_cli', '--project', str(Path(project).resolve() if project else Path.cwd().resolve())]
+        args += ['--state-root', str(state_root)]
         args += ['track', 'serve', '--host', host, '--port', str(port), '--interval', str(interval), '--announce', str(marker)]
         if project_id: args.append('--project-only')
         flags = (subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, 'DETACHED_PROCESS', 0)) if os.name == 'nt' else 0
@@ -608,8 +636,12 @@ def open_page(state_root, *, host='127.0.0.1', port=0, project_id=None, interval
         except BaseException:
             _abandon(child, marker, old_instance)
             raise
-        failure['undone'] = _abandon(child, marker, old_instance)
-        failure['note'] = 'track open thất bại không để lại server nào: cây tiến trình nó vừa khởi động đã dừng; marker do cây đó ghi (nếu có) đã xóa'
+        undone = failure['undone'] = _abandon(child, marker, old_instance)
+        if undone['still_running']:                  # R5 round 5: say what is really left, never "nothing left" when the tree could not be ended
+            failure['note'] = ('track open thất bại và KHÔNG dừng được tiến trình nó vừa khởi động: pid ' + ', '.join(str(p) for p in undone['still_running'])
+                               + ' vẫn chạy; marker do nó ghi (nếu có) được giữ để `track stop` (hoặc `track stop --url --instance --pid`) tìm thấy nó')
+        else:
+            failure['note'] = 'track open thất bại không để lại server nào: cây tiến trình nó vừa khởi động đã dừng; marker do cây đó ghi (nếu có) đã xóa'
         return failure
     finally:
         _unlock(fd, lock)
@@ -629,7 +661,7 @@ def status_page(state_root):
 def _same_server(record, health, state_root):
     """For `track stop`: the process the marker names is the one answering (same pid and state root; same instance when the marker has one)."""
     return bool(record and health and health.get('pid') == record.get('pid') and str(health.get('server', '')).startswith('OneCrewTrack/')
-                and os.path.normcase(str(health.get('state_root') or '')) == os.path.normcase(str(Path(state_root).resolve()))
+                and _same_root(health, state_root)
                 and (not record.get('instance') or health.get('instance') == record['instance']))
 
 
@@ -666,8 +698,7 @@ def stop_page(state_root, wait=10.0):
 def _is_target(health, state_root, instance, pid):
     if not health: return False, 'không có server nào trả lời /api/health ở url đó (đã hỏi lại lâu hơn khi tiến trình còn chạy)'
     if not str(health.get('server', '')).startswith('OneCrewTrack/'): return False, 'url đó không phải server theo dõi OneCrew'
-    if os.path.normcase(str(health.get('state_root') or '')) != os.path.normcase(str(Path(state_root).resolve())):
-        return False, 'server ở url đó đọc sổ khác, không phải sổ này'
+    if not _same_root(health, state_root): return False, 'server ở url đó đọc sổ khác, không phải sổ này'
     if health.get('instance') != instance: return False, f"định danh khác: url đó do server instance {health.get('instance')} trả lời"
     if health.get('pid') != pid: return False, f"PID khác: server ở url đó báo pid {health.get('pid')}"
     return True, None
