@@ -50,9 +50,11 @@ def main(package, work):
             value = ux.run(browser, proxy.url, 'work', width, height, profile, budget=45000)
             result['results'][size] = value
             if not value.get('ok'): raise ValueError('Browser assertions failed: '+json.dumps(value, ensure_ascii=False))
-        for view in ('board', 'overview', 'solution', 'results', 'decision'):
+        for view in ('board', 'overview', 'solution', 'results', 'decision', 'timeline'):
             if not ux.screenshot(browser, proxy.url, 'work', 1280, 900, profile, out / (view+'.png'), budget=45000, extra='&view='+view):
                 raise ValueError('Screenshot missing: '+view)
+        if not ux.screenshot(browser, proxy.url, 'work', 390, 844, profile, out / 'timeline-mobile.png', budget=45000, extra='&view=timeline'):
+            raise ValueError('Mobile timeline screenshot missing')
         if verify.digest_tree(state) != before: raise ValueError('Browser changed trial state.')
         result['ok'] = True
     finally:

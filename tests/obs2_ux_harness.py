@@ -21,6 +21,19 @@ if(S==='work'){
   if(copy){copy.click();await waitFor(()=>$('#detail .copied'),5000,'copy feedback');const copied=$('#detail .copied');check('clipboard reports exact command or explicit failure', copied.dataset.copied===cmd.textContent||copied.hasAttribute('data-copy-failed'));await morePolls(2);check('copy leaves approval pending',!!$('#detail details.need[data-need-rev="2"]'));}
 
   $('#detail details.need').open=false;
+  const timeline=$('.gantt');
+  check('timeline uses task rows by default', $$('.gnselect').length>=2 && !$$('.gtree .att').length);
+  check('timeline hides empty inspector', $('#gside').hidden);
+  const ticks=$$('.gaxis span').map(x=>x.textContent);check('timeline scale labels do not repeat',ticks.length>=3&&new Set(ticks).size===ticks.length);
+  const selectNode=$('.gnselect');selectNode.click();check('whole node is selectable',!$('#gside').hidden&&$('#gside').textContent.includes('Đầu ra hiện hành'));
+  check('node details distinguish actor evidence', $('#gside').textContent.includes('Đã thực hiện:'));
+  const selectedNode=st().selStep.id;await morePolls(2);check('selected node persists across polls',st().selStep.id===selectedNode);
+  $('#grange').value='all';$('#grange').dispatchEvent(new w.Event('change',{bubbles:true}));
+  const historic=[$('.gchart').dataset.w0,$('.gchart').dataset.w1].join('|');await morePolls(2);check('history window is held across polls',historic===[$('.gchart').dataset.w0,$('.gchart').dataset.w1].join('|')&&$('.ganchor').textContent.includes('giữ khung'));
+  $('#gfit').click();check('fit returns to current work',st().gRange==='current'&&!$('.ganchor').textContent.includes('giữ khung'));
+  $('.gnselect').click();
+  const expand=$('.gtree [data-fold^="n:"]');expand.click();check('attempt ids appear only on expansion',$$('.gtree .att').length>=1);expand.click();
+
   check('five named work tabs', $$('.work-nav [role=tab]').length===5);
   check('overview answers current/output/owner/estimate', ['Hiện tại','Kết quả đã có','Việc cần bạn','Dự kiến còn lại'].every(t=>$('#work-content').textContent.includes(t)));
   check('technical detail folded by default', !$('#detail details[data-k="work-technical"]').open);
@@ -50,7 +63,7 @@ if(S==='work'){
   check('noncoding no page overflow', d.documentElement.scrollWidth<=w.innerWidth+1);
   // Leave the visible screenshot in the work view, not in raw event JSON.
   $('#work-tab-overview').click();
-  if(shot&&qs.get('view')){await select(first);if(qs.get('view')==='board')$('#close').click();else if(qs.get('view')==='decision')$('#detail details.need').open=true;else $('#work-tab-'+qs.get('view')).click();}
+  if(shot&&qs.get('view')){await select(first);if(qs.get('view')==='board')$('#close').click();else if(qs.get('view')==='timeline'){$('#work-tab-progress').click();$('.gantt').scrollIntoView({block:'start'});}else if(qs.get('view')==='decision')$('#detail details.need').open=true;else $('#work-tab-'+qs.get('view')).click();}
 }
 '''
 

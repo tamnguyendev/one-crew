@@ -1,3 +1,20 @@
+# Timeline dev4 coverage — cycle4 active
+
+Proposal docs/obs2/TIMELINE-DEV4.vi.md; baseline20b5baa.
+
+| ID | Status | Evidence |
+|---|---|---|
+| TL1 | Partial | Source labels corrected; no checker-runtime claim; wheel pending |
+| TL2 | Partial | Adaptive relative ticks, ms precision, pinned history; unit pass |
+| TL3 | Partial | Node summaries/current evidence; renderer + source browser pass |
+| TL4 | Partial | Whole-node selection, actor/source filter, inspector only when selected; source browser pass |
+| TL5 | Partial | Source Gantt desktop/mobile, live-clock disconnect/reconnect, slow25/switch pass; final wheel pending |
+| TL6 | Partial | Isolated source checks pass, fixed wheel pending |
+
+Complete0 / Partial6 / Missing0 / Blocked0. Older coverage below is historical.
+
+---
+
 # UX dev3 coverage — cycle 3 complete for isolated trial
 
 Proposal: `docs/obs2/UX-DEV3.vi.md`; final product `ff81554de7f3a99ae0bdc9d0fc9ef1cfc0f791c9`.

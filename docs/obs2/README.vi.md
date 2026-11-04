@@ -1,6 +1,8 @@
-# Thử OBS-2 — bảng công việc và lệnh dành cho người dùng
+# Thử OBS-2 — bảng công việc và timeline dev4
 
-Bản dev3 thêm bảng thẻ theo giai đoạn, lọc/sắp xếp chỉ để xem; trạng thái và quyết định cần bạn tách riêng. Mở thẻ để xem phương án, thay đổi, đầu ra hiện hành và vòng kiểm/sửa. Thông tin kỹ thuật thu gọn; thiếu dữ liệu vẫn ghi chưa xác định.
+Bản dev4 kế thừa bảng thẻ theo giai đoạn, lọc/sắp xếp chỉ để xem; trạng thái và quyết định cần bạn tách riêng. Mở thẻ để xem phương án, thay đổi, đầu ra hiện hành và vòng kiểm/sửa. Thông tin kỹ thuật thu gọn; thiếu dữ liệu vẫn ghi chưa xác định.
+
+Timeline dev4: mỗi phần việc là một dòng có tên/trạng thái/thời lượng; bấm tên hoặc thanh để mở chi tiết, mũi tên mở từng lượt. Mặc định chỉ khung hiện hành; mở lịch sử sẽ chọn toàn bộ lịch sử và giữ khung qua poll. **Vừa khung** trở về hiện hành. Đơn vị trục tương đối tự đổi theo khoảng, không coi cửa sổ vẽ là thời gian thực thi. Khoảng **Từ đầu ra đến kết quả kiểm** có thể gồm chờ, chưa phải thời gian chạy verifier. Số liệu thiếu giữ chưa đủ mốc đo; không cộng đôi song song. Gantt cuộn bên trong trên màn nhỏ, ngăn chi tiết nằm bên dưới.
 
 Trong thẻ quyết định, đọc thay đổi trước, sao chép khối PowerShell, điền lý do/lựa chọn được đánh dấu rồi chạy trong terminal của bạn. Các lệnh dùng `owner ... --human` để trả kết quả ngắn. Sao chép không ghi quyết định; không chạy thay chủ trong phiên AI. JSON mặc định giữ nguyên cho công cụ. Nghiệm thu chỉ có mẫu khi đủ revision và artifact ghim; nếu thiếu, thẻ nêu lý do và lệnh chỉ đọc báo cáo.
 
