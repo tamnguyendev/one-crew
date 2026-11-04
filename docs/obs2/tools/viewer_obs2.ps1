@@ -8,6 +8,12 @@ $trialRoot = (Resolve-Path -LiteralPath $Work).ProviderPath
 $manifest = Get-Content -LiteralPath (Join-Path $pkg 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $trial = Get-Content -LiteralPath (Join-Path $trialRoot 'trial.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 function Norm([string]$path) { [IO.Path]::GetFullPath($path).TrimEnd('\').ToLowerInvariant() }
+function File-Sha([string]$path) {
+    $stream = [IO.File]::OpenRead($path)
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try { [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
+    finally { $stream.Dispose(); $hasher.Dispose() }
+}
 if ($manifest.kind -ne 'obs2-local-trial' -or $trial.kind -ne 'obs2-synthetic-state' -or
     (Norm $trial.package) -ne (Norm $pkg) -or $trial.code_commit -ne $manifest.code_commit -or
     $trial.wheel_sha256 -ne $manifest.wheel.sha256 -or $trial.version -ne $manifest.version -or
@@ -20,11 +26,11 @@ $exe = Join-Path $venv 'Scripts\onecrew.exe'
 if (-not (Test-Path -LiteralPath $exe)) { throw 'Trial venv is missing; run verify_obs2.py first.' }
 $version = (& $exe --version) -join ' '
 if ($LASTEXITCODE -ne 0 -or $version.Trim() -ne ('onecrew ' + $manifest.version)) { throw 'Installed version differs from package.' }
-$wheelHash = (Get-FileHash -LiteralPath (Join-Path $pkg ('wheel\' + $manifest.wheel.name)) -Algorithm SHA256).Hash.ToLowerInvariant()
+$wheelHash = File-Sha (Join-Path $pkg ('wheel\' + $manifest.wheel.name))
 if ($wheelHash -ne $manifest.wheel.sha256) { throw 'Wheel hash differs from manifest.' }
 foreach ($module in $manifest.module_sha256.PSObject.Properties) {
     $installed = Join-Path (Join-Path $venv 'Lib\site-packages') $module.Name.Replace('/', '\')
-    $hash = (Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash.ToLowerInvariant()
+    $hash = File-Sha $installed
     if ($hash -ne $module.Value) { throw ('Installed module differs from pinned snapshot: ' + $module.Name) }
 }
 $settings = @{ LOCALAPPDATA = (Join-Path $trialRoot 'local'); APPDATA = (Join-Path $trialRoot 'roaming')
