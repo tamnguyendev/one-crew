@@ -1,3 +1,16 @@
+# Dev9 dev8-review fix — cycle9 (Claude implementation, Codex to verify)
+
+Source: Codex review of dev8, D:/OneCrewRuns/obs2-codex-review-dev8-20261105-001551 (focus probe 15/16: focus went to the card SUMMARY). Baseline 1380006 / docs 47ec37d.
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| U9-1 | After a copy (success or failure) focus stays on the same option button of the same card; a gone button lands on its card heading, a gone card on the task heading; a late copy result never pulls focus or scroll back; no copy feedback or command revived | Complete | Installed `check_binding_live.py` focus-desktop/mobile (controlled clipboard, 2 cards x 2 options, success/failure, late result after focus move, task switch, binding loss; preconditions asserted): dev8 wheel 134/142 (A/B/C red) → final wheel 142/142. Codex's own probe 15/16 → 16/16. OBS-1 browser suite with binding 392 → 403/435 (ux03 focus, stale_detail focus/sections/scroll) |
+| U9-2 | Honest report: dev8 OBS-1 classification and the poll-cycle claim corrected | Complete | Marked corrections in the dev8 handover; dev9 classification: confirmed product bug / outdated test with evidence / not yet classified |
+
+Complete2/Partial0 for this local scope (U8-4 stays Partial). Product cd567d3, version 2.5.0.dev9, wheel dd1fdce4…9081df. Trial trial-cd567d3-1: verify 9/9, browser 150/150, unbound 56/56, binding-live+focus 142/142, owner refusal 2/2, lifecycle 4/4; OBS-1 13 scenarios 13/13 (70/70) on the final wheel; R7-2 board unchanged. Source: 6 modules 66/66, OBS-1 browser suite 27/40 (403/435). The dev8 module runs (OBS-2 103/103, OBS-1 96/96) are inherited, not rerun: tracking.py and tracking_work*.py are unchanged. Not a full-gate, release, owner-terminal, real-clipboard, provider or pilot claim.
+
+---
+
 # Dev8 dev7-review fixes — cycle8 complete for isolated trial (Claude implementation, Codex to verify)
 
 Source: shared REVIEW-OBS2-DEV7-20261104.vi.md; Codex reproduction D:/OneCrewRuns/obs2-codex-review-dev7 (4435ec71/unbind, milestone). Baseline 6cb2fa9 / docs bdb13bf. The owner assigned implementation and self-review to Claude; Codex verifies the final handover. The cycle7 Complete claims for U7-1 and U7-2 are superseded: the independent review found both Partial (R7-1, R7-2).
@@ -7,7 +20,7 @@ Source: shared REVIEW-OBS2-DEV7-20261104.vi.md; Codex reproduction D:/OneCrewRun
 | U8-1 (R7-1) | Need cards follow a binding or command change that adds no ledger event; no old copy feedback when the binding is lost; a restored binding shows current commands only; task/tab/position kept | Complete | Installed browser `check_binding_live.py`, 8 cases (missing / other runtime / other state x desktop/mobile + 2 real-time slow-read task switches), preconditions asserted: dev7 wheel 76/102 → final wheel 102/102; unit helpers red on 6cb2fa9 → green |
 | U8-2 (R7-2) | Milestone-only roots with a check, run or attempt are not "never started"; status separates failed from waiting milestones; acceptance unchanged | Complete | Same 5 real ledgers read through each wheel's own API + JS: failed-only dev7 todo → dev8 doing; untouched stays todo; different artifacts refused; eligible accepted. Unit 3/7 red on 6cb2fa9 → 7/7 |
 | U8-3 | test_obs1_web page test (red since 025c8ca) restored without weakening | Complete | Real fixture binding + OBS-2 card words; same guards (task, status, connection, per-option templates with --reference, no secret); 8/8 |
-| U8-4 | OBS-1 browser suite runs past its template setup | Partial | Fixture binding added (p2a now passes). 13/40 scenarios still red identically on 6cb2fa9 and 1380006 (OBS-1 wording/layout expectations); not loosened; separate migration task |
+| U8-4 | OBS-1 browser suite runs past its template setup | Partial | Fixture binding added (p2a now passes). 13/40 scenarios still red identically on 6cb2fa9 and 1380006; not loosened; separate migration task. Correction 05/11: "OBS-1 wording/layout expectations" was wrong as a blanket reason; they include a pre-existing product focus bug (closed in cycle9) and unclassified cases, see the dev9 handover |
 
 Complete3/Partial1 for this local scope. Product 1380006 (onecrew/ byte-equal to 672cf91), version 2.5.0.dev8, wheel d5917af6…478fa2. Trial trial-1380006-1: verify 9/9, browser 150/150, unbound 56/56, binding-live 102/102, owner refusal 2/2, lifecycle 4/4; OBS-1 13 scenarios 70/70 on the final wheel. Source on the final snapshot: OBS-2 modules 103/103, OBS-1 modules 96/96 (incl. test_obs1_web 8/8), tooling 2/2, 0 skip. check_review_fixes.py cannot run inside an AI session (its fixture approves in-process); its F1–F5 cases are covered by the installed checks above. Not a full-gate, release, owner-terminal, clipboard, provider or pilot claim.
 

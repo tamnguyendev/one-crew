@@ -1,3 +1,131 @@
+# Bàn giao OBS-2 dev9 — khép P3 focus của review dev8 và đính chính báo cáo dev8, 05/11/2026
+
+**Sẵn sàng để Codex kiểm tra độc lập.** Chưa phát hành, chưa nghiệm thu, chưa push/tag, không nâng runtime thật. Chưa có review của Codex trên dev9.
+- Người làm: Claude (Opus 5.5).
+- Nguồn issue: review Codex trên dev8, `D:/OneCrewRuns/obs2-codex-review-dev8-20261105-001551` (`focus_probe.py`: 15/16, focus về SUMMARY).
+
+## Snapshot
+
+| Mục | Giá trị |
+|---|---|
+| Nhánh | `claude/obs2-dev8` (tiếp tục), worktree `D:/TamNT/Workspace/11.OneCrew/wf-obs2-claude` |
+| Product snapshot | `cd567d3e99a5b895b12ae13a6d17cda96dd61a5c`, version `2.5.0.dev9`. Là 1 commit sau `47ec37d`: sửa focus, ca kiểm, README gói, version. |
+| Gói | `D:/OneCrewRuns/obs2/pkg/onecrew-2.5.0.dev9-obs2-cd567d3`; SHA256SUMS 18/18; 142 file trong wheel trùng commit; manifest đúng commit/version |
+| Wheel SHA256 | `dd1fdce4dd8c1c23f29256e2584049ae36c7ed7828c2da084a3640d0889081df` |
+| Bản thử | `D:/OneCrewRuns/obs2/trial-cd567d3-1` |
+| Bằng chứng | `D:/OneCrewRuns/obs2-dev9` |
+| Gói dev8 | giữ nguyên `D:/OneCrewRuns/obs2/pkg/onecrew-2.5.0.dev8-obs2-1380006` |
+
+## Mở và dừng bản thử
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/mo-obs2-dev9.ps1"
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/dung-obs2-dev9.ps1"
+```
+
+Dữ liệu tổng hợp, chỉ đọc. Không dùng lệnh của bản thử để duyệt công việc thật. Lifecycle đã chạy qua đúng hai script này: mở → mở lại cùng instance → dừng đúng phiên → dừng lần nữa exit 2. Project, sổ, gói và registry thật không đổi byte (`trial-cd567d3-1/lifecycle-report.json`).
+
+## Kết quả
+
+| ID | Trạng thái | Vị trí (snapshot `cd567d3`) | Nguyên nhân | Sửa |
+|---|---|---|---|---|
+| P3 — mất focus sau sao chép | **Closed** | `onecrew/v2/tracking_web.py:1141` (`snapshot`), `:1146-1153` (`restore`), `:1210-1211` (`copyText`) | 1. `restore` cho thẻ `<details>` thắng trước nút sao chép, nên focus về SUMMARY. 2. Nhánh nút sao chép lấy nút đầu tiên của thẻ, không phải nút đã bấm. 3. `copyText` khôi phục ảnh chụp lúc bấm, nên kết quả về muộn kéo focus và vị trí đọc về chỗ cũ. **Lỗi sản phẩm có từ trước dev8** (cùng đỏ ở dev7 và dev8 trong ux03, stale_detail), không phải hồi quy của dev8. | `restore` ưu tiên đúng phần tử người dùng đang đứng: nút có **cùng lệnh** (không bao giờ nút của lựa chọn khác), nút bằng chứng, nút "Thử lại", link; chỉ khi không có mới về summary của thẻ. Nút không còn (mất binding, đổi bản) thì về tiêu đề thẻ; thẻ không còn thì về tiêu đề task. `copyText` chụp vị trí ngay lúc kết quả về. Cùng thứ tự này cũng khép lỗi tương tự với nút bằng chứng nằm trong `<details>`. |
+| Đính chính dev8 | **Done** | phần dev8 bên dưới (bảng "Liên quan B", mục bộ trình duyệt OBS-1, mục giới hạn thời gian cập nhật) | Bàn giao dev8 gọi cả 13 kịch bản OBS-1 đỏ là lỗi kỳ vọng chữ/bố cục chỉ vì dev7 và dev8 cùng đỏ, và hứa "tối đa một chu kỳ poll". | Phân loại lại theo bằng chứng (mục dưới); bỏ cam kết thời gian. Giữ nguyên lịch sử, đánh dấu "Đính chính 05/11". |
+
+## Đỏ trên dev8 → xanh trên wheel cuối (các ca đã thực sự chạy)
+
+**Ca `focus-desktop` / `focus-mobile` mới** trong `verify/check_binding_live.py`.
+- Fixture: task P3 có 2 thẻ câu hỏi, mỗi thẻ 2 lựa chọn đã gắn hook.
+- Clipboard giả có kiểm soát: `writeText` trả Promise do kịch bản quyết định; ca thất bại ép `execCommand` trả false.
+- Tiền điều kiện được assert trước khi đánh giá: đủ thẻ và lệnh, trang thật sự dùng clipboard giả, người dùng thật sự cuộn.
+- Các ca:
+  - A: thẻ 2, lựa chọn 2, sao chép thành công.
+  - B: thẻ 1, lựa chọn 1, sao chép thất bại.
+  - C: kết quả về muộn trong lúc người dùng đã chuyển focus sang tab "Thay đổi" và cuộn.
+  - D: kết quả về muộn sau khi đã đổi sang P2.
+  - E: kết quả về muộn sau khi mất binding, rồi gắn lại.
+
+Kết quả:
+- **Wheel dev8** (venv `trial-1380006-1`): **134/142**.
+  - Mọi tiền điều kiện đạt; 8 ca R7-1 cũ vẫn đạt.
+  - Đỏ đúng ở A và B (focus về SUMMARY), và ở C: focus bị kéo về thẻ, vị trí đọc bị kéo từ 2179 về 176 (desktop), từ 3594 về 476 (mobile).
+  - Log `D:/OneCrewRuns/obs2-dev9/red-dev8/run/browser-binding-live.json`.
+- **Wheel cuối** (venv `trial-cd567d3-1`): **142/142**, focus 20/20 mỗi cỡ.
+  - Focus ở lại đúng nút của đúng lựa chọn trong đúng thẻ; thông báo sao chép chỉ ở thẻ đó.
+  - Kết quả về muộn không kéo focus hay vị trí đọc.
+  - D: không lẫn nội dung P3 vào P2; quay lại P3 không còn thông báo cũ.
+  - E: không hồi sinh lệnh hay thông báo; focus về tiêu đề thẻ.
+  - Log `D:/OneCrewRuns/obs2-dev9/final/binding-live/browser-binding-live.json`.
+
+**Probe gốc của Codex** `focus_probe.py` (chỉ đổi đường dẫn checker): dev8 **15/16** (Codex) → wheel cuối **16/16**, focus ở BUTTON với đúng lệnh (`D:/OneCrewRuns/obs2-dev9/final/codex-focus-probe/`).
+
+**Bộ trình duyệt OBS-1 có binding** (source, cùng môi trường): dev8 392/435 → dev9 **403/435**.
+- 11 kiểm chuyển xanh: ux03 "giữ focus trên nút sao chép"; stale_detail desktop/mobile (giữ mục mở, focus và vị trí đọc qua 3 poll cũ, HTTP 503 và lúc hồi phục).
+- Không kiểm nào xấu đi (`D:/OneCrewRuns/obs2-dev9/obs1-browser-dev9-bound/`).
+
+## Phân loại các kịch bản OBS-1 còn đỏ (thay cho kết luận dev8)
+
+Việc cùng đỏ trên dev7 và dev8 chỉ chứng minh không phải hồi quy, chưa chứng minh là test lỗi thời. Phân loại theo từng kiểm, đối chiếu dòng assert trong `tests/obs1_ux_harness.py`. Không nới hay bỏ assertion nào.
+
+**Lỗi sản phẩm đã xác nhận** (có từ trước, đã khép ở dev9): focus sau sao chép hoặc sau khi vẽ lại, ở ux03 và stale_detail×2. Các kiểm này nay đạt.
+
+**Test lỗi thời có bằng chứng**: kỳ vọng mô tả hành vi OBS-1 mà OBS-2 đã cố ý đổi.
+- ux03 (4 kiểm), stale_detail (bước chuẩn bị):
+  - Kiểm đòi mẫu `question answer REQ-…`, nhãn kèm "(id)", chữ "BẠN tự điền", "Cần bạn (N)".
+  - OBS-2 (`025c8ca`) đưa lệnh `owner answer '…' --human` riêng cho từng lựa chọn, vẫn giữ `<mark class="ph">`.
+- slow_detail (bước chuẩn bị): kiểm đòi P6 có thẻ need không có mẫu lệnh. Từ dev6 (P2-2), P6 không còn việc nghiệm thu khi chưa đủ bằng chứng.
+- ux05 (3 kiểm chữ):
+  - Badge P6 "đã kiểm, chờ nghiệm thu" đã thành "Chờ bước tiếp theo" theo dev6.
+  - Chữ "đã đóng"/"đã nghiệm thu" đã đổi sang `workStatus`.
+- ux03b (3 kiểm chữ): "Cần bạn (N)", bước hiện tại trong dải tóm tắt (OBS-2 hiện trạng thái thẻ), "Vì:" (OBS-2 viết "Vì sao:").
+- ux07 (1 kiểm): "N task", "cần bạn (N)" đã thành "N công việc", "Cần bạn quyết định (N)".
+
+**Chưa phân loại đủ**: chưa đủ bằng chứng để gọi là test lỗi thời hay lỗi sản phẩm; cần task riêng.
+- ux05: thẻ "đóng" và "đã nghiệm thu" cùng màu, badge không có ký hiệu (yêu cầu UX-05 của OBS-1). Cần quyết định thiết kế.
+- ux03b: thẻ câu hỏi gập cao hơn một dòng; dải tóm tắt và timeline nằm dưới màn đầu.
+- ux07: đường dẫn và ID hiển thị dạng chữ phụ.
+- ux08 mobile/split: chi tiết bắt đầu ở 354/276 px trên màn hẹp; OBS-1 đòi nằm phần trên.
+- ux01×2: bước chuẩn bị (focus ở tóm tắt bằng chứng) không dựng được trên bố cục OBS-2.
+- prov: kịch bản không chọn được thanh Gantt ("no bar") sau đợt đổi timeline. Nguồn theo từng thế hệ chưa kiểm được qua kịch bản này.
+
+## Hồi quy
+
+**Tự chạy trên wheel cuối** (venv bản thử hoặc venv riêng, ngoài checkout):
+- verify gói 9/9 (registry thật trước = sau);
+- trình duyệt OBS-2 150/150 (75 + 75, không tràn ngang);
+- binding tĩnh 8 ca 56/56;
+- binding đổi giữa phiên + focus 10 ca 142/142;
+- từ chối lệnh chủ trong phiên AI 2/2;
+- lifecycle 4/4;
+- R7-2 trên 5 sổ: kết quả như dev8 (mốc chỉ thất bại là "Đang xử lý", chưa verdict là "Chưa khởi chạy", nghiệm thu không đổi);
+- 13 kịch bản OBS-1 (chậm, đổi task, timeout, mất kết nối, overview chậm, thời gian thực): 13/13, 70/70, gồm `rt_slow` thời gian thực (`D:/OneCrewRuns/obs2-dev9/harness-dev13-on-dev9/summary.json`).
+
+**Tự chạy trên source dev9:**
+- 6 module 66/66: `test_obs2_review_dev7`, `test_obs2_review_dev6`, `test_obs2_cards`, `test_obs2_web`, `test_obs2_timeline`, `test_obs1_web`.
+- Bộ trình duyệt OBS-1: 27/40 kịch bản (403/435).
+
+**Kế thừa từ dev8, không chạy lại:** nhóm OBS-2 103/103 và nhóm OBS-1 96/96 trên `1380006`. Lý do: ở dev9 chỉ đổi JS `snapshot/restore/copyText` trong `tracking_web.py` (cùng checker, README, version); `tracking.py`, `tracking_work.py`, `tracking_work_web.py` không đổi so với dev8.
+
+**Không chạy:** probe `check_review_fixes.py` (fixture duyệt ngay trong tiến trình, bị chặn trong phiên AI; không gỡ marker), gate 2.2.
+
+Số kiểm đạt chỉ nói về các ca đã liệt kê. Không suy ra toàn bộ sản phẩm đã được chứng nhận.
+
+## Giới hạn
+
+- **Clipboard:** headless không cho clipboard thật. Ca thành công/thất bại dùng clipboard giả có kiểm soát, nên không chứng minh hành vi clipboard của trình duyệt thật.
+- **Bàn phím:** headless không giả lập được phím kích hoạt native. Ca kiểm xác nhận focus nằm trên đúng nút, để người dùng bàn phím tiếp tục được bằng Tab/Enter; không kiểm phím thật.
+- **Thời gian cập nhật:** không có cam kết thời gian. Trang đổi sau khi nhận và xử lý dữ liệu chi tiết mới; phản hồi chậm, lỗi kết nối hoặc cơ chế thử lại (hạn chờ, số lần thử, chờ bấm "Thử lại") có thể kéo dài khoảng đó. Trong lúc ấy trang vẫn hiện dữ liệu đã nhận lần cuối.
+- **Chưa kiểm:** lệnh chủ chạy thành công từ terminal của anh, sổ lớn, provider thật, pilot SignSDK, mutation test, gate 2.2 toàn bộ.
+
+## Cách ly
+
+So với kiểm cách ly lúc kết thúc dev8 (`D:/OneCrewRuns/obs2-dev8/logs/baseline-after.json` → `D:/OneCrewRuns/obs2-dev9/logs/baseline-after.json`): registry thật SHA256 `AACAD058F478898D41EB0294B619BE21191B83B488544961C080F4BFA0AEE01C` không đổi; SignSDK `venv-23` vẫn `2.3.0.dev11`, `state-23` không đổi; sổ bản thử dev7 `trial-6cb2fa9-1` không đổi; checkout `wf-obs2` của Codex (`codex/obs2`, HEAD `bdb13bf`) sạch; SHA256SUMS gói dev6, dev7 không đổi, gói dev8 vẫn 18/18; không còn tiến trình của lượt làm. Fixture binding chỉ ghi `.claude/settings.local.json` trong project tạm; không chạy init, không đăng ký registry. Không gọi provider, không push/tag, không ghi duyệt hay nghiệm thu.
+
+---
+
 # Bàn giao OBS-2 dev8 — khép R7-1/R7-2 của review dev7, 04/11/2026
 
 **Sẵn sàng để Codex kiểm tra độc lập.** Chưa phát hành, chưa nghiệm thu, chưa push/tag, không nâng runtime thật.
@@ -37,7 +165,7 @@ Dữ liệu tổng hợp CODE/DOC, chỉ đọc. Không dùng lệnh của bản
 | R7-1 (P2) | **Closed** | `onecrew/v2/tracking_web.py:1182`, `:1054-1056`, `:1002`, `:1219-1221` | Trang chỉ vẽ lại chi tiết khi `last_seq` của sổ đổi. Binding hook nằm ngoài sổ, nên khi gỡ hoặc đổi hook, lệnh ghi và thông báo sao chép cũ vẫn còn tới khi chọn lại task. | Ngoài `last_seq`, so thêm "bề mặt sao chép" của need (`needsSig`: lệnh, lệnh xem, binding, lý do); khác thì vẽ lại qua `paint` (giữ task, tab, mục mở, vị trí đọc). Thông báo sao chép chỉ còn khi dữ liệu mới nhất vẫn cung cấp đúng lệnh đó (`copiedStillValid`), nên mất binding thì bỏ, gắn lại cũng không hiện lại. Bấm sao chép trên thẻ vẽ trước khi dữ liệu đổi thì không chép mà vẽ lại. |
 | R7-2 (P3) | **Closed** | `onecrew/v2/tracking.py:955`, `:976`, `:496-503`; `tracking_work_web.py:55`, `:65` | Root dạng mốc không bao giờ ghi `node.started`. Bản dev7 dựa vào `m.last_verdict`, nhưng API không trả trường này, nên mốc chỉ có verdict thất bại vẫn bị gọi "Chưa khởi chạy". | `has_started` tính thêm attempt, verdict đã ghi (mọi revision) và lượt chạy kiểm. `workStage` dùng chính trạng thái mốc từ API. Thẻ của root dạng mốc nói đúng bước của nó; lý do trạng thái tách "mốc X kiểm chưa đạt, chờ sửa và kiểm lại" khỏi "chờ verdict của mốc Y". Điều kiện nghiệm thu không đổi. |
 | Liên quan A | **Closed** | `tests/test_obs1_web.py:189-204` | Test trang của OBS-1 đã đỏ từ OBS-2A (`025c8ca`): vẫn đòi badge "đang chờ", "cần bạn", "Sao chép mẫu lệnh", lệnh `question answer` và không có binding. Đỏ y hệt trên `6cb2fa9` cùng môi trường. | Cấp binding thật cho project tạm (`tests/obs2_binding_fixture.py`, exe fixture không bao giờ chạy). Đổi chữ kỳ vọng sang thẻ OBS-2 ("Chờ bạn trả lời", "1 quyết định cần bạn", lệnh `owner answer` cho từng phương án có `--reference`). Giữ đủ các kiểm: task, trạng thái, kết nối, không lộ bí mật. |
-| Liên quan B | **Partial**, nợ test có sẵn, ngoài phạm vi R7 | `tests/test_obs1_browser.py:43-47` | Bộ 40 kịch bản trình duyệt OBS-1 chưa được cập nhật từ khi OBS-2 đổi giao diện; fixture không có binding nên các ca mẫu lệnh dừng ở bước chuẩn bị. | Đã cấp binding để ux03, stale_detail, slow_detail, p2a chạy qua bước chuẩn bị (p2a giờ đạt). 13 kịch bản vẫn đỏ vì kỳ vọng chữ/bố cục OBS-1, **đỏ y hệt trên dev7** (xem Hồi quy). Không nới kỳ vọng; đề xuất một task riêng chuyển bộ này sang OBS-2. |
+| Liên quan B | **Partial**, nợ test có sẵn, ngoài phạm vi R7 | `tests/test_obs1_browser.py:43-47` | Bộ 40 kịch bản trình duyệt OBS-1 chưa được cập nhật từ khi OBS-2 đổi giao diện; fixture không có binding nên các ca mẫu lệnh dừng ở bước chuẩn bị. | Đã cấp binding để ux03, stale_detail, slow_detail, p2a chạy qua bước chuẩn bị (p2a giờ đạt). 13 kịch bản vẫn đỏ, **đỏ y hệt trên dev7** (xem Hồi quy). **Đính chính 05/11:** cùng đỏ chỉ chứng minh không phải hồi quy; trong đó có lỗi sản phẩm focus có từ trước (khép ở dev9) và các ca chưa phân loại đủ, xem phân loại ở bàn giao dev9. Không nới kỳ vọng; đề xuất một task riêng chuyển bộ này sang OBS-2. |
 
 ## Đỏ trên dev7 → xanh trên wheel cuối
 
@@ -67,12 +195,12 @@ Mỗi ca tự xác nhận tiền điều kiện; ca nào tiền điều kiện h
 - **Bộ trình duyệt OBS-1 `test_obs1_browser`** (40 kịch bản, chạy cả hai bản cùng môi trường):
   - Chưa gắn binding: dev7 26/40 = dev8 26/40 (340/370).
   - Đã gắn binding: dev7 27/40 = dev8 27/40 (392/435).
-  - **Không kịch bản nào khác nhau giữa dev7 và dev8**, nên bản sửa không gây hồi quy. 13 kịch bản đỏ là nợ có sẵn (ux01, ux03, ux03b×2, ux05, ux07, ux08×2, stale_detail×2, slow_detail, prov): chữ trạng thái, bộ đếm, bố cục và định dạng lệnh của OBS-1. Trong đó có kiểm "giữ focus trên nút sao chép sau khi vẽ lại" (ux03), cũng đỏ trên dev7. Log `D:/OneCrewRuns/obs2-dev8/obs1-browser-dev{7,8}{,-bound}/`.
+  - **Không kịch bản nào khác nhau giữa dev7 và dev8**, nên bản sửa không gây hồi quy. 13 kịch bản đỏ có sẵn từ trước (ux01, ux03, ux03b×2, ux05, ux07, ux08×2, stale_detail×2, slow_detail, prov). **Đính chính 05/11:** câu cũ gọi tất cả là kỳ vọng chữ/bố cục/định dạng lệnh của OBS-1 là chưa đúng. Kiểm "giữ focus trên nút sao chép sau khi vẽ lại" (ux03) và các kiểm giữ mục mở/focus/vị trí đọc của stale_detail là **lỗi sản phẩm có từ trước** (khép ở dev9); phần còn lại đã tách thành test lỗi thời có bằng chứng và ca chưa phân loại đủ, xem bàn giao dev9. Log `D:/OneCrewRuns/obs2-dev8/obs1-browser-dev{7,8}{,-bound}/`.
 
 ## Giới hạn và chưa kiểm
 
 - `verify/check_review_fixes.py` (probe 24 ca) không chạy được trong phiên AI: fixture của nó gọi `plan.approve` ngay trong tiến trình. Tôi không gỡ marker AI. Các ca F1–F5 tương ứng đã phủ bằng kiểm trên wheel (trình duyệt 150, binding tĩnh 56, R7-2 qua API) và test nguồn. Codex có thể chạy lại probe trong môi trường của Codex.
-- Giữa lúc hook đổi và lần đọc chi tiết kế tiếp (tối đa một chu kỳ poll), trang chưa biết. Từ lần đọc đó trở đi, thẻ và nút sao chép theo dữ liệu mới.
+- **Đính chính 05/11:** bỏ cam kết "tối đa một chu kỳ poll". Trang chỉ đổi sau khi nhận và xử lý dữ liệu chi tiết mới; phản hồi chậm, lỗi kết nối hoặc cơ chế thử lại có thể kéo dài khoảng đó, và trong lúc ấy trang vẫn hiện dữ liệu đã nhận lần cuối. Từ lần đọc mới trở đi, thẻ và nút sao chép theo dữ liệu mới.
 - Chưa kiểm: clipboard thật (headless từ chối clipboard, phần "đã sao chép" chỉ đọc mã), lệnh chủ chạy thành công từ terminal của anh, sổ lớn, provider thật, pilot SignSDK, mutation test, gate 2.2 toàn bộ (không chạy theo chỉ thị).
 
 ## Cách ly
