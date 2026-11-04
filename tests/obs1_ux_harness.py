@@ -792,9 +792,9 @@ if(S==='fk_timeout'){                                  // a read that never answ
   check('the overview kept polling and stayed OK through the timeouts', ovreqs().filter(r=>r.start>T0+590000).length>=3 && last.conn==='ok', ovreqs().length);
   check('nothing of P1 under P8 during the timeouts', only('P8',samples) && samples.every(x=>x.cmds===0), bad('P8',samples));
   check('the status with the retry button fits the width (no horizontal page scroll)', d.documentElement.scrollWidth<=w.innerWidth+1, {scrollWidth:d.documentElement.scrollWidth, innerWidth:w.innerWidth});
-  fk.plans[P8]={}; const k=treqs(P8).length, btn=$('#dretry'); if(btn)btn.click(); await fk.advance(0); await fadv(3000,500);
+  fk.plans[P8]={}; const k=treqs(P8).length, btn=$('#dretry'); if(btn)btn.click(); const k1=treqs(P8).length; await fk.advance(0); await fadv(3000,500);
   const end=samples[samples.length-1];
-  check('recovery: the retry button starts exactly one read and P8 is painted', !!btn && treqs(P8).length===k+1 && end.loaded && end.state==='ok' && end.title.indexOf('P8')===0 && !end.dstatus, {btn:!!btn, reads:treqs(P8).length-k, end});
+  check('recovery: the retry button starts one read at once and P8 is painted (then the normal one read per poll)', !!btn && k1===k+1 && end.loaded && end.state==='ok' && end.title.indexOf('P8')===0 && !end.dstatus && samples.every(x=>x.inflight<=1), {btn:!!btn, byClick:k1-k, after3s:treqs(P8).length-k, end});
 }
 if(S==='fk_timeout1'){                                 // only the first read hangs: the page ends it, and the next automatic try paints P8 (finite recovery)
   await fselect('P1'); const P8=rowOf('P8').dataset.plan; let n=0; fk.plans[P8]=function(){n++;return n===1?{hang:true}:{}};
@@ -818,10 +818,10 @@ if(S==='fk_disc'){                                     // the connection drops w
 }
 if(S==='fk_ovhang'){                                   // found with P2, same kind of endless wait: the overview request never answers; the badge stops saying OK, polling goes on
   await fselect('P8'); T0=fk.now(); fk.overview={hang:true}; await fadv(50000,1000);
-  const ov=ovreqs().filter(r=>r.start>=T0), s48=samples.find(x=>x.t>=48000);
-  check('the hung overview request is cancelled after 45 s and polling goes on', ov.length>=2 && ov[0].state==='aborted' && ov[0].end-ov[0].start===45000, ov.slice(0,4).map(r=>[r.start-T0, r.state, r.end===null?null:r.end-r.start]));
+  const hung=ovreqs().filter(r=>r.start>=T0&&r.pol&&r.pol.hang), s48=samples.find(x=>x.t>=48000);   // a request made before the switch at T0 is answered normally
+  check('the hung overview request is cancelled after 45 s and polling goes on', hung.length>=2 && hung[0].state==='aborted' && hung[0].end-hung[0].start===45000, hung.slice(0,4).map(r=>[r.start-T0, r.state, r.end===null?null:r.end-r.start]));
   check('after 45 s without an overview answer the badge no longer says OK', s48 && s48.conn==='bad', s48||null);
-  fk.overview=null; await fadv(6000,1000);
+  fk.overview=null; await fadv(50000,1000);           // the request already hung waits out its own 45 s; the next one is answered
   const end=samples[samples.length-1];
   check('the overview answers again: badge OK, P8 still selected and shown', end.conn==='ok' && end.sel===rowOf('P8').dataset.plan && end.loaded, end);
 }
@@ -829,7 +829,9 @@ if(S==='rt_slow'){                                     // REAL TIME (no virtual 
   const P8=rowOf('P8').dataset.plan, now=()=>Date.now()-T0;
   const log=async()=>(await (await fetch('/__log')).json()).log;
   const reads=l=>l.filter(e=>e.kind==='task'&&e.plan===P8).sort((a,b)=>a.t0-b.t0);
-  const overlap=l=>{const r=reads(l);for(let i=1;i<r.length;i++)if(r[i].t0<(r[i-1].t1||Infinity))return [r[i-1],r[i]];return null};
+  // two P8 reads open at once in the PAGE: the next read started before the previous one ended (proxy end) and before the page's own 45 s limit
+  // (a read the page cancelled at 45 s may stay open in the proxy, which holds it longer and only then finds the page gone)
+  const overlap=l=>{const r=reads(l);for(let i=1;i<r.length;i++)if(r[i].t0<Math.min(r[i-1].t1||Infinity,r[i-1].t0+45)-0.1)return [r[i-1],r[i]];return null};
   async function every(ms,tag,until){const t1=now()+ms;while(now()<t1){await sleep(500);const x=snap(tag);if(until&&until(x))return x}return null}
   await select('P1'); await fetch('/__log?clear=1'); await fetch('/__fault?detail=ok&plan='+encodeURIComponent(P8)+'&delay=25000');
   T0=Date.now(); rowOf('P8').click(); snap('click');
@@ -845,6 +847,8 @@ if(S==='rt_slow'){                                     // REAL TIME (no virtual 
   await fetch('/__fault?detail=ok&plan='+encodeURIComponent(P8)+'&delay=70000&count=1');   // C: the next P8 read is held 70 s (longer than the page waits), later ones are quick
   const stale=await every(110000,'C',x=>x.state==='stale'&&/45 s/.test(x.dtext||''));
   check('C: a read held longer than 45 s ends with a timeout message under P8, its data kept (stale)', stale && stale.title.indexOf('P8')===0 && stale.loaded, stale||samples[samples.length-1]);
+  { const l=reads(await log()), held=l.find(e=>e.t1==null||e.t1-e.t0>=60), next=held&&l.find(e=>e.t0>held.t0);   // measured at the proxy: the page gave up on the held read after 45 s
+    check('C: the page cancelled the held read after its 45 s limit (the next P8 read starts 45-48 s after it)', held && next && next.t0-held.t0>=44.9 && next.t0-held.t0<=48.5, {held:held||null, next:next||null}) }
   const TD=now(), fresh=await every(20000,'D',x=>x.state==='ok'&&!x.dstatus&&x.loaded);
   check('D: the next quick answer makes P8 fresh again (no warning) within 15 s of the timeout', fresh && fresh.t-TD<=15000 && fresh.title.indexOf('P8')===0, fresh||samples[samples.length-1]);
   const tagged=samples.filter(x=>x.tag);
