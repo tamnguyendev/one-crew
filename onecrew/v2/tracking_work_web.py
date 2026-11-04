@@ -31,7 +31,7 @@ main[data-view=detail] #list{display:block;overflow:visible}main[data-view=detai
 #detailpane{padding:22px;max-height:calc(100vh - 165px)}.dhead h2{font-size:20px;line-height:1.4;color:var(--fg);text-transform:none;letter-spacing:0}.dhead .st{display:block;width:fit-content;margin-top:8px}
 .connection-details{font-size:12px;color:var(--mut);margin-top:10px}.connection-details summary{cursor:pointer}.connection-details .note{margin:8px 0}.sample-banner{padding:8px 12px;background:var(--sel);border-radius:6px;margin-top:10px;font-size:13px}
 .need{padding:16px;border:1px solid var(--line);border-radius:10px}.need .q{font-size:16px}.command-box{margin:14px 0;background:var(--bg);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.command-head{padding:8px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);gap:8px;font-size:13px}.command-box pre{margin:0;padding:14px;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.65 Consolas,monospace}.command-box .copy{white-space:nowrap}
+.command-head{padding:8px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);gap:8px;font-size:13px}.command-box pre{margin:0;padding:14px;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.65 Consolas,monospace}.command-box .copy{white-space:nowrap}.command-box code{background:transparent;padding:0;font:inherit;color:var(--fg)}
 .work-row h4{font-size:16px}.work-meta{font-size:13px}.work-row details{margin:10px 0}.work-nav button{font-size:14px}.work-id{font-size:13px;font-weight:500;color:var(--mut)}.stage-note{font-size:13px;color:var(--mut);margin:0 0 12px}
 .repair-flow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.repair-flow>div{border:1px solid var(--line);border-radius:8px;padding:12px;overflow-wrap:anywhere}.repair-flow b{display:block;margin-bottom:8px}
 @media(max-width:899px){main[data-view=detail]{display:block}#detailpane{max-height:none;padding:16px}#list{display:block}.board-lane{margin:0 0 12px}.board-lane.empty{display:none}header{padding:12px}.repair-flow{grid-template-columns:1fr}.dhead h2{font-size:18px}}
@@ -48,6 +48,7 @@ function workStage(t){var s=t.status||{},n=t.nodes_summary||{},l=(t.level||{}).k
   if(t.root_status==='accepted'||s.outcome==='accepted')return 'done';
   if(s.kind==='unknown')return 'unknown';
   if((t.active||[]).length||s.kind==='running')return 'doing';
+  if(t.root_status==='proposed'||(t.needs_user||[]).some(function(n){return n.kind==='approve'}))return t.has_started||l==='verified'||l==='produced'?'doing':'todo';
   if(l==='verified'||s.outcome==='verified')return 'accept';
   if(l==='produced'||n.produced>0||(t.milestones||[]).some(function(m){return m.state==='ready'}))return 'check';
   if(s.kind==='blocked'||n.verified>0||n.accepted>0)return 'doing';

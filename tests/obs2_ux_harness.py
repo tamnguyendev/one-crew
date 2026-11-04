@@ -10,12 +10,17 @@ if(S==='work'){
   const originalCards=$$('li.task').map(x=>x.dataset.plan).sort().join(',');
   for(const order of ['created','updated','deadline','attention']){$('#sort').value=order;$('#sort').dispatchEvent(new w.Event('change',{bubbles:true}));check('sorting '+order+' preserves the same tasks',$$('li.task').map(x=>x.dataset.plan).sort().join(',')===originalCards);}
   const docCard=rowOf(second);check('document waits for check not owner', docCard.textContent.includes('chờ kiểm')&&!docCard.querySelector('.needb'));
+  check('pending amendment is not ready for acceptance',rowOf(first).closest('.board-lane').dataset.stage==='doing');
   await select(first);
+  const decision=$('#detail details.need');
+  check('decision starts compact so work tabs remain accessible',!decision.open);
+  decision.querySelector('summary').click();
   const cmd=$('#detail details.need pre code'),copy=$('#detail details.need button.copy');
   check('approval has a separate complete PowerShell command',cmd&&copy&&cmd.textContent===copy.dataset.copy&&cmd.textContent.includes('--project')&&cmd.textContent.includes('--state-root')&&cmd.textContent.includes('--revision 2')&&cmd.textContent.includes('--human'));
   check('approval explains copying does not approve', $('#detail details.need').textContent.includes('Sao chép chưa phải duyệt'));
   if(copy){copy.click();await waitFor(()=>$('#detail .copied'),5000,'copy feedback');const copied=$('#detail .copied');check('clipboard reports exact command or explicit failure', copied.dataset.copied===cmd.textContent||copied.hasAttribute('data-copy-failed'));await morePolls(2);check('copy leaves approval pending',!!$('#detail details.need[data-need-rev="2"]'));}
 
+  $('#detail details.need').open=false;
   check('five named work tabs', $$('.work-nav [role=tab]').length===5);
   check('overview answers current/output/owner/estimate', ['Hiện tại','Kết quả đã có','Việc cần bạn','Dự kiến còn lại'].every(t=>$('#work-content').textContent.includes(t)));
   check('technical detail folded by default', !$('#detail details[data-k="work-technical"]').open);
@@ -45,7 +50,7 @@ if(S==='work'){
   check('noncoding no page overflow', d.documentElement.scrollWidth<=w.innerWidth+1);
   // Leave the visible screenshot in the work view, not in raw event JSON.
   $('#work-tab-overview').click();
-  if(shot&&qs.get('view')){await select(first);if(qs.get('view')==='board')$('#close').click();else $('#work-tab-'+qs.get('view')).click();}
+  if(shot&&qs.get('view')){await select(first);if(qs.get('view')==='board')$('#close').click();else if(qs.get('view')==='decision')$('#detail details.need').open=true;else $('#work-tab-'+qs.get('view')).click();}
 }
 '''
 

@@ -39,6 +39,12 @@ function when(x){return x} function hms(x){return String(x)} function openBtn(k)
         self.assertEqual(self.run_js('workStage('+json.dumps(task)+')'),'doing')
         self.assertEqual(self.run_js('workStatus('+json.dumps(task)+')'),'Đang thực hiện · chờ duyệt thay đổi')
 
+    def test_old_verified_output_does_not_put_new_proposal_in_acceptance(self):
+        task={'root_status':'proposed','has_started':True,'level':{'kind':'verified'},
+              'status':{'kind':'waiting'},'needs_user':[{'kind':'approve','revision':2}]}
+        self.assertEqual(self.run_js('workStage('+json.dumps(task)+')'),'doing')
+        self.assertEqual(self.run_js('workStatus('+json.dumps(task)+')'),'Chờ bạn duyệt kế hoạch')
+
     def test_resumed_pending_task_is_not_claimed_never_started(self):
         task={'root_status':'approved','has_started':True,'status':{'kind':'waiting'},'nodes_summary':{'pending':2}}
         self.assertEqual(self.run_js('workStage('+json.dumps(task)+')'),'doing')
