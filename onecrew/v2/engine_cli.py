@@ -36,6 +36,12 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
     p = sub.add_parser('review-optional', help='W26: run the rule-based decision (SKIP/DEFER/HOLD/REVIEW) for one sealed optional review of a produced node; '
                                                'REVIEW calls the connected checker, the result is an observation and never the mandatory gate.')
     p.add_argument('plan'); p.add_argument('node'); p.add_argument('review')
+    p = sub.add_parser('reconcile-check', help='2.5-B: settle one check run from what is known: its issued result is published or closed stale; '
+                                               'a run without a result is pending or held. Nothing is run again.')
+    p.add_argument('plan'); p.add_argument('run')
+    p = sub.add_parser('release-check', help='2.5-B: the recorded decision that lets a held check (unknown outcome) run again; spent budget stays spent, '
+                                             'exactly-once is not promised.')
+    p.add_argument('plan'); p.add_argument('run'); p.add_argument('--reason', required=True)
     node_actions_cli.register(sub)
     opts = parser.parse_args(args)
     try:
@@ -79,6 +85,12 @@ def main(argv=None, *, native_executor=_AUTO, checker=_AUTO, handoff=_AUTO):
             result=engine.release_paused(ledger,opts.plan,opts.node,ManagedExecutor(ledger,initialize=False))
         elif opts.command == 'verify': result = engine.verify(ledger, opts.plan, opts.node, checker(ledger, opts.plan))
         elif opts.command == 'accept-node': result = engine.accept_node(ledger, opts.plan, opts.node)
+        elif opts.command == 'reconcile-check':
+            from . import review_dispatch
+            result = review_dispatch.reconcile_check(ledger, opts.plan, opts.run)
+        elif opts.command == 'release-check':
+            from . import review_dispatch
+            result = review_dispatch.release_check(ledger, opts.plan, opts.run, opts.reason)
         elif opts.command == 'review-optional':
             record = engine.state(ledger, opts.plan)['nodes'].get(opts.node)
             if not record or not record.get('artifact'):

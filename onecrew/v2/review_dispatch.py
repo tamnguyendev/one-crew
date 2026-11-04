@@ -5,6 +5,7 @@ policy IDs and never publish node.verification, acceptance, or a human request.
 Injected checkers own their usual provider/budget boundary; this adapter does not
 select models, change pins or implement provider fallback.
 """
+import contextvars
 import copy
 import json
 import hashlib
@@ -70,6 +71,280 @@ def _request(ledger, root, contract, item, facts, review_id, execution):
 
 
 _RUN_KINDS = ('review.run_started', 'review.run_result', 'review.run_finished', 'review.run_held')
+
+
+# ---- 2.5-B cycle 2: one claim/observe/reconcile lifecycle for every check door ---------------------------------------------------
+#
+# The cycle-1 events (class A, compat.CLASS_A) now carry every check a door executes, not only optional observations:
+#   review.run_started  {run_id, check, door, request, request_id, subject, parent, pid, host, started, independence, grants_authority}
+#   review.run_result   {run_id, request_id, receipt}           the result blob, written BEFORE anything is published (the effect is known)
+#   review.run_held     {run_id, request_id, reason}            outcome unknown (exception, lost process, caller timeout): never replayed
+#   review.run_finished {run_id, request_id, receipt, applicable, outcome, ...}   outcome: published | stale | observed | not_dispatched
+#                                                              | released (an explicit decision with reason/actor; budget is not reset)
+# `check` is 'optional' (absent on cycle-1 rows), 'node-verification' (engine.verify, every engine door) or 'milestone' (one approved
+# milestone on one candidate tree; CandidateChecker claims it; verdict.run records the same request id on its own verdict.run_started).
+# Same request id + an unfinished run -> the next caller observes it (pending/held/issued), it never dispatches the check again.
+
+CHECK_NODE, CHECK_MILESTONE = 'node-verification', 'milestone'
+_CURRENT = contextvars.ContextVar('onecrew_check_run', default=None)
+
+
+class NotDispatched(LedgerError):
+    """Raised by a check port BEFORE any verifier/provider was started: the outcome is known (nothing ran), so the run is not held."""
+
+
+def current_run():
+    """The node-verification run a checker is executing for (set by engine.verify around the checker call), or None."""
+    return _CURRENT.get()
+
+
+def _build_check(**fields):
+    # INTERFACE (2.5-A): review_request.build_check. Until A's commit is merged this thin local shim keeps the same top-level keys
+    # (version, id, identity, execution_complete, missing); it is deleted once A's function exists.
+    build = getattr(review_request, 'build_check', None)
+    if build is not None: return build(**fields)
+    execution = review_request._execution(fields.get('execution'))
+    identity = {'kind': fields['kind'], 'root': fields['root'], 'contract_revision': fields['contract_revision'],
+                'contract_sha': fields['contract_sha'], 'required': fields['required'],
+                **{key: content_hash(fields[key]) for key in ('subject', 'scope', 'criteria', 'policy', 'authority', 'budget', 'inputs')},
+                'execution': execution}
+    return {'version': review_request.VERSION, 'id': 'review-' + content_hash({'version': review_request.VERSION, 'identity': identity}),
+            'identity': identity, 'execution_complete': execution['complete'], 'missing': list(execution['missing'])}
+
+
+def _milestone_execution(ledger, milestone, sha):
+    """What the runtime executes for this milestone, read from the APPROVED contract and the effective verifier environment, never
+    declared by the caller: verifier type and config, the reviewer provider/model pin, the environment fingerprint."""
+    from .verifiers import command
+    from . import verification_evidence
+    kind, config = milestone['verifier']['type'], milestone['verifier']['config']
+    method = 'command' if kind == 'command' else 'reviewer' if kind == 'reviewer' else 'adapter'
+    return {'method': method, 'implementation': 'onecrew.v2.verifiers.' + (kind if kind in ('command', 'reviewer') else 'port:' + kind),
+            'provider': config.get('provider', 'claude') if kind == 'reviewer' else None,
+            'model': config.get('model') if kind == 'reviewer' else None,
+            'configuration': {k: v for k, v in config.items() if k != 'max_minutes'},
+            'environment': verification_evidence.environment(command.verifier_env(ledger.project)),
+            'provenance': {'source': 'approved-contract', 'plan_sha': sha, 'milestone': milestone['id']}}
+
+
+def _milestone_request(ledger, task_id, name, revision, sha, contract, milestone, candidate):
+    subject = {'plan': name, 'milestone': milestone['id'], 'candidate': candidate, 'plan_sha': sha}
+    return _build_check(kind='milestone', root={'project_id': ledger.project_id, 'task_id': task_id},
+        contract_revision=revision, contract_sha=sha, subject=subject, required=True,
+        criteria=[{'id': milestone['id'], 'covers': milestone.get('covers', []), 'verifier': milestone['verifier']['type']}],
+        scope={'owned': sorted(contract['scope']['owned'])},
+        policy=review_policy.normalize(contract.get('review_policy', review_policy.DEFAULT)),
+        authority=contract.get('authority', {}), budget=contract['budget'], inputs={'candidate': candidate},
+        execution=_milestone_execution(ledger, milestone, sha))
+
+
+def milestone_request(ledger, selector, milestone_id, candidate):
+    """The request of one approved milestone on one candidate tree/artifact (the subject both verdict.run and CandidateChecker execute)."""
+    with ledger.transaction() as conn:
+        state = plan.anchor_events(ledger, conn, selector)
+        target = plan.resolve(ledger, state)
+        if target is None: raise LedgerError('Plan ' + str(selector) + ' has nothing approved to check.')
+        contract, sha = plan.load(ledger, state, target['revision'])
+    milestone = next((m for m in contract['milestones'] if m['id'] == milestone_id), None)
+    if milestone is None: raise LedgerError('Unknown milestone ' + str(milestone_id) + '.')
+    return _milestone_request(ledger, state['task_id'], state['name'], target['revision'], sha, contract, milestone, candidate)
+
+
+def _state(run):
+    if run['finished']: return 'finished'
+    if run['issued']: return 'issued'
+    if run['held']: return 'held'
+    return 'running'
+
+
+def _parented(runs):
+    """A child claim (CandidateChecker milestone claim) that never finished follows its parent node run: held with it, released with it."""
+    for run in runs.values():
+        parent = runs.get(run.get('parent'))
+        if parent is None or run['finished'] or run['issued']: continue
+        if parent['finished'] and parent['finished'].get('outcome') == 'released':
+            run['finished'] = dict(parent['finished'], run_id=run['run_id'], inherited_from=parent['run_id'])
+        elif parent['held'] and not run['held']:
+            run['held'] = dict(parent['held'], run_id=run['run_id'], inherited_from=parent['run_id'])
+    return runs
+
+
+def _lost(run):
+    from .verdict import this_host, process_alive
+    return run.get('host') == this_host() and not process_alive(run.get('pid'))
+
+
+def verdict_conflict(conn, task_id, request_id):
+    """An unfinished lifecycle run of this request (any door), for verdict._begin_run's own claim transaction; None when none."""
+    for run in reversed(list(_parented(_runs(conn, task_id)).values())):
+        if run['request']['id'] == request_id and _state(run) != 'finished':
+            return {'run_id': run['run_id'], 'door': run.get('door', 'optional'), 'state': _state(run)}
+    return None
+
+
+def _check_view(run, status, **extra):
+    return dict({'status': status, 'run_id': run['run_id'], 'request_id': run['request']['id'], 'door': run.get('door', 'optional'),
+                 'check': run.get('check', 'optional'), 'subject': run.get('subject'),
+                 'reason': (run['held'] or {}).get('reason') if status == 'held' else None,
+                 'grants_authority': False}, **extra)
+
+
+def claim_check(ledger, selector, request, *, door, subject, check=CHECK_MILESTONE, parent=None, conn=None):
+    """One atomic claim per request id. Returns {'status': 'claimed'|'pending'|'held'|'issued', 'run_id', ...}.
+    pending: the same request runs now (in any door, verdict.run included); held: its outcome is unknown (never replayed);
+    issued: a result exists and must be reconciled, not re-run. Finished runs are not consulted here (reuse is the caller's rule)."""
+    if conn is None:
+        with ledger.transaction(write=True) as connection:
+            return claim_check(ledger, selector, request, door=door, subject=subject, check=check, parent=parent, conn=connection)
+    from .verdict import this_host, live_runs
+    from ..ledger import utcnow
+    root = plan.anchor_events(ledger, conn, selector)
+    for run in reversed(list(_parented(_runs(conn, root['task_id'])).values())):
+        if run['request']['id'] != request['id'] or run['finished']: continue
+        if run['issued']: return _check_view(run, 'issued')
+        if run['held']: return _check_view(run, 'held')
+        if _lost(run):
+            reason = 'The process of this check is gone and it issued no result: its effect is unknown; it is not run again by itself.'
+            plan.emit(ledger, conn, root['task_id'], 'review.run_held',
+                      {'run_id': run['run_id'], 'request_id': request['id'], 'reason': reason, 'grants_authority': False})
+            return _check_view(dict(run, held={'reason': reason}), 'held')
+        return _check_view(run, 'pending')
+    for run in live_runs(conn, root['task_id']):
+        if run.get('request_id') == request['id']:
+            return {'status': 'pending', 'run_id': run.get('run_id'), 'request_id': request['id'], 'door': 'verdict.run',
+                    'check': CHECK_MILESTONE, 'subject': subject, 'reason': None, 'grants_authority': False}
+    run = {'run_id': uuid.uuid4().hex, 'check': check, 'door': door, 'request': request, 'subject': subject, 'parent': parent,
+           'root': root['task_id'], 'pid': os.getpid(), 'host': this_host(), 'started': utcnow(),
+           # identity metadata may be complete; independence is a separate judgement made from actual provenance (never declared here)
+           'independence': 'not_established', 'grants_authority': False}
+    plan.emit(ledger, conn, root['task_id'], 'review.run_started', dict(run, request_id=request['id']))
+    return _check_view(dict(run, issued=None, finished=None, held=None), 'claimed')
+
+
+def issue_check(ledger, selector, run_id, receipt):
+    """Announce the result blob of a run before any publication. Returns the run state at that moment ('running' or 'held': a late
+    result of a held run is kept as evidence and only reconcile may publish it; 'finished': released/closed meanwhile)."""
+    with ledger.transaction(write=True) as conn:
+        root = plan.anchor_events(ledger, conn, selector)
+        run = _parented(_runs(conn, root['task_id'])).get(run_id)
+        if run is None: raise LedgerError('Unknown check run in this root.')
+        if not run['issued']:
+            plan.emit(ledger, conn, root['task_id'], 'review.run_result',
+                      {'run_id': run_id, 'request_id': run['request']['id'], 'receipt': receipt, 'grants_authority': False})
+        return 'finished' if run['finished'] else 'held' if run['held'] else 'running'
+
+
+def finish_check(ledger, conn, task_id, run_id, *, outcome, receipt=None, applicable=False, **extra):
+    """Close a run inside the caller's transaction (the publication and the end of the run commit together). Idempotent."""
+    run = _runs(conn, task_id).get(run_id)
+    if run is None or run['finished']: return False
+    plan.emit(ledger, conn, task_id, 'review.run_finished', dict({'run_id': run_id, 'request_id': run['request']['id'], 'receipt': receipt,
+              'applicable': bool(applicable), 'outcome': outcome, 'door': run.get('door', 'optional'), 'grants_authority': False}, **extra))
+    return True
+
+
+def active_checks(ledger, selector):
+    """Unfinished, unheld lifecycle runs (what is being checked now, by which door). Read-only: the hook and status views use it."""
+    with ledger.transaction() as conn:
+        root = plan.anchor_events(ledger, conn, selector)
+        runs = _parented(_runs(conn, root['task_id']))
+    return [{'run_id': r['run_id'], 'door': r.get('door', 'optional'), 'check': r.get('check', 'optional'),
+             'node': (r.get('subject') or {}).get('node', r.get('node')), 'milestone': (r.get('subject') or {}).get('milestone'),
+             'request_id': r['request']['id'], 'started': r.get('started'), 'state': _state(r)}
+            for r in runs.values() if _state(r) in ('running', 'issued') and not _lost(r)]
+
+
+def published_run(conn, task_id, node, receipt):
+    """The node-verification run whose published receipt is `receipt` (None for a verification written before cycle 2)."""
+    for run in _runs(conn, task_id).values():
+        if (run.get('check') == CHECK_NODE and (run.get('subject') or {}).get('node') == node and run['finished']
+                and run['finished'].get('outcome') == 'published' and run['finished'].get('receipt') == receipt):
+            return run['run_id']
+    return None
+
+
+def release_check(ledger, selector, run_id, reason):
+    """The explicit decision that lets a held request be checked again (mirrors verdict.release_run). It records who and why, keeps the
+    spent budget spent and promises no exactly-once: the first dispatch may have had an effect. A run with an issued result is settled
+    by reconcile_check from that result, never released."""
+    from ..ledger import text_field
+    text_field(reason, 'reason', 2000)
+    with ledger.transaction(write=True) as conn:
+        root = plan.anchor_events(ledger, conn, selector)
+        runs = _parented(_runs(conn, root['task_id']))
+        run = runs.get(run_id)
+        if run is None: raise LedgerError('Unknown check run in this root.')
+        if run['issued'] and not run['finished']:
+            raise LedgerError(f'Run {run_id} has an issued result; settle it with reconcile-check instead of releasing it.')
+        if _state(run) != 'held':
+            raise LedgerError(f'Run {run_id} is not held (it is {_state(run)}); only a held run of unknown outcome is released.')
+        payload = {'reason': reason.strip(), 'actor': os.environ.get('ONECREW_ACTOR') or 'unknown', 'budget_reset': False,
+                   'note': 'A release lets the check run a second time; the first dispatch may have had an effect. Exactly-once is not promised.'}
+        finish_check(ledger, conn, root['task_id'], run_id, outcome='released', **payload)
+        for child in runs.values():
+            if child.get('parent') == run_id and not child['finished'] and not child['issued']:
+                finish_check(ledger, conn, root['task_id'], child['run_id'], outcome='released', inherited_from=run_id, **payload)
+    return dict(payload, run_id=run_id, request_id=run['request']['id'], status='released')
+
+
+def reconcile_check(ledger, selector, run_id):
+    """Settle one run from what is known, never by running it again: finished -> its outcome; an issued result -> published (or stale)
+    from that very receipt; no result and a live process -> pending; otherwise held with the reason (release_check after checking)."""
+    with ledger.transaction() as conn:
+        root = plan.anchor_events(ledger, conn, selector)
+        run = _parented(_runs(conn, root['task_id'])).get(run_id)
+    if run is None: raise LedgerError('Unknown check run in this root.')
+    if run.get('check', 'optional') == 'optional': return reconcile_optional(ledger, selector, run_id)
+    if run['finished']: return _check_view(run, 'finished', outcome=run['finished'].get('outcome'), receipt=run['finished'].get('receipt'))
+    if run['issued'] and run.get('check') == CHECK_NODE:
+        return engine.publish_issued(ledger, root['selector'], run)
+    if run['issued']: return _check_view(run, 'issued', receipt=run['issued']['receipt'])
+    if run['held'] or _lost(run):
+        if not run['held']:
+            _hold(ledger, root['selector'], run_id, 'The process of this check is gone and it issued no result: its effect is unknown.')
+            with ledger.transaction() as conn:
+                run = _parented(_runs(conn, root['task_id']))[run_id]
+        return _check_view(run, 'held', next=_next(root['selector'], run_id))
+    return _check_view(run, 'pending')
+
+
+def _next(selector, run_id):
+    return (f'Check what the run did, then `onecrew engine release-check {selector} {run_id} --reason "..."`; '
+            f'`onecrew engine reconcile-check {selector} {run_id}` shows it again. Nothing is run again by itself.')
+
+
+def node_request(ledger, selector, nid, execution=None, conn=None):
+    """The required node-verification request (review_request.build, the existing node descriptor) from the current engine facts."""
+    root, contract, item, facts = _context(ledger, selector, nid, conn)
+    return root, item, facts, review_request.build(root={'project_id': ledger.project_id, 'task_id': root['task_id']},
+        contract_revision=root['approved']['revision'], contract_sha=root['approved']['sha'],
+        review_id=CHECK_NODE, required=True, facts=facts,
+        scope={k: item.get(k, []) for k in ('read', 'write', 'acceptance')}, criteria=item['checks'],
+        policy=review_policy.normalize(contract.get('review_policy', review_policy.DEFAULT)),
+        authority=contract.get('authority', {}), budget=contract['budget'], execution=execution)
+
+
+def claim_node_check(ledger, selector, nid, *, execution, door):
+    """engine.verify's claim: the request is computed from the facts read inside the same write transaction as the claim."""
+    with ledger.transaction(write=True) as conn:
+        root, item, facts, request = node_request(ledger, selector, nid, execution, conn)
+        subject = {'node': nid, 'generation': facts['generation'], 'artifact': facts['artifact'],
+                   'internal_revision': facts['internal_revision']}
+        return claim_check(ledger, root['selector'], request, door=door, subject=subject, check=CHECK_NODE, conn=conn), request
+
+
+def node_check_view(claim, *, executed=False, reconciled=False, request=None):
+    request = request or {}
+    return {'run_id': claim['run_id'], 'request_id': claim['request_id'], 'door': claim['door'], 'executed': executed,
+            'reconciled': reconciled, 'cache_reusable': bool(request.get('execution_complete')),
+            'identity_missing': list(request.get('missing', [])), 'grants_authority': False}
+
+
+def run_held_view(selector, nid, claim, request=None):
+    return {'status': claim['status'], 'node': nid, 'result': None, 'executed': False,
+            'reason': claim.get('reason') or ('the same check is already running in ' + claim['door'] if claim['status'] == 'pending' else None),
+            **({'next': _next(selector, claim['run_id'])} if claim['status'] == 'held' else {}),
+            'check_run': node_check_view(claim, request=request)}
 
 
 def _runs(conn, task_id):

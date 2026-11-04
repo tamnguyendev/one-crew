@@ -807,10 +807,13 @@ def _tools(ledger, root, contract, view, checker, target):
             waiting.insert(0, (nid, execution_mode.rewrite(decision, 'wait', why)))
             continue
         try:
-            body = verify(ledger, root['selector'], nid, checker)
+            body = verify(ledger, root['selector'], nid, checker, door='engine.step-checks')
         except Exception as error:                     # review C-R09: a checker failure is a released try, never a lost batch
             _release_tools(ledger, view, nid, decision, claim, 'error', error)
             return {'node': nid, 'state': 'waiting', 'mode': 'tools', 'reason': str(error)[:500]}, None
+        if body.get('status') in ('pending', 'held', 'late'):                   # another run of the same request owns the outcome (2.5-B)
+            _release_tools(ledger, view, nid, decision, claim, body['status'])
+            return {'node': nid, 'state': 'waiting', 'mode': 'tools', 'reason': str(body.get('reason') or body['status'])[:500], 'check_run': body['check_run']}, None
         _release_tools(ledger, view, nid, decision, claim, body['result'])
         return {'node': nid, 'state': 'verified' if body['result'] == 'pass' else 'produced', 'mode': 'tools', 'verification': body['result']}, None
     return None, (waiting[0] if waiting else None)
@@ -1107,16 +1110,30 @@ def _continue(ledger, conn, view, nid, candidate, attempt_id, continuation):
            continuation=continuation, reason='work remains after the safe point: a new attempt continues it', budget_reset=False)
 
 
-def verify(ledger, selector, nid, checker):
+def _execution_of(checker, item):
+    """The execution identity of the port about to run: only the production CandidateChecker states it, from the approved contract and
+    the effective environment. Any other callable has no sourced identity: it may run, its result is never reusable by identity."""
+    from ..common_verification import CandidateChecker
+    if isinstance(checker, CandidateChecker) and type(checker).__call__ is CandidateChecker.__call__:
+        return checker.execution_identity(item)
+    return None
+
+
+def verify(ledger, selector, nid, checker, *, door='engine.verify'):
+    """The required check of a produced node, through one run per request (review_dispatch): the same request running elsewhere is observed
+    (status pending, same run id), an unknown outcome is held (no replay), an issued result is completed from its receipt."""
+    from . import review_dispatch
     with ledger.transaction() as conn:
         root, contract, sha = ip.context(ledger, conn, selector, 'sequential-engine')
         view = state(ledger, root['selector'], conn)
         if nid not in view['nodes'] or view['nodes'][nid]['state'] != 'produced' or view['nodes'][nid]['phase'] == 'held':
-            raise LedgerError('Only the current produced node can be verified.')
+            record = view['nodes'].get(nid) or {}
+            run = review_dispatch.published_run(conn, root['task_id'], nid, record.get('verification_receipt')) if record.get('verification_receipt') else None
+            raise LedgerError('Only the current produced node can be verified.' + (
+                f' Node {nid} was verified by run {run} (receipt {record["verification_receipt"][:12]}); nothing was dispatched.' if run else ''))
         item = next(node for node in view['definition']['nodes'] if node['id'] == nid)
         artifact = view['nodes'][nid]['artifact']
         ctx = ip.ceilings(ledger, conn, root)
-    from . import review_dispatch
     decision = review_dispatch.required(ledger, root['selector'], nid, [check['id'] for check in item['checks']])
     if decision['action'] != 'REVIEW':
         raise LedgerError('The required verification is held or deferred by its rule decision.')
@@ -1133,7 +1150,28 @@ def verify(ledger, selector, nid, checker):
         raise LedgerError('The knowledge or sources delivered to this candidate changed since it was produced; nothing was verified (the node is '
                           + gated['state'] + '): ' + '; '.join(str(c.get('id') or c.get('path') or c.get('node')) + ' ' + c['reason']
                                                                 for c in gated['knowledge_changed']['critical'][:5]))
-    observed = checker(item, artifact)
+    claim, request = review_dispatch.claim_node_check(ledger, root['selector'], nid, execution=_execution_of(checker, item), door=door)
+    if claim['status'] in ('pending', 'held'):
+        return review_dispatch.run_held_view(root['selector'], nid, claim, request)
+    if claim['status'] == 'issued':
+        with ledger.transaction() as conn:
+            run = review_dispatch._parented(review_dispatch._runs(conn, root['task_id']))[claim['run_id']]
+        return publish_issued(ledger, root['selector'], run)
+    run_id = claim['run_id']
+    token = review_dispatch._CURRENT.set(run_id)
+    try:
+        observed = checker(item, artifact)
+    except BaseException as error:
+        if isinstance(error, review_dispatch.NotDispatched) or getattr(error, 'not_dispatched', False):   # refused before any verifier ran: known outcome
+            with ledger.transaction(write=True) as conn:
+                review_dispatch.finish_check(ledger, conn, root['task_id'], run_id, outcome='not_dispatched', reason=str(error)[:500])
+            if isinstance(error, review_dispatch.NotDispatched):
+                return review_dispatch.run_held_view(root['selector'], nid, dict(claim, status='pending', reason=str(error)[:500]), request)
+        else:
+            review_dispatch._hold(ledger, root['selector'], run_id, 'Outcome unknown: ' + type(error).__name__ + ' while the checker ran and no result was issued.')
+        raise
+    finally:
+        review_dispatch._CURRENT.reset(token)
     rows = observed.get('checks', []) if isinstance(observed, dict) and isinstance(observed.get('checks'), list) else []
     configured = {check['id'] for check in item['checks']}
     actual = {row.get('id') for row in rows if isinstance(row, dict)}
@@ -1156,7 +1194,21 @@ def verify(ledger, selector, nid, checker):
             'evidence_errors': evidence_errors, 'checks_sha': content_hash(item['checks']),
             'result': 'pass' if passed else 'fail' if failed else 'inconclusive'}
     receipt = Snapshots(ledger.state_root).blob(canonical(body).encode())
-    if matches:
+    issued = review_dispatch.issue_check(ledger, root['selector'], run_id, receipt)              # the effect is known from here on
+    run_view = review_dispatch.node_check_view(claim, executed=True, request=request)
+    if issued != 'running':                                                                      # held or closed meanwhile: evidence kept, only reconcile publishes
+        return dict(body, status='late', receipt=receipt, check_run=run_view,
+                    reason='The result arrived after this run was held or closed; it is kept as evidence and was not published.',
+                    **({'next': review_dispatch._next(root['selector'], run_id)} if issued == 'held' else {}))
+    return _publish_verification(ledger, root, contract, sha, view, nid, item, artifact, body, receipt, ctx, run_id, run_view)
+
+
+def _publish_verification(ledger, root, contract, sha, view, nid, item, artifact, body, receipt, ctx, run_id, run_view):
+    """The one publication of an issued node result: node.verification and the end of its run commit together."""
+    from . import review_dispatch
+    observed = body['observed']
+    configured = {check['id'] for check in item['checks']}
+    if isinstance(observed, dict) and observed.get('artifact') == artifact:
         ip.decide(ledger, root, contract, sha, {'kind': 'decision', 'q': 'Q9', 'nodes': [nid],
                   'evidence': [receipt], 'artifact_matches': True}, ctx, 'onecrew.engine')
     with ledger.transaction(write=True) as conn:
@@ -1174,9 +1226,10 @@ def verify(ledger, selector, nid, checker):
                 changed = _knowledge_apply(ledger, conn, current, nid, {'artifact': artifact, 'receipt': mine.get('receipt')}, mine['attempt'], again)
                 publish = False
         if publish:
-            _event(ledger, conn, current, nid, 'node.verification', result=body['result'], receipt=receipt)
+            _event(ledger, conn, current, nid, 'node.verification', result=body['result'], receipt=receipt, run_id=run_id)
         elif changed is None:
             _retain(ledger, conn, view, nid, 'Root or node changed while checker ran', receipt=receipt)
+        review_dispatch.finish_check(ledger, conn, root['task_id'], run_id, outcome='published' if publish else 'stale', receipt=receipt, applicable=publish)
     if changed is not None:
         raise LedgerError('The knowledge or sources delivered to this candidate changed while its checker ran; the verification was retained, not '
                           'written (the node is ' + changed['state'] + ').')
@@ -1197,6 +1250,7 @@ def verify(ledger, selector, nid, checker):
             pass
     if not publish:
         raise LedgerError('The root or node changed while its checker ran; evidence was retained without verification.')
+    body = dict(body, check_run=run_view)
     if 'finding-register' in view['capabilities'] and body['result'] in ('pass', 'fail'):
         # W21 (T11): a failed check of a node is a finding in the shared register, scoped by the node's dependency edges; the same node
         # passing on a later generation closes them. The register, not the engine, owns the transition.
@@ -1220,6 +1274,40 @@ def verify(ledger, selector, nid, checker):
     except (OSError,ValueError) as error:
         body['learning']={'status':'pending','reason':str(error),'changes_verification':False}
     return body
+
+
+def publish_issued(ledger, selector, run):
+    """Reconcile: complete a node run from the receipt it issued; the checker is never called. Current facts equal to the run's request
+    (execution aside: its configuration is stored only as fingerprints) publish; anything else closes the run stale, unpublished."""
+    from . import review_dispatch
+    receipt, subject = run['issued']['receipt'], run['subject']
+    nid = subject['node']
+    try:
+        body = json.loads(Snapshots(ledger.state_root).read_blob(receipt))
+        if (body.get('kind') != 'node-verifier-receipt' or body.get('root') != run['root'] or body.get('node') != nid
+                or body.get('generation') != subject['generation'] or body.get('artifact') != subject['artifact']):
+            raise ValueError('receipt binding differs')
+    except (OSError, ValueError, TypeError, LedgerError) as error:
+        raise LedgerError('Issued check evidence of run ' + run['run_id'] + ' is missing or invalid; nothing is run again: ' + type(error).__name__) from error
+    with ledger.transaction() as conn:
+        root, contract, sha = ip.context(ledger, conn, selector, 'sequential-engine')
+        view = state(ledger, root['selector'], conn)
+        ctx = ip.ceilings(ledger, conn, root)
+    claim = {'run_id': run['run_id'], 'request_id': run['request']['id'], 'door': run.get('door', 'optional')}
+    run_view = review_dispatch.node_check_view(claim, reconciled=True, request=run['request'])
+    same = {k: v for k, v in run['request']['identity'].items() if k != 'execution'}
+    try:
+        now = review_dispatch.node_request(ledger, selector, nid)[3]['identity']
+    except LedgerError:
+        now = None
+    if now is None or {k: v for k, v in now.items() if k != 'execution'} != same:
+        with ledger.transaction(write=True) as conn:
+            review_dispatch.finish_check(ledger, conn, root['task_id'], run['run_id'], outcome='stale', receipt=receipt, applicable=False,
+                                         reason='The node, its criteria or its inputs changed; this result certifies only its own request.')
+        return dict(body, status='stale', receipt=receipt, check_run=run_view)
+    item = next(node for node in view['definition']['nodes'] if node['id'] == nid)
+    return dict(_publish_verification(ledger, root, contract, sha, view, nid, item, subject['artifact'], body, receipt, ctx, run['run_id'], run_view),
+                status='published', receipt=receipt)
 
 
 def accept_node(ledger, selector, nid):

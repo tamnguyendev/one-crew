@@ -321,7 +321,7 @@ def run(ledger, name, milestone_id, directory=None):
     recovered = reconcile(ledger, name, revision, milestone_id)           # W37a: a run of unknown outcome is settled, or held, before any new dispatch
     if recovered is not None:
         return recovered
-    run_id = _begin_run(ledger, name, revision, milestone_id, kind, minutes)
+    run_id = _begin_run(ledger, name, revision, milestone_id, kind, minutes, check=_check_request(ledger, state, revision, sha, contract, milestone, directory))
     evidence_context = ({'evidence_context': {'selector': state['selector'], 'revision': revision, 'contract': contract}}
                         if namespaces.has_capability(state, 'sequential-engine') else {})
     integrity = None
@@ -782,7 +782,20 @@ def reap(ledger, name, now=None, alive=None):
     return closed
 
 
-def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes):
+def _check_request(ledger, state, revision, sha, contract, milestone, directory):
+    """2.5-B: the same request id CandidateChecker claims for this milestone on this tree, read before dispatch from what the runtime will
+    execute (the approved verifier config, the effective environment, the current artifact). None when the artifact cannot be identified:
+    the verifier then refuses by itself, and no reuse or dedupe is claimed for the run."""
+    from . import review_dispatch
+    try:
+        candidate = artifacts.identity(directory)
+        return review_dispatch._milestone_request(ledger, state['task_id'], state['name'], revision, sha, contract, milestone, candidate), candidate
+    except (LedgerError, OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes, check=None):
+    request, candidate = check if check else (None, None)
     reap(ledger, name)                                              # a lost earlier run must not refuse this one
     started = _now()
     run_id = uuid.uuid4().hex[:12]
@@ -795,9 +808,16 @@ def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes):
             if _open(run) and (run.get('revision'), run.get('milestone')) == (revision, milestone_id) and lost_reason(run, started, process_alive) is None:
                 raise LedgerError(f'Milestone {milestone_id} is already being checked (run {run.get("run_id")}, process {run.get("pid")} since {run.get("started")}); '
                                   f'wait for it to end, or until {run.get("deadline")}.')
+        if request is not None:                                     # 2.5-B: the same milestone on the same tree running through CandidateChecker
+            from . import review_dispatch
+            other = review_dispatch.verdict_conflict(conn, state['task_id'], request['id'])
+            if other:
+                raise LedgerError(f'Milestone {milestone_id} on this artifact is already being checked through {other["door"]} (run {other["run_id"]}, {other["state"]}); '
+                                  'nothing was dispatched. Observe that run; `onecrew engine reconcile-check` settles it.')
         plans.emit(ledger, conn, state['task_id'], 'verdict.run_started',
                    {'plan': name, 'revision': revision, 'milestone': milestone_id, 'run_id': run_id, 'kind': kind, 'pid': os.getpid(), 'host': this_host(),
                     'started': started.isoformat(), 'max_minutes': max_minutes,
+                    **({'request_id': request['id'], 'request': request, 'candidate': candidate} if request is not None else {}),
                     'deadline': (started + dt.timedelta(minutes=max_minutes, seconds=RUN_GRACE_SECONDS)).isoformat()})
     return run_id
 
