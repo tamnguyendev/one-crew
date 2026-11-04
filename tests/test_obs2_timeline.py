@@ -50,6 +50,9 @@ function when(x){return x||'chưa xác định'}function hms(x){return String(x)
         d=self.detail();d['evidence_index']=[{'attempt':'att:one','output':True,'key':'current-output'},{'attempt':'att:old','output':True,'key':'old-pass'}]
         out=self.js('gantt(d)',"var d="+json.dumps(d)+";selStep={id:'node:C'};")
         self.assertIn('current-output',out);self.assertNotIn('old-pass',out);self.assertIn('Đã tạo đầu ra · chờ kiểm',out)
+    def test_node_source_details_preserve_millisecond_timestamps(self):
+        out=self.js('gantt(d)',"var d="+json.dumps(self.detail())+";selStep={id:'node:C'};")
+        self.assertIn(END,out);self.assertIn(START,out)
     def test_long_hostile_name_is_text(self):
         d=self.detail();d['work']['node_titles']['C']='<img onerror=evil>'
         out=self.js('gantt(d)','var d='+json.dumps(d)+';');self.assertNotIn('<img',out);self.assertIn('&lt;img',out)
