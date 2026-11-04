@@ -903,13 +903,16 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
 
 
 def _measure(rd, selector):
+    # Admission is Q2 -> node.started; preparation is reserved -> launched.
+    # These sourced elapsed spans are not a scheduler-queue measurement.
     try:
         from . import execution_mode
         m = execution_mode.measure(rd, selector)
         return {'attempts_wall_seconds': m.get('attempts_wall_seconds', UNKNOWN), 'wait_seconds': m.get('wait_seconds', UNKNOWN),
                 'time_to_first_useful_action_seconds': m.get('time_to_first_useful_action_seconds', UNKNOWN),
                 'rework': m.get('rework'), 'method': m.get('method'),
-                'attempts': [{k: a.get(k) for k in ('attempt', 'node', 'generation', 'mode', 'execution_seconds', 'span_seconds', 'reserved_at', 'settled_at')} for a in m.get('attempts', [])],
+                'attempts': [{k: a.get(k) for k in ('attempt', 'node', 'generation', 'mode', 'admission_seconds', 'preparation_seconds',
+                                                  'execution_seconds', 'span_seconds', 'reserved_at', 'settled_at')} for a in m.get('attempts', [])],
                 'waits': [dict(w, reasons=clean(w.get('reasons'), 200)) for w in m.get('waits', [])],
                 'executor_waits': [{'at': w.get('at'), 'until': w.get('until'), 'reason': clean(w.get('reason'), 200), 'ref': clean(w.get('ref'), None),
                                     'time_source': clean(w.get('time_source'), 60)} for w in m.get('executor_waits', [])],

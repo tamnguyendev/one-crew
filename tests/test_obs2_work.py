@@ -1,7 +1,10 @@
 """OBS2-T1..T7 data acceptance: real temporary ledgers, fixture executors only."""
 import copy
+import datetime as dt
 import hashlib
 import json
+import threading
+import unittest
 from unittest.mock import patch
 
 from onecrew import conversations
@@ -10,6 +13,51 @@ from onecrew.v2 import plan as plans, tracking, repair_tasks
 from tests.test_v2_l1 import Fixture, plan_json
 from tests.test_wf_engine import EngineFixture, node
 from tests.test_conversations import solution as sol_payload
+
+
+class TimingTests(unittest.TestCase):
+    def test_attempt_timing_retains_sourced_spans_unknowns_and_overlap_union(self):
+        from tests.test_wf_parallel_engine import ParallelFixture
+        case = ParallelFixture('setUp'); case.setUp(); self.addCleanup(case.doCleanups)
+        case.revise([node('A'), node('B', write=('b.txt',)), node('I', ['A', 'B'], integration=True, write=())])
+        barrier = threading.Barrier(2)
+        def together(ledger, control, task, item, attempt):
+            control.launched(attempt['id'], attempt['generation'], {'fixture': True})
+            barrier.wait(5)
+            result = {'artifact': case.store.blob(('timed-' + item['id']).encode()), 'receipt': case.store.blob(b'timing fixture')}
+            control.finish(attempt['id'], attempt['generation'], result)
+            return result
+        case.engine.run_batch(case.ledger, 'P1', case.isolated(together), slots=2)
+        value = tracking.detail(case.ledger.state_root, 'P1')['measure']
+        attempts = {a['node']: a for a in value['attempts']}
+        bounds = []
+        with case.ledger.transaction() as conn:
+            for nid, attempt in attempts.items():
+                times = {r['kind']: dt.datetime.fromisoformat(r['created_at']) for r in conn.execute(
+                    "SELECT kind,created_at FROM events WHERE kind IN ('attempt.reserved','attempt.launched','attempt.settled') "
+                    "AND json_extract(payload,'$.id')=? ORDER BY seq", (attempt['attempt'],))}
+                started = conn.execute("SELECT created_at FROM events WHERE task_id=? AND kind='node.started' "
+                    "AND json_extract(payload,'$.node')=? ORDER BY seq LIMIT 1", (case.root_view['anchor_task'], nid)).fetchone()[0]
+                decided = conn.execute("SELECT created_at FROM events WHERE task_id=? AND kind='decision.recorded' "
+                    "AND json_extract(payload,'$.basis') LIKE 'Q2%' AND json_extract(payload,'$.scope')=? ORDER BY seq DESC LIMIT 1",
+                    (case.root_view['anchor_task'], nid)).fetchone()[0]
+                self.assertEqual(attempt['admission_seconds'], round((dt.datetime.fromisoformat(started) - dt.datetime.fromisoformat(decided)).total_seconds(), 6))
+                self.assertEqual(attempt['preparation_seconds'], round((times['attempt.launched'] - times['attempt.reserved']).total_seconds(), 6))
+                self.assertEqual(attempt['execution_seconds'], round((times['attempt.settled'] - times['attempt.launched']).total_seconds(), 6))
+                bounds.append((times['attempt.reserved'], times['attempt.settled']))
+        self.assertLess(max(a for a, _ in bounds), min(b for _, b in bounds), 'positive control: actual fixture branches overlapped')
+        self.assertEqual(value['attempts_wall_seconds'], round((max(b for _, b in bounds) - min(a for a, _ in bounds)).total_seconds(), 6))
+        self.assertLess(value['attempts_wall_seconds'], sum(a['span_seconds'] for a in attempts.values()))
+        # A legacy/incomplete receipt history must keep missing endpoints unknown.
+        with case.ledger.transaction(write=True) as conn:
+            conn.execute("DELETE FROM events WHERE kind='attempt.launched' AND json_extract(payload,'$.id')=?", (attempts['B']['attempt'],))
+            conn.execute("DELETE FROM events WHERE task_id=? AND kind='decision.recorded' AND json_extract(payload,'$.basis') LIKE 'Q2%' "
+                         "AND json_extract(payload,'$.scope')='B'", (case.root_view['anchor_task'],))
+        missing = tracking.detail(case.ledger.state_root, 'P1')['measure']
+        b = next(a for a in missing['attempts'] if a['node'] == 'B')
+        self.assertEqual((b['admission_seconds'], b['preparation_seconds'], b['execution_seconds']), ('unknown', 'unknown', 'unknown'))
+        self.assertEqual(missing['attempts_wall_seconds'], value['attempts_wall_seconds'])
+        self.assertNotIn('queue_seconds', missing)
 
 
 class SolutionTests(Fixture):
