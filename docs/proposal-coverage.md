@@ -1,17 +1,17 @@
-# Timeline dev4 coverage — cycle4 active
+# Timeline dev4 coverage — cycle4 complete for isolated trial
 
-Proposal docs/obs2/TIMELINE-DEV4.vi.md; baseline20b5baa.
+Proposal docs/obs2/TIMELINE-DEV4.vi.md; baseline20b5baa; final product525c36138eaf77d5d4ef482e193322ce4be7bf3d. Receipt root `D:/OneCrewRuns/obs2/trial-525c361-1`; exact wheel/limits in docs/obs2/HANDOVER.vi.md.
 
 | ID | Status | Evidence |
 |---|---|---|
-| TL1 | Partial | Source labels corrected; no checker-runtime claim; wheel pending |
-| TL2 | Partial | Adaptive relative ticks, ms precision, pinned history; unit pass |
-| TL3 | Partial | Node summaries/current evidence; renderer + source browser pass |
-| TL4 | Partial | Whole-node selection, actor/source filter, inspector only when selected; source browser pass |
-| TL5 | Partial | Source Gantt desktop/mobile, live-clock disconnect/reconnect, slow25/switch pass; final wheel pending |
-| TL6 | Partial | Isolated source checks pass, fixed wheel pending |
+| TL1 | Complete | Correct sourced interval labels; unknown remains unknown; final wheel browser |
+| TL2 | Complete | Adaptive unique relative ticks, ms precision, exact ISO details, pinned history; source45/45 + final browser |
+| TL3 | Complete | Node summaries/current evidence, expandable attempts; installed desktop/mobile and visual inspection |
+| TL4 | Complete | Whole-node selection, actor/source filter, inspector only when selected; installed108/108 assertions |
+| TL5 | Complete | Scoped source Gantt/live-clock disconnect/reconnect/slow25/switch pass; final wheel browser history/selection/fit |
+| TL6 | Complete | Fixed wheel9/9, browser108/108, lifecycle4/4, handover/wiki; real registry stable, no runtime upgrade |
 
-Complete0 / Partial6 / Missing0 / Blocked0. Older coverage below is historical.
+Complete6 / Partial0 / Missing0 / Blocked0 for local trial scope. No full gate, provider/pilot, real-user clipboard, acceptance or deployment claim. Older coverage below is historical.
 
 ---
 

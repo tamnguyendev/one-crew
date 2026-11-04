@@ -1,4 +1,52 @@
-# Bàn giao UI/UX OBS-2 dev3 — 04/11/2026
+# Bàn giao timeline OBS-2 dev4 — 04/11/2026
+
+Bản thử hiện hành: **2.5.0.dev4**, product `525c36138eaf77d5d4ef482e193322ce4be7bf3d`. Đã kiểm trên wheel cuối, chưa phát hành/nghiệm thu. Nội dung dev3 bên dưới là lịch sử, không phải lệnh mở bản mới.
+
+## Mở và thử timeline mới
+
+Trang: http://127.0.0.1:51281/ (pid30604, instance `7a758b5c5d6572ce`, đã kiểm health đúng dev4). Nếu server đã tự thoát sau 30 phút không request:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/mo-obs2-dev4.ps1"
+```
+
+Dừng riêng viewer này:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/dung-obs2-dev4.ps1"
+```
+
+Chọn **DOC hoặc CODE → Tiến độ**. Đây là dữ liệu mẫu, không phải công việc/provider thật; không cần duyệt để xem.
+
+| Thao tác | Mong đợi |
+|---|---|
+| Mở Tiến độ | Mỗi phần việc có tên, trạng thái và thời lượng; các ID lượt không chiếm hàng chính |
+| Bấm tên phần việc hoặc thanh | Xem chi tiết, người thực hiện nếu có nguồn, bằng chứng đúng lượt/thế hệ và timestamp gốc |
+| Mở mũi tên | Xem các lượt; lịch sử cũ mở riêng, có nguồn, không chứng nhận đầu ra mới |
+| Chọn toàn bộ lịch sử | Cửa sổ thời gian đứng yên khi poll; chọn Vừa khung để trở lại phần hiện hành |
+| Xem lượt dưới một giây | Trục tương đối có mili giây, không lặp nhãn giây; độ rộng cửa sổ không phải thời lượng thực thi |
+| Xem trên màn hẹp | Cuộn ngang bên trong biểu đồ; chi tiết nằm dưới, trang không tràn ngang |
+
+Nhãn **Từ đầu ra đến kết quả kiểm** diễn tả khoảng quan sát, có thể gồm thời gian chờ; không gọi đó là thời gian checker thực sự chạy. Thiếu dữ liệu vẫn ghi chưa xác định. Ngăn chi tiết chỉ xuất hiện sau khi chọn; chú giải chỉ hiện loại đang có.
+
+## Snapshot và kiểm chứng dev4
+
+- Gói: `D:/OneCrewRuns/obs2/pkg/onecrew-2.5.0.dev4-obs2-525c361`.
+- Wheel SHA256: `e19b6639af8a266d68d1d0b57ff3f587a38c9b0c203e5b7bab50c7d2a52382d8`.
+- Receipt: `D:/OneCrewRuns/obs2/trial-525c361-1`.
+- `verify-report.json`: **9/9**, nhập tám module đúng hash từ venv, CLI/API/evidence và cách ly.
+- `browser/browser-report.json`: **108/108 assertion** trên wheel cuối, 54 ở desktop1280×720 và 54 ở mobile390×844. Đã xem ảnh `browser/timeline.png` và `browser/timeline-mobile.png`.
+- `lifecycle-report.json`: **4/4**, mở/dùng lại/dừng/dừng lần nữa; exit0/0/0/2 đúng dự kiến, state/project/gói/registry không đổi trong kiểm.
+- Source cuối: **45/45 test** timeline/cards/web/clock. OBS-1 hồi quy có phạm vi: Gantt desktop22, mobile20, phản hồi chậm25s5, chuyển task6 và đồng hồ/mất-kết-nối10 assertion đạt. Hai assertion lượt clock đầu dùng setup lịch sử đóng/nhãn cũ; đã sửa setup phù hợp UI mới, giữ kiểm hình học và chạy lại10/10 tại `dev4-live-clock`.
+- Không chạy toàn gate. Không nhận bằng chứng provider thật, clipboard người dùng, sổ lớn hay nghiệm thu từ dữ liệu mẫu. Không kiểm lại owner-success ở lượt này; quyền/backend không đổi.
+
+Gói trung gian `...dev4-obs2-1dcb7c7` giữ nguyên, không phải bản giao cuối. Bổ sung cuối ở525c361 giữ timestamp ISO gốc có offset/mili giây trong chi tiết. Gói dev3 và viewer cũ không bị thay. Báo cáo sau build nằm ngoài gói đóng băng.
+
+Runtime SignSDK vẫn `2.3.0.dev11`. Registry thật giữ SHA256 `AACAD058F478898D41EB0294B619BE21191B83B488544961C080F4BFA0AEE01C` trong lượt dev4; không nâng runtime/hook/sổ thật. Không push/tag, không chờ MR-R, không mở rộng OBS-2C/CP-1. Lịch sử sự cố registry dev3 và khôi phục vẫn giữ bên dưới.
+
+---
+
+# Lịch sử: Bàn giao UI/UX OBS-2 dev3 — 04/11/2026
 
 Bản thử local đã kiểm từ wheel cuối. Có OBS-2A/2B trên nền OBS-1; không chờ MR-R. Chưa nâng SignSDK, chưa push/tag hoặc nghiệm thu.
 
