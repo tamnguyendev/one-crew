@@ -52,7 +52,7 @@ function workStage(t){var s=t.status||{},n=t.nodes_summary||{},l=(t.level||{}).k
   if((t.acceptance||{}).ready)return 'accept';
   if(n.produced>0||(t.milestones||[]).some(function(m){return m.state==='ready'}))return 'check';
   if(s.kind==='blocked'||n.verified>0||n.accepted>0)return 'doing';
-  if(t.has_started||(t.milestones||[]).some(function(m){return m.state==='passed'||!!m.last_verdict}))return 'doing';
+  if(t.has_started||(t.milestones||[]).some(function(m){return (!!m.state&&m.state!=='pending')||!!m.last_verdict}))return 'doing';     // R7-2: the API's own milestone states (passed/failed/stopped) and has_started (verdicts, runs, attempts)
   if(t.root_status==='approved'||t.root_status==='proposed')return 'todo';return 'unknown'}
 function workStatus(t){var needs=t.needs_user||[],s=t.status||{},n=t.nodes_summary||{},stage=workStage(t),request=needs.find(function(n){return n.kind==='request'});
   if(s.kind==='blocked')return 'Có trở ngại'+((t.active||[]).length?' · phần khác vẫn thực hiện':'');
@@ -62,7 +62,7 @@ function workStatus(t){var needs=t.needs_user||[],s=t.status||{},n=t.nodes_summa
   if(stage==='check')return 'Đã có đầu ra · chờ kiểm';
   if(stage==='accept')return 'Đã kiểm đạt · chờ nghiệm thu';
   if(stage==='done')return 'Đã nghiệm thu';if(stage==='closed')return 'Đã đóng · không phải nghiệm thu';
-  if(stage==='todo')return 'Chưa khởi chạy';if(stage==='doing'&&t.has_started)return 'Chờ bước tiếp theo';
+  if(stage==='todo')return 'Chưa khởi chạy';if(stage==='doing'&&t.has_started&&!(t.milestones||[]).length)return 'Chờ bước tiếp theo';   // a milestone root says which milestone (its sourced step below)
   return t.current_step||s.reason||'Chưa xác định tiến độ'}
 function workTitle(t){return t.goal||t.title||t.plan||'Công việc chưa có tên'}
 function workBadge(t){var s=t.status||{};return '<span class="st '+esc(s.kind||'unknown')+'">'+esc(workStatus(t))+'</span>'}

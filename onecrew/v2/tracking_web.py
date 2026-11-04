@@ -999,6 +999,7 @@ function renderDetail(d){
   if(d.goal&&!d.work)h.push('<p style="margin:6px 0">'+esc(d.goal)+'</p>');
   var done=d.status.kind==='done';
   var nowKeys={};needs.forEach(function(n){nowKeys[needKey(n)]=n});
+  if(copied&&!copiedStillValid(copied,d))copied=null;      // R7-1: feedback of a command this data no longer offers (binding lost, other runtime/state) is dropped, never shown again
   Object.keys(knownNeeds).forEach(function(k){var old=knownNeeds[k];if(nowKeys[k]||!old.open)return;
     var same=needs.find(function(n){return n.kind==='request'&&n.id===old.id});
     if(!staleNotes.some(function(x){return x.key===k}))staleNotes.push({key:k,id:old.id,title:old.title,why:same?'đã đổi bản (revision '+String(same.revision).slice(0,12)+'…): mẫu lệnh cũ không còn hiệu lực, đọc lại câu hỏi':'không còn chờ ở bản đang xem: mẫu lệnh cũ không còn hiệu lực'});
@@ -1048,6 +1049,11 @@ function renderDetail(d){
   knownNeeds={};needs.forEach(function(n){var el=document.querySelector('#detail details[data-k="'+needKey(n).replace(/"/g,'\\"')+'"]');knownNeeds[needKey(n)]={id:n.id,revision:n.revision,title:needTitle(n),open:!!(el&&el.open)}});
 }
 function noteOpen(){needs_open_sync()}
+// R7-1: what a reader can copy from a need comes from the project's hook binding too, which lives outside the ledger: an unchanged last_seq
+// does not mean unchanged cards. needsSig is that copyable surface; copiedStillValid ties copy feedback to a command the data still offers.
+function needCopyable(n){return [n.human_command||n.reply_command||null,n.inspect_command||null].concat((n.options||[]).map(function(o){return o.human_command||o.reply_command||null})).filter(Boolean)}
+function needsSig(d){return JSON.stringify(((d&&d.needs_user)||[]).map(function(n){return [needKey(n),needCopyable(n),(n.runtime_binding||{}).verified===true,n.binding_reason||null]}))}
+function copiedStillValid(c,d){if(!c||!c.text)return false;var n=((d&&d.needs_user)||[]).find(function(x){return needKey(x)===c.k});return !!n&&needCopyable(n).indexOf(c.text)>=0}
 function needs_open_sync(){Object.keys(knownNeeds).forEach(function(k){var el=document.querySelector('#detail details[data-k="'+k.replace(/"/g,'\\"')+'"]');if(el)knownNeeds[k].open=el.open})}
 // ---- Gantt / waterfall: tree (left) | shared time axis (centre) | step pane (right); every pixel comes from a sourced timestamp
 function tms(t){if(t==null||t==='')return null;var v=new Date(t).getTime();return isNaN(v)?null:v}
@@ -1173,7 +1179,7 @@ function loadDetail(why){if(!selected)return;
       if(me.late){detailTimeouts++;return detailFailed(sel,'quá '+DETAIL_TIMEOUT/1000+' s không có trả lời')}    // P2: the wait ends with a clear reason; after DETAIL_TRIES of these the page stops (restNote)
       detailFailed(sel,'mất kết nối khi tải chi tiết')})}     // a quick failure neither counts nor ends a timeout series (alternating hang/error stops too)
 function detailLoaded(sel,j,why){var had=mine(),wasErr=!!detailError,seq=j.source&&j.source.last_seq;detailError=null;detailOkAt=Date.now();
-  if(had&&!wasErr&&why!=='select'&&why!=='force'&&seq===detailSeq&&had.selector===j.selector&&had.project_id===j.project_id){detailData=j;if(j.gantt&&j.gantt.axis&&(j.gantt.axis.extends_to_now||$('#gstale')))repaintGantt();dind();return}   // nothing moved in the ledger: keep what the reader is looking at; only the server clock parts of the timeline move (P2-A)
+  if(had&&!wasErr&&why!=='select'&&why!=='force'&&seq===detailSeq&&had.selector===j.selector&&had.project_id===j.project_id&&needsSig(had)===needsSig(j)){detailData=j;if(j.gantt&&j.gantt.axis&&(j.gantt.axis.extends_to_now||$('#gstale')))repaintGantt();dind();return}   // nothing moved in the ledger: keep what the reader is looking at; only the server clock parts of the timeline move (P2-A)
   detailSeq=seq;paint(j,sel,had?why:'select');dind()}      // recovery from a stale state re-renders once (warning and template marks go; snapshot/restore keep the reader's place)
 function detailFailed(sel,msg){var now=Date.now(),note=restNote(),changed=!detailError||detailError.message!==msg||detailError.note!==note,d=mine(),s;   // a new retry state (try 2/3, stopped) is shown too
   detailError={since:detailError?detailError.since:now,last:now,message:msg,note:note};
@@ -1210,7 +1216,9 @@ document.addEventListener('click',function(ev){var t=ev.target;
   if(t.id==='dretry'){detailTimeouts=0;loadDetail('retry');return}   // P2: the reader starts a new, bounded series of tries (the status line then says "đang thử lại…" and keeps the focus)
   var li=t.closest&&t.closest('li.task');if(li){select({plan:li.dataset.plan,project:li.dataset.project});return}
   if(t.id==='back'||t.id==='close'){var k=selected;select(null);var again=k&&document.querySelector('[data-k="task:'+k.project+':'+k.plan+'"]');if(again)again.focus();return}
-  if(t.classList&&t.classList.contains('copy')){copyText(t.getAttribute('data-copy'),t.closest('.need').getAttribute('data-k'));return}
+  if(t.classList&&t.classList.contains('copy')){var ck=t.closest('.need').getAttribute('data-k'),ct=t.getAttribute('data-copy'),cd=mine();
+    if(!cd||!copiedStillValid({k:ck,text:ct},cd)){if(cd){var cs=snapshot();renderDetail(cd);restore(cs)}return}   // R7-1: a card painted before the data changed never copies a command the latest data no longer offers
+    copyText(ct,ck);return}
   if(t.classList&&t.classList.contains('chip')){$('#kind').value=t.getAttribute('data-kind');render(true);return}
   var wt=t.closest&&t.closest('[data-work-tab]');if(wt){workTab=wt.getAttribute('data-work-tab');var wd=mine();if(wd){var ws=snapshot();renderDetail(wd);restore(ws);var wb=document.querySelector('[data-work-tab="'+workTab+'"]');if(wb){wb.focus({preventScroll:true});if(workTab==='progress')wb.closest('.work-nav').scrollIntoView({block:'start'})}}return}
   if(t.classList&&t.classList.contains('stale-hide')){var key=t.getAttribute('data-key');staleNotes=staleNotes.filter(function(x){return x.key!==key});var d0=mine();if(d0){var s0=snapshot();renderDetail(d0);restore(s0)}return}

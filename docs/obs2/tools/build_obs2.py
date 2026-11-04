@@ -58,7 +58,7 @@ def build(commit, out):
             for name in MODULES:
                 if zipped.read(name) != (snapshot / name).read_bytes(): raise ValueError('Wheel/source mismatch: ' + name)
         (out / 'verify').mkdir()
-        for name in ('verify_obs2.py', 'check_owner_human.py', 'check_review_fixes.py', 'check_unbound_browser.py', 'scenario_obs2.py', 'viewer_obs2.ps1', 'mo-trang-obs2.ps1', 'dung-trang-obs2.ps1'):
+        for name in ('verify_obs2.py', 'check_owner_human.py', 'check_review_fixes.py', 'check_unbound_browser.py', 'check_binding_live.py', 'scenario_obs2.py', 'viewer_obs2.ps1', 'mo-trang-obs2.ps1', 'dung-trang-obs2.ps1'):
             shutil.copyfile(snapshot / 'docs/obs2/tools' / name, out / 'verify' / name)
         for name in ('mo-trang-obs1.ps1', 'dung-trang-obs1.ps1'):
             shutil.copyfile(snapshot / 'docs/obs1/tools' / name, out / 'verify' / name)
