@@ -264,30 +264,61 @@ def _runtime():
     """How the command names THIS runtime: the venv's onecrew.exe next to the interpreter when it exists (`& '<exe>'`), else plain `onecrew`."""
     import sys
     exe = Path(sys.executable).parent / ('onecrew.exe' if sys.platform == 'win32' else 'onecrew')
-    return '& ' + _quote(exe) if exe.is_file() else 'onecrew'
+    return '& ' + _quote(exe) if exe.is_file() else '& ' + _quote(sys.executable) + ' -I -X utf8 -m onecrew.console'
 
 
-def _needs_user(state, requests, views, level, engine_view, project=None, state_root=None):
+def _action(template, expected, placeholders=(), note=None):
+    return {'schema_version': 1, 'enabled': bool(template), 'template': template, 'shell': REPLY_SHELL,
+            'placeholders': list(placeholders), 'expected': expected, 'note': note}
+
+
+def _needs_user(state, requests, views, level, engine_view, project=None, state_root=None, contract=None):
     needs = []
+    prefix = _runtime() + (f' --project {_quote(project)}' if project else '') + (f' --state-root {_quote(state_root)}' if state_root else '')
+    complete = bool(project and state_root)
+    selector = state.get('selector') or state.get('anchor')
     for r in requests:
         if r['state'] != 'pending': continue
         q = r['question'] or {}
         # P2-B (03/11): the command the owner runs must be complete for the wheel's parser: project, state root, request, revision, choice AND the
         # mandatory --reference. The reference is the owner's own words: a marked placeholder, so this is a TEMPLATE to complete, never "ready to run".
-        prefix = _runtime() + (f' --project {_quote(project)}' if project else '') + (f' --state-root {_quote(state_root)}' if state_root else '')
         command = f"{prefix} question answer {r['id']} --revision {r['revision']} --choice "
         suffix = f' --reference {_quote(REFERENCE_PLACEHOLDER)}'
+        human = f"{prefix} owner answer {_quote(r['id'])} --revision {_quote(r['revision'])} --choice "
+        expected = {'task': state.get('task_id'), 'request': r['id'], 'revision': r['revision']}
+        options = []
+        for option in (q.get('options') or [])[:6]:
+            template = human + _quote(option.get('id')) + suffix + ' --human' if complete else None
+            options.append({'id': clean(option.get('id'), 60), 'label': clean(option.get('label'), 200),
+                            'reply_command': command + clean(option.get('id'), 60) + suffix,
+                            'human_command': template, 'action': _action(template, dict(expected, choice=option.get('id')), ['reference'])})
         needs.append({'kind': 'request', 'id': r['id'], 'revision': r['revision'], 'question': clean(q.get('question')),
                       'reason': clean(q.get('reason'), 300), 'impact': clean(q.get('impact'), 300), 'recommendation': clean(q.get('recommendation'), 60),
-                      'options': [{'id': clean(o.get('id'), 60), 'label': clean(o.get('label'), 200), 'reply_command': command + clean(o.get('id'), 60) + suffix}
-                                  for o in (q.get('options') or [])[:6]],          # UX-03: one template per option; the page copies, never runs
+                      'options': options,          # UX-03: one template per option; the page copies, never runs
                       'reply_command': command + '<option-id>' + suffix,
+                      'human_command': human + _quote('<option-id>') + suffix + ' --human' if complete else None,
                       'placeholders': ['reference'], 'reference_placeholder': REFERENCE_PLACEHOLDER, 'reply_shell': REPLY_SHELL,
                       'reply_note': 'mẫu lệnh cho ' + REPLY_SHELL + ' (nháy đơn giữ nguyên $, khoảng trắng, dấu nháy trong đường dẫn): thay ' + REFERENCE_PLACEHOLDER
                                     + ' bằng lý do/bằng chứng của bạn (tối đa 500 ký tự) rồi chạy trong PowerShell của bạn; quyền chủ sở hữu, bản (revision) và các guard hiện có vẫn áp dụng; trang này không chạy lệnh',
                       'note': 'đọc, đóng cửa sổ hay bỏ qua không phải là trả lời; request vẫn chờ', 'source': ['request:' + r['id']]})
     if state['status'] == 'proposed':
+        revision = state['latest']; written = state['revisions'].get(revision) or {}
+        choices = ((contract or {}).get('options') or {}).get('items') or []
+        optional = [i for i in (contract or {}).get('items', []) if i.get('tier') == 'should']
+        placeholders = ['reference'] + (['option-id'] if choices else [])
+        template = (f'{prefix} owner approve {_quote(selector)} --revision {revision}'
+                    + (f' --choose {_quote("<option-id>")}' if choices else '')
+                    + f' --reference {_quote(REFERENCE_PLACEHOLDER)} --human') if complete and selector and contract else None
         needs.append({'kind': 'approve', 'question': f"Duyệt bản {state['latest']} của plan {state['name']} (plan approve, lệnh của chủ sở hữu)",
+                      'id': state.get('task_id'), 'revision': revision, 'title': clean((contract or {}).get('title')),
+                      'reason': clean(written.get('reason')), 'impact': clean((written.get('acceptance_diff') or {}).get('summary')),
+                      'reply_command': template, 'human_command': template, 'reply_shell': REPLY_SHELL,
+                      'reference_placeholder': REFERENCE_PLACEHOLDER, 'placeholders': placeholders,
+                      'plan_choices': [{'id': o.get('id'), 'title': clean(o.get('title')), 'summary': clean(o.get('summary'))} for o in choices],
+                      'optional_items': [{'id': i['id'], 'title': clean(i.get('title')), 'selected': False} for i in optional],
+                      'action': _action(template, {'task': state.get('task_id'), 'selector': selector, 'revision': revision}, placeholders),
+                      'reply_note': 'Điền --reference của bạn' + (' và --choose từ danh sách phương án' if choices else '')
+                                    + '; mục should chỉ chạy nếu bạn chủ động thêm --tick ID. Không tự chọn mục phụ; duyệt không có nghĩa worker đã chạy.',
                       'source': [f"plan.{'amended' if state['latest'] > 1 else 'proposed'}:rev{state['latest']}"]})
     elif state['status'] == 'stopped_with_report':
         stopped = state['stopped'].get(state['latest']) or {}
@@ -295,7 +326,22 @@ def _needs_user(state, requests, views, level, engine_view, project=None, state_
                       'source': [f"milestone.stopped:rev{state['latest']}"]})
     elif state['status'] == 'approved' and level == 'verified':
         if engine_view is not None or (views and all(v['state'] == 'passed' for v in views)):
+            revision = (state.get('approved') or {}).get('revision')
+            artifacts = [(v.get('last_verdict') or {}).get('artifact_sha') for v in views]
+            artifact = artifacts[0] if artifacts and len(set(artifacts)) == 1 and isinstance(artifacts[0], str) and re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', artifacts[0]) else None
+            if engine_view is not None or any(v.get('stale') or v.get('state') != 'passed' for v in views): artifact = None
+            template = (f'{prefix} owner accept {_quote(selector)} --revision {revision} --artifact-sha {_quote(artifact)}'
+                        + f' --reference {_quote(REFERENCE_PLACEHOLDER)} --human') if complete and selector and revision and artifact else None
+            why = None if template else 'Chưa tạo lệnh nghiệm thu: nguồn hiện có chưa có một artifact bàn giao chung đã kiểm hợp lệ; không lấy snapshot node thay artifact được bàn giao. Đọc báo cáo ghim revision và đối chiếu bằng chứng trước.'
             needs.append({'kind': 'accept', 'question': 'Mọi mốc đã có verdict đạt: nghiệm thu (plan accept, lệnh của chủ sở hữu) hoặc nêu điều chưa đạt',
+                          'id': state.get('task_id'), 'revision': revision, 'artifact_sha': artifact,
+                          'reply_command': template, 'human_command': template, 'reply_shell': REPLY_SHELL,
+                          'reference_placeholder': REFERENCE_PLACEHOLDER, 'placeholders': ['reference'] if template else [],
+                          'reply_note': 'Điền --reference của bạn; CLI kiểm lại revision và artifact trong giao dịch nghiệm thu, không duyệt từ thao tác sao chép.' if template else why,
+                          'binding_reason': why,
+                          'inspect_command': f'{prefix} plan report {_quote(selector)} --revision {state["approved"]["revision"]}' if complete and selector and state.get('approved') else None,
+                          'action': _action(template, {'task': state.get('task_id'), 'selector': selector,
+                                                       'revision': revision, 'artifact_sha': artifact}, ['reference'] if template else [], note=why),
                           'source': ['milestone.passed' if views else 'node.verification:pass']})
     return needs
 
@@ -847,6 +893,8 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
                     'node': next((nid for nid, r in nodes.items() if r['attempt'] == a['id']), None)} for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
     item = {'id': row['id'], 'plan': state['name'], 'selector': row['request_key'], 'project': row['project_path'], 'project_id': row['project_id'],
             'goal': _goal(contract, payload), 'title': clean(payload.get('title'), 200), 'contract_revision': state['latest'],
+            'created_at': row['created_at'], 'started_at': first_started, 'has_started': first_started is not None, 'deadline': None,
+            'node_titles': {n['id']: clean(n.get('goal'), 200) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
             'root_status': state['status'],
             'status': {'kind': kind, 'label': OUTCOME_WORDS[outcome] if outcome else WORDS[kind], 'outcome': outcome, 'reason': clean(reason, 600), 'source': sources},
             'level': {'kind': level, 'label': LEVEL_WORDS[level]},
@@ -854,7 +902,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
             'current_step': clean(_current_step(kind, state, engine_view, active_rows, requests, progress), 200),
             'last_update': {'seq': last[0], 'kind': last[1], 'at': last[3], 'summary': clean(_summary(last[1], last[2]), 200)} if last else None,
             'last_evidence': _last_evidence(events),
-            'needs_user': _needs_user(state, requests, views, level, engine_view, project=row['project_path'], state_root=str(reader.state_root)),
+            'needs_user': _needs_user(state, requests, views, level, engine_view, project=row['project_path'], state_root=str(reader.state_root), contract=contract),
             'active': active_rows,
             'nodes_summary': counts,
             'tracking': {'adapter': 'engine' if engine_root else 'milestones',

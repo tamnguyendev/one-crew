@@ -61,6 +61,23 @@ class TimingTests(unittest.TestCase):
 
 
 class SolutionTests(Fixture):
+    def test_new_milestone_artifact_failure_makes_old_pass_historical_same_revision(self):
+        from onecrew.v2 import verdict
+        from tests.test_v2_l1 import milestone
+        import sys
+        argv = [sys.executable, '-c', 'from pathlib import Path; print("fixture checked"); assert Path("a.txt").read_text().strip()=="one"']
+        self.approved(value=plan_json(milestones=[milestone(argv=argv)])); artifact_a = self.tree()
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        (self.root / 'a.txt').write_text('new candidate\n')
+        artifact_b = self.tree(); self.assertNotEqual(artifact_a, artifact_b)
+        verdict.run(self.ledger, 'P1', 'M1', self.root)
+        work = tracking.detail(self.ledger.state_root, 'P1')['work']
+        old = next(o for o in work['outputs'] if o['artifact'] == artifact_a)
+        current = next(o for o in work['outputs'] if o['artifact'] == artifact_b)
+        self.assertTrue(old['stale']); self.assertEqual(old['level'], 'verified')
+        self.assertFalse(current['stale']); self.assertEqual(current['level'], 'produced')
+        self.assertTrue(next(r for r in work['checks']['runs'] if r['artifact'] == artifact_a)['stale'])
+
     def test_zero_call_or_unbound_reviewer_receipt_cannot_claim_executed_actor(self):
         milestone = {'id': 'M1', 'title': 'Review the sample', 'covers': ['O1'],
                      'verifier': {'type': 'reviewer', 'config': {'provider': 'claude', 'model': 'claude-haiku-5-5',

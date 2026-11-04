@@ -1,4 +1,10 @@
-# Thử OBS-2 từ wheel local
+# Thử OBS-2 — bảng công việc và lệnh dành cho người dùng
+
+Bản dev3 thêm bảng thẻ theo giai đoạn, lọc/sắp xếp chỉ để xem; trạng thái và quyết định cần bạn tách riêng. Mở thẻ để xem phương án, thay đổi, đầu ra hiện hành và vòng kiểm/sửa. Thông tin kỹ thuật thu gọn; thiếu dữ liệu vẫn ghi chưa xác định.
+
+Trong thẻ quyết định, đọc thay đổi trước, sao chép khối PowerShell, điền lý do/lựa chọn được đánh dấu rồi chạy trong terminal của bạn. Các lệnh dùng `owner ... --human` để trả kết quả ngắn. Sao chép không ghi quyết định; không chạy thay chủ trong phiên AI. JSON mặc định giữ nguyên cho công cụ. Nghiệm thu chỉ có mẫu khi đủ revision và artifact ghim; nếu thiếu, thẻ nêu lý do và lệnh chỉ đọc báo cáo.
+
+Chưa cần duyệt dữ liệu mẫu để xem UI. Bản đã tạo dùng để thử cách ly; hướng dẫn bàn giao ngoài gói cung cấp lệnh mở/dừng cụ thể.
 
 Đây là gói thử UI OBS-2A/2B, dùng dữ liệu tổng hợp trong thư mục riêng. Không thay runtime, hook, registry hay sổ đang dùng; không gọi provider, không push/tag, không chứng nhận nghiệm thu. MRR không là điều kiện để thử OBS-2A.
 
@@ -34,3 +40,5 @@ Verifier nhỏ không tự mở Chrome/Edge hoặc chụp ảnh desktop/mobile. 
 ```
 
 Runner cần Chrome hoặc Edge có sẵn, kiểm tương tác ở 1280×720 và 390×844, ghi `trial-...\browser\browser-report.json` cùng ảnh Solution/Kết quả; không có browser thì không tính là đạt. Bằng chứng browser được ghi riêng trên đúng wheel/package ở bàn giao; chưa có bằng chứng đó thì không gọi OBS2-T8 hoàn tất. Không chạy lại full gate 2.2 chỉ để thử UI này.
+
+Kiểm entrypoint owner trên wheel (chỉ thử từ chối, giữ dấu phiên AI, không ghi duyệt): `verify/check_owner_human.py <trial> <thư-mục-kết-quả-mới>`. Thành công thực hiện owner được kiểm qua fixture có nhãn ở source; thao tác thật của chủ chưa được coi là đã kiểm.

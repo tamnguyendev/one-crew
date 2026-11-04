@@ -39,6 +39,7 @@ def _parser():
     p = plan.add_parser('accept', help='Owner only; refused while a milestone lacks a passing verdict.')
     p.add_argument('name'); p.add_argument('--by', required=True); p.add_argument('--reference', required=True)
     p.add_argument('--artifact-sha', required=True, help='The artifact accepted; must be what the final milestone verified.')
+    p.add_argument('--revision', type=int, help='Expected current revision; checked inside the acceptance write transaction.')
     p = plan.add_parser('amend', help='A new revision (needs a new approval); the old one is kept.')
     p.add_argument('name'); p.add_argument('--file', required=True, type=Path)
     p.add_argument('--reason', required=True, help='At most 200 characters.'); p.add_argument('--author', required=True)
@@ -174,7 +175,7 @@ def _dispatch(ledger, args):
                 state = plans.anchor_events(ledger, conn, args.name)
                 chosen = (state['approved'] or {}).get('chosen') if state['approved'] and state['approved']['revision'] == state['latest'] else None
             return step0.brainstorm_table(plans.load(ledger, state)[0], chosen)
-        if args.command == 'accept': return plans.accept(ledger, args.name, args.by, args.reference, args.artifact_sha)
+        if args.command == 'accept': return plans.accept(ledger, args.name, args.by, args.reference, args.artifact_sha, expected_revision=args.revision)
         if args.command == 'amend': return plans.amend(ledger, args.name, read_json(args.file), args.reason, args.author)
         plans.require_owner(args.by, 'Changing enforcement')
         return gate.set_enforced(ledger, args.state == 'on', args.by, args.reference)

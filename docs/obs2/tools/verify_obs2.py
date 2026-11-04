@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 
-MODULES = {'onecrew/v2/' + name + '.py' for name in ('tracking', 'tracking_web', 'tracking_work', 'tracking_work_web')}
+MODULES = {'onecrew/v2/' + name + '.py' for name in ('tracking', 'tracking_web', 'tracking_work', 'tracking_work_web', 'owner_cli', 'cli', 'plan', 'plan_cli')}
 
 
 def sha(path):
@@ -102,7 +102,7 @@ def check(package, work):
         run([python, '-I', '-X', 'utf8', '-m', 'pip', 'install', '--no-index', '--no-deps', '--no-build-isolation', wheel], env=env, cwd=work)
         code = ('import hashlib,importlib,importlib.metadata,json,sys\nfrom pathlib import Path\n'
                 'd=importlib.metadata.distribution("onecrew")\n'
-                'names=("tracking","tracking_web","tracking_work","tracking_work_web")\n'
+                'names=("tracking","tracking_web","tracking_work","tracking_work_web","owner_cli","cli","plan","plan_cli")\n'
                 'mods={n:Path(importlib.import_module("onecrew.v2."+n).__file__).resolve() for n in names}\n'
                 'assert all(p.is_relative_to(Path(sys.prefix).resolve()) for p in mods.values())\n'
                 'print(json.dumps({"version":d.version,"origins":{n:str(p) for n,p in mods.items()},'

@@ -491,13 +491,15 @@ def _as_tree(ledger, value):
     return tree if command.TREE_ID.fullmatch(tree or '') else value
 
 
-def accept(ledger, name, by, reference, artifact_sha):
+def accept(ledger, name, by, reference, artifact_sha, *, expected_revision=None):
     """The owner's acceptance. Refused unless every milestone of the current revision has a passing verdict and the final one
     was observed on exactly the artifact being accepted (invariants 4 and 6)."""
     require_owner(by, 'Accepting the result'); text_field(reference, 'reference', 500)
     artifact_sha = _as_tree(ledger, artifact_sha)
     with ledger.transaction(write=True) as conn:
         state = anchor_events(ledger, conn, name)
+        if expected_revision is not None and state['latest'] != expected_revision:
+            raise LedgerError(f'Cannot accept: expected revision {expected_revision}, latest is {state["latest"]}. Read the current plan before accepting.')
         repeat = state['status'] == 'accepted' and state['accepted']['artifact_sha'] == artifact_sha
         if not repeat:
             if state['status'] != 'approved': raise LedgerError(f'Cannot accept: the plan is {state["status"]}, not approved.')

@@ -134,10 +134,23 @@ def _actor(role, node, attempt, source, data=None):
             'status': 'recorded' if any(data.get(k) for k in ('actor', 'by', 'provider', 'model')) else 'unknown'}
 
 
+def _milestone_artifacts(events):
+    """Latest recorded artifact per milestone/revision; absence is unknown, never inherited certification."""
+    latest, seen = {}, set()
+    for _, kind, p, _ in events:
+        if kind != 'verdict.recorded': continue
+        key = (p.get('revision'), p.get('milestone'))
+        identity = (*key, p.get('generation'), p.get('artifact_sha'), p.get('receipt'))
+        if identity in seen: continue  # Replayed old evidence does not supersede a later candidate.
+        seen.add(identity); latest[key] = p.get('artifact_sha')
+    return latest
+
+
 def _checks(reader, state, events, root, blobs, engine, limitations):
     """Published node checks and recorded milestone verdicts, never prose parsing."""
     definitions, produced, starts, runs, by_identity = {}, {}, {}, [], {}
     current = (engine or {}).get('nodes', {})
+    milestone_artifacts = _milestone_artifacts(events)
     issued = {(p.get('revision'), p.get('milestone'), p.get('receipt')) for _, k, p, _ in events if k == 'verdict.receipt_issued'}
     for seq, kind, p, at in events:
         nid, gen = p.get('node'), p.get('generation')
@@ -212,7 +225,8 @@ def _checks(reader, state, events, root, blobs, engine, limitations):
         stale = (gen != record.get('generation') or artifact != record.get('artifact') or
                  p.get('internal_revision') not in record.get('valid_internal_revisions', [])) if nid else (
                      p.get('revision') != (state.get('approved') or {}).get('revision') or
-                     p.get('revision') != state['latest'])
+                     p.get('revision') != state['latest'] or
+                     artifact is None or artifact != milestone_artifacts.get((p.get('revision'), p.get('milestone'))))
         reviewer_data = None
         if all_proven and kind == 'verdict.recorded':
             calls = (body or {}).get('calls')
@@ -255,6 +269,7 @@ def _outputs(state, events, root, engine, evidence_keys, checks, blobs):
     rows, starts, seen = [], {}, {}
     current = (engine or {}).get('nodes', {})
     definitions = ((engine or {}).get('definition') or {}).get('nodes', [])
+    milestone_artifacts = _milestone_artifacts(events)
     titles = {n['id']: '; '.join(n.get('output') or [n.get('goal') or n['id']]) for n in definitions}
     for seq, kind, p, at in events:
         nid, gen = p.get('node'), p.get('generation')
@@ -274,11 +289,12 @@ def _outputs(state, events, root, engine, evidence_keys, checks, blobs):
         current_artifact = record.get('resume_artifact') if inherited else record.get('artifact')
         stale = bool(nid and (gen != record.get('generation') or artifact != current_artifact or
                      p.get('internal_revision') not in record.get('valid_internal_revisions', []))) if nid else (
-                     p.get('revision') != (state.get('approved') or {}).get('revision') or p.get('revision') != state['latest'])
-        matching = [r for r in checks['runs'] if r['authentic'] and r['node'] == node_id and r['generation'] == gen
+                     p.get('revision') != (state.get('approved') or {}).get('revision') or p.get('revision') != state['latest'] or
+                     artifact != milestone_artifacts.get((p.get('revision'), p.get('milestone'))))
+        matching = [r for r in checks['runs'] if r['node'] == node_id and r['generation'] == gen
                  and r['artifact'] == artifact and r['revision'] == p.get('revision') and r['source']['seq'] >= seq
                  ]
-        proof = matching[-1:] if matching and matching[-1]['status'] == 'pass' else []
+        proof = matching[-1:] if matching and matching[-1]['authentic'] and matching[-1]['status'] == 'pass' else []
         accepted = any(k == 'node.accepted' and b.get('node') == nid and b.get('generation') == gen
                        and b.get('internal_revision') == p.get('internal_revision') and s >= seq for s, k, b, _ in events) if nid else False
         row = {'id': 'output:' + str(seq), 'node': node_id, 'title': _display(titles.get(nid) or node_id or 'Đầu ra'),

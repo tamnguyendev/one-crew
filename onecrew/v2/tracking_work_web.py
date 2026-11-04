@@ -15,6 +15,26 @@ STYLE = r'''
 .work-diff>div{padding:8px;background:var(--bg);border-radius:6px;white-space:pre-wrap;overflow-wrap:anywhere}
 .work-panel table td{white-space:normal;overflow-wrap:anywhere}.work-panel table{table-layout:fixed;width:100%}
 .work-panel pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto;padding:12px;background:var(--bg);border-radius:6px}
+body{font-size:15px;line-height:1.55}header{padding:16px 24px}h1{font-size:21px}.tools{gap:14px;margin-top:14px}.tools label{font-size:13px}
+main[data-view=list]{display:block}main[data-view=list] #detailpane{display:none}main[data-view=detail]{grid-template-columns:310px minmax(0,1fr)}
+#listpane{background:transparent;border:0;padding:0}#listpane>h2{font-size:15px;text-transform:none;letter-spacing:0;margin:0 0 12px}
+#list{display:flex;gap:14px;overflow-x:auto;align-items:flex-start;padding:2px 0 16px;margin:0;list-style:none}
+.board-lane{flex:1 0 235px;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px}
+.lane-title{display:flex;justify-content:space-between;align-items:center;font-size:14px;margin:0 0 12px}.lane-title span{font-size:12px;color:var(--mut)}
+.board-lane ul{list-style:none;padding:0;margin:0}.lane-empty{font-size:13px;color:var(--mut);padding:12px 0}
+li.task{border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:0 2px 5px #00000006;padding:14px;margin:0 0 10px;cursor:pointer}
+li.task[aria-selected=true]{border-color:var(--run);box-shadow:0 0 0 1px var(--run);background:var(--sel)}
+.task .r1{display:block}.task .ttl{display:block;font-size:15px;font-weight:650;white-space:normal;overflow:visible;line-height:1.45;margin:6px 0}
+.task .r2{display:block;font-size:13px}.task .r2>span{display:block;margin-top:6px}.task .name{font-size:11px;color:var(--mut);font-weight:500}.task .st{font-size:12px;white-space:normal}
+.task .r3{display:block;font-size:12px;margin-top:8px;color:var(--mut)}.needb{display:inline-block;margin:8px 0 0;padding:3px 8px;border-radius:5px}
+main[data-view=detail] #list{display:block;overflow:visible}main[data-view=detail] .board-lane{margin-bottom:12px;padding:10px}main[data-view=detail] .board-lane.empty{display:none}
+#detailpane{padding:22px;max-height:calc(100vh - 165px)}.dhead h2{font-size:20px;line-height:1.4;color:var(--fg);text-transform:none;letter-spacing:0}.dhead .st{display:block;width:fit-content;margin-top:8px}
+.connection-details{font-size:12px;color:var(--mut);margin-top:10px}.connection-details summary{cursor:pointer}.connection-details .note{margin:8px 0}.sample-banner{padding:8px 12px;background:var(--sel);border-radius:6px;margin-top:10px;font-size:13px}
+.need{padding:16px;border:1px solid var(--line);border-radius:10px}.need .q{font-size:16px}.command-box{margin:14px 0;background:var(--bg);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.command-head{padding:8px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);gap:8px;font-size:13px}.command-box pre{margin:0;padding:14px;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.65 Consolas,monospace}.command-box .copy{white-space:nowrap}
+.work-row h4{font-size:16px}.work-meta{font-size:13px}.work-row details{margin:10px 0}.work-nav button{font-size:14px}.work-id{font-size:13px;font-weight:500;color:var(--mut)}.stage-note{font-size:13px;color:var(--mut);margin:0 0 12px}
+.repair-flow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.repair-flow>div{border:1px solid var(--line);border-radius:8px;padding:12px;overflow-wrap:anywhere}.repair-flow b{display:block;margin-bottom:8px}
+@media(max-width:899px){main[data-view=detail]{display:block}#detailpane{max-height:none;padding:16px}#list{display:block}.board-lane{margin:0 0 12px}.board-lane.empty{display:none}header{padding:12px}.repair-flow{grid-template-columns:1fr}.dhead h2{font-size:18px}}
 #legacy-progress[hidden]{display:none}.work-warning{border-left:3px solid var(--wait);padding:8px 12px;background:var(--need);color:var(--needfg)}
 @media(max-width:600px){.work-grid,.work-diff{grid-template-columns:1fr}.work-nav{gap:3px}.work-nav button{font-size:12px;padding:8px}.work-card{padding:10px}}
 '''
@@ -22,18 +42,47 @@ STYLE = r'''
 SCRIPT = r'''
 var workTab='overview';
 var WORK_TABS=[['overview','Tổng quan'],['solution','Solution'],['changes','Thay đổi'],['results','Kết quả & kiểm chứng'],['progress','Tiến độ']];
+var WORK_STAGES=[['todo','Chưa bắt đầu'],['doing','Đang thực hiện'],['check','Chờ kiểm'],['accept','Chờ nghiệm thu'],['done','Hoàn tất'],['closed','Đã đóng'],['unknown','Chưa xác định']];
+function workStage(t){var s=t.status||{},n=t.nodes_summary||{},l=(t.level||{}).kind;
+  if(t.root_status==='closed'||s.outcome==='closed')return 'closed';
+  if(t.root_status==='accepted'||s.outcome==='accepted')return 'done';
+  if(s.kind==='unknown')return 'unknown';
+  if((t.active||[]).length||s.kind==='running')return 'doing';
+  if(l==='verified'||s.outcome==='verified')return 'accept';
+  if(l==='produced'||n.produced>0||(t.milestones||[]).some(function(m){return m.state==='ready'}))return 'check';
+  if(s.kind==='blocked'||n.verified>0||n.accepted>0)return 'doing';
+  if(t.has_started)return 'doing';
+  if(t.root_status==='approved'||t.root_status==='proposed')return 'todo';return 'unknown'}
+function workStatus(t){var needs=t.needs_user||[],s=t.status||{},n=t.nodes_summary||{},stage=workStage(t),request=needs.find(function(n){return n.kind==='request'});
+  if(s.kind==='blocked')return 'Có trở ngại'+((t.active||[]).length?' · phần khác vẫn thực hiện':'');
+  if(t.root_status==='proposed'||needs.some(function(n){return n.kind==='approve'}))return (t.active||[]).length?'Đang thực hiện · chờ duyệt thay đổi':'Chờ bạn duyệt kế hoạch';
+  if(s.kind==='running')return 'Đang thực hiện';
+  if(request)return 'Chờ bạn trả lời';
+  if(stage==='check')return 'Đã có đầu ra · chờ kiểm';
+  if(stage==='accept')return 'Đã kiểm đạt · chờ nghiệm thu';
+  if(stage==='done')return 'Đã nghiệm thu';if(stage==='closed')return 'Đã đóng · không phải nghiệm thu';
+  if(stage==='todo')return 'Chưa khởi chạy';if(stage==='doing'&&t.has_started)return 'Chờ bước tiếp theo';
+  return t.current_step||s.reason||'Chưa xác định tiến độ'}
+function workTitle(t){return t.goal||t.title||t.plan||'Công việc chưa có tên'}
+function workBadge(t){var s=t.status||{};return '<span class="st '+esc(s.kind||'unknown')+'">'+esc(workStatus(t))+'</span>'}
+function workOrder(rows,mode){function time(x){var n=Date.parse(x||'');return Number.isFinite(n)?n:null}function attention(t){return (t.needs_user||[]).length?0:(t.status||{}).kind==='blocked'?1:(t.status||{}).kind==='running'?2:3}
+  return rows.slice().sort(function(a,b){var x,y;if(mode==='attention'){x=attention(a)-attention(b);if(x)return x;mode='attention'}
+    if(mode==='created'){x=time(a.created_at);y=time(b.created_at)}else if(mode==='deadline'){x=time(a.deadline);y=time(b.deadline)}else{x=time(a.last_update&&a.last_update.at);y=time(b.last_update&&b.last_update.at)}
+    if(x!==y){if(x===null)return 1;if(y===null)return -1;return mode==='created'||mode==='deadline'?x-y:y-x}
+    return String(a.project_id||'').localeCompare(String(b.project_id||''))||String(a.selector||a.id||'').localeCompare(String(b.selector||b.id||''))})}
+function workBoard(rows){return WORK_STAGES.map(function(s){var items=rows.filter(function(t){return workStage(t)===s[0]});return '<section class="board-lane'+(!items.length?' empty':'')+'" data-stage="'+s[0]+'" aria-label="'+s[1]+'"><h3 class="lane-title">'+s[1]+' <span>'+items.length+'</span></h3><ul role="listbox" aria-label="'+s[1]+'">'+items.map(row).join('')+'</ul>'+(!items.length?'<div class="lane-empty">Không có công việc</div>':'')+'</section>'}).join('')}
 function workText(v){if(v==null||v===''||(Array.isArray(v)&&!v.length))return 'chưa có dữ liệu';if(typeof v!=='object')return String(v);
   if(Array.isArray(v))return v.map(workText).join('; ');return v.text||v.title||v.label||v.spec||v.question||v.goal||Object.keys(v).map(function(k){return k+': '+workText(v[k])}).join('; ')||'chưa có dữ liệu'}
 function workEsc(v){return esc(workText(v))}
 function workEmpty(t){return '<div class="work-empty">'+esc(t)+'</div>'}
 function workCard(label,value,note){return '<div class="work-card"><div class="eyebrow">'+esc(label)+'</div><div class="answer">'+workEsc(value)+'</div>'+(note?'<p class="work-meta">'+esc(note)+'</p>':'')+'</div>'}
-function workSource(x){var s=x&&x.source,q=s&&(s.seq!=null?s.seq:s.verdict_seq);return s?'<div class="work-meta">Nguồn: '+esc(s.kind||'receipt')+(q!=null?' #'+esc(q):'')+((x.at||s.at)?' · '+esc(when(x.at||s.at)):'')+'</div>':''}
+function workSource(x){var s=x&&x.source,q=s&&(s.seq!=null?s.seq:s.verdict_seq);return s?'<details class="work-meta"><summary>Nguồn đối chiếu</summary><div>Nguồn: '+esc(s.kind||'receipt')+(q!=null?' #'+esc(q):'')+((x.at||s.at)?' · '+esc(when(x.at||s.at)):'')+'</div></details>':''}
 function workEvidence(d,k){return k&&(d.evidence_keys||[]).indexOf(k)>=0?openBtn(k):'<span class="work-meta">Chưa có bằng chứng mở được từ task này</span>'}
 function nodeName(d,id){var w=d.work||{},n=(w.node_titles||w.nodes||{})[id];return n?workText(n)+' ('+id+')':id||'chưa rõ phần việc'}
-function workOverview(d,w){var o=w.outputs||[],f=w.findings||[],open=f.filter(function(x){return (x.status||x.state)==='open'}).length;
-  return '<div class="work-grid">'+workCard('Hiện tại',d.current_step||d.status.label,d.status.reason)
-    +workCard('Kết quả đã có',o.length?o.length+' mục đầu ra có nguồn':'Chưa ghi nhận đầu ra','Mở “Kết quả & kiểm chứng” để xem mức kiểm của từng mục.')
-    +workCard('Việc cần bạn',(d.needs_user||[]).length?(d.needs_user.length+' yêu cầu đang chờ ở phía trên'):'Chưa có yêu cầu cần bạn xử lý','Đọc câu hỏi không đồng nghĩa đã trả lời hoặc đã duyệt.')
+function workOverview(d,w){var o=(w.outputs||[]).filter(function(x){return !x.stale}),f=w.findings||[],open=f.filter(function(x){return (x.status||x.state)==='open'}).length;
+  return '<div class="work-grid">'+workCard('Hiện tại',workStatus(d),d.current_step||d.status.reason)
+    +workCard('Kết quả đã có',o.length?o.length+' đầu ra hiện hành · '+o.filter(function(x){return x.level==='verified'||x.level==='accepted'}).length+' đã kiểm':'Chưa ghi nhận đầu ra','Lịch sử cũ không tính vào số này. Xem từng đầu ra trong Kết quả & kiểm chứng.')
+    +workCard('Việc cần bạn',(d.needs_user||[]).length?(d.needs_user.map(function(n){return n.title||(n.kind==='approve'?'Duyệt kế hoạch':n.kind==='accept'?'Nghiệm thu':n.question||'Trả lời câu hỏi')}).join(' · ')):'Chưa có yêu cầu cần bạn xử lý','Đọc câu hỏi không đồng nghĩa đã trả lời hoặc đã duyệt.')
     +workCard('Dự kiến còn lại',d.eta&&d.eta.label,d.eta&&d.eta.reason)+'</div>'
     +(open?'<p class="work-warning">Còn '+open+' finding đang mở. Đây chưa phải số bug độc lập.</p>':'')
     +'<p class="work-meta">Thời gian đã trôi qua: '+hms(d.elapsed&&d.elapsed.seconds)+' · Thực hiện đã ghi nhận: '+hms(d.measure&&d.measure.attempts_wall_seconds)+' · Chờ đã ghi nhận: '+hms(d.measure&&d.measure.wait_seconds)+'. Không tự quy thời gian chưa rõ thành thời gian làm việc.</p>'}
@@ -50,22 +99,34 @@ function workSolution(d,w){var s=w.solution||{},c=s.contract||{},card=s.card||{}
       +(ref.status==='available'?Object.keys(ref.payload||{}).map(function(k){return '<p><b>'+esc(({brief:'Tóm tắt',detail:'Nội dung',before:'Trước',after:'Sau',preferred:'Phương án',why:'Lý do',preserve:'Giữ nguyên',acceptance:'Điều kiện hoàn thành',non_goals:'Ngoài phạm vi',assumptions:'Giả định',questions:'Câu hỏi'})[k]||k)+':</b> '+workEsc(ref.payload[k])+'</p>'}).join(''):workEmpty('Không đọc được SOL đúng phạm vi và revision; không sử dụng nội dung chưa xác minh.'))
       +'<p class="work-meta">Nguồn solution không thay quyền của hợp đồng task.</p></div>':workEmpty('Task không có SOL v1 liên kết; dùng hợp đồng và thẻ bước 0 có sẵn.'))}
 function workList(rows,empty){if(!rows||!rows.length)return workEmpty(empty);return '<ul>'+rows.map(function(x){return '<li>'+workEsc(x)+'</li>'}).join('')+'</ul>'}
+function diffLabel(path){var k=String(path||''),base={title:'Tên công việc',goal:'Mục tiêu',acceptance:'Điều kiện hoàn thành',nodes:'Các phần việc',version:'Phiên bản cấu trúc',scope:'Phạm vi',budget:'Ngân sách',outputs:'Đầu ra'};
+  if(base[k])return base[k];if(/^nodes\[/.test(k))return k.includes('.input')?'Đầu vào của phần việc':'Nội dung một phần việc';return 'Chi tiết thay đổi'}
 function workChanges(d,w){var rows=w.changes||[];if(!rows.length)return workEmpty('Chưa ghi nhận thay đổi có nguồn. UI không suy lịch sử từ hội thoại.');
-  return '<p class="work-meta">Đổi hợp đồng, điều chỉnh trong quyền và lượt chạy lại là ba việc khác nhau.</p>'+rows.map(function(x){var kind={contract:'Thay đổi hợp đồng',internal:'Điều chỉnh kế hoạch',retry:'Lượt thực hiện lại'}[x.kind]||x.kind;
-    return '<article class="work-row"><h4>'+workEsc(kind)+(x.revision!=null?' · bản '+esc(x.revision):'')+'</h4><p>'+workEsc(x.reason)+'</p>'
-      +(x.author?'<p class="work-meta">Người ghi: '+workEsc(x.author)+'</p>':'')+workSource(x)
-      +((x.diff||x.changes||[]).map(function(v){return '<div class="work-meta">'+workEsc(v.path)+'</div><div class="work-diff"><div><b>Trước</b><br>'+workEsc(v.before)+'</div><div><b>Sau</b><br>'+workEsc(v.after)+'</div></div>'}).join(''))
-      +(x.affected_nodes&&x.affected_nodes.length?'<p>Phần bị ảnh hưởng: '+esc(x.affected_nodes.map(function(n){return nodeName(d,n)}).join(', '))+'</p>':'')
-      +(x.reused_nodes&&x.reused_nodes.length?'<p>Giữ kết quả: '+esc(x.reused_nodes.map(function(n){return nodeName(d,n)}).join(', '))+'</p>':'')
-      +(x.kind==='contract'?'<p class="work-meta">'+(x.approved?'Có sự kiện duyệt bản này; quyền hiện hành xem tab Solution.':'Chưa có sự kiện duyệt bản này.')+'</p>':'')
-      +(x.diff_total>(x.diff||[]).length?'<p class="work-warning">Đang hiện '+(x.diff||[]).length+'/'+esc(x.diff_total)+' dòng thay đổi; phần hiển thị đã được rút gọn.</p>':'')
-      +(x.decision?'<details data-k="work-decision:'+esc(x.id)+'"><summary>Căn cứ quyền</summary><p>'+workEsc(x.decision)+'</p></details>':'')+'</article>'}).join('')}
+  return '<p class="work-meta">Mới nhất trước. Điều chỉnh trong quyền đã cấp không tự tạo yêu cầu duyệt mới.</p>'+rows.slice().reverse().map(function(x){var kind={contract:'Cập nhật phương án',internal:'Điều chỉnh cách thực hiện',retry:'Thực hiện lại phần việc'}[x.kind]||x.kind;
+    var version=x.kind==='internal'?(x.internal_revision!=null?' · lần '+x.internal_revision:'')+(x.revision!=null?' (phương án '+x.revision+')':''):(x.revision!=null?' · bản '+x.revision:'');
+    var diffs=x.diff||x.changes||[],fields=Array.from(new Set(diffs.map(function(v){return diffLabel(v.path)})));
+    var h='<article class="work-row"><h4>'+workEsc(kind)+esc(version)+'</h4><p>'+workEsc(x.reason)+'</p>'
+      +(fields.length?'<p><b>Nội dung thay đổi:</b> '+esc(fields.join(', '))+'</p>':'')
+      +(x.affected_nodes&&x.affected_nodes.length?'<p><b>Phần bị ảnh hưởng:</b> '+esc(x.affected_nodes.map(function(n){return nodeName(d,n)}).join(', '))+'</p>':'')
+      +(x.reused_nodes&&x.reused_nodes.length?'<p><b>Giữ kết quả:</b> '+esc(x.reused_nodes.map(function(n){return nodeName(d,n)}).join(', '))+'</p>':'')
+      +(x.kind==='contract'?'<p class="work-warning">'+(x.approved?'Bản này đã có quyết định duyệt. Quyền hiện tại xem Solution.':'Bản đề xuất chưa duyệt. Xem thẻ quyết định ở đầu trang.')+'</p>':(x.decision&&x.decision.validity&&x.decision.validity.outcome==='in_authority'?'<p>Điều chỉnh đã được xử lý trong quyền được cấp.</p>':''));
+    h+='<details data-k="work-diff:'+esc(x.id)+'"><summary>Xem trước / sau ('+diffs.length+' mục)</summary>'+diffs.map(function(v){return '<h4>'+esc(diffLabel(v.path))+'</h4><div class="work-diff"><div><b>Trước</b><br>'+((v.before==null&&v.change==='added')?'Chưa có — nội dung mới được thêm':workEsc(v.before))+'</div><div><b>Sau</b><br>'+workEsc(v.after)+'</div></div><details><summary>Trường kỹ thuật</summary>'+workEsc(v.path)+'</details>'}).join('')+'</details>';
+    if(x.diff_error)h+=workEmpty(x.diff_error);
+    if(x.diff_total>diffs.length)h+='<p class="work-warning">Đang hiện '+diffs.length+'/'+esc(x.diff_total)+' dòng thay đổi; phần hiển thị đã được rút gọn.</p>';
+    return h+workSource(x)+(x.decision?'<details data-k="work-decision:'+esc(x.id)+'"><summary>Căn cứ quyền</summary><p>'+workEsc(x.decision)+'</p></details>':'')+'</article>'}).join('')}
+function workRepairFlow(d,w){var repairs=w.repairs||[],runs=(w.checks||{}).runs||[],actors=w.actors||[],findings=w.findings||[];
+  return repairs.length?'<h3>Diễn tiến kiểm và sửa</h3>'+repairs.map(function(r,i){var linked=runs.filter(function(x){return (r.verification||[]).indexOf(x.id)>=0}),issues=findings.filter(function(f){return (f.source||{}).receipt===r.source_receipt}),who=actors.filter(function(a){return a.node===r.node&&a.role==='executed'&&(!a.attempt||((w.outputs||[]).some(function(o){return o.attempt===a.attempt&&o.generation===(r.generations||{})[r.node]})))});
+    return '<article class="work-row"><h4>Vòng '+(i+1)+' · '+esc(nodeName(d,r.node))+'</h4>'+(r.applicable===false?'<p class="work-warning">Lịch sử — không chứng nhận bản hiện hành</p>':'')+'<div class="repair-flow"><div><b>1. Kiểm phát hiện vấn đề</b>'+esc((r.failed_checks||[]).length)+' kiểm tra không đạt'+(issues.length?'<p>'+issues.map(function(f){return workEsc(f.text||f.head||f.claim||f.id)}).join('; ')+'</p>':'')+workEvidence(d,r.source_receipt)+'</div><div><b>2. Sửa phần bị ảnh hưởng</b>'+workEsc(r.reason)+'<p>Người thực hiện: '+(who.length?who.map(function(a){return workEsc(a.actor||a.provider)}).join(', '):'chưa có định danh xác nhận cho lượt này')+'</p></div><div><b>3. Kiểm lại sau sửa</b>'+(linked.length?linked.map(function(x){return '<p>'+esc(nodeName(d,x.node))+' · '+esc(x.status==='pass'?'Đạt':x.status==='fail'?'Không đạt':x.status||'Chưa rõ')+'</p>'+workEvidence(d,x.receipt)}).join(''):'Chưa có kết quả kiểm lại liên kết')+'</div></div></article>'}).join(''):''}
 function workResults(d,w){var outputs=w.outputs||[],runs=(w.checks||{}).runs||[],findings=w.findings||[],repairs=w.repairs||[],actors=w.actors||[];
   var levels={produced:'Đã tạo',verified:'Đã kiểm',accepted:'Đã nghiệm thu',unknown:'Chưa xác định'};
-  var h='<h3>Đầu ra</h3>'+(outputs.length?outputs.map(function(x){return '<article class="work-row"><h4>'+workEsc(x.title||x.label||nodeName(d,x.node))+' · '+esc(levels[x.level]||'Chưa xác định')+'</h4>'
+  var current=outputs.filter(function(x){return !x.stale}),history=outputs.filter(function(x){return x.stale});
+  function outputRows(items){return items.map(function(x){return '<article class="work-row"><h4>'+workEsc(x.title||x.label||nodeName(d,x.node))+' · '+esc(levels[x.level]||'Chưa xác định')+'</h4>'
     +'<p class="work-meta">'+esc(nodeName(d,x.node))+' · '+(x.stale?'Bản cũ / cần kiểm lại · ':'')+(x.inherited?'Kế thừa · ':'')+'Thế hệ '+workEsc(x.generation)+'</p>'
     +(x.inherited&&x.from_generation!=null?'<p class="work-meta">Kế thừa từ thế hệ '+workEsc(x.from_generation)+' · lượt tạo '+workEsc(x.from_attempt)+'</p>':'')
-    +workEvidence(d,x.artifact||x.key)+workSource(x)+'</article>'}).join(''):workEmpty('Chưa có đầu ra được ghi nhận.'));
+    +workEvidence(d,x.artifact||x.key)+workSource(x)+'</article>'}).join('')}
+  var h='<h3>Kết quả hiện hành</h3>'+(current.length?outputRows(current):workEmpty('Chưa có đầu ra hiện hành được ghi nhận.'))
+    +(history.length?'<details data-k="work-history"><summary>Đầu ra lịch sử ('+history.length+')</summary>'+outputRows(history)+'</details>':'')
+    +workRepairFlow(d,w)+'<details data-k="work-check-details"><summary>Chi tiết các lần kiểm, vấn đề và người thực hiện</summary>';
   h+='<h3>Các lần kiểm</h3><p class="work-meta">Một check có thể gồm nhiều testcase. Số check/finding không phải số bug độc lập; thiếu thống kê testcase thì không tự suy ra.</p>';
   var summary=(w.checks||{}).summary||{},cases=summary.testcases;
   h+='<div class="work-grid">'+workCard('Check duy nhất / lượt chạy',summary.unique_checks!=null?summary.unique_checks+' / '+summary.check_executions:null,'Tổng trong lịch sử có receipt, không phải độ bao phủ của bản hiện tại.')
@@ -85,7 +146,7 @@ function workResults(d,w){var outputs=w.outputs||[],runs=(w.checks||{}).runs||[]
     +'<p><b>Kiểm lại sau sửa</b></p>'+(linked.length?linked.map(function(r){return '<p>'+esc(nodeName(d,r.node))+' · '+workEsc(r.status)+' '+workEvidence(d,r.receipt)+'</p>'}).join(''):workEmpty('Chưa có receipt kiểm lại liên kết với vòng này.'))
     +((x.rebindings||[]).length?'<p class="work-meta">'+x.rebindings.length+' lần nối lại thứ tự; không tính là vòng sửa mới.</p>'+(x.rebindings||[]).map(function(b,j){var checked=runs.filter(function(r){return (b.verification||[]).indexOf(r.id)>=0});return '<details data-k="work-rebind:'+esc(x.id)+':'+j+'"><summary>Nối lại '+(j+1)+' · '+workEsc(({verified:'Đã kiểm đủ',partial:'Kiểm một phần',unverified:'Chưa kiểm đủ'})[b.status]||b.status)+' · '+(b.applicable?'áp dụng hiện tại':'lịch sử')+'</summary>'+checked.map(function(r){return '<p>'+esc(nodeName(d,r.node))+' · '+workEsc(r.status)+' '+workEvidence(d,r.receipt)+'</p>'}).join('')+workSource(b)+'</details>'}).join(''):'')+workSource(x)+'</article>'}).join(''):workEmpty('Chưa có liên kết repair receipt. Không coi mỗi attempt là một vòng sửa.'));
   h+='<h3>Ai được giao / ai đã thực hiện</h3>'+(actors.length?'<div class="scroll"><table><thead><tr><th>Vai trò</th><th>Phần việc</th><th>Người / model có nguồn</th></tr></thead><tbody>'+actors.map(function(x){return '<tr><td>'+workEsc({assigned:'Được giao',executed:'Đã thực hiện',reviewer:'Đã kiểm'}[x.role]||x.role)+'</td><td>'+esc(nodeName(d,x.node))+'</td><td>'+workEsc(x.actor||x.provider)+(x.model?' · '+workEsc(x.model):'')+workSource(x)+'</td></tr>'}).join('')+'</tbody></table></div>':workEmpty('Chưa có định danh thực thi được ghi nhận. Không suy từ tên phiên chat.'));
-  return h}
+  return h+'</details>'}
 function workProgress(d){var m=d.measure||{},v=m.verification||[],a=m.attempts||[];return '<div class="work-grid">'+workCard('Khoảng thực hiện đã ghi nhận',hms(m.attempts_wall_seconds),'Hợp các khoảng attempt, không cộng đôi phần chồng nhau.')+workCard('Khoảng chờ đã ghi nhận',hms(m.wait_seconds),'Khoảng chờ mở hoặc thiếu mốc kết thúc vẫn chưa xác định.')+'</div>'
   +'<h3>Từng lượt thực hiện</h3><p class="work-meta">Tiếp nhận: quyết định Q2 đến bắt đầu phần việc. Chuẩn bị: giữ chỗ đến khởi chạy. Thực thi: khởi chạy đến kết thúc lượt. Đây là các khoảng quan sát, chưa phải thời gian hàng đợi scheduler riêng; không cộng các lượt chạy song song.</p>'
   +(a.length?'<table><thead><tr><th>Phần việc / lượt</th><th>Tiếp nhận</th><th>Chuẩn bị</th><th>Thực thi</th></tr></thead><tbody>'+a.map(function(x){return '<tr><td>'+esc(nodeName(d,x.node))+'<div class="work-meta">'+esc(String(x.attempt||'').slice(0,12))+' · thế hệ '+workEsc(x.generation)+'</div></td><td>'+hms(x.admission_seconds)+'</td><td>'+hms(x.preparation_seconds)+'</td><td>'+hms(x.execution_seconds)+'</td></tr>'}).join('')+'</tbody></table>':workEmpty('Chưa có lượt thực hiện có số đo.'))

@@ -1,3 +1,22 @@
+# UX dev3 coverage — cycle 3, source verified / artifact pending
+
+Proposal: `docs/obs2/UX-DEV3.vi.md`, user comments 04/11; baseline `3fbb07b`.
+
+| ID | Status | Implementation / validation |
+|---|---|---|
+| UX1 | Partial | Seven card stages, explicit stable sorting; renderer/browser source pass; wheel pending |
+| UX2 | Partial | Stage/need separation, resumed/amended tasks, scoped sample label; unit/browser pass |
+| UX3 | Partial | Pinned PowerShell, explicit placeholders, copy without approval; source tests pass |
+| UX4 | Partial | Owner --human reuses guarded verbs; JSON preserved; own suite 13/13, bound revision/default replay tests pass; installed probe pending |
+| UX5 | Partial | Latest changes first, internal revision distinct, readable field names; renderer pass |
+| UX6 | Partial | Current outputs before history, linked repair flow, old milestone pass cannot certify newer failed artifact; real verifier regression pass |
+| UX7 | Partial | Source browser 86/86, renderer/cards 24/24, OBS-1 Source/Engine 18/18; final installed browser pending |
+| UX8 | Partial | Version dev3 and eight-module package identity ready; fixed wheel/lifecycle/handover pending |
+
+Complete 0 / Partial 8 / Missing 0 / Blocked 0. Source evidence is not installed-wheel certification. Earlier evidence below is historical.
+
+---
+
 # Proposal Coverage
 
 Proposal source: `../../outputs/onecrew-as-qc/ROADMAP-DESIGN-20261026.vi.md` §2.13; roadmap current order 04/11.

@@ -842,17 +842,19 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
 @@WORK_STYLE@@
 </style></head><body>
 <header>
-<div class="bar"><h1>OneCrew · theo dõi công việc</h1><span id="conn">đang kết nối…</span><span id="dconn" role="status" hidden></span><span id="count" class="small mut"></span><span id="chips" role="group" aria-label="lọc nhanh"></span></div>
+<div class="bar"><h1>OneCrew · Công việc</h1><span id="health" role="status" class="small"></span><span id="dconn" role="status" hidden></span><span id="count" class="small mut"></span><span id="chips" role="group" aria-label="lọc nhanh"></span></div>
 <div class="tools">
-<label>project <select id="proj"><option value="">tất cả</option></select></label>
-<label>trạng thái <select id="kind"><option value="">tất cả</option><option value="need">cần bạn</option><option value="running">đang thực hiện</option><option value="waiting">đang chờ</option><option value="blocked">bị chặn</option><option value="done">đã xong</option><option value="unknown">chưa xác định</option></select></label>
-<label><span>tìm</span><input id="q" type="search" placeholder="tên plan, mục tiêu, bước" size="24" aria-label="tìm theo plan, mục tiêu, bước"></label>
+<label>Dự án <select id="proj"><option value="">tất cả</option></select></label>
+<label>Lọc <select id="kind"><option value="">tất cả</option><option value="need">Cần bạn quyết định</option><option value="running">đang thực hiện</option><option value="waiting">đang chờ</option><option value="blocked">bị chặn</option><option value="done">đã xong</option><option value="unknown">chưa xác định</option></select></label>
+<label><span>tìm</span><input id="q" type="search" placeholder="Tìm công việc…" size="24" aria-label="tìm theo plan, mục tiêu, bước"></label>
+<label>Sắp xếp <select id="sort"><option value="attention">Cần xử lý trước</option><option value="updated">Cập nhật gần nhất</option><option value="created">Ngày tạo (cũ trước)</option><option value="deadline">Hạn hoàn thành (nếu có)</option></select></label>
 </div>
-<p class="note small mut"><span class="long">Chỉ đọc: không có nút duyệt, trả lời, dừng hay tiếp tục task; mở bằng chứng không phải là duyệt. Kết nối "OK" chỉ nói trang đang nhận dữ liệu, không nói việc đã xong. </span><span class="brief">Chỉ đọc; "kết nối OK" không có nghĩa việc đã xong. </span><span id="src"></span></p>
+<div id="sample" class="sample-banner" hidden>Các thẻ đang xem có nhãn “dữ liệu thử” trong tên. Kiểm tra đúng dự án và sổ trước khi chạy lệnh.</div>
+<details class="connection-details"><summary>Thông tin kết nối và giới hạn</summary><span id="conn">đang kết nối…</span><p class="note small mut"><span class="long">Chỉ đọc: không có nút duyệt, trả lời, dừng hay tiếp tục task; mở bằng chứng không phải là duyệt. Kết nối "OK" chỉ nói trang đang nhận dữ liệu, không nói việc đã xong. </span><span class="brief">Chỉ đọc; "kết nối OK" không có nghĩa việc đã xong. </span><span id="src"></span></p></details>
 </header>
 <main id="main" data-view="list">
-<section class="pane" id="listpane" aria-label="Danh sách công việc"><h2>Danh sách công việc</h2><div id="empty"></div>
-<ul id="list" role="listbox" aria-label="Danh sách công việc"></ul>
+<section class="pane" id="listpane" aria-label="Danh sách công việc"><h2>Bảng công việc</h2><p class="stage-note">Mỗi thẻ là một công việc. Cột là giai đoạn; nhãn cho biết ai cần làm tiếp. Chỉ xem, không kéo thả.</p><div id="empty"></div>
+<div id="list" role="group" aria-label="Bảng công việc"></div>
 <details id="untrackedbox" data-k="untracked"><summary>Chưa được theo dõi</summary><div id="untracked" class="small"></div></details></section>
 <section class="pane" id="detailpane" aria-label="Chi tiết task"><div id="detail"><div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div></div></section>
 </main>
@@ -865,7 +867,7 @@ var DETAIL_TIMEOUT=45000, DETAIL_TRIES=3, OVERVIEW_TIMEOUT=300000, detailTimeout
 var TECH=['attempt.','executor.managed','decision.recorded','execution.configured','budget.group','precondition.recorded','task.submitted','knowledge.delivered','estimate.','plan.step0_closed'];
 var $=function(s){return document.querySelector(s)};
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-function hms(s){if(typeof s!=='number')return 'chưa xác định';s=Math.floor(s);var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return h?h+'h'+String(m).padStart(2,'0')+'m':m?m+'m'+String(x).padStart(2,'0')+'s':x+'s'}
+function hms(s){if(typeof s!=='number')return 'chưa xác định';if(s>0&&s<1)return 'dưới 1s';s=Math.floor(s);var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return h?h+'h'+String(m).padStart(2,'0')+'m':m?m+'m'+String(x).padStart(2,'0')+'s':x+'s'}
 function when(t){if(!t)return '—';var d=new Date(t);return isNaN(d)?esc(t):d.toLocaleTimeString()+' '+d.toLocaleDateString()}
 function clock(t){if(!t)return '—';var d=new Date(t);return isNaN(d)?esc(t):d.toLocaleTimeString()}
 function relText(t){var d=new Date(t);if(isNaN(d))return esc(t);var s=Math.round((Date.now()-d.getTime())/1000);if(s<5)return 'vừa xong';if(s<60)return s+' giây trước';if(s<3600)return Math.floor(s/60)+' phút trước';if(s<86400)return Math.floor(s/3600)+' giờ trước';return Math.floor(s/86400)+' ngày trước'}
@@ -877,7 +879,7 @@ function st(t){var g=t.outcome?GLYPH[t.outcome]:GLYPH[t.kind];return '<span clas
 var PHASE={pending:'chờ đến lượt',running:'đang chạy',held:'bị giữ',complete:'xong'},NSTATE={none:'chưa có đầu ra',produced:'đã tạo',verified:'đã kiểm',accepted:'đã nghiệm thu'};
 function word(map,k){return '<span title="'+esc(k)+'">'+esc(map[k]||k||'—')+'</span>'}
 function short(p){p=String(p||'');var parts=p.split(/[\\\/]/).filter(Boolean);return parts.length>2?'…'+parts.slice(-2).join('\\'):p}
-function conn(cls,text){var c=$('#conn');c.className=cls;c.textContent=text}
+function conn(cls,text){var c=$('#conn');c.className=cls;c.textContent=text;var h=$('#health');h.className=cls==='ok'?'small mut':'err';h.textContent=cls==='ok'?'Đang cập nhật':text}
 function narrow(){return window.matchMedia('(max-width:899px)').matches}
 function setView(){$('#main').setAttribute('data-view',selected?'detail':'list')}
 function sameSel(a,b){return !!a&&!!b&&a.plan===b.plan&&(a.project||'')===(b.project||'')}
@@ -903,49 +905,57 @@ function pendingPane(sel){var t=taskOf(sel),e=detailError;   // the selected tas
   $('#detail').innerHTML=h}
 function tasks(){var out=[];(last&&last.projects||[]).forEach(function(p){p.tasks.forEach(function(t){out.push(t)})});return out}
 function visible(){var cur=$('#proj').value,kind=$('#kind').value,q=($('#q').value||'').toLowerCase();
-  return tasks().filter(function(t){if(cur&&t.project!==cur)return false;
+  return workOrder(tasks().filter(function(t){if(cur&&t.project!==cur)return false;
     if(kind==='need'&&!(t.needs_user||[]).length)return false;if(kind&&kind!=='need'&&t.status.kind!==kind)return false;
-    if(q&&((t.plan||'')+' '+(t.goal||'')+' '+(t.title||'')+' '+(t.current_step||'')).toLowerCase().indexOf(q)<0)return false;return true})}
+    if(q&&((t.plan||'')+' '+(t.goal||'')+' '+(t.title||'')+' '+(t.current_step||'')).toLowerCase().indexOf(q)<0)return false;return true}),$('#sort').value)}
 function row(t){var sel=sameSel(selected,{plan:t.selector,project:t.project_id}),lastv=!sel&&sameSel(lastViewed,{plan:t.selector,project:t.project_id});
   return '<li class="task'+(lastv?' last':'')+'" role="option" tabindex="0" aria-selected="'+sel+'" data-plan="'+esc(t.selector)+'" data-project="'+esc(t.project_id)+'" data-k="task:'+esc(t.project_id)+':'+esc(t.selector)+'">'
-   +'<div class="r1">'+st(t.status)+'<span class="name">'+esc(t.plan)+'</span><span class="ttl" title="'+esc(t.goal||'')+'">'+esc(t.title||t.goal||'')+'</span>'+((t.needs_user||[]).length?'<span class="needb">cần bạn</span>':'')+'</div>'
-   +'<div class="r2 small"><span>'+esc(t.current_step||t.status.reason||'')+'</span>'+(t.last_update?'<span class="mut">cập nhật '+rel(t.last_update.at)+'</span>':'')+'</div>'
-   +'<div class="r3 small mut" title="'+esc(t.project)+'">'+esc(short(t.project))+' · '+esc(t.id.slice(0,12))+' · '+esc(t.tracking.adapter)+(t.tracking.errors&&t.tracking.errors.length?' · lỗi đọc':'')+'</div></li>'}
+   +'<div class="r1"><span class="name">'+esc(t.plan)+'</span><span class="ttl">'+esc(workTitle(t))+'</span>'+workBadge(t)+((t.needs_user||[]).length?'<span class="needb">'+t.needs_user.length+' quyết định cần bạn</span>':'')+'</div>'
+   +'<div class="r2"><span>'+esc((t.status||{}).kind==='blocked'?(t.current_step||t.status.reason):((t.needs_user||[]).length?'Mở thẻ để xem nội dung cần quyết định':'Không có yêu cầu dành cho bạn'))+'</span>'+(t.last_update?'<span class="mut">Cập nhật '+rel(t.last_update.at)+'</span>':'')+'</div>'
+   +'<div class="r3" title="'+esc(t.project)+'">'+esc(short(t.project))+(t.deadline?' · Hạn '+esc(when(t.deadline)):'')+'</div></li>'}
 function render(force){
   if(!last)return;var ps=$('#proj'),cur=ps.value,opts='<option value="">tất cả</option>';
   (last.projects||[]).forEach(function(p){opts+='<option value="'+esc(p.path)+'"'+(p.path===cur?' selected':'')+'>'+esc(short(p.path))+'</option>'});if(ps.innerHTML!==opts)ps.innerHTML=opts;
   var vis=visible(),all=tasks(),need=all.filter(function(t){return (t.needs_user||[]).length}).length;
-  $('#count').textContent=all.length+' task'+(vis.length!==all.length?' · hiện '+vis.length:'');
+  $('#count').textContent=all.length+' công việc'+(vis.length!==all.length?' · hiện '+vis.length:'');
   var kindNow=$('#kind').value,counts={need:need,blocked:all.filter(function(t){return t.status.kind==='blocked'}).length,running:all.filter(function(t){return t.status.kind==='running'}).length};
-  var chips=[['need','cần bạn'],['blocked','bị chặn'],['running','đang thực hiện']].map(function(c){return '<button type="button" class="chip" data-kind="'+c[0]+'" aria-pressed="'+(kindNow===c[0])+'">'+c[1]+' ('+counts[c[0]]+')</button>'}).join('')+(kindNow?'<button type="button" class="chip" data-kind="" aria-pressed="false">tất cả</button>':'');
+  var chips=[['need','Cần bạn quyết định'],['blocked','bị chặn'],['running','đang thực hiện']].map(function(c){return '<button type="button" class="chip" data-kind="'+c[0]+'" aria-pressed="'+(kindNow===c[0])+'">'+c[1]+' ('+counts[c[0]]+')</button>'}).join('')+(kindNow?'<button type="button" class="chip" data-kind="" aria-pressed="false">tất cả</button>':'');
   if($('#chips').innerHTML!==chips)$('#chips').innerHTML=chips;
-  var sig=JSON.stringify(vis.map(function(t){return [t.selector,t.project_id,t.status.label,t.current_step,t.last_update&&t.last_update.seq,(t.needs_user||[]).length,t.title]}))+'|'+(selected?selected.plan+selected.project:'')+(lastViewed?lastViewed.plan:'');
+  var sig=JSON.stringify(vis.map(function(t){return [t.selector,t.project_id,t.status.label,t.current_step,t.last_update&&t.last_update.seq,(t.needs_user||[]).length,t.title]}))+'|'+$('#sort').value+'|'+(selected?selected.plan+selected.project:'')+(lastViewed?lastViewed.plan:'');
   if(sig!==listSig||force){var foc=document.activeElement&&document.activeElement.getAttribute&&document.activeElement.getAttribute('data-k');
-    $('#list').innerHTML=vis.map(row).join('');listSig=sig;
+    $('#list').innerHTML=workBoard(vis);listSig=sig;
     if(foc){var again=document.querySelector('[data-k="'+foc.replace(/"/g,'\\"')+'"]');if(again)again.focus({preventScroll:true})}}
   $('#empty').textContent=vis.length?'':(all.length?'Không có task nào khớp bộ lọc.':'Không có plan nào trong sổ này.');
   var u=last.untracked||{},parts=['<div>'+esc(u.statement||'')+'</div>'],n=(u.other_tasks||[]).length+(u.registry_projects_without_plan||[]).length+(u.hook_sessions||[]).length;
   (u.other_tasks||[]).slice(0,10).forEach(function(o){parts.push('<div>· task <code>'+esc(o.id.slice(0,12))+'</code> '+esc(o.key)+' phase '+esc(o.phase)+' — '+esc(o.note)+'</div>')});
   (u.registry_projects_without_plan||[]).slice(0,10).forEach(function(r){parts.push('<div>· '+esc(r.project)+' — '+esc(r.note)+'</div>')});
   (u.hook_sessions||[]).slice(0,10).forEach(function(s){parts.push('<div>· phiên hook '+esc(s.session)+' @ '+esc(s.project)+' — '+esc(s.note)+'</div>')});
+  var shown=selected?[taskOf(selected)].filter(Boolean):vis;$('#sample').hidden=!shown.length||!shown.every(function(t){return /dữ liệu thử/i.test(t.goal||t.title||'')});
   var ub=parts.join('');if($('#untracked').innerHTML!==ub)$('#untracked').innerHTML=ub;$('#untrackedbox').querySelector('summary').textContent='Chưa được theo dõi ('+n+')';
 }
-function cmdHtml(c,ph){var t=esc(c);if(ph){var p=esc(ph);t=t.split(p).join('<mark class="ph">'+p+'</mark>')}return t}
+function cmdHtml(c,ph){var t=esc(c);(Array.isArray(ph)?ph:[ph]).filter(Boolean).forEach(function(v){var p=esc(v);t=t.split(p).join('<mark class="ph">'+p+'</mark>')});return t}
 function needTitle(n){return n.kind==='request'?'Câu hỏi: '+(n.question||'').slice(0,90)+((n.question||'').length>90?'…':''):n.kind==='approve'?'Duyệt kế hoạch':n.kind==='accept'?'Nghiệm thu':n.kind==='stopped'?'Quyết định sau khi dừng':(n.question||n.kind)}
-function needKey(n){return n.kind==='request'?'need:'+n.id+':'+n.revision:'need:'+n.kind}
-function needCard(n,i){var ph=n.reference_placeholder,nk=needKey(n);var h='<details data-k="'+esc(nk)+'" class="need" data-need-id="'+esc(n.id||'')+'" data-need-rev="'+esc(n.revision||'')+'"><summary>'+esc(needTitle(n))+(n.options&&n.options.length?' <span class="small">('+n.options.length+' lựa chọn)</span>':'')+(n.id?' <span class="small mut">· '+esc(String(n.id).slice(0,12))+'</span>':'')+'</summary><div class="q">'+esc(n.question||n.kind)+'</div>';
-  if(n.reason)h+='<div class="small">Vì: '+esc(n.reason)+'</div>';if(n.impact)h+='<div class="small">Ảnh hưởng: '+esc(n.impact)+'</div>';
-  var cmds=(n.options||[]).map(function(o){return o.reply_command||''}).concat([n.reply_command||'']).filter(Boolean);
-  if(detailError){if(cmds.some(function(c){return /--revision/.test(c)}))h+='<div class="small stale-tpl" data-stale-template="1">Mẫu lệnh này lấy từ dữ liệu lúc '+clockMs(detailOkAt)+' (chi tiết chưa cập nhật): câu hỏi có thể đã được trả lời hoặc đổi bản; khi đó OneCrew từ chối lệnh nhờ --revision cũ.</div>';
-    else h+='<div class="small stale-tpl" data-stale-data="1">Dữ liệu lúc '+clockMs(detailOkAt)+' (chi tiết chưa cập nhật)'+(cmds.length?': kiểm lại trạng thái trước khi chạy lệnh.':'.')+'</div>'}
-  if(n.kind==='request')h+='<div class="small">Mẫu lệnh — phần <mark class="ph">'+esc(ph||'<…>')+'</mark> là lý do/bằng chứng BẠN tự điền; chưa điền thì lệnh chưa chạy được:</div>';
-  (n.options||[]).forEach(function(o,j){h+='<div class="opt" data-k="opt:'+esc(nk)+':'+j+'"><b>'+esc(o.label)+'</b> <span class="small mut">('+esc(o.id)+')</span>'+(n.recommendation===o.id?' <span class="small">· khuyến nghị</span>':'')
-    +'<div class="cmd"><code>'+cmdHtml(o.reply_command,ph)+'</code><button type="button" class="copy" data-copy="'+esc(o.reply_command)+'">Sao chép mẫu lệnh</button></div></div>'});
-  if(!(n.options||[]).length&&n.reply_command)h+='<div class="cmd"><code>'+cmdHtml(n.reply_command,ph)+'</code><button type="button" class="copy" data-copy="'+esc(n.reply_command)+'">Sao chép mẫu lệnh</button></div>';
-  h+='<div class="small">'+esc(n.reply_note||n.note||'Trang này không trả lời thay bạn: chạy lệnh ở máy có OneCrew.')+(n.reply_note&&n.note?' · '+esc(n.note):'')+'</div>';
-  if(copied&&copied.k===nk){if(copied.ok)h+='<div class="copied" data-copied="'+esc(copied.text)+'">đã sao chép mẫu lệnh (chưa điền '+esc(ph||'')+'): <code>'+esc(copied.text)+'</code></div>';
-    else h+='<div class="copied err" data-copy-failed="1">không sao chép được vào clipboard; chọn và sao chép thủ công: <textarea readonly rows="2" style="width:100%">'+esc(copied.text)+'</textarea></div>'}
+function needKey(n){return 'need:'+n.kind+':'+(n.id||'')+':'+(n.revision||'')}
+function commandBox(command,ph,label){return '<div class="command-box cmd"><div class="command-head"><span>PowerShell · '+esc(label||'Lệnh dành cho bạn')+'</span><button type="button" class="copy" data-copy="'+esc(command)+'">Sao chép lệnh</button></div><pre><code>'+cmdHtml(command,ph)+'</code></pre></div>'}
+function needCard(n,i){var ph=n.reference_placeholder,nk=needKey(n),command=n.human_command||n.reply_command,marks=(n.placeholders||[]).map(function(k){return k==='reference'?ph:'<'+k+'>'});if(!marks.length&&ph)marks=[ph];
+  var h='<details data-k="'+esc(nk)+'" class="need" data-need-id="'+esc(n.id||'')+'" data-need-rev="'+esc(n.revision||'')+'"'+(n.kind==='approve'?' open':'')+'><summary>'+esc(needTitle(n))+(n.kind==='approve'?' · bản '+esc(n.revision):'')+'</summary><div class="q">'+esc(n.kind==='approve'?(n.title||'Phương án đang chờ quyết định'):(n.question||n.kind))+'</div>';
+  if(n.reason)h+='<p><b>Vì sao:</b> '+esc(n.reason)+'</p>';if(n.impact)h+='<p><b>Ảnh hưởng:</b> '+esc(n.impact)+'</p>';
+  if(n.kind==='approve')h+=(n.reason?'':'<p>Bản này chưa có quyết định duyệt trong sổ.</p>')+(n.impact?'':'<p class="small">Chưa có mô tả ảnh hưởng riêng. Hãy đối chiếu nội dung trước / sau.</p>')+'<button type="button" data-work-tab="changes">Xem thay đổi trước khi duyệt</button>';
+  if(detailError){var pinned=[command].concat((n.options||[]).map(function(o){return o.human_command||o.reply_command})).some(function(c){return /--revision/.test(c||'')});h+='<p class="stale-tpl" '+(pinned?'data-stale-template="1"':'data-stale-data="1"')+'>Dữ liệu cũ từ '+clockMs(detailOkAt)+'. Đợi cập nhật hoặc kiểm lại trạng thái.'+(pinned?' Lệnh ghim --revision cũ sẽ bị từ chối nếu bản đã đổi. Sao chép không xác nhận yêu cầu còn hiệu lực.':'')+'</p>';}
+  if(command||(n.options||[]).length){h+='<p><b>Mở PowerShell của bạn trên máy này.</b> Không dán vào ô chat để nhờ AI duyệt.</p>';
+    if(ph)h+='<p class="small">Thay phần <mark class="ph">'+esc(ph)+'</mark> bằng lý do xác nhận của bạn trước khi chạy. Mẫu chưa điền không phải quyết định đã duyệt.</p>';}
+  if((n.placeholders||[]).indexOf('option-id')>=0)h+='<p><b>Cần điền thêm:</b> thay <mark class="ph">&lt;option-id&gt;</mark> bằng ID phương án anh chọn trong danh sách bên dưới. Không tự chọn thay anh.</p>';
+  (n.options||[]).forEach(function(o){h+='<div class="opt"><b>'+esc(o.label)+'</b>'+(n.recommendation===o.id?' <span class="small">· đề xuất</span>':'')+commandBox(o.human_command||o.reply_command,marks,'Trả lời lựa chọn này')+'</div>'});
+  if(!(n.options||[]).length&&command)h+=commandBox(command,marks,n.kind==='approve'?'Duyệt bản '+n.revision:'Ghi nhận quyết định');
+  if(!command&&!(n.options||[]).length){h+='<p>'+esc(n.binding_reason||n.note||'Chưa có mẫu lệnh đủ dữ liệu để thực hiện an toàn.')+'</p>';if(n.inspect_command)h+=commandBox(n.inspect_command,null,'Chỉ xem trạng thái, chưa duyệt');}
+  if((n.plan_choices||[]).length)h+='<p><b>Cần chọn phương án:</b> '+n.plan_choices.map(function(o){return esc(o.id)+' — '+esc(o.title||o.summary||'Chưa có mô tả')}).join('; ')+'</p>';
+  if((n.optional_items||[]).length)h+='<details><summary>Hạng mục tùy chọn — chưa tự chọn</summary><p>'+n.optional_items.map(function(o){return esc(o.id)+' — '+esc(o.title||'Chưa có mô tả')}).join('; ')+'</p></details>';
+  h+='<p class="small">Sao chép chưa phải duyệt. Chạy lệnh thành công mới ghi quyết định; trang cập nhật khi đọc được kết quả từ sổ.</p>';
+  if(n.reply_note)h+='<details><summary>Chi tiết lệnh và quyền</summary><p>'+esc(n.reply_note)+'</p></details>';
+  if(copied&&copied.k===nk){if(copied.ok)h+='<div class="copied" role="status" data-copied="'+esc(copied.text)+'">Đã sao chép lệnh. Chưa ghi nhận quyết định.</div>';
+    else h+='<div class="copied err" role="status" data-copy-failed="1">Không sao chép được; chọn khối lệnh để sao chép thủ công.<textarea readonly rows="3" style="width:100%">'+esc(copied.text)+'</textarea></div>';}
   return h+'</details>'}
+
 function kindWord(k){return k.replace('executor.observed','quan sát').replace('node.','phần việc: ').replace('plan.','plan: ').replace('attempt.','attempt: ').replace('request.','câu hỏi: ').replace('verdict.','verdict: ').replace('milestone.','mốc: ')}
 function prov(d){if(d.__prov)return d.__prov;var bySeq={},byKey={},keys=[];      // R1: occurrences (seq, key) of the model, never key -> one entry
   (d.evidence_index||[]).forEach(function(x){if(typeof x.seq==='number')(bySeq[x.seq]=bySeq[x.seq]||[]).push(x);if(!byKey[x.key]){byKey[x.key]=[];keys.push(x.key)}byKey[x.key].push(x)});
@@ -969,20 +979,20 @@ function groups(d){var g={},order=[];function add(key,title,e){if(!g[key]){g[key
 @@WORK_SCRIPT@@
 function renderDetail(d){
   var P=prov(d);
-  var h=['<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(d.plan)+(d.title?' · '+esc(d.title):'')+' '+st(d.status)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
+  var h=['<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+'<span class="work-id">'+esc(d.plan)+' · </span>'+esc(workTitle(d))+' '+workBadge(d)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
   if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale" data-k="dstatus" tabindex="-1">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. <span id="dnote" data-cap="1">'+cap(noteHtml())+'</span>.</div>');
   h.push('<div class="small mut">Đang xem task <b>'+esc(d.plan)+'</b> của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
   var needs=d.needs_user||[],nq=needs.filter(function(n){return n.kind==='request'}).length,nother=needs.length-nq;
-  h.push('<div class="dsum"><span class="step">'+esc(d.current_step||d.status.reason||'')+'</span>'+(needs.length?'<a href="#needs" class="small">'+(nq?nq+' câu hỏi chờ bạn':'')+(nq&&nother?' · ':'')+(nother?nother+' việc cần bạn':'')+'</a>':'<span class="small mut">không cần bạn lúc này</span>')+'</div>');
-  if(d.goal)h.push('<p style="margin:6px 0">'+esc(d.goal)+'</p>');
+  h.push('<div class="dsum"><span class="step">'+esc(workStatus(d))+'</span>'+(needs.length?'<a href="#needs" class="small">'+(nq?nq+' câu hỏi chờ bạn':'')+(nq&&nother?' · ':'')+(nother?nother+' việc cần bạn':'')+'</a>':'<span class="small mut">không cần bạn lúc này</span>')+'</div>');
+  if(d.goal&&!d.work)h.push('<p style="margin:6px 0">'+esc(d.goal)+'</p>');
   var done=d.status.kind==='done';
   var nowKeys={};needs.forEach(function(n){nowKeys[needKey(n)]=n});
   Object.keys(knownNeeds).forEach(function(k){var old=knownNeeds[k];if(nowKeys[k]||!old.open)return;
     var same=needs.find(function(n){return n.kind==='request'&&n.id===old.id});
-    if(!staleNotes.some(function(x){return x.key===k}))staleNotes.push({key:k,id:old.id,title:old.title,why:same?'đã đổi bản (revision '+String(same.revision).slice(0,12)+'…): mẫu lệnh cũ không còn hiệu lực, đọc lại câu hỏi':'không còn chờ (đã được trả lời hoặc đóng): mẫu lệnh cũ không còn hiệu lực'});
+    if(!staleNotes.some(function(x){return x.key===k}))staleNotes.push({key:k,id:old.id,title:old.title,why:same?'đã đổi bản (revision '+String(same.revision).slice(0,12)+'…): mẫu lệnh cũ không còn hiệu lực, đọc lại câu hỏi':'không còn chờ ở bản đang xem: mẫu lệnh cũ không còn hiệu lực'});
     if(copied&&copied.k===k)copied=null});
-  if(needs.length||staleNotes.length){h.push('<h3 id="needs">Cần bạn ('+needs.length+')</h3>');
-    staleNotes.forEach(function(x){h.push('<div class="stale-need" data-k="stale:'+esc(x.key)+'" data-stale-id="'+esc(x.id||'')+'">Câu hỏi bạn đang đọc <b>'+esc(String(x.id||'').slice(0,12))+'…</b> ('+esc(x.title||'')+') '+esc(x.why)+'.<button type="button" class="stale-hide" data-key="'+esc(x.key)+'">ẩn</button></div>')});
+  if(needs.length||staleNotes.length){h.push('<h3 id="needs">Quyết định cần bạn ('+needs.length+')</h3>');
+    staleNotes.forEach(function(x){h.push('<div class="stale-need" data-k="stale:'+esc(x.key)+'" data-stale-id="'+esc(x.id||'')+'">Yêu cầu bạn đang đọc <b>'+esc(String(x.id||'').slice(0,12))+'…</b> ('+esc(x.title||'')+') '+esc(x.why)+'.<button type="button" class="stale-hide" data-key="'+esc(x.key)+'">ẩn</button></div>')});
     needs.forEach(function(n,i){h.push(needCard(n,i))})}
   h.push(workDashboard(d));
   h.push('<div id="legacy-progress"'+(d.work&&workTab!=='overview'&&workTab!=='progress'?' hidden':'')+'>');
@@ -1192,6 +1202,7 @@ document.addEventListener('keydown',function(ev){var t=ev.target;
 });
 document.addEventListener('change',function(ev){if(ev.target&&ev.target.id==='grange'){gRange=ev.target.value;repaintGantt()}});
 document.addEventListener('toggle',function(ev){if(ev.target&&ev.target.classList&&ev.target.classList.contains('need'))needs_open_sync()},true);
+$('#sort').addEventListener('change',function(){render(true)});
 $('#q').addEventListener('input',function(){render(true)});$('#kind').addEventListener('change',function(){render(true)});
 $('#proj').addEventListener('change',function(){var v=$('#proj').value;if(selected&&v&&selected.project){var t=tasks().filter(function(x){return x.project===v&&x.project_id===selected.project});if(!t.length){select(null);$('#detail').innerHTML='<div id="nodetail">Đã đổi sang project '+esc(short(v))+': chọn một task của project này.</div>'}}render(true)});
 window.addEventListener('popstate',function(){var qs=new URLSearchParams(location.search);if(qs.get('plan'))select({plan:qs.get('plan'),project:qs.get('project_id')||''},{silent:true});else select(null,{silent:true})});

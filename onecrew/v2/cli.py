@@ -47,6 +47,11 @@ def route(args, index):
     if args[index] == 'support':                     # 2.4-S1: the spool path first, so a report survives a broken runtime or ledger
         from .support_spool import entry
         return entry(args, index)
+    if args[index] == 'owner' and '--human' in args[index + 1:]:
+        # The opt-in renderer runs the SAME owner guard and preserves its exit;
+        # this route lets a refusal use human text without changing JSON callers.
+        from .owner_cli import main as owner_main
+        return owner_main(args)
     from .ownership import refuse_argv  # C3: the owner's verbs are refused inside an AI tool session
     refused = refuse_argv(args[index:])
     if refused: return refused
