@@ -1,16 +1,16 @@
-# Dev7 cross-review fixes — cycle7 in progress
+# Dev7 cross-review fixes — cycle7 complete for isolated trial
 
 Source: shared REVIEW-OBS2-DEV6-20261104.vi.md; baseline693f114/docs0aeea9c. User authorized all2P2+3P3. Cycle6 Complete claim superseded by independent review below:3of7 remained Partial.
 
-| ID | Requirement | Status | Evidence planned |
+| ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| U7-1 | Unbound options have no empty copy/run UI | Partial | Renderer negative + actual unbound browser desktop/mobile |
-| U7-2 | Milestone plans with verdicts are not never-started | Partial | Passed/failed/untouched/readiness controls |
-| U7-3 | Truncated structured finding remains readable | Partial | Long object/list/plain text and source preservation |
-| U7-4 | Initial plan body describes creation | Partial | Initial vs later change renderer/browser |
-| U7-5 | Restore five consumer tests without weakening guards | Partial | Real fixture hook binding, corrected readiness expectations; full affected modules |
+| U7-1 | Unbound options have no empty copy/run UI | Complete | Renderer + real hook browser8cases56/56; same browser on dev6 red4/7 in first case |
+| U7-2 | Milestone plans with verdicts are not never-started | Complete | Passed/failed/untouched/readiness controls + real two-artifact milestone fixture + wheel probe |
+| U7-3 | Truncated structured finding remains readable | Complete | Long object/list/plain text controls + old/new wheel probe; head/blob/source retained |
+| U7-4 | Initial plan body describes creation | Complete | Initial vs later renderer, installed desktop/mobile body/disclosure checks |
+| U7-5 | Restore five consumer tests without weakening guards | Complete | Real fixture hook binding, corrected readiness expectations; full affected modules116/116 |
 
-Validation: red counterexamples → focused tests → affected modules → fixed wheel/probes/browser. No full gate, real runtime edits, provider, push/tag or acceptance. Expected commit fix(obs2): close dev6 review gaps.
+Complete5/Partial0 for this local patch scope. Product6cb2fa9; wheelaf63b151…9282ba. Validation: red counterexamples → focused9/9 + precommit41/41 → fixed snapshot exported source in installed venv116/116 (0skip, includes all4affected OBS1 modules) → package9/9 + old/new wheel18/24→24/24 + browser150/150 and binding56/56 + scoped polling14/14 + lifecycle4/4 + owner-refusal2/2. Evidence under D:/OneCrewRuns/obs2/dev7-* and trial-6cb2fa9-1; exact paths/limits in HANDOVER.vi.md. No full gate, real runtime edits, provider, push/tag or acceptance. Earlier cycle6 completion claim is historical and corrected by this cycle.
 
 ---
 

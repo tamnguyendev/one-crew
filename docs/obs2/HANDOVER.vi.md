@@ -1,3 +1,57 @@
+# Bàn giao OBS-2 dev7 — khép review dev6, 04/11/2026
+
+Bản thử **2.5.0.dev7**, product `6cb2fa9e7eea2f5f88a394be5cc5c291f7031d98`. Phạm vi đúng 2 P2 + 3 P3 từ review dev6; không thêm feature roadmap. Các bàn giao cũ bên dưới là lịch sử, đặc biệt claim dev6 khép đủ 7 finding đã được đính chính bởi review độc lập.
+
+## Mở bản thử
+
+Trang thử đã kiểm health: http://127.0.0.1:53495/ — dev7, read_only, pid10936, instance `336853f849a24542`. Nếu tự thoát sau 30 phút không request, dùng lệnh mở lại bên dưới.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/mo-obs2-dev7.ps1"
+```
+
+Dừng đúng viewer thử:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/dung-obs2-dev7.ps1"
+```
+
+Dữ liệu tổng hợp CODE/DOC, project/sổ/venv riêng. Không cần duyệt để xem; UI vẫn chỉ đọc. Không dùng lệnh của trial để duyệt công việc thật.
+
+## Các finding
+
+| Finding | Kết quả và cách kiểm |
+|---|---|
+| F1 P2 — copy rỗng khi hook thiếu/lệch | Phương án vẫn đọc được; không dựng khối/nút copy, hướng dẫn chạy hay feedback copy cũ nếu không có lệnh. Có binding thì vẫn đủ lệnh. Kiểm 4 chế độ missing/other-runtime/other-state/bound, mỗi chế độ desktop/mobile |
+| F2 P3 — plan dạng mốc chưa khởi chạy giả | Có verdict hoặc mốc passed thì đã có công việc diễn ra; giữ Chờ kiểm/Chờ nghiệm thu theo điều kiện thật. Test hai mốc trên hai artifact khác nhau: đang xử lý, chưa có việc nghiệm thu; đối chứng untouched và eligible |
+| F3 P3 — finding dài JSON thô | Preview bị cắt của object/list hiển thị tiêu chí không đạt; giữ nguyên head/blob/source để tra. Đối chứng mô tả văn bản thường vẫn giữ |
+| F4 P3 — initial còn gọi điều chỉnh | Nội dung kế hoạch, nội dung ban đầu và căn cứ quyền riêng; không dựng cặp trước/sau cho bản đầu. Các thay đổi sau vẫn có diff và lý do |
+| F5 P2 — 5 test cũ gãy | Ba fixture tạo binding settings thật trong project tạm, chỉ mock vị trí executable fixture (không chạy file giả), vẫn qua check_hooks. Giữ kiểm PowerShell ký tự đặc biệt/không tự trả lời/không che nhầm. Hai kỳ vọng nghiệm thu cũ đổi sang đợi root proof, giữ kiểm trạng thái accepted và lịch sử wait |
+
+Không thay engine, quyền, hook thật, schema hay ledger. Tái dùng renderer, milestone/verdict, finding preview và check_hooks. Fixture không chạy init hoặc đăng ký registry; khi cần test CLI, executable fixture được thay bằng Python console cùng arguments như test gốc.
+
+## Bằng chứng snapshot
+
+- Gói `D:/OneCrewRuns/obs2/pkg/onecrew-2.5.0.dev7-obs2-6cb2fa9`.
+- Wheel SHA256 `af63b151eed65c874865d0d40adc34cb577717d41809ea94d691725eb89282ba`.
+- Trial `D:/OneCrewRuns/obs2/trial-6cb2fa9-1`: verify **9/9**, browser **150/150** (75 mỗi cỡ), identity stop đạt. Đã xem ảnh results và ảnh mobile hook lệch.
+- `lifecycle-report.json` trong trial: **4/4** mở/dùng lại/dừng/dừng lần nữa, identity ổn định và cờ reused false→true; state/project/package/registry không đổi. Gói **17/17 checksum** khớp.
+- `D:/OneCrewRuns/obs2/dev7-browser-binding/browser-binding.json`: **8 ca, 56/56 kiểm**, chạy renderer thật từ wheel trên project mới. Sổ và registry không đổi. Ảnh `other-state-mobile.png`, `other-state-desktop.png`.
+- Cùng checker browser trên dev6: `dev7-browser-binding-dev6-red/browser-binding.json`, missing-desktop đỏ **4/7**, không phải lỗi tải/setup; checker dừng có chủ đích tại ca đỏ đầu, không tuyên bố đã chạy đủ 8 ca cũ.
+- Cùng probe API/renderer trên hai wheel: `dev7-probe-dev6/probe/review-fixes.json` **18/24**, dev7 `dev7-probe-dev7/probe/review-fixes.json` **24/24**. Sáu assertion đỏ gồm ba chế độ binding và F2/F3/F4; các đối chứng dev6 vẫn đạt.
+- Poll/response hồi quy tập trung: `dev7-poll-regression/summary.json`, slow25/đổi task/timeout phục hồi **3 ca,14/14**, dùng harness dev13 và wheel dev7. Không chạy lại toàn bộ 13 ca; receipt dev6 70/70 là lịch sử, không gắn thành bằng chứng mới cho dev7.
+- `dev7-owner-refusal/owner-human-report.json`: **2/2**, JSON/human exit2 trong phiên AI, không ghi quyết định.
+- Source trước commit: 4 phản chứng presentation đỏ trên dev6 (lượt đầu có thêm10test được import, không tính thành14test mới); nhóm sửa tập trung **9/9**; kiểm liên quan **41/41**; sau thêm chặn feedback copy cũ, riêng presentation **4/4**. Lượt focused đầu lỗi3fixture do executable giả có basename không được nhận diện là OneCrew; sửa fixture thành `onecrew.exe`, giữ log cũ tại `obs2-codex-review-dev6/dev7-focused.log`.
+- Hồi quy snapshot cuối: `D:/OneCrewRuns/obs2/dev7-regression/tests.log`, **116/116, 0 skip**, 367.827s, runnerexit0. Export nguyên commit6cb2fa9, dùng venv cài đúng wheeldev7; TEMP/APPDATA/LOCALAPPDATA riêng. Chạy toàn module `test_obs1_ux`, `test_obs1_tracking`, `test_obs1_p2`, `test_obs1_r23_scope_secrets`, `test_obs2_review_dev6`, `test_obs2_review_dev5`, `test_obs2_cards`, `test_obs2_web`. Cả5test từng gãy và ca decoy environment đều đạt. Không bỏ ca hoặc biến lỗi thành skip.
+
+## Giới hạn
+
+Chưa push/tag/nghiệm thu hoặc nâng runtime; không gọi provider, không full gate. Chưa kiểm clipboard và lệnh chủ thành công từ terminal người dùng, pilot hay sổ lớn. Thành công lệnh chủ trong unit là fixture. Kết quả này chỉ cho phạm vi bản vá UI; không chứng nhận toàn bộ roadmap2.5. Gói dev6 giữ nguyên; MR-R/CP-1 không là điều kiện bàn giao.
+
+Runtime SignSDK vẫn **2.3.0.dev11**. Registry thật SHA256 `AACAD058F478898D41EB0294B619BE21191B83B488544961C080F4BFA0AEE01C` giữ nguyên sau kiểm.
+
+---
+
 # Bàn giao OBS-2 dev6 — sửa cross-review dev5, 04/11/2026
 
 **Đã sửa đủ 3 P2 và 4 P3 trong phạm vi local.** Bản thử `2.5.0.dev6`, product `693f11493b53d4089077d6f06f2a13084e097e5a`. Chưa phát hành/nghiệm thu; không nâng runtime thật. Các bàn giao dev5 trở xuống là lịch sử.
