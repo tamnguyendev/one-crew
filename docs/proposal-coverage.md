@@ -1,20 +1,20 @@
-# Dev6 cross-review fixes — cycle6 in progress
+# Dev6 cross-review fixes — cycle6 complete for isolated trial
 
 Source: `outputs/onecrew-as-qc/REVIEW-OBS2-DEV5-20261104.vi.md` (shared workspace); user authorized all 3 P2 + 4 P3. Baseline d2e592a / docs027e927. Preserve runtime/ledger/registry and dev5 package. No full gate or publish.
 
 | ID | Requirement | Type | Implementation evidence | Test evidence | Status |
 |---|---|---|---|---|---|
-| U6-1 | Only actual pending outputs go to checking column | UI | workStage | dev6-red.txt; focused tests | Partial |
-| U6-2 | Acceptance indicators agree with recorded root/milestone/handoff evidence | Reliability | tracking + reused engine handoff evidence | dev6-red.txt; real engine fixture | Partial |
-| U6-3 | Suppress write templates unless project hooks bind viewer runtime and state | Security | existing init/doctor hook checks | same/missing/other runtime/state tests | Partial |
-| U6-4 | Readable finding with original evidence retained | UI | finding text projection | structured/plain finding tests | Partial |
-| U6-5 | Text evidence is not called unreadable JSON | Data | optional receipt parsing | valid text vs missing blob | Partial |
-| U6-6 | Initial execution plan distinct from changes | UI | event projection/label | initial vs later revisions | Partial |
-| U6-7 | Multi-day Gantt keeps readable ticks | UI | existing gTicks | 4.01–3650 day boundaries | Partial |
+| U6-1 | Only actual pending outputs go to checking column | UI | workStage | final-wheel WAIT + DOC controls | Complete |
+| U6-2 | Acceptance indicators agree with recorded root/milestone/handoff evidence | Reliability | tracking + reused engine handoff evidence | real engine valid/forged fixture + final-wheel readiness | Complete |
+| U6-3 | Suppress write templates unless project hooks bind viewer runtime and state | Security | existing init/doctor hook checks | final-wheel same/missing/other runtime/state | Complete |
+| U6-4 | Readable finding with original evidence retained | UI | finding text projection | final-wheel probe + desktop/mobile | Complete |
+| U6-5 | Text evidence is not called unreadable JSON | Data | optional receipt parsing | final-wheel valid text vs missing blob + browser | Complete |
+| U6-6 | Initial execution plan distinct from changes | UI | event projection/label | final-wheel initial vs later revisions + browser | Complete |
+| U6-7 | Multi-day Gantt keeps readable ticks | UI | existing gTicks | final-wheel 4.01–3650 day boundaries | Complete |
 
-Source evidence: dev6-regression1.txt 86/87, one obsolete acceptance-task expectation corrected; dev6-focused-final.txt 20/20 including that replacement, valid/forged handoff and all new requirements; tooling2/2. Old wheel same behavioural probe2/18 (16 expected failures) in dev6-counterexample-dev5-v2; initial v1 probe failed fixture schema, excluded. Installed-wheel checks pending.
+Source evidence: dev6-regression1.txt 86/87, one obsolete acceptance-task expectation corrected; dev6-focused-final.txt 20/20 including that replacement, valid/forged handoff and all new requirements; tooling2/2. Old wheel same behavioural probe2/18 (16 expected failures) in dev6-counterexample-dev5-v2; initial v1 probe failed fixture schema, excluded. Final wheel18/18 in dev6-final-probe/probe/review-fixes.json; trial-693f114-1 package9/9, browser146/146, lifecycle-final4/4. Original lifecycle false report retained: full-pin comparison incorrectly included changing reused flag; re-evaluation checks stable identity and false→true transition from the same recorded responses. Owner refusal2/2.
 
-Validation plan: narrow counterexamples → relevant regression → immutable wheel + browser/slow-response checks. Expected commit `fix(obs2): close dev5 cross-review findings`. The viewer only describes recorded eligibility; owner CLI still validates the current project. No new authority or acceptance event.
+Complete7 / Partial0 for local fixes. Product693f114, wheel28d11a3f…d7052. Exact receipts, scoped slow-response regression and limits in docs/obs2/HANDOVER.vi.md. The viewer only describes recorded eligibility; owner CLI still validates the current project. No new authority or acceptance event. Not a full-gate, real-owner, provider, pilot or release claim.
 
 ---
 

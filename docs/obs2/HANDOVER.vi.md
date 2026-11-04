@@ -1,3 +1,57 @@
+# Bàn giao OBS-2 dev6 — sửa cross-review dev5, 04/11/2026
+
+**Đã sửa đủ 3 P2 và 4 P3 trong phạm vi local.** Bản thử `2.5.0.dev6`, product `693f11493b53d4089077d6f06f2a13084e097e5a`. Chưa phát hành/nghiệm thu; không nâng runtime thật. Các bàn giao dev5 trở xuống là lịch sử.
+
+## Mở và thử
+
+Trang thử: http://127.0.0.1:56815/ — health xác nhận dev6, read_only, pid27592, instance `cad819733d1c8c7f`. Nếu tự thoát sau 30 phút không request, mở lại bằng lệnh dưới.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/mo-obs2-dev6.ps1"
+```
+
+Dừng đúng viewer này:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/dung-obs2-dev6.ps1"
+```
+
+Dữ liệu mẫu cách ly; không cần duyệt để xem UI. Chọn CODE → Kết quả & kiểm chứng để xem finding dễ đọc; Thay đổi phân biệt kế hoạch ban đầu. Chọn DOC → Tiến độ để xem timeline. Các nút sao chép không tự thực hiện quyết định.
+
+| Finding | Kết quả bản sửa |
+|---|---|
+| P2 — cột Chờ kiểm sai | Chỉ vào cột khi có đầu ra thực sự chờ kiểm; node đã kiểm + node chưa chạy không đủ điều kiện |
+| P2 — giao nghiệm thu quá sớm | Trạng thái, cột và việc cần chủ cùng dựa vào bằng chứng mốc/handoff; mọi node verified chưa đủ |
+| P2 — lệnh ghi dùng runtime viewer khác project | Chỉ cung cấp khi hook xác nhận đúng executable và sổ; thiếu/lệch thì ẩn mẫu lệnh, giải thích, vẫn xem được dữ liệu |
+| P3 — finding JSON | Hiện mô tả/check không đạt, giữ nguồn gốc để tra |
+| P3 — evidence văn bản | Không gọi văn bản hợp lệ là JSON hỏng; blob mất vẫn cảnh báo |
+| P3 — kế hoạch ban đầu | Nhãn riêng, không gọi là điều chỉnh |
+| P3 — Gantt nhiều ngày | Vạch theo số ngày dễ đọc; có phản chứng biên 4.01–3650 ngày |
+
+Tái sử dụng `check_hooks`, `milestone_views`, finding register và bộ xác minh handoff v1. Tách helper đọc `handoff_evidence` khỏi `root_ready`; đường nghiệm thu thật vẫn kiểm working tree. Viewer chỉ phản ánh bằng chứng đã ghi, không tự xác nhận working tree hiện tại hay ghi sự kiện nghiệm thu.
+
+## Snapshot và kiểm chứng
+
+- Gói: `D:/OneCrewRuns/obs2/pkg/onecrew-2.5.0.dev6-obs2-693f114`; SHA256SUMS **16/16** khớp.
+- Wheel SHA256: `28d11a3f768ddc26286226254182b0b34e2aa94f866a203795e0cdf3956d7052`.
+- Trial: `D:/OneCrewRuns/obs2/trial-693f114-1`.
+- `verify-report.json`: **9/9**, cài wheel ngoài checkout, đối chiếu 9 module gồm engine; CLI/API và bảo toàn project/sổ/registry.
+- `browser/browser-report.json`: **146/146 assertion**, desktop 1280×720 và mobile 390×844, 73 mỗi cỡ. Đã xem ảnh kết quả và timeline mobile từ wheel; không tràn ngang cả trang.
+- Hồi quy OBS-1 trên wheel cuối: **13 ca, 70/70 assertion**, runner exit0; `D:/OneCrewRuns/obs2/dev6-obs1-regression/summary.json`. Tái dùng nguyên harness gói dev13 (SHA256 `b65423fc1c98c5023665b6c05c9a55022bdfd225b3388a3245971ac6548b47ff`): slow25, timeout desktop/mobile, đổi task, ngắt/kết nối lại, dữ liệu hỗn hợp, overview chậm và ca thời gian thật. Server test riêng đã dừng; viewer bàn giao vẫn mở trên sổ mẫu.
+- Cùng probe `check_review_fixes.py`: wheel dev5 **2/18 đạt, 16 đỏ** tại `dev6-counterexample-dev5-v2/probe/review-fixes.json`; wheel dev6 **18/18** tại `dev6-final-probe/probe/review-fixes.json` (đều dưới `D:/OneCrewRuns/obs2`). Bao phủ cả 7 finding, có đối chứng binding đúng và sổ không đổi.
+- `lifecycle-final.json`: mở/dùng lại/dừng/dừng lần nữa **4/4 đúng**, cùng server identity; project/state/package/registry giữ nguyên. Bản `lifecycle-report.json` ban đầu báo false vì so toàn bộ pin, gồm cờ `reused` phải đổi false→true. Giữ nguyên báo cáo cũ; bản cuối đánh giá lại chính phản hồi đã ghi theo identity ổn định và kiểm riêng chuyển cờ, có hash báo cáo gốc.
+- `dev6-owner-refusal/owner-human-report.json`: **2/2**, lệnh JSON/human vẫn bị từ chối trong phiên AI, không ghi sổ.
+- Source: 9 ca mới đỏ trên baseline (5 failure + 4 error vì helper mới chưa có), xanh **9/9** sau sửa. Hồi quy liên quan **86/87**, lỗi còn lại là kỳ vọng cũ tạo việc nghiệm thu dù chưa đủ bằng chứng; sửa kỳ vọng và chạy nhóm cuối **20/20** gồm ca này, handoff hợp lệ/giả và toàn bộ 9 ca mới. Tooling **2/2**. Không mô tả lượt 86/87 thành một lượt 87/87.
+- Lượt probe dev5 đầu bị lỗi schema fixture câu hỏi, giữ tại `dev6-counterexample-dev5` và không tính bằng chứng; bản v2 hoàn tất không exception.
+
+## Giới hạn và cách ly
+
+Không chạy toàn gate, không push/tag, không gọi provider thật, không nâng runtime. Chưa thử thành công lệnh chủ từ terminal người dùng, clipboard thật, pilot hoặc sổ lớn. Các ca chủ thành công trong source là fixture, không phải nghiệm thu. Mobile cho phép cuộn ngang bên trong Gantt.
+
+SignSDK vẫn **2.3.0.dev11**. Registry thật giữ SHA256 `AACAD058F478898D41EB0294B619BE21191B83B488544961C080F4BFA0AEE01C`. Gói dev5 giữ nguyên. Không chờ MR-R, không triển khai thêm OBS-2C/CP-1, không coi toàn bộ feature 2.5 đã hoàn tất.
+
+---
+
 # Bàn giao timeline OBS-2 dev5 — 04/11/2026
 
 **Bản thử hiện hành 2.5.0.dev5**, code `d2e592a4e99c3a79e69d7f627105200a92268803`. Đã khép 5 finding trong phạm vi local và kiểm wheel cuối; chưa phát hành/nghiệm thu/provider thật. Các phần dev4/dev3 bên dưới là lịch sử.
