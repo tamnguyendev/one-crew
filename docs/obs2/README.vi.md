@@ -7,7 +7,7 @@ Script dựng lấy **commit đầy đủ được chỉ định** qua `git arch
 ```powershell
 $Python = 'C:\Users\NUC\AppData\Local\Programs\Python\Python313\python.exe'
 & $Python docs/obs2/tools/build_obs2.py --commit <SHA-40-ký-tự> --out D:\OneCrewRuns\obs2\pkg\<tên-gói-mới>
-& $Python -I D:\OneCrewRuns\obs2\pkg\<tên-gói-mới>\verify\verify_obs2.py D:\OneCrewRuns\obs2\pkg\<tên-gói-mới> D:\OneCrewRuns\obs2\trial-<tên-mới>
+& $Python -I -X utf8 -B D:\OneCrewRuns\obs2\pkg\<tên-gói-mới>\verify\verify_obs2.py D:\OneCrewRuns\obs2\pkg\<tên-gói-mới> D:\OneCrewRuns\obs2\trial-<tên-mới>
 ```
 
 Chọn đường dẫn Python thường có thật trên máy, tránh alias Microsoft Store khi cần đối chiếu registry với PowerShell: alias đó có thể chuyển `%LOCALAPPDATA%` sang `Packages/.../LocalCache` dù chuỗi đường dẫn nhìn giống nhau. Báo cáo ghi cả đường dẫn yêu cầu, đường dẫn đã resolve và interpreter; hash chỉ chứng minh khoảng quan sát của đúng tệp đó.
@@ -30,7 +30,7 @@ Trong trang, chọn CODE/DOC rồi xem năm tab Tổng quan, Solution, Thay đ�
 Verifier nhỏ không tự mở Chrome/Edge hoặc chụp ảnh desktop/mobile. Gói kèm `verify/tests/obs1_ux_harness.py`, `obs2_ux_harness.py` và namespace riêng để lượt kiểm browser bên ngoài dùng đúng harness của snapshot. Sau khi verifier đã đạt, có thể chạy lượt browser riêng trên wheel đã cài:
 
 ```powershell
-& $Python -I -B D:\OneCrewRuns\obs2\pkg\<tên-gói-mới>\verify\obs2_artifact_browser.py D:\OneCrewRuns\obs2\pkg\<tên-gói-mới> D:\OneCrewRuns\obs2\trial-<tên-mới>
+& $Python -I -X utf8 -B D:\OneCrewRuns\obs2\pkg\<tên-gói-mới>\verify\obs2_artifact_browser.py D:\OneCrewRuns\obs2\pkg\<tên-gói-mới> D:\OneCrewRuns\obs2\trial-<tên-mới>
 ```
 
 Runner cần Chrome hoặc Edge có sẵn, kiểm tương tác ở 1280×720 và 390×844, ghi `trial-...\browser\browser-report.json` cùng ảnh Solution/Kết quả; không có browser thì không tính là đạt. Bằng chứng browser được ghi riêng trên đúng wheel/package ở bàn giao; chưa có bằng chứng đó thì không gọi OBS2-T8 hoàn tất. Không chạy lại full gate 2.2 chỉ để thử UI này.

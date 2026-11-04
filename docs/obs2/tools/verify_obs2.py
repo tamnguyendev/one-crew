@@ -84,20 +84,22 @@ def check(package, work):
     work.mkdir(parents=True); env = isolated_env(work)
     report = {'kind': 'obs2-installed-trial-report', 'package': str(package), 'manifest': manifest,
               'label': 'DỮ LIỆU THỬ TỔNG HỢP — không phải pilot/provider thật', 'steps': [],
+              'verifier': {'path': str(Path(__file__).resolve()), 'sha256': sha(__file__),
+                           'in_package': Path(__file__).resolve() == package / 'verify/verify_obs2.py'},
               'browser_verified': False, 'result': 'fail'}
     python = work / 'venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     opened = None
     def step(name, data): report['steps'].append({'name': name, 'result': 'pass', 'data': data})
     def cli(*args):
-        return json.loads(run([python, '-I', '-m', 'onecrew.v2.tracking_cli', '--project', work / 'project',
+        return json.loads(run([python, '-I', '-X', 'utf8', '-m', 'onecrew.v2.tracking_cli', '--project', work / 'project',
                               '--state-root', work / 'state', 'track', *args], env=env, cwd=work))
     http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     def get(path):
         with http.open(opened['url'] + path, timeout=20) as response: return json.load(response)
     try:
         step('fixed-snapshot-package-hashes', {'commit': manifest['code_commit'], 'wheel_sha256': sha(wheel)})
-        run([sys.executable, '-m', 'venv', work / 'venv'], env=env, cwd=work)
-        run([python, '-I', '-m', 'pip', 'install', '--no-index', '--no-deps', '--no-build-isolation', wheel], env=env, cwd=work)
+        run([sys.executable, '-X', 'utf8', '-m', 'venv', work / 'venv'], env=env, cwd=work)
+        run([python, '-I', '-X', 'utf8', '-m', 'pip', 'install', '--no-index', '--no-deps', '--no-build-isolation', wheel], env=env, cwd=work)
         code = ('import hashlib,importlib,importlib.metadata,json,sys\nfrom pathlib import Path\n'
                 'd=importlib.metadata.distribution("onecrew")\n'
                 'names=("tracking","tracking_web","tracking_work","tracking_work_web")\n'
@@ -106,12 +108,12 @@ def check(package, work):
                 'print(json.dumps({"version":d.version,"origins":{n:str(p) for n,p in mods.items()},'
                 '"module_sha256":{"onecrew/v2/"+n+".py":hashlib.sha256(p.read_bytes()).hexdigest() for n,p in mods.items()},'
                 '"direct_url":json.loads(d.read_text("direct_url.json"))}))')
-        origins = json.loads(run([python, '-I', '-c', code], env=env, cwd=work))
+        origins = json.loads(run([python, '-I', '-X', 'utf8', '-c', code], env=env, cwd=work))
         assert origins['version'] == manifest['version']
         assert origins['module_sha256'] == manifest['module_sha256']
         assert origins['direct_url']['archive_info']['hashes']['sha256'] == manifest['wheel']['sha256']
         step('offline-installed-origins', origins)
-        trial = json.loads(run([python, '-I', package / 'verify/scenario_obs2.py', work], env=env, cwd=work))
+        trial = json.loads(run([python, '-I', '-X', 'utf8', package / 'verify/scenario_obs2.py', work], env=env, cwd=work))
         trial.update(package=str(package), code_commit=manifest['code_commit'], version=manifest['version'], wheel_sha256=manifest['wheel']['sha256'])
         (work / 'trial.json').write_text(json.dumps(trial, ensure_ascii=False, indent=2), encoding='utf-8')
         step('synthetic-code-document-fixture', trial)
