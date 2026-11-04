@@ -32,7 +32,15 @@ Steps (every one from the installed venv, python -I, cwd = <work>, isolated LOCA
                     selection), slow_detail (a detail read slower than the poll still paints; an unrenderable 200 ends in the error state) and
                     prov LAST (R1 on P9: identical bytes of generations 0/1 keep their own labels; 310 newer events written through scenario
                     `prov_history`, generation 2 resumed from generation 1's artifact through `prov_same` and one more plain generation through
-                    `prov_more`, all on THIS run's ledger; a signal of the harness this verifier does not answer is a V14 problem)
+                    `prov_more`, all on THIS run's ledger; a signal of the harness this verifier does not answer is a V14 problem).
+                    dev13 (P2 of Codex's review of dev12): on a test clock installed by the proxy (the page's timers, Date and fetch; the answers
+                    are the server's real data) fk_fast (control), fk_slow25 (every read of P8 takes 25 s: painted at 25 s, one read at a time),
+                    fk_cycles (130 s of 25 s reads: every answer applied), fk_switch (late and out-of-order answers of the previous task),
+                    fk_timeout (a read that never answers: cancelled at 45 s with a message, 3 tries, then a retry button), fk_timeout1, fk_disc
+                    (disconnect while a slow read is pending, back with 25 s answers), fk_ovhang (the overview never answers); then rt_slow in
+                    REAL time (no virtual clock): the proxy holds P8's reads 25 s, then one read 70 s; the page is sampled every 500 ms and every
+                    API request is logged with its start and end, so the evidence (<work>/evidence/ux-fk_*/rt_*.json) tells "the server answered"
+                    apart from "the page showed it"
   V15 open-identity `track open` from the installed wheel: a second open reuses the same instance; a marker whose instance does not match the server
                     answering on its port is NOT reused (a new server starts, the other one is not killed); two concurrent opens share one server;
                     `track stop` stops only the matching server and removes the marker; a second stop refuses
@@ -1333,13 +1341,21 @@ def main(pkg, work):
             scenarios = [('ux01', 'desktop'), ('ux02', 'desktop'), ('ux03', 'desktop'), ('ux04', 'desktop'), ('ux05', 'desktop'), ('ux06', 'desktop'), ('ux07', 'desktop'),
                          ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop'),
                          ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile'), ('gantt', 'desktop'), ('gantt', 'mobile'), ('p2a', 'desktop'), ('gantt_now', 'desktop'), ('evid', 'desktop'),
-                         ('stale_detail', 'desktop'), ('stale_detail', 'mobile'), ('slow_detail', 'desktop'), ('prov', 'desktop')]   # dev12 (R4, R4xR1, R1); prov LAST: it writes into P9
+                         ('stale_detail', 'desktop'), ('stale_detail', 'mobile'), ('slow_detail', 'desktop'),
+                         ('fk_fast', 'desktop'), ('fk_slow25', 'desktop'), ('fk_cycles', 'desktop'), ('fk_switch', 'desktop'), ('fk_timeout', 'desktop'), ('fk_timeout1', 'desktop'),
+                         ('fk_disc', 'desktop'), ('fk_ovhang', 'desktop'), ('rt_slow', 'desktop'),   # dev13: P2 of Codex's review of dev12 (test clock, then REAL time)
+                         ('prov', 'desktop')]   # dev12 (R4, R4xR1, R1); prov LAST: it writes into P9
             for name, size in scenarios:
                 width, height = ux.SIZES[size]
-                result = ux.run(browser, proxy.url, name, width, height, profile,
-                                budget=150000 if name == 'stale_detail' else 45000 if name in ('ux01', 'disc', 'clock', 'gantt', 'p2a', 'gantt_now', 'evid', 'slow_detail', 'prov') else 30000)
+                realtime = name.startswith('rt_')
+                result = ux.run(browser, proxy.url, name, width, height, profile, realtime=realtime,
+                                budget=240000 if realtime else 300000 if name.startswith('fk_') else
+                                150000 if name == 'stale_detail' else 45000 if name in ('ux01', 'disc', 'clock', 'gantt', 'p2a', 'gantt_now', 'evid', 'slow_detail', 'prov') else 30000)
                 results[f'{name}@{size}'] = {'ok': result.get('ok'), 'polls': result.get('polls'), 'checks': result.get('checks'), 'notes': result.get('notes'), 'error': result.get('error'),
                                              'scrollWidth': result.get('scrollWidth'), 'innerWidth': result.get('innerWidth')}
+                if name.startswith(('fk_', 'rt_')):          # dev13: what the server answered and when (requests) apart from what the page showed (samples)
+                    (evidence_dir / f'ux-{name}-{size}.json').write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding='utf-8')
+                    results[f'{name}@{size}']['evidence'] = str(evidence_dir / f'ux-{name}-{size}.json')
                 if not result.get('ok'): problems.append(f'{name}@{size}: ' + str(result.get('error') or result.get('notes'))[:300])
             if len(writes) != 2 or not all(writes): problems.append(f'the ledger writes during ux01 did not happen: {writes}')
             facts['prov_signals'] = prov

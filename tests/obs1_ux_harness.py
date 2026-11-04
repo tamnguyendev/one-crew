@@ -17,6 +17,13 @@ carry no hash and no raw path as main text), ux08 (narrow layout: no horizontal 
 previously selected task never overwrites the selected one), disc (disconnect then reconnect keeps the selection), stale_detail (R4 of 03/11: a failed or late detail request never leaves another task's
 content or reply commands under the selection; the overview badge and the detail freshness are shown apart). Shared by the unit tests
 (tests/test_obs1_browser.py) and the package verifier (V14).
+
+P2 of Codex's review of dev12 (detail reads slower than 20 s): `fk_*` scenarios load the page as `/?__fake=1`, which the proxy serves with FAKE
+installed first (a test clock for the page's timers, Date and fetch; the bodies are the real server's answers, only their arrival time is
+chosen), so 25-second answers, reads that never answer and late answers of a previous selection run in seconds and in an exact order;
+`rt_slow` runs in REAL time (`run(..., realtime=True)`: no virtual clock; the proxy delays /api/task of P8 by `/__fault?...&delay=` with an
+optional `count`, logs every API request with its start and end at `/__log`, and holds the harness page's load event with `/__hold` until
+the harness calls `/__release`, so --dump-dom waits for the result).
 """
 import json
 import re
@@ -37,12 +44,19 @@ def chrome_args(exe, profile, width, height, budget):
             f'--window-size={width},{height}', f'--virtual-time-budget={budget}']
 
 
-def run(exe, proxy_url, scenario, width, height, profile, budget=30000, extra=''):
-    """One scenario in a window of width×height; returns the harness result dict (or {'ok': False, 'error': …})."""
+def run(exe, proxy_url, scenario, width, height, profile, budget=30000, extra='', realtime=False):
+    """One scenario in a window of width×height; returns the harness result dict (or {'ok': False, 'error': …}). `realtime=True` (P2, dev13):
+    no virtual time at all - the page and the harness run on the real clock against the real server (through the proxy); the harness page holds
+    its load event with an image the proxy answers only when the harness is done, so --dump-dom waits for the result; `budget` is then the
+    longest the scenario may take, in real milliseconds."""
     url = f'{proxy_url}__ux?s={scenario}&w={width}&h={height}{extra}'
+    args = chrome_args(exe, profile, width, height, budget)
+    if realtime:
+        args = [a for a in args if not a.startswith('--virtual-time-budget')]
+        url += '&rt=1&hold=' + f'{scenario}-{time.monotonic_ns()}'
     done = None
     for attempt in (1, 2):                         # a hung headless Chrome (seen once in ~40 runs) is retried once
-        try: done = subprocess.run(chrome_args(exe, profile, width, height, budget) + ['--dump-dom', url], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=240); break
+        try: done = subprocess.run(args + ['--dump-dom', url], capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=(budget / 1000 + 120) if realtime else 240); break
         except subprocess.TimeoutExpired:
             if attempt == 2: return {'ok': False, 'error': 'headless Chrome did not finish twice (timeout)'}
     found = re.search(r'<pre id="out">(.*?)</pre>', done.stdout, re.S)
@@ -63,7 +77,7 @@ def screenshot(exe, proxy_url, scenario, width, height, profile, path, budget=15
 
 class Proxy:
     def __init__(self, target, on_signal=None):
-        state = {'drop': False, 'fault': None, 'faulted': 0, 'pending': 0}
+        state = {'drop': False, 'fault': None, 'faulted': 0, 'pending': 0, 'log': [], 'holds': {}}
         self.state = state
         lock = threading.Lock()
 
@@ -73,12 +87,51 @@ class Proxy:
             def log_message(self, *a): pass
 
             def _send(self, status, data, ctype):
-                self.send_response(status); self.send_header('Content-Type', ctype); self.send_header('Content-Length', str(len(data))); self.send_header('Cache-Control', 'no-store'); self.end_headers(); self.wfile.write(data)
+                try:
+                    self.send_response(status); self.send_header('Content-Type', ctype); self.send_header('Content-Length', str(len(data))); self.send_header('Cache-Control', 'no-store'); self.end_headers(); self.wfile.write(data)
+                    self._outcome = status
+                except OSError:                                  # the page cancelled the request (its own timeout): recorded, never a traceback
+                    self._outcome = 'client-gone'; self.close_connection = True
 
             def do_GET(self):
                 url = urllib.parse.urlsplit(self.path)
+                if url.path.startswith('/api/'):                 # P2 (dev13): every API request with its start and end (seconds since the epoch), so a run tells
+                    params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}   # "the server answered" apart from "the page showed it"
+                    entry = {'t0': time.time(), 'kind': url.path[5:], 'plan': params.get('plan'), 'path': self.path}
+                    with lock: state['log'].append(entry)
+                    self._outcome = None
+                    try: return self._get(url)
+                    finally: entry['t1'] = time.time(); entry['outcome'] = self._outcome or 'closed'
+                return self._get(url)
+
+            def _get(self, url):
                 if url.path == '/__ux':
-                    return self._send(200, HARNESS.encode('utf-8'), 'text/html; charset=utf-8')
+                    params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+                    page = HARNESS
+                    if (params.get('s') or '').startswith('fk_'): page = page.replace('<iframe id="f" src="/">', '<iframe id="f" src="/?__fake=1">', 1)   # the page with the test clock
+                    if params.get('rt') == '1':                  # real time: an image held until the harness is done keeps the load event (and --dump-dom) back
+                        page = page.replace('<iframe id="f"', '<img id="hold" alt="" style="position:absolute;width:1px;height:1px" src="/__hold?id=' + urllib.parse.quote(params.get('hold') or '') + '"><iframe id="f"', 1)
+                    return self._send(200, page.encode('utf-8'), 'text/html; charset=utf-8')
+                if url.path == '/' and '__fake=1' in url.query:  # TEST ONLY: the real page with the fake clock (FAKE) installed before its own script
+                    try:
+                        with urllib.request.urlopen(target, timeout=30) as r: html = r.read().decode('utf-8')
+                    except OSError:
+                        self.close_connection = True; self.connection.close(); return
+                    return self._send(200, html.replace('<head>', '<head><script>' + FAKE + '</script>', 1).encode('utf-8'), 'text/html; charset=utf-8')
+                if url.path == '/__hold':
+                    params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+                    with lock: event = state['holds'].setdefault(params.get('id', ''), threading.Event())
+                    event.wait(float(params.get('max') or 420))
+                    return self._send(200, GIF, 'image/gif')
+                if url.path == '/__release':
+                    params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+                    with lock: state['holds'].setdefault(params.get('id', ''), threading.Event()).set()
+                    return self._send(200, b'{"ok":true}', 'application/json')
+                if url.path == '/__log':
+                    if 'clear=1' in url.query:
+                        with lock: state['log'] = []
+                    with lock: entries = [dict(e) for e in state['log']]
+                    return self._send(200, json.dumps({'log': entries, 'now': time.time()}).encode('utf-8'), 'application/json')
                 if url.path == '/__signal':
                     params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
                     name = params.get('name', '')
@@ -92,7 +145,8 @@ class Proxy:
                     params = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
                     if not params.get('status'):
                         mode = params.get('detail', 'ok')
-                        state['fault'] = None if mode == 'ok' and not params.get('delay') else {'mode': mode, 'plan': params.get('plan') or None, 'delay': int(params.get('delay') or 0)}
+                        state['fault'] = None if mode == 'ok' and not params.get('delay') else {'mode': mode, 'plan': params.get('plan') or None, 'delay': int(params.get('delay') or 0),
+                                                                                                'left': int(params['count']) if params.get('count') else None}   # count: only the next N matching requests (P2, dev13)
                     return self._send(200, json.dumps({'fault': state['fault'], 'faulted': state['faulted'], 'pending': state['pending']}).encode('utf-8'), 'application/json')
                 if state['drop'] and url.path.startswith('/api/'):
                     self.close_connection = True; self.connection.close(); return
@@ -100,7 +154,11 @@ class Proxy:
                 if fault and url.path == '/api/task':
                     plan = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}.get('plan')
                     if not fault['plan'] or fault['plan'] == plan:
-                        with lock: state['pending'] += 1
+                        with lock:
+                            if fault.get('left') is not None:
+                                fault['left'] -= 1
+                                if fault['left'] <= 0 and state['fault'] is fault: state['fault'] = None
+                            state['pending'] += 1
                         try:
                             if fault['delay']: time.sleep(fault['delay'] / 1000)
                             if fault['mode'] == 'drop':
@@ -128,7 +186,55 @@ class Proxy:
         self.url = f'http://127.0.0.1:{self.server.server_address[1]}/'
 
     def stop(self):
+        for event in list(self.state['holds'].values()): event.set()            # never leave a held image (and its Chrome) waiting
         self.server.shutdown(); self.server.server_close()
+
+
+GIF = b'GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;'
+
+# FAKE (P2 of Codex's review of dev12, TEST ONLY): installed by the proxy at the top of the real page (`/?__fake=1`) before the page's own script, so
+# the page's timers, Date and fetch run on a test clock the harness moves with `__fake.advance(ms)`: a 25-second server answer, a read that never
+# answers, a reply that arrives after another task was selected - in a few real seconds and in an exact order. The bodies are the REAL server's
+# answers (fetched at once through the proxy); only WHEN the page receives them is decided here: per request `{delay: ms}`, `{hang: true}` (never
+# answered: only the page's own abort ends it), `{fail: true}` (a network failure), `{status: 503}`, by `__fake.overview`, `__fake.task` or
+# `__fake.plans[<selector>]` (an object or a function of the request). `__fake.reqs` records every request: kind, plan, start, end, state
+# (pending, delivered, aborted, failed). The page's code is never changed.
+FAKE = r'''(function(){'use strict';
+var RD=Date, rST=window.setTimeout.bind(window), rFetch=window.fetch.bind(window), now=RD.now(), seq=0, timers=[], reqs=[], errors=[];
+var F={reqs:reqs, errors:errors, overview:null, task:null, plans:{}, now:function(){return now}};
+class FDate extends RD{constructor(...a){if(a.length===0)super(now);else super(...a)} static now(){return now}}
+window.Date=FDate;
+window.setTimeout=function(fn,ms){var id=++seq;timers.push({id:id,at:now+Math.max(0,+ms||0),fn:fn,a:[].slice.call(arguments,2),every:0,ord:id});return id};
+window.setInterval=function(fn,ms){var id=++seq,e=Math.max(1,+ms||0);timers.push({id:id,at:now+e,fn:fn,a:[],every:e,ord:id});return id};
+window.clearTimeout=window.clearInterval=function(id){for(var i=0;i<timers.length;i++)if(timers[i].id===id){timers.splice(i,1);return}};
+function policy(r){var p=r.kind==='overview'?F.overview:r.kind==='task'?((r.plan&&F.plans&&F.plans[r.plan])||F.task):null;if(typeof p==='function')p=p(r);return p||{}}
+window.fetch=function(u,o){o=o||{};var url=String(u),m=/[?&]plan=([^&]*)/.exec(url);
+  var r={id:++seq,url:url,kind:url.indexOf('/api/task')===0?'task':url.indexOf('/api/overview')===0?'overview':'other',plan:m?decodeURIComponent(m[1]):null,start:now,end:null,state:'pending'};
+  r.pol=policy(r);reqs.push(r);
+  r.body=rFetch(url,{cache:'no-store'}).then(function(res){return res.text().then(function(t){return {status:res.status,type:res.headers.get('Content-Type')||'application/json',text:t}})},function(e){return {neterr:String(e)}});
+  r.due=r.pol.hang?Infinity:now+(r.pol.delay||0);
+  return new Promise(function(resolve,reject){r.resolve=resolve;r.reject=reject;var sig=o.signal;
+    if(sig){var stop=function(){if(r.state!=='pending')return;r.state='aborted';r.end=now;reject(sig.reason!==undefined?sig.reason:new DOMException('The operation was aborted.','AbortError'))};
+      if(sig.aborted)stop();else sig.addEventListener('abort',stop)}})};
+async function flush(){for(var i=0;i<6;i++)await new Promise(function(res){rST(res,0)})}
+async function deliver(r){var b=await r.body;if(r.state!=='pending')return;r.end=now;
+  if(r.pol.fail||b.neterr){r.state='failed';r.reject(new TypeError('Failed to fetch'));return}
+  if(r.pol.status){r.state='delivered';r.status=r.pol.status;r.resolve(new Response(JSON.stringify({error:'test fault (fake clock)'}),{status:r.pol.status,headers:{'Content-Type':'application/json'}}));return}
+  r.state='delivered';r.status=b.status;r.resolve(new Response(b.text,{status:b.status,headers:{'Content-Type':b.type}}))}
+F.failPending=function(kind){reqs.forEach(function(r){if(r.state==='pending'&&(!kind||r.kind===kind)){r.state='failed';r.end=now;r.reject(new TypeError('Failed to fetch'))}})};
+F.advance=async function(ms){var target=now+Math.max(0,+ms||0);await flush();
+  for(var guard=0;guard<200000;guard++){
+    await Promise.all(reqs.filter(function(r){return r.state==='pending'&&r.due<=target}).map(function(r){return r.body}));
+    var t=null,q=null;
+    timers.forEach(function(x){if(x.at<=target&&(!t||x.at<t.at||(x.at===t.at&&x.ord<t.ord)))t=x});
+    reqs.forEach(function(r){if(r.state==='pending'&&r.due<=target&&(!q||r.due<q.due||(r.due===q.due&&r.id<q.id)))q=r});
+    if(q&&(!t||q.due<=t.at)){now=Math.max(now,q.due);await deliver(q);await flush();continue}
+    if(t){now=Math.max(now,t.at);if(t.every){t.at+=t.every;t.ord=++seq}else timers.splice(timers.indexOf(t),1);
+      try{t.fn.apply(window,t.a)}catch(e){errors.push(String(e&&e.message||e))}await flush();continue}
+    break}
+  now=Math.max(now,target);await flush()};
+window.__fake=F;
+})();'''
 
 
 HARNESS = r'''<!doctype html><html><head><meta charset="utf-8"><title>OBS-1 UX harness</title>
@@ -156,9 +262,28 @@ async function select(plan){rowOf(plan).click();return await waitFor(()=>shown(p
 function key(el,k){el.dispatchEvent(new w.KeyboardEvent('keydown',{key:k,bubbles:true,cancelable:true}))}
 function seqOf(){const m=/seq (\d+)/.exec($('#conn').textContent);return m?parseInt(m[1],10):null}
 async function signal(name,params){var q='';Object.keys(params||{}).forEach(function(k){q+='&'+k+'='+encodeURIComponent(params[k])});return await (await fetch('/__signal?name='+encodeURIComponent(name)+q)).json()}
+// ---- P2 of Codex's review of dev12: the test clock (fk_*, FAKE in the proxy) and the real-time run (rt_*) ----
+const FK=(S||'').indexOf('fk_')===0, RT=qs.get('rt')==='1';
+let fk=null, T0=0; const samples=[];
+async function fakeLoaded(){w=f.contentWindow;d=w.document;fk=w.__fake;if(!fk)throw new Error('the fake clock is not installed in the page');
+  for(let i=0;i<60&&!($('#conn')&&$('#conn').className==='ok'&&$$('li.task').length>0);i++)await fk.advance(0);
+  if(!($('#conn')&&$('#conn').className==='ok'))throw new Error('fake clock: the first overview was never painted');watchPolls();w.focus()}
+function P1cmds(){return $$('#detail code').map(c=>c.textContent).filter(c=>/question answer/.test(c)).length}
+function snap(tag){const t=$('#dtitle'),ds=$('#dstatus'),s=st(),dc=$('#dconn');          // what the reader sees at this moment, with the page's own state
+  const x={t:(fk?fk.now():Date.now())-T0,tag:tag||null,title:t?t.textContent.slice(0,24):'',loaded:!!$('#detail .dsum'),state:s.detailState,dstatus:ds?ds.getAttribute('data-state'):null,dtext:ds?ds.textContent.slice(0,260):null,
+    dconn:dc&&!dc.hidden?dc.textContent.slice(0,120):null,conn:$('#conn').className,sel:s.selected&&s.selected.plan,dfor:s.detailFor&&s.detailFor.plan,okAt:s.detailOkAt,cmds:P1cmds(),retry:!!$('#dretry'),
+    inflight:fk?fk.reqs.filter(r=>r.kind==='task'&&r.state==='pending').length:null};
+  samples.push(x);return x}
+async function fadv(ms,step,tag){step=step||500;let left=ms;while(left>0){const s=Math.min(step,left);await fk.advance(s);left-=s;snap(tag)}}
+async function fselect(plan){rowOf(plan).click();await fk.advance(0);for(let i=0;i<40&&!shown(plan);i++)await fk.advance(100);return shown(plan)}
+function treqs(plan){return fk.reqs.filter(r=>r.kind==='task'&&(!plan||r.plan===plan))}
+function ovreqs(){return fk.reqs.filter(r=>r.kind==='overview')}
+function only(plan,list){const k=rowOf(plan).dataset.plan;return list.every(x=>x.title.indexOf(plan)===0&&(!x.dfor||x.dfor===k))}   // nothing of another task under this selection
+function bad(plan,list){const k=rowOf(plan).dataset.plan;return list.filter(x=>x.title.indexOf(plan)!==0||(x.dfor&&x.dfor!==k)).slice(0,3)}
 await new Promise(r=>{if(f.contentDocument&&f.contentDocument.readyState==='complete'&&f.contentWindow.location.pathname==='/')r();else f.addEventListener('load',r,{once:true})});
-await loaded();
+let loadErr=null; try{if(FK)await fakeLoaded();else await loaded()}catch(e){loadErr=e}
 try{
+if(loadErr)throw loadErr;
 if(S==='ux01'){
   await select('P1'); const pane=$('#detailpane'); $('details[data-k="log"]').open=true;
   const ev=$$('ol.ev > li').find(li=>li.querySelector('.clip')); check('an event with evidence exists', ev);
@@ -600,11 +725,140 @@ if(S==='prov'){                                        // R1: evidence is attrib
   }
 }
 // ---- R1 provenance (lane R1) end ----
+// ---- P2 (Codex's review of dev12): detail reads slower than 20 s. fk_*: the page on the test clock (FAKE), answers carry the real server's data;
+//      rt_slow: real time through the proxy (only /api/task of P8 slowed), the page sampled every 500 ms, every API request logged by the proxy ----
+if(S==='fk_fast'){                                     // control: quick answers keep the selected task fresh on every poll
+  await fselect('P1'); const P8=rowOf('P8').dataset.plan; T0=fk.now(); rowOf('P8').click(); await fk.advance(0); snap('click');
+  await fadv(20000,500);
+  const mine=treqs(P8), done=mine.filter(r=>r.state==='delivered'), okAts=new Set(samples.map(x=>x.okAt).filter(Boolean));
+  check('control: P8 painted right after its quick answer', samples.some(x=>x.t<=500&&x.loaded&&x.state==='ok'&&x.title.indexOf('P8')===0), samples.slice(0,3));
+  check('control: every poll refreshed the detail (one read per poll, each one applied)', done.length>=8 && okAts.size>=8, {reads:mine.length, delivered:done.length, okAts:okAts.size});
+  check('control: the overview kept polling and stayed OK', ovreqs().filter(r=>r.start>=T0).length>=8 && samples.every(x=>x.conn==='ok'), ovreqs().length);
+  check('control: no status line once painted, nothing of P1 under P8', only('P8',samples) && samples.every(x=>x.cmds===0) && samples.filter(x=>x.loaded).every(x=>!x.dstatus), bad('P8',samples));
+}
+if(S==='fk_slow25'){                                   // P2: every read of P8 takes 25 s (more than 20 s); the overview stays quick
+  await fselect('P1'); const P8=rowOf('P8').dataset.plan; fk.plans[P8]={delay:25000}; T0=fk.now(); rowOf('P8').click(); await fk.advance(0); snap('click');
+  await fadv(30000,500);
+  const mine=treqs(P8), first=mine[0], before=mine.filter(r=>r.start<T0+25000), painted=samples.find(x=>x.loaded&&x.state==='ok'&&x.title.indexOf('P8')===0);
+  check('setup: the server answered the first P8 read after 25 s', first && first.state==='delivered' && first.end-first.start===25000, first&&{state:first.state, took:first.end===null?null:first.end-first.start});
+  check('the 25 s answer of the selected task is painted (not thrown away by later polls)', painted && painted.t>=25000 && painted.t<=25500, {painted:painted||null, last:samples[samples.length-1]});
+  check('one read at a time: no second P8 read started while the first was pending', before.length===1 && samples.every(x=>x.inflight<=1), {started:before.map(r=>r.start-T0)});
+  check('the overview kept polling during the slow read', ovreqs().filter(r=>r.start>=T0&&r.start<T0+25000).length>=10 && samples.every(x=>x.conn==='ok'), ovreqs().filter(r=>r.start>=T0).length);
+  check('nothing of P1 under P8 at any moment', only('P8',samples) && samples.every(x=>x.cmds===0), bad('P8',samples));
+}
+if(S==='fk_cycles'){                                   // P2: 130 s with every P8 read taking 25 s, the selection unchanged
+  await fselect('P1'); const P8=rowOf('P8').dataset.plan; fk.plans[P8]={delay:25000}; T0=fk.now(); rowOf('P8').click(); await fk.advance(0); snap('click');
+  await fadv(130000,1000);
+  const mine=treqs(P8), done=mine.filter(r=>r.state==='delivered'), i0=samples.findIndex(x=>x.loaded&&x.state==='ok');
+  check('P8 painted after its first 25 s answer', i0>=0 && samples[i0].t<=26000, i0>=0?samples[i0]:samples[samples.length-1]);
+  check('after the first paint P8 stays shown (no loading pane, no error) while every refresh takes 25 s', i0>=0 && samples.slice(i0).every(x=>x.loaded&&x.state==='ok'&&!x.dstatus&&x.title.indexOf('P8')===0), i0>=0?samples.slice(i0).filter(x=>!(x.loaded&&x.state==='ok'&&!x.dstatus)).slice(0,3):null);
+  check('reads never overlap and stay bounded (about one every 26 s)', samples.every(x=>x.inflight<=1) && mine.length>=4 && mine.length<=6, {reads:mine.length, starts:mine.map(r=>r.start-T0)});
+  const late=done.filter(r=>r.end<=T0+128000), applied=late.filter(r=>samples.some(x=>x.okAt&&Date.parse(x.okAt)>=r.end));
+  check('every answer the server gave was applied by the page (none thrown away)', late.length>=4 && applied.length===late.length, {answers:late.map(r=>r.end-T0), applied:applied.length});
+}
+if(S==='fk_switch'){                                   // the selection changes while the old read is pending: its late or out-of-order answer never shows
+  const P1=rowOf('P1').dataset.plan, P8=rowOf('P8').dataset.plan;
+  // (a) P1 pending 25 s; P8 selected at 5 s answers at 8 s; P1's answer would come at 25 s
+  fk.plans[P1]={delay:25000}; fk.plans[P8]={delay:3000}; T0=fk.now(); rowOf('P1').click(); await fk.advance(0); snap('P1');
+  await fadv(5000,500); rowOf('P8').click(); await fk.advance(0); snap('P8'); await fadv(25000,500);
+  const a=samples.filter(x=>x.t>=5000);
+  check('(a) P8 painted from its own 3 s answer', a.some(x=>x.t<=8500&&x.loaded&&x.state==='ok'&&x.title.indexOf('P8')===0), a.slice(0,8));
+  check('(a) from the P8 click on only P8 under the selection: never P1 data, evidence or commands', only('P8',a) && a.every(x=>x.cmds===0), bad('P8',a));
+  // (b) out of order: P1 answers at 4 s, after P8 was selected at 1 s; P8 answers at 11 s
+  $('#close').click(); await fk.advance(0); samples.length=0; fk.plans[P1]={delay:4000}; fk.plans[P8]={delay:10000};
+  T0=fk.now(); rowOf('P1').click(); await fk.advance(0); await fadv(1000,500); rowOf('P8').click(); await fk.advance(0); snap('P8'); await fadv(14000,500);
+  const b=samples.filter(x=>x.t>=1000), wait=b.filter(x=>x.t<11000);
+  check('(b) while P8 waits and P1 answers first: P8 heading, loading, nothing of P1', wait.length>0 && only('P8',wait) && wait.every(x=>!x.loaded&&x.cmds===0), bad('P8',wait));
+  check('(b) P8 painted from its own answer at 11 s', b.some(x=>x.t>=11000&&x.t<=11500&&x.loaded&&x.state==='ok'&&x.title.indexOf('P8')===0), b.filter(x=>x.t>=10500).slice(0,3));
+  // (c) P1, P8, P1 again within 2 s, every read 25 s: the last selection P1 is painted from its own answer, nothing of P8 under it
+  $('#close').click(); await fk.advance(0); samples.length=0; fk.plans[P1]={delay:25000}; fk.plans[P8]={delay:25000};
+  T0=fk.now(); rowOf('P1').click(); await fk.advance(0); await fadv(1000,500); rowOf('P8').click(); await fk.advance(0); await fadv(1000,500); rowOf('P1').click(); await fk.advance(0); snap('P1 again');
+  await fadv(30000,500);
+  const c=samples.filter(x=>x.t>=2000);
+  check('(c) the last selection P1 is painted from its own 25 s answer', c.some(x=>x.t>=27000&&x.t<=27500&&x.loaded&&x.state==='ok'&&x.title.indexOf('P1')===0), c.filter(x=>x.t>=26500).slice(0,3));
+  check('(c) after the last click only P1 under the selection, never P8 data', only('P1',c), bad('P1',c));
+}
+if(S==='fk_timeout'){                                  // a read that never answers: a clear timeout, a few automatic tries, then the reader's button; the overview goes on
+  await fselect('P1'); const P8=rowOf('P8').dataset.plan; fk.plans[P8]={hang:true}; T0=fk.now(); rowOf('P8').click(); await fk.advance(0); snap('click');
+  await fadv(50000,1000);
+  const r1=treqs(P8)[0], s47=samples.find(x=>x.t>=47000);
+  check('setup: the first P8 read never got an answer', r1 && r1.pol && r1.pol.hang===true);
+  check('after 45 s without an answer the page ends the wait: the read is cancelled at 45 s', r1 && r1.state==='aborted' && r1.end-r1.start===45000, r1&&{state:r1.state, took:r1.end===null?null:r1.end-r1.start});
+  check('the timeout is said under the P8 heading (error state, the 45 s limit named, no "đang tải")', s47 && s47.title.indexOf('P8')===0 && s47.state==='error' && s47.dstatus==='error' && /45 s/.test(s47.dtext||'') && !/đang tải/.test(s47.dtext||''), s47||null);
+  await fadv(600000,5000);
+  const all=treqs(P8), last=samples[samples.length-1];
+  check('automatic tries are bounded: 3 reads of P8 in 10 minutes, never two at once', all.length===3 && samples.every(x=>x.inflight<=1), {reads:all.length, starts:all.slice(0,8).map(r=>r.start-T0)});
+  check('after the third timeout the page stops trying and offers a retry button with the reason', last.retry && last.dstatus==='error' && /45 s/.test(last.dtext||'') && /Thử lại/.test(last.dtext||''), last);
+  check('the overview kept polling and stayed OK through the timeouts', ovreqs().filter(r=>r.start>T0+590000).length>=3 && last.conn==='ok', ovreqs().length);
+  check('nothing of P1 under P8 during the timeouts', only('P8',samples) && samples.every(x=>x.cmds===0), bad('P8',samples));
+  fk.plans[P8]={}; const k=treqs(P8).length, btn=$('#dretry'); if(btn)btn.click(); await fk.advance(0); await fadv(3000,500);
+  const end=samples[samples.length-1];
+  check('recovery: the retry button starts exactly one read and P8 is painted', !!btn && treqs(P8).length===k+1 && end.loaded && end.state==='ok' && end.title.indexOf('P8')===0 && !end.dstatus, {btn:!!btn, reads:treqs(P8).length-k, end});
+}
+if(S==='fk_timeout1'){                                 // only the first read hangs: the page ends it, and the next automatic try paints P8 (finite recovery)
+  await fselect('P1'); const P8=rowOf('P8').dataset.plan; let n=0; fk.plans[P8]=function(){n++;return n===1?{hang:true}:{}};
+  T0=fk.now(); rowOf('P8').click(); await fk.advance(0); snap('click'); await fadv(60000,500);
+  const painted=samples.find(x=>x.loaded&&x.state==='ok'&&x.title.indexOf('P8')===0), reads=treqs(P8);
+  check('the hung read is ended by the page (cancelled), never left pending', reads.length>=1 && reads[0].state==='aborted', reads.map(r=>[r.start-T0, r.state]));
+  check('P8 is painted by a later automatic try within 48 s', painted && painted.t<=48000, painted||samples[samples.length-1]);
+  check('after recovery: no warning left, nothing of P1 under P8', samples[samples.length-1].state==='ok' && !samples[samples.length-1].dstatus && only('P8',samples), bad('P8',samples));
+}
+if(S==='fk_disc'){                                     // the connection drops while a slow P8 read is pending; back with 25 s answers: the same task again
+  await fselect('P8'); const P8=rowOf('P8').dataset.plan; fk.plans[P8]={delay:25000}; T0=fk.now(); await fadv(4000,500);
+  check('setup: a slow P8 read is pending when the connection drops', treqs(P8).some(r=>r.state==='pending'), treqs(P8).map(r=>r.state));
+  fk.overview={fail:true}; fk.plans[P8]={fail:true}; fk.failPending(); await fadv(20000,1000,'lost');
+  const lost=samples.filter(x=>x.tag==='lost'), during=treqs(P8).filter(r=>r.start>T0+4000&&r.start<=T0+24000);
+  check('disconnected: the badge says so; P8 stays selected with its data marked stale', lost.some(x=>x.conn==='bad') && lost.every(x=>x.sel===P8&&x.loaded) && lost.some(x=>x.state==='stale'), lost.slice(-2));
+  check('no detail read storm while disconnected', during.length<=2, during.length);
+  fk.overview=null; fk.plans[P8]={delay:25000}; const T1=fk.now()-T0; await fadv(40000,1000,'back');
+  const back=samples.filter(x=>x.tag==='back'), ok=back.find(x=>x.state==='ok'&&x.loaded&&!x.dstatus&&x.conn==='ok');
+  check('reconnected with 25 s answers: the same task P8 is fresh again (no warning) within 30 s', ok && ok.title.indexOf('P8')===0 && ok.sel===P8 && ok.t-T1<=30000, {ok:ok||null, last:back[back.length-1]});
+  check('reads never overlap, nothing of another task under P8', samples.every(x=>x.inflight<=1) && only('P8',samples) && samples.every(x=>x.cmds===0), bad('P8',samples));
+}
+if(S==='fk_ovhang'){                                   // found with P2, same kind of endless wait: the overview request never answers; the badge stops saying OK, polling goes on
+  await fselect('P8'); T0=fk.now(); fk.overview={hang:true}; await fadv(50000,1000);
+  const ov=ovreqs().filter(r=>r.start>=T0), s48=samples.find(x=>x.t>=48000);
+  check('the hung overview request is cancelled after 45 s and polling goes on', ov.length>=2 && ov[0].state==='aborted' && ov[0].end-ov[0].start===45000, ov.slice(0,4).map(r=>[r.start-T0, r.state, r.end===null?null:r.end-r.start]));
+  check('after 45 s without an overview answer the badge no longer says OK', s48 && s48.conn==='bad', s48||null);
+  fk.overview=null; await fadv(6000,1000);
+  const end=samples[samples.length-1];
+  check('the overview answers again: badge OK, P8 still selected and shown', end.conn==='ok' && end.sel===rowOf('P8').dataset.plan && end.loaded, end);
+}
+if(S==='rt_slow'){                                     // REAL TIME (no virtual time, no test clock): the proxy slows only /api/task of P8
+  const P8=rowOf('P8').dataset.plan, now=()=>Date.now()-T0;
+  const log=async()=>(await (await fetch('/__log')).json()).log;
+  const reads=l=>l.filter(e=>e.kind==='task'&&e.plan===P8).sort((a,b)=>a.t0-b.t0);
+  const overlap=l=>{const r=reads(l);for(let i=1;i<r.length;i++)if(r[i].t0<(r[i-1].t1||Infinity))return [r[i-1],r[i]];return null};
+  async function every(ms,tag,until){const t1=now()+ms;while(now()<t1){await sleep(500);const x=snap(tag);if(until&&until(x))return x}return null}
+  await select('P1'); await fetch('/__log?clear=1'); await fetch('/__fault?detail=ok&plan='+encodeURIComponent(P8)+'&delay=25000');
+  T0=Date.now(); rowOf('P8').click(); snap('click');
+  await every(31000,'A');                              // A: every P8 read takes 25 s
+  let L=await log(); const first=reads(L)[0], ansAt=first&&first.t1?first.t1*1000-T0:null, painted=samples.find(x=>x.tag==='A'&&x.loaded&&x.state==='ok'&&x.title.indexOf('P8')===0);
+  check('A setup: the server (through the proxy) answered the first P8 read after at least 25 s', first && first.t1 && (first.t1-first.t0)>=25, first||null);
+  check('A: the slow answer of the selected task is painted within 3 s of the server answering', painted && ansAt!==null && painted.t>=ansAt-100 && painted.t<=ansAt+3000, {painted:painted||null, ansAt});
+  check('A: one P8 read at a time (none started while another was pending)', !overlap(L), overlap(L));
+  check('A: the overview kept polling and stayed OK', L.filter(e=>e.kind==='overview'&&e.t0*1000>=T0).length>=10 && samples.every(x=>x.conn==='ok'), L.filter(e=>e.kind==='overview').length);
+  await every(20000,'B');                              // B: 20 s more, every read still 25 s
+  const B=samples.filter(x=>x.tag==='B');
+  check('B: P8 stays shown while each refresh takes 25 s (no loading pane, no error)', B.length>0 && B.every(x=>x.loaded&&x.state==='ok'&&!x.dstatus), B.filter(x=>!(x.loaded&&x.state==='ok'&&!x.dstatus)).slice(0,3));
+  await fetch('/__fault?detail=ok&plan='+encodeURIComponent(P8)+'&delay=70000&count=1');   // C: the next P8 read is held 70 s (longer than the page waits), later ones are quick
+  const stale=await every(110000,'C',x=>x.state==='stale'&&/45 s/.test(x.dtext||''));
+  check('C: a read held longer than 45 s ends with a timeout message under P8, its data kept (stale)', stale && stale.title.indexOf('P8')===0 && stale.loaded, stale||samples[samples.length-1]);
+  const TD=now(), fresh=await every(20000,'D',x=>x.state==='ok'&&!x.dstatus&&x.loaded);
+  check('D: the next quick answer makes P8 fresh again (no warning) within 15 s of the timeout', fresh && fresh.t-TD<=15000 && fresh.title.indexOf('P8')===0, fresh||samples[samples.length-1]);
+  const tagged=samples.filter(x=>x.tag);
+  check('nothing of P1 under P8 at any moment (A-D)', only('P8',tagged) && tagged.every(x=>x.cmds===0), bad('P8',tagged));
+  L=await log(); check('A-D: reads of P8 never overlapped', !overlap(L), overlap(L));
+  out.requests=L.map(e=>Object.assign({}, e, {t0:Math.round(e.t0*1000-T0), t1:e.t1?Math.round(e.t1*1000-T0):null}));
+}
 if(S==='shot-detail'){await select(qs.get('plan')||'P1'); if(qs.get('open')==='need'){const n=$('details.need'); if(n)n.open=true} else {const ev=$$('ol.ev > li').find(li=>li.querySelector('.clip')); if(ev){ev.click(); await waitFor(()=>$('.evbox'),3000)}}}
 if(S==='shot-list'){}
 out.ok=Object.values(out.checks).every(Boolean)&&Object.keys(out.checks).length>0;
 }catch(e){out.error=String(e&&e.stack||e); out.ok=false}
 out.polls=polls; out.scrollWidth=d&&d.documentElement.scrollWidth; out.innerWidth=w&&w.innerWidth;
+if(FK||RT)out.samples=samples;
+if(fk)out.fake={reqs:fk.reqs.map(r=>({id:r.id,kind:r.kind,plan:r.plan,start:r.start-T0,end:r.end===null?null:r.end-T0,state:r.state,pol:r.pol})),errors:fk.errors};
 document.getElementById('out').textContent=JSON.stringify(out); document.title='done';
+if(RT)fetch('/__release?id='+encodeURIComponent(qs.get('hold')||''));
 })();
 </script></body></html>'''
