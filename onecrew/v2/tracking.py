@@ -494,8 +494,13 @@ def _status(state, engine_view, attempts, progress, waits, requests, views, veri
             return 'waiting', 'chờ bước tiếp theo cho ' + ', '.join(pending_nodes), ['engine.state']
         return 'unknown', 'không có node đang chạy, bị giữ hay chờ; không suy được từ sổ', ['engine.state']
     if views:
-        left = [v['id'] for v in views if v['state'] != 'passed']
-        return 'waiting', 'chờ verdict của mốc ' + ', '.join(left) + ' (root không có engine: chỉ theo dõi mốc)', ['plan.approved']
+        # R7-2: a milestone whose latest verdict on this revision failed is checked-and-not-passed, not "waiting for a verdict".
+        failed = [v['id'] for v in views if v['state'] == 'failed']
+        left = [v['id'] for v in views if v['state'] not in ('passed', 'failed')]
+        parts = (['mốc ' + ', '.join(failed) + ' kiểm chưa đạt (verdict gần nhất không đạt), chờ sửa và kiểm lại'] if failed else []) \
+            + (['chờ verdict của mốc ' + ', '.join(left)] if left else [])
+        return 'waiting', '; '.join(parts or ['chờ verdict của mốc']) + ' (root không có engine: chỉ theo dõi mốc)', \
+            ['plan.approved'] + ['milestone.failed:' + m for m in failed]
     return 'unknown', 'hợp đồng không đọc được; không suy được trạng thái', ['plan.approved']
 
 
@@ -945,6 +950,9 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     except (LedgerError, ValueError, KeyError): runs = []
     level = _level(state, engine_view, views)
     first_started = next((at for seq, kind, p, at in events if kind == 'node.started'), None)
+    # R7-2: work has begun once a node started, an attempt exists or a milestone check ran or was recorded (a failed one included, any
+    # revision). A milestone-only root never writes node.started. Started is not progress toward acceptance: acceptance keeps its own rule.
+    has_started = first_started is not None or bool(attempts) or bool(state.get('verdicts')) or bool(runs)
     acceptance = _acceptance(rd, conn, state, contract, engine_view, level)
     kind, reason, sources = _status(state, engine_view, attempts, progress, open_waits, requests, views, runs, level, first_started, acceptance)
     last = events[-1] if events else None
@@ -965,7 +973,7 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
                     'node': next((nid for nid, r in nodes.items() if r['attempt'] == a['id']), None)} for a in attempts if a['status'] in ('reserved', 'running', 'unknown')]
     item = {'id': row['id'], 'plan': state['name'], 'selector': row['request_key'], 'project': row['project_path'], 'project_id': row['project_id'],
             'goal': _goal(contract, payload), 'title': clean(payload.get('title'), 200), 'contract_revision': state['latest'],
-            'created_at': row['created_at'], 'started_at': first_started, 'has_started': first_started is not None, 'deadline': None,
+            'created_at': row['created_at'], 'started_at': first_started, 'has_started': has_started, 'deadline': None,
             'node_titles': {n['id']: clean(n.get('goal'), 200) for n in ((engine_view or {}).get('definition') or {}).get('nodes', [])},
             'root_status': state['status'],
             'status': {'kind': kind, 'label': OUTCOME_WORDS[outcome] if outcome else WORDS[kind], 'outcome': outcome, 'reason': clean(reason, 600), 'source': sources},

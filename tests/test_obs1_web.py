@@ -187,17 +187,21 @@ class BrowserTests(WebFixture):
         if not self.browser: self.skipTest('no headless Chrome/Edge executes script on this machine')
 
     def test_the_page_renders_the_task_its_status_and_the_connection_state(self):
+        # OBS-2 (since 025c8ca) words the card from workStatus and writes `owner ... --human` templates, offered only for a verified hook
+        # binding (dev6): a real settings file in the temp project, the fixture executable is never run (tests/obs2_binding_fixture.py)
+        from tests.obs2_binding_fixture import bind
+        bind(self, self.ledger)
         self.revise([node('A'), node('I', ['A'], integration=True, write=())])
         self.ledger.create_request(self.root_view['anchor_task'], 'retention', __import__('tests.test_obs1_tracking', fromlist=['QUESTION']).QUESTION)
         dom = dump_dom(self.browser, self.url, self.profile)
         cls, text = badge(dom)
         self.assertEqual(cls, 'ok', text); self.assertIn('kết nối OK', text); self.assertIn('seq', text)
         body = dom.split('</script>')[-1] if '</script>' in dom else dom
-        self.assertIn('P1', dom); self.assertIn('class="st waiting"', dom); self.assertIn('đang chờ</span>', dom); self.assertIn('class="needb">cần bạn', dom)
+        self.assertIn('P1', dom); self.assertIn('class="st waiting"', dom); self.assertIn('Chờ bạn trả lời</span>', dom); self.assertIn('class="needb">1 quyết định cần bạn', dom)
         self.assertNotIn('hunter2', dom)
         detail = dump_dom(self.browser, self.url + '?plan=P1', self.profile)              # the reply commands live in the task detail (UX-03), one per option
-        self.assertIn('question answer', detail); self.assertIn('--choice seven', detail); self.assertIn('--choice thirty', detail); self.assertNotIn('hunter2', detail)
-        self.assertIn('Sao chép mẫu lệnh', detail); self.assertIn('--reference', detail)
+        self.assertIn('owner answer', detail); self.assertIn("--choice 'seven'", detail); self.assertIn("--choice 'thirty'", detail); self.assertNotIn('hunter2', detail)
+        self.assertIn('Sao chép lệnh', detail); self.assertIn('--reference', detail)
         self.assertIn('chưa được theo dõi', dom)
         evidence = Path(os.environ.get('OBS1_EVIDENCE_DIR') or self.temp.name)
         if screenshot(self.browser, self.url, self.profile, evidence / 'obs1-page.png'): pass

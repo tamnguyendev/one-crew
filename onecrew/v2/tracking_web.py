@@ -999,6 +999,7 @@ function renderDetail(d){
   if(d.goal&&!d.work)h.push('<p style="margin:6px 0">'+esc(d.goal)+'</p>');
   var done=d.status.kind==='done';
   var nowKeys={};needs.forEach(function(n){nowKeys[needKey(n)]=n});
+  if(copied&&!copiedStillValid(copied,d))copied=null;      // R7-1: feedback of a command this data no longer offers (binding lost, other runtime/state) is dropped, never shown again
   Object.keys(knownNeeds).forEach(function(k){var old=knownNeeds[k];if(nowKeys[k]||!old.open)return;
     var same=needs.find(function(n){return n.kind==='request'&&n.id===old.id});
     if(!staleNotes.some(function(x){return x.key===k}))staleNotes.push({key:k,id:old.id,title:old.title,why:same?'đã đổi bản (revision '+String(same.revision).slice(0,12)+'…): mẫu lệnh cũ không còn hiệu lực, đọc lại câu hỏi':'không còn chờ ở bản đang xem: mẫu lệnh cũ không còn hiệu lực'});
@@ -1048,6 +1049,11 @@ function renderDetail(d){
   knownNeeds={};needs.forEach(function(n){var el=document.querySelector('#detail details[data-k="'+needKey(n).replace(/"/g,'\\"')+'"]');knownNeeds[needKey(n)]={id:n.id,revision:n.revision,title:needTitle(n),open:!!(el&&el.open)}});
 }
 function noteOpen(){needs_open_sync()}
+// R7-1: what a reader can copy from a need comes from the project's hook binding too, which lives outside the ledger: an unchanged last_seq
+// does not mean unchanged cards. needsSig is that copyable surface; copiedStillValid ties copy feedback to a command the data still offers.
+function needCopyable(n){return [n.human_command||n.reply_command||null,n.inspect_command||null].concat((n.options||[]).map(function(o){return o.human_command||o.reply_command||null})).filter(Boolean)}
+function needsSig(d){return JSON.stringify(((d&&d.needs_user)||[]).map(function(n){return [needKey(n),needCopyable(n),(n.runtime_binding||{}).verified===true,n.binding_reason||null]}))}
+function copiedStillValid(c,d){if(!c||!c.text)return false;var n=((d&&d.needs_user)||[]).find(function(x){return needKey(x)===c.k});return !!n&&needCopyable(n).indexOf(c.text)>=0}
 function needs_open_sync(){Object.keys(knownNeeds).forEach(function(k){var el=document.querySelector('#detail details[data-k="'+k.replace(/"/g,'\\"')+'"]');if(el)knownNeeds[k].open=el.open})}
 // ---- Gantt / waterfall: tree (left) | shared time axis (centre) | step pane (right); every pixel comes from a sourced timestamp
 function tms(t){if(t==null||t==='')return null;var v=new Date(t).getTime();return isNaN(v)?null:v}
@@ -1133,15 +1139,18 @@ function gside(d,g){if(!selStep)return '<span class="mut">Chọn một thanh ho�
   return h+'</details>'}
 function repaintGantt(){var d=mine();if(!d)return;var s=snapshot();var el=document.querySelector('#detail .gantt');if(el){var t=document.createElement('div');t.innerHTML=gantt(d);el.replaceWith(t.firstChild)}restore(s)}
 function snapshot(){var open={};document.querySelectorAll('#detail details[data-k]').forEach(function(x){open[x.getAttribute('data-k')]=x.open});
-  var a=document.activeElement,foc=a&&a.closest&&a.closest('[data-k]'),inner=null;
-  if(a&&foc){if(a.tagName==='SUMMARY')inner='summary';else if(a.classList.contains('copy'))inner='copy';else if(a.classList.contains('ev-open'))inner='ev-open:'+a.getAttribute('data-key');else if(a.id==='dretry')inner='dretry';else if(a.tagName==='A')inner='a'}
+  var a=document.activeElement,foc=a&&a.closest&&a.closest('[data-k]'),inner=null,copy=null;
+  if(a&&foc){if(a.tagName==='SUMMARY')inner='summary';else if(a.classList.contains('copy')){inner='copy';copy=a.getAttribute('data-copy')}else if(a.classList.contains('ev-open'))inner='ev-open:'+a.getAttribute('data-key');else if(a.id==='dretry')inner='dretry';else if(a.tagName==='A')inner='a'}
   var gs=document.querySelector('#detail .gscroll');
-  return {open:open,focus:foc?foc.getAttribute('data-k'):null,inner:inner,pane:$('#detailpane').scrollTop,win:window.scrollY,gs:gs?gs.scrollLeft:0}}
+  return {open:open,focus:foc?foc.getAttribute('data-k'):null,inner:inner,copy:copy,pane:$('#detailpane').scrollTop,win:window.scrollY,gs:gs?gs.scrollLeft:0}}
 function restore(s){if(!s)return;Object.keys(s.open).forEach(function(k){var x=document.querySelector('#detail details[data-k="'+k.replace(/"/g,'\\"')+'"]');if(x)x.open=s.open[k]});
   if(s.focus){var f=document.querySelector('[data-k="'+s.focus.replace(/"/g,'\\"')+'"]');if(f){var t=null;
-    if(s.inner==='summary'||f.tagName==='DETAILS')t=f.querySelector('summary');else if(s.inner==='copy')t=f.querySelector('button.copy');else if(s.inner&&s.inner.indexOf('ev-open:')===0)t=f.querySelector('.ev-open[data-key="'+s.inner.slice(8)+'"]');else if(s.inner==='dretry')t=f.querySelector('#dretry');else if(s.inner==='a')t=f.querySelector('a');
+    // the element the reader was on comes first; a <details> container only decides when nothing more precise was focused (dev8 P3: summary won over the copy button)
+    if(s.inner==='copy')t=Array.prototype.find.call(f.querySelectorAll('button.copy'),function(b){return b.getAttribute('data-copy')===s.copy})||null;   // the very command, never another option's button; gone (binding lost, revision changed): the card heading below
+    else if(s.inner&&s.inner.indexOf('ev-open:')===0)t=f.querySelector('.ev-open[data-key="'+s.inner.slice(8)+'"]');else if(s.inner==='dretry')t=f.querySelector('#dretry');else if(s.inner==='a')t=f.querySelector('a');
+    if(!t&&(s.inner==='summary'||s.inner==='copy'||f.tagName==='DETAILS'))t=f.querySelector('summary');
     (t||f).focus({preventScroll:true})}
-    else if(s.focus==='dstatus'){var tt=$('#dtitle');if(tt)tt.focus({preventScroll:true})}}   // P2: the status line is gone (the detail loaded): the reader lands on the task heading, not at the top of the page
+    else if(s.focus==='dstatus'||s.focus.indexOf('need:')===0){var tt=$('#dtitle');if(tt)tt.focus({preventScroll:true})}}   // P2: the status line is gone (the detail loaded) / the need card itself is gone (answered, new revision): the reader lands on the task heading, not at the top of the page
   var gs=document.querySelector('#detail .gscroll');if(gs&&s.gs)gs.scrollLeft=s.gs;
   $('#detailpane').scrollTop=s.pane;if(Math.abs(window.scrollY-s.win)>2)window.scrollTo(0,s.win)}
 function paint(d,sel,why){var s=snapshot();detailData=d;detailFor={plan:sel.plan,project:sel.project};renderDetail(d);restore(s);if(why==='select')afterSelect()}
@@ -1173,7 +1182,7 @@ function loadDetail(why){if(!selected)return;
       if(me.late){detailTimeouts++;return detailFailed(sel,'quá '+DETAIL_TIMEOUT/1000+' s không có trả lời')}    // P2: the wait ends with a clear reason; after DETAIL_TRIES of these the page stops (restNote)
       detailFailed(sel,'mất kết nối khi tải chi tiết')})}     // a quick failure neither counts nor ends a timeout series (alternating hang/error stops too)
 function detailLoaded(sel,j,why){var had=mine(),wasErr=!!detailError,seq=j.source&&j.source.last_seq;detailError=null;detailOkAt=Date.now();
-  if(had&&!wasErr&&why!=='select'&&why!=='force'&&seq===detailSeq&&had.selector===j.selector&&had.project_id===j.project_id){detailData=j;if(j.gantt&&j.gantt.axis&&(j.gantt.axis.extends_to_now||$('#gstale')))repaintGantt();dind();return}   // nothing moved in the ledger: keep what the reader is looking at; only the server clock parts of the timeline move (P2-A)
+  if(had&&!wasErr&&why!=='select'&&why!=='force'&&seq===detailSeq&&had.selector===j.selector&&had.project_id===j.project_id&&needsSig(had)===needsSig(j)){detailData=j;if(j.gantt&&j.gantt.axis&&(j.gantt.axis.extends_to_now||$('#gstale')))repaintGantt();dind();return}   // nothing moved in the ledger: keep what the reader is looking at; only the server clock parts of the timeline move (P2-A)
   detailSeq=seq;paint(j,sel,had?why:'select');dind()}      // recovery from a stale state re-renders once (warning and template marks go; snapshot/restore keep the reader's place)
 function detailFailed(sel,msg){var now=Date.now(),note=restNote(),changed=!detailError||detailError.message!==msg||detailError.note!==note,d=mine(),s;   // a new retry state (try 2/3, stopped) is shown too
   detailError={since:detailError?detailError.since:now,last:now,message:msg,note:note};
@@ -1198,9 +1207,10 @@ function poll(){var ctl=new AbortController(),late=false,tm=setTimeout(function(
     $('#src').textContent='Sổ: '+(s.ledger||'')+' · poll '+(INTERVAL/1000)+' s · wheel '+(j.server&&j.server.version||'?');render();if(selected)loadDetail('poll');
   }).catch(function(e){if(!lostSince){lostSince=new Date();repaintGantt()}conn('bad','MẤT KẾT NỐI với server theo dõi từ '+lostSince.toLocaleTimeString()+(late?' (không trả lời trong '+OVERVIEW_TIMEOUT/60000+' phút)':'')+(lastOk?' — đang hiện dữ liệu cũ lúc '+new Date(lastOk).toLocaleTimeString():' — chưa có dữ liệu')+'; worker không bị ảnh hưởng; trang tự thử lại')})
   .then(function(){clearTimeout(tm);setTimeout(poll,INTERVAL)})}
-function copyText(text,k){var c=copied={k:k,text:text,ok:false};var s=snapshot(),sel0=selected;     // c: this copy's own record (copied is reset when the selection changes)           // the reader's focus at click time, restored after the re-render
-  function done(){var d=mine();if(!d||!sameSel(selected,sel0))return;renderDetail(d);restore(s)}
-  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){c.ok=true;done()},function(){c.ok=fallback();done()})}else{c.ok=fallback();done()}
+function copyText(text,k){var c=copied={k:k,text:text,ok:false};var sel0=selected;     // c: this copy's own record (copied is reset when the selection changes)
+  function current(){return copied===c&&sameSel(selected,sel0)&&copiedStillValid(c,mine())}   // dev9 P2 (Codex): only the attempt the page still holds acts on its result. A newer copy, another task (even after coming back), a lost binding or a new revision/command in the CURRENT data makes it stale: its late result starts no fallback write and changes nothing (a clipboard call already sent to the browser cannot be taken back)
+  function done(){var d=mine();if(!d||!sameSel(selected,sel0))return;var s=snapshot();renderDetail(d);restore(s)}   // dev8 P3: the reader's place when the result lands (focus, sections, scroll), not at the click: a late result never pulls them back
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){if(!current())return;c.ok=true;done()},function(){if(!current())return;c.ok=fallback();done()})}else{c.ok=fallback();done()}
   function fallback(){var was=document.activeElement,ta=document.createElement('textarea'),ok=false;ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.left='-1000px';document.body.appendChild(ta);ta.select();try{ok=document.execCommand('copy')===true}catch(e){ok=false}document.body.removeChild(ta);if(was&&was.focus)was.focus({preventScroll:true});return ok}}
 function openEvidence(key,btn){var d0=mine(),sel0=selected;if(!d0)return;if(evState[key]){delete evState[key];var s=snapshot();renderDetail(d0);restore(s);return}
   function show(text){var d=mine();if(!d||!sameSel(selected,sel0))return;evState[key]={text:text};var s=snapshot();renderDetail(d);restore(s)}   // a late blob of a task no longer selected is dropped
@@ -1210,7 +1220,9 @@ document.addEventListener('click',function(ev){var t=ev.target;
   if(t.id==='dretry'){detailTimeouts=0;loadDetail('retry');return}   // P2: the reader starts a new, bounded series of tries (the status line then says "đang thử lại…" and keeps the focus)
   var li=t.closest&&t.closest('li.task');if(li){select({plan:li.dataset.plan,project:li.dataset.project});return}
   if(t.id==='back'||t.id==='close'){var k=selected;select(null);var again=k&&document.querySelector('[data-k="task:'+k.project+':'+k.plan+'"]');if(again)again.focus();return}
-  if(t.classList&&t.classList.contains('copy')){copyText(t.getAttribute('data-copy'),t.closest('.need').getAttribute('data-k'));return}
+  if(t.classList&&t.classList.contains('copy')){var ck=t.closest('.need').getAttribute('data-k'),ct=t.getAttribute('data-copy'),cd=mine();
+    if(!cd||!copiedStillValid({k:ck,text:ct},cd)){if(cd){var cs=snapshot();renderDetail(cd);restore(cs)}return}   // R7-1: a card painted before the data changed never copies a command the latest data no longer offers
+    copyText(ct,ck);return}
   if(t.classList&&t.classList.contains('chip')){$('#kind').value=t.getAttribute('data-kind');render(true);return}
   var wt=t.closest&&t.closest('[data-work-tab]');if(wt){workTab=wt.getAttribute('data-work-tab');var wd=mine();if(wd){var ws=snapshot();renderDetail(wd);restore(ws);var wb=document.querySelector('[data-work-tab="'+workTab+'"]');if(wb){wb.focus({preventScroll:true});if(workTab==='progress')wb.closest('.work-nav').scrollIntoView({block:'start'})}}return}
   if(t.classList&&t.classList.contains('stale-hide')){var key=t.getAttribute('data-key');staleNotes=staleNotes.filter(function(x){return x.key!==key});var d0=mine();if(d0){var s0=snapshot();renderDetail(d0);restore(s0)}return}

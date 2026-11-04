@@ -41,6 +41,10 @@ class BrowserUX(EngineFixture):
         self.browser = find_browser(self.profile)
         if not self.browser: self.skipTest('no headless Chrome/Edge executes script on this machine')
         populate(self)
+        # OBS-2 dev6+: reply/approve templates exist only for a verified hook binding. The scenarios read and copy them (ux03, stale_detail,
+        # slow_detail, p2a), so the temp project gets a real settings file; the fixture executable is never run (tests/obs2_binding_fixture.py).
+        from tests.obs2_binding_fixture import bind
+        bind(self, self.ledger)
         self.server = tracking_web.make_server(self.ledger.state_root, interval=1.0)
         threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval': 0.2}, daemon=True).start()
         self.addCleanup(lambda: (self.server.shutdown(), self.server.server_close()))
