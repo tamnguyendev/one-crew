@@ -8,7 +8,12 @@ Every run first proves its precondition (bound: the cards really carry write com
 a run whose precondition fails is a failed run, never a pass. Cases:
   live-<to>-<size>  virtual time: bound -> <to> (missing | other-runtime | other-state) -> bound again, same task and tab
   slow-<size>       real time: detail reads of P1 answer 2.5 s late while the binding is lost and the reader switches P1 -> P2 -> P1
-Writes NEW_WORK/browser-binding-live.json (+ a screenshot of the lost-binding state per size)."""
+  focus-<size>      controlled clipboard: focus/sections/reading position after a copy (success, failure, late after focus move/task switch/binding loss)
+  late-<size>       controlled clipboard + recorded fallback: a copy attempt that is no longer current (newer copy, out of order, task switch,
+                    binding loss, new revision of the plan) starts no fallback write and changes nothing; current attempts still copy
+                    (success, refused then fallback ok, both fail). The fixture amends P3 once per run (author 'fixture'): 'ledger_unchanged'
+                    then means the ledger moved only inside those amendments, never through the page.
+The native clipboard is not tested (headless). Writes NEW_WORK/browser-binding-live.json (+ a screenshot of the lost-binding state per size)."""
 import hashlib
 import importlib.util
 import json
@@ -127,6 +132,75 @@ if(S==='focus'){const P2=rowOf('P2').dataset.plan;
   check('E restore: current commands back, the old feedback does not come back', back&&$$('#detail .copied').length===0);
   check('no horizontal page overflow', d.documentElement.scrollWidth<=w.innerWidth+1, [d.documentElement.scrollWidth,w.innerWidth]);
 }
+if(S==='late'){            // dev9 P2 (Codex): a copy attempt that is no longer current must not start another clipboard write when its promise settles late
+  await select('P3'); openNeeds(); await sleep(300);
+  const clip=fakeClipboard(), fb={writes:[],result:false};
+  d.execCommand=function(cmd){const a=d.activeElement,tas=Array.from(d.querySelectorAll('body>textarea'));   // the fallback copy, recorded with what it would write (its selected textarea)
+    fb.writes.push({cmd:cmd,text:a&&a.tagName==='TEXTAREA'?a.value:(tas.length?tas[tas.length-1].value:null)});return fb.result};
+  const revOf=s=>{const m=/--revision (\d+)/.exec(s||'');return m?+m[1]:null};
+  check('precondition: two bound question cards on P3; the page writes through the controlled clipboard and fallback', qCards().length===2&&!clip.error&&typeof w.navigator.clipboard.writeText==='function'&&qCards().every(n=>n.querySelectorAll('button.copy').length===2), qCards().length);
+  async function copyAt(ci,oi){const card=qCards()[ci],btn=card.querySelectorAll('button.copy')[oi];btn.focus();const want={copy:btn.dataset.copy,card:card.dataset.k};btn.click();await sleep(60);return want}
+  const fbOk=t=>{const x=$$('#detail .copied');return x.length===1&&x[0].getAttribute('data-copied')===t}, fbFail=t=>{const x=$$('#detail .copied[data-copy-failed]');return x.length===1&&!!x[0].querySelector('textarea')&&x[0].querySelector('textarea').value===t};
+  let calls=0, a, b, p, base;
+  // controls: a current attempt still copies
+  a=await copyAt(0,0); calls++; check('V0 precondition: the click reached the controlled clipboard with A', clip.calls.length===calls&&clip.calls[calls-1]===a.copy);
+  clip.pending.shift().res(); await sleep(300);
+  check('V1 current attempt succeeds: feedback holds A, no fallback write', fb.writes.length===0&&fbOk(a.copy));
+  fb.result=true; a=await copyAt(0,1); calls++; clip.pending.shift().rej(new Error('denied')); await sleep(300);
+  check('V2 current attempt rejected, fallback succeeds: exactly one fallback write of A, feedback copied', fb.writes.length===1&&fb.writes[0].text===a.copy&&fbOk(a.copy), fb.writes);
+  check('V2: focus back on the same option button of the same card after the fallback', focusAt().copy===a.copy&&focusAt().card===a.card, focusAt());
+  fb.result=false; a=await copyAt(1,0); calls++; clip.pending.shift().rej(new Error('denied')); await sleep(300);
+  check('V3 current attempt rejected, fallback fails: one more fallback write of A and a failure note holding A', fb.writes.length===2&&fb.writes[1].text===a.copy&&fbFail(a.copy), fb.writes.slice(1));
+  check('V3: focus back on the same option button of the same card', focusAt().copy===a.copy&&focusAt().card===a.card, focusAt());
+  // S1: a newer copy B succeeded, then A rejects late
+  base=fb.writes.length; a=await copyAt(0,0); calls++; p=clip.pending.shift(); b=await copyAt(1,1); calls++; clip.pending.shift().res(); await sleep(300);
+  const pos1=readPos(), foc1=focusAt(); p.rej(new Error('late denial')); await sleep(300);
+  check('S1 newer copy B succeeded, A rejects late: no fallback write', fb.writes.length===base, fb.writes.slice(base));
+  check('S1: B feedback unchanged, focus and reading position unchanged', fbOk(b.copy)&&focusAt().copy===foc1.copy&&focusAt().card===foc1.card&&Math.abs(readPos()-pos1)<=4, {focus:focusAt(),foc1:foc1});
+  // S2: out of order, both succeed: B (newer) answers first, A (older) answers after it
+  a=await copyAt(0,1); calls++; p=clip.pending.shift(); b=await copyAt(1,0); calls++; const pb=clip.pending.shift(); pb.res(); await sleep(300); p.res(); await sleep(300);
+  check('S2 out of order: A late success does not replace B feedback', fbOk(b.copy));
+  // S3: out of order, A (older) rejects while B (newer) is still pending, then B succeeds
+  base=fb.writes.length; a=await copyAt(0,0); calls++; p=clip.pending.shift(); b=await copyAt(0,1); calls++; const pc=clip.pending.shift(); p.rej(new Error('late denial')); await sleep(300); pc.res(); await sleep(300);
+  check('S3 A rejects while the newer B is still pending: no fallback write; B then succeeds with its own feedback', fb.writes.length===base&&fbOk(b.copy), fb.writes.slice(base));
+  // T: task switch, A rejects late; back on P3 nothing revives
+  base=fb.writes.length; a=await copyAt(1,1); calls++; p=clip.pending.shift(); rowOf('P2').click();
+  const onP2=await settle(()=>($('#dtitle')||{}).textContent&&$('#dtitle').textContent.indexOf('P2')>=0&&!!$('#detail .dsum'),8000);
+  const posT=readPos(), focT=focusAt();
+  p.rej(new Error('late denial')); await sleep(300);
+  check('T precondition: P2 is shown while A is pending', onP2);
+  check('T task switched, A rejects late: no fallback write', fb.writes.length===base, fb.writes.slice(base));
+  check('T: P2 shows no copy feedback and no P3 question', $$('#detail .copied').length===0&&!/Giữ (CV|log) P3/.test($('#detail').textContent));
+  check('T: focus and reading position on P2 not moved by the late result', focusAt().tag===focT.tag&&focusAt().id===focT.id&&focusAt().card===focT.card&&Math.abs(readPos()-posT)<=4, {now:focusAt(),before:focT});
+  await select('P3'); openNeeds(); await sleep(300);
+  check('T back on P3: the old attempt does not come back', $$('#detail .copied').length===0);
+  // B: binding lost, A rejects late; rebind: nothing revives
+  base=fb.writes.length; a=await copyAt(0,0); calls++; p=clip.pending.shift(); await signal('mode',{to:'missing'});
+  const lost=await settle(()=>$$('#detail button.copy').length===0,15000); p.rej(new Error('late denial')); await sleep(300);
+  check('B precondition: the binding loss repainted the cards while A was pending', lost);
+  check('B binding lost, A rejects late: no fallback write, no feedback', fb.writes.length===base&&$$('#detail .copied').length===0, fb.writes.slice(base));
+  await signal('mode',{to:'bound'}); const rebound=await settle(()=>$$('#detail button.copy').length>=5,15000); openNeeds(); await sleep(300);
+  check('B rebind: commands back, the old attempt does not come back', rebound&&$$('#detail .copied').length===0);
+  // R: the approve command changes revision while its copy is pending (real amend, same task)
+  const ap=()=>$$('details.need').find(n=>n.dataset.k.indexOf('need:approve:')===0);
+  const k0=ap()&&ap().dataset.k, abtn=ap()&&ap().querySelector('button.copy'); base=fb.writes.length; abtn.focus(); const old=abtn.dataset.copy; abtn.click(); calls++; await sleep(60); p=clip.pending.shift();
+  await signal('amend',{plan:'P3'});
+  const moved=await settle(()=>!!ap()&&ap().dataset.k!==k0,15000); openNeeds(); await sleep(300);
+  const nbtn=ap()&&ap().querySelector('button.copy'), fresh=nbtn?nbtn.dataset.copy:'';
+  check('R precondition: a real amendment changed the approve card (next revision, other command) while its copy was pending', moved&&!!revOf(old)&&revOf(fresh)===revOf(old)+1&&fresh!==old, {k0:k0,k1:ap()&&ap().dataset.k,old:revOf(old),fresh:revOf(fresh)});
+  p.rej(new Error('late denial')); await sleep(300);
+  check('R revision changed, the old approve copy rejects late: no fallback write of the old command', fb.writes.length===base, fb.writes.slice(base));
+  check('R: no feedback for the old command', $$('#detail .copied').length===0);
+  const nb=ap()&&ap().querySelector('button.copy');   // queried again: a repaint since may have replaced the card
+  check('R2 precondition: the new approve button still offers the new command', !!nb&&nb.dataset.copy===fresh);
+  if(nb){const base2=fb.writes.length, pend2=clip.pending.length; nb.focus(); nb.click(); calls++; await sleep(60); fb.result=true;
+    check('R2 precondition: the click reached the controlled clipboard with the new command', clip.pending.length===pend2+1&&clip.calls[clip.calls.length-1]===fresh);
+    const p2=clip.pending.pop(); if(p2)p2.rej(new Error('denied')); await sleep(300);
+    check('R2 valid attempt on the new revision: one fallback write of the NEW command and its feedback', fb.writes.length===base2+1&&fb.writes[base2].text===fresh&&fbOk(fresh), fb.writes.slice(base2));}
+  check('writeText was called exactly once per click (no extra clipboard call from stale attempts)', clip.calls.length===calls, [clip.calls.length,calls]);
+  out.fallback=fb.writes.map(x=>x.text&&x.text.slice(-40)); out.calls=clip.calls.length;
+  check('no horizontal page overflow', d.documentElement.scrollWidth<=w.innerWidth+1, [d.documentElement.scrollWidth,w.innerWidth]);
+}
 if(S==='slow'){const P1=rowOf('P1').dataset.plan, P2=rowOf('P2').dataset.plan;
   const trace=[];const mo=new w.MutationObserver(()=>{const s=liveSnap();trace.push({t:Date.now(),title:s.title.slice(0,4),p1q:/Giữ CV P1/.test(s.text),p2q:/Giữ CV P2/.test(s.text),cmds:s.copyButtons,copied:s.copied})});
   await select('P1'); openNeeds(); await sleep(300);
@@ -194,13 +268,28 @@ def main(work):
                                                                   work / 'other-state' if mode == 'other-state' else ledger.state_root)), encoding='utf8')
 
     signals = []
+    db = ledger.state_root / 'ledger.sqlite3'
+
+    def ledger_now():
+        with ledger.transaction() as conn:
+            return hashlib.sha256(db.read_bytes()).hexdigest(), conn.execute('SELECT COALESCE(MAX(seq),0) FROM events').fetchone()[0]
 
     def on_signal(name, params=None):
+        if name == 'amend':      # the fixture (never the page) writes a real new revision of a still-proposed plan, author 'fixture', not an owner verb:
+            plan_name = (params or {}).get('plan', 'P3')                # its approve card gets a new key and a new command
+            n = 1 + sum(1 for s in signals if s['signal'] == 'amend')
+            sha0, seq0 = ledger_now()
+            plan.amend(ledger, plan_name, fixture.contract('code.py', 'Binding fixture ' + plan_name + ' amended ' + str(n)), 'late-copy check: new revision while a copy is pending', 'fixture')
+            sha1, seq1 = ledger_now()
+            with ledger.transaction() as conn:
+                kinds = [r[0] for r in conn.execute('SELECT kind FROM events WHERE seq>? AND seq<=? ORDER BY seq', (seq0, seq1))]
+            signals.append({'signal': name, 'plan': plan_name, 'sha_before': sha0, 'sha_after': sha1, 'seq_before': seq0, 'seq_after': seq1, 'events': kinds})
+            return {'signal': name, 'plan': plan_name, 'revision_events': kinds}
         to = (params or {}).get('to')
         set_mode(to); signals.append({'signal': name, 'to': to, 'settings': settings.exists()})
         return signals[-1]
 
-    db = ledger.state_root / 'ledger.sqlite3'; before = hashlib.sha256(db.read_bytes()).hexdigest()
+    before, seq_start = ledger_now()
     server = tracking_web.make_server(ledger.state_root, interval=1)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     proxy = ux.Proxy(tracking_web.url_of(server), on_signal=on_signal)
@@ -209,6 +298,7 @@ def main(work):
         runs = [('live-' + to + '-' + size, 'live', size, '&to=' + to, False) for to in ('missing', 'other-runtime', 'other-state') for size in ('desktop', 'mobile')]
         runs += [('slow-' + size, 'slow', size, '', True) for size in ('desktop', 'mobile')]
         runs += [('focus-' + size, 'focus', size, '', False) for size in ('desktop', 'mobile')]
+        runs += [('late-' + size, 'late', size, '', False) for size in ('desktop', 'mobile')]      # last: it amends P3
         for key, scenario, size, extra, realtime in runs:
             set_mode('bound')
             if not tracking._runtime_binding(project, ledger.state_root)['verified']:
@@ -223,7 +313,16 @@ def main(work):
         set_mode('bound')
         report['passed'] = sum(sum(1 for v in (r.get('checks') or {}).values() if v) for r in report['results'].values())
         report['total'] = sum(len(r.get('checks') or {}) for r in report['results'].values())
-        report['ledger_unchanged'] = hashlib.sha256(db.read_bytes()).hexdigest() == before
+        after, seq_end = ledger_now()
+        amends = [s for s in signals if s['signal'] == 'amend']
+        chain = [before] + [h for s in amends for h in (s['sha_before'], s['sha_after'])] + [after]     # the page wrote nothing: the ledger only moved inside the fixture's own amendments
+        with ledger.transaction() as conn:
+            stray = [dict(r) for r in conn.execute('SELECT seq, kind FROM events WHERE seq>?', (seq_start,))
+                     if not any(s['seq_before'] < r['seq'] <= s['seq_after'] for s in amends)]
+        report['ledger'] = {'fixture_amendments': [{k: s[k] for k in ('plan', 'seq_before', 'seq_after', 'events')} for s in amends],
+                            'events_outside_fixture_amendments': stray, 'seq_start': seq_start, 'seq_end': seq_end}
+        report['ledger_unchanged'] = (all(chain[i] == chain[i + 1] for i in range(0, len(chain), 2)) and not stray
+                                      and len(amends) == sum(1 for k in report['results'] if k.startswith('late-')))
         report['registry_unchanged'] = (registry.read_bytes() if registry.exists() else None) == original_registry
         report['ok'] = (all(r.get('ok') for r in report['results'].values()) and report['ledger_unchanged'] and report['registry_unchanged']
                         and Path(tracking.__file__).is_relative_to(Path(sys.prefix)))
