@@ -1,3 +1,31 @@
+# Dev10 dev9-review fix — cycle10 (Claude implementation, Codex to verify)
+
+Source: Codex review of dev9, D:/OneCrewRuns/obs2-codex-review-dev9-20261105-011254 (superseded_probe 20/23 and late_reject_probe 20/22 per size: a late rejection of a superseded copy ran the fallback with the old owner command). Baseline cd567d3 / docs ba61298.
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| U10-1 | A copy attempt that is no longer current starts no further clipboard write and changes nothing when its result lands late. "No longer current" means a newer copy, another task (also after coming back), a lost binding, or a new revision/command in the current data. A current attempt still copies: success; refused, then fallback; both fail, with a clear failure note. The dev9 focus fix is kept. | Complete | Installed `check_binding_live.py` late-desktop/mobile: controlled clipboard, every fallback write recorded (count and text), preconditions asserted, a real fixture amendment for the revision case, a writeText count, and a ledger that moves only inside the fixture amendments. dev9 wheel 186/196 (S1/S3/T/B/R red on both sizes) → final wheel 196/196. Codex's dev9 probes, unchanged: superseded 20/23 → 23/23, late_reject 20/22 → 22/22 per size. Codex's dev8 focus probe 16/16 |
+
+Complete1/Partial0 for this local scope (U8-4 stays Partial). Product c4951f6, version 2.5.0.dev10, wheel 57445419…79a1, 142/142 wheel files equal to the commit.
+
+Self-run on the final wheel (trial trial-c4951f6-1):
+- verify 9/9, browser 150/150, unbound 56/56;
+- binding-live + focus + late 196/196, owner refusal 2/2, lifecycle 4/4;
+- R7-2 board equal to dev9 except the version.
+
+Self-run on the c4951f6 source export: OBS-1 ux03 and stale_detail with binding, equal to dev9 check by check, with no check worse.
+- ux03: 6/10.
+- stale_detail: 58/59 per size.
+- The red checks are the outdated expectations already classified in dev9.
+
+Isolation: registry, SignSDK, dev7 trial and Codex's checkout unchanged; dev6–dev9 packages intact.
+
+Inherited, not rerun: dev9 source modules 66/66, dev9 OBS-1 13 scenarios 70/70, the dev8 module runs. Reason: only two lines of copyText changed, and no node slice reaches them.
+
+Not checked: native clipboard, a full gate, release, owner terminal, provider and pilot.
+
+---
+
 # Dev9 dev8-review fix — cycle9 (Claude implementation, Codex to verify)
 
 Source: Codex review of dev8, D:/OneCrewRuns/obs2-codex-review-dev8-20261105-001551 (focus probe 15/16: focus went to the card SUMMARY). Baseline 1380006 / docs 47ec37d.

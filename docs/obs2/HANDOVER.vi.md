@@ -1,3 +1,125 @@
+# Bàn giao OBS-2 dev10 — khép P2 của review dev9: lần sao chép cũ trả lỗi muộn không còn sao chép dự phòng, 05/11/2026
+
+**Sẵn sàng để Codex kiểm tra độc lập.** Chưa phát hành, chưa nghiệm thu, chưa push/tag, không nâng runtime thật. Chưa có review của Codex trên dev10.
+- Người làm: Claude (Opus 5.5).
+- Nguồn issue: review Codex trên dev9, `D:/OneCrewRuns/obs2-codex-review-dev9-20261105-011254`. Kết quả ở đó: `superseded_probe.py` 20/23 mỗi cỡ, `late_reject_probe.py` 20/22 mỗi cỡ; sao chép dự phòng ghi lại lệnh `owner answer` cũ.
+
+## Snapshot
+
+| Mục | Giá trị |
+|---|---|
+| Nhánh | `claude/obs2-dev8` (tiếp tục), worktree `D:/TamNT/Workspace/11.OneCrew/wf-obs2-claude` |
+| Product snapshot | `c4951f6ee1bc8ab41d055e0091246d95233fae28`, version `2.5.0.dev10`. Là 1 commit sau `ba61298`: chặn lần sao chép cũ, ca kiểm `late`, README gói, version. |
+| Gói | `D:/OneCrewRuns/obs2/pkg/onecrew-2.5.0.dev10-obs2-c4951f6`; SHA256SUMS 18/18; 142/142 file trong wheel trùng commit; manifest đúng commit và version |
+| Wheel SHA256 | `57445419e7c616f8e7c9f00039c7ac1b8ccc384c4cf464a27e3bc04b9d6879a1` (trùng `direct_url.json` của venv bản thử) |
+| Bản thử | `D:/OneCrewRuns/obs2/trial-c4951f6-1` |
+| Bằng chứng | `D:/OneCrewRuns/obs2-dev10` (`final/summary.txt`, `logs/`) |
+| Gói cũ | dev9 `onecrew-2.5.0.dev9-obs2-cd567d3`, dev8, dev7, dev6 giữ nguyên: từng file khớp SHA256SUMS của gói, không có file lạ (`logs/baseline-after.json`) |
+
+## Mở và dừng bản thử
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/mo-obs2-dev10.ps1"
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/dung-obs2-dev10.ps1"
+```
+
+Dữ liệu tổng hợp, chỉ đọc. Không dùng lệnh của bản thử để duyệt công việc thật. Lifecycle đã chạy qua đúng hai script này: mở → mở lại cùng instance → dừng đúng phiên → dừng lần nữa exit 2. Project, sổ, gói và registry thật không đổi byte (`trial-c4951f6-1/lifecycle-report.json`).
+
+## Kết quả
+
+| ID | Trạng thái | Vị trí (snapshot `c4951f6`) | Nguyên nhân | Sửa |
+|---|---|---|---|---|
+| P2 — lần sao chép cũ trả lỗi muộn vẫn sao chép dự phòng | **Closed** | `onecrew/v2/tracking_web.py:1210-1213` (`copyText`, hàm `current`) | Nhánh lỗi của `writeText` gọi `fallback()` (`execCommand('copy')`) ngay. Sau đó `done()` mới kiểm task đang chọn, và chỉ để chặn phần vẽ; không kiểm lần sao chép còn là lần hiện hành, cũng không kiểm lệnh còn được cung cấp. Vì vậy lỗi trả muộn của lần A vẫn chép lệnh A sau khi lần B mới hơn đã thành công, khi B còn chờ, sau khi đổi task, mất binding hoặc kế hoạch sang bản mới. Đường xử lý này có từ OBS-1 dev12 (`770177e`, 03/11), không phải hồi quy dev9. | Cả hai nhánh kết quả gọi `current()` trước mọi tác dụng. Điều kiện: trang còn giữ đúng lần này (`copied===c`), cùng task, và dữ liệu **hiện tại** còn cung cấp đúng lệnh này ở đúng thẻ (`copiedStillValid`). Không đạt thì bỏ hẳn: không sao chép dự phòng, không đổi thông báo, không khôi phục focus hay vị trí đọc. Quay lại task hoặc gắn lại binding không hồi sinh lần cũ, vì trang đã bỏ bản ghi khi đổi task hoặc dữ liệu. Lần hiện hành giữ nguyên hành vi (thành công; bị từ chối thì dự phòng; dự phòng hỏng thì báo lỗi kèm lệnh để sao chép tay) và giữ sửa focus của dev9. **Không hủy được** thao tác clipboard đã gửi tới trình duyệt. |
+
+## Đỏ trên dev9 → xanh trên wheel cuối (các ca đã thực sự chạy)
+
+**Ca `late-desktop` / `late-mobile` mới** trong `verify/check_binding_live.py`.
+- Fixture: P3 có 2 thẻ câu hỏi × 2 lựa chọn và thẻ duyệt, đã gắn hook.
+- Clipboard giả có kiểm soát: kịch bản quyết định thành công hay thất bại và lúc nào trả. `execCommand` bị thay để ghi lại **từng lần sao chép dự phòng** (số lần và nội dung) và trả kết quả do kịch bản chọn.
+- Tiền điều kiện được assert trước khi đánh giá: đủ thẻ và nút, lần bấm thật sự đến clipboard giả với đúng lệnh, P2 thật sự hiện khi A còn chờ, mất binding thật sự vẽ lại thẻ, bản sửa thật sự đổi thẻ duyệt sang revision kế tiếp.
+- Các ca:
+  - V1–V3 (đối chứng, lần hiện hành): thành công; bị từ chối rồi dự phòng thành công (đúng 1 lần ghi, nội dung A); cả hai hỏng (báo lỗi kèm lệnh A). Focus về đúng nút.
+  - S1: lần B mới hơn đã thành công, rồi A trả lỗi muộn.
+  - S2: thứ tự đảo, cả hai thành công (B trả trước, A trả sau).
+  - S3: thứ tự đảo, A trả lỗi khi B còn chờ, rồi B thành công.
+  - T: đổi sang P2, A trả lỗi muộn; quay lại P3.
+  - B: mất binding, A trả lỗi muộn; gắn lại binding.
+  - R: P3 được sửa thành bản mới thật (`plan.amend`, tác giả `fixture`, không phải lệnh của chủ) khi lệnh duyệt cũ đang chờ, rồi lỗi trả muộn. R2: sao chép lệnh của bản mới vẫn chạy (1 lần ghi dự phòng, đúng lệnh mới).
+  - `writeText` được gọi đúng một lần cho mỗi lần bấm.
+- Sổ: mỗi ca `late` có 1 sự kiện `plan.amended` của fixture; ngoài các lần sửa đó sổ không đổi (`events_outside_fixture_amendments` rỗng, hash trước/sau từng lần sửa khớp).
+
+Kết quả:
+- **Wheel dev9** (venv `D:/OneCrewRuns/obs2-dev9/venv`, cùng code `cd567d3`): **186/196**.
+  - Mọi tiền điều kiện và đối chứng đều đạt.
+  - Đỏ đúng 5 ca S1, S3, T, B, R trên cả 2 cỡ: `execCommand` nhận lệnh cũ (`owner answer …`, lệnh duyệt revision cũ).
+  - Log `D:/OneCrewRuns/obs2-dev10/red-dev9/run2/browser-binding-live.json`. Lần chạy đầu `red-dev9/run` dừng ở ca R2 do lỗi của checker: nút đã bị vẽ lại khi bấm. Đã sửa checker để tìm lại nút ngay trước khi bấm; log lần đầu vẫn giữ.
+- **Wheel cuối** (venv `trial-c4951f6-1`): **196/196**, `late` 27/27 mỗi cỡ.
+  - Lần cũ không ghi dự phòng, không đổi thông báo của lần mới, không kéo focus hay vị trí đọc.
+  - Quay lại task hoặc gắn lại binding không hồi sinh lần cũ.
+  - Log `D:/OneCrewRuns/obs2-dev10/final/binding-live/browser-binding-live.json`.
+
+**Probe gốc của Codex trên dev9**: không sửa file. Probe đọc checker dev9 đã đóng băng; dev10 chạy bằng venv bản thử dev10.
+- `superseded_probe.py`: dev9 20/23 → **23/23** mỗi cỡ.
+- `late_reject_probe.py`: dev9 20/22 → **22/22** mỗi cỡ.
+- Ba kiểm "independent: …" có mặt và đạt (`D:/OneCrewRuns/obs2-dev10/final/codex-dev9-*`).
+
+**Probe focus dev8 của Codex**: đổi đường dẫn sang checker dev10; dừng nếu chuỗi thay thế không khớp. Kết quả **16/16**, focus vẫn ở đúng nút.
+
+## Hồi quy
+
+**Tự chạy trên wheel cuối** (venv bản thử, ngoài checkout):
+- verify gói 9/9 (registry thật trước = sau);
+- trình duyệt OBS-2 150/150 (75 + 75, không tràn ngang);
+- binding tĩnh 8 ca 56/56;
+- binding đổi giữa phiên + focus + late 12 ca 196/196 (R7-1 6 ca 90/90, đọc chậm 12/12, focus dev9 40/40, late 54/54);
+- từ chối lệnh chủ trong phiên AI 2/2;
+- lifecycle 4/4;
+- R7-2 trên 5 sổ: từng dòng trùng dev9, chỉ khác version (`logs/r72-board-final.json`).
+
+**Tự chạy trước khi commit:** cùng checker trên source worktree, 196/196 (`src-check/`; cờ `ok` false theo thiết kế vì không import từ wheel).
+
+**Tự chạy trên source `c4951f6`** (bản xuất `git archive`, venv bản thử): hai kịch bản OBS-1 có sao chép, ux03 và stale_detail, với binding. Từng kiểm trùng dev9, không kiểm nào xấu đi:
+- ux03: 6/10;
+- stale_detail: 58/59 mỗi cỡ.
+
+Các kiểm còn đỏ là kỳ vọng lỗi thời đã phân loại ở dev9 (mẫu `question answer`, bước chuẩn bị). Kiểm "a failed copy is reported as failure with the text to copy by hand" vẫn đạt; kiểm này dùng clipboard của chính trình duyệt headless, không giả lập (`logs/obs1-ux03-stale-compare.json`).
+
+**Kế thừa, không chạy lại** (lý do: dev10 chỉ đổi 2 dòng trong `copyText`; mọi đoạn JS mà test node cắt ra đều kết thúc trước dòng 1140, và `tracking.py`, `tracking_work*.py` trùng byte dev9):
+- 6 module nguồn 66/66 (dev9);
+- 13 kịch bản OBS-1 đọc chậm, đổi task, timeout, mất kết nối 70/70 (dev9);
+- các kịch bản còn lại của bộ OBS-1 browser (dev9: 27/40);
+- nhóm OBS-2 103/103, OBS-1 96/96, công cụ 2/2 (dev8).
+
+**Không chạy:** probe `check_review_fixes.py` (fixture duyệt ngay trong tiến trình, bị chặn trong phiên AI; không gỡ marker), gate 2.2.
+
+Số kiểm đạt chỉ nói về các ca đã liệt kê. Không suy ra toàn bộ sản phẩm đã được chứng nhận.
+
+## Giới hạn
+
+- **Clipboard:** chỉ dùng clipboard giả và `execCommand` bị thay. **Chưa kiểm clipboard native của trình duyệt.**
+- **Thao tác đã gửi:** lần ghi clipboard đã gửi cho trình duyệt thì không hủy được. Nếu lần cũ vẫn đang được trình duyệt xử lý khi đã có lần mới, trình duyệt quyết định thứ tự ghi. Trang chỉ bảo đảm: không bắt đầu lần ghi thêm, không đổi thông báo, không kéo focus.
+- **Quan sát, chưa kiểm:** đọc code thấy trong lúc lần sao chép hiện hành còn chờ, nếu trang vẽ lại vì dữ liệu khác đổi thì thẻ hiện ghi chú "Không sao chép được" cho tới khi kết quả về. Lý do: `renderDetail` coi `ok:false` là lỗi. Đường này có từ trước dev10 và nằm ngoài P2. Chưa dựng ca kiểm, chưa sửa.
+- **Bàn phím:** headless không giả lập được phím kích hoạt native.
+- **Chưa kiểm:** lệnh chủ chạy thành công từ terminal, sổ lớn, provider thật, pilot SignSDK, gate 2.2 toàn bộ.
+
+## Cách ly
+
+So với kiểm cách ly lúc kết thúc dev9 (`D:/OneCrewRuns/obs2-dev9/logs/baseline-after.json` → `D:/OneCrewRuns/obs2-dev10/logs/baseline-after.json`):
+- registry thật SHA256 `AACAD058F478898D41EB0294B619BE21191B83B488544961C080F4BFA0AEE01C` không đổi;
+- SignSDK `venv-23` vẫn `2.3.0.dev11`, `state-23` không đổi;
+- sổ bản thử dev7 `trial-6cb2fa9-1` không đổi;
+- checkout `wf-obs2` của Codex (`codex/obs2`, HEAD `bdb13bf`) sạch;
+- gói dev6, dev7, dev8, dev9: từng file khớp SHA256SUMS của gói, không có file lạ;
+- thư mục review dev8/dev9 của Codex không có file mới (probe chạy với `-B`, ghi kết quả vào thư mục mới của dev10);
+- không còn tiến trình của lượt làm; không dừng viewer nào ngoài bản thử dev10.
+
+Fixture chỉ ghi `.claude/settings.local.json` và sổ trong thư mục tạm; ca `late` sửa P3 của fixture với tác giả `fixture`. Không chạy init, không đăng ký registry, không gọi provider, không push/tag, không ghi duyệt hay nghiệm thu.
+
+---
+
 # Bàn giao OBS-2 dev9 — khép P3 focus của review dev8 và đính chính báo cáo dev8, 05/11/2026
 
 **Sẵn sàng để Codex kiểm tra độc lập.** Chưa phát hành, chưa nghiệm thu, chưa push/tag, không nâng runtime thật. Chưa có review của Codex trên dev9.
