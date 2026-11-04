@@ -177,7 +177,8 @@ def check(package, work):
             except Exception as error:
                 report['stop_error'] = str(error); report['result'] = 'fail'
         registry_after = sha(original_registry) if original_registry.is_file() else None
-        report['real_registry'] = {'path': str(original_registry), 'before': registry_before, 'after': registry_after}
+        report['real_registry'] = {'requested_path': str(original_registry), 'resolved_path': str(original_registry.resolve()),
+                                   'interpreter': sys.executable, 'before': registry_before, 'after': registry_after}
         if registry_after != registry_before: report['result'] = 'fail'; report['isolation_error'] = 'Real registry changed'
         if digest_tree(package) != package_before: report['result'] = 'fail'; report['package_error'] = 'Package changed'
         (work / 'verify-report.json').write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf-8')

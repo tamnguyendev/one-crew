@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from onecrew.control import Control, migrate
+from onecrew.control_core import Control, migrate
 from onecrew.ledger import Ledger
 from onecrew.snapshots import Snapshots
 from onecrew.v2 import engine, internal_plan, plan, repair_tasks, tracking
