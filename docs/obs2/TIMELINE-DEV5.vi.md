@@ -4,8 +4,8 @@ Nguồn: review và yêu cầu người dùng ngày04/11/2026; baseline525c361. 
 
 | ID | Issue / expected output | Phản chứng |
 |---|---|---|
-| U5-1 | Poll không đóng disclosure nguồn/timestamp đang đọc, cùng task/lượt | API trial bật extends_to_now qua fetch test; mở disclosure rồi chờ poll thật; giữ open/focus |
-| U5-2 | Lưới và nhãn cùng mốc chia thời gian | Khoảng không chia hết,21/111ms; đối chiếu tỷ lệ tick với mỗi hàng |
+| U5-1 | Poll không đóng disclosure nguồn/timestamp đang đọc, cùng task/lượt | API trial bật extends_to_now qua fetch test; mở disclosure rồi chờ poll thật; giữ trạng thái mở |
+| U5-2 | Lưới và nhãn cùng mốc chia thời gian | Khoảng không chia hết,21/111 ms; đối chiếu tỷ lệ tick với mỗi hàng |
 | U5-3 | Tab Tiến độ thấy ngay Gantt; chi tiết kỹ thuật thu gọn | Kiểm viewport1280x720/390x844 sau click, không test-scroll; bảng từng lượt folded |
 | U5-4 | Toàn bộ lịch sử mở ngay lượt cũ; Về hiện hành nói đúng tác dụng | Chọn all có old rows; return thu gọn old rows, trở lại cửa sổ hiện hành |
 | U5-5 | Chi tiết ưu tiên tên/kết quả/thời lượng/đầu ra; giữ toàn bộ provenance | Cùng artifact qua2event chỉ1output,2nguồn; current/old/inheritance không trộn; ms thống nhất |

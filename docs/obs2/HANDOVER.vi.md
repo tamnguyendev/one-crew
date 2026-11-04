@@ -1,3 +1,51 @@
+# Bàn giao timeline OBS-2 dev5 — 04/11/2026
+
+**Bản thử hiện hành 2.5.0.dev5**, code `d2e592a4e99c3a79e69d7f627105200a92268803`. Đã khép 5 finding trong phạm vi local và kiểm wheel cuối; chưa phát hành/nghiệm thu/provider thật. Các phần dev4/dev3 bên dưới là lịch sử.
+
+## Mở bản thử
+
+http://127.0.0.1:55268/ — health đã xác nhận pid 27604, instance 9648ed48bb2ea612, read_only, đúng dev5. Nếu viewer tự thoát sau 30 phút không request:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/mo-obs2-dev5.ps1"
+```
+
+Dừng đúng viewer thử này:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/dung-obs2-dev5.ps1"
+```
+
+Chọn **DOC hoặc CODE → Tiến độ**. Sổ/project là dữ liệu mẫu, không cần duyệt để xem UI; các nút sao chép không ghi quyết định.
+
+| Thử | Kết quả mong đợi |
+|---|---|
+| Mở Tiến độ | Thấy Gantt trước; bảng từng lượt và nhật ký kỹ thuật thu gọn phía dưới |
+| Dóng thanh theo nhãn | Đường lưới thẳng hàng với chính mốc0/50ms/…; không chia 25% cố định |
+| Bấm tên hoặc thanh | Tên bước, trạng thái/thời lượng chính xác và đầu ra lên trước ID/thế hệ |
+| Mở Chi tiết lượt → Thời điểm chính xác | Có timestamp ISO gốc; mở/đóng được giữ khi poll |
+| Xem đầu ra DOC | Cùng artifact hiện 1 lần; mở Nguồn vẫn thấy 2 lần ghi nhận với nguồn riêng |
+| Chọn Toàn bộ lịch sử | Các lượt cũ mở ngay; khung lịch sử đứng yên |
+| Bấm Về hiện hành | Thu gọn lịch sử, trở về lượt hiện hành và tiếp tục theo dữ liệu mới |
+
+## Snapshot và bằng chứng
+
+- Gói `D:/OneCrewRuns/obs2/pkg/onecrew-2.5.0.dev5-obs2-d2e592a`.
+- Wheel SHA256 `6122d0a5ec3c1b979e11a95ea73ef82f4ce0e25f6a873993055cdccbed7bc20f`.
+- Receipt root `D:/OneCrewRuns/obs2/trial-d2e592a-1`.
+- `verify-report.json`: **9/9**, wheel/import đúng 8 module, CLI/API/evidence, project/sổ và registry không đổi.
+- `browser/browser-report.json`: **140/140 assertion**,70 desktop1280×720 và70 mobile390×844. Bao gồm disclosure qua poll, vị trí Gantt ngay sau click, grid/tick, lịch sử, nguồn đầu ra và cửa evidence. Đã xem `browser/timeline.png` và `timeline-mobile.png`; harness không tự cuộn đến Gantt để chụp.
+- `lifecycle-report.json`: **4/4**, mở/dùng lại/dừng/dừng lần nữa; đúng mã thoát, cùng instance khi reuse; state/project/package/registry không đổi.
+- Source: **49/49 unit**;4 phản chứng mới đỏ trên dev4 trước khi sửa, xanh sau sửa. Source browser 140/140 đạt.
+- Phản chứng browser cùng harness trên wheel dev4: `D:/OneCrewRuns/obs2/dev5-counterexample-dev4/report-complete.json`, **14/70 assertion đỏ**, không exception, bao phủ cả5finding. `report.json` trước đó giữ nguyên, có exception vì harness giả định disclosure mới tồn tại; bản hoàn chỉnh ghi fail thay vì dừng ở phần tử thiếu.
+- OBS-1 hồi quy source tập trung: Gantt 22 desktop + 20 mobile (`dev5-gantt-final`), clock 10, evidence 8, slow25s 5, switch 6 (`dev5-obs1-regression`): **71 assertion đạt**. Lượt Gantt trước đỏ 2 assertion/cỡ vì kỳ vọng lịch sử vẫn gập khi chọn all; đã đổi đúng hành vi được giao, giữ oracle vị trí thanh/thời gian/nguồn và chạy lại riêng Gantt. Không cộng số assertion thành số testcase độc lập.
+
+Không chạy toàn gate; không thay schema, quyền, engine hoặc cửa evidence. Tái sử dụng snapshot/restore, dữ liệu tracking, renderer và bộ dựng/kiểm gói. Gói/bản thử cũ giữ nguyên. SignSDK vẫn 2.3.0.dev11, registry thật giữ SHA256 `AACAD058F478898D41EB0294B619BE21191B83B488544961C080F4BFA0AEE01C`.
+
+Giới hạn: fixture tổng hợp, chưa pilot/sổ lớn/provider hoặc clipboard thật của người dùng; mobile cuộn ngang trong biểu đồ, không tràn cả trang. Phản chứng poll inject cờ live-axis trong phản hồi thử, không ghi sổ. Source/time/duration là khoảng quan sát có nguồn, không suy checker-CPU hoặc ETA chắc chắn. Chưa push/tag/nghiệm thu; không chờ MR-R.
+
+---
+
 # Bàn giao timeline OBS-2 dev4 — 04/11/2026
 
 Bản thử hiện hành: **2.5.0.dev4**, product `525c36138eaf77d5d4ef482e193322ce4be7bf3d`. Đã kiểm trên wheel cuối, chưa phát hành/nghiệm thu. Nội dung dev3 bên dưới là lịch sử, không phải lệnh mở bản mới.

@@ -1,16 +1,16 @@
-# Timeline dev5 — cycle5 active
+# Timeline dev5 — cycle5 complete for isolated trial
 
 Source: user-approved review of dev4 (3 P2 + 2 P3), baseline525c361. Only UI and focused tests; reuse tracking, evidence door, snapshot/restore and existing artifact tools. No backend/authority/runtime changes, no full gate.
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| U5-1 | Preserve open detail/provenance across live polls | Partial | Stable disclosure keys; source browser pass; final wheel pending |
-| U5-2 | Grid lines share axis tick positions | Partial | Regression red on dev4 → unit/browser pass |
-| U5-3 | Progress shows timeline first; technical data folded | Partial | Browser first-viewport check without test scrolling |
-| U5-4 | All history reveals old rows; return action explicit | Partial | Browser controls pass |
-| U5-5 | Readable attempt, precise duration, grouped output with all provenance | Partial | Source renderer/browser pass |
+| U5-1 | Preserve open detail/provenance across live polls | Complete | Stable disclosure keys; installed disclosure/live-poll assertions pass |
+| U5-2 | Grid lines share axis tick positions | Complete | Regression red on dev4 → unit/browser pass |
+| U5-3 | Progress shows timeline first; technical data folded | Complete | Browser first-viewport check without test scrolling |
+| U5-4 | All history reveals old rows; return action explicit | Complete | Browser controls pass |
+| U5-5 | Readable attempt, precise duration, grouped output with all provenance | Complete | Installed output/provenance/evidence checks pass |
 
-Complete0 / Partial5; final wheel verification and handover pending. Earlier cycles below are historical.
+Complete5 / Partial0 for local UI scope. Product d2e592a; wheel6122d0a5…7bc20f; trial-d2e592a-1: package9/9, browser140/140, lifecycle4/4; source49/49 plus scoped OBS1 regressions. Dev4 counterexample14/70failed. No release/acceptance/provider claim. Earlier cycles below are historical.
 
 ---
 
