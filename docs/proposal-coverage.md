@@ -1,19 +1,20 @@
-# UX dev3 coverage — cycle 3, source verified / artifact pending
+# UX dev3 coverage — cycle 3 complete for isolated trial
 
-Proposal: `docs/obs2/UX-DEV3.vi.md`, user comments 04/11; baseline `3fbb07b`.
+Proposal: `docs/obs2/UX-DEV3.vi.md`; final product `ff81554de7f3a99ae0bdc9d0fc9ef1cfc0f791c9`.
+Evidence base: `D:/OneCrewRuns/obs2/trial-ff81554-1`; see `docs/obs2/HANDOVER.vi.md` for exact hash, limitations and registry incident/recovery.
 
 | ID | Status | Implementation / validation |
 |---|---|---|
-| UX1 | Partial | Seven card stages, explicit stable sorting; renderer/browser source pass; wheel pending |
-| UX2 | Partial | Stage/need separation, resumed/amended tasks, scoped sample label; unit/browser pass |
-| UX3 | Partial | Pinned PowerShell, explicit placeholders, copy without approval; source tests pass |
-| UX4 | Partial | Owner --human reuses guarded verbs; JSON preserved; own suite 13/13, bound revision/default replay tests pass; installed probe pending |
-| UX5 | Partial | Latest changes first, internal revision distinct, readable field names; renderer pass |
-| UX6 | Partial | Current outputs before history, linked repair flow, old milestone pass cannot certify newer failed artifact; real verifier regression pass |
-| UX7 | Partial | Source browser 86/86, renderer/cards 24/24, OBS-1 Source/Engine 18/18; final installed browser pending |
-| UX8 | Partial | Version dev3 and eight-module package identity ready; fixed wheel/lifecycle/handover pending |
+| UX1 | Complete | Seven sourced lanes, explicit stable ordering; cards unit + installed browser45/45 each desktop/mobile |
+| UX2 | Complete | Phase vs active count vs owner attention; amended/resumed/old-pass counterexamples; installed CODE/DOC |
+| UX3 | Complete | Pinned PowerShell, highlighted placeholders, copy without approval, compact decision; installed browser |
+| UX4 | Complete | Reused owner/ownership/plan; optional human text + legacy JSON; source13/13 and stale/bound acceptance; installed refusal2/2, real-owner success still untested |
+| UX5 | Complete | Latest changes first; distinct internal revision; before/after + provenance; renderer and installed five tabs |
+| UX6 | Complete | Current outputs before history; repair link/actor source; true local verifier A-pass/B-fail; installed evidence opening |
+| UX7 | Complete | Final renderer/cards25/25; browser90/90; five desktop views inspected; source OBS-1 timing/Gantt regression retained with stated scope |
+| UX8 | Complete | Fixed wheel package9/9, lifecycle4/4, owner probe2/2, docs/wiki; real registry restored exactly then verified stable, no runtime upgrade |
 
-Complete 0 / Partial 8 / Missing 0 / Blocked 0. Source evidence is not installed-wheel certification. Earlier evidence below is historical.
+Complete 8 / Partial 0 / Missing 0 / Blocked 0 for this local trial scope. Not a release/acceptance/provider/real-user clipboard claim. Earlier evidence below is historical.
 
 ---
 
