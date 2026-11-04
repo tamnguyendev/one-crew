@@ -9,7 +9,7 @@ from onecrew.v2.tracking_work_web import SCRIPT
 
 
 class WorkViews(unittest.TestCase):
-    def render(self, tab, work):
+    def render(self, tab, work, measure=None):
         node = shutil.which('node')
         if not node:
             self.skipTest('Node needed for JS rendering acceptance; browser checks still required')
@@ -23,7 +23,7 @@ function openBtn(k){return '<button data-evidence="'+esc(k)+'">Mở bằng chứ
         detail = {'status': {'kind': 'waiting', 'label': 'Đang chờ', 'reason': 'Cần trả lời'},
                   'current_step': 'Đối chiếu điều kiện đăng nhập', 'goal': 'Review đăng nhập',
                   'needs_user': [], 'eta': {'label': 'Chưa đủ dữ liệu'}, 'elapsed': {'seconds': 30},
-                  'measure': {}, 'evidence_keys': ['allowed'], 'work': work}
+                  'measure': measure or {}, 'evidence_keys': ['allowed'], 'work': work}
         code = prelude + SCRIPT + '\nworkTab=' + json.dumps(tab) + '; console.log(workDashboard(' + json.dumps(detail) + '));'
         result = subprocess.run([node, '-'], input=code, text=True, encoding='utf-8', capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -132,6 +132,16 @@ function openBtn(k){return '<button data-evidence="'+esc(k)+'">Mở bằng chứ
         self.assertIn('có thể gồm thời gian chờ trước kiểm', out)
         self.assertIn('thời gian chạy bộ kiểm và hàng đợi riêng đều chưa xác định', out)
         self.assertIn('không cộng đôi', out)
+
+    def test_sourced_admission_and_preparation_remain_distinct_from_scheduler_queue(self):
+        out = self.render('progress', {}, {'attempts': [{'node': 'C', 'attempt': 'ATT-abc', 'generation': 1,
+            'admission_seconds': 3, 'preparation_seconds': 2, 'execution_seconds': 'unknown'}]})
+        self.assertIn('<td>3s</td><td>2s</td><td>chưa xác định</td>', out)
+        self.assertIn('chưa phải thời gian hàng đợi scheduler riêng', out)
+
+    def test_empty_frozen_set_is_not_unknown(self):
+        out = self.render('solution', {'solution': {'frozen': {'runnable': ['M1'], 'frozen': []}}})
+        self.assertIn('phần chờ bản mới: không có', out)
 
     def test_shipping_page_includes_views_and_preserves_request_guards(self):
         page = tracking_web._page(2)

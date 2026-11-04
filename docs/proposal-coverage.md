@@ -1,33 +1,33 @@
 # Proposal Coverage
 
-Proposal source: `../outputs/onecrew-as-qc/ROADMAP-DESIGN-20261026.vi.md` §2.13; roadmap current order 04/11.
-Last reviewed commit: `97603cb` (DATA); UI changes in cycle 1
-Current iteration: 1 — OBS-2A data and UI; OBS-2B receipt lineage follows in the same isolated branch. MR-R separate. CP-1 last.
+Proposal source: `../../outputs/onecrew-as-qc/ROADMAP-DESIGN-20261026.vi.md` §2.13; roadmap current order 04/11.
+Last reviewed commit: `20cabd5` (OBS-2A handed over), `be1c882` (next OBS-2B timing)
+Current iteration: 2 — OBS-2A installed trial handed over; finish sourced OBS-2B timing without replacing that trial. MR-R separate. CP-1 last.
 
 ## Summary
 
 | Status | Count |
 |---|---:|
-| Complete | 0 |
-| Partial | 8 |
+| Complete | 4 |
+| Partial | 4 |
 | Missing | 0 |
 | Blocked | 0 |
 | Not applicable | 0 |
 
-Verified full-slice coverage: 0/8 (all eight implemented locally; artifact/browser verification still pending). No deployment or owner acceptance implied.
+Verified full-slice coverage: 4/8. OBS-2A and shared read-only boundary passed installed artifact/browser; next OBS-2B timing package remains pending. No deployment or owner acceptance implied.
 
 ## Requirements
 
 | ID | Proposal section | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
 |---|---|---|---|---|---|---|---|
-| OBS2-T1 | 2.13 | Separate proposed/approved/effective; exact SOL scope | Data | Existing plan/solution_link reused | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | Do not promote latest |
-| OBS2-T2 | 2.13 | Contract/internal/retry history and authority | Functional | contract_diff/internal_plan reused | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | No new approvals |
-| OBS2-T3 | 2.13 | Outputs with per-item proof and lineage | Data | tracking provenance reused | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | Old pass is not current pass |
-| OBS2-T4 | 2.13 | Honest check/finding counts and repeated issues | Functional | finding_core reused | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | Not unique bug count |
-| OBS2-T5 | 2.13 | Repair chains, unaffected branches, integration | Functional | repair_tasks reused | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | Attempts are not repair rounds |
-| OBS2-T6 | 2.13 | Actual actors, receipts and closure | Security | engine receipts reused | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | Unknown stays unknown |
-| OBS2-T7 | 2.13 | Read-only, scope, redaction, history and reconnect | Security | existing outbound guard/evidence gate | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | Never write during reads |
-| OBS2-T8 | 2.13 | Readable coding/noncoding UI from wheel | UI | work overview and detail views | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | desktop/mobile, artifact smoke |
+| OBS2-T1 | 2.13 | Separate proposed/approved/effective; exact SOL scope | Data | Existing plan/solution_link reused | DATA 18 + actor regression; renderer13; installed API9/9 + browser56/56 on20cabd5 | Complete | Do not promote latest |
+| OBS2-T2 | 2.13 | Contract/internal/retry history and authority | Functional | contract_diff/internal_plan reused | DATA 18 + actor regression; renderer13; installed API9/9 + browser56/56 on20cabd5 | Complete | No new approvals |
+| OBS2-T3 | 2.13 | Outputs with per-item proof and lineage | Data | tracking provenance reused | DATA 18 + actor regression; renderer13; installed API9/9 + browser56/56 on20cabd5 | Complete | Old pass is not current pass |
+| OBS2-T4 | 2.13 | Honest check/finding counts and repeated issues | Functional | finding_core reused | DATA 18 + actor regression; renderer13; installed API9/9 + browser56/56 on20cabd5 | Partial | Not unique bug count |
+| OBS2-T5 | 2.13 | Repair chains, unaffected branches, integration | Functional | repair_tasks reused | DATA 18 + actor regression; renderer13; installed API9/9 + browser56/56 on20cabd5 | Partial | Attempts are not repair rounds |
+| OBS2-T6 | 2.13 | Actual actors, receipts and closure | Security | engine receipts reused | DATA 18 + actor regression; renderer13; installed API9/9 + browser56/56 on20cabd5 | Partial | Unknown stays unknown |
+| OBS2-T7 | 2.13 | Read-only, scope, redaction, history and reconnect | Security | existing outbound guard/evidence gate | DATA 18 + actor regression; renderer13; installed API9/9 + browser56/56 on20cabd5 | Complete | Never write during reads |
+| OBS2-T8 | 2.13 | Readable coding/noncoding UI from wheel | UI | work overview and detail views | DATA 18 + actor regression; renderer13; installed API9/9 + browser56/56 on20cabd5 | Partial | desktop/mobile, artifact smoke |
 
 ## Cycle 1
 
@@ -36,6 +36,11 @@ Validation: focused data and render tests, then scoped integration and installed
 Models: Sol data implementation, root UI/integration, Astra bounded independent review. Source ownership is split.
 
 Data: b6acb0b + 97603cb; 18 original acceptance tests, 18 OBS1 Source/Engine regression, 2 actor checks and new zero-call reviewer regression passed. UI view tests 13/13. Real browser CODE/DOC 28 assertions × 2 sizes = 56/56; scoped OBS1 Gantt/slow25/switch/timeout desktop/mobile passed (6 runs). Fixed-snapshot installed-wheel/browser evidence remains pending; requirement statuses stay Partial until that handover check. Browser cycle 1 reached 22 green assertions then failed because test selected absent PC fixture; corrected harness to use actual CODE/DOC trial fixture, no product bypass.
+
+
+## Cycle 2
+
+OBS-2A package `D:/OneCrewRuns/obs2/pkg/onecrew-2.5.0.dev1-obs2-20cabd5` verified from its own scripts (9/9), browser56/56 at1280/390, PS lifecycle4/4 and mismatch negative. Source-backed timing refinement `be1c882`: actual admission/preparation spans exposed, unknown preserved, overlap union unchanged (2 tests). UI adds labelled per-attempt timing, unambiguous node identity for each output and explicit empty frozen set. Renderer15/15; final OBS-2B wheel/browser verification pending. Product2.4/real runtime unchanged.
 
 ---
 
