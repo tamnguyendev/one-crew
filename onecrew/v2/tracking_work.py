@@ -213,13 +213,22 @@ def _checks(reader, state, events, root, blobs, engine, limitations):
                  p.get('internal_revision') not in record.get('valid_internal_revisions', [])) if nid else (
                      p.get('revision') != (state.get('approved') or {}).get('revision') or
                      p.get('revision') != state['latest'])
+        reviewer_data = None
+        if all_proven and kind == 'verdict.recorded':
+            calls = (body or {}).get('calls')
+            if (body or {}).get('kind') != 'reviewer-receipt' or (isinstance(calls, (int, float)) and calls > 0):
+                reviewer_data = body
+        elif all_proven and kind == 'node.verification':
+            recorded = observed.get('reviewer')
+            if isinstance(recorded, dict) and isinstance(recorded.get('calls'), (int, float)) and recorded['calls'] > 0:
+                reviewer_data = recorded
         run = {'id': 'check:' + str(seq), 'receipt': p.get('receipt'), 'node': nid or p.get('milestone'), 'generation': gen,
                'revision': p.get('revision'), 'internal_revision': p.get('internal_revision'),
                'attempt': p.get('attempt'), 'producer_attempt': starts.get((nid, gen)), 'artifact': artifact, 'stale': stale,
                'authentic': bool(all_proven), 'status': _status(p.get('result')) if all_proven else 'unknown',
                'checks': check_rows, 'testcases': cases, 'checks_sha': (body or {}).get('checks_sha'), 'source': source, 'sources': [source],
                'actor': _actor('reviewer', nid or p.get('milestone'), p.get('attempt'), source,
-                               observed.get('reviewer') or (body if kind == 'verdict.recorded' else None))}
+                               reviewer_data)}
         run['actors'] = []
         for check in check_rows:
             proof = blobs.get(check.get('evidence')) if isinstance(check.get('evidence'), str) and check['authentic'] else None

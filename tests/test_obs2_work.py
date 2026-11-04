@@ -13,6 +13,22 @@ from tests.test_conversations import solution as sol_payload
 
 
 class SolutionTests(Fixture):
+    def test_zero_call_or_unbound_reviewer_receipt_cannot_claim_executed_actor(self):
+        milestone = {'id': 'M1', 'title': 'Review the sample', 'covers': ['O1'],
+                     'verifier': {'type': 'reviewer', 'config': {'provider': 'claude', 'model': 'claude-haiku-5-5',
+                         'criteria': [{'id': 'R1', 'question': 'Does a.txt contain the correct sample line?'}], 'max_minutes': 5}}}
+        self.approved(value=plan_json(milestones=[milestone]))
+        for calls, bound in ((0, True), (1, False), (1, True)):
+            receipt, body = self.receipt(kind='reviewer-receipt', calls=calls, provider='claude', model='configured-reviewer',
+                criteria=[{'id': 'R1', 'verdict': 'pass'}], artifact_sha=self.tree() if bound else 'a' * 40)
+            self.issue(receipt)
+            with self.ledger.transaction(write=True) as conn:
+                task = plans.derive(self.ledger, conn, 'P1')['task_id']
+                plans.emit(self.ledger, conn, task, 'verdict.recorded', {'plan': 'P1', 'revision': 1, 'milestone': 'M1',
+                    'receipt': receipt, 'result': 'pass', 'by': 'reviewer', 'artifact_sha': self.tree()})
+        actors = [a for a in tracking.detail(self.ledger.state_root, 'P1')['work']['actors'] if a['role'] == 'reviewer']
+        self.assertEqual([a['provider'] for a in actors], [None, None, 'claude'])
+
     def test_approved_revision_change_marks_old_milestone_artifact_historical(self):
         from onecrew.v2 import verdict
         self.approved()
