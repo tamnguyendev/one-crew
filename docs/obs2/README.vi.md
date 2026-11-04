@@ -24,4 +24,10 @@ Cặp script chỉ nhận sổ tổng hợp do verifier tạo, kiểm version/ha
 
 Trong trang, chọn CODE/DOC rồi xem năm tab Tổng quan, Solution, Thay đổi, Kết quả & kiểm chứng, Tiến độ. Chuỗi kiểm/sửa nằm trong Kết quả & kiểm chứng. Kiểm mục tiêu và tên phần việc tiếng Việt, bản đang áp dụng so với đề xuất mới, nguồn kết quả/receipt, finding được khép bằng kiểm sau sửa và đầu ra tài liệu mới còn chưa kiểm. Secret/project boundary tiếp tục đi qua cửa chỉ đọc hiện có. Thiếu testcase/actor/link thì hiển thị chưa xác định; check/finding không tự là bug độc lập, attempt không tự là vòng sửa.
 
-Verifier nhỏ không tự mở Chrome/Edge hoặc chụp ảnh desktop/mobile. Gói kèm `verify/tests/obs1_ux_harness.py`, `obs2_ux_harness.py` và namespace riêng để lượt kiểm browser bên ngoài dùng đúng harness của snapshot. Bằng chứng browser được ghi riêng trên đúng wheel/package ở bàn giao; chưa có bằng chứng đó thì không gọi OBS2-T8 hoàn tất. Không chạy lại full gate 2.2 chỉ để thử UI này.
+Verifier nhỏ không tự mở Chrome/Edge hoặc chụp ảnh desktop/mobile. Gói kèm `verify/tests/obs1_ux_harness.py`, `obs2_ux_harness.py` và namespace riêng để lượt kiểm browser bên ngoài dùng đúng harness của snapshot. Sau khi verifier đã đạt, có thể chạy lượt browser riêng trên wheel đã cài:
+
+```powershell
+python -I -B D:\OneCrewRuns\obs2\pkg\<tên-gói-mới>\verify\obs2_artifact_browser.py D:\OneCrewRuns\obs2\pkg\<tên-gói-mới> D:\OneCrewRuns\obs2\trial-<tên-mới>
+```
+
+Runner cần Chrome hoặc Edge có sẵn, kiểm tương tác ở 1280×720 và 390×844, ghi `trial-...\browser\browser-report.json` cùng ảnh Solution/Kết quả; không có browser thì không tính là đạt. Bằng chứng browser được ghi riêng trên đúng wheel/package ở bàn giao; chưa có bằng chứng đó thì không gọi OBS2-T8 hoàn tất. Không chạy lại full gate 2.2 chỉ để thử UI này.

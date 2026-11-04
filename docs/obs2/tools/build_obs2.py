@@ -37,7 +37,7 @@ def build(commit, out):
         archive = snapshot / 'source.zip'
         subprocess.run(['git', '-C', str(ROOT), 'archive', '--format=zip', '--output=' + str(archive), commit,
                         'onecrew', 'tests/wf_wheel.py', 'pyproject.toml', 'docs/obs2',
-                        'tests/obs1_ux_harness.py', 'tests/obs2_ux_harness.py',
+                        'tests/obs1_ux_harness.py', 'tests/obs2_ux_harness.py', 'tests/obs2_artifact_browser.py',
                         'docs/obs1/tools/mo-trang-obs1.ps1', 'docs/obs1/tools/dung-trang-obs1.ps1'], check=True)
         with zipfile.ZipFile(archive) as zipped:
             for name in zipped.namelist():
@@ -65,6 +65,7 @@ def build(commit, out):
         (out / 'verify/tests/__init__.py').write_text('# Packaged browser harness only, not installed runtime.\n', encoding='utf-8')
         for name in ('obs1_ux_harness.py', 'obs2_ux_harness.py'):
             shutil.copyfile(snapshot / 'tests' / name, out / 'verify/tests' / name)
+        shutil.copyfile(snapshot / 'tests/obs2_artifact_browser.py', out / 'verify/obs2_artifact_browser.py')
         shutil.copyfile(snapshot / 'docs/obs2/README.vi.md', out / 'README.vi.md')
         manifest = {'kind': 'obs2-local-trial', 'label': 'OBS-2A/2B synthetic fixture; local, not accepted',
                     'code_commit': commit, 'version': version, 'wheel': {'name': wheel.name, 'sha256': sha(wheel)},
