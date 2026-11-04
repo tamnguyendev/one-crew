@@ -1,3 +1,88 @@
+# Bàn giao OBS-2 dev8 — khép R7-1/R7-2 của review dev7, 04/11/2026
+
+**Sẵn sàng để Codex kiểm tra độc lập.** Chưa phát hành, chưa nghiệm thu, chưa push/tag, không nâng runtime thật.
+- Người làm: Claude (Opus 5.5), tiếp quản theo chỉ thị chủ ngày 04/11: tự review, sửa, tự kiểm chứng.
+- Nguồn issue: [review dev7](../../../outputs/onecrew-as-qc/REVIEW-OBS2-DEV7-20261104.vi.md); Codex đã tái hiện trong `D:/OneCrewRuns/obs2-codex-review-dev7` (`4435ec71/unbind`, `milestone`).
+- **Đính chính:** bàn giao dev7 bên dưới ghi F1/F2 "Complete". Review dev7 xác định cả hai mới khép một phần (R7-1, R7-2). Dev8 khép hai điểm đó.
+
+## Snapshot
+
+| Mục | Giá trị |
+|---|---|
+| Nhánh | `claude/obs2-dev8`, worktree `D:/TamNT/Workspace/11.OneCrew/wf-obs2-claude`, tách từ `bdb13bf` của `codex/obs2`. Checkout `wf-obs2` của Codex không bị đụng. |
+| Product snapshot | `138000603828e919cd3472cb6fc4556ee0342146`, version `2.5.0.dev8` |
+| Commit sau `bdb13bf` | `672cf91` code + test + checker; `9914711` README gói; `1380006` binding fixture cho 2 test OBS-1 |
+| Code `onecrew/` | `1380006` trùng byte `672cf91` (`git diff 672cf91 1380006 -- onecrew/` rỗng) |
+| Gói | `D:/OneCrewRuns/obs2/pkg/onecrew-2.5.0.dev8-obs2-1380006`, SHA256SUMS 18/18 |
+| Wheel SHA256 | `d5917af6678c260bbd414abf5e9af8a591d941137f7e8a3c162089b6da478fa2` |
+| Bản thử | `D:/OneCrewRuns/obs2/trial-1380006-1` |
+| Bằng chứng của lượt này | `D:/OneCrewRuns/obs2-dev8` |
+
+## Mở và dừng bản thử
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/mo-obs2-dev8.ps1"
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:/OneCrewRuns/obs2/dung-obs2-dev8.ps1"
+```
+
+Dữ liệu tổng hợp CODE/DOC, chỉ đọc. Không dùng lệnh của bản thử để duyệt công việc thật. Lifecycle qua đúng hai script này: mở → mở lại cùng instance (cờ `reused` false→true) → dừng đúng phiên → dừng lần nữa exit 2. Project, sổ, gói và registry thật không đổi byte (`trial-1380006-1/lifecycle-report.json`, oracle như dev7).
+
+## Kết quả
+
+| ID | Trạng thái | Vị trí (snapshot `1380006`) | Nguyên nhân | Sửa |
+|---|---|---|---|---|
+| R7-1 (P2) | **Closed** | `onecrew/v2/tracking_web.py:1182`, `:1054-1056`, `:1002`, `:1219-1221` | Trang chỉ vẽ lại chi tiết khi `last_seq` của sổ đổi. Binding hook nằm ngoài sổ, nên khi gỡ hoặc đổi hook, lệnh ghi và thông báo sao chép cũ vẫn còn tới khi chọn lại task. | Ngoài `last_seq`, so thêm "bề mặt sao chép" của need (`needsSig`: lệnh, lệnh xem, binding, lý do); khác thì vẽ lại qua `paint` (giữ task, tab, mục mở, vị trí đọc). Thông báo sao chép chỉ còn khi dữ liệu mới nhất vẫn cung cấp đúng lệnh đó (`copiedStillValid`), nên mất binding thì bỏ, gắn lại cũng không hiện lại. Bấm sao chép trên thẻ vẽ trước khi dữ liệu đổi thì không chép mà vẽ lại. |
+| R7-2 (P3) | **Closed** | `onecrew/v2/tracking.py:955`, `:976`, `:496-503`; `tracking_work_web.py:55`, `:65` | Root dạng mốc không bao giờ ghi `node.started`. Bản dev7 dựa vào `m.last_verdict`, nhưng API không trả trường này, nên mốc chỉ có verdict thất bại vẫn bị gọi "Chưa khởi chạy". | `has_started` tính thêm attempt, verdict đã ghi (mọi revision) và lượt chạy kiểm. `workStage` dùng chính trạng thái mốc từ API. Thẻ của root dạng mốc nói đúng bước của nó; lý do trạng thái tách "mốc X kiểm chưa đạt, chờ sửa và kiểm lại" khỏi "chờ verdict của mốc Y". Điều kiện nghiệm thu không đổi. |
+| Liên quan A | **Closed** | `tests/test_obs1_web.py:189-204` | Test trang của OBS-1 đã đỏ từ OBS-2A (`025c8ca`): vẫn đòi badge "đang chờ", "cần bạn", "Sao chép mẫu lệnh", lệnh `question answer` và không có binding. Đỏ y hệt trên `6cb2fa9` cùng môi trường. | Cấp binding thật cho project tạm (`tests/obs2_binding_fixture.py`, exe fixture không bao giờ chạy). Đổi chữ kỳ vọng sang thẻ OBS-2 ("Chờ bạn trả lời", "1 quyết định cần bạn", lệnh `owner answer` cho từng phương án có `--reference`). Giữ đủ các kiểm: task, trạng thái, kết nối, không lộ bí mật. |
+| Liên quan B | **Partial**, nợ test có sẵn, ngoài phạm vi R7 | `tests/test_obs1_browser.py:43-47` | Bộ 40 kịch bản trình duyệt OBS-1 chưa được cập nhật từ khi OBS-2 đổi giao diện; fixture không có binding nên các ca mẫu lệnh dừng ở bước chuẩn bị. | Đã cấp binding để ux03, stale_detail, slow_detail, p2a chạy qua bước chuẩn bị (p2a giờ đạt). 13 kịch bản vẫn đỏ vì kỳ vọng chữ/bố cục OBS-1, **đỏ y hệt trên dev7** (xem Hồi quy). Không nới kỳ vọng; đề xuất một task riêng chuyển bộ này sang OBS-2. |
+
+## Đỏ trên dev7 → xanh trên wheel cuối
+
+Mỗi ca tự xác nhận tiền điều kiện; ca nào tiền điều kiện hỏng thì tính là đỏ.
+
+- **R7-1, trình duyệt** (`verify/check_binding_live.py`, sổ mới chỉ propose, 2 task, hook ghi/gỡ thật). 6 ca đổi binding giữa phiên (thiếu hook / khác runtime / khác sổ × desktop 1280 / mobile 390) và 2 ca thời gian thực (đọc chi tiết P1 chậm 2,5 s, gỡ hook, đổi P1→P2→P1, gắn lại).
+  - Wheel dev7: **76/102**, mọi tiền điều kiện đạt (đã gắn hook, có lệnh, có thông báo sao chép; 3 lần poll không đổi thì không vẽ lại). Đỏ đúng ở: lệnh ghi còn sau khi mất binding, thông báo sao chép cũ còn, không thấy lý do binding, gắn lại thì thông báo cũ quay lại; ca chậm: gắn lại mà lệnh không tự hiện. Log `D:/OneCrewRuns/obs2-dev8/red-dev7/run/browser-binding-live.json`.
+  - Wheel cuối (venv của bản thử): **102/102**. `last_seq` giữ nguyên trong mọi ca; API báo "không lệnh, chưa xác minh" rồi "có lệnh, đã xác minh". Trang theo sau ở lần poll kế tiếp mà không cần chọn lại task, không còn thông báo cũ, vẫn đúng task, tab "Thay đổi" và mục đang mở. Không lúc nào câu hỏi của task này hiện dưới tên task kia. Sổ và registry không đổi. Log `D:/OneCrewRuns/obs2-dev8/final/binding-live/browser-binding-live.json`, ảnh `live-other-state-*-lost.png`.
+- **R7-1, R7-2, unit** (`tests/test_obs2_review_dev7.py`, sổ thật qua fixture repo): trên export `6cb2fa9` đỏ **3/7** (2 helper chưa có, `has_started=False` khi mốc chỉ có verdict thất bại); trên snapshot cuối xanh **7/7**.
+- **R7-2 qua API của wheel trên cùng 5 sổ** (`D:/OneCrewRuns/obs2-dev8/ledgers`, `wheel_board.py`). Đọc `/api/overview` + `/api/task` của server wheel, chạy chính `workStage/workStatus` của wheel đó:
+  - Chưa verdict → "Chưa khởi chạy" ở cả hai bản.
+  - **Chỉ M1 thất bại: dev7 "Chưa khởi chạy" → dev8 "Đang xử lý"**, lý do "mốc M1 kiểm chưa đạt (verdict gần nhất không đạt), chờ sửa và kiểm lại; chờ verdict của mốc M2".
+  - M1 đạt một phần → "chờ verdict của mốc M2". Các mốc đạt trên artifact khác nhau → "Chờ bộ thực thi kiểm các mốc trên cùng bản bàn giao", lệnh nghiệm thu từ chối. Đủ điều kiện → "Chờ nghiệm thu", nghiệm thu được.
+  - Overview trùng detail; sổ không đổi. Log `logs/r72-board-dev7.json`, `logs/r72-board-final.json`.
+
+## Hồi quy
+
+- **Wheel cuối đã cài, ngoài checkout:**
+  - verify gói 9/9 (registry thật trước = sau);
+  - trình duyệt OBS-2 150/150 (75 desktop + 75 mobile, không tràn ngang);
+  - binding tĩnh 8 ca 56/56;
+  - từ chối lệnh chủ trong phiên AI 2/2;
+  - lifecycle 4/4;
+  - 13 kịch bản OBS-1 (slow/switch/timeout/mất kết nối/overview chậm/thời gian thực) 13/13, 70/70.
+  - Kết quả trong `D:/OneCrewRuns/obs2-dev8/final/` và `harness-dev13-on-dev8/summary.json`.
+- **Source, export snapshot cuối `1380006`, Python của venv có wheel:** nhóm OBS-2 103/103 (`test_obs2_review_dev7`, `_dev6`, `_dev5`, `test_obs2_cards`, `_web`, `_work`, `_owner_human`, `_timeline`, `test_wf_observed_handoff`); nhóm OBS-1 96/96 (`test_obs1_ux`, `test_obs1_tracking`, `test_obs1_p2`, `test_obs1_r23_scope_secrets`, `test_obs1_web`, `test_obs1_r1_provenance`); test công cụ đóng gói 2/2; 0 skip (`logs/final-reg-{obs2,obs1,tools}.log`). Trước đó trên ứng viên `672cf91` (cùng code): OBS-2 103/103, OBS-1 84/85 với 1 test đỏ có sẵn (Liên quan A, đã sửa ở `1380006`).
+- **Bộ trình duyệt OBS-1 `test_obs1_browser`** (40 kịch bản, chạy cả hai bản cùng môi trường):
+  - Chưa gắn binding: dev7 26/40 = dev8 26/40 (340/370).
+  - Đã gắn binding: dev7 27/40 = dev8 27/40 (392/435).
+  - **Không kịch bản nào khác nhau giữa dev7 và dev8**, nên bản sửa không gây hồi quy. 13 kịch bản đỏ là nợ có sẵn (ux01, ux03, ux03b×2, ux05, ux07, ux08×2, stale_detail×2, slow_detail, prov): chữ trạng thái, bộ đếm, bố cục và định dạng lệnh của OBS-1. Trong đó có kiểm "giữ focus trên nút sao chép sau khi vẽ lại" (ux03), cũng đỏ trên dev7. Log `D:/OneCrewRuns/obs2-dev8/obs1-browser-dev{7,8}{,-bound}/`.
+
+## Giới hạn và chưa kiểm
+
+- `verify/check_review_fixes.py` (probe 24 ca) không chạy được trong phiên AI: fixture của nó gọi `plan.approve` ngay trong tiến trình. Tôi không gỡ marker AI. Các ca F1–F5 tương ứng đã phủ bằng kiểm trên wheel (trình duyệt 150, binding tĩnh 56, R7-2 qua API) và test nguồn. Codex có thể chạy lại probe trong môi trường của Codex.
+- Giữa lúc hook đổi và lần đọc chi tiết kế tiếp (tối đa một chu kỳ poll), trang chưa biết. Từ lần đọc đó trở đi, thẻ và nút sao chép theo dữ liệu mới.
+- Chưa kiểm: clipboard thật (headless từ chối clipboard, phần "đã sao chép" chỉ đọc mã), lệnh chủ chạy thành công từ terminal của anh, sổ lớn, provider thật, pilot SignSDK, mutation test, gate 2.2 toàn bộ (không chạy theo chỉ thị).
+
+## Cách ly
+
+Trước và sau lượt làm, so `D:/OneCrewRuns/obs2-dev8/logs/baseline-{before,after}.json`: registry thật SHA256 `AACAD058F478898D41EB0294B619BE21191B83B488544961C080F4BFA0AEE01C` không đổi; SignSDK `venv-23` vẫn `2.3.0.dev11`, `state-23` không đổi (mtime 03/11 13:45); sổ bản thử dev7 `trial-6cb2fa9-1` 109 sự kiện, hash không đổi; checkout `wf-obs2` (`codex/obs2`, HEAD `bdb13bf`) sạch; SHA256SUMS gói dev6 và dev7 không đổi. Thay đổi duy nhất ở repo dùng chung: nhánh mới `claude/obs2-dev8` và worktree `wf-obs2-claude`.
+
+Fixture binding chỉ ghi `.claude/settings.local.json` trong project tạm; không chạy init, không đăng ký registry. Không gọi provider, không push/tag, không ghi duyệt hay nghiệm thu.
+
+---
+
 # Bàn giao OBS-2 dev7 — khép review dev6, 04/11/2026
 
 Bản thử **2.5.0.dev7**, product `6cb2fa9e7eea2f5f88a394be5cc5c291f7031d98`. Phạm vi đúng 2 P2 + 3 P3 từ review dev6; không thêm feature roadmap. Các bàn giao cũ bên dưới là lịch sử, đặc biệt claim dev6 khép đủ 7 finding đã được đính chính bởi review độc lập.

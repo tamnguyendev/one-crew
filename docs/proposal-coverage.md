@@ -1,3 +1,18 @@
+# Dev8 dev7-review fixes — cycle8 complete for isolated trial (Claude implementation, Codex to verify)
+
+Source: shared REVIEW-OBS2-DEV7-20261104.vi.md; Codex reproduction D:/OneCrewRuns/obs2-codex-review-dev7 (4435ec71/unbind, milestone). Baseline 6cb2fa9 / docs bdb13bf. The owner assigned implementation and self-review to Claude; Codex verifies the final handover. The cycle7 Complete claims for U7-1 and U7-2 are superseded: the independent review found both Partial (R7-1, R7-2).
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| U8-1 (R7-1) | Need cards follow a binding or command change that adds no ledger event; no old copy feedback when the binding is lost; a restored binding shows current commands only; task/tab/position kept | Complete | Installed browser `check_binding_live.py`, 8 cases (missing / other runtime / other state x desktop/mobile + 2 real-time slow-read task switches), preconditions asserted: dev7 wheel 76/102 → final wheel 102/102; unit helpers red on 6cb2fa9 → green |
+| U8-2 (R7-2) | Milestone-only roots with a check, run or attempt are not "never started"; status separates failed from waiting milestones; acceptance unchanged | Complete | Same 5 real ledgers read through each wheel's own API + JS: failed-only dev7 todo → dev8 doing; untouched stays todo; different artifacts refused; eligible accepted. Unit 3/7 red on 6cb2fa9 → 7/7 |
+| U8-3 | test_obs1_web page test (red since 025c8ca) restored without weakening | Complete | Real fixture binding + OBS-2 card words; same guards (task, status, connection, per-option templates with --reference, no secret); 8/8 |
+| U8-4 | OBS-1 browser suite runs past its template setup | Partial | Fixture binding added (p2a now passes). 13/40 scenarios still red identically on 6cb2fa9 and 1380006 (OBS-1 wording/layout expectations); not loosened; separate migration task |
+
+Complete3/Partial1 for this local scope. Product 1380006 (onecrew/ byte-equal to 672cf91), version 2.5.0.dev8, wheel d5917af6…478fa2. Trial trial-1380006-1: verify 9/9, browser 150/150, unbound 56/56, binding-live 102/102, owner refusal 2/2, lifecycle 4/4; OBS-1 13 scenarios 70/70 on the final wheel. Source on the final snapshot: OBS-2 modules 103/103, OBS-1 modules 96/96 (incl. test_obs1_web 8/8), tooling 2/2, 0 skip. check_review_fixes.py cannot run inside an AI session (its fixture approves in-process); its F1–F5 cases are covered by the installed checks above. Not a full-gate, release, owner-terminal, clipboard, provider or pilot claim.
+
+---
+
 # Dev7 cross-review fixes — cycle7 complete for isolated trial
 
 Source: shared REVIEW-OBS2-DEV6-20261104.vi.md; baseline693f114/docs0aeea9c. User authorized all2P2+3P3. Cycle6 Complete claim superseded by independent review below:3of7 remained Partial.
