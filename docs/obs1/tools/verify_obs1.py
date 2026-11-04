@@ -37,7 +37,10 @@ Steps (every one from the installed venv, python -I, cwd = <work>, isolated LOCA
                     are the server's real data) fk_fast (control), fk_slow25 (every read of P8 takes 25 s: painted at 25 s, one read at a time),
                     fk_cycles (130 s of 25 s reads: every answer applied), fk_switch (late and out-of-order answers of the previous task),
                     fk_timeout (a read that never answers: cancelled at 45 s with a message, 3 tries, then a retry button), fk_timeout1, fk_disc
-                    (disconnect while a slow read is pending, back with 25 s answers), fk_ovhang (the overview never answers); then rt_slow in
+                    (disconnect while a slow read is pending, back with 25 s answers), fk_ovhang (the overview never answers: reported after
+                    5 minutes), fk_ovslow (a 50 s overview keeps working), fk_mixed (hang and 503 alternating still stops after 3 timeouts),
+                    fk_reselect (closing cancels the read; opening again is a fresh read), fk_reconnect (after a reconnection the stop note
+                    goes and the new try is said); then rt_slow in
                     REAL time (no virtual clock): the proxy holds P8's reads 25 s, then one read 70 s; the page is sampled every 500 ms and every
                     API request is logged with its start and end, so the evidence (<work>/evidence/ux-fk_*/rt_*.json) tells "the server answered"
                     apart from "the page showed it"
@@ -1343,7 +1346,8 @@ def main(pkg, work):
                          ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile'), ('gantt', 'desktop'), ('gantt', 'mobile'), ('p2a', 'desktop'), ('gantt_now', 'desktop'), ('evid', 'desktop'),
                          ('stale_detail', 'desktop'), ('stale_detail', 'mobile'), ('slow_detail', 'desktop'),
                          ('fk_fast', 'desktop'), ('fk_slow25', 'desktop'), ('fk_cycles', 'desktop'), ('fk_switch', 'desktop'), ('fk_timeout', 'desktop'), ('fk_timeout', 'mobile'), ('fk_timeout1', 'desktop'),
-                         ('fk_disc', 'desktop'), ('fk_ovhang', 'desktop'), ('rt_slow', 'desktop'),   # dev13: P2 of Codex's review of dev12 (test clock, then REAL time)
+                         ('fk_disc', 'desktop'), ('fk_ovhang', 'desktop'), ('fk_ovslow', 'desktop'), ('fk_mixed', 'desktop'), ('fk_reselect', 'desktop'),
+             ('fk_reconnect', 'desktop'), ('rt_slow', 'desktop'),   # dev13: P2 of Codex's review of dev12 (test clock, then REAL time)
                          ('prov', 'desktop')]   # dev12 (R4, R4xR1, R1); prov LAST: it writes into P9
             for name, size in scenarios:
                 width, height = ux.SIZES[size]
