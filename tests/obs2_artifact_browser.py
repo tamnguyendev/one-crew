@@ -35,7 +35,7 @@ def main(package, work):
     env = verify.isolated_env(work)
     before = verify.digest_tree(state)
     def cli(*args):
-        return json.loads(verify.run([work / 'venv/Scripts/python.exe', '-I', '-m', 'onecrew.v2.tracking_cli',
+        return json.loads(verify.run([work / 'venv/Scripts/python.exe', '-I', '-X', 'utf8', '-m', 'onecrew.v2.tracking_cli',
             '--project', work / 'project', '--state-root', state, 'track', *args], env=env, cwd=out))
     proxy, identity = None, None
     result = {'commit': manifest['code_commit'], 'wheel': manifest['wheel'], 'results': {}, 'ok': False}
