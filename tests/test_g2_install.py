@@ -43,7 +43,10 @@ class Base(unittest.TestCase):
         self.repo = self.base / 'project'; (self.repo / '.git').mkdir(parents=True)      # a directory called .git is all `git_root` looks for
         self.state = self.base / 'state'
         self.exe = self.base / 'venv' / 'bin' / 'onecrew'; self.exe.parent.mkdir(parents=True); self.exe.write_text('#!/bin/sh\n')
-        env = patch.dict(os.environ); env.start(); self.addCleanup(env.stop)
+        # init registers the fixture project: never use the developer's real hook registry.
+        env = patch.dict(os.environ, {'LOCALAPPDATA': str(self.base / 'local'),
+                                      'APPDATA': str(self.base / 'roaming')})
+        env.start(); self.addCleanup(env.stop)
         for name in ('ONECREW_ACTOR', 'CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION', 'ONECREW_LANG', 'CLAUDE_PROJECT_DIR'): os.environ.pop(name, None)
 
     def init(self, **kwargs):

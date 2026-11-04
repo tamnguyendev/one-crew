@@ -42,7 +42,7 @@ main[data-view=detail] #list{display:block;overflow:visible}main[data-view=detai
 SCRIPT = r'''
 var workTab='overview';
 var WORK_TABS=[['overview','Tổng quan'],['solution','Solution'],['changes','Thay đổi'],['results','Kết quả & kiểm chứng'],['progress','Tiến độ']];
-var WORK_STAGES=[['todo','Chưa bắt đầu'],['doing','Đang thực hiện'],['check','Chờ kiểm'],['accept','Chờ nghiệm thu'],['done','Hoàn tất'],['closed','Đã đóng'],['unknown','Chưa xác định']];
+var WORK_STAGES=[['todo','Chưa bắt đầu'],['doing','Đang xử lý'],['check','Chờ kiểm'],['accept','Chờ nghiệm thu'],['done','Hoàn tất'],['closed','Đã đóng'],['unknown','Chưa xác định']];
 function workStage(t){var s=t.status||{},n=t.nodes_summary||{},l=(t.level||{}).kind;
   if(t.root_status==='closed'||s.outcome==='closed')return 'closed';
   if(t.root_status==='accepted'||s.outcome==='accepted')return 'done';

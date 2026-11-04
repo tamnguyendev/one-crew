@@ -919,7 +919,7 @@ function render(force){
   var vis=visible(),all=tasks(),need=all.filter(function(t){return (t.needs_user||[]).length}).length;
   $('#count').textContent=all.length+' công việc'+(vis.length!==all.length?' · hiện '+vis.length:'');
   var kindNow=$('#kind').value,counts={need:need,blocked:all.filter(function(t){return t.status.kind==='blocked'}).length,running:all.filter(function(t){return t.status.kind==='running'}).length};
-  var chips=[['need','Cần bạn quyết định'],['blocked','bị chặn'],['running','đang thực hiện']].map(function(c){return '<button type="button" class="chip" data-kind="'+c[0]+'" aria-pressed="'+(kindNow===c[0])+'">'+c[1]+' ('+counts[c[0]]+')</button>'}).join('')+(kindNow?'<button type="button" class="chip" data-kind="" aria-pressed="false">tất cả</button>':'');
+  var chips=[['need','Cần bạn quyết định'],['blocked','bị chặn'],['running','Đang chạy']].map(function(c){return '<button type="button" class="chip" data-kind="'+c[0]+'" aria-pressed="'+(kindNow===c[0])+'">'+c[1]+' ('+counts[c[0]]+')</button>'}).join('')+(kindNow?'<button type="button" class="chip" data-kind="" aria-pressed="false">tất cả</button>':'');
   if($('#chips').innerHTML!==chips)$('#chips').innerHTML=chips;
   var sig=JSON.stringify(vis.map(function(t){return [t.selector,t.project_id,t.status.label,t.current_step,t.last_update&&t.last_update.seq,(t.needs_user||[]).length,t.title]}))+'|'+$('#sort').value+'|'+(selected?selected.plan+selected.project:'')+(lastViewed?lastViewed.plan:'');
   if(sig!==listSig||force){var foc=document.activeElement&&document.activeElement.getAttribute&&document.activeElement.getAttribute('data-k');
