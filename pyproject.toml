@@ -1,6 +1,6 @@
 [project]
 name = "onecrew"
-version = "2.4.0.dev13"
+version = "2.5.0.dev1"
 description = "OneCrew v2: an AI work contract (approved plan, independent verdicts, human acceptance)"
 requires-python = ">=3.10"
 dependencies = []
@@ -150,6 +150,8 @@ py-modules = [
     "onecrew.v2.tracking",
     "onecrew.v2.tracking_cli",
     "onecrew.v2.tracking_web",
+    "onecrew.v2.tracking_work_web",
+    "onecrew.v2.tracking_work",
     "onecrew.v2.verifiers.advisor",
     "onecrew.v2.verifiers.command",
     "onecrew.v2.verifiers.reviewer",

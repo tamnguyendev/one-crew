@@ -1,5 +1,48 @@
 # Proposal Coverage
 
+Proposal source: `../outputs/onecrew-as-qc/ROADMAP-DESIGN-20261026.vi.md` §2.13; roadmap current order 04/11.
+Last reviewed commit: `97603cb` (DATA); UI changes in cycle 1
+Current iteration: 1 — OBS-2A data and UI; OBS-2B receipt lineage follows in the same isolated branch. MR-R separate. CP-1 last.
+
+## Summary
+
+| Status | Count |
+|---|---:|
+| Complete | 0 |
+| Partial | 8 |
+| Missing | 0 |
+| Blocked | 0 |
+| Not applicable | 0 |
+
+Verified full-slice coverage: 0/8 (all eight implemented locally; artifact/browser verification still pending). No deployment or owner acceptance implied.
+
+## Requirements
+
+| ID | Proposal section | Requirement | Type | Implementation evidence | Test evidence | Status | Notes |
+|---|---|---|---|---|---|---|---|
+| OBS2-T1 | 2.13 | Separate proposed/approved/effective; exact SOL scope | Data | Existing plan/solution_link reused | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | Do not promote latest |
+| OBS2-T2 | 2.13 | Contract/internal/retry history and authority | Functional | contract_diff/internal_plan reused | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | No new approvals |
+| OBS2-T3 | 2.13 | Outputs with per-item proof and lineage | Data | tracking provenance reused | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | Old pass is not current pass |
+| OBS2-T4 | 2.13 | Honest check/finding counts and repeated issues | Functional | finding_core reused | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | Not unique bug count |
+| OBS2-T5 | 2.13 | Repair chains, unaffected branches, integration | Functional | repair_tasks reused | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | Attempts are not repair rounds |
+| OBS2-T6 | 2.13 | Actual actors, receipts and closure | Security | engine receipts reused | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | Unknown stays unknown |
+| OBS2-T7 | 2.13 | Read-only, scope, redaction, history and reconnect | Security | existing outbound guard/evidence gate | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | Never write during reads |
+| OBS2-T8 | 2.13 | Readable coding/noncoding UI from wheel | UI | work overview and detail views | Data 19 acceptance tests; view 11 tests; browser/artifact pending | Partial | desktop/mobile, artifact smoke |
+
+## Cycle 1
+
+Goal: expose sourced read-only work views and readable UI without altering dev13 package/runtime.
+Validation: focused data and render tests, then scoped integration and installed-wheel UI at handover; no full gate after each task.
+Models: Sol data implementation, root UI/integration, Astra bounded independent review. Source ownership is split.
+
+Data: b6acb0b + 97603cb; 18 original acceptance tests, 18 OBS1 Source/Engine regression, 2 actor checks and new zero-call reviewer regression passed. UI view tests 13/13. Real browser CODE/DOC 28 assertions × 2 sizes = 56/56; scoped OBS1 Gantt/slow25/switch/timeout desktop/mobile passed (6 runs). Fixed-snapshot installed-wheel/browser evidence remains pending; requirement statuses stay Partial until that handover check. Browser cycle 1 reached 22 green assertions then failed because test selected absent PC fixture; corrected harness to use actual CODE/DOC trial fixture, no product bypass.
+
+---
+
+The following inherited coverage is retained verbatim as historical context, not new OBS-2 certification.
+
+# Proposal Coverage
+
 ## WF development — Claude takeover after Codex, 2026-10-24 (afternoon)
 
 Baseline of the takeover `2bfc223` (Codex's last state, committed unchanged); final commit on `codex/wf-development` at the

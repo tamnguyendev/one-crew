@@ -839,6 +839,7 @@ details{margin:6px 0}summary{cursor:pointer;color:var(--mut)}summary:focus-visib
 @media (max-width:899px){main{display:block}main[data-view=list] #detailpane{display:none}main[data-view=detail] #listpane{display:none}#detailpane{position:static;max-height:none}#back{display:inline-block}
   .ttl{white-space:normal}.r3{white-space:normal}header{padding:6px 12px}main{padding:8px 12px}.note .long,#src{display:none}.note .brief{display:inline}.tools label span{display:none}
   .gbody{grid-template-columns:150px minmax(380px,1fr);min-width:540px}.gtree .grow{font-size:12px}.gaxis span.t1,.gaxis span.t3{display:none}}
+@@WORK_STYLE@@
 </style></head><body>
 <header>
 <div class="bar"><h1>OneCrew · theo dõi công việc</h1><span id="conn">đang kết nối…</span><span id="dconn" role="status" hidden></span><span id="count" class="small mut"></span><span id="chips" role="group" aria-label="lọc nhanh"></span></div>
@@ -965,9 +966,10 @@ function groups(d){var g={},order=[];function add(key,title,e){if(!g[key]){g[key
   add('plan','Plan '+d.plan,{kind:'',seq:-1,summary:''});g.plan.cur=[];
   Object.keys(d.nodes||{}).forEach(function(id){var n=d.nodes[id];add('n:'+id,'phần việc '+id,{kind:'',seq:-1,summary:''});g['n:'+id].cur=[];g['n:'+id].node=n});
   (d.timeline||[]).forEach(function(e){var n=e.node||e.node_of_attempt;if(n)add('n:'+n,'phần việc '+n,e);else add('plan','Plan '+d.plan,e)});return {g:g,order:order}}
+@@WORK_SCRIPT@@
 function renderDetail(d){
   var P=prov(d);
-  var h=['<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(d.plan)+' '+st(d.status)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
+  var h=['<div class="dhead"><button type="button" id="back">← Danh sách</button><h2 id="dtitle" data-k="dtitle" tabindex="-1">'+esc(d.plan)+(d.title?' · '+esc(d.title):'')+' '+st(d.status)+'</h2><button type="button" id="close" class="small" title="bỏ chọn task">Đóng</button></div>'];
   if(detailError)h.push('<div id="dstatus" class="dstatus stale" role="status" data-state="stale" data-k="dstatus" tabindex="-1">Chi tiết chưa cập nhật từ '+clockMs(detailOkAt)+': lỗi tải chi tiết ('+esc(detailError.message)+', lần thử gần nhất <span id="dlast">'+clockMs(detailError.last)+'</span>); đang hiện dữ liệu lúc '+(d.generated_at?clock(d.generated_at):clockMs(detailOkAt))+'. Mẫu lệnh trả lời bên dưới là của lúc đó: nếu câu hỏi đã được trả lời hoặc đổi bản, OneCrew từ chối lệnh nhờ --revision. <span id="dnote" data-cap="1">'+cap(noteHtml())+'</span>.</div>');
   h.push('<div class="small mut">Đang xem task <b>'+esc(d.plan)+'</b> của project <span title="'+esc(d.project)+'">'+esc(short(d.project))+'</span> · <a href="'+esc(urlOf({plan:d.selector,project:d.project_id}))+'">liên kết tới task này</a></div>');
   var needs=d.needs_user||[],nq=needs.filter(function(n){return n.kind==='request'}).length,nother=needs.length-nq;
@@ -982,7 +984,10 @@ function renderDetail(d){
   if(needs.length||staleNotes.length){h.push('<h3 id="needs">Cần bạn ('+needs.length+')</h3>');
     staleNotes.forEach(function(x){h.push('<div class="stale-need" data-k="stale:'+esc(x.key)+'" data-stale-id="'+esc(x.id||'')+'">Câu hỏi bạn đang đọc <b>'+esc(String(x.id||'').slice(0,12))+'…</b> ('+esc(x.title||'')+') '+esc(x.why)+'.<button type="button" class="stale-hide" data-key="'+esc(x.key)+'">ẩn</button></div>')});
     needs.forEach(function(n,i){h.push(needCard(n,i))})}
+  h.push(workDashboard(d));
+  h.push('<div id="legacy-progress"'+(d.work&&workTab!=='overview'&&workTab!=='progress'?' hidden':'')+'>');
   h.push(gantt(d));
+  if(d.work)h.push('<details data-k="work-technical"'+(workTab==='progress'?' open':'')+'><summary>Số đo và nhật ký kỹ thuật</summary>');
   function brief(t,n){t=String(t||'');return t.length>n?'<span title="'+esc(t)+'">'+esc(t.slice(0,n))+'…</span>':esc(t)}
   h.push('<div class="stats"><div class="tile"><div class="l">Trạng thái</div><div class="v">'+esc(d.status.label)+'</div><div class="s">'+brief(d.status.reason,140)+'</div></div>'
     +'<div class="tile"><div class="l">Đầu ra</div><div class="v">'+esc(d.level.label)+'</div><div class="s">'+brief(d.current_step||'',140)+'</div></div>'
@@ -994,7 +999,7 @@ function renderDetail(d){
   if(ow.length)h.push('<div class="small"><b>Đang chờ:</b> '+ow.map(function(w){return esc(w.reason||'không rõ')+' từ '+when(w.since)+(w.node?' (phần việc '+esc(w.node)+')':'')}).join('; ')+'</div>');
   if((d.holds||[]).length)h.push('<div class="small"><b>Giữ (finding):</b> '+d.holds.map(function(x){return esc(x.text||x.error)}).join('; ')+'</div>');
   var ns=Object.keys(d.nodes||{});if(ns.length){h.push('<h3>Phần việc</h3><div class="scroll"><table><thead><tr><th>Phần việc</th><th>Trạng thái</th><th>Đầu ra</th><th>Thế hệ</th><th>Quan sát gần nhất</th></tr></thead><tbody>');
-    ns.forEach(function(id){var n=d.nodes[id],p=n.progress;h.push('<tr><td><b>'+esc(id)+'</b></td><td>'+word(PHASE,n.phase)+(n.phase==='held'?'<div class="small" style="color:var(--blk)">lý do (engine): '+esc(n.reason)+'</div>':'')+'</td><td>'+word(NSTATE,n.state)+(n.verification_result?' ('+esc(n.verification_result)+')':'')+'</td><td>'+n.generation+(n.continues?' <span class="small mut">tiếp từ '+esc(n.continues)+'</span>':'')+'</td><td class="wrap small">'+(p?esc(p.status)+' '+rel(p.observed_at||p.received_at)+(p.reason?'<br>'+esc(p.reason):''):'—')+'</td></tr>')});h.push('</tbody></table></div>')}
+    ns.forEach(function(id){var n=d.nodes[id],p=n.progress;h.push('<tr><td><b>'+esc(nodeName(d,id))+'</b></td><td>'+word(PHASE,n.phase)+(n.phase==='held'?'<div class="small" style="color:var(--blk)">lý do (engine): '+esc(n.reason)+'</div>':'')+'</td><td>'+word(NSTATE,n.state)+(n.verification_result?' ('+esc(n.verification_result)+')':'')+'</td><td>'+n.generation+(n.continues?' <span class="small mut">tiếp từ '+esc(n.continues)+'</span>':'')+'</td><td class="wrap small">'+(p?esc(p.status)+' '+rel(p.observed_at||p.received_at)+(p.reason?'<br>'+esc(p.reason):''):'—')+'</td></tr>')});h.push('</tbody></table></div>')}
   var G=groups(d),older=d.timeline_total-d.timeline.length;h.push('<details data-k="log"><summary>Nhật ký sự kiện ('+d.timeline.length+'/'+d.timeline_total+', cũ → mới; bấm một bước để xem bằng chứng của bước đó)</summary>');
   if(older>0)h.push('<div class="small mut" id="lognote">đang hiện '+d.timeline.length+'/'+d.timeline_total+' sự kiện mới nhất; '+older+' sự kiện cũ hơn chưa tải ở nhật ký này — bằng chứng của chúng vẫn có ở Gantt (chọn lượt hoặc dấu mốc) và mục Bằng chứng (toàn bộ lịch sử)</div>');
   G.order.forEach(function(key){var x=G.g[key];if(!x.cur.length&&!x.old.length&&!x.tech.length)return;
@@ -1016,6 +1021,7 @@ function renderDetail(d){
       return '<tr><td><code>'+esc(a.id)+'</code></td><td>'+esc(a.status)+'</td><td>'+a.generation+'</td><td class="small">'+(sec!==null?'<span class="dur" style="width:'+Math.max(4,Math.round(sec/(top||1)*80))+'px"></span>'+hms(sec):'chưa xác định')+'</td><td class="small">'+when(a.created_at)+'</td><td class="small">'+when(a.updated_at)+'</td></tr>'}).join('')+'</tbody></table></div></details>')}
   if((d.notices||[]).length)h.push('<details data-k="notices"><summary>Thông báo ('+d.notices.length+')</summary>'+d.notices.map(function(n){return '<div class="small">'+when(n.at)+' '+esc(n.category)+': '+esc(n.reason)+(n.user_action?' — '+esc(n.user_action):'')+'</div>'}).join('')+'</details>');
   h.push('<details data-k="techinfo"><summary>Kỹ thuật</summary><div class="small">id <code>'+esc(d.id)+'</code> · selector <code>'+esc(d.selector)+'</code> · project <code>'+esc(d.project)+'</code> · project_id <code>'+esc(d.project_id)+'</code><br>root: '+esc(d.root_status)+' · hợp đồng bản '+esc(d.contract_revision)+' · adapter '+esc(d.tracking.adapter)+' — '+esc(d.tracking.coverage)+'<br>nguồn trạng thái: '+esc((d.status.source||[]).join(', '))+'<br>'+esc(d.elapsed.basis||'')+'<br>'+(d.measure.method?'đo: '+esc(JSON.stringify(d.measure.method)):'')+'<br>'+esc(d.controls)+'</div></details>');
+  if(d.work)h.push('</details>');h.push('</div>');
   $('#detail').innerHTML=h.join('');
   knownNeeds={};needs.forEach(function(n){var el=document.querySelector('#detail details[data-k="'+needKey(n).replace(/"/g,'\\"')+'"]');knownNeeds[needKey(n)]={id:n.id,revision:n.revision,title:needTitle(n),open:!!(el&&el.open)}});
 }
@@ -1052,7 +1058,7 @@ function gantt(d){var g=d.gantt||{rows:[],plan_marks:[],axis:{}},W=gWindow(g);
   var byNode={};(g.rows||[]).forEach(function(r){byNode[r.node||'?']=byNode[r.node||'?']||[];byNode[r.node||'?'].push(r)});
   Object.keys(d.nodes||{}).concat(Object.keys(byNode).filter(function(k){return !(k in (d.nodes||{}))})).forEach(function(nid){var rows=byNode[nid]||[],n=(d.nodes||{})[nid]||{},cur=rows.filter(function(r){return r.current||r.active}),old=rows.filter(function(r){return !(r.current||r.active)});
     var folded=gFold['n:'+nid]===true,hist=gFold['h:'+nid]!==false;
-    tree.push('<div class="grow nodehead" data-k="grow:n:'+esc(nid)+'"><button type="button" class="tg" data-fold="n:'+esc(nid)+'" aria-expanded="'+(!folded)+'">'+(folded?'▸':'▾')+'</button>'+esc(nid)+' <span class="mut">'+esc(PHASE[n.phase]||n.phase||'')+(rows.length?' · '+rows.length+' lượt':' · chưa có lượt')+'</span></div>');
+    tree.push('<div class="grow nodehead" data-k="grow:n:'+esc(nid)+'"><button type="button" class="tg" data-fold="n:'+esc(nid)+'" aria-expanded="'+(!folded)+'">'+(folded?'▸':'▾')+'</button><span title="'+esc(nodeName(d,nid))+'">'+esc(nodeName(d,nid))+'</span> <span class="mut">'+esc(PHASE[n.phase]||n.phase||'')+(rows.length?' · '+rows.length+' lượt':' · chưa có lượt')+'</span></div>');
     chart.push(chartRow(folded?cur.map(function(r){return r.segments.map(function(sg,i){return segHtml(W,r,sg,i)}).join('')}).join(''):''));
     if(folded)return;
     cur.forEach(function(r){tree.push('<div class="grow att'+(r.current?' cur':'')+'" data-k="grow:'+esc(r.attempt)+'" title="'+esc(r.attempt)+'">'+(r.current?'● ':'')+'lượt '+esc(r.attempt.slice(4,12))+' <span class="mut">thế hệ '+r.generation+' · '+esc(r.status)+'</span></div>');
@@ -1140,7 +1146,7 @@ function detailFailed(sel,msg){var now=Date.now(),note=restNote(),changed=!detai
 function select(sel,opts){opts=opts||{};if(!sel){if(detailInflight){clearTimeout(detailInflight.timer);detailInflight.ctl.abort();detailInflight=null}   // closing cancels the read: selecting the task again starts a fresh one (never a nearly expired one)
     if(selected){lastViewed=selected}selected=null;selEv=null;evState={};copied=null;detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailSeq=null;detailTimeouts=0;$('#detail').innerHTML='<div id="nodetail">Chọn một task ở danh sách để xem chi tiết, timeline và bằng chứng.</div>';setView();render(true);dind();
     if(!opts.silent&&location.search)history.pushState({},'',location.pathname);return}
-  var other=!sameSel(selected,sel);detailTimeouts=0;      // a click on a task (the same one too) is the reader asking again: a new series of tries
+  var other=!sameSel(selected,sel);if(other)workTab='overview';detailTimeouts=0;      // a click on a task (the same one too) is the reader asking again: a new series of tries
   if(other){selEv=null;evState={};copied=null;detailSeq=null;selStep=null;gFold={};staleNotes=[];knownNeeds={};detailData=null;detailFor=null;detailError=null;detailOkAt=null;detailTimeouts=0}
   selected={plan:sel.plan,project:sel.project||'',focusDetail:!!opts.focusDetail};setView();render(true);
   if(!mine()){pendingPane(selected);afterSelect()}dind();     // another task: its heading + "đang tải" at once, never the previous task's content
@@ -1168,6 +1174,7 @@ document.addEventListener('click',function(ev){var t=ev.target;
   if(t.id==='back'||t.id==='close'){var k=selected;select(null);var again=k&&document.querySelector('[data-k="task:'+k.project+':'+k.plan+'"]');if(again)again.focus();return}
   if(t.classList&&t.classList.contains('copy')){copyText(t.getAttribute('data-copy'),t.closest('.need').getAttribute('data-k'));return}
   if(t.classList&&t.classList.contains('chip')){$('#kind').value=t.getAttribute('data-kind');render(true);return}
+  var wt=t.closest&&t.closest('[data-work-tab]');if(wt){workTab=wt.getAttribute('data-work-tab');var wd=mine();if(wd){var ws=snapshot();renderDetail(wd);restore(ws);var wb=document.querySelector('[data-work-tab="'+workTab+'"]');if(wb)wb.focus({preventScroll:true})}return}
   if(t.classList&&t.classList.contains('stale-hide')){var key=t.getAttribute('data-key');staleNotes=staleNotes.filter(function(x){return x.key!==key});var d0=mine();if(d0){var s0=snapshot();renderDetail(d0);restore(s0)}return}
   if(t.classList&&t.classList.contains('tg')){var fk=t.getAttribute('data-fold');if(fk.indexOf('h:')===0)gFold[fk]=gFold[fk]===false?true:false;else gFold[fk]=!gFold[fk];repaintGantt();var b=document.querySelector('[data-fold="'+fk+'"]');if(b)b.focus({preventScroll:true});return}
   var step=t.closest&&t.closest('.seg,.mk');if(step){var sid=step.getAttribute('data-k');selStep=(selStep&&selStep.id===sid)?null:{id:sid};repaintGantt();var again3=document.querySelector('[data-k="'+sid+'"]');if(again3)again3.focus({preventScroll:true});return}
@@ -1198,3 +1205,7 @@ window.__track={state:function(){return {selected:selected,detailSeq:detailSeq,s
 })();
 </script></body></html>
 '''
+
+# Keep the adapter separately testable; it shares the existing read-only evidence door.
+from .tracking_work_web import SCRIPT as _WORK_SCRIPT, STYLE as _WORK_STYLE
+PAGE = PAGE.replace('@@WORK_SCRIPT@@', _WORK_SCRIPT).replace('@@WORK_STYLE@@', _WORK_STYLE)
