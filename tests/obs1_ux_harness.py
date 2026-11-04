@@ -760,21 +760,21 @@ if(S==='fk_switch'){                                   // the selection changes 
   const P1=rowOf('P1').dataset.plan, P8=rowOf('P8').dataset.plan;
   // (a) P1 pending 25 s; P8 selected at 5 s answers at 8 s; P1's answer would come at 25 s
   fk.plans[P1]={delay:25000}; fk.plans[P8]={delay:3000}; T0=fk.now(); rowOf('P1').click(); await fk.advance(0); snap('P1');
-  await fadv(5000,500); rowOf('P8').click(); await fk.advance(0); snap('P8'); await fadv(25000,500);
-  const a=samples.filter(x=>x.t>=5000);
+  await fadv(5000,500); const ia=samples.length; rowOf('P8').click(); await fk.advance(0); snap('P8'); await fadv(25000,500);
+  const a=samples.slice(ia);                           // from the P8 click on (the sample taken at 5 s BEFORE the click still shows P1, rightly)
   check('(a) P8 painted from its own 3 s answer', a.some(x=>x.t<=8500&&x.loaded&&x.state==='ok'&&x.title.indexOf('P8')===0), a.slice(0,8));
   check('(a) from the P8 click on only P8 under the selection: never P1 data, evidence or commands', only('P8',a) && a.every(x=>x.cmds===0), bad('P8',a));
   // (b) out of order: P1 answers at 4 s, after P8 was selected at 1 s; P8 answers at 11 s
   $('#close').click(); await fk.advance(0); samples.length=0; fk.plans[P1]={delay:4000}; fk.plans[P8]={delay:10000};
-  T0=fk.now(); rowOf('P1').click(); await fk.advance(0); await fadv(1000,500); rowOf('P8').click(); await fk.advance(0); snap('P8'); await fadv(14000,500);
-  const b=samples.filter(x=>x.t>=1000), wait=b.filter(x=>x.t<11000);
+  T0=fk.now(); rowOf('P1').click(); await fk.advance(0); await fadv(1000,500); const ib=samples.length; rowOf('P8').click(); await fk.advance(0); snap('P8'); await fadv(14000,500);
+  const b=samples.slice(ib), wait=b.filter(x=>x.t<11000);
   check('(b) while P8 waits and P1 answers first: P8 heading, loading, nothing of P1', wait.length>0 && only('P8',wait) && wait.every(x=>!x.loaded&&x.cmds===0), bad('P8',wait));
   check('(b) P8 painted from its own answer at 11 s', b.some(x=>x.t>=11000&&x.t<=11500&&x.loaded&&x.state==='ok'&&x.title.indexOf('P8')===0), b.filter(x=>x.t>=10500).slice(0,3));
   // (c) P1, P8, P1 again within 2 s, every read 25 s: the last selection P1 is painted from its own answer, nothing of P8 under it
   $('#close').click(); await fk.advance(0); samples.length=0; fk.plans[P1]={delay:25000}; fk.plans[P8]={delay:25000};
-  T0=fk.now(); rowOf('P1').click(); await fk.advance(0); await fadv(1000,500); rowOf('P8').click(); await fk.advance(0); await fadv(1000,500); rowOf('P1').click(); await fk.advance(0); snap('P1 again');
+  T0=fk.now(); rowOf('P1').click(); await fk.advance(0); await fadv(1000,500); rowOf('P8').click(); await fk.advance(0); await fadv(1000,500); const ic=samples.length; rowOf('P1').click(); await fk.advance(0); snap('P1 again');
   await fadv(30000,500);
-  const c=samples.filter(x=>x.t>=2000);
+  const c=samples.slice(ic);
   check('(c) the last selection P1 is painted from its own 25 s answer', c.some(x=>x.t>=27000&&x.t<=27500&&x.loaded&&x.state==='ok'&&x.title.indexOf('P1')===0), c.filter(x=>x.t>=26500).slice(0,3));
   check('(c) after the last click only P1 under the selection, never P8 data', only('P1',c), bad('P1',c));
 }
