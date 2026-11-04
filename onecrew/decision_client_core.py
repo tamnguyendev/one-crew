@@ -60,6 +60,22 @@ def validate_key(value):
     return value
 
 
+def configured(key=None):
+    """Is a credential present, without reading, decrypting or validating a stored one (no secret is touched, no network)."""
+    if key is not None:
+        try:
+            validate_key(key)
+        except JevError:
+            return False
+        return True
+    if os.environ.get('TYPESAFE_API_KEY'):
+        return True
+    try:
+        return credential_path().is_file()
+    except (JevError, OSError):
+        return False
+
+
 def load_key():
     env = os.environ.get('TYPESAFE_API_KEY')
     if env:

@@ -585,7 +585,27 @@ def show_card(ledger, name):
             check = checks[-1] if checks else None
         history = proposal_history(ledger, name, check.get('requirement_sha') if check else None, conn)
         view = card(contract, check, survey.states(conn, state['task_id']), _baseline(conn, state['task_id']), history=history)
-    return dict(view, plan=name, revision=state['latest'])
+    view = dict(view, plan=name, revision=state['latest'])
+    advice = step0_advice(ledger, name)                  # RD-A2: stored advice on the check method, read-only; absent when none was asked
+    if advice: view['advice'] = advice
+    return view
+
+
+def step0_advice(ledger, name):
+    """The newest stored step-0 advice record of the plan (from the ledger; nothing is called or written), with whether it is still current."""
+    from . import review_advice
+    try:
+        rows = review_advice.show(ledger, name, 'step0')['records']
+    except LedgerError:
+        return None
+    return rows[-1] if rows else None
+
+
+def advise_checks(ledger, name, *, refresh=False, key=None, opener=None):
+    """RD-A2 step-0 point: ask for advice on the check method of the approved contract's milestones (one root call when the grant allows).
+    A proposal only: the card, the gate and the milestones are untouched; any failure leaves the base policy."""
+    from . import review_advice
+    return review_advice.advise_step0(ledger, name, refresh=refresh, key=key, opener=opener)
 
 
 def render_card(view):
@@ -613,6 +633,9 @@ def render_card(view):
              f'Ước lượng: {estimate}',
              f'Điều tra: {investigation}']
     if view['not_enough']: lines.append('Chưa đủ vì: ' + ', '.join(view['not_enough']))
+    if view.get('advice'):
+        note = view['advice']
+        lines.append('Gợi ý cách kiểm (chỉ là gợi ý' + ('' if note['current'] else ', đã cũ: ' + ', '.join(note['stale_because'])) + '): ' + str(note.get('explain') or note['status']))
     return '\n'.join(lines)
 
 
