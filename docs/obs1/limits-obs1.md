@@ -1,4 +1,6 @@
-# Giới hạn của lát OBS-1 (`2.4.0.dev12`, beta — chưa nghiệm thu)
+# Giới hạn của lát OBS-1 (`2.4.0.dev13`, beta local — chưa nghiệm thu)
+
+- **Chi tiết chậm (dev13, P2 của review Codex trên dev12):** một lượt đọc chi tiết mỗi lúc cho task đang chọn, chờ tối đa 45 s; chi tiết chậm hơn 45 s không hiện được: sau 3 lần quá hạn (chưa có trả lời nào được hiện) trang ngừng tự thử và chờ nút "Thử lại" (45 s, 3 lần là hằng số trong trang). Lỗi trả về ngay (mạng/HTTP) không có lần quá hạn nào vẫn thử lại sau mỗi lần làm mới danh sách như R4; mỗi lần nối lại kết nối mở một chuỗi mới. Chi tiết chỉ được đọc lại sau một lần overview trả lời; overview chờ tối đa 5 phút (treo thì chỉ được báo sau 5 phút). Mở bằng chứng chưa có hạn chờ. Server không biết trang đã hủy một lượt: lượt đó vẫn chạy hết ở server. Test nhanh dùng đồng hồ giả của harness; diễn tập thời gian thực (`rt_slow`) chỉ phủ một đường.
 
 - **Worker giả.** Mọi kiểm (unit, cài wheel, kiểm từ gói) dùng `claude` giả (`tests/v24_fake_claude.py`): chứng minh đường đi root → node → attempt → sổ → màn hình, không chứng minh model thật làm việc hữu ích. Chưa chạy provider thật (tổ chức tắt subscription cho worker native; API chỉ cho advisor/reviewer).
 - **Chỉ theo dõi những gì có trong sổ.** Root `sequential-engine` có node/thế hệ/attempt/quan sát tiến độ; root không engine chỉ có mốc và verdict; task ngoài plan (v1) chỉ có phase checkpoint. Phiên Claude/Codex không chạy qua OneCrew ghi "chưa được theo dõi" — màn hình không suy, không bịa.

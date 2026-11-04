@@ -1,4 +1,63 @@
-# OBS-1 — báo cáo bàn giao: màn hình theo dõi chỉ đọc, `2.4.0.dev12` (beta; các bản sửa R1–R5 theo review phát hành độc lập của Codex trên dev11)
+# OBS-1 — báo cáo bàn giao bản vá `2.4.0.dev13` (beta local: P2 của review Codex trên dev12 — chi tiết task "đang tải" mãi khi API trả lời chậm hơn 20 s)
+
+Người lập: Claude (Opus 5.5), 04/11/2026, theo chỉ thị 04/11 sáng ("Tiếp tục OBS-1: sửa P2 còn lại, tự kiểm chứng trên wheel cuối và bàn giao bản vá"). Gốc: dev12 `4cdb384` (đã phát hành beta, tag `v2.4.0.dev12`), hồ sơ `ee801e4`. Bản vá chỉ ở local: chưa tag, chưa push, chưa nghiệm thu; không nâng runtime hay UI SignSDK nào.
+
+## 1. Kết quả ngắn
+
+- **Nguyên nhân:** `loadDetail` của trang thay lượt đọc chi tiết đang chờ quá 20 s bằng lượt mới ở mỗi poll; trả lời của lượt cũ bị bỏ. Trả lời ~25 s → lặp mãi, "đang tải chi tiết…" không bao giờ kết thúc (Codex trên wheel dev12: sau 82,47 s, 4 request đã bắt đầu, 3 trả lời đã xong, UI vẫn tải).
+- **Sau sửa:** mỗi task đang chọn chỉ có một lượt đọc; poll (hay bấm lại đúng task đó) chờ lượt đang chạy, không thay nó; chờ tối đa 45 s (dòng "đang tải" đếm số giây đã chờ); quá 45 s → trang hủy lượt đó và báo "quá 45 s không có trả lời"; sau 3 lần quá hạn mà chưa có trả lời nào được hiện → ngừng tự thử, hiện nút "Thử lại"; lỗi trả về ngay (mạng, HTTP) không đếm và không xóa chuỗi đó, vẫn thử lại sau mỗi lần làm mới danh sách như R4; chỉ một trả lời được hiện mới kết thúc chuỗi; bấm vào một task (kể cả task đang xem), bấm nút, hoặc nối lại kết nối mở chuỗi mới; trong lúc thử lại, dòng trạng thái và đầu trang ghi "đang thử lại" kèm số giây; sau "Thử lại" bằng bàn phím, focus ở lại dòng trạng thái rồi về tiêu đề task; đổi task hay đóng task hủy lượt đọc đang chạy (mở lại là lượt mới, trả lời muộn của lượt cũ không bao giờ chạm trang). Tìm thêm khi sửa, cùng loại lỗi: overview treo thì trang đứng yên dưới huy hiệu "kết nối OK" → đọc overview nay chờ tối đa 5 phút (overview chỉ chậm vẫn chạy như dev12; không bao giờ trả lời thì huy hiệu báo MẤT KẾT NỐI).
+- **Snapshot:** commit snapshot ghi trong `manifest.json` của gói (báo cáo này nằm trong chính snapshot đó nên không tự ghi mã commit của mình) = `2.4.0.dev13` trên `claude/onecrew-obs1`.
+- **Gói:** `D:\OneCrewRuns\obs1\pkg\onecrew-2.4.0.dev13-obs1-beta` — wheel `onecrew-2.4.0.dev13-py3-none-any.whl`, SHA256 trong `manifest.json`; gói dev12 giữ nguyên làm mốc.
+- **Kết quả kiểm từ gói, diễn tập thời gian thực trên wheel đã cài, review độc lập:** ghi ở bản báo cáo tại HEAD hồ sơ (commit tài liệu ngay sau snapshot).
+
+## 2. Phản chứng — đỏ trên trang dev12, xanh trên bản sửa
+
+Hai loại kiểm, tách rõ: **test nhanh** trên đồng hồ giả (harness cài vào trang đồng hồ, bộ hẹn giờ và `fetch` giả; dữ liệu là trả lời thật của server, chỉ thời điểm nhận do test chọn) và **diễn tập thời gian thực** (`rt_slow`: không đồng hồ ảo; proxy làm chậm riêng `/api/task` của P8 và ghi mọi request API với lúc bắt đầu/kết thúc; trang được lấy mẫu mỗi 500 ms và mọi lần vẽ dòng trạng thái được ghi ngay khi xảy ra — phân biệt "server đã trả" với "UI đã hiển thị").
+
+| Kịch bản | Tình huống | Đạt khi |
+|---|---|---|
+| fk_fast | đối chứng: trả lời nhanh | P8 hiện ngay; mỗi poll một lượt đọc, lượt nào cũng được áp; overview OK |
+| fk_slow25 | mọi lượt đọc P8 mất 25 s, overview nhanh | trả lời 25 s được vẽ ở 25 s; chỉ một lượt đọc tới khi có trả lời; overview vẫn poll; không có gì của P1 dưới P8 |
+| fk_cycles | 130 s, mọi lượt 25 s, không đổi lựa chọn | P8 hiện sau trả lời đầu và giữ nguyên (không "đang tải", không lỗi); lượt đọc không chồng nhau, 4–6 lượt; trả lời nào server đã trả cũng được áp |
+| fk_switch | (a) P1 chờ 25 s, chọn P8 (3 s); (b) P1 trả trước khi P8 trả (sai thứ tự); (c) P1 → P8 → P1 trong 2 s, mọi lượt 25 s | chỉ task đang chọn dưới tiêu đề của nó, không bao giờ dữ liệu, bằng chứng hay mẫu lệnh của task kia; lựa chọn cuối được vẽ từ trả lời của chính nó |
+| fk_timeout (1280 và 390 px) | lượt đọc không bao giờ trả lời | hủy ở 45 s với thông báo rõ dưới tiêu đề P8; trong lúc thử lại, dòng trạng thái và đầu trang ghi "đang thử lại"; 3 lượt trong 10 phút, không bao giờ hai lượt cùng lúc; sau lần thứ 3 ngừng tự thử, có nút "Thử lại" (đầu trang cũng ghi đã ngừng); vừa chiều ngang 390 px; nút (bấm bằng bàn phím) bắt đầu đúng một lượt, P8 hiện, focus về tiêu đề task |
+| fk_timeout1 | chỉ lượt đầu treo | lượt treo bị trang kết thúc (hủy), lượt tự thử sau vẽ P8 trong 48 s |
+| fk_disc | mất kết nối khi một lượt chậm của P8 đang chờ, nối lại với trả lời 25 s | khi mất: huy hiệu báo, P8 vẫn chọn với dữ liệu cũ đánh dấu; không đọc dồn; nối lại: đúng P8 mới lại trong 30 s |
+| fk_ovhang | overview không bao giờ trả lời | hủy ở 5 phút, huy hiệu không còn "OK" và nêu lý do, poll tiếp; trả lời lại thì OK |
+| fk_ovslow | overview trả lời mỗi lần sau 50 s (chậm, không chết) | không lượt nào bị hủy, huy hiệu không báo mất kết nối, chi tiết vẫn được đọc lại sau mỗi overview |
+| fk_mixed | lượt đọc xen kẽ treo / 503 nhanh | vẫn dừng sau 3 lần quá hạn (lượt đọc có hạn), không bao giờ hai lượt cùng lúc |
+| fk_reselect | đóng task khi lượt đọc đang treo rồi mở lại | lượt cũ bị hủy lúc đóng; mở lại là lượt mới, P8 hiện ngay, không có thông báo quá hạn |
+| fk_reconnect | đã ngừng sau 3 lần, rồi mất và có lại kết nối | một lượt mới tự chạy; dòng trạng thái và đầu trang ghi "đang thử lại", không còn "ngừng tự thử" hay nút; rồi P8 hiện |
+| rt_slow (thời gian thực) | A: mọi lượt P8 25 s; B: thêm 20 s; C: một lượt bị giữ 70 s; D: nhanh lại | A: vẽ trong 3 s sau khi server trả, một lượt mỗi lúc; B: P8 giữ nguyên; C: thông báo quá 45 s dưới P8, dữ liệu giữ (cũ) và proxy đo trang bỏ lượt bị giữ sau 45 s; D: P8 mới lại trong 15 s |
+
+- **Đỏ trên trang dev12:** test cuối chạy trên trang dev12 (bản xuất của `170528c` với `onecrew/v2/tracking_web.py` của `4cdb384`): 14 lượt kịch bản, 39/73 kiểm đỏ — mọi kịch bản P2 đỏ đúng lý do (trả lời 25 s bị bỏ, hai lượt đọc cùng lúc, không có hạn chờ, không dừng, overview treo làm trang đứng); hai kịch bản xanh như dự kiến: fk_fast (đối chứng) và fk_ovslow (canh hồi quy của chính bản vá: dev12 không có hạn chờ overview). Bốn kịch bản của review và ba kiểm mới của fk_timeout đỏ trên bản sửa trước review (`a5d6cdf`). Bằng chứng `D:\OneCrewRuns\obs1\evidence-p2\red-final2-dev12page\`, `red-review-a5d6cdfpage\`; log `D:\OneCrewRuns\obs1\logs\p2\`.
+- **Xanh trên bản sửa (checkout):** checkout `170528c` (= snapshot trừ version và tài liệu): 14 lượt kịch bản mới đạt; rt_slow (thời gian thực, ~144 s) đạt ở mọi lượt sau khi sửa cách đo: hai lượt liền và trong hồi quy đầy đủ.
+- **Hồi quy:** unit 12 module như lượt dev12: 152/153 ở lượt đầu — `test_identity_stop_tells_a_still_running_pinned_process_from_a_gone_one` lỗi `BadStatusLine: GET /api/health HTTP/1.1` (phần dừng server viết bằng Python, không đổi từ dev12; test nhận lại đúng request nó gửi, nhiều khả năng cổng "đóng" mà test chọn bị chính kết nối chiếm); chạy lại lớp ServerIdentity 3 lần: 15/15 mỗi lần. Trình duyệt toàn bộ: 40 lượt kịch bản, 435/435 kiểm.
+- **Review độc lập:** review độc lập 3 hướng trên `a5d6cdf`. Hai hướng xong (vòng đời request; UX và hồi quy): 10 phát hiện mức nhỏ và 1 ghi chú, mỗi cái được một người khác tái hiện; đã sửa ở `9d841ca`, test đỏ trước trên bản sửa cũ. Hướng thứ ba (độ tin của test: cố ý làm hỏng mã xem test có bắt không) KHÔNG chạy xong vì tài khoản hết hạn mức agent của tuần — chưa kiểm; một phần được phủ bởi lượt đỏ trên trang dev12 và trên bản sửa trước review.
+
+## 3. Lối vào: thử, mở, dừng, quay về
+
+- **Thử gói:** `powershell -ExecutionPolicy Bypass -File "D:\OneCrewRuns\obs1\pkg\onecrew-2.4.0.dev13-obs1-beta\verify\thu-goi-obs1.ps1"` (`DAT` = đạt; gồm cả kịch bản thời gian thực, khoảng 2,5 phút trong V14).
+- **Mở UI thử (sổ của lần kiểm đã nghiệm):** cặp ghim cứng `mo-trang-obs1-dev13.ps1` / `dung-trang-obs1-dev13.ps1` sinh sau lần kiểm gói (đường dẫn ghi ở báo cáo tại HEAD hồ sơ).
+- **Quay về:** xóa venv thử là xong (sổ không bị ghi); cặp ghim dev12 và gói dev12 không đổi.
+
+## 4. Giới hạn còn lại
+
+- Chi tiết chậm hơn 45 s không bao giờ hiện được (sau 3 lần thì chờ người đọc bấm "Thử lại"); 45 s, 3 lần và 5 phút của overview là hằng số trong trang, chưa chỉnh được.
+- Lỗi trả về ngay (mạng/HTTP) mà không có lần quá hạn nào vẫn thử lại sau mỗi lần làm mới danh sách như R4 (không giới hạn số lần, mỗi lần tức thì, có thông báo lỗi); mỗi lần nối lại kết nối mở một chuỗi 3 lần mới.
+- Chi tiết chỉ được đọc lại sau mỗi lần overview trả lời: khi overview không trả lời, chi tiết đứng yên (huy hiệu báo MẤT KẾT NỐI); overview treo chỉ được báo sau 5 phút.
+- Mở bằng chứng (nút "mở") chưa có hạn chờ: server treo thì nút giữ chữ "đang tải…".
+- Server không biết trang đã hủy: lượt đọc bị hủy vẫn chạy hết ở server (một lượt mỗi lúc cho mỗi trang).
+- Test nhanh dùng đồng hồ giả (một test double của trang); diễn tập thời gian thực chỉ phủ một đường (chậm 25 s → giữ 70 s → nhanh lại); `claude` giả như mọi lượt trước.
+
+## 5. Việc thật sự cần chủ quyết
+
+1. Thử bản vá (cặp ghim dev13) rồi quyết có cho Codex review lại và phát hành beta dev13 hay không (lượt này không tag/push).
+2. Có nâng UI SignSDK từ dev8 lên bản này không (script dev12 đã chuẩn bị; chưa làm cho dev13).
+
+---
+
+# (Lịch sử) OBS-1 — báo cáo bàn giao: màn hình theo dõi chỉ đọc, `2.4.0.dev12` (beta; các bản sửa R1–R5 theo review phát hành độc lập của Codex trên dev11)
 
 Người lập: Claude (Opus 5.5), 04/11/2026, theo chỉ thị 03/11 tối ("Hoàn thiện OBS-1 và triển khai song song MR-R"). Lịch sử các lượt trước: dev7 `c3c8361` và dev8 `e9c02de` đã phát hành; dev9 `b070559`, dev10 `5e66903` (Codex review), dev11 `7c8bfca` (Codex review độc lập 03/11 ~20:57 → R1–R5) chỉ ở local.
 

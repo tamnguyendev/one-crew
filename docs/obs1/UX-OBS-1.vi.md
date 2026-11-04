@@ -78,3 +78,15 @@ Tiêu chí dưới đây là expected output của Codex (`D:\OneCrewRuns\codex-
 | gộp | đọc chi tiết chậm hơn chu kỳ poll (2,5 lần); trả lời 200 mà trang không vẽ được; sao chép xong sau khi đã đổi task; ô "Từ khi duyệt" khi chi tiết thành cũ; thẻ cần bạn không có mẫu lệnh khi chi tiết cũ | chi tiết vẫn hiện (yêu cầu đang chạy được chờ, không bị thay ở mỗi poll); trạng thái lỗi thay vì "đang tải" mãi; không lỗi JS; ô không nhảy lùi; thẻ không có mẫu lệnh chỉ ghi "dữ liệu lúc …", không nhắc `--revision` | T `slow_detail` (desktop), đỏ trên nhánh gộp trước bản sửa; gói V14. Thêm: chữ của `track show` khi timeline bị cắt chỉ tới `--json` (evidence_index) và trang theo dõi (U test_h, đỏ trước); lần dùng không xác định được lượt/thế hệ ghi "chưa xác định" trên trang |
 | review rủi ro (ứng viên tích hợp, 04/11) | 4 hướng (gộp nhánh, vòng đời viewer R5, logic PASS của bộ kiểm, đối chiếu với expected output) + phản biện từng finding | V14 trả lời `prov_more`; V17 không đạt suông; health không qua proxy; `--state-root` tương đối; đường dẫn trông như bí mật không làm hỏng định danh; đọc lại marker/ghim trước khi ghi; 405 không reset kết nối; trả lời không vẽ được giữ nguyên trạng thái trang | U `test_obs1_ux` (vòng 5 R5: 7 test mới, đỏ trước), `test_obs1_web` (405 thân 4 MiB, đỏ trước); T `slow_detail` (g) (đỏ trước); PS T16–T21; gói V14/V17 |
 | giữ | dev7–dev11 | mọi kịch bản cũ xanh (ux01…08, race, disc, clock, ux03b, gantt desktop/mobile, p2a, gantt_now, evid; V13, V15, V16) | T, gói |
+
+## 6. Vòng dev13 (review Codex trên dev12 `4cdb384`, 04/11): P2 chi tiết chậm hơn 20 s — tiêu chí giao trước khi sửa và kiểm
+
+| Tình huống | Expected (chỉ thị 04/11) | Kiểm |
+|---|---|---|
+| trả lời chậm hợp lệ của task đang chọn (25 s, qua nhiều chu kỳ poll) | hiện được; polling không loại nó vô hạn | fk_slow25, fk_cycles, rt_slow A–B |
+| timeout | kết thúc chờ bằng thông báo rõ, đường phục hồi hữu hạn | fk_timeout (1280, 390), fk_timeout1, rt_slow C–D |
+| đổi P1 → P8 khi request cũ chưa xong; trả lời cũ muộn hoặc sai thứ tự | không hiện dữ liệu, bằng chứng hay lệnh của P1 dưới P8 | fk_switch (a)–(c) |
+| mất kết nối rồi phục hồi | đưa về đúng task đang chọn | fk_disc |
+| overview | tiếp tục hoạt động; không request/retry không giới hạn | mọi kịch bản fk_* (đếm request), fk_ovhang, fk_ovslow, fk_mixed |
+| review độc lập (vòng đời, UX) | đóng rồi mở lại task; nối lại khi đã ngừng; focus bàn phím; đầu trang nói đang thử lại/đã ngừng | fk_reselect, fk_reconnect, fk_timeout |
+| giữ | Gantt và các bảo vệ R1–R5 | mọi kịch bản cũ (V14), unit OBS-1 |
