@@ -202,6 +202,8 @@ class RequiredCheckLifecycle(CheckFixture):
             return code, json.loads(out.getvalue())
         code, shown = cli('reconcile-check', 'P1', run_id)
         self.assertEqual((code, shown['status']), (0, 'held'))
+        code, listed = cli('check-runs', 'P1')
+        self.assertEqual([(r['run_id'], r['door'], r['state']) for r in listed], [(run_id, 'engine.verify', 'held')])
         code, shown = cli('release-check', 'P1', run_id, '--reason', 'Checked the checker log: nothing ran.')
         self.assertEqual((code, shown['run_id']), (0, run_id))
         code, shown = cli('verify', 'P1', 'C')
@@ -242,3 +244,63 @@ class VerdictDoorLink(Fixture):
                 verdict.run(self.ledger, 'P1', 'M1', self.root)
         again = review_dispatch.claim_check(self.ledger, 'P1', request, door='candidate', subject={'milestone': 'M1'})
         self.assertEqual((again['status'], again['run_id']), ('pending', claim['run_id']))
+
+
+class IndependentBranch(fixtures.EngineFixture):
+    def test_a_held_check_holds_only_its_node_and_what_depends_on_it(self):
+        other = fixtures.node('X', write=('b.txt',)); other['read'] = ['b.txt']
+        self.revise([fixtures.node('C'), other, fixtures.node('I', ['C', 'X'], integration=True, write=())])
+        self.assertEqual(self.step()['node'], 'C')
+        def lost(item, artifact): raise OSError('ambiguous')
+        with self.assertRaises(OSError): self.verify('C', lost)
+        self.assertEqual(self.verify('C', lambda *a: self.fail('no replay'))['status'], 'held')
+        self.assertEqual(self.step()['node'], 'X')                   # the independent branch still runs
+        self.assertEqual(self.verify('X')['result'], 'pass')
+        self.assertEqual(self.engine.ready(self.ledger, 'P1'), [])   # the integration waits for the held dependency
+        self.assertEqual(self.engine.state(self.ledger, 'P1')['nodes']['C']['state'], 'produced')
+
+
+class OverdueClaim(VerdictDoorLink):
+    test_verdict_run_records_the_milestone_request_it_executes = None
+    test_an_active_candidate_claim_of_the_same_milestone_request_refuses_a_verdict_dispatch = None
+
+    def test_t3_a_run_past_its_deadline_is_held_not_pending_forever_and_not_replayed(self):
+        self.approved()
+        request = review_dispatch.milestone_request(self.ledger, 'P1', 'M1', self.tree())
+        past = '2020-01-01T00:00:00+00:00'
+        claim = review_dispatch.claim_check(self.ledger, 'P1', request, door='candidate', subject={'milestone': 'M1'}, deadline=past)
+        again = review_dispatch.claim_check(self.ledger, 'P1', request, door='candidate', subject={'milestone': 'M1'}, deadline=past)
+        self.assertEqual((again['status'], again['run_id']), ('held', claim['run_id']))
+        self.assertIn('deadline', again['reason'])
+        self.assertEqual(review_dispatch.reconcile_check(self.ledger, 'P1', claim['run_id'])['status'], 'held')
+
+
+class RacingProcesses(Fixture):
+    SCRIPT = (
+        'import json, sys, time\n'
+        'from pathlib import Path\n'
+        'from onecrew.ledger import Ledger\n'
+        'from onecrew.v2 import review_dispatch\n'
+        'project, state, request, start = sys.argv[1:5]\n'
+        'while not Path(start).exists(): time.sleep(0.01)\n'
+        'claim = review_dispatch.claim_check(Ledger(Path(project), Path(state)), "P1", json.loads(Path(request).read_text()), door="candidate", subject={"milestone": "M1"})\n'
+        'print(json.dumps({"status": claim["status"], "run_id": claim["run_id"]}))\n')
+
+    def test_t1_separate_processes_racing_for_one_request_get_one_claim(self):
+        import subprocess, sys, tempfile
+        from pathlib import Path
+        self.approved()
+        request = review_dispatch.milestone_request(self.ledger, 'P1', 'M1', self.tree())
+        with tempfile.TemporaryDirectory() as temp:
+            data, start = Path(temp) / 'request.json', Path(temp) / 'start'
+            data.write_text(json.dumps(request))
+            repo = str(Path(__file__).resolve().parents[1])
+            racers = [subprocess.Popen([sys.executable, '-B', '-X', 'utf8', '-c', self.SCRIPT, str(self.root), str(self.ledger.state_root), str(data), str(start)],
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=repo) for _ in range(3)]
+            start.write_text('go')
+            outs = [racer.communicate(timeout=120) for racer in racers]
+        for racer, (_, err) in zip(racers, outs): self.assertEqual(racer.returncode, 0, err.decode())
+        answers = [json.loads(out) for out, _ in outs]
+        self.assertEqual(sorted(a['status'] for a in answers).count('claimed'), 1, answers)
+        self.assertEqual(len({a['run_id'] for a in answers}), 1, answers)
+        self.assertEqual(self.kinds().count('review.run_started'), 1)

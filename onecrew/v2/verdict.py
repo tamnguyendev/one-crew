@@ -599,6 +599,8 @@ def release_run(ledger, name, run_id, reason):
                    'note': 'A release lets the verifier run a second time; the first dispatch may have had an effect. Exactly-once is not promised.'}
         plans.emit(ledger, conn, state['task_id'], 'verdict.run_released', payload)
     _unmark(ledger, run_id)
+    from . import review_dispatch                                 # 2.5-B: the metered provider attempt of the released run settles, charged; otherwise Control refuses every new call
+    if hold.get('milestone'): review_dispatch.settle_released_attempts(ledger, state['task_id'], ['milestone:' + hold['milestone']], 'run ' + run_id + ': ' + reason.strip()[:300])
     return payload
 
 
@@ -810,7 +812,7 @@ def _begin_run(ledger, name, revision, milestone_id, kind, max_minutes, check=No
                                   f'wait for it to end, or until {run.get("deadline")}.')
         if request is not None:                                     # 2.5-B: the same milestone on the same tree running through CandidateChecker
             from . import review_dispatch
-            other = review_dispatch.verdict_conflict(conn, state['task_id'], request['id'])
+            other = review_dispatch.verdict_conflict(conn, state['task_id'], request)
             if other:
                 raise LedgerError(f'Milestone {milestone_id} on this artifact is already being checked through {other["door"]} (run {other["run_id"]}, {other["state"]}); '
                                   'nothing was dispatched. Observe that run; `onecrew engine reconcile-check` settles it.')

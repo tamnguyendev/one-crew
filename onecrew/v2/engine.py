@@ -1113,10 +1113,8 @@ def _continue(ledger, conn, view, nid, candidate, attempt_id, continuation):
 def _execution_of(checker, item):
     """The execution identity of the port about to run: only the production CandidateChecker states it, from the approved contract and
     the effective environment. Any other callable has no sourced identity: it may run, its result is never reusable by identity."""
-    from ..common_verification import CandidateChecker
-    if isinstance(checker, CandidateChecker) and type(checker).__call__ is CandidateChecker.__call__:
-        return checker.execution_identity(item)
-    return None
+    from ..common_verification import CandidateChecker, InvestigationChecker
+    return checker.execution_identity(item) if type(checker) in (CandidateChecker, InvestigationChecker) else None
 
 
 def verify(ledger, selector, nid, checker, *, door='engine.verify'):
@@ -1166,7 +1164,9 @@ def verify(ledger, selector, nid, checker, *, door='engine.verify'):
             with ledger.transaction(write=True) as conn:
                 review_dispatch.finish_check(ledger, conn, root['task_id'], run_id, outcome='not_dispatched', reason=str(error)[:500])
             if isinstance(error, review_dispatch.NotDispatched):
-                return review_dispatch.run_held_view(root['selector'], nid, dict(claim, status='pending', reason=str(error)[:500]), request)
+                blocker = error.claim
+                return review_dispatch.run_held_view(root['selector'], nid, dict(claim, status='held' if blocker.get('status') == 'held' else 'pending', reason=str(error)[:500],
+                                                                                 run_id=blocker.get('run_id') or run_id, door=blocker.get('door') or claim['door']), request)
         else:
             review_dispatch._hold(ledger, root['selector'], run_id, 'Outcome unknown: ' + type(error).__name__ + ' while the checker ran and no result was issued.')
         raise
@@ -1329,6 +1329,9 @@ def accept_node(ledger, selector, nid):
 
 def review_optional(ledger, selector, nid, review_id, checker, artifact, *, execution=None):
     from .review_dispatch import optional
+    if execution is None:                          # 2.5-B: the production port states what it executes; nothing else gets a sourced identity
+        item = next((node for node in (state(ledger, selector)['definition'] or {}).get('nodes', []) if node['id'] == nid), None)
+        execution = _execution_of(checker, item) if item else None
     return optional(ledger, selector, nid, review_id, checker, artifact, execution=execution)
 
 

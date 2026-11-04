@@ -7,6 +7,7 @@ select models, change pins or implement provider fallback.
 """
 import contextvars
 import copy
+import datetime as dt
 import json
 import hashlib
 import os
@@ -14,7 +15,7 @@ import uuid
 
 from ..ledger import LedgerError, canonical, content_hash, key_field
 from ..snapshots import Snapshots
-from . import engine, internal_plan as ip, plan, review_policy, review_request
+from . import contract as contracts, engine, internal_plan as ip, plan, review_policy, review_request
 
 
 def _context(ledger, selector, node, conn=None):
@@ -90,7 +91,11 @@ _CURRENT = contextvars.ContextVar('onecrew_check_run', default=None)
 
 
 class NotDispatched(LedgerError):
-    """Raised by a check port BEFORE any verifier/provider was started: the outcome is known (nothing ran), so the run is not held."""
+    """Raised by a check port BEFORE any verifier/provider was started because the same work is in another run: the outcome here is known
+    (nothing ran), so this run is not held. `claim` is what claim_check answered about the blocking run."""
+    def __init__(self, message, claim=None):
+        super().__init__(message)
+        self.claim = claim or {}
 
 
 def current_run():
@@ -98,18 +103,14 @@ def current_run():
     return _CURRENT.get()
 
 
-def _build_check(**fields):
-    # INTERFACE (2.5-A): review_request.build_check. Until A's commit is merged this thin local shim keeps the same top-level keys
-    # (version, id, identity, execution_complete, missing); it is deleted once A's function exists.
-    build = getattr(review_request, 'build_check', None)
-    if build is not None: return build(**fields)
-    execution = review_request._execution(fields.get('execution'))
-    identity = {'kind': fields['kind'], 'root': fields['root'], 'contract_revision': fields['contract_revision'],
-                'contract_sha': fields['contract_sha'], 'required': fields['required'],
-                **{key: content_hash(fields[key]) for key in ('subject', 'scope', 'criteria', 'policy', 'authority', 'budget', 'inputs')},
-                'execution': execution}
-    return {'version': review_request.VERSION, 'id': 'review-' + content_hash({'version': review_request.VERSION, 'identity': identity}),
-            'identity': identity, 'execution_complete': execution['complete'], 'missing': list(execution['missing'])}
+def _work_key(request):
+    """The check being asked for, without how/where it would run: two callers whose environments differ (another shell, another TEMP) are
+    two requests for reuse, but one piece of work while it is in flight. Reuse always needs the exact request id."""
+    identity = dict(request['identity'])
+    identity.pop('execution', None)
+    if isinstance(identity.get('evidence'), dict):
+        identity['evidence'] = {k: v for k, v in identity['evidence'].items() if k not in ('environment', 'configuration')}
+    return content_hash(identity)
 
 
 def _milestone_execution(ledger, milestone, sha):
@@ -128,14 +129,23 @@ def _milestone_execution(ledger, milestone, sha):
 
 
 def _milestone_request(ledger, task_id, name, revision, sha, contract, milestone, candidate):
+    """review_request.build_check for one approved milestone on one candidate; the execution facts are also the evidence inputs."""
     subject = {'plan': name, 'milestone': milestone['id'], 'candidate': candidate, 'plan_sha': sha}
-    return _build_check(kind='milestone', root={'project_id': ledger.project_id, 'task_id': task_id},
+    execution = _milestone_execution(ledger, milestone, sha)
+    acceptance = dict(zip(contracts.output_ids(contract['output']), contract['output']))
+    from . import verification_evidence
+    from .verifiers import command
+    return review_request.build_check(kind='milestone', root={'project_id': ledger.project_id, 'task_id': task_id},
         contract_revision=revision, contract_sha=sha, subject=subject, required=True,
         criteria=[{'id': milestone['id'], 'covers': milestone.get('covers', []), 'verifier': milestone['verifier']['type']}],
         scope={'owned': sorted(contract['scope']['owned'])},
         policy=review_policy.normalize(contract.get('review_policy', review_policy.DEFAULT)),
-        authority=contract.get('authority', {}), budget=contract['budget'], inputs={'candidate': candidate},
-        execution=_milestone_execution(ledger, milestone, sha))
+        authority=contract.get('authority', {}), budget=contract['budget'],
+        inputs={'artifact': candidate, 'revision': revision,
+                'acceptance': {'milestone': milestone['id'], 'covers': {key: acceptance.get(key) for key in milestone.get('covers', [])}},
+                'inputs': {'milestone': milestone['id']}, 'configuration': {'plan_sha': sha, 'verifier': execution['configuration'], 'type': milestone['verifier']['type']},
+                'environment': verification_evidence.environment(command.verifier_env(ledger.project)), 'checks': [milestone['id']]},
+        execution=execution)
 
 
 def milestone_request(ledger, selector, milestone_id, candidate):
@@ -170,14 +180,24 @@ def _parented(runs):
 
 
 def _lost(run):
-    from .verdict import this_host, process_alive
-    return run.get('host') == this_host() and not process_alive(run.get('pid'))
+    """Its process is gone here, or it is past its own deadline (what keeps a reused pid or another machine's run from pending forever).
+    Lost is not a result: the run is held, never replayed."""
+    from .verdict import this_host, process_alive, _when, _now
+    if run.get('host') == this_host() and not process_alive(run.get('pid')): return True
+    deadline = _when(run.get('deadline')) if run.get('deadline') else None
+    return deadline is not None and _now() > deadline
 
 
-def verdict_conflict(conn, task_id, request_id):
-    """An unfinished lifecycle run of this request (any door), for verdict._begin_run's own claim transaction; None when none."""
+def _deadline(seconds):
+    from .verdict import _now, RUN_GRACE_SECONDS
+    return (_now() + dt.timedelta(seconds=seconds + RUN_GRACE_SECONDS)).isoformat()
+
+
+def verdict_conflict(conn, task_id, request):
+    """An unfinished lifecycle run of the same work (any door), for verdict._begin_run's own claim transaction; None when none."""
+    key = _work_key(request)
     for run in reversed(list(_parented(_runs(conn, task_id)).values())):
-        if run['request']['id'] == request_id and _state(run) != 'finished':
+        if _work_key(run['request']) == key and _state(run) != 'finished':
             return {'run_id': run['run_id'], 'door': run.get('door', 'optional'), 'state': _state(run)}
     return None
 
@@ -189,32 +209,33 @@ def _check_view(run, status, **extra):
                  'grants_authority': False}, **extra)
 
 
-def claim_check(ledger, selector, request, *, door, subject, check=CHECK_MILESTONE, parent=None, conn=None):
+def claim_check(ledger, selector, request, *, door, subject, check=CHECK_MILESTONE, parent=None, deadline=None, conn=None):
     """One atomic claim per request id. Returns {'status': 'claimed'|'pending'|'held'|'issued', 'run_id', ...}.
     pending: the same request runs now (in any door, verdict.run included); held: its outcome is unknown (never replayed);
     issued: a result exists and must be reconciled, not re-run. Finished runs are not consulted here (reuse is the caller's rule)."""
     if conn is None:
         with ledger.transaction(write=True) as connection:
-            return claim_check(ledger, selector, request, door=door, subject=subject, check=check, parent=parent, conn=connection)
+            return claim_check(ledger, selector, request, door=door, subject=subject, check=check, parent=parent, deadline=deadline, conn=connection)
     from .verdict import this_host, live_runs
     from ..ledger import utcnow
     root = plan.anchor_events(ledger, conn, selector)
+    key = _work_key(request)
     for run in reversed(list(_parented(_runs(conn, root['task_id'])).values())):
-        if run['request']['id'] != request['id'] or run['finished']: continue
+        if _work_key(run['request']) != key or run['finished']: continue
         if run['issued']: return _check_view(run, 'issued')
         if run['held']: return _check_view(run, 'held')
         if _lost(run):
-            reason = 'The process of this check is gone and it issued no result: its effect is unknown; it is not run again by itself.'
+            reason = 'The process of this check is gone or past its deadline and it issued no result: its effect is unknown; it is not run again by itself.'
             plan.emit(ledger, conn, root['task_id'], 'review.run_held',
                       {'run_id': run['run_id'], 'request_id': request['id'], 'reason': reason, 'grants_authority': False})
             return _check_view(dict(run, held={'reason': reason}), 'held')
         return _check_view(run, 'pending')
     for run in live_runs(conn, root['task_id']):
-        if run.get('request_id') == request['id']:
+        if isinstance(run.get('request'), dict) and _work_key(run['request']) == key:
             return {'status': 'pending', 'run_id': run.get('run_id'), 'request_id': request['id'], 'door': 'verdict.run',
                     'check': CHECK_MILESTONE, 'subject': subject, 'reason': None, 'grants_authority': False}
     run = {'run_id': uuid.uuid4().hex, 'check': check, 'door': door, 'request': request, 'subject': subject, 'parent': parent,
-           'root': root['task_id'], 'pid': os.getpid(), 'host': this_host(), 'started': utcnow(),
+           'root': root['task_id'], 'pid': os.getpid(), 'host': this_host(), 'started': utcnow(), 'deadline': deadline,
            # identity metadata may be complete; independence is a separate judgement made from actual provenance (never declared here)
            'independence': 'not_established', 'grants_authority': False}
     plan.emit(ledger, conn, root['task_id'], 'review.run_started', dict(run, request_id=request['id']))
@@ -254,6 +275,61 @@ def active_checks(ledger, selector):
             for r in runs.values() if _state(r) in ('running', 'issued') and not _lost(r)]
 
 
+def _run_rows(conn, task_id):
+    """One neutral row per run of any door, from the events only (for reports and for authenticating a receipt)."""
+    from .verdict import run_records
+    rows = []
+    for run in _parented(_runs(conn, task_id)).values():
+        finished = run['finished'] or {}
+        issued = run['issued'] or {}
+        outcome = finished.get('outcome') or ('observed' if run['finished'] else None)
+        rows.append({'run_id': run['run_id'], 'door': run.get('door', 'optional'), 'check': run.get('check', 'optional'), 'request_id': run['request']['id'],
+                     'request': run['request'], 'subject': run.get('subject') or {'node': run.get('node'), 'review_id': run.get('review_id')},
+                     'state': _state(run), 'outcome': outcome, 'receipt': finished.get('proof') or finished.get('receipt') or issued.get('receipt'),
+                     'result': finished.get('result'), 'parent': run.get('parent'), 'started': run.get('started')})
+    results = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='verdict.recorded' ORDER BY seq", (task_id,)).fetchall()
+    recorded = {body.get('receipt'): body.get('result') for body in (json.loads(row['payload']) for row in results)}
+    for run in run_records(conn, task_id):
+        receipt = (run.get('receipt') or {}).get('receipt')
+        state = 'issued' if receipt else 'abandoned' if run.get('abandoned') else 'running'
+        rows.append({'run_id': run.get('run_id'), 'door': 'verdict.run', 'check': CHECK_MILESTONE, 'request_id': run.get('request_id'), 'request': run.get('request'),
+                     'subject': {'milestone': run.get('milestone'), 'candidate': run.get('candidate')},
+                     'state': 'finished' if receipt in recorded else state, 'outcome': 'recorded' if receipt in recorded else None, 'receipt': receipt,
+                     'result': recorded.get(receipt), 'parent': None, 'started': run.get('started')})
+    return rows
+
+
+def check_runs(ledger, selector):
+    """Every check run of this root and how it stands. Read-only; a missing link stays None."""
+    with ledger.transaction() as conn:
+        root = plan.anchor_events(ledger, conn, selector)
+        return _run_rows(conn, root['task_id'])
+
+
+def run_of_receipt(conn, task_id, receipt):
+    """The run that issued this very receipt blob, or None: a receipt no run issued is authentic evidence of nothing."""
+    return next((row for row in _run_rows(conn, task_id) if row['receipt'] == receipt), None)
+
+
+def prior_pass(conn, task_id, request):
+    """The run that already executed exactly this request and passed: a finished candidate claim (its proof) or a verdict.run whose issued
+    receipt was recorded as a pass. {run_id, door, kind, proof} or None. Exact request id and complete execution identity only: an unknown
+    checker is never equal to anything. The caller authenticates the proof against the approved milestone (proof_mismatch)."""
+    def applies(previous):
+        return previous.get('id') == request['id'] and review_request.evidence_status(previous, request)['status'] == 'applies'
+    for run in reversed(list(_runs(conn, task_id).values())):
+        finished = run['finished']
+        if run.get('check') == CHECK_MILESTONE and finished and finished.get('result') == 'pass' and finished.get('proof') and applies(run['request']):
+            return {'run_id': run['run_id'], 'door': run.get('door'), 'proof': finished['proof']}
+    from .verdict import run_records
+    rows = conn.execute("SELECT payload FROM events WHERE task_id=? AND kind='verdict.recorded' ORDER BY seq", (task_id,)).fetchall()
+    recorded = {body.get('receipt'): body.get('result') for body in (json.loads(row['payload']) for row in rows)}
+    for run in reversed(run_records(conn, task_id)):
+        if isinstance(run.get('request'), dict) and applies(run['request']) and run.get('receipt') and recorded.get(run['receipt'].get('receipt')) == 'pass':
+            return {'run_id': run.get('run_id'), 'door': 'verdict.run', 'proof': run['receipt']['receipt']}
+    return None
+
+
 def published_run(conn, task_id, node, receipt):
     """The node-verification run whose published receipt is `receipt` (None for a verification written before cycle 2)."""
     for run in _runs(conn, task_id).values():
@@ -261,6 +337,34 @@ def published_run(conn, task_id, node, receipt):
                 and run['finished'].get('outcome') == 'published' and run['finished'].get('receipt') == receipt):
             return run['run_id']
     return None
+
+
+def settle_released_attempts(ledger, task_id, contexts, note):
+    """A release decides that a run of unknown outcome may run again. Its metered provider attempts (Control refuses another call while one
+    is open) settle as what they are: charged, never refunded, with the release as the reason. Attempts of other runs are not touched."""
+    from ..control_core import Control, migrate
+    if not contexts: return []
+    migrate(ledger)
+    marks = ','.join('?' for _ in contexts)
+    with ledger.transaction() as conn:
+        rows = conn.execute(f"SELECT id,generation FROM attempts WHERE status IN ('reserved','running','unknown') "
+                            f"AND json_extract(operation,'$.verifier_root')=? AND json_extract(operation,'$.verifier_context') IN ({marks})",
+                            (task_id, *contexts)).fetchall()
+    control = Control(ledger)
+    for row in rows:
+        control.finish(row['id'], row['generation'], {'released': note, 'outcome': 'unknown', 'provider_invocations': 1})
+    return [row['id'] for row in rows]
+
+
+def _attempt_contexts(runs):
+    contexts = []
+    for run in runs:
+        subject = run.get('subject') or {}
+        if subject.get('milestone') and subject.get('node') and subject.get('artifact'):
+            contexts.append('candidate:' + subject['node'] + ':' + subject['artifact'] + ':' + subject['milestone'])
+        if run.get('review_id') and run.get('node') and run.get('artifact'):
+            contexts.append('investigation:' + run['node'] + ':' + run['artifact'] + ':' + run['review_id'])
+    return contexts
 
 
 def release_check(ledger, selector, run_id, reason):
@@ -281,10 +385,11 @@ def release_check(ledger, selector, run_id, reason):
         payload = {'reason': reason.strip(), 'actor': os.environ.get('ONECREW_ACTOR') or 'unknown', 'budget_reset': False,
                    'note': 'A release lets the check run a second time; the first dispatch may have had an effect. Exactly-once is not promised.'}
         finish_check(ledger, conn, root['task_id'], run_id, outcome='released', **payload)
-        for child in runs.values():
-            if child.get('parent') == run_id and not child['finished'] and not child['issued']:
-                finish_check(ledger, conn, root['task_id'], child['run_id'], outcome='released', inherited_from=run_id, **payload)
-    return dict(payload, run_id=run_id, request_id=run['request']['id'], status='released')
+        children = [child for child in runs.values() if child.get('parent') == run_id and not child['finished'] and not child['issued']]
+        for child in children:
+            finish_check(ledger, conn, root['task_id'], child['run_id'], outcome='released', inherited_from=run_id, **payload)
+    attempts = settle_released_attempts(ledger, root['task_id'], _attempt_contexts([run] + children), 'run ' + run_id + ': ' + payload['reason'][:300])
+    return dict(payload, run_id=run_id, request_id=run['request']['id'], status='released', settled_attempts=attempts)
 
 
 def reconcile_check(ledger, selector, run_id):
@@ -301,7 +406,7 @@ def reconcile_check(ledger, selector, run_id):
     if run['issued']: return _check_view(run, 'issued', receipt=run['issued']['receipt'])
     if run['held'] or _lost(run):
         if not run['held']:
-            _hold(ledger, root['selector'], run_id, 'The process of this check is gone and it issued no result: its effect is unknown.')
+            _hold(ledger, root['selector'], run_id, 'The process of this check is gone or past its deadline and it issued no result: its effect is unknown.')
             with ledger.transaction() as conn:
                 run = _parented(_runs(conn, root['task_id']))[run_id]
         return _check_view(run, 'held', next=_next(root['selector'], run_id))
@@ -316,12 +421,12 @@ def _next(selector, run_id):
 def node_request(ledger, selector, nid, execution=None, conn=None):
     """The required node-verification request (review_request.build, the existing node descriptor) from the current engine facts."""
     root, contract, item, facts = _context(ledger, selector, nid, conn)
-    return root, item, facts, review_request.build(root={'project_id': ledger.project_id, 'task_id': root['task_id']},
+    return root, item, facts, review_request.build_check(kind='node', root={'project_id': ledger.project_id, 'task_id': root['task_id']},
         contract_revision=root['approved']['revision'], contract_sha=root['approved']['sha'],
-        review_id=CHECK_NODE, required=True, facts=facts,
+        review_id=CHECK_NODE, required=True, subject=facts,
         scope={k: item.get(k, []) for k in ('read', 'write', 'acceptance')}, criteria=item['checks'],
         policy=review_policy.normalize(contract.get('review_policy', review_policy.DEFAULT)),
-        authority=contract.get('authority', {}), budget=contract['budget'], execution=execution)
+        authority=contract.get('authority', {}), budget=contract['budget'], inputs=None, execution=execution)
 
 
 def claim_node_check(ledger, selector, nid, *, execution, door):
@@ -330,7 +435,9 @@ def claim_node_check(ledger, selector, nid, *, execution, door):
         root, item, facts, request = node_request(ledger, selector, nid, execution, conn)
         subject = {'node': nid, 'generation': facts['generation'], 'artifact': facts['artifact'],
                    'internal_revision': facts['internal_revision']}
-        return claim_check(ledger, root['selector'], request, door=door, subject=subject, check=CHECK_NODE, conn=conn), request
+        # the same allowance as the tools fence (engine._claim_tools): twice the node cap, the first check still has its own deadlines
+        return claim_check(ledger, root['selector'], request, door=door, subject=subject, check=CHECK_NODE,
+                           deadline=_deadline(2 * item['execution_cap_seconds']), conn=conn), request
 
 
 def node_check_view(claim, *, executed=False, reconciled=False, request=None):
@@ -505,7 +612,11 @@ def optional(ledger, selector, node, review_id, checker, artifact, *, execution=
         recovered['cached_observation'] = bool(reuse_completed and recovered['cache_reusable'])
         return dict(result, **recovered)
     try:
-        observed = checker(copy.deepcopy(item), artifact)
+        token = _CURRENT.set(run['run_id'])
+        try:
+            observed = checker(copy.deepcopy(item), artifact)
+        finally:
+            _CURRENT.reset(token)
         if not isinstance(observed, dict) or len(canonical(observed).encode('utf-8')) > 65536:
             raise LedgerError('Optional review must return a bounded observation object.')
         # A receipt says what was observed, not that a mandatory check passed.
@@ -518,5 +629,9 @@ def optional(ledger, selector, node, review_id, checker, artifact, *, execution=
                       {'run_id': run['run_id'], 'request_id': request['id'], 'receipt': receipt, 'grants_authority': False})
         return dict(result, **_publish_optional(ledger, root['selector'], run['run_id'], executed=True))
     except BaseException as error:
-        _hold(ledger, root['selector'], run['run_id'], 'Outcome unconfirmed: ' + type(error).__name__)
+        if isinstance(error, NotDispatched) or getattr(error, 'not_dispatched', False):   # 2.5-B: refused before any effect: a known outcome, not a hold
+            with ledger.transaction(write=True) as conn:
+                finish_check(ledger, conn, root['task_id'], run['run_id'], outcome='not_dispatched', reason=str(error)[:500])
+        else:
+            _hold(ledger, root['selector'], run['run_id'], 'Outcome unconfirmed: ' + type(error).__name__)
         raise
