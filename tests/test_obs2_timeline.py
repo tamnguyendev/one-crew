@@ -14,7 +14,7 @@ class TimelineUX(unittest.TestCase):
         code=PAGE[PAGE.index('function tms(t)'):PAGE.index('function repaintGantt()')]
         pre=r"""var gRange='current',gPinnedWindow=null,gFold={},selStep=null,lostSince=null,detailError=null,lastOk=null,detailOkAt=null;
 function esc(x){return String(x==null?'':x).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-function when(x){return x||'chưa xác định'}function hms(x){return String(x)}function nodeName(d,n){return (d.work.node_titles||{})[n]||n}function workStatus(d){return d.current_step}function prov(d){return {bySeq:{}}}function occDiv(x){return esc(x.key)}
+function when(x){return x||'chưa xác định'}function hms(x){return String(x)}function nodeName(d,n){return (d.work.node_titles||{})[n]||n}function workStatus(d){return d.current_step}function prov(d){return {bySeq:{}}}function occDiv(x){return esc(x.key)}function occLine(x){return esc(x.key)}function openOr(x){return '<button data-key="'+esc(x.key)+'">xem nội dung</button>'}
 """
         r=subprocess.run(['node','-'],input=pre+code+'\n'+setup+'\nconsole.log(JSON.stringify('+expr+'));',text=True,encoding='utf-8',capture_output=True,timeout=10)
         self.assertEqual(r.returncode,0,r.stderr);return json.loads(r.stdout)
@@ -67,5 +67,28 @@ function when(x){return x||'chưa xác định'}function hms(x){return String(x)
         d=self.detail();d['gantt']['rows'].append(dict(d['gantt']['rows'][0],attempt='att:old',current=False,generation=0))
         out=self.js('gantt(d)',"var d="+json.dumps(d)+";gFold={'n:C':false,'h:C':false};")
         self.assertIn('Lượt hiện hành',out);self.assertIn('Lượt cũ',out);self.assertIn('data-attempt="att:old"',out);self.assertIn('data-attempt="att:one"',out)
+
+    def test_dev5_detail_has_stable_disclosure_identity(self):
+        out=self.js('gantt(d)',"var d="+json.dumps(self.detail())+";selStep={id:'node:C'};")
+        self.assertIn('data-k="g-node-source:C"',out)
+
+    def test_dev5_grid_uses_same_positions_as_axis(self):
+        import re
+        d=self.detail()
+        out=self.js('gantt(d)',"var d="+json.dumps(d)+";")
+        grid=[float(x) for x in re.findall(r'class="ggrid" style="left:([\d.]+)%"',out)]
+        expected=[round(x['pct'],3) for x in self.js('gTicks(gWindow(d.gantt))',"var d="+json.dumps(d)+";")]
+        self.assertEqual(grid,expected*2)
+
+    def test_dev5_history_control_names_return_action(self):
+        out=self.js('gantt(d)',"var d="+json.dumps(self.detail())+";")
+        self.assertIn('Về hiện hành',out)
+        self.assertNotIn('>Vừa khung<',out)
+
+    def test_dev5_output_groups_same_blob_but_retains_sources(self):
+        d=self.detail();d['evidence_index']=[{'node':'C','attempt':'att:one','output':True,'key':'same-blob','seq':1},{'node':'C','attempt':'att:one','output':True,'key':'same-blob','seq':2}]
+        out=self.js('gantt(d)',"var d="+json.dumps(d)+";selStep={id:'node:C'};")
+        self.assertEqual(out.count('class="goutput"'),1)
+        self.assertIn('2 lần ghi nhận',out)
 
 if __name__=='__main__':unittest.main()

@@ -61,9 +61,47 @@ if(S==='work'){
   check('noncoding uses same solution view', $('#work-content').textContent.includes('Phương án và phạm vi'));
   $('#work-tab-results').click();check('document new output not certified by old pass', $('#work-content').textContent.includes('Đã tạo')&&$('#work-content details[data-k="work-history"]'));
   check('noncoding no page overflow', d.documentElement.scrollWidth<=w.innerWidth+1);
+  // dev5 regressions: use the real installed renderer and real polls. Only the
+  // live-axis flag is injected in a fetched response; no ledger or DOM is edited.
+  $('#work-tab-progress').click();
+  const ga=$('.gantt').getBoundingClientRect(), row=$('.gchart .nodehead').getBoundingClientRect();
+  check('progress starts with timeline without test scrolling',ga.top>=0&&ga.top<w.innerHeight-100&&row.top<w.innerHeight-60,{top:ga.top,row:row.top,height:w.innerHeight});
+  check('attempt measurements are collapsed',!!$('details[data-k="work-progress-measures"]')&&!$('details[data-k="work-progress-measures"]').open);
+  check('legacy technical measurements remain collapsed',!$('details[data-k="work-technical"]').open);
+  const tickPositions=$$('.gaxis i').map(x=>parseFloat(x.style.left));
+  const gridPositions=$$('.gchart .nodehead:first-of-type .ggrid').map(x=>parseFloat(x.style.left));
+  const anyRow=$('.gchart [data-node-row]');const rowPositions=anyRow?Array.from(anyRow.querySelectorAll('.ggrid')).map(x=>parseFloat(x.style.left)):[];
+  check('body grid aligns with every axis tick',tickPositions.length===rowPositions.length&&tickPositions.every((x,i)=>Math.abs(x-rowPositions[i])<.002),{tickPositions,rowPositions});
+  $('#grange').value='all';$('#grange').dispatchEvent(new w.Event('change',{bubbles:true}));
+  check('all history reveals old attempts immediately',$$('.gtree .att.old').length>0);
+  check('return control names its actual action',$('#gfit').textContent==='Về hiện hành');
+  $('#gfit').click();check('return current collapses historical rows',st().gRange==='current'&&!$$('.gtree .att.old').length&&!$$('.gtree .att').length);
+  const realFetch=w.fetch;
+  try{
+    w.fetch=function(u,o){return realFetch.call(w,u,o).then(async response=>{if(typeof u==='string'&&u.startsWith('/api/task?')&&response.ok){const body=await response.clone().json();body.gantt.axis.extends_to_now=true;return new w.Response(JSON.stringify(body),{status:200,headers:{'Content-Type':'application/json'}})}return response})};
+    await morePolls(2);
+    $('.gnselect').click();
+    const sources=$('#gside details');sources.querySelector('summary').click();const sourceKey=sources.dataset.k;
+    await morePolls(2);
+    check('node disclosure stays open across live polls',!!sourceKey&&$('#gside details[data-k="'+sourceKey+'"]').open);
+    $('.seg.execution').click();
+    check('attempt inspector leads with readable step name',!$('#gside h4').textContent.includes('ATT-')&&$('#gside h4').textContent.includes('Chuẩn bị'));
+    check('attempt inspector keeps millisecond duration',/Thực thi:.*ms/.test($('#gside').textContent));
+    const outputs=$$('#gside .goutput');check('same artifact appears once as user output',outputs.length===1,{outputs:outputs.length});
+    check('output retains multiple provenance occurrences',outputs.length&&outputs[0].textContent.includes('2 lần ghi nhận'));
+    const source=$('#gside details[data-k^="g-attempt-source:"]');check('attempt technical details start collapsed',!!source&&!source.open);
+    const stamp=$('#gside details[data-k^="g-attempt-time:"]');
+    if(source&&stamp){source.querySelector('summary').click();stamp.querySelector('summary').click();const stampKey=stamp.dataset.k;await morePolls(2);
+      check('exact timestamps stay open across live polls',$('#gside details[data-k="'+stampKey+'"]').open&&$('#gside details[data-k^="g-attempt-source:"]').open);
+    }else check('exact timestamps stay open across live polls',false,'disclosure missing');
+    const outputSource=$('#gside .goutput details');if(outputSource){outputSource.querySelector('summary').click();await morePolls(2);}
+    check('output provenance stays open across live polls',!!$('#gside .goutput details')&&$('#gside .goutput details').open);
+    const openOutput=$('#gside .goutput button.ev-open');if(openOutput){openOutput.click();await waitFor(()=>$('#gside .goutput pre'),8000,'compact output evidence');}
+    check('compact output reuses evidence door',!!$('#gside .goutput pre')&&!$('#gside .goutput pre').textContent.includes('không mở được'));
+  }finally{w.fetch=realFetch;}
   // Leave the visible screenshot in the work view, not in raw event JSON.
   $('#work-tab-overview').click();
-  if(shot&&qs.get('view')){await select(first);if(qs.get('view')==='board')$('#close').click();else if(qs.get('view')==='timeline'){$('#work-tab-progress').click();$('.gantt').scrollIntoView({block:'start'});}else if(qs.get('view')==='decision')$('#detail details.need').open=true;else $('#work-tab-'+qs.get('view')).click();}
+  if(shot&&qs.get('view')){await select(first);if(qs.get('view')==='board')$('#close').click();else if(qs.get('view')==='timeline'){$('#work-tab-progress').click();}else if(qs.get('view')==='decision')$('#detail details.need').open=true;else $('#work-tab-'+qs.get('view')).click();}
 }
 '''
 

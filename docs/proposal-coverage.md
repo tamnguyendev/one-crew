@@ -1,3 +1,19 @@
+# Timeline dev5 — cycle5 active
+
+Source: user-approved review of dev4 (3 P2 + 2 P3), baseline525c361. Only UI and focused tests; reuse tracking, evidence door, snapshot/restore and existing artifact tools. No backend/authority/runtime changes, no full gate.
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| U5-1 | Preserve open detail/provenance across live polls | Partial | Stable disclosure keys; source browser pass; final wheel pending |
+| U5-2 | Grid lines share axis tick positions | Partial | Regression red on dev4 → unit/browser pass |
+| U5-3 | Progress shows timeline first; technical data folded | Partial | Browser first-viewport check without test scrolling |
+| U5-4 | All history reveals old rows; return action explicit | Partial | Browser controls pass |
+| U5-5 | Readable attempt, precise duration, grouped output with all provenance | Partial | Source renderer/browser pass |
+
+Complete0 / Partial5; final wheel verification and handover pending. Earlier cycles below are historical.
+
+---
+
 # Timeline dev4 coverage — cycle4 complete for isolated trial
 
 Proposal docs/obs2/TIMELINE-DEV4.vi.md; baseline20b5baa; final product525c36138eaf77d5d4ef482e193322ce4be7bf3d. Receipt root `D:/OneCrewRuns/obs2/trial-525c361-1`; exact wheel/limits in docs/obs2/HANDOVER.vi.md.

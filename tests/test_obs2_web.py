@@ -19,6 +19,7 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','
 function hms(n){return typeof n==='number'?n+'s':'chưa xác định'}
 function when(v){return v||'chưa xác định'}
 function openBtn(k){return '<button data-evidence="'+esc(k)+'">Mở bằng chứng</button>'}
+function gantt(d){return '<section class="gantt">Timeline dependency (tested separately)</section>'}
 '''
         detail = {'status': {'kind': 'waiting', 'label': 'Đang chờ', 'reason': 'Cần trả lời'},
                   'current_step': 'Đối chiếu điều kiện đăng nhập', 'goal': 'Review đăng nhập',
