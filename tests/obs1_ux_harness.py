@@ -844,13 +844,19 @@ if(S==='rt_slow'){                                     // REAL TIME (no virtual 
   await every(20000,'B');                              // B: 20 s more, every read still 25 s
   const B=samples.filter(x=>x.tag==='B');
   check('B: P8 stays shown while each refresh takes 25 s (no loading pane, no error)', B.length>0 && B.every(x=>x.loaded&&x.state==='ok'&&!x.dstatus), B.filter(x=>!(x.loaded&&x.state==='ok'&&!x.dstatus)).slice(0,3));
-  await fetch('/__fault?detail=ok&plan='+encodeURIComponent(P8)+'&delay=70000&count=1');   // C: the next P8 read is held 70 s (longer than the page waits), later ones are quick
-  const stale=await every(110000,'C',x=>x.state==='stale'&&/45 s/.test(x.dtext||''));
-  check('C: a read held longer than 45 s ends with a timeout message under P8, its data kept (stale)', stale && stale.title.indexOf('P8')===0 && stale.loaded, stale||samples[samples.length-1]);
+  // C: the next P8 read is held 70 s by the proxy (longer than the page waits), later ones are quick. Every render of the status line is recorded
+  //    as it happens (MutationObserver): the timeout state lasts less than one 500 ms sample when the next try is answered at once
+  const trans=[], rec=()=>{const ds=$('#dstatus'),k=ds?ds.getAttribute('data-state')+'|'+ds.textContent.slice(0,200):'none';
+    if(!trans.length||trans[trans.length-1].k!==k)trans.push({t:now(),k:k,state:ds?ds.getAttribute('data-state'):null,text:ds?ds.textContent.slice(0,260):null,title:$('#dtitle')?$('#dtitle').textContent.slice(0,24):'',loaded:!!$('#detail .dsum')})};
+  const mo=new w.MutationObserver(rec); mo.observe($('#detail'),{childList:true,subtree:true,characterData:true}); rec();
+  await fetch('/__fault?detail=ok&plan='+encodeURIComponent(P8)+'&delay=70000&count=1'); const TC=now();
+  let stale=null; for(const t1=now()+110000; now()<t1 && !stale;){await sleep(500); snap('C'); stale=trans.find(x=>x.t>=TC&&x.state==='stale'&&/45 s/.test(x.text||''))||null}
+  check('C: a read held longer than 45 s ends with a timeout message under P8, its data kept (stale)', stale && stale.title.indexOf('P8')===0 && stale.loaded, stale||trans.slice(-3));
   { const l=reads(await log()), held=l.find(e=>e.t1==null||e.t1-e.t0>=60), next=held&&l.find(e=>e.t0>held.t0);   // measured at the proxy: the page gave up on the held read after 45 s
     check('C: the page cancelled the held read after its 45 s limit (the next P8 read starts 45-48 s after it)', held && next && next.t0-held.t0>=44.9 && next.t0-held.t0<=48.5, {held:held||null, next:next||null}) }
-  const TD=now(), fresh=await every(20000,'D',x=>x.state==='ok'&&!x.dstatus&&x.loaded);
-  check('D: the next quick answer makes P8 fresh again (no warning) within 15 s of the timeout', fresh && fresh.t-TD<=15000 && fresh.title.indexOf('P8')===0, fresh||samples[samples.length-1]);
+  let fresh=null; for(const t1=now()+20000; now()<t1 && !fresh;){await sleep(500); snap('D'); fresh=stale?trans.find(x=>x.t>stale.t&&x.state===null&&x.loaded&&x.title.indexOf('P8')===0)||null:null}
+  mo.disconnect(); out.transitions=trans;
+  check('D: the next quick answer makes P8 fresh again (no warning) within 15 s of the timeout', fresh && stale && fresh.t-stale.t<=15000, fresh||trans.slice(-3));
   const tagged=samples.filter(x=>x.tag);
   check('nothing of P1 under P8 at any moment (A-D)', only('P8',tagged) && tagged.every(x=>x.cmds===0), bad('P8',tagged));
   L=await log(); check('A-D: reads of P8 never overlapped', !overlap(L), overlap(L));
