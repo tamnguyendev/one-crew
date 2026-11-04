@@ -1,4 +1,4 @@
-# Thử OBS-2 — bảng công việc và timeline dev7
+# Thử OBS-2 — bảng công việc và timeline dev8
 
 Bản dev7 kế thừa bảng thẻ theo giai đoạn, lọc/sắp xếp chỉ để xem; trạng thái và quyết định cần bạn tách riêng. Mở thẻ để xem phương án, thay đổi, đầu ra hiện hành và vòng kiểm/sửa. Thông tin kỹ thuật thu gọn; thiếu dữ liệu vẫn ghi chưa xác định.
 
@@ -48,3 +48,5 @@ Kiểm entrypoint owner trên wheel (chỉ thử từ chối, giữ dấu phiên
 Dev6 sửa phân cột chờ kiểm, điều kiện trình nghiệm thu, binding runtime, mô tả finding, bằng chứng văn bản, nhãn kế hoạch ban đầu và trục nhiều ngày. Kiểm phản chứng từ wheel: dùng Python trong venv thử với `-I -X utf8 -B <gói>/verify/check_review_fixes.py <thư-mục-thử-mới>`. Script chỉ tạo dữ liệu tổng hợp; hook fixture chỉ ở project mới, không đăng ký vào registry thật.
 
 Dev7 khép phản hồi review dev6: không có khung copy rỗng khi hook thiếu/lệch; plan dạng mốc đã có verdict không gọi chưa khởi chạy; finding JSON bị cắt vẫn có mô tả; kế hoạch ban đầu có nội dung riêng. Kiểm DOM từ wheel bằng Python venv thử: `-I -B -X utf8 <gói>/verify/check_unbound_browser.py <thư-mục-mới>`. Bộ kiểm dùng project/sổ mới chỉ propose, không duyệt; kiểm missing/other-runtime/other-state/bound trên desktop và mobile.
+
+Dev8 khép review dev7. (1) Binding hook đổi trong lúc trang đang mở mà sổ không có sự kiện mới: ở lần đọc kế tiếp thẻ "Việc cần bạn" tự cập nhật (mất binding thì không còn lệnh ghi, nút sao chép hay thông báo sao chép cũ; gắn lại thì chỉ hiện lệnh hiện hành), giữ task, tab và vị trí đọc; bấm sao chép trên thẻ vẽ trước khi dữ liệu đổi không chép lệnh đã hết hiệu lực. (2) Plan dạng mốc đã có verdict, lượt kiểm hoặc lượt chạy, kể cả verdict thất bại, không còn hiện "Chưa khởi chạy"; trạng thái nói rõ mốc kiểm chưa đạt và mốc còn chờ verdict; điều kiện nghiệm thu không đổi. Kiểm DOM đổi binding giữa phiên từ wheel bằng Python venv thử: `-I -B -X utf8 <gói>/verify/check_binding_live.py <thư-mục-mới>` (mỗi ca tự xác nhận tiền điều kiện: ban đầu đã gắn hook, có lệnh và có thông báo sao chép; thiếu hook / khác runtime / khác sổ trên desktop và mobile; thêm hai ca thời gian thực đọc chậm khi đổi task).
