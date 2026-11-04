@@ -897,6 +897,8 @@ def _item(reader, conn, row, now, *, full=False, timeline_limit=200):
     item['measure'] = _measure(rd, row['request_key']) if engine_root else {'note': 'root không có engine: không có attempt để đo'}
     item['eta'] = _eta(rd, row['request_key'], now)
     item['holds'] = _holds(rd, row['request_key'], conn) if engine_root else []
+    from . import tracking_work
+    item['work'] = tracking_work.project(rd, conn, row, state, events, engine_view, item['evidence_keys'])
     return item
 
 
