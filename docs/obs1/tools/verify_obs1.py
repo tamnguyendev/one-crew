@@ -1342,7 +1342,7 @@ def main(pkg, work):
                          ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop'),
                          ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile'), ('gantt', 'desktop'), ('gantt', 'mobile'), ('p2a', 'desktop'), ('gantt_now', 'desktop'), ('evid', 'desktop'),
                          ('stale_detail', 'desktop'), ('stale_detail', 'mobile'), ('slow_detail', 'desktop'),
-                         ('fk_fast', 'desktop'), ('fk_slow25', 'desktop'), ('fk_cycles', 'desktop'), ('fk_switch', 'desktop'), ('fk_timeout', 'desktop'), ('fk_timeout1', 'desktop'),
+                         ('fk_fast', 'desktop'), ('fk_slow25', 'desktop'), ('fk_cycles', 'desktop'), ('fk_switch', 'desktop'), ('fk_timeout', 'desktop'), ('fk_timeout', 'mobile'), ('fk_timeout1', 'desktop'),
                          ('fk_disc', 'desktop'), ('fk_ovhang', 'desktop'), ('rt_slow', 'desktop'),   # dev13: P2 of Codex's review of dev12 (test clock, then REAL time)
                          ('prov', 'desktop')]   # dev12 (R4, R4xR1, R1); prov LAST: it writes into P9
             for name, size in scenarios:

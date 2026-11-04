@@ -20,7 +20,7 @@ SCENARIOS = [('ux01', 'desktop'), ('ux02', 'desktop'), ('ux03', 'desktop'), ('ux
              ('ux08', 'desktop'), ('ux08', 'split'), ('ux08', 'mobile'), ('ux04', 'mobile'), ('ux01', 'mobile'), ('race', 'desktop'), ('disc', 'desktop'),
              ('clock', 'desktop'), ('ux03b', 'desktop'), ('ux03b', 'mobile'), ('gantt', 'desktop'), ('gantt', 'mobile'), ('p2a', 'desktop'), ('gantt_now', 'desktop'), ('evid', 'desktop'),
              ('stale_detail', 'desktop'), ('stale_detail', 'mobile'), ('slow_detail', 'desktop'),
-             ('fk_fast', 'desktop'), ('fk_slow25', 'desktop'), ('fk_cycles', 'desktop'), ('fk_switch', 'desktop'), ('fk_timeout', 'desktop'), ('fk_timeout1', 'desktop'),
+             ('fk_fast', 'desktop'), ('fk_slow25', 'desktop'), ('fk_cycles', 'desktop'), ('fk_switch', 'desktop'), ('fk_timeout', 'desktop'), ('fk_timeout', 'mobile'), ('fk_timeout1', 'desktop'),
              ('fk_disc', 'desktop'), ('fk_ovhang', 'desktop'), ('rt_slow', 'desktop'),                                      # P2 of Codex's review of dev12 (dev13)
              ('prov', 'desktop')]   # prov LAST: it writes into P9
 REALTIME = {'rt_slow': 240000}       # real time, no virtual clock: the longest the scenario may take (ms)

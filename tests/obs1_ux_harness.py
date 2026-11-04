@@ -791,6 +791,7 @@ if(S==='fk_timeout'){                                  // a read that never answ
   check('after the third timeout the page stops trying and offers a retry button with the reason', last.retry && last.dstatus==='error' && /45 s/.test(last.dtext||'') && /Thử lại/.test(last.dtext||''), last);
   check('the overview kept polling and stayed OK through the timeouts', ovreqs().filter(r=>r.start>T0+590000).length>=3 && last.conn==='ok', ovreqs().length);
   check('nothing of P1 under P8 during the timeouts', only('P8',samples) && samples.every(x=>x.cmds===0), bad('P8',samples));
+  check('the status with the retry button fits the width (no horizontal page scroll)', d.documentElement.scrollWidth<=w.innerWidth+1, {scrollWidth:d.documentElement.scrollWidth, innerWidth:w.innerWidth});
   fk.plans[P8]={}; const k=treqs(P8).length, btn=$('#dretry'); if(btn)btn.click(); await fk.advance(0); await fadv(3000,500);
   const end=samples[samples.length-1];
   check('recovery: the retry button starts exactly one read and P8 is painted', !!btn && treqs(P8).length===k+1 && end.loaded && end.state==='ok' && end.title.indexOf('P8')===0 && !end.dstatus, {btn:!!btn, reads:treqs(P8).length-k, end});
